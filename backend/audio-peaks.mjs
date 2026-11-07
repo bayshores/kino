@@ -4,6 +4,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { AUDIO_PEAK_VERSION, AUDIO_PEAKS_PER_SECOND, MAX_AUDIO_PEAKS, downsamplePeaks, normalizePeaks, validAudioPeaks } from "../engine/audioPeaks.js";
 import { ffmpegCommand } from "./media-probe.mjs";
 import { endWithService } from "./child-exit.mjs";
+import { heavyDecodeSlot } from "./process-slots.mjs";
 
 const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
@@ -101,8 +102,15 @@ export function createWavPeakAccumulator() {
   return { write, finish: () => accumulator?.finish() ?? unavailable("decode-failed") };
 }
 
-/** FFmpeg's first audio track, including video sound. Expected failures produce no diagnostics. */
-export function extractAudioPeaks(filename, { command = ffmpegCommand(), timeoutMs = 120_000 } = {}) {
+/**
+ * FFmpeg's first audio track, including video sound. Expected failures produce no diagnostics.
+ * One full decode runs at a time in this process (process-slots.mjs), shared with decodeMono.
+ */
+export function extractAudioPeaks(filename, options = {}) {
+  return heavyDecodeSlot(() => extractAudioPeaksNow(filename, options));
+}
+
+function extractAudioPeaksNow(filename, { command = ffmpegCommand(), timeoutMs = 120_000 } = {}) {
   return new Promise((resolve) => {
     const accumulator = createWavPeakAccumulator();
     const child = spawn(command, [

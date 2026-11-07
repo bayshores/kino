@@ -10,6 +10,7 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { ImageData, createCanvas } from "@napi-rs/canvas";
 import { composeGifFrames, parseGif } from "../engine/gifDecode.js";
+import { probeSlot } from "./process-slots.mjs";
 
 const MAX_ERROR_LENGTH = 12000;
 // Video frame lookups accept 1 ms of drift; this matches MEDIA_SAMPLE_TOLERANCE in src/playback.js.
@@ -33,11 +34,22 @@ function abortError(signal) {
   return error;
 }
 
+// An ffprobe run that has not answered by then is stopped: a stuck read (a file on a sleeping
+// network disk, a broken container) would otherwise keep its process for good.
+export const PROBE_TIMEOUT_MS = 60_000;
+
 /**
  * Runs ffmpeg or ffprobe and resolves with its standard output as text.
  * A missing executable becomes an error that says how to install or configure it.
+ * ffprobe runs take a probe slot (at most three at once, process-slots.mjs) and stop after
+ * `timeoutMs` (PROBE_TIMEOUT_MS); an ffmpeg run has no time limit unless `timeoutMs` is given.
  */
-export function runMediaTool(kind, args, { signal, cwd } = {}) {
+export function runMediaTool(kind, args, { signal, cwd, timeoutMs = kind === "ffprobe" ? PROBE_TIMEOUT_MS : null } = {}) {
+  const run = () => runMediaToolNow(kind, args, { signal, cwd, timeoutMs });
+  return kind === "ffprobe" ? probeSlot(run) : run();
+}
+
+function runMediaToolNow(kind, args, { signal, cwd, timeoutMs }) {
   const command = kind === "ffprobe" ? ffprobeCommand() : ffmpegCommand();
   const label = kind === "ffprobe" ? "ffprobe" : "FFmpeg";
   return new Promise((resolvePromise, rejectPromise) => {
@@ -49,12 +61,15 @@ export function runMediaTool(kind, args, { signal, cwd } = {}) {
     let stdout = "";
     let stderr = "";
     let killTimer;
+    let timedOut = false;
     const onAbort = () => {
       child.kill("SIGTERM");
       killTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
       killTimer.unref?.();
     };
     signal?.addEventListener("abort", onAbort, { once: true });
+    const timeout = timeoutMs > 0 ? setTimeout(() => { timedOut = true; onAbort(); }, timeoutMs) : null;
+    timeout?.unref?.();
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       stdout += chunk;
@@ -66,6 +81,7 @@ export function runMediaTool(kind, args, { signal, cwd } = {}) {
     });
     const cleanUp = () => {
       clearTimeout(killTimer);
+      clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
     };
     child.once("error", (error) => {
@@ -80,6 +96,7 @@ export function runMediaTool(kind, args, { signal, cwd } = {}) {
     child.once("close", (code, terminatingSignal) => {
       cleanUp();
       if (signal?.aborted) rejectPromise(abortError(signal));
+      else if (timedOut) rejectPromise(new Error(`${basename(command)} took longer than ${Math.round(timeoutMs / 1000)} s and was stopped.`));
       else if (code === 0) resolvePromise(stdout);
       else rejectPromise(new Error(`${basename(command)} failed with exit code ${code ?? terminatingSignal}: ${stderr.trim() || "no diagnostic output"}`));
     });
@@ -120,13 +137,17 @@ function displaySize(stream) {
 // renders the same videos many times, and each probe is a new ffprobe process.
 const PROBES_KEPT = 512;
 const probes = new Map();
+// Probes running now, by the same key: a look sheet asks for one video from many layers at once,
+// and they share one ffprobe run instead of each starting its own.
+const probing = new Map();
 
 async function remembered(kind, path, probe) {
   let info;
   try { info = await stat(path); } catch { return probe(); }
   const key = `${kind}\n${ffprobeCommand()}\n${path}\n${info.size}\n${info.mtimeMs}`;
   if (probes.has(key)) return structuredClone(probes.get(key));
-  const value = await probe();
+  if (!probing.has(key)) probing.set(key, probe().finally(() => probing.delete(key)));
+  const value = await probing.get(key);
   probes.set(key, value);
   if (probes.size > PROBES_KEPT) probes.delete(probes.keys().next().value);
   return structuredClone(value);
