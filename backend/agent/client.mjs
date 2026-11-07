@@ -185,8 +185,8 @@ export function createAgentClient(connection, { name = "mcp", session, reconnect
    * becomes a new project instead.
    */
   async function importFile(filePath, { signal, client } = {}) {
-    // openverse:<id> (library sounds), archive:<id> (a soundtrack song) and yt:<id> (a measured inspire sound effect) come in through kino itself: {reply} is its answer.
-    if (/^(openverse|archive|yt):/i.test(String(filePath ?? "").trim())) return { reply: await call("project", { action: "import", file: String(filePath).trim() }, { signal, client }) };
+    // openverse:<id> (library sounds), archive:<id> (a soundtrack song), yt:<id> (a measured inspire sound effect) and sfx:<id> or music:<id> (the built-in library) come in through kino itself: {reply} is its answer.
+    if (/^(openverse|archive|yt|sfx|music):/i.test(String(filePath ?? "").trim())) return { reply: await call("project", { action: "import", file: String(filePath).trim() }, { signal, client }) };
     if ([".json", ".motion"].includes(path.extname(String(filePath)).toLowerCase())) {
       if (!path.isAbsolute(filePath)) throw new Error("Choose a project file by its absolute local path.");
       const actual = await realpath(filePath);

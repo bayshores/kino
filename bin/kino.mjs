@@ -469,8 +469,8 @@ export async function parseCommand(argv) {
     }
     if (input.file === undefined && free.length) input.file = free.shift();
     // A file path is read from the folder kino runs in, and ~ is your home folder (zsh leaves the
-    // ~ in path=~/song.wav as typed); openverse:<id>, archive:<id> and yt:<id> stay as typed.
-    if (typeof input.file === "string" && !/^(openverse|archive|yt):/i.test(input.file.trim())) input.file = absoluteFolder(input.file);
+    // ~ in path=~/song.wav as typed); openverse:, archive:, yt:, sfx: and music: ids stay as typed.
+    if (typeof input.file === "string" && !/^(openverse|archive|yt|sfx|music):/i.test(input.file.trim())) input.file = absoluteFolder(input.file);
   } else {
     // Words in these places are names and text, kept as typed ("1.50" stays a string). A note's
     // text may be several words: `kino notes add Make the logo bigger`.

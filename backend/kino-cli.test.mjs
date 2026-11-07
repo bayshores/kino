@@ -84,6 +84,8 @@ describe("parseCommand", () => {
       [["project", "import", "path=/abs/song.wav"], { verb: "project", input: { action: "import", file: "/abs/song.wav" } }],
       [["project", "import", "file=logo.png"], { verb: "project", input: { action: "import", file: path.resolve("logo.png") } }],
       [["project", "import", "source=yt:abc123"], { verb: "project", input: { action: "import", file: "yt:abc123" } }],
+      [["project", "import", "source=sfx:swish-3"], { verb: "project", input: { action: "import", file: "sfx:swish-3" } }],
+      [["project", "import", "music:calm-1"], { verb: "project", input: { action: "import", file: "music:calm-1" } }],
       // zsh leaves the ~ after = as typed; it is the home folder, as in out=~/Movies.
       [["project", "import", "path=~/song.wav"], { verb: "project", input: { action: "import", file: path.join(home, "song.wav") } }],
       // layer= and layers= are other names for inspect's targets.
