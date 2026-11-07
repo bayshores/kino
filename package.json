@@ -106,8 +106,11 @@
       "target": "dir",
       "identity": "-",
       "signIgnore": [
-        "/Contents/Resources/bin/(?:ffmpeg|ffprobe|gifski|kino-voice|kino-cutout|kino-measure)$"
-      ]
+        "/Contents/Resources/bin/(?:ffmpeg|ffprobe|gifski|kino-voice|kino-cutout|kino-measure|kino-recorder)$"
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "kino records your microphone only when an agent's screen recording asks for it (mic:true)."
+      }
     },
     "npmRebuild": false
   }

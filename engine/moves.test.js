@@ -28,6 +28,7 @@ import { hide as hideAt } from "./blocks/moves/kit.js";
 import { frameTransform } from "./camera.js";
 import { homeCamera } from "./blocks/moves/plane.js";
 import { groupLayers } from "./grouping.js";
+import { compactRecording } from "./recording.js";
 import { worldMatrix, point } from "./geometry.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
@@ -45,12 +46,18 @@ const media = (ref) => {
   return PICTURES[ref];
 };
 
+// The clip is a screen recording too (screen-recording's example): a pointer slide and one click.
+const CLIP_RECORDING = compactRecording({ frame: { width: 1600, height: 900 }, scale: 1, duration: 8, cursors: { c1: { shape: "arrow" } } }, [
+  { t: 0, type: "move", x: 300, y: 300, cursor: "c1" }, { t: 0.8, type: "move", x: 900, y: 500, cursor: "c1" },
+  { t: 1, type: "down", x: 900, y: 500, button: "left", clicks: 1, source: "agent" }, { t: 1.08, type: "up", x: 900, y: 500, button: "left", source: "agent" },
+]);
+
 /** A scene with the layers the library examples name: a clip under two full-frame shots, and a phone. */
 function sceneFor(width, height, duration = 5) {
   const phoneHeight = Math.round(height * 0.62);
   const phoneWidth = Math.round(phoneHeight * 720 / 1564);
   return createScene({ id: "s", name: "Scene", width, height, duration, layers: [
-    createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width, height, mediaSourceDuration: 8, mediaFreeze: "none" }),
+    createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width, height, mediaSourceDuration: 8, mediaFreeze: "none", recording: CLIP_RECORDING }),
     createLayer("image", { id: "shot-b", name: "shot-b", src: "/api/media/wall.png", x: 0, y: 0, width, height }),
     createLayer("image", { id: "shot-a", name: "shot-a", src: "/api/media/street.png", x: 0, y: 0, width, height }),
     createLayer("image", { id: "phone", name: "phone", src: "/api/media/phone.png", x: Math.round((width - phoneWidth) / 2), y: Math.round((height - phoneHeight) / 2), width: phoneWidth, height: phoneHeight }),
@@ -75,7 +82,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 43);
+  assert.equal(MOVE_NAMES.length, 44);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);

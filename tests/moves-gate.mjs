@@ -6,12 +6,13 @@
 //
 //   node --import ./scripts/test-fonts.mjs tests/moves-gate.mjs
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
 import { MOVE_NAMES } from "../engine/blocks/moves/index.js";
+import { compactRecording } from "../engine/recording.js";
 
 // Made-up pictures that are hard on the gates: a bright street with a pale sky (light captions
 // need their shade), a wall with a dark page on it, and a phone screen.
@@ -141,7 +142,15 @@ const USES = {
   "accent-hit": [],
   "light-sweep": [],
   cursor: ["shot-b"],
+  "screen-recording": ["clip"],
 };
+// screen-recording's clip carries a recording (as project record stop leaves one): a pointer
+// slide, a click in the middle of the frame, and the pointer moving on to the next control.
+const recordingFor = (width, height) => compactRecording({ frame: { width, height }, scale: 1, duration: 6, cursors: { c1: { shape: "arrow" } } }, [
+  ...Array.from({ length: 31 }, (_, step) => ({ t: (step / 30) * 0.9, type: "move", x: width * (0.2 + 0.3 * step / 30), y: height * (0.3 + 0.2 * step / 30), cursor: "c1" })),
+  { t: 1, type: "down", x: width * 0.5, y: height * 0.5, button: "left", clicks: 1, source: "agent" }, { t: 1.1, type: "up", x: width * 0.5, y: height * 0.5, button: "left", source: "agent" },
+  ...Array.from({ length: 31 }, (_, step) => ({ t: 1.2 + step / 30, type: "move", x: width * (0.5 + 0.1 * step / 30), y: height * (0.5 + 0.05 * step / 30), cursor: "c1" })),
+]);
 // stream, rewrite, decode and assemble work on a headline-size text (not role ui), so the reading-time,
 // size and hold gates judge the words they stream, rewrite and decode in both 16:9 and 9:16.
 const HEADLINE_TEXT = { op: "add_layer", layerType: "text", name: "prompt", properties: { x: 160, y: 480, width: 760, height: 120, text: "Find issues", fontSize: 96, textResize: "height", textAlign: "left", fill: "#EDEEF0" } };
@@ -194,6 +203,8 @@ export async function movesGate(server, cases) {
     }
     if (uses.includes("clip")) {
       const clip = await uploadClip(server, project, width, height);
+      // kino reads the data a recording leaves next to its video when the layer is added.
+      if (name === "screen-recording") await writeFile(path.join(server.dataDirectory, "media", `${clip.id}.recording.json`), JSON.stringify(recordingFor(width, height)));
       const added = await api.agent(project, "edit", { ops: [{ op: "add_layer", layerType: "video", name: "clip", properties: { src: clip.src, x: 0, y: 0, width, height } }] });
       assert.equal(added.isError, undefined, added.text);
     }

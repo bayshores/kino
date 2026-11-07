@@ -460,6 +460,16 @@ export async function parseCommand(argv) {
   } else if (verb === "notes" && (input.action ?? free[0]) === "set_plan") {
     input.action ??= free.shift();
     if (free.length) input.steps ??= free;
+  } else if (verb === "project" && (input.action ?? free[0]) === "record") {
+    // kino project record start target='{"app":"Notes"}' maxSeconds=60 · kino project record
+    // mark Open the menu · kino project record stop: the step is the word after record, and
+    // every other key=value is one of its options.
+    input.action ??= free.shift();
+    const recordOptions = { ...(input.options ?? {}) };
+    for (const key of Object.keys(input)) if (!["action", "options", "project"].includes(key)) { recordOptions[key] = input[key]; delete input[key]; }
+    if (free.length) recordOptions.step ??= free.shift();
+    if (free.length && recordOptions.step === "mark") recordOptions.label ??= free.join(" ");
+    input.options = recordOptions;
   } else if (verb === "project" && (input.action ?? free[0]) === "import") {
     input.action ??= free.shift();
     // The file: path=, source= or file=, or the word after import.

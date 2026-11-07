@@ -19,7 +19,8 @@ import { carry } from "./carry.js";
 import { uiPlane } from "./plane.js";
 import { accentHit, lightSweep } from "./accent.js";
 import { cursor } from "./cursor.js";
-const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, kickerHeadline, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, cursor, assemble, ...CUTS];
+import { screenRecording } from "./recording.js";
+const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, kickerHeadline, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, cursor, assemble, ...CUTS, screenRecording];
 
 export const MOVES = Object.freeze(Object.fromEntries(LIST.map((move) => [move.name, move])));
 export const MOVE_NAMES = Object.freeze(LIST.map((move) => move.name));

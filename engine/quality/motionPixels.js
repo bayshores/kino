@@ -16,6 +16,7 @@ import { area, boxAt, chainOf, frameAt, intersection, tweensOf, visibleBoxAt } f
 import { coveredAt, techniquesUsed, transitions } from "./techniques.js";
 import { CUE_WINDOW, cutInOf, freezeCue, frozenFootage, plannedFreeze } from "./rules/footage.js";
 import { mediaFrameState } from "../playback.js";
+import { positionAt } from "../recording.js";
 
 export const MOTION_WIDTH = 64;
 // The most frames one check renders for each rule. A frame costs about 20 ms to draw; footage
@@ -403,7 +404,21 @@ export async function frozenPicture(model, ctx) {
     if (points.length < 2) { unmeasured = true; continue; }
     const layer = layerOf(span.item);
     const sourceAt = (time) => (layer ? mediaFrameState(layer, time).sourceTime : null);
+    // A screen recording with its pointer moving over a still app is not frozen: only the
+    // stretches where the recorded pointer also stays put are reported.
     const report = (from, to) => {
+      if (!layer?.recording?.moves?.length) return reportStill(from, to);
+      let start = from, anchor = positionAt(layer.recording, sourceAt(from));
+      for (let time = from; time <= to + 1e-6; time += 1 / 30) {
+        const [x, y] = positionAt(layer.recording, sourceAt(time));
+        if (Math.hypot(x - anchor[0], y - anchor[1]) <= 3) continue;
+        reportStill(start, time - 1 / 30);
+        start = time;
+        anchor = [x, y];
+      }
+      reportStill(start, to);
+    };
+    const reportStill = (from, to) => {
       if (to - from < FREEZE_MIN - 1e-6) return;
       if (layer && plannedFreeze(ctx.scene, layer.id, from, to)) return;
       if (known.some((finding) => (finding.itemIds ?? [finding.itemId]).includes(span.item.id) && finding.at <= to + 0.1 && finding.at >= from - 1)) return;

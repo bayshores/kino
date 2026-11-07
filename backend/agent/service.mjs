@@ -34,6 +34,7 @@ import { runCutOut } from "./cutout-operation.mjs";
 import { runMatchColor } from "./color-operation.mjs";
 import { runPin, runTrack } from "./track-operation.mjs";
 import { runStabilize } from "./stabilize-operation.mjs";
+import { recordingFor } from "../recorder/recorder.mjs";
 import { createOperationRequest } from "../operation-request.mjs";
 import { ConflictError } from "../store.mjs";
 import { hideShareSecrets } from "../shares.mjs";
@@ -1129,11 +1130,26 @@ export function createAgentService(deps) {
   // a time: each refused one goes into `problems` and is left out, and so is every later
   // operation that uses what a refused one makes (those go into `blocked`, as op number → the
   // refused op's number). Null operations (refused before this) are left out.
+  // A video layer that plays a screen recording kino made keeps its pointer, clicks and keys
+  // (layer.recording, from <media id>.recording.json), so the screen-recording move can use them.
+  async function attachRecordings(entries) {
+    if (!deps.mediaRoot) return;
+    for (const { operation } of entries) {
+      const properties = (operation.type === "add_layer" && operation.layerType === "video") || operation.type === "update_layer" ? operation.properties : null;
+      if (typeof properties?.src !== "string") continue;
+      const id = mediaIdFromSource(properties.src);
+      const recording = id ? await recordingFor(deps.mediaRoot, id) : null;
+      if (recording) properties.recording = recording;
+      else if (operation.type === "update_layer") properties.recording = null;
+    }
+  }
+
   async function applyAll(document, operations, raw, fontsCache, problems = [], blocked = new Map()) {
     let next = document;
     const failedIds = new Map();
     // An add_layer with inline animations is a list of ops that share its number.
     const usable = operations.flatMap((operation, index) => [operation].flat().map((part) => ({ operation: part, index }))).filter((entry) => entry.operation);
+    await attachRecordings(usable);
     const dependsOnFailure = ({ operation, index }) => {
       const cause = referencedIds(operation).find((id) => failedIds.has(id));
       if (cause === undefined) return false;
@@ -5603,6 +5619,16 @@ export function createAgentService(deps) {
       return record ? done(record.document.id, reply) : reply;
     }
     if (action === "list") return listProjects();
+    // record {options:{step, …}}: screen recordings on this Mac (backend/recorder/recorder.mjs).
+    if (action === "record") {
+      if (!deps.recorder) throw new AgentError("failed", "Screen recording is not set up in this kino service.");
+      const options = input.options ?? {};
+      let result;
+      try { result = await deps.recorder.step(options, { project: input.project ?? await readCurrent() }); }
+      catch (error) { throw new AgentError(error.code === "permission" ? "permission" : /^(step|mark needs|Nothing is|A recording is already|folder|area|codec|keys|No such window|The area)/.test(error.message) ? "bad_input" : "failed", error.message); }
+      const { text, ...data } = result;
+      return { text: text ?? compact(data), data };
+    }
     if (action === "create") {
       const id = input.id == null ? undefined : String(input.id);
       if (id !== undefined && !PROJECT_ID.test(id)) throw new AgentError("bad_input", "id is lowercase letters, digits and dashes, at most 63 characters (such as orbit-launch).");

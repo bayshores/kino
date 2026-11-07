@@ -141,6 +141,11 @@ test("stream events apply in order, once, to the snapshot", () => {
   const held = applyEvent(state, { seq: 11, type: "hold", hold: { on: true, note: "wait" } });
   assert.equal(held.hold.on, true);
   assert.equal(held.seq, 11);
+  // A screen recording shows while it runs and goes when it stops.
+  assert.equal(state.recording, null);
+  const recording = applyEvent(held, { seq: 12, type: "recording", recording: { id: "rec-1", startedAt: 5 } });
+  assert.equal(recording.recording.id, "rec-1");
+  assert.equal(applyEvent(recording, { seq: 13, type: "recording", recording: null }).recording, null);
 
   const asked = applyEvent(held, { seq: 12, type: "approval", approval: { id: "A1", status: "pending", client: "claude" } });
   assert.equal(attention(asked).count, 1);

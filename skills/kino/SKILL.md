@@ -13,7 +13,7 @@ send it as it is; put your own words where it has `<angle brackets>`. A new vide
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
 2. `notes` brief: what the person asked for, one line each (plain text is your guess).
 3. Save 2 references (`library {topic:"inspire"}`), study one (`look {mode:"reference"}`).
-4. 5 treatments, their pick, its signature (`style.signatures`); a first build before is refused (`order_needed`).
+4. 5 treatments, their pick, its signature (`style.signatures`); building first is refused (`order_needed`).
 5. `edit` with one `compose` (or `format`: `library {topic:"formats"}`), then `check {fix:"auto"}` and `look {mode:"review"}`; then `render`.
 
 ```json
@@ -34,12 +34,12 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 | `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision with a receipt. |
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks in one call. |
 | `look` | `sheet`, `review`, `changed`, `frame`, `frames`, `motion`, `zoom`, `board`, `versus`, `viewer`, `critique`. |
-| `inspect {targets}` | Exact layer, animation and cue fields. |
+| `inspect {targets}` | Exact layer, animation, cue fields. |
 | `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. |
-| `library` | Exact rules: `{topic:"op", name}` (fields and an example), presets, fonts, blocks. |
+| `library` | Exact rules: `{topic:"op", name}` (fields, an example), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
-| `notes` | The `brief`, stops, your plan, the person's notes, `helper` agents. |
-| `project` | `create`, `open`, `import` a file, `share`, `manage` the workspace. |
+| `notes` | The `brief`, stops, plan, the person's notes, `helper` agents. |
+| `project` | `create`, `open`, `import`, `share`, `manage` the workspace. |
 
 ## The loop
 
@@ -85,7 +85,7 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 - [fields](references/fields.md): every op's fields.
 - [building-blocks](references/building-blocks.md): compose, recipes, brand, formats; [moves](references/moves.md).
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues, text range.
-- [media](references/media.md): importing, cuts, speed, syncing, B-roll on the word.
+- [media](references/media.md): imports, cuts, speed, syncing, B-roll; [recording](references/recording.md).
 - [framing](references/framing.md): 9:16 crops; [screens](references/screens.md): UI shots; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
 - [sound](references/sound.md): ducking, voice; [library](references/sound-library.md): SFX, music.

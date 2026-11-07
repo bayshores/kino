@@ -13,15 +13,17 @@ import { createLayer } from "../../model.js";
 import { CURVES, hide, motion, round, show } from "./kit.js";
 
 // The pointer's shapes in a 24-unit-tall box (y down), with the point that clicks (the hotspot).
-const SHAPES = {
+export const SHAPES = {
   // The classic arrow: black with a white rim.
   arrow: { path: "M1 1L1 18.6L5.2 14.6L8.1 21.3L11 20L8.2 13.6L13.9 13.6Z", fill: "#000000", stroke: "#FFFFFF", hot: [1, 1] },
   // The pointing hand: white with a black rim, the fingertip clicks.
   hand: { path: "M7.75 1C8.7 1 9.5 1.8 9.5 2.75L9.5 9.5C9.5 8.6 10.2 8 11 8C11.8 8 12.5 8.6 12.5 9.5L12.5 10.5C12.5 9.6 13.2 9 14 9C14.8 9 15.5 9.6 15.5 10.5L15.5 11.5C15.5 10.6 16.2 10 17 10C17.8 10 18.5 10.6 18.5 11.5L18.5 17C18.5 20.5 16.5 23 13 23L10.5 23C8.5 23 7.2 22.2 6 20.8L1.8 15.8C1.2 15.1 1.3 14.1 2 13.6C2.7 13.1 3.7 13.2 4.3 13.9L6 15.8L6 2.75C6 1.8 6.8 1 7.75 1Z", fill: "#FFFFFF", stroke: "#000000", hot: [7.75, 1] },
   // The closed hand that holds what it drags: the palm's middle holds the point.
   grab: { path: "M6 9C6 6.8 9.5 6.8 9.5 9C9.5 6.8 12.5 6.8 12.5 9C12.5 6.8 15.5 6.8 15.5 9.5C15.5 7.6 18.5 7.6 18.5 10.5L18.5 17C18.5 20.5 16.5 23 13 23L10.5 23C8.5 23 7.2 22.2 6 20.8L2.5 16.5C1.9 15.8 2 14.8 2.7 14.3C3.4 13.8 4.4 13.9 5 14.6L6 15.8Z", fill: "#FFFFFF", stroke: "#000000", hot: [12, 13] },
+  // The text I-beam: black with a white rim, the middle of the bar clicks.
+  text: { path: "M5.5 1L10.5 1L10.5 2.6L8.8 2.6L8.8 21.4L10.5 21.4L10.5 23L5.5 23L5.5 21.4L7.2 21.4L7.2 2.6L5.5 2.6Z", fill: "#000000", stroke: "#FFFFFF", hot: [8, 12] },
 };
-const UNITS = 24;
+export const UNITS = 24;
 // Where every shape's hotspot sits in the group's own box (in units), so a change of shape never jumps.
 const HOT = [7.75, 1];
 const BOX = [20, 24];

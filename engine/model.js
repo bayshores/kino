@@ -3,6 +3,7 @@ import { normalizeBlockDocumentFields, normalizeBlockLayerFields, normalizeBlock
 import { normalizeDrift } from "./camera.js";
 import { normalizeSubjectBoxes } from "./sourceView.js";
 import { normalizePin, normalizeTracks } from "./pin.js";
+import { normalizeRecording } from "./recording.js";
 import { normalizeBoard } from "./board.js";
 import { normalizeSources } from "./sources.js";
 import { normalizeFill } from "./paintValidation.js";
@@ -1129,6 +1130,11 @@ function normalizeLayer(raw, path, animationIds, counters) {
   else layer.pin = normalizePin(layer.pin, `${path}.pin`);
   if (layer.subjectBoxes == null) delete layer.subjectBoxes;
   else layer.subjectBoxes = normalizeSubjectBoxes(layer.subjectBoxes, `${path}.subjectBoxes`, type);
+  // A screen recording's pointer, clicks and keys (engine/recording.js), kept by the service
+  // when the layer plays a recording kino made.
+  if (layer.recording == null) delete layer.recording;
+  else if (type !== "video") fail(`${path}.recording`, "only a video layer keeps a screen recording");
+  else layer.recording = normalizeRecording(layer.recording, `${path}.recording`);
   if (!Array.isArray(layer.playbackWindows) || layer.playbackWindows.length > 32)
     fail(`${path}.playbackWindows`, "must be an array of at most 32 playback windows");
   layer.playbackWindows = layer.playbackWindows.map((window, index) => {

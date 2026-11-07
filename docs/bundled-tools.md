@@ -45,6 +45,8 @@ It also holds `kino-cutout`, kino's own helper for subject cut-out (the edit op 
 
 `kino-measure` is built the same way from [backend/measure/kino-measure.swift](../backend/measure/kino-measure.swift): Apple Vision optical flow, text recognition, feature prints and saliency for Inspire's fingerprint and the `reference_drift` check. It holds no model files. It is in the manifest from schema 6. In a checkout without the bundle, kino builds it once from source into the temporary folder when the Swift compiler is installed.
 
+`kino-recorder` is built the same way from [backend/recorder/kino-recorder.swift](../backend/recorder/kino-recorder.swift): screen recordings for `project {action:"record"}` (ScreenCaptureKit picture without the pointer, the pointer and clicks as data). In a checkout without the bundle, kino builds it once from source the same way.
+
 The corresponding-source bundle contains the original archives, FFmpeg signature and key, Gifski source with its unchanged `Cargo.lock` and vendored crates, the pinned config, license texts, and a build manifest with the exact toolchain and commands. The Gifski vendor tree retains each crate's source and license files; `licenses/gifski-cargo-crates.json` indexes the recorded license metadata. No source patches are applied.
 
 The app looks for the tools in `process.resourcesPath/bin`. `build.extraResources` in

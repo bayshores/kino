@@ -25,7 +25,8 @@ const VOICE_HELPER_SOURCE = join(ROOT, "backend", "voice", "kino-voice.swift");
 const CUTOUT_HELPER_SOURCE = join(ROOT, "backend", "cutout", "kino-cutout.swift");
 // kino's own Swift helper for Apple Vision measures (Inspire's fingerprint, reference_drift).
 const MEASURE_HELPER_SOURCE = join(ROOT, "backend", "measure", "kino-measure.swift");
-const BINARIES = ["ffmpeg", "ffprobe", "gifski", "kino-voice", "kino-cutout", "kino-measure"];
+const RECORDER_HELPER_SOURCE = join(ROOT, "backend", "recorder", "kino-recorder.swift");
+const BINARIES = ["ffmpeg", "ffprobe", "gifski", "kino-voice", "kino-cutout", "kino-measure", "kino-recorder"];
 const MANIFEST_SCHEMA = 6;
 const JOBS = 2;
 const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024;
@@ -53,6 +54,7 @@ function printPlan() {
   console.log("kino-voice: kino's Swift helper for Apple sound isolation, compiled from server/voice/kino-voice.swift.");
   console.log("kino-cutout: kino's Swift helper for Apple Vision subject masks, compiled from server/cutout/kino-cutout.swift.");
   console.log("kino-measure: kino's Swift helper for Apple Vision measures (flow, text, feature prints), compiled from server/measure/kino-measure.swift.");
+  console.log("kino-recorder: kino's Swift helper for screen recordings (ScreenCaptureKit), compiled from backend/recorder/kino-recorder.swift.");
   console.log(`Output: ${OUTPUT_PATH}`);
   console.log("Run with --build to download hash-pinned upstream sources, verify FFmpeg's signature, and build only inside .local/macos-tools.");
   console.log("Run with --verify to check a previously built bundle without changing it.");
@@ -151,6 +153,7 @@ async function assertCurrentRebuildInputs(rebuildRoot) {
     ["voice helper source", VOICE_HELPER_SOURCE, join(rebuildRoot, "backend", "voice", "kino-voice.swift")],
     ["cut-out helper source", CUTOUT_HELPER_SOURCE, join(rebuildRoot, "backend", "cutout", "kino-cutout.swift")],
     ["measure helper source", MEASURE_HELPER_SOURCE, join(rebuildRoot, "backend", "measure", "kino-measure.swift")],
+    ["recorder helper source", RECORDER_HELPER_SOURCE, join(rebuildRoot, "backend", "recorder", "kino-recorder.swift")],
   ];
   for (const [label, currentPath, bundledPath] of inputs) {
     await assertRegularFile(bundledPath, `rebuild source ${label}`);
@@ -640,6 +643,10 @@ async function build() {
     await run("xcrun", measureHelperArgs, { env: envBase });
     await chmod(join(binDir, "kino-measure"), 0o755);
     const measureHelperVersion = (await run(join(binDir, "kino-measure"), ["--version"], { capture: true })).trim();
+    const recorderHelperArgs = ["swiftc", "-O", "-target", `arm64-apple-macos${CONFIG.target.minimumMacOS}`, "-o", join(binDir, "kino-recorder"), RECORDER_HELPER_SOURCE];
+    await run("xcrun", recorderHelperArgs, { env: envBase });
+    await chmod(join(binDir, "kino-recorder"), 0o755);
+    const recorderHelperVersion = (await run(join(binDir, "kino-recorder"), ["--version"], { capture: true })).trim();
     const detectedCodecCapabilities = await assertRequiredFfmpegCodecs(join(binDir, "ffmpeg"), CONFIG.requiredCodecs);
 
     const licenseEntries = [
@@ -670,6 +677,8 @@ async function build() {
     await copyFile(CUTOUT_HELPER_SOURCE, join(rebuildRoot, "backend", "cutout", "kino-cutout.swift"));
     await mkdir(join(rebuildRoot, "backend", "measure"), { recursive: true });
     await copyFile(MEASURE_HELPER_SOURCE, join(rebuildRoot, "backend", "measure", "kino-measure.swift"));
+    await mkdir(join(rebuildRoot, "backend", "recorder"), { recursive: true });
+    await copyFile(RECORDER_HELPER_SOURCE, join(rebuildRoot, "backend", "recorder", "kino-recorder.swift"));
 
     const cargoMetadataText = await run("cargo", ["metadata", "--format-version", "1", "--locked", "--offline"], { cwd: gifskiSource, env: envBase, capture: true });
     const cargoMetadata = JSON.parse(cargoMetadataText);
@@ -691,6 +700,7 @@ async function build() {
       "kino-voice: part of kino (MIT), compiled from ../sources/rebuild/backend/voice/kino-voice.swift; it calls the AUSoundIsolation audio unit that macOS provides and contains no Apple code.",
       "kino-cutout: part of kino (MIT), compiled from ../sources/rebuild/backend/cutout/kino-cutout.swift; it calls the Vision framework that macOS provides and contains no Apple code or model files.",
       "kino-measure: part of kino (MIT), compiled from ../sources/rebuild/backend/measure/kino-measure.swift; it calls the Vision framework that macOS provides and contains no Apple code or model files.",
+      "kino-recorder: part of kino (MIT), compiled from ../sources/rebuild/backend/recorder/kino-recorder.swift; it calls the ScreenCaptureKit and AVFoundation frameworks that macOS provides and contains no Apple code.",
       "The exact configure arguments, source checksums, toolchain details, and system dylib closure are recorded in ../build-manifest.json.",
       "",
     ].join("\n");
@@ -738,6 +748,7 @@ async function build() {
         voiceHelper: { version: voiceHelperVersion, sourceSha256: await sha256File(VOICE_HELPER_SOURCE), swiftcArgs: voiceHelperArgs.slice(1, 4) },
         cutoutHelper: { version: cutoutHelperVersion, sourceSha256: await sha256File(CUTOUT_HELPER_SOURCE), swiftcArgs: cutoutHelperArgs.slice(1, 4) },
         measureHelper: { version: measureHelperVersion, sourceSha256: await sha256File(MEASURE_HELPER_SOURCE), swiftcArgs: measureHelperArgs.slice(1, 4) },
+        recorderHelper: { version: recorderHelperVersion, sourceSha256: await sha256File(RECORDER_HELPER_SOURCE), swiftcArgs: recorderHelperArgs.slice(1, 4) },
         configureArgs: Object.fromEntries(["pkgconf", "x264", "libvpx", "opus", "ffmpeg"].map((name) => [name, CONFIG.tools[name].configureArgs])),
         ffmpegConfigureArgs: ffmpegArgs.map((arg) => arg.replaceAll(stage, "{stage}").replaceAll(pkgConfig, "{pkgConfig}")),
         gifskiCargoArgs: CONFIG.tools.gifski.cargoArgs,

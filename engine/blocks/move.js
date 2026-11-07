@@ -251,6 +251,8 @@ export function runMove(definition, options) {
       keys.add(animationId);
       animations.push({ layerId: target, animation: { id: animationId, ...animation } });
     },
+    /** The animations this move has put on one of the scene's layers so far. */
+    ownAnimations(layerId) { return animations.filter((entry) => entry.layerId === layerId).map((entry) => entry.animation); },
     note(text) { notes.push(text); },
     /** A scene layer's state at `time` (x, y, scaleX, rotation, opacity, …) with its own animations. */
     stateAt(layerId, time) { return evaluateLayer(ctx.layer(layerId), time); },

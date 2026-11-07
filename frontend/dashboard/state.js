@@ -114,6 +114,8 @@ export function fromSnapshot(snapshot, previous = null, clientNow = Date.now()) 
     crew: snapshot.crew ?? null,
     // The blind pick box (backend/agent/picks.mjs view); each "picks" event replaces it.
     picks: snapshot.picks ?? null,
+    // A screen recording an agent is making ({id, startedAt, project}); "recording" events replace it.
+    recording: snapshot.recording ?? null,
     // Where the agent last edited (for "follow agent"), and whether the document is behind.
     focus: previous && previous.projectId === snapshot.projectId ? previous.focus : null,
     behind: false,
@@ -225,6 +227,9 @@ export function applyEvent(state, event) {
       return next;
     case "picks":
       next.picks = event.picks ?? null;
+      return next;
+    case "recording":
+      next.recording = event.recording ?? null;
       return next;
     case "inspire": case "inspire-ref": case "inspire-live":
       next.inspire = withInspireEvent(state.inspire ?? null, event, state.projectId);

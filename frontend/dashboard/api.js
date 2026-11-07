@@ -49,6 +49,7 @@ export const restoreProject = (projectId) => api(`/projects/${encodeURIComponent
 export const act = (verb, input) => change(`act/${encodeURIComponent(verb)}`, { body: input });
 export const answerApproval = (id, answer) => change(`approvals/${encodeURIComponent(id)}`, { body: answer });
 export const setHold = (on, note = "") => change("hold", { body: { on, note } });
+export const stopRecording = () => change("recording/stop");
 // The stops (direction plan §6): your answer to a waiting stop (read_as approve, approve with
 // notes or redo; words only with a note; on a storyboard, shots: [{id, words}], a note on one
 // shot each), reopening an answered one, and undoing "stop asking". The agent hears each in its

@@ -239,9 +239,9 @@ export const AGENT_TOOLS = withSaid([
     name: "project",
     title: "Manage projects",
     hints: CAN_LOSE_DATA, // manage can delete a trashed project forever and remove saved items (after the person approves)
-    description: "Create, open and manage motion projects: list; create {id, name, width, height, duration}; open {id}; duplicate {id}; archive {id} (to Trash); import {file} (absolute media or font path, or openverse:<id>); share {id, role} (the person approves). manage {options}: library rules workspace.",
+    description: "list; create {id, name, width, height, duration}; open, duplicate, archive (to Trash) {id}; import {file} (absolute path or openverse:<id>); share {id, role} (the person approves); record {options:{step}} the screen (library guide recording); manage {options} (library rules workspace).",
     input: {
-      action: z.enum(["list", "create", "open", "duplicate", "archive", "import", "share", "manage"]),
+      action: z.enum(["list", "create", "open", "duplicate", "archive", "import", "share", "record", "manage"]),
       role: z.enum(["view", "comment", "edit"]).optional(),
       options: z.record(z.string(), z.any()).optional(),
       id: z.string().optional(),

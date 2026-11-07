@@ -151,6 +151,11 @@
 .top-right .top-button:hover { color: var(--fg0); border-color: var(--fg1); background: var(--bg1); }
 .top-right .top-button.icon-only { width: 28px; padding: 0; justify-content: center; }
 .top-right .top-button.held { border-color: var(--warn); color: var(--warn); }
+/* An agent is recording the screen: a red dot that breathes (still with reduced motion). */
+.top-right .top-button.recording { border-color: var(--err); color: var(--err); font-variant-numeric: tabular-nums; }
+.rec-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--err); animation: rec-breathe 1.6s ease-in-out infinite; }
+@keyframes rec-breathe { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } }
 /* Render: a split button flush with the right edge: render, then a menu for final, draft, format
    and cancel. While a render runs it shows the percent and a thin line in the rendering agent's color. */
 .render-split { display: flex; align-self: stretch; margin-left: 4px; background: var(--accent); }

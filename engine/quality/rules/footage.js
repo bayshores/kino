@@ -20,6 +20,7 @@ import { boxesAt, cropOnSource, insideShare } from "../../sourceView.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { sec } from "../analysis.js";
 import { LOW_CONFIDENCE, lowRuns } from "../../pin.js";
+import { positionAt } from "../../recording.js";
 import { boxAt, itemById } from "../model.js";
 import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
@@ -118,7 +119,13 @@ export function cropNoSubject(model, ctx) {
     const layer = scene.layers.find((entry) => entry.id === item.source?.layerId);
     const size = sizeOf(ctx, item);
     if (!layer || !size) continue;
-    const marked = layer.subjectBoxes?.src === layer.src && layer.subjectBoxes.boxes.length > 0;
+    // A screen recording's subject is its pointer: a 10% box around where it was (recording.js).
+    const pointer = !layer.subjectBoxes && layer.recording?.moves?.length ? (second) => {
+      const [x, y] = positionAt(layer.recording, second);
+      const [width, height] = layer.recording.frame;
+      return [Math.max(0, (x / width) * 100 - 5), Math.max(0, (y / height) * 100 - 5), 10, 10].map((value) => Math.round(value * 10) / 10);
+    } : null;
+    const marked = (layer.subjectBoxes?.src === layer.src && layer.subjectBoxes.boxes.length > 0) || Boolean(pointer);
     let cropped = null, croppedCount = 0, lost = null;
     for (let index = 0; index < model.times.length; index += step) {
       if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
@@ -128,7 +135,8 @@ export function cropNoSubject(model, ctx) {
       if (!crop || crop.covers < 0.9) continue;
       const [x0, y0, x1, y1] = crop.bounds;
       if (marked) {
-        const box = boxNear(layer, mediaFrameState(layer, time).sourceTime);
+        const second = mediaFrameState(layer, time).sourceTime;
+        const box = pointer ? pointer(second) : boxNear(layer, second);
         if (!box) continue;
         const share = insideShare(box, crop.bounds);
         if (share < SUBJECT_KEPT && (!lost || share < lost.share)) lost = { share, time, box };

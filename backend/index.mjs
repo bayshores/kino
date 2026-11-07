@@ -61,6 +61,7 @@ import { shareUrl } from "../engine/shareUrls.js";
 import { LUT_MIME, parseCubeLut } from "../engine/effects/colorMath.js";
 import { createSoundSearch } from "./sound-search.mjs";
 import { createSoundLibrary } from "./sound-library.mjs";
+import { createRecorder } from "./recorder/recorder.mjs";
 import { createSoundtrack } from "./soundtrack.mjs";
 import { createSongTaste } from "./songTaste.mjs";
 import { createMusicEmbed } from "./music-embed.mjs";
@@ -221,8 +222,13 @@ const soundtrack = createSoundtrack({
   addMedia: (...args) => addGeneratedMedia(...args),
 });
 soundtrack.sweep().catch(() => {});
+// Screen recordings agents make (project {action:"record"}): folders in <data>/recordings while
+// recording, then the video joins the media library. The dashboard shows one while it runs.
+const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => addGeneratedMedia(...args),
+  onChange: (recording) => dashboard.publish({ type: "recording", recording }) });
 const agentService = createAgentService({
   store,
+  recorder,
   // The Timeline's waveform peaks; speech_cut hears each cut in them (one decode per file).
   audioPeaks,
   // check's pixel rules draw their frames on the card your settings name.
@@ -390,7 +396,7 @@ const agentService = createAgentService({
   },
 });
 const dashboardRoutes = createDashboardRoutes({
-  store, agentService, agentState, dashboard, live: liveAgents, crew, launcher: crewLauncher, look: agentLook, frameCache, inspire, soundtrack, renderCache: exportBatches.renderCache, fontCatalog, agentDirectory, dataDirectory: dataRoot, mediaRoot,
+  store, agentService, agentState, dashboard, live: liveAgents, crew, launcher: crewLauncher, look: agentLook, frameCache, inspire, soundtrack, recorder, renderCache: exportBatches.renderCache, fontCatalog, agentDirectory, dataDirectory: dataRoot, mediaRoot,
   lastRender: () => lastRender,
   loadFonts: () => loadProjectFonts({ catalog: fontCatalog, mediaRoot }),
   json, body, sendFile, attachmentName,
@@ -1930,6 +1936,8 @@ process.on("SIGTERM", async () => {
   for (const controller of activeExports) controller.abort();
   exportProgress.clear();
   await exportBatches.close();
+  // A recording running now is finished and kept (its helper closes the files first).
+  await recorder.close().catch(() => {});
   for (const socket of clients.keys()) socket.close();
   server.close(() => process.exit(0));
   // An open dashboard keeps a live connection (and keep-alive sockets) that server.close waits

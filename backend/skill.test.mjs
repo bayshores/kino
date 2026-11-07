@@ -139,6 +139,7 @@ const MEDIA_TESTS = {
   "Subject cut-out": "backend/agent-cutout.test.mjs",
   "Follow an object": "backend/agent-cutout.test.mjs",
   "Steady shaky footage": "backend/agent-cutout.test.mjs",
+  "Editing a recording": "backend/recorder.test.mjs",
   "Cleaning a voiceover": "backend/agent-speech.test.mjs",
   "Syncing two clips of the same moment": "backend/agent-sync.test.mjs",
   "Sound: music as structure": "backend/agent-volume.test.mjs",

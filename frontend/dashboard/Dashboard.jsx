@@ -54,6 +54,11 @@ import { PickBox } from "./picks.jsx";
 import { STOP_WORDS } from "./words.js";
 import { needsBar } from "./needsBar.js";
 
+// A screen recording's running time: 75 000 ms → "1:15".
+const recClock = (ms) => {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+};
 const EVENTS_BUFFERED = 300;
 const CHECK_DELAY_MS = 1200;
 // How often the dashboard looks for an agent that went quiet (when that notification is on).
@@ -916,6 +921,14 @@ export function Dashboard() {
     } catch (cause) { fail(cause); }
   }, [data?.hold?.on, say, fail]);
 
+  // The person stops an agent's screen recording; the agent hears it at its next record call.
+  const stopRecording = useCallback(async () => {
+    try {
+      const { stopped } = await server.stopRecording();
+      say(stopped ? `Recording stopped: ${Math.round(stopped.seconds)} s kept. The agent is told.` : "Nothing was recording.");
+    } catch (cause) { fail(cause); }
+  }, [say, fail]);
+
   const exportScene = useCallback(async (options = {}) => {
     if (!projectId || !scene) { say("Open a project first.", true); return; }
     try {
@@ -1546,6 +1559,11 @@ export function Dashboard() {
         {!follow || phone ? <button type="button" className={`tb follow${follow ? " on" : ""}`} aria-pressed={follow} aria-keyshortcuts="f" title="Follow the agent (f)" onClick={() => run("follow")}><span className="dot" aria-hidden="true" /><span className="tab-word"> follow {follow ? "on" : "off"}</span></button> : null}
         {message ? <span className={`message ${message.error ? "err" : "dim"}`} title={message.text}>{message.text}</span> : null}
         <span className="top-right">
+          {data.recording ? (
+            <button type="button" className="tb top-button recording" onClick={stopRecording}
+              title="An agent is recording the screen. Stop it (the recording so far is kept)" aria-label={`Recording the screen, ${recClock(now - data.recording.startedAt)}. Stop recording`}>
+              <span className="rec-dot" aria-hidden="true" />rec {recClock(now - data.recording.startedAt)} · stop</button>
+          ) : null}
           <button type="button" className={`tb top-button${data.hold?.on ? " held" : ""}`} onClick={() => toggleHold()} aria-keyshortcuts="h" aria-pressed={Boolean(data.hold?.on)}
             title={data.hold?.on ? "Release: agent writes work again (h)" : "Hold: pause agent writes (h)"}>
             <Icon name="hold" />{data.hold?.on ? "release" : screen.name === "crew" ? "hold all" : "hold"}</button>

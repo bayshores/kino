@@ -290,6 +290,8 @@ export function createDashboardRoutes(deps) {
       crew: crew ? crew.view() : null,
       // The blind pick box (agent/picks.mjs view); "picks" events replace it.
       picks: agentService.picks ? await agentService.picks.view() : null,
+      // A screen recording an agent is making (backend/recorder); "recording" events replace it.
+      recording: deps.recorder?.active() ?? null,
     };
   }
 
@@ -809,6 +811,12 @@ export function createDashboardRoutes(deps) {
       return json(res, 200, { approval });
     }
     if (route === "stops" && method === "POST") return json(res, 200, await stops(await body(req, 16 * 1024)));
+    // The person stops a screen recording; the agent's next record status or stop says so.
+    if (route === "recording/stop" && method === "POST") {
+      if (!deps.recorder) throw failure(404, "This kino cannot record the screen.");
+      const stopped = await deps.recorder.stopByPerson();
+      return json(res, 200, { stopped: stopped ? { src: stopped.src, seconds: stopped.seconds } : null });
+    }
     if (route === "hold" && method === "POST") {
       const input = await body(req, 16 * 1024);
       const was = dashboard.hold().on;

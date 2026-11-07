@@ -640,6 +640,15 @@ How to read it:
   or RNNoise; `keep:"both"` adds a background layer. Evidence: `backend/agent-voice.test.mjs`,
   `backend/voice-media.test.mjs`, `tests/fixtures/voice`. Gaps: not by ear; RNNoise leaves most music;
   `backend/voice/isolate.mjs` uses the older sample-time filter.
+
+### Screen recording
+
+- **project record {step} + move screen-recording**: Verified with a stand-in helper. Records the Mac
+  screen without the pointer and keeps pointer, clicks (agent or person), keys and marks as data; the
+  move adds click zooms, kino's pointer and click rings. Evidence: `backend/recorder.test.mjs` (agent
+  path and a render), `engine/recording.test.js`. Gaps: the real helper (`backend/recorder/`) was
+  checked by hand only (macOS permissions); microphone needs macOS 15.
+
 ## Audio and captions
 
 - **Beats and onsets**: Verified on generated audio. `detect_beats {layer}` writes `beat-N` and

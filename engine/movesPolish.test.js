@@ -16,6 +16,7 @@ import { captionGroups } from "./blocks/moves/type.js";
 import { inkPoint } from "./blocks/moves/kit.js";
 import { layoutText, textUnits } from "./textLayout.js";
 import { evaluateLayer } from "./animation.js";
+import { compactRecording } from "./recording.js";
 import { projectFaces } from "../backend/agent/blocks.mjs";
 
 const FRAME = { width: 1920, height: 1080 };
@@ -26,11 +27,16 @@ const PICTURES = {
   logo: { id: "logo.png", src: "/api/media/logo.png", width: 512, height: 512, name: "logo" },
 };
 const media = (ref) => PICTURES[ref] ?? (() => { throw new Error(`No picture ${ref}.`); })();
+// The clip is a screen recording too (screen-recording's example): one click.
+const CLIP_RECORDING = compactRecording({ frame: { width: 1600, height: 900 }, scale: 1, duration: 8, cursors: { c1: { shape: "arrow" } } }, [
+  { t: 0, type: "move", x: 300, y: 300, cursor: "c1" },
+  { t: 1, type: "down", x: 900, y: 500, button: "left", clicks: 1, source: "agent" }, { t: 1.08, type: "up", x: 900, y: 500, button: "left", source: "agent" },
+]);
 
 function scene(layers = [], duration = 6) {
   return createScene({ id: "s", name: "Scene", ...FRAME, duration, layers: [
     // The footage moves' example freezes or fills a word with this clip.
-    createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, ...FRAME, mediaSourceDuration: 8, mediaFreeze: "none" }),
+    createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, ...FRAME, mediaSourceDuration: 8, mediaFreeze: "none", recording: CLIP_RECORDING }),
     createLayer("image", { id: "shot-b", name: "shot-b", src: "/api/media/wall.png", x: 0, y: 0, ...FRAME }),
     createLayer("image", { id: "shot-a", name: "shot-a", src: "/api/media/street.png", x: 0, y: 0, ...FRAME }),
     // draw-on's example draws this line.
