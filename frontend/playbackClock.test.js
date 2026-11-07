@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createPlaybackClock, createTimeStore, frameStart } from "./dashboard/playbackClock.js";
-import { previewPick, readyRuns } from "./dashboard/previewPick.js";
+import { previewPick, previewRate, readyRuns } from "./dashboard/previewPick.js";
 
 // A sound card whose time moves only when the test says so. `latency` is how long a sample takes
 // to reach the speakers.
@@ -217,4 +217,30 @@ test("the play/pause key: a silent track plays while the stage plays, and the ke
   assert.equal(audio.pauses, 1);
   keys.close();
   assert.equal(handlers.play, null);
+});
+
+test("the picture runs ahead of the sound by the time a drawn frame takes to show, never back, and drops frames on a slow stage", async () => {
+  const { createPictureClock } = await import("./dashboard/playbackClock.js");
+  const picture = createPictureClock();
+  // Before any display frame is measured: two 60 Hz refreshes.
+  close(picture.next(1, 0, 8), 1 + 2 / 60);
+  // 60 Hz frames: one frame's time plus one refresh.
+  let frame = 0;
+  for (let index = 1; index <= 30; index += 1) picture.next(1 + index / 60, (frame += 1000 / 60), 8);
+  close(picture.lead(), 2 / 60);
+  // A slow stage (100 ms a frame) leads by more, so the picture is still on time when it shows.
+  for (let index = 0; index < 60; index += 1) picture.next(2, (frame += 100), 8);
+  assert.ok(picture.lead() > 0.1 && picture.lead() <= 0.2, `lead ${picture.lead()}`);
+  // The lead shrinking does not step the picture back; a loop or a seek does.
+  const shown = picture.next(3, (frame += 100), 8);
+  assert.ok(picture.next(3, (frame += 100), 8) >= shown, "the picture never steps back by a little");
+  picture.reset();
+  close(picture.next(7.99, 0, 8), (7.99 + 2 / 60) % 8);
+  close(picture.next(0.5, 1000 / 60, 8), 0.5 + 2 / 60);
+  // A cached segment video is played back onto the sound past half a frame of drift.
+  assert.equal(previewRate(0.01), 1, "a drift under half a frame is left");
+  assert.equal(previewRate(0.02), 0.9, "a video ahead slows down");
+  assert.equal(previewRate(-0.02), 1.1, "a video behind speeds up");
+  assert.equal(previewRate(0.008, 0.9), 0.9, "it keeps slowing until it is close");
+  assert.equal(previewRate(0.003, 0.9), 1);
 });

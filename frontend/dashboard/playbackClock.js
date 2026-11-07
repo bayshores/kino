@@ -3,7 +3,8 @@
 // clock when it has none or the browser has not let the sound start yet.
 //
 // Data flow: Space → clock.play(from), inside the key press so the browser lets sound start →
-// a frame loop in Dashboard.jsx reads clock.time() and puts it in a time store → the stage, the
+// a frame loop in Dashboard.jsx reads clock.time(), moves it on by the time the frame takes to
+// reach the screen (createPictureClock) and puts it in a time store → the stage, the
 // timeline playhead and the status line redraw. The sound is the scene's mix from
 // GET /api/dashboard/mix (the export's own mix), decoded once (decodeSound) and looped in step
 // with the scene. Nothing here knows about React.
@@ -253,6 +254,65 @@ export function createTimeStore(initial = 0) {
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+  };
+}
+
+// A picture drawn in one display frame reaches the screen a while later: the browser finishes the
+// frame, then the compositor shows it on a later screen refresh (about two refreshes, 33 ms at
+// 60 Hz, measured in Chromium), and later still when drawing the stage took long. Before, the
+// stage drew the time heard when its frame began, so the picture showed that much after the
+// sound (about 55 ms in a headless Chromium, more on a slow stage).
+// With no display frames measured yet, the lead is two 60 Hz refreshes.
+const DEFAULT_LEAD = 2 / 60;
+// A gap longer than this between display frames (a hidden window, a stall) is not measured.
+const MAX_FRAME_GAP = 0.25;
+// The lead never goes past this, so one slow frame cannot throw the picture far ahead.
+const MAX_LEAD = 0.2;
+// How quickly the lead follows the frame time (part of each new frame's gap).
+const LEAD_SMOOTHING = 0.1;
+// The shortest gap of the last this many frames is the screen's refresh.
+const REFRESH_WINDOW = 60;
+// A smaller step back than this is the lead shrinking: the picture holds instead (a seek or the
+// scene looping moves further).
+const HOLD_BACK = 0.1;
+
+/**
+ * The time to draw while playing, so the picture is on screen with the sound: once a display
+ * frame, `next(heard, frameMs)` takes the scene time you hear now and the display frame's time
+ * (requestAnimationFrame's, in ms) and returns the time that will be heard when this frame shows
+ * (wrapped at the scene's `duration`). The lead is the measured time between display frames (the
+ * time a frame takes) plus one refresh, at most MAX_LEAD. The time never steps back by less than
+ * HOLD_BACK, and when drawing is slow it moves on by more than a frame: frames are dropped, the
+ * picture never falls behind the sound. `reset()` on play and seek.
+ */
+export function createPictureClock() {
+  let lastFrame = null;
+  let gaps = [];
+  let smooth = null;
+  let shown = null;
+  const lead = () => {
+    if (smooth == null || !gaps.length) return DEFAULT_LEAD;
+    return Math.min(MAX_LEAD, smooth + Math.min(...gaps));
+  };
+  return {
+    lead,
+    reset() { lastFrame = null; gaps = []; smooth = null; shown = null; },
+    next(heard, frameMs, duration = Infinity) {
+      if (lastFrame != null) {
+        const gap = (frameMs - lastFrame) / 1000;
+        if (gap > 0.002 && gap <= MAX_FRAME_GAP) {
+          gaps.push(gap);
+          if (gaps.length > REFRESH_WINDOW) gaps.shift();
+          smooth = smooth == null ? gap : smooth + (gap - smooth) * LEAD_SMOOTHING;
+        }
+      }
+      lastFrame = frameMs;
+      let time = heard + lead();
+      if (Number.isFinite(duration) && duration > 0) time %= duration;
+      if (shown != null && time < shown && shown - time < HOLD_BACK) time = shown;
+      shown = time;
+      return time;
     },
   };
 }

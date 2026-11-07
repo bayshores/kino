@@ -7,7 +7,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import "./dashboard.css";
 import * as server from "./api.js";
 import { accessHeaders } from "../client.js";
-import { createPlaybackClock, createTimeStore, decodeSound, frameStart } from "./playbackClock.js";
+import { createPictureClock, createPlaybackClock, createTimeStore, decodeSound, frameStart } from "./playbackClock.js";
 import { createMediaKeys } from "./mediaKeys.js";
 import { loadBrowserFonts } from "../browserFonts.js";
 import { defaultFonts } from "../../engine/fonts.js";
@@ -82,15 +82,16 @@ function useNow(ms) {
   return now;
 }
 
-// Calls `step` once a display frame while it runs. A window that is not drawn (hidden, or in the
-// background) gets no animation frames, so a timer keeps the time moving there too.
+// Calls `step` once a display frame while it runs, with the display frame's time (ms). A window
+// that is not drawn (hidden, or in the background) gets no animation frames, so a timer keeps the
+// time moving there too.
 function everyFrame(step) {
   let frame = 0, timer = 0, stopped = false;
-  const tick = () => {
+  const tick = (frameMs) => {
     if (stopped) return;
     cancelAnimationFrame(frame);
     clearTimeout(timer);
-    step();
+    step(typeof frameMs === "number" ? frameMs : performance.now());
     frame = requestAnimationFrame(tick);
     timer = setTimeout(tick, 100);
   };
@@ -383,13 +384,15 @@ export function Dashboard() {
   // ---- playback ---------------------------------------------------------------------------------
   // The clock loops where the scene ends, also after an edit changes its length.
   useEffect(() => { player.setDuration(duration || 1e-3); }, [player, duration]);
-  // While playing, once a display frame: the clock's time, on the frame grid, into the time store.
-  // The store tells its readers only when the frame changes, so the stage draws at most fps
-  // frames a second.
+  // While playing, once a display frame: the time that will be heard when this frame reaches the
+  // screen (createPictureClock), on the frame grid, into the time store. The store tells its
+  // readers only when the frame changes, so the stage draws at most fps frames a second.
+  const [pictureClock] = useState(() => createPictureClock());
   useEffect(() => {
     if (!playing) return undefined;
-    return everyFrame(() => timeStore.set(frameStart(player.time(), fps)));
-  }, [playing, fps, player, timeStore]);
+    pictureClock.reset();
+    return everyFrame((frameMs) => timeStore.set(frameStart(pictureClock.next(player.time(), frameMs, player.duration), fps)));
+  }, [playing, fps, player, timeStore, pictureClock]);
   useEffect(() => () => player.close(), [player]);
   // The keyboard's play/pause key: it runs the newest start and stop (a ref, so the handlers made
   // once still see this render's scene and time).
@@ -412,7 +415,11 @@ export function Dashboard() {
   const stopPlaying = useCallback(() => {
     mediaKeys.set(false);
     if (!player.playing) { setPlaying(false); return null; }
-    const stopped = Math.min(duration, frameStart(player.pause(), fps));
+    // The picture runs a little ahead of the sound (createPictureClock), so the frame on screen is
+    // the time store's, unless a loop or seek is in between.
+    const heard = frameStart(player.pause(), fps);
+    const onScreen = timeStore.get();
+    const stopped = Math.min(duration, onScreen >= heard && onScreen - heard < 0.25 ? onScreen : heard);
     timeStore.set(stopped);
     setView((value) => ({ ...value, time: stopped }));
     setPlaying(false);
@@ -1562,7 +1569,7 @@ export function Dashboard() {
   const stage = (
     <StagePane {...paneProps(1)} data={data} scene={scene} time={time} rev={stageRev} checkpoint={checkpoint?.turn ?? null} full={full} playing={playing} fps={fps} still={still} previewList={previewList}
       overlays={overlays} findings={findings} selectedLayer={selectedLayer} onPin={(area, extra) => startNote(area, true, extra)} draft={draft} noteBubble={noteBubble}
-      timeStore={timeStore} fontVersion={fontVersion} sound={{ state: soundState, mix: mix.state, error: mix.error, blocked: SOUND_BLOCKED }} onSoundOn={() => player.resume()}
+      timeStore={timeStore} fontVersion={fontVersion} sound={{ state: soundState, mix: mix.state, error: mix.error, blocked: SOUND_BLOCKED }} onSoundOn={() => player.resume()} soundTime={player.time}
       onToggleOutlines={toggleBoxes} onSeek={(value) => { stopPlaying(); setView((current) => ({ ...current, time: value })); }}
       need={need && !phone && need.allow && need.watch ? { ...need, onAllow: () => run("allow"), onDeny: () => run("deny"), onNote: () => startNote() } : null}
       onKey={run} onScene={showScene} phone={phone} onNow={() => { setCheckpoint(null); say("Showing now."); }}
