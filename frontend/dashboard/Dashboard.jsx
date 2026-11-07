@@ -14,6 +14,7 @@ import { defaultFonts } from "../../engine/fonts.js";
 import { documentFontReferences } from "../../engine/fontDocuments.js";
 import { fontGlyphReferences } from "../../engine/fontGlyphReferences.js";
 import { desktopServiceLine, openStream } from "./stream.js";
+import { tickWhileShown } from "./visibleClock.js";
 import { applyEvent, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
 import { isTyping, keyAction } from "./keys.js";
 
@@ -75,10 +76,7 @@ function useMedia(query) {
 
 function useNow(ms) {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(timer);
-  }, [ms]);
+  useEffect(() => tickWhileShown(() => setNow(Date.now()), ms), [ms]);
   return now;
 }
 
