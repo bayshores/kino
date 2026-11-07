@@ -43,7 +43,7 @@ const MOVE_KEYS = ["kind", "name", "ref", "planned"];
 
 const ID = /^[A-Za-z0-9_-]{1,24}$/;
 const HEX = /^#(?:[\da-fA-F]{6}|[\da-fA-F]{8})$/;
-const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts"];
+const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts", "speed"];
 const ALT_KEYS = ["media", "in", "crop", "subject", "why"];
 const TEXT_KEYS = ["text", "family", "weight", "size", "y", "fill"];
 const MAX_SECONDS = 600;
@@ -190,6 +190,10 @@ function normalizeShot(shot, index) {
   for (const layer of SHOT_LAYERS) if (shot[layer] === undefined) fail(`${path}.${layer}`, 'must be given ("none" when empty)');
   const result = { id: shot.id, cue: round(shot.cue, 3), dur: round(shot.dur, 3), pacing: shot.pacing };
   normalizeMediaFields(shot, path, result);
+  if (shot.speed !== undefined) {
+    if (!isNumber(shot.speed) || shot.speed < 0.05 || shot.speed > 16) fail(`${path}.speed`, "must be the clip's playback speed, 0.05 to 16");
+    if (shot.speed !== 1) result.speed = round(shot.speed, 3);
+  }
   if (shot.follow !== NONE && !FOLLOW.includes(shot.follow)) fail(`${path}.follow`, `must be ${FOLLOW.join(", ")} or "none"`);
   result.follow = shot.follow;
   result.text = normalizeText(shot.text, `${path}.text`);

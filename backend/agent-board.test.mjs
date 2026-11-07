@@ -179,6 +179,12 @@ test("kino checks the shots against the video, the files and the fonts: overlap,
   assertRefused(await editBoard("board-checks", [footage(0, 4.417, 0, 30, { subject: { what: "w".repeat(45), box: [34, 30, 14, 30] }, why: "y".repeat(101) })], { calls: ["ok", "c".repeat(112)] }), "bad_shot",
     "calls[1] is 112 characters, limit 100. Also: shot 1 why is 101 characters, limit 100: one line. shot 1 subject.what is 45 characters, limit 40.");
   assert.equal((await record("board-checks")).revision, revision, "nothing refused was saved");
+  // A slowed clip uses less of its file: dur 2.1 at speed 0.4 needs 0.84 s from 3.5 s, which fits.
+  const slow = await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 3.5, 40, { speed: 0.4 })]);
+  assert.equal(slow.isError, undefined, slow.text);
+  assert.equal((await record("board-checks")).document.board.shots[1].speed, 0.4);
+  assertRefused(await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 0, 40, { speed: 3 })]), "bad_shot",
+    "shot 2 needs 6.3 s of sintel-village-dragon.mp4 from 0 s, but the file ends at 4.42 s.");
 
   // media is a video layer's name, a file's name or its src; all three are kept as the src.
   // A craft move built as an edit op (frame), a move (type-on) or a scene setting (drift) is known: no planned:true.

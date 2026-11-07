@@ -124,5 +124,5 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `mark_subject {layer, t, box}`
 - `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
 - `source {name, text}`
-- `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, alts?, id?}], calls?, open?}`
+- `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}`
 - `split_layer {layer, at} or {layer, from, to}`

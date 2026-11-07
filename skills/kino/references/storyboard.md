@@ -94,7 +94,7 @@ color or sound, only another song, media or shot list lapses it; fixes are logge
 
 A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` = H × 100 / h,
 `width` = `height` × the source's width / height, `x` = −x / 100 × `width`, `y` = −y / 100 ×
-`height`, `mediaStart` = `cue`, `mediaOffset` = `in`, `mediaDuration` = `dur`.
+`height`, `mediaStart` = `cue`, `mediaOffset` = `in`, `mediaDuration` = `dur`, `mediaSpeed` = `speed`.
 
 ## Examples
 

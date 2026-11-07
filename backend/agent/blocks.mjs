@@ -185,7 +185,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what}. move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person.',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what}. move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -1871,7 +1871,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // One shot, checked and filled in (text defaults), or what is wrong with it (`add`).
   async function boardShot(document, scene, shot, n, { media, add, work }) {
     if (!isRecord(shot)) { add("bad_shot", `shot ${n} is {cue, dur, pacing, media, in, crop, subject, follow, text, sound, why}.`); return {}; }
-    const keys = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts"];
+    const keys = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "speed", "alts"];
     const extra = Object.keys(shot).filter((key) => !keys.includes(key));
     if (extra.length) add("bad_shot", `shot ${n} has no field "${extra[0]}"; a shot has ${keys.join(", ")}.`, closest(extra[0], keys));
     const missing = SHOT_LAYERS.filter((layer) => shot[layer] === undefined || shot[layer] === null);
@@ -1880,6 +1880,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const number = (value) => typeof value === "number" && Number.isFinite(value);
     if (!number(shot.cue) || shot.cue < 0) add("bad_shot", `shot ${n} has no cue: its start in seconds.`);
     if (!number(shot.dur) || shot.dur <= 0) add("bad_shot", `shot ${n} has no dur: its length in seconds.`);
+    if (shot.speed !== undefined && (!number(shot.speed) || shot.speed < 0.05 || shot.speed > 16)) add("bad_shot", `shot ${n} speed is the clip's playback speed, 0.05 to 16 (default 1).`);
+    const speed = number(shot.speed) && shot.speed >= 0.05 && shot.speed <= 16 ? shot.speed : 1;
     if (!PACING.includes(shot.pacing)) add("bad_shot", shot.pacing === undefined ? `shot ${n} has no pacing: beat_cut, phrase_flow or free.` : `shot ${n} pacing is beat_cut, phrase_flow or free.`, closest(String(shot.pacing ?? ""), PACING));
     const why = boardWhy(shot.why, `shot ${n}`, add);
     // move: the designed move (engine/board.js), every bad field named at once.
@@ -1887,15 +1889,15 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     for (const message of wrong) add("bad_shot", message, /name "/.test(message) ? closest(String(shot.move.name), [...BOARD_MOVE_NAMES]) : []);
     const move = shot.move !== undefined && !wrong.length ? shot.move : null;
     if (missing.length) return {};
-    const result = { id: shot.id, cue: number(shot.cue) ? round(shot.cue) : 0, dur: number(shot.dur) ? round(shot.dur) : 0, pacing: shot.pacing };
+    const result = { id: shot.id, cue: number(shot.cue) ? round(shot.cue) : 0, dur: number(shot.dur) ? round(shot.dur) : 0, pacing: shot.pacing, ...(speed !== 1 ? { speed: round(speed) } : {}) };
     const footage = boardFootage(shot, `shot ${n}`, { media, add, frame: scene });
     if (shot.follow !== NONE && !FOLLOW.includes(shot.follow)) add("bad_shot", `shot ${n} follow is steady, track, sweep or "none".`, closest(String(shot.follow), FOLLOW));
     if (shot.media === NONE && [shot.in, shot.crop, shot.subject, shot.follow].some((value) => value !== NONE))
       add("bad_shot", `shot ${n} has no media, so in, crop, subject and follow are "none".`);
     if (footage.file?.kind === "video") {
       if (!number(shot.in) || shot.in < 0) add("bad_shot", `shot ${n} is a video: in is the file second it starts at (0 or more).`);
-      else if (footage.file.duration > 0 && number(shot.dur) && shot.in + shot.dur > footage.file.duration + ONE_FRAME)
-        add("bad_shot", `shot ${n} needs ${sec(shot.dur)} s of ${footage.file.name} from ${sec(shot.in)} s, but the file ends at ${sec(footage.file.duration)} s.`);
+      else if (footage.file.duration > 0 && number(shot.dur) && shot.in + shot.dur * speed > footage.file.duration + ONE_FRAME)
+        add("bad_shot", `shot ${n} needs ${sec(shot.dur * speed)} s of ${footage.file.name} from ${sec(shot.in)} s, but the file ends at ${sec(footage.file.duration)} s.`);
       if (!FOLLOW.includes(shot.follow)) add("bad_shot", `shot ${n} is a video: follow is steady, track or sweep.`);
     }
     if (footage.file?.kind === "image" && shot.in !== NONE) add("bad_shot", `shot ${n} is a picture: in is "none".`);
