@@ -12,6 +12,8 @@ const text = (max, extra = {}) => ({ kind: "text", max, ...extra });
 const list = (min, max, each, extra = {}) => ({ kind: "list", min, max, each, ...extra });
 const media = (extra = {}) => ({ kind: "media", ...extra });
 const mediaList = (min, max, extra = {}) => ({ kind: "media-list", min, max, ...extra });
+// A slot marked retired is still accepted (old ops keep working) but is not drawn or listed: the
+// kicker, a small label stacked over the headline, reads as a template.
 // Every format takes these: the logo (a picture) or the name as a wordmark, music and a brand kit.
 const COMMON = {
   logo: media({ hint: "logo picture (or give name)" }),
@@ -35,7 +37,7 @@ export const VIDEO_FORMATS = Object.freeze({
       const features = slots.features.map((feature, index) => ({ recipe: "feature-callout", text: feature, ...(slots.shots?.[index] ? { media: slots.shots[index] } : {}), dur: slots.price ? 3.6 : 4.6, transition: "push", cue: `feature-${index + 1}` }));
       return [
         opener(slots, 2.6),
-        { recipe: "headline-reveal", text: slots.headline, ...(slots.sub ? { sub: slots.sub } : {}), kicker: "New", dur: 4.4, cue: "headline" },
+        { recipe: "headline-reveal", text: slots.headline, ...(slots.sub ? { sub: slots.sub } : {}), dur: 4.4, cue: "headline" },
         { recipe: "device-slide", media: slots.product, dur: 5.5, transition: "mask-wipe", cue: "hero" },
         ...features,
         ...(slots.price ? [{ recipe: "price-pop", price: slots.price, text: "Launch price", dur: 3.2, transition: "push", cue: "price" }] : []),
@@ -86,13 +88,13 @@ export const VIDEO_FORMATS = Object.freeze({
     title: "Feature announcement", aspects: ["16:9", "9:16", "1:1"], length: "15 s (20 s with benefits)", look: "editorial", feel: "smooth", type: "promo",
     about: "logo, the feature as a headline, the feature on screen (5 s hero), up to 3 benefits, end card",
     slots: {
-      ...COMMON, feature: text(70, { required: true }), detail: text(110), kicker: text(24, { hint: 'default "New"' }), shot: media({ required: true, hint: "screenshot of the feature" }),
+      ...COMMON, feature: text(70, { required: true }), detail: text(110), kicker: text(24, { retired: true }), shot: media({ required: true, hint: "screenshot of the feature" }),
       benefits: list(0, 3, 48), cta: text(28, { required: true }), site: text(48),
     },
     plan(slots) {
       return [
         opener(slots, 2.6),
-        { recipe: "headline-reveal", text: slots.feature, ...(slots.detail ? { sub: slots.detail } : {}), kicker: slots.kicker ?? "New", dur: 3.6, cue: "headline" },
+        { recipe: "headline-reveal", text: slots.feature, ...(slots.detail ? { sub: slots.detail } : {}), dur: 3.6, cue: "headline" },
         { recipe: "device-slide", media: slots.shot, dur: 5.0, transition: "mask-wipe", cue: "hero" },
         ...(slots.benefits?.length ? [{ recipe: "step-list", items: slots.benefits, dur: 4.0, transition: "push", cue: "benefits" }] : []),
         ending(slots, 3.4),
@@ -156,7 +158,7 @@ export function expandVideoFormat(name, slots = {}, { aspect } = {}) {
       if (slot.required) throw new Error(`${name} needs slot ${key}: ${describeSlot(key, slot)}.`);
       continue;
     }
-    checkSlot(name, key, slot, value);
+    if (!slot.retired) checkSlot(name, key, slot, value);
   }
   if (!slots.logo && !slots.name) throw new Error(`${name} needs logo (a picture) or name (the wordmark).`);
   const chosen = aspect ?? definition.aspects[0];
@@ -209,7 +211,7 @@ export function videoFormatsText(name) {
   if (!definition) throw new Error(`Unknown format "${name}". Formats: ${VIDEO_FORMAT_NAMES.join(", ")}.`);
   return [
     `${name}: ${definition.title}. ${definition.aspects.join(" or ")} (aspect picks; the first is the default), ${definition.length}, look ${definition.look}, feel ${definition.feel}${definition.type === "other" ? "" : `, a ${definition.type}`}. ${definition.about}.`,
-    `slots: ${Object.entries(definition.slots).map(([key, slot]) => describeSlot(key, slot)).join(", ")}. Media slots take imported pictures or videos by name; logo or name is needed.`,
+    `slots: ${Object.entries(definition.slots).filter(([, slot]) => !slot.retired).map(([key, slot]) => describeSlot(key, slot)).join(", ")}. Media slots take imported pictures or videos by name; logo or name is needed.`,
     `cues: music and sound cues at each section (at:"cue:hero"), for SFX on what moves.`,
     `example: ${JSON.stringify({ op: "format", name, slots: definition.example })}`,
   ].join("\n");

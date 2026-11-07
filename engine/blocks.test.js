@@ -149,6 +149,13 @@ test("recipe settings: loose copy fields, choices a recipe lacks, and bad copy a
   assert.ok(made.assertions.length >= 1);
   const again = run("headline-reveal", { copy: { text: "Ship faster", sub: "Shared calendars" }, seed: 3 });
   assert.deepEqual(again.layers, made.layers, "the same seed makes the same layers");
+  // An old kicker is accepted but not drawn: a label stacked over a headline reads as a template.
+  for (const name of ["headline-reveal", "title-type", "hook-slam"]) {
+    const old = run(name, { copy: { text: "Ship faster", kicker: "New" } });
+    assert.ok(!old.layers.some((layer) => layer.id === "r-kicker"), name);
+    assert.match(old.notes.join(), /kicker left out/);
+    assert.deepEqual(old.layers[0].recipe.settings.copy, { text: "Ship faster" }, "the kicker is not saved, so it is not noted again");
+  }
 });
 
 test("callout: one group of corner brackets and a measured label plate, kept in the safe area", () => {

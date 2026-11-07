@@ -71,15 +71,6 @@ function buildKineticTitle() {
     fill: "#F6F4EF",
     animations: [motion("Title rise", 0, 1.2, { y: 355, opacity: 0 }, { y: 250, opacity: 1 })],
   });
-  const kicker = text("Series label", "MOTION / 001", {
-    x: 160,
-    y: 170,
-    width: 800,
-    height: 50,
-    fontSize: 26,
-    fontWeight: 500,
-    fill: "#9DA8BB",
-  });
   const rule = createLayer("rectangle", {
     name: "Coral accent",
     x: 160,
@@ -106,7 +97,7 @@ function buildKineticTitle() {
     height: 1080,
     duration: DURATION,
     background: "#111625",
-    layers: [kicker, title, rule, footer],
+    layers: [title, rule, footer],
   }));
 }
 
@@ -199,15 +190,6 @@ function buildMotionCard() {
     shadow: { x: 0, y: 18, blur: 42, color: "#1B2C3A26" },
     animations: [motion("Card settles", 0, 1.1, { y: 270, opacity: 0 }, { y: 170, opacity: 1 })],
   });
-  const eyebrow = text("Card eyebrow", "FIELD NOTES  /  2026", {
-    x: 330,
-    y: 285,
-    width: 690,
-    height: 44,
-    fontSize: 24,
-    fontWeight: 500,
-    fill: "#6C7788",
-  });
   const title = text("Card title", "Ideas in\nmotion.", {
     x: 320,
     y: 370,
@@ -254,7 +236,7 @@ function buildMotionCard() {
     height: 1080,
     duration: DURATION,
     background: "#DCE8EC",
-    layers: [card, eyebrow, title, accent, dot, footer],
+    layers: [card, title, accent, dot, footer],
   }));
 }
 

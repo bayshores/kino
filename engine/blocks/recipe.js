@@ -49,6 +49,8 @@ export function readCopy(definition, copy) {
       delete value[field.key];
       continue;
     }
+    // A retired field (recipes/common.js) is accepted as it is and left out when the recipe runs.
+    if (field.retired) continue;
     if (field.list) {
       if (!Array.isArray(entry) || entry.length < (field.min ?? 1) || entry.length > field.list)
         throw new Error(`${definition.name} copy.${field.key} must be a list of ${field.min ?? 1} to ${field.list} ${field.of ?? "texts"}.`);
@@ -64,6 +66,13 @@ export function readCopy(definition, copy) {
     }
   }
   return value;
+}
+
+/** `copy` (an object) without the recipe's retired fields, or `copy` itself when it has none. */
+export function withoutRetired(definition, copy) {
+  const retired = (definition.copy ?? []).filter((field) => field.retired).map((field) => field.key);
+  if (!copy || typeof copy !== "object" || Array.isArray(copy) || !retired.some((key) => Object.hasOwn(copy, key))) return copy;
+  return Object.fromEntries(Object.entries(copy).filter(([key]) => !retired.includes(key)));
 }
 
 // Settings a recipe may take besides its copy. enter, align, uppercase, hero, box, color and
@@ -129,7 +138,9 @@ export function runRecipe(definition, options) {
     media: (ref) => media(ref),
     used: new Set(),
   };
-  const copy = readCopy(definition, settings.copy);
+  const given = readCopy(definition, settings.copy);
+  const copy = withoutRetired(definition, given);
+  const notes = (definition.copy ?? []).filter((field) => field.retired && given[field.key] !== undefined).map((field) => field.retired);
   if (definition.media === "required" && !settings.media) throw new Error(`${definition.name} needs media: an uploaded image's ID or name (library {topic:"media"} lists them).`);
   const pictures = settings.media ? [].concat(settings.media).map((ref) => ctx.media(ref)) : [];
   const box = slotBox(frame, settings.slot ?? defaultSlot(definition, frame));
@@ -295,6 +306,6 @@ export function runRecipe(definition, options) {
 
   const main = group ?? layers[0].layer;
   if (options.role) main.role = options.role;
-  main.recipe = { ...main.recipe, settings: { ...settings, ...(settings.copy !== undefined ? { copy: settings.copy } : {}) } };
-  return { layers: layers.map(({ layer }) => layer), assertions, readyBy: round(readyBy), needs, least, staying, ends: Object.fromEntries(ends) };
+  main.recipe = { ...main.recipe, settings: { ...settings, ...(settings.copy !== undefined ? { copy: withoutRetired(definition, settings.copy) } : {}) } };
+  return { layers: layers.map(({ layer }) => layer), assertions, readyBy: round(readyBy), needs, least, staying, ends: Object.fromEntries(ends), notes };
 }

@@ -50,6 +50,8 @@ What the checks measure, and how to keep a video small.
   few quick cuts), `split_card_layout` (big type on one half, a framed card on the other over a
   flat frame for 4 s: fill the frame with the footage, the number on it) and `page_chrome`
   (small tracked caps labels or a row of thin bars over 8 s: say it with the voice or real UI).
+- Never stack a small label (a kicker or eyebrow, often caps or the accent) right above a
+  headline: `stacked_label` warns and its fix deletes the label. Let the headline stand alone.
 - Give each cut a reason: a beat (half-beat grid or cue, within a frame), a word edge or pause, or the
   fastest point of a move (cut on action). `cut_motivation` warns when over 40% of 8+ cuts have none.
 

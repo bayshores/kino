@@ -11,6 +11,12 @@ export function headlineStep(text) {
   return length <= 16 ? "display" : length <= 34 ? "h1" : "h2";
 }
 
+/**
+ * A copy field kino no longer draws. It is still accepted, so old projects and agents are not
+ * refused; the runner leaves it out and says so in the receipt (recipe.js).
+ */
+export const RETIRED_KICKER = { key: "kicker", retired: "kicker left out: a small label stacked over a headline reads as a template" };
+
 /** The settings' align, or a seeded pick from `choices`. An align the recipe cannot use is an error. */
 export function alignOf(ctx, settings, choices = ["left", "center"]) {
   ctx.used?.add("align");

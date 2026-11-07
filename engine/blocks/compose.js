@@ -9,7 +9,7 @@ import { styleFor, LOOK_NAMES } from "./looks.js";
 import { FEELS } from "./tokens.js";
 import { recipeOf, TRANSITION_NAMES } from "./recipes/index.js";
 import { applyTransition } from "./recipes/transitions.js";
-import { runRecipe, settingsFrom } from "./recipe.js";
+import { runRecipe, settingsFrom, withoutRetired } from "./recipe.js";
 import { backdropLayers } from "./backdrop.js";
 import { round } from "../numbers.js";
 
@@ -221,6 +221,7 @@ export function composeScene(input, env) {
       : [];
     groups.push([...made.layers, ...extra]);
     assertions.push(...made.assertions);
+    for (const note of made.notes) notes.push(`beat ${entry.index + 1} (${entry.beat.recipe}): ${note}`);
     beats.push({ id: entry.id, recipe: entry.beat.recipe, start, end, needs: entry.needs });
   }
   let backdropId = `${env.sceneId ?? "scene"}-bg${suffix}`;
@@ -232,7 +233,7 @@ export function composeScene(input, env) {
     layers: [...backdrop, ...groups.flat()],
     assertions, beats,
     // Saved with each beat's ID, so making the scene again keeps every layer's ID.
-    composition: { ...composition, beats: composition.beats.map((beat, index) => ({ ...beat, id: entries[index].id })) },
+    composition: { ...composition, beats: composition.beats.map((beat, index) => ({ ...withoutRetired(entries[index].definition, beat), ...(beat.copy !== undefined ? { copy: withoutRetired(entries[index].definition, beat.copy) } : {}), id: entries[index].id })) },
     notes,
   };
 }

@@ -215,7 +215,7 @@ export function scrambledText(text, settled, rng, mode = "in") {
 
 /**
  * The real text goes full just before the random letters hide at `end`, so no frame shows
- * neither (decode and kicker-headline both hand over this way).
+ * neither (the decode move hands over this way).
  */
 export function settleUnder(ctx, layer, end, opacity = 1, role) {
   ctx.animate(layer, "in", motion({ name: "Settled", kind: "in", start: end - 0.002, duration: 0.001, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity } }), role);

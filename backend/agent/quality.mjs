@@ -350,6 +350,13 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
     }
     return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) };
   }
+  // A layer to take out (stacked_label). Never auto: the agent decides the layer has to go.
+  if (fix.kind === "delete_item") {
+    const item = itemOf(fix.itemId);
+    const found = sourceLayer(document, item);
+    if (!found || item.source.componentPath) return { fix: item ? copyHint(item) : undefined, auto: false };
+    return { fix: { op: "delete_layer", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id) }, auto: false };
+  }
   if (fix.kind === "item") {
     const item = itemOf(fix.itemId);
     if (item?.source?.sceneBackground) {

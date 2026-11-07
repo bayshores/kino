@@ -9,7 +9,7 @@ import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, jud
 import { assertions, noRhythm, offBeat, promoBasics, sceneLengths, staticScene, transitionsDense } from "./rules/pacing.js";
 import { referenceDrift } from "./rules/reference.js";
 import { hold, readingTime, typeMin } from "./rules/text.js";
-import { blurredBackdrop, ownWords, sameEntrance, softCuts, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
+import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
 import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, splitCardLayout } from "./rules/aiTells.js";
 import { cutOffAtRest, fontFallback, heldStatic, offBrandFont, renderArtifact, smallOnEmpty, textCollision, textGhost, textOnBusy, textWrap } from "./rules/polish.js";
 import { frozenScreen, screenUnreadable } from "./rules/screens.js";
@@ -124,6 +124,7 @@ export const RULES = [
   rule("soft_cuts", "warn", softCuts, "not a fade or blur at every section change (3+)"),
   rule("blurred_backdrop", "warn", blurredBackdrop, "centered text over blurred full-frame footage on fewer than 3 beats (one designed moment is fine)"),
   rule("text_glow", "warn", textGlow, "no glow on text"),
+  rule("stacked_label", "warn", stackedLabel, "no small label (5 words or fewer, half the size or less) stacked right above a headline: the kicker or eyebrow template"),
   rule("fade_only_entrances", "warn", fadeOnlyEntrances, "at most 60% of 5+ entrances only fade"),
   rule("drift_on_every_shot", "warn", driftOnEveryShot, "not every full-frame shot (3+) drifts 0.5% to 5%"),
   rule("even_shot_lengths", "warn", evenShotLengths, "6+ shots: stdev / mean 0.6 or more"),

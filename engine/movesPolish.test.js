@@ -286,20 +286,16 @@ test("count-up keeps the stat's format and counts in tabular figures, so the num
   assert.notEqual(width("$0.4M", false), width("$1.2M", false), "(proportional digits are not)");
 });
 
-test("kicker-headline: the random letters are a decor copy that hands over to the kicker as it settles", () => {
-  const made = run("kicker-headline", { kicker: "setup", headline: "Set it up in seconds" });
-  const part = (name) => made.added.find((entry) => entry.layer.move.part === name)?.layer;
-  const [kicker, decode, headline] = [part("kicker"), part("decode"), part("headline")];
-  assert.equal(kicker.text, "[ SETUP ]");
-  assert.equal(decode.role, "decor", "the scramble is not copy to read");
-  const settled = animation(kicker, "in");
-  assert.ok(settled.start + settled.duration < animation(decode, "hide").start, "the kicker is full just before the decode hides, so no frame shows neither");
-  assert.match(decode.text, /^\S [A-Z]{5} \S$/, "random letters keep each letter's case");
+test("headline-write: only the headline writes on; an old kicker-headline op still runs, with its kicker left out and a note", () => {
+  const made = run("headline-write", { headline: "Set it up in seconds" });
+  assert.deepEqual(made.added.map((entry) => entry.layer.move.part), ["headline"]);
+  const headline = made.added[0].layer;
   // Words arrive 4 a second at 40% and darken to full in 0.2 s.
   const arrive = animation(headline, "arrive");
   assert.deepEqual([arrive.unit, arrive.stagger, arrive.to.opacity, animation(headline, "ink").duration], ["words", 0.25, 0.4, 0.2]);
-  const calm = run("kicker-headline", { kicker: "setup", headline: "Set it up in seconds" }, { reduced: true });
-  assert.ok(!calm.added.some((entry) => entry.layer.move.part === "decode"), "reduced motion fades the kicker in without the scramble");
+  const old = run("kicker-headline", { kicker: "setup", headline: "Set it up in seconds" });
+  assert.deepEqual(old.added.map((entry) => entry.layer.move.part), ["headline"], "no label above the headline");
+  assert.ok(old.notes.some((note) => /kicker left out/.test(note)), old.notes.join("; "));
 });
 
 test("window-punch-in: 60% to 92% of the width, most of it in the first 0.2 s, then a slow push; glow off unless asked, beats make steps", () => {

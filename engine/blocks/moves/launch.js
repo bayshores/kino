@@ -1,5 +1,5 @@
 // Type moves from a study of pro launch videos: a section
-// title with a decoding kicker over a headline that writes on gray to ink (kicker-headline), a
+// title whose headline writes on gray to ink (headline-write), a
 // logo mark that lands from 2.6x while its name types on beside it (logo-settle), and a stat that
 // counts up to its number with a label writing on under it (count-up).
 //
@@ -11,7 +11,6 @@ import { layoutText } from "../../textLayout.js";
 import { readSeconds, textLayer } from "../build.js";
 import { safeArea } from "../formats.js";
 import { CURVES, centerOf, hide, motion, round, scaledAbout } from "./kit.js";
-import { scrambledText, settleUnder } from "./stream.js";
 
 // expo-out and quart-out (study: "Easing names").
 const EXPO_OUT = [0.16, 1, 0.3, 1];
@@ -49,66 +48,39 @@ function holdPush(ctx, layers, from, until) {
   }
 }
 
-// ---- kicker-headline ----------------------------------------------------------------------
-// The decode: the kicker's letters are random until they settle, left to right, in 0.4 s (the
-// same random letters and handover as the decode move).
-const DECODE = 0.4;
-const DECODE_STEPS = 8;
+// ---- headline-write -----------------------------------------------------------------------
 // The headline: a word every 0.25 s (4 a second), each from 40% to full in 0.2 s.
+// It once had a small caps label decoding above it (kicker-headline, still accepted by that
+// name); a label stacked over a headline reads as a template, so the kicker is left out.
 const WORD_EVERY = 0.25;
 const WORD_GRAY = 0.4;
 const WORD_DARKEN = 0.2;
 
-/** The kicker as it shows `step` of DECODE_STEPS into the decode: settled on the left, random on the right. */
-const scrambled = (text, step, rng) => scrambledText(text, Math.floor(([...text].length * step) / DECODE_STEPS), rng);
-
-export const kickerHeadline = {
-  name: "kicker-headline",
-  about: "a section title: a small caps kicker in brackets, in the accent color, decodes from random letters left to right (0.4 s); then the headline writes on word by word, 4 words a second, each word arriving gray and darkening to full in 0.2 s, centered",
+export const headlineWrite = {
+  name: "headline-write",
+  about: "a section title: the headline writes on word by word, 4 words a second, each word arriving gray and darkening to full in 0.2 s, centered",
   fits: "the title of each section of a launch or explainer video; a quiet, typographic way to say what comes next",
-  tags: ["type-swap", "type-words"],
-  length: 2.6,
+  tags: ["type-words"],
+  length: 2.2,
   fields: {
     headline: { kind: "text", required: true, max: 60, about: "the headline, one short line (4 to 7 words reads best)" },
-    kicker: { kind: "text", max: 24, about: "the small label above it, such as setup (written in caps, in brackets)" },
+    kicker: { kind: "text", max: 80, retired: true, about: "retired: accepted and left out" },
     exit: { kind: "choice", values: ["stay", "dim", "fade"], about: "at the end: stay (default), dim (fades to 20% so the next section builds over it) or fade (out and gone)" },
   },
-  example: { kicker: "setup", headline: "Set it up in seconds", at: 0.3 },
+  example: { headline: "Set it up in seconds", at: 0.3 },
   setup: "none",
   build(ctx, input) {
     const safe = safeArea(ctx.frame);
     const width = Math.round(safe.width * (ctx.portrait ? 1 : 0.8));
     const box = { x: Math.round(ctx.frame.width / 2 - width / 2), y: safe.y, width, height: safe.height };
     // Sized to the reference frames: the headline's capitals about 5% of the frame's height (a
-    // 7.5% font size), the kicker's about 2.5% (the smallest body size the type_min gate allows).
+    // 7.5% font size).
     const headline = textLayer(ctx, { part: "headline", text: input.headline, role: "headline", step: "h2", size: Math.round(Math.min(ctx.frame.height * 0.075, ctx.frame.width * 0.085)), box, align: "center", face: "body", maxLines: 2, weight: ctx.brandFonts ? undefined : 600 });
-    const label = input.kicker ? (/^\[.*\]$/.test(input.kicker) ? input.kicker : `[ ${input.kicker} ]`).toUpperCase() : null;
-    const kicker = label ? textLayer(ctx, { part: "kicker", text: label, role: "body", step: "label", size: Math.round(ctx.frame.height * 0.033), box, align: "center", face: "body", color: "accent", weight: ctx.brandFonts ? undefined : 500, maxLines: 1 }) : null;
-    const gap = kicker ? Math.round(kicker.fontSize * 0.7) : 0;
-    const blockHeight = (kicker ? kicker.height + gap : 0) + headline.height;
-    const top = Math.round(ctx.frame.height / 2 - blockHeight / 2);
+    if (input.kicker) ctx.note("kicker left out: a small label stacked over a headline reads as a template");
+    const top = Math.round(ctx.frame.height / 2 - headline.height / 2);
     const layers = [];
-    let writeAt = ctx.start;
-    if (kicker) {
-      // Wide letter spacing, like a mono label; the box keeps room for wider random letters.
-      const made = ctx.add("kicker", { ...kicker, y: top, letterSpacing: 20, name: label });
-      made.width = Math.min(box.width, Math.round(made.width * 1.4));
-      made.x = Math.round(ctx.frame.width / 2 - made.width / 2);
-      layers.push(made);
-      if (ctx.reduced) ctx.animate(made, "in", motion({ name: "Fade in", kind: "in", start: ctx.start, duration: 0.3, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
-      else {
-        // The random letters are decoration, not copy: a decor copy of the kicker shows them
-        // (each step 0.05 s) and hands over to the kicker itself the moment the last one settles.
-        const decode = ctx.add("decode", { ...made, role: "decor", text: scrambled(label, 0, ctx.rng), name: `${label} (decoding)` });
-        ctx.animate(decode, "in", motion({ name: "Fade in", kind: "in", start: ctx.start, duration: 0.08, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
-        for (let step = 1; step < DECODE_STEPS; step += 1)
-          ctx.animate(decode, `step${step}`, { name: "Decode", kind: "change-text", start: round(ctx.start + (DECODE * step) / DECODE_STEPS), text: scrambled(label, step, ctx.rng), overlap: false, out: null, in: null });
-        ctx.animate(decode, "hide", hide(ctx.start + DECODE));
-        settleUnder(ctx, made, ctx.start + DECODE);
-      }
-      writeAt = ctx.start + DECODE + 0.1;
-    }
-    const line = ctx.add("headline", { ...headline, y: top + (kicker ? kicker.height + gap : 0), name: input.headline });
+    const writeAt = ctx.start;
+    const line = ctx.add("headline", { ...headline, y: top, name: input.headline });
     // Two lines of about the same length, never one long line and a lone word under it: the
     // narrowest width that still takes two lines.
     if (layoutText(line, ctx.fonts).lines.length === 2) {

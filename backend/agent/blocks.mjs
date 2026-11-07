@@ -992,7 +992,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const kept = scene.layers.filter((layer) => layer.recipe?.instance !== operation.id);
     scene.layers = at >= 0 ? [...kept.slice(0, at), ...made.layers, ...kept.slice(at)] : [...kept, ...made.layers];
     setAssertions(scene, [...(scene.assertions ?? []).filter((assertion) => !skip.has(assertion.target)), ...made.assertions]);
-    work.notes.push(`recipe ${operation.id}${main ? " (made again)" : ""}: ${made.layers.length} layers, ${start}–${end ?? scene.duration} s`);
+    work.notes.push(`recipe ${operation.id}${main ? " (made again)" : ""}: ${made.layers.length} layers, ${start}–${end ?? scene.duration} s${made.notes.length ? `; ${made.notes.join("; ")}` : ""}`);
   }
 
   async function applyTransitionOp(document, operation, work) {
@@ -1036,7 +1036,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const stored = scene.moves?.find((entry) => entry.id === operation.id) ?? null;
     if (!stored && document.scenes.some((item) => item.moves?.some((entry) => entry.id === operation.id)))
       throw problem(`The move ${operation.id} is in another scene; give scene, or a new id.`);
-    if (stored && stored.name !== operation.name)
+    if (stored && (MOVES[stored.name]?.name ?? stored.name) !== definition.name)
       throw problem(`${operation.id} was made by move ${stored.name}; use name "${stored.name}" to change it, or give a new id.`);
     // The cues a move wrote (roll: <id>.1, <id>.2, ... <id>.land) go with it and come back with it.
     // Only the names on its record go, so a cue the agent set itself (hook.hit) stays.
@@ -2225,7 +2225,7 @@ export function variantSet(document, scene) {
 // ---- library ----------------------------------------------------------------------------------
 /** library {topic:"moves"}: every move in one line each; with name, one move's fields and an example. */
 export function movesLibraryText(name) {
-  const fieldList = (move) => Object.entries(move.fields).map(([key, field]) => `${key}${field.required ? "*" : ""}`).join(" ");
+  const fieldList = (move) => Object.entries(move.fields).filter(([, field]) => !field.retired).map(([key, field]) => `${key}${field.required ? "*" : ""}`).join(" ");
   if (name) {
     const move = MOVES[String(name)];
     if (!move) {
@@ -2234,7 +2234,7 @@ export function movesLibraryText(name) {
     return [
       `${move.name} [${move.tags.join(", ")}]: ${move.about}.`,
       `fits: ${move.fits}.`,
-      `fields (* = required): ${Object.entries(move.fields).map(([key, field]) => `${key}${field.required ? "*" : ""}: ${field.about}`).join("; ")}.`,
+      `fields (* = required): ${Object.entries(move.fields).filter(([, field]) => !field.retired).map(([key, field]) => `${key}${field.required ? "*" : ""}: ${field.about}`).join("; ")}.`,
       `at${move.needsAt ? "*" : ""}: when it starts; dur: seconds (${move.lasts ?? `default ${move.length}`}${move.shortest ? `, at least ${move.shortest}` : ""}); seed: other choices; reduced:true (or a reduced composition): ${move.reduced ?? "a calm version with fades, no blur sweeps"}.`,
       `example: ${JSON.stringify({ op: "move", name: move.name, ...move.example })}`,
       move.setup ? `the example's layers: ${move.setup}` : "",

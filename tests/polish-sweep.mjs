@@ -46,7 +46,7 @@ export const COMPOSITIONS = {
     { recipe: "cta-end", text: "Try Orbit free", sub: "orbit.app", transition: "mask-wipe" },
   ] },
   explainer: { type: "explainer", beats: [
-    { recipe: "headline-reveal", text: "How Orbit plans your week", kicker: "Guide" },
+    { recipe: "headline-reveal", text: "How Orbit plans your week" },
     { recipe: "step-list", title: "How it works", items: ["Connect your calendars", "Pick your focus hours", "Share one link"] },
     { recipe: "bar-chart-grow", title: "Meetings per week", bars: [{ label: "Jan", value: 14 }, { label: "Feb", value: 11 }, { label: "Mar", value: 7 }] },
     { recipe: "number-counter", value: 1200, suffix: "+", label: "teams plan with Orbit" },

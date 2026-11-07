@@ -5,7 +5,7 @@
 import { captionWords, pushThroughType, statusLine } from "./type.js";
 import { maskThroughShape, whipPan, zoomThrough } from "./transitions.js";
 import { CUTS } from "./cuts.js";
-import { countUp, kickerHeadline, logoSettle } from "./launch.js";
+import { countUp, headlineWrite, logoSettle } from "./launch.js";
 import { logoMatchMove, parallaxStack, rgbSplitHit, speedLinesPhone, swipeCards, tileRing } from "./setpieces.js";
 import { cardIntoDevice, liftFocus, windowPunchIn } from "./product.js";
 import { drawOn } from "./lines.js";
@@ -20,9 +20,13 @@ import { uiPlane } from "./plane.js";
 import { accentHit, lightSweep } from "./accent.js";
 import { cursor } from "./cursor.js";
 import { screenRecording } from "./recording.js";
-const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, kickerHeadline, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, cursor, assemble, ...CUTS, screenRecording];
+const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, headlineWrite, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, cursor, assemble, ...CUTS, screenRecording];
 
-export const MOVES = Object.freeze(Object.fromEntries(LIST.map((move) => [move.name, move])));
+// Old names saved projects and agents may still send, each to the move that took its place. They
+// work everywhere a name does but are not listed (kicker-headline lost its label over the headline).
+export const RENAMED_MOVES = Object.freeze({ "kicker-headline": "headline-write" });
+const BY_NAME = Object.fromEntries(LIST.map((move) => [move.name, move]));
+export const MOVES = Object.freeze({ ...BY_NAME, ...Object.fromEntries(Object.entries(RENAMED_MOVES).map(([old, name]) => [old, BY_NAME[name]])) });
 export const MOVE_NAMES = Object.freeze(LIST.map((move) => move.name));
 
 function near(name) {

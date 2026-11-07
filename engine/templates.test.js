@@ -25,7 +25,7 @@ test("the original template catalog has four licensed editable motion documents"
     assert.equal(document.name, template.name);
     assert.equal(document.scenes.length, 1);
     const [scene] = document.scenes;
-    assert.ok(scene.layers.length >= 4, `${template.name} contains editable layers`);
+    assert.ok(scene.layers.length >= 3, `${template.name} contains editable layers`);
     assert.ok(scene.layers.some((layer) => layer.type === "text"), `${template.name} contains editable text`);
     assert.ok(scene.layers.some((layer) => ["rectangle", "ellipse"].includes(layer.type)), `${template.name} contains editable geometry`);
     assert.ok(scene.layers.some((layer) => layer.animations.length), `${template.name} has editable motion`);

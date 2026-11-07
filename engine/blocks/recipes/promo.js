@@ -5,7 +5,7 @@ import { createLayer } from "../../model.js";
 import { alignIn, column, imageLayer, paint, shapeLayer, textLayer, textWidth, withAlpha } from "../build.js";
 import { isPortraitFrame, safeArea, slotBox } from "../formats.js";
 import { looksLikeScreen } from "../../imageFacts.js";
-import { alignOf, boundsOf, cardAround, headlineStep, logoLayer, pillWithText, px, shiftX, styleOf } from "./common.js";
+import { alignOf, boundsOf, cardAround, headlineStep, logoLayer, pillWithText, px, RETIRED_KICKER, shiftX, styleOf } from "./common.js";
 
 export const logoSting = {
   name: "logo-sting",
@@ -43,26 +43,23 @@ export const logoSting = {
 export const headlineReveal = {
   name: "headline-reveal",
   group: "promo",
-  about: "a headline enters word by word or line by line, with an optional kicker above and a line under it",
+  about: "a headline enters word by word or line by line, with an optional line under it",
   copy: [
     { key: "text", required: true, max: 70, about: "the headline" },
     { key: "sub", max: 110, about: "a supporting line under the headline" },
-    { key: "kicker", max: 24, about: "a small label above the headline" },
+    RETIRED_KICKER,
   ],
   slots: { landscape: "A2:F5", portrait: "A1:F4", square: "A2:F5" },
   build(ctx, { copy, box, settings }) {
     const align = alignOf(ctx, settings);
-    const kicker = copy.kicker ? textLayer(ctx, { part: "kicker", text: copy.kicker, role: "caption", step: "label", box: { ...box, height: box.height * 0.15 }, align, color: "accent", maxLines: 1, uppercase: true, weight: 700 }) : null;
     const head = textLayer(ctx, { part: "headline", text: copy.text, role: "headline", step: headlineStep(copy.text), box: { ...box, height: box.height * (copy.sub ? 0.6 : 0.82) }, align, maxLines: 3 });
     const sub = copy.sub ? textLayer(ctx, { part: "sub", text: copy.sub, role: "subhead", step: "body", box: { ...box, height: box.height * 0.28 }, align, maxLines: 3 }) : null;
-    column(box, [kicker && { layer: kicker }, { layer: head, gap: px(ctx, 22) }, sub && { layer: sub, gap: px(ctx, 30) }], { valign: "middle" });
+    column(box, [{ layer: head }, sub && { layer: sub, gap: px(ctx, 30) }], { valign: "middle" });
     const headStyle = styleOf(ctx, settings, ["rise", "lines", "fade-up", "slam"]);
     return {
       parts: [
-        // The headline leads; the kicker drops in above it a moment later.
         { part: null, layer: head, enter: { style: headStyle, at: 0 } },
         sub && { part: "sub", layer: sub, enter: { style: "fade-up", after: null, gap: -0.2 } },
-        kicker && { part: "kicker", layer: kicker, enter: sub ? { style: "fade-down", with: "sub", gap: 0 } : { style: "fade-down", with: null, gap: 0.15 } },
       ].filter(Boolean),
       assertions: [{ type: "visible_by" }, { type: "inside_frame" }, ...(sub ? [{ type: "before", other: "sub" }] : [])],
     };

@@ -33,8 +33,8 @@ const BEATS = {
   "clip-01": [{ recipe: "hook-slam", text: "Stop double-booking." }, { recipe: "tip-card", title: "Tip 1", text: "Share one calendar with your whole team" }, { recipe: "follow-cta", text: "Follow for more", handle: "@orbit" }],
   "clip-02": [{ recipe: "hook-slam", text: "3 reasons to bike to work" }, { recipe: "caption-pop", text: "Faster than traffic, free exercise, no parking" }, { recipe: "follow-cta", text: "Follow for more", handle: "@voltline" }],
   "clip-06": [{ recipe: "hook-slam", text: "New: swell forecasts" }, { recipe: "caption-pop", text: "Know the waves before you paddle out" }, { recipe: "follow-cta", text: "Try it today", handle: "@tidallabs" }],
-  "explainer-02": [{ recipe: "headline-reveal", text: "How compound interest grows", kicker: "Explainer" }, { recipe: "bar-chart-grow", title: "$1,000 at 5%", bars: [{ label: "Y1", value: 1050 }, { label: "Y3", value: 1158 }, { label: "Y5", value: 1276 }] }, { recipe: "number-counter", value: 276, prefix: "$", label: "earned in five years" }],
-  "explainer-04": [{ recipe: "headline-reveal", text: "How to book a slow-travel stay", kicker: "Guide" }, { recipe: "step-list", title: "Three steps", items: ["Pick a region", "Choose 7 nights or more", "Book and pack light"] }, { recipe: "cta-end", text: "Book at fernway.travel", sub: "Stays of a week or more" }],
+  "explainer-02": [{ recipe: "headline-reveal", text: "How compound interest grows" }, { recipe: "bar-chart-grow", title: "$1,000 at 5%", bars: [{ label: "Y1", value: 1050 }, { label: "Y3", value: 1158 }, { label: "Y5", value: 1276 }] }, { recipe: "number-counter", value: 276, prefix: "$", label: "earned in five years" }],
+  "explainer-04": [{ recipe: "headline-reveal", text: "How to book a slow-travel stay" }, { recipe: "step-list", title: "Three steps", items: ["Pick a region", "Choose 7 nights or more", "Book and pack light"] }, { recipe: "cta-end", text: "Book at fernway.travel", sub: "Stays of a week or more" }],
 };
 
 // A brief's call list: status, create, one edit (brand + compose), check {fix:"auto"}, render.

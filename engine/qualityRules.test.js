@@ -1189,6 +1189,16 @@ test("text_glow: no glow on text", async () => {
   await silent("text_glow", titled(null));
 });
 
+test("stacked_label: a small label right above a headline, not a caption under it or a label beside or far from it", async () => {
+  const titled = (label) => scene({ layers: [text("head", "5 VIEWS AFTER DARK", { fontSize: 140, y: 400 }), text("label", "CITY GUIDE", { fontSize: 32, fill: "#d9480f", ...label })] });
+  const [finding] = await fires("stacked_label", titled({ y: 340 }));
+  assert.deepEqual([finding.itemId, finding.fix.kind, finding.fix.itemId], ["label", "delete_item", "label"]);
+  assert.match(finding.measured, /caps, another color/);
+  await silent("stacked_label", titled({ y: 600 }));
+  await silent("stacked_label", titled({ y: 100 }));
+  await silent("stacked_label", titled({ x: 1650, y: 440 }));
+});
+
 // Defaults nobody chose (engine/quality/rules/aiTells.js). A plain edit: full-frame shots cut in at
 // uneven lengths, locked off, with a caption that cuts in.
 const AI_TELLS = ["fade_only_entrances", "drift_on_every_shot", "even_shot_lengths", "split_card_layout", "page_chrome"];

@@ -30,7 +30,7 @@ export function describeRecipes() {
     const recipe = RECIPES[name];
     return {
       name, group: recipe.group, about: recipe.about,
-      copy: Object.fromEntries((recipe.copy ?? []).map((field) => [field.key, `${field.required ? "required; " : ""}${field.about}${field.max && !field.list ? ` (≤${field.max} chars)` : ""}`])),
+      copy: Object.fromEntries((recipe.copy ?? []).filter((field) => !field.retired).map((field) => [field.key, `${field.required ? "required; " : ""}${field.about}${field.max && !field.list ? ` (≤${field.max} chars)` : ""}`])),
       ...(recipe.media ? { media: recipe.media } : {}),
       ...(Object.keys(recipe.slots ?? {}).length ? { slots: recipe.slots } : {}),
     };

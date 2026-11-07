@@ -3,7 +3,7 @@
 // picture (an uploaded media ID); `settings` are more fields for the library's example.
 export const EXAMPLES = Object.freeze({
   "logo-sting": { copy: { tagline: "Plan the week in one view" } },
-  "headline-reveal": { copy: { text: "Plan the week in one view", sub: "Shared calendars for busy teams", kicker: "New" } },
+  "headline-reveal": { copy: { text: "Plan the week in one view", sub: "Shared calendars for busy teams" } },
   "device-slide": { copy: { text: "Everything in one place", sub: "Calendars, tasks and notes" }, media: true },
   "feature-callout": { copy: { text: "Smart scheduling", sub: "Finds the time that works for everyone" } },
   "screen-detail": { copy: {}, media: true, region: [55, 20, 35, 40] },
@@ -24,6 +24,6 @@ export const EXAMPLES = Object.freeze({
   "logo-build": { copy: { text: "Orbit" } },
   "wordmark-type": { copy: { text: "Orbit" } },
   "word-stack": { copy: { words: ["Plan", "Focus", "Ship"] } },
-  "title-type": { copy: { text: "Ship every week", kicker: "Chapter one", sub: "How small teams keep shipping" } },
+  "title-type": { copy: { text: "Ship every week", sub: "How small teams keep shipping" } },
   "split-reveal": { copy: { text: "Plan less", sub: "Do more of what matters" } },
 });

@@ -247,7 +247,7 @@ How to read it:
   fade under reduced motion; hand sweeps gave 0 errors. Evidence: `backend/blocks-gate.test.mjs`,
   `backend/blocks-polish.test.mjs`, `engine/blocksPolish.test.js`; `tests/blocks-gate.mjs` and
   `tests/polish-sweep.mjs` by hand. Gap: a transition added alone (not as a compose beat) is not
-  saved; the sweeps were not rerun for the 3 newest recipes. `title-type` (kicker, big tight uppercase title typing on by letter or word, detail line) checked in rendered frames only.
+  saved; the sweeps were not rerun for the 3 newest recipes. `title-type` (big tight uppercase title typing on by letter or word, detail line) checked in rendered frames only.
 - **Whole-video formats**: Partly verified. `format {name, slots}` fills 5 formats (product launch,
   app demo, social promo, feature announcement, testimonial) into a compose scene with set pacing
   and cues; screen recordings play (silent) from their step; music is cut to the beat by fit_music

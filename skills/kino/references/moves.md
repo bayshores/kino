@@ -91,8 +91,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 
 Launch-video type (words arrive faint and darken on any background):
 
-- **kicker-headline**: a caps `kicker` in brackets decodes, then the `headline` writes on 4
-  words a second, centered. `exit:"dim"` fades it to 20%.
+- **headline-write**: the `headline` writes on 4 words a second, centered, with no label
+  above it. `exit:"dim"` fades it to 20%.
 - **logo-settle**: the logo mark (`picture` or `logo`) lands from 2.6x, the `wordmark` types on
   beside it; `header:true` shrinks the lockup into a header.
 - **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,

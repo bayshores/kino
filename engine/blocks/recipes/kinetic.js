@@ -1,6 +1,6 @@
 // Logo and kinetic-type recipes: logo-build, wordmark-type, word-stack, split-reveal.
 import { alignIn, column, imageLayer, shapeLayer, textLayer, textWidth } from "../build.js";
-import { alignOf, headlineStep, px, styleOf } from "./common.js";
+import { alignOf, headlineStep, px, RETIRED_KICKER, styleOf } from "./common.js";
 
 export const logoBuild = {
   name: "logo-build",
@@ -106,31 +106,28 @@ export const splitReveal = {
   },
 };
 
-// A title card (the most used title layout in social templates): a small kicker
-// line above, big centered tight uppercase type that types on by letter (enter "type") or by
+// A title card: big centered tight uppercase type that types on by letter (enter "type") or by
 // word (enter "rise"), and a detail line below that fades up once the title is written.
 export const titleType = {
   name: "title-type",
   group: "kinetic",
-  about: "a small kicker above, a big centered tight uppercase title typing on by letter or word, a detail line below",
+  about: "a big centered tight uppercase title typing on by letter or word, a detail line below",
   copy: [
     { key: "text", required: true, max: 32, about: "the title" },
-    { key: "kicker", max: 24, about: "a small line above the title" },
+    RETIRED_KICKER,
     { key: "sub", max: 60, about: "a detail line under the title" },
   ],
   slots: { landscape: "A2:F5", portrait: "A1:F5", square: "A1:F6" },
   build(ctx, { copy, box, settings }) {
-    const kicker = copy.kicker ? textLayer(ctx, { part: "kicker", text: copy.kicker, role: "caption", step: "label", box: { ...box, height: box.height * 0.12 }, align: "center", maxLines: 1, uppercase: true, weight: 600 }) : null;
     const head = textLayer(ctx, { part: "headline", text: copy.text, role: "headline", step: "display", size: Math.round(ctx.style.type.display * 1.15), box: { ...box, height: box.height * (copy.sub ? 0.55 : 0.7) }, align: "center", maxLines: 2, uppercase: true, lineHeight: 0.95 });
     // Tight tracking reads as condensed type in any family (a condensed brand font is tighter still).
     head.letterSpacing = -2;
     const sub = copy.sub ? textLayer(ctx, { part: "sub", text: copy.sub, role: "subhead", step: "body", box: { ...box, height: box.height * 0.22 }, align: "center", maxLines: 2 }) : null;
-    column(box, [kicker && { layer: kicker }, { layer: head, gap: px(ctx, 18) }, sub && { layer: sub, gap: px(ctx, 28) }], { valign: "middle" });
+    column(box, [{ layer: head }, sub && { layer: sub, gap: px(ctx, 28) }], { valign: "middle" });
     const enter = styleOf(ctx, settings, ["type", "rise"]);
     return {
       parts: [
-        kicker && { part: "kicker", layer: kicker, enter: { style: "fade-down", at: 0 } },
-        { part: null, layer: head, enter: kicker ? { style: enter, after: "kicker", gap: -0.2 } : { style: enter, at: 0 } },
+        { part: null, layer: head, enter: { style: enter, at: 0 } },
         sub && { part: "sub", layer: sub, enter: { style: "fade-up", after: null, gap: 0.05 } },
       ].filter(Boolean),
       assertions: [{ type: "visible_by" }, { type: "inside_frame" }, ...(sub ? [{ type: "before", other: "sub" }] : [])],

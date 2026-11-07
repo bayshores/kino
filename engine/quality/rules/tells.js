@@ -2,7 +2,8 @@
 // (own_words), stock promo phrases (stock_copy), every text entering the same way
 // (same_entrance), every text revealed word by word (word_by_word), a fade or blur at every
 // section change (soft_cuts), titles over blurred full-frame footage beat after beat
-// (blurred_backdrop) and glowing text (text_glow). One designed use (a word-by-word hook, one
+// (blurred_backdrop), glowing text (text_glow) and a small label stacked over a headline
+// (stacked_label). One designed use (a word-by-word hook, one
 // title over a blur) is a choice; the same move on every beat is the template. Each says what to do instead; ideas.md in the skill has the alternatives.
 //
 // These are kino's default style, not rules for every video: a style spec on the brief that wants
@@ -148,7 +149,7 @@ export function softCuts(model, ctx) {
 
 // Beats of text over a blur before it reads as the template look, not one designed moment.
 const BACKDROP_REPEATS = 3;
-// Texts that come on within this many seconds of each other are one beat (a title and its kicker).
+// Texts that come on within this many seconds of each other are one beat (a title and its subtitle).
 const BACKDROP_BEAT = 1;
 
 /**
@@ -199,4 +200,63 @@ export function textGlow(model, ctx) {
     message: `${ctx.name(item)} glows, a common generated look that also softens the letters.`,
     fix: { kind: "item", itemId: item.id, properties: { shadow: null } },
   }));
+}
+
+// stacked_label: a short text (at most STACK_WORDS words, STACK_CHARS characters, one line) at
+// most STACK_RATIO of a display text's size (STACK_DISPLAY px at 1080 or more) right above it:
+// the gap under it at most STACK_GAP of the display size, the two overlapping across by half the
+// narrower one, both on screen together for STACK_SECONDS. A caption under a title, or a label
+// beside or far from it, is left alone.
+const STACK_WORDS = 5;
+const STACK_CHARS = 40;
+const STACK_RATIO = 0.5;
+const STACK_DISPLAY = 64;
+const STACK_GAP = 0.6;
+const STACK_SECONDS = 0.5;
+
+const isCaps = (item) => {
+  const value = String(item.text ?? "");
+  return item.textCase === "upper" || ((value.match(/\p{L}/gu) ?? []).length >= 2 && value === value.toUpperCase() && value !== value.toLowerCase());
+};
+const paintKey = (paint) => (typeof paint === "string" ? paint.toLowerCase().slice(0, 7) : null);
+
+/** A small label stacked right above a headline (a kicker or eyebrow), the template title layout. */
+export function stackedLabel(model, ctx) {
+  const s = scaleOf(model);
+  const timed = speechTimed(model);
+  const texts = readingTexts(model).filter((item) => !["ui", "logo"].includes(item.role) && !timed.has(item.id));
+  const findings = [];
+  const flagged = new Set();
+  for (const head of texts) {
+    if (!(head.fontSize >= STACK_DISPLAY * s)) continue;
+    for (const label of texts) {
+      if (label === head || flagged.has(label.id) || !(label.fontSize <= STACK_RATIO * head.fontSize)) continue;
+      const words = textsOf(label).map(wordCount);
+      if (!words.length || Math.max(...words) > STACK_WORDS || textsOf(label).some((text) => text.trim().length > STACK_CHARS)) continue;
+      let together = 0;
+      let first = -1;
+      for (let index = 0; index < model.times.length; index += 1) {
+        if (label.samples.opacity[index] < 0.5 || head.samples.opacity[index] < 0.5) continue;
+        const [top, under] = [boxAt(label, index), boxAt(head, index)];
+        const labelSize = label.fontSize * (label.samples.scale?.[index] ?? 1);
+        const headSize = head.fontSize * (head.samples.scale?.[index] ?? 1);
+        const gap = under.y0 - top.y1;
+        const across = Math.min(top.x1, under.x1) - Math.max(top.x0, under.x0);
+        if (top.y1 - top.y0 > 2.2 * labelSize || gap < -0.15 * labelSize || gap > STACK_GAP * headSize) continue;
+        if (across < 0.5 * Math.min(top.x1 - top.x0, under.x1 - under.x0)) continue;
+        together += 1;
+        if (first < 0) first = index;
+      }
+      if (together / model.fps < STACK_SECONDS) continue;
+      flagged.add(label.id);
+      const marks = [isCaps(label) && "caps", paintKey(label.fill) && paintKey(label.fill) !== paintKey(head.fill) && "another color"].filter(Boolean);
+      findings.push({
+        rule: "stacked_label", severity: "warn", itemId: label.id, itemIds: [label.id, head.id], at: sec(model.times[first]),
+        measured: `${Math.round(label.fontSize)} px label${marks.length ? ` (${marks.join(", ")})` : ""} over ${Math.round(head.fontSize)} px ${ctx.name(head)}`, required: "no small label stacked over a headline",
+        message: `${ctx.name(label)} ("${ctx.quote(label.text)}") sits right above ${ctx.name(head)}: a small label stacked over a headline (a kicker or eyebrow) reads as a template.`,
+        fix: { kind: "delete_item", itemId: label.id },
+      });
+    }
+  }
+  return findings;
 }

@@ -125,7 +125,7 @@ const USES = {
   "ui-plane": ["shot-b"],
   "lift-focus": ["shot-b"],
   "card-into-device": ["phone"],
-  "kicker-headline": [],
+  "headline-write": [],
   "logo-settle": [],
   "count-up": [],
   "draw-on": [],

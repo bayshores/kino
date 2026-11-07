@@ -2,7 +2,7 @@
 // laid out for 9:16 first (inside the safe area that phone apps leave clear) and also work in
 // 16:9 and 1:1.
 import { alignIn, column, imageLayer, shapeLayer, textLayer, textWidth } from "../build.js";
-import { alignOf, cardAround, formatNumber, pillWithText, px, shiftX, styleOf } from "./common.js";
+import { alignOf, cardAround, formatNumber, pillWithText, px, RETIRED_KICKER, shiftX, styleOf } from "./common.js";
 
 export const hookSlam = {
   name: "hook-slam",
@@ -10,23 +10,21 @@ export const hookSlam = {
   about: "a short, very large hook slams in over the first second, underlined in the accent colour",
   copy: [
     { key: "text", required: true, max: 40, about: "the hook, a few words" },
-    { key: "kicker", max: 24, about: "a small label above the hook" },
+    RETIRED_KICKER,
   ],
   slots: { landscape: "A2:F5", portrait: "A1:F4", square: "A1:F5" },
   build(ctx, { copy, box, settings }) {
     const align = alignOf(ctx, settings, ["center", "left"]);
     ctx.used?.add("uppercase");
     const upper = settings.uppercase ?? ctx.rng.next() < 0.5;
-    const kicker = copy.kicker ? textLayer(ctx, { part: "kicker", text: copy.kicker, role: "caption", step: "label", box: { ...box, height: box.height * 0.14 }, align, color: "accent", maxLines: 1, uppercase: true, weight: 700 }) : null;
     const hook = textLayer(ctx, { part: "hook", text: copy.text, role: "headline", step: "display", size: Math.round(ctx.style.type.display * 1.1), box: { ...box, height: box.height * 0.78 }, align, maxLines: 4, uppercase: upper });
     const bar = shapeLayer(ctx, { box: { x: 0, y: 0, width: Math.min(hook.width, Math.max(px(ctx, 120), Math.round(textWidth(ctx, hook) * 0.4))), height: Math.max(6, px(ctx, 12)) }, color: "accent", radius: px(ctx, 6), role: "decor", name: "Underline" });
-    column(box, [kicker && { layer: kicker }, { layer: hook, gap: px(ctx, 20) }, { layer: bar, gap: px(ctx, 30) }], { valign: "middle" });
+    column(box, [{ layer: hook }, { layer: bar, gap: px(ctx, 30) }], { valign: "middle" });
     alignIn(bar, box, align);
     const style = styleOf(ctx, settings, ["slam", "slam", "rise"]);
     return {
       parts: [
         { part: null, layer: hook, enter: { style, at: 0 } },
-        kicker && { part: "kicker", layer: kicker, enter: { style: "fade-down", with: null, gap: 0.15 } },
         { part: "bar", layer: bar, enter: { style: "grow-x", anchor: align === "center" ? "center" : "left", after: null, gap: -0.1, kind: "medium" } },
       ].filter(Boolean),
       assertions: [{ type: "visible_by" }, { type: "inside_frame" }],

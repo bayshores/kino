@@ -163,9 +163,9 @@ export function roleFontDrift(model, ctx) {
         fix: { kind: "font", itemIds: off.map((item) => item.id), family: keep, nearest: true, auto: true, why: `${roleName} text in ${keep}` },
       });
     }
-    // Display type may step in size (a title and its kicker), and labels and stats too; captions
+    // Display type may step in size (a title and its second line), and labels and stats too; captions
     // and speech may not. Against the bible's display or label size, a text off it is a warning
-    // (display text beside one at that size is its kicker).
+    // (display text beside one at that size is its second line).
     if (role === "subhead" || role === "stat" || role === "quote" || (role === "label" && !bible?.size) || (role === "display" && !bible?.size)) continue;
     const sizes = items.map((item) => drawnSize(model, item));
     const [common] = mostUsed(items, (item) => Math.round(drawnSize(model, item)));
@@ -591,7 +591,7 @@ export function pacingJump(model, ctx) {
 const ENDINGS = 2;
 // Without a spine, the closing stretch is this last share of the video.
 const CLOSING_SHARE = 0.2;
-// Closing moments this close together are one beat (a title and its kicker).
+// Closing moments this close together are one beat (a title and its subtitle).
 const SAME_ENDING = 1.5;
 // A coda (the idea spine's last beat, style.mjs IDEA_SPINE) closes like the end card.
 const CLOSING_ROLES = ["payoff", "end", "coda"];
