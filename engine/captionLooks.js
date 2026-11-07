@@ -20,7 +20,7 @@
 // Sizes are shares of the frame height (a template headline is about 6.2%), capped by the frame's width so a portrait frame keeps 3 words to 1 or 2 lines.
 import { createLayer, uid } from "./model.js";
 import { layoutText } from "./textLayout.js";
-import { createVisibilityOperation } from "./visibilityOps.js";
+import { createVisibilityOperation, visibleByOperations } from "./visibilityOps.js";
 import { safeRect } from "./quality/rules/layout.js";
 import { charactersOf, typeLimits } from "./quality/analysis.js";
 import { round } from "./numbers.js";
@@ -40,6 +40,29 @@ export const DEEP_ACCENT = "#C2410C";
 export function onLightFrame(scene) {
   if (scene.layers.some((layer) => (layer.type === "video" || layer.type === "image") && layer.visible !== false)) return false;
   return (contrastRatio(scene.background, "#FFFFFF") ?? 21) < 3;
+}
+
+/**
+ * True when nothing but a light background is behind captions shown from `start` to `end`: no
+ * picture or clip covering half the frame is on screen then. A video that ends before the last
+ * phrases leaves them on the plain frame, so each phrase asks for its own time.
+ */
+export function lightBehind(scene, start, end) {
+  if ((contrastRatio(scene.background, "#FFFFFF") ?? 21) >= 3) return false;
+  const frame = scene.width * scene.height;
+  const shownAt = (layer, time) => {
+    if (!visibleByOperations(layer.animations ?? [], time)) return false;
+    if (layer.type !== "video" || !(layer.mediaDuration > 0)) return true;
+    const begins = layer.mediaStart ?? 0;
+    return time >= begins && time <= begins + layer.mediaDuration;
+  };
+  const pictures = scene.layers.filter((layer) => (layer.type === "video" || layer.type === "image") && layer.visible !== false && layer.width * layer.height >= frame * 0.5);
+  const steps = Math.max(1, Math.ceil((end - start) / 0.1));
+  for (let step = 0; step <= steps; step += 1) {
+    const time = start + ((end - start) * step) / steps;
+    if (pictures.some((layer) => shownAt(layer, time))) return false;
+  }
+  return true;
 }
 
 /** True for a fill light enough to need the dark shadow (white, cream, yellow). */
@@ -318,8 +341,13 @@ export function phraseCaptions(words, { scene, style, fonts, fps, name, parentId
     let end = silent ? Math.min(spoken + HOLD, next - gap) : next - gap;
     if (silent && index + 1 < phrases.length) silences += 1;
     const key = look.keyword ? keywordIndex(phrase, keywords) : -1;
-    const lookStyle = { ...style, upper: look.upper, highlight: look.highlight };
-    const laid = layoutPhrase(phrase, key, { style: lookStyle, fonts, room, accent, most });
+    // Without a box and with no colors asked for, each phrase reads on what is behind it then:
+    // light letters over footage, dark ones on a light frame (footage that ends early too).
+    const own = style.box === false && !look.fill && operation.fill === undefined;
+    const light = own ? lightBehind(scene, start, end) : null;
+    const lookStyle = { ...style, upper: look.upper, highlight: look.highlight, ...(own ? { fill: light ? DARK_FILL : "#FFFFFF" } : {}) };
+    const phraseAccent = own && operation.accent === undefined ? (light ? DEEP_ACCENT : DEFAULT_ACCENT) : accent;
+    const laid = layoutPhrase(phrase, key, { style: lookStyle, fonts, room, accent: phraseAccent, most });
     const padX = style.box === false ? 0 : style.padX, padY = style.box === false ? 0 : style.padY;
     const width = laid.width + 2 * padX, height = laid.height + 2 * padY;
     const y = Math.round(blockTop(scene, look.position, height));
@@ -355,8 +383,8 @@ export function phraseCaptions(words, { scene, style, fonts, fps, name, parentId
       if (look.highlight && word.start < end) {
         const on = Math.max(start, word.start);
         const off = Math.min(end, phrase[at + 1]?.start ?? end);
-        child.animations.push(colorTo(on, style.fill, accent));
-        if (off < end) child.animations.push(colorTo(off, accent, style.fill));
+        child.animations.push(colorTo(on, lookStyle.fill, phraseAccent));
+        if (off < end) child.animations.push(colorTo(off, phraseAccent, lookStyle.fill));
       }
       layers.push(child);
     });

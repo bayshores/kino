@@ -237,3 +237,15 @@ test("caption looks pass the gates on fast speech (170 words a minute), under 0.
   const moving = reduced.document.scenes[0].layers.flatMap((layer) => layer.animations ?? []).filter((animation) => animation.from && Object.keys(animation.from).some((key) => key !== "opacity"));
   assert.deepEqual(moving, []);
 });
+
+test("caption looks follow what is behind each phrase: light letters over footage, dark once the footage ends on a white frame", () => {
+  const said = "We shot it all. Then the clip ends here. And the words stay readable.".split(" ");
+  let at = 0.2;
+  const words = said.map((text) => { const word = { text, start: at, end: at + 0.28 }; at += 0.34 + (text.endsWith(".") ? 0.8 : 0); return word; });
+  const clip = createLayer("video", { name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width: 1080, height: 1920, mediaStart: 0, mediaDuration: 2.4, mediaSourceDuration: 10 });
+  const { document } = edit(project({ duration: 8, background: "#FFFFFF", layers: [clip] }), [{ type: "add_captions", words, look: "clean" }]);
+  const layers = document.scenes[0].layers;
+  const fillOf = (text) => layers.find((layer) => layer.text === text).fill;
+  assert.equal(fillOf("shot"), "#FFFFFF", "over the clip");
+  assert.equal(fillOf("readable."), "#111111", "after the clip, on the white frame");
+});
