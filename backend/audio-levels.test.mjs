@@ -140,6 +140,28 @@ test("one caller cancelling a loudness measurement stops only its own wait; the 
   } finally { await rm(folder, { recursive: true, force: true }); }
 });
 
+test("a file the loudness measurement failed on is not measured again for ten minutes; a cancelled one is", async () => {
+  const folder = await mkdtemp(join(tmpdir(), "kino-lufs-"));
+  try {
+    let tries = 0;
+    let clock = 0;
+    const curves = createLoudnessCurves({ now: () => clock, measure: async () => { tries += 1; throw new Error("Stream map '0:a:0' matches no streams."); } });
+    const file = join(folder, "silent.mp4");
+    await assert.rejects(curves.get(file), /matches no streams/);
+    await assert.rejects(curves.get(file), /matches no streams/);
+    assert.equal(tries, 1);
+    clock = 11 * 60_000;
+    await assert.rejects(curves.get(file));
+    assert.equal(tries, 2);
+
+    let cancels = 0;
+    const cancelled = createLoudnessCurves({ measure: async () => { cancels += 1; throw Object.assign(new Error("cancelled"), { name: "AbortError" }); } });
+    await assert.rejects(cancelled.get(file));
+    await assert.rejects(cancelled.get(file));
+    assert.equal(cancels, 2);
+  } finally { await rm(folder, { recursive: true, force: true }); }
+});
+
 test("the meter reads loudness, true peak and the loudest moment from FFmpeg's printout", () => {
   const printed = [
     "frame:0    pts:0       pts_time:0", "lavfi.r128.I=-70.000", "lavfi.r128.true_peaks_ch0=0.100", "lavfi.r128.true_peak=0.100",

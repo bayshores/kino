@@ -7,6 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { runExportProcess } from "./export-process.mjs";
 import { ffmpegCommand } from "./media-probe.mjs";
+import { heavyDecodeSlot } from "./process-slots.mjs";
 
 export const LOUDNESS_CURVE_VERSION = 1;
 const STEP = 0.1;
@@ -31,12 +32,21 @@ export function readMomentary(printed, step = STEP) {
   return { version: LOUDNESS_CURVE_VERSION, step, duration: round1(momentary.length * step), momentary };
 }
 
-/** Measures a file's first sound stream (an FFmpeg job, sound only). */
+/**
+ * Measures a file's first sound stream (an FFmpeg job, sound only). It is a full decode, so it
+ * takes the one decode slot of this process (process-slots.mjs).
+ */
 export async function measureLoudnessCurve(file, signal) {
-  const printed = await runExportProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", "-i", file, "-map", "0:a:0", "-vn",
-    "-af", "ebur128=metadata=1,ametadata=mode=print:file=-", "-f", "null", "-"], signal);
+  const printed = await heavyDecodeSlot(() => {
+    if (signal?.aborted) throw cancelled();
+    return runExportProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", "-i", file, "-map", "0:a:0", "-vn",
+      "-af", "ebur128=metadata=1,ametadata=mode=print:file=-", "-f", "null", "-"], signal);
+  });
   return readMomentary(printed);
 }
+
+// How long a file the measurement failed on (no sound, a broken file) waits before another try.
+const FAILED_RETRY_MS = 10 * 60_000;
 
 function cancelled() {
   const error = new Error("Measuring the loudness was cancelled.");
@@ -47,8 +57,11 @@ function cancelled() {
 const valid = (curve) => curve?.version === LOUDNESS_CURVE_VERSION && Array.isArray(curve.momentary) && curve.step > 0;
 
 /** {get(file), saved(file)}: the curve, measured once and kept as <file>.lufs. */
-export function createLoudnessCurves({ measure = measureLoudnessCurve } = {}) {
+export function createLoudnessCurves({ measure = measureLoudnessCurve, now = () => Date.now() } = {}) {
   const pending = new Map();
+  // Files the measurement failed on: full checks ask for every sound's curve each time, and a
+  // file with no sound stream would otherwise start FFmpeg on every check.
+  const failed = new Map();
   let queue = Promise.resolve();
   async function saved(file) {
     try { const curve = JSON.parse(await readFile(`${file}.lufs`, "utf8")); return valid(curve) ? curve : null; } catch { return null; }
@@ -59,13 +72,24 @@ export function createLoudnessCurves({ measure = measureLoudnessCurve } = {}) {
   async function get(file, signal) {
     const kept = await saved(file);
     if (kept) return kept;
+    const failure = failed.get(file);
+    if (failure && now() - failure.at < FAILED_RETRY_MS) throw failure.error;
     let entry = pending.get(file);
     if (!entry || entry.controller.signal.aborted) {
       const controller = new AbortController();
       const made = { controller, waiting: 0 };
       made.job = queue.then(async () => {
         if (controller.signal.aborted) throw cancelled();
-        const curve = await measure(file, controller.signal);
+        let curve;
+        try { curve = await measure(file, controller.signal); } catch (error) {
+          // A cancel or a missing FFmpeg is not the file's fault: not remembered.
+          if (error?.name !== "AbortError" && !controller.signal.aborted && error?.code !== "ENOENT") {
+            failed.delete(file);
+            failed.set(file, { error, at: now() });
+            if (failed.size > 512) failed.delete(failed.keys().next().value);
+          }
+          throw error;
+        }
         const temporary = `${file}.lufs.${randomUUID()}.tmp`;
         await writeFile(temporary, JSON.stringify(curve));
         await rename(temporary, `${file}.lufs`);
