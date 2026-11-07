@@ -527,10 +527,17 @@ test("speech_cut by loudness: a cut inside the sound, and a file that ends mid-s
   assert.match(rings.message, /still sounding at its end/);
   assert.ok(rings.fix.properties.mediaDuration > 1.85 && rings.fix.properties.mediaDuration < 2.05, JSON.stringify(rings.fix));
   assert.match(rings.fix.why, /nearest pauses in the file: .* after/);
-  // The clip plays to the end of a file that is still loud there: the file cuts the sentence off.
-  const [ends] = (await heardFindings([voice("judge", { mediaOffset: 2.4, mediaDuration: 3.1 })], peaksOf(5.5, [[0, 1.8], [2.5, 5.5]]))).findings;
+  // A file that ends loud right after "hackathon." (a text-to-speech file stops at its last word) is whole.
+  const fileEnd = peaksOf(5.5, [[0, 1.8], [2.5, 5.5]]);
+  assert.deepEqual((await heardFindings([voice("judge", { mediaOffset: 2.4, mediaDuration: 3.1 })], fileEnd)).findings, []);
+  // Without the full stop the file cuts the sentence off; the fix drops only the unfinished words.
+  const unfinished = { hackathon: "hackathon", saw: "saw." };
+  const cutOff = { ...TRANSCRIPT, words: TRANSCRIPT.words.map((word) => ({ ...word, text: unfinished[word.text.replace(".", "")] ?? word.text })) };
+  const [ends] = (await heardFindings([voice("judge", { mediaOffset: 2.4, mediaDuration: 3.1 })], fileEnd, cutOff)).findings;
   assert.equal(ends.severity, "error");
   assert.match(ends.message, /file itself ends mid-sentence/);
+  assert.equal(ends.fix.properties.mediaDuration, 1.925);
+  assert.match(ends.fix.why, /after "saw\."; drops the unfinished "in this hackathon"/);
   // Ending in the quiet after the sentence passes.
   assert.deepEqual((await heardFindings([voice("voice", { mediaDuration: 2.1 })], LOUDNESS)).findings, []);
   // A word the transcript hears over silence (a TTS track's quiet, under -40 dB) was not said: no word cut in half.

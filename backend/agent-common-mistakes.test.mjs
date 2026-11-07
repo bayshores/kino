@@ -76,6 +76,7 @@ const FIXED = [
   ["a scene duration as text", { op: "update_scene", properties: { duration: "8s" } }, 'duration "8s" → 8'],
   ["set_font font", { op: "set_font", layer: "title", font: "Inter", weight: 700 }, "font → family"],
   ["update_layer by name", { op: "update_layer", name: "box", properties: { fill: "#000000" } }, "name → layer"],
+  ["reorder_layer index for to", { op: "reorder_layer", layer: "box", index: 0 }, "index → to"],
   ["remove_layer", { op: "remove_layer", layer: "box" }, "op remove_layer → delete_layer"],
   ["delete_layer with a list", { op: "delete_layer", layers: ["box", "title"] }, "delete_layer {layers:[2]} → 2 delete_layer ops"],
   ["stagger over layers", { op: "stagger_animations", layers: ["box", "title"], delay: 0.1 }, "layers → items"],

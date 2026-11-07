@@ -1,7 +1,7 @@
 // Motion rules. Gates: linear_motion, spring_on_fade, same_motion.
 // Warnings: easing_repeat, bouncy_layers, duration_band, exit_ratio, stagger_long, stagger_order,
 // first_entrance, speed_jump, judder.
-import { FADE_KEYS, cuts, drawnSize, easingKey, entrances, firstEntrances, goodEntranceDelay, isPerpetual, motions, neverShown, primaryItems, sec } from "../analysis.js";
+import { FADE_KEYS, cuts, drawnSize, easingKey, entrances, firstEntrances, goodEntranceDelay, isPerpetual, motions, neverShown, primaryItems, sec, speechTimed } from "../analysis.js";
 import { typeLimits } from "./text.js";
 import { area, boxAt, chainOf, frameAt, itemById, roundBox, tweensOf } from "../model.js";
 import { easingBezier } from "../../easing.js";
@@ -75,11 +75,13 @@ export function isHoldDrift(model, item, tween) {
 const HOLD_KEYS = new Set(["x", "y", "scaleX", "scaleY", "letterSpacing"]);
 export const isHoldMotion = (model, item, motion) => motion.tweens.every((tween) => isHoldDrift(model, item, tween));
 
-// Motions the timing rules judge: not loops, masks, counters or instant changes.
+// Motions the timing rules judge: not loops, masks, counters or instant changes, and not the
+// voice's captions (speechTimed: a phrase shows when it is said, every phrase alike on purpose).
 function judgedMotions(model) {
+  const timed = speechTimed(model);
   return motions(model).filter((motion) => {
     const item = itemById(model, motion.itemId);
-    return item && !item.isMask && !isPerpetual(model, item) && motion.duration > 0
+    return item && !item.isMask && !isPerpetual(model, item) && motion.duration > 0 && !timed.has(item.id)
       && motion.tweens.every((tween) => !tween.discrete);
   });
 }
@@ -208,22 +210,8 @@ const ACCENT_PUNCH = { Accent: 0.15, "Accent settles": 0.5 };
 const isAccentPunch = (tween) => tween.duration <= (ACCENT_PUNCH[tween.name] ?? -1) + 1e-6 &&
   tween.keys.length > 0 && tween.keys.every((key) => key === "scaleX" || key === "scaleY");
 
-// Captions (add_captions) are timed to the voice: a word's highlight lasts as long as the word,
-// and a phrase shows when it is said. Their text and the groups around it keep their timing
-// (add_captions draws a caption group, a group per page or phrase, the caption text inside).
-export function speechTimed(model) {
-  const ids = new Set();
-  for (const item of model.items) {
-    const page = itemById(model, item.parentId);
-    if (item.role !== "caption" || page?.kind !== "group" || itemById(model, page.parentId)?.kind !== "group") continue;
-    for (let current = item; current && !ids.has(current.id); current = itemById(model, current.parentId)) ids.add(current.id);
-  }
-  return ids;
-}
-
 export function durationBand(model, ctx) {
   const findings = [];
-  const timed = speechTimed(model);
   for (const motion of judgedMotions(model)) {
     if (motion.duration > 3 || motion.tweens.some((tween) => tween.counter)) continue;
     // An instant step (a frame cut, under half a frame) is a cut on purpose, not a quick move.
@@ -234,7 +222,6 @@ export function durationBand(model, ctx) {
     if (motion.tweens.every((tween) => tween.preset === "whip")) continue;
     // So is a downbeat accent: a scale punch named Accent and its settle (engine/footage/ops.js).
     if (motion.tweens.every(isAccentPunch)) continue;
-    if (timed.has(motion.itemId)) continue;
     const item = itemById(model, motion.itemId);
     // A slow push is long on purpose (a fade as long as it is judged as before).
     if (motion.tweens.filter((tween) => Math.abs(tween.duration - motion.duration) < 1e-6).every((tween) => isSlowPush(model, item, tween))) continue;

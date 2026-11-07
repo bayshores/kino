@@ -13,7 +13,7 @@ import { CUT_TIMING_TAGS, PLAIN_TAGS, TECHNIQUES, isTechnique, techniqueOf } fro
 import { deckUse } from "../../deck.js";
 import { boardPicks, pickOp, pickWords } from "../../movePicks.js";
 import { heardEdges, heardWords } from "./speech.js";
-import { readableAt, readingTexts, primaryItems, sec, sections, speedAt } from "../analysis.js";
+import { designedTexts, readableAt, primaryItems, sec, sections, speedAt } from "../analysis.js";
 import { area, boxAt, intersection, movingAt, tweensOf, visibleBoxAt } from "../model.js";
 import { backgroundLuma, coveredAt, plateChanges, plates, pulses, techniquesUsed, textEntrances, transitions } from "../techniques.js";
 
@@ -85,9 +85,12 @@ function pictureMoves(model, index) {
   return false;
 }
 
-/** The samples where readable text sits over a still picture or a flat color: a text slide. */
+/**
+ * The samples where readable text sits over a still picture or a flat color: a text slide. The
+ * voice's captions are no slide: they read along with what is said.
+ */
 export function textSlideSamples(model) {
-  const texts = readingTexts(model);
+  const texts = designedTexts(model);
   const slide = new Uint8Array(model.times.length);
   for (let index = 0; index < model.times.length; index += 1) {
     const reading = texts.some((item) => readableAt(model, item, index) && !coveredAt(model, item, index));
@@ -100,7 +103,7 @@ export function textSlideSamples(model) {
 const LONGEST_CARD = 3;
 
 export function textSlides(model, ctx) {
-  if (!readingTexts(model).length || model.duration < EDIT_SECONDS) return [];
+  if (!designedTexts(model).length || model.duration < EDIT_SECONDS) return [];
   const slide = textSlideSamples(model);
   const count = slide.reduce((sum, value) => sum + value, 0);
   const share = count / model.times.length;

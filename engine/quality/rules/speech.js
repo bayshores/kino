@@ -424,6 +424,17 @@ function wordNear(words, time, side) {
     : words.some((word) => word.start <= time + 0.3 && word.end >= time - SPEECH_HEAD);
 }
 
+// The last sentence end before the unfinished words at a file's end, within MAX_MOVE of it:
+// {index, end} (end: a breath after that word, before the next word starts), or null.
+function lastSentenceEnd(inClip, out) {
+  for (let index = inClip.length - 2; index >= 0; index -= 1) {
+    const word = inClip[index];
+    if (out - word.end > MAX_MOVE) return null;
+    if (breakAfter(word, inClip[index + 1])) return { index, end: round3(Math.min(word.end + BREATH, (word.end + inClip[index + 1].start) / 2)) };
+  }
+  return null;
+}
+
 // The out point heard: a clip that plays to the end of a file that ends loud, or that ends inside
 // loud sound. Null when the cut is quiet, or loud with no word near (music, noise).
 function loudOutFinding(edge) {
@@ -435,16 +446,26 @@ function loudOutFinding(edge) {
   const sure = Boolean(words);
   const severity = !sure || range.fadedOut ? "warn" : "error";
   const fileEnds = out >= sound.duration - 0.05;
+  const inClip = words ? words.filter((word) => word.start < out && word.end > range.inSource) : [];
+  // A file that ends right after a word ending a sentence is whole: a text-to-speech file stops
+  // at its last word's full stop, so its last 120 ms are loud without anything being cut.
+  if (fileEnds && inClip.length && endsSentence(inClip.at(-1).text)) return null;
   const before = pauseNear(sound, out, "before");
   const after = fileEnds ? null : pauseNear(sound, out, "after");
-  const lastWords = words ? words.filter((word) => word.start < out && word.end > range.inSource).slice(-4) : [];
+  const lastWords = inClip.slice(-4);
   const heardTail = lastWords.length ? ` after "…${said(lastWords)}"` : "";
   // End in the pause after (finish the word) when it is near, otherwise in the pause before.
-  // (A pause before the clip's own start is no place to end it.)
-  const target = after && after.start - out <= MAX_MOVE ? intoPause(after, true)
+  // (A pause before the clip's own start is no place to end it.) A file that ends mid-sentence
+  // ends instead after the last whole sentence heard: only the unfinished words are dropped.
+  const sentenceEnd = fileEnds && words ? lastSentenceEnd(inClip, out) : null;
+  const target = sentenceEnd ? sentenceEnd.end
+    : fileEnds && words ? null
+    : after && after.start - out <= MAX_MOVE ? intoPause(after, true)
     : before && out - before.end <= MAX_MOVE && intoPause(before, true) > range.inSource + 0.2 ? intoPause(before, true) : null;
+  const dropped = sentenceEnd ? inClip.slice(sentenceEnd.index + 1) : [];
   const fix = target != null
-    ? { kind: "layer", layerId: layer.id, properties: { mediaDuration: durationTo(layer, range, target) }, auto: false, why: `ends at ${sec(target)} s in the file, in a pause (${pausesText(before, after)})` }
+    ? { kind: "layer", layerId: layer.id, properties: { mediaDuration: durationTo(layer, range, target) }, auto: false,
+        why: sentenceEnd ? `ends at ${sec(target)} s in the file, after "${inClip[sentenceEnd.index].text.trim()}"; drops the unfinished "${said(dropped)}"` : `ends at ${sec(target)} s in the file, in a pause (${pausesText(before, after)})` }
     : { kind: "hint", text: fileEnds
       ? `The file has no pause inside "${layer.name}" before it ends (${pausesText(before, after)}): end the clip on an earlier sentence, start it later, or waive speech_cut if the cut is on purpose.`
       : `Move the end of "${layer.name}" into a pause (${pausesText(before, after)}), or waive speech_cut if the cut is on purpose.` };

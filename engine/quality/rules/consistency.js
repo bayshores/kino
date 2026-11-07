@@ -20,7 +20,7 @@
 // question for the taste judge and the person, not a gate. A deliberate choice is waived with
 // waive_check {code, target, reason}.
 import { CUT_TIMING_TAGS, PLAIN_TAGS } from "../../techniques.js";
-import { cuts, drawnSize, readableAt, readingTexts, sec, typeLimits } from "../analysis.js";
+import { cuts, drawnSize, readableAt, readingTexts, sec, speechTimed, typeLimits } from "../analysis.js";
 import { area, chainOf, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { subjectOnScene } from "../../sourceView.js";
@@ -370,6 +370,10 @@ export function hookReadable(model, ctx) {
   const end = Math.min(model.times.length, Math.round(HOOK_SECONDS * model.fps));
   const big = HOOK_TYPE * Math.min(model.width, model.height);
   let typeSeen = false, clearPicture = 0;
+  // Captions read along with a voice: the spoken line is the hook, at caption size.
+  const timed = speechTimed(model);
+  const voiced = readingTexts(model).some((item) => timed.has(item.id) && Array.from({ length: end }, (_, index) => index).some((index) => readableAt(model, item, index)));
+  if (voiced) return [];
   for (let index = 0; index < end; index += 1) {
     if (!typeSeen) typeSeen = readingTexts(model).some((item) => drawnSize(model, item) >= big && readableAt(model, item, index) && !coveredAt(model, item, index));
     if (model.items.some((item) => (item.kind === "video" || item.kind === "image") && item.samples.opacity[index] >= 0.5 && item.samples.blur[index] < HOOK_BLUR

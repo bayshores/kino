@@ -154,7 +154,10 @@ async function fieldFor(verb, name) {
   if (!field) return { field: null, fields };
   const schema = input[field];
   const inner = typeof schema?.unwrap === "function" ? schema.unwrap() : schema;
-  return { field, yesNo: inner?.def?.type === "boolean", list: inner?.def?.type === "array", fields };
+  // A field that is a list or one word (check's rules: true or a list of codes) splits a typed
+  // word at its commas: rules=contrast,overlap is ["contrast","overlap"].
+  const orList = inner?.def?.type === "union" && inner.def.options.some((option) => option?.def?.type === "array");
+  return { field, yesNo: inner?.def?.type === "boolean", list: inner?.def?.type === "array", orList, fields };
 }
 
 const isFieldWord = (word) => /^[a-z_]+=/i.test(word);
@@ -422,7 +425,11 @@ export async function parseCommand(argv) {
         [typed, at, read] = await joinedList(name, rest, at, typed, besides);
         guesses.push(...read);
       }
-      const value = parseValue(typed);
+      let value = parseValue(typed);
+      if (typeof value === "string") {
+        const found = await fieldFor(verb, name);
+        if (found.field === name && found.orList) value = listItems(value);
+      }
       // A list field given twice is one list (`fields=name fields=width` reads both): before,
       // the last word replaced the first.
       if (given.has(name) && await isListField(verb, name)) {

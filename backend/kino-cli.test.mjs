@@ -98,6 +98,10 @@ describe("parseCommand", () => {
       [["project", "manage", 'options={"resource":"exports","action":"start","out":"exports"}'], { verb: "project", input: { action: "manage", options: { resource: "exports", action: "start", out: path.resolve("exports") } } }],
       [["project", "manage", "id=demo", 'options={"resource":"exports","out":"~/Movies"}'], { verb: "project", input: { action: "manage", id: "demo", options: { resource: "exports", out: path.join(home, "Movies") } } }],
       [["render", "wait", "R1"], { verb: "render", input: { action: "wait", job: "R1" } }],
+      // check's rules is true or a list: a comma list is the codes ("a,b" was one code, so nothing matched).
+      [["check", "rules=contrast,overlap"], { verb: "check", input: { rules: ["contrast", "overlap"] } }],
+      [["check", "rules=contrast"], { verb: "check", input: { rules: ["contrast"] } }],
+      [["check", "rules=true"], { verb: "check", input: { rules: true } }],
     ];
     for (const [argv, expected] of cases) {
       const parsed = await parseCommand(argv);

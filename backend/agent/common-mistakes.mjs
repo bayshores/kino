@@ -1380,6 +1380,12 @@ export function fixOperation(operation, fixes, context) {
       }
     }
   }
+  // reorder_layer {index: 0} means to: 0 (the layer's place in its group, 0 at the bottom).
+  if (type === "reorder_layer" && operation.to === undefined && operation.index !== undefined) {
+    operation.to = operation.index;
+    delete operation.index;
+    fixes.push("index → to");
+  }
   if (NEEDS_LAYER.has(type) && operation.layerId === undefined && operation.layerIds === undefined) {
     const example = { update_layer: { op: "update_layer", layer: "title", properties: { x: 200 } }, delete_layer: { op: "delete_layer", layer: "title" },
       add_animation: presetExample("title") }[type] ?? null;

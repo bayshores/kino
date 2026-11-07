@@ -27,6 +27,9 @@ import { round } from "./numbers.js";
 import { contrastRatio } from "./paintInterpolation.js";
 
 const SHADOW = { color: "#00000099", x: 0, y: 4, blur: 14 };
+// A word in the accent color (yellow) over bright footage needs a darker, wider halo than white
+// letters do: the contrast gate counts a halo of this strength as the word's background.
+const ACCENT_HALO = { color: "#000000F2", x: 0 };
 export const DEFAULT_ACCENT = "#FFD84D";
 // Light letters with a soft shadow suit footage and dark frames. On a light frame with no picture
 // the looks without a box take dark letters and a deep accent instead, so they pass the contrast gate.
@@ -155,12 +158,13 @@ function keywordIndex(phrase, keywords) {
   return best;
 }
 
-function wordLayer(text, { fontSize, style, fill, fonts }) {
+function wordLayer(text, { fontSize, style, fill, fonts, accented = false }) {
+  const halo = accented ? { ...ACCENT_HALO, blur: Math.round(fontSize * 0.12) } : { ...SHADOW, blur: Math.round(fontSize * 0.14) };
   const layer = createLayer("text", {
     text, fontFamily: style.fontFamily, fontSize, fontWeight: style.fontWeight, fill,
     lineHeight: 1.15, textAlign: "center", textResize: "width-height", role: "caption",
     textCase: style.upper ? "upper" : "normal",
-    ...(style.box === false && isLightFill(fill) ? { shadow: { ...SHADOW, blur: Math.round(fontSize * 0.14), y: Math.round(fontSize * 0.04) } } : {}),
+    ...(style.box === false && isLightFill(fill) ? { shadow: { ...halo, y: Math.round(fontSize * 0.04) } } : {}),
   });
   const { width, height } = layoutText(layer, fonts);
   return { ...layer, width, height };
@@ -171,7 +175,7 @@ function layoutPhrase(phrase, key, { style, fonts, room, accent, most = 2 }) {
   for (let scale = 1; ; scale *= 0.9) {
     const fontSize = Math.round(style.fontSize * scale);
     const space = fontSize * 0.3;
-    const words = phrase.map((word, index) => wordLayer(word.text, { fontSize: index === key ? Math.round(fontSize * 1.18) : fontSize, style, fill: index === key ? accent : style.fill, fonts }));
+    const words = phrase.map((word, index) => wordLayer(word.text, { fontSize: index === key ? Math.round(fontSize * 1.18) : fontSize, style, fill: index === key ? accent : style.fill, fonts, accented: index === key || Boolean(style.highlight) }));
     const lines = [];
     let line = null;
     for (const [index, layer] of words.entries()) {
@@ -314,7 +318,7 @@ export function phraseCaptions(words, { scene, style, fonts, fps, name, parentId
     let end = silent ? Math.min(spoken + HOLD, next - gap) : next - gap;
     if (silent && index + 1 < phrases.length) silences += 1;
     const key = look.keyword ? keywordIndex(phrase, keywords) : -1;
-    const lookStyle = { ...style, upper: look.upper };
+    const lookStyle = { ...style, upper: look.upper, highlight: look.highlight };
     const laid = layoutPhrase(phrase, key, { style: lookStyle, fonts, room, accent, most });
     const padX = style.box === false ? 0 : style.padX, padY = style.box === false ? 0 : style.padY;
     const width = laid.width + 2 * padX, height = laid.height + 2 * padY;
