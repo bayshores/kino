@@ -453,6 +453,7 @@ export function createAgentService(deps) {
     }
   } });
   const renders = new Map();
+  const RENDERS_KEPT = deps.rendersKept ?? 100;
   let renderStateLoaded, nextRenderId = 1;
   let renderStateWrite = Promise.resolve();
   const refused = new Map();
@@ -4626,7 +4627,7 @@ export function createAgentService(deps) {
     renderStateLoaded ??= (async () => {
       try {
         const saved = JSON.parse(await readFile(path.join(agentDirectory, "render-jobs.json"), "utf8"));
-        for (const entry of Array.isArray(saved.jobs) ? saved.jobs.slice(-100) : []) {
+        for (const entry of Array.isArray(saved.jobs) ? saved.jobs.slice(-RENDERS_KEPT) : []) {
           if (!/^R\d+$/.test(entry.id) || typeof entry.projectId !== "string") continue;
           const job = { ...entry, batchId: null };
           if (!["done", "failed", "canceled"].includes(job.status)) {
@@ -4639,8 +4640,18 @@ export function createAgentService(deps) {
     return renderStateLoaded;
   }
 
+  // Only the newest RENDERS_KEPT jobs are kept, as a restart keeps them (loadRenderState): the
+  // dashboard's render queue reads every kept job each second, and each holds its caption events.
+  // A job still running is never dropped.
+  function forgetOldRenders() {
+    for (const [id, job] of renders) {
+      if (renders.size <= RENDERS_KEPT) break;
+      if (["done", "failed", "canceled"].includes(job.status) && !job.finishing) renders.delete(id);
+    }
+  }
+
   function saveRenderState() {
-    const jobs = [...renders.values()].slice(-100).map(({ finishing, ...job }) => job);
+    const jobs = [...renders.values()].slice(-RENDERS_KEPT).map(({ finishing, ...job }) => job);
     const serialized = JSON.stringify({ jobs });
     renderStateWrite = renderStateWrite.catch(() => {}).then(async () => {
       await mkdir(agentDirectory, { recursive: true, mode: 0o700 });
@@ -4887,6 +4898,7 @@ export function createAgentService(deps) {
         } catch (error) { (job.captionWarnings ??= []).push(`caption files not made for ${refName(entry.id, codes)}: ${error.message}`); }
       }
       renders.set(job.id, job);
+      forgetOldRenders();
       await saveRenderState();
       // Save finished files even when the client disconnects before calling wait.
       void Promise.resolve(batch.running).then(() => finishRender(job)).catch(async error => {

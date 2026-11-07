@@ -403,11 +403,17 @@ const dashboardRoutes = createDashboardRoutes({
 const renderStates = new Map();
 setInterval(async () => {
   try {
-    for (const job of await agentService.renderJobs()) {
+    const jobs = await agentService.renderJobs();
+    for (const job of jobs) {
       const state = JSON.stringify([job.status, job.progress == null ? null : Math.round(job.progress * 100), job.path]);
       if (renderStates.get(job.id) === state) continue;
       renderStates.set(job.id, state);
       dashboard.publish({ type: "render", projectId: job.projectId, job });
+    }
+    // Jobs the agent service no longer keeps are forgotten here too.
+    if (renderStates.size > jobs.length) {
+      const kept = new Set(jobs.map((job) => job.id));
+      for (const id of renderStates.keys()) if (!kept.has(id)) renderStates.delete(id);
     }
   } catch (error) { console.warn(`[kino] The render queue could not be read: ${error.message}`); }
 }, 1000).unref();
