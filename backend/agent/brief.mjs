@@ -584,7 +584,7 @@ export function lockNeeded(state, video = {}) {
   const onlyIdea = noIdea || (style?.spine?.length && style?.fonts && Object.keys(style.fonts).length);
   return lock === "missing"
     ? { step: `lock direction: ${onlyIdea ? "idea + signature" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state) }
-    : { step: "play spine + style bible back; save their approval (waive only if unwatched)", call: lockCall(state, { approve: true }) };
+    : { step: "play spine + style bible back; save their approval (no one watching: style {waived:\"<why>\"} instead)", call: lockCall(state, { approve: true }) };
 }
 
 // A video the agent built, checked and looked at: past the brief's playback and plan steps.

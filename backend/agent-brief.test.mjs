@@ -819,7 +819,7 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   assert.equal(step({ layers: 30, references: 2, treatmentsWaived: true }), "notes set_plan, then build", "a rough pass goes ahead");
   const bible = { wants: [], avoids: ["flash"], lines: [], by: "guessed", spine: [{ role: "hook", from: 0, to: 3, purpose: "the verdict" }], fonts: { caption: { family: "Inter", size: 48 } } };
   const asked = nextMove({ ...state, brief: { ...state.brief, style: bible } }, { seconds: 24, layers: 31, references: 2, treatmentsWaived: true });
-  assert.deepEqual([asked.step, asked.call.input.fields.style.by], ["play spine + style bible back; save their approval (waive only if unwatched)", "you"]);
+  assert.deepEqual([asked.step, asked.call.input.fields.style.by], ["play spine + style bible back; save their approval (no one watching: style {waived:\"<why>\"} instead)", "you"]);
   for (const approved of [{ by: "you", quote: "yes, that story" }, { waived: "no one is watching: a batch render" }])
     assert.equal(nextMove({ ...state, brief: { ...state.brief, style: { ...bible, ...approved } } }, { seconds: 24, layers: 31, references: 2, treatmentsWaived: true }).step, "notes set_plan, then build");
   // The approval backs the guessed wants the person was shown, but avoids copied from another
