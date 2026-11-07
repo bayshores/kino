@@ -69,6 +69,9 @@ test("a video is captured only when an effect works while it shows", () => {
   const pictures = videoCaptureWindows({ layers: [clip("tilted", 1.5, [fadesOut], { rotateY: 20 }),
     group("mask", { isMask: true }), clip("in-mask", 1.5, [fadesOut], { parentId: "mask" })] });
   assert.deepEqual([...pictures.values()], [[[-Infinity, Infinity]], [[-Infinity, Infinity]]]);
+  // With no effect at all too: a tilted app recording drew nothing (no picture was captured).
+  const plain = videoCaptureWindows({ layers: [clip("tilted-plain", 1.5, [], { rotateX: 30 })] });
+  assert.deepEqual(plain.get("tilted-plain"), [[-Infinity, Infinity]]);
   const [first] = two.get("two");
   assert.deepEqual([1.5, 1.7, 3, 4.05, 4.7].map((time) => capturingAt([first], time)), [false, false, true, false, false]);
   assert.deepEqual([1.5, 1.7].map((time) => capturingAt([first], time, CAPTURE_LEAD)), [false, true]);

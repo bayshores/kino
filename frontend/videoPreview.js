@@ -140,7 +140,9 @@ function captureWindows(layer, byId, operations) {
     }
     current = current.parentId == null ? null : byId.get(current.parentId);
   }
-  if (windows.length && picture) return [[-Infinity, Infinity]];
+  // Tilted or a mask: a live <video> cannot draw there at all (triangles copy it with <use>), so
+  // it keeps a captured picture whenever it shows, effects or not.
+  if (picture) return [[-Infinity, Infinity]];
   windows.sort((a, b) => a[0] - b[0]);
   const merged = [];
   for (const window of windows) {

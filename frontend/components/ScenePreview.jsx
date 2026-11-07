@@ -14,7 +14,7 @@ import { useVideoFrames } from "../useVideoFrames.js";
 import { CAPTURE_LEAD, capturingAt, INITIAL_VIDEO_FRAME, videoCaptureWindows } from "../videoPreview.js";
 import { audibleRanges, heardAt, shownWithGroups } from "../../engine/videoSound.js";
 import { useSceneLuts } from "../useSceneLuts.js";
-import { patchSvgMarkup } from "../svgPatch.js";
+import { patchSvgMarkup, releaseMedia } from "../svgPatch.js";
 import { useFilterPrewarm } from "../filterPrewarm.js";
 import { drawSoftVideos } from "../softVideo.js";
 import { drawLiveTilts } from "../liveTilt.js";
@@ -169,6 +169,13 @@ export function ScenePreview({ document, scene: originalScene, time, design, pla
     patchSvgMarkup(container.current, html);
     videoCapture.acknowledgePaint(videoCapture.videoFrames);
   }, [html, videoCapture.videoFrames, videoCapture.acknowledgePaint]);
+  // The scene's own <video> and <audio> elements let go of their files when the picture goes,
+  // so their decoders stop at once instead of when they are garbage collected.
+  const drawn = Boolean(html);
+  useLayoutEffect(() => {
+    const box = container.current;
+    return () => releaseMedia(box);
+  }, [drawn]);
   // Heavily blurred videos are drawn small into their canvas (render.js softVideoMarkup).
   useLayoutEffect(() => { drawSoftVideos(container.current, videoCapture.elementFor); }, [html, videoCapture.elementFor]);
   // Tilted layers are drawn on the GPU (liveTilt.js, render.js liveTiltTag).

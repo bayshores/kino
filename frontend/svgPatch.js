@@ -11,12 +11,25 @@
 
 const ELEMENT = 1, TEXT = 3;
 
-/** Pauses every <video> and <audio> in `node` (itself included). */
-export function stopMedia(node) {
-  if (node?.nodeType !== ELEMENT) return;
-  if (node.localName === "video" || node.localName === "audio") node.pause?.();
-  for (const tag of ["video", "audio"])
-    for (const media of [...(node.getElementsByTagName?.(tag) ?? [])]) media.pause?.();
+/**
+ * Stops every <video> and <audio> in `node` (itself included) and lets go of its file, for a
+ * node leaving the page for good. A paused element keeps its decoder until it is garbage
+ * collected: a clip ring whose tiles were made again every few frames left hundreds of them
+ * running (2,000 decoder threads) and crashed the page.
+ */
+export function releaseMedia(node) {
+  for (const media of mediaIn(node)) {
+    media.pause?.();
+    if (!media.hasAttribute?.("src")) continue;
+    media.removeAttribute("src");
+    media.load?.();
+  }
+}
+
+function mediaIn(node) {
+  if (node?.nodeType !== ELEMENT) return [];
+  const own = node.localName === "video" || node.localName === "audio" ? [node] : [];
+  return [...own, ...["video", "audio"].flatMap((tag) => [...(node.getElementsByTagName?.(tag) ?? [])])];
 }
 
 // The same kind of node: the same type, tag and namespace. Not nodeName: the page's copy of an
@@ -44,14 +57,14 @@ export function childKey(node) {
 }
 
 function remove(node) {
-  stopMedia(node);
+  releaseMedia(node);
   node.parentNode?.removeChild(node);
 }
 
 /** Changes `current` (on the page) to look like `next` (newly parsed), keeping matching nodes. */
 export function updateSvgNode(current, next) {
   if (!sameKind(current, next)) {
-    stopMedia(current);
+    releaseMedia(current);
     current.parentNode.replaceChild(next.cloneNode(true), current);
     return;
   }
@@ -235,7 +248,7 @@ function fresh(text, parent, Parser) {
 }
 
 function replace(current, markup, node, Parser, parentStart) {
-  stopMedia(current);
+  releaseMedia(current);
   const next = fresh(markup.slice(node.start, node.end), current.parentNode, Parser);
   current.parentNode.replaceChild(next, current);
   remember(next, node, parentStart);

@@ -1172,7 +1172,14 @@ function onScreenTriangles(triangles, state, pivot, context) {
 // units, and leaves out the triangles wholly off screen. On a trailer's 64 px check frames a
 // tilted page went from 2,048 triangles to a few dozen, and a zoom through one kept about 300.
 // Final renders keep the full grid.
+// A live <video> (preview) inside a tilted layer: each triangle's <use> copy of the drawing is a
+// new media element with its own decoder, yet Chromium draws no <foreignObject> inside a <use>.
+// A tilted app recording made hundreds of them a second (2,500 decoder threads) and crashed the
+// page, so the triangles draw none: the layer shows its captured frame (videoCaptureWindows).
+const LIVE_VIDEO_BOX = /<foreignObject\b[^>]*>(?:(?!<\/foreignObject>)[\s\S])*?<video\b(?:(?!<\/foreignObject>)[\s\S])*<\/foreignObject>/g;
+
 function triangleTiltTag(tag, layer, state, box, pivot, context) {
+  if (context.interactiveMedia) tag = tag.replace(LIVE_VIDEO_BOX, "");
   const [rasterX, , , rasterY] = context.rasterMatrix;
   const outputScale = Math.min(1, Math.abs(rasterX), Math.abs(rasterY));
   let { triangles } = tiltTriangles(state, box, context.draft && outputScale > 0 ? TILT_TOLERANCE / outputScale : TILT_TOLERANCE);

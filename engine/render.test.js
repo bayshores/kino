@@ -410,6 +410,11 @@ test("trusted decoded video frames replace the live element without accepting bl
   assert.doesNotMatch(svg, /foreignObject|<video\b/);
   assert.match(renderSceneSvg(sample(), 0, { interactiveMedia: true }), /<video\b/);
   assert.doesNotMatch(renderSceneSvg(sample({ ...video, blur: 8 }), 0, { interactiveMedia: true }), /<use\b/, "a live video is not copied to mirror its edges");
+  // Tilted: each triangle's <use> copy of a live <video> would be a decoder that draws nothing.
+  const tilted = renderSceneSvg(sample({ ...video, rotateX: 30 }), 0, { interactiveMedia: true });
+  assert.match(tilted, /<use\b/, "the tilt is drawn as triangles");
+  assert.doesNotMatch(tilted, /<video\b/, "no live video inside the triangles' copies");
+  assert.ok(renderSceneSvg(sample({ ...video, rotateX: 30 }), 0, { interactiveMedia: true, videoFrames: new Map([["clip", frame]]) }).includes(`href="${frame}"`), "its captured frame is drawn");
   // A big blur: the live preview draws the video small into a canvas instead of an SVG blur.
   const soft = renderSceneSvg(sample({ ...video, blur: 48 }), 0, { interactiveMedia: true });
   assert.match(soft, /<video\b[^>]*opacity:0[^>]*\/><canvas data-soft-video="[\d. ]+ 9 3" width="\d+" height="\d+"/);
