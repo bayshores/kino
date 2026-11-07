@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { BEAT_ANALYSIS_VERSION, analyzeBeats } from "../engine/beatDetection.js";
 import { ffmpegCommand } from "./media-probe.mjs";
+import { endWithService } from "./child-exit.mjs";
 import { lowerIfBackground } from "./render-activity.mjs";
 import { MAX_TIME } from "../engine/schema.js";
 
@@ -24,6 +25,7 @@ export function decodeMono(filename, { command = ffmpegCommand(), timeoutMs = 12
       "-af", `aresample=${sampleRate}:async=1:first_pts=0:min_hard_comp=0.001`,
       "-t", String(MAX_ANALYSIS_SECONDS), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1",
     ], { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    endWithService(child);
     lowerIfBackground(child);
     const chunks = [];
     let stderr = "";

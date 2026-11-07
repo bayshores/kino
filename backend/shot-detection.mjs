@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { parseMediaSource } from "../engine/mediaSource.js";
+import { endWithService } from "./child-exit.mjs";
 import { sec } from "./agent/describe.mjs";
 import { ffmpegArgs, lowerIfBackground } from "./render-activity.mjs";
 import { round as round3 } from "../engine/numbers.js";
@@ -269,7 +270,7 @@ function analyse(command, file, signal, maxFrames) {
       rejectPromise(abortError(signal));
       return;
     }
-    const child = spawn(command, ffmpegArgs(args), { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = endWithService(spawn(command, ffmpegArgs(args), { shell: false, stdio: ["ignore", "pipe", "pipe"] }));
     lowerIfBackground(child);
     // Every frame's gray copy is kept (MAX_VIDEO_FRAMES of them are 41 MB): a file's frame count,
     // not its size in bytes, sets this, as a long, small file compresses well.
