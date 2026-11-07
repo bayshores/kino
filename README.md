@@ -18,21 +18,24 @@ Claude Code, Codex or any MCP client makes the video. You watch, approve, undo a
 
 <table>
 <tr>
-<td width="50%"><img src="docs/demos/footage.gif" alt="A cut of the Sintel trailer: a freeze-frame on Sintel's face labeled sintel, four quick shots, then the word SINTEL filled with the footage"></td>
-<td width="50%"><img src="docs/demos/type.gif" alt="The word kino. in glossy type, a camera push into one letter, then the lines agents edit. and you approve. assembling from flying letters"></td>
+<td colspan="2"><img src="docs/demos/launch.gif" alt="kino's launch film: a prompt typed into a field, the kino dashboard tilting in 3D, an approval card lifting out of it, an orange word roll of promos, trailers, captions, explainers and stings, then the line motion design, by agents. and the kino logo"></td>
 </tr>
 <tr>
-<td><b>Footage cut.</b> Five shots, a freeze-frame with a label (<code>freeze-shutter</code>) and a title made of the footage (<code>masked-type</code>).</td>
-<td><b>Kinetic type.</b> A push into one letter (<code>push-through-type</code>), then letters that fly together (<code>assemble</code>).</td>
+<td colspan="2"><b>Launch film.</b> A typed prompt (<code>type-on</code>), the real dashboard as a tilted plane (<code>ui-plane</code>), one card lifted out of it (<code>lift-focus</code>), a word roll and a logo settle (<code>logo-settle</code>).</td>
 </tr>
 <tr>
-<td><img src="docs/demos/chart.gif" alt="A bar chart titled What kino ships with growing to 117 quality rules, 49 effects, 43 moves and 24 recipes, then the line 10 tools, any agent can drive"></td>
-<td><b>Chart explainer.</b> One <code>compose</code> op with a <code>bar-chart-grow</code> beat and a <code>split-reveal</code> beat. The numbers are kino's own.<br><br>Each clip is a kino final render made through the <code>kino</code> command line, the same verbs an agent calls.</td>
+<td width="50%"><img src="docs/demos/ride.gif" alt="A board-sports spot from live-action stock: a board POV on a road, feet pushing, the word RIDE standing behind a skater in mid-air, a whip pan to surfers, then GO OUTSIDE. over a sunset wave"></td>
+<td width="50%"><img src="docs/demos/reel.gif" alt="A sunset surf shot shrinks into a turning ring of tiles from eight clips, the title SUMMER '26 assembles from flying letters inside it, then the ring breaks into a wall of tiles"></td>
+</tr>
+<tr>
+<td><b>Footage spot.</b> Eight live-action shots. The skater is cut out on this Mac (<code>cut_out</code>) so the title stands behind him (<code>masked-type</code>), then a <code>whip-pan</code> and a <code>zoom-blur</code>.</td>
+<td><b>Montage open.</b> One shot breaks into a ring of every clip (<code>tile-ring</code>) while the title flies together (<code>assemble</code>).</td>
 </tr>
 </table>
 
-Footage: the [Sintel](https://durian.blender.org) trailer, © Blender Foundation, under
-[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), cropped and recut.
+Each clip is a kino final render made through the `kino` command line, the same verbs an agent
+calls. Footage: free stock clips from [Mixkit](https://mixkit.co) (Mixkit License); the brand is
+made up.
 
 ## What you get
 
