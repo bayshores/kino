@@ -88,18 +88,9 @@ Agent instructions: [skills/kino/SKILL.md](skills/kino/SKILL.md).
 
 ## How it works
 
-```text
- Claude Code / Codex / any MCP client
-              │  MCP tools or the kino CLI
-              ▼
- POST /api/agent/<verb>                  backend/agent/service.mjs
-              │
-              ▼
- document JSON ─▶ evaluateScene(time) ─▶ renderSceneSvg ─┬─▶ the dashboard
-                                                         └─▶ PNG ─▶ FFmpeg ─▶ video
-              │
-              └─▶ WebSocket ─▶ the dashboard shows every edit live
-```
+![kino architecture](docs/architecture.png)
+
+Edit it at [excalidraw.com](https://excalidraw.com) by opening [docs/architecture.excalidraw](docs/architecture.excalidraw).
 
 | Folder | What it holds |
 | --- | --- |
