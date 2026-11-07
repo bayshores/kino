@@ -482,8 +482,8 @@ async function peopleIn(scene, peopleOf, make) {
  * expanded scene (backend/export.mjs renderSceneFrames); without it the pixel rules are skipped.
  * `references(projectId)` gives the project's saved Inspire references with fingerprints, and
  * `measureRender(pairTimes, {render, seconds})` measures rendered frames the same way
- * (backend/measure/measure.mjs measureRendered): both for the reference_drift check. `house(projectId)`
- * gives the other projects' house memory (backend/house-memory.mjs) for seen_before. `quietMs`: how
+ * (backend/measure/measure.mjs measureRendered): both for the reference_drift check. `house(projectId, name)`
+ * gives the other projects' house memory, the project's copies left out (backend/house-memory.mjs) for seen_before. `quietMs`: how
  * long its renders wait after the last call or render (render-activity.mjs QUIET_MS; tests shorten it).
  */
 export function createQualityChecker({ mediaRoot, renderFrames, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
@@ -668,7 +668,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
     const refs = references ? await references(document.id).catch(() => []) : [];
     const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}`).join(",");
     // The house memory changes seen_before: which projects and revs it holds are part of the key.
-    const houseMoments = house ? await house(document.id).catch(() => []) : [];
+    const houseMoments = house ? await house(document.id, document.name ?? null).catch(() => []) : [];
     const houseStamp = houseMoments.map((entry) => `${entry.projectId}@${entry.rev}`).join(",");
     // How many times each technique is used, over the scenes checked.
     const techniques = {};

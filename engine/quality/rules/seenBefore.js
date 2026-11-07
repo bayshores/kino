@@ -5,8 +5,9 @@
 // (ctx.referenceSignatures, engine/quality/layoutSignature.js referenceSignature).
 import { hasDesigned, layoutDistance, layoutMoments } from "../layoutSignature.js";
 
-// Under this distance two moments read as the same layout (calibrated on kino's own projects:
-// copies of one video sit under 0.05; different videos' nearest moments mostly 0.13 to 0.3).
+// Under this distance (layoutDistance: places and sizes, or the coarse shape) two moments read as
+// the same layout. Calibrated on kino's own projects: one end card in two videos 0.1, a chart or
+// footage with captions against it 0.6 to 0.8, under 3% of other moments warn.
 export const SEEN_THRESHOLD = 0.12;
 const MAX_FINDINGS = 3;
 
@@ -23,7 +24,7 @@ export function seenBefore(model, ctx) {
       if (!best || distance < best.distance) best = { distance, entry, old };
     }
     if (!best || best.distance >= SEEN_THRESHOLD) continue;
-    if (references.some((reference) => layoutDistance(moment.sig, reference) < best.distance)) continue;
+    if (references.some((reference) => layoutDistance(moment.sig, reference) <= best.distance)) continue;
     // One finding per stretch: a moment next to one already found is the same repeat.
     if (found.some((finding) => Math.abs(finding.at - moment.t) <= 1.5)) continue;
     found.push({ at: moment.t, distance: best.distance, ...best });

@@ -63,6 +63,7 @@ export function layoutSignature(model, t, { families = null } = {}) {
       k: text ? "t" : item.kind === "video" ? "m" : "i",
       x: round((box.x0 + box.x1) / 2 / model.width), y: round((box.y0 + box.y1) / 2 / model.height),
       w: round((box.x1 - box.x0) / model.width), h: round((box.y1 - box.y0) / model.height),
+      ...(logo ? { l: 1 } : {}),
       d: logo || (text && designed.has(item.id) && !captions.has(item.id)) ? 1 : 0,
     };
     if (text) {
@@ -156,23 +157,85 @@ export function referenceSignature(fingerprint) {
   };
 }
 
+// Items whose centers are this close in y share a row (a mark beside its wordmark).
+const ROW_GAP = 0.05;
+// A row whose center is this close to the middle is centered.
+const CENTER = 0.05;
+// Parts of one row further apart than this (share of the frame width) are separate columns.
+const COLUMN_GAP = 0.05;
+
 /**
- * The signature as a stack: with 3 items or more, each item's y measured within the items' own
- * vertical span (0 top, 1 bottom) and its height and width as a share of the largest item's, so two
- * stacks of the same parts in the same order read alike wherever they sit and however they are spaced.
+ * The coarse shape of a signature, which ignores exact places and sizes: its rows top to bottom
+ * ("P" a row with a picture or logo, "T" type only, a run of one kind once), the share of rows
+ * centered, a picture or logo above all the type, mono type present, how many rows of type
+ * (bucket: 1, 2, 3-4, 5+), and a
+ * plain or footage backdrop. Null with under 3 rows (one or two lines are too common to compare)
+ * or a row of parts spread apart (not one stack).
  */
-export function stackOf(signature) {
-  const items = signature?.items ?? [];
-  if (items.length < 3) return signature;
-  const top = Math.min(...items.map((item) => item.y)), bottom = Math.max(...items.map((item) => item.y));
-  const span = bottom - top;
-  const tallest = Math.max(...items.map((item) => item.h)), widest = Math.max(...items.map((item) => item.w));
-  return { ...signature, items: items.map((item) => ({ ...item, y: span > 0.05 ? (item.y - top) / span : 0.5, h: item.h / tallest, w: item.w / widest })) };
+export function shapeOf(signature) {
+  // Inset clips are footage, not part of a stack of type.
+  const items = (signature?.items ?? []).filter((item) => item.k !== "m").sort((a, b) => a.y - b.y);
+  const rows = [];
+  for (const item of items) {
+    const row = rows.at(-1);
+    if (row && item.y - row.y <= ROW_GAP) { row.items.push(item); row.y = row.items.reduce((sum, entry) => sum + entry.y, 0) / row.items.length; }
+    else rows.push({ y: item.y, items: [item] });
+  }
+  if (rows.length < 3) return null;
+  // A stack has one column: a row of parts spread apart (chart labels, a grid) is not one.
+  const spread = (row) => {
+    const parts = [...row.items].sort((a, b) => a.x - b.x);
+    return parts.some((part, index) => index > 0 && part.x - part.w / 2 - (parts[index - 1].x + parts[index - 1].w / 2) > COLUMN_GAP);
+  };
+  if (rows.some(spread)) return null;
+  const isPicture = (item) => item.k !== "t" || item.l === 1;
+  const texts = items.filter((item) => item.k === "t" && item.l !== 1);
+  const centered = rows.filter((row) => {
+    const left = Math.min(...row.items.map((item) => item.x - item.w / 2)), right = Math.max(...row.items.map((item) => item.x + item.w / 2));
+    return Math.abs((left + right) / 2 - 0.5) <= CENTER;
+  }).length / rows.length;
+  const firstType = texts.length ? Math.min(...texts.map((item) => item.y)) : 1;
+  const kinds = rows.map((row) => (row.items.some(isPicture) ? "P" : "T"));
+  const typeRows = kinds.filter((kind) => kind === "T").length;
+  return {
+    // Runs of one kind count once: three lines of type under a logo is "PT" (lines says how many).
+    order: kinds.filter((kind, index) => kind !== kinds[index - 1]).join(""),
+    centered: round(centered),
+    logoAbove: items.some((item) => isPicture(item) && item.y < firstType) ? 1 : 0,
+    mono: texts.some((item) => item.m === 1) ? 1 : 0,
+    lines: typeRows <= 1 ? 0 : typeRows === 2 ? 1 : typeRows <= 4 ? 2 : 3,
+    footage: (signature.backdrop ?? 0) >= 0.6 ? 1 : 0,
+  };
 }
 
-/** The closer of the plain distance and the stack distance (stackOf), so a repeated arrangement counts. */
-export function layoutDistance(a, b) {
-  const plain = signatureDistance(a, b);
-  if ((a?.items?.length ?? 0) < 3 || (b?.items?.length ?? 0) < 3) return plain;
-  return Math.min(plain, signatureDistance(stackOf(a), stackOf(b)));
+// The edit distance of two strings over the longer length (0 same, 1 nothing alike).
+function editShare(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let previous = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const kept = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, previous + (a[i - 1] === b[j - 1] ? 0 : 1));
+      previous = kept;
+    }
+  }
+  return row[b.length] / Math.max(a.length, b.length, 1);
 }
+
+/** The distance between two shapes (shapeOf), 0 to about 1.5; 1 when either is null. */
+export function shapeDistance(a, b) {
+  if (!a || !b) return 1;
+  return round(0.3 * editShare(a.order, b.order) + 0.3 * Math.abs(a.centered - b.centered) + 0.25 * Math.abs(a.logoAbove - b.logoAbove)
+    + 0.15 * Math.abs(a.mono - b.mono) + 0.1 * Math.abs(a.lines - b.lines) + 0.4 * Math.abs(a.footage - b.footage));
+}
+
+/**
+ * The distance seen_before uses: the closer of the fine distance (signatureDistance, places and
+ * sizes) and the shape distance (shapeDistance, the arrangement), so a repeated arrangement counts
+ * however it is spaced.
+ */
+export function layoutDistance(a, b) {
+  return Math.min(signatureDistance(a, b), shapeDistance(shapeOf(a), shapeOf(b)));
+}
+

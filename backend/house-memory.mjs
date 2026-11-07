@@ -13,6 +13,16 @@ export const HOUSE_MAX = 40;
 const STAND_IN = "Inter";
 
 /**
+ * A project's family: its name in lower case with " [copy]" and a trailing number (" 2", " v3",
+ * "-v4") removed, so a copy and the project it was copied from are one family. The store keeps no
+ * copy origin; seen_before never compares projects of one family.
+ */
+export function familyOf(name) {
+  const plain = String(name ?? "").toLowerCase().replace(/\s*\[copy\]/g, "").trim();
+  return plain.replace(/[\s_-]+v?\d+[a-z]?$/, "").trim() || plain;
+}
+
+/**
  * The document with every text layer whose font is not loaded drawn in a stand-in face (the
  * backfill has only the bundled fonts), and `families`: layer id to the family it asks for.
  */
@@ -54,12 +64,16 @@ export function createHouseMemory(directory) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const target = fileOf(projectId);
     const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ projectId, name: name ?? projectId, rev, savedAt: new Date().toISOString(), moments: kept }), { mode: 0o600 });
+    await writeFile(temporary, JSON.stringify({ projectId, name: name ?? projectId, family: familyOf(name ?? projectId), rev, savedAt: new Date().toISOString(), moments: kept }), { mode: 0o600 });
     await rename(temporary, target);
   }
 
-  /** Every other project's memory: [{projectId, name, rev, moments}], read again when a file changes. */
-  async function others(projectId) {
+  /**
+   * Every other project's memory, its family (familyOf `name`) left out: [{projectId, name, rev,
+   * moments}], read again when a file changes.
+   */
+  async function others(projectId, name = null) {
+    const family = name == null ? null : familyOf(name);
     let names = [];
     try { names = (await readdir(directory)).filter((name) => name.endsWith(".json")); } catch { return []; }
     const found = [];
@@ -72,16 +86,12 @@ export function createHouseMemory(directory) {
         try { hit = { mtime: info.mtimeMs, value: JSON.parse(await readFile(file, "utf8")) }; } catch { continue; }
         cache.set(file, hit);
       }
-      if (hit.value?.projectId !== projectId && Array.isArray(hit.value?.moments)) found.push(hit.value);
+      if (hit.value?.projectId === projectId || !Array.isArray(hit.value?.moments)) continue;
+      if (family !== null && familyOf(hit.value.name ?? hit.value.projectId) === family) continue;
+      found.push(hit.value);
     }
     return found;
   }
 
-  /** A short stamp of the memory (file names and times), for check caches. */
-  async function stamp(projectId) {
-    const list = await others(projectId);
-    return list.map((entry) => `${entry.projectId}@${entry.rev}`).join(",");
-  }
-
-  return { record, others, stamp, directory };
+  return { record, others, directory };
 }

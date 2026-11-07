@@ -393,7 +393,7 @@ export function createAgentService(deps) {
     // reference_drift: the project's saved Inspire references, measured like a render.
     references: deps.inspire ? (projectId) => deps.inspire.savedFingerprints(projectId) : null,
     // seen_before: what kino rendered in other projects (house-memory.mjs).
-    house: deps.house ? (projectId) => deps.house.others(projectId) : null,
+    house: deps.house ? (projectId, name) => deps.house.others(projectId, name) : null,
     measureRender: deps.measureRender ?? null });
   // The building-block ops (recipe, compose, place, set_cue, …) and relative times (blocks.mjs).
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,

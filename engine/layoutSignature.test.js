@@ -6,7 +6,7 @@ import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { runQuality } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
-import { caseOf, layoutMoments, layoutSignature, signatureDistance } from "./quality/layoutSignature.js";
+import { caseOf, layoutDistance, layoutMoments, layoutSignature, shapeOf, signatureDistance } from "./quality/layoutSignature.js";
 
 const text = (id, value, props = {}) => createLayer("text", { id, name: id, text: value, fontFamily: "Inter", fontSize: 64, fill: "#111111", textResize: "width-height", textAlign: "center", ...props });
 
@@ -39,6 +39,20 @@ test("the same layout is near, a different one far", () => {
   assert.equal(signatureDistance(a, a), 0);
   assert.ok(signatureDistance(a, layoutSignature(endCard(20), 1.5)) < 0.05);
   assert.ok(signatureDistance(a, layoutSignature(sideTitle(), 1.5)) > 0.4);
+});
+
+test("the shape term: one arrangement spaced two ways is near, a row of spread labels has no shape", () => {
+  const card = (top, gap) => ({ backdrop: 0, items: [
+    { k: "i", x: 0.5, y: top, w: 0.1, h: 0.18, d: 0 },
+    { k: "t", x: 0.5, y: top + gap, w: 0.4, h: 0.05, a: "center", c: "mixed", m: 0, n: 2, r: 0, d: 1 },
+    { k: "t", x: 0.5, y: top + 2 * gap, w: 0.3, h: 0.03, a: "center", c: "lower", m: 1, n: 0, r: 1, d: 1 },
+  ] });
+  const a = card(0.35, 0.1), b = card(0.1, 0.4);
+  assert.ok(signatureDistance(a, b) > 0.12);
+  assert.ok(layoutDistance(a, b) < 0.12);
+  assert.deepEqual(shapeOf(a), { order: "PT", centered: 1, logoAbove: 1, mono: 1, lines: 1, footage: 0 });
+  const labels = { backdrop: 0, items: [0.1, 0.5, 0.9].flatMap((y) => [0.2, 0.8].map((x) => ({ k: "t", x, y, w: 0.05, h: 0.03, d: 1 }))) };
+  assert.equal(shapeOf(labels), null);
 });
 
 test("seen_before warns on a layout another project already has", async () => {
