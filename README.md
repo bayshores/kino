@@ -18,14 +18,14 @@ Claude Code, Codex or any MCP client makes the video. You watch, approve, undo a
 
 <table>
 <tr>
-<td colspan="2"><img src="docs/demos/launch.gif" alt="kino's launch film: a prompt typed into a field, the kino dashboard tilting in 3D, an approval card lifting out of it, an orange word roll of promos, trailers, captions, explainers and stings, then the line motion design, by agents. and the kino logo"></td>
+<td colspan="2"><img width="100%" src="docs/demos/launch.gif" alt="kino's launch film: a prompt typed into a field, the kino dashboard tilting in 3D, an approval card lifting out of it, an orange word roll of promos, trailers, captions, explainers and stings, then the line motion design, by agents. and the kino logo"></td>
 </tr>
 <tr>
 <td colspan="2"><b>Launch film.</b> A typed prompt (<code>type-on</code>), the real dashboard as a tilted plane (<code>ui-plane</code>), one card lifted out of it (<code>lift-focus</code>), a word roll and a logo settle (<code>logo-settle</code>).</td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/demos/ride.gif" alt="A board-sports spot from live-action stock: a board POV on a road, feet pushing, the word RIDE standing behind a skater in mid-air, a whip pan to surfers, then GO OUTSIDE. over a sunset wave"></td>
-<td width="50%"><img src="docs/demos/reel.gif" alt="A sunset surf shot shrinks into a turning ring of tiles from eight clips, the title SUMMER '26 assembles from flying letters inside it, then the ring breaks into a wall of tiles"></td>
+<td width="50%"><img width="100%" src="docs/demos/ride.gif" alt="A board-sports spot from live-action stock: a board POV on a road, feet pushing, the word RIDE standing behind a skater in mid-air, a whip pan to surfers, then GO OUTSIDE. over a sunset wave"></td>
+<td width="50%"><img width="100%" src="docs/demos/reel.gif" alt="A sunset surf shot shrinks into a turning ring of tiles from eight clips, the title SUMMER '26 assembles from flying letters inside it, then the ring breaks into a wall of tiles"></td>
 </tr>
 <tr>
 <td><b>Footage spot.</b> Eight live-action shots. The skater is cut out on this Mac (<code>cut_out</code>) so the title stands behind him (<code>masked-type</code>), then a <code>whip-pan</code> and a <code>zoom-blur</code>.</td>
