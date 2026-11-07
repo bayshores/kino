@@ -74,8 +74,7 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
   `"mode":"out"` makes an exit.
 - A refused edit saves nothing; `next` resends it fixed, or send fixes:
   `edit {retry:"E2", fix:{"3":{"easing":"smooth"}, "7":null}}`.
-- `{status:"awaiting_approval", id:"Q1"}`: tell the person; do not poll (inbox gets it). A
-  yes in the chat counts: `notes {action:"answer", id:"Q1", words, read_as:"approve"}`.
+- `{status:"awaiting_approval", id:"Q1"}`: tell them; a chat yes counts (notes answer).
   `{held:true}`: nothing changed; wait for "hold released" (inbox).
 - `{status:"waiting_for_you", id:"C1"}` (a stop): send its `ask`, end your turn, record their
   reply with `notes answer`. Until then writes answer `{waiting}`.

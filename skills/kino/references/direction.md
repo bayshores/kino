@@ -121,10 +121,8 @@ Their answer:
 - "stop asking" counts only on the stop whose ask offers it (the first of rough, color and
   sound this video asks): rough, color and sound then pass for this video. It never skips
   the storyboard or an approval.
-- `Q…` ids are approvals (a big final render, an overwrite, a delete, a share link). The
-  person answers in kino or in the chat. A yes or no in the chat is theirs to give: record it
-  with `notes {action:"answer", id:"Q1", words, read_as:"approve"}` (or `"deny"`) and an
-  allowed render starts. Never answer one they did not.
+- `Q…` ids are approvals: the person answers in kino or the chat (record a chat yes/no
+  with `notes answer`).
 - Each answer counts toward the 10 replies. `ask_limit`: make that call yourself, say "my
   call: …" and go on.
 - kino refuses an answer under 5 s after the ask (`too_fast`) and one for a revision the
