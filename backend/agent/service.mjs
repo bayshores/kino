@@ -529,7 +529,9 @@ export function createAgentService(deps) {
   // render frames (contrast, flashing, luma_jump, frozen_picture); edit receipts and status leave them out to stay fast,
   // except on scenes check saw unchanged. `unchecked` is "all" or the names of the scenes whose
   // rendered rules are not in the findings (checkSummary says so).
-  async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = 30 } = {}) {
+  // listen:false (the dashboard's own check) renders frames for the pixel rules but reads only
+  // saved transcripts, peaks, loudness and people: no whisper and no sound or people decodes.
+  async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = 30, listen = true } = {}) {
     const basic = checkDocument(document, { fonts, mediaRoot: deps.mediaRoot, codes, sceneId });
     // The brief's style spec (notes brief fields.style) sets the style rules; none is kino's default style.
     const saved = await agentState.read(document.id).catch(() => null);
@@ -541,20 +543,23 @@ export function createAgentService(deps) {
     // speech_cut reads each heard sound's word transcript: the saved one, and a full check
     // (pixels) transcribes a file that has none yet.
     // A song (a file kino found a steady beat in) is music, not speech: its lyrics are not checked.
-    const transcriptOf = async (layer, { make }) => {
+    const transcriptOf = async (layer, { make: asked }) => {
+      const make = asked && listen;
       const file = mediaFileOf(layer);
       if (await soundIsMusic(layer, file, { listen: make, beats: beatAnalysis })) return { music: true };
       return make ? transcripts.get(file, document, layer) : transcripts.saved?.(file, document, layer) ?? null;
     };
     // And hears each cut: the file's waveform peaks (saved ones; a full check makes them).
-    const loudnessOf = async (layer, { make }) => {
+    const loudnessOf = async (layer, { make: asked }) => {
+      const make = asked && listen;
       const file = mediaFileOf(layer);
       return make ? audioPeaks.get(file) : audioPeaks.saved?.(file) ?? null;
     };
     // The brief's length (notes brief fields.length): the assertions gate holds the video to it.
     const length = lengthTarget(saved?.brief);
     // And finds the people in each clip (saved ones; a full check finds them).
-    const peopleOf = async (layer, { make }) => {
+    const peopleOf = async (layer, { make: asked }) => {
+      const make = asked && listen;
       // A clip outside kino's media library (a link, a test file) is not measured.
       let file;
       try { file = mediaFileOf(layer); } catch { return null; }
@@ -564,7 +569,8 @@ export function createAgentService(deps) {
       return record?.width > 0 && record?.height > 0 ? peopleCache.get(file, { width: record.width, height: record.height, duration: record.duration }) : null;
     };
     // And the measured loudness in LUFS (voice_under_bed, voice_level_spread): saved ones; a full check measures.
-    const levelsOfLayer = async (layer, { make }) => {
+    const levelsOfLayer = async (layer, { make: asked }) => {
+      const make = asked && listen;
       const file = mediaFileOf(layer);
       return make ? loudnessCurves.get(file) : loudnessCurves.saved(file);
     };
@@ -2122,7 +2128,7 @@ export function createAgentService(deps) {
     if (input.fix !== undefined && input.fix !== "auto") throw new AgentError("bad_input", 'fix is "auto" (apply the fixes marked auto), or left out: check {fix:"auto"}.');
     // rules: a list of rule codes limits the check; true only asks for the rules line.
     const rules = input.rules == null || input.rules === true ? null : (Array.isArray(input.rules) ? input.rules : [input.rules]).map(String);
-    const options = { codes, sceneId: scene?.id, pixels: input.pixels !== false, rules, outputFps: input.fps == null ? 30 : readFps(input.fps, (message) => new AgentError("bad_input", message)) };
+    const options = { codes, sceneId: scene?.id, pixels: input.pixels !== false, listen: input.listen !== false, rules, outputFps: input.fps == null ? 30 : readFps(input.fps, (message) => new AgentError("bad_input", message)) };
     // A settled brief has a deck by the time the video is checked (deck_unused counts it).
     await deckFor(projectId, record.document);
     noteLive({ sceneId: scene?.id ?? null });

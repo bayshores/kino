@@ -9,10 +9,10 @@ import { callNoWords, shotList } from "./boardRows.js";
 import { callSummary, cut, noteState, timeOfDay, tokens } from "./format.js";
 import { BRIEF_LABELS, READ_WORDS, STOP_WORDS } from "./words.js";
 
-// The dashboard's own check after each revision: saved results only. pixels:false never
-// transcribes, decodes sound or renders frames; a scene the agent fully checked still shows
-// that full check (quality.mjs check). Heavy work waits for an agent or the person.
-export const backgroundCheckInput = (projectId) => ({ project: projectId, quiet: true, pixels: false });
+// The dashboard's own check after each revision: it renders frames for the pixel rules (contrast,
+// flashing), but listen:false reads only saved transcripts, peaks and people, so opening a
+// project never starts whisper or a sound decode. That waits for an agent or the person.
+export const backgroundCheckInput = (projectId) => ({ project: projectId, quiet: true, listen: false });
 
 // An agent that called kino this recently is "working".
 export const WORKING_MS = 20_000;

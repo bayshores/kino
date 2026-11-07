@@ -155,6 +155,22 @@ test("the voiceover example in the kino skill runs as written", { skip: skipWith
   assert.match(JSON.stringify(broll.data), /rocket: no word of \\"rocket launch\\" is said/);
 });
 
+test("the dashboard's own check (listen:false) never transcribes; an agent's full check does", { skip: skipWithoutMediaTools }, async () => {
+  const key = (await (await server.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: server.baseUrl } })).json()).key;
+  const media = await upload(server, wav, "dashboard-voice.wav");
+  const client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "cli" });
+  assert.equal((await client.call("project", { action: "create", id: "listen", width: 320, height: 180, duration: 8 })).isError, undefined);
+  const added = await client.call("edit", { project: "listen", ops: [{ op: "add_layer", layerType: "audio", name: "voice", properties: { src: media.src, mediaStart: 0 } }] });
+  assert.equal(added.isError, undefined, added.text);
+  const id = path.basename(media.src);
+  const transcripts = async () => (await readdir(path.join(server.dataDirectory, "media"))).filter((name) => name.startsWith(id) && name.includes(".words-"));
+  const quiet = await server.api("/api/dashboard/act/check", { method: "POST", headers: { "x-kino-review": key }, body: { project: "listen", quiet: true, listen: false } });
+  assert.equal(quiet.status, 200, await quiet.clone().text());
+  assert.deepEqual(await transcripts(), [], "the dashboard's check made no transcript");
+  assert.equal((await client.call("check", { project: "listen" })).isError, undefined);
+  assert.equal((await transcripts()).length, 1, "a full check transcribes the voice");
+});
+
 test("without whisper-cli or a model, the refusal says how to install them and nothing is downloaded", { skip: skipWithoutMediaTools }, async () => {
   const missing = await startTestServer({ env: { KINO_WHISPER_CLI: path.join(folder, "no-such-whisper-cli"), KINO_WHISPER_MODEL: path.join(folder, "ggml-small.en.bin") } });
   try {

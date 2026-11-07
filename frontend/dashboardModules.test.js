@@ -419,6 +419,6 @@ test("the dashboard clock does not tick while the window is hidden", (t) => {
   assert.equal(ticks, 5);
 });
 
-test("the dashboard's background check reads saved results only (no whisper, ffmpeg or frames)", () => {
-  assert.deepEqual(backgroundCheckInput("p1"), { project: "p1", quiet: true, pixels: false });
+test("the dashboard's background check renders frames but hears only saved results (no whisper or sound decodes)", () => {
+  assert.deepEqual(backgroundCheckInput("p1"), { project: "p1", quiet: true, listen: false });
 });
