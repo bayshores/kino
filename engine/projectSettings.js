@@ -1,0 +1,59 @@
+// Edits to project-wide settings: update_project, waive_check and unwaive_check.
+// parseDocument (qualityFields.js) checks the values after every edit.
+import { MAX_WAIVERS } from "./qualityFields.js";
+
+// What update_project may change. checkWaivers has its own operations.
+const PROJECT_PROPERTIES = new Set(["name", "videoType", "rhythm"]);
+
+/** update_project {properties}: sets the name, videoType or rhythm. null removes videoType or rhythm. */
+export function applyProjectUpdate(document, properties) {
+  if (!properties || typeof properties !== "object" || Array.isArray(properties) || !Object.keys(properties).length)
+    throw new Error("update_project needs properties, such as {videoType:\"promo\"} or {rhythm:{bpm:120, offset:0}}.");
+  for (const [key, value] of Object.entries(properties)) {
+    if (!PROJECT_PROPERTIES.has(key)) throw new Error(`update_project can change ${[...PROJECT_PROPERTIES].join(", ")}; not ${key}.`);
+    if (value === null && key !== "name") delete document[key];
+    else document[key] = value;
+  }
+}
+
+// The waiver's targets as a list: target is one ID (or *) or a list of IDs, saved as one waiver each.
+function waiverTargets({ code, target }) {
+  if (typeof code !== "string" || !code) throw new Error("A waiver needs code: the check rule to accept, such as reading_time.");
+  const targets = [target].flat();
+  if (!targets.length || targets.some((each) => typeof each !== "string" || !each))
+    throw new Error("A waiver needs target: a layer, a scene, a list of them, or * for the whole project.");
+  return targets;
+}
+
+/** waive_check {code, target, reason}: accepts a check finding on purpose, on one target or a list. Replaces an earlier waiver of the same finding. */
+export function withWaiver(waivers = [], { code, target, reason }) {
+  const targets = new Set(waiverTargets({ code, target }));
+  if (typeof reason !== "string" || !reason.trim()) throw new Error("waive_check needs reason: why this finding is fine in this video.");
+  const next = [...waivers.filter((waiver) => waiver.code !== code || !targets.has(waiver.target)), ...[...targets].map((each) => ({ code, target: each, reason }))];
+  // A glob or list is saved as one waiver per layer, so a broad one ("word-*") can pass the limit.
+  if (next.length > MAX_WAIVERS)
+    throw new Error(`waive_check would make ${next.length} waivers (${targets.size} from this target); a project keeps at most ${MAX_WAIVERS}. Waive a scene, or target:"*" for the whole project.`);
+  return next;
+}
+
+/**
+ * The waivers `after` keeps once an edit changed `before`: a waiver on a layer lapses when the
+ * layer is deleted or its file (src) changes, so a song re-added under the same name is checked
+ * again. Waivers the edit itself added, and waivers on scenes or *, stay.
+ */
+export function keptWaivers(before, after) {
+  const files = (document) => {
+    const map = new Map();
+    for (const scene of document.scenes ?? []) for (const layer of scene.layers ?? []) map.set(layer.id, [map.get(layer.id), layer.src ?? ""].filter((each) => each !== undefined).join("\n"));
+    return map;
+  };
+  const had = new Set((before.checkWaivers ?? []).map((waiver) => `${waiver.code} ${waiver.target}`));
+  const was = files(before), now = files(after);
+  return (after.checkWaivers ?? []).filter((waiver) => !had.has(`${waiver.code} ${waiver.target}`) || !was.has(waiver.target) || now.get(waiver.target) === was.get(waiver.target));
+}
+
+/** unwaive_check {code, target}: removes a waiver, or the waivers of a list of targets (none there: nothing changes). */
+export function withoutWaiver(waivers = [], { code, target }) {
+  const targets = new Set(waiverTargets({ code, target }));
+  return waivers.filter((waiver) => waiver.code !== code || !targets.has(waiver.target));
+}

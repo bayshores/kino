@@ -1,0 +1,1321 @@
+/* The terminal-style dashboard (plan §5.10). Dark only; no purple. Widths are in character
+   cells (ch) and heights in lines (lh) where text sets them; borders and gaps are in px. */
+/* The fonts and the shared colors are in ../base.css (shared with the viewer). The dashboard
+   sets its own darker, bluer shades here, inside .dash only. */
+
+.dash {
+  --bg0: #0b0e12;       /* the page, and the panes on it */
+  --well: #101319;      /* a raised well: the stage's frame, the status band */
+  --bg1: #151921;       /* buttons, captions, fields */
+  --bg2: #181d25;       /* the selected or current row */
+  --line: #30363f;      /* pane borders */
+  --line-soft: #22262d; /* rules inside a pane, the top line's boxes */
+  --fg0: #eceef0;       /* text */
+  --fg-mid: #bcc0c5;    /* headings, the nav, the second words */
+  --fg1: #808792;       /* quiet text: 4.5:1 or more on every background here (WCAG AA) */
+  --fg2: #767c86;       /* faint text: 4.5:1 on the page (--bg0); the status band uses --fg1 */
+  --accent: #ff7d3d;    /* keys, the focused pane, the playhead */
+  --urgent: #f4673a;    /* needs you */
+  --agent: #42c0b6;     /* the agent: turn ids, chips */
+  --link: #48c6c4;
+  --ok: #5fd89a;
+  --ruler: #72aaca;     /* the timeline ruler's times */
+  --bar: #626b79;       /* layer bars on the timeline */
+  --lane: #11141a;      /* a timeline lane */
+  --radius: 3px;
+  --gap: 6px;           /* between panes */
+  --inset: 14px;        /* a pane's text from its border */
+  --small: 10px;        /* captions, ruler times, chips */
+
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-ligatures: none;
+  color: var(--fg0);
+  background: var(--bg0);
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  overflow: hidden;
+}
+.dash *, .dash *::before, .dash *::after { box-sizing: border-box; }
+/* :where() keeps this reset at the weight of a plain element selector, so a button's own class
+   (.tl-label, .strip-scroll, .icon-button …) sets its colour. */
+:where(.dash) button, :where(.dash) input, :where(.dash) select, :where(.dash) textarea { font: inherit; color: inherit; }
+.dash :focus { outline: none; }
+.dash :focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.dash a { color: var(--link); }
+.dash p { margin: 0; }
+.dash h3 { margin: 0; font: inherit; }
+.dash ul, .dash ol { margin: 0; padding: 0; list-style: none; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---- text roles ---------------------------------------------------------------------- */
+.dim { color: var(--fg1); }
+.faint { color: var(--fg2); }
+/* On a raised row or caption (--bg1, --bg2) the faint colour would fall under 4.5:1, so there it
+   is the quiet colour. */
+.log-row.selected .faint, .row-button.selected .faint, .row-button[aria-selected="true"] .faint, .row-button.on .faint,
+.table tr[aria-selected="true"] .faint, .thumb-caption .faint, .menu .faint, .code-block .faint { color: var(--fg1); }
+.agent { color: var(--agent); }
+.key { color: var(--accent); }
+.s-working { color: var(--warn); }
+.s-needs-you { color: var(--urgent); }
+.s-idle { color: var(--fg1); }
+.s-done { color: var(--ok); }
+.s-failed { color: var(--err); }
+.warn { color: var(--warn); }
+.err { color: var(--err); }
+.ok { color: var(--ok); }
+.cell { display: inline-block; width: 1ch; text-align: center; }
+.braille { display: inline-block; overflow: hidden; white-space: pre; vertical-align: bottom; }
+
+/* ---- buttons look like text ------------------------------------------------------------ */
+.tb {
+  background: none; border: 0; padding: 0 0.5ch; margin: 0; cursor: pointer;
+  color: var(--fg0); white-space: nowrap; line-height: inherit; border-radius: var(--radius);
+}
+.tb:hover { background: var(--bg2); }
+.tb:disabled { color: var(--fg2); cursor: default; background: none; }
+.tb .key { font-weight: 700; }
+.tb.on { background: var(--bg2); }
+.tb-box { border: 1px solid var(--line); padding: 0 1ch; }
+.tb-box:hover { border-color: var(--fg1); }
+.tb-accent { border-color: var(--accent); }
+.icon { display: block; width: 14px; height: 14px; flex: none; }
+/* A square button that holds an icon. */
+.icon-button { display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; color: var(--fg-mid); }
+.icon-button:hover { color: var(--fg0); }
+.icon-button[aria-pressed="true"] { color: var(--accent); }
+
+/* A drop-down: its button, and the list drawn on top of the dashboard. */
+.menu-button { display: inline-flex; align-items: center; gap: 0.5ch; }
+.menu-button .icon { width: 12px; height: 12px; color: var(--fg1); }
+.menu {
+  position: fixed; z-index: 30; display: grid; align-content: start; padding: 3px; min-width: 10ch;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.5);
+}
+.menu-item { text-align: left; padding: 0 1ch; line-height: 20px; color: var(--fg-mid); }
+.menu-item:focus-visible, .menu-item:hover { background: var(--bg2); color: var(--fg0); outline: none; }
+.menu-item[aria-checked="true"] { color: var(--accent); }
+.menu-item[aria-checked="true"]::before { content: "● " / ""; }
+.menu-item[aria-checked="false"]::before { content: "  " / ""; white-space: pre; }
+
+/* ---- top line: kino, the project menu, the tabs, the agents at work, hold, share, settings and
+   render (one 38 px row). Flat: no boxes behind the brand, no shadows, one orange bar mark. ---- */
+.topline {
+  position: relative; display: flex; align-items: stretch; height: 38px;
+  white-space: nowrap; overflow: hidden; background: var(--bg0); border-bottom: 1px solid var(--line-soft);
+}
+.topline .title { display: flex; align-items: center; gap: 2.2ch; flex: 0 1 auto; min-width: 0; max-width: 32%; padding: 0 1.5ch 0 14px; }
+.topline .brand { display: inline-flex; align-items: center; gap: 0.8ch; color: var(--fg0); font-weight: 700; flex: none; }
+.topline .brand-mark { width: 4px; height: 14px; background: var(--accent); }
+.topline .project-menu { height: 26px; padding: 0 0.8ch; color: var(--fg0); min-width: 0; overflow: hidden; }
+.topline .project-menu .menu-value { overflow: hidden; text-overflow: ellipsis; }
+/* The rest of the line: the agents' chips in the middle, the buttons at the right. */
+.topbar { position: relative; flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 1.5ch; padding: 0 0 0 2ch; }
+.agent-chips { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; }
+.agent-chip, .needs-chip {
+  display: inline-flex; align-items: center; gap: 0.8ch; height: 26px; padding: 0 1.2ch; min-width: 0; flex: 0 1 auto;
+  border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--well); color: var(--fg-mid);
+}
+.agent-chip .chip-name { color: var(--who, var(--agent)); flex: none; }
+.agent-chip .chip-doing { overflow: hidden; text-overflow: ellipsis; }
+.chip-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--who, var(--agent)); }
+/* A working agent's dot breathes, so the line feels alive; reduced motion keeps it still. */
+.agent-chip.s-working .chip-dot { animation: chip-breathe 1.6s ease-in-out infinite; }
+@keyframes chip-breathe { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .agent-chip.s-working .chip-dot { animation: none; } }
+.agent-chip.s-needs-you { border-color: var(--urgent); }
+.agent-chip.s-failed { border-color: var(--err); }
+.agent-chip.s-failed .chip-doing { color: var(--err); }
+.idle-line { color: var(--fg1); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.needs-chip { border-color: var(--urgent); color: var(--fg0); --who: var(--urgent); overflow: hidden; }
+.needs-chip strong { color: var(--urgent); font-weight: 700; flex: none; }
+.needs-chip .asking-what { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.needs-chip .bot { flex: none; }
+.needs-chip .chip-answer { flex: none; height: 20px; padding: 0 1ch; background: var(--urgent); color: var(--bg0); font-weight: 700; }
+.needs-chip .chip-answer:hover { background: color-mix(in srgb, var(--urgent) 85%, #fff); }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 6px; align-self: stretch; flex: none; }
+.top-right .top-button {
+  display: inline-flex; align-items: center; gap: 0.8ch; height: 26px; padding: 0 1.2ch;
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--fg-mid);
+}
+.top-right .top-button:hover { color: var(--fg0); border-color: var(--fg1); background: var(--bg1); }
+.top-right .top-button.icon-only { width: 28px; padding: 0; justify-content: center; }
+.top-right .top-button.held { border-color: var(--warn); color: var(--warn); }
+/* Render: a split button flush with the right edge: render, then a menu for final, draft, format
+   and cancel. While a render runs it shows the percent and a thin line in the rendering agent's color. */
+.render-split { display: flex; align-self: stretch; margin-left: 4px; background: var(--accent); }
+.render-split .tb { border-radius: 0; color: var(--bg0); font-weight: 700; }
+.render-split .tb:hover { background: color-mix(in srgb, var(--accent) 85%, #fff); }
+.render-split .top-render { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 0.8ch; padding: 0 2.4ch; min-width: 12ch; }
+.render-split .top-render:disabled { background: var(--bg1); color: var(--fg2); }
+.render-split .render-more { padding: 0 1.2ch; border-left: 1px solid rgb(0 0 0 / 0.25); }
+.render-split .render-more .icon { color: var(--bg0); }
+.render-split.is-rendering { background: var(--well); }
+.render-split.is-rendering .tb { color: var(--who, var(--accent)); }
+.render-split.is-rendering .render-more { border-left-color: var(--line-soft); }
+.render-split.is-rendering .render-more .icon { color: var(--fg1); }
+.render-split.is-rendering .tb:hover { background: var(--bg1); }
+.render-line { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--who, var(--accent)); transition: width 400ms linear; }
+@media (prefers-reduced-motion: reduce) { .render-line { transition: none; } }
+.topbar .follow {
+  display: inline-flex; align-items: center; height: 26px; padding: 0 1ch;
+  border: 1px solid var(--line-soft); border-radius: var(--radius); color: var(--fg-mid); z-index: 1;
+}
+.dash .dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.topbar .follow .dot { color: var(--fg1); margin-right: 1ch; }
+.topbar .follow.on { background: none; }
+.topbar .follow.on .dot { color: var(--ok); }
+.topbar .follow:hover { border-color: var(--line); }
+.topbar .message { flex: 0 1 auto; max-width: 28%; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding: 0; z-index: 1; }
+/* ---- the three panes (F1): the stage left, the agent pane right, the timeline under both ---- */
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(40ch, 31.5%, 64ch);
+  /* The timeline is a quarter of the window (224 px at 900 px), the panes above get the rest, at least 12 lines (a short window scrolls). */
+  grid-template-rows: minmax(12lh, 1fr) clamp(170px, 25vh, 320px);
+  grid-template-areas:
+    "stage agent"
+    "timeline timeline";
+  gap: 18px 8px;
+  min-height: 0;
+  padding: 16px 8px 8px;
+}
+.panes.zoomed { grid-template-columns: 1fr; grid-template-rows: 1fr; grid-template-areas: "zoom"; }
+.panes.zoomed > .pane:not(.is-zoomed) { display: none; }
+.panes.zoomed > .pane.is-zoomed { grid-area: zoom; }
+
+/* A pane is a box with its title and facts set into its top border ("1 stage ── 01:31 / 02:50"),
+   then a body that scrolls. It holds its absolutely placed children too: a .sr-only word in a
+   log row was placed against the page, below the phone stack, and made the page scroll on a phone. */
+.pane {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  grid-template-rows: 12px minmax(0, 1fr);
+  border: 1px solid var(--line-soft);
+  min-width: 0;
+  min-height: 0;
+}
+.pane[data-focused="true"] { border-color: var(--line); }
+/* A focused pane shows the focus on its border: an outline is drawn over the title set into it. */
+.dash .pane:focus-visible { outline: none; border-color: var(--accent); }
+.pane > h2 {
+  margin: -10px 0 0 8px; height: 20px; align-self: start; justify-self: start; max-width: calc(100% - 8px);
+  font: inherit; font-weight: 400; color: var(--fg-mid); background: var(--bg0);
+  display: flex; align-items: center; padding: 0 1ch; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pane > h2 > span { overflow: hidden; text-overflow: ellipsis; }
+/* The "…" would leave a focused control in the title undrawn: while one has the focus, the title
+   is only cut, and Pane (panes.jsx) puts its line back at the start when the focus leaves. */
+.pane > h2:focus-within > span { text-overflow: clip; }
+.pane-name { color: var(--fg0); }
+.pane-number { color: var(--accent); }
+.pane[data-focused="true"] > h2 .pane-number { font-weight: 700; }
+/* "1 stage": the brackets are for the phone's stack only (and are never read out). */
+.pane > h2 .bracket { display: none; }
+.pane-facts {
+  margin: -10px 8px 0 0; height: 20px; align-self: start; justify-self: end; max-width: 100%;
+  display: flex; align-items: center; justify-content: flex-end; gap: 1.5ch; min-width: 0;
+  padding: 0 1ch; color: var(--fg1); background: var(--bg0); white-space: nowrap; overflow: hidden;
+}
+.pane-facts:empty { display: none; }
+.pane-facts > * { flex: none; }
+.pane-facts .facts-text, .pane-facts .stage-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane-body {
+  grid-column: 1 / -1; min-height: 0; min-width: 0; overflow: auto; padding: 0 var(--inset) 8px;
+  scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+}
+
+.p-session { grid-area: session; }
+.p-stage { grid-area: stage; }
+.p-agent { grid-area: agent; }
+.p-timeline { grid-area: timeline; }
+/* The phone's stack keeps its own panes ([4] log). */
+.p-seen:not(.view-panel), .p-log:not(.view-panel) { grid-area: auto; }
+.row { display: flex; gap: 1ch; white-space: nowrap; min-width: 0; }
+.row > .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.row-button { width: 100%; text-align: left; display: flex; gap: 1ch; padding: 0; }
+.row-button[aria-selected="true"], .row-button.selected { background: var(--bg2); }
+/* `.dash p { margin: 0 }` would outrank a plain .section-label and erase the gap between sections. */
+.dash .section-label { color: var(--fg1); margin-top: 0.5lh; }
+.dash .section-label:first-child { margin-top: 0; }
+
+/* ---- [1] session: sections split by thin rules ----------------------------------------- */
+.p-session > h2, .p-session > .pane-facts { border-bottom: 1px solid var(--line-soft); }
+.p-session[data-focused="true"] > h2, .p-session[data-focused="true"] > .pane-facts { border-bottom-color: color-mix(in srgb, var(--accent) 55%, var(--bg0)); }
+.p-session .pane-facts { padding-right: 8px; }
+.p-session .pane-body { padding: 0; }
+.session-section { padding: 6px 9px 8px; }
+.session-section + .session-section { border-top: 1px solid var(--line-soft); }
+.session-section.urgent { border-bottom: 1px solid color-mix(in srgb, var(--urgent) 28%, var(--bg0)); }
+.session-section.urgent + .session-section { border-top: 0; }
+.section-head { color: var(--fg-mid); line-height: 1lh; margin-bottom: 4px; padding-left: 4px; }
+.section-head .caret-button { padding: 0; color: inherit; width: 100%; text-align: left; }
+.section-head .caret { display: inline-block; width: 1.5ch; color: var(--fg1); }
+.session-section.urgent .section-head { color: var(--urgent); }
+.session-section.urgent .section-head .caret { color: inherit; }
+.session-section .indent { padding-left: 2.5ch; }
+.session-section .row, .session-section > div > p, .session-section > p { padding-left: 4px; padding-right: 4px; }
+.session-section > .row > .tb:first-child { margin-left: -0.5ch; }
+
+.needs-you { margin: 2px 0 6px; }
+.needs-you > .row-button { padding: 0 4px; gap: 1ch; align-items: baseline; }
+.needs-you > .row-button .dot { align-self: center; margin: 0 calc((1.5ch - 9px) / 2); }
+.needs-you > .row-button .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.needs-you > p.indent { padding-left: calc(4px + 2.5ch); white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.needs-you .actions { display: flex; flex-wrap: wrap; gap: 0 3ch; padding-left: calc(4px + 2ch); margin-top: 2px; }
+.needs-you .actions .tb { color: var(--fg-mid); padding: 0 0.5ch; }
+/* A material question: the ask wraps to two lines, its option chips wrap under it. */
+.material-row > .row { padding: 0 4px; align-items: baseline; white-space: normal; }
+.material-row > .row .dot { align-self: center; margin: 0 calc((1.5ch - 9px) / 2); flex: none; }
+.material-row > .row .grow { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.material-row .actions { gap: 2px 1ch; }
+.material-row .actions .tb { border: 1px solid var(--line); border-radius: var(--radius); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.material-row .actions .tb.allow { color: var(--urgent); border-color: var(--urgent); }
+
+.plan-step { line-height: 22px; border-radius: 4px; color: var(--fg1); }
+.plan-step .cell { width: 1.5ch; }
+.plan-step.current { background: var(--bg2); color: var(--fg0); }
+.plan-step.current .cell { color: var(--fg0); }
+.plan-step.done .cell { color: var(--ok); }
+
+/* The brief (read only, frontend/dashboard/brief.jsx): every word wraps, even a long unbroken one, so
+   a whole quote shows in the narrow column and on a phone. A line's wrapped text starts 2 cells
+   in, so each label starts a line of its own. Each line holds its own screen-reader sentence
+   (.sr-only), so that is placed against the line, never the page. */
+.brief-lines li { position: relative; white-space: normal; overflow-wrap: anywhere; margin-top: 2px; padding-left: 2ch; text-indent: -2ch; }
+.brief-label, .brief-said { color: var(--fg0); }
+.brief-quote { color: var(--fg-mid); }
+.brief-guessed { color: var(--agent); }
+.brief-text { color: var(--fg1); }
+/* "→ what the agent reads": a second line, under the label's wrapped text; its own wrapped lines
+   go under its words, not the arrow. */
+.brief-text.block { display: block; padding-left: 2ch; }
+.dash .brief-note { margin-top: 4px; }
+.brief-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5lh 1ch; min-width: 0; overflow-wrap: anywhere; }
+.brief-card .section-head { padding-left: 0; }
+
+.session-section .render-row { line-height: 23px; align-items: baseline; }
+.render-row .render-name { display: flex; flex-wrap: wrap; column-gap: 1ch; height: 23px; overflow: hidden; }
+.render-row a.tb { color: var(--link); text-decoration: underline; text-underline-offset: 2px; padding: 0; }
+
+/* ---- [2] stage: the frame in a well, the transport under it ----------------------------- */
+.p-stage .pane-body { display: flex; flex-direction: column; overflow: hidden; padding: 12px 10px 0; }
+.stage-label { color: var(--fg1); flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The row over the frame: the scene menu and its facts, then the zoom and full screen at the right. */
+.stage-toolbar { display: flex; align-items: center; gap: 1.5ch; height: 30px; margin-bottom: 8px; white-space: nowrap; min-width: 0; }
+.stage-toolbar .toolbar-gap { flex: 1; }
+.stage-toolbar .menu-button, .stage-toolbar .scene-name, .stage-toolbar .icon-button {
+  display: inline-flex; align-items: center; height: 28px; padding: 0 1.2ch; flex: none;
+  border: 1px solid var(--line); border-radius: var(--radius); color: var(--fg0);
+}
+.stage-toolbar .scene-name { border-color: var(--line-soft); }
+.stage-toolbar .menu-button { gap: 1.2ch; }
+.stage-toolbar .icon-button { width: 30px; padding: 0; justify-content: center; }
+.stage-toolbar .menu-button:hover, .stage-toolbar .icon-button:hover { border-color: var(--fg1); background: var(--bg1); }
+.stage-well { flex: 1; min-height: 0; display: flex; padding: 0; }
+.stage-wrap { flex: 1; min-width: 0; min-height: 0; display: flex; position: relative; overflow: hidden; }
+/* margin: auto centres the frame, and keeps it scrollable from its edge when it is larger. */
+.stage-group { position: relative; display: flex; flex-direction: column; max-width: 100%; margin: auto; }
+.stage {
+  position: relative; isolation: isolate; max-width: 100%; max-height: 100%; flex: none;
+  background: #000; cursor: crosshair; touch-action: none;
+}
+.stage-wrap.scrolls { overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.dash .stage-wrap.scrolls:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.stage-wrap.scrolls .stage-group, .stage-wrap.scrolls .stage { max-width: none; max-height: none; }
+.stage img { display: block; width: 100%; height: 100%; user-select: none; -webkit-user-drag: none; }
+/* Right after Play the exact frame stays over the live picture until that is ready (panes.jsx,
+   the start hold); the overlay stays on top of both. */
+.stage img.holding { position: absolute; inset: 0; z-index: 1; }
+/* While playing, the scene is drawn live in the frame's place; the overlay stays on top. */
+.stage-live { position: absolute; inset: 0; overflow: hidden; }
+.stage-live .live-picture, .stage-live .scene-svg, .stage-live .scene-svg > svg { display: block; width: 100%; height: 100%; }
+/* A scene with light rays on a large stage: the smaller live picture is its own layer, enlarged
+   from the stage's top left corner while rays show and moved out of the stage otherwise
+   (panes.jsx ReducedPicture sets the size and the transform). */
+.stage-live .live-layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+.stage-live .render-error { padding: 1lh 2ch; color: var(--err); background: var(--bg1); }
+.stage-notes { display: flex; gap: 0 1ch; flex-wrap: wrap; padding-top: 0.25lh; }
+.sound-blocked { display: flex; gap: 0 1ch; flex-wrap: wrap; align-items: baseline; padding-top: 0.25lh; }
+.rendering { position: absolute; right: 0.5ch; bottom: 0.25lh; background: var(--bg0); color: var(--warn); padding: 0 0.5ch; }
+.overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.safe-area { position: absolute; border: 1px dotted var(--fg1); }
+.grid-lines { position: absolute; inset: 0; background-image: linear-gradient(to right, rgba(230,230,232,0.12) 1px, transparent 1px), linear-gradient(to bottom, rgba(230,230,232,0.12) 1px, transparent 1px); }
+.finding-box { position: absolute; border: 1px solid var(--warn); }
+.finding-box.error { border-color: var(--err); }
+/* Notes on the frame: a numbered dot where each points (the one being written has no number
+   yet), and a faint outline when it is about a layer's box. */
+.note-pin {
+  position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--accent); color: var(--bg0);
+  border: 2px solid var(--bg0); box-shadow: 0 2px 8px rgb(0 0 0 / 0.5);
+  font-size: 11px; font-weight: 800; line-height: 1; pointer-events: auto;
+}
+.note-pin.drafting { width: 16px; height: 16px; margin: -8px 0 0 -8px; }
+.note-area { position: absolute; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.note-area.drafting { border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.note-layer { position: absolute; bottom: 100%; left: -1.5px; padding: 0 6px; line-height: 18px; font-size: 11px; font-weight: 700; background: var(--accent); color: var(--bg0); border-radius: 4px 4px 0 0; white-space: nowrap; }
+.drag-box { position: absolute; border: 1px dashed var(--accent); }
+.pointing-box { position: absolute; border: 1px solid var(--fg0); }
+.stage-empty { color: var(--fg1); padding: 1lh 2ch; text-align: center; }
+
+/* The frame's four corner marks, just outside the picture's box, and "▶ preview" in its top
+   left while a render waits for you. */
+.stage-well { position: relative; }
+.p-stage .corner { position: absolute; width: 10px; height: 10px; border: 0 solid var(--fg2); pointer-events: none; z-index: 1; }
+.p-stage .corner.tl { top: -4px; left: -4px; border-width: 1px 0 0 1px; }
+.p-stage .corner.tr { top: -4px; right: -4px; border-width: 1px 1px 0 0; }
+.p-stage .corner.bl { bottom: -4px; left: -4px; border-width: 0 0 1px 1px; }
+.p-stage .corner.br { bottom: -4px; right: -4px; border-width: 0 1px 1px 0; }
+/* Top right, so an agent's name tag (placed at the frame's top left for a call on no layer) never covers it. */
+.stage-mode { position: absolute; top: 8px; right: 8px; z-index: 3; padding: 0 1ch; background: rgb(11 14 18 / 0.75); color: var(--fg0); }
+.stage-timecode { color: var(--fg1); }
+
+/* Under the frame: ◂◂ ▶ ▸▸, the scrub bar, the time, then [s] safe [g] grid [b] boxes. */
+.stage-transport {
+  display: grid; grid-template-columns: auto minmax(8ch, 1fr) auto auto; align-items: center; column-gap: 2ch;
+  height: 44px; padding: 0 0 0 2px;
+}
+.transport-time { color: var(--fg0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The scene's length is in the stage's facts (the timecode); the transport keeps the time. */
+.transport-time .play-total { display: none; }
+.transport-buttons { display: flex; gap: 8px; }
+.transport-buttons .icon-button { width: 26px; height: 26px; color: var(--fg-mid); }
+.transport-buttons .icon { width: 12px; height: 12px; }
+.transport-buttons .play-button .icon { width: 14px; height: 14px; }
+.transport-buttons .icon-button:hover { color: var(--fg0); background: var(--bg2); }
+.scrub { position: relative; height: 18px; cursor: pointer; touch-action: none; }
+.scrub::before { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 2px; background: var(--line-soft); }
+.scrub-done { position: absolute; left: 0; top: 8px; height: 2px; background: var(--accent); }
+.scrub-done::after { content: ""; position: absolute; right: -4px; top: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.dash .scrub:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+/* safe, grid, boxes: one group of switches, each an icon and a word. */
+.transport-view { display: flex; justify-content: flex-end; align-items: center; gap: 0; padding: 2px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.transport-view .tb { display: inline-flex; align-items: center; gap: 0.8ch; height: 24px; padding: 0 1.2ch; color: var(--fg1); }
+.transport-view .tb .icon { width: 13px; height: 13px; }
+.transport-view .tb[aria-pressed="true"] { color: var(--fg0); background: var(--bg2); }
+.transport-view .tb:hover { color: var(--fg0); }
+/* The round play button. */
+.transport-buttons .play-button { width: 32px; height: 32px; border-radius: 50%; background: var(--fg0); color: var(--bg0); }
+.transport-buttons .play-button:hover { background: #fff; color: var(--bg0); }
+
+/* While something waits for you: its answers under the frame, the render's facts at the right. */
+.stage-actions { display: flex; align-items: center; gap: 4ch; height: 44px; white-space: nowrap; overflow: hidden; }
+.stage-actions .tb { color: var(--fg0); padding: 0; }
+.stage-actions .tb .key { font-weight: 700; margin-right: 1ch; }
+.stage-actions .action-allow { background: var(--accent); color: var(--bg0); font-weight: 700; padding: 4px 1.5ch; border-radius: 0; }
+.stage-actions .action-allow .key { color: inherit; }
+.stage-actions .action-allow:hover { background: color-mix(in srgb, var(--accent) 85%, #fff); }
+.stage-actions .action-spec { margin-left: auto; color: var(--fg1); word-spacing: 1ch; overflow: hidden; text-overflow: ellipsis; padding-right: 1ch; }
+.stage-actions .action-spec.is-summary { word-spacing: normal; white-space: nowrap; min-width: 0; }
+.zoom-menu.tb-box { height: 26px; border-color: #363c46; padding: 0 1ch; min-width: 11ch; justify-content: space-between; color: var(--fg-mid); }
+/* Inline, not flex, so the title reads as one line of text ("stage · outro · 00:01.00"). */
+.dash .scene-menu { display: inline; color: var(--fg1); padding: 0 0.5ch; }
+.dash .scene-menu .icon { display: inline-block; vertical-align: -1px; margin-left: 0.5ch; color: var(--fg2); }
+.p-stage > h2 .scene-menu:hover { color: var(--fg0); }
+
+/* ---- [3] what the agent saw: a film strip ----------------------------------------------- */
+.p-seen .pane-body { overflow: hidden; padding: 0 9px 8px; }
+.p-seen .pane-body:has(> .seen-full) { display: flex; flex-direction: column; overflow: hidden auto; }
+.filmstrip { display: flex; align-items: flex-start; gap: 6px; flex: none; }
+.strip-scroll {
+  flex: none; display: grid; place-items: center; width: 18px; height: 42px; margin-top: 21px; padding: 0;
+  background: var(--bg1); border: 1px solid var(--line-soft); color: var(--fg-mid);
+}
+.strip-scroll:disabled { background: none; border-color: transparent; color: var(--fg2); }
+/* The strip stops only where a card's left edge is 6 px in (the room for the selection's
+   outline), so no cut-off card shows next to ‹, and panes.jsx scrolls it by whole cards (92 px a
+   card). It is a whole number of cards wide: n cards take 92n - 8 px (each 72 px card and the
+   20 px gap after it, less the last gap, plus the 6 px padding at each end), and the two 18 px
+   buttons and their two 6 px gaps take 48 px, so n is the most with 92n - 8 <= 100% - 48 px,
+   that is round(down, 100% - 40px, 92px) / 92. Its last stop is then at a card's edge too and no
+   empty slot shows before ›: what room is left over comes after ›. */
+.dash .seen-strip {
+  position: relative; flex: none; width: max(84px, calc(round(down, 100% - 40px, 92px) - 8px)); display: flex; gap: 20px; padding: 6px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  scroll-snap-type: x mandatory; scroll-padding-inline: 6px;
+}
+.seen-strip::-webkit-scrollbar { display: none; }
+/* More pictures to the right: the last one fades out under the › button. */
+.filmstrip.more-right .seen-strip { mask-image: linear-gradient(to left, transparent 0, #000 16px); }
+.seen-strip > li { flex: none; scroll-snap-align: start; }
+/* A card: every one the same box, the picture letterboxed on black in 72 × 72 px over its caption. */
+.thumb {
+  display: flex; flex-direction: column; width: 72px; padding: 0; border: 0; background: none; cursor: pointer; color: inherit;
+  border-radius: var(--radius); outline-offset: 3px;
+}
+.thumb img {
+  display: block; width: 72px; height: 72px; object-fit: contain;
+  background: #000; border-radius: 2px 2px 0 0; user-select: none; -webkit-user-drag: none;
+}
+.p-seen .pane-facts .tb-box { height: 20px; line-height: 18px; color: var(--fg-mid); }
+.p-seen .pane-facts .tb-box[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.thumb-caption {
+  display: flex; justify-content: space-between; gap: 0.5ch; height: 20px; align-items: center; padding: 0 3px;
+  background: var(--bg1); border-radius: 0 0 2px 2px; font-size: 9px; line-height: 1; white-space: nowrap; overflow: hidden;
+}
+.thumb-caption > .thumb-turn { flex: none; }
+/* At 10 px "T99 00:00.00" is 3 px wider than the card, so captions are 9 px; a longer one (T100
+   and up) ends in "…" rather than a hard cut. */
+.thumb-caption > .dim { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb[aria-current="true"] { outline: 2px solid var(--accent); }
+.thumb:hover .thumb-caption { color: var(--fg0); background: var(--bg2); }
+.dash .thumb:focus-visible { outline: 2px solid var(--fg0); outline-offset: 3px; }
+.dash .thumb[aria-current="true"]:focus-visible { outline-color: var(--accent); box-shadow: 0 0 0 5px var(--fg0); }
+.seen-full { flex: 1 1 0; min-height: 5lh; display: flex; flex-direction: column; margin: 0 0 6px; }
+.seen-full img {
+  display: block; flex: 1 1 0; min-height: 0; width: 100%; max-height: 100%; object-fit: contain; object-position: left center;
+}
+.seen-full figcaption { flex: none; color: var(--fg1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- [4] log · checks · notes ---------------------------------------------------------- */
+.p-log > h2 .pane-name { font-weight: 400; color: var(--fg-mid); }
+.p-log > h2 .pane-name .on { font-weight: 700; color: var(--fg0); }
+/* The tabs stay put and the tab's own box scrolls. Its grid row is all the room under the tabs;
+   the box is as tall as what it holds, at most that room rounded down to whole 19.5 px rows, so
+   it ends at a row's lower edge, and shows its scroll bar when there are more rows than fit (the
+   same styled bar as the timeline, see .tl-scroll). */
+.p-log .pane-body {
+  padding: 0 var(--inset) 8px 8px; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr);
+}
+.p-log .pane-body > [role="tabpanel"] {
+  position: relative; padding-left: 6px; min-height: 0; overflow: auto; align-self: start;
+  max-height: round(down, 100%, 19.5px);
+}
+.tabs { display: flex; gap: 3px; border-bottom: 1px solid #2f353c; margin: 0 2px 10px 0; }
+.tabs .tb {
+  height: 28px; min-width: 9ch; padding: 0 1.5ch; text-align: center; color: var(--fg1);
+  border: 1px solid var(--line-soft); border-bottom: 0; border-radius: 4px 4px 0 0;
+  box-shadow: inset 0 -3px 0 #272c36;
+}
+.tabs .tb:hover { background: var(--bg1); color: var(--fg0); }
+.tabs [aria-selected="true"] { color: var(--fg0); box-shadow: inset 0 -3px 0 var(--accent); }
+.log-row { display: grid; grid-template-columns: 6ch 2ch minmax(0, 1fr) auto; column-gap: 1ch; align-items: center; width: 100%; text-align: left; padding: 0; }
+.log-row > .cell { width: 100%; }
+/* The marks are small drawings (about 10 px, see Mark in panes.jsx): a green tick for done, a red
+   cross for failed, and for a restored turn a larger orange ring. They sit centred on the line. */
+.dash .mark { display: inline-flex; align-items: center; justify-content: center; }
+.dash .mark svg { display: block; flex: none; }
+.dash .mark.s-reverted { color: var(--accent); }
+/* A turn undone later keeps its tick, dimmed (its row says "reverted at rev N"). */
+.dash .mark.s-undone { color: var(--fg2); }
+.log-row .tokens { min-width: 3ch; padding-left: 2ch; text-align: right; }
+.log-row.selected { background: var(--bg2); }
+.log-call { display: grid; grid-template-columns: 6ch 2ch 7ch minmax(0, 1fr) auto; column-gap: 1ch; color: var(--fg1); }
+.review-call { grid-template-columns: 8ch 1ch 7ch 1fr auto; }
+.log-call .grow, .log-row .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Each agent's name in its own color (an inline color from the server; teal for older entries). */
+.agent-name, .log-agent { color: var(--agent); }
+.log-agent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-line { display: flex; gap: 1ch; }
+.filter-line input, .note-form textarea, .approval-note input, .stop-note textarea, .command-line input {
+  background: var(--bg1); border: 1px solid var(--line); padding: 0 0.5ch; min-width: 0; border-radius: 2px;
+}
+.filter-line input { flex: 1; }
+/* The checks tab: one finding a line. Only the mark has a colour; a long line ends in "…" and
+   opens to full length on a click or Enter (its tooltip has all of it too). */
+.check-summary { color: var(--fg1); margin-bottom: 4px; }
+.check-row {
+  display: grid; grid-template-columns: 2ch minmax(0, 1fr); column-gap: 1ch; align-items: start;
+  width: 100%; text-align: left; padding: 0; white-space: normal;
+}
+/* The mark sits on the first line (1lh tall), red for an error and orange for a warning. */
+.check-row > .mark { width: 100%; height: 1lh; }
+.check-row > .mark.warn { color: var(--accent); }
+.check-text { display: grid; min-width: 0; }
+.check-line { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A note (why a check did not run, and how to turn it on) is never cut: it wraps. */
+.check-note { overflow-wrap: anywhere; }
+.check-row[aria-expanded="true"] .check-line { white-space: normal; overflow-wrap: anywhere; }
+.check-rule { color: var(--fg-mid); }
+.note-item { padding: 0.25lh 0; border-bottom: 1px solid var(--line-soft); }
+.note-form { display: grid; gap: 0.25lh; margin-bottom: 0.5lh; }
+.note-form textarea { resize: vertical; min-height: 3lh; padding: 0.25lh 0.5ch; }
+.note-form .row { flex-wrap: wrap; }
+
+/* ---- [5] timeline: a ruler, the agent's turns, a lane per layer ------------------------- */
+.p-timeline > h2, .p-timeline > .pane-facts { border-bottom: 1px solid var(--line-soft); }
+.p-timeline .pane-facts { padding-right: 9px; }
+/* Two rows: the lanes, then the selected layer's values right under them, and 6 px below. The
+   lanes box rounds against its own row (100% in .tl-scroll), which is the room left above the
+   values line when there are more lanes than fit, so no lane is cut then either. */
+.p-timeline .pane-body {
+  padding: 0 0 6px; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, max-content) auto; align-content: start;
+}
+.zoom-group {
+  display: inline-flex; align-items: center; gap: 0; height: 24px; padding: 0 2px;
+  border: 1px solid #2c313a; border-radius: var(--radius); background: #090b0e; color: var(--fg-mid);
+}
+.zoom-group .tb { height: 20px; line-height: 20px; padding: 0 1ch; color: var(--fg-mid); }
+.zoom-group .tb:disabled { color: var(--fg2); }
+.zoom-group .zoom-menu { margin-left: 0.5ch; min-width: 7ch; justify-content: space-between; }
+/* The lanes box ends at a lane's lower edge: the ruler and the agent row (58 px), then as many
+   whole lanes (14.6 px each) as fit above the pane body's 6 px (and the 8 px scroll bar when
+   zoomed in). When all the lanes fit, its row is as tall as the lanes themselves, so 100% is
+   their own height: rounding it down keeps the last lane (the 0.5 px covers the browser's
+   rounding of 14.6 px). More lanes than fit scroll, and the scroll bar shows (a styled one is
+   always drawn: the scrollbar-color the pane body passes down is reset here, as Chromium ignores
+   the ::-webkit-scrollbar styles of a box with a scrollbar-color and draws a hidden overlay bar). */
+.tl-scroll {
+  --tl-label: 14.5ch; --tl-pad: var(--inset); --tl-bar: 0px; --tl-head: 58px;
+  position: relative; overflow: auto; min-height: 0;
+  max-height: calc(var(--tl-head) + round(down, 100% - var(--tl-head) - var(--tl-bar) + 0.5px, 14.6px) + var(--tl-bar));
+}
+/* The story row (18 px) sits between the ruler and the agent row. */
+.tl-scroll.has-story { --tl-head: 76px; }
+.tl-scroll.has-story .tl-content { grid-template-rows: 36px 18px 22px; }
+.tl-scroll.wide { --tl-bar: 8px; }
+.tl-scroll, .p-log .pane-body > [role="tabpanel"] { scrollbar-color: auto; scrollbar-width: auto; }
+.tl-scroll::-webkit-scrollbar, .p-log [role="tabpanel"]::-webkit-scrollbar { width: 8px; height: 8px; }
+.tl-scroll::-webkit-scrollbar-thumb, .p-log [role="tabpanel"]::-webkit-scrollbar-thumb { background: var(--fg2); border: 2px solid var(--bg0); border-radius: 4px; }
+.tl-scroll::-webkit-scrollbar-track, .tl-scroll::-webkit-scrollbar-corner,
+.p-log [role="tabpanel"]::-webkit-scrollbar-track, .p-log [role="tabpanel"]::-webkit-scrollbar-corner { background: var(--bg0); }
+@supports not selector(::-webkit-scrollbar) {
+  .tl-scroll, .p-log .pane-body > [role="tabpanel"] { scrollbar-width: thin; scrollbar-color: var(--fg2) transparent; }
+}
+.tl-content {
+  position: relative; display: grid;
+  grid-template-columns: var(--tl-label) var(--tl-track, minmax(0, 1fr));
+  grid-template-rows: 36px 22px; grid-auto-rows: 14.6px; min-width: 100%; width: max-content;
+  padding: 0 var(--inset) 0 0;
+}
+/* The name column stays at the left when the tracks scroll. */
+.tl-label {
+  position: sticky; left: 0; z-index: 2; background: var(--bg0);
+  display: flex; align-items: center; padding: 0 1ch 0 var(--tl-pad); line-height: 14.6px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg-mid);
+}
+.tl-label.agent { color: var(--agent); }
+.tl-content .track { position: relative; cursor: pointer; background: var(--lane); border-bottom: 1px solid var(--bg0); }
+.tl-content .row-button { width: auto; border-radius: 0; padding: 0 1ch 0 var(--tl-pad); }
+.tl-content .row-button:hover { background: var(--bg2); }
+.tl-content .row-button.on { background: var(--bg2); color: var(--fg0); }
+.tl-content .row-button.selected { color: var(--accent); }
+.tl-content .bar { position: absolute; top: 3px; height: 7px; background: var(--bar); pointer-events: none; }
+/* A layer's lane: a quiet bar while it is on screen, its animations brighter over it. */
+.tl-content .bar.idle { background: color-mix(in srgb, var(--bar) 55%, var(--lane)); }
+.tl-content .bar:not(.idle) { background: #8d96a3; }
+.tl-content .row-button.selected + .track .bar.idle { background: color-mix(in srgb, var(--accent) 45%, var(--lane)); }
+.tl-content .row-button.selected + .track .bar:not(.idle) { background: color-mix(in srgb, var(--accent) 80%, var(--bar)); }
+/* Changed since you last looked: the on-screen bar turns orange. */
+.tl-content .track.is-new .bar.idle { background: color-mix(in srgb, var(--accent) 55%, var(--lane)); }
+
+/* "▾ 3 new since you looked" and the ▾ marks on the ruler. The marks drop in with a small
+   overshoot and fade out once seen (transform and opacity only; none under reduced motion). */
+.dash .tl-new { color: var(--accent); margin-right: 1.5ch; padding: 0 0.5ch; }
+.dash .tl-new:hover { background: var(--bg2); }
+.ruler .tl-new-mark {
+  /* On the page's color, so the dense beat marks under it do not hide it. */
+  position: absolute; top: 20px; z-index: 1; color: var(--accent); background: var(--bg0); font-size: 13px; line-height: 13px;
+  margin-left: -0.5ch; pointer-events: none; animation: tl-mark-drop 300ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.ruler .tl-new-mark.leaving { animation: tl-mark-fade 200ms ease-out both; }
+@keyframes tl-mark-drop { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@keyframes tl-mark-fade { from { opacity: 1; } to { opacity: 0; } }
+
+/* The story row: each part of the video from its start, the one under the playhead bright. */
+.tl-label.story { height: 18px; color: var(--fg1); }
+.tl-content .tl-story { height: 18px; background: none; border: 0; cursor: default; }
+.tl-part {
+  position: absolute; top: 0; height: 18px; display: flex; align-items: center; gap: 0.5ch; overflow: hidden;
+  padding-left: 0.5ch; border-left: 1px solid var(--fg2); color: var(--fg1); font-size: var(--small); white-space: nowrap;
+}
+.tl-part::after { content: ""; flex: 1; min-width: 0; border-top: 1px solid var(--line-soft); margin-right: 0.5ch; }
+.tl-part-name { overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.tl-part.current { color: var(--fg0); border-left-color: var(--fg0); }
+.tl-part.current::after { border-top-color: var(--fg-mid); }
+
+/* The hover card: a small boxed note above the lane under the pointer. */
+.tl-card {
+  position: fixed; z-index: 30; translate: 0 calc(-100% - 4px); max-width: 52ch; padding: 3px 1ch;
+  background: var(--bg0); border: 1px solid var(--line); color: var(--fg0); font-size: 12px; line-height: 1.45;
+  white-space: nowrap; pointer-events: none; animation: tl-card-in 120ms ease-out both;
+}
+.tl-card p { overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.tl-card .tl-card-new { color: var(--accent); }
+@keyframes tl-card-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+.ruler .tl-new-mark.still, .tl-card.still { animation: none; }
+@media (prefers-reduced-motion: reduce) { .ruler .tl-new-mark, .tl-card { animation: none; } }
+
+/* The ruler: the playhead slider, stuck to the top while the lanes scroll. */
+.tl-content .ruler { position: sticky; top: 0; z-index: 2; background: var(--bg0); border-bottom: 0; overflow: hidden; }
+.tl-content .tl-corner { position: sticky; top: 0; left: 0; z-index: 3; }
+.tick { position: absolute; top: 0; width: 1px; height: 4px; background: var(--fg2); }
+.tick.major { height: 7px; background: var(--fg1); }
+.tick-label { position: absolute; top: 9px; left: 0; transform: translateX(-50%); font-size: var(--small); line-height: 1; color: var(--ruler); white-space: nowrap; }
+.tick.start .tick-label { transform: none; }
+.tick.end .tick-label { transform: translateX(-100%); }
+.ruler .cue { position: absolute; bottom: 0; color: var(--fg1); transform: translateX(-0.5ch); line-height: 1; font-size: var(--small); }
+/* The preview cache's ready stretches (Resolve's render line): plain, at the ruler's foot. */
+.ruler .tl-cached { position: absolute; bottom: 0; height: 2px; background: color-mix(in srgb, var(--ok) 55%, transparent); pointer-events: none; }
+.ruler .note-mark { position: absolute; bottom: 1px; color: var(--accent); transform: translateX(-0.5ch); line-height: 1; font-size: var(--small); }
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 1; }
+.playhead-marker {
+  position: absolute; top: 0; left: -3.5px; width: 9px; height: 7px; background: var(--accent);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.dash .ruler:focus-visible { outline-offset: -2px; }
+
+/* The agent's turns: chips side by side, in the order they happened. */
+.tl-content .tl-agent { height: 18px; background: none; border: 0; cursor: default; }
+.tl-label.agent { height: 18px; }
+.tl-chips { position: sticky; left: var(--tl-label); height: 18px; }
+.tl-chips .chip {
+  position: absolute; top: 0; height: 18px; padding: 0 2px; margin-left: -1px;
+  border: 1px solid var(--agent); border-radius: 0; background: #14181e; color: var(--agent);
+  font-size: var(--small); line-height: 16px; text-align: center; white-space: nowrap; overflow: hidden;
+}
+.tl-chips .chip:first-child { margin-left: 0; }
+.tl-chips .chip:hover { background: var(--bg2); }
+.tl-chips .chip.reverted { border-style: dashed; color: var(--fg1); }
+.tl-chips .chip.current { background: var(--agent); color: var(--bg0); z-index: 1; }
+.dash .tl-chips .chip:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; z-index: 2; }
+
+/* One playhead line over every lane. */
+.tl-lines { position: absolute; top: 36px; bottom: 0; left: var(--tl-label); width: var(--tl-track, calc(100% - var(--tl-label))); pointer-events: none; z-index: 1; }
+/* Under the lanes: the selected layer's values, and what the agent sees you point at. */
+.tl-foot { flex: none; padding: 4px var(--inset); border-top: 1px solid var(--line-soft); max-height: 5lh; overflow: auto; }
+.layer-values { color: var(--fg1); white-space: pre-wrap; }
+.pointing-line { color: var(--fg0); white-space: pre-wrap; }
+/* A time range you point at (read only): a pale band on the ruler and over the lanes, edged on both sides. */
+.tl-range {
+  position: absolute; top: 0; bottom: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--fg0) 12%, transparent);
+  box-shadow: inset 1px 0 var(--fg-mid), inset -1px 0 var(--fg-mid);
+}
+.tl-content .ruler { touch-action: none; user-select: none; -webkit-user-select: none; }
+
+/* ---- [3] the timeline's lanes (lanes.jsx): shots, voice, sounds, one per agent ------------- */
+.lane-label { color: var(--fg-mid); }
+.tl-content .track.lane-shots, .tl-content .track.lane-voice, .tl-content .track.lane-audio, .tl-content .track.lane-agent { background: none; border-bottom: 0; }
+.lane-shots { overflow: hidden; }
+.shot-tile { position: absolute; top: 2px; bottom: 2px; overflow: hidden; background: var(--bg1); border-right: 1px solid var(--bg0); cursor: pointer; }
+.shot-tile img { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; -webkit-user-drag: none; }
+.shot-cut { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--bg0); pointer-events: none; }
+/* A block per spoken sentence. */
+.voice-block { position: absolute; top: 5px; height: 6px; background: var(--fg-mid); border-right: 2px solid var(--bg0); }
+.voice-block.picked, .voice-block:hover { background: var(--fg0); }
+.dash .lane-voice:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+/* A sound lane: where it plays, and its waveform. */
+.audio-span { position: absolute; top: 7px; height: 2px; background: var(--line); }
+.wave { position: absolute; inset: 2px 0; pointer-events: none; }
+.wave-bar { position: absolute; bottom: 50%; translate: 0 50%; width: 2px; background: var(--fg1); }
+/* An agent's lane: a line from its first edit to its last, a tick at each edit. */
+.agent-lane-label { display: flex; align-items: center; gap: 1ch; }
+.agent-lane-label .bot { flex: none; }
+.agent-lane-label .lane-name { overflow: hidden; text-overflow: ellipsis; }
+/* Pinned (lanes.jsx sets top and bottom): the agents' lanes stay in view while the layers under
+   them scroll, over the layers, with the playhead (.tl-lines, z-index 1, later) still on top. */
+.tl-content .tl-label.agent-lane-label.pinned { z-index: 3; }
+.tl-content .track.lane-agent.pinned { position: sticky; z-index: 1; background: var(--bg0); }
+.agent-line { position: absolute; top: 10px; height: 1px; background: var(--who, var(--agent)); opacity: 0.7; pointer-events: none; }
+.tl-content .agent-mark { position: absolute; top: 4px; width: 7px; height: 13px; margin-left: -3px; padding: 0; border-radius: 0; background: none; }
+.tl-content .agent-mark::before { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 1px; background: var(--who, var(--agent)); }
+.tl-content .agent-mark:hover::before, .tl-content .agent-mark.current::before { width: 3px; left: 2px; }
+.tl-content .agent-mark.current { background: none; }
+/* "layers": the scene's layers under the lanes. */
+.tl-label.layers-head { color: var(--fg2); font-size: var(--small); height: 16px; align-items: end; }
+.tl-content .track.layers-head { background: none; border: 0; font-size: var(--small); cursor: default; }
+/* While a render waits for you: the range the preview shows, outlined in orange. */
+.tl-need { position: absolute; border: 1px solid var(--accent); pointer-events: none; }
+.tl-need-words { color: var(--accent); }
+/* The time over the playhead on the ruler, in a small orange box. */
+.playhead-time {
+  position: absolute; top: 7px; left: 50%; translate: calc(var(--at, 0.5) * -100%) 0; padding: 0 0.6ch; background: var(--accent); color: var(--bg0);
+  font-size: var(--small); line-height: 14px; font-weight: 700; white-space: nowrap;
+}
+
+/* ---- [2] the agent pane: a box in the agent's color, its views behind one row of tabs ------ */
+.pane.p-agent { --who: var(--agent); border-color: var(--who); }
+.p-agent > h2 .pane-name, .p-agent > h2 .agent-name { color: var(--who); }
+.p-agent > h2 .pane-number { color: var(--who); }
+.p-agent[data-focused="true"] > h2 .pane-number { color: var(--accent); }
+.p-agent > .pane-facts { color: var(--fg1); }
+/* The body is the tabs, the view, then the note line, as rows of the pane body. */
+.p-agent > .pane-body { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; padding: 0; overflow: hidden; }
+.view-tabs { display: flex; gap: 0; padding: 2px 10px 0; border-bottom: 1px solid var(--line-soft); overflow-x: auto; scrollbar-width: none; }
+.view-tabs::-webkit-scrollbar { display: none; }
+.view-tabs .view-tab { color: var(--fg1); padding: 0 1ch; height: 20px; border-radius: 0; font-size: 12px; }
+.view-tabs .view-tab:hover { color: var(--fg0); background: none; }
+.view-tabs .view-tab[aria-selected="true"] { color: var(--fg0); box-shadow: inset 0 -2px 0 var(--who); }
+.view-tabs .tab-count { margin-left: 0.5ch; color: var(--accent); font-weight: 700; font-size: 0.85em; vertical-align: super; }
+.view-body { min-height: 0; overflow: hidden; display: grid; }
+.view-body > * { min-height: 0; }
+/* The session, log and seen views scroll in the pane. */
+.view-panel { min-height: 0; overflow: auto; padding: 8px 10px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.view-panel.p-session { padding: 0; }
+.session-facts { color: var(--fg1); padding: 4px 9px 0; }
+.session-facts:empty { display: none; }
+/* The seen view: the facts, then the full-size picture (when open) above the strip. */
+.p-seen.view-panel { display: flex; flex-direction: column; overflow: hidden auto; }
+.p-seen.view-panel > * { flex: none; }
+.p-seen.view-panel > .seen-full { flex: 1 1 0; }
+.seen-facts { display: flex; gap: 1ch; justify-content: flex-end; color: var(--fg1); margin-bottom: 4px; }
+.seen-facts .tb-box { height: 20px; line-height: 18px; color: var(--fg-mid); }
+.seen-facts .tb-box[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.p-log.view-panel { display: grid; grid-template-rows: minmax(0, 1fr); overflow: hidden; padding: 8px 10px 0; }
+/* The tab's own box scrolls and ends on a whole 19.5 px row, with the styled scroll bar
+   (.p-log [role="tabpanel"]::-webkit-scrollbar). */
+.p-log.view-panel > [role="tabpanel"] { position: relative; min-height: 0; overflow: auto; align-self: start; max-height: round(down, 100%, 19.5px); scrollbar-color: auto; scrollbar-width: auto; }
+
+/* The agent view: bot and task, the log of calls, then why and next. */
+.panel-agent { min-height: 0; display: grid; }
+.agent-view { min-height: 0; display: grid; grid-template-rows: auto minmax(0, max-content) auto; align-content: start; padding: 10px 0 0; }
+.agent-head { display: flex; align-items: center; gap: 1.5ch; padding: 0 12px 12px; border-bottom: 1px solid var(--line-soft); }
+.agent-head .bot { flex: none; }
+.agent-what { min-width: 0; }
+.agent-task { color: var(--fg0); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-step { font-size: 12px; }
+.agent-empty { padding: 12px; }
+/* The log ends on a whole 20 px line, so no call shows cut in half at its top or bottom. */
+.agent-log {
+  min-height: 0; overflow: auto; margin: 8px 0; padding: 0; scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  align-self: start; max-height: round(down, 100% - 16px, 20px);
+}
+.agent-call { padding: 0 12px; line-height: 20px; }
+.call-line { display: grid; grid-template-columns: 6ch 7ch minmax(0, 1fr) auto; column-gap: 1ch; align-items: baseline; }
+.call-time { color: var(--fg1); white-space: nowrap; }
+/* A run of the same call: its time span ("22:27–22:30") and its count ("×18"). */
+.agent-log.has-spans .call-line { grid-template-columns: 11ch 7ch minmax(0, 1fr) auto; }
+.agent-log.has-spans .call-details { padding-left: 20ch; }
+.call-count { color: var(--fg1); }
+.call-verb { color: var(--who); }
+.call-verb.v-read { color: color-mix(in srgb, var(--who) 70%, var(--fg0)); }
+.call-verb.v-err { color: var(--err); }
+.call-text { color: var(--fg0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-result { color: var(--fg1); text-align: right; min-width: 3ch; }
+.call-result.r-done { color: var(--ok); }
+.call-result.r-failed { color: var(--err); }
+.call-result.r-waits, .call-result.r-held { color: var(--accent); }
+/* An answer's lines, as a small tree under the call. */
+.call-details { padding-left: 15ch; color: var(--fg1); }
+.call-details li { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-details .tree { color: var(--fg2); }
+/* The call running now: a raised row with a bar in the agent's color. */
+.agent-call.current { background: color-mix(in srgb, var(--who) 7%, var(--bg0)); box-shadow: inset 2px 0 var(--who); padding-top: 3px; padding-bottom: 3px; }
+.agent-said { margin: 0; padding: 12px 12px 8px; display: grid; gap: 1lh; border-top: 1px solid var(--line-soft); }
+.agent-said > div { display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: 1ch; }
+.agent-said dt { color: var(--fg1); }
+.agent-said dd { margin: 0; color: var(--fg-mid); overflow-wrap: anywhere; }
+
+/* ---- notes: the bubble on the stage, the message box, the conversation, the you lane ----------
+   The words people write and read are in the system's sans serif, at 13-14 px; the facts around
+   them stay monospace and quiet. */
+.dash { --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif; }
+.note-bubble-at { position: absolute; z-index: 5; width: 0; height: 0; }
+.note-bubble-at.side-center { left: 50%; top: 18%; }
+.note-bubble {
+  position: absolute; top: -22px; width: min(320px, 70vw); display: grid; gap: 8px; padding: 12px 14px 10px;
+  background: #1b212b; border: 1px solid rgb(255 255 255 / 0.08); border-radius: 10px; box-shadow: 0 10px 28px rgb(0 0 0 / 0.6);
+}
+.side-left .note-bubble { right: 20px; }
+.side-right .note-bubble { left: 20px; }
+.side-center .note-bubble { left: 0; translate: -50% 0; top: 0; }
+.note-bubble textarea {
+  font: 14px/1.4 var(--sans); color: var(--fg0); background: none; border: 0; padding: 0; resize: none;
+  min-height: 2lh; max-height: 8lh; field-sizing: content; caret-color: var(--accent);
+}
+.note-bubble textarea::placeholder { color: var(--fg2); }
+.dash .note-bubble textarea:focus-visible { outline: none; }
+.note-bubble-meta { display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--fg2); white-space: nowrap; }
+.note-bubble-meta .note-about { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.note-bubble-meta .tb { color: var(--fg2); padding: 0 2px; }
+.note-bubble-meta .tb:hover { color: var(--fg0); }
+.note-bubble-meta .note-send { color: var(--accent); font-weight: 700; }
+
+.message-box { padding: 8px 12px 8px; display: grid; gap: 4px; }
+.message-field { display: flex; align-items: center; gap: 8px; padding: 7px 10px 7px 12px; background: #1b212b; border: 1px solid rgb(255 255 255 / 0.08); border-radius: 8px; }
+.message-field:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); }
+.message-field textarea { flex: 1 1 auto; font: 13px/1.4 var(--sans); color: var(--fg0); background: none; border: 0; padding: 0; resize: none; min-height: 1lh; max-height: 6lh; field-sizing: content; caret-color: var(--accent); }
+.message-field textarea::placeholder { color: var(--fg2); }
+.dash .message-field textarea:focus-visible { outline: none; }
+.message-field .message-send { color: var(--fg2); padding: 0 2px; }
+.message-field:focus-within .message-send { color: var(--accent); }
+.message-hint { margin: 0; font-size: 11px; color: var(--fg2); }
+
+/* The notes view (panes.jsx NoteThread): stopped edits, then cards, then "N always" and "N done". */
+.note-view { --stop: #f0565c; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 6px 0; }
+.note-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.note-card { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 10px; background: var(--well); border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.note-card.s-fixed { border-color: var(--accent); }
+.note-card.stopped { border-color: var(--stop); }
+.note-card.selected { background: var(--bg2); }
+.note-card.s-queued.selected, .note-card.s-working.selected { border-color: var(--fg2); }
+.note-thumb { position: relative; flex: none; width: 80px; height: 45px; border-radius: 2px; overflow: hidden; background: var(--bg1); }
+.note-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.note-dot {
+  position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; padding: 0;
+  display: grid; place-items: center; background: var(--accent); color: var(--bg0);
+  font-size: 9px; font-weight: 800; line-height: 1; border: 1.5px solid var(--bg0);
+}
+.note-thumb .note-dot { width: 12px; height: 12px; margin: -6px 0 0 -6px; font-size: 7px; border-width: 1px; }
+.note-dot.done { background: var(--bg0); color: var(--ok); border-color: var(--ok); }
+.note-body { flex: 1 1 auto; min-width: 0; display: grid; gap: 6px; }
+.note-text { margin: 0; font-size: 13px; line-height: 1.4; color: var(--fg0); overflow-wrap: anywhere; }
+.note-meta { margin: 0; display: flex; align-items: center; gap: 1ch; flex-wrap: wrap; font-size: 11px; color: var(--fg2); }
+.note-why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-urgent { color: var(--urgent); }
+.note-chip { display: inline-flex; align-items: center; gap: 0.6ch; height: 18px; padding: 0 8px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; white-space: nowrap; }
+.note-chip.c-queued { color: var(--fg2); }
+.note-chip.c-working { color: var(--agent); }
+.note-chip.c-fixed { color: var(--accent); }
+.note-chip.c-stopped { color: var(--stop); }
+.note-reply { margin: 2px 0 0; font-size: 12px; color: var(--fg-mid); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-reply-who { color: var(--who, var(--agent)); margin-right: 0.5ch; }
+.note-actions { margin: 2px 0 0; display: flex; gap: 8px; }
+.note-actions .tb { height: 26px; padding: 0 1.2ch; font-size: 12px; }
+.note-actions .tb-box { color: var(--fg-mid); }
+.need-rows { margin-bottom: 8px; }
+.note-card.need { border-color: var(--agent); }
+.note-card.need .note-actions { flex-wrap: wrap; }
+.note-card.need .note-actions .tb { height: auto; min-height: 26px; text-align: left; }
+.note-actions .note-yes { background: var(--accent); color: var(--bg0); font-weight: 700; }
+.note-actions .note-yes:hover { background: color-mix(in srgb, var(--accent) 85%, white); }
+/* The card's "always" toggle: only on hover or focus, unless it is on. */
+.note-always { margin-left: auto; height: 18px; padding: 0 0.8ch; font-size: 10px; color: var(--fg2); border: 1px solid var(--line); opacity: 0; transition: opacity 120ms; }
+.note-card:hover .note-always, .note-card:focus-within .note-always, .note-card.selected .note-always, .note-always.on { opacity: 1; }
+.note-always.on { color: var(--accent); border-color: var(--accent); }
+.note-fold-row { height: 24px; padding: 0 2px; font-size: 12px; color: var(--fg1); }
+.f-always .note-fold-row { color: var(--accent); }
+.note-caret { display: inline-block; width: 1.5ch; font-size: 9px; color: var(--fg2); }
+.note-fold-group .note-folded { margin: 2px 0 6px; padding: 0 0 0 calc(1.5ch + 2px); display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
+.note-line { display: flex; align-items: center; gap: 1ch; font-size: 12px; color: var(--fg-mid); }
+.note-line.done { color: var(--fg2); }
+.note-line-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.note-check { color: var(--ok); flex: none; }
+.note-switch { flex: none; position: relative; width: 28px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 999px; background: var(--bg1); cursor: pointer; }
+.note-switch span { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--fg2); transition: left 120ms; }
+.note-switch.on { background: var(--accent); border-color: var(--accent); }
+.note-switch.on span { left: 14px; background: var(--bg0); }
+.note-switch:focus-visible, .note-always:focus-visible, .note-fold-row:focus-visible, .note-actions .tb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .note-always, .note-switch span { transition: none; } }
+.note-empty { font-size: 12px; }
+
+/* The you lane: your notes on the timeline, a numbered dot each (green ring when done). */
+.you-lane-label { display: flex; align-items: center; gap: 6px; color: var(--fg0); }
+.you-square { width: 9px; height: 9px; background: var(--fg0); flex: none; }
+.tl-content .track.lane-you { background: none; border-bottom: 0; }
+.lane-you .note-dot { top: 50%; cursor: pointer; }
+.scrub-note { position: absolute; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: var(--accent); pointer-events: none; }
+.scrub-note.done { background: var(--ok); }
+
+/* ---- the bottom line: key hints left, status right; and the phone's status line ------------- */
+.bottomline { display: flex; align-items: center; height: 30px; gap: 2ch; background: var(--well); border-top: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; }
+.keyline, .statusline {
+  display: flex; align-items: center; white-space: nowrap; overflow: hidden;
+}
+.keyline { color: var(--fg-mid); gap: 0 2px; padding: 0 8px; flex: 0 1 auto; min-width: 0; }
+.keyline .tb { display: inline-flex; align-items: center; gap: 0.8ch; height: 24px; padding: 0 1.2ch; color: var(--fg-mid); }
+.keyline .tb:hover { color: var(--fg0); background: var(--bg1); }
+.keyline .tb.key-allow { color: var(--urgent); font-weight: 700; }
+/* "checks 0 errors · 2 warnings" opens the checks view: a link. */
+.statusline .s-checks { padding: 0; color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--link) 40%, transparent); text-underline-offset: 3px; }
+.statusline .s-checks.err { color: var(--err); }
+.statusline .s-checks.warn { color: var(--warn); }
+.statusline .s-checks:disabled { color: var(--fg2); text-decoration: none; }
+.statusline { background: var(--well); gap: 0 2ch; height: 20px; padding: 0 15px; color: var(--fg-mid); }
+.statusline.compact { margin-left: auto; height: auto; padding: 0 12px; color: var(--fg1); flex: 0 1 auto; min-width: 0; }
+.statusline .play-time { color: var(--fg0); }
+.statusline .hold { color: var(--bg0); background: var(--warn); padding: 0 1ch; font-weight: 700; }
+.statusline .s-live { display: inline-flex; align-items: center; gap: 0.8ch; }
+.statusline .live-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.statusline .s-live.is-live { color: var(--fg-mid); }
+.statusline .s-live.is-live .live-dot { background: var(--ok); }
+
+/* The command list (⌘K): a box over the dashboard, its field, then the matching commands. */
+.command-backdrop { position: fixed; inset: 0; z-index: 39; }
+.command-box .command-close { color: var(--fg2); font-size: 11px; padding: 0 2px; }
+.command-box .command-close:hover { color: var(--fg0); }
+.command-box {
+  position: fixed; z-index: 40; top: 64px; left: 50%; translate: -50% 0; width: min(64ch, calc(100vw - 32px));
+  background: var(--bg1); border: 1px solid var(--line); box-shadow: 0 10px 30px rgb(0 0 0 / 0.55);
+}
+.command-box .command-line { display: flex; gap: 1ch; align-items: center; padding: 6px 1.5ch; background: none; border: 0; border-bottom: 1px solid var(--line-soft); flex-wrap: wrap; }
+.command-box .command-line input { flex: 1; border: 0; background: transparent; padding: 0; min-width: 10ch; }
+.command-box .command-line input:focus-visible { outline: none; }
+.command-list { max-height: min(50vh, 420px); overflow: auto; padding: 4px 0; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.command-list li { display: grid; grid-template-columns: 16ch minmax(0, 1fr) auto; column-gap: 2ch; padding: 0 1.5ch; line-height: 22px; cursor: pointer; }
+.command-list li.picked { background: var(--bg2); }
+.command-list li .command-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-list .command-none { display: block; }
+/* ---- full screens (projects, settings, turn review, variants, approval, help) ----------- */
+.screen-wrap { margin: 4px 8px var(--gap); border: 1px solid var(--line); border-radius: var(--radius); }
+.screen { min-height: 0; overflow: auto; padding: 0.5lh 2ch 1lh; }
+.screen h2 { font: inherit; font-weight: 700; margin: 0 0 0.5lh; }
+.screen h3 { font: inherit; color: var(--fg1); margin: 1lh 0 0.25lh; font-weight: 400; }
+/* Full screens: prose and code at a readable width, tables only as wide as their columns. */
+.screen p, .screen .code-block { max-width: 110ch; }
+.screen .code-block { width: fit-content; min-width: 40ch; }
+.table { border-collapse: collapse; width: auto; max-width: 100%; }
+.table th { text-align: left; color: var(--fg1); font-weight: 400; padding: 0 2ch 0 0; white-space: nowrap; }
+.table td { padding: 0 2ch 0 0; white-space: nowrap; }
+.table tr[aria-selected="true"] td { background: var(--bg2); }
+.table tbody tr { cursor: pointer; }
+@media (max-width: 640px) {
+  .screen .tb-box { max-width: 100%; white-space: normal; text-align: left; }
+}
+.render-devices { flex-wrap: wrap; white-space: normal; align-items: baseline; }
+
+/* ---- settings (settings.jsx): six panes in the main screen's style, one row per setting --- */
+.screen-wrap.is-settings { border: 0; margin-top: 0; }
+.screen.settings { display: flex; flex-direction: column; min-height: 100%; padding: 4px 0 0; }
+/* The pane with the focus shows it; the screen itself needs no outline. */
+.screen.settings:focus-visible { outline: none; }
+.screen.settings > h2 { margin: 0 0.5ch 14px 1ch; font-weight: 400; color: var(--fg0); align-items: center; gap: 3ch; }
+.screen.settings > h2 > #screen-title { font-weight: 700; }
+.set-keys { display: flex; gap: 2.5ch; font-weight: 400; }
+.settings-grid {
+  flex: 1; display: grid; column-gap: var(--gap); row-gap: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(min-content, 1fr));
+  grid-template-areas: "agents stops export" "other approvals render";
+}
+.screen .set-pane { grid-template-rows: 12px auto; min-height: auto; border-color: var(--line); }
+.screen .set-pane:focus-within { border-color: var(--accent); }
+.screen .set-pane > h2 { margin: -10px 0 0 8px; font-weight: 400; }
+.screen .set-pane:focus-within > h2 .pane-number { font-weight: 700; }
+.set-body { display: flex; flex-direction: column; overflow: visible; padding: 8px var(--inset) 10px; }
+.screen .set-body p { max-width: none; }
+.set-note { margin-top: auto !important; padding: 10px 1ch 0; color: var(--fg2); font-size: 12px; }
+.set-item { border-radius: var(--radius); }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 2ch; min-height: 32px; padding: 0 1ch; border-radius: var(--radius); }
+.set-label { position: relative; display: flex; align-items: center; gap: 1ch; min-width: 0; white-space: nowrap; padding-left: 1.5ch; color: var(--fg-mid); }
+.set-item:focus-within > .set-row { background: var(--bg2); }
+.set-item:focus-within > .set-row > .set-label { color: var(--fg0); }
+.set-item:focus-within > .set-row > .set-label::before { content: "›"; position: absolute; left: 0; color: var(--accent); }
+.set-control { display: flex; align-items: center; gap: 1ch; flex: none; }
+.set-warn { display: block; padding: 0 1ch 6px 2.5ch; color: var(--accent); font-size: 12px; }
+.set-rule { border-top: 1px solid var(--line-soft); margin: 6px 1ch; }
+.set-small { padding: 4px 1ch 8px; color: var(--fg2); font-size: 12px; }
+.set-line { padding: 6px 1ch; }
+.set-agent { display: flex; align-items: center; gap: 1.5ch; min-height: 32px; padding: 0 1ch; }
+.set-agent .grow { flex: 1; }
+.set-setup { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 0 0.5ch 0 1.5ch;
+  background: var(--well); border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.set-setup code { font-weight: 700; color: var(--fg0); }
+.set-config { margin: 0 0 6px; padding: 6px 0.5ch 8px 1.5ch; background: var(--well); border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.set-config-head { display: flex; justify-content: space-between; align-items: center; color: var(--fg1); font-size: 12px; }
+.set-config pre { margin: 4px 0 0; font: inherit; font-size: 11px; line-height: 1.6; color: var(--fg1); white-space: pre; overflow-x: auto; scrollbar-width: thin; }
+.set-key .key { font-weight: 400; }
+.set-key, .set-clear { color: var(--fg1); }
+.set-key:hover, .set-clear:hover { color: var(--fg0); }
+.set-machine { display: flex; align-items: center; justify-content: space-between; gap: 1ch; min-height: 32px; padding: 0 0 0 2.5ch; }
+.set-machine .render-devices { display: flex; flex-wrap: wrap; gap: 0 2ch; min-width: 0; }
+.set-path { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Choices: a radio group of chips; the radio itself is drawn by its chip. */
+.choice { display: flex; gap: 2px; }
+.chip { position: relative; display: inline-flex; align-items: center; gap: 0.6ch; padding: 0 0.8ch; line-height: 22px;
+  border: 1px solid transparent; border-radius: var(--radius); color: var(--fg2); cursor: pointer; white-space: nowrap; }
+.chip:hover { color: var(--fg0); }
+.chip[data-on] { color: var(--fg0); background: var(--bg1); border-color: var(--line); }
+.chip input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.chip:has(input:focus-visible) { outline: 1px solid var(--accent); outline-offset: 1px; }
+.chip:has(input:disabled) { cursor: default; color: var(--line); }
+.chip[data-on]:has(input:disabled) { color: var(--fg1); }
+.chip-dot { width: 5px; height: 5px; border-radius: 50%; flex: none; }
+/* ● on / ○ off */
+.toggle { display: inline-flex; align-items: center; gap: 0.8ch; color: var(--fg2); }
+.toggle input { appearance: none; width: 9px; height: 9px; margin: 0; border: 1px solid var(--fg2); border-radius: 50%; cursor: pointer; }
+.toggle input:checked { background: var(--ok); border-color: var(--ok); }
+.toggle:has(input:checked) { color: var(--ok); }
+.toggle input:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.set-num, .set-text, .set-drop select { height: 24px; padding: 0 0.8ch; color: var(--fg0); background: var(--well); border: 1px solid var(--line); border-radius: var(--radius); }
+.set-num { width: 6ch; appearance: textfield; text-align: right; }
+.set-num::-webkit-inner-spin-button, .set-num::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.set-text { width: 22ch; }
+.set-text::placeholder { color: var(--fg2); }
+.set-num:focus-visible, .set-text:focus-visible, .set-drop select:focus-visible { outline: none; border-color: var(--accent); }
+.set-drop { position: relative; display: inline-flex; }
+.set-drop select { appearance: none; padding-right: 3ch; max-width: 30ch; cursor: pointer; }
+.set-drop::after { content: "▾"; position: absolute; right: 1ch; top: 50%; transform: translateY(-50%); color: var(--fg2); pointer-events: none; }
+.meter { display: inline-block; width: 10ch; height: 6px; background: var(--bg2); border-radius: 1px; overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--accent); }
+@media (max-width: 1180px) {
+  .settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-template-areas: "agents stops" "other approvals" "export render"; }
+}
+@media (max-width: 760px) {
+  .settings-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "agents" "stops" "approvals" "export" "render" "other"; }
+  .set-keys { display: none; }
+  .set-row { flex-wrap: wrap; padding-block: 4px; }
+  .set-control { flex-wrap: wrap; }
+}
+.share-make { align-items: baseline; flex-wrap: wrap; margin: 0.5lh 0; }
+.share-make input { width: 30ch; }
+.code-block { white-space: pre-wrap; word-break: break-all; background: var(--bg1); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5lh 1ch; margin: 0.25lh 0; }
+.compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(30ch, 1fr)); gap: 2ch; }
+.compare figure { margin: 0; }
+.compare img { width: 100%; height: auto; display: block; border: 1px solid var(--line); background: var(--bg1); }
+.compare figcaption { color: var(--fg1); }
+.variant[aria-selected="true"] img { border-color: var(--accent); }
+.approval-card { border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.5lh 2ch; max-width: 80ch; margin: 0 auto; }
+.approval-card .actions { display: flex; flex-wrap: wrap; gap: 1ch; margin-top: 0.5lh; }
+.approval-note { display: flex; gap: 1ch; margin-top: 0.5lh; }
+.approval-note input { flex: 1; }
+/* The stop card (stops.jsx): drawn like the approval card, in the needs-you color while the stop
+   waits. Every line wraps, even a long unbroken word, so the whole ask shows at 390 px. Nothing
+   on it moves: no animation and no transition. */
+.stop-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5lh 2ch; max-width: 80ch; margin: 0 auto; display: grid; gap: 0.5lh; min-width: 0; overflow-wrap: anywhere; }
+.stop-card.waiting { border-color: var(--urgent); }
+.stop-card h3 { margin: 0; color: var(--urgent); }
+.stop-ask { border-left: 1px solid var(--line); padding-left: 1ch; }
+.stop-stills { margin: 0; }
+/* Four stills in a row; two by two on a narrow screen, except for a tall (portrait) video, whose
+   four stills fit in one row there and two by two would push the answers off a phone's screen. */
+.stills-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1ch; }
+.stills-grid img { width: 100%; height: auto; display: block; border: 1px solid var(--line); background: var(--bg1); }
+@media (max-width: 719px) { .stills-grid:not(.tall) { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stop-note { display: grid; gap: 2px; }
+.stop-note textarea { width: 100%; resize: vertical; padding: 0.25lh 0.5ch; }
+.stop-card .actions { display: flex; flex-wrap: wrap; gap: 1ch; }
+/* The stop lines (session pane and the phone's stops card): each wraps; the "go on" line under it. */
+.stop-lines li { white-space: normal; overflow-wrap: anywhere; margin-top: 2px; padding: 0 4px; }
+.stop-lines .stop-heard { display: block; }
+.stop-lines .actions { display: flex; flex-wrap: wrap; gap: 0 3ch; }
+.stop-lines .actions .tb { color: var(--fg-mid); margin-left: -0.5ch; }
+/* A line takes the focus after its answer or reopen (stops.jsx): no outline on a click's focus. */
+.stop-lines li:focus:not(:focus-visible) { outline: none; }
+.stop-footnote { margin-top: 2px; padding: 0 4px; }
+/* The phone's card for a stop that just stopped waiting, and one waiting in another project. */
+.stop-done h3, .stop-elsewhere h3 { margin: 0; }
+.stop-elsewhere { border-color: var(--urgent); }
+/* The storyboard (board.jsx): one row a shot, its words at the card's own size. On a wide
+   screen the source frame (40ch), the still (18ch tall, 32ch wide) and the layer lines sit side
+   by side; on a phone they stack (below). The crop, boxes and eye line are drawn on the source
+   frame in % of it; the app's covered areas are shaded on the still. Colors only repeat words:
+   orange is a change after a redo, yellow kino's "look at". Nothing moves. */
+.stop-card.board-card { max-width: 150ch; }
+.board { display: grid; gap: 0.5lh; min-width: 0; }
+.board p { margin: 0; }
+.board-title { font-weight: 700; }
+.board-title:focus:not(:focus-visible) { outline: none; }
+.board-change { color: var(--accent); }
+.board-shots { display: grid; gap: 0.5lh; }
+/* A shot row holds its .sr-only sentence (position: relative): placed against the page, the
+   five sentences made the whole page 1817 px tall in a 900 px window (review round 2 of B4b). */
+.board-shot { position: relative; border: 1px solid var(--line); border-radius: var(--radius); padding: 0.5lh 1ch; min-width: 0; }
+.board-shot:focus { outline: none; border-color: var(--accent); }
+.board-visual { display: grid; grid-template-columns: minmax(0, 40ch) minmax(0, 18ch) minmax(0, 1fr); gap: 0.5lh 2ch; align-items: start; }
+.board-shot.wide .board-visual { grid-template-columns: minmax(0, 40ch) minmax(0, 32ch) minmax(0, 1fr); }
+.board-row-head { grid-column: 1 / -1; color: var(--fg-mid); }
+.board-source, .board-still { margin: 0; min-width: 0; }
+.board-source figcaption, .board-still figcaption { color: var(--fg1); }
+.board-frame { position: relative; width: 100%; background: var(--bg1); border: 1px solid var(--line); overflow: hidden; }
+.board-frame img { display: block; width: 100%; height: 100%; }
+.board-overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+.board-outside { fill: rgb(0 0 0 / 0.5); }
+.board-crop-under { fill: none; stroke: rgb(0 0 0 / 0.85); stroke-width: 3; }
+.board-crop { fill: none; stroke: #ffffff; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.board-subject { fill: none; stroke: var(--agent); stroke-width: 2; }
+.board-eyes { stroke: var(--agent); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.board-label { position: absolute; padding: 0 0.5ch; background: rgb(11 14 18 / 0.85); line-height: 1.4; white-space: nowrap; }
+.board-label.crop { color: #ffffff; }
+.board-label.subject, .board-label.eyes { color: var(--agent); }
+.board-covered { position: absolute; right: 0; background: repeating-linear-gradient(135deg, rgb(11 14 18 / 0.7) 0 6px, rgb(236 238 240 / 0.22) 6px 9px); }
+.board-covered.right { top: 0; }
+.board-covered.bottom { left: 0; bottom: 0; display: flex; align-items: flex-end; padding: 0 0.5ch 2px; color: var(--fg0); overflow-wrap: anywhere; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+.board-missing { display: grid; place-items: center; text-align: center; padding: 1ch; border: 1px dashed var(--line); color: var(--fg1); background: var(--bg1); overflow-wrap: anywhere; }
+.board-lines { margin: 0; min-width: 0; }
+.board-lines > div { display: grid; grid-template-columns: 9ch minmax(0, 1fr); column-gap: 1ch; }
+.board-lines dt { color: var(--fg1); }
+.board-lines dd { margin: 0; overflow-wrap: anywhere; }
+.board-lines .board-look dt, .board-lines .board-look dd { color: var(--warn); }
+.board-lines .board-change dt, .board-lines .board-change dd { color: var(--accent); }
+.board-your-note { color: var(--fg-mid); margin-top: 0.25lh; }
+.board-note { display: grid; gap: 2px; margin-top: 0.25lh; }
+.board-note .tb { justify-self: start; color: var(--fg-mid); }
+.board-note input { width: 100%; padding: 0.25lh 0.5ch; }
+.board-section { margin: 0.5lh 0 0; font: inherit; font-weight: 700; color: var(--fg-mid); }
+.board-list { margin: 0; padding-left: 2ch; list-style: "- "; }
+.board-ask summary, .board-pages summary { cursor: pointer; color: var(--fg-mid); }
+.board-ask .stop-ask { margin-top: 0.25lh; }
+.board-pages img { display: block; max-width: 100%; height: auto; margin-top: 1ch; border: 1px solid var(--line); background: var(--bg1); }
+.board-noted { color: var(--fg-mid); }
+.board-error { display: grid; gap: 0.5lh; }
+.stop-lines + .board { margin-top: 0.5lh; }
+/* A phone: the source frame across the row; a tall still beside the layer lines, a wide one above them. */
+.phone .board-shot { padding: 0.5lh 1ch; }
+.phone .board-visual, .phone .board-shot.wide .board-visual { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); column-gap: 1ch; }
+.phone .board-source, .phone .board-shot.wide .board-still, .phone .board-shot.wide .board-lines { grid-column: 1 / -1; }
+.phone .board-lines > div { grid-template-columns: minmax(0, 1fr); }
+.phone .board-lines dt { margin-top: 2px; }
+.help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36ch, 1fr)); gap: 0 3ch; }
+/* A long meaning wraps under itself instead of running into the next column. */
+.help-grid .row { white-space: normal; align-items: baseline; }
+.help-grid dt { flex: none; white-space: nowrap; }
+.confirm { border: 1px solid var(--accent); border-radius: var(--radius); padding: 0.5lh 2ch; margin: 0.5lh 0; }
+/* The page behind an open question is inert (no focus, no clicks); dimming shows it waits. */
+.dash [inert] { opacity: 0.6; }
+.command-line { display: flex; gap: 1ch; padding: 0 1ch; background: var(--bg1); border-top: 1px solid var(--accent); }
+.command-line input { flex: 1; border: 0; background: transparent; }
+.message { padding: 0 1ch; }
+.message.error { color: var(--err); }
+.drop-target { position: fixed; inset: 0; display: grid; place-items: center; background: rgb(11 14 18 / 0.85); border: 1px dashed var(--accent); z-index: 10; pointer-events: none; }
+.transcript-line { white-space: pre-wrap; word-break: break-word; border-bottom: 1px solid var(--line); padding: 0.25lh 0; }
+
+/* ---- phone (plan §5.11): stage, notes and approvals, stacked ---------------------------- */
+.dash.phone { grid-template-rows: auto minmax(0, 1fr) auto; }
+/* Each pane is as tall as what it holds (the log at most 70% of the screen, then it scrolls);
+   the stack scrolls. */
+.phone-stack { overflow: auto; padding: 8px 8px 1lh; display: grid; grid-auto-rows: max-content; gap: 1lh; align-content: start; }
+.phone-stack .pane { grid-area: auto; }
+.phone-stack .p-log { max-height: 70vh; }
+/* On a phone the frame is as wide as the screen and keeps its shape, at most 70% of the screen
+   tall for tall scenes. */
+.phone-stack .stage-well { flex: none; display: block; }
+/* The phone top bar wraps to about three rows (brand and project, tabs, chips and buttons) and the
+   stage has a toolbar: the frame keeps out of their 300 px so a 9:16 frame fits the first screen. */
+.phone-stack .stage-wrap { width: 100%; aspect-ratio: var(--stage-aspect, 16 / 9); max-height: min(70vh, calc(100vh - 300px)); }
+/* The stage's facts get their own line under its title. */
+.phone .pane.p-stage { grid-template-rows: auto auto minmax(0, 1fr); }
+.phone .p-stage > h2, .phone .p-stage > .pane-facts { grid-column: 1 / -1; }
+.phone .p-stage > .pane-facts { justify-content: flex-start; padding: 0 var(--inset) 4px; }
+.phone .tb { min-height: 44px; min-width: 44px; padding: 0 1.5ch; }
+.phone .icon-button, .phone .zoom-menu.tb-box { height: 44px; width: auto; min-width: 44px; }
+.phone .stage-transport { height: auto; padding: 4px 0; column-gap: 1ch; }
+.phone .transport-buttons { gap: 4px; }
+/* The narrow transport: the buttons and the time on one row, the scrub bar and the view
+   switches each on a row of their own. */
+.phone .stage-transport { grid-template-columns: auto minmax(0, 1fr); row-gap: 4px; }
+.phone .stage-transport .scrub { grid-column: 1 / -1; grid-row: 1; }
+.phone .transport-view { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; gap: 0 1ch; }
+/* No auto margins on a phone: each card fills the column, so a short request is as wide as a long one. */
+.phone .approval-card { padding: 0.5lh 1ch; margin: 0; }
+/* Four answer buttons in two rows of two, each wide enough to read and tap. */
+.phone .approval-card .actions { display: grid; grid-template-columns: 1fr 1fr; }
+/* A stop's answers: approve as wide as the card, the two with a note side by side under it. */
+.phone .stop-card { padding: 0.5lh 1ch; margin: 0; }
+.phone .stop-card .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.phone .stop-card .actions .allow { grid-column: 1 / -1; }
+.phone .stop-card .tb-box { white-space: normal; text-align: left; }
+.phone .topline { flex-wrap: wrap; height: auto; gap: 2px 4px; padding: 0 4px 0 0; }
+.phone .topline .title { flex: 1 1 0; min-height: 44px; min-width: 9ch; }
+/* The phone's status line names the agents; the command and render buttons get their own row. */
+.phone .top-agents { display: none; }
+.phone .topline::before { content: none; }
+.phone .top-right { order: 4; flex: 1 0 100%; margin-left: 0; }
+.phone .top-right .tb { flex: 1 1 0; justify-content: center; }
+.phone .top-command { margin-right: 0; }
+/* The bar's own box goes: its pill, message and nav take places in the top line itself. */
+.phone .topbar { display: contents; }
+.phone .topbar .follow { order: 1; height: auto; align-self: stretch; }
+.phone .hold-banner { order: 2; flex-basis: 100%; }
+/* On a phone the bar has no box of its own: what waits gets its own orange row (it wraps),
+   and the follow pill and the nav keep their usual colors. */
+.phone .topbar::before { content: none; }
+.phone .needs-chip { order: 2; flex: 1 0 100%; flex-wrap: wrap; gap: 0 1.5ch; overflow: visible; padding: 4px 1ch; border-radius: 4px; background: var(--accent); }
+.phone .needs-chip > .asking-what { white-space: normal; overflow: visible; }
+.phone .topbar .message { order: 3; flex: 1 0 100%; width: auto; white-space: normal; padding: 0 1ch; }
+/* A phone has no F keys: the tabs and the follow pill drop their key hints and share the
+   title's row, so the screens nav keeps a whole row of its own. */
+.phone .topline .tab-key { display: none; }
+/* Three tabs (F3 inspire too) still fit beside the title and the follow pill at 390 px. */
+.phone .topline .tabs { gap: 1.2ch; padding: 0 0.6ch; min-height: 44px; }
+/* The status line wraps to more rows on a phone; a bar before an item would start a row, so
+   there the items are kept apart by a wider gap alone. */
+.phone .statusline { flex-wrap: wrap; height: auto; column-gap: 3ch; }
+.phone .statusline > * + *::before { content: none; }
+/* The checks button stays one text row tall, so the status line does not grow and push the frame
+   off the first screen; an invisible box reaching up from it (it sits on the screen's bottom
+   row) keeps the 44 px touch target. */
+.phone .statusline .s-checks { min-height: 0; min-width: 0; padding: 0; position: relative; }
+.phone .statusline .s-checks::after { content: ""; position: absolute; inset: -25px -1ch 0; }
+.phone .pane { grid-template-rows: auto minmax(0, 1fr); }
+.phone .pane > h2, .phone .pane-facts { min-height: 30px; margin: 0; height: auto; justify-self: stretch; max-width: none; background: none; }
+.phone .pane > h2 .bracket { display: inline; }
+.phone .pane > h2 { padding-left: var(--inset); }
+.phone .pane-facts { flex-wrap: wrap; white-space: normal; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash *, .dash *::before, .dash *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
+/* ---- a picture that resolves from ASCII (resolve.jsx) ------------------------------------- */
+.resolve { position: relative; display: block; }
+.resolve-ascii {
+  position: absolute; inset: 0; display: grid; grid-template-columns: repeat(14, 1fr); grid-template-rows: repeat(9, 1fr);
+  overflow: hidden; border-radius: 2px 2px 0 0; font-size: 8px; line-height: 1; color: var(--fg2); pointer-events: none;
+}
+.resolve-row { display: contents; }
+.resolve-row > span { display: grid; place-items: center; background: var(--bg1); transition: opacity 120ms linear; }
+.resolve-ascii.clearing .resolve-row > span { opacity: 0; }
+
+/* A new turn in the log rises 4 px into place with a short agent-colored edge. */
+.log-new { animation: log-rise 220ms cubic-bezier(.2, .8, .2, 1) both; }
+.log-new > .log-row { animation: log-edge 900ms ease-out both; }
+@keyframes log-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes log-edge { from { box-shadow: inset 2px 0 var(--agent); } to { box-shadow: inset 2px 0 transparent; } }
+
+/* ---- the views as tabs (stage, crew, inspire): an icon and a word; the current one is
+   underlined in orange ---- */
+.topline .tabs { display: flex; align-items: stretch; gap: 0.5ch; padding: 0 1ch; margin: 0; border: 0; border-left: 1px solid var(--line-soft); flex: none; }
+.topline .tab { all: unset; position: relative; display: inline-flex; align-items: center; gap: 0.8ch; padding: 0 1.6ch; cursor: pointer; color: var(--fg1); }
+.topline .tab .icon { width: 14px; height: 14px; }
+.topline .tab:hover { color: var(--fg0); }
+/* A narrow window (the app's smallest is 760 px) keeps the tabs, follow and share as icons, so
+   render stays on the line; the words stay for screen readers and in the tooltips. */
+@media (max-width: 1099px) {
+  .topline .tab-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .topline .tab { padding: 0 1.1ch; }
+  .phone .topline .tab-word { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+}
+.topline .tab:focus-visible { outline: 1px solid var(--accent); outline-offset: -2px; }
+.topline .tab[aria-current="page"] { color: var(--fg0); font-weight: 700; }
+.topline .tab::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent);
+  transform: scaleX(0); transform-origin: left;
+}
+/* Only the way in animates, so nothing still moves once another screen has opened. */
+.topline .tab[aria-current="page"]::after { transform: scaleX(1); transition: transform 200ms cubic-bezier(.2, .8, .2, 1); }
+@media (prefers-reduced-motion: reduce) { .topline .tab[aria-current="page"]::after { transition: none; } }
+.topline .tab-count { margin-left: 0.2ch; color: var(--urgent); font-weight: 700; font-size: 0.85em; }
+
+/* ---- mac title bar: in the Mac desktop app the top line is the window's title bar. The system
+   draws the traffic lights over its left 78 px (desktop/main.mjs trafficLightPosition), so the line
+   is 38 px tall, starts after them, and drags the window; its buttons stay clickable. Full screen
+   hides the lights, so the room goes too. The loading and error screens keep the same room. */
+html.mac-titlebar .dash .topline { padding-left: 78px; -webkit-app-region: drag; }
+html.mac-titlebar .dash:not(.phone) .topline { height: 38px; }
+html.mac-titlebar .dash.phone .topline { min-height: 38px; }
+html.mac-titlebar .dash .topline :is(button, a, input, select, textarea, [role="button"], [tabindex]) { -webkit-app-region: no-drag; }
+html.mac-titlebar .dash > main.screen:first-child { padding-top: 38px; }
+html.mac-titlebar.full-screen .dash .topline { padding-left: 0; }
+
+/* ---- an agent's lane: what it works on now and the render it asked for (lanes.jsx) ---------- */
+.agent-lane-label .lane-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--agent); }
+.agent-lane-label .lane-name { color: var(--fg-mid); }
+/* The block over the range it works on now, labeled, in its color; it fades in. */
+.tl-content .lane-now {
+  position: absolute; top: 3px; bottom: 3px; min-width: 6ch; z-index: 2; overflow: hidden; pointer-events: auto;
+  background: var(--who, var(--agent)); color: var(--bg0); border-radius: 2px;
+  animation: lane-now-in 200ms ease-out both;
+}
+.tl-content .lane-now-text { display: block; padding: 0 0.8ch; font-size: var(--small); line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes lane-now-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tl-content .lane-now { animation: none; } }
+/* The render it asked for: a thin bar across the lane, done part in its color, the percent after it. */
+.tl-content .lane-render { position: absolute; left: 0; right: 0; top: 10px; height: 3px; background: var(--line-soft); pointer-events: none; }
+.tl-content .lane-render-done { position: absolute; left: 0; top: 0; bottom: 0; background: var(--who, var(--agent)); transition: width 400ms linear; }
+.tl-content .lane-render-text { position: absolute; top: -7px; margin-left: 1ch; padding: 0 0.5ch; font-size: var(--small); line-height: 16px; color: var(--who, var(--agent)); background: var(--bg0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .tl-content .lane-render-done { transition: none; } }
+/* The per-lane block above replaces the presence line and name chip over the timeline. */
+.p-timeline .presence-span, .p-timeline .presence-chip { display: none; }
+/* Timeline zoom: − and + as icon buttons, then the fit menu. */
+.zoom-group .zoom-step { display: inline-grid; place-items: center; width: 24px; padding: 0; }
+.zoom-group .zoom-step .icon { width: 12px; height: 12px; }
+.p-timeline .zoom-group { gap: 4px; height: 26px; padding: 0; border: 0; background: var(--bg0); }
+.p-timeline .zoom-group .tb { height: 24px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--fg-mid); }
+.p-timeline .zoom-group .tb:hover:not(:disabled) { border-color: var(--fg1); background: var(--bg1); }
+.p-timeline .zoom-group .zoom-menu { margin-left: 0; padding: 0 1ch; min-width: 8ch; }

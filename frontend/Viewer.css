@@ -1,0 +1,103 @@
+/* The viewer (Viewer.jsx) for share links, in the dashboard's look: dark, JetBrains Mono, square
+   1px boxes, coral for people (you and the comments) and teal for links. No purple. The colors
+   and the font are in base.css. */
+.viewer { min-height: 100dvh; display: flex; flex-direction: column; background: var(--bg0); color: var(--fg0); font-size: 13px; line-height: 1.5; font-variant-ligatures: none; }
+.viewer p { margin: 0; }
+.viewer :focus { outline: none; }
+.viewer :focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.viewer button { border: 1px solid var(--line); border-radius: 0; background: var(--bg1); color: var(--fg0); padding: 1px 1.5ch; line-height: 1.5; }
+.viewer button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.viewer button.primary { border-color: var(--accent); color: var(--accent); }
+.viewer button.primary:hover:not(:disabled) { background: var(--accent); color: var(--bg0); }
+.viewer button.primary.danger { border-color: var(--err); color: var(--err); background: var(--bg1); }
+.viewer button.primary.danger:hover:not(:disabled) { background: var(--err); color: var(--bg0); }
+.viewer button.icon-button { display: inline-flex; align-items: center; justify-content: center; width: 3.5ch; height: 1.5lh; padding: 0; border-color: transparent; background: transparent; color: var(--fg1); }
+.viewer button.icon-button:hover:not(:disabled) { border-color: var(--line); }
+.viewer input[type="text"], .viewer textarea { border: 1px solid var(--line); border-radius: 0; background: var(--bg0); color: var(--fg0); }
+.viewer input[type="text"]:focus-visible, .viewer textarea:focus-visible { border-color: var(--accent); outline: none; }
+.viewer ::placeholder { color: var(--fg2); }
+
+/* Header: the file, the scene, who else is here, scene buttons and the comments button. */
+.viewer-header { display: flex; align-items: center; gap: 2ch; min-height: 3lh; padding: 0.5lh 2ch; background: var(--bg1); border-bottom: 1px solid var(--line); }
+.viewer-file { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.viewer-file-title { display: flex; align-items: center; gap: 1ch; min-width: 0; }
+.viewer-file-title strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-role { color: var(--fg1); font-size: 12px; }
+.viewer-scene-name { display: flex; gap: 2ch; min-width: 0; }
+.viewer-scene-name > :first-child { min-width: 0; max-width: 40vw; }
+.viewer-current-scene-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-scene-name > :first-child, .viewer-card-heading h2 { position: relative; }
+.viewer-scene-name > :last-child { white-space: nowrap; color: var(--fg1); }
+.viewer-navigation { display: flex; gap: 1ch; flex-shrink: 0; }
+.viewer-navigation button { min-width: 4ch; }
+.viewer button.viewer-comments-toggle { flex-shrink: 0; white-space: nowrap; }
+.viewer button.viewer-comments-toggle[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.viewer-unread { color: var(--accent); }
+
+/* Playback. */
+.viewer-controls { display: flex; align-items: center; gap: 1.5ch; padding: 0.5lh 2ch; background: var(--bg0); border-bottom: 1px solid var(--line); }
+.viewer-controls > button:first-child { min-width: 9ch; border-color: var(--accent); color: var(--accent); }
+.viewer-loop { display: flex; align-items: center; gap: 0.5ch; color: var(--fg1); }
+.viewer-loop input, .viewer-scrubber { accent-color: var(--accent); }
+.viewer-scrubber { min-width: 40px; flex: 1; }
+.viewer-controls output { color: var(--fg1); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.viewer-status { padding: 0.25lh 2ch; border-bottom: 1px solid var(--line); color: var(--warn); }
+
+/* The frame and, for comment and edit links, the comments column beside it. */
+.viewer-body { flex: 1; min-height: 0; display: flex; }
+.viewer-stage { flex: 1; min-width: 0; min-height: calc(100dvh - 7lh); display: flex; justify-content: center; align-items: center; padding: 2lh 2ch; }
+.viewer-frame { position: relative; overflow: hidden; outline: 1px solid var(--line); background: repeating-conic-gradient(#232327 0% 25%, #1a1a1d 0% 50%) 50% / 20px 20px; }
+.viewer-stage .viewer-frame { width: min(100%, calc((100dvh - 10lh) * var(--scene-ratio))); }
+/* The frame takes focus when ⇧C hides the pin that had it; it keeps its line when clicked. */
+.viewer-stage .viewer-frame:focus { outline: 1px solid var(--line); }
+.viewer-stage .viewer-frame:focus-visible { outline-color: var(--accent); }
+.viewer .scene-svg { width: 100%; height: 100%; }
+.viewer .scene-svg > svg { display: block; width: 100%; height: 100%; }
+.viewer .render-error { padding: 1lh 2ch; color: var(--err); background: var(--bg1); }
+
+/* Comment pins over the frame. A pin's bottom-left corner is the spot the comment is about. */
+.viewer-marks { position: absolute; inset: 0; z-index: 13; pointer-events: none; }
+.viewer-marks.placing { pointer-events: auto; cursor: crosshair; }
+.viewer-marks > .viewer-pin { pointer-events: auto; }
+.viewer .viewer-pin { position: absolute; width: 3.5ch; height: 1.5lh; padding: 0; transform: translateY(-100%); display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--accent); background: var(--bg0); color: var(--accent); font-weight: 700; cursor: pointer; }
+.viewer .viewer-pin.open, .viewer .viewer-pin:hover { background: var(--accent); color: var(--bg0); }
+.viewer .viewer-pin.draft { border-style: dashed; cursor: default; }
+
+/* Phone and touch: one card per scene. */
+.viewer-card-list { flex: 1; min-width: 0; padding: 1lh 2ch; display: flex; flex-direction: column; gap: 1.5lh; max-width: 1140px; margin: 0 auto; }
+.viewer-card { min-width: 0; border: 1px solid var(--line); background: var(--bg1); overflow: hidden; scroll-margin-top: 1lh; }
+.viewer-card-heading { padding: 0.5lh 1.5ch; display: flex; align-items: center; gap: 1.5ch; }
+.viewer-card-heading h2 { flex: 1; min-width: 0; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.viewer button.viewer-card-preview { display: block; width: 100%; padding: 0; border: 0; text-align: initial; background: transparent; }
+.viewer-card .viewer-frame { width: 100%; outline: 0; }
+.viewer-announcement { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.viewer-cards .viewer-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.5lh 1.5ch; padding: 0.5lh 2ch; }
+.viewer-cards .viewer-file { grid-column: 1; grid-row: 1; }
+.viewer-cards .viewer-navigation { grid-column: 2; grid-row: 1; }
+.viewer-cards .viewer-scene-name { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; }
+.viewer-cards .viewer-header > .presence-avatars { grid-column: 1 / -1; grid-row: 3; }
+.viewer-cards .viewer-header > .viewer-comments-toggle { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
+.viewer-cards .viewer-scene-name > :first-child { max-width: none; }
+.viewer-cards .viewer-controls { flex-wrap: wrap; gap: 0.5lh 1ch; padding: 0.5lh 2ch; }
+.viewer-cards .viewer-scrubber { order: 1; flex-basis: calc(100% - 16ch); }
+.viewer-cards .viewer-controls output { order: 2; }
+.viewer-cards .viewer-body { flex-direction: column; }
+/* On a phone the comments come first, right under the controls, so opening them shows them. */
+.viewer-cards .viewer-comments { order: -1; width: auto; border-left: 0; border-bottom: 1px solid var(--line); max-height: 70dvh; }
+
+/* The comments column. The thread list and threads are styled in components/CommentsPanel.css
+   and components/CommentThread.css. */
+.viewer-comments { width: 46ch; flex-shrink: 0; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg1); }
+/* On a desktop window the viewer is exactly the window's height, so the comments column runs to
+   the bottom edge whatever the header holds, and its list scrolls inside. */
+.viewer-desktop { height: 100dvh; }
+.viewer-desktop .viewer-stage { min-height: 0; }
+.viewer-comments > .comments-panel { flex: 1; min-height: 0; border-left: 0; }
+.viewer-comments-error { padding: 0.5lh 1.5ch; border-bottom: 1px solid var(--line); color: var(--err); }
+.viewer-comments-hint { padding: 0.5lh 1.5ch; border-bottom: 1px solid var(--line); color: var(--warn); }
+.viewer-new-comment { display: grid; gap: 0.5lh; padding: 0.5lh 1ch; border: 1px dashed var(--accent); }
+.viewer-new-comment-place { color: var(--accent); font-size: 12px; }
+.viewer-new-comment textarea { display: block; width: 100%; min-height: 4lh; resize: vertical; padding: 0.25lh 1ch; font-size: 12px; line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) { .viewer *, .viewer *::before, .viewer *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }

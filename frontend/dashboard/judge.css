@@ -1,0 +1,54 @@
+/* The judge box (judge.jsx): over the stage, as in the approved design. */
+.judge {
+  position: fixed; z-index: 40; left: 50%; top: 52%; transform: translate(-50%, -50%);
+  width: min(1140px, calc(100vw - 32px)); max-height: calc(100vh - 80px); overflow: auto;
+  background: var(--well); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 24px 24px 20px; box-shadow: 0 0 0 100vmax rgba(5, 7, 10, 0.6); outline: none;
+}
+.judge-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+.judge-head h2 { margin: 0 0 8px; font-size: 1.35em; font-weight: 600; color: var(--fg0); }
+.judge-head p { margin: 0; }
+.judge-count { color: var(--fg-mid); white-space: nowrap; padding-top: 8px; }
+.judge-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.judge-side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.judge-side img { width: 100%; height: auto; max-height: min(55vh, 548px); object-fit: contain; background: #000; border: 1px solid var(--line); display: block; }
+.judge .key { color: var(--accent); margin-right: 1ch; }
+.judge-pick { border: 1px solid var(--accent); border-radius: var(--radius); padding: 10px; text-align: center; width: 100%; color: var(--fg0); }
+.judge-keys { display: flex; justify-content: center; gap: 3ch; margin: 0; padding-top: 16px; }
+.judge-keys .tb { color: var(--fg-mid); }
+.judge-key { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.judge-key li { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.judge-key figure { margin: 0; border: 1px solid var(--line); }
+.judge-key figure.picked { border-color: var(--accent); }
+.judge-key img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+.judge-key figcaption { font-size: 0.85em; color: var(--fg1); padding: 2px 4px; }
+.judge-key figure.picked figcaption { color: var(--fg0); }
+@media (max-width: 640px) { .judge { padding: 16px; } .judge-pair { gap: 8px; } }
+@media (prefers-reduced-motion: reduce) { .judge { transition: none; } }
+/* The blind pick box (picks.jsx): two videos, one clock, word chips. */
+.picks-screen { position: relative; background: #000; border: 1px solid var(--line); aspect-ratio: 16 / 9; display: flex; }
+.picks-screen video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.picks-screen.dark video { visibility: hidden; }
+/* The whole screen is the play button: a mark while paused, clear (click to pause) while playing. */
+.picks-play { position: absolute; inset: 0; display: grid; place-items: center; background: transparent; border: 0; padding: 0; cursor: pointer; }
+.picks-play-mark { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: rgba(5, 7, 10, 0.72); border: 1px solid var(--accent); color: var(--accent); }
+.picks-play-mark svg { margin-left: 3px; }
+.picks-play:hover .picks-play-mark { background: rgba(5, 7, 10, 0.88); }
+.picks-play:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.picks-name { position: absolute; left: 8px; top: 6px; padding: 0 6px; background: rgba(5, 7, 10, 0.72); color: var(--fg0); pointer-events: none; }
+/* Each screen's own sound toggle, bordered like the chips, in the screen's bottom right corner. */
+.picks-sound { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(5, 7, 10, 0.72); color: var(--fg0); white-space: nowrap; }
+.picks-sound:hover { background: rgba(5, 7, 10, 0.88); }
+.picks-sound.on { border-color: var(--accent); color: var(--accent); }
+.picks-chip.on { border-color: var(--accent); color: var(--fg0); }
+.picks-bar { display: flex; align-items: center; gap: 2ch; padding-top: 14px; }
+.picks-bar input[type="range"] { flex: 1; accent-color: var(--accent); }
+.picks-why { padding-top: 16px; }
+.picks-why-head { display: block; color: var(--fg-mid); margin-bottom: 8px; }
+.picks-words { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.picks-chip { border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 10px; color: var(--fg-mid); }
+.picks-note { flex: 1; min-width: 12ch; background: transparent; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; color: var(--fg0); font: inherit; }
+.picks-note:focus-visible, .picks-chip:focus-visible, .picks-sound:focus-visible, .picks-verdicts .tb:focus-visible { outline: 1px solid var(--accent); }
+.picks-verdicts { display: grid; grid-template-columns: 2fr 1fr 1fr 2fr; gap: 8px; padding-top: 18px; }
+.picks-verdicts .judge-pick.quiet { border-color: var(--line); color: var(--fg-mid); }
+@media (max-width: 640px) { .picks-verdicts { grid-template-columns: 1fr 1fr; } }

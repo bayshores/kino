@@ -1,0 +1,167 @@
+/* The live panels (live.jsx), the crew view (crewPane.jsx) and the agent pane's new parts
+   (agentPane.jsx). Flat: borders and the agent's color, no gradients, glows or glass.
+   --who is the agent's color. Under reduced motion nothing slides. */
+
+.glyph { flex: none; display: block; }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--who, var(--agent)); flex: none; display: inline-block; }
+.live-dot.off { background: transparent; box-shadow: inset 0 0 0 1px var(--fg2); }
+.live-head { display: flex; align-items: center; gap: 1ch; min-width: 0; white-space: nowrap; }
+.live-head .who { color: var(--who, var(--agent)); font-weight: 700; }
+.live-head .dim { overflow: hidden; text-overflow: ellipsis; }
+.grow { flex: 1; }
+.tb-box.on, .tb-box[aria-pressed="true"] { color: var(--fg0); border-color: var(--fg1); background: var(--bg2); }
+
+@keyframes live-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes live-down { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes live-out { to { opacity: 0; transform: translateY(6px); } }
+@keyframes live-pulse { 50% { opacity: 0.35; } }
+
+/* ---- the agent pane: the tabs, header, log rows, why and the note box ----------------------- */
+.p-agent.live-pane > .pane-body { display: flex; flex-direction: column; }
+.p-agent.live-pane .view-body { flex: 1; min-height: 0; }
+.p-agent.live-pane .view-tabs { padding: 4px 10px 0; gap: 0.5ch; }
+.p-agent.live-pane .view-tabs .view-tab { height: 26px; }
+.p-agent.live-pane .view-tabs .tab-count { vertical-align: baseline; margin-left: 0.8ch; min-width: 16px; height: 16px; line-height: 16px; display: inline-block; text-align: center;
+  border-radius: 8px; background: var(--bg2); color: var(--fg-mid); font-size: 10px; padding: 0 4px; }
+.p-agent.live-pane .view-tabs .tab-count.urgent { background: var(--urgent); color: var(--bg0); }
+.pane-facts-row { display: inline-flex; align-items: center; gap: 1ch; }
+.pane-fold { width: 20px; height: 20px; color: var(--fg1); }
+
+.p-agent.live-pane .agent-head { padding: 10px 12px; gap: 1.2ch; }
+.p-agent.live-pane .agent-head .agent-what { flex: 1; min-width: 0; }
+.p-agent.live-pane .agent-task { display: flex; gap: 1ch; align-items: center; font-weight: 700; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p-agent.live-pane .agent-step { margin: 0; font-size: 11px; }
+.agent-follow { height: 26px; display: inline-flex; align-items: center; gap: 0.8ch; color: var(--fg-mid); }
+.agent-follow[aria-pressed="true"] { border-color: var(--who, var(--fg1)); color: var(--fg0); }
+
+.p-agent.live-pane .agent-call { line-height: 30px; }
+.p-agent.live-pane .call-line { position: relative; }
+.call-hover { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: none; gap: 4px; padding-left: 8px; background: var(--bg2); }
+.call-hover .tb-box { height: 22px; line-height: 20px; display: inline-flex; align-items: center; gap: 0.6ch; color: var(--fg-mid); font-size: 11px; }
+.agent-call:hover, .agent-call:focus-within { background: var(--bg2); }
+.agent-call:hover .call-hover, .agent-call:focus-within .call-hover { display: inline-flex; }
+.agent-why { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.agent-why .faint { margin-right: 1ch; }
+
+.note-box { display: flex; align-items: center; gap: 6px; margin: 0 10px 10px; padding: 4px 4px 4px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); }
+.note-box:focus-within { border-color: var(--fg1); }
+.note-box textarea { flex: 1; min-width: 0; resize: none; border: 0; background: none; color: var(--fg0); font: inherit; line-height: 26px; height: 26px; padding: 0; outline: none; }
+.note-box textarea::placeholder { color: var(--fg2); }
+.note-point { color: var(--fg1); }
+.note-send { background: var(--accent); color: var(--bg0); border-radius: var(--radius); }
+.note-send:disabled { background: var(--bg2); color: var(--fg2); }
+.note-to { display: inline-flex; align-items: center; gap: 0.8ch; padding-right: 1ch; border-right: 1px solid var(--line-soft); }
+.note-to select { background: none; border: 0; color: var(--fg0); font: inherit; padding: 2px 0; }
+.note-to select:focus-visible { outline: 1px solid var(--accent); }
+
+/* ---- the crew view --------------------------------------------------------------------------- */
+.crew-count { color: var(--fg-mid); margin-left: 0.5ch; }
+.crew-view { display: flex; flex-direction: column; min-height: 0; height: 100%; padding: 8px 10px 0; gap: 8px; }
+.crew-filter { display: flex; gap: 6px; }
+.crew-filter > .tb-box { height: 28px; display: inline-flex; align-items: center; gap: 0.8ch; }
+.seg { flex: 1; display: flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+.seg-item { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.8ch; height: 26px; padding: 0 1ch; color: var(--fg1); background: none; border: 0; font: inherit; cursor: pointer; white-space: nowrap; }
+.seg-item + .seg-item { border-left: 1px solid var(--line-soft); }
+.seg-item[aria-pressed="true"] { background: var(--bg2); color: var(--fg0); }
+.seg-item:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.crew-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; flex: none; max-height: 60%; overflow-y: auto; }
+.crew-card { background: var(--well); border-left: 3px solid var(--who); border-radius: 0 var(--radius) var(--radius) 0; }
+.crew-card.selected { background: var(--bg2); }
+.crew-card-main { display: grid; gap: 6px; width: 100%; padding: 8px 10px; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.crew-card-main:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.crew-card-top { display: flex; align-items: center; gap: 1ch; min-width: 0; }
+.crew-card-top .who { color: var(--who); font-weight: 700; }
+.crew-goal { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-mid); }
+.crew-steps { display: flex; gap: 4px; }
+.crew-steps span { flex: 1; height: 3px; background: var(--line); }
+.crew-steps span.done { background: var(--who); }
+.crew-steps span.now { background: color-mix(in srgb, var(--who) 45%, var(--line)); }
+.crew-now { display: flex; align-items: center; gap: 1ch; min-width: 0; white-space: nowrap; }
+.crew-now .live-dot:not(.off) { animation: live-pulse 1.4s ease-in-out infinite; }
+.crew-verb { color: var(--fg0); }
+.crew-call { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.crew-card-actions { display: flex; gap: 6px; padding: 0 10px 8px; flex-wrap: wrap; }
+.crew-card-actions .tb-box { height: 24px; display: inline-flex; align-items: center; gap: 0.6ch; font-size: 11px; color: var(--fg-mid); }
+.crew-card-actions .crew-stop { color: var(--urgent); }
+.crew-feed-head { display: flex; justify-content: space-between; margin: 4px 0 0; font-size: 11px; }
+.crew-feed { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+.crew-feed li { display: grid; grid-template-columns: 3px 5ch 8ch minmax(0, 1fr) auto; column-gap: 1.2ch; align-items: center; line-height: 26px; }
+.feed-rail { align-self: stretch; margin: 5px 0; background: var(--who); }
+.feed-verb { color: var(--who); }
+.feed-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feed-mark { color: var(--ok); padding-right: 4px; }
+.feed-mark.err { color: var(--urgent); }
+
+/* ---- needs you ------------------------------------------------------------------------------- */
+.live-need { margin: 8px 10px 4px; padding: 8px 10px; border: 1px solid var(--urgent); border-radius: var(--radius);
+  background: color-mix(in srgb, var(--urgent) 8%, var(--bg0)); display: grid; gap: 8px; animation: live-down 200ms ease-out; }
+.live-need .live-head { color: var(--urgent); }
+.live-need .live-head .who { color: var(--urgent); }
+.need-body { display: flex; gap: 10px; min-width: 0; }
+.need-poster { width: 96px; height: 54px; object-fit: cover; border-radius: 2px; flex: none; background: var(--bg1); }
+.need-what { min-width: 0; }
+.need-what p { margin: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.need-what .need-title { font-size: 13px; font-weight: 700; color: var(--fg0); }
+.need-actions { display: flex; gap: 6px; }
+.need-actions .tb-box { height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 0.6ch; color: var(--fg-mid); }
+.need-actions .need-allow { flex: 1; background: var(--urgent); border-color: var(--urgent); color: var(--bg0); font-weight: 700; }
+/* A material question's options as chips: they wrap, the recommended one in the urgent color. */
+.need-choices { flex-wrap: wrap; }
+.need-choices .tb-box { padding: 0 1ch; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.need-choices .need-allow { flex: 0 1 auto; }
+.need-what .need-title.wrap { white-space: normal; }
+
+/* ---- the idle rail --------------------------------------------------------------------------- */
+.p-agent.railed { display: flex; padding: 0; }
+.panes:has(> .p-agent.railed) { grid-template-columns: minmax(0, 1fr) 60px; }
+/* One centered column: open button on top (where the fold button sits when open), agents, notes. */
+.live-rail { flex: 1; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 10px 0; animation: live-up 180ms ease-out; }
+.live-rail ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.live-rail li { display: flex; justify-content: center; }
+.rail-agent { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 44px; background: none; border: 0; padding: 2px 0; cursor: pointer; opacity: 0.6; font: inherit; font-size: 10px; }
+.rail-agent:hover, .rail-agent:focus-visible { opacity: 1; }
+.rail-agent:focus-visible { outline: 1px solid var(--accent); }
+.live-rail .rail-notes, .live-rail .rail-open { position: relative; flex: none; display: grid; place-items: center; width: 32px; height: 32px; min-height: 32px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); }
+.rail-badge { position: absolute; top: -6px; right: -6px; min-width: 15px; height: 15px; line-height: 15px; border-radius: 8px; background: var(--urgent); color: var(--bg0); font-size: 10px; text-align: center; padding: 0 3px; }
+.rail-line { width: 24px; height: 1px; background: var(--line); flex: none; }
+
+/* ---- the seen drawer --------------------------------------------------------------------------- */
+.live-seen { flex: none; margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--line-soft); border-top: 2px solid var(--who); border-radius: var(--radius); background: var(--well); display: grid; gap: 8px; }
+.live-seen.in { animation: live-up 180ms ease-out; }
+.live-seen.out { animation: live-out 180ms ease-in forwards; }
+.live-seen .live-dot { animation: live-pulse 1.4s ease-in-out infinite; }
+.live-pin { width: 22px; height: 22px; color: var(--fg1); }
+.live-pin.on { color: var(--who); }
+.live-frames { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 150px); gap: 6px; overflow: hidden; }
+.live-frames li { display: grid; gap: 3px; min-width: 0; font-size: 10px; }
+/* Fixed heights so the drawer never changes size while it is open (the stage above would jump). */
+.live-frames li > span { min-height: 1lh; }
+.live-frames img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border: 1px solid var(--line-soft); border-radius: 2px; background: var(--bg1); display: block; }
+.live-frames li.current img { border: 2px solid var(--who); }
+.live-frames li.current span { color: var(--who); }
+.live-wait { margin: 0; font-size: 11px; min-height: calc(150px * 9 / 16 + 3px + 1lh); display: flex; align-items: center; }
+
+/* ---- the render dock ---------------------------------------------------------------------------- */
+.live-dock { position: absolute; right: 16px; bottom: 14px; z-index: 4; width: min(340px, 60%); padding: 10px 12px; display: grid; gap: 8px;
+  background: var(--bg0); border: 1px solid var(--who, var(--line)); border-radius: var(--radius); }
+.live-dock.in { animation: live-up 180ms ease-out; }
+.live-dock.done { border-color: var(--ok); }
+.live-dock .icon-button { width: 20px; height: 20px; }
+.live-cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+.live-cells span { aspect-ratio: 1; background: var(--line-soft); }
+.live-cells span.on { background: var(--who); }
+.live-bar { height: 4px; background: var(--line-soft); }
+.live-bar span { display: block; height: 100%; background: var(--who); }
+.live-facts { margin: 0; display: flex; justify-content: space-between; font-size: 11px; }
+.live-actions { display: flex; gap: 6px; }
+.live-actions .tb-box { height: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 0.6ch; color: var(--fg-mid); }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-need, .live-rail, .live-seen.in, .live-seen.out, .live-dock.in, .live-seen .live-dot, .crew-now .live-dot { animation: none !important; }
+}
+.still .live-dot, .live-need.still, .live-rail.still, .live-seen.still, .live-dock.still { animation: none; }
+
+/* The log fills the view and scrolls; its rows are 30 px, the answer lines under them 20 px. */
+.p-agent.live-pane .agent-view { grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; align-content: stretch; padding: 0; }
+.p-agent.live-pane .agent-log { max-height: none; align-self: stretch; margin: 6px 0; }
+.p-agent.live-pane .call-details { line-height: 20px; padding-bottom: 4px; }

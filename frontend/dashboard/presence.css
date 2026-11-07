@@ -1,0 +1,121 @@
+/* The agents' live markers (presence.jsx, milestone LIVE parts 1 and 3). Only transform and
+   opacity ever animate, so a moving marker never makes the page lay itself out again. Each agent's
+   color comes in as --who (the server's palette: 4.5:1 or more against the dashboard's dark
+   backgrounds, no purple); text on it is --bg0. Under reduced motion nothing animates: the
+   dashboard's own rule (dashboard.css) stops every animation and transition, and presence.jsx
+   draws a steady outline instead of the flash. */
+
+.dash .presence-stage, .dash .presence-timeline { position: absolute; inset: 0; pointer-events: none; }
+
+/* ---- the stage ------------------------------------------------------------------------------- */
+
+/* "Nova · look at 1.0–2.0 s", just above the outline it names. It glides to a new spot. */
+.dash .presence-tag {
+  position: absolute; left: 0; top: 0; z-index: 3; max-width: 100%; height: 16px;
+  padding: 0 0.6ch; font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--bg0); background: var(--who);
+  transition: transform 180ms cubic-bezier(.2, .8, .2, 1), opacity 300ms linear;
+  animation: presence-in 150ms ease-out;
+}
+/* The agent's cursor: an arrow in its color, tip on the spot, that glides from call to call. */
+.dash .presence-cursor {
+  position: absolute; left: 0; top: 0; z-index: 4; overflow: visible;
+  fill: var(--who); stroke: var(--bg0); stroke-width: 1.2; stroke-linejoin: round;
+  transition: transform 450ms cubic-bezier(.3, .7, .2, 1), opacity 300ms linear;
+  animation: presence-in 150ms ease-out;
+}
+/* The outline around what the call is about: placed at once, it only fades in. */
+.dash .presence-box {
+  position: absolute; z-index: 1; border: 1px solid var(--who);
+  transition: opacity 300ms linear; animation: presence-in 150ms ease-out;
+}
+/* What a write changed: a fill and an outline, once, for 900 ms (200 in, 400 held, 300 out). */
+.dash .presence-flash {
+  position: absolute; z-index: 2; opacity: 0;
+  border: 1px solid var(--who); background: color-mix(in srgb, var(--who) 24%, transparent);
+  animation: presence-flash 900ms ease-in-out both;
+}
+/* The same under reduced motion: a steady 2 px outline that a timer takes away after 1.5 s. */
+.dash .presence-steady { position: absolute; z-index: 2; outline: 2px solid var(--who); outline-offset: 0; }
+/* "Building": changed this turn and not looked at since. A quiet striped outline 3 px outside the
+   layer, so the marker's own outline still shows. It never moves. */
+.dash .presence-building {
+  position: absolute; z-index: 0; border: 1px solid transparent;
+  border-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--who) 60%, transparent) 0 3px, transparent 3px 6px) 1;
+}
+
+/* Each agent's bot on the stage (28 px, presence.jsx): beside its cursor while a call shows, else
+   at rest with its name under it, in the pane's margin (or dimmed over the frame's corner when the
+   frame fills the pane). It glides between the two. Nothing here can be clicked (the overlay has
+   pointer-events: none), and a resting bot comes before the note dots, so they draw over it. */
+.dash .stage-bot {
+  position: absolute; left: 0; top: 0; width: 28px; height: 28px;
+  transition: transform 600ms cubic-bezier(.3, .7, .2, 1), opacity 300ms linear;
+  animation: presence-in 300ms ease-out;
+}
+.dash .stage-bot .bot { display: block; }
+.dash .stage-bot.is-riding { z-index: 3; }
+.dash .stage-bot.is-over { opacity: 0.55; }
+.dash .stage-bot-name {
+  position: absolute; top: 30px; left: 50%; max-width: var(--slot, 64px); transform: translateX(-50%);
+  padding: 0 2px; font-size: var(--small); line-height: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--who); background: rgb(11 14 18 / 0.85);
+  transition: opacity 200ms linear;
+}
+/* While it rides, the agent's tag above the outline says its name. */
+.dash .stage-bot.is-riding .stage-bot-name { opacity: 0; }
+
+/* ---- the timeline (inside .tl-lines, under the playhead) ------------------------------------- */
+
+/* A 1 px line at the call's time, or a tint over its range: one element, scaled, so it glides. */
+.dash .presence-span {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 1px; transform-origin: 0 0; background: var(--who);
+  transition: transform 180ms cubic-bezier(.2, .8, .2, 1), opacity 300ms linear;
+  animation: presence-in 150ms ease-out;
+}
+.dash .presence-span.is-range { background: color-mix(in srgb, var(--who) 22%, transparent); }
+/* The agent's name beside its line, just under the row of the agent's turns (22 px, dashboard.css
+   .tl-content), so it never covers a turn's button, its label or its focus ring. */
+.dash .presence-chip {
+  position: absolute; left: 0; top: 22px; height: 14px; padding: 0 0.5ch;
+  font-size: var(--small); line-height: 14px; white-space: nowrap; color: var(--bg0); background: var(--who);
+  transition: transform 180ms cubic-bezier(.2, .8, .2, 1), opacity 300ms linear;
+  animation: presence-in 150ms ease-out;
+}
+.dash .presence-tl-flash, .dash .presence-tl-steady {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 1px; transform-origin: 0 0;
+  background: color-mix(in srgb, var(--who) 40%, transparent);
+}
+.dash .presence-tl-flash { opacity: 0; animation: presence-flash 900ms ease-in-out both; }
+/* A building layer's bars: stripes over the bar's own color (panes.jsx sets is-building). */
+.dash .tl-content .track.is-building .bar {
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, var(--fg0) 55%, transparent) 0 2px, transparent 2px 5px);
+}
+
+/* ---- both ------------------------------------------------------------------------------------- */
+
+/* The agent's bot (bot.jsx) on a dark cell at the start of its timeline chip, so the circle in the
+   agent's color shows against the tag in the same color. */
+.dash .presence-bot {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: top;
+  width: 16px; height: 16px; margin: 0 0.6ch 0 -0.6ch; background: var(--bg0);
+}
+.dash .presence-chip .presence-bot { width: 14px; height: 14px; margin: 0 0.5ch 0 -0.5ch; }
+
+/* A marker whose agent has been quiet for 5 s fades out. */
+.dash .presence-leaving { opacity: 0; }
+.dash .presence-still, .dash .presence-still * { transition: none !important; animation: none !important; }
+
+/* The screen reader's line: read, not drawn. */
+.presence-sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+@keyframes presence-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes presence-flash {
+  0% { opacity: 0; }
+  22% { opacity: 1; }
+  67% { opacity: 1; }
+  100% { opacity: 0; }
+}

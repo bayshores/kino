@@ -1,0 +1,8 @@
+{"responseHeader": {"status": 0}, "response": {"numFound": 6, "start": 0, "docs": [
+  {"identifier": "nullbomb", "licenseurl": "http://creativecommons.org/licenses/by/2.5/", "title": "Nullbomb creatures 2005-2006"},
+  {"creator": "Memphis", "identifier": "JOAT022", "licenseurl": "http://creativecommons.org/licenses/by-sa/3.0/", "title": "The Four Seasons"},
+  {"creator": "No-Source Netlabel", "identifier": "NS050", "licenseurl": "http://creativecommons.org/licenses/by-nc-sa/4.0/", "title": "Another Day, Another Way"},
+  {"creator": "Deadman & Digi Hartatak", "identifier": "breaknorth", "licenseurl": "http://creativecommons.org/licenses/by/3.0/", "title": "Break North"},
+  {"creator": "ST", "identifier": "mtk140", "licenseurl": "http://creativecommons.org/licenses/by-nc-nd/2.0/", "title": "ST - I'll Meet You There EP [mtk140]"},
+  {"creator": "Sasha Ponkratov", "identifier": "puls02", "title": "Sasha Ponkratov - Kaleidoscope (ep, Pulsations For You, puls02)"}
+]}}

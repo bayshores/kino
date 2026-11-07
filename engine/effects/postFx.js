@@ -1,0 +1,586 @@
+import { effectMapImage } from "./mapImage.js";
+import { cachedMap, fractalNoise } from "./maps.js";
+import { filterEffect } from "./svg.js";
+import { clamp, smoothstep } from "../numbers.js";
+
+const LUMA = [0.2126, 0.7152, 0.0722];
+const fmt = (value) => {
+  const rounded = Number(value.toFixed(8));
+  return Object.is(rounded, -0) ? "0" : String(rounded);
+};
+
+function number(frame, key, fallback, min, max, { integer = false } = {}) {
+  const supplied = frame?.parameters?.[key];
+  const value = clamp(Number.isFinite(supplied) ? supplied : fallback, min, max);
+  return integer ? Math.round(value) : value;
+}
+
+function boolean(frame, key, fallback) {
+  const supplied = frame?.parameters?.[key];
+  return typeof supplied === "boolean" ? supplied : fallback;
+}
+
+function color(value, fallback) {
+  const match = typeof value === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
+  const fallbackMatch = typeof fallback === "string" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(fallback);
+  const selected = match ?? fallbackMatch;
+  if (!selected) return [0, 0, 0];
+  const hex = selected[1].length === 3 ? [...selected[1]].map((digit) => digit + digit).join("") : selected[1];
+  return [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
+}
+
+function rgb(colorValue) {
+  return `rgb(${colorValue.join(",")})`;
+}
+
+function grayMatrix({ opaque = false } = {}) {
+  const [red, green, blue] = LUMA;
+  return [
+    `${red} ${green} ${blue} 0 0`,
+    `${red} ${green} ${blue} 0 0`,
+    `${red} ${green} ${blue} 0 0`,
+    opaque ? "0 0 0 0 1" : "0 0 0 1 0",
+  ].join(" ");
+}
+
+function contrastTransfer(input, contrast, result) {
+  const slope = fmt(contrast), intercept = fmt((1 - contrast) / 2);
+  return `<feComponentTransfer in="${input}" result="${result}"><feFuncR type="linear" slope="${slope}" intercept="${intercept}"/><feFuncG type="linear" slope="${slope}" intercept="${intercept}"/><feFuncB type="linear" slope="${slope}" intercept="${intercept}"/></feComponentTransfer>`;
+}
+
+function table(values) {
+  return values.map((value) => fmt(clamp(value, 0, 1))).join(" ");
+}
+
+function smoothMaskValues(threshold, softness, { invert = false, samples = 129 } = {}) {
+  return Array.from({ length: samples }, (_, index) => {
+    const luma = index / (samples - 1);
+    let selected;
+    if (softness <= 0) selected = luma < threshold ? 1 : 0;
+    else selected = 1 - smoothstep((luma - (threshold - softness / 2)) / softness);
+    return invert ? 1 - selected : selected;
+  });
+}
+
+function grayFor(frame, { opaque = false } = {}) {
+  return `<feColorMatrix in="SourceGraphic" type="matrix" values="${grayMatrix({ opaque })}" result="postFxGray"/>`;
+}
+
+function colorRamp(frame, { shadow, highlight, midpoint = 0.5, contrast = 1, input = "SourceGraphic", result = "postFxColorRamp" }) {
+  const channels = [shadow[0], shadow[1], shadow[2]].map((start, channelIndex) => {
+    const end = highlight[channelIndex];
+    return Array.from({ length: 33 }, (_, index) => {
+      const luma = index / 32;
+      const adjusted = clamp((luma - midpoint) * contrast + midpoint, 0, 1);
+      return (start + (end - start) * adjusted) / 255;
+    });
+  });
+  return [
+    `<feColorMatrix in="${input}" type="matrix" values="${grayMatrix()}" result="postFxRampLuma"/>`,
+    `<feComponentTransfer in="postFxRampLuma" result="${result}"><feFuncR type="table" tableValues="${table(channels[0])}"/><feFuncG type="table" tableValues="${table(channels[1])}"/><feFuncB type="table" tableValues="${table(channels[2])}"/></feComponentTransfer>`,
+  ];
+}
+
+function imagePrimitive(frame, uri, result) {
+  const { x, y, width, height } = frame.bounds;
+  return `<feImage href="${uri}" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}" preserveAspectRatio="none" result="${result}"/>`;
+}
+
+function binaryMaskPrimitives(lumaInput, thresholdMap, { invert = false } = {}) {
+  const primitives = [];
+  const comparisonInput = invert ? "postFxInvertedLuma" : lumaInput;
+  if (invert) primitives.push(`<feComponentTransfer in="${lumaInput}" result="${comparisonInput}"><feFuncR type="linear" slope="-1" intercept="1"/><feFuncG type="linear" slope="-1" intercept="1"/><feFuncB type="linear" slope="-1" intercept="1"/></feComponentTransfer>`);
+  primitives.push(
+    // Opaque inputs keep arithmetic alpha at one: 1 + luma - threshold.
+    // A steep transfer cuts at one (ties classify as light) without creating a
+    // half-alpha intermediate that would unpremultiply the comparison colors.
+    // Since the map and Rec.709 value are 8-bit, the exact threshold tie may
+    // vary by one byte across rasterizers.
+    `<feComposite in="${comparisonInput}" in2="${thresholdMap}" operator="arithmetic" k1="0" k2="1" k3="-1" k4="1" result="postFxCenteredCompare"/>`,
+    '<feComponentTransfer in="postFxCenteredCompare" result="postFxBinaryCompare"><feFuncR type="linear" slope="1000" intercept="-999"/><feFuncG type="linear" slope="1000" intercept="-999"/><feFuncB type="linear" slope="1000" intercept="-999"/><feFuncA type="table" tableValues="1 1"/></feComponentTransfer>',
+    '<feColorMatrix in="postFxBinaryCompare" type="matrix" values="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0" result="postFxLightMask"/>',
+  );
+  return primitives;
+}
+
+function selectedLumaMask(threshold, softness, contrast, { invert = false, result = "postFxSelection" } = {}) {
+  const values = smoothMaskValues(threshold, softness, { invert });
+  const slope = fmt(contrast), intercept = fmt((1 - contrast) / 2);
+  const [red, green, blue] = LUMA;
+  const matrix = [
+    `${red} ${green} ${blue} 0 0`,
+    `${red} ${green} ${blue} 0 0`,
+    `${red} ${green} ${blue} 0 0`,
+    "0 0 0 0 1",
+  ].join(" ");
+  const maskMatrix = [
+    "0 0 0 0 0", "0 0 0 0 0", "0 0 0 0 0", "1 0 0 0 0",
+  ].join(" ");
+  return [
+    `<feColorMatrix in="SourceGraphic" type="matrix" values="${matrix}" result="postFxSelectionLuma"/>`,
+    `<feComponentTransfer in="postFxSelectionLuma" result="postFxSelectionContrast"><feFuncR type="linear" slope="${slope}" intercept="${intercept}"/><feFuncG type="linear" slope="${slope}" intercept="${intercept}"/><feFuncB type="linear" slope="${slope}" intercept="${intercept}"/></feComponentTransfer>`,
+    `<feColorMatrix in="postFxSelectionContrast" type="matrix" values="${maskMatrix}" result="postFxSelectionInput"/>`,
+    `<feComponentTransfer in="postFxSelectionInput" result="${result}"><feFuncA type="table" tableValues="${table(values)}"/></feComponentTransfer>`,
+  ];
+}
+
+function compositeReplacement(primitives, selectionResult, replacementColor, result = "postFxReplaced") {
+  const keepResult = `${result}KeepMask`;
+  const inverseResult = `${result}InverseMask`;
+  const replacementResult = `${result}Flood`;
+  const selectedResult = `${result}Selected`;
+  primitives.push(
+    `<feComponentTransfer in="${selectionResult}" result="${inverseResult}"><feFuncA type="linear" slope="-1" intercept="1"/></feComponentTransfer>`,
+    `<feComposite in="SourceGraphic" in2="${inverseResult}" operator="in" result="${keepResult}"/>`,
+    `<feFlood flood-color="${rgb(replacementColor)}" result="${replacementResult}"/>`,
+    `<feComposite in="${replacementResult}" in2="${selectionResult}" operator="in" result="${selectedResult}"/>`,
+    `<feComposite in="${selectedResult}" in2="SourceAlpha" operator="in" result="${result}AlphaSafe"/>`,
+    `<feComposite in="${keepResult}" in2="${result}AlphaSafe" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="${result}"/>`,
+  );
+  return result;
+}
+
+function bayer8(x, y) {
+  // Canonical 8x8 ordered threshold ranks, repeated over the layer-local grid.
+  const rows = [
+    [0, 48, 12, 60, 3, 51, 15, 63],
+    [32, 16, 44, 28, 35, 19, 47, 31],
+    [8, 56, 4, 52, 11, 59, 7, 55],
+    [40, 24, 36, 20, 43, 27, 39, 23],
+    [2, 50, 14, 62, 1, 49, 13, 61],
+    [34, 18, 46, 30, 33, 17, 45, 29],
+    [10, 58, 6, 54, 9, 57, 5, 53],
+    [42, 26, 38, 22, 41, 25, 37, 21],
+  ];
+  return rows[((y % 8) + 8) % 8][((x % 8) + 8) % 8];
+}
+
+function luminanceMap(frame, key, valueAt) {
+  return effectMapImage(frame, key, (x, y, width, height) => {
+    const value = clamp(valueAt(x, y, width, height), 0, 1);
+    const byte = Math.round(value * 255);
+    return [byte, byte, byte, 255];
+  }, { outside: [0, 0, 0, 255] });
+}
+
+function displacementChannel(value) {
+  // Match periodicDisplacement's narrower, color-safe vector range. Chrome
+  // reads X from alpha and Y from neutral grayscale; resvg needs opaque RG.
+  return Math.round(127.5 + clamp(value, -1, 1) * 63.75);
+}
+
+function pixelateNeedsAffinePrewarp(bounds, matrix) {
+  if (!Array.isArray(matrix) || matrix.length < 6 || !matrix.slice(0, 6).every(Number.isFinite)) return false;
+  const [a, b, c, d, e, f] = matrix;
+  const corners = [[bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
+    [bounds.x, bounds.y + bounds.height], [bounds.x + bounds.width, bounds.y + bounds.height]]
+    .map(([x, y]) => [a * x + c * y + e, b * x + d * y + f]);
+  const xs = corners.map(([x]) => x), ys = corners.map(([, y]) => y);
+  const region = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+  const canKeepCellTile = a > 0 && d > 0 && Math.abs(b) + Math.abs(c) < 1e-12 &&
+    region.every((value) => Math.abs(value - Math.round(value)) < 1e-9);
+  return !canKeepCellTile;
+}
+
+/**
+ * Original Bayer halftone. Subdivisions is the number of grid cells across the
+ * longer layer side; each cell cycles an 8x8 rank matrix. Contrast pivots at
+ * middle gray. The selected two-color result is explicitly masked by SourceAlpha
+ * so antialiased and translucent edges keep their original coverage.
+ */
+export function renderDithering(frame) {
+  const darkColor = color(frame?.parameters?.darkColor, "#000000");
+  const lightColor = color(frame?.parameters?.lightColor, "#FFFFFF");
+  const subdivisions = number(frame, "subdivisions", 200, 1, 2048, { integer: true });
+  const contrast = number(frame, "contrast", 1.2, 0, 4);
+  const { width, height } = frame.bounds;
+  const cellSize = Math.max(width, height) / subdivisions;
+  const thresholdUri = luminanceMap(frame,
+    JSON.stringify(["postfx-bayer8-v1", subdivisions, width, height]),
+    (x, y, mapWidth, mapHeight) => {
+      const localX = (x + 0.5) * width / mapWidth;
+      const localY = (y + 0.5) * height / mapHeight;
+      const rank = bayer8(Math.floor(localX / cellSize), Math.floor(localY / cellSize));
+      return (rank + 0.5) / 64;
+    });
+  const primitives = [
+    grayFor(frame, { opaque: true }),
+    contrastTransfer("postFxGray", contrast, "postFxDitherLuma"),
+    imagePrimitive(frame, thresholdUri, "postFxThresholdMap"),
+    ...binaryMaskPrimitives("postFxDitherLuma", "postFxThresholdMap"),
+    '<feComponentTransfer in="postFxLightMask" result="postFxDarkMask"><feFuncA type="linear" slope="-1" intercept="1"/></feComponentTransfer>',
+    '<feComposite in="postFxLightMask" in2="SourceAlpha" operator="in" result="postFxLightAlpha"/>',
+    '<feComposite in="postFxDarkMask" in2="SourceAlpha" operator="in" result="postFxDarkAlpha"/>',
+    `<feFlood flood-color="${rgb(lightColor)}" result="postFxLightFlood"/>`,
+    '<feComposite in="postFxLightFlood" in2="postFxLightAlpha" operator="in" result="postFxLightLayer"/>',
+    `<feFlood flood-color="${rgb(darkColor)}" result="postFxDarkFlood"/>`,
+    '<feComposite in="postFxDarkFlood" in2="postFxDarkAlpha" operator="in" result="postFxDarkLayer"/>',
+    '<feMerge><feMergeNode in="postFxDarkLayer"/><feMergeNode in="postFxLightLayer"/></feMerge>',
+  ];
+  return filterEffect(frame, primitives, { padding: 0, contain: true });
+}
+
+/**
+ * Original circular halftone. Grid Repetition counts cells across the longer
+ * layer side; Dot Scale is a fraction of the cell diameter in eighths. Luma
+ * controls dot radius, while the independent color ramp interpolates shadow to
+ * highlight. The alpha mask avoids turning transparent source pixels opaque.
+ */
+export function renderDotGrid(frame) {
+  const repetition = number(frame, "gridRepetition", 40, 1, 512, { integer: true });
+  const dotScale = number(frame, "dotScale", 4, 0, 8);
+  const contrast = number(frame, "contrast", 1.4, 0, 4);
+  const invert = boolean(frame, "invertDetection", false);
+  const shadow = color(frame?.parameters?.shadowColor, "#FF0000");
+  const highlight = color(frame?.parameters?.highlightColor, "#FF0000");
+  const { width, height } = frame.bounds;
+  const cellSize = Math.max(width, height) / repetition;
+  const maxRadius = cellSize * dotScale / 16;
+  const thresholdUri = luminanceMap(frame,
+    JSON.stringify(["postfx-dotgrid-v1", repetition, dotScale, width, height]),
+    (x, y, mapWidth, mapHeight) => {
+      const localX = (x + 0.5) * width / mapWidth;
+      const localY = (y + 0.5) * height / mapHeight;
+      const centerX = (Math.floor(localX / cellSize) + 0.5) * cellSize;
+      const centerY = (Math.floor(localY / cellSize) + 0.5) * cellSize;
+      const radius = maxRadius > 0 ? Math.hypot(localX - centerX, localY - centerY) / maxRadius : Infinity;
+      // Luma is compared with normalized radius: brighter cells create larger
+      // disks, while an inverted detection map reverses that relationship.
+      return maxRadius > 0 ? clamp(radius, 0, 1) : 1;
+    });
+  const primitives = [
+    grayFor(frame, { opaque: true }),
+    contrastTransfer("postFxGray", contrast, "postFxDotLuma"),
+    imagePrimitive(frame, thresholdUri, "postFxDotThreshold"),
+    ...binaryMaskPrimitives("postFxDotLuma", "postFxDotThreshold", { invert }),
+    ...colorRamp(frame, { shadow, highlight, input: "SourceGraphic", result: "postFxDotColor" }),
+    '<feComposite in="postFxDotColor" in2="postFxLightMask" operator="in"/>',
+  ];
+  return filterEffect(frame, primitives, { padding: 0, contain: true });
+}
+
+/** A Rec.709 luminance ramp between two supplied colors, centered at Midpoint. */
+export function renderDuotone(frame) {
+  const midpoint = number(frame, "midpoint", 0.5, 0, 1);
+  const contrast = number(frame, "contrast", 0.9, 0, 4);
+  const shadow = color(frame?.parameters?.shadowColor, "#1400FF");
+  const highlight = color(frame?.parameters?.highlightColor, "#FFE4E4");
+  return filterEffect(frame, colorRamp(frame, { shadow, highlight, midpoint, contrast }), { padding: 0, contain: true });
+}
+
+/**
+ * Original low-luma highlight overlay. Luma Threshold selects darker values;
+ * Fuzz Width is a smooth transition in normalized sRGB luma and Fuzz Intensity
+ * is the white blend amount. Partitioned source/flood pixels are added with an
+ * arithmetic composite so source alpha is preserved exactly.
+ */
+export function renderLumaHighlight(frame) {
+  const threshold = number(frame, "lumaThreshold", 0.5, 0, 1);
+  const fuzzWidth = number(frame, "fuzzWidth", 0.1, 0, 1);
+  const intensity = number(frame, "fuzzIntensity", 0.9, 0, 1);
+  if (intensity === 0) return frame.content;
+  const primitives = selectedLumaMask(threshold, fuzzWidth, 1, { result: "postFxLumaSelection" });
+  primitives.push(
+    `<feComponentTransfer in="postFxLumaSelection" result="postFxBrightenSelection"><feFuncA type="linear" slope="${fmt(intensity)}"/></feComponentTransfer>`,
+  );
+  compositeReplacement(primitives, "postFxBrightenSelection", [255, 255, 255]);
+  return filterEffect(frame, primitives, { padding: 0, contain: true });
+}
+
+// Noise Mask's gray noise (in red) becomes alpha, then the threshold table keeps cells at or
+// above Threshold, with an Edge Softness ramp.
+const NOISE_TO_ALPHA = ["0 0 0 0 0", "0 0 0 0 0", "0 0 0 0 0", "1 0 0 0 0"].join(" ");
+
+/**
+ * Original fractal-noise alpha mask. Scale is roughly the number of broad noise
+ * cycles across the layer; Seed selects a deterministic field; Edge Softness is
+ * the threshold transition width. Cell Size above 0 switches to square cells of
+ * that many pixels (see renderNoiseCells). The cached map is independent of the
+ * animated threshold, so playback changes only the SVG transfer table.
+ */
+export function renderNoiseMask(frame) {
+  const threshold = number(frame, "threshold", 0, 0, 1);
+  const scale = number(frame, "scale", 0.55, 0.01, 16);
+  const seed = number(frame, "seed", 0, -2_147_483_648, 2_147_483_647, { integer: true });
+  const octaves = number(frame, "octaves", 4, 1, 8, { integer: true });
+  const softness = number(frame, "edgeSoftness", 0.06, 0, 1);
+  const cellSize = number(frame, "cellSize", 0, 0, 64, { integer: true });
+  const values = smoothMaskValues(threshold, softness, { invert: true });
+  if (cellSize > 0) return renderNoiseCells(frame, { cellSize, seed, octaves, values });
+  const { width, height } = frame.bounds;
+  const noiseUri = luminanceMap(frame,
+    JSON.stringify(["postfx-noise-mask-v1", scale, seed, octaves, width, height]),
+    (x, y, mapWidth, mapHeight) => {
+      const u = (x + 0.5) / mapWidth, v = (y + 0.5) / mapHeight;
+      return (fractalNoise(u * scale * 8, v * scale * 8, octaves, seed) + 1) / 2;
+    });
+  return filterEffect(frame, [
+    imagePrimitive(frame, noiseUri, "postFxNoiseImage"),
+    `<feColorMatrix in="postFxNoiseImage" type="matrix" values="${NOISE_TO_ALPHA}" result="postFxNoiseAlpha"/>`,
+    `<feComponentTransfer in="postFxNoiseAlpha" result="postFxNoiseMask"><feFuncA type="table" tableValues="${table(values)}"/></feComponentTransfer>`,
+    '<feComposite in="SourceGraphic" in2="postFxNoiseMask" operator="in"/>',
+  ], { padding: 0, contain: true });
+}
+
+// Cell Size mode draws one seamless noise tile. Its map is at most 512 px (the largest map).
+const NOISE_TILE_MAP_SIDE = 512;
+const NOISE_TILE_MIN_CELLS = 16;
+
+/**
+ * How many cells the tile holds per side, and how many map pixels it uses per cell.
+ * The tile grows (in powers of two, so a small size change keeps the same tile) until it
+ * covers the layer's longer side, so the grain does not repeat on the layer. A cell needs at
+ * least 2 map pixels (1 for 1 px cells) to keep the finer Octaves detail, so the tile holds at
+ * most 256 cells (512 for 1 px cells): only layers longer than that see the grain repeat.
+ * Each cell then gets as many map pixels as fit, for smooth large cells, but never more than
+ * one per layer pixel.
+ */
+export function noiseTileSize(cellSize, bounds) {
+  const longerSide = Math.max(bounds.width, bounds.height);
+  const maxCells = NOISE_TILE_MAP_SIDE / Math.min(cellSize, 2);
+  let cells = NOISE_TILE_MIN_CELLS;
+  while (cells * cellSize < longerSide && cells < maxCells) cells *= 2;
+  const pixelsPerCell = Math.min(cellSize, NOISE_TILE_MAP_SIDE / cells);
+  return { cells, mapSide: cells * pixelsPerCell, side: cells * cellSize };
+}
+
+/**
+ * Square noise cells `cellSize` layer pixels wide, whatever the layer's size. A whole-layer map
+ * (at most 512 px wide) cannot hold 1 px film grain on a 1080×1920 layer, so a seamless tile
+ * fills the layer as an SVG pattern instead. The browser and the native export both repeat,
+ * scale and rotate a pattern themselves, so the cells stay square and fine on every layer.
+ * The pattern fills an alpha mask; a filter on it applies the same threshold table as above.
+ */
+function renderNoiseCells(frame, { cellSize, seed, octaves, values }) {
+  const { cells, mapSide, side } = noiseTileSize(cellSize, frame.bounds);
+  const tileUri = cachedMap(JSON.stringify(["postfx-noise-cells-v2", cells, mapSide, seed, octaves]), mapSide, mapSide,
+    (pixelX, pixelY) => {
+      // Sample at pixel corners: a 1 px cell is then exactly one random value, where pixel
+      // centers would average four neighbouring values and blur the grain.
+      const noise = fractalNoise(pixelX * cells / mapSide, pixelY * cells / mapSide, octaves, seed, cells);
+      const byte = Math.round(clamp((noise + 1) / 2, 0, 1) * 255);
+      return [byte, byte, byte, 255];
+    });
+  const { x, y, width, height } = frame.bounds;
+  const area = `x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}"`;
+  const patternId = frame.helpers.id("noise-cells"), filterId = frame.helpers.id("noise-threshold");
+  const maskId = frame.helpers.id("noise-mask");
+  frame.helpers.defs.push(
+    `<pattern id="${patternId}" patternUnits="userSpaceOnUse" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(side)}" height="${fmt(side)}"><image href="${tileUri}" width="${fmt(side)}" height="${fmt(side)}" preserveAspectRatio="none"/></pattern>`,
+    `<filter id="${filterId}" ${area} filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="${NOISE_TO_ALPHA}"/><feComponentTransfer><feFuncA type="table" tableValues="${table(values)}"/></feComponentTransfer></filter>`,
+    // resvg 2.6.2 reads mask-type only as an attribute; from a style it falls back to luminance.
+    `<mask id="${maskId}" mask-type="alpha" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" ${area}><rect ${area} fill="url(#${patternId})" filter="url(#${filterId})"/></mask>`,
+  );
+  // Like filterEffect's contain: nothing outside the layer box is painted.
+  frame.helpers.includeBounds?.(frame.bounds);
+  return `<g mask="url(#${maskId})">${frame.helpers.clipSentinel?.() ?? ""}${frame.content}</g>`;
+}
+
+/**
+ * Original nearest-cell mosaic. Pixel Size is snapped to Pixel Size Step. The
+ * browser tiles a static single-cell map; native export prewarps a full periodic
+ * field when an affine transform makes a single transformed cell unsafe to tile.
+ * Optional noise gates whole cells, with Noise Scale controlling the field.
+ */
+export function renderPixelate(frame) {
+  const requestedSize = number(frame, "pixelSize", 1, 1, 128);
+  const step = number(frame, "pixelSizeStep", 1, 1, 128);
+  const cellSize = Math.max(1, Math.round(requestedSize / step) * step);
+  const useNoise = boolean(frame, "noiseEnabled", false);
+  const noiseScale = number(frame, "noiseScale", 1, 0.01, 16);
+  const noiseThreshold = number(frame, "noiseThreshold", 0.5, 0, 1);
+  if (cellSize <= 1) return frame.content;
+  const maxShift = cellSize / 2;
+  const { x, y, width, height } = frame.bounds;
+  const rasterMap = Boolean(frame.helpers?.raster);
+  const cellBounds = { x, y, width: cellSize, height: cellSize };
+  const fullField = rasterMap && pixelateNeedsAffinePrewarp(cellBounds, frame.helpers?.transform);
+  const layout = fullField ? "full-field" : "cell-tile";
+  const cacheKey = JSON.stringify(["postfx-pixelate-v5", layout, rasterMap ? "opaque-rg" : "gray-alpha", cellSize, useNoise, noiseScale, noiseThreshold, width, height]);
+  const mapBounds = fullField ? frame.bounds : cellBounds;
+  const cellMap = effectMapImage({ ...frame, bounds: mapBounds }, `${cacheKey}|cell`, (pixelX, pixelY, mapWidth, mapHeight) => {
+    const localX = (pixelX + 0.5) * cellSize / mapWidth;
+    const localY = (pixelY + 0.5) * cellSize / mapHeight;
+    const center = cellSize / 2;
+    const dx = clamp((center - localX) / maxShift, -1, 1);
+    const dy = clamp((center - localY) / maxShift, -1, 1);
+    const encodedX = displacementChannel(dx), encodedY = displacementChannel(dy);
+    return rasterMap
+      ? [encodedX, encodedY, 128, 255]
+      : [encodedY, encodedY, encodedY, encodedX];
+  }, {
+    outside: rasterMap ? [128, 128, 128, 255] : [128, 128, 128, 128],
+    ...(fullField ? { repeatBounds: cellBounds } : {}),
+  });
+  const primitives = fullField ? [
+    `<feImage href="${cellMap}" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}" preserveAspectRatio="none" result="postFxPixelField"/>`,
+  ] : [
+    `<feImage href="${cellMap}" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(cellSize)}" height="${fmt(cellSize)}" preserveAspectRatio="none" result="postFxPixelCell"/>`,
+    `<feTile in="postFxPixelCell" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}" result="postFxPixelTile"/>`,
+  ];
+  let displacementMap = fullField ? "postFxPixelField" : "postFxPixelTile";
+  if (useNoise) {
+    const gate = effectMapImage(frame, `${cacheKey}|gate`, (pixelX, pixelY, mapWidth, mapHeight) => {
+      const localX = (pixelX + 0.5) * width / mapWidth;
+      const localY = (pixelY + 0.5) * height / mapHeight;
+      const cellX = Math.floor(localX / cellSize), cellY = Math.floor(localY / cellSize);
+      const value = (fractalNoise(cellX * noiseScale, cellY * noiseScale, 3, 17) + 1) / 2;
+      const byte = value > noiseThreshold ? 255 : 0;
+      return [byte, byte, byte, 255];
+    }, { outside: [0, 0, 0, 255] });
+    primitives.push(
+      imagePrimitive(frame, gate, "postFxPixelNoiseGate"),
+      `<feComposite in="${displacementMap}" in2="postFxPixelNoiseGate" operator="arithmetic" k1="1" k2="0" k3="-0.5" k4="0.5" result="postFxPixelGateMix"/>`,
+      '<feComponentTransfer in="postFxPixelGateMix" result="postFxPixelGateMap"><feFuncA type="table" tableValues="1 1"/></feComponentTransfer>',
+    );
+    displacementMap = "postFxPixelGateMap";
+  }
+  let scale = 4 * maxShift;
+  let xChannelSelector = rasterMap ? "R" : "A";
+  let yChannelSelector = rasterMap ? "G" : "R";
+  if (rasterMap && Array.isArray(frame.helpers.transform)) {
+    const [a, b, c, d] = frame.helpers.transform;
+    const sx = Math.hypot(a, c), sy = Math.hypot(b, d);
+    const ax = sx > 1e-12 ? a / sx : 0, cx = sx > 1e-12 ? c / sx : 0;
+    const by = sy > 1e-12 ? b / sy : 0, dy = sy > 1e-12 ? d / sy : 0;
+    const factor = Math.max(1, Math.abs(ax) + Math.abs(cx), Math.abs(by) + Math.abs(dy));
+    const ar = ax / factor, cr = cx / factor, br = by / factor, dr = dy / factor;
+    if (Math.abs(ar - 1) + Math.abs(cr) + Math.abs(br) + Math.abs(dr - 1) > 1e-12) {
+      primitives.push(`<feColorMatrix in="${displacementMap}" type="matrix" values="${ar} ${cr} 0 0 ${0.5 * (1 - ar - cr)} ${br} ${dr} 0 0 ${0.5 * (1 - br - dr)} 0 0 1 0 0 0 0 0 1 0" result="postFxPixelTransformedMap"/>`);
+      displacementMap = "postFxPixelTransformedMap";
+      scale *= factor;
+    }
+  }
+  primitives.push(`<feDisplacementMap in="SourceGraphic" in2="${displacementMap}" scale="${fmt(scale)}" xChannelSelector="${xChannelSelector}" yChannelSelector="${yChannelSelector}"/>`);
+  return filterEffect(frame, primitives, { padding: maxShift + 1 });
+}
+
+/**
+ * Original one-sided luminance recolor. Contrast pivots at middle gray, the
+ * threshold selects the lower or upper side, and Softness controls the blend
+ * band. Complementary color contributions are added to preserve source alpha.
+ */
+export function renderThresholdColor(frame) {
+  const contrast = number(frame, "contrast", 1.25, 0, 4);
+  const threshold = number(frame, "colorThreshold", 0.5, 0, 1);
+  const softness = number(frame, "softness", 0, 0, 1);
+  const invertLuma = boolean(frame, "invertLuma", true);
+  const replacement = color(frame?.parameters?.defaultColor, "#6F6645");
+  const primitives = selectedLumaMask(threshold, softness, contrast, {
+    invert: !invertLuma, result: "postFxThresholdSelection",
+  });
+  compositeReplacement(primitives, "postFxThresholdSelection", replacement);
+  return filterEffect(frame, primitives, { padding: 0, contain: true });
+}
+
+function tritoneAt(value, stops, softness) {
+  const [first, second] = stops;
+  const gap = Math.max(1e-6, second - first);
+  const width = Math.min(softness, gap);
+  const half = width / 2;
+  const start1 = first - half, end1 = first + half;
+  const start2 = second - half, end2 = second + half;
+  if (value <= start1) return 0;
+  if (value < end1) return smoothstep((value - start1) / width) / 2;
+  if (value <= start2) return 0.5;
+  if (value < end2) return 0.5 + smoothstep((value - start2) / width) / 2;
+  return 1;
+}
+
+/** Original three-stop Rec.709 luminance grade with two bounded soft transitions. */
+export function renderTritone(frame) {
+  const threshold1 = number(frame, "threshold1", 0.33, 0, 1);
+  const threshold2 = number(frame, "threshold2", 0.66, 0, 1);
+  const contrast = number(frame, "contrast", 1, 0, 4);
+  const softness = number(frame, "softness", 0.35, 0, 1);
+  const shadow = color(frame?.parameters?.shadowColor, "#1A1033");
+  const midtone = color(frame?.parameters?.midtoneColor, "#E94F64");
+  const highlight = color(frame?.parameters?.highlightColor, "#FFE9B0");
+  const [low, high] = threshold1 <= threshold2 ? [threshold1, threshold2] : [threshold2, threshold1];
+  const colors = [shadow, midtone, highlight];
+  const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
+    const input = index / 64;
+    const adjusted = clamp((input - 0.5) * contrast + 0.5, 0, 1);
+    const mix = tritoneAt(adjusted, [low, high], softness);
+    const firstStart = low - Math.min(softness, high - low) / 2;
+    const firstEnd = low + Math.min(softness, high - low) / 2;
+    const secondStart = high - Math.min(softness, high - low) / 2;
+    let value;
+    if (adjusted <= firstStart) value = colors[0][channel];
+    else if (adjusted < firstEnd) value = colors[0][channel] + (colors[1][channel] - colors[0][channel]) * smoothstep((adjusted - firstStart) / Math.max(1e-6, firstEnd - firstStart));
+    else if (adjusted <= secondStart) value = colors[1][channel];
+    else value = colors[1][channel] + (colors[2][channel] - colors[1][channel]) * (mix - 0.5) * 2;
+    return value / 255;
+  }));
+  return filterEffect(frame, [
+    `<feColorMatrix in="SourceGraphic" type="matrix" values="${grayMatrix()}" result="postFxTritoneLuma"/>`,
+    `<feComponentTransfer in="postFxTritoneLuma"><feFuncR type="table" tableValues="${table(tables[0])}"/><feFuncG type="table" tableValues="${table(tables[1])}"/><feFuncB type="table" tableValues="${table(tables[2])}"/></feComponentTransfer>`,
+  ], { padding: 0, contain: true });
+}
+
+function rasterOffset(frame, dx, dy) {
+  if (!frame.helpers?.raster || !Array.isArray(frame.helpers.transform)) return { dx, dy };
+  const [a, b, c, d] = frame.helpers.transform;
+  const xScale = Math.hypot(a, c), yScale = Math.hypot(b, d);
+  return {
+    dx: xScale > 1e-12 ? (a * dx + c * dy) / xScale : 0,
+    dy: yScale > 1e-12 ? (b * dx + d * dy) / yScale : 0,
+  };
+}
+
+/**
+ * Original RGB channel split. Amount is a normalized value multiplied by 10%
+ * of the shorter layer side; Direction is degrees (the reference semantics are
+ * unverified). Red and blue move in opposite directions, green stays in place.
+ * Overflow off clips explicitly to the layer box because resvg ignores the
+ * filter primitive subregion for feOffset.
+ */
+export function renderRgbShift(frame) {
+  const amount = number(frame, "amount", 0.25, 0, 1);
+  const direction = number(frame, "direction", 0, -360, 360) * Math.PI / 180;
+  const overflow = boolean(frame, "overflow", false);
+  const { width, height } = frame.bounds;
+  const distance = amount * Math.min(width, height) * 0.1;
+  if (distance === 0) return frame.content;
+  let dx = distance * Math.cos(direction), dy = distance * Math.sin(direction);
+  ({ dx, dy } = rasterOffset(frame, dx, dy));
+  const padding = Math.hypot(dx, dy) + 1;
+  const paintBounds = frame.paintBounds ?? frame.bounds;
+  const primitiveRegion = {
+    x: paintBounds.x - padding,
+    y: paintBounds.y - padding,
+    width: paintBounds.width + 2 * padding,
+    height: paintBounds.height + 2 * padding,
+  };
+  const extent = `x="${fmt(primitiveRegion.x)}" y="${fmt(primitiveRegion.y)}" width="${fmt(primitiveRegion.width)}" height="${fmt(primitiveRegion.height)}"`;
+  const channelMatrix = (channel) => [
+    channel === 0 ? "1 0 0 0 0" : "0 0 0 0 0",
+    channel === 1 ? "0 1 0 0 0" : "0 0 0 0 0",
+    channel === 2 ? "0 0 1 0 0" : "0 0 0 0 0",
+    "0 0 0 1 0",
+  ].join(" ");
+  const alphaGrayMatrix = [
+    "0 0 0 1 0", "0 0 0 1 0", "0 0 0 1 0", "0 0 0 0 1",
+  ].join(" ");
+  const blackFromRedAlpha = ["0 0 0 0 0", "0 0 0 0 0", "0 0 0 0 0", "1 0 0 0 0"].join(" ");
+  const blackFromSourceAlpha = ["0 0 0 0 0", "0 0 0 0 0", "0 0 0 0 0", "0 0 0 1 0"].join(" ");
+  const primitives = [
+    `<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(0)}" result="postFxRedChannel"/>`,
+    `<feOffset in="postFxRedChannel" ${extent} dx="${fmt(dx)}" dy="${fmt(dy)}" result="postFxRedShift"/>`,
+    `<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(1)}" result="postFxGreenChannel"/>`,
+    `<feColorMatrix in="SourceGraphic" type="matrix" values="${channelMatrix(2)}" result="postFxBlueChannel"/>`,
+    `<feOffset in="postFxBlueChannel" ${extent} dx="${fmt(-dx)}" dy="${fmt(-dy)}" result="postFxBlueShift"/>`,
+    '<feComposite in="postFxRedShift" in2="postFxGreenChannel" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxRedGreen"/>',
+    '<feComposite in="postFxRedGreen" in2="postFxBlueShift" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="postFxRgbSum"/>',
+    `<feColorMatrix in="postFxRedShift" type="matrix" values="${alphaGrayMatrix}" result="postFxRedAlphaGray"/>`,
+    `<feColorMatrix in="postFxGreenChannel" type="matrix" values="${alphaGrayMatrix}" result="postFxGreenAlphaGray"/>`,
+    `<feColorMatrix in="postFxBlueShift" type="matrix" values="${alphaGrayMatrix}" result="postFxBlueAlphaGray"/>`,
+    '<feBlend in="postFxRedAlphaGray" in2="postFxGreenAlphaGray" mode="lighten" result="postFxMaxRedGreenAlpha"/>',
+    '<feBlend in="postFxMaxRedGreenAlpha" in2="postFxBlueAlphaGray" mode="lighten" result="postFxMaxAlphaGray"/>',
+    `<feColorMatrix in="postFxMaxAlphaGray" type="matrix" values="${blackFromRedAlpha}" result="postFxMaxAlphaMask"/>`,
+    `<feColorMatrix in="postFxRgbSum" type="matrix" values="${blackFromSourceAlpha}" result="postFxSumAlphaMask"/>`,
+    '<feComposite in="postFxSumAlphaMask" in2="postFxMaxAlphaMask" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0" result="postFxBlackExcess"/>',
+    '<feComposite in="postFxRgbSum" in2="postFxBlackExcess" operator="arithmetic" k1="0" k2="1" k3="-1" k4="0"/>',
+  ];
+  return filterEffect(frame, primitives, { padding, contain: !overflow });
+}

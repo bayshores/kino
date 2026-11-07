@@ -1,0 +1,659 @@
+// Inspire (backend/inspire.mjs): parsing yt-dlp's search output, the measured numbers, the cue
+// marks a borrowed rhythm makes, the one-at-a-time queue, and a whole measure of a generated
+// video through a stub yt-dlp and the real shot and beat finders. Nothing here goes online.
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { after, before, test } from "node:test";
+import {
+  BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
+  closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+} from "./inspire.mjs";
+import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
+import { encodeVector, normalize } from "./music-embed.mjs";
+import { LOOK_MODEL, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
+import { callStarted } from "./render-activity.mjs";
+
+const FIXTURES = fileURLToPath(new URL("../tests/fixtures/inspire/", import.meta.url));
+const STUB = path.join(FIXTURES, "stub-yt-dlp.mjs");
+const RECORDED = path.join(FIXTURES, "ytsearch-fast-cut-walking-edit.jsonl");
+
+let folder;
+before(async () => { folder = await mkdtemp(path.join(tmpdir(), "kino-inspire-")); });
+after(async () => { await rm(folder, { recursive: true, force: true }); });
+
+test("a recorded yt-dlp search becomes references with a YouTube link and an i.ytimg.com thumbnail", async () => {
+  const results = parseSearchLines(await readFile(RECORDED, "utf8"));
+  assert.equal(results.length, 6);
+  assert.deepEqual(results[0], {
+    id: "yt:tgEWNHVbk3U", videoId: "tgEWNHVbk3U", title: "5 Fast Tips for Fast-Cut Editing", channel: "Brandon Li", duration: 259,
+    url: "https://www.youtube.com/watch?v=tgEWNHVbk3U", thumbnail: results[0].thumbnail, views: 682054,
+  });
+  assert.match(results[0].thumbnail, /^https:\/\/i\.ytimg\.com\/vi\/tgEWNHVbk3U\/hq720\.jpg/);
+  assert.ok(results.every((result) => isYouTubeUrl(result.url) && result.duration > 0));
+});
+
+test("live streams, premieres, bad ids, repeats and broken lines are left out", () => {
+  const lines = [
+    JSON.stringify({ id: "AAAAAAAAAAA", title: "live", duration: null, live_status: "is_live" }),
+    JSON.stringify({ id: "BBBBBBBBBBB", title: "soon", duration: 30, live_status: "is_upcoming" }),
+    JSON.stringify({ id: "short", title: "bad id", duration: 30 }),
+    "{not json",
+    JSON.stringify({ id: "CCCCCCCCCCC", title: "kept", duration: 12.4, uploader: "Someone", thumbnails: [{ url: "https://evil.example/x.jpg", width: 100 }] }),
+    JSON.stringify({ id: "CCCCCCCCCCC", title: "again", duration: 12 }),
+    JSON.stringify({ id: "DDDDDDDDDDD", title: "elsewhere", duration: 12, url: "https://example.com/watch?v=DDDDDDDDDDD" }),
+  ].join("\n");
+  const results = parseSearchLines(lines);
+  assert.deepEqual(results.map((result) => result.title), ["kept"]);
+  assert.equal(results[0].channel, "Someone");
+  assert.equal(results[0].duration, 12);
+  // A thumbnail elsewhere than i.ytimg.com is never used.
+  assert.equal(results[0].thumbnail, "https://i.ytimg.com/vi/CCCCCCCCCCC/hqdefault.jpg");
+});
+
+test("a result keeps its views and verified channel; doubt says why it may be slop, never by language", () => {
+  const line = (id, fields) => JSON.stringify({ id: id.repeat(11), duration: 30, view_count: 50_000, ...fields });
+  const results = parseSearchLines([
+    line("A", { title: "Neon city | AI generated short film", channel_is_verified: true }),
+    line("B", { title: "Dreamscape", description: "Made with Sora 2 #aivideo" }),
+    line("C", { title: "edit #a #b #c #d" }),
+    line("D", { title: "first edit", view_count: 120 }),
+    line("E", { title: "studio reel", view_count: 300, channel_is_verified: true }),
+    line("F", { title: "モーショングラフィックス #デザイン #映像", view_count: 2_000_000 }),
+    line("G", { title: "Sora and Riku | fan edit", view_count: null }),
+  ].join("\n"));
+  assert.deepEqual(results.map((ref) => [ref.videoId[0], ref.views, ref.verified, ref.doubt]), [
+    ["A", 50_000, true, "ai title"], ["B", 50_000, undefined, "ai description"], ["C", 50_000, undefined, "hashtags"], ["D", 120, undefined, "few views"],
+    ["E", 300, true, undefined], ["F", 2_000_000, undefined, undefined], ["G", undefined, undefined, undefined],
+  ]);
+  const text = searchText("edit", results.slice(3, 5));
+  assert.match(text, /, best first \(views, verified channel, how the frames match the words and the saved references; doubt: likely slop/);
+  assert.match(text, /'first edit' · \? · 0:30 · 120 views · doubt: few views ·/);
+  assert.match(text, /'studio reel' · \? · 0:30 · 300 views · verified ·/);
+});
+
+test("ranking: clean results by log views, a verified channel and YouTube's place; doubtful after, made with AI last", () => {
+  const ref = (id, fields) => ({ id, ...fields });
+  const ranked = rankResults([
+    ref("ai", { views: 9e6, doubt: "ai title" }), ref("few", { views: 200, doubt: "few views" }), ref("small", { views: 20_000 }),
+    ref("big", { views: 3e6 }), ref("verified", { views: 20_000, verified: true }), ref("unknown", {}),
+  ]);
+  assert.deepEqual(ranked.map((item) => item.id), ["big", "verified", "small", "unknown", "few", "ai"]);
+  // Asked for 4: the doubtful and the AI-made ones are dropped while clean ones fill the list.
+  assert.deepEqual(rankResults(ranked, 4).map((item) => item.id), ["big", "verified", "small", "unknown"]);
+  // One channel fills at most 2 places while other channels have results.
+  const agency = ["a1", "a2", "a3"].map((id) => ref(id, { views: 4e5, channel: "Agency" }));
+  assert.deepEqual(rankResults([...agency, ref("other", { views: 5e4, channel: "Other" })], 3).map((item) => item.id), ["a1", "a2", "other"]);
+  assert.equal(doubtOf({ title: "Best SaaS Product Launch Ad Video | AcmeApp", views: 4e5 }), "seo title");
+  assert.equal(doubtOf({ title: "Introducing Studio 2", views: 7e5 }), "");
+  // A template shop's or stock library's upload, and one too short to learn a cut from.
+  assert.equal(doubtOf({ title: "Product Promo | Video Template", views: 4e5 }), "template");
+  assert.equal(doubtOf({ title: "City timelapse", description: "Royalty free stock footage", views: 4e5 }), "stock");
+  assert.equal(doubtOf({ title: "logo sting", views: 4e5, duration: 4 }), "very short");
+  assert.equal(doubtOf({ title: "Typography Animation - Motion Tutorial", views: 8e5 }), "tutorial");
+});
+
+// A look vector pointing mostly along one axis (dimension 8), stored as a measured record keeps it.
+const axis = (k, wobble = 0) => normalize(Array.from({ length: 8 }, (_, i) => (i === k ? 1 : 0) + (i === (k + 1) % 8 ? wobble : 0)));
+const looked = (id, k, fields = {}) => ({ id, title: id, duration: 30, thumbLook: { model: LOOK_MODEL, vector: encodeVector(axis(k, fields.wobble ?? 0)) }, ...fields });
+
+test("looks: copies collapse into the most viewed, the words and taste order the rest, MMR keeps it varied", () => {
+  // b is a re-upload of a (the same frames): a has more views, so b collapses into it.
+  const results = [looked("b", 0, { views: 10 }), looked("a", 0, { views: 900, wobble: 0.05 }), looked("c", 1, { views: 50 }), looked("d", 2, { views: 40 })];
+  const plain = rankLooks(results);
+  assert.deepEqual(plain.collapsed, [{ id: "b", into: "a" }]);
+  assert.deepEqual(plain.results.map((ref) => ref.id), ["a", "c", "d"]);
+  // The words look like d: d comes first.
+  assert.equal(rankLooks(results, { query: axis(2) }).results[0].id, "d");
+  // Taste: liked like c, rejected like a.
+  assert.deepEqual(rankLooks(results, { liked: [axis(1), axis(1, 0.1)], rejected: [axis(0)] }).results.map((ref) => ref.id), ["c", "d", "a"]);
+  // Variety: two near-identical looks (not copies) are not picked one after the other.
+  const twins = [looked("e", 3, { views: 500 }), looked("f", 3, { views: 400, wobble: 0.45 }), looked("g", 4, { views: 300 })];
+  assert.deepEqual(rankLooks(twins).results.map((ref) => ref.id), ["e", "g", "f"]);
+  // A doubtful one stays behind clean ones whatever its look.
+  assert.equal(rankLooks([looked("h", 2, { doubt: "template" }), looked("i", 5)], { query: axis(2) }).results[0].id, "i");
+  // Keyframes: the middle of each shot, at most 12; a reference that shows one picture throughout.
+  assert.deepEqual(shotMiddles([2, 6], 10), [1, 4, 8]);
+  assert.equal(shotMiddles(Array.from({ length: 30 }, (_, k) => k + 1), 31).length, 12);
+  assert.equal(sameFrames({ vectors: [0, 0, 0, 0].map((k) => encodeVector(axis(k))) }), true);
+  assert.equal(sameFrames({ vectors: [0, 1, 2, 3].map((k) => encodeVector(axis(k))) }), false);
+});
+
+test("a vetted search asks YouTube for twice as many and keeps the best", async () => {
+  const log = path.join(folder, "vet.log");
+  process.env.STUB_YTDLP_LOG = log;
+  let results;
+  try { results = await searchYouTube("fast cut walking edit", { count: 3, vet: true, command: STUB }); }
+  finally { delete process.env.STUB_YTDLP_LOG; }
+  assert.equal(JSON.parse((await readFile(log, "utf8")).trim()).at(-1), "ytsearch6:fast cut walking edit");
+  // Cuts & Transitions 101 (4.5M views, sixth on YouTube's list) comes first.
+  assert.deepEqual(results.map((ref) => ref.videoId), ["OAH0MoAv2CI", "tgEWNHVbk3U", "ghBpKLARE_8"]);
+});
+
+test("reference ids come from an id, yt:<id> or a YouTube link; open the source takes YouTube https links only", () => {
+  assert.equal(refId("tgEWNHVbk3U"), "yt:tgEWNHVbk3U");
+  assert.equal(refId("yt:tgEWNHVbk3U"), "yt:tgEWNHVbk3U");
+  assert.equal(refId("https://www.youtube.com/watch?v=tgEWNHVbk3U&t=4"), "yt:tgEWNHVbk3U");
+  assert.equal(refId("https://youtu.be/tgEWNHVbk3U"), "yt:tgEWNHVbk3U");
+  assert.equal(refId("https://www.youtube.com/shorts/tgEWNHVbk3U"), "yt:tgEWNHVbk3U");
+  assert.equal(refId("https://www.youtube.com/shorts/tgEWNHVbk3U/"), "yt:tgEWNHVbk3U");
+  assert.equal(refId("https://example.com/watch?v=tgEWNHVbk3U"), null);
+  assert.equal(refId("yt:../../etc"), null);
+  assert.equal(isYouTubeUrl("http://www.youtube.com/watch?v=tgEWNHVbk3U"), false);
+  assert.equal(isYouTubeUrl("https://user:pw@youtube.com/"), false);
+  assert.equal(isYouTubeUrl("https://youtube.com.example.com/"), false);
+  assert.equal(isYouTubeUrl("javascript:alert(1)"), false);
+  // TikTok and Instagram links are refused with a plain reason (reading them needs a faked browser or a login).
+  assert.equal(closedPlatform("https://www.tiktok.com/@scout2015/video/6718335390845095173"), true);
+  assert.equal(closedPlatform("save https://www.instagram.com/reel/Chunk8-jurw/"), true);
+  assert.equal(closedPlatform("https://www.youtube.com/shorts/tgEWNHVbk3U"), false);
+  assert.equal(closedPlatform("tiktok.com style edit"), false);
+  for (const link of ["www.tiktok.com/@a/video/123", "https://www.tiktok.com:443/@a/video/1", "https://instagr.am/p/x"]) assert.equal(closedPlatform(link), true, link);
+});
+
+test("a shorts search: YouTube's Shorts filter first, then a plain search's videos of 60 s or less; a Short is vertical with its /shorts/ link and a tall thumbnail", async () => {
+  const log = path.join(folder, "shorts.log");
+  process.env.STUB_YTDLP_LOG = log;
+  let results;
+  try { results = await searchYouTube("app launch animation", { shorts: true, count: 5, command: STUB }); }
+  finally { delete process.env.STUB_YTDLP_LOG; }
+  const runs = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line).at(-1)).sort();
+  assert.deepEqual(runs, ["https://www.youtube.com/results?search_query=app%20launch%20animation&sp=EgIQCQ%3D%3D", "ytsearch10:app launch animation shorts"]);
+  assert.deepEqual(results.map((result) => [result.videoId, result.duration, Boolean(result.vertical)]),
+    [["OfYFgNX5Fb4", 7, true], ["-JUdWtzC1PY", 12, true], ["BDzufeEPQl0", 12, true], ["ghBpKLARE_8", 10, false], ["CGzyD_54ajU", 60, false]]);
+  assert.equal(results[0].url, "https://www.youtube.com/shorts/OfYFgNX5Fb4");
+  assert.equal(results[0].thumbnail, "https://i.ytimg.com/vi/OfYFgNX5Fb4/frame0.jpg");
+  // A full description says vertical by its picture; the Shorts filter failing leaves the plain search.
+  assert.equal(parseVideoInfo(JSON.stringify({ id: "OfYFgNX5Fb4", duration: 7, width: 1080, height: 1920 }), "OfYFgNX5Fb4").vertical, true);
+  process.env.STUB_YTDLP_FAIL = "shorts";
+  try {
+    assert.deepEqual((await searchYouTube("app launch animation", { shorts: true, count: 5, command: STUB })).map((result) => result.videoId), ["ghBpKLARE_8", "CGzyD_54ajU"]);
+    // The other run found only long videos: the failed run's error, not a quiet "nothing found".
+    process.env.STUB_YTDLP_LONG = "1";
+    await assert.rejects(searchYouTube("app launch animation", { shorts: true, count: 5, command: STUB }), /HTTP Error 429/);
+  } finally { delete process.env.STUB_YTDLP_FAIL; delete process.env.STUB_YTDLP_LONG; }
+  // The project keeps it as a shorts search; the agent's lines mark the vertical ones.
+  const asked = [];
+  // One was measured square before: the download's answer stays, not the /shorts/ link's guess.
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(path.join(folder, "shorts"), { recursive: true });
+  await writeFile(path.join(folder, "shorts", "-JUdWtzC1PY.json"), JSON.stringify({ id: "yt:-JUdWtzC1PY", videoId: "-JUdWtzC1PY", title: "square", state: "measured", vertical: false, thumb: true, url: "https://www.youtube.com/watch?v=-JUdWtzC1PY" }));
+  const inspire = createInspire({ directory: path.join(folder, "shorts"), projectState: memoryProjects(), search: async (words, options) => { asked.push(options.shorts); return results; } });
+  const found = await inspire.search("p1", "app launch animation", { kind: "shorts", count: 5 });
+  assert.deepEqual([asked, found.search.kind, found.results[0].vertical, found.results[3].vertical], [[true], "shorts", true, undefined]);
+  assert.deepEqual([found.results[1].vertical, found.results[1].thumb], [undefined, true], "measured square: not vertical, its thumbnail kept");
+  const text = searchText("app launch animation", found.results, { kind: "shorts" });
+  assert.match(text, /^inspire shorts "app launch animation": 5 found on YouTube \(Shorts/);
+  assert.match(text, /yt:OfYFgNX5Fb4 'Sh-ort launch screen animation' · Mirko_ddd · 0:07 · Short 9:16 ·/);
+  await assert.rejects(inspire.search("p1", "walk", { kind: "tiktok" }), /"videos", "shorts" or "sounds"/);
+});
+
+test("the numbers: shots, cuts a second, the longest shot and where, cuts on the beat", () => {
+  const numbers = measureNumbers({ cuts: [2, 4, 4.5, 9, 0, 12], beats: [0, 1, 2.05, 3, 4, 5, 6, 7, 8, 9.1], seconds: 10 });
+  assert.deepEqual(numbers.cuts, [2, 4, 4.5, 9], "cuts at 0 and past the end are not cuts");
+  assert.equal(numbers.shots, 5);
+  assert.equal(numbers.cutsPerSecond, 0.4);
+  assert.deepEqual(numbers.longest, { seconds: 4.5, start: 4.5, where: null });
+  // 2 is 0.05 from a beat (on), 4 is on one, 4.5 is half a beat off, 9 is 0.1 off (more than 0.08).
+  assert.deepEqual(numbers.onBeat, [true, true, false, false]);
+  assert.equal(numbers.onBeatCount, 2);
+  assert.equal(measureNumbers({ cuts: [1], beats: [], seconds: 8 }).onBeat, null, "no beat: no on-the-beat count");
+  assert.equal(measureNumbers({ cuts: [6], beats: [], seconds: 8 }).longest.where, "the start");
+  assert.equal(measureNumbers({ cuts: [1], beats: [], seconds: 8 }).longest.where, "the end");
+  assert.equal(measureNumbers({ cuts: [], beats: [], seconds: 8 }).longest.where, "the whole clip");
+});
+
+test("a borrowed rhythm: cue marks at the cut times, scaled to fit, or cut at the scene's end", () => {
+  const numbers = measureNumbers({ cuts: [2, 4, 6, 8], beats: [], seconds: 10 });
+  assert.deepEqual(rhythmCues(numbers, { length: 5 }).cues.map((cue) => cue.time), [2, 4]);
+  assert.equal(rhythmCues(numbers, { length: 5 }).dropped, 2);
+  const fitted = rhythmCues(numbers, { length: 5, fit: 5 });
+  assert.deepEqual(fitted.cues, [1, 2, 3, 4].map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })));
+  assert.deepEqual(rhythmCues(numbers, { length: 20, fit: 5, at: 10 }).cues.map((cue) => cue.time), [11, 12, 13, 14]);
+});
+
+test("clock and the agent's lines", () => {
+  assert.equal(clock(39), "0:39");
+  assert.equal(clock(259), "4:19");
+  assert.equal(clock(3725), "1:02:05");
+  const ref = { id: "yt:tgEWNHVbk3U", title: "Fast", channel: "Brandon Li", duration: 259, url: "https://www.youtube.com/watch?v=tgEWNHVbk3U", state: "measured", bpm: 120,
+    numbers: measureNumbers({ cuts: [2, 4, 4.5, 9], beats: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], seconds: 90 }) };
+  assert.equal(numbersLine(ref), "0.04 cuts/s · 5 shots in 90 s · on the beat 3 of 4");
+  assert.equal(numbersLine({ state: "measuring", phase: "reading cuts" }), "measuring (reading cuts)");
+  assert.equal(numbersLine({ state: "queued", place: 2 }), "waiting to be measured (2 in line)");
+  const text = referenceText(ref);
+  assert.match(text, /measured the first 90 s of 4:19: 5 shots · 0\.04 cuts\/s · longest 81 s \(the end\) · cuts on the beat 3 of 4 \(120 bpm\)/);
+  assert.match(text, /cuts \(s\): 2\* 4\* 4\.5 9\* \(\* on the beat\)/);
+  assert.match(searchText("walk", [ref]), /^inspire "walk": 1 found on YouTube/);
+  assert.match(projectText({ searches: [{ query: "walk", state: "done", count: 6, by: { name: "juno" } }], saved: [ref.id], refs: { [ref.id]: ref }, queue: {} }), /"walk" 6 found · by juno/);
+});
+
+test("yt-dlp runs without the person's config or cookies, and says plainly when it is missing", async () => {
+  assert.equal(ytDlpCommand({ KINO_YTDLP: "/x/yt-dlp" }), "/x/yt-dlp");
+  assert.equal(ytDlpCommand({}, () => false), "yt-dlp");
+  const log = path.join(folder, "args.log");
+  process.env.STUB_YTDLP_LOG = log;
+  try { await runYtDlp(["--flat-playlist", "--dump-json", "ytsearch2:walk"], { command: STUB }); }
+  finally { delete process.env.STUB_YTDLP_LOG; }
+  const args = JSON.parse((await readFile(log, "utf8")).trim());
+  for (const flag of ["--ignore-config", "--no-cookies", "--no-cache-dir"]) assert.ok(args.includes(flag), flag);
+  await assert.rejects(runYtDlp(["--version"], { command: path.join(folder, "no-such-yt-dlp") }), (error) => error.message === NO_YTDLP && error.code === "NO_YTDLP");
+  // The small copy: 360p at most, the first 90 s at most.
+  const download = downloadArgs("tgEWNHVbk3U", folder);
+  // "res" is the short side: a tall Short comes down at 324x720 like a wide video at 640x360.
+  assert.deepEqual(download.slice(download.indexOf("-f"), download.indexOf("-f") + 4), ["-f", "b/bv*+ba/w", "-S", "res:360"]);
+  assert.equal(download[download.indexOf("--download-sections") + 1], "*0-90");
+  assert.equal(download.at(-1), "https://www.youtube.com/watch?v=tgEWNHVbk3U");
+});
+
+test("one video's metadata from its link: the watch page, not the file's address; a private or live one is refused", async () => {
+  const log = path.join(folder, "lookup.log");
+  process.env.STUB_YTDLP_LOG = log;
+  let found;
+  try { found = await lookupYouTube("G9wj1YA0DYI", { command: STUB }); }
+  finally { delete process.env.STUB_YTDLP_LOG; }
+  assert.deepEqual(found, {
+    id: "yt:G9wj1YA0DYI", videoId: "G9wj1YA0DYI", title: "Stub video G9wj1YA0DYI", channel: "Stub channel", duration: 57,
+    url: "https://www.youtube.com/watch?v=G9wj1YA0DYI", thumbnail: "https://i.ytimg.com/vi/G9wj1YA0DYI/hqdefault.jpg",
+  });
+  const args = JSON.parse((await readFile(log, "utf8")).trim());
+  for (const flag of ["--ignore-config", "--no-cookies", "--skip-download", "--no-playlist"]) assert.ok(args.includes(flag), flag);
+  assert.equal(args.includes("--download-sections"), false, "nothing is downloaded");
+  await assert.rejects(lookupYouTube("../etc", { command: STUB }), /not a YouTube video id/);
+  process.env.STUB_YTDLP_FAIL = "lookup";
+  try { await assert.rejects(lookupYouTube("G9wj1YA0DYI", { command: STUB }), /yt-dlp failed: \[youtube\] Video unavailable\. This video is private/); }
+  finally { delete process.env.STUB_YTDLP_FAIL; }
+  assert.throws(() => parseVideoInfo(JSON.stringify({ id: "G9wj1YA0DYI", title: "live", live_status: "is_live" }), "G9wj1YA0DYI"), /live stream or premiere/);
+  assert.throws(() => parseVideoInfo("not json", "G9wj1YA0DYI"), /did not describe/);
+});
+
+// A project state kept in memory, as the agent state keeps it on the server.
+function memoryProjects() {
+  const states = new Map();
+  return {
+    states,
+    read: async (id) => states.get(id) ?? null,
+    update: async (id, change) => {
+      const { state, value } = change(structuredClone(states.get(id) ?? null));
+      states.set(id, state);
+      return value;
+    },
+  };
+}
+
+test("the queue measures one reference at a time, keeps only the numbers and the thumbnail, and can be cancelled", async () => {
+  const directory = path.join(folder, "queue");
+  const events = [];
+  let busy = 0;
+  let most = 0;
+  const releases = [];
+  const projects = memoryProjects();
+  const inspire = createInspire({
+    directory,
+    projectState: projects,
+    publish: (event) => events.push(event),
+    search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+    async download(videoId, workFolder) {
+      busy += 1;
+      most = Math.max(most, busy);
+      await new Promise((resolve) => releases.push(resolve));
+      busy -= 1;
+      const file = path.join(workFolder, "clip.mp4");
+      await (await import("node:fs/promises")).writeFile(file, "not really a video");
+      return file;
+    },
+    probe: async () => ({ duration: 30, width: 202, height: 360 }),
+    findShots: async () => ({ shots: [{ start: 0 }, { start: 10 }, { start: 20 }] }),
+    findBeats: async () => ({ beats: [0, 10, 20.5], bpm: 6 }),
+    fetchThumb: async () => Buffer.from("jpeg bytes"),
+  });
+  const found = await inspire.search("p1", "walking tour edit", { by: { id: "a1", name: "juno", color: "#5ab0ff" }, count: 3 });
+  assert.equal(found.results.length, 3);
+  assert.deepEqual(found.search, { n: 1, query: "walking tour edit", kind: "videos", by: { id: "a1", name: "juno", color: "#5ab0ff" }, at: found.search.at, state: "done", wanted: 3, ids: found.results.map((ref) => ref.id), count: 3 });
+  const waitFor = async (check) => { for (let tries = 0; tries < 200 && !check(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 5)); assert.ok(check()); };
+  await waitFor(() => releases.length === 1);
+  let view = await inspire.projectView("p1");
+  assert.equal(view.refs["yt:tgEWNHVbk3U"].state, "measuring");
+  assert.equal(view.refs["yt:ghBpKLARE_8"].state, "queued");
+  assert.equal(view.refs["yt:ghBpKLARE_8"].place, 1);
+  // A saved one goes ahead of the results nobody picked.
+  await inspire.setSaved("p1", "yt:J0ydlAqg6_8");
+  view = await inspire.projectView("p1");
+  assert.deepEqual([view.refs["yt:J0ydlAqg6_8"].place, view.refs["yt:ghBpKLARE_8"].place], [1, 2]);
+  await inspire.setSaved("p1", "yt:J0ydlAqg6_8", false);
+  // The third is cancelled while it waits; the first finishes.
+  assert.equal(inspire.cancel("yt:J0ydlAqg6_8"), 1);
+  releases.shift()();
+  await waitFor(() => releases.length === 1);
+  view = await inspire.projectView("p1");
+  const first = view.refs["yt:tgEWNHVbk3U"];
+  assert.equal(first.state, "measured");
+  assert.deepEqual(first.numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1 });
+  assert.equal(first.thumb, true);
+  assert.equal(first.vertical, true, "the downloaded picture, taller than wide, says it is vertical");
+  assert.equal(view.refs["yt:J0ydlAqg6_8"].state, "found", "a cancelled one waits to be asked again");
+  // Cancelling the running one stops it.
+  assert.equal(inspire.cancel(), 1);
+  releases.shift()();
+  await waitFor(() => !releases.length && busy === 0);
+  assert.equal(most, 1, "never two at once");
+  // Only numbers and thumbnails stay; the work folder is empty.
+  const files = (await readdir(directory)).sort();
+  assert.ok(files.includes("tgEWNHVbk3U.json") && files.includes("tgEWNHVbk3U.jpg"));
+  // A cancelled measure deletes its copy as it stops: wait for that, never longer than a second.
+  let left = await readdir(path.join(directory, "work"));
+  for (let tries = 0; tries < 200 && left.length; tries += 1) { await new Promise((resolve) => setTimeout(resolve, 5)); left = await readdir(path.join(directory, "work")); }
+  assert.deepEqual(left, []);
+  assert.ok(events.some((event) => event.type === "inspire" && event.projectId === "p1"));
+  assert.ok(events.some((event) => event.type === "inspire-ref" && event.ref.state === "measured"));
+  // Saved references belong to the project.
+  assert.equal(await inspire.setSaved("p1", "yt:tgEWNHVbk3U"), 1);
+  assert.deepEqual((await inspire.projectView("p1")).saved, ["yt:tgEWNHVbk3U"]);
+  // A key (save yt:<id> as phone-film) names it for a board's move.ref; unsaving drops the key.
+  assert.equal(await inspire.setSaved("p1", "yt:tgEWNHVbk3U", true, { key: "Phone-Film" }), 1);
+  assert.deepEqual((await inspire.projectView("p1")).keys, { "phone-film": "yt:tgEWNHVbk3U" });
+  assert.equal(await inspire.setSaved("p1", "yt:tgEWNHVbk3U", false), 0);
+  assert.deepEqual((await inspire.projectView("p1")).keys, {});
+  await assert.rejects(inspire.setSaved("p1", "yt:zzzzzzzzzzz"), /search first/);
+  // A failed search is kept with its reason.
+  const failing = createInspire({ directory: path.join(folder, "failing"), projectState: projects, search: async () => { throw new Error("yt-dlp failed: HTTP Error 429"); } });
+  await assert.rejects(failing.search("p2", "walk"), /429/);
+  assert.deepEqual((await failing.projectView("p2")).searches.map((search) => [search.state, search.error]), [["failed", "yt-dlp failed: HTTP Error 429"]]);
+});
+
+test("while an agent call runs, measuring waits, but a ref a call waits for goes at once, with the one ahead of it", async () => {
+  const ended = callStarted();
+  try {
+    const inspire = createInspire({
+      directory: path.join(folder, "wanted"),
+      projectState: memoryProjects(),
+      search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+      async download(videoId, workFolder) {
+        const file = path.join(workFolder, "clip.mp4");
+        await (await import("node:fs/promises")).writeFile(file, "not really a video");
+        return file;
+      },
+      probe: async () => ({ duration: 30 }),
+      findShots: async () => ({ shots: [{ start: 0 }, { start: 10 }] }),
+      findBeats: async () => ({ beats: [0, 10], bpm: 6 }),
+      fetchThumb: async () => Buffer.from("jpeg bytes"),
+    });
+    const found = await inspire.search("p1", "walking tour edit", { count: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await inspire.projectView("p1")).refs[found.results[0].id].state, "measuring", "the first waits for the call to end");
+    // The second is behind it: the call waiting for it must not wait for quiet (it is the busy call).
+    assert.equal((await inspire.reference(found.results[1].id, { wait: 3000 })).state, "measured");
+  } finally { ended(); }
+});
+
+test("a sounds search keeps sound effects of 60 s or less, measures their shape, keeps a preview, imports it with credit; forget drops a search", async () => {
+  const { writeFile } = await import("node:fs/promises");
+  const directory = path.join(folder, "sounds");
+  const projects = memoryProjects();
+  const asked = [];
+  const added = [];
+  // 1000 samples a second: 0.5 s of silence, a 1 s burst loudest 0.8 s into it, then silence.
+  const samples = new Float32Array(3000);
+  for (let index = 500; index < 1500; index += 1) samples[index] = 0.2 * Math.sin(index);
+  samples[1300] = 0.9;
+  const inspire = createInspire({
+    directory, projectState: projects,
+    search: async (query, { count }) => { asked.push([query, count]); return parseSearchLines(await readFile(RECORDED, "utf8")); },
+    downloadSound: async (videoId, work) => { const file = path.join(work, "sound.webm"); await writeFile(file, "audio"); return file; },
+    decodeSound: async () => ({ samples, sampleRate: 1000 }),
+    soundPreview: async (file, target, { start, end }) => writeFile(target, `aac ${start}-${end}`),
+    soundLoudness: async () => -18.04,
+    addMedia: async (file, options) => { added.push({ bytes: await readFile(file, "utf8"), ...options }); return { id: "m.m4a", src: "/api/media/m.m4a", ...options.extra }; },
+    // A stub CLAP: each sound's vector from its sounding stretch's length; the words point at it.
+    embedSound: async (part) => ({ model: "stub", vector: encodeVector(normalize(Float32Array.from({ length: 4 }, (_, i) => (i === 0 ? 1 : part.length / 4000)))) }),
+    embedText: async (prompts) => prompts.map(() => normalize(Float32Array.from([1, 0.25, 0.25, 0.25]))),
+    embedModel: "stub", soundTaste: { read: async () => ({ liked: [], rejected: [] }) },
+  });
+  const found = await inspire.search("p1", "whoosh", { kind: "sounds" });
+  assert.deepEqual(asked, [["whoosh sound effect", 20]], "8 spare results for the junk filter");
+  assert.equal(found.search.kind, "sounds");
+  assert.deepEqual(found.results.map((ref) => [ref.id, ref.kind]), [["yt:ghBpKLARE_8", "sound"]], "only 60 s or less, and a 60 s upload is junk when a whoosh is asked");
+  const ref = await inspire.reference("yt:ghBpKLARE_8", { wait: 2000 });
+  assert.equal(ref.state, "measured");
+  assert.equal(ref.sound.peaks.length, 64);
+  assert.ok(ref.sound.peaks.every((value) => value >= 0 && value <= 1) && ref.sound.peaks.includes(1));
+  assert.deepEqual([ref.sound.start, ref.sound.end, ref.sound.length, ref.sound.peakAt, ref.sound.loudness], [0.5, 1.5, 1, 0.8, -18]);
+  assert.equal(await readFile(await inspire.soundFile("yt:ghBpKLARE_8"), "utf8"), "aac 0.5-1.5");
+  assert.equal(await inspire.soundFile("yt:tgEWNHVbk3U"), null);
+  // Its CLAP embedding is kept (not sent to the screen) and ranks it against the search words.
+  assert.equal(ref.sound.embedded, true);
+  assert.equal(ref.sound.embedding, undefined);
+  const ranks = (await inspire.projectView("p1")).searches[0].ranks;
+  assert.deepEqual([ranks["yt:ghBpKLARE_8"].match, ranks["yt:ghBpKLARE_8"].order], [75, 1], "a lone sound: full marks absolute, the middle of its pool");
+  assert.equal((await inspire.searchView("p1", 1)).ranks["yt:ghBpKLARE_8"].order, 1);
+  assert.equal((await inspire.soundTasteEntry("yt:ghBpKLARE_8")).measure.embedding.model, "stub");
+  assert.match(searchText("whoosh", [ref], { kind: "sounds" }), /^1\) yt:ghBpKLARE_8 "Fast Cuts SFX[^"]*" 1 s, peak 0\.8 s, -18 LUFS/m);
+  // Import: the preview with its credit (YouTube does not say its license).
+  const media = await inspire.importSound("yt:ghBpKLARE_8");
+  assert.equal(added[0].bytes, "aac 0.5-1.5");
+  assert.equal(added[0].mime, "audio/mp4");
+  assert.deepEqual([media.credit.title, media.credit.channel, media.credit.url, media.credit.license], ["Fast Cuts SFX - Cinematic Sound Effects for Fast Edit Sequences", "Lens Distortions", "https://www.youtube.com/watch?v=ghBpKLARE_8", "unknown (YouTube)"]);
+  assert.equal(await inspire.importSound("yt:tgEWNHVbk3U"), null, "a video is never imported");
+  // forget drops the search; the measured sound stays in the cache.
+  await inspire.search("p1", "riser", { kind: "sounds" });
+  await inspire.forget("p1", 1);
+  assert.deepEqual((await inspire.projectView("p1")).searches.map((search) => search.n), [2]);
+  await assert.rejects(inspire.forget("p1", 9), /no search 9/);
+  assert.ok((await inspire.reference("yt:ghBpKLARE_8")).sound);
+  inspire.cancel();
+});
+
+test("with looks, a search ranks by thumbnails, collapses copies, learns from unsaved ones, and a measure keeps one vector a shot", async () => {
+  const directory = path.join(folder, "looks");
+  const projects = memoryProjects();
+  // Each thumbnail's bytes are its video id; the stub model gives each id a look.
+  const axes = { tgEWNHVbk3U: 0, ghBpKLARE_8: 0, J0ydlAqg6_8: 1 };
+  const embedded = [];
+  const look = {
+    model: LOOK_MODEL,
+    failed: () => null,
+    images: async (files) => {
+      embedded.push(...files);
+      return { model: LOOK_MODEL, vectors: await Promise.all(files.map(async (file) => encodeVector(axis(axes[(await readFile(file, "utf8")).trim()] ?? 4)))) };
+    },
+    text: async (prompts) => prompts.map(() => axis(1)),
+  };
+  let releaseDownload;
+  const inspire = createInspire({
+    directory, projectState: projects, look,
+    search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+    fetchThumb: async (url) => Buffer.from(/\/vi\/([^/]+)\//.exec(url)[1]),
+    download: async (videoId, workFolder) => {
+      await new Promise((resolve) => { releaseDownload = resolve; });
+      const file = path.join(workFolder, "clip.mp4");
+      await (await import("node:fs/promises")).writeFile(file, "clip");
+      return file;
+    },
+    probe: async () => ({ duration: 30, width: 640, height: 360 }),
+    findShots: async () => ({ shots: [{ start: 0 }, { start: 10 }, { start: 20 }] }),
+    findBeats: async () => ({ beats: [], bpm: null }),
+    stills: async (file, seconds, stillFolder) => {
+      await (await import("node:fs/promises")).mkdir(stillFolder, { recursive: true });
+      const made = [];
+      for (let at = 0; at < 30; at += 1) {
+        const name = `${String(at).padStart(2, "0")}.jpg`;
+        await (await import("node:fs/promises")).writeFile(path.join(stillFolder, name), "J0ydlAqg6_8");
+        made.push({ at, file: name });
+      }
+      return made;
+    },
+  });
+  // The words look like J0ydlAqg6_8; ghBpKLARE_8 has the same thumbnail as tgEWNHVbk3U, which has fewer views.
+  const found = await inspire.search("p1", "story cuts", { count: 3 });
+  assert.deepEqual(found.results.map((ref) => ref.id), ["yt:J0ydlAqg6_8", "yt:ghBpKLARE_8"]);
+  assert.deepEqual(found.collapsed, [{ id: "yt:tgEWNHVbk3U", into: "yt:ghBpKLARE_8" }]);
+  assert.deepEqual(found.results[1].copies, ["yt:tgEWNHVbk3U"]);
+  assert.deepEqual(found.search.collapsed, found.collapsed);
+  assert.match(searchText("story cuts", found.results, { collapsed: found.collapsed }), /1 near-identical copy hidden \(yt:tgEWNHVbk3U = yt:ghBpKLARE_8\)/);
+  // Unsaving a reference rejects its look; saving it again takes that back.
+  await inspire.setSaved("p1", "yt:J0ydlAqg6_8");
+  await inspire.setSaved("p1", "yt:J0ydlAqg6_8", false);
+  assert.deepEqual(projects.states.get("p1").rejected, ["yt:J0ydlAqg6_8"]);
+  // The measure: one vector a shot, from the still nearest each shot's middle (5, 15, 25 s).
+  for (let tries = 0; tries < 200 && !releaseDownload; tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  releaseDownload();
+  await inspire.reference("yt:J0ydlAqg6_8", { wait: 2000 });
+  const saved = JSON.parse(await readFile(path.join(directory, "J0ydlAqg6_8.json"), "utf8"));
+  assert.deepEqual(saved.look.at, [5, 15, 25]);
+  assert.equal(saved.look.vectors.length, 3);
+  assert.equal(saved.same, false);
+  inspire.cancel();
+});
+
+test("a sound effect search waits only behind other sounds, never behind queued videos", async () => {
+  const directory = path.join(folder, "sound-first");
+  const releases = [];
+  const inspire = createInspire({
+    directory, projectState: memoryProjects(),
+    search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+    download: async () => new Promise((resolve, reject) => releases.push(reject)),
+    downloadSound: async () => new Promise((resolve, reject) => releases.push(reject)),
+  });
+  const videos = await inspire.search("p1", "trailer");
+  const sounds = await inspire.search("p1", "whoosh", { kind: "sounds" });
+  const sound = await inspire.reference(sounds.results[0].id);
+  const lastVideo = await inspire.reference(videos.results.at(-1).id);
+  assert.equal(sound.place, 1, "next after the video being measured");
+  assert.ok(lastVideo.place > sound.place);
+  inspire.cancel();
+  for (const reject of releases) reject(new Error("stopped"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+});
+
+test("a whole measure through a stub yt-dlp: the generated video's cuts and beat are found, and the copy is deleted", { skip: skipWithoutMediaTools }, async () => {
+  // 6 s: cuts at 1, 2, 3.24 and 4.52 s; a kick and a click every 0.5 s (120 bpm). The cuts at 1,
+  // 2 and 4.5 are on the beat, the one at 3.24 is not.
+  const video = path.join(folder, "generated.mp4");
+  await run(ffmpeg, ["-v", "error", "-y",
+    "-f", "lavfi", "-i", "testsrc2=s=320x180:r=25:d=1", "-f", "lavfi", "-i", "smptebars=s=320x180:r=25:d=1",
+    "-f", "lavfi", "-i", "mandelbrot=s=320x180:r=25", "-f", "lavfi", "-i", "rgbtestsrc=s=320x180:r=25:d=1.25",
+    "-f", "lavfi", "-i", "cellauto=s=320x180:r=25:rule=110",
+    "-f", "lavfi", "-i", "aevalsrc='0.8*sin(2*PI*70*t)*exp(-25*mod(t,0.5))+0.3*sin(2*PI*1500*t)*exp(-80*mod(t,0.5))':s=22050:d=6",
+    "-filter_complex", "[2:v]trim=duration=1.25,setpts=PTS-STARTPTS[m];[4:v]trim=duration=1.5,setpts=PTS-STARTPTS[c];[0:v][1:v][m][3:v][c]concat=n=5:v=1:a=0,format=yuv420p[v]",
+    "-map", "[v]", "-map", "5:a", "-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac", "-shortest", video]);
+  process.env.STUB_YTDLP_VIDEO = video;
+  process.env.KINO_INSPIRE_THUMBS = "off";
+  try {
+    const directory = path.join(folder, "whole");
+    const inspire = createInspire({ directory, projectState: memoryProjects(), ...(await inspireTools({ command: STUB })) });
+    const found = await inspire.search("p1", "fast cut walking edit", { by: "you", count: 1 });
+    const ref = await inspire.reference(found.results[0].id, { wait: 60_000 });
+    assert.equal(ref.state, "measured", ref.error);
+    assert.equal(ref.numbers.shots, 5);
+    assert.deepEqual(ref.numbers.cuts.map((time) => Math.round(time * 4) / 4), [1, 2, 3.25, 4.5]);
+    assert.deepEqual(ref.numbers.onBeat, [true, true, false, true]);
+    assert.equal(ref.bpm, 120);
+    assert.equal(ref.thumb, false, "no thumbnail when they are off");
+    // The fingerprint and the small frame strips stay (Vision numbers only where Vision runs).
+    assert.equal(ref.fingerprintError, undefined);
+    assert.ok(ref.print && ref.strips > 0, JSON.stringify(ref.print));
+    const full = await inspire.reference(found.results[0].id, { full: true });
+    assert.equal(full.fingerprint.shots.count, 5);
+    assert.deepEqual((await readdir(path.join(directory, "strips", found.results[0].id.slice(3)))).length, ref.strips);
+    assert.deepEqual(await readdir(path.join(directory, "work")), [], "the downloaded copy is gone");
+    // 10 stills at the copy's own size stay for judge rounds.
+    await inspire.setSaved("p1", found.results[0].id);
+    const [kept] = await inspire.savedStills("p1");
+    assert.equal(kept.stills.length, 10);
+    const { loadImage } = await import("@napi-rs/canvas");
+    const still = await loadImage(await readFile(path.join(kept.folder, kept.stills[0].file)));
+    assert.deepEqual([still.width, still.height], [320, 180]);
+  } finally {
+    delete process.env.STUB_YTDLP_VIDEO;
+    delete process.env.KINO_INSPIRE_THUMBS;
+  }
+});
+
+test("a saved reference measured before stills were kept is measured again when a judge round needs them", async () => {
+  const directory = path.join(folder, "stills-again");
+  const projects = memoryProjects();
+  const fake = {
+    search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+    download: async (videoId, workFolder) => path.join(workFolder, "clip.mp4"),
+    probe: async () => ({ duration: 20 }),
+    findShots: async () => ({ shots: [{ start: 0 }] }),
+    findBeats: async () => ({ beats: [], bpm: null }),
+  };
+  const old = createInspire({ directory, projectState: projects, ...fake });
+  const found = await old.search("p1", "walking tour edit", { by: "you", count: 1 });
+  const id = found.results[0].id;
+  assert.equal((await old.reference(id, { wait: 5000 })).state, "measured");
+  await old.setSaved("p1", id);
+  assert.deepEqual(await old.savedStills("p1"), [], "no stills yet");
+  // bare lists it anyway (a board's ref key can match it); ids picks which saved ones are read.
+  assert.deepEqual((await old.savedStills("p1", { bare: true })).map((ref) => [ref.id, ref.stills]), [[id, []]]);
+  assert.deepEqual(await old.savedStills("p1", { bare: true, ids: ["yt:other"] }), []);
+  const asked = [];
+  const now = createInspire({ directory, projectState: projects, ...fake, stills: async (file, seconds) => { asked.push(seconds); return [{ at: 1, file: "00.jpg" }]; } });
+  const [kept] = await now.savedStills("p1", { wait: 5000 });
+  assert.deepEqual(asked, [20]);
+  assert.deepEqual(kept.stills, [{ at: 1, file: "00.jpg" }]);
+});
+
+test("yt-dlp gets a JavaScript runtime for YouTube's challenge: deno, else node, else bun, or says plainly there is none", async () => {
+  const has = (...paths) => (candidate) => paths.includes(candidate);
+  assert.deepEqual(jsRuntime({ PATH: "/usr/bin" }, has("/opt/homebrew/bin/deno", "/opt/homebrew/bin/node"), null), { name: "deno", path: "/opt/homebrew/bin/deno" });
+  assert.deepEqual(jsRuntime({ PATH: "/x" }, has("/x/bun", "/usr/local/bin/node"), null), { name: "node", path: "/usr/local/bin/node" });
+  assert.deepEqual(jsRuntime({ PATH: "/x" }, has("/x/bun"), null), { name: "bun", path: "/x/bun" });
+  assert.deepEqual(jsRuntime({ PATH: "/x" }, has(), "/kino/node"), { name: "node", path: "/kino/node" }, "kino's own node when nothing else");
+  assert.equal(jsRuntime({ PATH: "/x" }, has(), null), null);
+  assert.deepEqual(jsRuntime({ KINO_YTDLP_JS: "bun:/opt/bun" }, has(), null), { name: "bun", path: "/opt/bun" });
+  assert.deepEqual(jsRuntime({ KINO_YTDLP_JS: "/somewhere/deno" }, has(), null), { name: "deno", path: "/somewhere/deno" });
+  assert.match(NO_JS_RUNTIME, /deno, node or bun.*KINO_YTDLP_JS/);
+  // The PATH yt-dlp runs with includes the usual install folders even when kino's is short.
+  assert.ok(toolPath({ PATH: "/usr/bin" }).split(path.delimiter).includes("/opt/homebrew/bin"));
+  // A download names the runtime.
+  const log = path.join(folder, "js.log");
+  process.env.STUB_YTDLP_LOG = log;
+  process.env.STUB_YTDLP_FAIL = "download";
+  process.env.KINO_YTDLP_JS = "node:/kino/test/node";
+  try {
+    const tools = await inspireTools({ command: STUB });
+    await assert.rejects(tools.download("tgEWNHVbk3U", folder), /Video unavailable/);
+  } finally {
+    delete process.env.STUB_YTDLP_LOG;
+    delete process.env.STUB_YTDLP_FAIL;
+    delete process.env.KINO_YTDLP_JS;
+  }
+  const args = JSON.parse((await readFile(log, "utf8")).trim());
+  assert.equal(args[args.indexOf("--js-runtimes") + 1], "node:/kino/test/node");
+});
+
+test("a search cut off when kino stopped shows as failed, not as searching forever", async () => {
+  const projects = memoryProjects();
+  projects.states.set("p1", { searches: [{ n: 1, query: "walk", by: "you", state: "searching", wanted: 8, ids: [] }], saved: [], nextSearch: 2 });
+  const inspire = createInspire({ directory: path.join(folder, "restart"), projectState: projects });
+  assert.deepEqual((await inspire.projectView("p1")).searches.map((search) => [search.state, search.error]), [["failed", "kino stopped before this search finished"]]);
+});
+
+test("YouTube's bot check is said plainly, and kino stops asking YouTube until told to try again", async () => {
+  const log = path.join(folder, "bot.log");
+  process.env.STUB_YTDLP_FAIL = "bot";
+  process.env.STUB_YTDLP_LOG = log;
+  process.env.KINO_INSPIRE_THUMBS = "off";
+  try {
+    const inspire = createInspire({ directory: path.join(folder, "bot"), projectState: memoryProjects(), ...(await inspireTools({ command: STUB })) });
+    const found = await inspire.search("p1", "walk", { by: "you", count: 3 });
+    const last = await inspire.reference(found.results[2].id, { wait: 20_000 });
+    assert.equal(last.state, "failed");
+    assert.equal(last.error, BOT_CHECK);
+    for (const ref of found.results) assert.equal((await inspire.reference(ref.id)).error, BOT_CHECK);
+    const downloads = () => readFile(log, "utf8").then((text) => text.trim().split("\n").filter((line) => line.includes("--download-sections")).length);
+    assert.equal(await downloads(), 1, "after the bot check, the others are not asked for");
+    // Asking for one again tries it at once.
+    await inspire.remeasure(found.results[1].id);
+    await inspire.reference(found.results[1].id, { wait: 20_000 });
+    assert.equal(await downloads(), 2);
+  } finally {
+    delete process.env.STUB_YTDLP_FAIL;
+    delete process.env.STUB_YTDLP_LOG;
+    delete process.env.KINO_INSPIRE_THUMBS;
+  }
+});

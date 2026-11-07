@@ -1,0 +1,14 @@
+{
+  "name": "kino",
+  "version": "0.1.0",
+  "description": "Make and edit motion videos with kino: ten MCP tools (status, edit, check, look, inspect, render, library, history, notes, project) and the kino skill.",
+  "author": { "name": "kino contributors" },
+  "license": "AGPL-3.0-only",
+  "keywords": ["motion design", "video", "animation", "mcp"],
+  "mcpServers": {
+    "kino": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/kino.mjs", "mcp"]
+    }
+  }
+}

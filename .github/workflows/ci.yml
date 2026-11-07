@@ -1,0 +1,155 @@
+# Runs the unit and integration tests and the production build on every push
+# to main and on every pull request.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # The test files are split across eight machines that run at the same time, so
+  # each machine gets about the same total time by tests/test-times.json (see
+  # scripts/test-times.mjs). Each machine runs its files one at a time, as `npm test` does.
+  test:
+    name: test (${{ matrix.shard }}/8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      # ffmpeg and the virtual display are Ubuntu packages. Keep the downloaded packages
+      # between runs (one copy per runner image), so a run only unpacks them; if that
+      # fails, install them the usual way.
+      - name: Note the runner image
+        id: image
+        run: echo "version=$ImageOS-$ImageVersion" >> "$GITHUB_OUTPUT"
+
+      - name: Restore media packages
+        id: apt
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-packages
+          key: apt-ffmpeg-xvfb-libgbm1-libasound2t64-${{ steps.image.outputs.version }}
+
+      - name: Install media and headless rendering dependencies
+        run: |
+          packages="ffmpeg xvfb libgbm1 libasound2t64"
+          if [ "${{ steps.apt.outputs.cache-hit }}" = true ] && sudo dpkg -i ~/apt-packages/*.deb > /dev/null; then
+            echo "Installed from the saved packages."
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y -f --download-only $packages
+          mkdir -p ~/apt-packages
+          cp /var/cache/apt/archives/*.deb ~/apt-packages/ 2> /dev/null || true
+          sudo apt-get install -y -f $packages
+
+      # Gifski makes GIF exports. Building it takes a few minutes, so keep the
+      # built program between runs.
+      - name: Restore Gifski
+        id: gifski
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/gifski
+          key: gifski-1.34.0-${{ runner.os }}
+
+      - name: Build Gifski
+        if: steps.gifski.outputs.cache-hit != 'true'
+        run: cargo install gifski --version 1.34.0 --locked
+
+      - run: npm ci
+      # Electron's Linux helper needs these permissions when user namespaces
+      # are restricted. Keep the renderer sandbox enabled in the CI runner.
+      - name: Install Electron and configure Chromium sandbox
+        run: |
+          node -e 'require("electron")'
+          electron_sandbox_path="$(node -p 'require("node:path").join(require("node:path").dirname(require("electron")), "chrome-sandbox")')"
+          sudo chown root:root "$electron_sandbox_path"
+          sudo chmod 4755 "$electron_sandbox_path"
+          stat --format='%U %G %a %n' "$electron_sandbox_path"
+
+      # Fail a stuck native SVG regression before the longer integration suite.
+      - name: Check bounded projection rendering
+        run: timeout --kill-after=5s 90s node --import ./scripts/test-fonts.mjs --test --test-isolation=none engine/effects/projection.test.js
+        env:
+          KINO_TEST_TRACE: '1'
+      # The voice isolation tests check the default engine (DPDFNet) only when its 10.6 MB model
+      # is on the machine; tests never download it. Keep it between runs, keyed by its SHA-256,
+      # and check the hash after every download.
+      - name: Restore the voice isolation model
+        id: voice-model
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/kino-models
+          key: dpdfnet2-48khz-hr-0b399f8a58dc4d70d8cd97541f5c39869406145193b957d00a03b66070944928
+
+      - name: Download the voice isolation model
+        if: steps.voice-model.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/kino-models"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/kino-models/dpdfnet2_48khz_hr.onnx" \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/dpdfnet2_48khz_hr.onnx
+          echo "0b399f8a58dc4d70d8cd97541f5c39869406145193b957d00a03b66070944928  $RUNNER_TEMP/kino-models/dpdfnet2_48khz_hr.onnx" | sha256sum -c -
+
+      - run: xvfb-run -a npm test
+        env:
+          TEST_SHARD: ${{ matrix.shard }}/8
+          KINO_TEST_TIMES: ${{ runner.temp }}/test-times.json
+          KINO_GOLDEN_FAILURES: ${{ runner.temp }}/golden-failures
+          KINO_DASHBOARD_TIMEOUT_SHOTS: ${{ runner.temp }}/dashboard-shots
+          KINO_VOICE_MODEL: ${{ runner.temp }}/kino-models/dpdfnet2_48khz_hr.onnx
+      # The dashboard browser test saves a screenshot when it times out waiting.
+      - name: Keep the dashboard screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-shots-${{ matrix.shard }}
+          path: ${{ runner.temp }}/dashboard-shots
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # A golden frame that failed here, as drawn on Linux (docs/testing.md says how to use it).
+      - name: Keep the failed golden frames
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures-${{ matrix.shard }}
+          path: ${{ runner.temp }}/golden-failures
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Each file's time on this machine, to refresh tests/test-times.json
+      # (the steps are at the top of scripts/test-times.mjs).
+      - name: Keep the test times
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-times-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-times.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: npm ci
+      - run: npm run build

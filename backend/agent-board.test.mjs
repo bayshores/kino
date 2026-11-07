@@ -1,0 +1,706 @@
+// The storyboard on the server (direction plan §5, milestone B4a), through the agent API on a
+// real server: the edit op board saves every shot with every layer ("none" when empty) in the
+// project document, refused when a layer is left out or the shots leave a gap in the music (when
+// there is a music layer) or in the whole video; it is undone, restored and rebased like any
+// edit. The board stop (notes checkpoint {id:"board"}) needs a saved board with no gap and its
+// open items answered or left to the agent ("your call"); an approval freezes a copy of the board
+// in the agent-state file, and later edits are measured against that copy: past kino's tolerances
+// the approval lapses, smaller changes are logged.
+//
+// Footage: the Sintel test clip (tests/fixtures/footage/SOURCES.md), 384×216, 4.417 s, cuts at
+// 1.25 s and 3.333 s. Sound: a sine tone made by FFmpeg, never played. Font downloads are off, so
+// nothing here goes online. A recorded answer needs a real wait (gap(), three in the file).
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { performance } from "node:perf_hooks";
+import { after, before, test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { SHOT_LAYERS } from "../engine/board.js";
+import { estimateTextTokens } from "./meter.mjs";
+import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
+
+const CLIP = fileURLToPath(new URL("../tests/fixtures/footage/sintel-village-dragon.mp4", import.meta.url));
+const OFFLINE = { MOTION_FONT_DOWNLOADS: "off" };
+const skip = skipWithoutMediaTools;
+
+let server;
+let folder;
+let clip;
+let song;
+let key;
+before(async () => {
+  if (skip) return;
+  server = await startTestServer({ env: OFFLINE });
+  folder = await mkdtemp(path.join(tmpdir(), "kino-agent-board-"));
+  clip = await upload(server, CLIP, "video/mp4");
+  const tone = path.join(folder, "song.wav");
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=44100:duration=6", "-ac", "1", tone]);
+  song = await upload(server, tone, "audio/wav");
+  key = await reviewKey(server);
+});
+after(async () => {
+  await server?.stop();
+  if (folder) await rm(folder, { recursive: true, force: true });
+});
+
+async function upload(target, file, type) {
+  const response = await target.api("/api/media", { method: "POST", headers: { "content-type": type, "x-file-name": path.basename(file) }, body: await readFile(file) });
+  assert.equal(response.status, 201, await response.clone().text());
+  const media = await response.json();
+  return { ...media, src: media.src ?? media.media?.src };
+}
+
+async function reviewKey(target) {
+  return (await (await target.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: target.baseUrl } })).json()).key;
+}
+
+async function agent(verb, body = {}, on = server) {
+  const response = await on.api(`/api/agent/${verb}`, { method: "POST", body: { client: "claude-code", ...body } });
+  assert.equal(response.status, 200, `${verb} answers 200`);
+  return response.json();
+}
+
+async function setting(body) {
+  const response = await server.api("/api/dashboard/settings", { method: "PUT", headers: { "x-kino-review": key }, body });
+  assert.equal(response.status, 200, await response.clone().text());
+}
+
+const record = async (project, on = server) => (await (await on.api(`/api/projects/${project}`)).json());
+const savedState = async (project, root = server.dataDirectory) => JSON.parse(await readFile(path.join(root, "agent", "projects", `${project}.json`), "utf8"));
+const statusLines = async (project, on = server) => (await agent("status", { project }, on)).text.split("\n").slice(1, 3);
+const checkpoint = async (project, body = {}, on = server) => ({ ...(await agent("notes", { project, action: "checkpoint", id: "board", ...body }, on)), at: performance.now() });
+const answer = (project, body, on = server) => agent("notes", { project, action: "answer", ...body }, on);
+const clock = (at) => String(at).slice(11, 16);
+
+// kino refuses an answer under 5 s after the ask (too_fast): wait out what is left of 5.2 s since
+// the ask came back, on the steady clock (this PC's wall clock jumps by seconds).
+async function gap(askedAt) {
+  for (let left = askedAt + 5200 - performance.now(); left > 0; left = askedAt + 5200 - performance.now())
+    await new Promise((resolve) => setTimeout(resolve, left));
+}
+
+// Shots. Footage: a 9:16 crop (h 76% of 216 px is 164 px; w 24% of 384 px is 92 px) with the
+// dragon marked inside it. Motion design: no footage, a title.
+const footage = (cue, dur, inPoint, x, extra = {}) => ({ cue, dur, pacing: "free", media: clip.src, in: inPoint, crop: [x, 12, 24, 76],
+  subject: { what: "the dragon", box: [x + 4, 30, 14, 30] }, follow: "steady", text: "none", sound: "none", why: "the dragon over the village", move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, ...extra });
+const motion = (cue, dur, extra = {}) => ({ cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none",
+  text: { text: "The dragon is back", family: "Inter" }, sound: "none", why: "the line on its own", move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, ...extra });
+const boardOp = (shots, extra = {}) => ({ op: "board", music: "none", shots, ...extra });
+const editBoard = (project, shots, extra = {}, body = {}, on = server) => agent("edit", { project, ops: [boardOp(shots, extra)], ...body }, on);
+
+// A refused board: op_failed with its boardError and kino's sentence.
+function assertRefused(reply, boardError, message) {
+  assert.equal(reply.isError, true, reply.text);
+  assert.equal(reply.data.error, "op_failed", reply.text);
+  assert.equal(reply.data.boardError, boardError, reply.text);
+  assert.equal(reply.data.reason.replace(/^Operation \d+ \(board\) was refused: /, ""), message);
+}
+
+async function project(id, { width = 1080, height = 1920, duration = 6, layers = [], on = server } = {}) {
+  const made = await agent("project", { action: "create", id, name: id, width, height, duration, background: "#101114" }, on);
+  assert.equal(made.isError, undefined, made.text);
+  if (!layers.length) return made;
+  const edited = await agent("edit", { project: id, ops: layers }, on);
+  assert.equal(edited.isError, undefined, edited.text);
+  return edited;
+}
+const videoLayer = () => ({ op: "add_layer", layerType: "video", name: "footage", properties: { src: clip.src } });
+const audioLayer = (name) => ({ op: "add_layer", layerType: "audio", name, properties: { src: song.src } });
+
+test("every shot names every layer: one left out is refused with missing_layer, and so is a board without music", { skip, timeout: 60_000 }, async () => {
+  await project("board-layers");
+  const { revision } = await record("board-layers");
+  for (const layer of SHOT_LAYERS) {
+    const shot = motion(0, 6);
+    delete shot[layer];
+    assertRefused(await editBoard("board-layers", [shot]), "missing_layer", `shot 1 has no ${layer}: say "none" if there is no ${layer}.`);
+  }
+  const { sound, ...noSound } = motion(0, 3);
+  const { text, ...noText } = motion(3, 3);
+  assertRefused(await editBoard("board-layers", [noSound, noText]), "missing_layer", 'shot 1 has no sound: say "none" if there is no sound. Also: shot 2 has no text: say "none" if there is no text.');
+  const { music, ...noMusic } = boardOp([motion(0, 6)]);
+  assertRefused(await agent("edit", { project: "board-layers", ops: [noMusic] }), "missing_layer", 'the board has no music: name the music layer, or say "none" if there is no music.');
+  const after = await record("board-layers");
+  assert.equal(after.revision, revision, "a refused board saves nothing");
+  assert.equal(after.document.board, undefined);
+});
+
+test("the shots cover the music when there is a music layer, else the whole video; a voice-over project with no music passes", { skip, timeout: 60_000 }, async () => {
+  await project("board-music", { layers: [audioLayer("song"), { op: "add_layer", layerType: "text", name: "title", properties: { text: "Title", x: 100, y: 100, width: 800, height: 200 } }] });
+  assertRefused(await editBoard("board-music", [motion(0, 2), motion(2.5, 3.5)], { music: "song" }), "gap",
+    "the shots leave a gap in the music from 2 to 2.5 s (after shot 1): make shot 1 longer or start shot 2 at 2 s.");
+  assertRefused(await editBoard("board-music", [motion(0, 6)], { music: "title" }), "bad_shot", 'music is an audio layer\'s name or code, or "none"; title is a text layer.');
+  const saved = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it']);
+  assert.equal(saved.data.board, undefined, "no approval yet, so no board field in the answer");
+  const { document } = await record("board-music");
+  const songLayer = document.scenes[0].layers.find((layer) => layer.name === "song");
+  assert.equal(document.board.music, songLayer.id, "music keeps the layer's id");
+  assert.deepEqual(document.board.shots.map((shot) => [shot.id, shot.cue, shot.dur]), [["S1", 0, 2], ["S2", 2, 4]]);
+  assert.deepEqual(document.board.shots[0].text, { text: "The dragon is back", family: "Inter", weight: 700, size: 96, y: 20, fill: "#ffffff" }, "kino's text defaults: 5% of 1920 px");
+  const again = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
+  assert.deepEqual(again.data.notes, ["board r1: no change"]);
+  assert.equal((await record("board-music")).document.board.rev, 1, "the same board keeps its rev");
+
+  await project("board-whole");
+  assertRefused(await editBoard("board-whole", [motion(0, 2), motion(2, 3)]), "gap", "the shots end at 5 s, before the video ends (6 s): make the last shot 1 s longer.");
+  assertRefused(await editBoard("board-whole", [motion(0.5, 5.5)]), "gap", "the shots start at 0.5 s, after the video starts (0 s): start shot 1 at 0 s.");
+
+  // A voice-over is an audio layer that is not music: the shots cover the whole video.
+  await project("board-voice", { layers: [audioLayer("voice")] });
+  const voice = await editBoard("board-voice", [motion(0, 3), motion(3, 3, { text: { text: "Out now", family: "Inter", weight: 800, size: 120, y: 50, fill: "#ffd23f" } })]);
+  assert.equal(voice.isError, undefined, voice.text);
+  assert.deepEqual(voice.data.notes, ['board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it']);
+  assert.equal((await record("board-voice")).document.board.music, "none");
+});
+
+test("kino checks the shots against the video, the files and the fonts: overlap, order, crop shape, the file's end, fonts and media", { skip, timeout: 60_000 }, async () => {
+  await project("board-checks", { duration: 4.417, layers: [videoLayer()] });
+  const { revision } = await record("board-checks");
+  assertRefused(await editBoard("board-checks", [motion(0, 3), motion(2.5, 1.917)]), "overlap", "shot 2 starts at 2.5 s, inside shot 1 (0–3 s): start it at 3 s.");
+  assertRefused(await editBoard("board-checks", [motion(0, 2), motion(2, 1), motion(1, 3.417)]), "overlap", "shots are in time order: shot 3 starts at 1 s, before shot 2 (2 s).");
+  assertRefused(await editBoard("board-checks", [motion(0, 5)]), "overlap", "shot 1 ends at 5 s, after the video ends (4.42 s).");
+  assertRefused(await editBoard("board-checks", [footage(0, 4.417, 0, 30, { crop: [30, 12, 40, 76] })]), "bad_shot",
+    "shot 1 crop [30, 12, 40, 76] is 0.94 wide per 1 tall on the source; the video is 1080×1920 (0.56): with h 76, w is 24 (or crop \"whole\" when the source is shown whole).");
+  assertRefused(await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 3.5, 40)]), "bad_shot",
+    "shot 2 needs 2.1 s of sintel-village-dragon.mp4 from 3.5 s, but the file ends at 4.42 s.");
+  // Too long text and a font kino lacks: one refusal names both.
+  assertRefused(await editBoard("board-checks", [motion(0, 4.417, { text: { text: "t".repeat(205), family: "Bangers" } })]), "bad_shot",
+    'shot 1 text.text is 205 characters, limit 200. Also: shot 1 text family "Bangers" is not a font kino has (library {topic:"fonts", search:"Bangers"}).');
+  assertRefused(await editBoard("board-checks", [footage(0, 4.417, 0, 30, { media: "nothing.mp4" })]), "bad_shot",
+    'shot 1 media "nothing.mp4" is not an imported video or picture (library {topic:"media"} lists them).');
+  assertRefused(await editBoard("board-checks", [motion(0, 4.417, { crop: [0, 0, 50, 50] })]), "bad_shot", 'shot 1 has no media, so in, crop, subject and follow are "none".');
+  assertRefused(await editBoard("board-checks", [motion(undefined, 4.417)]), "bad_shot", "shot 1 has no cue: its start in seconds.");
+  assertRefused(await editBoard("board-checks", [motion(0, 4.417, { why: "" })]), "bad_shot", "shot 1 has no why: one line on why this shot.");
+  // Every field over its limit at once, by name, length and limit.
+  assertRefused(await editBoard("board-checks", [footage(0, 4.417, 0, 30, { subject: { what: "w".repeat(45), box: [34, 30, 14, 30] }, why: "y".repeat(101) })], { calls: ["ok", "c".repeat(112)] }), "bad_shot",
+    "calls[1] is 112 characters, limit 100. Also: shot 1 why is 101 characters, limit 100: one line. shot 1 subject.what is 45 characters, limit 40.");
+  assert.equal((await record("board-checks")).revision, revision, "nothing refused was saved");
+
+  // media is a video layer's name, a file's name or its src; all three are kept as the src.
+  // A craft move built as an edit op (frame), a move (type-on) or a scene setting (drift) is known: no planned:true.
+  const shots = [footage(0, 1.25, 0, 20, { media: "footage", move: { kind: "camera", name: "frame", ref: "phone-film@3.13" } }),
+    footage(1.25, 2.083, 1.25, 38, { media: "sintel-village-dragon.mp4", move: { kind: "type", name: "type-on", ref: "agent-launch@2" } }), footage(3.333, 1.084, 3.333, 55, { move: { kind: "camera", name: "drift", ref: "teaser-2026@8.9" } })];
+  const saved = await editBoard("board-checks", shots, { calls: ["the dragon in every shot"], open: ["the village or the sky last?"] });
+  assert.equal(saved.isError, undefined, saved.text);
+  const { board } = (await record("board-checks")).document;
+  assert.deepEqual(board.shots.map((shot) => shot.media), [clip.src, clip.src, clip.src]);
+  assert.deepEqual(board.shots[0].subject, { what: "the dragon", boxes: [[24, 30, 14, 30]] }, "box is read as boxes: [box]");
+  assert.deepEqual([board.calls, board.open], [["the dragon in every shot"], ["the village or the sky last?"]]);
+
+  // look {mode:"board"} runs through the service (its pages are backend/look-board.test.mjs's):
+  // a board look is beside the scene's frames, so it is not the look `changed` compares with.
+  const frame = await agent("look", { project: "board-checks", mode: "frame", time: 1 });
+  assert.equal(frame.isError, undefined, frame.text);
+  const { lastLook, looks } = await savedState("board-checks");
+  const sceneId = (await record("board-checks")).document.scenes[0].id;
+  assert.equal(looks[sceneId].mode, "frame");
+  const page = await agent("look", { project: "board-checks", mode: "board" });
+  assert.equal(page.isError, undefined, page.text);
+  assert.deepEqual([page.data.mode, page.data.page, page.data.pages], ["board", 1, 1]);
+  // The board's stills share the scene's key: they must not replace the frame look kept there.
+  const after = await savedState("board-checks");
+  assert.equal(after.lastLook, lastLook);
+  assert.deepEqual(after.looks[sceneId], looks[sceneId], "the frame look `changed` compares with is kept");
+  await project("board-empty");
+  const none = await agent("look", { project: "board-empty", mode: "board" });
+  assert.equal(none.data.error, "not_found", none.text);
+  assert.equal(none.data.reason, 'No storyboard yet: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}).');
+  assert.ok((await agent("look", { project: "board-checks", mode: "bord" })).data.didYouMean.includes("board"));
+});
+
+test("the board is part of the document: revert and restore bring back the earlier board, and an old rev that no longer applies conflicts", { skip, timeout: 60_000 }, async () => {
+  await project("board-history", { layers: [audioLayer("song")] });
+  const first = await editBoard("board-history", [motion(0, 6)], { music: "song" });
+  assert.equal(first.isError, undefined, first.text);
+  const firstBoard = (await record("board-history")).document.board;
+  // A note from the person starts a new turn, so the next edit can be reverted on its own.
+  await agent("notes", { project: "board-history", action: "add", text: "two shots, please", by: "you" });
+  const second = await editBoard("board-history", [motion(0, 3), motion(3, 3)], { music: "song" });
+  assert.equal(second.isError, undefined, second.text);
+  assert.notEqual(second.data.turn, first.data.turn);
+  const secondBoard = (await record("board-history")).document.board;
+  assert.equal(secondBoard.rev, 2);
+
+  const reverted = await agent("history", { project: "board-history", action: "revert", turn: second.data.turn });
+  assert.equal(reverted.isError, undefined, reverted.text);
+  assert.deepEqual((await record("board-history")).document.board, firstBoard, "the revert brings back board r1");
+  const restored = await agent("history", { project: "board-history", action: "restore", rev: second.data.rev });
+  assert.equal(restored.isError, undefined, restored.text);
+  assert.deepEqual((await record("board-history")).document.board, secondBoard, "the restore brings back board r2");
+
+  // An edit written against an older version: its board names a layer another edit deleted.
+  const old = (await record("board-history")).revision;
+  assert.equal((await agent("edit", { project: "board-history", ops: [{ op: "delete_layer", layer: "song" }] })).isError, undefined);
+  const late = await editBoard("board-history", [motion(0, 2), motion(2, 4)], { music: "song" }, { rev: old });
+  assert.equal(late.data.error, "conflict", late.text);
+  assert.deepEqual((await record("board-history")).document.board, secondBoard, "the conflict saved nothing");
+});
+
+// The board the stop tests show: the clip's three shots cropped to 9:16, then a title to 8.8 s.
+const STOP_SHOTS = () => [footage(0, 1.25, 0, 20), footage(1.25, 2.083, 1.25, 38), footage(3.333, 1.084, 3.333, 55), motion(4.417, 4.383)];
+const OPEN = ["Which ending: the dragon or the title?", "Music, or the village sound?"];
+// The agent's decisions on OPEN after the person said "your call".
+const DECIDED = { calls: ["End on the title", "The village sound, no music"] };
+
+// An 8.8 s 1080×1920 project with the clip on a video layer (so the board stop asks) and a
+// brief settled with no playback ("just start").
+async function stopProject(id, on = server) {
+  await project(id, { duration: 8.8, layers: [videoLayer()], on });
+  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" }, on)).isError, undefined);
+}
+
+const LAPSE_NEXT = (stop) => `${stop} approved the board as it was; this change lapses that approval: ask again (notes checkpoint {id:"board"}); kino lists only the changed shots.`;
+const withShot = (shots, index, change) => shots.map((shot, at) => (at === index ? { ...shot, ...change } : shot));
+
+test("the board stop: board first, no gap, open items or \"your call\"; an approval freezes the board; small changes are logged, bigger ones lapse it", { skip, timeout: 120_000 }, async () => {
+  const id = "board-stop";
+  await stopProject(id);
+  const first = await checkpoint(id);
+  assert.equal(first.data.error, "board_first", first.text);
+  assert.equal(first.data.reason, 'Save the storyboard first: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}; library guide storyboard).');
+
+  assert.equal((await editBoard(id, STOP_SHOTS(), { open: OPEN })).isError, undefined);
+  assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 9.5 } }] })).isError, undefined);
+  const gapped = await checkpoint(id);
+  assert.equal(gapped.data.error, "board_gap", gapped.text);
+  assert.equal(gapped.data.reason, "the shots end at 8.8 s, before the video ends (9.5 s): make the last shot 0.7 s longer. Fix the board (edit board), then ask again.");
+  assert.deepEqual(gapped.data.at.map((time) => Number(time.toFixed(3))), [8.8, 9.5]);
+  assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 8.8 } }] })).isError, undefined);
+
+  // Open items: the person answers them first, or leaves them to the agent ("your call").
+  const open = await checkpoint(id);
+  assert.equal(open.data.error, "open_items", open.text);
+  assert.equal(open.data.reason, 'The board has 2 open items: ask the person in one message, fold their answers into the board (edit board, open emptied), then ask again: notes checkpoint {id:"board", fresh}. If they say "your call", send their words: notes {action:"checkpoint", id:"board", words}.');
+  assert.deepEqual([open.data.open_items, open.data.open], [2, OPEN]);
+  const theirs = await checkpoint(id, { words: "the dragon, I think" });
+  assert.equal(theirs.data.error, "open_items");
+  assert.equal(theirs.data.reason, 'Their words do not say "your call": fold their answers into the board (edit board), then ask again: notes checkpoint {id:"board", fresh}.');
+  // Review round 1 of B4a: "not your call" leaves nothing to the agent.
+  const notMine = await checkpoint(id, { words: "No, that's not your call: end on the dragon." });
+  assert.equal(notMine.data.error, "open_items", notMine.text);
+  assert.equal(notMine.data.reason, theirs.data.reason);
+  assert.equal((await savedState(id)).stops.length, 0, "a refused ask saves no round");
+
+  // "your call": kino logs their words, and the agent writes its decisions in the board's calls
+  // (review round 1 of B4a), so the ask shows what it chose.
+  // Every way back to the ask names fresh (review round 1 of B4b): the round made then is the one shown.
+  const decide = 'decide each, write your decisions in calls and empty open (edit board), then ask again: notes checkpoint {id:"board", fresh}.';
+  const left = await checkpoint(id, { words: "Your call on both." });
+  assert.deepEqual(left.data, { status: "your_call", open: OPEN, next: decide }, left.text);
+  assert.equal(withoutNext(left.text), `recorded: they left 2 open items to you ("your call").\nstep: ${decide}`);
+  let state = await savedState(id);
+  const { q, a, kind } = state.brief.log.at(-1);
+  assert.deepEqual({ q, a, kind }, { q: `Open: ${OPEN.join(" · ")}`, a: "Your call on both.", kind: "question" }, "their words are logged word for word");
+  assert.deepEqual({ ...state.leftToAgent, at: "at" }, { open: OPEN, words: "Your call on both.", at: "at" });
+  const undecided = await checkpoint(id);
+  assert.equal(undecided.data.error, "open_items");
+  assert.equal(undecided.data.reason, `They left these to you ("your call"): ${decide}`);
+  assert.equal((await editBoard(id, STOP_SHOTS(), DECIDED)).isError, undefined);
+
+  const asked = await checkpoint(id);
+  const rev = (await record(id)).revision;
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  assert.deepEqual([asked.data.id, asked.data.kind, asked.data.rev], ["C1", "board", rev]);
+  assert.deepEqual({ ...asked.data.board, flagged: 0 }, { rev: 2, shots: 4, listed: 4, flagged: 0 });
+  assert.ok(asked.data.ask.startsWith("The storyboard is ready (C1): 4 shots, 8.8 s, 1080×1920, no music.\n"), asked.data.ask);
+  assert.ok(asked.data.ask.includes(`\nMy calls (say no to any): ${DECIDED.calls.join(" · ")}\n`), asked.data.ask);
+  // The library's song belongs to other videos (review round 2 of B4a): no sound files for this one.
+  assert.ok(asked.data.ask.includes("\nNo sound effects. Send me sound files, or say so and I add a few from kino's library.\n"), asked.data.ask);
+  assert.ok(asked.data.ask.endsWith("Reply: approve · approve with notes: ... · redo: ..."), asked.data.ask);
+  assert.equal(asked.data.next, `send it as written, end your turn, then notes {action:"answer", id:"C1", rev:${rev}, words, read_as}.`);
+  assert.ok(estimateTextTokens(asked.text) - estimateTextTokens(asked.data.ask) <= 120, "the waiting answer is the ask and at most 120 tokens more");
+  state = await savedState(id);
+  assert.deepEqual(await statusLines(id), [`direction: C1 board waiting since ${clock(state.stops[0].askedAt)} · replies 1/10`, "step: end your turn until they answer"], "the reply counts");
+  assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 9 } }] })).data.waiting, "C1", "the project waits for the person");
+
+  // Approved: the agent-state file keeps a copy of the board as it was shown.
+  await gap(asked.at);
+  const approved = await answer(id, { id: "C1", rev, words: "looks great, go", read_as: "approve" });
+  assert.equal(approved.data.passed, true, approved.text);
+  state = await savedState(id);
+  const shown = (await record(id)).document.board;
+  assert.equal(state.boards.length, 1);
+  assert.deepEqual({ ...state.boards[0], at: "at" }, { stop: "C1", board: 2, rev, at: "at", by: "chat", read_as: "approve", musicFile: null, copy: shown, lapsed: null, revisions: [] });
+  const copy = structuredClone(state.boards[0].copy);
+
+  // The cut into shot 2 moves 3 frames: logged, and the approval stands.
+  const nudged = withShot(withShot(STOP_SHOTS(), 0, { dur: 1.35 }), 1, { cue: 1.35, dur: 1.983 });
+  const nudge = await editBoard(id, nudged, DECIDED);
+  assert.equal(nudge.isError, undefined, nudge.text);
+  assert.deepEqual(nudge.data.board, { rev: 3, approval: "C1", revisions: ["revision: shot 2 cut moved 3 frames"] });
+  const other = await agent("edit", { project: id, ops: [{ op: "update_layer", layer: "footage", properties: { opacity: 0.9 } }] });
+  assert.equal(other.data.board, undefined, "an edit that leaves the board alone has no board field");
+  const passed = await checkpoint(id);
+  assert.deepEqual(passed.data, { status: "passed", id: "C1", kind: "board", rev, revisions: ["revision: shot 2 cut moved 3 frames"] });
+  assert.equal(withoutNext(passed.text), `C1 board passed at rev ${rev} (approve, ${clock(state.stops[0].answer.at)}); board changes since are within kino's tolerances (1 revision logged). Go on.`);
+
+  // A new title lapses it. A note from the person first starts a new turn, so this edit can be
+  // reverted on its own below.
+  await agent("notes", { project: id, action: "add", text: "a stronger last line", by: "you" });
+  const retitled = withShot(nudged, 3, { text: { text: "The dragon returns", family: "Inter" } });
+  const lapse = await editBoard(id, retitled, DECIDED);
+  assert.deepEqual(lapse.data.board, { rev: 4, approval: "C1", lapsed: ["shot 4 text changed"], next: LAPSE_NEXT("C1") });
+  assert.deepEqual(await statusLines(id), ["direction: C1 board lapsed · replies 2/10", "step: ask board again (changed shots)"]);
+  state = await savedState(id);
+  assert.deepEqual(state.boards[0].copy, copy, "the frozen copy is unchanged by later edits");
+  assert.deepEqual({ ...state.boards[0].lapsed, at: "at" }, { at: "at", rev: lapse.data.rev, why: ["shot 4 text changed"] });
+  assert.deepEqual(state.boards[0].revisions.map((entry) => entry.line), ["revision: shot 2 cut moved 3 frames"]);
+  const lapsedEntry = structuredClone(state.boards[0]);
+
+  // A lapsed board is not approved: a later stop waits for it.
+  try {
+    await setting({ limits: { skipRoughUnder: 0 } });
+    const rough = await agent("notes", { project: id, action: "checkpoint", id: "rough" });
+    assert.equal(rough.data.error, "out_of_order", rough.text);
+    assert.equal(rough.data.reason, 'rough refused: board is not approved yet; run notes checkpoint {id:"board"} first.');
+  } finally {
+    await setting({ limits: { skipRoughUnder: 15 } });
+  }
+
+  // Asked again: only the changed shot, and why.
+  const again = await checkpoint(id);
+  assert.equal(again.data.status, "waiting_for_you", again.text);
+  assert.equal(again.data.id, "C2");
+  assert.ok(again.data.ask.startsWith("The storyboard changed since you approved it (C1); asking again (C2): shot 4 text changed.\n"), again.data.ask);
+  assert.equal(again.data.board.listed, 1, again.data.ask);
+  assert.ok(again.data.ask.includes('Shot 4, 4.42–8.8 s: no footage; "The dragon returns" in Inter 700.'), again.data.ask);
+  assert.ok(!again.data.ask.includes("Shot 1,"), "the unchanged shots are not listed again");
+  await gap(again.at);
+  const second = await answer(id, { id: "C2", rev: again.data.rev, words: "yes, better", read_as: "approve" });
+  assert.equal(second.data.passed, true, second.text);
+  state = await savedState(id);
+  assert.equal(state.boards.length, 2);
+  assert.deepEqual(state.boards[0], lapsedEntry, "the first approval's entry stays as it was");
+  assert.deepEqual(state.boards[1].copy, (await record(id)).document.board);
+  assert.equal(state.boards[1].stop, "C2");
+
+  // Reverting the turn that made the approved title brings the old one back: that lapses C2.
+  const reverted = await agent("history", { project: id, action: "revert", turn: lapse.data.turn });
+  assert.equal(reverted.isError, undefined, reverted.text);
+  assert.deepEqual(reverted.data.board, { rev: 3, approval: "C2", lapsed: ["shot 4 text changed"], next: LAPSE_NEXT("C2") });
+  assert.deepEqual(await statusLines(id), ["direction: C2 board lapsed · replies 3/10", "step: ask board again (changed shots)"]);
+  assert.deepEqual((await savedState(id)).boards[1].copy, state.boards[1].copy, "the revert leaves the copy alone");
+});
+
+test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {
+  const id = "board-allowed";
+  await stopProject(id);
+  assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
+  const rev = (await record(id)).revision;
+  const next = "say in one line that the storyboard passed by their settings, then build.";
+  try {
+    await setting({ approvals: { "checkpoint-board": "allow" } });
+    const allowed = await checkpoint(id);
+    assert.deepEqual(allowed.data, { status: "allowed", id: "C1", kind: "board", rev, by: "settings", next });
+    assert.equal(withoutNext(allowed.text), `C1 board allowed (the person's settings): kino keeps this board as the approved one.\nstep: ${next}`);
+    const state = await savedState(id);
+    assert.deepEqual({ ...state.boards[0], at: "at" }, { stop: "C1", board: 1, rev, at: "at", by: "settings", read_as: null, musicFile: null, copy: (await record(id)).document.board, lapsed: null, revisions: [] });
+    const passed = await checkpoint(id);
+    assert.equal(withoutNext(passed.text), `C1 board passed at rev ${rev} (allowed by the person's settings, ${clock(state.stops[0].allowedAt)}); nothing changed since. Go on.`);
+    const words = await checkpoint(id, { words: "your call" });
+    assert.equal(words.data.status, "passed", "a board that passed answers passed first");
+  } finally {
+    await setting({ approvals: { "checkpoint-board": "ask" } });
+  }
+  // A board with no open items takes no words.
+  await stopProject("board-no-open");
+  assert.equal((await editBoard("board-no-open", STOP_SHOTS())).isError, undefined);
+  const refused = await checkpoint("board-no-open", { words: "your call" });
+  assert.equal(refused.data.error, "bad_input");
+  assert.equal(refused.data.reason, "words goes with the board's open items, and this board has none: ask without words.");
+});
+
+test("a restart keeps the frozen copy and its lapse", { skip, timeout: 120_000 }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "kino-board-restart-"));
+  const id = "board-restart";
+  let first;
+  let second;
+  try {
+    first = await startTestServer({ env: { ...OFFLINE, MOTION_DATA_DIR: root } });
+    const media = await upload(first, CLIP, "video/mp4");
+    const shots = STOP_SHOTS().map((shot) => (shot.media === "none" ? shot : { ...shot, media: media.src }));
+    await project(id, { duration: 8.8, layers: [{ ...videoLayer(), properties: { src: media.src } }], on: first });
+    assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" }, first)).isError, undefined);
+    assert.equal((await editBoard(id, shots, {}, {}, first)).isError, undefined);
+    const asked = await checkpoint(id, {}, first);
+    assert.equal(asked.data.status, "waiting_for_you", asked.text);
+    await gap(asked.at);
+    assert.equal((await answer(id, { id: "C1", rev: asked.data.rev, words: "approve", read_as: "approve" }, first)).data.passed, true);
+    const lapse = await editBoard(id, withShot(shots, 2, { follow: "track" }), {}, {}, first);
+    assert.deepEqual(lapse.data.board.lapsed, ["shot 3 follow changed"]);
+    const before = (await savedState(id, root)).boards;
+    await first.stop();
+    first = null;
+
+    second = await startTestServer({ env: { ...OFFLINE, MOTION_DATA_DIR: root } });
+    assert.deepEqual((await savedState(id, root)).boards, before);
+    assert.deepEqual(await statusLines(id, second), ["direction: C1 board lapsed · replies 1/10", "step: ask board again (changed shots)"]);
+    const again = await checkpoint(id, {}, second);
+    assert.ok(again.data.ask.startsWith("The storyboard changed since you approved it (C1); asking again (C2): shot 3 follow changed.\n"), again.data.ask);
+  } finally {
+    await first?.stop();
+    await second?.stop();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// Review round 1 of B4a: the approval is measured wherever the board changes: a history restore
+// answers with the lapse, and a board changed some other way (the app's own save, the dashboard's
+// undo) is compared before status and before the board stop decide.
+test("a restore lapses the approval in its answer; a board saved outside edit lapses it for status and for the board stop", { skip, timeout: 120_000 }, async () => {
+  const titled = (shots, words) => withShot(shots, 3, { text: { text: words, family: "Inter" } });
+  const ids = ["board-restore", "board-outside-status", "board-outside-stop"];
+  for (const id of ids) {
+    await stopProject(id);
+    assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
+  }
+  // board-restore: a second board (a new title) is the one approved.
+  const firstRev = (await record(ids[0])).revision;
+  assert.equal((await editBoard(ids[0], titled(STOP_SHOTS(), "The dragon returns"))).isError, undefined);
+  const asked = [];
+  for (const id of ids) asked.push(await checkpoint(id));
+  await gap(Math.max(...asked.map((entry) => entry.at)));
+  for (const [index, id] of ids.entries()) {
+    const reply = await answer(id, { id: "C1", rev: asked[index].data.rev, words: "approve", read_as: "approve" });
+    assert.equal(reply.data.passed, true, reply.text);
+  }
+
+  const restored = await agent("history", { project: ids[0], action: "restore", rev: firstRev });
+  assert.equal(restored.isError, undefined, restored.text);
+  assert.deepEqual(restored.data.board, { rev: 1, approval: "C1", lapsed: ["shot 4 text changed"], next: LAPSE_NEXT("C1") });
+
+  // The app saves a new title straight into the project (PUT /api/projects/<id>).
+  for (const id of ids.slice(1)) {
+    const { document, revision } = await record(id);
+    const board = { ...document.board, rev: document.board.rev + 1, shots: document.board.shots.map((shot, index) => (index === 3 ? { ...shot, text: { ...shot.text, text: "Saved in the app" } } : shot)) };
+    const response = await server.api(`/api/projects/${id}`, { method: "PUT", body: { document: { ...document, board }, revision } });
+    assert.equal(response.status, 200, await response.clone().text());
+  }
+  assert.deepEqual(await statusLines(ids[1]), ["direction: C1 board lapsed · replies 1/10", "step: ask board again (changed shots)"]);
+  // Asked with no status first: the board stop compares the board itself.
+  const again = await checkpoint(ids[2]);
+  assert.equal(again.data.status, "waiting_for_you", again.text);
+  assert.ok(again.data.ask.startsWith("The storyboard changed since you approved it (C1); asking again (C2): shot 4 text changed.\n"), again.data.ask);
+});
+
+test("a board sent again without ids keeps each shot's id: a title card added first is named as added, the footage shots as moved", { skip, timeout: 60_000 }, async () => {
+  const id = "board-ids";
+  await project(id, { duration: 8.8, layers: [videoLayer()] });
+  assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
+  assert.deepEqual((await record(id)).document.board.shots.map((shot) => shot.id), ["S1", "S2", "S3", "S4"]);
+  // A title card first; the footage shots after it; the end title shorter.
+  const shots = [motion(0, 1, { text: { text: "Sintel", family: "Inter" } }), ...STOP_SHOTS().slice(0, 3).map((shot) => ({ ...shot, cue: shot.cue + 1 })), motion(5.417, 3.383)];
+  assert.equal((await editBoard(id, shots)).isError, undefined);
+  assert.deepEqual((await record(id)).document.board.shots.map((shot) => shot.id), ["S5", "S1", "S2", "S3", "S4"]);
+  // An id the agent sends is kept as sent.
+  assert.equal((await editBoard(id, shots.map((shot, index) => (index === 0 ? { ...shot, id: "title" } : shot)))).isError, undefined);
+  assert.deepEqual((await record(id)).document.board.shots.map((shot) => shot.id), ["title", "S1", "S2", "S3", "S4"]);
+});
+
+// ---- review round 2 of B4a -------------------------------------------------------------------
+
+// The person's settings allow the board, so each approval here is made without the 5 s wait.
+async function allowBoard(run) {
+  await setting({ approvals: { "checkpoint-board": "allow" } });
+  try { return await run(); } finally { await setting({ approvals: { "checkpoint-board": "ask" } }); }
+}
+
+test("a gap the video made lapses the approval only while it lasts, and an edit that lengthens the video answers with the lapse", { skip, timeout: 60_000 }, async () => {
+  const id = "board-gap-edit";
+  await stopProject(id);
+  assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
+  await allowBoard(async () => assert.equal((await checkpoint(id)).data.status, "allowed"));
+  const longer = await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 8.9 } }] });
+  assert.deepEqual(longer.data.board, { rev: 1, approval: "C1", lapsed: ["a gap at 8.8–8.9 s"], next: LAPSE_NEXT("C1") });
+  assert.deepEqual(await statusLines(id), ["direction: C1 board lapsed · replies 0/10", "step: ask board again (changed shots)"]);
+  // The last shot 3 frames longer covers the video again: within the tolerances, so it is logged
+  // and the approval stands, as if both changes were one edit.
+  const covered = await editBoard(id, withShot(STOP_SHOTS(), 3, { dur: 4.483 }));
+  assert.deepEqual(covered.data.board, { rev: 2, approval: "C1", revisions: ["revision: shot 4 end moved 3 frames"],
+    next: "the board covers the video again within kino's tolerances: C1 stands; no need to ask again." });
+  assert.equal((await savedState(id)).boards[0].lapsed, null);
+  assert.equal((await checkpoint(id)).data.status, "passed");
+  // A video made much longer: the edit's answer says the approval lapsed.
+  const far = await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 20 } }] });
+  assert.deepEqual(far.data.board.lapsed, ["a gap at 8.9–20 s"]);
+});
+
+test("the music layer's file is part of the approval: another file or no music layer lapses it", { skip, timeout: 60_000 }, async () => {
+  const tone = path.join(folder, "other.wav");
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=44100:duration=9", "-ac", "1", tone]);
+  const other = await upload(server, tone, "audio/wav");
+  for (const id of ["board-music-swap", "board-music-gone"]) {
+    // 8.8 s, so the board stop asks (none under 8 s); the song plays the whole video.
+    await project(id, { duration: 8.8, layers: [videoLayer(), audioLayer("song")] });
+    assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
+    const music = (await record(id)).document.scenes[0].layers.find((layer) => layer.name === "song").id;
+    const saved = await editBoard(id, STOP_SHOTS(), { music });
+    assert.equal(saved.isError, undefined, saved.text);
+  }
+  await allowBoard(async () => {
+    for (const id of ["board-music-swap", "board-music-gone"]) assert.equal((await checkpoint(id)).data.status, "allowed");
+  });
+  assert.equal((await savedState("board-music-swap")).boards[0].musicFile, song.src);
+  const swapped = await agent("edit", { project: "board-music-swap", ops: [{ op: "update_layer", layer: "song", properties: { src: other.src } }] });
+  assert.equal(swapped.isError, undefined, swapped.text);
+  assert.deepEqual(swapped.data.board.lapsed, ["music file changed"]);
+  const gone = await agent("edit", { project: "board-music-gone", ops: [{ op: "delete_layer", layer: "song" }] });
+  assert.equal(gone.isError, undefined, gone.text);
+  assert.deepEqual(gone.data.board.lapsed, ["music removed"]);
+  assert.deepEqual(await statusLines("board-music-gone"), ["direction: C1 board lapsed · replies 0/10", "step: ask board again (changed shots)"]);
+});
+
+test("sound files count only for their own video: another video's song is not 'the person sent sound files'", { skip, timeout: 60_000 }, async () => {
+  // Another video plays the library's song as its music.
+  await project("board-sound-other", { duration: 6, layers: [audioLayer("song")] });
+  for (const id of ["board-sound-none", "board-sound-sent"]) {
+    await stopProject(id);
+    assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
+  }
+  // The person sends a sound file for one video (uploaded to it).
+  const cheer = path.join(folder, "cheer.wav");
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=1", "-ac", "1", cheer]);
+  const response = await server.api("/api/media?project=board-sound-sent", { method: "POST", headers: { "content-type": "audio/wav", "x-file-name": "cheer.wav" }, body: await readFile(cheer) });
+  assert.equal(response.status, 201, await response.clone().text());
+  const none = await checkpoint("board-sound-none");
+  assert.ok(none.data.ask.includes("\nNo sound effects. Send me sound files, or say so and I add a few from kino's library.\n"), none.data.ask);
+  const sent = await checkpoint("board-sound-sent");
+  assert.ok(sent.data.ask.includes("\nNo sound effects.\n"), sent.data.ask);
+});
+
+// The person answers the board stop on the dashboard's stop card (B2b with B4a): approve, or
+// approve with notes, freezes the board the stop showed, as a chat answer does (by "dashboard");
+// a later change past kino's tolerances lapses it, a smaller one is logged; a redo freezes
+// nothing; a reopen takes the approval back (the frozen copies stay), so the board is asked again
+// whole. The card's pictures come from GET /api/dashboard/board: the pages look board draws, of
+// the revision the stop showed. No chat answer here, so nothing waits for too_fast.
+test("the board stop answered on the dashboard: approve and approve with notes freeze the board, a bigger change lapses it, a reopen takes it back", { skip, timeout: 120_000 }, async () => {
+  const id = "board-dashboard";
+  const stops = async (body) => {
+    const response = await server.api("/api/dashboard/stops", { method: "POST", headers: { "x-kino-review": key }, body: { project: id, ...body } });
+    return { status: response.status, body: await response.json() };
+  };
+  const boardPage = (query) => server.api(`/api/dashboard/board?${new URLSearchParams({ project: id, ...query })}`);
+  const pngSize = (png) => ({ width: png.readUInt32BE(16), height: png.readUInt32BE(20) });
+  const repliesOf = (lines) => lines[0].match(/replies (\d+)\/10/)[1];
+  await stopProject(id);
+  assert.equal((await editBoard(id, STOP_SHOTS(), DECIDED)).isError, undefined);
+  const asked = await checkpoint(id);
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  const rev = asked.data.rev;
+
+  // The stop card shows the board: the waiting stop carries it (with the ask), and its one page
+  // is the PNG the agent's look board draws, 4 rows of 273 px.
+  const { waiting } = (await (await server.api(`/api/dashboard/snapshot?project=${id}`)).json()).agent.stops;
+  assert.deepEqual([waiting.id, waiting.kind, waiting.rev, waiting.ask, waiting.board], ["C1", "board", rev, asked.data.ask, asked.data.board]);
+  const page = await boardPage({ rev, page: 1 });
+  assert.equal(page.status, 200, await page.clone().text());
+  assert.deepEqual([page.headers.get("content-type"), page.headers.get("x-board-pages")], ["image/png", "1"]);
+  assert.match(page.headers.get("cache-control"), /immutable/, "a page of a revision never changes");
+  const png = Buffer.from(await page.arrayBuffer());
+  assert.deepEqual(pngSize(png), { width: 1092, height: 4 * 273 });
+  const look = await agent("look", { project: id, mode: "board" });
+  assert.deepEqual(png, Buffer.from(look.images[0].data, "base64"), "the card's page is the agent's look board");
+  assert.deepEqual([(await boardPage({ rev, page: 2 })).status, (await (await boardPage({ rev, page: 2 })).json()).error], [400, "page is 1 to 1 (4 shots, 4 a page)."]);
+  assert.equal((await boardPage({ rev: rev + 1, page: 1 })).status, 400, "a revision the project does not have yet");
+  assert.equal((await server.api("/api/dashboard/board?project=no-such-project&page=1")).status, 404);
+
+  // Approved on the dashboard: kino keeps a copy of the board it showed, as for a chat answer.
+  const approved = await stops({ action: "answer", id: "C1", rev, read_as: "approve" });
+  assert.equal(approved.status, 200, JSON.stringify(approved.body));
+  let state = await savedState(id);
+  const shown = (await record(id)).document.board;
+  assert.deepEqual({ ...state.boards[0], at: "at" }, { stop: "C1", board: shown.rev, rev, at: "at", by: "dashboard", read_as: "approve", musicFile: null, copy: shown, lapsed: null, revisions: [] });
+  assert.deepEqual(approved.body.stops.board, { approved: { stop: "C1", board: shown.rev, rev, at: state.boards[0].at, by: "dashboard", lapsed: null, revisions: [] } });
+  const passed = await checkpoint(id);
+  // The agent hears the answer with its next call, here the board stop, which has passed.
+  assert.equal(withoutNext(passed.text), `C1 board passed at rev ${rev} (approve in kino, ${clock(state.stops[0].answer.at)}); nothing changed since. Go on.\ninbox ◆1\n  C1 board approved by the person in kino. Go on.`);
+
+  // A new title lapses it; asked again, only that shot is listed.
+  const retitled = withShot(STOP_SHOTS(), 3, { text: { text: "The dragon returns", family: "Inter" } });
+  const lapse = await editBoard(id, retitled, DECIDED);
+  assert.deepEqual(lapse.data.board, { rev: shown.rev + 1, approval: "C1", lapsed: ["shot 4 text changed"], next: LAPSE_NEXT("C1") });
+  const lapsedLines = await statusLines(id);
+  assert.deepEqual(lapsedLines, [`direction: C1 board lapsed · replies ${repliesOf(lapsedLines)}/10`, "step: ask board again (changed shots)"]);
+  const again = await checkpoint(id);
+  assert.equal(again.data.id, "C2", again.text);
+  assert.ok(again.data.ask.startsWith("The storyboard changed since you approved it (C1); asking again (C2): shot 4 text changed.\n"), again.data.ask);
+
+  // Approved with notes on the dashboard: a second copy, read as approve with notes. The noted
+  // change is past the tolerances (the title moves), so it lapses C2 and the person sees it
+  // again; a cut moved 3 frames first is only logged.
+  const noted = await stops({ action: "answer", id: "C2", rev: again.data.rev, read_as: "approve with notes", words: "the last line a little higher" });
+  assert.equal(noted.status, 200, JSON.stringify(noted.body));
+  state = await savedState(id);
+  assert.equal(state.boards.length, 2);
+  assert.deepEqual({ ...state.boards[1], at: "at" }, { stop: "C2", board: shown.rev + 1, rev: again.data.rev, at: "at", by: "dashboard", read_as: "approve with notes", musicFile: null,
+    copy: (await record(id)).document.board, lapsed: null, revisions: [] });
+  assert.equal(state.boards[0].stop, "C1", "the first approval's entry stays");
+  const nudged = withShot(withShot(retitled, 0, { dur: 1.35 }), 1, { cue: 1.35, dur: 1.983 });
+  const nudge = await editBoard(id, nudged, DECIDED);
+  assert.deepEqual(nudge.data.board, { rev: shown.rev + 2, approval: "C2", revisions: ["revision: shot 2 cut moved 3 frames"] });
+  const higher = await editBoard(id, withShot(nudged, 3, { text: { text: "The dragon returns", family: "Inter", y: 15 } }), DECIDED);
+  assert.deepEqual(higher.data.board, { rev: shown.rev + 3, approval: "C2", lapsed: ["shot 4 text changed"], next: LAPSE_NEXT("C2") });
+  state = await savedState(id);
+  assert.deepEqual(state.boards[1].revisions.map((entry) => entry.line), ["revision: shot 2 cut moved 3 frames"]);
+  assert.equal(state.boards[1].lapsed.why[0], "shot 4 text changed");
+
+  // Asked again and approved: then the person reopens that approval on the dashboard. It no
+  // longer stands (the copies stay as they were), status says to ask the board again (no check:
+  // the board is shown before anything is built), later stops wait, and the next ask shows the
+  // whole board, not only changed shots.
+  const third = await checkpoint(id);
+  assert.equal(third.data.id, "C3", third.text);
+  assert.equal((await stops({ action: "answer", id: "C3", rev: third.data.rev, read_as: "approve" })).status, 200);
+  const frozen = (await savedState(id)).boards;
+  assert.deepEqual(frozen.map((entry) => [entry.stop, entry.by, entry.read_as]), [["C1", "dashboard", "approve"], ["C2", "dashboard", "approve with notes"], ["C3", "dashboard", "approve"]]);
+  await agent("status", { project: id });
+  const reopened = await stops({ action: "reopen", id: "C3" });
+  assert.equal(reopened.status, 200, JSON.stringify(reopened.body));
+  assert.deepEqual(reopened.body.stops.board, { approved: null });
+  assert.equal(reopened.body.stops.rounds.at(-1).status, "reopened");
+  assert.deepEqual((await savedState(id)).boards, frozen, "a reopen changes no frozen copy");
+  const status = await agent("status", { project: id });
+  assert.ok(status.text.includes('C3 board reopened by the person in kino: they take back their answer (approve). Ask again: notes {action:"checkpoint", id:"board"}.'), status.text);
+  const reopenLines = status.text.split("\n").slice(1, 3);
+  assert.deepEqual(reopenLines, [`direction: C3 board reopened · replies ${repliesOf(reopenLines)}/10`, "step: ask board again"]);
+  try {
+    await setting({ limits: { skipRoughUnder: 0 } });
+    const rough = await agent("notes", { project: id, action: "checkpoint", id: "rough" });
+    assert.equal(rough.data.error, "out_of_order", rough.text);
+  } finally {
+    await setting({ limits: { skipRoughUnder: 15 } });
+  }
+  assert.deepEqual((await stops({ action: "reopen", id: "C2" })).body, { error: "C2 has a newer round (C3) of the storyboard: reopen that one." });
+  const fourth = await checkpoint(id);
+  assert.equal(fourth.data.id, "C4", fourth.text);
+  assert.ok(fourth.data.ask.startsWith("The storyboard is ready (C4): 4 shots, 8.8 s, 1080×1920, no music.\n"), fourth.data.ask);
+  assert.equal(fourth.data.board.listed, 4, "every shot again");
+
+  // A redo on the dashboard freezes nothing, and asks again without a check.
+  const redo = await stops({ action: "answer", id: "C4", rev: fourth.data.rev, read_as: "redo", words: "start on the dragon" });
+  assert.equal(redo.status, 200, JSON.stringify(redo.body));
+  assert.deepEqual((await savedState(id)).boards, frozen);
+  assert.deepEqual(redo.body.stops.board, { approved: null });
+  const heard = await agent("status", { project: id });
+  assert.ok(heard.text.includes('C4 board: the person asked for a redo in kino: "start on the dragon". Fix only what they named, then ask again: notes {action:"checkpoint", id:"board"}.'), heard.text);
+  assert.equal(heard.text.split("\n")[2], "step: fix what they named, ask board again");
+});
+
+test("with a clip imported, the first compose hint cuts it, at the brief's length only when the brief sets one", { skip, timeout: 60_000 }, async () => {
+  const made = await agent("project", { action: "create", id: "board-hint", name: "board-hint", width: 1080, height: 1920, duration: 24 });
+  assert.equal(made.isError, undefined, made.text);
+  await agent("edit", { project: "board-hint", ops: ["reference", "treatments"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a hint test" })) });
+  const sent = await server.api("/api/media?project=board-hint", { method: "POST", headers: { "content-type": "video/mp4", "x-file-name": "dragon.mp4" }, body: await readFile(CLIP) });
+  assert.equal(sent.status, 201, await sent.clone().text());
+  await agent("notes", { project: "board-hint", action: "brief", fields: { message: { text: "The dragon is back", by: "guessed" } } });
+  const next = async () => (await agent("check", { project: "board-hint", pixels: false, rules: ["assertions"] })).text.match(/^next: (.*)$/m)?.[1];
+  // No length in the brief: the footage planner picks one (not the empty scene's 24 s).
+  assert.equal(await next(), 'edit {"ops":[{"op":"compose","footage":["dragon.mp4"],"format":"9:16"}]}');
+  await agent("notes", { project: "board-hint", action: "brief", fields: { length: 30 } });
+  assert.equal(await next(), 'edit {"ops":[{"op":"compose","footage":["dragon.mp4"],"format":"9:16","duration":30}]}');
+});

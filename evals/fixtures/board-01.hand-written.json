@@ -1,0 +1,370 @@
+{
+  "version": 1,
+  "brief": "board-01",
+  "source": "hand-written",
+  "note": "Written by hand to test the checkers (tests/board-eval.test.mjs). Not a model run: no agent wrote these messages. The board ask is kino's boardAsk text for this board, with F2's fresh-eyes line.",
+  "project": "park-reopens",
+  "events": [
+    {
+      "type": "person",
+      "text": "Make me a 12 second TikTok with kino from /tmp/run/media/park.mp4: it says the park reopens Saturday. Show me the storyboard before you build."
+    },
+    {
+      "type": "call",
+      "tool": "project",
+      "input": {
+        "action": "create",
+        "id": "park-reopens",
+        "name": "Park reopens TikTok",
+        "width": 1080,
+        "height": 1920,
+        "duration": 12
+      },
+      "isError": false
+    },
+    {
+      "type": "agent",
+      "text": "Up to 2 quick questions, then I play the brief back and make the storyboard. Say \"just start\" to skip the questions.\n\nIf we don't set the look, I'll fall back on generic choices. What should it look and sound like?"
+    },
+    {
+      "type": "person",
+      "text": "bright and plain, the park's own sound"
+    },
+    {
+      "type": "call",
+      "tool": "notes",
+      "input": {
+        "project": "park-reopens",
+        "action": "brief",
+        "fields": {
+          "message": {
+            "text": "the park reopens Saturday",
+            "by": "you",
+            "quote": "it says the park reopens Saturday"
+          },
+          "plays_on": {
+            "text": "TikTok, 9:16, 12 s",
+            "by": "you",
+            "quote": "12 second TikTok"
+          },
+          "made_from": {
+            "text": "park.mp4",
+            "by": "you",
+            "quote": "park.mp4"
+          },
+          "look_sound": {
+            "text": "bright and plain; the park's own sound",
+            "by": "you",
+            "quote": "bright and plain, the park's own sound"
+          }
+        },
+        "log": [
+          {
+            "q": "If we don't set the look, I'll fall back on generic choices. What should it look and sound like?",
+            "a": "bright and plain, the park's own sound"
+          }
+        ]
+      },
+      "isError": false
+    },
+    {
+      "type": "agent",
+      "text": "What would make you wince if I got it wrong?"
+    },
+    {
+      "type": "person",
+      "text": "no meme text"
+    },
+    {
+      "type": "call",
+      "tool": "notes",
+      "input": {
+        "project": "park-reopens",
+        "action": "brief",
+        "fields": {
+          "never": {
+            "text": "no meme text",
+            "by": "you",
+            "quote": "no meme text"
+          },
+          "key_moment": {
+            "text": "the date, Saturday, at the end",
+            "by": "guessed"
+          }
+        },
+        "log": [
+          {
+            "q": "What would make you wince if I got it wrong?",
+            "a": "no meme text"
+          }
+        ]
+      },
+      "isError": false
+    },
+    {
+      "type": "agent",
+      "text": "Here's the brief. Quotes are yours; \"guess\" is mine.\n- message: you said \"it says the park reopens Saturday\"\n- plays on: you said \"12 second TikTok\" (so 9:16)\n- made from: you said \"park.mp4\"\n- look and sound: you said \"bright and plain, the park's own sound\"\n- never: you said \"no meme text\"\n- key moment: guess: the date, Saturday, at the end\nWhat's wrong or missing?"
+    },
+    {
+      "type": "person",
+      "text": "Looks right. Make the storyboard and show it to me, but don't build the video yet."
+    },
+    {
+      "type": "call",
+      "tool": "notes",
+      "input": {
+        "project": "park-reopens",
+        "action": "brief",
+        "log": [
+          {
+            "q": "What's wrong or missing?",
+            "a": "Looks right. Make the storyboard and show it to me, but don't build the video yet.",
+            "kind": "playback",
+            "rev": 2,
+            "confirmed": true
+          }
+        ]
+      },
+      "isError": false
+    },
+    {
+      "type": "call",
+      "tool": "project",
+      "input": {
+        "action": "import",
+        "file": "/tmp/run/media/park.mp4"
+      },
+      "isError": false
+    },
+    {
+      "type": "call",
+      "tool": "edit",
+      "input": {
+        "project": "park-reopens",
+        "ops": [
+          {
+            "op": "board",
+            "music": "none",
+            "calls": [
+              "Inter 700 for both lines",
+              "white text with no box",
+              "the clip's own sound only"
+            ],
+            "open": [],
+            "shots": [
+              {
+                "cue": 0,
+                "dur": 4,
+                "pacing": "free",
+                "media": "/api/media/park.mp4",
+                "in": 0,
+                "crop": [
+                  34.2,
+                  0,
+                  31.6,
+                  100
+                ],
+                "subject": {
+                  "what": "the color bars",
+                  "box": [
+                    38,
+                    10,
+                    24,
+                    50
+                  ]
+                },
+                "follow": "steady",
+                "text": {
+                  "text": "The park reopens",
+                  "family": "Inter",
+                  "weight": 700,
+                  "size": 96,
+                  "y": 30
+                },
+                "sound": "none",
+                "why": "say the news first"
+              },
+              {
+                "cue": 4,
+                "dur": 4,
+                "pacing": "free",
+                "media": "/api/media/park.mp4",
+                "in": 4,
+                "crop": [
+                  10,
+                  0,
+                  31.6,
+                  100
+                ],
+                "subject": {
+                  "what": "the moving circle",
+                  "box": [
+                    14,
+                    30,
+                    22,
+                    35
+                  ]
+                },
+                "follow": "track",
+                "text": "none",
+                "sound": "none",
+                "why": "the motion, no words"
+              },
+              {
+                "cue": 8,
+                "dur": 4,
+                "pacing": "free",
+                "media": "/api/media/park.mp4",
+                "in": 8,
+                "crop": [
+                  50,
+                  0,
+                  31.6,
+                  100
+                ],
+                "subject": {
+                  "what": "the counter",
+                  "box": [
+                    56,
+                    20,
+                    20,
+                    40
+                  ]
+                },
+                "follow": "steady",
+                "text": {
+                  "text": "Saturday",
+                  "family": "Inter",
+                  "weight": 700,
+                  "size": 120,
+                  "y": 30
+                },
+                "sound": "none",
+                "why": "end on the day"
+              }
+            ]
+          }
+        ]
+      },
+      "isError": false
+    },
+    {
+      "type": "call",
+      "tool": "look",
+      "input": {
+        "project": "park-reopens",
+        "mode": "board",
+        "page": 1
+      },
+      "isError": false
+    },
+    {
+      "type": "call",
+      "tool": "notes",
+      "input": {
+        "project": "park-reopens",
+        "action": "checkpoint",
+        "id": "board",
+        "fresh": "skipped"
+      },
+      "isError": false
+    },
+    {
+      "type": "agent",
+      "text": "This app cannot start a second agent, so the fresh-eyes check was skipped.\n\nThe storyboard is ready (C1): 3 shots, 12 s, 1080×1920, no music.\nBrief: the park reopens Saturday\nMy calls (say no to any): Inter 700 for both lines · white text with no box · the clip's own sound only\nFresh-eyes check: skipped (no second agent in this app).\nShot 1, 0–4 s: the color bars, 100% in crop; \"The park reopens\" in Inter 700.\nShot 2, 4–8 s: the moving circle, 100% in crop; no text.\nShot 3, 8–12 s: the counter, 100% in crop; \"Saturday\" in Inter 700.\nNo sound effects (sound search off). Send me sound files.\nReply: approve · approve with notes: ... · redo: ..."
+    }
+  ],
+  "saved": {
+    "brief": {
+      "rev": 2,
+      "savedAt": "2026-10-25T09:03:10.000Z",
+      "confirmedRev": 2,
+      "noPlayback": null,
+      "fields": {
+        "message": {
+          "text": "the park reopens Saturday",
+          "by": "you",
+          "quote": "it says the park reopens Saturday",
+          "rev": 1,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:05.000Z"
+        },
+        "plays_on": {
+          "text": "TikTok, 9:16, 12 s",
+          "by": "you",
+          "quote": "12 second TikTok",
+          "rev": 1,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:05.000Z"
+        },
+        "made_from": {
+          "text": "park.mp4",
+          "by": "you",
+          "quote": "park.mp4",
+          "rev": 1,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:05.000Z"
+        },
+        "look_sound": {
+          "text": "bright and plain; the park's own sound",
+          "by": "you",
+          "quote": "bright and plain, the park's own sound",
+          "rev": 1,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:05.000Z"
+        },
+        "never": {
+          "text": "no meme text",
+          "by": "you",
+          "quote": "no meme text",
+          "rev": 2,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:50.000Z"
+        },
+        "key_moment": {
+          "text": "the date, Saturday, at the end",
+          "by": "guessed",
+          "rev": 2,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:50.000Z"
+        }
+      },
+      "log": [
+        {
+          "q": "If we don't set the look, I'll fall back on generic choices. What should it look and sound like?",
+          "a": "bright and plain, the park's own sound",
+          "kind": "question",
+          "rev": 0,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:05.000Z"
+        },
+        {
+          "q": "What would make you wince if I got it wrong?",
+          "a": "no meme text",
+          "kind": "question",
+          "rev": 1,
+          "client": "claude-code",
+          "at": "2026-10-25T09:01:50.000Z"
+        },
+        {
+          "q": "What's wrong or missing?",
+          "a": "Looks right. Make the storyboard and show it to me, but don't build the video yet.",
+          "kind": "playback",
+          "rev": 2,
+          "confirmed": true,
+          "client": "claude-code",
+          "at": "2026-10-25T09:03:10.000Z"
+        }
+      ]
+    },
+    "missing": [],
+    "replies": {
+      "count": 3,
+      "limit": 10,
+      "questions": 2,
+      "playbacks": 1,
+      "stops": 0
+    },
+    "next": "notes set_plan, then build"
+  }
+}

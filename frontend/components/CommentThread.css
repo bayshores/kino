@@ -1,0 +1,235 @@
+/* An open thread (CommentThread.jsx), its "···" menus (CommentMenu.jsx), the @name list
+   (MentionTextarea.jsx) and the unread marks in the Comments panel. Dashboard look: dark,
+   monospace, square 1px boxes, coral for people. The colors are in base.css. Nothing here
+   animates. */
+
+/* Text for screen readers only. */
+.comment-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Unread marks. */
+.comment-unread-dot {
+  display: inline-block;
+  align-self: center;
+  width: 1ch;
+  height: 1ch;
+  background: var(--accent);
+}
+.comment-thread.unread .comment-thread-meta strong {
+  color: var(--accent);
+}
+.comments-unread-count {
+  margin-left: 1ch;
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.comment-thread-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 1ch;
+}
+.comment-badge {
+  display: inline-block;
+  padding: 0 0.5ch;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+.comment-mention {
+  color: var(--accent);
+  font-weight: 700;
+}
+.comment-mention.you {
+  padding: 0 2px;
+  background: var(--accent);
+  color: var(--bg0);
+}
+
+/* The open thread under its row. */
+.comment-thread-view {
+  display: grid;
+  gap: 0.5lh;
+  padding: 2px 0 0.75lh 3.5ch;
+}
+.comment-thread-view .comment-replies {
+  margin: 0;
+}
+.comment-item {
+  position: relative;
+  min-width: 0;
+}
+/* A reply's "···" stays at the end of its first line, however its name and notes wrap. */
+.comment-item:not(.root) > .comment-item-head {
+  padding-right: 4ch;
+}
+.comment-item:not(.root) > .comment-item-head > .comment-menu {
+  position: absolute;
+  top: 0;
+  right: 0;
+}
+.comment-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 1ch;
+  min-height: 1.5lh;
+}
+.comment-item-head strong {
+  overflow-wrap: anywhere;
+}
+.comment-item-head time {
+  color: var(--fg1);
+}
+.comment-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 1ch;
+}
+.comment-item-main > .comment-item-text,
+.comment-item-main > .comment-editor {
+  flex: 1;
+  min-width: 0;
+}
+.comment-item-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 1ch;
+  margin-top: 2px;
+}
+.comment-item .comment-item-text {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-thread.resolved .comment-item-text {
+  opacity: 0.7;
+}
+
+/* The "···" menu. */
+.comment-menu {
+  position: relative;
+  margin-left: auto;
+}
+.comment-menu-button[aria-expanded="true"] {
+  color: var(--accent);
+}
+.comment-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 20;
+  min-width: 18ch;
+  padding: 2px;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  display: grid;
+}
+.comment-menu-list button[role="menuitem"] {
+  display: block;
+  width: 100%;
+  padding: 0 1ch;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+  white-space: nowrap;
+}
+.comment-menu-list button[role="menuitem"]:hover,
+.comment-menu-list button[role="menuitem"]:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  outline: none;
+}
+.comment-menu-list button.danger {
+  color: var(--err);
+}
+
+/* The edit box, the reply box and the delete question. */
+.comment-editor,
+.comment-reply {
+  display: grid;
+  gap: 0.5lh;
+}
+.comment-editor textarea,
+.comment-reply textarea {
+  display: block;
+  width: 100%;
+  min-height: 3lh;
+  resize: vertical;
+  padding: 0.25lh 1ch;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.comment-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1ch;
+}
+.comment-form-footer > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg1);
+}
+.comment-confirm {
+  display: grid;
+  gap: 0.5lh;
+  margin-top: 0.5lh;
+  padding: 0.5lh 1ch;
+  border: 1px solid var(--err);
+}
+.comment-confirm p {
+  margin: 0;
+}
+
+/* The @name list under a comment box. */
+.mention-field {
+  position: relative;
+}
+.mention-list {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 30;
+  max-height: 10lh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 2px;
+  list-style: none;
+  border: 1px solid var(--line);
+  background: var(--bg2);
+  color: var(--fg0);
+}
+.mention-list li {
+  display: flex;
+  align-items: center;
+  gap: 1ch;
+  padding: 0 1ch;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+.mention-list li > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-list li:hover,
+.mention-list li.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}

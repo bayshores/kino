@@ -1,0 +1,343 @@
+// The one source of effect names, controls, validation limits and renderers. The controls and
+// defaults follow common motion-tool conventions; the bounded ranges and SVG algorithms are our own.
+import { renderBulge } from "./bulge.js";
+import { renderDisplacement } from "./displacement.js";
+import { renderFluidWarp } from "./fluidWarp.js";
+import { renderFlutedGlass } from "./flutedGlass.js";
+import { renderNoiseWarp } from "./noiseWarp.js";
+import { renderRipple } from "./ripple.js";
+import { renderDithering, renderDotGrid, renderDuotone, renderLumaHighlight, renderNoiseMask,
+  renderPixelate, renderThresholdColor, renderTritone, renderRgbShift } from "./postFx.js";
+import { renderOrbit, renderCardFlip } from "./projection.js";
+import { renderColorGrade, renderColorRemover } from "./colorUtility.js";
+import { renderColorWheels, renderCurves, renderHueSaturation, renderKeepColor, renderLut, renderWhiteBalance } from "./colorGrading.js";
+import { IDENTITY_CURVE, MAX_CURVE_POINTS, normalizeCurve } from "./colorMath.js";
+import { UTILITY_COPY_EFFECTS } from "./utilityCopies.js";
+import { BLUR_EFFECTS } from "./motionBlurs.js";
+import { FOCUS_BAND_EFFECT } from "./focusBand.js";
+import { EDGE_EFFECTS } from "./edges.js";
+import { LIGHT_EFFECTS } from "./light.js";
+import { PARTICLE_EFFECTS } from "./particles.js";
+
+const number = (label, value, min, max, step, unit = "", extra = {}) =>
+  ({ type: "number", label, default: value, min, max, step, unit, ...extra });
+const boolean = (label, value) => ({ type: "boolean", label, default: value });
+const color = (label, value) => ({ type: "color", label, default: value });
+// A tone curve: 2 to 16 points [input, output] from 0 to 1 (colorMath.js normalizeCurve).
+const curve = (label) => ({ type: "curve", label, default: IDENTITY_CURVE });
+// An imported .cube file, by its src (/api/media/<id>.cube). It has no default: it must be given.
+const lut = (label) => ({ type: "lut", label, default: null, required: true });
+// The src of an imported .cube file. Shared addresses (?share=) are not stored in documents.
+const LUT_SOURCE = /^\/api\/media\/[a-f0-9-]{1,128}\.cube$/;
+
+export const EFFECT_GROUPS = Object.freeze(["Distortion", "Post FX", "Utility", "Color", "Blur", "Light", "Generate"]);
+export const KEEP_STILL = Object.freeze([
+  ["off", "Off"], ["start", "At start"], ["end", "At end"], ["both", "Both"],
+]);
+
+const definitions = [
+  { key: "bulge", label: "Bulge", group: "Distortion", kind: "value", render: renderBulge,
+    parameters: { amount: number("Bulge Amount", 1, -2, 2, 0.05, "", { neutral: 0 }) } },
+  { key: "displacement", label: "Displacement", group: "Distortion", kind: "value", render: renderDisplacement,
+    parameters: {
+      amplitude: number("Amplitude", 10, -128, 128, 1, "px", { neutral: 0 }),
+      offset: number("Offset", 1, -1000, 1000, 0.05, "cycles"),
+      repeat: number("Repeat", 1, 0.25, 32, 0.1),
+      direction: { type: "enum", label: "Direction", default: "horizontal",
+        options: [["horizontal", "Horizontal"], ["vertical", "Vertical"], ["both", "Both"]] },
+    } },
+  { key: "fluid-warp", label: "Fluid Warp", group: "Distortion", kind: "ranged", render: renderFluidWarp,
+    parameters: {
+      amount: number("Amount", 25, 0, 128, 1, "px"),
+      noiseScale: number("Noise Scale", 1, 0.1, 16, 0.05),
+      octaves: number("Octaves", 4, 1, 8, 1, "", { integer: true }),
+      speed: number("Speed", 1, -4, 4, 0.05, "cycles/s"), contain: boolean("Contain", false),
+    } },
+  { key: "fluted-glass", label: "Fluted Glass", group: "Distortion", kind: "ranged", render: renderFlutedGlass,
+    parameters: {
+      columns: number("Columns", 12, 1, 128, 1, "", { integer: true }),
+      strength: number("Strength", 0.45, 0, 1, 0.01),
+      glowStrength: number("Glow Strength", 0.01, 0, 1, 0.01),
+      glowWidth: number("Glow Width", 0.4, 0.01, 2, 0.01),
+    } },
+  { key: "noise-warp", label: "Noise Warp", group: "Distortion", kind: "ranged", render: renderNoiseWarp,
+    parameters: {
+      amount: number("Amount", 26, 0, 128, 1, "px"),
+      noiseScale: number("Noise Scale", 1, 0.1, 16, 0.05),
+      speed: number("Speed", 1, -4, 4, 0.05, "cycles/s"), contain: boolean("Contain", true),
+    } },
+  { key: "ripple", label: "Ripple", group: "Distortion", kind: "ranged", render: renderRipple,
+    parameters: {
+      speed: number("Speed", 0.6, -4, 4, 0.05, "cycles/s"),
+      strength: number("Strength", 0.18, 0, 0.5, 0.01),
+      frequency: number("Frequency", 8, 0.1, 32, 0.1),
+      centerX: number("Center X", 0.5, 0, 1, 0.01), centerY: number("Center Y", 0.5, 0, 1, 0.01),
+      falloff: number("Falloff", 1.2, 0, 8, 0.1), sharpness: number("Sharpness", 6, 1, 16, 0.1),
+    } },
+  { key: "dithering", label: "Dithering", group: "Post FX", kind: "ranged", render: renderDithering,
+    parameters: {
+      darkColor: color("Dark Color", "#000000"), lightColor: color("Light Color", "#FFFFFF"),
+      subdivisions: number("Subdivisions", 200, 1, 2048, 1, "", { integer: true }),
+      contrast: number("Contrast", 1.2, 0, 4, 0.05),
+    } },
+  { key: "dot-grid", label: "Dot Grid", group: "Post FX", kind: "ranged", render: renderDotGrid,
+    parameters: {
+      gridRepetition: number("Grid Repetition", 40, 1, 512, 1, "", { integer: true }),
+      dotScale: number("Dot Scale", 4, 0, 8, 0.1), contrast: number("Contrast", 1.4, 0, 4, 0.05),
+      shadowColor: color("Shadow Color", "#FF0000"), highlightColor: color("Highlight Color", "#FF0000"),
+      invertDetection: boolean("Invert Detection", false),
+    } },
+  { key: "duotone", label: "Duotone", group: "Post FX", kind: "ranged", render: renderDuotone,
+    parameters: {
+      midpoint: number("Midpoint", 0.5, 0, 1, 0.01), contrast: number("Contrast", 0.9, 0, 4, 0.05),
+      shadowColor: color("Shadow Color", "#1400FF"), highlightColor: color("Highlight Color", "#FFE4E4"),
+    } },
+  { key: "luma-highlight", label: "Luma Highlight", group: "Post FX", kind: "ranged", render: renderLumaHighlight,
+    parameters: {
+      lumaThreshold: number("Luma Threshold", 1, 0, 1, 0.01, "", { initial: 0 }),
+      fuzzWidth: number("Fuzz Width", 0.1, 0, 1, 0.01, "", { initial: 0.1 }),
+      fuzzIntensity: number("Fuzz Intensity", 0.9, 0, 1, 0.01, "", { initial: 0.9 }),
+    } },
+  { key: "noise-mask", label: "Noise Mask", group: "Post FX", kind: "ranged", render: renderNoiseMask,
+    parameters: {
+      threshold: number("Threshold", 0, 0, 1, 0.01, "", { initial: 1 }),
+      scale: number("Scale", 0.55, 0.01, 16, 0.01),
+      seed: number("Seed", 0, -2147483648, 2147483647, 1, "", { integer: true }),
+      octaves: number("Octaves", 4, 1, 8, 1, "", { integer: true }),
+      edgeSoftness: number("Edge Softness", 0.06, 0, 1, 0.01),
+      // 0 keeps Scale's cells, which stretch with the layer. 1 or more makes square cells that
+      // many pixels wide on any layer size (fine film grain is 1-2) and ignores Scale.
+      cellSize: number("Cell Size", 0, 0, 64, 1, "px", { integer: true }),
+    } },
+  { key: "pixelate", label: "Pixelate", group: "Post FX", kind: "ranged", render: renderPixelate,
+    parameters: {
+      pixelSize: number("Pixel Size", 25, 1, 128, 1, "px", { initial: 1 }),
+      pixelSizeStep: number("Pixel Size Step", 1, 1, 128, 1, "px"),
+      noiseScale: number("Noise Scale", 1, 0.01, 16, 0.05),
+      noiseThreshold: number("Noise Threshold", 0.5, 0, 1, 0.01),
+      noiseEnabled: boolean("Noise", false),
+    } },
+  { key: "threshold-color", label: "Threshold Color", group: "Post FX", kind: "ranged", render: renderThresholdColor,
+    parameters: {
+      contrast: number("Contrast", 1.25, 0, 4, 0.05), defaultColor: color("Default Color", "#6F6645"),
+      colorThreshold: number("Color Threshold", 0.5, 0, 1, 0.01), softness: number("Softness", 0, 0, 1, 0.01),
+      invertLuma: boolean("Invert Luma", true),
+    } },
+  { key: "tritone", label: "Tritone", group: "Post FX", kind: "ranged", render: renderTritone,
+    parameters: {
+      threshold1: number("Threshold 1", 0.33, 0, 1, 0.01), threshold2: number("Threshold 2", 0.66, 0, 1, 0.01),
+      softness: number("Softness", 0.35, 0, 1, 0.01), contrast: number("Contrast", 1, 0, 4, 0.05),
+      shadowColor: color("Shadow Color", "#1A1033"), midtoneColor: color("Midtone Color", "#E94F64"),
+      highlightColor: color("Highlight Color", "#FFE9B0"),
+    } },
+  { key: "rgb-shift", label: "RGB Shift", group: "Post FX", kind: "ranged", render: renderRgbShift,
+    parameters: {
+      amount: number("Amount", 0.25, 0, 1, 0.01), direction: number("Direction", 0, -360, 360, 1, "°"),
+      overflow: boolean("Overflow", false),
+    } },
+  { key: "3d-orbit", label: "3D Orbit", group: "Utility", kind: "ranged", render: renderOrbit,
+    parameters: {
+      rotateY: number("Rotate Y", 0, -3600, 3600, 1, "°", { initial: 360 }),
+      rotateX: number("Rotate X", 0, -3600, 3600, 1, "°"), rotateZ: number("Rotate Z", 0, -3600, 3600, 1, "°"),
+      pivotZ: number("Pivot Z", 5, 0, 8, 0.1), perspective: number("Perspective", 0.45, 0, 0.95, 0.01),
+      cameraDistance: number("Camera Distance", 4.5, 0.5, 32, 0.1),
+      showFront: boolean("Show Front", true), showBack: boolean("Show Back", true),
+    } },
+  { key: "card-flip", label: "Card Flip", group: "Utility", kind: "ranged", render: renderCardFlip,
+    parameters: {
+      rotationY: number("Rotation Y", 360, -3600, 3600, 1, "°", { initial: 0 }),
+      rotationX: number("Rotation X", 0, -3600, 3600, 1, "°"), rotationZ: number("Rotation Z", 0, -3600, 3600, 1, "°"),
+      pivotX: number("Pivot X", 0, -2, 2, 0.05), pivotY: number("Pivot Y", 0, -2, 2, 0.05),
+      perspective: number("Perspective", 0.45, 0, 0.95, 0.01),
+      frontFace: boolean("Front Face", true), backFace: boolean("Back Face", true),
+    } },
+  { key: "color-grade", label: "Color Grade", group: "Utility", kind: "ranged", render: renderColorGrade,
+    parameters: {
+      exposure: number("Exposure", 1, 0, 4, 0.05), brightness: number("Brightness", 1, 0, 4, 0.05),
+      contrast: number("Contrast", 1.5, 0, 4, 0.05), saturation: number("Saturation", 1, 0, 4, 0.05),
+    } },
+  { key: "color-remover", label: "Color Remover", group: "Utility", kind: "ranged", render: renderColorRemover,
+    parameters: { targetColor: color("Target Color", "#00FF00"), range: number("Range", 0.18, 0, 1, 0.01),
+      softness: number("Softness", 0.18, 0, 1, 0.01) } },
+  ...UTILITY_COPY_EFFECTS,
+  // Overlay generators (embers, snow, fog...): src/effects/particles.js.
+  ...PARTICLE_EFFECTS,
+  // Colour grading. Every default changes nothing, except keep-color (which keeps reds) and
+  // lut (which needs a file). colorGrading.js says how each one is drawn.
+  { key: "curves", label: "Curves", group: "Color", kind: "ranged", render: renderCurves,
+    parameters: { master: curve("Master"), red: curve("Red"), green: curve("Green"), blue: curve("Blue"),
+      strength: number("Strength", 1, 0, 1, 0.01) } },
+  { key: "lut", label: "LUT", group: "Color", kind: "ranged", render: renderLut,
+    parameters: { lut: lut("LUT File"), strength: number("Strength", 1, 0, 1, 0.01) } },
+  { key: "hue-saturation", label: "Hue/Saturation", group: "Color", kind: "ranged", render: renderHueSaturation,
+    parameters: {
+      hue: number("Hue", 0, -3600, 3600, 1, "°"), saturation: number("Saturation", 1, 0, 4, 0.05),
+      lightness: number("Lightness", 0, -1, 1, 0.01), colorize: boolean("Colorize", false), tint: color("Tint", "#C8935A"),
+    } },
+  { key: "white-balance", label: "White Balance", group: "Color", kind: "ranged", render: renderWhiteBalance,
+    parameters: { temperature: number("Temperature", 0, -100, 100, 1), tint: number("Tint", 0, -100, 100, 1) } },
+  { key: "color-wheels", label: "Color Wheels", group: "Color", kind: "ranged", render: renderColorWheels,
+    parameters: Object.fromEntries([["lift", 0, -1, 1], ["gamma", 1, 0.1, 4], ["gain", 1, 0, 4]].flatMap(([wheel, value, min, max]) => {
+      const label = wheel[0].toUpperCase() + wheel.slice(1);
+      return [[wheel, number(label, value, min, max, 0.01)],
+        ...["Red", "Green", "Blue"].map((channel) => [`${wheel}${channel}`, number(`${label} ${channel}`, 0, -1, 1, 0.01)])];
+    })) },
+  { key: "keep-color", label: "Keep Color", group: "Color", kind: "ranged", render: renderKeepColor,
+    parameters: {
+      targetColor: color("Target Color", "#FF0000"), hueRange: number("Hue Range", 25, 0, 90, 1, "°"),
+      softness: number("Softness", 15, 0, 90, 1, "°"), amount: number("Amount", 1, 0, 1, 0.01),
+    } },
+  // Directional, zoom and spin blur (motionBlurs.js); edge fill, mirror, kaleidoscope (edges.js).
+  ...BLUR_EFFECTS, FOCUS_BAND_EFFECT, ...EDGE_EFFECTS,
+  // Glow, light rays and lens flare (light.js).
+  ...LIGHT_EFFECTS,
+];
+
+function freezeDefinition(definition) {
+  if (typeof definition.render !== "function") throw new TypeError(`Effect ${definition.key} needs a renderer`);
+  for (const field of Object.values(definition.parameters)) {
+    if (field.options) { field.options.forEach(Object.freeze); Object.freeze(field.options); }
+    Object.freeze(field);
+  }
+  return Object.freeze({ duration: definition.kind === "value" ? 0.8 : null,
+    easing: Object.values(definition.parameters).some((field) => Object.hasOwn(field, "initial")) ? "smooth" : "linear",
+    ...definition, parameters: Object.freeze(definition.parameters) });
+}
+export const EFFECTS = Object.freeze(definitions.map(freezeDefinition));
+const byKey = new Map(EFFECTS.map((effect) => [effect.key, effect]));
+
+export function effectDefinition(key) {
+  const effect = byKey.get(key);
+  if (!effect) throw new RangeError(`Unknown effect "${String(key)}"; choose ${[...byKey.keys()].join(", ")}`);
+  return effect;
+}
+
+export function effectDefaults(key, { neutral = false } = {}) {
+  return Object.fromEntries(Object.entries(effectDefinition(key).parameters).map(([name, field]) =>
+    [name, neutral && Object.hasOwn(field, "neutral") ? field.neutral : field.default]));
+}
+
+// Only the observed From -> To controls start with an Initial value block.
+export function effectInitialValues(key) {
+  return Object.fromEntries(Object.entries(effectDefinition(key).parameters)
+    .filter(([, field]) => Object.hasOwn(field, "initial")).map(([name, field]) => [name, field.initial]));
+}
+
+export function normalizeEffectParameters(key, values, { partial = false, path = "parameters" } = {}) {
+  const { parameters } = effectDefinition(key);
+  if (!values || typeof values !== "object" || Array.isArray(values)) throw new TypeError(`${path} must be an object`);
+  for (const name of Object.keys(values)) {
+    if (!Object.hasOwn(parameters, name)) throw new TypeError(`${path}.${name} is not a parameter of ${key}`);
+  }
+  const output = partial ? {} : effectDefaults(key);
+  for (const [name, value] of Object.entries(values)) {
+    const field = parameters[name];
+    const at = `${path}.${name}`;
+    if (field.type === "number") {
+      if (typeof value !== "number" || !Number.isFinite(value) || value < field.min || value > field.max || (field.integer && !Number.isInteger(value)))
+        throw new RangeError(`${at} must be ${field.integer ? "an integer" : "a number"} from ${field.min} to ${field.max}`);
+      output[name] = value;
+    } else if (field.type === "boolean") {
+      if (typeof value !== "boolean") throw new TypeError(`${at} must be true or false`);
+      output[name] = value;
+    } else if (field.type === "enum") {
+      if (!field.options.some(([option]) => option === value)) throw new RangeError(`${at} must be ${field.options.map(([option]) => option).join(", ")}`);
+      output[name] = value;
+    } else if (field.type === "color") {
+      if (typeof value !== "string" || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) throw new TypeError(`${at} must be a 3 or 6 digit hex color`);
+      output[name] = (value.length === 4 ? `#${[...value.slice(1)].map((digit) => digit + digit).join("")}` : value).toUpperCase();
+    } else if (field.type === "curve") {
+      output[name] = normalizeCurve(value, at);
+    } else if (field.type === "lut") {
+      if (typeof value !== "string" || !LUT_SOURCE.test(value))
+        throw new TypeError(`${at} must be the src of an imported .cube file, such as /api/media/<id>.cube (project {action:"import", file:"/absolute/look.cube"} gives it)`);
+      output[name] = value;
+    } else throw new TypeError(`Unsupported effect parameter type ${field.type}`);
+  }
+  if (!partial) for (const [name, field] of Object.entries(parameters))
+    if (field.required && output[name] == null)
+      throw new TypeError(`${path}.${name} is required: the src of an imported .cube file (project {action:"import", file:"/absolute/look.cube"} gives it)`);
+  return output;
+}
+
+/** The media sources (/api/media/...) an effect animation uses, such as a lut effect's .cube file. */
+export function effectMediaSources(animation) {
+  if (animation?.kind !== "effect" || !byKey.has(animation.effect)) return [];
+  const sources = [];
+  for (const [name, field] of Object.entries(byKey.get(animation.effect).parameters))
+    if (field.type === "lut") for (const endpoint of [animation.to, animation.from])
+      if (typeof endpoint?.[name] === "string") sources.push(endpoint[name]);
+  return sources;
+}
+
+// What values a parameter takes, after its type: " 0..1500 integer px/s", " area/bottom/…", and so on.
+function fieldRange(field) {
+  if (field.type === "number") return ` ${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}`;
+  if (field.type === "enum") return ` ${field.options.map(([value]) => value).join("/")}`;
+  if (field.type === "curve") return ` [[in,out],…] 2..${MAX_CURVE_POINTS} points 0..1`;
+  if (field.type === "lut") return " (an imported .cube file's src)";
+  return "";
+}
+
+// Kept generated so an MCP client sees the same names, types, defaults and limits as the UI.
+// `group` limits it to one catalog group; `exceptGroup` leaves one group (or a list) out; `keys` keeps only those effects.
+export function effectDocumentation({ group, exceptGroup, keys } = {}) {
+  const left = [exceptGroup].flat();
+  return EFFECTS.filter((effect) => (!group || effect.group === group) && !left.includes(effect.group) && (!keys || keys.includes(effect.key)))
+    .map((effect) => `${effect.key} (${effect.label}; ${effect.kind}): ` +
+    Object.entries(effect.parameters).map(([key, field]) => `${key} ${field.type}${fieldRange(field)}` +
+      (field.required ? " required" : ` default ${JSON.stringify(field.default)}`) +
+      (Object.hasOwn(field, "initial") ? ` initial ${JSON.stringify(field.initial)}` : "")).join("; ")).join(". ");
+}
+
+// "a, b and c" (or "a, b or c").
+function listOf(words, last = "and") {
+  return words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} ${last} ${words.at(-1)}`;
+}
+
+// The same facts as effectDocumentation for a group whose effects share most of their settings
+// (the eight Generate looks), in about a quarter of the length: each setting once with its range,
+// naming the effects where the range differs, which effects lack which settings, then a table with
+// one row of defaults per effect for the settings whose default differs between them. It expects
+// every setting to have a default (no required or initial values, unlike lut or the value effects).
+// Example line: "size 0.5..48 px (embers), 4..400 px (bokeh)". Example row: "embers 150 8 …".
+export function sharedEffectDocumentation({ group }) {
+  const effects = EFFECTS.filter((effect) => effect.group === group);
+  const keys = [...new Set(effects.flatMap((effect) => Object.keys(effect.parameters)))];
+  const shown = (value) => typeof value === "string" ? value : JSON.stringify(value);
+  const tableKeys = [];
+  const lacking = new Map(); // "fog and light-leaks" → the settings they do not have
+  const described = keys.map((key) => {
+    const having = effects.filter((effect) => effect.parameters[key]);
+    // Effects with the same range share one entry: "0..2000 integer (snow, dust, rain)".
+    const ranges = new Map();
+    for (const effect of having) {
+      const field = effect.parameters[key];
+      const range = field.type === "number" || field.type === "enum" ? fieldRange(field).trim() : field.type;
+      ranges.set(range, [...(ranges.get(range) ?? []), effect.key]);
+    }
+    let text = ranges.size === 1 ? [...ranges.keys()][0] : [...ranges].map(([range, names]) => `${range} (${names.join(", ")})`).join(", ");
+    const defaults = new Set(having.map((effect) => shown(effect.parameters[key].default)));
+    if (defaults.size === 1) text += ` default ${[...defaults][0]}`;
+    else tableKeys.push(key);
+    const missing = effects.filter((effect) => !effect.parameters[key]).map((effect) => effect.key);
+    if (missing.length) {
+      const names = `${listOf(missing)} ${missing.length === 1 ? "has" : "have"} no`;
+      lacking.set(names, [...(lacking.get(names) ?? []), key]);
+    }
+    return { keys: [key], text };
+  });
+  // Settings next to each other with the same description share one entry: "opacity, glow 0..1".
+  const merged = [];
+  for (const entry of described) {
+    if (merged.at(-1)?.text === entry.text) merged.at(-1).keys.push(...entry.keys);
+    else merged.push(entry);
+  }
+  const rows = effects.map((effect) =>
+    [effect.key, ...tableKeys.map((key) => effect.parameters[key] ? shown(effect.parameters[key].default) : "-")].join(" "));
+  return [
+    `${merged.map((entry) => `${entry.keys.join(", ")} ${entry.text}`).join("; ")}.` +
+      [...lacking].map(([names, missingKeys]) => ` ${names} ${listOf(missingKeys, "or")}.`).join(""),
+    "Defaults (- where an effect has no such setting):", ["effect", ...tableKeys].join(" "), ...rows,
+  ].join("\n");
+}

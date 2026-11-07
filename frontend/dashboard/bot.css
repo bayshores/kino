@@ -1,0 +1,6 @@
+/* The agent bots (bot.jsx). The svg may draw past its box (a hop, the sleeping "z"), and it never
+   shrinks in a flex row. Only its attributes change while it moves; there is no CSS animation. */
+.bot { display: inline-block; flex: none; overflow: visible; vertical-align: -0.15em; }
+/* In a row of text (the session pane, the status line): a little space before the name. */
+.agent-bot { display: inline-flex; align-items: center; justify-content: center; width: 2ch; flex: none; }
+.bot.status-bot { margin-right: 0.7ch; }

@@ -1,0 +1,193 @@
+/* The Comments panel (CommentsPanel.jsx): the viewer's comments column (Viewer.css
+   .viewer-comments) for comment and edit links. Dashboard look: dark, monospace, square 1px boxes,
+   coral for people. The colors are in base.css. */
+.comments-panel {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg1);
+  color: var(--fg0);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.comments-panel-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 2lh;
+  padding: 0 0.5ch 0 1.5ch;
+  border-bottom: 1px solid var(--line);
+}
+.comments-panel-header h2 {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+.comments-panel-header h2:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.comments-panel-header .icon-button[aria-pressed="false"] {
+  color: var(--fg2);
+}
+.comments-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.75lh 1.5ch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75lh;
+}
+.comments-panel-hint {
+  margin: 0;
+  color: var(--fg1);
+}
+.comments-panel .comment-here {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1ch;
+  width: 100%;
+}
+.comments-name {
+  display: grid;
+  gap: 2px;
+  color: var(--fg1);
+}
+.comments-name input {
+  width: 100%;
+  min-width: 0;
+  height: 1.75lh;
+  padding: 0 1ch;
+  color: var(--fg0);
+}
+.comment-filters {
+  display: flex;
+  gap: 1ch;
+}
+.comments-panel .comment-filters button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 1ch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1ch;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--fg1);
+}
+.comment-filters button span {
+  color: var(--fg2);
+}
+.comments-panel .comment-filters button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.comments-empty {
+  margin: 0.5lh 0;
+  color: var(--fg2);
+}
+.comment-threads,
+.comment-replies {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.comment-thread {
+  border-bottom: 1px solid var(--line);
+}
+.comment-thread-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+.comments-panel button.comment-thread-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 1ch;
+  padding: 0.5lh 0.5ch;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg0);
+  text-align: left;
+}
+.comments-panel button.comment-thread-open:hover {
+  border-color: var(--line);
+  color: var(--fg0);
+}
+.comments-panel .comment-thread.open button.comment-thread-open {
+  border-color: var(--accent);
+}
+.comment-avatar {
+  flex: 0 0 2.5ch;
+  width: 2.5ch;
+  height: 1.5lh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+.comment-thread-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.comment-thread-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 1ch;
+}
+.comment-thread-meta strong {
+  overflow-wrap: anywhere;
+}
+.comment-thread-meta time,
+.comment-thread-place,
+.comment-thread-note {
+  color: var(--fg1);
+}
+/* The open thread someone else resolved or reopened (CommentsPanel.jsx KEPT_TEXT). */
+.comment-thread-kept {
+  margin: 0 0 0.5lh 3.5ch;
+  color: var(--warn);
+}
+.comment-thread-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.comment-thread.resolved .comment-thread-body,
+.comment-thread.resolved .comment-avatar {
+  opacity: 0.55;
+}
+.comments-panel button.comment-resolve {
+  flex: 0 0 auto;
+  margin-top: 0.5lh;
+  color: var(--ok);
+}
+.comment-replies {
+  margin: 0 0 0.5lh 3.5ch;
+  padding-left: 1ch;
+  border-left: 1px solid var(--line);
+  display: grid;
+  gap: 0.5lh;
+}
+.comment-replies p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

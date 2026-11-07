@@ -1,0 +1,217 @@
+.presence-avatars {
+  position: relative;
+  display: inline-flex;
+  max-width: 230px;
+  align-items: center;
+  color: var(--fg0);
+  font: 12px/1.35 var(--mono);
+}
+
+.presence-avatars--open {
+  z-index: 220;
+}
+
+.presence-avatars__stack {
+  display: flex;
+  max-width: 230px;
+  align-items: center;
+  gap: 2px;
+}
+
+.presence-avatars__entry {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  border-radius: 0;
+  cursor: default;
+}
+
+.presence-avatars__chip {
+  display: inline-flex;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bg0);
+  border-radius: 0;
+  background: var(--presence-color, var(--agent));
+  box-shadow: none;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+.presence-avatars__self-label {
+  padding: 3px 5px;
+  border-radius: 0;
+  background: var(--bg2);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.presence-avatars .presence-avatars__more {
+  display: inline-flex;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg1);
+  color: var(--fg0);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.presence-avatars__more:hover {
+  background: var(--bg2);
+}
+
+.presence-avatars .presence-avatars__follow {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.presence-avatars .presence-avatars__follow:disabled {
+  cursor: default;
+}
+
+.presence-avatars__popover {
+  position: fixed;
+  z-index: 220;
+  top: 8px;
+  left: 8px;
+  right: auto;
+  width: min(360px, calc(100vw - 16px));
+  max-width: 390px;
+  max-height: min(390px, calc(100vh - 24px));
+  max-height: min(390px, calc(100dvh - 24px));
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg2);
+  box-shadow: none;
+  scrollbar-color: var(--line) transparent;
+  scrollbar-width: thin;
+}
+
+.presence-avatars__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  outline: none;
+}
+
+.presence-avatars__item {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.presence-avatars .presence-avatars__person {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.presence-avatars .presence-avatars__person:hover:not(:disabled) {
+  background: var(--bg1);
+}
+
+.presence-avatars .presence-avatars__person:disabled {
+  cursor: default;
+}
+
+.presence-avatars .presence-avatars__person:focus-visible,
+.presence-avatars .presence-avatars__more:focus-visible,
+.presence-avatars .presence-avatars__follow:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.presence-avatars__chip--list {
+  flex-basis: 30px;
+  width: 30px;
+  height: 30px;
+  font-size: 10px;
+}
+
+.presence-avatars__person-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.presence-avatars__name,
+.presence-avatars__scene {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.presence-avatars__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg0);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.presence-avatars__you {
+  flex: 0 0 auto;
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.presence-avatars__scene {
+  color: var(--fg1);
+  font-size: 10px;
+}
+
+@media (max-width: 420px) {
+  .presence-avatars__popover {
+    width: min(320px, calc(100vw - 16px));
+  }
+}

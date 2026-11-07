@@ -1,0 +1,17 @@
+{
+  "result_count": 4,
+  "results": [
+    {"id": "1f2e3d4c-0000-4000-8000-000000000001", "title": "Rising  Lights", "creator": "Ana Ruiz", "license": "by", "license_version": "4.0",
+     "license_url": "https://creativecommons.org/licenses/by/4.0/", "duration": 132000, "url": "https://prod-1.storage.jamendo.com/download/track/1/mp32/",
+     "filetype": "mp32", "source": "jamendo", "foreign_landing_url": "https://www.jamendo.com/track/1"},
+    {"id": "1f2e3d4c-0000-4000-8000-000000000002", "title": "Quiet Hall", "creator": "Lee", "license": "by-nc", "license_version": "3.0",
+     "license_url": "https://creativecommons.org/licenses/by-nc/3.0/", "duration": 90000, "url": "https://prod-1.storage.jamendo.com/download/track/2/mp32/",
+     "filetype": "mp3", "source": "jamendo", "foreign_landing_url": "https://www.jamendo.com/track/2"},
+    {"id": "1f2e3d4c-0000-4000-8000-000000000003", "title": "Blip", "creator": "Mo", "license": "cc0", "license_version": "1.0",
+     "license_url": "https://creativecommons.org/publicdomain/zero/1.0/", "duration": 4000, "url": "https://cdn.freesound.org/previews/3.mp3",
+     "filetype": "mp3", "source": "freesound", "foreign_landing_url": "https://freesound.org/s/3"},
+    {"id": "1F2E3D4C-0000-4000-8000-000000000004", "title": "Open Road", "creator": "Kai", "license": "cc0", "license_version": "1.0",
+     "license_url": "https://creativecommons.org/publicdomain/zero/1.0/", "duration": 61500, "url": "https://ccmixter.org/content/kai/road.ogg",
+     "filetype": null, "source": "ccmixter", "foreign_landing_url": null}
+  ]
+}

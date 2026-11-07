@@ -1,0 +1,46 @@
+.connection-status {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg1);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.connection-status--synced { color: var(--ok); }
+.connection-status--syncing { color: var(--agent); }
+.connection-status--offline { color: var(--warn); }
+.connection-status--reconnecting { color: var(--fg1); }
+.connection-status--error { color: var(--err); }
+.connection-status--conflict { color: var(--warn); }
+
+.connection-status__icon {
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.connection-status__label { display: inline; }
+
+.connection-status__live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 900px) {
+  .connection-status__label { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-status, .connection-status * { animation: none !important; transition: none !important; }
+}

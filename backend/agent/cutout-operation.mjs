@@ -1,0 +1,158 @@
+// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, above?, name?} for
+// the agent service: finds the subject of a video or image layer on this computer (backend/cutout,
+// Apple Vision), adds the result to the media library (backend/cutout/media.mjs), and puts it in a
+// new layer.
+//
+// The new layer is a copy of the layer (the engine's duplicateLayers: same place, size, group,
+// Play settings, speed and animations, so it stays exactly over the original), with its src
+// swapped by replace_media and without the original's blur and shadow. It goes right above the
+// layer, or above `above`. output "subject" shows the subject on a transparent background (a
+// title between the two layers looks as if it were behind the subject); "matte" is white on black
+// (the bottom layer of create_mask); "silhouette" is the subject's shape in `color` (grown, below
+// the subject, it is an outline). Saving, history undo, exports and the dashboard need nothing
+// new: they read the layer's src like any imported file. The copy keeps the original's ID in
+// cutoutOf, so frame's camera carries it with the original (it sits on the same pixels).
+//
+// A cut-out takes about 1.6 seconds per second of 1080p video (finding the subject about 1.2,
+// writing the file the rest; measured in COMPATIBILITY.md "Subject cut-out"). An edit waits up to
+// `waitSeconds` in all: cut-outs are made one at a time, so the cut_outs of one edit share one
+// deadline (the agent service passes it); a cut_out reached after it still starts its cut-out but
+// answers at once. A longer one keeps going in the background and the operation is refused with
+// CUTOUT_RUNNING and how far it got, so the agent sends the same edit again later and gets the
+// finished result at once (it is kept by the file's hash).
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { aliasClipLinks } from "../../engine/clipSync.js";
+import { duplicateLayers } from "../../engine/layerClipboard.js";
+import { parseDocument } from "../../engine/model.js";
+import { applyOperations } from "../../engine/operations.js";
+import { mediaIdFromSource } from "../../engine/replaceMedia.js";
+
+const STILL_RUNNING = Symbol("still running");
+
+function within(promise, seconds) {
+  let timer;
+  const wait = new Promise((resolve) => { timer = setTimeout(() => resolve(STILL_RUNNING), seconds * 1000); });
+  return Promise.race([promise, wait]).finally(() => clearTimeout(timer));
+}
+
+// What to do when a cut-out can't be made: the plain next step for each error code.
+async function nextStep(error, { engine, cutoutMedia }) {
+  const engines = await cutoutMedia.engines().catch(() => []);
+  const available = engines.filter((entry) => entry.available).map((entry) => entry.engine);
+  if (error.code === "CUTOUT_ENGINE_UNAVAILABLE") {
+    if (available.length) return `Send engine:"auto" (it uses ${available[0]} on this computer).`;
+    // Off macOS, or a Mac whose helper says it is too old for Apple Vision, a newer Mac is the only
+    // way. A Mac without a working helper (the browser development path) can build it.
+    if (process.platform !== "darwin" || engines[0]?.macOS)
+      return "Subject cut-out needs a Mac with macOS 13 or later (Apple Vision; any subject needs macOS 14). On this computer, mask the layer with a shape instead (create_mask).";
+    // The reason already says how when the helper is not built.
+    return /desktop:cutout/.test(engines[0]?.reason ?? "") ? "Then send the edit again."
+      : "Build the helper (npm run desktop:cutout) or set KINO_CUTOUT_HELPER, then send the edit again.";
+  }
+  if (error.code === "CUTOUT_NO_SUBJECT") {
+    if (engine === "person" || (engine === "auto" && available[0] === "person"))
+      return available.includes("subject") ? 'The person engine finds only people; send engine:"subject" for any subject.' : "The person engine finds only people (this Mac has no subject engine).";
+    return "Pick a layer whose picture has a clear subject in front of its background (a person, an animal, an object).";
+  }
+  if (error.code === "CUTOUT_ENGINE_FAILED") return "Send the edit again; if it fails again, check that FFmpeg works (kino status shows the media tools).";
+  if (error.code === "CUTOUT_NO_PICTURE") return "Pick a video or image layer whose file has a picture.";
+  return null;
+}
+
+/** "about 2 minutes" for a number of seconds. */
+function roughly(seconds) {
+  if (seconds < 90) return `about ${Math.max(10, Math.round(seconds / 10) * 10)} seconds`;
+  return `about ${Math.round(seconds / 60)} minutes`;
+}
+
+/**
+ * Runs one cut_out operation on `document` (as the operations before it in the edit left it) and
+ * returns the new document. Options: mediaRoot, cutoutMedia (createCutoutMedia), operationContext
+ * (as for applyOperations), reports (the edit's report Map: this adds the receipt's `cutout`),
+ * waitSeconds (how long to wait for a cut-out still being made; default 50) or deadline (the
+ * performance.now() time to stop waiting, shared by the cut_outs of one edit; it replaces
+ * waitSeconds). Refusals are thrown as errors; a cut-out error says what to send instead and
+ * carries its code as `cutoutError`.
+ */
+export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline }) {
+  const { sceneId, layerId } = operation;
+  // behind: a person matte by default, and the text moves right above the clip first (below).
+  const output = operation.output ?? "subject", engine = operation.engine ?? (operation.behindText ? "person" : "auto");
+  const scene = document.scenes.find((item) => item.id === sceneId);
+  const layer = scene?.layers.find((item) => item.id === layerId);
+  if (!layer) throw new Error(`No layer "${layerId}" in this scene.`);
+  if (layer.type !== "video" && layer.type !== "image")
+    throw new Error(`cut_out finds the subject of a video or image layer, and "${layer.name}" is a ${layer.type} layer.`);
+  if (!cutoutMedia) throw new Error("subject cut-out is not set up in this kino service.");
+  const id = mediaIdFromSource(layer.src);
+  const file = id && mediaRoot ? path.join(mediaRoot, id) : null;
+  if (!file || !existsSync(file))
+    throw new Error("the layer's picture is not in kino's media library; import the file with project {action:\"import\", file} and use its src.");
+  let record = {};
+  try { record = JSON.parse(await readFile(`${file}.json`, "utf8")); } catch {}
+  const mime = typeof record.mime === "string" ? record.mime : layer.type === "video" ? (id.endsWith(".webm") ? "video/webm" : "video/mp4") : "image/png";
+  if (mime === "image/svg+xml")
+    throw new Error(`"${layer.name}" is an SVG drawing: its shapes already have their own transparency, so there is no photo to cut out.`);
+  if (mime === "image/gif" && (record.animated === true || Number(record.frameCount) > 1))
+    throw new Error(`"${layer.name}" is an animated GIF; cut_out works on videos and still images. Import the clip as MP4 or WebM.`);
+
+  // grow and feather are in the layer's own pixels (as drawn at scale 1); the file may be larger.
+  const fileWidth = Number(record.width) || layer.width, fileHeight = Number(record.height) || layer.height;
+  const perLayerPixel = Math.sqrt((fileWidth / Math.max(1, layer.width)) * (fileHeight / Math.max(1, layer.height)));
+  const inFilePixels = (value) => Math.round((value ?? 0) * perLayerPixel * 100) / 100;
+  const job = cutoutMedia.start({ file, name: typeof record.name === "string" ? record.name : layer.name,
+    kind: layer.type === "video" ? "video" : "image", output, engine,
+    grow: inFilePixels(operation.grow), feather: inFilePixels(operation.feather),
+    color: operation.color ?? "#ffffff", invert: operation.invert === true });
+
+  // Past the deadline the job is still started (or joined), so it is made while the agent waits.
+  const left = deadline === undefined ? waitSeconds : Math.max(0, (deadline - performance.now()) / 1000);
+  let made;
+  try {
+    made = await within(job.done, left);
+  } catch (error) {
+    // behind with no person anywhere in the clip: the text stays in front, and the receipt says so.
+    if (operation.behindText && error.code === "CUTOUT_NO_SUBJECT") {
+      const text = scene.layers.find((item) => item.id === operation.referenceId);
+      reports?.set(operation, { engine, behind: text?.name ?? operation.referenceId, fallback: `no person was found in "${layer.name}", so "${text?.name ?? "the text"}" stays in front` });
+      return document;
+    }
+    const said = error.code === "CUTOUT_NO_SUBJECT" ? `${error.message.replace(/\.$/, "")} of "${layer.name}".` : error.message;
+    const next = await nextStep(error, { engine, cutoutMedia });
+    throw Object.assign(new Error(next ? `${said} ${next}` : said), error.code ? { cutoutError: error.code } : {});
+  }
+  if (made === STILL_RUNNING) {
+    const { fraction, seconds } = job.progress();
+    const left = fraction > 0.02 ? seconds / fraction - seconds : null;
+    throw Object.assign(new Error(`the cut-out of "${layer.name}" is still being made (${Math.floor(fraction * 100)}% done${left ? `, ${roughly(left)} left` : ""}); nothing was changed. Send the same edit again${left ? ` in ${roughly(left)}` : " in a minute"}: the finished cut-out is kept, so it then answers at once.`),
+      { cutoutError: "CUTOUT_RUNNING" });
+  }
+
+  // A copy of the layer right above it, then its new file, name and look.
+  const copied = duplicateLayers(document, sceneId, [layerId]);
+  const copy = copied.document.scenes.find((item) => item.id === sceneId).layers.find((item) => item.id === copied.rootIds[0]);
+  copy.id = operation.cutoutId;
+  copy.cutoutOf = layerId;
+  let next = parseDocument(copied.document);
+  const steps = [
+    { type: "replace_media", sceneId, layerId: operation.cutoutId, mediaId: made.record.id },
+    // A subject or silhouette is transparent around the subject, but the quality check sees layer
+    // boxes, so it would call every title behind a subject hidden: allowOverlap says it is on purpose.
+    { type: "update_layer", sceneId, layerId: operation.cutoutId, properties: { name: operation.cutoutName, blur: 0, shadow: null, isMask: false,
+      ...(output === "matte" ? {} : { allowOverlap: true }) } },
+    // behind: the text right above the clip, so nothing else ends up between it and the person.
+    ...(operation.behindText ? [{ type: "move_layers", sceneId, layerIds: [operation.referenceId], position: "above", referenceId: layerId }] : []),
+    ...(operation.referenceId ? [{ type: "move_layers", sceneId, layerIds: [operation.cutoutId], position: "above", referenceId: operation.referenceId }] : []),
+  ];
+  next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
+  // The cut-out keeps the original's timing, so it keeps its sync links (out_of_sync).
+  aliasClipLinks(next, layer.src, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId)?.src);
+
+  const notes = made.note ? [made.note] : [];
+  if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
+  reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
+    cached: made.cached, ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+  return next;
+}

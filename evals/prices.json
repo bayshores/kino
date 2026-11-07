@@ -1,0 +1,129 @@
+{
+  "about": "List prices in US dollars per 1,000,000 tokens, copied from each provider's official pricing page on the date in `accessed`. evals/tokens.mjs turns token counts into dollars with this table. A price that could not be confirmed is null, and a run that needs it gets dollars: null instead of a guess.",
+  "unit": "USD per 1M tokens",
+  "fields": {
+    "input": "fresh (uncached) input tokens",
+    "cacheWrite5m": "tokens written to a 5-minute prompt cache (Anthropic)",
+    "cacheWrite1h": "tokens written to a 1-hour prompt cache (Anthropic)",
+    "cacheWrite": "tokens written to the prompt cache (OpenAI lists one rate)",
+    "cacheRead": "tokens read from the prompt cache",
+    "output": "output tokens; thinking (Anthropic) and reasoning (OpenAI) tokens are billed as output",
+    "multipliers": "the same rates as multiples of `input`, as the pricing page states them",
+    "longContext": "a higher rate that applies to a whole request once its input is over `overInputTokens`"
+  },
+  "models": {
+    "claude-opus-5-5": {
+      "provider": "anthropic",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "accessed": "2026-10-19",
+      "input": 4,
+      "cacheWrite5m": 5,
+      "cacheWrite1h": 8,
+      "cacheRead": 0.2,
+      "output": 20,
+      "multipliers": { "cacheWrite5m": 1.25, "cacheWrite1h": 2, "cacheRead": 0.05 },
+      "longContext": null,
+      "note": "The 1M-token context is billed at the standard rate (no long-context premium). Not used here: fast mode ($8 input / $40 output) and inference_geo \"us\" (1.1x)."
+    },
+    "claude-sonnet-5-5": {
+      "provider": "anthropic",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "accessed": "2026-10-19",
+      "input": 2,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4,
+      "cacheRead": 0.1,
+      "output": 10,
+      "multipliers": { "cacheWrite5m": 1.25, "cacheWrite1h": 2, "cacheRead": 0.05 },
+      "longContext": null
+    },
+    "claude-haiku-5-5": {
+      "provider": "anthropic",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "accessed": "2026-10-19",
+      "input": 0.1,
+      "cacheWrite5m": 0.125,
+      "cacheWrite1h": 0.2,
+      "cacheRead": 0.01,
+      "output": 0.5,
+      "multipliers": { "cacheWrite5m": 1.25, "cacheWrite1h": 2, "cacheRead": 0.1 },
+      "longContext": {
+        "overInputTokens": 100000,
+        "input": 0.5,
+        "cacheWrite5m": 0.625,
+        "cacheWrite1h": 1,
+        "cacheRead": 0.05,
+        "output": 2.5
+      },
+      "note": "Two price tiers by prompt size. Claude Code reports usage per model, not per request, so the harness prices at the lower tier and marks the dollars approximate when a request may have been over 100K tokens."
+    },
+    "claude-haiku-4-5": {
+      "provider": "anthropic",
+      "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "accessed": "2026-10-19",
+      "input": 1,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2,
+      "cacheRead": 0.1,
+      "output": 5,
+      "multipliers": { "cacheWrite5m": 1.25, "cacheWrite1h": 2, "cacheRead": 0.1 },
+      "longContext": null,
+      "note": "Claude Code can use a small model for background work; it shows up as its own row in modelUsage."
+    },
+    "gpt-6.1-sol": {
+      "provider": "openai",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "accessed": "2026-10-19",
+      "tier": "Standard",
+      "input": 2,
+      "cacheWrite": 2.5,
+      "cacheRead": 0.1,
+      "output": 10,
+      "multipliers": { "cacheWrite": 1.25, "cacheRead": 0.05 },
+      "longContext": {
+        "overInputTokens": 272000,
+        "input": 4,
+        "cacheWrite": 5,
+        "cacheRead": 0.2,
+        "output": 15
+      },
+      "note": "Reasoning tokens are billed as output (https://developers.openai.com/api/docs/guides/reasoning). Codex reports one running total per turn, not per request, so the long-context tier cannot be applied exactly; dollars use the short-context tier and are marked approximate."
+    },
+    "gpt-6-luna": {
+      "provider": "openai",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "accessed": "2026-10-19",
+      "tier": "Standard",
+      "input": 0.1,
+      "cacheWrite": 0.125,
+      "cacheRead": 0.01,
+      "output": 0.5,
+      "multipliers": { "cacheWrite": 1.25, "cacheRead": 0.1 },
+      "longContext": {
+        "overInputTokens": 272000,
+        "input": 0.2,
+        "cacheWrite": 0.25,
+        "cacheRead": 0.02,
+        "output": 0.75
+      }
+    },
+    "gpt-6-astra": {
+      "provider": "openai",
+      "source": "https://developers.openai.com/api/docs/pricing",
+      "accessed": "2026-10-19",
+      "tier": "Standard",
+      "input": 10,
+      "cacheWrite": 12.5,
+      "cacheRead": 1,
+      "output": 50,
+      "multipliers": { "cacheWrite": 1.25, "cacheRead": 0.1 },
+      "longContext": {
+        "overInputTokens": 272000,
+        "input": 20,
+        "cacheWrite": 25,
+        "cacheRead": 2,
+        "output": 75
+      }
+    }
+  }
+}

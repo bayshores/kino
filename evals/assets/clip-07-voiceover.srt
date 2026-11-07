@@ -1,0 +1,32 @@
+1
+00:00:00,500 --> 00:00:03,200
+Surfers check five apps before dawn.
+
+2
+00:00:03,600 --> 00:00:07,400
+Tides here, wind there,
+swell somewhere else.
+
+3
+00:00:08,000 --> 00:00:11,800
+Tidal Labs puts it all
+in one forecast.
+
+4
+00:00:12,400 --> 00:00:16,200
+Seven days ahead,
+at one-kilometre resolution.
+
+5
+00:00:16,800 --> 00:00:20,600
+Built on the same API
+1,200 teams already use.
+
+6
+00:00:21,200 --> 00:00:25,000
+Free tier included.
+No card needed.
+
+7
+00:00:25,600 --> 00:00:29,200
+Get your key at tidallabs.dev

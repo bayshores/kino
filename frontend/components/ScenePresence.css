@@ -1,0 +1,13 @@
+.scene-presence { position: absolute; inset: 0; pointer-events: none; z-index: 12; }
+.presence-outlines { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.presence-outlines polygon { fill: none; stroke: var(--presence-color); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.presence-selection-name, .presence-cursor span { background: var(--presence-color); color: #fff; border-radius: 3px; padding: 3px 5px; font: 11px/1.3 Inter, sans-serif; white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.presence-selection-name { position: absolute; transform-origin: left bottom; }
+.presence-cursor { position: absolute; display: flex; align-items: flex-start; transform-origin: 0 0; transition: opacity 200ms; }
+.presence-cursor svg { flex: none; fill: var(--presence-color); stroke: #fff; stroke-width: 1px; }
+.presence-cursor span { margin-top: 15px; }
+.presence-cursor.is-idle { opacity: 0; }
+.presence-scene-rings { position: absolute; inset: 0; pointer-events: none; border-radius: inherit; }
+.presence-scene-rings > span { position: absolute; inset: 0; border-radius: inherit; outline-style: solid; outline-color: var(--presence-color); }
+.scene-title .presence-scene-rings, .scene-title .presence-scene-rings > span { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .presence-cursor { transition: none; } }

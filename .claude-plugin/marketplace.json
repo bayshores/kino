@@ -1,0 +1,16 @@
+{
+  "name": "kino",
+  "owner": {
+    "name": "kino contributors"
+  },
+  "metadata": {
+    "description": "kino, the agent-driven motion design editor, as a Claude Code plugin."
+  },
+  "plugins": [
+    {
+      "name": "kino",
+      "source": "./",
+      "description": "Make and edit motion videos with kino from Claude Code."
+    }
+  ]
+}

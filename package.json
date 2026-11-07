@@ -1,0 +1,114 @@
+{
+  "name": "kino",
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "kino": "bin/kino.mjs"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "vite build",
+    "start": "node backend/index.mjs",
+    "test": "node scripts/run-tests.mjs",
+    "golden:update": "node --import ./scripts/test-fonts.mjs scripts/golden-update.mjs",
+    "preview": "vite preview",
+    "mcp": "node backend/mcp.mjs",
+    "mcp:budget": "node scripts/mcp-budget.mjs",
+    "skill:fields": "node scripts/field-sheet.mjs",
+    "eval": "node evals/run.mjs",
+    "desktop": "npm run build && node scripts/dev-app-name.mjs && electron .",
+    "desktop:tools": "nice -n 10 node scripts/build-macos-tools.mjs --build",
+    "desktop:cutout": "mkdir -p .local/macos-tools/helpers && xcrun swiftc -O -o .local/macos-tools/helpers/kino-cutout backend/cutout/kino-cutout.swift",
+    "desktop:pack": "node scripts/build-macos-tools.mjs --verify && npm run build && electron-builder --mac --dir"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@napi-rs/canvas": "1.0.11",
+    "@phosphor-icons/react": "^2.1.10",
+    "@resvg/resvg-js": "^2.6.2",
+    "@vitejs/plugin-react": "5.0.4",
+    "@xmldom/xmldom": "0.9.12",
+    "bidi-js": "1.1.0",
+    "fflate": "0.8.3",
+    "fontkit": "^2.0.4",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "unicode-properties": "1.4.1",
+    "vite": "6.4.2",
+    "ws": "^8.18.3",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "electron": "44.7.1",
+    "electron-builder": "26.15.3",
+    "playwright-core": "1.64.0"
+  },
+  "optionalDependencies": {
+    "@huggingface/transformers": "4.3.2",
+    "sherpa-onnx-node": "1.13.8"
+  },
+  "main": "desktop/main.mjs",
+  "description": "An account-free, open-source motion design engine that coding agents drive.",
+  "build": {
+    "appId": "org.kino.motion",
+    "productName": "kino",
+    "protocols": [
+      {
+        "name": "kino file link",
+        "schemes": [
+          "kino"
+        ]
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**",
+      "backend/**",
+      "engine/**",
+      "assets/**",
+      "dist/client/**",
+      "package.json",
+      "LICENSE",
+      "README.md",
+      "COMPATIBILITY.md",
+      "docs/**",
+      "skills/**",
+      "!**/*.test.*"
+    ],
+    "extraResources": [
+      {
+        "from": ".local/macos-tools/dist/bin",
+        "to": "bin"
+      },
+      {
+        "from": ".local/macos-tools/dist/licenses",
+        "to": "licenses"
+      },
+      {
+        "from": ".local/macos-tools/dist/sources",
+        "to": "sources"
+      },
+      {
+        "from": ".local/macos-tools/dist/build-manifest.json",
+        "to": "build-manifest.json"
+      }
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "node_modules/sherpa-onnx-*/**"
+    ],
+    "mac": {
+      "category": "public.app-category.graphics-design",
+      "icon": "assets/kino-icon.icns",
+      "target": "dir",
+      "identity": "-",
+      "signIgnore": [
+        "/Contents/Resources/bin/(?:ffmpeg|ffprobe|gifski|kino-voice|kino-cutout|kino-measure)$"
+      ]
+    },
+    "npmRebuild": false
+  }
+}

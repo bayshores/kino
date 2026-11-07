@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Original kino artwork. Copyright kino contributors. MIT license. -->
+  <!-- A lowercase k inside a camera viewfinder (kino means cinema), in the app's colors: near-black,
+       off-white and coral. Edges sit on multiples of 32 so the 16 px and 32 px icons stay sharp. -->
+  <defs>
+    <linearGradient id="background" x1="512" y1="48" x2="512" y2="976" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1e1e22"/>
+      <stop offset="1" stop-color="#111113"/>
+    </linearGradient>
+  </defs>
+  <rect x="48" y="48" width="928" height="928" rx="214" fill="url(#background)"/>
+  <path d="M160 160H256V192H192V256H160ZM864 160H768V192H832V256H864ZM864 864H768V832H832V768H864ZM160 864H256V832H192V768H160Z" fill="#ff6b4a"/>
+  <path d="M320 256H448V524L524 448H688L581 555L704 768H565L493 643L448 688V768H320Z" fill="#e6e6e8"/>
+</svg>

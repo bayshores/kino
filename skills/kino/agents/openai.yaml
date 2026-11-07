@@ -1,0 +1,10 @@
+interface:
+  display_name: "kino"
+  short_description: "Make and edit motion videos with kino"
+policy:
+  allow_implicit_invocation: true
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "kino"
+      description: "kino's ten tools (status, edit, check, look, inspect, render, library, history, notes, project). kino setup adds them."

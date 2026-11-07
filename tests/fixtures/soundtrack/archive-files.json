@@ -1,0 +1,19 @@
+{
+  "JOAT022": {"result": [
+    {"name": "01-frontcovermemphis.jpg", "source": "original", "format": "JPEG", "size": "22650"},
+    {"name": "01SpringI.mp3", "source": "original", "format": "VBR MP3", "length": "277.24", "title": "Spring I", "track": "1", "creator": "Memphis", "size": "11089672"},
+    {"name": "02SpringII.mp3", "source": "original", "format": "VBR MP3", "length": "227.5", "title": "Spring II", "track": "2", "creator": "Memphis", "size": "9099808"},
+    {"name": "03SpringIII.mp3", "source": "original", "format": "VBR MP3", "length": "420.32", "title": "Spring III", "track": "3", "creator": "Memphis", "size": "16812880"},
+    {"name": "10WinterI.mp3", "source": "original", "format": "VBR MP3", "length": "165.04", "title": "Winter I", "track": "10", "creator": "Memphis", "size": "6601516"},
+    {"name": "11WinterIISafePassage.mp3", "source": "original", "format": "VBR MP3", "length": "231.23", "title": "Winter II (Safe Passage)", "track": "11", "creator": "Memphis", "size": "9249100"},
+    {"name": "JOAT022_archive.torrent", "source": "metadata", "format": "Archive BitTorrent", "size": "9563"}
+  ]},
+  "breaknorth": {"result": [
+    {"name": "breaknorth.flac", "source": "derivative", "original": "breaknorth.wav", "format": "Flac", "length": "439.82", "size": "43120393"},
+    {"name": "breaknorth.mp3", "source": "derivative", "original": "breaknorth.wav", "format": "VBR MP3", "length": "07:19", "title": "breaknorth", "track": "01", "size": "10389504"},
+    {"name": "breaknorth.png", "source": "derivative", "original": "breaknorth.flac", "format": "PNG", "size": "11372"},
+    {"name": "breaknorth.wav", "source": "original", "format": "WAVE", "length": "439.82", "title": "breaknorth", "track": "01", "size": "77584752"},
+    {"name": "breaknorth_64kb.mp3", "source": "derivative", "original": "breaknorth.wav", "format": "64Kbps MP3", "length": "07:19", "title": "breaknorth", "size": "3519134"},
+    {"name": "breaknorth_vbr.mp3", "source": "derivative", "original": "breaknorth.wav", "format": "VBR MP3", "length": "07:19", "title": "breaknorth", "size": "9874925"}
+  ]}
+}

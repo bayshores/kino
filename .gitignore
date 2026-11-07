@@ -1,0 +1,16 @@
+node_modules
+dist/
+release/
+.local/
+.openai/
+.env
+.env.*
+!.env.example
+*.log
+design-qa.md
+.DS_Store
+
+.npmrc
+/.scratch/
+/.playwright-mcp/
+CLAUDE.local.md
