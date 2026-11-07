@@ -179,7 +179,7 @@ and judder; static scenes; accents off the beat. The current list (26 gates and 
   0.2, 0, 0, 1; `hero` 0.4, 0.14, 0.3, 1. Springs only on position, scale and rotation.
 - **Looks:** `crisp`, `editorial`, `bold`, `calm`, `data`. Each sets a type scale, color roles,
   motion feel and background.
-- **Recipes:** 23 recipes and 3 transitions (`engine/blocks/recipes/`) for promos, vertical clips,
+- **Recipes:** 24 recipes and 3 transitions (`engine/blocks/recipes/`) for promos, vertical clips,
   explainers and logo or kinetic type. Each passes every gate at 5 seeds and 3 formats.
 - **Brand kits:** colors mapped to roles, up to 2 font families, logos.
 - **Templates with protected timing:** intro and outro keep their timing; the middle stretches.

@@ -14,16 +14,36 @@ Claude Code, Codex or any MCP client makes the video. You watch, approve, undo a
 
 </div>
 
+## Made with kino
+
+<table>
+<tr>
+<td width="50%"><img src="docs/demos/footage.gif" alt="A cut of the Sintel trailer: a freeze-frame on Sintel's face labeled sintel, four quick shots, then the word SINTEL filled with the footage"></td>
+<td width="50%"><img src="docs/demos/type.gif" alt="The word kino. in glossy type, a camera push into one letter, then the lines agents edit. and you approve. assembling from flying letters"></td>
+</tr>
+<tr>
+<td><b>Footage cut.</b> Five shots, a freeze-frame with a label (<code>freeze-shutter</code>) and a title made of the footage (<code>masked-type</code>).</td>
+<td><b>Kinetic type.</b> A push into one letter (<code>push-through-type</code>), then letters that fly together (<code>assemble</code>).</td>
+</tr>
+<tr>
+<td><img src="docs/demos/chart.gif" alt="A bar chart titled What kino ships with growing to 117 quality rules, 49 effects, 43 moves and 24 recipes, then the line 10 tools, any agent can drive"></td>
+<td><b>Chart explainer.</b> One <code>compose</code> op with a <code>bar-chart-grow</code> beat and a <code>split-reveal</code> beat. The numbers are kino's own.<br><br>Each clip is a kino final render made through the <code>kino</code> command line, the same verbs an agent calls.</td>
+</tr>
+</table>
+
+Footage: the [Sintel](https://durian.blender.org) trailer, © Blender Foundation, under
+[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/), cropped and recut.
+
 ## What you get
 
 - **Agents do the editing.** Ten MCP tools, a `kino` command line and a skill file. The whole
   tool list is capped at 5,800 tokens, and no answer is over about 8,000. kino can also start
   Claude Code or Codex agents from your own installs, within a budget you set (the crew screen).
-- **A quality checker.** 26 errors that block a final render and 78 warnings (reading time,
+- **A quality checker.** 26 errors that block a final render and 91 warnings (reading time,
   contrast, flashing, safe zones, timing), each with a fix the agent can apply.
-- **Building blocks.** One `compose` op builds a whole promo from beats and a brand kit: 23
+- **Building blocks.** One `compose` op builds a whole promo from beats and a brand kit: 24
   recipes, 3 transitions, 5 looks, a 6×6 slot grid, relative timing, variants and templates.
-  The `move` op adds one of 23 designed set pieces (whip pan, zoom-through, word-by-word captions).
+  The `move` op adds one of 43 designed set pieces (whip pan, zoom-through, word-by-word captions).
 - **The full engine.** Layers, keyframes and easings, text animations, 49 effects, masks,
   components, templates, captions, beat detection, and bulk create from a CSV.
 - **Exports.** MP4, WebM, MOV (ProRes 4444, also transparent), GIF, APNG, PNG, PNG sequences and
