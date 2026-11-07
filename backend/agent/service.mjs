@@ -99,6 +99,7 @@ import { rankSongs } from "../songTaste.mjs";
 import { dot, LANES } from "../music-embed.mjs";
 import { importedText } from "./client.mjs";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
+import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
@@ -4695,6 +4696,8 @@ export function createAgentService(deps) {
       job.redrawnScenes = files.filter(file => !file.cached).map(file => file.scene);
       job.status = items.some(item => item.status === "failed") ? "failed" : items.some(item => item.status === "canceled") ? "canceled" : "done";
       job.error = items.filter(item => item.error).map(item => item.error).join("; ");
+      // What the next estimate learns from: how long this took and how much video it drew.
+      job.finishedAt = now(); job.drawnSeconds = Math.round(drawnSeconds(files) * 100) / 100;
       await saveRenderState();
       await exportBatches.remove(job.batchId);
     })();
@@ -4885,7 +4888,8 @@ export function createAgentService(deps) {
         job.status = "failed"; job.error = `Could not save the rendered files: ${error.message}`;
         await saveRenderState().catch(() => {});
       });
-      const estimate = Math.max(1, Math.round(scenes.reduce((sum, scene) => sum + scene.duration, 0) * (quality === "draft" ? 0.3 : 1.5)));
+      // Learned from this computer's last finished renders of the same quality (render-estimate.mjs).
+      const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
       const note = others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "";
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
@@ -4896,7 +4900,7 @@ export function createAgentService(deps) {
         const extra = [running ? `Still running: render {action:"wait", job:"${job.id}"} returns the files.` : "", note.trim()].filter(Boolean);
         return extra.length ? { ...waited, text: `${waited.text}\n${extra.join(" ")}` } : waited;
       }
-      return done(projectId, { text: `${job.id} queued: ${quality} ${format}, about ${estimate}s. render {action:"wait", job:"${job.id}"} returns checked files.${note}`,
+      return done(projectId, { text: `${job.id} queued: ${quality} ${format}, ${estimateWords(estimate)}. render {action:"wait", job:"${job.id}"} returns checked files.${note}`,
         data: { job: job.id, eta_s: estimate, ...(others ? { otherScenes: others } : {}) } });
     }
     // wait blocks up to timeout_s (55 s at most) for the job, or for the person's answer first.
