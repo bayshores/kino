@@ -2,11 +2,13 @@
 // and the two <video> elements that play them over the live picture (previewPick.js picks which).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../client.js";
+import { previewRate } from "./previewPick.js";
 
 // While playing, the list is asked again this often with playing=1, so background renders wait.
 const POLL_MS = 1500;
-// A segment video further than this from the clock is seeked; a smaller drift is played away.
-const SEEK_DRIFT = 0.2, NUDGE_DRIFT = 0.07;
+// A segment video further than this from the sound is seeked; a smaller drift is played away
+// (previewPick.js previewRate).
+const SEEK_DRIFT = 0.2;
 const VIDEO_STYLE = { position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", visibility: "hidden", pointerEvents: "none" };
 
 /**
@@ -42,7 +44,7 @@ export function usePreviewList({ projectId, sceneId, rev, playing, bump, off }) 
  * start in the other element, so the handoff at a segment's end has no gap. Calls `onCover(true)`
  * once a segment picture is on screen and `onCover(false)` when the stage is live again.
  */
-export function PreviewVideos({ pick, time, playing, onCover }) {
+export function PreviewVideos({ pick, time, soundTime, playing, onCover }) {
   const refs = [useRef(null), useRef(null)];
   const covering = useRef(false);
   useLayoutEffect(() => {
@@ -57,13 +59,20 @@ export function PreviewVideos({ pick, time, playing, onCover }) {
     if (show) {
       shown = videos.find((video) => keyOf(video) === show.key)
         ?? videos.find((video) => keyOf(video) !== pick.preload?.key) ?? videos[0];
-      const at = Math.max(0, time - show.start);
+      // Kept on the sound: the sound's own time, not the stage's. The stage's is on the frame grid
+      // and runs ahead by the time a drawn frame takes to show (Dashboard.jsx createPictureClock),
+      // and a video element already shows each frame at its own time. Before the sound reaches
+      // this segment (the stage's time has), it waits at its start. A sound time far from the
+      // segment (the sound looped first) gives way to the stage's.
+      let heard = soundTime ? soundTime() - show.start : NaN;
+      if (!(heard > -0.25 && heard < show.end - show.start + 0.25)) heard = time - show.start;
+      const at = Math.min(show.end - show.start, Math.max(0, heard));
       if (keyOf(shown) !== show.key || shown.paused) load(shown, show, at);
-      // Kept on the stage's clock (the sound's) once it plays: a large drift is seeked, a small one played away.
+      // Once it plays, a large drift is seeked and a small one played away.
       if (shown.readyState >= 2 && !shown.seeking && !shown.paused) {
         const drift = shown.currentTime - at;
         if (Math.abs(drift) > SEEK_DRIFT) shown.currentTime = at;
-        const rate = Math.abs(drift) > NUDGE_DRIFT ? (drift > 0 ? 0.9 : 1.1) : 1;
+        const rate = previewRate(drift, shown.playbackRate);
         if (shown.playbackRate !== rate) shown.playbackRate = rate;
       }
       if (shown.paused) shown.play().catch(() => {});

@@ -46,3 +46,18 @@ export function readyRuns(list, { projectId, sceneId, rev }) {
   }
   return runs;
 }
+
+// A segment video drifting more than half a 30 fps frame from the sound is played back to it (it
+// was 70 ms, so a video could stay two frames late).
+const NUDGE_DRIFT = 0.015;
+
+/**
+ * The playbackRate that brings a segment video `drift` seconds ahead (+) or behind (-) of the
+ * sound back to it: 10% slower or faster past NUDGE_DRIFT, and back to 1 once it is within a third
+ * of that, so it does not swing between the two.
+ */
+export function previewRate(drift, rate = 1) {
+  if (Math.abs(drift) > NUDGE_DRIFT) return drift > 0 ? 0.9 : 1.1;
+  if (rate !== 1 && Math.abs(drift) > NUDGE_DRIFT / 3 && (drift > 0) === (rate < 1)) return rate;
+  return 1;
+}

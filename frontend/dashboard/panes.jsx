@@ -600,7 +600,7 @@ function stopLoading(image) {
 }
 
 export function StagePane({ data, scene, time, rev, checkpoint, full, playing, fps, overlays, findings, selectedLayer, onPin, onFrameShown, timeStore, fontVersion, sound, onSoundOn, still, onToggleOutlines,
-  onKey, onScene, onZoomPane, onNow, phone, onSeek, need = null, draft = null, noteBubble = null, previewList = null, ...pane }) {
+  onKey, onScene, onZoomPane, onNow, phone, onSeek, need = null, draft = null, noteBubble = null, previewList = null, soundTime = null, ...pane }) {
   const wrapRef = useRef(null);
   const labelRef = useRef(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -983,7 +983,7 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
                   </ReducedPicture>
                 </div>
               ) : null}
-              {previewList ? <PreviewVideos pick={pick} time={clockTime} playing={playing} onCover={setCovered} /> : null}
+              {previewList ? <PreviewVideos pick={pick} time={clockTime} soundTime={soundTime} playing={playing} onCover={setCovered} /> : null}
               <div className="overlay" aria-hidden="true">
                 {overlays.grid ? <div className="grid-lines" style={{ backgroundSize: `${displayWidth / 12}px ${displayHeight / 6}px` }} /> : null}
                 {overlays.safe ? <div className="safe-area" style={boxStyle({ x: margin, y: margin, width: scene.width - margin * 2, height: scene.height - margin * 2 })} /> : null}
