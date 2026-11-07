@@ -21,7 +21,8 @@
 //      matte.json, in a folder that is renamed into place last, so a half-written one is never found.
 //   6. An output is made from the matte: grown or shrunk and feathered (matte.mjs), scaled up to
 //      the file's size, and written as VP9 WebM with transparency (subject, silhouette), H.264 MP4
-//      (matte) or PNG (stills). media.mjs adds it to the media library.
+//      (matte) or PNG (stills). A clip's subject has its edge cleaned of the background first
+//      (edges.mjs). media.mjs adds it to the media library.
 //
 // Memory stays small for long clips: frames stream through pipes, and only five mattes (about
 // 2 MB each at 1080p) are held at a time.
@@ -34,6 +35,7 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
+import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
 import { createSteadier, finishMatte } from "./matte.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
@@ -546,6 +548,7 @@ function encoderArgs(output, colour, keyEvery) {
  * Returns the file's extension and MIME type.
  */
 async function writeVideoOutput({ source, folder, info, output, grow = 0, feather = 0, color, invert, target, signal, onFraction }) {
+  if (output === "subject") return writeSubjectVideo({ source, folder, info, grow, feather, target, signal, onFraction });
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
   const growBy = grow * scale, featherBy = feather * scale;
@@ -615,6 +618,106 @@ async function writeVideoOutput({ source, folder, info, output, grow = 0, feathe
   }
   onFraction?.(1);
   return output === "matte" ? { extension: "mp4", mime: "video/mp4" } : { extension: "webm", mime: "video/webm" };
+}
+
+/**
+ * Runs `children` (already spawned) and reads two raw frame streams in step: frame n of `a`
+ * (`aSize` bytes) and frame n of `b` go to onPair(aFrame, bFrame, n), which may return false to
+ * hold both streams until `resume` (from the onPair's own write) is called. Resolves when all exit.
+ */
+async function pairFrames({ a, aSize, b, bSize, children, signal, onPair }) {
+  const queues = [[], []];
+  const ended = [false, false];
+  let index = 0;
+  let held = false;
+  const resume = () => { held = false; drain(); };
+  const drain = () => {
+    while (!held && queues[0].length && queues[1].length) {
+      if (onPair(queues[0].shift(), queues[1].shift(), index++, resume) === false) held = true;
+    }
+    // Neither side runs far ahead of the other; once one side has ended, frames the other has
+    // beyond it have no partner and are let go, so its program can finish.
+    const over = ended.some((done, side) => done && !queues[side].length);
+    if (over) { queues[0].length = 0; queues[1].length = 0; }
+    for (const [side, stream] of [[0, a.stdout], [1, b.stdout]]) {
+      if (!over && (held || queues[side].length > 4)) stream.pause(); else stream.resume();
+    }
+  };
+  a.stdout.once("end", () => { ended[0] = true; drain(); });
+  b.stdout.once("end", () => { ended[1] = true; drain(); });
+  a.stdout.on("data", frameCollector(aSize, (frame) => { queues[0].push(frame); drain(); }));
+  b.stdout.on("data", frameCollector(bSize, (frame) => { queues[1].push(frame); drain(); }));
+  for (const stream of [a.stdout, b.stdout]) stream.on("error", () => {});
+  const onAbort = () => killAll(children);
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    await Promise.all(children.map((child) => track(child, "FFmpeg", signal)));
+  } catch (error) {
+    killAll(children);
+    throw error;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
+  return index;
+}
+
+/**
+ * The subject on a transparent background (VP9 WebM): the picture and the matte are read frame by
+ * frame, the matte grown or feathered and scaled to the picture, and the edge cleaned (edges.mjs:
+ * where a still shot's empty background shows through the edge the matte drops, and edge pixels
+ * take the subject's colour, so no background halo is left). Frames stay YUV 4:4:4, the video's
+ * own colour numbers, so the solid subject matches the footage under it exactly.
+ */
+async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, target, signal, onFraction }) {
+  const { width, height, rate, lead } = info.source;
+  const scale = info.width / width;
+  const growBy = grow * scale, featherBy = feather * scale;
+  const matteFile = join(folder, info.file);
+  const frameTimes = `setpts=N/(${rate})/TB`;
+  const picture = (extra) => spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn",
+    "-vf", `fps=fps=${rate}:round=near,${frameTimes}${extra}`, "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "yuv444p", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
+  const matte = (extra) => spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", matteFile,
+    "-vf", `${frameTimes}${extra}`, "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
+  // 1. The empty background of a still shot, from up to 24 frames spread over the clip, small.
+  const plateWidth = Math.min(width, 384), plateHeight = Math.max(2, Math.round((height * plateWidth) / width));
+  const every = Math.max(1, Math.floor(info.frames / 24));
+  const pick = `,select='not(mod(n\\,${every}))',scale=${plateWidth}:${plateHeight}:flags=area`;
+  const builder = createPlateBuilder({ width: plateWidth, height: plateHeight });
+  const smallPicture = picture(pick), smallMatte = matte(pick);
+  await pairFrames({ a: smallPicture, aSize: plateWidth * plateHeight * 3, b: smallMatte, bSize: plateWidth * plateHeight,
+    children: [smallPicture, smallMatte], signal, onPair: (yuv, mask) => { builder.add(yuv, mask); } });
+  const plate = builder.finish();
+  // 2. Every frame, cleaned, into the encoder.
+  const leadFrames = Math.round(lead * parseFrameRate(rate));
+  const pad = leadFrames > 0 ? `,tpad=start=${leadFrames}:start_mode=clone,${frameTimes}` : "";
+  const total = info.frames + leadFrames;
+  const encode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuva444p", "-s", `${width}x${height}`, "-r", rate, "-i", "pipe:0",
+    "-filter_complex", `[0:v]format=yuva420p${pad}[out]`, "-map", "[out]", "-an", "-sn", "-fps_mode", "passthrough", "-frames:v", String(total),
+    ...encoderArgs("subject", info.source.colour, Math.max(1, Math.round(parseFrameRate(rate)))), target], { stdio: ["pipe", "ignore", "pipe"] });
+  encode.stdin.on("error", () => {});
+  const refiner = createEdgeRefiner({ width, height, plate: plate.steady ? plate : null });
+  const pixels = width * height;
+  const full = picture(""), mattes = matte("");
+  const out = Buffer.allocUnsafe(pixels * 4);
+  let done = 0;
+  await pairFrames({ a: full, aSize: pixels * 3, b: mattes, bSize: info.width * info.height, children: [full, mattes, encode], signal,
+    onPair: (yuv, raw, _index, resume) => {
+      if (done >= info.frames) return true;
+      let mask = finishMatte(raw, info.width, info.height, { grow: growBy, feather: featherBy });
+      if (info.width !== width || info.height !== height) mask = scaleMatte(mask, info.width, info.height, width, height);
+      else if (mask === raw) mask = Uint8Array.from(raw);
+      refiner.refine(yuv, mask);
+      out.set(yuv, 0);
+      out.set(mask, pixels * 3);
+      done += 1;
+      onFraction?.(Math.min(1, done / info.frames));
+      const ok = encode.stdin.write(Buffer.from(out));
+      if (done === info.frames) encode.stdin.end();
+      if (!ok) { encode.stdin.once("drain", resume); return false; }
+      return true;
+    } }).finally(() => { if (!encode.stdin.writableEnded) encode.stdin.end(); });
+  onFraction?.(1);
+  return { extension: "webm", mime: "video/webm" };
 }
 
 /** Writes one output of a still image's matte to `target` as a PNG. */

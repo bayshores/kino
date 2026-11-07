@@ -26,8 +26,9 @@ import { makeStabilized } from "./stabilize.mjs";
 import { mediaBaseName } from "../voice/media.mjs";
 import { cutoutEngines, cutoutError, findMatte, makeMatte, writeCutoutOutput } from "./cutout.mjs";
 
-// Bump when an output made from the same matte and settings would change.
-const OUTPUT_FORMAT = 1;
+// Bump when an output made from the same matte and settings would change (subject 2: a clip's
+// edge is cleaned of its background, cutout/edges.mjs).
+const OUTPUT_FORMAT = { subject: 2, matte: 1, silhouette: 1 };
 
 /**
  * Makes library media from subject mattes. Options:
@@ -65,7 +66,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
 
   // Where media.json keeps the library file of one output of a matte.
   function outputSlot({ output: kind, grow, feather, color, invert }) {
-    return JSON.stringify({ v: OUTPUT_FORMAT, output: kind, grow, feather, ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
+    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
   }
 
   // The library file for one output of one matte, made the first time.

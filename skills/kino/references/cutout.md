@@ -17,6 +17,9 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   them).
 - `grow` (-100 to 100 layer pixels) makes the shape bigger, or smaller below 0; `feather`
   (0 to 200) softens its edge.
+- A clip's `subject` edge is cleaned: on a shot whose camera holds still, background the matte
+  kept near the edge (a motion-blurred hand over a wall) is dropped, and edge pixels take the
+  subject's own colour, so no halo shows over a new or darker background.
 - `engine:"auto"` (default) is `"subject"` (any subject, macOS 14+) or `"person"` (people only,
   macOS 13). Other systems have no engine: the edit is refused (`CUTOUT_ENGINE_UNAVAILABLE`), so
   mask with a shape there. On a Mac without the helper, `npm run desktop:cutout` builds it.
