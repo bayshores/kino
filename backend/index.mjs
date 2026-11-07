@@ -69,6 +69,7 @@ import { createLookEmbed } from "./look-embed.mjs";
 import { decodeMono } from "./audio-analysis.mjs";
 import { analyzeBeats } from "../engine/beatDetection.js";
 import { createInspire, inspireTools } from "./inspire.mjs";
+import { createHouseMemory } from "./house-memory.mjs";
 import { songVocals } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
 import { stopChildren } from "./child-exit.mjs";
@@ -228,6 +229,8 @@ const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => ad
   onChange: (recording) => dashboard.publish({ type: "recording", recording }) });
 const agentService = createAgentService({
   store,
+  // seen_before: the layouts kino rendered in each project, in <data>/house (house-memory.mjs).
+  house: createHouseMemory(path.join(dataRoot, "house")),
   recorder,
   // The Timeline's waveform peaks; speech_cut hears each cut in them (one decode per file).
   audioPeaks,

@@ -30,7 +30,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   glob (`"arch-*"`) waives each matching layer.
 - AI tells warn (ideas, taste): `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
-  `split_card_layout`, more. Technique rules, style spec: techniques reference.
+  `split_card_layout`, `seen_before`. Technique rules, style spec: techniques reference.
 - Set `role` on layers (headline, cta, logo, hero, decor, `ui`: product text, contrast only)
   and `videoType` (`library {topic:"rules", name:"quality-settings"}`).
 

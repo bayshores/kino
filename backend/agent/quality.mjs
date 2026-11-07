@@ -10,6 +10,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { mainScene } from "../../engine/board.js";
 import { cardNames } from "../../engine/deck.js";
+import { referenceSignature } from "../../engine/quality/layoutSignature.js";
 import { shiftAnimation } from "../../engine/animationShift.js";
 import { isComposedAnimation } from "../../engine/animationTree.js";
 import { evaluateLayer } from "../../engine/animation.js";
@@ -481,10 +482,11 @@ async function peopleIn(scene, peopleOf, make) {
  * expanded scene (backend/export.mjs renderSceneFrames); without it the pixel rules are skipped.
  * `references(projectId)` gives the project's saved Inspire references with fingerprints, and
  * `measureRender(pairTimes, {render, seconds})` measures rendered frames the same way
- * (backend/measure/measure.mjs measureRendered): both for the reference_drift check. `quietMs`: how
+ * (backend/measure/measure.mjs measureRendered): both for the reference_drift check. `house(projectId)`
+ * gives the other projects' house memory (backend/house-memory.mjs) for seen_before. `quietMs`: how
  * long its renders wait after the last call or render (render-activity.mjs QUIET_MS; tests shorten it).
  */
-export function createQualityChecker({ mediaRoot, renderFrames, references = null, measureRender = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
+export function createQualityChecker({ mediaRoot, renderFrames, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
   const cache = new Map();
   // Frames rendered for earlier checks, reused where a changed scene looks the same (frame-reuse.mjs).
   const frameReuse = reuseFrames ? createFrameReuse() : null;
@@ -546,7 +548,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -595,6 +597,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
         driftPending = true;
         return null;
       } } : {}),
+      // What kino rendered in other projects, and this project's references as layouts (seen_before).
+      house: houseMoments, referenceSignatures: refs.map((ref) => referenceSignature(ref.fingerprint)).filter(Boolean),
       // The brief's style spec: the style rules follow it (engine/styleSpec.js).
       styleSpec,
       // The brief's length on the scene that is the video (the assertions gate holds it).
@@ -663,6 +667,9 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
     // the key, so a new reference checks again.
     const refs = references ? await references(document.id).catch(() => []) : [];
     const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}`).join(",");
+    // The house memory changes seen_before: which projects and revs it holds are part of the key.
+    const houseMoments = house ? await house(document.id).catch(() => []) : [];
+    const houseStamp = houseMoments.map((entry) => `${entry.projectId}@${entry.rev}`).join(",");
     // How many times each technique is used, over the scenes checked.
     const techniques = {};
     // The deck is the whole video's, and a video is its longest scene: only that scene counts it.
@@ -686,13 +693,13 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
       const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}`).join(",");
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
-      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}`;
+      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}\nhouse:${houseStamp}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null
         : null;
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
-      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, base });
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {

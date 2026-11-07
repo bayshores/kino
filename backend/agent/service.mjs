@@ -67,6 +67,7 @@ import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGl
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
+import { houseMoments } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { styleContext } from "../../engine/styleSpec.js";
@@ -391,6 +392,8 @@ export function createAgentService(deps) {
   const quality = deps.quality ?? createQualityChecker({ mediaRoot: deps.mediaRoot, renderFrames: deps.renderFrames ?? renderSceneFrames,
     // reference_drift: the project's saved Inspire references, measured like a render.
     references: deps.inspire ? (projectId) => deps.inspire.savedFingerprints(projectId) : null,
+    // seen_before: what kino rendered in other projects (house-memory.mjs).
+    house: deps.house ? (projectId) => deps.house.others(projectId) : null,
     measureRender: deps.measureRender ?? null });
   // The building-block ops (recipe, compose, place, set_cue, …) and relative times (blocks.mjs).
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,
@@ -4712,6 +4715,18 @@ export function createAgentService(deps) {
       checks: Object.fromEntries(Object.entries(validation.checks).map(([name, check]) => [name, check.status])) };
   }
 
+  // Saves the rendered revision's layout moments to the house memory (seen_before reads them in
+  // other projects). A failure is only a warning: the render itself is done.
+  async function rememberRender(job) {
+    if (!deps.house) return;
+    try {
+      const record = await store.getProject(job.projectId);
+      const document = !record ? null : job.rev === record.revision ? record.document : await store.getProjectRevision(job.projectId, job.rev);
+      if (!document) return;
+      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts: await fontsFor(document) }) });
+    } catch (error) { job.warnings = [...(job.warnings ?? []), `house memory not saved: ${error.message}`]; }
+  }
+
   async function finishRender(job) {
     if (job.finishing) return job.finishing;
     // A job that cancel took over saves nothing: cancel removes its batch folder (render cancel).
@@ -4759,6 +4774,7 @@ export function createAgentService(deps) {
       // What the next estimate learns from: how long this took and how much video it drew.
       job.finishedAt = now(); job.drawnSeconds = Math.round(drawnSeconds(files) * 100) / 100;
       await saveRenderState();
+      if (job.status === "done") await rememberRender(job);
       await exportBatches.remove(job.batchId);
     })();
     try { await job.finishing; } finally { delete job.finishing; }
