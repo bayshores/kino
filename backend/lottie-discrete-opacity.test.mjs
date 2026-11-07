@@ -26,7 +26,6 @@ function opacity(layer) {
 test("Lottie holds the sampled opacity at Appear and Blink phase switches", async () => {
   const appear = await exportScene(sceneWithPreset("appear", {}, { start: 0.5, sceneDuration: 1.5 }), { format: "lottie", fps: 4, width: 80, height: 60 });
   const appearLayer = JSON.parse(appear.buffer.toString("utf8")).layers.find((layer) => layer.nm === "Box");
-  const appearFrames = opacity(appearLayer);
   assert.equal(atProperty(appearLayer.ks.o, 1.99), 0, "instant Appear remains hidden before its start");
   assert.equal(atProperty(appearLayer.ks.o, 2), 100, "instant Appear switches at its exact start");
 

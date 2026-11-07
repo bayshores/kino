@@ -53,7 +53,6 @@ async function makeCrew(options = {}) {
 }
 
 const NOVA = { id: "a1", name: "Nova", color: "#42c0b6", kind: "claude-code" };
-const JUNO = { id: "a2", name: "Juno", color: "#6cb6ff", kind: "codex-mcp-client" };
 
 test("start rules: defaults, strict changes, kinds and schedules", () => {
   const rules = defaultRules();

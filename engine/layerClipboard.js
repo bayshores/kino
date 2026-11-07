@@ -726,10 +726,3 @@ export function pasteAnimations(document, sceneId, layerIds, envelope, time) {
 }
 
 const animationName = (animation) => (typeof animation?.name === "string" && animation.name.trim() ? animation.name.trim() : "Animation");
-const sentence = (text) => (/[.!?]$/.test(text) ? text : `${text}.`);
-
-const quoted = (names) => names.map((name) => `“${name}”`).join(", ");
-
-// Inputs without text to copy or paste. After a click on one of them it keeps the focus, and
-// copy, cut and paste then still belong to the editor's layers.
-const NON_TEXT_INPUTS = new Set(["checkbox", "radio", "range", "color", "button", "submit", "reset", "file", "image", "hidden"]);

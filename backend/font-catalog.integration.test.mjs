@@ -191,9 +191,6 @@ test("cached Fontsource faces stay local through project edits, sharing, and exp
     assert.equal(response.status, status, `${reason}: ${JSON.stringify(result)}`);
     return result;
   }
-  async function getProject(id, access = {}) {
-    return json(await api(`/api/projects/${id}`, access), 200, "read project");
-  }
   async function exportBytes(share, document, format) {
     const response = await api("/api/export", {
       owner: false,

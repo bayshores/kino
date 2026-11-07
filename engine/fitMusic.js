@@ -64,7 +64,6 @@ export function planFitMusic({ sections = [], seconds, whole = true, bar, beat =
   const drop = [...drops].sort((a, b) => penalty(a) - penalty(b) || b - a)[0];
   const lead = runUp(drop);
   if (!lead) notes.push("no break or build before the drop in this song: nothing quiets the line before the payoff");
-  const anchors = [];
   const oPayoff = payoff - drop;
 
   // The turn: an earlier drop, a whole number of bars from the payoff's offset (within half a bar of the turn).

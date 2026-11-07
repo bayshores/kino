@@ -18,8 +18,6 @@ const HOST = "127.0.0.1";
 const STARTUP_TIMEOUT_MS = 15_000;
 const STOP_TIMEOUT_MS = 5_000;
 
-function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-
 function makeServerEnv(dataDirectory, ownerToken, port) {
   return {
     PATH: process.env.PATH || "/usr/bin:/bin",

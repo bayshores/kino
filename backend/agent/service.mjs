@@ -3674,7 +3674,6 @@ export function createAgentService(deps) {
       if (near != null) return sec(near);
       return (event.kinds ?? []).includes("cut") ? event.time : null;
     };
-    const isCut = (event) => seamOf(event) != null;
     const seamTile = tileSize(scene, SEAM_EDGE);
     const seamTokens = (count) => (count ? estimateImageTokens({ width: SEAM_OFFSETS.length * (seamTile.width + 4) - 4, height: count * (seamTile.height + 4) - 4 }) : 0);
     const picked = { full: [], compact: [] };

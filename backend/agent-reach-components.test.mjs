@@ -71,7 +71,6 @@ function compareFrames(before, after, message) {
   }
 }
 
-const RED = [255, 0, 0, 255];
 const GREEN = [0, 255, 0, 255];
 const BLUE = [0, 0, 255, 255];
 const BLACK = [0, 0, 0, 255];
