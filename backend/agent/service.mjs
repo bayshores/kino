@@ -3858,17 +3858,18 @@ export function createAgentService(deps) {
   }
 
   // A file's shots (backend/shot-detection.mjs): { shots } or { shots: null, reason }.
-  async function fileShots(src) {
+  async function fileShots(src, options) {
     if (!deps.mediaShots) return { shots: null, reason: "this kino service has no shot finder" };
-    try { return await deps.mediaShots(src); }
+    try { return await deps.mediaShots(src, options); }
     catch (error) { return { shots: null, reason: String(error?.message ?? error).split("\n")[0].slice(0, 200) }; }
   }
 
   // The shots of a scene (sceneShots.js), with a line for each file whose shots are unknown.
-  async function shotsOf(scene) {
+  // options.saved: only shots already saved in the media records (no FFmpeg run).
+  async function shotsOf(scene, options) {
     const found = new Map();
     for (const layer of scene.layers) {
-      if (layer.type === "video" && layer.visible !== false && layer.src && !found.has(layer.src)) found.set(layer.src, await fileShots(layer.src));
+      if (layer.type === "video" && layer.visible !== false && layer.src && !found.has(layer.src)) found.set(layer.src, await fileShots(layer.src, options));
     }
     const { shots, unknown } = sceneShots(scene, (layer) => found.get(layer.src)?.shots ?? null);
     const unknownLines = [];
@@ -6366,7 +6367,8 @@ export function createAgentService(deps) {
     const record = await store.getProject(String(projectId));
     const scene = record.document.scenes.find((entry) => entry.id === sceneId);
     if (!scene) throw new AgentError("not_found", `There is no scene ${sceneId} in ${projectId}.`);
-    const { shots } = await shotsOf(scene);
+    // Saved shots only: opening a project must not start FFmpeg on its footage.
+    const { shots } = await shotsOf(scene, { saved: true });
     return { rev: record.revision, sceneId, shots, voice: await voiceSentences(scene, record.document) };
   }
 

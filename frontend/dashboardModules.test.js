@@ -9,7 +9,7 @@ import { windowTitle } from "./dashboard/notify.js";
 import { desktopServiceLine } from "./dashboard/stream.js";
 import { agentChips, idleLine, nowBlock, renderAgent, runningRender } from "./dashboard/topbar.js";
 import { projectGroups } from "./dashboard/projectRows.js";
-import { agentRows, applyEvent, attention, briefRows, commentRows, fromSnapshot, planRows, seenImages, turnChips, turnRows, variantChoices, videoLayers, WORKING_MS, withRecord } from "./dashboard/state.js";
+import { agentRows, applyEvent, attention, backgroundCheckInput, briefRows, commentRows, fromSnapshot, planRows, seenImages, turnChips, turnRows, variantChoices, videoLayers, WORKING_MS, withRecord } from "./dashboard/state.js";
 
 const press = (key, extra = {}) => ({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...extra });
 
@@ -393,4 +393,8 @@ test("the projects screen folds the verification projects away under tests, and 
   assert.deepEqual(groups.mine.map((row) => [row.project.id, row.index]), [["app-trailer", 1], ["smoke", 3]]);
   assert.deepEqual(groups.tests.map((row) => row.project.id), ["a", "b"]);
   assert.deepEqual(projectGroups(projects, "SMOKE").mine.map((row) => row.project.id), ["smoke"]);
+});
+
+test("the dashboard's background check reads saved results only (no whisper, ffmpeg or frames)", () => {
+  assert.deepEqual(backgroundCheckInput("p1"), { project: "p1", quiet: true, pixels: false });
 });

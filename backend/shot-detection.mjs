@@ -463,7 +463,8 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
     return { shots: result.shots };
   }
 
-  async function forSource(src, { signal } = {}) {
+  // saved: true answers only what the record has and never runs FFmpeg (the dashboard's lanes).
+  async function forSource(src, { signal, saved = false } = {}) {
     // An upload's file name: hex, dashes and an extension, so it is safe in a path.
     const id = parseMediaSource(src)?.id;
     let record = null;
@@ -474,6 +475,7 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
     if (!isVideo(record)) return { shots: null, reason: "not a video" };
     if (Array.isArray(record.shots)) return { shots: record.shots };
     if (record.shotsError) return { shots: null, reason: shotsErrorReason(record.shotsError) };
+    if (saved) return { shots: null, reason: "not found yet" };
     let run = running.get(id);
     if (!run) {
       run = findAndSave(id, record).finally(() => running.delete(id));

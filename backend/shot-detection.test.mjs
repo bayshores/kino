@@ -388,6 +388,22 @@ describe("shotFilters", { skip: skipWithoutMediaTools }, () => {
   });
 });
 
+test("forSource {saved:true} answers saved shots and never runs FFmpeg for a video without them", async () => {
+  const mediaRoot = await mkdtemp(path.join(tmpdir(), "kino-shots-saved-"));
+  try {
+    const id = `${randomUUID()}.mp4`;
+    const saves = [];
+    const finder = createShotFinder({ mediaRoot, saveRecord: async (...args) => { saves.push(args); } });
+    // No video file at all: a run would fail and save shotsError.
+    await writeFile(path.join(mediaRoot, `${id}.json`), JSON.stringify({ id, mime: "video/mp4", duration: 2 }));
+    assert.deepEqual(await finder.forSource(`/api/media/${id}`, { saved: true }), { shots: null, reason: "not found yet" });
+    assert.deepEqual(saves, []);
+    const shots = [{ start: 0, end: 2 }];
+    await writeFile(path.join(mediaRoot, `${id}.json`), JSON.stringify({ id, mime: "video/mp4", duration: 2, shots }));
+    assert.deepEqual(await finder.forSource(`/api/media/${id}`, { saved: true }), { shots });
+  } finally { await rm(mediaRoot, { recursive: true, force: true }); }
+});
+
 describe("createShotFinder", { skip: skipWithoutMediaTools }, () => {
   let mediaRoot, saved, finder, clip;
   // Writes a media record as an upload before B3 did: measured, no shots.
