@@ -115,6 +115,20 @@ test("a sound shorter than half a second gets an empty transcript without runnin
   assert.equal(transcript.version, TRANSCRIPT_VERSION);
 });
 
+test("many files transcribed at once are decoded two at a time, not all together", async () => {
+  const setup = { command: "/nowhere/whisper-cli", model: "m", modelName: "small.en" };
+  let decoding = 0, most = 0;
+  const decode = async () => {
+    decoding += 1;
+    most = Math.max(most, decoding);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    decoding -= 1;
+    return { samples: new Float32Array(16_000 * 0.15) };
+  };
+  await Promise.all(Array.from({ length: 6 }, (_, index) => transcribeFile(`clip-${index}.wav`, setup, { decode })));
+  assert.equal(most, 2);
+});
+
 test("a cut voice keeps reading the transcript its cuts were made on when the brief's names change", async () => {
   const folder = await mkdtemp(path.join(tmpdir(), "kino-speech-pin-"));
   try {

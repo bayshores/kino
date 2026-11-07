@@ -575,7 +575,8 @@ async function decodeOneMediaUnit(filename, mime) {
   const args = audio
     ? ["-v", "error", "-xerror", "-i", filename, "-map", "0:a:0", "-frames:a", "1", "-f", "framemd5", "pipe:1"]
     : ["-v", "error", "-xerror", "-i", filename, "-map", "0:v:0", "-frames:v", "1", "-f", "framemd5", "pipe:1"];
-  const output = await runMediaTool("ffmpeg", args);
+  // One frame or sample: a run still going after a minute is stuck, and is stopped.
+  const output = await runMediaTool("ffmpeg", args, { timeoutMs: 60_000 });
   if (!output.split(/\r?\n/).some((line) => /^\s*\d+\s*,/.test(line)))
     throw new Error("the file did not produce a decodable frame or audio sample");
 }
