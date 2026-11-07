@@ -159,6 +159,19 @@ test("freeze-shutter stops the clip on the beat, blinks once and plays again; ma
   assert.equal(light.added.find(({ layer }) => layer.move.part === "word").layer.fill, "#F7F5F0");
 });
 
+test("tile-ring tiles from other clips play from the move's start, so a ring late in a long video still shows them", () => {
+  const scene = sceneFor(1920, 1080, 40);
+  const clips = { ...PICTURES, "reel.mp4": { id: "reel.mp4", src: "/api/media/reel.mp4", width: 1920, height: 1080, duration: 5, name: "reel.mp4" } };
+  const ring = runMove(MOVES["tile-ring"], { id: "tile-ring", input: readMoveInput(MOVES["tile-ring"], { layer: "clip", pictures: ["reel.mp4"], count: 8 }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 30, dur: 3.2, media: (ref) => clips[ref] });
+  const reels = ring.added.map(({ layer }) => layer).filter((layer) => layer.src === "/api/media/reel.mp4");
+  assert.equal(reels.length, 4);
+  for (const tile of reels) {
+    assert.equal(tile.mediaStart, 30);
+    assert.equal(tile.mediaFreeze, "last");
+    assert.ok(tile.mediaOffset >= 0 && tile.mediaOffset + 3.2 <= 5, "each tile has picture to the end of the move");
+  }
+});
+
 test("placeMove puts a move in and removeMove takes exactly that out again", () => {
   const scene = sceneFor(1920, 1080);
   const before = structuredClone(scene);

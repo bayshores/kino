@@ -454,7 +454,14 @@ export const tileRing = {
     const sources = [{ layer: source }, ...(input.pictures ?? []).map((ref) => ({ picture: ctx.picture(ref) }))];
     const mediaFor = (index) => {
       const pick = sources[index % sources.length];
-      if (pick.picture) return { type: pick.picture.duration ? "video" : "image", fields: { src: pick.picture.src, ...(pick.picture.duration ? { mediaSourceDuration: pick.picture.duration, volume: 0 } : {}) }, aspect: pick.picture.width / pick.picture.height };
+      if (pick.picture) {
+        const length = pick.picture.duration;
+        // A clip tile plays from the move's start (a clip that started at 0 would have ended by
+        // a ring late in a long video), each from another moment, and holds its last frame.
+        const room = length - (ctx.end - ctx.start);
+        const clip = length ? { mediaSourceDuration: length, volume: 0, mediaStart: round(ctx.start), mediaOffset: room > 0.05 ? round((index * 0.37) % room) : 0, mediaFreeze: "last" } : {};
+        return { type: length ? "video" : "image", fields: { src: pick.picture.src, ...clip }, aspect: pick.picture.width / pick.picture.height };
+      }
       const keep = ["src", "mediaStart", "mediaOffset", "mediaDuration", "mediaSourceDuration", "mediaFreeze", "mediaInterpolation"];
       const fields = Object.fromEntries(keep.filter((key) => source[key] !== undefined).map((key) => [key, source[key]]));
       // Each video tile starts at another moment of the clip, so the ring is many moments, as far
