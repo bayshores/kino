@@ -5,7 +5,7 @@
 import { withInspireEvent } from "./inspireView.js";
 import { animationTreeEntries } from "../../engine/animationTree.js";
 import { buildThreads } from "../comments.js";
-import { shotList } from "./boardRows.js";
+import { callNoWords, shotList } from "./boardRows.js";
 import { callSummary, cut, noteState, timeOfDay, tokens } from "./format.js";
 import { BRIEF_LABELS, READ_WORDS, STOP_WORDS } from "./words.js";
 
@@ -590,10 +590,11 @@ export function stopRows(state) {
  * sends in the note's `mode`, "notes" or "redo"). Typed words are never dropped: approve with
  * text in the note is approve with notes. `shots` are a storyboard's notes on single shots
  * ([{id, words}], board.jsx): they are notes too, so with one a approves with notes, and the note
- * buttons and Enter send without words.
+ * buttons and Enter send without words. `noCalls` are the agent's calls the person said no to on
+ * the board: their words follow the note's ('…; no to your call "…"'), so they are a note too.
  */
-export function stopAnswer(round, { press, mode = "notes", text = "", shots = [] }) {
-  const words = String(text ?? "").trim();
+export function stopAnswer(round, { press, mode = "notes", text = "", shots = [], noCalls = [] }) {
+  const words = [String(text ?? "").trim(), callNoWords(noCalls)].filter(Boolean).join("; ");
   const notes = (shots ?? []).map((shot) => ({ id: shot.id, words: String(shot.words ?? "").trim() })).filter((shot) => shot.words);
   const base = { id: round.id, rev: round.rev };
   const noted = (read_as) => ({ ...base, read_as, ...(words ? { words } : {}), ...(notes.length ? { shots: notes } : {}) });

@@ -282,6 +282,9 @@ export function Dashboard() {
   // The notes on single shots of a waiting storyboard (c on a shot), by "<project>/<stop id>":
   // {S2: {n, text}}. Kept for this page only, like the stop's note; answering sends them.
   const [shotNotes, setShotNotes] = useState({});
+  // The agent's calls on a waiting storyboard the person said no to, by "<project>/<stop id>":
+  // a list of the calls' words. Kept for this page only; answering sends them in the note.
+  const [callNos, setCallNos] = useState({});
   // The stop that just stopped waiting in the open project (its id): the phone keeps its line at
   // the top of the stack, where its card was, until dismissed or the next stop waits.
   const [recentStop, setRecentStop] = useState(null);
@@ -790,7 +793,7 @@ export function Dashboard() {
     const key = `${projectId}/${round.id}`;
     const note = stopNotes[key] ?? { text: "", mode: "notes" };
     const shots = Object.entries(shotNotes[key] ?? {}).map(([id, entry]) => ({ id, words: entry.text }));
-    const result = stopAnswer(round, { press, mode: note.mode, text: note.text, shots });
+    const result = stopAnswer(round, { press, mode: note.mode, text: note.text, shots, noCalls: callNos[key] ?? [] });
     if (result.focus || result.error) {
       if (result.error) say(result.error, true);
       setStopNotes((value) => ({ ...value, [key]: { text: note.text, mode: result.focus ?? note.mode } }));
@@ -801,10 +804,11 @@ export function Dashboard() {
       await server.answerStop(projectId, result.send);
       setStopNotes((value) => { const rest = { ...value }; delete rest[key]; return rest; });
       setShotNotes((value) => { const rest = { ...value }; delete rest[key]; return rest; });
+      setCallNos((value) => { const rest = { ...value }; delete rest[key]; return rest; });
       focusStop.current = { id: round.id, answered: true };
       say(stopAnswered(result.send));
     } catch (cause) { fail(cause); }
-  }, [projectId, stopNotes, shotNotes, say, fail]);
+  }, [projectId, stopNotes, shotNotes, callNos, say, fail]);
   // A note on one shot of the waiting storyboard (null removes it).
   const setShotNote = (id, shot, note) => setShotNotes((value) => {
     const notes = { ...(value[noteKey(id)] ?? {}) };
@@ -838,6 +842,8 @@ export function Dashboard() {
   const stopKeyOnMain = (round, action) => {
     if (action.endsWith("always")) { say(STOP_ALWAYS_OFF, true); return; }
     if (action === "deny") { openStop(round, "redo"); return; }
+    // A storyboard is approved where it is shown: a opens it (the stage has nothing built yet).
+    if (round.kind === "board") { openStop(round); return; }
     pressStop(round, "approve");
   };
   const reopenStop = useCallback((row) => {
@@ -1580,6 +1586,11 @@ export function Dashboard() {
     round, document: doc, projectId, note: stopNote(round.id), noteRef: stopNoteRef,
     onNote: (note) => setStopNote(round.id, note), onPress: (press) => pressStop(round, press),
     shotNotes: shotNotes[noteKey(round.id)] ?? {}, onShotNote: (shot, note) => setShotNote(round.id, shot, note),
+    noCalls: callNos[noteKey(round.id)] ?? [],
+    onCallNo: (call, no) => setCallNos((value) => {
+      const list = (value[noteKey(round.id)] ?? []).filter((entry) => entry !== call);
+      return { ...value, [noteKey(round.id)]: no ? [...list, call] : list };
+    }),
     onSeeAll: () => setScreen({ name: "stop", id: round.id }),
   });
   const recentLine = recentStop ? stopLines.find((row) => row.key === recentStop) ?? null : null;
@@ -1600,7 +1611,7 @@ export function Dashboard() {
     <SessionPane data={{ ...data, renders: (data.renders ?? []).filter((job) => job.projectId === projectId) }} still={still} now={now}
       sections={sections} onSections={setSections}
       cursor={list === 1 ? cursors[1] : -1} onAnswer={answer} onOpenApproval={(id) => setScreen({ name: "approval", id })} onIdeas={() => setScreen({ name: "inspire" })} onJudge={() => setJudgeLater(null)} onMaterial={answerMaterial}
-      onStop={(round, press) => (press === "approve" ? pressStop(round, "approve") : openStop(round, press === "redo" ? "redo" : null))}
+      onStop={(round, press) => (press === "approve" && round.kind !== "board" ? pressStop(round, "approve") : openStop(round, press === "redo" ? "redo" : null))}
       onReopen={reopenStop} onKeepAsking={keepAsking} onOpenProject={openProject}
       onCancelRender={cancelRender} onShare={makeShare} onShares={() => setScreen({ name: "shares" })} share={share} onAddFiles={dropFiles} onExport={() => exportScene()} bare />
   );

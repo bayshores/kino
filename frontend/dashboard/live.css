@@ -102,6 +102,11 @@
 .need-what { min-width: 0; }
 .need-what p { margin: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .need-what .need-title { font-size: 13px; font-weight: 700; color: var(--fg0); }
+/* A storyboard stop's shots in one strip, each as wide as it is long; a press opens the board. */
+.need-reel { display: flex; gap: 2px; height: 56px; width: 100%; padding: 0; border: 0; background: none; cursor: pointer; }
+.need-reel-shot { flex-basis: 0; min-width: 10px; border: 1px solid var(--line); border-radius: 2px; background-color: var(--bg1);
+  background-size: auto 100%; background-repeat: repeat-x; background-position: left center; }
+.need-reel:hover .need-reel-shot, .need-reel:focus-visible .need-reel-shot { border-color: var(--urgent); }
 .need-actions { display: flex; gap: 6px; }
 .need-actions .tb-box { height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 0.6ch; color: var(--fg-mid); }
 .need-actions .need-allow { flex: 1; background: var(--urgent); border-color: var(--urgent); color: var(--bg0); font-weight: 700; }

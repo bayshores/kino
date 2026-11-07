@@ -3994,6 +3994,10 @@ function boardViewVideo() {
 
 const boardRows = `[...document.querySelectorAll("article.board-shot")]`;
 const boardRow = (shot) => q(`article.board-shot[data-shot="${shot}"]`);
+/** Opens every shot card's "crop and numbers", where the source frame and its boxes are drawn. */
+const openCropDetails = `(() => { const all = [...document.querySelectorAll("article.board-shot .board-more")]; for (const details of all) details.open = true; return all.length; })()`;
+/** The source frames are drawn in the first `count` cards (after openCropDetails). */
+const sourcesDrawn = (count) => `${boardRows}.slice(0, ${count}).every((row) => row.querySelector(".board-source"))`;
 /** The first `count` shot rows are drawn and their pictures have loaded. */
 const boardPictures = (count) => `(() => {
   const rows = ${boardRows}.slice(0, ${count});
@@ -4006,7 +4010,9 @@ const boardSeen = `(() => {
   const box = (element) => ["x", "y", "width", "height"].map((name) => Number(element.getAttribute(name)));
   return ${boardRows}.map((row) => ({
     shot: row.dataset.shot, notes: row.hasAttribute("data-notes"), head: row.querySelector(".board-row-head").innerText.trim(),
-    lines: Object.fromEntries([...row.querySelectorAll(".board-lines > div")].map((line) => [line.querySelector("dt").innerText.trim(), line.querySelector("dd").innerText.trim()])),
+    lines: Object.fromEntries([...row.querySelectorAll(".board-lines > div")].map((line) => [line.querySelector("dt").textContent.trim(), line.querySelector("dd").textContent.trim()])),
+    tags: [...row.querySelectorAll(".board-visual .board-tags li")].map((tag) => tag.textContent.trim()),
+    why: row.querySelector(".board-why")?.textContent.trim() ?? null,
     crop: row.querySelector("rect.board-crop") ? box(row.querySelector("rect.board-crop")) : null,
     subjects: [...row.querySelectorAll("rect.board-subject")].map(box),
     eyes: !!row.querySelector("line.board-eyes"),
@@ -4025,7 +4031,7 @@ const sidewaysOverflow = `(() => {
 /** How tall the page is against the window: the page itself never scrolls (each pane, card and stack does). */
 const pageHeight = `({ window: innerHeight, page: document.scrollingElement.scrollHeight })`;
 /** The font sizes the board's words are drawn at. */
-const boardFontSizes = `[...new Set([...document.querySelectorAll(".board .board-title, .board-head p, .board-row-head, .board-lines dt, .board-lines dd, .board-label, .board figcaption, .board-covered, .board-section, .board-list li, .board summary, .board-note label, [data-note-open]")].map((element) => getComputedStyle(element).fontSize))]`;
+const boardFontSizes = `[...new Set([...document.querySelectorAll(".board .board-title, .board-head p, .board-chips li, .reel-now p, .reel-clock, .reel-play, .board-row-head, .board-why, .board-tags li, .board-lines dt, .board-lines dd, .board-label, .board figcaption, .board-covered, .board-section, .board-list li, .board summary, .board-note label, [data-note-open]")].map((element) => getComputedStyle(element).fontSize))]`;
 
 async function atPhone(run) {
   await browser.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -4057,31 +4063,44 @@ test("storyboard screen: every layer on the desktop board; a approves it, and ki
     return {
       heading: document.getElementById("stop-C1").innerText.replace(/\\s+/g, " ").trim(),
       head: [...card.querySelectorAll(".board-head p")].map((line) => line.innerText.trim()),
-      sections: [...card.querySelectorAll(".board-section")].map((heading) => [heading.tagName, heading.innerText.trim(), heading.nextElementSibling.innerText.trim()]),
-      details: [...card.querySelectorAll("details")].map((details) => [details.querySelector("summary").innerText.trim(), details.open, details.querySelectorAll("img").length]),
+      chips: [...card.querySelectorAll(".board-chips li")].map((chip) => chip.textContent.trim()),
+      sections: [...card.querySelectorAll(".board-section")].map((heading) => [heading.tagName, heading.innerText.trim()]),
+      calls: [...card.querySelectorAll(".board-calls li")].map((call) => [call.querySelector(".call-words").textContent.trim(), call.querySelector(".call-no")?.getAttribute("aria-pressed") ?? null]),
+      details: [...card.querySelectorAll(".board-ask, .board-pages")].map((details) => [details.querySelector("summary").innerText.trim(), details.open, details.querySelectorAll("img").length]),
+      folded: [...card.querySelectorAll(".board-more")].map((details) => [details.querySelector("summary").innerText.trim(), details.open]),
       ask: [...card.querySelectorAll(".board-ask .stop-ask p")].map((line) => line.textContent.trim()),
+      reel: { segments: card.querySelectorAll(".reel-seg").length, play: card.querySelector(".reel-play")?.innerText.trim(), clock: card.querySelector(".reel-clock")?.textContent.trim(),
+        covered: [...card.querySelectorAll(".reel-covered .board-covered")].map((area) => area.textContent.trim()) },
       stills: card.querySelectorAll(".stills-grid img").length, videos: document.querySelectorAll("video").length, watch: !!card.querySelector(".stop-watch"),
     };
   })()`);
   assert.equal(card.heading, "◉ C1 · the storyboard · waits for you");
-  assert.deepEqual(card.head, ["C1 · board r1 · 5 shots · 8.8 s · 9:16 · platform not set", "purpose: not set in the brief", "music: none", "fresh-eyes check: not reported by the agent"]);
-  assert.deepEqual(card.sections, [["H4", "my calls (say no to any)", "the dragon first: it is the news"], ["H4", "open questions", "none"]]);
+  assert.deepEqual(card.head, ["C1 · board r1"], "no purpose line: the brief has none");
+  assert.deepEqual(card.chips, ["5 shots", "8.8 s", "9:16", "no music", "fresh eyes: not reported"]);
+  assert.deepEqual(card.sections, [["H4", "my calls (say no to any)"]], "no open questions heading: there are none");
+  assert.deepEqual(card.calls, [["the dragon first: it is the news", "false"]], "each call takes a no");
   assert.deepEqual(card.details, [["what the agent sends you in the chat", false, 0], ["pages as the agent sees them (2)", false, 0]], "both closed; no page image drawn");
+  assert.deepEqual(card.folded, Array.from({ length: 5 }, () => ["crop and numbers", false]), "each card's numbers are folded away");
+  assert.deepEqual(card.reel, { segments: 5, play: "▶ play the board", clock: "0:00.0 / 0:08.8", covered: ["", "app (unverified)"] }, "the reel, with the app's covered areas on its monitor");
   for (const line of asked.ask.split("\n").filter((entry) => entry.trim())) assert.ok(card.ask.includes(line.trim()), `the ask's line ${JSON.stringify(line)}`);
   assert.deepEqual([card.stills, card.videos, card.watch], [0, 0, false], "no stills, no video and no watch line: nothing is built yet");
 
+  assert.equal(await browser.evaluate(openCropDetails), 5);
+  await browser.waitFor(sourcesDrawn(5), { what: "every card's source frame" });
   const rows = await browser.evaluate(boardSeen);
   assert.deepEqual(rows.map((row) => [row.shot, row.notes, row.head, row.button]), [
     ["S1", true, "1 · 0–1.3 s · S1", "[c] note on shot 1"], ["S2", true, "2 · 1.3–3.3 s · S2", "[c] note on shot 2"], ["S3", true, "3 · 3.3–4.4 s · S3", "[c] note on shot 3"],
     ["S4", true, "4 · 4.4–6.6 s · S4", "[c] note on shot 4"], ["S5", true, "5 · 6.6–8.8 s · S5", "[c] note on shot 5"],
   ]);
   const [one, two, , four] = rows;
+  assert.deepEqual([one.why, one.tags], ["the dragon over the village", ["zoom through"]], "the card: its reason and its layers in a few words");
+  assert.ok(two.tags.includes("subject touches the crop edge"), JSON.stringify(two.tags));
+  assert.deepEqual(four.tags, ['"The dragon is back"', "zoom through"]);
   assert.equal(one.lines.footage, "sintel-village-dragon.mp4 from 0 s · crop 24 × 76% at 20, 12");
   assert.equal(one.lines.subject, "the dragon · box by the agent");
   assert.match(one.lines.measured, /^\d+% in the crop · (edge \d+%|touches the edge) · eyes \d+% from the top$/);
   assert.deepEqual([one.lines.follow, one.lines.pacing, one.lines.text, one.lines.sound, one.lines.why], ["steady", "free", "none", "none", "the dragon over the village"]);
   assert.deepEqual([one.crop, one.subjects, one.eyes, one.labels], [[20, 12, 24, 76], [[24, 30, 14, 30]], true, ["crop", "agent", "eyes"]], "the boxes in % of the source frame");
-  assert.deepEqual(one.covered, ["", "app (unverified)"], "the app's covered areas on the 9:16 still");
   assert.ok(two.lines["look at"].includes("subject touches the crop edge"), JSON.stringify(two.lines));
   assert.deepEqual([four.lines.footage, four.lines.subject, four.lines.follow, four.missing, four.crop], ["none", "none", "none", "no footage", null]);
   assert.match(four.lines.text, /^"The dragon is back" · Inter \d00 · \d+ px · y \d+%$/);
@@ -4093,8 +4112,24 @@ test("storyboard screen: every layer on the desktop board; a approves it, and ki
 
   await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "the first two shots' pictures" });
   const pictures = await browser.evaluate(`${boardRows}.slice(0, 2).map((row) => [...row.querySelectorAll(".board-frame img")].map((image) => [new URL(image.currentSrc).searchParams.get("part"), image.naturalWidth > 0]))`);
-  assert.deepEqual(pictures, [[["source", true], ["still", true]], [["source", true], ["still", true]]]);
+  assert.deepEqual(pictures, [[["still", true], ["source", true]], [["still", true], ["source", true]]]);
+  // The answers stay at the bottom of the window while the board scrolls under them.
+  const pinned = await browser.evaluate(`(() => {
+    const wrap = ${q(".screen-wrap.is-stop")};
+    wrap.scrollTop = 0;
+    const bar = ${q(".stop-answer")}.getBoundingClientRect();
+    const view = wrap.getBoundingClientRect();
+    return { inView: bar.bottom <= view.bottom + 1 && bar.top >= view.top, scrolls: wrap.scrollHeight > wrap.clientHeight };
+  })()`);
+  assert.deepEqual(pinned, { inView: true, scrolls: true }, "approve is in view at the board's top");
   await browser.shot("board-desktop-top");
+  // Play runs the stills at their lengths: the playhead and the monitor move to later shots.
+  await browser.click(q(".reel-play"));
+  await browser.waitFor(`${q(".reel-seg.on")}?.getAttribute("aria-label").startsWith("shot 2")`, { timeout: 5_000, what: "the reel at shot 2" });
+  await browser.click(q(".reel-play"));
+  assert.equal(await browser.evaluate(`${q(".reel-play")}.getAttribute("aria-pressed")`), "false", "pause");
+  await browser.click(`${q(".reel-strip")}.querySelectorAll(".reel-seg")[3]`);
+  assert.match(await browser.evaluate(`${q(".reel-now")}.textContent`), /^shot 4 of 5 · 4\.4–6\.6 s/, "a shot in the strip goes to it");
   await browser.evaluate(`${boardRow("S4")}.scrollIntoView({ block: "start" })`);
   await browser.shot("board-desktop-titles");
   // The agent's own pages, drawn only once opened.
@@ -4295,7 +4330,8 @@ test("storyboard screen: labels by the frame's edges stay whole, and the crop's 
   const id = "board-edges";
   await boardVideo(id, { shots: edgeShots });
   await openBoardStop(id);
-  await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "the first two shots' pictures" });
+  await browser.evaluate(openCropDetails);
+  await browser.waitFor(`${sourcesDrawn(2)} && ${boardPictures(2)}`, { timeout: 60_000, what: "the first two shots' pictures" });
   const placed = [{ shot: "S1", labels: ["crop", "agent", "eyes"], cut: [], onBox: [], onLabel: [] }, { shot: "S2", labels: ["crop", "agent"], cut: [], onBox: [], onLabel: [] }];
   assert.deepEqual(await browser.evaluate(labelsPlaced), placed, "at 1440 px");
   await browser.evaluate(`${q(".board-shots")}.scrollIntoView({ block: "start" })`);
@@ -4394,8 +4430,9 @@ test("storyboard screen: a board that could not be read says so and try again re
   await browser.evaluate("window.boardReadFails = false");
   await browser.click(button("try again", ".board-error"));
   await browser.waitFor(`${boardRows}.length === 5 && document.activeElement === ${q(".board-title")}`, { what: "the board, with the focus on its first line" });
-  // A picture that fails shows its words in its place and a retry.
-  await browser.waitFor(boardPictures(1), { timeout: 60_000, what: "shot 1's pictures" });
+  // A picture that fails shows its words in its place and a retry (the source frame is in "crop and numbers").
+  await browser.evaluate(openCropDetails);
+  await browser.waitFor(`${sourcesDrawn(1)} && ${boardPictures(1)}`, { timeout: 60_000, what: "shot 1's pictures" });
   await browser.evaluate(`${boardRow("S1")}.querySelector(".board-source img").dispatchEvent(new Event("error"))`);
   await browser.waitFor(pageHas("the source frame of shot 1, at 0 s could not be shown", `article.board-shot[data-shot="S1"]`), { what: "the failed picture's words" });
   await browser.shot("board-picture-failed");
@@ -4432,7 +4469,8 @@ test("storyboard screen: :board shows the board not asked yet, read only; after 
   await browser.waitFor(`${textOf("#screen-title")} === "storyboard" && ${boardRows}.length === 5`, { what: "the board not asked yet" });
   const before = await browser.evaluate(`({ head: [...document.querySelectorAll(".board-head p")].slice(0, 2).map((line) => line.innerText.trim()),
     notes: document.querySelectorAll("[data-notes], [data-note-open], .board-note").length, answers: document.querySelectorAll(".stop-card").length })`);
-  assert.deepEqual(before, { head: ["not asked yet · board r1 · 5 shots · 8.8 s · 9:16 · platform not set", "not asked yet: the agent has not shown you this board"], notes: 0, answers: 0 });
+  assert.deepEqual(before, { head: ["not asked yet · board r1", "not asked yet: the agent has not shown you this board"], notes: 0, answers: 0 });
+  assert.equal(await browser.evaluate(`document.querySelectorAll(".call-no").length`), 0, "no no on a board not asked yet");
   await browser.waitFor(boardPictures(1), { timeout: 60_000, what: "shot 1's pictures" });
   await browser.shot("board-not-asked-desktop");
   await browser.key("Escape");

@@ -30,5 +30,6 @@ export function needsBar(rows, index = 0, nameOf = () => null, { here = false } 
   const what = STOP_WORDS[round.kind] ?? round.kind ?? "a stop";
   // A stop in another project is answered there.
   if (row.type === "elsewhere") return { who: row.name, what: `${what} · open it there`, keys: [], more };
-  return { who: nameOf(round.agentId) || round.client || "the agent", what, keys: [["a", "approve"], ["d", "redo"]], more };
+  // A storyboard is approved on its own screen, where it is shown: a opens it.
+  return { who: nameOf(round.agentId) || round.client || "the agent", what, keys: [["a", round.kind === "board" ? "review" : "approve"], ["d", "redo"]], more };
 }

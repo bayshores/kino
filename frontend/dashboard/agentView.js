@@ -223,9 +223,12 @@ export function needWords(row, nameOf = () => null) {
   const round = row.round ?? {};
   const word = STOP_WORDS[round.kind] ?? round.kind ?? "stop";
   if (row.type === "elsewhere") return { who: row.name, color: null, agentId: null, todo: `the ${word} waits in ${row.name}: open it there`, allow: null, deny: null, key: null, spec: "", summary: "", watch: false };
+  // A storyboard has nothing built to watch on the stage: a opens the board, where it is approved.
+  const board = round.kind === "board";
   return {
     who: nameOf(round.agentId) || round.client || "the agent", color: null, agentId: round.agentId ?? null,
-    todo: `look at the ${word}, then approve it or ask for a redo`, allow: `approve ${word}`, deny: "redo", key: "approve", spec: "", summary: String(round.ask ?? "").split("\n")[0],
+    todo: board ? "review the storyboard, then approve it or ask for a redo" : `look at the ${word}, then approve it or ask for a redo`,
+    allow: board ? "review storyboard" : `approve ${word}`, deny: "redo", key: board ? "review" : "approve", spec: "", summary: String(round.ask ?? "").split("\n")[0],
     watch: true,
   };
 }

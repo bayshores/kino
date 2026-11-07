@@ -1962,7 +1962,7 @@ function layerValues(layer) {
 export function KeyLine({ onKey, inert = false, need = null, playing = false, empty = false }) {
   // [key, word, action, icon]: the key goes in the tooltip, not on the label.
   const keys = need
-    ? [...(need.allow ? [["a", need.key === "approve" ? "approve" : need.key === "pick" ? need.allow : "allow", "allow", null]] : []), ...(need.deny ? [["d", need.deny, "deny", null]] : []), ["n", "note", "note", "note"]]
+    ? [...(need.allow ? [["a", need.key === "approve" ? "approve" : need.key === "pick" || need.key === "review" ? need.allow : "allow", "allow", null]] : []), ...(need.deny ? [["d", need.deny, "deny", null]] : []), ["n", "note", "note", "note"]]
     : [["space", playing ? "pause" : "play", "play", playing ? "pause" : "play"], ["n", "note", "note", "note"], ["u", "undo turn", "undo", "undo"]];
   return (
     <nav className="keyline" aria-label="Actions" inert={inert}>
