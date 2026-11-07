@@ -20,6 +20,7 @@ import { helperSession, measureAbilities, measureSize } from "../measure/measure
 import { decodeMono } from "../audio-analysis.mjs";
 import { energyFrames, silenceLevel } from "../speech/transcribe.mjs";
 import { round as round3 } from "../../engine/numbers.js";
+import { heavyDecodeSlot } from "../process-slots.mjs";
 
 export const FOOTAGE_VERSION = 1;
 export const FOOTAGE_FPS = 4;
@@ -58,7 +59,12 @@ function flowSpeed(flow, width) {
  * widths a second (null without the helper), change the mean brightness difference to the frame
  * before (0 to 1).
  */
-export async function measureFootage(file, { width, height, duration, signal } = {}) {
+export function measureFootage(file, options = {}) {
+  // One video decode at a time in this process (process-slots.mjs).
+  return heavyDecodeSlot(() => measureFootageNow(file, options));
+}
+
+async function measureFootageNow(file, { width, height, duration, signal } = {}) {
   const size = measureSize(width, height, SIDE);
   const abilities = await measureAbilities();
   const helper = abilities.flow === true || abilities.text === true ? abilities.helper : null;

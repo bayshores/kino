@@ -17,8 +17,11 @@ import { ffmpegCommand } from "../media-probe.mjs";
 import { endWithService } from "../child-exit.mjs";
 import { helperSession, measureAbilities, measureHelperPath, measureSize } from "../measure/measure.mjs";
 import { round as round3 } from "../../engine/numbers.js";
+import { heavyDecodeSlot } from "../process-slots.mjs";
 
 export const PEOPLE_VERSION = 1;
+// How long a file that failed waits before it is measured again (createPeopleCache).
+const FAILED_RETRY_MS = 10 * 60_000;
 const PEOPLE_FPS = 2;
 const MAX_FRAMES = 600;
 const SIDE = 480;
@@ -43,7 +46,13 @@ export async function peopleHelper() {
  * how many head joints (nose, eyes, ears) the body pose found, top the highest one's y. Or to
  * {version, unavailable: "why"} when this computer cannot find people.
  */
-export async function measurePeople(file, { width, height, duration, signal } = {}) {
+export function measurePeople(file, options = {}) {
+  // One video decode at a time in this process (process-slots.mjs).
+  return heavyDecodeSlot(() => measurePeopleNow(file, options));
+}
+
+async function measurePeopleNow(file, { width, height, duration, signal } = {}) {
+  if (signal?.aborted) throw Object.assign(new Error("Finding people was cancelled."), { name: "AbortError" });
   const { helper, why } = await peopleHelper();
   if (!helper) return { version: PEOPLE_VERSION, unavailable: why };
   const size = measureSize(width, height, SIDE);
@@ -87,8 +96,16 @@ export async function measurePeople(file, { width, height, duration, signal } = 
 }
 
 /** Finds the people in each file once and keeps the answer beside it (`.people-v1`). */
-export function createPeopleCache({ measure = measurePeople } = {}) {
+export function createPeopleCache({ measure = measurePeople, now = () => Date.now() } = {}) {
   const pending = new Map();
+  // A file that failed (FFmpeg could not decode it, or the helper stopped on it) is not measured
+  // again for a while: each full check asks again, and each try decodes the whole video.
+  const failed = new Map();
+  const remember = (file, outcome) => {
+    failed.delete(file);
+    failed.set(file, { ...outcome, at: now() });
+    if (failed.size > 512) failed.delete(failed.keys().next().value);
+  };
   const sidecar = (file) => `${file}.people-v${PEOPLE_VERSION}`;
   async function saved(file) {
     try {
@@ -115,7 +132,15 @@ export function createPeopleCache({ measure = measurePeople } = {}) {
     saved,
     /** The answer for a file, measured now when none is saved; `info` is {width, height, duration}. */
     get(file, info) {
-      if (!pending.has(file)) pending.set(file, make(file, info).finally(() => pending.delete(file)));
+      const failure = failed.get(file);
+      if (failure && now() - failure.at < FAILED_RETRY_MS) return failure.error ? Promise.reject(failure.error) : Promise.resolve(failure.result);
+      if (!pending.has(file)) pending.set(file, make(file, info).then((result) => {
+        if (/helper stopped/.test(String(result?.unavailable ?? ""))) remember(file, { result });
+        return result;
+      }, (error) => {
+        if (error?.name !== "AbortError") remember(file, { error });
+        throw error;
+      }).finally(() => pending.delete(file)));
       return pending.get(file);
     },
   };

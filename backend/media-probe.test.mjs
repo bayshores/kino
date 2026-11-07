@@ -8,6 +8,7 @@ import {
   decodeGifFrames,
   probeGifTimeline,
   probeMedia,
+  runMediaTool,
   videoGridArgs,
   videoGridCount,
   writeGifFrames,
@@ -174,6 +175,39 @@ test("a missing ffprobe reports how to install or configure it", async (t) => {
   });
   await assert.rejects(probeMedia(join(tmpdir(), "anything.mp4")),
     /ffprobe executable “kino-missing-ffprobe-for-test” was not found\. Install FFmpeg with ffprobe, or configure KINO_FFMPEG and KINO_FFPROBE\./);
+});
+
+// A stand-in ffprobe: a shell script that counts its runs in `count` and answers after `sleep` s.
+async function fakeProbe(t, root, sleep) {
+  const script = join(root, "fake-ffprobe.sh");
+  const count = join(root, "runs.txt");
+  // A stuck one replaces itself with sleep (exec), so stopping it stops the sleep too.
+  await writeFile(script, `#!/bin/sh\necho run >> "${count}"\n${sleep >= 10 ? "exec " : ""}sleep ${sleep}\necho '{"streams":[{"codec_type":"audio","duration":"2"}],"format":{"format_name":"wav","duration":"2"}}'\n`, { mode: 0o755 });
+  const previous = process.env.KINO_FFPROBE;
+  process.env.KINO_FFPROBE = script;
+  t.after(() => {
+    if (previous === undefined) delete process.env.KINO_FFPROBE;
+    else process.env.KINO_FFPROBE = previous;
+  });
+  return async () => (await readFile(count, "utf8").catch(() => "")).split("\n").filter(Boolean).length;
+}
+
+test("probes of one file asked for at once share one ffprobe run", { skip: process.platform === "win32" }, async (t) => {
+  const root = await folder(t);
+  const runs = await fakeProbe(t, root, 0.2);
+  const file = join(root, "sound.wav");
+  await writeFile(file, "not really a sound");
+  const answers = await Promise.all(Array.from({ length: 6 }, () => probeMedia(file)));
+  assert.equal(await runs(), 1);
+  for (const answer of answers) assert.equal(answer.duration, 2);
+});
+
+test("a stuck ffprobe is stopped after its time limit", { skip: process.platform === "win32" }, async (t) => {
+  const root = await folder(t);
+  await fakeProbe(t, root, 30);
+  const started = Date.now();
+  await assert.rejects(runMediaTool("ffprobe", ["x"], { timeoutMs: 200 }), /took longer than/);
+  assert.ok(Date.now() - started < 5000);
 });
 
 // Frame N of the test video has gray level 4N, so a decoded picture tells which frame it came from.

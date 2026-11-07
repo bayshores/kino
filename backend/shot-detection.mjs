@@ -20,6 +20,7 @@ import { parseMediaSource } from "../engine/mediaSource.js";
 import { endWithService } from "./child-exit.mjs";
 import { sec } from "./agent/describe.mjs";
 import { ffmpegArgs, lowerIfBackground } from "./render-activity.mjs";
+import { heavyDecodeSlot } from "./process-slots.mjs";
 import { round as round3 } from "../engine/numbers.js";
 
 // FFmpeg's helpers (media-probe.mjs), loaded the first time FFmpeg runs. They load the canvas
@@ -257,7 +258,13 @@ function frameClock(times, frames, duration) {
 // metadata filter prints: that starts again from 0 when the picture size changes (FFmpeg then
 // rebuilds the filters), as in a WebM recording that changes size partway.
 // More than `maxFrames` frames stop the run with a "too long" error.
+// One video decode at a time in this process (process-slots.mjs): finding the shots of many new
+// videos queues instead of starting FFmpeg for each at once.
 function analyse(command, file, signal, maxFrames) {
+  return heavyDecodeSlot(() => analyseNow(command, file, signal, maxFrames));
+}
+
+function analyseNow(command, file, signal, maxFrames) {
   const args = [
     "-hide_banner", "-nostdin", "-nostats", "-v", "info",
     "-i", file, "-map", "0:v:0", "-an", "-sn", "-dn", "-fps_mode", "passthrough",

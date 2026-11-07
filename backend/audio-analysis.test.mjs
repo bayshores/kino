@@ -153,3 +153,39 @@ test("music is never sent to whisper: a layer named music, or one with a steady 
     await rm(folder, { recursive: true, force: true });
   }
 });
+
+test("a file the beat analysis failed on is not decoded again for ten minutes", async () => {
+  let tries = 0;
+  let clock = 0;
+  const cache = createBeatAnalysisCache({ now: () => clock, analyze: async () => { tries += 1; throw new Error("The file has no sound."); } });
+  const file = path.join(tmpdir(), "kino-beats-never-written.wav");
+  await assert.rejects(cache.get(file), /no sound/);
+  await assert.rejects(cache.get(file), /no sound/);
+  clock = 9 * 60_000;
+  await assert.rejects(cache.get(file), /no sound/);
+  assert.equal(tries, 1);
+  clock = 11 * 60_000;
+  await assert.rejects(cache.get(file), /no sound/);
+  assert.equal(tries, 2);
+});
+
+test("a missing FFmpeg is not remembered as a failed file", async () => {
+  let tries = 0;
+  const cache = createBeatAnalysisCache({ analyze: async () => { tries += 1; throw new Error("FFmpeg is not installed, so the sound cannot be analysed."); } });
+  const file = path.join(tmpdir(), "kino-beats-never-written-2.wav");
+  await assert.rejects(cache.get(file));
+  await assert.rejects(cache.get(file));
+  assert.equal(tries, 2);
+});
+
+test("full sound decodes run one at a time across files", async () => {
+  const { heavyDecodeSlot } = await import("./process-slots.mjs");
+  let most = 0;
+  const work = () => heavyDecodeSlot(async () => {
+    most = Math.max(most, heavyDecodeSlot.running());
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  });
+  await Promise.all([work(), work(), work(), work()]);
+  assert.equal(most, 1);
+  assert.equal(heavyDecodeSlot.running(), 0);
+});

@@ -10,14 +10,23 @@ import { BEAT_ANALYSIS_VERSION, analyzeBeats } from "../engine/beatDetection.js"
 import { ffmpegCommand } from "./media-probe.mjs";
 import { endWithService } from "./child-exit.mjs";
 import { lowerIfBackground } from "./render-activity.mjs";
+import { heavyDecodeSlot } from "./process-slots.mjs";
 import { MAX_TIME } from "../engine/schema.js";
 
 export const ANALYSIS_SAMPLE_RATE = 22_050;
 /** Only the first ten minutes of a file are analysed: the longest scene (MAX_TIME in engine/schema.js). */
 export const MAX_ANALYSIS_SECONDS = MAX_TIME;
 
-/** Decodes the first audio track of `filename` to mono samples. Rejects with a plain reason. */
-export function decodeMono(filename, { command = ffmpegCommand(), timeoutMs = 120_000, sampleRate = ANALYSIS_SAMPLE_RATE } = {}) {
+/**
+ * Decodes the first audio track of `filename` to mono samples. Rejects with a plain reason.
+ * One full decode runs at a time in this process (process-slots.mjs): beats and transcripts of
+ * many files queue here instead of each starting FFmpeg.
+ */
+export function decodeMono(filename, options = {}) {
+  return heavyDecodeSlot(() => decodeMonoNow(filename, options));
+}
+
+function decodeMonoNow(filename, { command = ffmpegCommand(), timeoutMs = 120_000, sampleRate = ANALYSIS_SAMPLE_RATE } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [
       "-nostdin", "-hide_banner", "-loglevel", "error", "-threads", "1", "-copyts", "-start_at_zero", "-i", filename,
@@ -88,9 +97,15 @@ export async function soundIsMusic(layer, file, { listen = false, beats = null }
   try { return steadyBeat(await beats.get(file)); } catch { return false; }
 }
 
+// How long a file the beat analysis failed on waits before it is tried again.
+const FAILED_RETRY_MS = 10 * 60_000;
+
 /** Analyses each file once and keeps the result in a .beats file beside it. */
-export function createBeatAnalysisCache({ analyze = analyzeAudioFile } = {}) {
+export function createBeatAnalysisCache({ analyze = analyzeAudioFile, now = () => Date.now() } = {}) {
   const pending = new Map();
+  // A file that could not be analyzed (no sound, a broken file) is not tried again for a while:
+  // full checks ask for the beats of every sound over and over, and each try is an FFmpeg decode.
+  const failed = new Map();
   async function readOrAnalyze(filename) {
     const sidecar = `${filename}.beats`;
     try {
@@ -107,7 +122,15 @@ export function createBeatAnalysisCache({ analyze = analyzeAudioFile } = {}) {
     return result;
   }
   function get(filename) {
-    if (!pending.has(filename)) pending.set(filename, readOrAnalyze(filename).finally(() => pending.delete(filename)));
+    const failure = failed.get(filename);
+    if (failure && now() - failure.at < FAILED_RETRY_MS) return Promise.reject(failure.error);
+    if (!pending.has(filename)) pending.set(filename, readOrAnalyze(filename).catch((error) => {
+      failed.delete(filename);
+      // A missing FFmpeg is not remembered: it works as soon as it is installed.
+      if (!/not installed/.test(String(error?.message))) failed.set(filename, { error, at: now() });
+      if (failed.size > 512) failed.delete(failed.keys().next().value);
+      throw error;
+    }).finally(() => pending.delete(filename)));
     return pending.get(filename);
   }
   return { get };

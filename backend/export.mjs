@@ -734,6 +734,7 @@ export async function voiceLevelDb(path, offset, length, { curves = exportCurves
 
 // The cleaned voice's leveling gains, one FFmpeg measurement per clip and chain while kino runs.
 const cleanedLevels = new Map();
+export const CLEANED_LEVELS_KEPT = 512;
 
 /**
  * The leveling gain (dB) of a spoken clip after the voice cleanup chain (voice-chain.mjs), or null.
@@ -753,6 +754,8 @@ export async function cleanedVoiceLevel(path, offset, length, { curves = exportC
       "-map", "0:a:0", "-vn", "-af", `${chain},ebur128=metadata=1,ametadata=mode=print:file=-`, "-f", "null", "-"], signal);
     const cleaned = readMomentary(printed);
     cleanedLevels.set(key, clipLeveling(voiceLeveling(cleaned, spans.map((span) => ({ start: span.start - offset, end: span.end - offset })))));
+    // Each trim of a clip is a new key: keep the newest CLEANED_LEVELS_KEPT.
+    if (cleanedLevels.size > CLEANED_LEVELS_KEPT) cleanedLevels.delete(cleanedLevels.keys().next().value);
   }
   return { chain, leveling: cleanedLevels.get(key) };
 }

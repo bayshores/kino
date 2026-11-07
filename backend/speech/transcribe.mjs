@@ -31,6 +31,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { decodeMono } from "../audio-analysis.mjs";
 import { endWithService } from "../child-exit.mjs";
+import { createSlots } from "../process-slots.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { round } from "../../engine/numbers.js";
 
@@ -588,7 +589,14 @@ function clipOf(samples, part) {
  * Times are seconds into the file. `setup` is whisperSetup()'s answer; `names` the project's names
  * for the prompt (backend/speech/name-hint.mjs).
  */
-export async function transcribeFile(filename, setup, { decode = decodeMono, debug = false, names = [] } = {}) {
+export function transcribeFile(filename, setup, options = {}) {
+  // As many files at once as whisper runs: a file is decoded only when it can be transcribed, so
+  // ten files asked for together do not each hold their decoded sound (up to 38 MB) in a queue.
+  return transcribeSlot(() => transcribeFileNow(filename, setup, options));
+}
+const transcribeSlot = createSlots(MAX_WHISPER_RUNS);
+
+async function transcribeFileNow(filename, setup, { decode = decodeMono, debug = false, names = [] } = {}) {
   const { samples } = await decode(filename, { sampleRate: SAMPLE_RATE });
   if (!samples.length) throw new Error("The file has no sound.");
   const duration = samples.length / SAMPLE_RATE;
