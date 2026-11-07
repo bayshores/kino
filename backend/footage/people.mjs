@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { ffmpegCommand } from "../media-probe.mjs";
+import { endWithService } from "../child-exit.mjs";
 import { helperSession, measureAbilities, measureHelperPath, measureSize } from "../measure/measure.mjs";
 import { round as round3 } from "../../engine/numbers.js";
 
@@ -51,6 +52,7 @@ export async function measurePeople(file, { width, height, duration, signal } = 
   const frameBytes = size.width * size.height * 4;
   const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-threads", "2", "-i", file, "-map", "0:V:0", "-an", "-sn", "-dn",
     "-vf", `fps=${round3(fps)},scale=${size.width}:${size.height}:flags=area,format=bgra`, "-frames:v", String(MAX_FRAMES), "-f", "rawvideo", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
+  endWithService(decode);
   const onAbort = () => decode.kill("SIGTERM");
   signal?.addEventListener("abort", onAbort, { once: true });
   let decodeError = "";

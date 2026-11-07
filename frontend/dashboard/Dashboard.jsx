@@ -14,7 +14,8 @@ import { defaultFonts } from "../../engine/fonts.js";
 import { documentFontReferences } from "../../engine/fontDocuments.js";
 import { fontGlyphReferences } from "../../engine/fontGlyphReferences.js";
 import { desktopServiceLine, openStream } from "./stream.js";
-import { applyEvent, attention, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
+import { tickWhileShown } from "./visibleClock.js";
+import { applyEvent, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
 import { isTyping, keyAction } from "./keys.js";
 
 // Whether the stage draws its outlines: the check's boxes (findings) and the agents' marks
@@ -75,10 +76,7 @@ function useMedia(query) {
 
 function useNow(ms) {
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(timer);
-  }, [ms]);
+  useEffect(() => tickWhileShown(() => setNow(Date.now()), ms), [ms]);
   return now;
 }
 
@@ -505,7 +503,7 @@ export function Dashboard() {
     if (!projectId || !revision) return undefined;
     let active = true;
     const timer = setTimeout(() => {
-      server.act("check", { project: projectId, quiet: true })
+      server.act("check", backgroundCheckInput(projectId))
         .then((reply) => { if (active) setChecks(reply.isError ? { error: reply.text } : { text: reply.text, data: reply.data }); })
         .catch((cause) => { if (active) setChecks({ error: cause.message }); });
     }, CHECK_DELAY_MS);

@@ -17,6 +17,7 @@ import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { parseMediaSource } from "../engine/mediaSource.js";
+import { endWithService } from "./child-exit.mjs";
 import { sec } from "./agent/describe.mjs";
 import { ffmpegArgs, lowerIfBackground } from "./render-activity.mjs";
 import { round as round3 } from "../engine/numbers.js";
@@ -269,7 +270,7 @@ function analyse(command, file, signal, maxFrames) {
       rejectPromise(abortError(signal));
       return;
     }
-    const child = spawn(command, ffmpegArgs(args), { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const child = endWithService(spawn(command, ffmpegArgs(args), { shell: false, stdio: ["ignore", "pipe", "pipe"] }));
     lowerIfBackground(child);
     // Every frame's gray copy is kept (MAX_VIDEO_FRAMES of them are 41 MB): a file's frame count,
     // not its size in bytes, sets this, as a long, small file compresses well.
@@ -463,7 +464,8 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
     return { shots: result.shots };
   }
 
-  async function forSource(src, { signal } = {}) {
+  // saved: true answers only what the record has and never runs FFmpeg (the dashboard's lanes).
+  async function forSource(src, { signal, saved = false } = {}) {
     // An upload's file name: hex, dashes and an extension, so it is safe in a path.
     const id = parseMediaSource(src)?.id;
     let record = null;
@@ -474,6 +476,7 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
     if (!isVideo(record)) return { shots: null, reason: "not a video" };
     if (Array.isArray(record.shots)) return { shots: record.shots };
     if (record.shotsError) return { shots: null, reason: shotsErrorReason(record.shotsError) };
+    if (saved) return { shots: null, reason: "not found yet" };
     let run = running.get(id);
     if (!run) {
       run = findAndSave(id, record).finally(() => running.delete(id));

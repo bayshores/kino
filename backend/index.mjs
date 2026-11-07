@@ -70,6 +70,7 @@ import { analyzeBeats } from "../engine/beatDetection.js";
 import { createInspire, inspireTools } from "./inspire.mjs";
 import { songVocals } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
+import { stopChildren } from "./child-exit.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const activeExports = new Set();
@@ -158,7 +159,7 @@ crew = await createCrew({
 });
 // An approval asked or answered can change an agent's state ("needs you").
 dashboard.onEvent((event) => { if (event.type === "approval") crew.changed(); });
-process.on("exit", () => crewLauncher.stopAll());
+process.on("exit", () => { crewLauncher.stopAll(); stopChildren(); });
 const frameCache = createFrameCache(path.join(agentDirectory, "frames"));
 await frameCache.limit(dashboard.settings().compute.frameCacheMegabytes * 1024 * 1024).catch(() => {});
 // The render cache size from your settings (512 MB unless you changed it); it trims at once.
@@ -1914,6 +1915,8 @@ if (process.env.KINO_EXIT_WITH_PARENT === "1" || process.env.NODE_TEST_CONTEXT) 
 }
 process.on("SIGTERM", async () => {
   clearInterval(presenceExpiry);
+  // whisper and FFmpeg runs end now, not minutes after kino quit.
+  stopChildren();
   // The agents kino started end with it (their crew rows read "kino restarted" next time).
   crewLauncher.stopAll();
   await crew.flush().catch(() => {});

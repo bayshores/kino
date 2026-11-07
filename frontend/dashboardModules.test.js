@@ -7,9 +7,10 @@ import { isTyping, keyAction, parseCommand } from "./dashboard/keys.js";
 import { editCommandTarget } from "./desktopEdit.js";
 import { windowTitle } from "./dashboard/notify.js";
 import { desktopServiceLine } from "./dashboard/stream.js";
+import { tickWhileShown } from "./dashboard/visibleClock.js";
 import { agentChips, idleLine, nowBlock, renderAgent, runningRender } from "./dashboard/topbar.js";
 import { projectGroups } from "./dashboard/projectRows.js";
-import { agentRows, applyEvent, attention, briefRows, commentRows, fromSnapshot, planRows, seenImages, turnChips, turnRows, variantChoices, videoLayers, WORKING_MS, withRecord } from "./dashboard/state.js";
+import { agentRows, applyEvent, attention, backgroundCheckInput, briefRows, commentRows, fromSnapshot, planRows, seenImages, turnChips, turnRows, variantChoices, videoLayers, WORKING_MS, withRecord } from "./dashboard/state.js";
 
 const press = (key, extra = {}) => ({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...extra });
 
@@ -393,4 +394,31 @@ test("the projects screen folds the verification projects away under tests, and 
   assert.deepEqual(groups.mine.map((row) => [row.project.id, row.index]), [["app-trailer", 1], ["smoke", 3]]);
   assert.deepEqual(groups.tests.map((row) => row.project.id), ["a", "b"]);
   assert.deepEqual(projectGroups(projects, "SMOKE").mine.map((row) => row.project.id), ["smoke"]);
+});
+
+test("the dashboard clock does not tick while the window is hidden", (t) => {
+  t.mock.timers.enable({ apis: ["setInterval"] });
+  const listeners = new Set();
+  const doc = { visibilityState: "visible", addEventListener: (_, fn) => listeners.add(fn), removeEventListener: (_, fn) => listeners.delete(fn) };
+  let ticks = 0;
+  const stop = tickWhileShown(() => { ticks += 1; }, 1000, doc);
+  t.mock.timers.tick(3000);
+  assert.equal(ticks, 3);
+  doc.visibilityState = "hidden";
+  for (const fn of listeners) fn();
+  t.mock.timers.tick(5000);
+  assert.equal(ticks, 3, "no ticks while hidden");
+  doc.visibilityState = "visible";
+  for (const fn of listeners) fn();
+  assert.equal(ticks, 4, "one tick at once when shown again");
+  t.mock.timers.tick(1000);
+  assert.equal(ticks, 5);
+  stop();
+  assert.equal(listeners.size, 0);
+  t.mock.timers.tick(5000);
+  assert.equal(ticks, 5);
+});
+
+test("the dashboard's background check reads saved results only (no whisper, ffmpeg or frames)", () => {
+  assert.deepEqual(backgroundCheckInput("p1"), { project: "p1", quiet: true, pixels: false });
 });

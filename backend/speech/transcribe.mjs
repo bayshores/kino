@@ -30,6 +30,7 @@ import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { decodeMono } from "../audio-analysis.mjs";
+import { endWithService } from "../child-exit.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { round } from "../../engine/numbers.js";
 
@@ -268,7 +269,7 @@ function run(command, args, options) {
 
 function runNow(command, args, { timeoutMs }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { shell: false, stdio: ["ignore", "ignore", "pipe"] });
+    const child = endWithService(spawn(command, args, { shell: false, stdio: ["ignore", "ignore", "pipe"] }));
     let stderr = "";
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);

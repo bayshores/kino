@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { ffmpegCommand } from "../media-probe.mjs";
+import { endWithService } from "../child-exit.mjs";
 import { helperSession, measureAbilities, measureSize } from "../measure/measure.mjs";
 import { decodeMono } from "../audio-analysis.mjs";
 import { energyFrames, silenceLevel } from "../speech/transcribe.mjs";
@@ -65,6 +66,7 @@ export async function measureFootage(file, { width, height, duration, signal } =
   const frameBytes = size.width * size.height * 4;
   const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-threads", "2", "-i", file, "-map", "0:V:0", "-an", "-sn", "-dn",
     "-vf", `fps=${FOOTAGE_FPS},scale=${size.width}:${size.height}:flags=area,format=bgra`, "-f", "rawvideo", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
+  endWithService(decode);
   let decodeError = "";
   decode.stderr.setEncoding("utf8").on("data", (chunk) => { decodeError = (decodeError + chunk).slice(-1000); });
   const samples = [];

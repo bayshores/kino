@@ -10,16 +10,14 @@ import { Bot } from "./bot.jsx";
 import { leftWords, needWords, renderDock, seenNow, specWords } from "./agentView.js";
 import { act, boardShotUrl, frameUrl, renderFileUrl, seenUrl } from "./api.js";
 import { ago } from "./format.js";
+import { tickWhileShown } from "./visibleClock.js";
 import { keyTarget, needsYouRows, recommendedOption } from "./state.js";
 import "./live.css";
 
 /** The clock, once a second, for panels that count down or fade out on their own. */
 export function useNow(ms = 1000) {
   const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(timer);
-  }, [ms]);
+  useEffect(() => tickWhileShown(() => setNow(Date.now()), ms), [ms]);
   return now;
 }
 

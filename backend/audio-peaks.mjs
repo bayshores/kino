@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { AUDIO_PEAK_VERSION, AUDIO_PEAKS_PER_SECOND, MAX_AUDIO_PEAKS, downsamplePeaks, normalizePeaks, validAudioPeaks } from "../engine/audioPeaks.js";
 import { ffmpegCommand } from "./media-probe.mjs";
+import { endWithService } from "./child-exit.mjs";
 
 const SAMPLE_RATE = 48_000;
 const CHANNELS = 2;
@@ -112,6 +113,7 @@ export function extractAudioPeaks(filename, { command = ffmpegCommand(), timeout
       "-af", "aresample=async=1:first_pts=0:min_hard_comp=0.001",
       "-threads", "1", "-c:a", "pcm_f32le", "-f", "wav", "pipe:1",
     ], { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    endWithService(child);
     let stderr = "";
     let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, timeoutMs);
