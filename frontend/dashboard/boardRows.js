@@ -302,3 +302,82 @@ export function statusWords(data, time = (iso) => iso ?? "") {
     default: return "not asked yet: the agent has not shown you this board";
   }
 }
+
+// ---- the reel and the shot cards (board.jsx) -------------------------------------------------
+
+/**
+ * The reel's segments, one a shot: its place and width in % of the board's length, so a long
+ * shot takes more room, as on a timeline. `flagged`: kino's look flags; `changed`: after a redo.
+ */
+export function reelSegments(data) {
+  const shots = data?.shots ?? [];
+  const total = Number(shots.at(-1)?.end) || 0;
+  const share = (value) => (total > 0 ? (value / total) * 100 : 0);
+  return shots.map((shot) => {
+    const start = Number(shot.start) || 0;
+    const end = Number(shot.end) || 0;
+    return {
+      id: shot.id, n: shot.n, start, end, left: share(start), width: share(end - start),
+      flagged: Boolean(shot.measures?.flags?.length),
+      changed: Boolean(shot.change) || Boolean(data?.redone?.missed?.includes(shot.id)),
+    };
+  });
+}
+
+/** The place in `data.shots` of the shot at `time` (seconds): the first before it starts, the last after it ends. */
+export function shotIndexAt(data, time) {
+  const shots = data?.shots ?? [];
+  if (!shots.length) return -1;
+  const found = shots.findIndex((shot) => Number(time) < Number(shot.end));
+  return found < 0 ? shots.length - 1 : found;
+}
+
+/** The reel's clock: "0:04.4". */
+export function clockWords(value) {
+  const whole = Math.max(0, Number(value) || 0);
+  const minutes = Math.floor(whole / 60);
+  return `${minutes}:${(whole - minutes * 60).toFixed(1).padStart(4, "0")}`;
+}
+
+// A move's words on its tag: its name ("zoom through"), else what it is planned as; a plain cut has none.
+function moveWords(move) {
+  if (!move || move === NONE || move.none) return null;
+  const name = move.name ?? (move.planned ? `planned ${move.kind ?? "move"}` : move.kind);
+  return name ? String(name).replaceAll("-", " ") : null;
+}
+
+/**
+ * A shot card's tags, each layer in a few words (the numbers stay in the card's details):
+ * [{kind, text, tone}]. kind: "text", "sound", "move", "follow", "look", "change" or "options";
+ * tone "look" is kino's flag and "change" what changed after a redo, both said in words too.
+ */
+export function shotTags(shot, data) {
+  const tags = [];
+  if (shot.text && shot.text !== NONE) tags.push({ kind: "text", text: `"${shot.text.text}"` });
+  if (shot.sound && shot.sound !== NONE) tags.push({ kind: "sound", text: shot.sound.what });
+  const move = moveWords(shot.move);
+  if (move) tags.push({ kind: "move", text: move });
+  if (shot.follow && shot.follow !== NONE && shot.follow !== "steady") tags.push({ kind: "follow", text: shot.follow });
+  for (const flag of shot.measures?.flags ?? []) tags.push({ kind: "look", text: flag, tone: "look" });
+  const change = changeWords(shot, data);
+  if (change) tags.push({ kind: "change", text: change, tone: "change" });
+  if (shot.alts?.length) tags.push({ kind: "options", text: `${shot.alts.length} other option${shot.alts.length === 1 ? "" : "s"}` });
+  return tags;
+}
+
+/** The header's facts as chips: ["5 shots", "8.8 s", "9:16", "TikTok", "no music", "fresh eyes: ran"]. */
+export function headChips(data) {
+  const header = data?.header ?? {};
+  const count = Number(header.shots) || 0;
+  const chips = [`${count} shot${count === 1 ? "" : "s"}`, `${seconds(header.seconds)} s`, aspectWords(header)];
+  if (header.platform) chips.push(header.platform);
+  chips.push(data?.music && data.music !== NONE ? `music: ${data.music}` : "no music");
+  if (data?.audio?.length) chips.push(`sound files: ${data.audio.join(", ")}`);
+  if (data?.stop) chips.push({ ran: "fresh eyes: ran", skipped: "fresh eyes: skipped" }[data.fresh] ?? "fresh eyes: not reported");
+  return chips;
+}
+
+/** What a "no" on the agent's calls adds to the answer: 'no to your call "Inter 700 for every line"'. */
+export function callNoWords(calls = []) {
+  return (calls ?? []).map((call) => String(call ?? "").trim()).filter(Boolean).map((call) => `no to your call "${call}"`).join("; ");
+}

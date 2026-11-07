@@ -9,8 +9,8 @@ import { boardData as serverBoardData } from "../backend/agent/board-data.mjs";
 import { normalizeBoard } from "../engine/board.js";
 import { answerStop, boardData, boardShotUrl } from "./dashboard/api.js";
 import {
-  aspectWords, boardHeader, changeLines, changeWords, freshLine, measureWords, overlayBoxes, phoneShots, seconds, shotLines, shotList, shotNotesWords,
-  shotSentence, statusWords,
+  aspectWords, boardHeader, changeLines, changeWords, clockWords, freshLine, headChips, measureWords, overlayBoxes, phoneShots, reelSegments, seconds, shotIndexAt,
+  shotLines, shotList, shotNotesWords, shotSentence, shotTags, statusWords,
 } from "./dashboard/boardRows.js";
 import { KEY_HELP, keyAction, parseCommand } from "./dashboard/keys.js";
 import { fromSnapshot, stopAnswer, stopRows } from "./dashboard/state.js";
@@ -227,6 +227,27 @@ test("notes on shots go with the answer: a approves with notes, Tab, d and Enter
   assert.equal(shotNotesWords({ S2: { n: 2, text: "tighter" } }), "note on shot 2");
   assert.equal(shotNotesWords({ S4: { n: 4, text: "x" }, S2: { n: 2, text: "y" }, S3: { n: 3, text: " " } }), "notes on shots 2 and 4");
   assert.equal(shotNotesWords({}), null);
+  // A no on the agent's calls is a note too: its words follow the note's.
+  const noCalls = ["Inter 700 for every line"];
+  assert.deepEqual(stopAnswer(round, { press: "approve", noCalls }), { send: { id: "C1", rev: 7, read_as: "approve with notes", words: 'no to your call "Inter 700 for every line"' } });
+  assert.equal(stopAnswer(round, { press: "redo", text: "warmer", noCalls: [...noCalls, "no music"] }).send.words, 'warmer; no to your call "Inter 700 for every line"; no to your call "no music"');
+});
+
+test("the reel's segments are as wide as the shots are long; the head's chips and each card's tags say the shot in a few words", () => {
+  const data = board();
+  const segments = reelSegments(data);
+  assert.deepEqual(segments.map((segment) => [segment.id, Number(segment.left.toFixed(1)), Number(segment.width.toFixed(1)), segment.flagged]),
+    [["S1", 0, 14.8, false], ["S2", 14.8, 22.7, true], ["S3", 37.5, 25, false], ["S4", 62.5, 17, true], ["S5", 79.5, 20.5, true]]);
+  assert.deepEqual([shotIndexAt(data, 0), shotIndexAt(data, 1.3), shotIndexAt(data, 5), shotIndexAt(data, 99)], [0, 1, 2, 4]);
+  assert.deepEqual([clockWords(0), clockWords(4.42), clockWords(65.5)], ["0:00.0", "0:04.4", "1:05.5"]);
+  assert.deepEqual(headChips(data), ["5 shots", "8.8 s", "9:16", "TikTok", "no music", "fresh eyes: ran"]);
+  assert.deepEqual(headChips({ ...data, stop: null, header: { ...data.header, platform: null } }), ["5 shots", "8.8 s", "9:16", "no music"]);
+  const [, two, three] = data.shots;
+  assert.deepEqual(shotTags(two, data).map((tag) => [tag.kind, tag.text, tag.tone ?? null]), [
+    ["text", '"The dragon is back"', null], ["look", "subject touches the crop edge", "look"], ["options", "1 other option", null],
+  ]);
+  assert.deepEqual(shotTags({ ...three, move: { kind: "transition", name: "zoom-through", ref: "a@1" }, follow: "track" }, data).map((tag) => tag.text), ['"Look up"', "zoom through", "track"]);
+  assert.deepEqual(shotTags({ ...three, text: "none", move: { none: "cut" } }, data), [], "a plain cut has no move tag");
 });
 
 test("an answered storyboard's stop line names the notes on shots", () => {

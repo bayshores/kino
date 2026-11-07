@@ -1058,9 +1058,11 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Live preview rates**: blur 27 to 31 fps (10 to 17 over full-frame video), light 30, particles
   about 30 (light rays at 1280x720 on bigger stages while playing); video switches to pictures only while an effect changes it. Evidence:
   `frontend/videoPreview.test.js`.
-- **Board screen**: Verified. `:board` draws the storyboard; `c` on a shot leaves a note. Evidence:
-  `frontend/dashboardBoard.test.js`, `backend/board-data.test.mjs`, browser tests. Gap: shot notes are lost
-  on reload before sending.
+- **Board screen**: Verified. `:board` draws the storyboard; `c` on a shot leaves a note. A reel plays
+  the stills at their lengths; shots are cards (numbers folded); each agent call takes a "no" sent with
+  the answer; the answers stay pinned; the main screen's `a` opens the board instead of approving unseen.
+  Evidence: `frontend/dashboardBoard.test.js`, `backend/board-data.test.mjs`, browser tests. Gap: shot
+  notes and call nos are lost on reload before sending.
 - **Brief panel**: Verified. Read only. Evidence: `frontend/dashboardModules.test.js`,
   `tests/dashboard-browser.test.mjs`.
 - **Crew (F2)**: Verified with stub agents. kino starts agents with role, budget and holds

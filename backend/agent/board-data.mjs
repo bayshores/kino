@@ -92,6 +92,7 @@ export function boardData(document, { state = null, round = null, rev, project, 
       sound: shot.sound,
       why: shot.why,
       alts: shot.alts ?? [],
+      move: shot.move ?? NONE,
       media: mediaFacts(shot.media, records.get(shot.media) ?? null),
       // Every subject box is the agent's until kino has detectors (direction plan B12).
       subject: isNone(shot.subject) ? NONE : { ...shot.subject, by: "agent" },

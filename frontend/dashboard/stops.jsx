@@ -38,7 +38,7 @@ const STILL_WIDTH = 160;
  * notes on single shots, `onShotNote(id, note | null)` changes one, and `onSeeAll` opens the stop
  * screen with every shot (the phone's card shows 2).
  */
-export function StopCard({ round, document, projectId, note, onNote, onPress, noteRef, focusNote = false, compact = false, shotNotes = {}, onShotNote = null, onSeeAll = null }) {
+export function StopCard({ round, document, projectId, note, onNote, onPress, noteRef, focusNote = false, compact = false, shotNotes = {}, onShotNote = null, noCalls = [], onCallNo = null, onSeeAll = null }) {
   const word = STOP_WORDS[round.kind] ?? round.kind;
   const mode = note?.mode === "redo" ? "redo" : "notes";
   const titleId = `stop-${round.id}`;
@@ -49,7 +49,10 @@ export function StopCard({ round, document, projectId, note, onNote, onPress, no
   const stills = scene && length > 0 ? STILL_PLACES.map((place) => (length * place) / 8) : [];
   const height = scene?.width && scene?.height ? Math.round((STILL_WIDTH * scene.height) / scene.width) : undefined;
   const board = round.kind === "board";
-  const noted = board ? shotNotesWords(shotNotes) : null;
+  const shotsNoted = board ? shotNotesWords(shotNotes) : null;
+  const nos = board ? noCalls.length : 0;
+  const noWords = nos ? `${nos === 1 ? "a no" : `${nos} nos`} to my calls` : null;
+  const noted = [shotsNoted, noWords].filter(Boolean).join(" and ") || null;
   const placeholder = mode === "redo" ? `Enter sends the redo${noted ? ` with your ${noted}` : ""}` : `Enter approves with this note${noted ? ` and your ${noted}` : ""}`;
   return (
     <article className={`stop-card waiting${board ? " board-card" : ""}`} aria-labelledby={titleId}>
@@ -61,7 +64,8 @@ export function StopCard({ round, document, projectId, note, onNote, onPress, no
           {lines.map((line, index) => <p key={index}>{line}</p>)}
         </div>
       )}
-      {board ? <BoardView projectId={projectId} stop={round.id} version={round.rev} ask={lines} notes={shotNotes} onNote={onShotNote} compact={compact} onSeeAll={onSeeAll} />
+      {board ? <BoardView projectId={projectId} stop={round.id} version={round.rev} ask={lines} notes={shotNotes} onNote={onShotNote}
+        noCalls={noCalls} onCallNo={onCallNo} compact={compact} onSeeAll={onSeeAll} />
         : stills.length ? (
         <figure className="stop-stills">
           <div className={`stills-grid${scene.height > scene.width ? " tall" : ""}`}>
@@ -77,9 +81,11 @@ export function StopCard({ round, document, projectId, note, onNote, onPress, no
           A storyboard has nothing built to play yet. */}
       {board ? null : <p className="dim stop-watch">{compact ? `to watch and hear rev ${round.rev} first: the stage below plays it` : `to watch and hear rev ${round.rev} first: press Esc, then space plays it on the stage`}</p>}
       {round.offer?.length ? <p className="faint">the agent's ask offers "stop asking" for {offerWords(round.offer)}; that answer is given in the chat</p> : null}
+      {/* A storyboard is long: its note and answers stay at the bottom of the screen as it scrolls. */}
+      <div className={board ? "stop-answer" : "stop-answer-plain"}>
       <div className="stop-note">
         <label htmlFor={noteId}>{mode === "redo" ? "what to redo" : "note for approve with notes"}</label>
-        <textarea id={noteId} ref={noteRef} value={note?.text ?? ""} maxLength={2000} rows={2} autoFocus={focusNote}
+        <textarea id={noteId} ref={noteRef} value={note?.text ?? ""} maxLength={2000} rows={board ? 1 : 2} autoFocus={focusNote}
           placeholder={placeholder}
           onChange={(event) => onNote({ mode, text: event.target.value })}
           onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onPress("enter"); } }} />
@@ -89,7 +95,8 @@ export function StopCard({ round, document, projectId, note, onNote, onPress, no
         <button type="button" className="tb tb-box" aria-keyshortcuts="Tab" onClick={() => onPress("notes")}>[<span className="key">Tab</span>] approve with a note</button>
         <button type="button" className="tb tb-box" aria-keyshortcuts="d" onClick={() => onPress("redo")}>[<span className="key">d</span>] redo with a note</button>
       </div>
-      {board ? <p className="board-noted" aria-live="polite">{noted ? `${noted} go${noted.startsWith("notes") ? "" : "es"} with your answer` : ""}</p> : null}
+      {board ? <p className="board-noted" aria-live="polite">{noted ? `${noted} go${noted.startsWith("notes") || noted.includes(" and ") || nos > 1 ? "" : "es"} with your answer` : ""}</p> : null}
+      </div>
       {!compact ? <p className="faint">A and D are off on stops: set a stop to allow in settings. The agent hears your answer with its next call.</p> : null}
     </article>
   );

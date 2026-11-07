@@ -41,7 +41,7 @@ test("board-data for a 9:16 board: header, the app's covered areas, each shot's 
   });
   const frame = { width: 1080, height: 1920 };
   assert.deepEqual(shots[0], { n: 1, id: "S1", start: 0, end: 2, dur: 2, pacing: "free", follow: "steady", in: 0, crop: [20, 12, 24, 76], text: "none", sound: "none",
-    why: "the dragon over the village", alts: [], media: { src: CLIP_SRC, name: "sintel-village-dragon.mp4", width: 384, height: 216, kind: "video" },
+    why: "the dragon over the village", alts: [], move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, media: { src: CLIP_SRC, name: "sintel-village-dragon.mp4", width: 384, height: 216, kind: "video" },
     subject: { what: "the dragon", boxes: [[24, 30, 14, 30]], by: "agent" }, measures: shotMeasures(document.board.shots[0], frame), change: { asked: true, what: ["crop"] } });
   assert.deepEqual(shots[1].media, { src: GONE_SRC, missing: true }, "kino's library no longer has it");
   assert.deepEqual(shots[1].change, { asked: false, what: ["footage"] }, "changed without being asked");

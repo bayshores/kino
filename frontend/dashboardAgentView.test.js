@@ -141,6 +141,9 @@ test("a waiting render reads as who asks, what to do, the keys' words and the re
   assert.equal(stop.deny, "redo");
   assert.equal(stop.summary, "Look at the board");
   assert.equal(stop.watch, true);
+  // A storyboard has nothing built to watch: a opens the board, where it is approved.
+  const board = needWords({ type: "stop", round: { id: "C1", kind: "board", ask: "The storyboard is ready (C1)" } });
+  assert.deepEqual([board.allow, board.key, board.deny], ["review storyboard", "review", "redo"]);
   const elsewhere = needWords({ type: "elsewhere", name: "Other", round: { kind: "storyboard" } });
   assert.equal(elsewhere.allow, null, "a stop in another project is answered there");
   assert.equal(needWords(null), null);

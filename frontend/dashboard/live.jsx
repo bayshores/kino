@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Bot } from "./bot.jsx";
 import { leftWords, needWords, renderDock, seenNow, specWords } from "./agentView.js";
-import { act, frameUrl, renderFileUrl, seenUrl } from "./api.js";
+import { act, boardShotUrl, frameUrl, renderFileUrl, seenUrl } from "./api.js";
 import { ago } from "./format.js";
 import { keyTarget, needsYouRows, recommendedOption } from "./state.js";
 import "./live.css";
@@ -222,9 +222,11 @@ export function NeedsYouCard({ data, still, now, onAnswer, onRun, onMaterial = (
   const scene = data.record?.document?.scenes?.find((entry) => entry.id === approval?.spec?.scene) ?? data.record?.document?.scenes?.[0];
   const poster = approval?.kind === "final-render" && scene && data.projectId ? frameUrl({ projectId: data.projectId, sceneId: scene.id, time: (scene.duration ?? 0) / 2, width: 240, low: true }) : null;
   const material = row.type === "material" ? row.need : null;
-  const title = approval ? ({ "final-render": "final render" }[approval.kind] ?? words.allow.replace(/^allow /, "")) : material ? `${material.id} ${material.ask}` : words.allow.replace(/^approve /, "");
+  const title = approval ? ({ "final-render": "final render" }[approval.kind] ?? words.allow.replace(/^allow /, "")) : material ? `${material.id} ${material.ask}` : words.allow.replace(/^(approve|review) /, "");
   const facts = approval ? specWords(approval.spec) : "";
   const asked = approval?.createdAt ?? row.round?.askedAt ?? material?.at ?? null;
+  // A storyboard stop: its shots' stills in a strip, each as wide as the shot is long; a press opens the board.
+  const boardShots = row.type === "stop" && row.round?.kind === "board" && data.projectId ? (data.record?.document?.board?.shots ?? []) : [];
   return (
     <section className={`live-need${still ? " still" : ""}`} role="region" aria-live="assertive" aria-label={`${words.who} needs you`} style={words.color ? { "--who": words.color } : undefined}>
       <header className="live-head">
@@ -239,13 +241,22 @@ export function NeedsYouCard({ data, still, now, onAnswer, onRun, onMaterial = (
           {words.summary ? <p className="faint need-rule" title={words.summary}>{words.summary}</p> : null}
         </div>
       </div>
+      {boardShots.length ? (
+        <button type="button" className="need-reel" onClick={() => onRun("allow")} title={`${words.allow} (a)`}
+          aria-label={`${words.allow}: ${boardShots.length} shot${boardShots.length === 1 ? "" : "s"}`}>
+          {boardShots.slice(0, 12).map((shot) => (
+            <span key={shot.id} className="need-reel-shot" style={{ flexGrow: Math.max(Number(shot.dur) || 0, 0.1),
+              backgroundImage: `url("${boardShotUrl({ projectId: data.projectId, rev: row.round.rev, shot: shot.id, part: "still", width: 240 })}")` }} />
+          ))}
+        </button>
+      ) : null}
       <div className={`need-actions${material ? " need-choices" : ""}`}>
         {material ? <MaterialChoices need={material} onPick={onMaterial} className="tb tb-box" recommendedClass="need-allow" /> : approval ? <>
           <button type="button" className="tb tb-box need-allow" onClick={() => onAnswer(approval.id, "allow", false)} title="Allow once (a)" aria-keyshortcuts="a"><Glyph name="check" /> allow</button>
           <button type="button" className="tb tb-box" onClick={() => onAnswer(approval.id, "allow", true)} title="Always allow this (A)" aria-keyshortcuts="Shift+A"><Glyph name="check" /> always</button>
           <button type="button" className="tb tb-box" onClick={() => onAnswer(approval.id, "deny", false)} title="Deny (d)" aria-keyshortcuts="d"><Glyph name="close" /> deny</button>
         </> : <>
-          <button type="button" className="tb tb-box need-allow" onClick={() => onRun("allow")} title={`${words.allow} (a)`} aria-keyshortcuts="a"><Glyph name="check" /> {words.allow}</button>
+          <button type="button" className="tb tb-box need-allow" onClick={() => onRun("allow")} title={`${words.allow} (a)`} aria-keyshortcuts="a"><Glyph name={words.key === "review" ? "eye" : "check"} /> {words.allow}</button>
           {words.deny ? <button type="button" className="tb tb-box" onClick={() => onRun("deny")} title={`${words.deny} (d)`} aria-keyshortcuts="d"><Glyph name="close" /> {words.deny}</button> : null}
         </>}
       </div>
