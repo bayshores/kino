@@ -10,6 +10,8 @@ import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { safeRect } from "./quality/rules/layout.js";
 import { runDataQuality } from "./quality/index.js";
 import { cuts } from "./quality/analysis.js";
+import { haloOf } from "./quality/pixels.js";
+import { contrastOf, hexRgba, luminance } from "./quality/model.js";
 import { planCaptions } from "./captionLayers.js";
 
 const sintel = readFileSync(new URL("../tests/fixtures/captions/sintel_en.srt", import.meta.url), "utf8");
@@ -190,7 +192,18 @@ test("caption looks: phrases of the look's size, the key word in the accent colo
   assert.equal(reports[0].phrases, phrases.length);
   assert.equal(reports[0].hiddenInSilences, 1);
   for (const phrase of phrases) assert.ok(layers.filter((layer) => layer.parentId === phrase.id).length <= 3);
-  assert.equal(layers.find((layer) => layer.text === "ideas").fill, "#FFD84D");
+  const ideas = layers.find((layer) => layer.text === "ideas");
+  assert.equal(ideas.fill, "#FFD84D");
+  // The accent word gets a halo dark and tight enough that yellow reads over a bright warm sky
+  // (the contrast gate counts it as the word's background); white words keep the soft shadow.
+  const sky = [250, 235, 190];
+  const overSky = (layer) => {
+    const halo = haloOf(layer, layer.fontSize);
+    const behind = sky.map((channel, index) => halo.rgb[index] * halo.alpha + channel * (1 - halo.alpha));
+    return contrastOf(luminance(hexRgba(layer.fill).slice(0, 3)), luminance(behind));
+  };
+  assert.ok(overSky(ideas) >= 4.5, `${overSky(ideas)}`);
+  assert.ok(overSky({ ...ideas, shadow: layers.find((layer) => layer.text === "best").shadow }) < 3);
   // "small." ends a sentence before a 1 s pause: its phrase is hidden well before the next starts.
   const small = phrases.find((phrase) => layers.some((layer) => layer.parentId === phrase.id && layer.text === "small."));
   assert.ok(small.animations.find((animation) => animation.kind === "hide").start < words[5].start - 0.5);
