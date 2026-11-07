@@ -262,7 +262,8 @@ export function clampFocus(center, view, frame) {
  * {start, end, level, focus: [{t, x, y}]}, the camera's center from each time on.
  */
 export function autoZooms(rec, { level = 2, lead = 0.3, hold = 2.5, mergeGap = 2.5, edge = 1, endGap = 0.8, marks = true } = {}) {
-  const anchors = rec.clicks.map(([t]) => t);
+  // Clicks outside a window or area recording are not in the picture: no zoom.
+  const anchors = rec.clicks.filter(([, x, y]) => inPicture(rec, x, y)).map(([t]) => t);
   if (marks) for (const [t] of rec.marks) if (!rec.clicks.some(([at]) => Math.abs(at - t) <= 1)) anchors.push(t);
   const ranges = anchors
     .filter((t) => t < rec.duration - edge)
@@ -480,6 +481,9 @@ export function typingRuns(rec, { minSeconds = 1.5, gap = 0.6, minRate = 2 } = {
  * When the cursor hides for typing: from the first of 3 keys typed within 1.8 s until the
  * pointer next moves over 4 points (or clicks), or the end. [{start, end}].
  */
+/** Whether recording point (x, y) is inside the recorded picture (a window or area recording's pointer can leave it). */
+export const inPicture = (rec, x, y) => x >= 0 && y >= 0 && x <= rec.frame[0] && y <= rec.frame[1];
+
 export function cursorHidden(rec) {
   const keys = rec.keys.filter((key) => key[2] === 0).map(([t]) => t).sort((a, b) => a - b);
   const ranges = [];
@@ -494,5 +498,19 @@ export function cursorHidden(rec) {
     ranges.push({ start: round(start, 3), end: round(end, 3) });
     while (index < keys.length && keys[index] <= end) index += 1;
   }
-  return ranges;
+  // A window or area recording: the pointer also hides while it is outside the picture.
+  const outside = ([, x, y]) => !inPicture(rec, x, y);
+  rec.moves.forEach((move, at) => {
+    if (!outside(move) || (at > 0 && outside(rec.moves[at - 1]))) return;
+    const back = rec.moves.slice(at + 1).find((next) => !outside(next))?.[0] ?? rec.duration;
+    ranges.push({ start: round(move[0], 3), end: round(back, 3), outside: true });
+  });
+  ranges.sort((a, b) => a.start - b.start);
+  const joined = [];
+  for (const range of ranges) {
+    const last = joined.at(-1);
+    if (last && range.start <= last.end) Object.assign(last, { end: Math.max(last.end, range.end), outside: last.outside || range.outside });
+    else joined.push({ ...range });
+  }
+  return joined;
 }

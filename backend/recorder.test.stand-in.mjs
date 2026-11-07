@@ -19,7 +19,7 @@ const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 function start(params) {
   if (recording) throw { code: "state", message: "A recording is already running; stop it first." };
   mkdirSync(params.folder);
-  recording = { folder: params.folder, startedAt: Date.now(), target: { kind: "display", displayId: 1, codec: "h264", fps: 30 } };
+  recording = { folder: params.folder, startedAt: Date.now(), target: { kind: "display", displayId: 1, codec: "h264", fps: 30 }, sound: Boolean(params.audio && params.mic) };
   const events = [];
   for (let t = 0; t <= 0.6001; t += 1 / 30) events.push({ t: Math.round(t * 1000) / 1000, type: "move", x: Math.round(40 + 160 * (t / 0.6)), y: Math.round(40 + 80 * (t / 0.6)), cursor: "c1" });
   events.push({ t: 0.8, type: "down", x: 200, y: 120, button: "left", clicks: 1, source: "agent" }, { t: 0.88, type: "up", x: 200, y: 120, button: "left", source: "agent" });
@@ -43,8 +43,10 @@ function status() {
 
 function stop(reason) {
   if (!recording) throw { code: "state", message: "Nothing is recording." };
+  // With audio and mic, two sound tracks (the computer's and the microphone's), as the helper writes.
+  const sound = recording.sound ? ["-f", "lavfi", "-i", `sine=f=440:d=${SECONDS}`, "-f", "lavfi", "-i", `sine=f=660:d=${SECONDS}`, "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:a", "aac"] : [];
   const made = spawnSync(FFMPEG, ["-v", "error", "-y", "-f", "lavfi", "-i", `color=c=0x3366cc:s=${FRAME.width}x${FRAME.height}:r=30:d=${SECONDS}`,
-    "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path.join(recording.folder, "screen.mp4")]);
+    ...sound, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", path.join(recording.folder, "screen.mp4")]);
   if (made.status !== 0) throw { code: "encoder", message: String(made.stderr).trim() || "ffmpeg failed" };
   meta("finished", reason);
   const summary = { ...status(), state: "stopped", stopped: reason, seconds: SECONDS };

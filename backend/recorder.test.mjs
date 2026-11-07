@@ -14,7 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 import { createRecorder } from "./recorder/recorder.mjs";
-import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
+import { ffmpeg, ffprobe, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -50,7 +50,7 @@ test("record start, mark and stop keep the video and its pointer data; a folder 
   const changes = [];
   const helper = await standIn();
   const recorder = createRecorder({ dataRoot, mediaRoot, addMedia, onChange: (state) => changes.push(state), helperPath: async () => helper });
-  const started = await recorder.step({ step: "start", target: { app: "Notes" }, maxSeconds: 30 });
+  const started = await recorder.step({ step: "start", target: { app: "Notes" }, maxSeconds: 30, audio: true, mic: true });
   assert.match(started.text, /^recording rec-\d{14}-[0-9a-f]{4}: display 1 \(stops itself after 30 s\)/);
   await assert.rejects(recorder.step({ step: "start" }), /already running/);
   assert.match((await recorder.step({ step: "mark", label: "open Export" })).text, /^mark "open Export" at \d/);
@@ -61,6 +61,9 @@ test("record start, mark and stop keep the video and its pointer data; a folder 
   assert.match(done.text, /4 s, 320×200 pt, 1 clicks, 1 marks; src \/api\/media\/m1\.mp4\. Add it as a video layer/);
   const kept = JSON.parse(await readFile(path.join(mediaRoot, "m1.mp4.recording.json"), "utf8"));
   assert.deepEqual(kept.clicks, [[0.8, 200, 120, "left", "agent"]]);
+  // The computer's sound and the microphone are mixed into one track (kino plays the first).
+  const tracks = String(await run(ffprobe, ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", path.join(mediaRoot, "m1.mp4")])).trim().split("\n");
+  assert.equal(tracks.length, 1);
   assert.deepEqual(await readdir(path.join(dataRoot, "recordings")), []);
   assert.deepEqual(changes.map((state) => state && "on"), ["on", null]);
   assert.equal((await recorder.step({ step: "status" })).state, "idle");

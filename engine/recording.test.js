@@ -156,6 +156,11 @@ test("cursorHidden hides from the first of three quick keys until the pointer mo
     { t: 5, type: "move", x: 402, y: 400, cursor: "c1" }, { t: 6, type: "move", x: 450, y: 400 },
   ]);
   assert.deepEqual(cursorHidden(rec), [{ start: 2, end: 6 }]);
+  // A window recording: the pointer leaves the picture from 1 to 3 s, and its click there gets no zoom.
+  const left = compactRecording(META, [...slide([400, 400], [400, 400], 0, 0.1), { t: 1, type: "move", x: -50, y: 400, cursor: "c1" },
+    ...click(2, -50, 400), { t: 3, type: "move", x: 300, y: 400, cursor: "c1" }]);
+  assert.deepEqual(cursorHidden(left), [{ start: 1, end: 3, outside: true }]);
+  assert.deepEqual(autoZooms(left), []);
 });
 
 test("springEase fits the clamped spring closely", () => {

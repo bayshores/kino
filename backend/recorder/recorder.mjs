@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compactRecording } from "../../engine/recording.js";
+import { runMediaTool } from "../media-probe.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const SOURCE = path.join(ROOT, "backend", "recorder", "kino-recorder.swift");
@@ -139,6 +140,19 @@ const seconds = (value) => `${Math.round(value * 10) / 10} s`;
  * made file to the media library (backend/index.mjs addGeneratedMedia); onChange(state) tells
  * the dashboard (null when nothing records).
  */
+// The helper writes the computer's sound and the microphone as two tracks; kino plays a clip's
+// first track only, so both are mixed into one (the picture is copied as it is).
+async function oneSoundTrack(file) {
+  const probe = JSON.parse(await runMediaTool("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "json", file]));
+  const count = probe.streams?.length ?? 0;
+  if (count < 2) return file;
+  const mixed = file.replace(/\.mp4$/, "-mixed.mp4");
+  const inputs = Array.from({ length: count }, (_, index) => `[0:a:${index}]`).join("");
+  await runMediaTool("ffmpeg", ["-v", "error", "-y", "-i", file, "-filter_complex", `${inputs}amix=inputs=${count}:duration=longest:normalize=0[a]`,
+    "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", mixed]);
+  return mixed;
+}
+
 export function createRecorder({ dataRoot, mediaRoot, addMedia, onChange = () => {}, helperPath = recorderHelperPath }) {
   const folderRoot = path.join(dataRoot, "recordings");
   let helper = null;
@@ -169,7 +183,7 @@ export function createRecorder({ dataRoot, mediaRoot, addMedia, onChange = () =>
     if (!existsSync(file)) throw new Error("The recording has no video.");
     const compact = compactRecording(meta, events);
     const clicks = compact.clicks.length, marks = compact.marks.map(([t, label]) => ({ t, label }));
-    const record = await addMedia(file, { name: `${name ?? "Screen recording"}.mp4`, mime: "video/mp4",
+    const record = await addMedia(await oneSoundTrack(file), { name: `${name ?? "Screen recording"}.mp4`, mime: "video/mp4",
       extra: { recording: { seconds: compact.duration, frame: compact.frame, clicks, keys: compact.keys.length, marks: marks.length, stopped: meta.stopped ?? summary.stopped ?? null } } });
     await writeFile(path.join(mediaRoot, `${record.id}.recording.json`), JSON.stringify(compact));
     await rm(folder, { recursive: true, force: true });

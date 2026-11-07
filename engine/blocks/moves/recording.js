@@ -14,7 +14,7 @@ import { createLayer } from "../../model.js";
 import { evaluateLayer } from "../../animation.js";
 import { effectiveMediaDuration, mediaSceneTime } from "../../playback.js";
 import { MAX_PIN_SAMPLES } from "../../pin.js";
-import { autoZooms, cursorHidden, smoothCursor, springEase, springSeconds, typingRuns } from "../../recording.js";
+import { autoZooms, cursorHidden, inPicture, smoothCursor, springEase, springSeconds, typingRuns } from "../../recording.js";
 import { cursorPath, SHAPES, UNITS } from "./cursor.js";
 import { CURVES, hide, motion, round, show } from "./kit.js";
 
@@ -223,9 +223,14 @@ export const screenRecording = {
         });
         cursorHidden(rec).forEach((range, index) => {
           const start = sceneAt(range.start), end = sceneAt(range.end);
-          if (start === null || end === null || end - start < 0.4) return;
-          ctx.animate(group, `typing-hide${index + 1}`, motion({ name: "Hide for typing", start, duration: 0.15, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
-          ctx.animate(group, `typing-show${index + 1}`, motion({ name: "Show after typing", start: Math.max(start + 0.15, end - 0.15), duration: 0.15, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
+          // Typing fades the pointer; leaving the picture (a window recording) hides it at once.
+          const fade = range.outside ? 0.04 : 0.15;
+          if (start === null || end === null || end - start < (range.outside ? 0.1 : 0.4)) return;
+          ctx.animate(group, `typing-hide${index + 1}`, motion({ name: range.outside ? "Hide outside" : "Hide for typing", start, duration: fade, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
+          // Hidden to the clip's end: it does not come back.
+          const showAt = Math.max(start + fade, end - fade);
+          if (showAt + fade > Math.min(clipEnd, ctx.sceneDuration) - 0.01) return;
+          ctx.animate(group, `typing-show${index + 1}`, motion({ name: range.outside ? "Show inside" : "Show after typing", start: showAt, duration: fade, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
         });
         if (clipStart > 0.01) ctx.animate(group, "before-clip", hide(0)), ctx.animate(group, "with-clip", show(clipStart));
         if (clipEnd < ctx.sceneDuration - 0.01) ctx.animate(group, "after-clip", hide(clipEnd));
@@ -240,7 +245,7 @@ export const screenRecording = {
       const clicks = [];
       for (const [t, x, y] of rec.clicks) {
         const time = sceneAt(t);
-        if (time === null) continue;
+        if (time === null || !inPicture(rec, x, y)) continue;
         const at = onScene(x, y, time);
         // The ring waits where the last click was until the next one (no sliding between).
         if (path.length) path.push([round(time - 0.001, 3), path.at(-1)[1], path.at(-1)[2], 1, 1, 1]);

@@ -545,13 +545,13 @@ final class Recording: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Se
 
   // MARK: media
 
-  // On mediaQueue: repeats the last picture one frame on when the screen sent nothing for two frames.
+  // On mediaQueue: repeats the last picture one frame on when the screen sent nothing for a frame and a half.
   func holdFrame(_ frame: CMTime) {
     guard let last = lastSample, let input = videoInput, input.isReadyForMoreMediaData, writer?.status == .writing else { return }
     let (recording, offset) = lock.withLock { (state == "recording" && pausedSince == nil, firstFrame.map { CMTimeAdd($0, pausedTotal) }) }
     guard recording, let offset else { return }
     let next = CMTimeAdd(lastSampleTime, frame)
-    guard CMTimeCompare(CMTimeSubtract(hostNow(), offset), CMTimeAdd(next, frame)) > 0 else { return }
+    guard CMTimeCompare(CMTimeSubtract(hostNow(), offset), CMTimeAdd(next, CMTimeMultiplyByRatio(frame, multiplier: 1, divisor: 2))) > 0 else { return }
     if let copy = retimed(last, minus: .zero, at: next), input.append(copy) { lastSampleTime = next }
   }
 

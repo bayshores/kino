@@ -13,7 +13,8 @@ Contents: Recording · Steps and marks · Editing a recording · Privacy and per
 - `step:"start"` starts. `target` is `{display:<id>}` (default the main display), `{window:<id>}`,
   `{app:"Safari"}` (its largest window, recorded even when other windows cover it) or
   `{area:{x, y, width, height}}` in display points. Options: `fps` (default 60), `size` (long
-  side px, default 1920, or "full"), `audio:true` (the computer's sound), `mic:true` (macOS 15+),
+  side px, default 1920, or "full"), `audio:true` (the computer's sound), `mic:true` (macOS 15+;
+  with both, kino mixes them into the clip's one sound track),
   `keys` ("off" default, "kinds": key kinds and shortcuts, never text), `maxSeconds` (default
   600), `idleSeconds` (stop after that long with no input), `excludeApps` (bundle ids).
 - The picture is recorded without the pointer; the pointer, clicks, scrolls, keys and the text
@@ -48,7 +49,8 @@ Contents: Recording · Steps and marks · Editing a recording · Privacy and per
   joins clicks closer than 2.5 s, follows the pointer while zoomed and never shows past the
   picture's edge. One clamped spring drives every zoom (no overshoot).
 - Its pointer is kino's own (arrow, hand, I-beam, as recorded), smoothed, on time at every
-  click, grows with the zoom, squishes while pressed and hides while typing. A ring opens at
+  click, grows with the zoom, squishes while pressed and hides while typing or outside a window
+  recording's picture (clicks out there get no zoom). A ring opens at
   each click; each click is a cue (`<id>.click1`) for a click sound.
 - Fields: `zoom` (1 to 4, 1 = none), `pointer:false`, `size` (pointer, default 1.5x the real
   one), `clicks:"none"`, `typing` (2 to 8: typing runs of 1.5 s or more play that much faster;

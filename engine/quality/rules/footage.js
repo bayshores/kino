@@ -20,7 +20,7 @@ import { boxesAt, cropOnSource, insideShare } from "../../sourceView.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { sec } from "../analysis.js";
 import { LOW_CONFIDENCE, lowRuns } from "../../pin.js";
-import { positionAt } from "../../recording.js";
+import { inPicture, positionAt } from "../../recording.js";
 import { boxAt, itemById } from "../model.js";
 import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
@@ -120,8 +120,10 @@ export function cropNoSubject(model, ctx) {
     const size = sizeOf(ctx, item);
     if (!layer || !size) continue;
     // A screen recording's subject is its pointer: a 10% box around where it was (recording.js).
+    // A pointer outside a window recording's picture is no subject (null skips that moment).
     const pointer = !layer.subjectBoxes && layer.recording?.moves?.length ? (second) => {
       const [x, y] = positionAt(layer.recording, second);
+      if (!inPicture(layer.recording, x, y)) return null;
       const [width, height] = layer.recording.frame;
       return [Math.max(0, (x / width) * 100 - 5), Math.max(0, (y / height) * 100 - 5), 10, 10].map((value) => Math.round(value * 10) / 10);
     } : null;

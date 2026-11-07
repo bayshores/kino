@@ -646,8 +646,9 @@ How to read it:
 - **project record {step} + move screen-recording**: Verified with a stand-in helper. Records the Mac
   screen without the pointer and keeps pointer, clicks (agent or person), keys and marks as data; the
   move adds click zooms, kino's pointer and click rings. Evidence: `backend/recorder.test.mjs` (agent
-  path and a render), `engine/recording.test.js`. Gaps: the real helper (`backend/recorder/`) was
-  checked by hand only (macOS permissions); microphone needs macOS 15.
+  path and a render), `engine/recording.test.js`. The real helper (`backend/recorder/`) was checked
+  by hand on macOS 26 (display, area, window, a covered app, pause, sound and microphone mixed into
+  one track, the agent path to a render); not in CI (macOS permissions). Microphone needs macOS 15.
 
 ## Audio and captions
 
