@@ -228,6 +228,8 @@ function reusedMoments(ctx, duration) {
   for (let a = 0; a < clips.length; a += 1) for (let b = a + 1; b < clips.length; b += 1) {
     const [one, two] = [clips[a], clips[b]];
     if (one.layer.src !== two.layer.src) continue;
+    // A layer a move made (a tile wall, a recap ring) shows footage again by design.
+    if (one.layer.move || two.layer.move) continue;
     const overlap = Math.min(one.to, two.to) - Math.max(one.from, two.from);
     // A copy under itself (a blurred backdrop of the same clip at the same time) is one shot.
     if (overlap >= REUSE && Math.abs(one.at - two.at) > REUSE) found.push({ ids: [one.layer.id, two.layer.id], at: Math.max(one.at, two.at), file: sec(Math.max(one.from, two.from)), overlap });

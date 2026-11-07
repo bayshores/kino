@@ -372,15 +372,23 @@ test("same_motion: four animated layers must not all share one easing and durati
 });
 
 test("easing_repeat: at most two separate motions share an easing and duration", async () => {
-  // Three layers, entering one after another. Bad: all smooth 0.5 s. Good: the third eases out.
-  const three = (thirdEasing) => scene({ layers: [
-    text("one", "Sourdough", { y: 200, animations: [fadeIn(0.2)] }),
-    text("two", "Rye", { y: 400, animations: [fadeIn(0.8)] }),
-    text("three", "Brioche", { y: 600, animations: [fadeIn(1.4, 0.5, thirdEasing)] }),
+  // Three cards, entering one after another. Bad: all smooth 0.5 s. Good: the third eases out.
+  const three = (thirdEasing, props = {}) => scene({ layers: [
+    rect("one", { y: 100, ...props, animations: [fadeIn(0.2)] }),
+    rect("two", { y: 400, ...props, animations: [fadeIn(0.8)] }),
+    rect("three", { y: 700, ...props, animations: [fadeIn(1.4, 0.5, thirdEasing)] }),
   ] });
   const [finding] = await fires("easing_repeat", three("smooth"));
   assert.equal(finding.measured, 3);
   await silent("easing_repeat", three("ease-out"));
+  // A move's parts (a tile wall) share the move's timing by design.
+  await silent("easing_repeat", three("smooth", { move: { name: "tile-ring", instance: "tile-ring", part: "tile" } }));
+  // Captions that arrive one way are one type style (busy_edit asks for that), not a machine tell.
+  await silent("easing_repeat", scene({ layers: [
+    text("say1", "Sourdough", { y: 200, animations: [fadeIn(0.2)] }),
+    text("say2", "Rye", { y: 400, animations: [fadeIn(0.8)] }),
+    text("say3", "Brioche", { y: 600, animations: [fadeIn(1.4)] }),
+  ] }));
 });
 
 test("reading_time: text that pops in past its size and settles is read at its settled size", async () => {
@@ -429,6 +437,26 @@ test("duration_band: a button-sized layer enters in 0.3–1.1 s", async () => {
   const whip = button(0.12);
   whip.scenes[0].layers[0].animations[0].preset = { id: "whip", mode: "in", parameters: { direction: "up", distance: 120 } };
   await silent("duration_band", whip);
+});
+
+test("duration_band: a quick fade, a key press and an exit that ends on a cut are not rushed moves", async () => {
+  // A full-frame plate fading in over 0.1 s reads as a soft cut; sliding in over 0.1 s is rushed.
+  const plate = (from) => scene({ layers: [rect("plate", { x: 0, y: 0, width: 1920, height: 1080, animations: [move(0.5, 0.1, "ease-out", from, { opacity: 1 }, "in")] })] });
+  await silent("duration_band", plate({ opacity: 0 }));
+  await fires("duration_band", plate({ x: 300, opacity: 0 }));
+  // A key pressed in 0.08 s (scale 0.95) is quick on purpose; a card shrinking by half that fast is not.
+  const press = (scale) => scene({ layers: [rect("key", { width: 360, height: 120, animations: [move(1, 0.08, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: scale, scaleY: scale })] })] });
+  await silent("duration_band", press(0.95));
+  await fires("duration_band", press(0.5));
+  // A label that slides out in 0.08 s right as the shot cuts (one title gives way to the next at
+  // 2 s) is part of the cut; the same exit in the middle of the shot is rushed.
+  const exit = (start) => scene({ layers: [
+    text("one", "Sourdough", { animations: [hide(2)] }),
+    text("two", "Rye", { animations: [show(2)] }),
+    text("label", "Fresh daily", { y: 600, fontSize: 40, animations: [move(start, 0.08, "ease-in", {}, { x: 600 }, "out"), hide(start + 0.08)] }),
+  ] });
+  await silent("duration_band", exit(1.92));
+  await fires("duration_band", exit(1.2));
 });
 
 test("exit_ratio: an exit takes 55–75% of its entrance", async () => {
@@ -1014,6 +1042,11 @@ test("off_beat: an accent that nearly hits the beat lands on it; one clearly bet
   // 70 ms is still a near miss; 80 ms is not.
   await fires("off_beat", accent(0.93));
   await silent("off_beat", accent(0.92));
+  // A quick exit that ends on the beat (1.44 s + 0.06 s) lands on it; a 0.06 s one that starts
+  // 50 ms after the beat does not.
+  const exit = (start) => scene({ rhythm: { bpm: 120, offset: 0 }, layers: [text("title", "Hello", { animations: [fadeOut(start, 0.06)] })] });
+  await silent("off_beat", exit(1.44));
+  await fires("off_beat", exit(1.55));
 });
 
 test("off_beat: the first entrance's 0.1–0.3 s delay is not an off-beat accent", async () => {
@@ -1560,6 +1593,9 @@ test("restraint: a grade stacked on a grade, one footage moment twice and letter
   const look = (effect, number) => ({ ...grade(effect, 0, 2), id: `A${number + 7}`, name: number ? `Filter film ${number + 1}` : "Filter film" });
   const filtered = scene({ duration: 4, layers: [clip("a", 0, 3, { animations: [look("color-wheels", 0), look("hue-saturation", 1)] }), clip("b", 2, 9)] });
   await silent("restraint", filtered, { scene: filtered.scenes[0] });
+  // A tile a move made (a recap wall of the clips) shows the moment again by design.
+  const recap = scene({ duration: 4, layers: [clip("a", 0, 3), clip("tile", 2, 3.5, { width: 320, height: 180, move: { name: "tile-ring", instance: "tile-ring", part: "tile1" } })] });
+  await silent("restraint", recap, { scene: recap.scenes[0] });
 });
 
 test("request_unmet: quoted words, music and 'no logo' are checked against the edit; a vague note is listed to confirm by looking", async () => {

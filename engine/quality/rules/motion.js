@@ -145,6 +145,10 @@ export function easingRepeat(model, ctx) {
   // Motions that start together with the same timing are one gesture (a section leaving at once).
   const groups = new Map();
   for (const motion of judgedMotions(model)) {
+    // Words keep one way of arriving (busy_edit and role_font_drift ask for one type style), and a
+    // move's parts (a layer the move made, or its animations) share its timing by design.
+    const item = itemById(model, motion.itemId);
+    if (item.kind === "text" || item.move || motion.tweens.every((tween) => tween.move)) continue;
     const key = `${easingKey(motion.easing)} ${sec(motion.duration)}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(motion);
@@ -210,6 +214,30 @@ const ACCENT_PUNCH = { Accent: 0.15, "Accent settles": 0.5 };
 const isAccentPunch = (tween) => tween.duration <= (ACCENT_PUNCH[tween.name] ?? -1) + 1e-6 &&
   tween.keys.length > 0 && tween.keys.every((key) => key === "scaleX" || key === "scaleY");
 
+// A fade (opacity or color only) moves nothing across the frame, so its pace is not judged by the
+// layer's size: a quick fade reads as a soft cut, not as a rushed move. Only a slow one is judged.
+// A step under half a frame beside it (a scale set at the start) is no move.
+const isFadeOnly = (model, motion) => motion.tweens.filter((tween) => tween.duration > 0.5 / model.fps)
+  .every((tween) => tween.keys.length > 0 && tween.keys.every((key) => FADE_KEYS.has(key)));
+// A press or pulse: scale only, the layer's box at most 10% bigger or smaller than where it starts
+// (a key press, a tap) on a layer smaller than a hero. It is quick on purpose (kino's cursor press
+// takes 0.07 s); a full-frame punch that fast is a camera jolt and is judged.
+const PRESS_SCALE = 0.1;
+function isPress(model, item, motion) {
+  if (!motion.tweens.every((tween) => tween.keys.length > 0 && tween.keys.every((key) => key === "scaleX" || key === "scaleY"))) return false;
+  const [first, last] = [frameAt(model, motion.start), frameAt(model, motion.end ?? motion.start + motion.duration)];
+  const start = boxAt(item, first);
+  const width = start.x1 - start.x0;
+  if (!(width > 0)) return false;
+  for (let index = first; index <= last; index += 1) {
+    const box = boxAt(item, index);
+    if (Math.abs((box.x1 - box.x0) / width - 1) > PRESS_SCALE + 1e-6) return false;
+  }
+  return true;
+}
+// An exit that ends on a hard cut (within a frame) is part of the cut: the next picture takes over.
+const endsOnCut = (model, motion) => cuts(model).some((time) => time > 0 && Math.abs(time - (motion.start + motion.duration)) <= 1 / model.fps + 1e-6);
+
 export function durationBand(model, ctx) {
   const findings = [];
   for (const motion of judgedMotions(model)) {
@@ -232,6 +260,8 @@ export function durationBand(model, ctx) {
     if (motion.kind === "out") band = { name: `${band.name} exit`, min: sec(band.min * 0.55), max: sec(band.max * 0.75) };
     const tolerance = 0.5 / model.fps;
     if (motion.duration >= band.min - tolerance && motion.duration <= band.max + tolerance) continue;
+    // Too quick is no problem for a fade, a press, or an exit the cut hides.
+    if (motion.duration < band.min && (isFadeOnly(model, motion) || (!band.name.startsWith("hero") && isPress(model, item, motion)) || (motion.kind === "out" && endsOnCut(model, motion)))) continue;
     const target = motion.duration < band.min ? band.min : band.max;
     findings.push({
       rule: "duration_band", severity: "warn", itemId: item.id, tweenId: motion.tweens[0].id, at: sec(motion.start),

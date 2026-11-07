@@ -283,6 +283,8 @@ export function offBeat(model, ctx) {
     // On the beat (within a frame), or clearly between beats (syncopation, a choice): fine.
     // Only a near miss, more than a frame and up to NEAR_MISS off, reads as a mistake.
     if (Math.abs(off) <= frame + 1e-6 || Math.abs(off) > Math.max(NEAR_MISS, frame) + 1e-6 || nearest < 0) continue;
+    // A quick motion that ends on the beat (an exit or a press finishing on it) lands on it.
+    if (motion && motion.duration <= 0.2 + 1e-6 && Math.abs(motion.start + motion.duration - nearest) <= frame + 1e-6) continue;
     const item = motion ? itemById(model, motion.itemId) : null;
     findings.push({
       rule: "off_beat", severity: "warn", itemId: item?.id, at: sec(time),
