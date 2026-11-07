@@ -271,6 +271,10 @@ export function offBeat(model, ctx) {
   // The eye reads a miss of a frame or two (up to about 70 ms) as an error, so only those are flagged.
   // A first entrance placed 0.1–0.3 s after its cut follows the cut's beat on purpose.
   const delayed = new Set(firstEntrances(model).filter((entry) => goodEntranceDelay(model, entry.delay)).map((entry) => entry.motion));
+  // A move's parts are timed by the move (a logo-settle name types on after its mark lands): the
+  // move is placed on the beat as a whole, so its parts are not judged one by one.
+  const byMove = (motion) => Boolean(itemById(model, motion.itemId)?.move) || motion.tweens.every((tween) => tween.move);
+  for (const motion of motions(model)) if (byMove(motion)) delayed.add(motion);
   const accents = [...cuts(model).filter((time) => time > 0).map((time) => ({ time, motion: null })),
     ...motions(model).filter((motion) => !delayed.has(motion) && primaryItems(model).some((item) => item.id === motion.itemId)).map((motion) => ({ time: motion.start, motion }))];
   for (const { time, motion } of accents.sort((a, b) => a.time - b.time)) {

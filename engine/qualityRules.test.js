@@ -9,7 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
-import { RULES, ruleOf, runQuality } from "./quality/index.js";
+import { RULES, blocksFinal, ruleOf, runQuality } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { judderBlurId } from "./quality/techniques.js";
 
@@ -1047,6 +1047,15 @@ test("off_beat: an accent that nearly hits the beat lands on it; one clearly bet
   const exit = (start) => scene({ rhythm: { bpm: 120, offset: 0 }, layers: [text("title", "Hello", { animations: [fadeOut(start, 0.06)] })] });
   await silent("off_beat", exit(1.44));
   await fires("off_beat", exit(1.55));
+  // A move's part (a logo-settle name typing on after its mark lands) is timed by the move.
+  await silent("off_beat", scene({ rhythm: { bpm: 120, offset: 0 }, layers: [text("title", "Hello", { move: { name: "logo-settle", instance: "logo-settle", part: "name" }, animations: [fadeIn(1.05)] })] }));
+});
+
+test("advice rules come as info: taste notes that never count as warnings or hold a final render", async () => {
+  for (const code of ["busy_edit", "pacing_jump", "gradient_banding", "deck_unused", "vocabulary_budget", "flat_sections", "exit_ratio"]) assert.equal(ruleOf(code).level, "info", code);
+  const [finding] = await fires("exit_ratio", scene({ layers: [text("title", "Hello", { animations: [fadeIn(0.2, 0.6, "ease-out"), fadeOut(3, 0.6)] })] }));
+  assert.equal(finding.severity, "info");
+  assert.equal(blocksFinal(finding), false);
 });
 
 test("off_beat: the first entrance's 0.1–0.3 s delay is not an off-beat accent", async () => {

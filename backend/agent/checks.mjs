@@ -193,7 +193,7 @@ export function checkSummary(findings, { unchecked = [] } = {}) {
   return `${counts.errors} err · ${counts.warnings} warn${counts.waived ? ` · ${counts.waived} waived` : ""}${top ? ` (${top})` : ""}${left}`;
 }
 
-export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (signature_missing, and plain_beats when the hook, reveal and payoff are all plain, also block a final render). library {topic:\"rules\", name:\"quality\"} explains each.";
+export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (each also blocks a final render until fixed or waived with a reason); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";
 
 // {rule: {errors, warnings}} for the findings that count (not waived, not info), for
 // --json readers and the eval runner; MCP answers carry only the text.
@@ -243,13 +243,50 @@ export function triageFindings(shown, limit = MAX_FINDINGS) {
   return { listed, more: shown.length - listed.length, left: text };
 }
 
-export function checkReport(findings, { limit = MAX_FINDINGS } = {}) {
-  const shown = shownFindings(findings);
+// "rule xN" by rule, the most first: "busy_edit x3, pacing_jump".
+const byRuleLine = (list, { first = false } = {}) => {
+  const rows = new Map();
+  for (const finding of list) {
+    const row = rows.get(finding.rule) ?? { count: 0, ref: finding.ref };
+    row.count += 1;
+    rows.set(finding.rule, row);
+  }
+  return [...rows].sort((a, b) => b[1].count - a[1].count)
+    .map(([rule, { count, ref }]) => `${rule}${count > 1 ? ` x${count}` : ""}${first && ref != null ? ` (${ref})` : ""}`);
+};
+
+/** Advice (info findings, not waived) in one line, or "": "busy_edit x2, pacing_jump". */
+export const adviceLine = (findings) => byRuleLine(findings.filter((finding) => !finding.waived && finding.severity === "info")).join(", ");
+
+/**
+ * What still holds a final render: one line per rule with its count and first target
+ * ("hold x2 (say4)"), errors first. Empty when nothing is open.
+ */
+export function openFindingLines(findings) {
+  const open = findings.filter((finding) => !finding.waived && (finding.severity === "error" || finding.severity === "warn"));
+  return [...byRuleLine(open.filter((finding) => finding.severity === "error"), { first: true }), ...byRuleLine(open.filter((finding) => finding.severity === "warn"), { first: true })];
+}
+
+// More waivers than this for one rule in a project and the rule is likely wrong, not the video.
+export const WAIVER_LIMIT = 5;
+/** A note for each rule waived more than WAIVER_LIMIT times (document.checkWaivers), or []. */
+export function waiverNotes(waivers = []) {
+  const counts = {};
+  for (const waiver of waivers) if (waiver?.code) counts[waiver.code] = (counts[waiver.code] ?? 0) + 1;
+  return Object.entries(counts).filter(([, count]) => count > WAIVER_LIMIT)
+    .map(([code, count]) => `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
+}
+
+// info: true lists advice too (a check that names its rules asked for them).
+export function checkReport(findings, { limit = MAX_FINDINGS, info = false } = {}) {
+  const shown = info ? findings.filter((finding) => !finding.waived) : shownFindings(findings);
   const { listed, more, left } = triageFindings(shown, limit);
+  const advice = adviceLine(findings);
   return {
     ...checkCounts(findings),
     findings: listed,
     ...(more ? { more, moreByRule: left } : {}),
+    ...(advice ? { advice } : {}),
     autoFixes: shown.filter((finding) => finding.auto).length,
     byRule: countsByRule(findings),
     waivedFindings: findings.filter((finding) => finding.waived).map((finding) => ({ rule: finding.rule, ref: finding.ref, reason: finding.waived })),

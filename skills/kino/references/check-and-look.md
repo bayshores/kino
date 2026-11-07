@@ -25,7 +25,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - Motion rules (camera, brightness, frozen pictures): motion reference.
 - Contrast: failing under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
-- Errors and `signature_missing` block a final render. On purpose:
+- Every open error and warning blocks a final render (advice, info, does not). On purpose:
   `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or a
   glob (`"arch-*"`) waives each matching layer.
 - AI tells warn (ideas, taste): `own_words` (no `source`), `stock_copy`,

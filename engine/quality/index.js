@@ -94,7 +94,7 @@ export const RULES = [
   rule("text_load", "warn", textLoad, "texts on screen together ask for at most 24 characters a second (each one's characters ÷ its readable time), and at most 2 separate texts over playing footage for over 1.5 s; a logo, a label shown half the video and the end card do not count"),
   rule("hold", "warn", hold, "text held for its recommended time (Clearcast)"),
   rule("duration_band", "warn", durationBand, "durations in the band for the layer's size (a slow push may be longer)"),
-  rule("exit_ratio", "warn", exitRatio, "exits 55–75% of the entrance"),
+  rule("exit_ratio", "info", exitRatio, "exits 55–75% of the entrance"),
   rule("stagger_long", "warn", staggerLong, "a stagger within 0.5 s"),
   rule("stagger_order", "warn", staggerOrder, "entrances in role order"),
   rule("first_entrance", "warn", firstEntrance, "first entrance 0.1–0.3 s after a cut"),
@@ -113,7 +113,7 @@ export const RULES = [
   rule("neon_on_dark", "warn", neonOnDark, "no neon cyan or purple-blue on near-black"),
   rule("pure_frame", "warn", pureFrame, "no full frames of pure #000 or #fff"),
   rule("default_font", "warn", defaultFont, "not a common default font the brand did not choose"),
-  rule("gradient_banding", "warn", gradientBanding, "no dark full-frame gradient (final renders dither it; drafts and look do not)"),
+  rule("gradient_banding", "info", gradientBanding, "no dark full-frame gradient (final renders dither it; drafts and look do not)"),
   rule("speed_jump", "warn", speedJump, "no speed jump over 5% where moves join (place, scale at the corners, rotation); a hold between is fine"),
   rule("transition_dip", "warn", transitionDip, "a dissolve does not fade both shots at once: 85% of the frame stays covered (a fade through black is left alone)"),
   rule("cut_mid_move", "warn", cutMidMove, "a hard cut of large layers does not chop a fast move (0.25 frame widths or 30% scale a second) with the other side still"),
@@ -140,22 +140,22 @@ export const RULES = [
   rule("metronome", "warn", metronome, "shot lengths spread by 20% or more, and not nearly every cut on the beat at one count"),
   rule("cut_motivation", "warn", cutMotivation, "in a video of 8 cuts or more, at most 40% of cuts fall on no beat (half-beat grid or cue, within a frame), word edge or pause, or moving layer's peak (within 0.1 s)"),
   rule("beat_kick", "warn", beatKick, "at most 5 identical small scale pulses (kicks)"),
-  rule("flat_sections", "warn", flatSections, "adjacent sections differ in 2 of cut rate, motion, picture and framing scale"),
+  rule("flat_sections", "info", flatSections, "adjacent sections differ in 2 of cut rate, motion, picture and framing scale"),
   rule("style_wanted", "warn", styleWanted, "the techniques the style spec wants (backed by a ref or your words) are used; hard cuts stay free"),
   rule("role_font_drift", "warn", roleFontDrift, "one family per text role (display, stat, subhead, speech, caption; big captions count as display, big numbers as stat; display may use the brand's pair) and one size for captions and speech (within 15%), per voice (a caption track or text color); with style.fonts, the bible's face and size; always a warning"),
-  rule("vocabulary_budget", "warn", vocabularyBudget, "with style.moves, no designed technique outside the moves (or wants); how many devices and text looks is busy_edit"),
+  rule("vocabulary_budget", "info", vocabularyBudget, "with style.moves, no designed technique outside the moves (or wants); how many devices and text looks is busy_edit"),
   rule("brand_consistency", "warn", brandConsistency, "one logo treatment (role logo, a layer named logo or mark, or style.logo.asset; a color swap or reveal mask is the same look), shown at most twice, or style.logo.max; always a warning"),
   rule("accent_budget", "warn", accentBudget, "with style.accent, its color (fills, outlines and a gradient's main stop) covers at most its share of the frame for over 1 s"),
-  rule("pacing_jump", "warn", pacingJump, "median shot length changes at most 3x between neighboring 8 s windows, unless a marker cue, a sound layer's start or end, or a spine beat edge is within 1 s of where the change starts and the new pace holds 12 s"),
+  rule("pacing_jump", "info", pacingJump, "median shot length changes at most 3x between neighboring 8 s windows, unless a marker cue, a sound layer's start or end, or a spine beat edge is within 1 s of where the change starts and the new pace holds 12 s"),
   rule("ending_count", "warn", endingCount, "after the last story beat (the spine's, else the last 20%), at most 2 closing beats: logos or display type coming on, 1.5 s apart or more (a caption track running since before is not one; one that starts after it counts once)"),
   rule("story_stall", "warn", storyStall, "between the first and last 10%, no stretch over 4 s with no picture on a dark frame"),
   rule("hook_readable", "warn", hookReadable, "the first 3 s show type at 8% of the frame's short side or a clear picture (30% of the frame, unblurred) for 1 s"),
   rule("text_only_open", "warn", textOnlyOpen, "in a promo or ad of 8 s or more (videoType, or a logo layer when unset), at most 3 s of the first 4 s show text with no picture (an image or clip on 25% of the frame) and no logo; a text hook over footage is fine"),
   rule("signature_missing", "warn", signatureMissing, "with an idea (style.idea), a signature range (a spine beat with role signature, or signatures[].at) that holds a designed technique, a set piece or a full-frame graphic or footage, and is no shorter than the longest text-only beat; a warning while editing, a gate at the final render", false, { final: true }),
-  rule("busy_edit", "warn", busyEdit, "in a video of 8 s or more, at most 3 designed devices (moves by name, transitions, camera, set pieces; cuts, holds, fades and slow pushes are plain), designed moves on at most 40% of 5+ shots, at most 2 text looks, and under 3 bright-dark swings of 64 levels between neighbor shots"),
+  rule("busy_edit", "info", busyEdit, "in a video of 8 s or more, at most 3 designed devices (moves by name, transitions, camera, set pieces; cuts, holds, fades and slow pushes are plain), designed moves on at most 40% of 5+ shots, at most 2 text looks, and under 3 bright-dark swings of 64 levels between neighbor shots"),
   rule("restraint", "warn", restraint, "transitions only at shot changes, one color grade on a layer at a time (a new look replaces the old), each moment of a footage file shown once (0.5 s overlap), no letterboxed footage (97% of the frame one way, under 90% the other, for 1 s)"),
   rule("request_unmet", "warn", requestUnmet, "each item the person asked for (brief lines and notes) is in the edit: words in quotes on screen, music, voice, captions, a logo, sound effects, an end card ('no X' the other way round); a miss holds the final render, a note with nothing checkable is listed to confirm by looking", false, { final: false }),
-  rule("deck_unused", "warn", deckUnused, "in a video of 8 s or more, at least half of the project's deck is used (notes deck; a card swapped out does not count)"),
+  rule("deck_unused", "info", deckUnused, "in a video of 8 s or more, at least half of the project's deck is used (notes deck; a card swapped out does not count)"),
 ];
 
 // Style rules a backed wanted technique turns off (engine/styleSpec.js): the spec says the video
@@ -175,10 +175,18 @@ export const ruleOf = (code) => RULES.find((entry) => entry.code === code);
 // Warnings while editing that block a final render: the edit may be unfinished, the render may not.
 export const FINAL_GATES = Object.freeze(RULES.filter((entry) => entry.final).map((entry) => entry.code));
 /**
- * True for a finding that blocks a final render (unless waived): an error, a warning of a
- * FINAL_GATES rule, or a warning marked final (plain_beats marks the one that holds the render).
+ * True for a finding that blocks a final render: every error and warning not waived (fixed, or
+ * waive_check with a reason). Advice (info) never blocks. FINAL_GATES are the warnings the
+ * edit's next call names before the final render (signature_missing).
  */
-export const blocksFinal = (finding) => !finding.waived && (finding.severity === "error" || (finding.severity === "warn" && (finding.final === true || FINAL_GATES.includes(finding.rule))));
+export const blocksFinal = (finding) => !finding.waived && (finding.severity === "error" || finding.severity === "warn");
+
+// Advice rules (level info): taste and planning notes, not a defect a viewer sees. Their findings
+// come as info, listed in one line and never counted as warnings (a safe auto fix still applies).
+function asAdvice(entry, found) {
+  if (entry.level !== "info" || !Array.isArray(found)) return found;
+  return found.map((finding) => (finding.severity === "warn" ? { ...finding, severity: "info" } : finding));
+}
 
 const quote = (text) => {
   const clean = String(text ?? "").replace(/\s+/g, " ").trim();
@@ -297,8 +305,8 @@ function runOne(entry, model, ctx) {
   }
   try {
     const found = entry.check(model, ctx);
-    if (found && typeof found.then === "function") return found.then((list) => keepLayouts(model, outsideSignatures(entry, list, ctx)));
-    return keepLayouts(model, outsideSignatures(entry, found, ctx));
+    if (found && typeof found.then === "function") return found.then((list) => asAdvice(entry, keepLayouts(model, outsideSignatures(entry, list, ctx))));
+    return asAdvice(entry, keepLayouts(model, outsideSignatures(entry, found, ctx)));
   } catch (error) {
     const text = LAYER_MEDIA_PROBLEM.test(error.message)
       ? "Fix that layer: import its file (project import) and set its src to the /api/media/... address, or delete the layer."

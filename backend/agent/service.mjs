@@ -63,7 +63,7 @@ import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps } from "./jumps.mjs";
-import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, mergeFindings, triageFindings } from "./checks.mjs";
+import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, mergeFindings, openFindingLines, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
@@ -71,7 +71,7 @@ import { houseMoments } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { styleContext } from "../../engine/styleSpec.js";
-import { blocksFinal } from "../../engine/quality/index.js";
+import { blocksFinal, FINAL_GATES } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
 import { renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
@@ -453,7 +453,7 @@ export function createAgentService(deps) {
     for (const sceneId of sceneIds) {
       const { findings } = await findingsFor(document, { fonts, codes, sceneId, pixels: true, outputFps: parseFps(options?.fps) ?? 30 });
       const errors = findings.filter(blocksFinal);
-      if (errors.length) throw new AgentError("check_failed", `${errors.length} errors block final export of ${refName(sceneId, codes)}: ${errors.slice(0, 5).map((finding) => finding.rule).join(", ")}. Run check, fix or record a waiver.`);
+      if (errors.length) throw new AgentError("check_failed", `${errors.length} open findings block final export of ${refName(sceneId, codes)}: ${openFindingLines(errors).join("; ")}. Run check, fix each or waive it with a reason.`);
     }
   } });
   const renders = new Map();
@@ -2175,7 +2175,7 @@ export function createAgentService(deps) {
     }
     await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
     if (!scene) await recordDeckUse(projectId, result.techniques);
-    const report = checkReport(result.findings);
+    const report = checkReport(result.findings, { info: Boolean(rules) });
     const counts = `${report.errors} err · ${report.warnings} warn${report.info ? ` · ${report.info} info` : ""}${report.waived ? ` · ${report.waived} waived` : ""}`;
     const lines = [`rev ${record.revision} · ${counts}${scene ? ` · ${refName(scene.id, codes)} only` : ""}${options.pixels ? "" : " · pixels off"} · ${result.ms} ms`];
     if (applied) {
@@ -2184,9 +2184,13 @@ export function createAgentService(deps) {
       for (const line of groupFixLines(applied.dropped)) lines.push(`  not applied ${line}`);
     }
     for (const finding of report.findings)
-      lines.push(`${finding.severity === "error" ? "E" : "W"} ${finding.rule} ${finding.ref}${finding.at != null ? ` @${sec(finding.at)}` : ""}: ${finding.message}${finding.fix ? ` fix${finding.auto ? "(auto)" : ""}: ${typeof finding.fix === "string" ? finding.fix : compact(finding.fix)}` : ""}`);
+      lines.push(`${finding.severity === "error" ? "E" : finding.severity === "info" ? "I" : "W"} ${finding.rule} ${finding.ref}${finding.at != null ? ` @${sec(finding.at)}` : ""}: ${finding.message}${finding.fix ? ` fix${finding.auto ? "(auto)" : ""}: ${typeof finding.fix === "string" ? finding.fix : compact(finding.fix)}` : ""}`);
     if (report.more) lines.push(`+${report.more} more: ${report.moreByRule}. Fix these first, or check {scene} or {rules}.`);
     if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
+    // Advice (info): taste notes in one line; they never block a render.
+    if (report.advice) lines.push(`advice (does not block): ${report.advice}. check {rules:[code]} lists one.`);
+    // A rule waived over and over in one project is likely kino's mistake, not taste.
+    for (const note of waiverNotes(record.document.checkWaivers)) lines.push(`note: ${note}`);
     if (!report.errors && !report.warnings) lines.push("Nothing to fix.");
     else if (!applied && report.autoFixes) lines.push(`check {fix:"auto"} applies the ${report.autoFixes} ${report.autoFixes === 1 ? "fix" : "fixes"} marked auto.`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
@@ -4899,13 +4903,14 @@ export function createAgentService(deps) {
         // The direction lock comes before the stops: they are judged against the locked story.
         await refuseWithoutLock(record, { format });
         await refuseFinalWhileStopsOpen(record);
-        // The final-render gate: no final render while an error-level finding is not fixed or waived.
+        // The final-render gate: no final render while an error or a warning is open (not fixed,
+        // not waived with a reason). Advice (info) does not hold it.
         for (const scene of scenes) {
           const { findings } = await findingsFor(record.document, { fonts, codes, sceneId: scene.id, pixels: true, outputFps: fps });
-          // Errors, and the warnings that hold only a final render (FINAL_GATES: signature_missing).
-          const blocking = findings.filter(blocksFinal);
+          // A still (one PNG frame) is held by errors only: the video's motion warnings are not in it.
+          const blocking = findings.filter((finding) => blocksFinal(finding) && (format !== "png" || finding.severity === "error"));
           if (blocking.length)
-            throw new AgentError("check_failed", `${plural(blocking.length, "finding")} in ${refName(scene.id, codes)} block a final render: ${blocking.slice(0, 5).map((finding) => `${finding.rule} ${finding.ref}`).join(", ")}${blocking.length > 5 ? ", …" : ""}.`, {
+            throw new AgentError("check_failed", `${plural(blocking.length, "open finding")} in ${refName(scene.id, codes)} block a final render (fix each or waive it with a reason):\n${openFindingLines(blocking).map((line) => `  ${line}`).join("\n")}`, {
               next: 'check {fix:"auto"} applies the safe fixes; fix the rest with edit, or waive_check {code, target, reason} for a deliberate exception. A draft render is allowed now.',
             });
         }
@@ -6067,7 +6072,7 @@ export function createAgentService(deps) {
     // before the passes a new edit would redo, so the next call never walks into the refusal.
     if (state.brief?.style?.idea || signatureRanges(state.brief?.style).length) {
       const { findings } = await findingsFor(document, { fonts, codes });
-      const held = findings.find((finding) => finding.severity !== "error" && blocksFinal(finding));
+      const held = findings.find((finding) => finding.severity === "warn" && blocksFinal(finding) && (finding.final === true || FINAL_GATES.includes(finding.rule)));
       if (held) return nextOf("edit", { ops: [`<the edit for: ${String(held.fix?.text ?? held.message).slice(0, 160)}>`] });
     }
     // The rest are the final render's gates, in finalGates' order (the first one still open).

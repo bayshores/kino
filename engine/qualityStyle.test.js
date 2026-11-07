@@ -348,7 +348,7 @@ test("plain_beats: only a plain hook, reveal or payoff warns; the first holds a 
   const layers = [0, 1, 2, 3].map((index) => clip(`shot${index}`, { animations: [...(index ? [show(index * 5)] : []), ...(index < 3 ? [hide(index * 5 + 5)] : [])] }))
     .concat([text("caption", "street skate", { y: 900 })]);
   const found = await fires("plain_beats", scene({ duration: 20, layers }));
-  assert.deepEqual(found.map((entry) => [entry.at, entry.until, blocksFinal(entry)]), [[0, 2.5, true], [17.5, 20, false]]);
+  assert.deepEqual(found.map((entry) => [entry.at, entry.until, blocksFinal(entry), entry.final === true]), [[0, 2.5, true, true], [17.5, 20, true, false]]);
   assert.match(found[0].fix.text, /the hook \(0-2\.5s\) with a designed camera move: [a-z-]+ or [a-z-]+/);
   // The video already uses a zoom (into shot 3 at 9.6 s): a plain hook is told to reuse it, a motif.
   const zoomed = scene({ duration: 20, layers: layers.map((layer) => (layer.id === "shot1" ? { ...layer, animations: [show(5), custom(9.6, 0.4, { scaleX: 1, scaleY: 1 }, { scaleX: 3, scaleY: 3 }, "ease-in"), hide(10)] } : layer)) });
@@ -360,7 +360,7 @@ test("plain_beats: only a plain hook, reveal or payoff warns; the first holds a 
   assert.match(runs[1].fix.text, /the payoff \(shot 4, last shot\) with a designed ui move: lift-focus or swipe-cards/);
   // A designed hook (the zoom lands at its end) releases the render; the plain payoff still warns.
   const [payoff, ...more] = await fires("plain_beats", zoomed, { board: [[0, 10], [10, 7], [17, 3]].map(([cue, dur]) => ({ cue, dur, move: null })) });
-  assert.deepEqual([payoff.at, payoff.until, blocksFinal(payoff), more.length], [17, 20, false, 0]);
+  assert.deepEqual([payoff.at, payoff.until, payoff.final === true, more.length], [17, 20, false, 0]);
   // A key shot with no move is offered the moves that fit what it holds (engine/movePicks.js).
   const [bare] = await fires("plain_beats", zoomed, { board: board.map((shot, index) => (index ? shot : { ...shot, media: "/api/media/a.mp4" })) });
   assert.match(bare.fix.text, /^Build the hook \(shot 1, footage\) with camera window-punch-in \(phone-film@3\.13\) or camera frame reframe \(agent-launch@11\.25\) \(edit \{ops:\[\{op:"move", name:"window-punch-in"/);
@@ -565,7 +565,8 @@ test("every technique rule has a bad and a good example above", () => {
   assert.deepEqual(codes.filter((code) => !RULES.some((entry) => entry.code === code)), [], "all are registered");
   assert.deepEqual(codes.filter((code) => !rulesCovered.has(code)), []);
   // style_avoided gates a final render when the person said no (by:"you"); the rest advise.
-  assert.ok(codes.every((code) => ruleOf(code).level === (code === "style_avoided" ? "error" : "warn")), "they are warnings, but style_avoided is a gate");
+  const advice = new Set(["flat_sections", "deck_unused", "busy_edit"]);
+  assert.ok(codes.every((code) => ruleOf(code).level === (code === "style_avoided" ? "error" : advice.has(code) ? "info" : "warn")), "warnings or advice, but style_avoided is a gate");
 });
 
 test("spine_drift and rejected_text: the timeline keeps to the locked spine, and turned-down text stays off screen", async () => {
@@ -639,7 +640,9 @@ test("signature_missing: an idea needs a signature range that holds a designed m
   // It warns while editing and blocks only a final render; reviewers get the idea and signature lines.
   assert.equal(blocksFinal(plain), true);
   assert.equal(blocksFinal({ ...plain, waived: "on purpose" }), false);
-  assert.equal(blocksFinal({ severity: "warn", rule: "text_slides" }), false);
+  // Every open warning holds a final render; advice (info) never does.
+  assert.equal(blocksFinal({ severity: "warn", rule: "text_slides" }), true);
+  assert.equal(blocksFinal({ severity: "info", rule: "busy_edit" }), false);
   assert.deepEqual(ideaLines(styleContext(spec(16).styleSpec)), ["Idea: your streak becomes a map", "Signature: the streak map using home screen @9-16s"]);
 });
 

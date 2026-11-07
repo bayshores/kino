@@ -11,7 +11,7 @@ import { assignCodes, closest, createResolver, documentObjects, emptyCodes, Refe
 import { OperationError, translateOperations } from "./agent/translate.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
-import { checkDocument, checkReport, checkSummary, groupFixLines, MAX_FINDINGS, mergeFindings } from "./agent/checks.mjs";
+import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, MAX_FINDINGS, mergeFindings, openFindingLines, waiverNotes } from "./agent/checks.mjs";
 
 // A one-scene document ("main", 640×360) with the given engine operations applied.
 function sceneDocument(operations = [], { duration = 4 } = {}) {
@@ -634,4 +634,29 @@ test("an edit names an animation it adds earlier in the same edit by layer.kind,
   assert.equal(unwaive.type, "unwaive_check");
   assert.ok(resolver.fixes.includes("unwaive_check: no reading_time waiver on words, nothing to remove"));
   assert.doesNotThrow(() => applyOperations(document, [{ type: "unwaive_check", code: "reading_time", target: "*" }]));
+});
+
+test("advice is one line and not a warning; open findings list by rule; a rule waived 6 times is named as kino's likely mistake", () => {
+  const findings = [
+    { severity: "error", rule: "overlap", ref: "title" },
+    { severity: "warn", rule: "hold", ref: "say4" },
+    { severity: "warn", rule: "hold", ref: "say5" },
+    { severity: "warn", rule: "judder", ref: "pan", waived: "a whip on purpose" },
+    { severity: "info", rule: "busy_edit", ref: "s1" },
+    { severity: "info", rule: "busy_edit", ref: "s1" },
+    { severity: "info", rule: "pacing_jump", ref: "s1" },
+  ];
+  const report = checkReport(findings);
+  assert.deepEqual([report.errors, report.warnings, report.info, report.waived], [1, 2, 3, 1]);
+  assert.ok(report.findings.every((finding) => finding.severity !== "info"));
+  assert.equal(report.advice, "busy_edit x2, pacing_jump");
+  assert.equal(adviceLine(findings.slice(0, 4)), "");
+  // A check that names its rules lists the advice too.
+  assert.equal(checkReport(findings, { info: true }).findings.filter((finding) => finding.severity === "info").length, 3);
+  assert.deepEqual(openFindingLines(findings), ["overlap (title)", "hold x2 (say4)"]);
+  const waivers = (count, code) => Array.from({ length: count }, (_, index) => ({ code, target: `L${index}`, reason: "on purpose" }));
+  assert.deepEqual(waiverNotes(waivers(5, "hold")), []);
+  const [note, ...rest] = waiverNotes([...waivers(6, "hold"), ...waivers(2, "judder")]);
+  assert.match(note, /^hold is waived 6 times here: likely a kino false positive/);
+  assert.equal(rest.length, 0);
 });
