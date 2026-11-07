@@ -184,22 +184,23 @@ const quote = (text) => {
 
 // ctx.renderFrames that keeps each frame it rendered for this run, so a rule asking for a frame
 // another rule already has (text_on_busy reads the contrast frames) gets it without a render.
-// Frames are kept by width, the layers left out and the time.
+// Frames are kept by width, the layers left out (or drawn alone, `solo`, over `background`) and the time.
 // `nearest(time, within)` gives a kept frame within `within` seconds of `time` (any width, the
 // fewest layers left out first), or null: small_on_empty reads the contrast frames that way.
 function cachedFrames(render) {
   const kept = new Map();
   const list = [];
   const cached = async (times, options = {}) => {
-    const { width, hide = [] } = options;
-    const prefix = `${width}|${[...hide].sort().join(",")}|`;
+    const { width, hide = [], solo = null, background = null } = options;
+    const prefix = `${width}|${[...hide].sort().join(",")}|${solo ? `solo:${[...solo].sort().join(",")}|${background}|` : ""}`;
     const missing = [...new Set(times.filter((time) => !kept.has(prefix + time)))];
     if (missing.length) {
       const frames = await render(missing, options);
       missing.forEach((time, position) => {
         if (!frames[position]) return;
         kept.set(prefix + time, frames[position]);
-        list.push({ time, hidden: hide.length, frame: frames[position] });
+        // A solo frame shows only a few layers on a plain color: never a stand-in for the scene.
+        if (!solo) list.push({ time, hidden: hide.length, frame: frames[position] });
       });
     }
     return times.map((time) => kept.get(prefix + time));

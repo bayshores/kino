@@ -45,11 +45,14 @@ const scene = (fields) => parseDocument(rawScene(fields));
 
 // ctx.renderFrames for the checker: renders the drawn scene at those times, with the layers in
 // `hide` left out (the contrast rule hides the text to see what is behind it).
+// With `solo`, only those layers are drawn, over a plain `background` (as backend/agent/quality.mjs).
 function frameRenderer(document, mediaRoot) {
   const expanded = expandComponents(document, "scene", { fonts });
-  return (times, { width, hide: hidden = [] }) => {
+  return (times, { width, hide: hidden = [], solo = null, background = null }) => {
     const left = new Set(hidden);
-    const drawn = { ...expanded, layers: expanded.layers.map((layer) => (left.has(layer.id) ? { ...layer, visible: false } : layer)) };
+    if (solo) for (const layer of expanded.layers) if (!solo.includes(layer.id)) left.add(layer.id);
+    let drawn = { ...expanded, layers: expanded.layers.map((layer) => (left.has(layer.id) ? { ...layer, visible: false } : layer)) };
+    if (background) drawn = { ...drawn, background, backgroundEnabled: true, backgroundAnimations: [] };
     return renderSceneFrames(drawn, times, { fonts, width, mediaRoot });
   };
 }
@@ -145,6 +148,18 @@ test("contrast: a layer drawn over the text on purpose (allowOverlap) is not wha
   // A text drawn above it still reads against it.
   const [finding] = await fires("contrast", scene({ layers: [plate, subject({ allowOverlap: true }), title] }));
   assert.equal(finding.itemId, "title");
+});
+
+test("contrast: where a cut-out in front of a word hides it, what is behind the word there does not count", async () => {
+  // A word behind a person (masked-type): white letters on a dark plate at the left, light paper at
+  // the right, and an opaque cut-out over the right half. The right half of the word cannot be
+  // seen, so the light paper behind it there is not what the word is read against.
+  const plate = rect("plate", { x: 200, y: 200, width: 330, height: 180, fill: "#2b2620" });
+  const title = text("title", "Bake with us", { fill: "#ffffff", x: 240, y: 240 });
+  const person = (x) => rect("person", { x, y: 160, width: 560, height: 280, fill: "#151311", allowOverlap: true });
+  await silent("contrast", scene({ layers: [plate, title, person(530)] }));
+  // The person away from the word: the right half shows on the paper and fails.
+  await fires("contrast", scene({ layers: [plate, title, person(1300)] }));
 });
 
 test("contrast: uses the colour a fill animation gives the text at the time it samples", async () => {

@@ -1,8 +1,8 @@
 // Rules measured on rendered pixels: contrast and flashing (both gates).
 //
-// They need `ctx.renderFrames(times, {width, hide})`, which renders the scene at those times,
-// `width` pixels wide, with the items in `hide` left out, and resolves to
-// [{time, pixels (RGBA bytes), width, height}].
+// They need `ctx.renderFrames(times, {width, hide, solo?, background?})`, which renders the scene
+// at those times, `width` pixels wide, with the items in `hide` left out (with `solo`, only those
+// items over a plain `background` color), and resolves to [{time, pixels (RGBA bytes), width, height}].
 import { drawnSize, readableAt, readingTexts, scaleOf, sec } from "./analysis.js";
 import { area, boxAt, contrastOf, fillColorsAt, hexRgba, insideShare, luminance, overlapArea, paintColors, roundBox, runs, tweensOf } from "./model.js";
 
@@ -54,6 +54,29 @@ export function haloAlwaysPasses({ fill, shadow, size, weight, frame }) {
 }
 
 // The pixels behind a box in a rendered frame, as [r, g, b] (at most PIXELS_PER_TEXT of them).
+// A pixel more than half covered (0 to 255) by a layer in front of a text: the text is hidden there.
+const COVERED = 128;
+
+/**
+ * How much the layers drawn alone over black (`dark`) and over white (`light`) cover each pixel,
+ * 0 to 255: where they are opaque both frames match; where they are absent the frames differ by
+ * the whole range.
+ */
+export function coverMask(dark, light) {
+  const count = dark.width * dark.height;
+  const mask = new Uint8Array(count);
+  let open = false;
+  for (let i = 0; i < count; i += 1) {
+    const at = i * 4;
+    const gap = (light.pixels[at] - dark.pixels[at] + light.pixels[at + 1] - dark.pixels[at + 1] + light.pixels[at + 2] - dark.pixels[at + 2]) / 3;
+    if (gap >= 250) open = true;
+    mask[i] = Math.max(0, Math.min(255, Math.round(255 - gap)));
+  }
+  // No uncovered pixel at all: the frames did not change with the background (a renderer that
+  // ignores solo and background), so nothing is known to be covered.
+  return open ? mask : null;
+}
+
 function pixelsBehind(frame, box, modelWidth) {
   const k = frame.width / modelWidth;
   const x0 = Math.max(0, Math.floor(box.x0 * k));
@@ -64,8 +87,11 @@ function pixelsBehind(frame, box, modelWidth) {
   if (!total) return [];
   const step = Math.max(1, Math.floor(Math.sqrt(total / PIXELS_PER_TEXT)));
   const found = [];
+  // frame.cover (coverMask): where a layer in front of the text hides it, what is behind does not count.
+  const cover = frame.cover;
   for (let y = y0; y < y1; y += step)
     for (let x = x0; x < x1; x += step) {
+      if (cover && cover[y * frame.width + x] > COVERED) continue;
       const at = (y * frame.width + x) * 4;
       found.push([frame.pixels[at], frame.pixels[at + 1], frame.pixels[at + 2]]);
     }
@@ -438,7 +464,22 @@ export async function contrast(model, ctx) {
   if (!chosen.length) return [];
   // A move's color overlay (accent-hit, light-sweep) is the text itself in another color, not what is behind it.
   const hide = [...readingTexts(model).map((item) => item.id), ...coveringItems(model, readingTexts(model)), ...model.items.filter((item) => item.overlay).map((item) => item.id)];
-  const render = (indexes) => ctx.renderFrames(indexes.map((index) => model.times[index]), { width: Math.min(CONTRAST_WIDTH, model.width), hide });
+  const width = Math.min(CONTRAST_WIDTH, model.width);
+  const behindFrames = (indexes) => ctx.renderFrames(indexes.map((index) => model.times[index]), { width, hide });
+  // A layer in front of a text on purpose (a cut-out person before a word) hides part of it: those
+  // pixels are not read, so the person standing over the word is not "what is behind it".
+  const covering = coveringItems(model, readingTexts(model));
+  const render = !covering.length ? behindFrames : async (indexes) => {
+    const frames = await behindFrames(indexes);
+    const times = indexes.map((index) => model.times[index]);
+    const dark = await ctx.renderFrames(times, { width, solo: covering, background: "#000000" });
+    const light = await ctx.renderFrames(times, { width, solo: covering, background: "#ffffff" });
+    return frames.map((frame, position) => {
+      const [a, b] = [dark?.[position], light?.[position]];
+      const cover = a && b && a.width === frame.width && b.width === frame.width ? coverMask(a, b) : null;
+      return cover ? { ...frame, cover } : frame;
+    });
+  };
   const frames = await render(chosen);
   const frameAt = new Map(chosen.map((index, position) => [index, frames[position]]));
   const jobs = [];

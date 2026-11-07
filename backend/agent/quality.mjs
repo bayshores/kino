@@ -554,10 +554,20 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
     let expanded = null;
     let driftPending = false;
     // Renders the scene's frames for the pixel rules (`signal`: the check's; none for background work).
-    const renderWith = (renderSignal) => async (times, { width, hide = [] }) => {
+    // `solo` draws only those layers (with their groups and children) over a plain `background`:
+    // the contrast rule reads which pixels a layer in front of a text covers from two such frames.
+    const renderWith = (renderSignal) => async (times, { width, hide = [], solo = null, background = null }) => {
       expanded ??= expandComponents(document, scene.id, { fonts });
       const hidden = new Set(hide);
-      const drawn = hidden.size ? { ...expanded, layers: expanded.layers.map((layer) => (hidden.has(layer.id) ? { ...layer, visible: false } : layer)) } : expanded;
+      if (solo) {
+        const byId = new Map(expanded.layers.map((layer) => [layer.id, layer]));
+        const kept = new Set();
+        for (const id of solo) for (let layer = byId.get(id); layer && !kept.has(layer.id); layer = byId.get(layer.parentId)) kept.add(layer.id);
+        const inside = (layer) => { for (let at = layer; at; at = byId.get(at.parentId)) if (solo.includes(at.id)) return true; return false; };
+        for (const layer of expanded.layers) if (!kept.has(layer.id) && !inside(layer)) hidden.add(layer.id);
+      }
+      let drawn = hidden.size ? { ...expanded, layers: expanded.layers.map((layer) => (hidden.has(layer.id) ? { ...layer, visible: false } : layer)) } : expanded;
+      if (background) drawn = { ...drawn, background, backgroundEnabled: true, backgroundAnimations: [] };
       const render = (scene, missing) => renderFrames(scene, missing, { mediaRoot, fonts, width, signal: renderSignal });
       return frameReuse ? (await frameReuse.framesFor(drawn, times, { width, fonts, render })).frames : render(drawn, times);
     };
