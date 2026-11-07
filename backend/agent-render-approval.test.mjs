@@ -52,7 +52,7 @@ test("a final render waiting for approval names its revision, and render cancel 
   const pending = await agent("render", { project: id, action: "wait", job: q, timeout_s: 0.6 });
   assert.ok(Date.now() - started >= 500, "wait blocked");
   assert.equal(pending.data.status, "awaiting_approval", pending.text);
-  assert.match(pending.text, /Only the person can answer it, in the kino app \(asked \d+ min ago\).*Do not poll/);
+  assert.match(pending.text, /Only the person can answer it, in the kino app or in the chat \(asked \d+ min ago\).*notes \{action:\\?"answer.*Do not poll/);
 
   const canceled = await agent("render", { project: id, action: "cancel", job: q });
   assert.equal(canceled.isError, undefined, canceled.text);
@@ -136,4 +136,25 @@ test("allowing a render after the project changed asks again for the new revisio
   const canceled = await agent("render", { project: id, action: "cancel", job: again[1] });
   assert.equal(canceled.isError, undefined, canceled.text);
   assert.ok(["canceled", "done"].includes(canceled.data.status), canceled.text);
+});
+
+test("the person's yes in the chat allows a final render: notes answer with the Q id renders it and keeps their words", async () => {
+  const id = await project("ask-chat");
+  const asked = await agent("render", { project: id, action: "start", quality: "final" });
+  assert.equal(asked.data.status, "awaiting_approval", asked.text);
+  assert.match(asked.data.next, /in the kino app or in the chat/);
+  const q = asked.data.id;
+  const reply = { project: id, action: "answer", id: q, words: "yes, render it", read_as: "approve" };
+  assert.equal((await agent("notes", { ...reply, words: " " })).data.error, "bad_input", "their words are kept");
+  assert.equal((await agent("notes", { ...reply, read_as: "maybe" })).data.error, "bad_input");
+  const allowed = await agent("notes", reply);
+  assert.equal(allowed.isError, undefined, allowed.text);
+  assert.equal(allowed.data.status, "allowed", allowed.text);
+  assert.ok(allowed.data.job, allowed.text);
+  const card = (await approvals(id)).find((entry) => entry.id === q);
+  assert.equal(card.via, "chat");
+  assert.equal(card.words, "yes, render it");
+  const done = await agent("render", { project: id, action: "wait", job: allowed.data.job });
+  assert.equal(done.data.status, "done", done.text);
+  assert.equal((await agent("notes", reply)).data.error, "answered", "one answer per approval");
 });

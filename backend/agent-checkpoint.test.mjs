@@ -486,7 +486,7 @@ test("while a stop waits, every write to its project answers {waiting} and chang
   assert.equal(await revision(project), rev + 1);
 });
 
-test("notes answer refuses a reply under 5 s, a revision the person was not shown, a render approval, an id kino never issued, a second answer and bad input", async () => {
+test("notes answer refuses a reply under 5 s, a revision the person was not shown, an id kino never issued, a second answer and bad input; a render approval reads its own words", async () => {
   const project = "stops-refusals";
   const { rev, turn } = await stopProject(project, { brief: false });
   // A final render of the fixture asks for approval (720 frames, over 600), before the brief
@@ -503,10 +503,11 @@ test("notes answer refuses a reply under 5 s, a revision the person was not show
   assertRefused(fast, "too_fast", /^C1 was asked \d s ago: nobody reads a stop that fast\. Send the ask and record the reply they send\.$/);
   assert.ok(fast.data.seconds < 5, `${fast.data.seconds} s`);
   assertRefused(await answer(project, { ...reply, rev: rev - 1 }), "stale_rev");
-  const approval = await answer(project, { ...reply, id: final.data.id });
-  assertRefused(approval, "dashboard_only", `${final.data.id} is answered in kino at the PC, not in the chat: ${final.data.summary}.`);
-  assert.equal(approval.data.kind, "final-render");
-  assertRefused(await answer(project, { ...reply, id: final.data.id.toLowerCase() }), "dashboard_only");
+  // An approval answered in the chat is read as allow or deny (agent-render-approval.test.mjs
+  // renders an allowed one): "no" denies it, and it is answered once.
+  const denied = await answer(project, { ...reply, id: final.data.id, words: "no, not yet", read_as: "deny" });
+  assert.equal(denied.data.status, "denied", denied.text);
+  assertRefused(await answer(project, { ...reply, id: final.data.id.toLowerCase() }), "answered");
   for (const id of ["C9", "Q99", "M1", "V1"]) assertRefused(await answer(project, { ...reply, id }), "not_found", `kino never asked ${id} in this project.`);
   assert.equal((await answer(project, { ...reply, id: "C9" })).data.didYouMean?.[0], "C1");
   for (const body of [{ words: "" }, { words: "   " }, { words: "a".repeat(2001) }, { read_as: "aprove" }, { read_as: undefined }, { rev: undefined }, { rev: "2" }, { rev: 2.5 }, { id: undefined }])

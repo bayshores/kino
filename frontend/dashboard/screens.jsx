@@ -367,7 +367,7 @@ export function ApprovalCard({ approval, onAnswer, note, onNote, noteRef, compac
         {!compact ? <p className="faint">Tab adds a note · "always" changes the rule in settings</p> : null}
       </> : (
         // canceled (the agent withdrew it) or replaced (by its request for a newer revision): not an error.
-        <p className={approval.status === "allowed" && !failed ? "ok" : ["canceled", "replaced"].includes(approval.status) ? "dim" : "err"}>{approval.status} {approval.answeredAt ? `${ago(approval.answeredAt, now)} ago` : ""}{approval.note ? ` · your note: "${approval.note}"` : ""}{approval.result ? ` · ${failed ? "but the call failed: " : ""}${approval.result.text}` : ""}</p>
+        <p className={approval.status === "allowed" && !failed ? "ok" : ["canceled", "replaced"].includes(approval.status) ? "dim" : "err"}>{approval.status} {approval.answeredAt ? `${ago(approval.answeredAt, now)} ago` : ""}{approval.via === "chat" ? ` · in the chat: "${approval.words}"` : approval.note ? ` · your note: "${approval.note}"` : ""}{approval.result ? ` · ${failed ? "but the call failed: " : ""}${approval.result.text}` : ""}</p>
       )}
     </article>
   );

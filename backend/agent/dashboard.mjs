@@ -449,8 +449,13 @@ export async function createDashboard({ agentDirectory, agentState, now = Date.n
    * Your answer to an approval. `run(approval)` makes the approved call (not for imports, which
    * the agent sends again) and returns the reply. The agent hears the answer in its inbox.
    */
-  async function answer(id, { decision, always = false, note = "" }, run) {
+  async function answer(id, { decision, always = false, note = "", via = "dashboard", words = "" }, run) {
     if (!["allow", "deny"].includes(decision)) throw settingsError("decision is allow or deny.");
+    // Told to the agent in the chat: the person's own words are kept with the answer, and only
+    // the dashboard changes a rule for good (always).
+    const chat = via === "chat";
+    if (chat && !String(words ?? "").trim()) throw settingsError("An answer from the chat keeps the person's words: give words.");
+    if (chat) always = false;
     const text = String(note ?? "").trim().slice(0, 500);
     const approval = saved.approvals.find((entry) => entry.id === id);
     if (!approval) { const error = new Error(`No approval ${id}.`); error.status = 404; throw error; }
@@ -462,13 +467,15 @@ export async function createDashboard({ agentDirectory, agentState, now = Date.n
     approval.answeredAt = new Date(now()).toISOString();
     approval.note = text;
     approval.always = always === true;
+    approval.via = chat ? "chat" : "dashboard";
+    if (chat) approval.words = String(words).trim().slice(0, 500);
     if (always === true) {
       for (const kind of approval.kinds ?? [approval.kind]) saved.settings.approvals[kind] = decision;
       publish({ type: "settings", settings: structuredClone(saved.settings) });
     }
     await persist();
     publish({ type: "approval", projectId: approval.projectId, approval: publicApproval(approval) });
-    const yourNote = text ? ` · your note: "${text}"` : "";
+    const yourNote = (chat ? ` in the chat ("${approval.words}")` : "") + (text ? ` · your note: "${text}"` : "");
     if (approval.status === "denied") {
       await tellAgent(approval.projectId, `${approval.id} denied by the person${yourNote}: ${approval.summary}. Do not send it again; ask in a note if you need it.`);
       return publicApproval(approval);

@@ -48,8 +48,9 @@ In a shell: `kino check why="see what blocks a final render" next="fix the title
   limit is 200 MB by default, so an import asks only when the person sets it under 100 MB.
   The person can change these limits.
 - They answer at once with `{status:"awaiting_approval", id:"Q1"}`. Do not wait and do not
-  send it again: keep working. The answer arrives in your inbox (`Q1 allowed: …` or
-  `Q1 denied …`), and `render {action:"wait", job:"Q1"}` shows it (for a render, it follows
+  send it again: keep working. The person answers in kino or tells you in the chat; record a
+  chat answer with `notes {action:"answer", id:"Q1", words, read_as:"approve"}` (or `"deny"`).
+  The answer arrives in your inbox (`Q1 allowed: …` or `Q1 denied …`), and `render {action:"wait", job:"Q1"}` shows it (for a render, it follows
   the approved job). `render {action:"cancel", job:"Q1"}` withdraws a request still waiting.
 - A render request names the revision it draws (`rev`): allowing it renders that revision,
   and if you edit before the person answers it asks again. Starting the same render after an

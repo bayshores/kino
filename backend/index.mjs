@@ -370,6 +370,8 @@ const agentService = createAgentService({
     // The approval rules, with the stops' ask or allow (backend/agent/stops.mjs stopRules).
     rules: () => dashboard.settings().approvals,
     get: (id) => dashboard.approval(id),
+    // The person's answer told to the agent in the chat (notes answer with a Q id).
+    answer: (id, input) => dashboardRoutes.answerApproval(id, input),
     cancel: (id) => dashboard.cancel(id),
     takeShareLink: (id) => dashboard.takeShareLink(id),
     pending: (projectId) => dashboard.approvals(projectId).filter((entry) => entry.status === "pending"),

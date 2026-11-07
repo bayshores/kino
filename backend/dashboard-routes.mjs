@@ -682,6 +682,23 @@ export function createDashboardRoutes(deps) {
     };
   }
 
+  // Your answer to an approval, from the dashboard or told to the agent in the chat (notes
+  // answer). The approved call runs again with what you approved: its kinds, the scenes or
+  // projects a delete named, and the revision a render named (it asks again rather than delete
+  // any other, or render a revision you did not see). An agent past its budget (crew-budget):
+  // allow extends its budget, deny stops it.
+  async function answerApproval(id, input) {
+    const approval = await dashboard.answer(id, input, (entry) =>
+      entry.kind === "crew-budget" ? crewCall(() => crew.extend(entry.input?.agent))
+        : agentService.call(entry.verb, entry.input, { client: entry.client, ...(entry.agent ? { agent: entry.agent } : {}), approved: entry.kinds ?? [entry.kind], approvedTargets: entry.targets ?? {},
+          approvedId: entry.id, ...(entry.rev === undefined ? {} : { approvedRev: entry.rev }) }));
+    if (approval.kind === "crew-budget" && approval.status === "denied") {
+      const stopped = dashboard.approval(approval.id)?.input?.agent;
+      if (stopped) await crewCall(() => crew.stop(stopped, { reason: "stopped by you at its budget" })).catch(() => {});
+    }
+    return approval;
+  }
+
   async function handle(req, res, url, parts) {
     const method = req.method;
     const route = parts.slice(2).join("/");
@@ -794,22 +811,8 @@ export function createDashboardRoutes(deps) {
       return json(res, 200, await agentService.call(parts[3], input, { by: "you", client: "dashboard", reviewed: true, keepCurrent: true, quiet: quiet === true }));
     }
     if (route === "undo" && method === "POST") return json(res, 200, await undo(await body(req, 16 * 1024)));
-    if (parts[2] === "approvals" && parts.length === 4 && method === "POST") {
-      const input = await body(req, 16 * 1024);
-      // The approved call runs again with what you approved: its kinds, the scenes or projects
-      // a delete named, and the revision a render named (it asks again rather than delete any
-      // other, or render a revision you did not see).
-      // An agent past its budget (crew-budget): allow extends its budget, deny stops it.
-      const approval = await dashboard.answer(parts[3], input ?? {}, (entry) =>
-        entry.kind === "crew-budget" ? crewCall(() => crew.extend(entry.input?.agent))
-          : agentService.call(entry.verb, entry.input, { client: entry.client, ...(entry.agent ? { agent: entry.agent } : {}), approved: entry.kinds ?? [entry.kind], approvedTargets: entry.targets ?? {},
-            approvedId: entry.id, ...(entry.rev === undefined ? {} : { approvedRev: entry.rev }) }));
-      if (approval.kind === "crew-budget" && approval.status === "denied") {
-        const stopped = dashboard.approval(approval.id)?.input?.agent;
-        if (stopped) await crewCall(() => crew.stop(stopped, { reason: "stopped by you at its budget" })).catch(() => {});
-      }
-      return json(res, 200, { approval });
-    }
+    if (parts[2] === "approvals" && parts.length === 4 && method === "POST")
+      return json(res, 200, { approval: await answerApproval(parts[3], (await body(req, 16 * 1024)) ?? {}) });
     if (route === "stops" && method === "POST") return json(res, 200, await stops(await body(req, 16 * 1024)));
     // The person stops a screen recording; the agent's next record status or stop says so.
     if (route === "recording/stop" && method === "POST") {
@@ -853,5 +856,5 @@ export function createDashboardRoutes(deps) {
     throw failure(404, "This dashboard endpoint could not be found.");
   }
 
-  return { handle, agentSlice, preview };
+  return { handle, agentSlice, preview, answerApproval };
 }
