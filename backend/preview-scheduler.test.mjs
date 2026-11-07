@@ -141,3 +141,13 @@ test("a background step waits while an agent call runs and goes a moment after i
   assert.ok(Date.now() - endedAt >= 25, "it waited for quiet after the call");
   assert.deepEqual(ran[1], { background: true, args: ["-threads", "2", "-filter_threads", "2", "-i", "a.mp4"] });
 });
+
+test("an edit in another project does not take the worker away from the watched project", async (t) => {
+  const drawn = [];
+  const { scheduler, state } = await setup(t, (segment, options, cache, data) => { drawn.push(options.projectId); return store(segment, cache, data); });
+  await scheduler.list("p1", "s1", state);
+  scheduler.changed("p2");
+  await until(async () => (await scheduler.list("p1", "s1", state)).segments.every((segment) => segment.ready));
+  assert.ok(drawn.length > 0);
+  assert.deepEqual([...new Set(drawn)], ["p1"]);
+});

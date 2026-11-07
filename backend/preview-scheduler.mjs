@@ -44,6 +44,9 @@ export function createPreviewScheduler(deps) {
   const plans = new Map();
   const failed = new Set();
   let focus = null;
+  // The project the stage last asked about: an agent's edit in another project does not take
+  // the worker away from it, so segments are drawn only for what someone watches.
+  let watched = null;
   let lastBusy = 0;
   let job = null;
   let pumping = false;
@@ -96,7 +99,7 @@ export function createPreviewScheduler(deps) {
    * Returns {on, rev, fps, width, height, segments: [{index, start, end, key, ready, url?}]}.
    */
   async function list(projectId, sceneId, { revision, document }) {
-    focus = projectId;
+    focus = watched = projectId;
     if (!enabled()) return { on: false, rev: revision, segments: [] };
     const { size, segments } = await plan(projectId, revision, document, sceneId);
     later(0);
@@ -115,9 +118,9 @@ export function createPreviewScheduler(deps) {
     return (await cache.locate(key))?.path ?? null;
   }
 
-  /** A document changed: its project is the one to work on; the next pass works out new keys. */
+  /** A document changed: the next pass works out new keys (for the watched project, else this one). */
   function changed(projectId) {
-    focus = projectId;
+    focus = watched ?? projectId;
     later(idleMs);
   }
 
