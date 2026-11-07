@@ -24,9 +24,23 @@ import { createVisibilityOperation } from "./visibilityOps.js";
 import { safeRect } from "./quality/rules/layout.js";
 import { charactersOf, typeLimits } from "./quality/analysis.js";
 import { round } from "./numbers.js";
+import { contrastRatio } from "./paintInterpolation.js";
 
 const SHADOW = { color: "#00000099", x: 0, y: 4, blur: 14 };
 export const DEFAULT_ACCENT = "#FFD84D";
+// Light letters with a soft shadow suit footage and dark frames. On a light frame with no picture
+// the looks without a box take dark letters and a deep accent instead, so they pass the contrast gate.
+export const DARK_FILL = "#111111";
+export const DEEP_ACCENT = "#C2410C";
+
+/** True when the captions would sit on a light background color with no footage or picture under them. */
+export function onLightFrame(scene) {
+  if (scene.layers.some((layer) => (layer.type === "video" || layer.type === "image") && layer.visible !== false)) return false;
+  return (contrastRatio(scene.background, "#FFFFFF") ?? 21) < 3;
+}
+
+/** True for a fill light enough to need the dark shadow (white, cream, yellow). */
+export const isLightFill = (fill) => (contrastRatio(fill, "#FFFFFF") ?? 21) < 3;
 
 export const CAPTION_LOOKS = Object.freeze({
   subtitle: { about: "classic subtitle pages on a dark box", unit: "page", fontFamily: "Inter", fontWeight: 600, size: 0.044, box: "#000000B8", position: "bottom", appear: "cut" },
@@ -71,7 +85,7 @@ export function lookDefaults(scene, name) {
     fontSize: lookFontSize(scene, look),
     fontFamily: look.fontFamily,
     fontWeight: look.fontWeight,
-    ...(look.fill ? { fill: look.fill } : {}),
+    ...(look.fill ? { fill: look.fill } : !look.box && onLightFrame(scene) ? { fill: DARK_FILL } : {}),
     box: look.box ?? false,
     position: look.position === "lower" ? "bottom" : look.position,
     ...(look.appear ? { appear: look.appear } : {}),
@@ -146,7 +160,7 @@ function wordLayer(text, { fontSize, style, fill, fonts }) {
     text, fontFamily: style.fontFamily, fontSize, fontWeight: style.fontWeight, fill,
     lineHeight: 1.15, textAlign: "center", textResize: "width-height", role: "caption",
     textCase: style.upper ? "upper" : "normal",
-    ...(style.box === false ? { shadow: { ...SHADOW, blur: Math.round(fontSize * 0.14), y: Math.round(fontSize * 0.04) } } : {}),
+    ...(style.box === false && isLightFill(fill) ? { shadow: { ...SHADOW, blur: Math.round(fontSize * 0.14), y: Math.round(fontSize * 0.04) } } : {}),
   });
   const { width, height } = layoutText(layer, fonts);
   return { ...layer, width, height };
@@ -223,9 +237,9 @@ function hookLayer(text, { scene, style, fonts, name, parentId, start, end, redu
   for (let fits = false; !fits;) {
     if (layer) fontSize = Math.round(fontSize * 0.9);
     if (fontSize < floor) return null;
-    layer = createLayer("text", { name: `${name}-hook`, parentId, text, fontFamily: style.fontFamily, fontSize, fontWeight: style.fontWeight, fill: "#FFFFFF",
+    layer = createLayer("text", { name: `${name}-hook`, parentId, text, fontFamily: style.fontFamily, fontSize, fontWeight: style.fontWeight, fill: onLightFrame(scene) ? DARK_FILL : "#FFFFFF",
       lineHeight: 1.05, textAlign: "center", textResize: "height", width: Math.round(room), role: "headline", textCase: style.upper ? "upper" : "normal", letterSpacing: -1,
-      shadow: { ...SHADOW, blur: Math.round(fontSize * 0.16) } });
+      ...(onLightFrame(scene) ? {} : { shadow: { ...SHADOW, blur: Math.round(fontSize * 0.16) } }) });
     const laid = layoutText(layer, fonts);
     layer.height = Math.ceil(laid.height);
     fits = laid.lines.length <= 3;
@@ -234,7 +248,7 @@ function hookLayer(text, { scene, style, fonts, name, parentId, start, end, redu
   layer.y = Math.round(Math.max(safe.y0, scene.height * 0.3 - layer.height / 2));
   layer.animations = [
     ...(start > 0 ? [createVisibilityOperation("show", start, uid())] : []),
-    ...(reduced ? [fadeIn(start, 0.2)] : [fadeIn(start, 0.25, { from: { y: layer.y + Math.round(fontSize * 0.3) }, to: { y: layer.y } })]),
+    ...(reduced ? [fadeIn(start, 0.2)] : [fadeIn(start, 0.5, { from: { y: layer.y + Math.round(fontSize * 0.3) }, to: { y: layer.y } })]),
     ...(end < scene.duration ? [createVisibilityOperation("hide", end, uid())] : []),
   ];
   return layer;
@@ -246,7 +260,7 @@ function hookLayer(text, { scene, style, fonts, name, parentId, start, end, redu
  */
 export function phraseCaptions(words, { scene, style, fonts, fps, name, parentId, bounds, operation }) {
   const look = CAPTION_LOOKS[operation.look];
-  const accent = operation.accent ?? DEFAULT_ACCENT;
+  const accent = operation.accent ?? (style.box === false && !isLightFill(style.fill) ? DEEP_ACCENT : DEFAULT_ACCENT);
   if (typeof accent !== "string" || !/^#[0-9a-f]{6}$/i.test(accent)) fail("accent must be a hex color such as #FFD84D.");
   if (operation.keywords !== undefined && !(Array.isArray(operation.keywords) && operation.keywords.every((word) => typeof word === "string")))
     fail("keywords must be a list of words.");

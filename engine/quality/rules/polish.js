@@ -968,7 +968,10 @@ export async function textOnBusy(model, ctx) {
       rule: "text_on_busy", severity: "warn", itemId: item.id, otherId: inset?.id, ...spanOf(model, run), bbox: roundBox(boxAt(item, index)),
       measured: `${percent(share)} edge pixels behind it${inset ? ` where it crosses ${ctx.name(inset)}` : ""}`, required: `under ${percent(limit)}`,
       message: `${ctx.name(item)} sits over ${inset ? `${ctx.name(inset)} (its frame and screen detail)` : "busy detail"} at ${sec(model.times[index])}s; the words fight the picture.`,
-      fix: (await calmFix(model, item, texts, { hide, ctx })) ?? hint,
+      // A caption word moved alone leaves its phrase: the captions take a plate as a whole.
+      fix: item.role === "caption" && !item.move
+        ? { kind: "hint", text: "Run add_captions again with box:\"#000000B8\" (a plate behind every caption), or position:\"top\" if the top is calm." }
+        : (await calmFix(model, item, texts, { hide, ctx })) ?? hint,
     });
   }
   return findings;
