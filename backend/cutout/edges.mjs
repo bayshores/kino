@@ -7,13 +7,17 @@
 //   plate   For a shot whose camera holds still, the empty background: per pixel, the median of
 //           sampled frames where the matte says no subject is there (createPlateBuilder). Shots
 //           where those pixels move (a pan, handheld shake) get no plate.
-//   refine  Near the edge only (a band a few percent of the frame wide): where a pixel matches
-//           the plate it is background, so its matte is lowered (never raised); then every edge
-//           pixel left partly see-through takes the colour of the solid subject next to it, so no
-//           background colour is mixed into the edge (createEdgeRefiner).
+//   refine  Near the edge (a band a few percent of the frame wide) a pixel that matches the plate
+//           is background, so its matte is lowered (never raised: raising Vision's soft edge
+//           keeps the wall in it); deeper inside, only a pixel that is the plate itself (the wall
+//           between blurred strands of hair). Then every edge pixel left partly see-through
+//           takes the color of the solid subject next to it, so no background color is mixed
+//           into the edge (createEdgeRefiner). A frame where Vision lost the subject is given a
+//           neighbor's matte as a gate (cutout.mjs): with a plate, the subject is keyed against
+//           it inside and around the gate; without one, the gate is used as it is.
 //
 // Frames are planar YUV 4:4:4 (one byte a sample: Y plane, U plane, V plane), the video's own
-// colour numbers, so the cut-out keeps matching the footage under it exactly where it is solid.
+// color numbers, so the cut-out keeps matching the footage under it exactly where it is solid.
 // Plain JavaScript, tested on every computer.
 
 const INFINITE = 1e20;
@@ -23,6 +27,15 @@ export const BAND_SHARE = 0.02;
 // A sample of a pixel this close to the plate (on every plane) is background; this far, subject.
 export const PLATE_NEAR = 10;
 export const PLATE_FAR = 28;
+// Outside the matte, a pixel this far from the plate is added (a part Vision missed); a darker
+// pixel counts SHADOW of its darkening, so a shadow on the wall is not added.
+export const ADD_NEAR = 24;
+export const ADD_FAR = 48;
+const SHADOW = 0.4;
+// Deep inside the matte (past the band) only a pixel this close to the plate is background: the
+// wall between motion-blurred strands of hair. A pale subject on a pale wall is farther than this.
+export const DEEP_NEAR = 6;
+export const DEEP_FAR = 16;
 // A matte value below this counts as "no subject here" when the plate is sampled.
 const PLATE_EMPTY = 24;
 // The plate holds when 90% of its known pixels vary by at most this much between samples.
@@ -128,10 +141,10 @@ export function createEdgeRefiner({ width, height, plate = null, band = Math.max
   const plateX = plate ? Int32Array.from({ length: width }, (_, x) => Math.min(plate.width - 1, Math.floor(((x + 0.5) * plate.width) / width))) : null;
   const plateY = plate ? Int32Array.from({ length: height }, (_, y) => Math.min(plate.height - 1, Math.floor(((y + 0.5) * plate.height) / height))) : null;
   const plateSize = plate ? plate.width * plate.height : 0;
-  // The solid subject's colour around each edge pixel: box sums over `reach`, from summed-area tables.
+  // The solid subject's color around each edge pixel: box sums over `reach`, from summed-area tables.
   const reach = Math.max(2, Math.round(band / 4));
   // Work space for the largest box, made once: a clip has hundreds of frames.
-  const toOutsideAll = new Float64Array(size);
+  const toOutsideAll = new Float64Array(size), toInsideAll = new Float64Array(size);
   const tables = Array.from({ length: 4 }, () => new Float64Array((width + 1) * (height + 1)));
 
   function bounds(matte) {
@@ -149,33 +162,66 @@ export function createEdgeRefiner({ width, height, plate = null, band = Math.max
     return { x0: Math.max(0, x0 - band - 1), y0: Math.max(0, y0 - band - 1), x1: Math.min(width - 1, x1 + band + 1), y1: Math.min(height - 1, y1 + band + 1) };
   }
 
-  function refine(yuv, matte) {
-    const box = bounds(matte);
+  /**
+   * Cleans one frame. `gate` (a matte of a frame next to this one) stands in when Vision found
+   * no subject in this frame: the subject is keyed against the plate inside it, and without a
+   * plate the gate itself is used.
+   */
+  function refine(yuv, matte, { gate = null } = {}) {
+    if (gate && !plate) { matte.set(gate); }
+    const guide = gate && plate ? gate : matte;
+    const box = bounds(guide);
     if (!box) return { yuv, matte };
     const { x0, y0, x1, y1 } = box;
     const w = x1 - x0 + 1, h = y1 - y0 + 1;
-    // Distance (inside the subject) to the nearest pixel outside it: the band is where it is small.
-    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) seeds[y * width + x] = matte[y * width + x] < 128 ? 1 : 0;
-    const toOutside = toOutsideAll.subarray(0, w * h);
+    // Distances to the guide's edge: inside it to the nearest pixel outside, and outside it to
+    // the nearest pixel inside. The band is where either is small.
+    const toOutside = toOutsideAll.subarray(0, w * h), toInside = toInsideAll.subarray(0, w * h);
+    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) seeds[y * width + x] = guide[y * width + x] < 128 ? 1 : 0;
     boxDistance(seeds, width, x0, y0, x1, y1, toOutside, scratch);
+    if (plate) {
+      for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) seeds[y * width + x] = guide[y * width + x] >= 128 ? 1 : 0;
+      boxDistance(seeds, width, x0, y0, x1, y1, toInside, scratch);
+    }
     const limit = band * band;
-    // 1. Where the plate shows through the edge, the matte drops (only near the edge).
+    // 1. Where the plate shows through, the matte drops: near the edge where a pixel is close to
+    // the plate, and deep inside only where it is the plate itself. For a stand-in gate the plate
+    // decides all through it, and a part far from the plate around it is added.
     if (plate) {
       for (let y = 0; y < h; y += 1) {
         const py = plateY[y0 + y] * plate.width;
         for (let x = 0; x < w; x += 1) {
+          const at = y * w + x;
           const i = (y0 + y) * width + x0 + x;
-          if (!matte[i] || toOutside[y * w + x] > limit) continue;
+          const inside = guide[i] >= 128;
+          // A stand-in gate is keyed all through; a matte of this frame near its edge, and deep
+          // inside only where a pixel is the plate itself.
+          const deep = !gate && (inside ? toOutside[at] : toInside[at]) > limit;
+          if (deep && !inside) continue;
           const p = py + plateX[x0 + x];
-          if (!plate.known[p]) continue;
-          const gap = Math.max(Math.abs(yuv[i] - plate.plate[p]), Math.abs(yuv[size + i] - plate.plate[plateSize + p]), Math.abs(yuv[2 * size + i] - plate.plate[2 * plateSize + p]));
-          if (gap >= PLATE_FAR) continue;
-          const keep = gap <= PLATE_NEAR ? 0 : (gap - PLATE_NEAR) / (PLATE_FAR - PLATE_NEAR);
-          matte[i] = Math.round(matte[i] * keep);
+          if (!plate.known[p]) { if (gate) matte[i] = guide[i]; continue; }
+          const dy = yuv[i] - plate.plate[p];
+          const chroma = Math.max(Math.abs(yuv[size + i] - plate.plate[plateSize + p]), Math.abs(yuv[2 * size + i] - plate.plate[2 * plateSize + p]));
+          if (deep) {
+            const gap = Math.max(Math.abs(dy), chroma);
+            if (gap < DEEP_FAR) matte[i] = Math.min(matte[i], gap <= DEEP_NEAR ? 0 : Math.round((255 * (gap - DEEP_NEAR)) / (DEEP_FAR - DEEP_NEAR)));
+          } else if (inside || !gate) {
+            // A frame's own matte only drops here, its soft rim outside the edge too: raising
+            // Vision's soft edge to solid would keep the wall mixed into it, a bright outline
+            // over a darker background.
+            if (!gate && !matte[i]) continue;
+            const gap = Math.max(Math.abs(dy), chroma);
+            const key = gap >= PLATE_FAR ? 255 : gap <= PLATE_NEAR ? 0 : Math.round((255 * (gap - PLATE_NEAR)) / (PLATE_FAR - PLATE_NEAR));
+            matte[i] = gate ? key : Math.min(matte[i], key);
+          } else {
+            // Around a stand-in gate, a part far from the plate is added (not a shadow).
+            const gap = Math.max(chroma * 2, dy < 0 ? -dy * SHADOW : dy);
+            matte[i] = gap >= ADD_FAR ? 255 : gap <= ADD_NEAR ? 0 : Math.round((255 * (gap - ADD_NEAR)) / (ADD_FAR - ADD_NEAR));
+          }
         }
       }
     }
-    // 2. Partly see-through edge pixels take the solid subject's colour next to them.
+    // 2. Partly see-through edge pixels take the solid subject's color next to them.
     const tw = w + 1;
     const sums = tables;
     for (const table of sums) table.fill(0, 0, tw);
@@ -195,7 +241,7 @@ export function createEdgeRefiner({ width, height, plate = null, band = Math.max
         const i = (y0 + y) * width + x0 + x;
         const a = matte[i];
         if (!a || a >= SOLID) continue;
-        // The nearest solid colour: a small box first, a box twice as wide when it holds none.
+        // The nearest solid color: a small box first, a box twice as wide when it holds none.
         for (const r of [reach, reach * 2, reach * 4]) {
           const ax = Math.max(0, x - r), ay = Math.max(0, y - r), bx = Math.min(w - 1, x + r), by = Math.min(h - 1, y + r);
           const count = boxSum(sums[0], ax, ay, bx, by);

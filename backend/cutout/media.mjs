@@ -28,7 +28,7 @@ import { cutoutEngines, cutoutError, findMatte, makeMatte, writeCutoutOutput } f
 
 // Bump when an output made from the same matte and settings would change (subject 2: a clip's
 // edge is cleaned of its background, cutout/edges.mjs).
-const OUTPUT_FORMAT = { subject: 2, matte: 1, silhouette: 1 };
+const OUTPUT_FORMAT = { subject: 3, matte: 1, silhouette: 1 };
 
 /**
  * Makes library media from subject mattes. Options:

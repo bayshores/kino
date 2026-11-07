@@ -1,6 +1,6 @@
 // The cut-out's edge clean-up (cutout/edges.mjs) on small synthetic frames: a steady shot's empty
 // background (the plate) is found and a moving one is not; near the edge, pixels that match the
-// plate leave the matte, and see-through edge pixels take the subject's colour.
+// plate leave the matte, and see-through edge pixels take the subject's color.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEdgeRefiner, createPlateBuilder } from "./cutout/edges.mjs";
@@ -43,7 +43,7 @@ test("a still shot's empty background is found from the frames the subject leave
   assert.equal(pan.finish().steady, false);
 });
 
-test("near the edge, wall pixels inside a generous matte leave it; see-through edge pixels take the subject's colour", () => {
+test("near the edge, wall pixels inside a generous matte leave it; see-through edge pixels take the subject's color", () => {
   const plateFrames = createPlateBuilder({ width: W, height: H });
   for (let n = 0; n < 8; n += 1) {
     const { yuv, matte } = frame({ bg: wall, at: [4 + n * 6, 14] });
@@ -61,7 +61,7 @@ test("near the edge, wall pixels inside a generous matte leave it; see-through e
   assert.equal(matte[12 * W + 22], 0, "a wall pixel inside the generous matte");
   assert.equal(matte[20 * W + 30], 255, "the subject's middle");
   assert.equal(matte[14 * W + 24], 255, "the subject's own corner");
-  // Without a plate, a see-through edge pixel takes the solid subject's colour, not the wall's.
+  // Without a plate, a see-through edge pixel takes the solid subject's color, not the wall's.
   const plain = frame({ bg: wall, at: [24, 14] });
   const soft = Uint8Array.from(plain.matte);
   for (let x = 24; x < 40; x += 1) soft[13 * W + x] = 128;
@@ -69,6 +69,35 @@ test("near the edge, wall pixels inside a generous matte leave it; see-through e
   const i = 13 * W + 30;
   assert.equal(soft[i], 128, "no plate: the matte is left as it is");
   assert.deepEqual([plain.yuv[i], plain.yuv[SIZE + i], plain.yuv[2 * SIZE + i]], [60, 90, 170]);
-  // A solid pixel is never recoloured.
+  // A solid pixel is never recolored.
   assert.deepEqual([plain.yuv[20 * W + 30], plain.yuv[SIZE + 20 * W + 30]], [60, 90]);
+});
+
+test("the wall deep inside a matte leaves it, a pale subject stays; a frame Vision lost is keyed inside a neighbor's gate", () => {
+  const plateFrames = createPlateBuilder({ width: W, height: H });
+  for (let n = 0; n < 8; n += 1) {
+    const { yuv, matte } = frame({ bg: wall, at: [4 + n * 6, 14] });
+    plateFrames.add(yuv, matte);
+  }
+  const plate = plateFrames.finish();
+  const refiner = createEdgeRefiner({ width: W, height: H, plate, band: 3 });
+  // A pale subject (24 px) only a little darker than the wall, with a hole of bare wall in it.
+  const pale = [160, 128, 126];
+  const { yuv, matte } = frame({ bg: wall, fg: pale, at: [20, 12], side: 24 });
+  for (let y = 22; y < 26; y += 1) for (let x = 30; x < 34; x += 1) {
+    const i = y * W + x; const [a, b, c] = wall(x, y);
+    yuv[i] = a; yuv[SIZE + i] = b; yuv[2 * SIZE + i] = c;
+  }
+  refiner.refine(yuv, matte);
+  assert.equal(matte[23 * W + 31], 0, "the bare wall deep inside");
+  assert.equal(matte[16 * W + 26], 255, "the pale subject deep inside");
+  // Vision lost the subject: the gate (the frame before) is where to look; the plate decides.
+  const lost = frame({ bg: wall, at: [26, 14] });
+  const empty = new Uint8Array(SIZE);
+  const gate = frame({ bg: wall, at: [24, 14] }).matte;
+  refiner.refine(lost.yuv, empty, { gate });
+  assert.equal(empty[20 * W + 32], 255, "the subject inside the gate");
+  assert.equal(empty[20 * W + 41], 255, "the subject just past the gate's edge is added");
+  assert.equal(empty[20 * W + 25], 0, "the wall inside the gate is not subject");
+  assert.equal(empty[40 * W + 5], 0, "far from the gate nothing is added");
 });

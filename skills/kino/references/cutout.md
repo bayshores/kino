@@ -19,7 +19,10 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   (0 to 200) softens its edge.
 - A clip's `subject` edge is cleaned: on a shot whose camera holds still, background the matte
   kept near the edge (a motion-blurred hand over a wall) is dropped, and edge pixels take the
-  subject's own colour, so no halo shows over a new or darker background.
+  subject's own color, so no halo shows over a new or darker background. A frame where Vision
+  lost the subject takes the nearest good frame's shape, keyed against the empty wall.
+- Keep the `"subject"` engine for a silhouette or a dark figure: `"person"` can leave the body
+  half see-through (gray over a white title behind it).
 - `engine:"auto"` (default) is `"subject"` (any subject, macOS 14+) or `"person"` (people only,
   macOS 13). Other systems have no engine: the edit is refused (`CUTOUT_ENGINE_UNAVAILABLE`), so
   mask with a shape there. On a Mac without the helper, `npm run desktop:cutout` builds it.

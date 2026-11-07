@@ -668,6 +668,11 @@ async function pairFrames({ a, aSize, b, bSize, children, signal, onPair }) {
  * take the subject's colour, so no background halo is left). Frames stay YUV 4:4:4, the video's
  * own colour numbers, so the solid subject matches the footage under it exactly.
  */
+// A matte this much smaller than the last good one is a frame where Vision lost the subject.
+const LOST_SHARE = 0.35;
+// How many lost frames wait for the next good one (each is a full frame in memory).
+const HOLD = 12;
+
 async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, target, signal, onFraction }) {
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
@@ -698,24 +703,50 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   const refiner = createEdgeRefiner({ width, height, plate: plate.steady ? plate : null });
   const pixels = width * height;
   const full = picture(""), mattes = matte("");
-  const out = Buffer.allocUnsafe(pixels * 4);
+  const area = (mask) => { let sum = 0; for (let i = 0; i < mask.length; i += 1) sum += mask[i]; return sum / 255; };
+  // A frame where Vision lost the subject (a matte under LOST_SHARE of the last good one) waits,
+  // up to HOLD frames, for the next good frame; then each takes the nearer good matte as its gate.
+  let last = null;
+  const waiting = [];
   let done = 0;
+  let ok = true;
+  const write = (yuv, mask) => {
+    const out = Buffer.allocUnsafe(pixels * 4);
+    out.set(yuv, 0);
+    out.set(mask, pixels * 3);
+    done += 1;
+    onFraction?.(Math.min(1, done / info.frames));
+    ok = encode.stdin.write(out) && ok;
+  };
+  const release = (next) => {
+    while (waiting.length) {
+      const held = waiting.shift();
+      const gate = !last ? next?.mask : !next ? last.mask : held.index - last.index <= next.index - held.index ? last.mask : next.mask;
+      refiner.refine(held.yuv, held.mask, gate ? { gate } : {});
+      write(held.yuv, held.mask);
+    }
+  };
   await pairFrames({ a: full, aSize: pixels * 3, b: mattes, bSize: info.width * info.height, children: [full, mattes, encode], signal,
-    onPair: (yuv, raw, _index, resume) => {
-      if (done >= info.frames) return true;
+    onPair: (yuv, raw, index, resume) => {
+      if (index >= info.frames) return true;
       let mask = finishMatte(raw, info.width, info.height, { grow: growBy, feather: featherBy });
       if (info.width !== width || info.height !== height) mask = scaleMatte(mask, info.width, info.height, width, height);
       else if (mask === raw) mask = Uint8Array.from(raw);
-      refiner.refine(yuv, mask);
-      out.set(yuv, 0);
-      out.set(mask, pixels * 3);
-      done += 1;
-      onFraction?.(Math.min(1, done / info.frames));
-      const ok = encode.stdin.write(Buffer.from(out));
-      if (done === info.frames) encode.stdin.end();
-      if (!ok) { encode.stdin.once("drain", resume); return false; }
+      const size = area(mask);
+      if (last && size < last.area * LOST_SHARE || !last && size < pixels * 0.002) {
+        waiting.push({ yuv, mask, index });
+        if (waiting.length > HOLD) { const oldest = waiting.shift(); refiner.refine(oldest.yuv, oldest.mask, last ? { gate: last.mask } : {}); write(oldest.yuv, oldest.mask); }
+      } else {
+        const good = { mask: Uint8Array.from(mask), area: size, index };
+        release(good);
+        refiner.refine(yuv, mask);
+        write(yuv, mask);
+        last = good;
+      }
+      if (index === info.frames - 1) { release(null); encode.stdin.end(); }
+      if (!ok) { ok = true; encode.stdin.once("drain", resume); return false; }
       return true;
-    } }).finally(() => { if (!encode.stdin.writableEnded) encode.stdin.end(); });
+    } }).finally(() => { if (waiting.length && !encode.stdin.writableEnded) release(null); if (!encode.stdin.writableEnded) encode.stdin.end(); });
   onFraction?.(1);
   return { extension: "webm", mime: "video/webm" };
 }
