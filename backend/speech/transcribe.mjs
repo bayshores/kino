@@ -46,6 +46,26 @@ const SNAP_BEFORE = 0.15;
 const SNAP_AFTER = 0.1;
 // Asks whisper to write down fillers and repeats instead of tidying them away.
 const VERBATIM_PROMPT = "Um, uh, I I mean, like, we we went there.";
+// A sound shorter than this holds no words worth a transcript (a click or a swish): it gets an
+// empty one without running whisper, which also fails on clips this short.
+export const MIN_SPEECH_SECONDS = 0.5;
+// whisper.cpp reads a clip shorter than a second badly: each chunk is padded with silence to this.
+const MIN_CHUNK_SECONDS = 1;
+// At most this many whisper-cli runs at once in this process (each uses 4 threads and up to 1 GB),
+// so many files transcribed together queue instead of loading the computer.
+const MAX_WHISPER_RUNS = 2;
+// How long a file whisper failed on waits before it is tried again (createTranscriptCache).
+const FAILED_RETRY_MS = 10 * 60_000;
+let whisperRuns = 0;
+const whisperQueue = [];
+async function whisperSlot(work) {
+  if (whisperRuns >= MAX_WHISPER_RUNS) await new Promise((resolve) => whisperQueue.push(resolve));
+  whisperRuns += 1;
+  try { return await work(); } finally {
+    whisperRuns -= 1;
+    whisperQueue.shift()?.();
+  }
+}
 
 /**
  * whisper's prompt: the verbatim one, then the project's names. Names after it work better than
@@ -242,7 +262,11 @@ function pcm16Wav(samples) {
   return buffer;
 }
 
-function run(command, args, { timeoutMs }) {
+function run(command, args, options) {
+  return whisperSlot(() => runNow(command, args, options));
+}
+
+function runNow(command, args, { timeoutMs }) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { shell: false, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
@@ -548,7 +572,14 @@ export function betterReadings(heard, sentences, readings) {
   return { heard: words, reheard };
 }
 
-const clipOf = (samples, part) => pcm16Wav(samples.subarray(Math.floor(part.start * SAMPLE_RATE), Math.ceil(part.end * SAMPLE_RATE)));
+function clipOf(samples, part) {
+  const clip = samples.subarray(Math.floor(part.start * SAMPLE_RATE), Math.ceil(part.end * SAMPLE_RATE));
+  const least = MIN_CHUNK_SECONDS * SAMPLE_RATE;
+  if (clip.length >= least) return pcm16Wav(clip);
+  const padded = new Float32Array(least);
+  padded.set(clip);
+  return pcm16Wav(padded);
+}
 
 /**
  * Transcribes one file: {version, model, duration, words: [{text, start, end, p, cut, unclear?, heard?}],
@@ -560,6 +591,7 @@ export async function transcribeFile(filename, setup, { decode = decodeMono, deb
   const { samples } = await decode(filename, { sampleRate: SAMPLE_RATE });
   if (!samples.length) throw new Error("The file has no sound.");
   const duration = samples.length / SAMPLE_RATE;
+  if (duration < MIN_SPEECH_SECONDS) return { version: TRANSCRIPT_VERSION, model: setup.modelName, duration: round(duration), words: [], tail: round(duration), short: true, ...(names.length ? { names } : {}) };
   const db = energyFrames(samples);
   const level = silenceLevel(db);
   const quiet = silences(db, level, 0.1);
@@ -627,8 +659,11 @@ export function sidecarPath(filename, modelName, names = []) {
  * Transcribes each file once per model and names, and keeps the result beside it. get and saved
  * take {names}: the project's names for whisper's prompt (backend/speech/name-hint.mjs).
  */
-export function createTranscriptCache({ setup = () => whisperSetup(), transcribe = transcribeFile } = {}) {
+export function createTranscriptCache({ setup = () => whisperSetup(), transcribe = transcribeFile, now = () => Date.now() } = {}) {
   const pending = new Map();
+  // A file whisper failed on is not tried again for a while: checks ask for the same transcripts
+  // over and over, and each failed try costs a whisper run. A missing tool is not remembered.
+  const failed = new Map();
   async function readOrMake(filename, found, names) {
     const sidecar = sidecarPath(filename, found.modelName, names);
     try {
@@ -649,7 +684,13 @@ export function createTranscriptCache({ setup = () => whisperSetup(), transcribe
   async function get(filename, { names = [] } = {}) {
     const found = setup();
     const key = sidecarPath(filename, found.modelName, names);
-    if (!pending.has(key)) pending.set(key, readOrMake(filename, found, names).finally(() => pending.delete(key)));
+    const failure = failed.get(key);
+    if (failure && now() - failure.at < FAILED_RETRY_MS) throw failure.error;
+    if (!pending.has(key)) pending.set(key, readOrMake(filename, found, names).catch((error) => {
+      if (error?.code !== "SPEECH_TOOL_MISSING") failed.set(key, { error, at: now() });
+      if (failed.size > 512) failed.delete(failed.keys().next().value);
+      throw error;
+    }).finally(() => pending.delete(key)));
     return pending.get(key);
   }
   /**

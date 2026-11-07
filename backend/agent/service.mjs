@@ -107,7 +107,7 @@ import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
 import { describeLevels } from "../audio-levels.mjs";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
-import { createBeatAnalysisCache, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
+import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
 import { createSongShapeCache } from "../song-shape.mjs";
 import { createAudioPeaksCache } from "../audio-peaks.mjs";
 import { createLoudnessCurves } from "../loudness-curve.mjs";
@@ -115,7 +115,7 @@ import { captionEvents, writeCaptionFiles } from "./caption-export.mjs";
 import { cueListText, isCueTarget } from "./cue-list.mjs";
 import { cutListText, cutTargetFrom, isCutTarget } from "./cut-list.mjs";
 import { soundLevels } from "../../engine/quality/loudness.js";
-import { createTranscriptCache } from "../speech/transcribe.mjs";
+import { createTranscriptCache, TRANSCRIPT_VERSION } from "../speech/transcribe.mjs";
 import { projectNames, speechNamesFor } from "../speech/name-hint.mjs";
 import { createSyncEnvelopeCache } from "../clip-sync.mjs";
 import { currentLag, matchEnvelopes, SYNC_FALLBACK, syncLayers } from "../../engine/clipSync.js";
@@ -417,11 +417,14 @@ export function createAgentService(deps) {
     const brief = (await agentState.read(document.id).catch(() => null))?.brief ?? null;
     return speechNamesFor(document, brief, layer.src);
   }
+  // A sound effect's transcript is empty, without running whisper (isSoundEffect).
+  const effectTranscript = () => ({ version: TRANSCRIPT_VERSION, words: [], effect: true, cached: true });
   const transcripts = {
     /** The transcript of `file` (the sound `layer` of `document` plays), made when there is none. */
-    get: async (file, document, layer) => transcriptCache.get(file, { names: (await namesOf(document, layer)).names }),
+    get: async (file, document, layer) => (await isSoundEffect(file)) ? effectTranscript() : transcriptCache.get(file, { names: (await namesOf(document, layer)).names }),
     /** The saved one, or null: never transcribes. */
     saved: transcriptCache.saved ? async (file, document, layer) => {
+      if (await isSoundEffect(file)) return effectTranscript();
       const { names, pinned } = await namesOf(document, layer);
       return transcriptCache.saved(file, { names, exact: pinned });
     } : undefined,
@@ -1453,6 +1456,7 @@ export function createAgentService(deps) {
 
   // A song (a file kino found a steady beat in: a tempo it is sure of) is music, not speech.
   async function isMusicFile(file) {
+    if (await isSoundEffect(file)) return false;
     try { return steadyBeat(JSON.parse(await readFile(`${file}.beats`, "utf8"))); } catch { return false; }
   }
 

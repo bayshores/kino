@@ -65,6 +65,14 @@ const SONG_CONFIDENCE = 0.65;
 export const steadyBeat = (beats) => Number(beats?.bpm) > 0 && Number(beats?.confidence ?? 1) >= SONG_CONFIDENCE;
 
 /**
+ * Whether `file` is a sound effect from kino's sound library (its media record's credit is
+ * sfx:<id>): no words to transcribe and not a song, even when it repeats steadily (typing).
+ */
+export async function isSoundEffect(file) {
+  try { return /^sfx:/.test(JSON.parse(await readFile(`${file}.json`, "utf8"))?.credit?.id ?? ""); } catch { return false; }
+}
+
+/**
  * Whether the sound of `layer` (playing `file`) is music, so it is never transcribed: its name says
  * so, or its saved .beats has a steady beat. With `listen` (a full check), an audio layer with no
  * .beats yet is analyzed once by `beats` (a createBeatAnalysisCache: a few seconds, kept for
@@ -72,6 +80,7 @@ export const steadyBeat = (beats) => Number(beats?.bpm) > 0 && Number(beats?.con
  */
 export async function soundIsMusic(layer, file, { listen = false, beats = null } = {}) {
   if (MUSIC_NAME.test(String(layer?.name ?? ""))) return true;
+  if (await isSoundEffect(file)) return false;
   try { return steadyBeat(JSON.parse(await readFile(`${file}.beats`, "utf8"))); } catch { /* not analyzed yet */ }
   if (!listen || !beats || layer?.type !== "audio" || existsSync(`${file}.beats`)) return false;
   try { return steadyBeat(await beats.get(file)); } catch { return false; }

@@ -82,6 +82,39 @@ test("the transcript is made once per file, model and names, and kept beside the
   }
 });
 
+test("a failed transcript is not tried again for ten minutes; a missing whisper-cli is tried every time", async () => {
+  let clock = 0;
+  let runs = 0;
+  let missing = false;
+  const cache = createTranscriptCache({
+    setup: () => ({ command: "whisper-cli", model: "m", modelName: "small.en" }), now: () => clock,
+    transcribe: async () => {
+      runs += 1;
+      const error = new Error(missing ? "whisper-cli was not found" : "whisper-cli failed: read_audio_data");
+      if (missing) error.code = "SPEECH_TOOL_MISSING";
+      throw error;
+    },
+  });
+  await assert.rejects(cache.get("/nowhere/swish.wav"), /read_audio_data/);
+  await assert.rejects(cache.get("/nowhere/swish.wav"), /read_audio_data/);
+  assert.equal(runs, 1, "the second ask answers the remembered failure");
+  clock = 10 * 60_000 + 1;
+  await assert.rejects(cache.get("/nowhere/swish.wav"), /read_audio_data/);
+  assert.equal(runs, 2, "after ten minutes it is tried again");
+  missing = true;
+  await assert.rejects(cache.get("/nowhere/voice.wav"), /not found/);
+  await assert.rejects(cache.get("/nowhere/voice.wav"), /not found/);
+  assert.equal(runs, 4, "a missing tool may be installed any moment");
+});
+
+test("a sound shorter than half a second gets an empty transcript without running whisper-cli", async () => {
+  const setup = { command: "/nowhere/whisper-cli", model: "m", modelName: "small.en" };
+  const transcript = await transcribeFile("swish.wav", setup, { decode: async () => ({ samples: new Float32Array(16_000 * 0.15).fill(0.5) }) });
+  assert.deepEqual(transcript.words, []);
+  assert.equal(transcript.short, true);
+  assert.equal(transcript.version, TRANSCRIPT_VERSION);
+});
+
 test("a cut voice keeps reading the transcript its cuts were made on when the brief's names change", async () => {
   const folder = await mkdtemp(path.join(tmpdir(), "kino-speech-pin-"));
   try {

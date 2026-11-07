@@ -6,7 +6,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
-import { analyzeAudioFile, createBeatAnalysisCache, soundIsMusic } from "./audio-analysis.mjs";
+import { analyzeAudioFile, createBeatAnalysisCache, isSoundEffect, soundIsMusic } from "./audio-analysis.mjs";
 import { ffmpeg, makeVideo, run, skipWithoutMediaTools } from "./media.test.support.mjs";
 
 const FIRST_CLICK = 0.437;
@@ -142,6 +142,13 @@ test("music is never sent to whisper: a layer named music, or one with a steady 
     analyzed.length = 0;
     assert.equal(await soundIsMusic({ type: "audio", name: "vo" }, voice, { listen: true, beats: beats(null) }), true);
     assert.deepEqual(analyzed, []);
+    // A sound effect from kino's library (typing repeats steadily) is not a song, even with a beat.
+    const typing = path.join(folder, "typing-fast.wav");
+    await writeFile(`${typing}.json`, JSON.stringify({ name: "typing-fast.wav", credit: { source: "kino library", id: "sfx:typing-fast" } }));
+    await writeFile(`${typing}.beats`, JSON.stringify({ bpm: 140, confidence: 0.9 }));
+    assert.equal(await isSoundEffect(typing), true);
+    assert.equal(await isSoundEffect(voice), false);
+    assert.equal(await soundIsMusic({ type: "audio", name: "typing" }, typing, { listen: true, beats: beats({ bpm: 140, confidence: 0.9 }) }), false);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
