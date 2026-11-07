@@ -64,6 +64,10 @@ test("project create opens the new project; a taken or malformed ID is refused",
   assert.match(status.text, /^Alpha \(alpha\) rev 1 · 1 scene · 0 layers · 0 anims$/m);
   assert.deepEqual(status.data, { project: "alpha", rev: 1, focus: "s1" });
 
+  // A project's name works like its ID when one project has it.
+  assert.equal((await agent("status", { project: "Listed" })).data.project, "listed");
+  assert.equal((await agent("status", { project: "Nope" })).data.error, "unknown_project");
+
   // Reading another project (inspect, look, status) leaves alpha open, so the next call without project still means alpha.
   for (const [verb, body] of [["inspect", { targets: ["text"] }], ["status", {}]]) assert.notEqual((await agent(verb, { ...body, project: "listed" })).isError, true);
   assert.equal((await agent("status")).data.project, "alpha");

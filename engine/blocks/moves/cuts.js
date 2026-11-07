@@ -25,8 +25,10 @@ function colorOf(name, value, fallback) {
 
 /** `to` shows at `at` (a 0.04 s appear, so a clip starts there too); `from` hides a frame later. */
 function cutAt(ctx, from, to, at) {
-  startClips(ctx, to.id, at - 0.02);
-  ctx.animate(to.id, "in", motion({ name: "Appear", kind: "in", start: Math.max(0, at - 0.02), duration: 0.04, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
+  // The new shot is whole a moment before the cut: a shot whose own hide or clip end falls on the
+  // cut (one built as plain cuts) then never leaves a half-faded frame over the background.
+  startClips(ctx, to.id, at - 0.04);
+  ctx.animate(to.id, "in", motion({ name: "Appear", kind: "in", start: Math.max(0, at - 0.04), duration: 0.02, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
   ctx.animate(from.id, "hide", hide(at + 0.02), "from");
 }
 

@@ -573,7 +573,7 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       if (!animation || animation.kind === "composed") continue;
       const start = finite(animation.start);
       const end = start + Math.max(0, finite(animation.duration));
-      if (animation.kind === "effect" && typeof animation.effect === "string") effects.push({ itemId: item.id, animationId: animation.id ?? null, effect: animation.effect, start, end, to: animation.to ?? {} });
+      if (animation.kind === "effect" && typeof animation.effect === "string") effects.push({ itemId: item.id, animationId: animation.id ?? null, name: animation.name ?? null, effect: animation.effect, start, end, to: animation.to ?? {} });
       if (Number.isFinite(animation.to?.speed)) retimes.push({ itemId: item.id, start, end, from: Number.isFinite(animation.from?.speed) ? animation.from.speed : null, to: animation.to.speed });
     }
   }

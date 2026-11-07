@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { boardPicks, pickWords, picksFor, SHOT_PICKS, CUT } from "./movePicks.js";
-import { boardCoverage, boardSpan, isPlainShot, keepShotIds, mainScene, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, SHOT_LAYERS } from "./board.js";
+import { boardCoverage, boardSpan, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, SHOT_LAYERS } from "./board.js";
 
 // A shot of motion design: every layer "none" but its text.
 const motion = (cue, dur, extra = {}) => ({ id: `S${Math.round(cue * 1000)}`, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none",
@@ -60,6 +60,9 @@ test("a shot's move: {kind, name, ref, planned?} or {none}; every bad field name
     'shot 2 move.name "zoom-thru" is not a kino move or preset (library {topic:"moves"}).',
     'shot 2 move.ref is "<reference key>@<seconds>", the reference moment it copies (e.g. "app-trailer@3.2").',
   ]);
+  // A saved YouTube reference can be named by its id as inspire lists it, "yt:" kept.
+  assert.deepEqual(moveProblems({ kind: "type", name: "zoom-through", ref: "yt:uXlWYZ022zU@3.2" }, "m", known), []);
+  assert.equal(MOVE_REF.exec("yt:uXlWYZ022zU@3.2")[1], "uXlWYZ022zU");
   // A planned move not built yet is accepted only marked planned.
   assert.deepEqual(moveProblems({ kind: "ui", name: "roll", ref: "app-launch@8.9" }, "m", known), ['m.name "roll" is planned, not built yet: add planned: true.']);
   assert.deepEqual(moveProblems({ kind: "ui", name: "roll", ref: "app-launch@8.9", planned: true }, "m", known), []);

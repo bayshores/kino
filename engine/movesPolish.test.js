@@ -326,6 +326,13 @@ test("lift-focus: a part of a picture is copied into a rounded card that grows t
   const big = run("lift-focus", { detail: { layer: "phone" } }, { on: scene([phone]) });
   const lift = big.animations.find((entry) => entry.animation.id === "lift-focus.detail-lift").animation;
   assert.ok(lift.to.scaleX >= 1, `scale ${lift.to.scaleX}`);
+  // Only a picture that fills the frame as drawn mirrors past its edges while soft: a screen
+  // shrunk to 0.8x (as ui-plane leaves it) would show mirrored copies of itself around it.
+  const edged = (result) => result.animations.filter((entry) => entry.animation.effect === "edge-fill").map((entry) => entry.layerId);
+  assert.ok(edged(made).includes("shot-a"), "the frame-filling shot behind mirrors its edges");
+  const shrunk = createLayer("image", { id: "screen", name: "screen", src: "/api/media/wall.png", x: 0, y: 0, ...FRAME, scaleX: 0.8, scaleY: 0.8 });
+  const small = run("lift-focus", { detail: { layer: "phone" } }, { on: createScene({ id: "s", name: "Scene", ...FRAME, duration: 6, layers: [shrunk, phone] }) });
+  assert.deepEqual(edged(small), [], "a shrunk screen keeps empty edges");
 });
 
 test("card-into-device lands exactly on its slot in the phone's screen, with no streaks unless asked", () => {
@@ -340,4 +347,13 @@ test("card-into-device lands exactly on its slot in the phone's screen, with no 
   assert.ok(evaluateLayer(card, 0.5).scaleX > 2, "it starts big");
   assert.ok(!made.added.some(({ layer }) => layer.move.part === "streaks") && !made.tags.includes("speed-lines"));
   assert.ok(made.animations.some((entry) => entry.animation.id === "card-into-device.device-in"), "the phone appears around it");
+});
+
+test("zoom-blur over shots built as plain cuts: the new shot is whole on the cut frame, so it never dips toward the background", () => {
+  const a = createLayer("image", { id: "a", name: "a", src: "/api/media/street.png", x: 0, y: 0, ...FRAME, animations: [{ id: "a.hide", name: "Hide", kind: "hide", start: 1.2 }] });
+  const b = createLayer("image", { id: "b", name: "b", src: "/api/media/wall.png", x: 0, y: 0, ...FRAME, animations: [{ id: "b.show", name: "Show", kind: "show", start: 1.2 }] });
+  const made = run("zoom-blur", { from: "a", to: "b" }, { on: scene([a, b]), at: 1, dur: 0.4 });
+  const appear = made.animations.find((entry) => entry.animation.id === "zoom-blur.to-in").animation;
+  const arrived = { ...b, animations: [...b.animations, appear] };
+  assert.equal(evaluateLayer(arrived, 1.2).opacity, 1, "b is fully drawn at 1.2 s, where a's own hide cuts it");
 });

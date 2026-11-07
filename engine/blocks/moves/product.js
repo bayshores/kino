@@ -2,7 +2,7 @@
 // measured reference edits: entrances do most of their travel in the first 0.2 s and settle (expo-out,
 // CURVES.settle), dims and blurs ease in and out (CURVES.whip), holds keep a slow push.
 import { createLayer } from "../../model.js";
-import { CURVES, boxOf, effect, frameShare, hide, motion, round } from "./kit.js";
+import { CURVES, coversFrameAt, effect, hide, motion, round } from "./kit.js";
 
 // What a lifted or punched layer's place is when it is scaled by `scale` about its center so
 // that its center lands on `center`.
@@ -176,8 +176,8 @@ export const liftFocus = {
         const rest = layer.blur ?? 0;
         ctx.animate(layer.id, "soften", motion({ name: "Soften", start: ctx.start, duration: DIM, easing: CURVES.whip, from: { blur: rest }, to: { blur: rest + soft } }), `back${index + 1}`);
         ctx.animate(layer.id, "sharpen", motion({ name: "Sharpen", start: exitAt, duration: BACK, easing: CURVES.whip, from: { blur: rest + soft }, to: { blur: rest } }), `back${index + 1}`);
-        // A picture that fills the frame mirrors past its edges while soft, so no rim shows.
-        if (frameShare(boxOf(layer), ctx.frame) > 0.9) ctx.animate(layer.id, "edges", effect({ name: "Edge fill", effect: "edge-fill", start: ctx.start, duration: ctx.duration, easing: CURVES.drift, to: { mode: "mirror", extend: 0.25 }, keepStill: "off" }), `back${index + 1}`);
+        // A picture that fills the frame (as drawn now) mirrors past its edges while soft, so no rim shows.
+        if (coversFrameAt(ctx, layer.id, ctx.start)) ctx.animate(layer.id, "edges", effect({ name: "Edge fill", effect: "edge-fill", start: ctx.start, duration: ctx.duration, easing: CURVES.drift, to: { mode: "mirror", extend: 0.25 }, keepStill: "off" }), `back${index + 1}`);
       });
     }
 

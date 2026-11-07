@@ -200,11 +200,17 @@ function strayTransitions(model) {
   return found.filter((entry) => !transitions(model).some((change) => change.tag === entry.tag && Math.abs(change.at - entry.at) <= AT_CHANGE));
 }
 
+// A color_filter look is made of a few grades (engine/colorFilter.js names them "Filter <look>",
+// "Filter <look> 2", ...; a cut-out's copy keeps the names): together they are one look, not
+// grades stacked on a grade.
+const filterLook = (entry) => /^Filter ([a-z-]+)(?: \d+)?$/.exec(String(entry.name ?? ""))?.[1] ?? null;
+
 function stackedGrades(model) {
   const grades = (model.effects ?? []).filter((entry) => GRADES.has(entry.effect));
   const found = [];
   for (let a = 0; a < grades.length; a += 1) for (let b = a + 1; b < grades.length; b += 1) {
     const [one, two] = [grades[a], grades[b]];
+    if (filterLook(one) && filterLook(one) === filterLook(two)) continue;
     const from = Math.max(one.start, two.start), to = Math.min(one.end ?? model.duration, two.end ?? model.duration);
     if (one.itemId === two.itemId && to - from > 0.1) found.push({ itemId: one.itemId, at: from, effects: [one.effect, two.effect] });
   }

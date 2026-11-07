@@ -1546,6 +1546,10 @@ test("restraint: a grade stacked on a grade, one footage moment twice and letter
   assert.deepEqual(found.map((finding) => finding.measured.split(" ")[0]).sort(), ["a", "color-wheels", "footage"].sort());
   const good = scene({ duration: 4, layers: [clip("a", 0, 3, { animations: [grade("color-wheels", 0, 2)] }), clip("b", 2, 9)] });
   await silent("restraint", good, { scene: good.scenes[0] });
+  // color_filter "film" is two grades that make one look: not a grade stacked on a grade.
+  const look = (effect, number) => ({ ...grade(effect, 0, 2), id: `A${number + 7}`, name: number ? `Filter film ${number + 1}` : "Filter film" });
+  const filtered = scene({ duration: 4, layers: [clip("a", 0, 3, { animations: [look("color-wheels", 0), look("hue-saturation", 1)] }), clip("b", 2, 9)] });
+  await silent("restraint", filtered, { scene: filtered.scenes[0] });
 });
 
 test("request_unmet: quoted words, music and 'no logo' are checked against the edit; a vague note is listed to confirm by looking", async () => {

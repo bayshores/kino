@@ -497,7 +497,13 @@ export function createAgentService(deps) {
   async function projectFor(input, { open = true } = {}) {
     const wanted = input.project ?? (open ? await readCurrent() : null);
     if (!wanted) throw new AgentError("no_project", "No project is open. Call status to list projects, then project open, or project create.");
-    const record = await store.getProject(String(wanted));
+    let record = await store.getProject(String(wanted));
+    if (!record) {
+      const projects = await store.listProjects();
+      // A project's name works like its ID when one project has it (project open ride).
+      const named = projects.filter((project) => String(project.name ?? "").trim().toLowerCase() === String(wanted).trim().toLowerCase());
+      if (named.length === 1) record = await store.getProject(named[0].id);
+    }
     if (!record) {
       const projects = await store.listProjects();
       const suggestions = closest(String(wanted), projects.flatMap((project) => [project.id, project.name])).slice(0, 3);

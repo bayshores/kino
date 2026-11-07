@@ -37,7 +37,8 @@ export const WHOLE = "whole";
 export const MOVE_KINDS = Object.freeze(["type", "transition", "camera", "ui"]);
 export const PLANNED_MOVES = Object.freeze(["carry", "frame", "drift", "build-in", "type-on", "stream", "focus-band", "ui-plane", "whip", "roll", "accent-hit", "light-sweep", "decode", "assemble"]);
 // ref: a saved reference's key and the second of the moment the shot copies, "app-trailer@3.2".
-export const MOVE_REF = /^([a-z0-9][a-z0-9_-]{0,47})@(\d{1,4}(?:\.\d{1,2})?)$/i;
+// A YouTube reference may keep the "yt:" of its id (yt:uXlWYZ022zU@3.2); the key is the part after it.
+export const MOVE_REF = /^(?:yt:)?([a-z0-9][a-z0-9_-]{0,47})@(\d{1,4}(?:\.\d{1,2})?)$/i;
 const MOVE_KEYS = ["kind", "name", "ref", "planned"];
 
 const ID = /^[A-Za-z0-9_-]{1,24}$/;

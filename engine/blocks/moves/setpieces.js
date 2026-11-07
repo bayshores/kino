@@ -3,7 +3,7 @@
 import { createLayer } from "../../model.js";
 import { textLayer } from "../build.js";
 import { safeArea } from "../formats.js";
-import { CURVES, boxOf, centerOf, contrast, effect, frameShare, hide, mix, motion, round, scaledAbout } from "./kit.js";
+import { CURVES, boxOf, centerOf, contrast, coversFrameAt, effect, hide, mix, motion, round, scaledAbout } from "./kit.js";
 import { RAMPS, rampTimes } from "./roll.js";
 
 const rad = (degrees) => (degrees * Math.PI) / 180;
@@ -102,7 +102,7 @@ export const parallaxStack = {
       const travel = Math.round(span * 0.07 * amount * depth);
       const grow = round(1 + 0.05 * amount * depth * depth);
       const box = boxOf(layer);
-      const covers = frameShare(box, ctx.frame) > 0.9;
+      const covers = coversFrameAt(ctx, layer.id, ctx.start);
       // A plate that fills the frame mirrors its picture past its edges, so the drift never shows a gap.
       if (covers) ctx.animate(layer.id, "edges", effect({ name: "Edge fill", effect: "edge-fill", start: ctx.start, duration: ctx.duration, easing: CURVES.drift, to: { mode: "mirror", extend: 0.25 }, keepStill: "end" }), role);
       // It drifts from where the layer is once its own moves are done (from the start when it has none).

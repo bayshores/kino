@@ -76,6 +76,20 @@ export function frameShare(box, frame) {
   return (width * height) / (frame.width * frame.height);
 }
 
+/**
+ * Whether a layer, as drawn at `time` (its own scale, about its center), lies flat and covers more
+ * than 90% of the frame. Only then can its picture be mirrored past its edges without the copies
+ * showing: a shrunk or tilted screen (ui-plane) would show mirrored copies around it.
+ */
+export function coversFrameAt(ctx, layerId, time) {
+  const state = ctx.stateAt(layerId, time);
+  if (state.rotation || state.rotateX || state.rotateY || state.skewX) return false;
+  const width = state.width * Math.abs(state.scaleX ?? 1);
+  const height = state.height * Math.abs(state.scaleY ?? 1);
+  const box = { x: state.x + (state.width - width) / 2, y: state.y + (state.height - height) / 2, width, height };
+  return frameShare(box, ctx.frame) > 0.9;
+}
+
 /** A color as #RRGGBB mixed toward another by `amount` (0 keeps the first). */
 export function mix(color, other, amount) {
   const channel = (hex, index) => parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
