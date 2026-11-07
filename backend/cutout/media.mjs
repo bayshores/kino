@@ -106,7 +106,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
     const key = JSON.stringify({ file, kind, ...settings });
     if (jobs.has(key)) return jobs.get(key).handle;
     const state = { fraction: 0, started: performance.now() };
-    const result = (matte, record) => ({ record, engine: matte.engine, frames: matte.info.frames, empty: matte.info.empty,
+    const result = (matte, record) => ({ record, engine: matte.engine, frames: matte.info.frames, empty: matte.info.empty, soft: matte.info.soft,
       matteSeconds: matte.info.seconds, seconds: (performance.now() - state.started) / 1000, cached: matte.cached, note: matte.note });
     const done = (async () => {
       await swept;

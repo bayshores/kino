@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
-import { createSteadier, finishMatte } from "./matte.mjs";
+import { createSteadier, finishMatte, softCounts } from "./matte.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
 export const CUTOUT_OUTPUTS = Object.freeze(["subject", "matte", "silhouette"]);
@@ -211,7 +211,8 @@ function killAll(children) {
 }
 
 /**
- * Streams a video through FFmpeg → kino-cutout → the steadier → FFV1. Returns { frames, empty }.
+ * Streams a video through FFmpeg → kino-cutout → the steadier → FFV1. Returns { frames, empty, soft }
+ * (soft: the share of the subject's pixels that are see-through, from softCounts).
  */
 async function analyseVideo({ source, video, size, engine, helper, matteFile, signal, onFraction }) {
   const { width, height } = size;
@@ -233,13 +234,15 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
   const expected = Math.max(1, Math.round(video.duration * video.fps));
   const steadier = createSteadier({ width, height, radius: STEADY_RADIUS });
   const pixels = width * height;
-  let frames = 0, empty = 0;
+  let frames = 0, empty = 0, seen = 0, soft = 0;
   const write = (mattes) => {
     let ok = true;
     for (const matte of mattes) {
       let on = 0;
       for (let i = 0; i < pixels; i += 1) if (matte[i] >= 128) on += 1;
       if (on < pixels * EMPTY_SHARE) empty += 1;
+      // Every eighth frame is enough to tell a see-through body from a clean edge.
+      if (frames % 8 === 0) { const counts = softCounts(matte); seen += counts.seen; soft += counts.soft; }
       frames += 1;
       ok = encode.stdin.write(matte) && ok;
     }
@@ -277,7 +280,7 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
     signal?.removeEventListener("abort", onAbort);
   }
   if (frames === 0) throw cutoutError(`${basename(source)} has no picture to cut out.`, "CUTOUT_NO_PICTURE");
-  return { frames, empty };
+  return { frames, empty, soft: seen ? Math.round((1000 * soft) / seen) / 1000 : 0 };
 }
 
 /** A still image as RGBA bytes at its own (upright) size and at `size`, read by @napi-rs/canvas. */
@@ -457,9 +460,9 @@ export async function makeMatte({ source, kind, engine = "auto", cacheDir, signa
     if (kind === "video") {
       const video = await probeVideo(source, signal);
       const size = analysisSize(video.width, video.height);
-      const { frames, empty } = await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"),
+      const { frames, empty, soft } = await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"),
         signal, onFraction: onProgress });
-      info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty,
+      info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty, soft,
         source: { width: video.width, height: video.height, rate: video.rate, duration: video.duration, lead: video.lead, colour: video.colour } };
     } else {
       const probe = await readImage(source, null);

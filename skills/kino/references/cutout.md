@@ -22,7 +22,7 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   subject's own color, so no halo shows over a new or darker background. A frame where Vision
   lost the subject takes the nearest good frame's shape, keyed against the empty wall.
 - Keep the `"subject"` engine for a silhouette or a dark figure: `"person"` can leave the body
-  half see-through (gray over a white title behind it).
+  half see-through (gray over a white title behind it), and the receipt's `note` says so.
 - `engine:"auto"` (default) is `"subject"` (any subject, macOS 14+) or `"person"` (people only,
   macOS 13). Other systems have no engine: the edit is refused (`CUTOUT_ENGINE_UNAVAILABLE`), so
   mask with a shape there. On a Mac without the helper, `npm run desktop:cutout` builds it.

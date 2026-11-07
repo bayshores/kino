@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { scaleMatte } from "./cutout/cutout.mjs";
-import { createSteadier, feather, finishMatte, grow, matteMeasure, radialEdgeErrors } from "./cutout/matte.mjs";
+import { createSteadier, feather, finishMatte, grow, matteMeasure, radialEdgeErrors, softCounts } from "./cutout/matte.mjs";
 
 // A disc of radius r centred at (cx, cy), anti-aliased over one pixel like a real matte.
 function disc(width, height, { cx, cy, r }) {
@@ -148,4 +148,13 @@ test("scaleMatte scales a matte the way FFmpeg and browsers line up pixel centre
   const radius = measuredRadius(big, 256, 144, { cx: 128, cy: 72, r: 40 });
   assert.ok(Math.abs(radius - 40) < 1, `the edge scales with the picture (radius ${radius.toFixed(2)})`);
   assert.equal(scaleMatte(small, 64, 36, 64, 36), small);
+});
+
+test("softCounts tells a half see-through body from a clean edge", () => {
+  const clean = new Uint8Array(100).fill(0);
+  clean.fill(255, 0, 40);
+  clean.fill(128, 40, 44);
+  assert.deepEqual(softCounts(clean), { seen: 44, soft: 4 });
+  const mushy = Uint8Array.from({ length: 100 }, (_, i) => (i < 40 ? (i % 2 ? 255 : 150) : i < 44 ? 20 : 0));
+  assert.deepEqual(softCounts(mushy), { seen: 40, soft: 20 });
 });

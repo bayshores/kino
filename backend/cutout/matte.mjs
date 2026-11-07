@@ -362,6 +362,23 @@ export function finishMatte(matte, width, height, { grow: growBy = 0, feather: f
   return out;
 }
 
+// A matte value at or above SEEN is part of the subject; at or above FIRM it is solid.
+const SEEN = 32, FIRM = 224;
+
+/**
+ * Counts toward how see-through a matte is: { seen } pixels of subject (SEEN or more) and how many
+ * of them are { soft } (under FIRM). Added up over a clip, soft / seen is its see-through share:
+ * a clean cut-out has only its edge soft; one whose body is half see-through has much more.
+ */
+export function softCounts(matte) {
+  let seen = 0, soft = 0;
+  for (let i = 0; i < matte.length; i += 1) {
+    const value = matte[i];
+    if (value >= SEEN) { seen += 1; if (value < FIRM) soft += 1; }
+  }
+  return { seen, soft };
+}
+
 /**
  * Numbers about a matte: { area } (fraction of the picture that is subject, counting soft pixels
  * by their value), with `truth` (one byte a pixel, 0 or 1) also { iou } (pixels at half or more

@@ -30,6 +30,9 @@ import { applyOperations } from "../../engine/operations.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 
 const STILL_RUNNING = Symbol("still running");
+// A person matte with more than this share of its pixels see-through: a silhouette on red had
+// 0.155, a fast blurred dancer from the subject engine 0.11.
+const PERSON_SOFT = 0.14;
 
 function within(promise, seconds) {
   let timer;
@@ -151,6 +154,9 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   aliasClipLinks(next, layer.src, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId)?.src);
 
   const notes = made.note ? [made.note] : [];
+  // The person engine can leave a silhouette or a dark figure half see-through (gray over a title
+  // behind it); the subject engine gives it a solid body.
+  if (made.engine === "person" && made.soft > PERSON_SOFT) notes.push(`${Math.round(made.soft * 100)}% of the person is see-through (a silhouette or a dark figure?): engine:"subject" may give a solid one`);
   if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
     cached: made.cached, ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
