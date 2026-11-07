@@ -14,8 +14,8 @@ import { planCaptions } from "./captionLayers.js";
 const sintel = readFileSync(new URL("../tests/fixtures/captions/sintel_en.srt", import.meta.url), "utf8");
 const FPS = 30;
 
-function project({ width = 1080, height = 1920, duration = 60, layers = [] } = {}) {
-  return createDocument({ scenes: [createScene({ id: "s1", name: "Main", width, height, duration, background: "#101418", layers })] });
+function project({ width = 1080, height = 1920, duration = 60, layers = [], background = "#101418" } = {}) {
+  return createDocument({ scenes: [createScene({ id: "s1", name: "Main", width, height, duration, background, layers })] });
 }
 
 function edit(document, ops) {
@@ -198,16 +198,20 @@ test("caption looks: phrases of the look's size, the key word in the accent colo
   assert.ok(!bold.document.scenes[0].layers.some((layer) => layer.text === "ideas"));
 });
 
-test("caption looks pass the gates on fast speech (170 words a minute), under 0.65 s behind the voice; reduced motion fades", () => {
+test("caption looks pass the gates on fast speech (170 words a minute), under 0.65 s behind the voice, on dark and white frames; reduced motion fades", () => {
   const said = "Most teams spend their mornings chasing updates across seven different tools. We built one place where everything already lives, so you can stop searching and start shipping.".split(" ");
   const round3 = (value) => Math.round(value * 1000) / 1000;
   let at = 0.3;
   const words = said.map((text) => { const word = { text, start: round3(at), end: round3(at + 0.22 + text.length * 0.015) }; at = word.end + 0.05 + (text.endsWith(".") ? 0.8 : 0); return word; });
-  for (const look of ["clean", "pop", "word", "highlight", "bold"]) {
-    const { document, reports } = edit(project({ duration: 12 }), [{ type: "add_captions", words, look }]);
+  for (const look of ["clean", "pop", "word", "highlight", "bold", "editorial"]) for (const background of ["#101418", "#FFFFFF"]) {
+    const { document, reports } = edit(project({ duration: 12, background }), [{ type: "add_captions", words, look }]);
     const model = kinoTimeline(document, "s1", { fonts: defaultFonts, fps: FPS });
-    const errors = runDataQuality(model, { context: { outputFps: FPS } }).findings.filter((finding) => finding.severity === "error");
-    assert.deepEqual(errors.map((finding) => `${look} ${finding.rule} ${finding.message}`), []);
+    const findings = runDataQuality(model, { context: { outputFps: FPS } }).findings;
+    const errors = findings.filter((finding) => finding.severity === "error");
+    assert.deepEqual(errors.map((finding) => `${look} ${background} ${finding.rule} ${finding.message}`), []);
+    // Timed to the voice: no warning asks to slow a word's highlight or start a phrase late.
+    assert.deepEqual(findings.filter((finding) => ["first_entrance", "duration_band"].includes(finding.rule)).map((finding) => `${look} ${finding.message}`), []);
+    if (look === "editorial") continue;
     const { pages } = planCaptions(project({ duration: 12 }), project({ duration: 12 }).scenes[0], { words, look }, { fonts: defaultFonts });
     assert.equal(pages.length, reports[0].phrases);
     for (const page of pages) assert.ok(page.start - page.words[0].start <= 0.65, `${look} "${page.text}" shows ${page.start - page.words[0].start}s after its first word`);

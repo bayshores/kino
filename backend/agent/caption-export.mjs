@@ -29,27 +29,61 @@ export function captionEvents(document, sceneId, { fonts, fps = 30, duration } =
   if (!keep.size) return [];
   const scene = { ...expanded, layers: expanded.layers.filter((layer) => keep.has(layer.id)) };
   const model = kinoTimeline({ ...document, scenes: [scene] }, sceneId, { fonts, fps });
-  const events = [];
+  const spans = [];
   for (const item of model.items) {
     if (item.kind !== "text" || item.role !== "caption") continue;
     const opacity = item.samples.opacity;
+    const layer = byId.get(item.id);
     let first = -1;
     for (let index = 0; index <= model.times.length; index += 1) {
       const shown = index < model.times.length && opacity[index] > SHOWN;
       if (shown && first < 0) first = index;
       if (!shown && first >= 0) {
         const end = index < model.times.length ? model.times[index] : model.duration;
-        events.push({ start: model.times[first], end, text: String(item.text).trim() });
+        spans.push({ start: model.times[first], end, text: String(item.text).trim(), parentId: item.parentId, x: layer?.x ?? 0, y: layer?.y ?? 0, size: layer?.fontSize ?? 48 });
         first = -1;
       }
     }
   }
+  const events = phraseEvents(spans);
   // The render's length, read the way export.mjs reads it (at least one frame).
   const length = duration != null && Number.isFinite(Number(duration)) ? Math.max(1 / fps, Number(duration)) : Infinity;
   return events
     .map((event) => ({ ...event, end: Math.min(event.end, length) }))
     .filter((event) => event.end > event.start)
     .sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+// Phrase looks draw one text layer per word inside a phrase group: words of one group on screen
+// together are one event, in reading order (lines top to bottom, words left to right).
+function phraseEvents(spans) {
+  const events = [];
+  const byParent = new Map();
+  for (const span of spans) {
+    if (!span.parentId) { events.push(span); continue; }
+    if (!byParent.has(span.parentId)) byParent.set(span.parentId, []);
+    byParent.get(span.parentId).push(span);
+  }
+  for (const group of byParent.values()) {
+    group.sort((a, b) => a.start - b.start);
+    const clusters = [];
+    for (const span of group) {
+      const last = clusters.at(-1);
+      if (last && span.start < last.end) { last.items.push(span); last.end = Math.max(last.end, span.end); }
+      else clusters.push({ start: span.start, end: span.end, items: [span] });
+    }
+    for (const { start, end, items } of clusters) {
+      items.sort((a, b) => (Math.abs(a.y - b.y) > a.size / 2 ? a.y - b.y : a.x - b.x));
+      const lines = [];
+      for (const item of items) {
+        const line = lines.at(-1);
+        if (line && Math.abs(line.y - item.y) <= item.size / 2) line.words.push(item.text);
+        else lines.push({ y: item.y, words: [item.text] });
+      }
+      events.push({ start, end, text: lines.map((line) => line.words.join(" ")).join("\n") });
+    }
+  }
+  return events.map(({ start, end, text }) => ({ start, end, text }));
 }
 
 /** Writes <video name>.srt and .vtt for the events. Returns the two paths. */

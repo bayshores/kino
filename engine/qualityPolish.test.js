@@ -558,6 +558,9 @@ test("speech_captions: captions over a voice that leave out words it says", asyn
   assert.equal(missing.severity, "warn");
   assert.match(missing.message, /leave out 3 words "judge" says: "in this hackathon\." at 1\.95 s/);
   assert.deepEqual(await speechFindings("speech_captions", captioned("It is the best project we saw in this hackathon.")), []);
+  // A misheard word spelled right (add_captions fix) is no word left out; a word dropped still is.
+  assert.deepEqual(await speechFindings("speech_captions", captioned("It is the best project we saw in this Hackfest.")), []);
+  assert.match((await speechFindings("speech_captions", captioned("It is the best project we saw in Hackfest.")))[0].message, /leave out 1 word "judge" says/);
   // A whoosh under a caption is no voice the caption leaves out.
   const whoosh = scene({ layers: [voice("whoosh", { mediaDuration: 2 }), text("caption", "Oak", { role: "caption", fontSize: 48 })] });
   const whoops = { ...TRANSCRIPT, words: [0.1, 0.5, 0.9, 1.3].map((start) => ({ text: "Whoop.", start, end: start + 0.3, cut: start, p: 0.9 })) };

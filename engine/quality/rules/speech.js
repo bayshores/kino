@@ -552,7 +552,18 @@ export function speechCaptions(model, ctx) {
     const heard = heardWords(voice);
     // Only a voice the captions are for: some caption is shown while it speaks.
     if (!captions.some((caption) => caption.start < range.heardEnd && caption.end > range.heardStart)) continue;
-    const missing = heard.filter((word) => !captions.some((caption) => caption.start <= word.end + 0.75 && caption.end >= word.start - 0.75 && caption.words.has(plainWord(word.text))));
+    const near = (caption, word) => caption.start <= word.end + 0.75 && caption.end >= word.start - 0.75;
+    // A word the captions spell another way (add_captions fix: "acne" shown as "Acme") is not
+    // left out: each caption word the voice never says stands in for one missing word near it.
+    const heardSet = new Set(heard.map((word) => plainWord(word.text)));
+    const used = new Set();
+    const corrected = (word) => captions.some((caption, index) => near(caption, word) && [...caption.words].some((text) => {
+      const token = `${index}:${text}`;
+      if (heardSet.has(text) || used.has(token)) return false;
+      used.add(token);
+      return true;
+    }));
+    const missing = heard.filter((word) => !captions.some((caption) => near(caption, word) && caption.words.has(plainWord(word.text)))).filter((word) => !corrected(word));
     if (!missing.length) continue;
     // Runs of missing words in a row, for the message.
     const runs = [];

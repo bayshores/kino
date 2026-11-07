@@ -18,7 +18,8 @@ played as one.
   `highlight` (the word being said in `accent`), `bold` (hook title). Phrase looks show words
   as said and hide in silences, stay up long enough to read (a phrase said too fast takes the
   next in, at most about 0.5 s behind the voice), and use 3 lines in portrait before shrinking;
-  `hook:true` puts the first sentence big over the first seconds; `reduced:true` fades only.
+  `hook:true` puts the first sentence big over the first seconds; `reduced:true` fades only. On a
+  light frame with no footage, looks without a box take dark letters and a deep accent.
   Example: `add_captions` with `speech:"<voice layer>"`, `look:"pop"`, `keywords:["ship"]`.
 - Text behind a person: `cut_out` with `layer:"<clip>"`, `behind:"<title>"` (person matte; when
   no person is found the title stays in front and the receipt's `cutout.fallback` says so).

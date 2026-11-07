@@ -35,7 +35,7 @@ import { MAX_CUES } from "./qualityFields.js";
 import { mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "./playback.js";
 import { fileSecondsPlayed, isReversed } from "./mediaTime.js";
 import { captionWordsFromSpeech, checkSpeechLayer, checkTranscript, speechWords } from "./speech.js";
-import { CAPTION_LOOKS, lookDefaults, phraseCaptions, wordsOfPage } from "./captionLooks.js";
+import { CAPTION_LOOKS, isLightFill, lookDefaults, phraseCaptions, wordsOfPage } from "./captionLooks.js";
 import { round } from "./numbers.js";
 
 export const CAPTION_POSITIONS = ["bottom", "middle", "top"];
@@ -90,7 +90,7 @@ export function captionStyle(scene, operation = {}) {
     // "center" is the usual word for "middle".
     position: optionalChoice(operation.position === "center" ? "middle" : operation.position, "position", CAPTION_POSITIONS) ?? "bottom",
     appear: optionalChoice(operation.appear, "appear", CAPTION_APPEARS) ?? "cut",
-    shadow: operation.look !== undefined && CAPTION_LOOKS[operation.look]?.shadow === true,
+    shadow: operation.look !== undefined && CAPTION_LOOKS[operation.look]?.shadow === true && isLightFill(fill),
     padX: Math.round(fontSize * 0.5),
     padY: Math.round(fontSize * 0.3),
   };
