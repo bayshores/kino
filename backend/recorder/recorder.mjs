@@ -150,7 +150,7 @@ export function createRecorder({ dataRoot, mediaRoot, addMedia, onChange = () =>
 
   async function connect() {
     if (helper && !helper.closed) return helper;
-    if (process.platform !== "darwin" && !process.env.KINO_RECORDER_HELPER) throw new Error("Screen recording is only on macOS.");
+    if (process.platform !== "darwin" && helperPath === recorderHelperPath && !process.env.KINO_RECORDER_HELPER) throw new Error("Screen recording is only on macOS.");
     const binary = await helperPath();
     if (!binary) throw new Error("The kino-recorder helper is not built: install the Xcode command line tools (xcode-select --install), or run npm run desktop:tools.");
     helper = helperProcess(binary, {
