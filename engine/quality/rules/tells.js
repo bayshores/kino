@@ -9,7 +9,7 @@
 // the technique (backed by a reference or the person's words) turns word_by_word, soft_cuts and
 // blurred_backdrop off (SILENCED_BY in ../index.js), and same_entrance stays silent when the
 // entrance it sees is a wanted one.
-import { coversFrame, entrances, readingTexts, scaleOf, sec, sections, motions } from "../analysis.js";
+import { coversFrame, entrances, readingTexts, scaleOf, sec, sections, motions, speechTimed } from "../analysis.js";
 import { area, boxAt, intersection } from "../model.js";
 import { TEXT_PRESET_TAGS } from "../techniques.js";
 import { contentWords, sourceVocabulary, stem } from "../../sources.js";
@@ -64,10 +64,14 @@ export function stockCopy(model, ctx) {
     message, fix: { kind: "hint", text },
   });
   const oneWordBeats = [];
+  // The voice's captions break where the voice does ("notes." is a word said, not a beat of a
+  // slogan): only their words are judged, not how they split into lines.
+  const timed = speechTimed(model);
   for (const item of readingTexts(model)) {
     const all = textsOf(item).join(" ");
     const stock = STOCK.map(({ pattern }) => all.match(pattern)?.[1]).find(Boolean);
     if (stock) { finding(item, `"${stock}"`, `${ctx.name(item)} says "${stock}", a stock promo phrase that reads as template copy.`, "Say what the product does in its own words, or show it doing it instead of naming it."); continue; }
+    if (timed.has(item.id)) continue;
     const sentences = sentencesOf(all);
     if (sentences.length >= 3 && sentences.every((part) => wordCount(part) <= 3)) {
       finding(item, `${sentences.length} beats`, `${ctx.name(item)} is a three-beat slogan ("${ctx.quote(all)}"), the most common template line.`, "Replace it with one concrete line: a real number, a real moment, or the product's own message.");

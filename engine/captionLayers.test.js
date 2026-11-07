@@ -9,6 +9,7 @@ import { parseSrt } from "./subtitles.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { safeRect } from "./quality/rules/layout.js";
 import { runDataQuality } from "./quality/index.js";
+import { cuts } from "./quality/analysis.js";
 import { planCaptions } from "./captionLayers.js";
 
 const sintel = readFileSync(new URL("../tests/fixtures/captions/sintel_en.srt", import.meta.url), "utf8");
@@ -209,8 +210,11 @@ test("caption looks pass the gates on fast speech (170 words a minute), under 0.
     const findings = runDataQuality(model, { context: { outputFps: FPS } }).findings;
     const errors = findings.filter((finding) => finding.severity === "error");
     assert.deepEqual(errors.map((finding) => `${look} ${background} ${finding.rule} ${finding.message}`), []);
-    // Timed to the voice: no warning asks to slow a word's highlight or start a phrase late.
-    assert.deepEqual(findings.filter((finding) => ["first_entrance", "duration_band"].includes(finding.rule)).map((finding) => `${look} ${finding.message}`), []);
+    // Timed to the voice: no warning asks to slow a word's highlight or start a phrase late, and
+    // a new phrase is no cut or slide (soft_cuts, flat_sections, text_slides...).
+    const slideRules = ["first_entrance", "duration_band", "easing_repeat", "same_motion", "soft_cuts", "stock_copy", "flat_sections", "text_slides", "cut_motivation", "hook_readable", "technique_repeat"];
+    assert.deepEqual(findings.filter((finding) => slideRules.includes(finding.rule)).map((finding) => `${look} ${finding.rule} ${finding.message}`), []);
+    assert.deepEqual(cuts(model), [0], `${look} ${background}`);
     if (look === "editorial") continue;
     const { pages } = planCaptions(project({ duration: 12 }), project({ duration: 12 }).scenes[0], { words, look }, { fonts: defaultFonts });
     assert.equal(pages.length, reports[0].phrases);

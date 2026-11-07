@@ -13,7 +13,7 @@
 // The set pieces it finds itself: split-screen (two clips side by side) and screen-zoom (a video,
 // or a group holding one, pushed in 2x or more so one detail fills the frame).
 import { PARTICLE_LOOKS } from "../effects/particles.js";
-import { coversFrame, cuts, drawnSize, entrances, maxOpacity, motions, readingTexts, scaleOf, sec, speedAt } from "./analysis.js";
+import { coversFrame, cuts, drawnSize, entrances, maxOpacity, motions, readingTexts, scaleOf, sec, speechTimed, speedAt } from "./analysis.js";
 import { area, boxAt, chainOf, intersection, itemById, overlapArea } from "./model.js";
 
 // ---------------------------------------------------------------- shared measures
@@ -367,6 +367,7 @@ const byUnit = (tween, units) => units.includes(tween.unit) && (tween.stagger ??
  */
 export function textEntrances(model) {
   return memo(model, "textEntrances", () => {
+    const timed = speechTimed(model);
     const all = readingTexts(model).flatMap((item) => {
       const first = item.samples.opacity.findIndex((value) => value > 0.05);
       if (first < 0) return [];
@@ -374,10 +375,11 @@ export function textEntrances(model) {
       const step = 1 / model.fps;
       const own = entrances(model).find((motion) => motion.itemId === item.id);
       const starting = motionsNear(model, item, at - step, at + step).filter((motion) => Math.abs(motion.start - at) <= 1.5 * step || motion === own);
-      return [{ itemId: item.id, at, tag: entranceTag(model, item, starting, first), move: item.move }];
+      return [{ itemId: item.id, at, tag: entranceTag(model, item, starting, first), move: timed.has(item.id) ? "voice captions" : item.move }];
     });
     // The texts one move made with one entrance (caption-words makes a layer per word group) are
-    // one entrance, at the first of them, so a move's captions count once.
+    // one entrance, at the first of them, so a move's captions count once; so are the voice's
+    // captions (add_captions), each phrase shown as it is said.
     const seen = new Set();
     return [...all].sort((a, b) => a.at - b.at).filter((entry) => {
       if (!entry.move) return true;

@@ -200,8 +200,42 @@ export function coversFrame(model, item) {
   });
 }
 
-const shownSet = (model, index, threshold = 0.5) =>
-  new Set(primaryItems(model).filter((item) => item.samples.opacity[index] >= threshold).map((item) => item.id));
+/**
+ * Captions (add_captions) are timed to the voice: a word's highlight lasts as long as the word,
+ * and a phrase shows when it is said. Returns the ids of their text and the groups around it
+ * (add_captions draws a caption group, a group per page or phrase, the caption text inside).
+ * A new phrase is the voice going on, not a cut or a new slide: cuts, sections and the slide and
+ * timing rules leave these alone.
+ */
+export function speechTimed(model) {
+  return memo(model, "speechTimed", () => {
+    const ids = new Set();
+    const roots = new Set();
+    for (const item of model.items) {
+      const page = itemById(model, item.parentId);
+      if (item.role !== "caption" || page?.kind !== "group" || itemById(model, page.parentId)?.kind !== "group") continue;
+      roots.add(page.parentId);
+      for (let current = item; current && !ids.has(current.id); current = itemById(model, current.parentId)) ids.add(current.id);
+    }
+    // The hook line a look sets bigger (add_captions hook) sits in the caption group itself.
+    for (const item of model.items) if (item.kind === "text" && roots.has(item.parentId)) ids.add(item.id);
+    return ids;
+  });
+}
+
+/** Reading texts but the voice's captions: the text a video is designed around (slides, hooks, copy). */
+export function designedTexts(model) {
+  return memo(model, "designedTexts", () => {
+    const timed = speechTimed(model);
+    return readingTexts(model).filter((item) => !timed.has(item.id));
+  });
+}
+
+// What is on screen at a sample, for cuts and sections: the voice's captions left out.
+const shownSet = (model, index, threshold = 0.5) => {
+  const timed = speechTimed(model);
+  return new Set(primaryItems(model).filter((item) => item.samples.opacity[index] >= threshold && !timed.has(item.id)).map((item) => item.id));
+};
 
 /**
  * Hard cuts: samples where most of what was on screen (60% or more) is gone from one sample to
