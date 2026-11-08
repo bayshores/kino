@@ -48,7 +48,7 @@ export const TIMED_ANIMATION_FIELDS = Object.freeze([
   "anchor", // a Resize's anchor point (resizeAnchor.js)
   "motionPath",
   "shadowChannels",
-  "behavior", // wiggle and loop (behavior.js)
+  "behavior", // wiggle, oscillate, ramp, randomize and loop (behavior.js)
   "keys", // a custom animation's 3+ keys (model.js readAnimationKeys)
 ]);
 

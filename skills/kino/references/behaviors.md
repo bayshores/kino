@@ -1,6 +1,6 @@
 # Behaviors: keys, loop, wiggle and copies
 
-No expressions: an in, out or custom animation takes a `behavior`, a custom one `keys`, and
+No expressions: an in, out, custom or effect animation takes a `behavior`, a custom one `keys`, and
 `duplicate_layers` makes many real copies. Every result is a pure function of time and seed, so
 check, look and Lottie (baked to keyframes) see exactly what plays.
 
@@ -24,6 +24,12 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   `rate` is about how many drifts a second; another `seed` gives another pattern. It layers three
   octaves (finer, weaker shakes on the drift), so it reads hand-held. The drift eases from 0 at
   the animation's start and back at its end, so nothing jumps, and a looping wiggle repeats seamlessly.
+- More offsets, added to the animated value (combine freely; `amount` like wiggle's; held after the
+  animation ends): `oscillate:{amount, period?:1 s, phase?:0..1, wave?:"sine"|"triangle"|"square"|"saw", decay?:0 per s}`;
+  `ramp:{to, from?:0, start?:0 s, duration?:to the end, ease?:"linear"}` (to/from one number or
+  `{y:40}`); `randomize:{amount, rate?:2 a s, seed?:0, mode?:"smooth"|"stepped"}` (random values,
+  no ease-in: stepped jumps, a hand-drawn boil). An effect takes them on named settings
+  (`behavior:{oscillate:{amount:{hue:30}}}`) but can't loop.
 - `duplicate_layers {layers, count, layout?, spacing?, columns?, radius?, stagger?}` makes up to 50
   copies named "<name> 2", "<name> 3"…: `line` in a row (`spacing:{x, y}`, default the box
   width plus 24), `grid` in rows of `columns`, `radial` a ring of count + 1 with the original at

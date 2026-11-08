@@ -23,6 +23,7 @@ import { layoutText, resizeTextLayer } from "../../textLayout.js";
 import { enabledAnimations } from "../../animationEnabled.js";
 import { withTextStyleRange } from "../../textStyleRanges.js";
 import { easingAt } from "../../easing.js";
+import { behaviorKeys } from "../../behavior.js";
 import { CURVES, effect, hide, motion, round, show } from "./kit.js";
 
 const COLORED = ["text", "rectangle", "ellipse", "star", "path"];
@@ -62,10 +63,9 @@ function motionsOf(layer, keep) {
     const from = pick(animation.from, keep);
     const to = pick(animation.to, keep);
     if (!Object.keys(from).length && !Object.keys(to).length) return [];
-    // A wiggle or a stepped (discrete) track may name keys that were cut: they go too.
+    // A behavior or a stepped (discrete) track may name keys that were cut: they go too.
     const { id, shadowChannels, discrete, behavior, ...rest } = animation;
-    const amount = behavior?.wiggle?.amount;
-    const wiggle = behavior && (typeof amount !== "object" || Object.keys(amount).every((key) => keep.has(key)));
+    const wiggle = behavior && behaviorKeys(behavior).every((key) => keep.has(key));
     // Keys are cut the same way (their first and last value are from and to).
     const keys = Array.isArray(rest.keys) ? rest.keys.map((key) => ({ ...key, value: pick(key.value, keep) })) : rest.keys;
     return [{ ...rest, from, to, ...(keys ? { keys } : {}), ...(wiggle ? { behavior } : {}) }];

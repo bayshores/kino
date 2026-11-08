@@ -4,10 +4,11 @@ import { enabledAnimations } from "../animationEnabled.js";
 import { resolvePlayback } from "../playback.js";
 import { MAX_TIME } from "../schema.js";
 import { clamp } from "../numbers.js";
+import { behaviorOffset, normalizeBehavior } from "../behavior.js";
 
 export const isEffectAnimation = (animation) => animation?.kind === "effect";
 /** The fields an effect animation has; its settings go inside `to` (and `from`). */
-export const EFFECT_ANIMATION_FIELDS = Object.freeze(new Set(["id", "name", "kind", "effect", "start", "duration", "easing", "intensity", "from", "to", "keepStill", "enabled"]));
+export const EFFECT_ANIMATION_FIELDS = Object.freeze(new Set(["id", "name", "kind", "effect", "start", "duration", "easing", "intensity", "from", "to", "keepStill", "enabled", "behavior"]));
 const allowed = EFFECT_ANIMATION_FIELDS;
 
 // The document normalizer already validates the common ID/name/enabled fields and the absolute
@@ -35,6 +36,15 @@ export function normalizeEffectAnimation(animation, { maxTime = MAX_TIME } = {})
     for (const [key, value] of Object.entries(result.from ?? {}))
       if (effect.parameters[key].animatable === false && value !== result.to[key])
         throw new RangeError(`from.${key} must equal to.${key}: ${effect.key} keeps ${key} fixed for the whole effect`);
+  }
+  // oscillate, ramp, randomize and wiggle add to named number settings (behavior.js); no loop.
+  if (animation.behavior == null) delete result.behavior;
+  else {
+    const movable = Object.keys(result.to).filter((key) => effect.parameters[key].type === "number" && effect.parameters[key].animatable !== false);
+    try {
+      result.behavior = normalizeBehavior(animation.behavior, (key) => movable.includes(key), { duration: animation.duration, effect: true,
+        keyHint: (key, label) => `${label}.${key}: ${effect.key} has no setting ${key} that can move; use ${movable.join(", ") || "none"}` });
+    } catch (error) { throw new TypeError(`behavior ${error.message}`); }
   }
   if (animation.intensity == null) delete result.intensity;
   else result.intensity = normalizeIntensity(animation.intensity);
@@ -83,7 +93,13 @@ function parametersAt(effect, from, to, progress) {
 function sample(operation, effect, from, time) {
   const seconds = clamp(time - operation.start, 0, operation.duration);
   const progress = easingAt(operation.easing ?? effect.easing, seconds / operation.duration, operation.intensity ?? 50);
-  return { operation, effect, parameters: parametersAt(effect, from, operation.to, progress), time: seconds, progress };
+  const parameters = parametersAt(effect, from, operation.to, progress);
+  if (operation.behavior) for (const [key, value] of Object.entries(parameters)) {
+    const field = effect.parameters[key];
+    const offset = field.type === "number" ? behaviorOffset(operation.behavior, key, seconds, operation.duration) : 0;
+    if (offset) parameters[key] = field.integer ? Math.round(clamp(value + offset, field.min, field.max)) : clamp(value + offset, field.min, field.max);
+  }
+  return { operation, effect, parameters, time: seconds, progress };
 }
 
 /**

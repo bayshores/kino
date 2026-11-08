@@ -13,7 +13,7 @@ import { DOCUMENT_VERSION, MAX_MEDIA_SECONDS, MAX_TIME, MAX_UPLOAD_BYTES } from 
 import { normalizeEasing as canonicalEasing, normalizeIntensity } from "./easing.js";
 import { normalizeSmoothing, normalizeTextRange } from "./textTiming.js";
 import { isMoveAnimation, normalizeMotionPath } from "./motionPath.js";
-import { normalizeBehavior } from "./behavior.js";
+import { behaviorKeys, normalizeBehavior } from "./behavior.js";
 import { normalizePreset, normalizeDiscrete } from "./presetCatalog.js";
 import { normalizeReveal } from "./reveal.js";
 import { normalizeEffectPresetValue } from "./effects/presetCatalog.js";
@@ -678,8 +678,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   if (animation.animations !== undefined) fail(`${path}.animations`, "members require a Composed group");
   if (offset + Number(animation.start) + (Number(animation.duration) || 0) > MAX_TIME)
     fail(path, `absolute start plus duration cannot exceed ${MAX_TIME} seconds`);
-  if (animation.behavior != null && !["in", "out", "custom"].includes(animation.kind))
-    fail(`${path}.behavior`, "requires a timed in, out, or custom operation");
+  if (animation.behavior != null && !["in", "out", "custom", "effect"].includes(animation.kind))
+    fail(`${path}.behavior`, "requires a timed in, out, custom or effect operation");
   if (isEffectAnimation(animation)) {
     if (layer.type === "audio") fail(path, "Effects need a layer that is drawn");
     try { return normalizeEffectAnimation(animation, { maxTime: MAX_TIME }); }
@@ -729,10 +729,9 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   const keyList = animation.keys ? readAnimationKeys(animation, path) : null;
   const from = requireRecord(animation.from, `${path}.from`);
   const to = requireRecord(animation.to, `${path}.to`);
-  // A wiggle may name the keys it drifts in its amount (behavior.js): they join from and to at
-  // the layer's own value, so the layer wiggles in place.
-  const wiggleAmount = animation.behavior?.wiggle?.amount;
-  const wiggled = wiggleAmount && typeof wiggleAmount === "object" && !Array.isArray(wiggleAmount) ? Object.keys(wiggleAmount) : [];
+  // A behavior may name the keys it moves in its amount (behavior.js): they join from and to at
+  // the layer's own value, so the layer wiggles (oscillates, ramps...) in place.
+  const wiggled = behaviorKeys(animation.behavior);
   const propertyKeys = new Set([...Object.keys(from), ...Object.keys(to), ...wiggled]);
   if (propertyKeys.size === 0) fail(path, "must animate at least one property");
   const normalizedFrom = {};
@@ -823,7 +822,7 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   }
   if (animation.behavior === undefined || animation.behavior === null) delete animation.behavior;
   else {
-    try { animation.behavior = normalizeBehavior(animation.behavior, (key) => typeof normalizedTo[key] === "number"); }
+    try { animation.behavior = normalizeBehavior(animation.behavior, (key) => typeof normalizedTo[key] === "number", { duration: animation.duration }); }
     catch (error) { fail(`${path}.behavior`, error.message); }
     // The sound and clip clock read each animation once (mediaTime.js, audio mix): no repeats.
     const media = ["speed", "volume", "lowpass"].filter((key) => propertyKeys.has(key));
@@ -831,8 +830,9 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     // One wiggle number is in each key's own units: 8 is fine for x and rotation, 800% for scale.
     const numeric = Object.keys(normalizedTo).filter((key) => typeof normalizedTo[key] === "number");
     const fractions = numeric.filter((key) => FRACTION_KEYS.has(key));
-    if (typeof animation.behavior.wiggle?.amount === "number" && fractions.length && numeric.length > 1)
-      fail(`${path}.behavior.wiggle.amount`, `one number drifts every key by the same size, but ${fractions.join(", ")} ${fractions.length > 1 ? "are fractions" : "is a fraction"}: give one per key, such as {x:8, ${fractions[0]}:0.05}`);
+    for (const [kind, field] of [["wiggle", "amount"], ["oscillate", "amount"], ["randomize", "amount"], ["ramp", "to"]])
+      if (typeof animation.behavior[kind]?.[field] === "number" && fractions.length && numeric.length > 1)
+        fail(`${path}.behavior.${kind}.${field}`, `one number ${kind === "wiggle" ? "drifts" : "moves"} every key by the same size, but ${fractions.join(", ")} ${fractions.length > 1 ? "are fractions" : "is a fraction"}: give one per key, such as {x:8, ${fractions[0]}:0.05}`);
   }
   if (animation.shadowChannels === undefined || animation.shadowChannels === null) delete animation.shadowChannels;
   else {

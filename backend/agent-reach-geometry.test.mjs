@@ -339,3 +339,22 @@ test("later ops of the same edit can name what duplicate_layers and split_layer 
   assert.equal(named("app 3").volume, 0.5);
   assert.equal(named("shot 1 2")?.mediaStart, 2, "a numbered name that is not a piece keeps its number");
 });
+
+test("oscillate, ramp and randomize reach the agent on a layer and on an effect's settings; a bad one is refused", async () => {
+  const before = fixture("geometry-param-behaviors");
+  await createProject(before.id, before);
+  const reply = await agent("edit", { project: before.id, ops: [
+    { op: "add_animation", layer: "red", animation: { kind: "custom", name: "Bob", start: 0, duration: 2, from: {}, to: {},
+      behavior: { oscillate: { amount: { y: 6 }, period: 0.5, wave: "triangle" }, ramp: { to: { rotation: 30 } }, randomize: { amount: { x: 2 }, mode: "stepped", rate: 8, seed: 3 } } } },
+    { op: "add_animation", layer: "red", effect: "hue-saturation", parameters: { hue: 0 }, behavior: { oscillate: { amount: { hue: 40 }, period: 1 } } },
+  ] });
+  assert.equal(reply.isError, undefined, reply.text);
+  const [bob, hue] = (await saved(before.id)).document.scenes[0].layers.find((layer) => layer.id === "red").animations;
+  assert.deepEqual(bob.behavior.oscillate, { amount: { y: 6 }, period: 0.5, phase: 0, wave: "triangle", decay: 0 });
+  assert.deepEqual(bob.behavior.ramp, { to: { rotation: 30 }, start: 0, ease: "linear" });
+  assert.deepEqual(hue.behavior, { oscillate: { amount: { hue: 40 }, period: 1, phase: 0, wave: "sine", decay: 0 } });
+  const refused = await agent("edit", { project: before.id, ops: [
+    { op: "add_animation", layer: "red", effect: "hue-saturation", parameters: { hue: 0 }, behavior: { oscillate: { amount: 40 } } }] });
+  assert.equal(refused.isError, true);
+  assert.match(refused.text, /on an effect, name the settings/);
+});

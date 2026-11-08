@@ -92,7 +92,7 @@ function animationKeys(animation) {
 
 /** A ranged effect whose values stay the same throughout (a steady glow) changes nothing over its time. */
 function steadyEffect(animation) {
-  if (animation.kind !== "effect") return false;
+  if (animation.kind !== "effect" || animation.behavior) return false;
   try { if (effectDefinition(animation.effect).kind !== "ranged") return false; } catch { return false; }
   return Object.entries(animation.from ?? {}).every(([key, value]) => JSON.stringify(value) === JSON.stringify(animation.to?.[key]));
 }

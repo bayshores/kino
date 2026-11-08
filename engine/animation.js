@@ -26,7 +26,7 @@ import { interpolateReveal, normalizeReveal } from "./reveal.js";
 import { scatteredAnimation, textRangeProgress, unitDelay } from "./textTiming.js";
 import { usesCurrentInitialValue } from "./animationInitialValue.js";
 import { flattenAnimations } from "./animationTree.js";
-import { behaviorTime, wiggleOffset } from "./behavior.js";
+import { behaviorJumps, behaviorOffset, behaviorTime, hasOffsets } from "./behavior.js";
 
 import { easingAt } from "./easing.js";
 import { LOWPASS_MIN, LOWPASS_OPEN } from "./lowpass.js";
@@ -974,9 +974,10 @@ function applyOperations(target, layer, ordered, time, options, {
     }
 
     const duration = numberForAnimation(animation.duration, 0);
-    // A loop plays the pass again after it ends, and a wiggle drifts the numbers (behavior.js).
+    // A loop plays the pass again after it ends; wiggle, oscillate, ramp and randomize add to the
+    // numbers (behavior.js).
     const local = behaviorTime(animation, time - start, duration);
-    const wiggle = animation.behavior?.wiggle;
+    const offsets = hasOffsets(animation.behavior) ? animation.behavior : null;
     // Ephemeral sampling metadata: a cycle jumps back at each new pass, which Lottie must hold.
     if (animation.behavior?.loop?.mode === "cycle" && duration > 0)
       target._loopPass = `${target._loopPass ?? ""}${animation.id}:${Math.floor((time - start) / duration)};`;
@@ -990,6 +991,8 @@ function applyOperations(target, layer, ordered, time, options, {
     // Ephemeral sampling metadata: a steps curve jumps between frames, which Lottie must hold.
     if ((step ? step.ease : animation.easing) === "steps")
       target._stepsAt = `${target._stepsAt ?? ""}${animation.id}:${step ? `${step.index}/` : ""}${eased};`;
+    const jumps = offsets ? behaviorJumps(offsets, local, duration) : "";
+    if (jumps) target._stepsAt = `${target._stepsAt ?? ""}${animation.id}:${jumps};`;
     // A range selector (textTiming.js textRangeProgress): this unit's share of the eased sweep.
     if (animation.range) eased = textRangeProgress(animation.range, eased, operationUnitIndex(animation, options), operationUnitCount(animation, options));
     // Ephemeral sampling metadata: Lottie must hold these opacity switches between frames.
@@ -1016,8 +1019,8 @@ function applyOperations(target, layer, ordered, time, options, {
             : key === "volume" && !step && isPowerFade(animation, fromValue, toValue)
               ? interpolateValue(fromValue, toValue, equalPowerProgress(fromValue, toValue, progress))
             : interpolateValue(fromValue, toValue, eased);
-    if (wiggle && typeof target[key] === "number") {
-      target[key] += wiggleOffset(wiggle, key, Math.min(local, duration), duration);
+    if (offsets && typeof target[key] === "number") {
+      target[key] += behaviorOffset(offsets, key, Math.min(local, duration), duration);
       if (key === "opacity") target[key] = Math.max(0, Math.min(1, target[key]));
     }
     }
