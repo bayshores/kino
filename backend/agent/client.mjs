@@ -17,6 +17,8 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { readExplicitMediaFile } from "../media-file.mjs";
+import { makeWorkingCopy } from "../media-working-copy.mjs";
+import { MAX_UPLOAD_BYTES } from "../../engine/schema.js";
 import { inlineCaptionFiles } from "./caption-file.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 
@@ -102,7 +104,8 @@ function request(url, { method = "GET", headers = {}, body, signal } = {}) {
 // token), looks again and retries once on the new connection; and a change to the desktop
 // connection file (`runtimeFile`) is noticed before the next call. So the agent never has to
 // restart its MCP server after the app restarts.
-export function createAgentClient(connection, { name = "mcp", session, reconnect, runtimeFile } = {}) {
+// maxUploadBytes: the upload limit (kino's server takes MAX_UPLOAD_BYTES; tests set it lower).
+export function createAgentClient(connection, { name = "mcp", session, reconnect, runtimeFile, maxUploadBytes = MAX_UPLOAD_BYTES } = {}) {
   const sessionId = session ?? randomUUID().replace(/-/g, "").slice(0, 16);
   let current = connection;
   // The hash of kino's tool list from its last agent answer (x-kino-tools; agent/tool-sync.mjs).
@@ -200,24 +203,31 @@ export function createAgentClient(connection, { name = "mcp", session, reconnect
       if (reply.isError || reply.data?.held || reply.data?.waiting) return { refused: reply };
       return reply.data;
     }
-    const file = await readExplicitMediaFile(String(filePath ?? ""));
+    const file = await readExplicitMediaFile(String(filePath ?? ""), { maxBytes: maxUploadBytes });
     const size = (await lstat(file.actualPath)).size;
     const check = await call("project", { action: "import", name: file.name, size }, { signal, client });
     if (!check?.data?.ok) return { refused: check };
-    const response = await send("/api/media", {
-      method: "POST",
-      headers: { "content-type": file.mime, "x-file-name": file.name, "x-kino-agent": "1" },
-      body: createReadStream(file.actualPath),
-      signal,
-    });
-    if (!response.ok) {
-      const text = await response.text();
-      // kino's own refusals are {error: "why"}, such as a video without FFmpeg's shot filters.
-      let reason = null;
-      try { reason = JSON.parse(text).error; } catch { /* another body: shown as it came */ }
-      throw new Error(typeof reason === "string" ? `kino refused the file: ${reason}` : `kino refused the file (${response.status}): ${text.slice(0, 500)}`);
-    }
-    return response.json();
+    // Over the limit: kino's own smaller copy goes up instead (media-working-copy.mjs).
+    const copy = file.tooLarge ? await makeWorkingCopy(file, { maxBytes: maxUploadBytes, signal }) : null;
+    try {
+      // The open project (from the check) owns the upload, as the app's own imports do.
+      const project = typeof check.data.project === "string" ? `?project=${encodeURIComponent(check.data.project)}` : "";
+      const response = await send(`/api/media${project}`, {
+        method: "POST",
+        headers: { "content-type": copy?.mime ?? file.mime, "x-file-name": file.name, "x-kino-agent": "1" },
+        body: createReadStream(copy?.path ?? file.actualPath),
+        signal,
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        // kino's own refusals are {error: "why"}, such as a video without FFmpeg's shot filters.
+        let reason = null;
+        try { reason = JSON.parse(text).error; } catch { /* another body: shown as it came */ }
+        throw new Error(typeof reason === "string" ? `kino refused the file: ${reason}` : `kino refused the file (${response.status}): ${text.slice(0, 500)}`);
+      }
+      const media = await response.json();
+      return copy ? { ...media, note: copy.note } : media;
+    } finally { await copy?.cleanup(); }
   }
 
   /** Reads a dashboard route (GET /api/dashboard/<route>) as JSON. */
@@ -294,5 +304,6 @@ export function importedText(media) {
     ? `. Add it: edit {ops:[{op:"add_layer", layerType:"${layerType}", name, properties:{src:"${record?.src}"${size}${sourceDuration}${log}}}]}`
     : kind === "font" ? ". It is now in library fonts; set_font uses it."
     : record?.lut ? `, a ${record.lut.type.toUpperCase()} LUT of size ${record.lut.size}. Grade a layer with it: edit {ops:[{op:"add_animation", layer, effect:"lut", parameters:{lut:"${record?.src}"}}]}` : ""}`;
-  return kind === "video" ? `${text}\n${shotsLine(record)}` : text;
+  const note = typeof media?.note === "string" ? `\n${media.note}` : "";
+  return `${kind === "video" ? `${text}\n${shotsLine(record)}` : text}${note}`;
 }

@@ -49,8 +49,8 @@ In a shell: `kino check why="see what blocks a final render" next="fix the title
 - Some calls need the person's approval: a final render over 600 frames (counted with
   `options.duration`, fps and boomerang), overwriting an existing file, deleting a scene,
   archiving a project, an import over the person's import limit and share links
-  (`project {action:"share", id, role:"view"}`). Files over 100 MB are refused; the import
-  limit is 200 MB by default, so an import asks only when the person sets it under 100 MB.
+  (`project {action:"share", id, role:"view"}`). Video and sound over 100 MB import as kino's
+  smaller copy, other files are refused; an import over the import limit (200 MB) asks first.
   The person can change these limits.
 - They answer at once with `{status:"awaiting_approval", id:"Q1"}`. Keep working; do not send
   it again. A yes or no in the chat counts: `notes {action:"answer", id:"Q1", words, read_as}`.

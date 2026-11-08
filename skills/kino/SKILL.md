@@ -33,7 +33,7 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 | `status` | The outline, `direction:`, `step:`, the plan and your inbox. Call it first. |
 | `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision with a receipt. |
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks in one call. |
-| `look` | `sheet`, `review`, `changed`, `frame`, `frames`, `motion`, `zoom`, `board`, `versus`, `viewer`, `critique`. |
+| `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets or re-encodes). |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
 | `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. |
 | `library` | Exact rules: `{topic:"op", name}` (fields, an example), presets, fonts, blocks. |

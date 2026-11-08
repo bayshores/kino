@@ -29,7 +29,9 @@ export const MEDIA_TYPES = new Map([
   [".cube", LUT_MIME],
 ]);
 
-export async function readExplicitMediaFile(filePath) {
+// A video or sound over `maxBytes` comes back with tooLarge: the caller makes a working copy
+// (media-working-copy.mjs). Any other file over it is refused.
+export async function readExplicitMediaFile(filePath, { maxBytes = MAX_UPLOAD_BYTES } = {}) {
   if (!path.isAbsolute(filePath))
     throw new Error("Choose a media file by its absolute local path.");
   const actualPath = await realpath(filePath);
@@ -42,14 +44,16 @@ export async function readExplicitMediaFile(filePath) {
   const details = await stat(actualPath);
   if (!details.isFile())
     throw new Error("The selected path must be a regular file.");
-  if (details.size > MAX_UPLOAD_BYTES)
+  const tooLarge = details.size > maxBytes;
+  if (tooLarge && !/^(video|audio)\//.test(mime))
     throw new Error(
-      `Media files must be at most ${MAX_UPLOAD_BYTES} bytes (100 MB).`,
+      `Media files must be at most ${maxBytes} bytes (${Math.round(maxBytes / 1024 / 1024)} MB).`,
     );
   return {
     actualPath,
     mime,
     size: details.size,
     name: path.basename(actualPath),
+    ...(tooLarge ? { tooLarge } : {}),
   };
 }

@@ -34,8 +34,11 @@ Syncing two clips · B-roll on the spoken word
   and keeps the layer's box, transform, effects and animations. Audio replaces only audio.
 - Before you choose a crop or framing for a clip, `look {mode:"source", layer}` shows its whole
   frame with the crop; never guess where the subject is. The framing reference has the steps.
-- After import, `look {mode:"source", layer:"<file name>"}` shows a whole clip in 12 frames
-  (file seconds), one sheet a clip: no FFmpeg contact sheets of your own.
+- After import, `look {mode:"source"}` (no layer) shows every clip and picture of the project,
+  3 to 6 frames each; `layer:"<file name>"` one clip in 12 frames; `times:[…]` those file
+  seconds. No FFmpeg contact sheets or frame grabs of your own.
+- A video or sound over 100 MB imports as kino's own smaller copy (the answer says so): never
+  re-encode it yourself.
 
 ## Cutting and skipping inside a clip
 

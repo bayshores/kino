@@ -27,6 +27,7 @@ import { renderContentKey } from "../render-segment-cache.mjs";
 import { graphicsCacheInput } from "../render-devices.mjs";
 import { sec } from "./describe.mjs";
 import { coverImage } from "./judge.mjs";
+import { CLIPS_GAP, CLIPS_HEADER } from "./clips-sheet.mjs";
 
 // Bump when rendering changes so cached frames are not reused.
 export const RENDERER_VERSION = "a6.2";
@@ -469,6 +470,37 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       const tiles = times.map((time, index) => ({ ...drawn[index], time, label: labels?.[index] ?? `${index + 1} · ${time}s` }));
       const png = await sheet(tiles, { columns: columns ?? columnsFor(tiles.length, tile), tile });
       return { png, frames: tiles.map(({ time, key }) => ({ time, key, width: tile.width })), tile };
+    },
+
+    // look source with no layer: one page of clips-sheet.mjs layoutClips. `blocks[place.index]`
+    // is { header, tiles: [{png, label}] }: the header above, the tiles in a row under it.
+    async clipsImage(page, blocks) {
+      ensureLabelFont();
+      const canvas = createCanvas(page.width, Math.max(2, page.height));
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#101114";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.textBaseline = "alphabetic";
+      for (const place of page.places) {
+        const block = blocks[place.index];
+        context.font = "13px kino-label, sans-serif";
+        let header = block.header;
+        while (header.length > 4 && context.measureText(header).width > place.width) header = `${header.slice(0, -2)}…`;
+        context.fillStyle = "#ffffff";
+        context.fillText(header, place.x, place.y + 15);
+        context.font = "11px kino-label, sans-serif";
+        for (const [index, entry] of block.tiles.entries()) {
+          const x = place.x + index * (place.tile.width + CLIPS_GAP);
+          const y = place.y + CLIPS_HEADER;
+          context.drawImage(await loadImage(entry.png), x, y, place.tile.width, place.tile.height);
+          const width = context.measureText(entry.label).width + 8;
+          context.fillStyle = "rgba(0,0,0,0.72)";
+          context.fillRect(x, y + place.tile.height - 16, width, 16);
+          context.fillStyle = "#ffffff";
+          context.fillText(entry.label, x + 4, y + place.tile.height - 4);
+        }
+      }
+      return canvas.toBuffer("image/png");
     },
 
     // Draws the frames of several sheets (or seam rows: `seams` true, `times` the cuts) in one
