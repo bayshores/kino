@@ -14,6 +14,7 @@ import { enabledAnimations } from "../animationEnabled.js";
 import { visibleByOperations } from "../visibilityOps.js";
 import { round } from "./moves/kit.js";
 import { RESTORED } from "../blockFields.js";
+import { subjectOf } from "./subject.js";
 
 const PART = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const MAX_TEXT = 200;
@@ -184,6 +185,8 @@ export function runMove(definition, options) {
   const raises = [];
   const sets = [];
   const keys = new Set();
+  // Layers inside a group a move works on as they are (definition.nested): layer ID -> its group.
+  const lifted = new Map();
   // A move that stays (a status line) lasts to the end of the scene unless dur says otherwise.
   // timing(input): a move whose length depends on its fields (zoom-through reverse is shorter).
   const timing = { length: definition.length, shortest: definition.shortest, ...definition.timing?.(input) };
@@ -203,10 +206,23 @@ export function runMove(definition, options) {
     picture(ref) { return media(ref); },
     /** A clip's or picture's file size by its src ({width, height}), or null when unknown. */
     fileSize(src) { return fileSize(src); },
-    /** One of the scene's layers by ID, as it is now. Moves work on top-level layers only. */
+    /**
+     * One of the scene's layers by ID, as it is now. Moves work on top-level layers, except in
+     * the fields a move lists in `nested`: it only animates that layer and adds its parts beside
+     * it in its group (ctx.add with {above} or {below} it), so a layer inside a group works as itself.
+     */
     layer(layerId, field = "layer") {
       const found = scene.layers.find((layer) => layer.id === layerId);
       if (!found) throw new Error(`${definition.name} ${field}: no layer "${layerId}" in this scene.`);
+      if (definition.nested?.includes(field) && found.type !== "audio" && found.move?.instance !== id) {
+        if (found.isMask) throw new Error(`${definition.name} ${field}: ${layerId} is a mask; give the layer it masks or its group.`);
+        // Every layer the move reads must share one group's coordinates.
+        const group = found.parentId ?? null;
+        const other = [...lifted].find(([, parent]) => parent !== group);
+        if (other) throw new Error(`${definition.name} ${field}: ${layerId} and ${other[0]} must be in the same group (or both at the top level).`);
+        lifted.set(found.id, group);
+        return found;
+      }
       if (found.parentId) {
         // A layer alone in its group (frame wraps one in a <layer>-camera group): the group is meant.
         let top = found;
@@ -219,8 +235,18 @@ export function runMove(definition, options) {
       }
       if (found.type === "audio") throw new Error(`${definition.name} ${field}: ${layerId} is a sound; give a layer that is drawn.`);
       if (found.move?.instance === id) throw new Error(`${definition.name} ${field}: ${layerId} was made by this move; give one of your own layers.`);
+      if (definition.nested) {
+        const other = [...lifted].find(([, parent]) => parent !== null);
+        if (other) throw new Error(`${definition.name} ${field}: ${layerId} and ${other[0]} must be in the same group (or both at the top level).`);
+        lifted.set(found.id, null);
+      }
       return found;
     },
+    /**
+     * The subject of the move (engine/blocks/subject.js): a layer ID or {text: words}. Returns its
+     * kind, box, scene box, the center of what it draws and mask(part, place) for a white mask copy.
+     */
+    subject(input, options) { return subjectOf(ctx, scene.layers, input, options); },
     /** Adds a layer. place: "top", "bottom", {below: layerId} or {above: layerId}; parent: a group this move made. Returns the layer. */
     add(part, layer, place = "top", parent = null) {
       if (!PART.test(part)) throw new Error(`${definition.name}: bad part name ${part}.`);
@@ -229,7 +255,9 @@ export function runMove(definition, options) {
       // A layer inside a group the move made uses the group's box as its coordinates (x 0, y 0 is its corner).
       // Its name is its ID, so the name an agent reads in status is unique and works in an edit
       // (seven "Caption shade" layers could not be told apart).
-      const made = { ...layer, id: layerId, name: layerId, parentId: parent ? parent.id : null, animations: [], move: { name: definition.name, instance: id, part } };
+      // A part placed beside a layer of yours inside a group (definition.nested) goes in that group.
+      const beside = typeof place === "object" ? lifted.get(place.below ?? place.above) ?? null : null;
+      const made = { ...layer, id: layerId, name: layerId, parentId: parent ? parent.id : beside, animations: [], move: { name: definition.name, instance: id, part } };
       added.push({ layer: made, place });
       return made;
     },

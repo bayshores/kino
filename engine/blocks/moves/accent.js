@@ -97,6 +97,8 @@ const glowTo = (color, radius, strength) => ({ strength, radius: round(radius, 1
 export const accentHit = {
   name: "accent-hit",
   needsAt: true,
+  // A layer inside a group works as itself: the overlay goes beside it in its group.
+  nested: ["layer"],
   about: "a word or shape flashes to one color with a glow that blooms and decays back to its own color in a few frames (a verb as it is said): color only where it means something",
   fits: "the one word that matters in a line, a verb as it is said, a button pressed, a status that turns on",
   tags: ["accent-hit"],
@@ -177,6 +179,7 @@ const SWEEP_STEPS = 10;
 export const lightSweep = {
   name: "light-sweep",
   needsAt: true,
+  nested: ["layer"],
   about: "a band of light in one color, with a soft halo, travels once across a word or a shape, left to right (a sign-off)",
   fits: "a name or wordmark that has just landed, a word that should catch the light; once, not on every line",
   tags: ["light-sweep"],

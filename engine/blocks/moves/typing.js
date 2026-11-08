@@ -68,6 +68,8 @@ export function caretStops(layout, units) {
 
 export const typeOn = {
   name: "type-on",
+  // A text (and its field) inside a group works as itself: the caret goes beside it in its group.
+  nested: ["layer", "field"],
   about: "your text layer is typed on letter by letter with a caret after the last letter; an input box can grow with it",
   fits: "a prompt typed into a search bar, chat or command box; a name typed into a field",
   tags: ["type-letters"],

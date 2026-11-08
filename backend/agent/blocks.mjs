@@ -109,7 +109,7 @@ const OPERATIONS = {
   },
   move: {
     fields: ["name", "id", "sceneId", "remove", ...MOVE_KEYS, ...MOVE_FIELDS],
-    rules: 'move {name, at, align?, dur?, scene?, id?, seed?, reduced?, look?, brand?, …its fields}: builds a designed set piece (zoom-through, whip-pan, caption-words, …) from your layers, pictures and brand. at: seconds or any at form ("cue:drop", "after:title.in"); align: start (default), center or end puts the span starting at, centered on or ending at at (end lands a transition on the beat). Layer fields take names or codes of top-level layers (give a group for nested ones). The same id again makes it again with your changes; {name, id, remove:true} takes it away. id names its parts (<id>-<part>) and the animations it puts on your layers (<id>.<role>-<name>). library {topic:"moves"} lists them; library {topic:"moves", name} gives one\'s fields and an example.',
+    rules: 'move {name, at, align?, dur?, scene?, id?, seed?, reduced?, look?, brand?, …its fields}: builds a designed set piece (zoom-through, whip-pan, caption-words, …) from your layers, pictures and brand. at: seconds or any at form ("cue:drop", "after:title.in"); align: start (default), center or end puts the span starting at, centered on or ending at at (end lands a transition on the beat). Layer fields take names or codes of top-level layers (give a group for nested ones; type-on, accent-hit and light-sweep take a layer inside a group as itself). The same id again makes it again with your changes; {name, id, remove:true} takes it away. id names its parts (<id>-<part>) and the animations it puts on your layers (<id>.<role>-<name>). library {topic:"moves"} lists them; library {topic:"moves", name} gives one\'s fields and an example.',
   },
   compose: {
     fields: ["sceneId", "id", "name", "videoType", ...COMPOSE_KEYS.filter((key) => key !== "type"), ...FOOTAGE_FIELDS],
@@ -2236,6 +2236,7 @@ export function movesLibraryText(name) {
       `fits: ${move.fits}.`,
       `fields (* = required): ${Object.entries(move.fields).filter(([, field]) => !field.retired).map(([key, field]) => `${key}${field.required ? "*" : ""}: ${field.about}`).join("; ")}.`,
       `at${move.needsAt ? "*" : ""}: when it starts; dur: seconds (${move.lasts ?? `default ${move.length}`}${move.shortest ? `, at least ${move.shortest}` : ""}); seed: other choices; reduced:true (or a reduced composition): ${move.reduced ?? "a calm version with fades, no blur sweeps"}.`,
+      move.nested?.length ? `${move.nested.join(" and ")} may be a layer inside a group (used as itself; its parts go in that group).` : "",
       `example: ${JSON.stringify({ op: "move", name: move.name, ...move.example })}`,
       move.setup ? `the example's layers: ${move.setup}` : "",
     ].filter(Boolean).join("\n");
