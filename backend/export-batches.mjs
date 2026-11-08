@@ -149,7 +149,8 @@ function frameRate(options) {
   return options.fps ?? (options.format === "lottie" ? 60 : 30);
 }
 
-function sceneOptions(options, scene) {
+// Exported for tests.
+export function sceneOptions(options, scene) {
   const scoped = stillOptionsForScene(options, scene);
   if (options.renderQuality === undefined) return scoped;
 
@@ -186,6 +187,9 @@ function sceneOptions(options, scene) {
   delete result.draftWidth;
   delete result.draftFps;
   delete result.shutterAngle;
+  // Without motionSamples each frame draws as many as its fastest move needs (export.mjs
+  // frameMotionSamples); normalizeRenderQuality's default of 2 would turn that off.
+  if (options.motionSamples === undefined) delete result.motionSamples;
   return result;
 }
 

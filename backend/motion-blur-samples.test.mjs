@@ -55,3 +55,12 @@ test("a frame where nothing moves is the same with one sample or sixteen", async
   const sixteen = await exportScene(scene, { format: "png", time: 0.1, fps: 30, dither: true, shutterAngle: 360, motionSamples: 16 });
   assert.deepEqual(sixteen.buffer, still.buffer);
 });
+
+test("a queued final render leaves the sample count to each frame unless motionSamples is given", async () => {
+  const { sceneOptions } = await import("./export-batches.mjs");
+  const scene = barScene();
+  const auto = sceneOptions({ format: "mp4", renderQuality: "final" }, scene);
+  assert.equal(auto.motionBlur, 0.5);
+  assert.equal("motionSamples" in auto, false);
+  assert.equal(sceneOptions({ format: "mp4", renderQuality: "final", motionSamples: 4 }, scene).motionSamples, 4);
+});
