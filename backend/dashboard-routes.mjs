@@ -717,7 +717,7 @@ export function createDashboardRoutes(deps) {
     if (route === "board" && ["GET", "HEAD"].includes(method)) return boardPage(req, res, url);
     if (route === "board-data" && ["GET", "HEAD"].includes(method)) return boardData(req, res, url);
     if (route === "board-shot" && ["GET", "HEAD"].includes(method)) return boardShot(req, res, url);
-    if (route === "library" && method === "GET") return json(res, 200, libraryCatalog());
+    if (route === "library" && method === "GET") { agentService.libraryWarm?.(); return json(res, 200, libraryCatalog()); }
     if (route === "library-sample" && method === "GET") {
       const sample = await agentService.librarySample(url.searchParams.get("kind") ?? "", url.searchParams.get("name") ?? "");
       return json(res, 200, sample ?? { document: null });

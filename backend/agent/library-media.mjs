@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { LIBRARY_MEDIA } from "./library-catalog.mjs";
 import { compactRecording } from "../../engine/recording.js";
 import { runMediaTool } from "../media-probe.mjs";
@@ -204,4 +204,21 @@ export function libraryMedia(mediaRoot) {
     return LIBRARY_MEDIA.map((item) => ({ ...item }));
   })().finally(() => { pending = null; });
   return pending;
+}
+
+/** One card from several frames (PNG buffers of one size): an equal slice of each, its middle,
+ *  side by side with a thin dark gap, so a card can show a cut. Answers a PNG buffer. */
+export async function stripPng(frames) {
+  const images = await Promise.all(frames.map((frame) => loadImage(frame)));
+  const { width, height } = images[0];
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#0B0E12";
+  context.fillRect(0, 0, width, height);
+  const slice = width / images.length;
+  images.forEach((image, index) => {
+    const gap = index ? 2 : 0;
+    context.drawImage(image, (width - slice) / 2 + gap, 0, slice - gap, height, index * slice + gap, 0, slice - gap, height);
+  });
+  return canvas.toBuffer("image/png");
 }

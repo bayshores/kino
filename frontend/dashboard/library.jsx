@@ -23,9 +23,17 @@ const KIND_LABEL = { move: "move", effect: "effect", animation: "animation", rec
 const samples = new Map();
 function sampleOf(entry) {
   if (!samples.has(entry.id)) samples.set(entry.id, librarySample(entry.kind, entry.name)
-    .then(async (sample) => { if (sample.document) await loadBrowserFonts(sample.document).catch(() => {}); return sample; })
+    .then(async (sample) => {
+      if (sample.document) await Promise.all([loadBrowserFonts(sample.document).catch(() => {}), loadPictures(sample.document)]);
+      return sample;
+    })
     .catch(() => ({ document: null })));
   return samples.get(entry.id);
+}
+// The sample's pictures, loaded and decoded before it plays, so its first frames are not empty.
+function loadPictures(document) {
+  const sources = new Set((document.scenes?.[0]?.layers ?? []).filter((layer) => layer.type === "image" && layer.src).map((layer) => layer.src));
+  return Promise.all([...sources].map((src) => { const image = new Image(); image.src = src; return image.decode().catch(() => {}); }));
 }
 function useSample(entry) {
   const [sample, setSample] = useState(null);
@@ -52,26 +60,30 @@ function Player({ entry }) {
   const [playing, setPlaying] = useState(true);
   const [time, setTime] = useState(0);
   const scene = sample?.document?.scenes?.[0];
-  const duration = Number(scene?.duration) || 1;
+  // It loops the stretch where the entry acts (sample.loop), not the whole sample.
+  const [from, to] = sample?.loop ?? [0, Number(scene?.duration) || 1];
+  const length = Math.max(0.1, to - from);
   useEffect(() => {
     if (!scene || !playing) return undefined;
     let frame = 0;
-    const start = performance.now() - time * 1000;
-    const step = (now) => { setTime(((now - start) / 1000) % duration); frame = requestAnimationFrame(step); };
+    const start = performance.now() - Math.max(0, time - from) * 1000;
+    const step = (now) => { setTime(from + (((now - start) / 1000) % length)); frame = requestAnimationFrame(step); };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
-  }, [scene, playing, duration]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setTime(0); setPlaying(true); }, [entry.id]);
+  }, [scene, playing, from, length]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setTime(sample?.loop?.[0] ?? 0); setPlaying(true); }, [entry.id, sample]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="lib-player">
       <div className="lib-stage">
+        {/* The card's still sits under the preview, so the box is never black while its pictures load. */}
+        {entry.kind !== "format" && (scene || !sample) ? <img className="lib-under" src={libraryStillUrl(entry.kind, entry.name)} alt="" /> : null}
         {scene ? <ScenePreview document={sample.document} scene={scene} time={time} design={false} playing={playing} fontVersion={0} audio="external" skipPrewarm />
           : <span className="lib-none">{sample ? (entry.kind === "format" ? "a whole video, made from your own material: no preview here. Ask for it to see it on yours" : "no sample") : ""}</span>}
       </div>
       {scene ? (
         <div className="lib-controls">
           <button type="button" className="tb" aria-label={playing ? "pause" : "play"} onClick={() => setPlaying((value) => !value)}>{playing ? "❚❚" : "▶"}</button>
-          <span className="lib-bar" aria-hidden="true"><span style={{ width: `${(time / duration) * 100}%` }} /></span>
+          <span className="lib-bar" aria-hidden="true"><span style={{ width: `${Math.min(100, Math.max(0, (time - from) / length) * 100)}%` }} /></span>
         </div>
       ) : null}
     </div>

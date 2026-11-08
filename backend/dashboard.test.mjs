@@ -504,7 +504,14 @@ test("the library lists every kind with its count, and a sample is built through
   assert.ok(pictures?.length, "swipe-cards plays on the sample's pictures");
   assert.equal((await server.api(pictures[0])).status, 200, "the app can load a sample picture");
   assert.ok((await sample("move", "freeze-shutter")).document.scenes[0].layers.some((layer) => layer.type === "video"));
-  assert.ok((await sample("recipe", "push")).document);
+  { const pushed = await sample("recipe", "push"); assert.ok(pushed.document, JSON.stringify(pushed).slice(0, 400)); }
+  // The preview loops where the entry acts, not the whole sample: a move's own span, padded.
+  const [from, to] = zoom.loop;
+  assert.ok(from > 0 && to < zoom.document.scenes[0].duration && to - from >= 1.5, JSON.stringify(zoom.loop));
+  // A cut's card is a strip of moments.
+  assert.deepEqual((await sample("technique", "beat-cut")).strip?.length, 4);
+  const cuts = await server.api("/api/dashboard/library-still?kind=technique&name=beat-cut");
+  assert.equal(cuts.status, 200, "the beat cut strip is drawn");
   assert.ok((await sample("technique", "dissolve")).document);
   assert.equal((await sample("format", "app-demo")).document, null);
   const still = await server.api("/api/dashboard/library-still?kind=effect&name=glow");

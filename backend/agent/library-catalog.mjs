@@ -149,14 +149,33 @@ const MOVE_STILL = { slice: 0.3 };
 const MOVE_EXTRA = { "logo-match-move": { picture: "logo" }, "logo-settle": { picture: "logo" } };
 // The middle of an entrance or a transition (where it shows most), or the end of a change.
 const anim = (layer, preset, start, duration, extra = {}) => ({ op: "add_animation", layer, preset, start, ...(duration ? { duration } : {}), ...extra });
+// Effects whose defaults barely change a picture: settings strong enough to see on a card.
+const EFFECT_STRONG = {
+  curves: { master: [[0, 0], [0.25, 0.08], [0.75, 0.92], [1, 1]], blue: [[0, 0.18], [1, 0.82]] },
+  "white-balance": { temperature: -100, tint: 70 },
+  "color-wheels": { liftBlue: 0.35, liftGreen: 0.15, gainRed: 0.25, gamma: 1.2 },
+  "noise-mask": { threshold: 0.5 },
+};
+// Each transition recipe on the two shots, full frame, as it changes beats (recipes/transitions.js):
+// push slides the first out left and the next in from the right; cut-on-motion carries both
+// upward with a blur; mask-wipe sweeps an accent bar with the next shot behind it.
+const slide = (layer, mode, direction, start, extra = {}) => anim(layer, `preset-${extra.id ?? "slide"}`, start, extra.duration ?? 0.6, { mode, parameters: { direction, distance: 100, ...extra.parameters }, easing: "smooth" });
+const TRANSITION_SAMPLES = {
+  push: () => ({ ops: [SHOT_B, SHOT_A, slide("shot-a", "out", "right", 1), slide("shot-b", "in", "left", 1)], duration: 2.6, still: 1.22 }),
+  "cut-on-motion": () => ({ ops: [SHOT_A, SHOT_B, slide("shot-a", "out", "down", 1, { id: "blur-slide", duration: 0.35, parameters: { blur: 30 } }), anim("shot-b", "hide", 0), anim("shot-b", "show", 1.3),
+    slide("shot-b", "in", "up", 1.3, { id: "blur-slide", duration: 0.4, parameters: { blur: 30 } })], duration: 2.6, still: 1.5, strip: [0.9, 1.2, 1.45, 1.8] }),
+  "mask-wipe": () => ({ ops: [SHOT_A, SHOT_B, rect("bar", { x: -140, y: 0, width: 120, height: H, fill: "#FF7D3D" }),
+    anim("shot-b", "preset-wipe", 1, 0.6, { mode: "in", parameters: { direction: "right", softness: 0 }, easing: "smooth" }),
+    { op: "add_animation", layer: "bar", animation: { kind: "custom", start: 1, duration: 0.6, easing: "smooth", from: { x: -140 }, to: { x: W + 20 } } }], duration: 2.6, still: 1.2 }),
+};
 // Plain edits made from the two shots.
 const TECHNIQUE_SAMPLES = {
   dissolve: () => ({ ops: [SHOT_A, SHOT_B, anim("shot-b", "fade-in", 0.8, 1.2)], duration: 3, still: 1.4 }),
   "fade-black": () => ({ ops: [SHOT_A, SHOT_B, anim("shot-a", "fade-out", 0.6, 0.8), anim("shot-b", "fade-in", 1.6, 0.8), anim("shot-b", "hide", 0), anim("shot-b", "show", 1.6)], duration: 3, still: 1.2 }),
   "split-screen": () => ({ ops: [picture("shot-a", { width: W / 2 - 6, height: H / 2 - 4, x: 0, y: H / 4 }), picture("shot-b", { width: W / 2 - 6, height: H / 2 - 4, x: W / 2 + 6, y: H / 4 }),
     anim("shot-a", "slide-right", 0.2, 0.6), anim("shot-b", "slide-left", 0.2, 0.6)], duration: 3, still: 1.4 }),
-  "beat-cut": () => ({ ops: [SHOT_A, SHOT_B, ...[0.5, 1, 1.5, 2].map((at, index) => anim("shot-b", index % 2 ? "hide" : "show", at)), anim("shot-b", "hide", 0)], duration: 2.6, still: 0.7 }),
-  syncopated: () => ({ ops: [SHOT_A, SHOT_B, ...[0.5, 0.75, 1.5, 1.75].map((at, index) => anim("shot-b", index % 2 ? "hide" : "show", at)), anim("shot-b", "hide", 0)], duration: 2.6, still: 0.6 }),
+  "beat-cut": () => ({ ops: [SHOT_A, SHOT_B, ...[0.5, 1, 1.5, 2].map((at, index) => anim("shot-b", index % 2 ? "hide" : "show", at)), anim("shot-b", "hide", 0)], duration: 2.6, still: 0.7, strip: [0.3, 0.7, 1.2, 1.7] }),
+  syncopated: () => ({ ops: [SHOT_A, SHOT_B, ...[0.5, 0.75, 1.5, 1.75].map((at, index) => anim("shot-b", index % 2 ? "hide" : "show", at)), anim("shot-b", "hide", 0)], duration: 2.6, still: 0.6, strip: [0.3, 0.6, 0.9, 1.6] }),
   hold: () => ({ ops: [SHOT_A, anim("shot-a", "scale", 0, 3, { from: 1, to: 1.04 })], duration: 3, still: 1.5 }),
 };
 
@@ -179,7 +198,7 @@ export function sampleOps(kind, name) {
     // On the picture and the word (particles once, on the picture). A ranged effect shows only
     // from its start to its end, so the still is inside that span, past the ramp up.
     const layers = effect.group === "Generate" ? ["shot-a"] : ["shot-a", "word"];
-    const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut } }));
+    const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
   if (kind === "animation") {
@@ -193,11 +212,7 @@ export function sampleOps(kind, name) {
     const still = INSTANT.has(name) ? 1.6 : preset.kind === "out" ? 1.5 : preset.kind === "in" ? 0.95 : 0.85;
     return { ops: [SHOT_B, layer, animation], duration: 2.6, still };
   }
-  if (kind === "recipe" && TRANSITIONS[name]) {
-    // Two beats, the second coming in by this transition.
-    const beats = [{ recipe: "device-slide", media: "shot-a", copy: { text: "First beat" }, dur: 2.7 }, { recipe: "device-slide", media: "shot-b", copy: { text: "Next beat" }, dur: 2.7, transition: name }];
-    return { ops: [{ op: "compose", format: "16:9", look: "bold", beats }], duration: 5.4, still: 3.25 };
-  }
+  if (kind === "recipe" && TRANSITIONS[name]) return TRANSITION_SAMPLES[name]?.() ?? null;
   if (kind === "recipe" && RECIPES[name]) {
     const recipe = RECIPES[name];
     const media = RECIPE_MEDIA[name];

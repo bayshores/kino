@@ -41,7 +41,7 @@ import { hideShareSecrets } from "../shares.mjs";
 import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
-import { libraryMedia } from "./library-media.mjs";
+import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
 import { callLabel, callTarget, pointingText } from "./labels.mjs";
@@ -1976,6 +1976,23 @@ export function createAgentService(deps) {
     const move = document.scenes[0]?.moves?.[0];
     return Number.isFinite(move?.start) && Number.isFinite(move?.end) ? Math.round((move.start + (move.end - move.start) * share) * 30) / 30 : null;
   };
+  // The stretch a sample's preview loops: from a little before its first change to a little after
+  // its last (a move's own span when it has one), at least 1.5 s, so it is not mostly a still.
+  const sampleLoop = (document) => {
+    const scene = document.scenes[0];
+    const duration = Number(scene?.duration) || 1;
+    const move = scene?.moves?.[0];
+    const spans = Number.isFinite(move?.start) && Number.isFinite(move?.end) ? [[move.start, move.end]]
+      : (scene?.layers ?? []).flatMap((layer) => (layer.animations ?? []).map((animation) => [animation.start, animation.start + (animation.duration ?? 0)]));
+    if (!spans.length) return [0, duration];
+    const from = Math.max(0, Math.min(...spans.map(([start]) => start)) - 0.4);
+    let to = Math.min(duration, Math.max(...spans.map(([, end]) => end)) + 0.9);
+    if (to - from < 1.5) to = Math.min(duration, from + 1.5);
+    return [Math.round(from * 30) / 30, Math.round(to * 30) / 30];
+  };
+  // Opening the library draws the samples' pictures and clip once (about 2 s the first time), so
+  // the first card does not wait for them.
+  const libraryWarm = () => { if (deps.mediaRoot) libraryMedia(deps.mediaRoot).catch(() => {}); };
   async function librarySample(kind, name) {
     const key = `${kind}:${name}`;
     if (!samples.has(key)) samples.set(key, (async () => {
@@ -1990,7 +2007,8 @@ export function createAgentService(deps) {
         // The samples' own pictures and clip (library-media.mjs) stand in for uploads.
         const mediaList = deps.mediaRoot ? await libraryMedia(deps.mediaRoot) : [];
         const document = await applyAll(before, translation.operations, sample.ops, { resolver, notes: [], reports: new Map(), mediaList }, problems, translation.blocked);
-        return problems.length ? { document: null, reason: problems[0].message ?? String(problems[0]) } : { document, still: moveMiddle(document, sample.share) ?? sample.still };
+        return problems.length ? { document: null, reason: problems[0].message ?? String(problems[0]) }
+          : { document, still: moveMiddle(document, sample.share) ?? sample.still, loop: sampleLoop(document), ...(sample.strip ? { strip: sample.strip } : {}) };
       } catch (error) { return { document: null, reason: error.message }; }
     })());
     return samples.get(key);
@@ -2005,11 +2023,14 @@ export function createAgentService(deps) {
       if (!sample?.document) return null;
       const { document } = sample;
       // Animation ids are new on each build, so they are left out of the key.
-      const content = JSON.stringify([sample.still, document], (field, value) => (field === "id" && /^[0-9a-f-]{36}$/.test(value) ? undefined : value));
+      const content = JSON.stringify([sample.still, sample.strip ?? null, document], (field, value) => (field === "id" && /^[0-9a-f-]{36}$/.test(value) ? undefined : value));
       const file = path.join(agentDirectory, "library", `${createHash("sha256").update(content).digest("hex").slice(0, 24)}.png`);
       const kept = await readFile(file).catch(() => null);
       if (kept) return kept;
-      const { png } = await look.frame(await prepare(document, document.scenes[0].id, await fontsFor(document)), sample.still, 480);
+      const prepared = await prepare(document, document.scenes[0].id, await fontsFor(document));
+      // A cut cannot show in one frame: a strip of slices, one per moment, side by side.
+      const png = sample.strip ? await stripPng(await Promise.all(sample.strip.map(async (time) => (await look.frame(prepared, time, 480)).png)))
+        : (await look.frame(prepared, sample.still, 480)).png;
       await mkdir(path.dirname(file), { recursive: true });
       await writeFile(file, png);
       return png;
@@ -6567,7 +6588,7 @@ export function createAgentService(deps) {
     return { rev: record.revision, sceneId, shots, voice: await voiceSentences(scene, record.document) };
   }
 
-  return { call, verbs: VERBS, renderJobs, picks, lanes, librarySample, libraryStill, soundtrackMeasuring: (projectId) => exploring.get(projectId) ?? Promise.resolve(), answerStop, reopenStop, afterYourStop, boardPage, boardData, boardShot, settleStop, currentProject: readCurrent, finalRefused };
+  return { call, verbs: VERBS, renderJobs, picks, lanes, librarySample, libraryStill, libraryWarm, soundtrackMeasuring: (projectId) => exploring.get(projectId) ?? Promise.resolve(), answerStop, reopenStop, afterYourStop, boardPage, boardData, boardShot, settleStop, currentProject: readCurrent, finalRefused };
 }
 
 /**

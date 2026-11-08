@@ -31,6 +31,9 @@
 .lib-player { display: grid; gap: 4px; }
 .lib-stage { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; background: #000; }
 .lib-stage > :not(.lib-none) { position: absolute; inset: 0; }
+.lib-stage .lib-under { width: 100%; height: 100%; object-fit: cover; }
+/* The sample draws at its own size (960 x 540); it is fitted to the box, as the stage fits its frame. */
+.lib-stage .scene-svg, .lib-stage .scene-svg > svg { display: block; width: 100%; height: 100%; }
 .lib-controls { display: flex; align-items: center; gap: 1ch; }
 .lib-bar { flex: 1; height: 2px; background: var(--line); }
 .lib-bar span { display: block; height: 100%; background: var(--accent); }
