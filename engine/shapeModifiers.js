@@ -1,23 +1,31 @@
-// Shape modifiers: a zig zag and an offset path change the outline of a rectangle, ellipse, star
-// or path layer before its fill and stroke are drawn. The zig zag runs first, then the offset.
+// Shape modifiers change the outline of a rectangle, ellipse, star or path layer before its fill
+// and stroke are drawn, in this order: round corners, pucker/bloat, twist, zig zag, offset path.
 //
 // Fields on the layer (absent means no modifier; the layer draws as before):
+//   roundCorners   px radius for every sharp corner, 0..1000 (0 = off); animates
+//   bloatAmount    -1..1 (0 = off): above 0 points move in and sides bow out (bloat),
+//                  below 0 points move out and sides pinch in (pucker); animates
+//   twistAngle     degrees the outline's farthest point turns around the center, -3600..3600
+//                  (0 = off); nearer points turn less; animates
+//   twistX, twistY the twist center, px from the layer's middle, -10000..10000 (0); animate
 //   zigzagSize     px each point moves off the outline, -1000..1000 (0 = off); animates
 //   zigzagCount    teeth on each segment of the outline (a side, a quarter of an ellipse), 1..100 (5); animates
 //   zigzagPoints   "corner" (sharp teeth) or "smooth" (a wave) ("corner")
 //   offsetAmount   px the outline grows (or shrinks, below 0), -1000..1000 (0 = off); animates
 //   offsetJoin     how grown corners join: "miter", "round" or "bevel" ("miter")
-// Peaks of the zig zag sit on the outline's corners and segment ends. Curves are offset as fine
-// straight pieces; an outline shrunk past its middle disappears.
+// Peaks of the zig zag sit on the outline's corners and segment ends. Curves are offset and
+// twisted as fine straight pieces; an outline shrunk past its middle disappears.
 export const MODIFIER_LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path"]);
-export const MODIFIER_REST = Object.freeze({ zigzagSize: 0, zigzagCount: 5, offsetAmount: 0 });
+export const MODIFIER_REST = Object.freeze({ roundCorners: 0, bloatAmount: 0, twistAngle: 0, twistX: 0, twistY: 0, zigzagSize: 0, zigzagCount: 5, offsetAmount: 0 });
 export const MODIFIER_KEYS = Object.keys(MODIFIER_REST);
 export const MODIFIER_CHOICES = Object.freeze({ zigzagPoints: ["corner", "smooth"], offsetJoin: ["miter", "round", "bevel"] });
 export const MODIFIER_CHOICE_KEYS = Object.keys(MODIFIER_CHOICES);
-const RANGES = { zigzagSize: [-1000, 1000], zigzagCount: [1, 100], offsetAmount: [-1000, 1000] };
+const RANGES = { roundCorners: [0, 1000], bloatAmount: [-1, 1], twistAngle: [-3600, 3600], twistX: [-10000, 10000], twistY: [-10000, 10000],
+  zigzagSize: [-1000, 1000], zigzagCount: [1, 100], offsetAmount: [-1000, 1000] };
 const MITER_LIMIT = 4;
 const ROUND_STEP = Math.PI / 18;
 const MAX_POINTS = 20_000;
+const TWIST_STEP = 3;
 
 /** The range a modifier number accepts: [min, max]. */
 export const modifierRange = (key) => RANGES[key];
@@ -29,9 +37,14 @@ const number = (state, key) => clamp(finite(state[key], MODIFIER_REST[key]), RAN
 /** The modifiers of a layer state, or null when it has none. */
 export function modifiersOf(state = {}) {
   if (!MODIFIER_LAYER_TYPES.has(state.type)) return null;
+  const round = number(state, "roundCorners"), bloat = number(state, "bloatAmount"), twist = number(state, "twistAngle");
   const size = number(state, "zigzagSize"), amount = number(state, "offsetAmount");
-  if (!size && !amount) return null;
+  if (!round && !bloat && !twist && !size && !amount) return null;
+  const width = Math.max(0, finite(state.width, 0)), height = Math.max(0, finite(state.height, 0));
   return {
+    round: round || null,
+    bloat: bloat || null,
+    twist: twist ? { angle: (twist * Math.PI) / 180, center: [width / 2 + number(state, "twistX"), height / 2 + number(state, "twistY")] } : null,
     zigzag: size ? { size, count: Math.round(number(state, "zigzagCount")), smooth: state.zigzagPoints === "smooth" } : null,
     offset: amount ? { amount, join: MODIFIER_CHOICES.offsetJoin.includes(state.offsetJoin) ? state.offsetJoin : "miter" } : null,
   };
@@ -41,9 +54,18 @@ export function modifiersOf(state = {}) {
 export function modifierReach(state) {
   const modifiers = modifiersOf(state);
   if (!modifiers) return 0;
+  const width = Math.max(0, finite(state.width, 0)), height = Math.max(0, finite(state.height, 0));
+  // A bloat moves points at most its amount times the box diagonal.
+  let reach = Math.abs(modifiers.bloat ?? 0) * Math.hypot(width, height);
+  if (modifiers.twist) {
+    // Twisted points keep their distance from the center.
+    const dx = Math.abs(modifiers.twist.center[0] - width / 2), dy = Math.abs(modifiers.twist.center[1] - height / 2);
+    const far = Math.hypot(width / 2 + dx + reach, height / 2 + dy + reach);
+    reach = Math.max(reach, dx + far - width / 2, dy + far - height / 2);
+  }
   const zig = modifiers.zigzag ? Math.abs(modifiers.zigzag.size) * (modifiers.zigzag.smooth ? 1.5 : MITER_LIMIT) : 0;
   const grow = Math.max(0, modifiers.offset?.amount ?? 0) * (modifiers.offset?.join === "miter" ? MITER_LIMIT : 1);
-  return zig + grow;
+  return reach + zig + grow;
 }
 
 /** `contours` (vectorPath.js form) with the state's modifiers applied. */
@@ -51,7 +73,10 @@ export function modifyContours(contours, state) {
   const modifiers = modifiersOf(state);
   if (!modifiers) return contours;
   const sign = outwardSign(contours);
-  let result = contours;
+  let result = contours.map(cleanContour);
+  if (modifiers.round) result = result.map((contour) => roundCorners(contour, modifiers.round));
+  if (modifiers.bloat) result = result.map((contour) => bloat(contour, modifiers.bloat));
+  if (modifiers.twist) result = twist(result, modifiers.twist);
   if (modifiers.zigzag) result = result.map((contour) => zigzag(contour, modifiers.zigzag, sign));
   if (modifiers.offset) result = result.map((contour) => offset(contour, modifiers.offset, sign)).filter(Boolean);
   return result;
@@ -157,6 +182,110 @@ function smoothContour(points, closed) {
     segments.push({ c1: add(p1, scale(sub(p2, p0), 1 / 6)), c2: sub(p2, scale(sub(p3, p1), 1 / 6)), end: [...p2] });
   }
   return { start: [...points[0]], segments, closed };
+}
+
+// Drops segments of no length and writes a closed contour's closing edge out.
+function cleanContour(contour) {
+  const near = (a, b) => length(sub(a, b)) < 1e-9;
+  const segments = segmentsOf(contour).filter(({ from, segment }) => !(near(from, segment.end) && near(from, segment.c1) && near(from, segment.c2)))
+    .map(({ segment }) => segment);
+  const end = segments.at(-1)?.end ?? contour.start;
+  if (contour.closed && segments.length && !near(end, contour.start)) segments.push(lineSegment(end, contour.start));
+  return { start: [...contour.start], segments, closed: contour.closed };
+}
+
+// de Casteljau split of a cubic at t: the two halves.
+function splitCubic(p0, s, t) {
+  const lerp = (a, b) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  const a = lerp(p0, s.c1), b = lerp(s.c1, s.c2), c = lerp(s.c2, s.end);
+  const d = lerp(a, b), e = lerp(b, c), f = lerp(d, e);
+  return [{ c1: a, c2: d, end: f }, { c1: e, c2: c, end: [...s.end] }];
+}
+
+// The piece of a cubic from t0 to t1, as { from, segment }.
+function subCubic(p0, s, t0, t1) {
+  const left = t1 < 1 ? splitCubic(p0, s, t1)[0] : s;
+  if (t0 <= 0) return { from: p0, segment: left };
+  const [head, tail] = splitCubic(p0, left, t0 / t1);
+  return { from: head.end, segment: tail };
+}
+
+// --- round corners ---
+function roundCorners(contour, radius) {
+  const parts = segmentsOf(contour).map((part) => ({ ...part, table: lengthTable(part.from, part.segment) }));
+  const n = parts.length;
+  if (n < 2 && !(contour.closed && n === 1)) return contour;
+  // cut[j]: how far back each side of the corner at the start of part j is cut.
+  const cut = parts.map((part, j) => {
+    if (j === 0 && !contour.closed) return 0;
+    const before = parts[(j - 1 + n) % n];
+    const turn = Math.acos(Math.max(-1, Math.min(1, dot(tangentAt(before.from, before.segment, 1), tangentAt(part.from, part.segment, 0)))));
+    if (turn < Math.PI / 360 || turn > Math.PI * 0.995) return 0;
+    return radius * Math.tan(turn / 2);
+  });
+  // Each side gives a corner at most half its length.
+  const limit = parts.map((part) => part.table.at(-1)[1] / 2);
+  const cutAt = cut.map((value, j) => Math.min(value, limit[j], limit[(j - 1 + n) % n]));
+  const pieces = [];
+  parts.forEach((part, j) => {
+    const total = part.table.at(-1)[1];
+    const head = cutAt[j], tail = cutAt[(j + 1) % n] * (j === n - 1 && !contour.closed ? 0 : 1);
+    if (head > 1e-9) {
+      const before = parts[(j - 1 + n) % n], beforeTotal = before.table.at(-1)[1];
+      const tBefore = tAtDistance(before.table, beforeTotal - head), tHere = tAtDistance(part.table, head);
+      const from = cubicAt(before.from, before.segment, tBefore), to = cubicAt(part.from, part.segment, tHere);
+      const d1 = tangentAt(before.from, before.segment, tBefore), d2 = tangentAt(part.from, part.segment, tHere);
+      const turn = Math.acos(Math.max(-1, Math.min(1, dot(d1, d2))));
+      const chord = length(sub(to, from));
+      // A circular arc's handle: 4/3 tan(turn/4) of its radius.
+      const handle = turn > 1e-6 ? ((4 / 3) * Math.tan(turn / 4) * chord) / (2 * Math.sin(turn / 2)) : chord / 3;
+      pieces.push({ from, segment: { c1: add(from, scale(d1, handle)), c2: sub(to, scale(d2, handle)), end: to } });
+    }
+    if (total - head - tail > 1e-9)
+      pieces.push(subCubic(part.from, part.segment, head > 1e-9 ? tAtDistance(part.table, head) : 0, tail > 1e-9 ? tAtDistance(part.table, total - tail) : 1));
+  });
+  if (!pieces.length) return contour;
+  return { start: [...pieces[0].from], segments: pieces.map(({ segment }) => segment), closed: contour.closed };
+}
+
+// --- pucker and bloat ---
+// Points move toward the contour's middle by the amount and handles move away (bloat), or the
+// other way round below 0 (pucker).
+function bloat(contour, amount) {
+  const parts = segmentsOf(contour);
+  if (!parts.length) return contour;
+  const anchors = contour.closed ? parts.map(({ from }) => from) : [...parts.map(({ from }) => from), parts.at(-1).segment.end];
+  const center = scale(anchors.reduce(add, [0, 0]), 1 / anchors.length);
+  const move = (point, by) => add(point, scale(sub(center, point), by));
+  return {
+    start: move(contour.start, amount), closed: contour.closed,
+    segments: contour.segments.map((s) => ({ c1: move(s.c1, -amount), c2: move(s.c2, -amount), end: move(s.end, amount) })),
+  };
+}
+
+// --- twist ---
+// Fine points turn around the center by the angle times their distance over the farthest one's.
+function twist(contours, { angle, center }) {
+  const total = contours.reduce((sum, contour) => sum + segmentsOf(contour)
+    .reduce((acc, { from, segment }) => acc + lengthTable(from, segment, 16).at(-1)[1], 0), 0);
+  const step = Math.max(TWIST_STEP, total / MAX_POINTS);
+  const sampled = contours.map((contour) => {
+    const points = [];
+    for (const { from, segment } of segmentsOf(contour)) {
+      const pieces = Math.max(1, Math.ceil(lengthTable(from, segment, 16).at(-1)[1] / step));
+      for (let j = 0; j < pieces; j += 1) points.push(cubicAt(from, segment, j / pieces));
+    }
+    if (!contour.closed || !contour.segments.length) points.push(contour.segments.at(-1)?.end ?? contour.start);
+    return { points, closed: contour.closed };
+  });
+  const far = Math.max(0, ...sampled.flatMap(({ points }) => points.map((point) => length(sub(point, center)))));
+  if (far < 1e-9) return contours;
+  const turn = (point) => {
+    const offset = sub(point, center), a = (angle * length(offset)) / far;
+    const cos = Math.cos(a), sin = Math.sin(a);
+    return add(center, [offset[0] * cos - offset[1] * sin, offset[0] * sin + offset[1] * cos]);
+  };
+  return sampled.map(({ points, closed }) => polylineContour(points.map(turn), closed)).filter(Boolean);
 }
 
 // --- zig zag ---

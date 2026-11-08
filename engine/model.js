@@ -120,11 +120,11 @@ const VALUE_KEYS = new Set([
   "perspective",
   // A repeater (repeater.js); only shape, path, text and group layers.
   ...REPEAT_KEYS,
-  // A zig zag and offset path (shapeModifiers.js); only shape and path layers.
+  // Shape modifiers (shapeModifiers.js); only shape and path layers.
   ...MODIFIER_KEYS,
 ]);
 // Keys measured in fractions (1 is 100%): a wiggle amount for pixels or degrees is far too big.
-const FRACTION_KEYS = new Set(["scaleX", "scaleY", "opacity", "lineHeight", "donut", "starThickness", ...REPEAT_FRACTION_KEYS]);
+const FRACTION_KEYS = new Set(["scaleX", "scaleY", "opacity", "lineHeight", "donut", "starThickness", "bloatAmount", ...REPEAT_FRACTION_KEYS]);
 // What a tilt animation starts from when the layer has no tilt of its own.
 const TILT_REST = { rotateX: 0, rotateY: 0, perspective: DEFAULT_PERSPECTIVE };
 // What a trim or dash animation starts from when the layer has none of its own (strokeTrim.js).
@@ -530,7 +530,8 @@ function validateAnimatedValue(key, value, path) {
     case "repeatCopies": case "repeatX": case "repeatY": case "repeatRotation": case "repeatScale":
     case "repeatAnchorX": case "repeatAnchorY": case "repeatStartOpacity": case "repeatEndOpacity":
       return requireNumber(value, path, ...repeatRange(key));
-    case "zigzagSize": case "zigzagCount": case "offsetAmount":
+    case "zigzagSize": case "zigzagCount": case "offsetAmount": case "roundCorners": case "bloatAmount":
+    case "twistAngle": case "twistX": case "twistY":
       return requireNumber(value, path, ...modifierRange(key));
     case "cornerRadii": {
       const radii = requireArray(value, path, 4);
@@ -1171,7 +1172,7 @@ function normalizeLayer(raw, path, animationIds, counters) {
   }
   for (const key of [...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS]) {
     if (layer[key] == null) { delete layer[key]; continue; }
-    if (!MODIFIER_LAYER_TYPES.has(type)) fail(`${path}.${key}`, "only rectangle, ellipse, star and path layers have a zig zag and offset path");
+    if (!MODIFIER_LAYER_TYPES.has(type)) fail(`${path}.${key}`, "only rectangle, ellipse, star and path layers have shape modifiers (zig zag, offset, twist, bloat, round corners)");
     if (MODIFIER_CHOICES[key]) {
       if (!MODIFIER_CHOICES[key].includes(layer[key])) fail(`${path}.${key}`, `must be ${MODIFIER_CHOICES[key].map((choice) => `"${choice}"`).join(" or ")}`);
     } else layer[key] = requireNumber(layer[key], `${path}.${key}`, ...modifierRange(key));

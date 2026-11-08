@@ -99,7 +99,7 @@ Launch-video type (words arrive faint and darken on any background):
   most of it early; a `label` writes on under it.
 
 Captions and status lines add a
-dark box only when shadowed words could fail contrast (`scrim`). Moves
+dark box only when words could fail contrast (`scrim`). Moves
 write in the brand's fonts, else the project's text font, and leave no blur or split on.
 
 ## Moves example
@@ -115,9 +115,9 @@ Zoom shot-a into shot-b at 1 s, then karaoke captions.
 
 ## Trim paths and dashes
 
-Rectangles, ellipses, stars, paths: `strokeStart`, `strokeEnd` (0 to 1 a contour), `strokeOffset`
-(turns), `dash` ([on, off, …] px), `dashOffset` (px), zig zag (`zigzagSize`, `zigzagCount`,
-`zigzagPoints`), offset (`offsetAmount`, `offsetJoin`); numbers animate, Lottie too.
+Shapes, paths: `strokeStart`, `strokeEnd` (0-1 a contour), `strokeOffset` (turns), `dash`
+([on, off, …] px), `dashOffset` (px); modifiers `roundCorners`, `bloatAmount`, `twistAngle`,
+`zigzagSize` (`zigzagCount`, `zigzagPoints`), `offsetAmount` (`offsetJoin`); numbers animate, Lottie too.
 `trim` (or `draw-on`) draws `strokeEnd` from 0.
 
 ```json

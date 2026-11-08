@@ -33,4 +33,17 @@ test("edit sets and animates zig zag and offset fields, and refuses them on text
   const badJoin = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Badge", properties: { offsetJoin: "sharp" } }] });
   assert.equal(badJoin.isError, true);
   assert.match(badJoin.text, /miter/);
+  const swirl = await agent("edit", { project: "badge", ops: [
+    { op: "add_layer", layerType: "star", name: "Swirl", properties: { x: 20, y: 20, width: 80, height: 80, roundCorners: 4, bloatAmount: -0.3, twistX: 5 } },
+    { op: "add_animation", layer: "Swirl", animation: { kind: "custom", name: "Turn", start: 0, duration: 1, from: { twistAngle: 0 }, to: { twistAngle: 180 } } }] });
+  assert.equal(swirl.isError, undefined, swirl.text);
+  const star = (await layers()).find((layer) => layer.name === "Swirl");
+  assert.deepEqual([star.roundCorners, star.bloatAmount, star.twistX, star.animations[0].to.twistAngle], [4, -0.3, 5, 180]);
+  const tooMuch = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Swirl", properties: { bloatAmount: 2 } }] });
+  assert.equal(tooMuch.isError, true);
+  assert.match(tooMuch.text, /bloatAmount/);
+  // A star has no radius: it means roundCorners.
+  const radius = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Swirl", properties: { radius: 9 } }] });
+  assert.equal(radius.isError, undefined, radius.text);
+  assert.equal((await layers()).find((layer) => layer.name === "Swirl").roundCorners, 9);
 });

@@ -118,6 +118,12 @@ const SHAPE_STYLES = {
     layerType: "ellipse", properties: { fill: "#FFE14D", zigzagSize: 14, zigzagCount: 9 }, word: "#141414", ground: "#2E5BFF" },
   "offset-outline": { field: "offsetAmount", line: "offset path: the layer field offsetAmount grows a shape's outline (below 0 shrinks it), offsetJoin miter|round|bevel shapes the corners; a grown copy under a star is a sticker border",
     layerType: "star", properties: { fill: "#FFFFFF", offsetAmount: 22, offsetJoin: "round" }, top: "#FF7D3D", ground: "#141414" },
+  "round-corners": { field: "roundCorners", line: "round corners: the layer field roundCorners (px) rounds every sharp corner of a star or path, a soft badge or blob",
+    layerType: "star", properties: { fill: "#FF7D3D", spikes: 6, starThickness: 0.6, roundCorners: 26 }, ground: "#FFF4E0" },
+  "bloat-flower": { field: "bloatAmount", line: "pucker/bloat: the layer field bloatAmount -1..1 bows a shape's sides out (a star turns into a flower) or, below 0, pinches them into spikes",
+    layerType: "star", properties: { fill: "#FF5C8A", spikes: 8, starThickness: 0.7, bloatAmount: 0.3 }, ground: "#FFF0F4" },
+  "twist-swirl": { field: "twistAngle", line: "twist: the layer field twistAngle (degrees) turns a shape's far points around twistX, twistY (px from the middle) more than near ones, a swirl",
+    layerType: "star", properties: { fill: "#26F0FF", spikes: 8, starThickness: 0.25, twistAngle: 120 }, ground: "#05121A" },
 };
 
 let built = null;

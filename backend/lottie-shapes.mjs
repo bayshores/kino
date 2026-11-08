@@ -646,21 +646,22 @@ function pathGroup(layer, states, label, helpers, fillKind, fillItems, strokes) 
   return groups.filter(Boolean);
 }
 
-// A zig zag or offset path (engine/shapeModifiers.js) is written as the outline kino draws,
+// Shape modifiers (engine/shapeModifiers.js) are written as the outline kino draws,
 // sampled per frame, so the player shows the same teeth and grown corners as the render.
 function modifiedContours(layer, states, label, copies) {
   const cache = new Map();
   let vertices = 0;
   const sampled = states.map((state) => {
     const key = JSON.stringify([state.width, state.height, state.path, state.radius, state.cornerRadii, state.donut, state.sweep,
-      state.startAngle, state.spikes, state.starThickness, state.zigzagSize, state.zigzagCount, state.zigzagPoints, state.offsetAmount, state.offsetJoin]);
+      state.startAngle, state.spikes, state.starThickness, state.zigzagSize, state.zigzagCount, state.zigzagPoints, state.offsetAmount, state.offsetJoin,
+      state.roundCorners, state.bloatAmount, state.twistAngle, state.twistX, state.twistY]);
     if (!cache.has(key)) {
       const base = layer.type === "path" ? parsePath(String(state.path ?? "")).map((contour) => scaledContour(contour, pathSizing(state, layer)))
         : shapeContours(layer.type, state);
       const contours = modifyContours(base, { ...state, type: layer.type });
       vertices += contours.reduce((sum, contour) => sum + contour.segments.length + 1, 0) * copies;
       if (vertices > MAX_PARAMETRIC_VERTICES)
-        throw new RangeError(`${label} has too much changing zig zag or offset geometry for a safe Lottie export (limit ${MAX_PARAMETRIC_VERTICES.toLocaleString()} shape vertices). Use fewer teeth or hold the amounts still.`);
+        throw new RangeError(`${label} has too much changing shape modifier geometry for a safe Lottie export (limit ${MAX_PARAMETRIC_VERTICES.toLocaleString()} shape vertices). Use fewer teeth, a smaller shape or hold the amounts still.`);
       cache.set(key, contours);
     }
     return cache.get(key);

@@ -586,3 +586,11 @@ test("a zig zag or offset path exports the outline kino draws", () => {
   const plain = lottieShapes(layer("rectangle", { fill: "#335577" }), [layer("rectangle", { fill: "#335577" })], "Plain", helpers);
   assert.equal(plain.flatMap((group) => group.it)[0].ty, "rc", "a shape without modifiers keeps its native rectangle");
 });
+
+test("a twist, bloat and round corners export the outline kino draws, keyed while the twist turns", () => {
+  const star = layer("star", { fill: "#335577", roundCorners: 6, bloatAmount: 0.2, twistAngle: 0 });
+  const groups = lottieShapes(star, [star, { ...star, twistAngle: 90 }], "Twist", helpers);
+  const shape = groups.flatMap((group) => group.it).find((item) => item.ty === "sh");
+  assert.equal(shape.ks.a, 1, "the changing outline is keyed");
+  assert.ok(shape.ks.k[1].s[0].v.length > shape.ks.k[0].s[0].v.length / 2, "the twisted frame has its fine points");
+});
