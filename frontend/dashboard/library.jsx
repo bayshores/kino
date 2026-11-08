@@ -41,8 +41,8 @@ function useSample(entry) {
 // A card's still: the sample's moment drawn by the export renderer, so effects show as they render.
 function Still({ entry }) {
   const [missing, setMissing] = useState(false);
-  if (entry.kind === "format" || entry.kind === "technique" || missing)
-    return <span className="lib-none">{entry.kind === "format" ? "a whole video" : entry.kind === "technique" ? "a plain edit" : "no sample"}</span>;
+  if (entry.kind === "format" || missing)
+    return <span className="lib-none">{entry.kind === "format" ? "a whole video: no preview" : "no sample"}</span>;
   return <img className="lib-img" src={libraryStillUrl(entry.kind, entry.name)} alt="" loading="lazy" onError={() => setMissing(true)} />;
 }
 
@@ -66,7 +66,7 @@ function Player({ entry }) {
     <div className="lib-player">
       <div className="lib-stage">
         {scene ? <ScenePreview document={sample.document} scene={scene} time={time} design={false} playing={playing} fontVersion={0} audio="external" skipPrewarm />
-          : <span className="lib-none">{sample ? (entry.kind === "format" ? "a whole video: ask for it to see it on yours" : "no sample: it needs your pictures or footage") : ""}</span>}
+          : <span className="lib-none">{sample ? (entry.kind === "format" ? "a whole video, made from your own material: no preview here. Ask for it to see it on yours" : "no sample") : ""}</span>}
       </div>
       {scene ? (
         <div className="lib-controls">

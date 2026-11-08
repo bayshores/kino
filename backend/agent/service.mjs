@@ -41,6 +41,7 @@ import { hideShareSecrets } from "../shares.mjs";
 import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
+import { libraryMedia } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
 import { callLabel, callTarget, pointingText } from "./labels.mjs";
@@ -1967,12 +1968,13 @@ export function createAgentService(deps) {
 
   // The library screen's samples (library-catalog.mjs): the entry's sample ops run through the
   // agent's own edit path on an empty scene, nothing saved. Kept once built; an entry the sample
-  // cannot build (it needs a picture or a video) answers null, or the reason it was refused.
+  // cannot build answers null (a video format), or the reason it was refused.
   const samples = new Map();
-  // A move's card shows the middle of the move (a transition halfway through), not its end.
-  const moveMiddle = (document) => {
+  // A move's card shows the middle of the move (a transition halfway through), not its end, or
+  // the share of it the sample names.
+  const moveMiddle = (document, share = 0.5) => {
     const move = document.scenes[0]?.moves?.[0];
-    return Number.isFinite(move?.start) && Number.isFinite(move?.end) ? Math.round(((move.start + move.end) / 2) * 30) / 30 : null;
+    return Number.isFinite(move?.start) && Number.isFinite(move?.end) ? Math.round((move.start + (move.end - move.start) * share) * 30) / 30 : null;
   };
   async function librarySample(kind, name) {
     const key = `${kind}:${name}`;
@@ -1985,8 +1987,10 @@ export function createAgentService(deps) {
       const translation = translateAll(sample.ops, resolver, before);
       const problems = translation.problems.map(translationProblem);
       try {
-        const document = await applyAll(before, translation.operations, sample.ops, { resolver, notes: [], reports: new Map() }, problems, translation.blocked);
-        return problems.length ? { document: null, reason: problems[0].message ?? String(problems[0]) } : { document, still: moveMiddle(document) ?? sample.still };
+        // The samples' own pictures and clip (library-media.mjs) stand in for uploads.
+        const mediaList = deps.mediaRoot ? await libraryMedia(deps.mediaRoot) : [];
+        const document = await applyAll(before, translation.operations, sample.ops, { resolver, notes: [], reports: new Map(), mediaList }, problems, translation.blocked);
+        return problems.length ? { document: null, reason: problems[0].message ?? String(problems[0]) } : { document, still: moveMiddle(document, sample.share) ?? sample.still };
       } catch (error) { return { document: null, reason: error.message }; }
     })());
     return samples.get(key);

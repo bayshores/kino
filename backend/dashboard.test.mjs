@@ -497,10 +497,18 @@ test("the library lists every kind with its count, and a sample is built through
   const zoom = await sample("move", "zoom-through");
   assert.deepEqual(zoom.document.scenes[0].moves.map((move) => move.name), ["zoom-through"]);
   assert.ok((await sample("effect", "glow")).document.scenes[0].layers.some((layer) => layer.animations.some((animation) => animation.effect === "glow")));
-  assert.match((await sample("move", "swipe-cards")).reason, /No uploaded picture/, "a move that needs pictures has no sample and says why");
+  // A move that needs pictures or footage plays on kino's own sample pictures and clip, which
+  // the app loads like any upload; a transition recipe and a plain edit have samples too.
+  const swipe = await sample("move", "swipe-cards");
+  const pictures = JSON.stringify(swipe.document).match(/\/api\/media\/[a-f0-9-]+\.png/g);
+  assert.ok(pictures?.length, "swipe-cards plays on the sample's pictures");
+  assert.equal((await server.api(pictures[0])).status, 200, "the app can load a sample picture");
+  assert.ok((await sample("move", "freeze-shutter")).document.scenes[0].layers.some((layer) => layer.type === "video"));
+  assert.ok((await sample("recipe", "push")).document);
+  assert.ok((await sample("technique", "dissolve")).document);
   assert.equal((await sample("format", "app-demo")).document, null);
   const still = await server.api("/api/dashboard/library-still?kind=effect&name=glow");
   assert.deepEqual(Buffer.from(await still.arrayBuffer()).subarray(0, 8), PNG_SIGNATURE, "a card's still is drawn by the renderer");
-  assert.equal((await server.api("/api/dashboard/library-still?kind=move&name=swipe-cards")).status, 404);
+  assert.equal((await server.api("/api/dashboard/library-still?kind=format&name=app-demo")).status, 404);
   assert.ok(!(await agent("project", { action: "list" })).text.includes("library-sample"), "a sample is never a project");
 });
