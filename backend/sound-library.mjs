@@ -14,7 +14,11 @@ import { createHash } from "node:crypto";
 import { inflateRawSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
+
+const run = promisify(execFile);
 
 export const CATALOG_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "assets", "sound-library.json");
 const ID = /^(sfx|music):([a-z0-9-]{1,60})$/;
@@ -43,8 +47,21 @@ export function musicQuery({ mood, energy, bpm, search } = {}) {
   return { moods, energies, range, rest };
 }
 
-/** deps: directory (the download folder), addMedia(file, {name, mime, extra}), fetch, catalog. */
-export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fetch, catalog = null } = {}) {
+// curl writes the file to a temp folder; the bytes come back (only with the real fetch: tests stub
+// both).
+async function curlBytes(url) {
+  const folder = await makeTempFolder("kino-sound-lib-");
+  try {
+    const file = path.join(folder, "download");
+    await run("curl", ["-fsSL", "--max-time", "120", "-o", file, url]);
+    return await readFile(file);
+  } finally {
+    await removeTempFolder(folder);
+  }
+}
+
+/** deps: directory (the download folder), addMedia(file, {name, mime, extra}), fetch, catalog, curl(url) → bytes, retryWaits (ms). */
+export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fetch, catalog = null, curl = fetch === globalThis.fetch ? curlBytes : null, retryWaits = [1000, 3000] } = {}) {
   let data = catalog;
   const read = () => (data ??= JSON.parse(readFileSync(CATALOG_FILE, "utf8")));
 
@@ -75,15 +92,28 @@ export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fet
     return { moods, energies, range, results: fits, total: read().music.length };
   }
 
+  // A network error (not an HTTP answer) is tried 3 times, 1 s then 3 s apart, then once with
+  // curl: two first passes lost every song to an instant "fetch failed" that a plain download did
+  // not repeat. The error names the cause code so the next failure says why.
+  async function downloadBytes(url, name) {
+    let failure;
+    for (const wait of [0, ...retryWaits]) {
+      if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+      let response;
+      try { response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(120000) }); }
+      catch (error) { failure = [error.message, error.cause?.code ?? error.cause?.message].filter(Boolean).join(": "); continue; }
+      if (!response.ok) throw new SoundLibraryError("failed", `The sound library's source answered ${response.status} for ${name}.`);
+      return Buffer.from(await response.arrayBuffer());
+    }
+    if (curl) try { return await curl(url); } catch (error) { failure += `; curl: ${String(error.message).split("\n")[0]}`; }
+    throw new SoundLibraryError("failed", `The sound library could not download ${name} (${failure}); try again later or import a sound file.`);
+  }
+
   // The source file, downloaded once and checked against the catalog.
   async function sourceFile(key, { url, sha256, name }) {
     const file = path.join(directory, `${key}${path.extname(name)}`);
     if (existsSync(file)) return file;
-    let response;
-    try { response = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(120000) }); }
-    catch (error) { throw new SoundLibraryError("failed", `The sound library could not download ${name} (${error.message}); try again later or import a sound file.`); }
-    if (!response.ok) throw new SoundLibraryError("failed", `The sound library's source answered ${response.status} for ${name}.`);
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = await downloadBytes(url, name);
     if (createHash("sha256").update(bytes).digest("hex") !== sha256) throw new SoundLibraryError("refused", `${name} changed at its source (its SHA-256 no longer matches kino's catalog), so kino does not use it.`);
     await mkdir(directory, { recursive: true });
     await writeFile(`${file}.part`, bytes, { mode: 0o600 });

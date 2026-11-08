@@ -84,14 +84,12 @@ Then ask with `fresh:"ran"`; when your app cannot start one, with `fresh:"skippe
 
 kino keeps a copy of the approved board: build to it. These lapse the approval: media, text,
 sound, pacing, follow, move, music (or its file), shot order, a shot added or removed, a new open
-item; a cut, in-point or end moved over 6 frames; a crop edge or width changed over 5% of the
-frame width. `board.lapsed` and `status` say so: ask again;
-kino lists only the changed shots.
-A gap the video or music made lapses it until the board covers it again within those limits.
-Smaller changes are only logged (`board.revisions`, such as `revision: shot 5 cut moved 3
-frames onto a beat`). "Approve with notes": make the changes. Once the person answers rough,
-color or sound, only another song, media or shot list lapses it; fixes are logged
-(`after C2 rough: ...`).
+item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the frame width.
+`board.lapsed` and `status` say so: ask again (only the changed shots are shown). A gap the video
+or music made lapses it until the board covers it again. Smaller changes are logged
+(`board.revisions`). "Approve with notes": make the changes. After the person answers rough,
+color or sound, only another song, media or shot list lapses it. Approved with only "your
+call": nothing lapses, so fix what a viewer finds (cut a repeat), never waive it.
 
 A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` = H × 100 / h,
 `width` = `height` × the source's width / height, `x` = −x / 100 × `width`, `y` = −y / 100 ×

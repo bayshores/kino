@@ -24,6 +24,11 @@ export const CROP_SHARE = 5;
 export const YOUR_CALL = /\byour call\b/i;
 const NOT_YOUR_CALL = /(?:\bnot|n['’]t|\bnever)\s+(?:(?:really|quite|just|entirely|actually|all)\s+)?your call\b/i;
 export const leavesItToYou = (words) => YOUR_CALL.test(words) && !NOT_YOUR_CALL.test(words);
+// A board approved with only these words handed the whole board over: later changes, a removed
+// shot or another song too, are logged on the approval (shown on the dashboard and with the final
+// render) and never asked again. A first pass lost a viewer's fix to that ask: it waived the fix.
+const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think)[\s.!]*$/i;
+export const handedOver = (round) => round?.answer?.via === "chat" && typeof round.answer.words === "string" && HANDED_OVER.test(round.answer.words);
 const BOARDS_KEPT = 20;
 const REVISIONS_KEPT = 50;
 const REVISIONS_SHOWN = 10;
@@ -214,6 +219,12 @@ export function settleBoard(draft, { board, frame, beats = [], coverage = null, 
   if (!approval) return null;
   const at = new Date(now).toISOString();
   const changes = lapseNow(approval, board, { frame, beats, coverage, musicFile });
+  const round = (draft.stops ?? []).find((entry) => entry.id === approval.stop);
+  if (handedOver(round)) {
+    approval.lapsed = null;
+    const lines = changes.lapse.filter((line) => !changes.gaps.includes(line)).map((line) => `after "${round.answer.words.trim()}": ${line}`);
+    return { approval, lapsed: null, revisions: logRevisions(approval, [...changes.revisions, ...lines], at, rev) };
+  }
   const later = laterAnswer(draft, approval);
   if (later) {
     // Past the board: fixes (a moved cut, new words, a crop) are logged with the later stop; another

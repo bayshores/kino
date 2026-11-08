@@ -14,7 +14,7 @@ import { boardAsk } from "./agent/board-text.mjs";
 import { askText } from "./agent/stops.mjs";
 import { defaultSettings, mergeSettings } from "./agent/dashboard.mjs";
 import { startTestServer } from "./media.test.support.mjs";
-import { musicDrop, reversedWav } from "./sound-library.mjs";
+import { createSoundLibrary, musicDrop, reversedWav } from "./sound-library.mjs";
 import { createSoundSearch, freesoundLicense } from "./sound-search.mjs";
 import { askedShape, junkSound, rankSounds, sfxPrompt } from "./sfx-rank.mjs";
 import { countOnsets } from "./inspire.mjs";
@@ -215,6 +215,27 @@ test("musicDrop marks a hard rise to the loud part, never a soft swell back from
   const out = reversedWav(Buffer.concat([header, pcm]), 1);
   assert.equal(out.readUInt32LE(40), 2000, "its first 1 s: 1000 frames of 16-bit mono");
   assert.deepEqual([out.readInt16LE(44), out.readInt16LE(44 + 999 * 2)], [0, 32000]);
+});
+
+test("a library download that fails on the network is tried again, then names its cause", async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-lib-retry-"));
+  const bytes = Buffer.from("song bytes");
+  const catalog = { sounds: [], sources: {}, music: [{ id: "one", title: "One", url: "https://example.org/one.mp3", sha256: createHash("sha256").update(bytes).digest("hex"), page: "https://example.org", license: "CC BY 4.0", licenseUrl: "https://example.org/by", credit: "One" }] };
+  const added = [];
+  try {
+    let calls = 0;
+    const flaky = async () => { calls += 1; if (calls < 3) throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } }); return new Response(bytes); };
+    const lib = createSoundLibrary({ directory: folder, catalog, fetch: flaky, retryWaits: [1, 1], addMedia: async (file, options) => { added.push(options.name); return { id: "m1", name: options.name }; } });
+    await lib.importItem("music:one");
+    assert.equal(calls, 3);
+    assert.deepEqual(added, ["One.mp3"]);
+    const down = async () => { throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ENOTFOUND" } }); };
+    const curl = async () => { throw new Error("curl: (6) Could not resolve host"); };
+    const offline = createSoundLibrary({ directory: path.join(folder, "b"), catalog, fetch: down, curl, retryWaits: [1, 1], addMedia: async () => null });
+    await assert.rejects(offline.importItem("music:one"), /could not download One\.mp3 \(fetch failed: ENOTFOUND; curl: curl: \(6\) Could not resolve host\)/);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 });
 
 test("the board's sound line offers files or the built-in library, never the switch", () => {

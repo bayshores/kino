@@ -223,6 +223,18 @@ test("once the person answered a later stop, the board's approval no longer laps
   assert.deepEqual(settleBoard(allowed, { board: retitled, frame: FRAME, rev: 7, now: 3000 }).lapsed, ["shot 3 text changed"]);
 });
 
+test("a board approved with only 'your call' was handed over: a removed shot is logged, never asked again; other words still lapse", () => {
+  const fewer = edited((board) => { board.shots.splice(1, 1); });
+  const handed = stateWith({ status: "answered", read_as: "approve" });
+  handed.stops[0].answer = { via: "chat", words: "Your call.", read_as: "approve" };
+  const settled = settleBoard(handed, { board: fewer, frame: FRAME, rev: 4, now: 1000 });
+  assert.equal(settled.lapsed, null);
+  assert.ok(settled.revisions.some((line) => /^after "Your call\.": the shot at .* removed$/.test(line)), settled.revisions.join("; "));
+  const said = stateWith({ status: "answered", read_as: "approve" });
+  said.stops[0].answer = { via: "chat", words: "yes, your call on the font", read_as: "approve" };
+  assert.ok(/removed/.test(settleBoard(said, { board: fewer, frame: FRAME, rev: 4, now: 1000 }).lapsed.join()));
+});
+
 test("boardFacts reads the board, the video's frame and length, the gap and the beats", () => {
   const document = { scenes: [{ id: "s", width: 1080, height: 1920, duration: 6, layers: [] }], board: COPY,
     cues: [{ name: "beat-1", time: 1.5, kind: "beat" }, { name: "onset-1", time: 2, kind: "onset" }, { name: "hit", time: 3, kind: "marker" }] };
