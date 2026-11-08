@@ -84,7 +84,7 @@ jobs:
       # are restricted. Keep the renderer sandbox enabled in the CI runner.
       - name: Install Electron and configure Chromium sandbox
         run: |
-          node -e 'require("electron")'
+          for try in 1 2 3; do node -e 'require("electron")' && break; [ "$try" = 3 ] && exit 1; echo "Electron download failed (try $try), retrying in 20 s"; sleep 20; done
           electron_sandbox_path="$(node -p 'require("node:path").join(require("node:path").dirname(require("electron")), "chrome-sandbox")')"
           sudo chown root:root "$electron_sandbox_path"
           sudo chmod 4755 "$electron_sandbox_path"
