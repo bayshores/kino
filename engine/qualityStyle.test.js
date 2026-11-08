@@ -318,6 +318,12 @@ test("text_slides: text over a flat card for over 25% of the video, or a card he
   // The same card with a slow push behind it is not a slide.
   const pushed = scene({ duration: 8, layers: [picture("still", { animations: [custom(0, 8, { scaleX: 1, scaleY: 1 }, { scaleX: 1.1, scaleY: 1.1 })] }), text("card", "every skater knows this street")] });
   await silent("text_slides", pushed);
+  // Three 1.5 s lines on black between shots of a 20 s video: under 25% and under 3 s each, still a slideshow.
+  const intertitles = scene({ duration: 20, layers: [0, 1, 2].flatMap((index) => [
+    text(`card${index}`, `line ${index + 1} of the story`, { animations: [...(index ? [show(index * 6)] : []), hide(index * 6 + 1.5)] }),
+    clip(`shot${index}`, { animations: [show(index * 6 + 1.5), hide(index * 6 + 6)] })]).concat([clip("last", { animations: [show(18)] })]) });
+  const [row] = await fires("text_slides", intertitles);
+  assert.match(row.measured, /in 3 cards/);
   // A closing card may hold: 2 s at the end of a 10 s video.
   const closing = scene({ duration: 10, layers: [clip("street", { animations: [hide(8)] }), text("end", "kino.dev", { animations: [show(8)] })] });
   await silent("text_slides", closing);

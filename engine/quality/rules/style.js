@@ -101,6 +101,10 @@ export function textSlideSamples(model) {
 
 // A text card held still longer than this (the closing card aside) reads as a slide by itself.
 const LONGEST_CARD = 3;
+// This many cards (the closing one aside) of CARD_SECONDS or more read as a slideshow however
+// short each is: fp-7 cut three 1.7 s lines on black between its shots.
+const MOST_CARDS = 3;
+const CARD_SECONDS = 1.2;
 
 export function textSlides(model, ctx) {
   if (!designedTexts(model).length || model.duration < EDIT_SECONDS) return [];
@@ -116,13 +120,14 @@ export function textSlides(model, ctx) {
   }
   const seconds = (card) => card.length / model.fps;
   const held = cards.filter((card) => !card.closing && seconds(card) > LONGEST_CARD);
-  if (share <= 0.25 && !held.length) return [];
+  const titled = cards.filter((card) => !card.closing && seconds(card) >= CARD_SECONDS);
+  if (share <= 0.25 && !held.length && titled.length < MOST_CARDS) return [];
   const longest = (held.length ? held : cards).reduce((best, card) => (card.length > best.length ? card : best));
   const used = techniquesUsed(model);
   return [{
     rule: "text_slides", severity: "warn", at: sec(model.times[longest.from]), until: sec(model.times[longest.from + longest.length - 1]),
     measured: `${percent(share)} of the video is text over a still or flat background, in ${cards.length} ${cards.length === 1 ? "card" : "cards"} (longest ${sec(seconds(longest))}s)`,
-    required: `at most 25%, and no card held over ${LONGEST_CARD}s but the closing one`,
+    required: `at most 25%, no card held over ${LONGEST_CARD}s and fewer than ${MOST_CARDS} cards of ${CARD_SECONDS}s or more, the closing one aside`,
     message: `For ${sec(count / model.fps)}s of ${sec(model.duration)}s, ${ctx.sceneName} shows text over a picture that does not move (${cards.slice(0, 4).map((card) => `${sec(model.times[card.from])}s for ${sec(seconds(card))}s`).join(", ")}): it reads as slides.`,
     fix: { kind: "hint", text: `Put the words over moving footage or move the frame: ${suggestions(ctx, used, 3, ["camera", "texture", "type"])}.` },
   }];
