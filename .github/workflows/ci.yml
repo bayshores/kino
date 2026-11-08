@@ -70,7 +70,16 @@ jobs:
         if: steps.gifski.outputs.cache-hit != 'true'
         run: cargo install gifski --version 1.34.0 --locked
 
-      - run: npm ci
+      # Keep Electron's download between runs, so a slow or failing download server
+      # does not fail the run; try the install up to 3 times when it is not saved yet.
+      - name: Restore the Electron download
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: electron-${{ hashFiles('package-lock.json') }}-${{ runner.os }}
+
+      - name: Install packages
+        run: for try in 1 2 3; do npm ci && exit 0; echo "npm ci failed (try $try), retrying in 20 s"; sleep 20; done; exit 1
       # Electron's Linux helper needs these permissions when user namespaces
       # are restricted. Keep the renderer sandbox enabled in the CI runner.
       - name: Install Electron and configure Chromium sandbox
