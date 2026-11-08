@@ -322,7 +322,7 @@ export const pricePop = {
 export const ctaEnd = {
   name: "cta-end",
   group: "promo",
-  about: "the call to action in an accent button, with an optional address or line under it, over the video's own shot (media: it fills the frame, dimmed, and pushes in; blurred if too small to stay sharp); it stays to the end",
+  about: "the call to action in an accent button, with an optional address or line under it, over the video's own shot (media: it fills the frame, shaded only behind the words, and pushes in; blurred if too small to stay sharp); it stays to the end",
   copy: [
     { key: "text", required: true, max: 28, about: "the call to action, such as Start free" },
     { key: "sub", max: 48, about: "an address or a short line, such as kino.app" },
@@ -335,9 +335,10 @@ export const ctaEnd = {
     column(box, [{ layer: pill }, sub && { layer: sub, gap: px(ctx, 34) }], { valign: "middle" });
     shiftX([pill, label], box.x + (box.width - pill.width) / 2 - pill.x);
     label.y = pill.y + px(ctx, 26);
-    // The end over the video's own shot (template_end): it fills the frame, dimmed, and pushes in.
+    // The end over the video's own shot (template_end): it fills the frame and pushes in.
     const file = media[0] ?? null;
-    const behind = file ? fullFrame(ctx, file) : [];
+    const words = [pill, sub].filter(Boolean);
+    const behind = file ? fullFrame(ctx, file, { top: Math.min(...words.map((layer) => layer.y)), bottom: Math.max(...words.map((layer) => layer.y + layer.height)) }) : [];
     return {
       parts: [
         ...behind,
@@ -352,11 +353,13 @@ export const ctaEnd = {
 
 
 /**
- * A picture or clip covering the frame under a dim veil, as recipe parts; it pushes into its middle
- * (a screen's busy part) while it holds. A screen recording is drawn large enough to read; a file
- * too small to cover the frame sharp is blurred into a backdrop instead of drawn soft.
+ * A picture or clip covering the frame, as recipe parts; it pushes into its middle (a screen's busy
+ * part) while it holds. A screen recording is drawn large enough to read; a file too small to cover
+ * the frame sharp is blurred into a backdrop instead of drawn soft. Only the band behind the words
+ * (`words`: their top and bottom) is shaded, so the shot keeps its full strength above and below:
+ * a whole frame dimmed behind a centered line is the template end (template_end).
  */
-function fullFrame(ctx, file) {
+function fullFrame(ctx, file, words) {
   const { frame } = ctx;
   const [width, height] = [file.width || frame.width, file.height || frame.height];
   const sized = { ...file, width, height };
@@ -368,8 +371,15 @@ function fullFrame(ctx, file) {
   // It pushes about the frame's middle (the region is panned there), so no corner travels fast.
   const focus = [(100 * (frame.width / 2 - box.x)) / box.width, (100 * (frame.height / 2 - box.y)) / box.height, 0, 0];
   if (file.width > 0 && scale > SHARP_MOST) shot.blur = Math.max(18, px(ctx, 24));
-  // Under half opaque, so the shot still reads through it.
-  const veil = shapeLayer(ctx, { box: { x: 0, y: 0, width: frame.width, height: frame.height }, color: "#0B0B0C73", role: "decor", name: "Dim" });
+  // A band from a margin above the words to a margin below, clear at both edges, half opaque
+  // behind the words.
+  const margin = px(ctx, 120);
+  const y0 = Math.max(0, Math.round(words.top - margin));
+  const y1 = Math.min(frame.height, Math.round(words.bottom + margin));
+  const fade = Math.min(0.45, Math.round((margin / Math.max(1, y1 - y0)) * 100) / 100);
+  const shade = "#0B0B0C8C";
+  const band = { type: "linear", angle: 90, stops: [{ offset: 0, color: "#0B0B0C00" }, { offset: fade, color: shade }, { offset: 1 - fade, color: shade }, { offset: 1, color: "#0B0B0C00" }] };
+  const veil = shapeLayer(ctx, { box: { x: 0, y: y0, width: frame.width, height: y1 - y0 }, color: band, role: "decor", name: "Dim" });
   return [
     { part: "shot", layer: shot, enter: { style: "fade", at: 0, kind: "large" }, screen: file, focus, still: true, exit: "fade" },
     { part: "dim", layer: veil, enter: { style: "fade", with: "shot", gap: 0, kind: "large" }, still: true, exit: "fade" },

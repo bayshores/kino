@@ -663,9 +663,30 @@ const CENTER_SLACK = 0.06;
 // A line this much smaller than the name, or less, sits under it as a tagline or credit.
 const SMALLER = 0.7;
 
+// Footage behind a full-frame tint this dark or darker is wallpaper, not a shot: three first
+// passes in a row ended on the same centered name and line over darkened, moving footage.
+const DIMMED = 0.35;
+const FULL_FRAME = 0.9;
+
+/** At sample `index`, a painted shape covering the frame tints a playing video under it at DIMMED or more. */
+function dimmedAt(model, index) {
+  const frame = model.width * model.height;
+  const videos = model.items.filter((item) => item.kind === "video" && item.samples.opacity[index] > 0.5);
+  if (!videos.length) return false;
+  return model.items.some((item) => {
+    if (item.kind === "video" || item.kind === "image" || item.kind === "text" || item.isMask || !item.painted) return false;
+    const alpha = item.samples.opacity[index] * (item.paintAlpha ?? 1);
+    if (alpha < DIMMED) return false;
+    if (area(intersection(visibleBoxAt(model, item, index), { x0: 0, y0: 0, x1: model.width, y1: model.height })) < FULL_FRAME * frame) return false;
+    return videos.some((video) => video.z < item.z);
+  });
+}
+
 export function templateEnd(model, ctx) {
   if (model.duration < EDIT_SECONDS) return [];
-  const slide = textSlideSamples(model);
+  const still = textSlideSamples(model);
+  const designed = designedTexts(model);
+  const slide = still.map((value, index) => (value || (dimmedAt(model, index) && designed.some((item) => readableAt(model, item, index)))) ? 1 : 0);
   let last = slide.length - 1;
   while (last >= 0 && !slide[last]) last -= 1;
   if (last < 0 || model.duration - model.times[last] > END_TAIL) return [];
@@ -705,10 +726,10 @@ export function templateEnd(model, ctx) {
   const label = (item) => (item.kind === "text" ? `"${String(item.text).replace(/\s+/g, " ").trim().slice(0, 30)}"` : item.name ?? "the logo");
   return [{
     rule: "template_end", severity: "warn", itemId: best.name.id, at: sec(model.times[from]), until: sec(model.times[last]),
-    measured: `${label(best.name)} centered with ${best.lines.length} smaller ${best.lines.length === 1 ? "line" : "lines"} (${best.lines.slice(0, 2).map(label).join(", ")}) over a still frame for the last ${sec(best.held / model.fps)}s`,
-    required: `no centered name and tagline card held ${TEMPLATE_HOLD}s or more at the end over a still or flat background`,
-    message: `${ctx.sceneName} ends on a template end card: a centered name with a small line under it on a picture that does not move.`,
-    fix: { kind: "hint", text: "End on the video's own material: its strongest shot or the hook's image with the name over moving footage, or a cut to black on a beat; never a card. A credit can ride the last shot small." },
+    measured: `${label(best.name)} centered with ${best.lines.length} smaller ${best.lines.length === 1 ? "line" : "lines"} (${best.lines.slice(0, 2).map(label).join(", ")}) over a still or darkened picture for the last ${sec(best.held / model.fps)}s`,
+    required: `no centered name and tagline card held ${TEMPLATE_HOLD}s or more at the end over a still, flat or darkened background`,
+    message: `${ctx.sceneName} ends on a template end card: a centered name with a small line under it on a picture that does not move or is darkened to a backdrop.`,
+    fix: { kind: "hint", text: "End on the video's own material: its strongest shot at full strength with the name riding its motion (behind the subject, on its action), the hook's image returning, or a cut to black on a beat; never a card or footage dimmed behind one. A credit can ride the last shot small." },
   }];
 }
 

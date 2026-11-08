@@ -1,6 +1,6 @@
 // template_end (engine/quality/rules/consistency.js): a centered name with a small line under it
-// over a still frame, held at the end, is the template end card; the same words over a playing
-// clip, or as a title mid-video, are not.
+// over a still frame or darkened footage, held at the end, is the template end card; the same
+// words over a playing clip, or as a title mid-video, are not.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultFonts } from "./fonts.js";
@@ -78,12 +78,15 @@ test("template_end: a credit alone is no tagline; a data ending is no name; a ta
   assert.deepEqual(await run(flat([word("wordmark", "kino", 200, 300), word("tagline", "edits.", 150, 600)])), []);
 });
 
-test("template_end: footage under a 60% scrim is still footage, whether the scrim is set by opacity or fill alpha", async () => {
+test("template_end: footage darkened 35% or more behind the card is a backdrop, by opacity or fill alpha; a light tint is not", async () => {
+  // fp-3 to fp-5 all ended on this: a centered name and line over moving footage under a dark tint.
   const words = [word("wordmark", "kino", 180, 380), word("tagline", "you direct. your agent edits.", 48, 620)];
-  assert.deepEqual(await run(scene([clip("shot"), rect("scrim", { fill: "#00000099", animations: [show(7)] }), ...words])), []);
-  assert.deepEqual(await run(scene([clip("shot"), rect("scrim", { opacity: 0.6, animations: [show(7)] }), ...words])), []);
-  // A 90% fill hides the clip: the card is over a still frame.
+  assert.equal((await run(scene([clip("shot"), rect("scrim", { fill: "#00000099", animations: [show(7)] }), ...words])))[0]?.rule, "template_end");
+  assert.equal((await run(scene([clip("shot"), rect("scrim", { opacity: 0.6, animations: [show(7)] }), ...words])))[0]?.rule, "template_end");
   assert.equal((await run(scene([clip("shot"), rect("scrim", { fill: "#000000E6", animations: [show(7)] }), ...words])))[0]?.rule, "template_end");
+  // A 20% grade over the shot leaves it a shot; a tint over part of the frame is a scrim for the words.
+  assert.deepEqual(await run(scene([clip("shot"), rect("scrim", { fill: "#00000033", animations: [show(7)] }), ...words])), []);
+  assert.deepEqual(await run(scene([clip("shot"), rect("scrim", { y: 540, height: 540, fill: "#00000099", animations: [show(7)] }), ...words])), []);
 });
 
 // Formats built with real media facts: a 2x screen recording, a 1440 px screenshot and a 3000 px one.
