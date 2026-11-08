@@ -72,6 +72,8 @@ function curveOf(easing, intensity = 50) {
       highest = Math.max(highest, kept);
     }
   } catch { straight = false; }
+  // Steps are a chosen held-pose rhythm, never the mechanical constant speed linear_motion means.
+  if (easing === "steps") straight = false;
   const curve = { overshoots, linear: straight, wobbles };
   easingCurves.set(key, curve);
   return curve;

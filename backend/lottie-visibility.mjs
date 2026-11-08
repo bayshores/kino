@@ -38,6 +38,17 @@ export function loopRestartFrames(states) {
 }
 
 /**
+ * Indexes of sampled frames after which a steps curve (engine/easing.js) jumps: every transform
+ * and opacity key holds there, so the value changes at once as in the other exports.
+ */
+export function stepFrames(states) {
+  const frames = new Set();
+  for (let index = 0; index + 1 < states.length; index += 1)
+    if ((states[index]?._stepsAt ?? null) !== (states[index + 1]?._stepsAt ?? null)) frames.add(index);
+  return frames;
+}
+
+/**
  * Turns the keyframes of an animated Lottie property at the frame indexes in `frames` into hold
  * keyframes, which keep their value until the next keyframe. A static property (a: 0) is
  * returned unchanged. Returns the property.

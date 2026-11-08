@@ -37,7 +37,7 @@ import { counterFormatOf, counterIndexAt, counterSteps, counterTextAt, isCounter
 import { hasCounters, isTextChange, textChangeSchedule, textEffectLength, textUnitCount } from "./textChange.js";
 
 // Easings whose value, once clamped from 0 to 1, never goes down.
-const RISING_EASINGS = new Set(["linear", "smooth", "natural", "expo-out", "quart-out", "in-out", "ease-out", "ease-in"]);
+const RISING_EASINGS = new Set(["linear", "smooth", "natural", "expo-out", "quart-out", "in-out", "ease-out", "ease-in", "steps"]);
 // How finely an easing that goes up and down is sampled to find where it turns.
 const TURN_SAMPLES = 1024;
 // Halving steps of a search: far finer than a microsecond for any duration.

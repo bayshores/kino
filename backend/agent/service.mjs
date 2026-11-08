@@ -5284,7 +5284,7 @@ export function createAgentService(deps) {
     if (topic === "search") return { text: guideText(searchGuide(search || input.name)) };
     if (topic === "easings") {
       const saved = await store.listEasings();
-      return { text: `easings: ${EASINGS.map((easing) => easing.id).join(", ")}. intensity 0–100 (default 50) for the named curves (expo-out, quart-out and in-out are fixed). Presets default to smooth both ways (fades linear; snap is expo-out); "custom" takes cubic-bezier points. library {topic:"rules", name:"easing"} has the details.\nsaved: ${JSON.stringify(saved)}`, data: { easings: saved } };
+      return { text: `easings: ${EASINGS.map((easing) => easing.id).join(", ")}. intensity 0–100 (default 50) for the named curves (expo-out, quart-out and in-out are fixed); for steps it is the count of held poses ("steps-4" sends both). Presets default to smooth both ways (fades linear; snap is expo-out); "custom" takes cubic-bezier points. library {topic:"rules", name:"easing"} has the details.\nsaved: ${JSON.stringify(saved)}`, data: { easings: saved } };
     }
     if (topic === "presets") {
       const kinds = {};

@@ -14,6 +14,7 @@ const EASING_ENTRIES = [
   ["swing", "Swing"],
   ["spring", "Spring"],
   ["back-out", "Back out"],
+  ["steps", "Steps"],
   ["linear", "None"],
 ];
 
@@ -71,7 +72,7 @@ const ALIASES = new Map([
   ["easein", "ease-in"], ["accelerate", "ease-in"],
   ["elastic", "elastic"], ["bounce", "bounce"],
   ["overshoot", "overshoot"], ["impulse", "impulse"], ["swing", "swing"],
-  ["spring", "spring"], ["backout", "back-out"], ["easeoutback", "back-out"], ["outback", "back-out"],
+  ["spring", "spring"], ["steps", "steps"], ["stepped", "steps"], ["backout", "back-out"], ["easeoutback", "back-out"], ["outback", "back-out"],
 ]);
 
 function easingToken(value) {
@@ -319,6 +320,17 @@ function backOutAt(time, intensity) {
   return 1 + (s + 1) * x * x * x + s * x * x;
 }
 
+/** Steps (intensity is the count, 0 counts as 1): held values from 0 to 1, the last landing at the end. */
+export function stepsCount(intensity = 50) {
+  return Math.max(1, normalizeIntensity(intensity));
+}
+
+function stepsAt(time, intensity) {
+  const count = stepsCount(intensity);
+  if (count === 1) return 0;
+  return Math.min(1, Math.floor(time * count + 1e-9) / (count - 1));
+}
+
 /** 0 at both ends and 1 in the middle, smoothly (FilmCraft transitions.rs `bell`): a blur's or flash's peak. */
 export function bell(progress) {
   const t = 4 * progress * (1 - progress);
@@ -347,6 +359,7 @@ export function easingAt(easing, time, intensity = 50) {
     case "swing": return swingAt(time, strength);
     case "spring": return springAt(time, strength);
     case "back-out": return backOutAt(time, strength);
+    case "steps": return stepsAt(time, strength);
     default: throw new RangeError(`unsupported easing "${String(value)}"`);
   }
 }

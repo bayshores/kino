@@ -879,13 +879,14 @@ function equalPowerProgress(from, to, progress) {
 function keyedStep(animation, progress) {
   const keys = animation.keys;
   const first = keys[0], last = keys.at(-1);
-  if (progress <= first.t) return { from: first.value, to: first.value, eased: 0 };
-  if (progress >= last.t) return { from: last.value, to: last.value, eased: 1 };
+  if (progress <= first.t) return { from: first.value, to: first.value, eased: 0, ease: null };
+  if (progress >= last.t) return { from: last.value, to: last.value, eased: 1, ease: null };
   let index = 0;
   while (index < keys.length - 2 && progress >= keys[index + 1].t) index++;
   const a = keys[index], b = keys[index + 1];
   const share = (progress - a.t) / (b.t - a.t);
-  return { from: a.value, to: b.value, eased: easingAt(a.ease ?? animation.easing ?? "linear", share, animation.intensity) };
+  const ease = a.ease ?? animation.easing ?? "linear";
+  return { from: a.value, to: b.value, eased: easingAt(ease, share, animation.intensity), ease, index };
 }
 
 // Runs the timed operations `ordered` (sorted by start) on `target` at `time`: each operation
@@ -982,6 +983,9 @@ function applyOperations(target, layer, ordered, time, options, {
     // A keyed animation plays the step of its keys that holds this moment (keyedStep).
     const step = Array.isArray(animation.keys) && animation.keys.length > 1 ? keyedStep(animation, progress) : null;
     if (step) ({ from, to, eased } = step);
+    // Ephemeral sampling metadata: a steps curve jumps between frames, which Lottie must hold.
+    if ((step ? step.ease : animation.easing) === "steps")
+      target._stepsAt = `${target._stepsAt ?? ""}${animation.id}:${step ? `${step.index}/` : ""}${eased};`;
     // A range selector (textTiming.js textRangeProgress): this unit's share of the eased sweep.
     if (animation.range) eased = textRangeProgress(animation.range, eased, operationUnitIndex(animation, options), operationUnitCount(animation, options));
     // Ephemeral sampling metadata: Lottie must hold these opacity switches between frames.

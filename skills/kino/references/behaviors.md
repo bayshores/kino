@@ -8,7 +8,7 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   value:{x:300, opacity:1}, ease:"overshoot"}, {t:1, value:{x:260, opacity:1}}]}`: 3 to 64 keys,
   `t` a share 0..1 of the duration, rising; every `value` names the same keys (any animatable
   one: effectPreset, rotateX...). `ease` shapes the step to the next key (default the
-  animation's easing). Before the first key it holds the first value, after the last the last;
+  animation's easing; `"steps"` counts by the animation's intensity). Before the first key it holds the first value, after the last the last;
   from and to become the first and last value. Not with motionPath, scatter, range, fromCurrent.
   `add_animation {layer, start, duration, keys}` works too; the receipt's `keys` counts them,
   inspect lists them. Change them with `update_animation properties:{keys}`, not from/to.

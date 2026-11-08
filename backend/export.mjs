@@ -51,7 +51,7 @@ import { isFillEnabled } from "../engine/paints.js";
 import { vectorLayer } from "./lottie-vector.mjs";
 import { compositionBounds } from "./lottie-bounds.mjs";
 import { effectPadding, lottieEffects, transparentEffectBounds } from "./lottie-effects.mjs";
-import { holdKeyframesAt, loopRestartFrames, visibilitySwitchFrames } from "./lottie-visibility.mjs";
+import { holdKeyframesAt, loopRestartFrames, stepFrames, visibilitySwitchFrames } from "./lottie-visibility.mjs";
 import { discreteOpacityProperty } from "./lottie-opacity.mjs";
 import { audibleRanges } from "../engine/videoSound.js";
 import { animatesVolume } from "../engine/animation.js";
@@ -1943,7 +1943,7 @@ function sampledTransform(layer, matrices, states, label, anchor = null) {
     ),
   );
   // A cycling loop jumps back at each new pass: hold across that frame gap (lottie-visibility.mjs).
-  const restarts = loopRestartFrames(states);
+  const restarts = new Set([...loopRestartFrames(states), ...stepFrames(states)]);
   const sampled = (values, dimension) => holdKeyframesAt(property(values, dimension), restarts);
   return {
     a: sampled(decomposed.map((item) => item.a), 3),

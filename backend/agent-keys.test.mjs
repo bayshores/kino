@@ -74,3 +74,26 @@ test("the jump line for a keyed animation moves its first key, and the op it giv
   const fixed = await agent("edit", { project: "keyjump", ops });
   assert.equal(fixed.isError, undefined, fixed.text);
 });
+
+test("steps-4 stores the steps easing with intensity 4 on animations and moves; a bare steps asks for its count", async () => {
+  const document = parseDocument(createDocument({ id: "steps", name: "steps", scenes: [createScene({ id: "main", name: "Main", width: 320, height: 180, duration: 4,
+    layers: [createLayer("image", { id: "shot-b", name: "shot-b", src: "/b.png", width: 320, height: 180 }),
+      createLayer("image", { id: "shot-a", name: "shot-a", src: "/a.png", width: 320, height: 180 }),
+      createLayer("rectangle", { id: "box", name: "Box", x: 0, y: 0, width: 20, height: 20 })] })] }));
+  assert.equal((await server.api("/api/projects", { method: "POST", body: { document } })).status, 201);
+  const added = await agent("edit", { project: "steps", ops: [
+    { op: "add_animation", layer: "Box", id: "tick", animation: { kind: "custom", name: "Tick", start: 0, duration: 1, easing: "steps-4", from: { x: 0 }, to: { x: 90 } } },
+    { op: "move", name: "zoom-blur", from: "shot-a", to: "shot-b", at: 2, ease: "steps-3" }] });
+  assert.equal(added.isError, undefined, added.text);
+  const layers = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers;
+  const tick = layers.find((layer) => layer.id === "box").animations[0];
+  assert.deepEqual([tick.easing, tick.intensity], ["steps", 4]);
+  assert.ok(layers.find((layer) => layer.id === "shot-a").animations.some((animation) => animation.easing === "steps" && animation.intensity === 3));
+  for (const [op, pattern] of [
+    [{ op: "add_animation", layer: "Box", animation: { kind: "custom", name: "Bare", start: 0, duration: 1, easing: "steps", from: { x: 0 }, to: { x: 9 } } }, /needs its count/],
+    [{ op: "add_animation", layer: "Box", keys: [{ t: 0, value: { x: 0 }, ease: "steps-4" }, { t: 0.5, value: { x: 5 } }, { t: 1, value: { x: 9 } }] }, /intensity 4/]]) {
+    const refused = await agent("edit", { project: "steps", ops: [op] });
+    assert.equal(refused.isError, true);
+    assert.match(refused.text, pattern);
+  }
+});

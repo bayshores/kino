@@ -311,13 +311,35 @@ export function easingFromText(text) {
   throw new Error(`Unknown easing "${text}". Easings: ${EASING_NAMES.join(", ")}, or a cubic bezier [x1, y1, x2, y2].`);
 }
 
+// "steps-4", "steps(4)" or "steps 4": the steps easing with that count (its intensity).
+const STEPS_TEXT = /^\s*steps?\s*[-(:\s]\s*(\d+)\s*\)?\s*$/i;
+const STEPS_HOW = `"steps-4" (4 held poses, 1 to 100), or easing "steps" with intensity 4`;
+
+// The steps shorthand on an object that holds easing (an animation, its properties or an op).
+function stepsEasing(value, result) {
+  const steps = typeof value.easing === "string" ? STEPS_TEXT.exec(value.easing) : null;
+  if (steps) {
+    const count = Number(steps[1]);
+    if (count < 1 || count > 100) throw new Error(`easing "${value.easing}": steps take a count from 1 to 100, such as ${STEPS_HOW}.`);
+    if (value.intensity !== undefined && value.intensity !== count) throw new Error(`easing "${value.easing}" and intensity ${value.intensity} disagree: the intensity is the step count. Send one.`);
+    result.easing = "steps";
+    result.intensity = count;
+  } else if (typeof value.easing === "string" && /^\s*(?:steps|stepped)\s*$/i.test(value.easing) && value.intensity === undefined)
+    throw new Error(`easing "${value.easing}" needs its count: ${STEPS_HOW}.`);
+  // A key's ease has no intensity of its own: the animation's intensity counts its steps.
+  if (typeof value.ease === "string" && STEPS_TEXT.test(value.ease) && value.t !== undefined)
+    throw new Error(`a key's ease "${value.ease}": write ease "steps" and give the animation intensity ${STEPS_TEXT.exec(value.ease)[1]} (the step count).`);
+}
+
 // Fixes color and easing spellings anywhere in an operation (properties, from/to, keyframes).
 function normalizeValues(value, fixes, depth = 0) {
   if (!value || typeof value !== "object" || depth > 8) return value;
   if (Array.isArray(value)) return value.map((entry) => normalizeValues(entry, fixes, depth + 1));
   const result = {};
   for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry === "string" && COLOR_KEY.test(key) && /gradient\(/i.test(entry)) {
+    if (key === "easing" && typeof entry === "string" && STEPS_TEXT.test(entry)) {
+      result[key] = entry;
+    } else if (typeof entry === "string" && COLOR_KEY.test(key) && /gradient\(/i.test(entry)) {
       // CSS "linear-gradient(90deg, #f00, #00f)" → kino's gradient paint.
       const gradient = gradientFromCss(entry, colorFromText, key);
       if (gradient) fixes.push(`${key} CSS gradient → {type:"${gradient.type}"${gradient.angle !== undefined ? `, angle:${gradient.angle}` : ""}, ${gradient.stops.length} stops}`);
@@ -347,6 +369,7 @@ function normalizeValues(value, fixes, depth = 0) {
       result[key] = easing ?? entry;
     } else result[key] = normalizeValues(entry, fixes, depth + 1);
   }
+  stepsEasing(value, result);
   return result;
 }
 

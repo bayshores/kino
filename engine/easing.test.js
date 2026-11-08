@@ -7,7 +7,7 @@ const close = (actual, expected, tolerance = 1e-6) =>
 
 test("catalog labels, historical aliases, and custom curves normalize to stable values", () => {
   assert.deepEqual(EASINGS.map(({ id }) => id), [
-    "custom", "smooth", "natural", "expo-out", "quart-out", "in-out", "ease-out", "ease-in", "elastic", "bounce", "overshoot", "impulse", "swing", "spring", "back-out", "linear",
+    "custom", "smooth", "natural", "expo-out", "quart-out", "in-out", "ease-out", "ease-in", "elastic", "bounce", "overshoot", "impulse", "swing", "spring", "back-out", "steps", "linear",
   ]);
   // Named fixed curves: CSS and animation-library spellings reach them too.
   assert.equal(normalizeEasing("easeOutExpo"), "expo-out");

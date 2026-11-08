@@ -27,14 +27,17 @@ export const CURVES = Object.freeze({
 
 export { round };
 
+// A curve as the animation stores it: a bezier, or {steps: n} as the steps easing with intensity n.
+const eased = (easing) => (Number.isInteger(easing?.steps) ? { easing: "steps", intensity: easing.steps } : { easing: [...easing] });
+
 /** A move or fade the document stores: kind is "in", "out" or "custom". */
 export function motion({ name, kind = "custom", start, duration, easing, from, to }) {
-  return { name, kind, start: round(start), duration: round(Math.max(0.001, duration)), easing: [...easing], unit: "layer", stagger: 0, order: "forward", from, to };
+  return { name, kind, start: round(start), duration: round(Math.max(0.001, duration)), ...eased(easing), unit: "layer", stagger: 0, order: "forward", from, to };
 }
 
 /** An effect animation (zoom-blur, rgb-shift, sparks, …). `to` holds its settings. */
 export function effect({ name, effect: key, start, duration, easing, from, to, keepStill }) {
-  return { name, kind: "effect", effect: key, start: round(start), duration: round(Math.max(0.001, duration)), easing: [...easing], ...(from ? { from } : {}), to, ...(keepStill ? { keepStill } : {}) };
+  return { name, kind: "effect", effect: key, start: round(start), duration: round(Math.max(0.001, duration)), ...eased(easing), ...(from ? { from } : {}), to, ...(keepStill ? { keepStill } : {}) };
 }
 
 /** An instant hide or show at `start`. */

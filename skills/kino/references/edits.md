@@ -93,8 +93,8 @@ A second scene (from then on every op names its `scene`):
   `library {topic:"op", name:"add_animation"}` gives each one's `to`).
 - Easing: `smooth` (long settle), `natural`, `expo-out` or `snap` (fast in),
   `quart-out`, `in-out`, `ease-in`, `ease-out`, `overshoot`, `elastic`, `bounce`, `impulse`,
-  `swing`, `linear`, `[x1,y1,x2,y2]`. Presets default to smooth, fades to linear;
-  `easeOutBack` and `cubic-bezier()` are converted.
+  `swing`, `linear`, `steps-4` (4 held poses), `[x1,y1,x2,y2]`. Presets: smooth, fades
+  linear; `easeOutBack` and `cubic-bezier()` convert.
 - 3+ steps: `keys:[{t, value, ease?}]` for from/to (behaviors.md).
 - An effect's settings are in `to` (and `from`): `update_animation {animation:"plate.effect",
   properties:{to:{gamma:0.6}}}` changes gamma and keeps the others.

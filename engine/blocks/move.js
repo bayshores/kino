@@ -28,7 +28,7 @@ export const EASE_NAMES = Object.freeze(["linear", ...Object.keys(CURVES)]);
  * moves list, which says once that these exist). A move says in its own about what they change.
  */
 export const SHARED = Object.freeze({
-  ease: { kind: "ease", shared: true, about: `the curve of its main motion: ${EASE_NAMES.join(", ")} or [x1, y1, x2, y2] (default the move's own)` },
+  ease: { kind: "ease", shared: true, about: `the curve of its main motion: ${EASE_NAMES.join(", ")}, [x1, y1, x2, y2] or steps-n (n held poses, 1 to 100) (default the move's own)` },
   speed: { kind: "number", low: 0.5, high: 4, shared: true, about: "how quick its motion runs inside dur, about its key moment: 2 = twice as quick, then still; below 1 its short beats last longer, never past dur (default 1)" },
   color: { kind: "color", shared: true, about: "its color, hex such as #FFFFFF" },
   accent: { kind: "color", shared: true, about: "its second color, hex" },
@@ -40,13 +40,19 @@ export function shared(...entries) {
   for (const entry of entries) {
     if (typeof entry === "string") fields[entry] = SHARED[entry];
     // A move's own ease about still names the curves it takes.
-    else for (const [key, about] of Object.entries(entry)) fields[key] = { ...SHARED[key], about: key === "ease" ? `${about}: ${EASE_NAMES.join(", ")} or [x1, y1, x2, y2]` : about };
+    else for (const [key, about] of Object.entries(entry)) fields[key] = { ...SHARED[key], about: key === "ease" ? `${about}: ${EASE_NAMES.join(", ")}, [x1, y1, x2, y2] or steps-n` : about };
   }
   return fields;
 }
 
-/** A curve by kit name ("accelerate", "linear") or a [x1, y1, x2, y2] bezier, as a new array. */
+/** A curve by kit name ("accelerate", "linear") or a [x1, y1, x2, y2] bezier, as a new array; "steps-4" is {steps: 4}. */
 export function curveOf(value, where = "ease") {
+  const steps = typeof value === "string" ? /^steps-(\d{1,3})$/.exec(value) : null;
+  if (steps) {
+    const count = Number(steps[1]);
+    if (count < 1 || count > 100) throw new Error(`${where} steps-n takes n from 1 to 100.`);
+    return { steps: count };
+  }
   if (Array.isArray(value)) {
     if (value.length !== 4 || !value.every((entry) => typeof entry === "number" && Number.isFinite(entry)) || value[0] < 0 || value[0] > 1 || value[2] < 0 || value[2] > 1 || Math.abs(value[1]) > 3 || Math.abs(value[3]) > 3)
       throw new Error(`${where} as a bezier is [x1, y1, x2, y2] with x1 and x2 from 0 to 1, such as [0.5, 0, 0, 1].`);
@@ -54,7 +60,7 @@ export function curveOf(value, where = "ease") {
   }
   if (value === "linear") return [...LINEAR];
   if (typeof value === "string" && CURVES[value]) return [...CURVES[value]];
-  throw new Error(`${where} is ${EASE_NAMES.join(", ")} or [x1, y1, x2, y2].`);
+  throw new Error(`${where} is ${EASE_NAMES.join(", ")}, [x1, y1, x2, y2] or steps-n (such as steps-4).`);
 }
 
 /** Reads the fields a move was given, checking each against the move's field list. */
