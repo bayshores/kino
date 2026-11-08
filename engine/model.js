@@ -24,6 +24,8 @@ import { TIMED_ANIMATION_FIELDS, VISIBILITY_KINDS } from "./visibilityOps.js";
 import { RESIZE_ANCHOR_LIST, isResizeAnchor, resizeProblem } from "./resizeAnchor.js";
 import { SHADOW_LIMITS } from "./shadowInterpolation.js";
 import { normalizeShadowChannels } from "./shadowChannels.js";
+import { normalizeShadowList } from "./stackedShadows.js";
+import { STACKED_STROKE_TYPES, normalizeStrokeList } from "./stackedStrokes.js";
 import { migrateDocument } from "./documentMigration.js";
 import { sceneRectangles, MAX_CANVAS_COORDINATE } from "./sceneLayout.js";
 import { LETTER_SPACING_LIMIT } from "./letterSpacing.js";
@@ -1241,6 +1243,20 @@ function normalizeLayer(raw, path, animationIds, counters) {
       fail(`${path}.componentOverrides`, "only a component instance can override layers of its main component");
   }
   if (layer.shadow !== null) layer.shadow = normalizeShadow(layer.shadow, `${path}.shadow`);
+  // Stacked shadows (stackedShadows.js): optional, left out when empty.
+  if (layer.shadows == null) delete layer.shadows;
+  else if (type === "audio") fail(`${path}.shadows`, "audio layers are not drawn, so they have no shadows");
+  else {
+    layer.shadows = normalizeShadowList(layer.shadows, `${path}.shadows`);
+    if (!layer.shadows) delete layer.shadows;
+  }
+  // Stacked strokes (stackedStrokes.js): optional, left out when empty.
+  if (layer.strokes == null) delete layer.strokes;
+  else if (!STACKED_STROKE_TYPES.has(type)) fail(`${path}.strokes`, "only text, rectangle, ellipse, star and path layers take a strokes list");
+  else {
+    layer.strokes = normalizeStrokeList(layer.strokes, `${path}.strokes`);
+    if (!layer.strokes) delete layer.strokes;
+  }
   layer.text = requireString(layer.text, `${path}.text`, MAX_STRING_LENGTH);
   if (layer.textStyleRanges !== undefined) {
     if (type !== "text") fail(`${path}.textStyleRanges`, "only text layers can have style ranges");

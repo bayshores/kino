@@ -1986,6 +1986,11 @@ function assertLottieFeatures(scene, media = {}) {
       const repeated = (values) => finite(values?.repeatCopies, 1) > 1;
       if (repeated(layer) || anyValues(repeated))
         throw new Error(`Lottie export cannot yet render the repeater (repeatCopies) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set repeatCopies to 1 for Lottie.`);
+      // Lottie has one drop shadow per layer: a stacked list is refused, not cut to one.
+      if (Array.isArray(layer.shadows) && layer.shadows.length)
+        throw new Error(`Lottie export cannot render stacked shadows (shadows) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or keep one shadow (shadow) for Lottie.`);
+      if (Array.isArray(layer.strokes) && layer.strokes.length)
+        throw new Error(`Lottie export cannot render stacked strokes (strokes) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or keep one stroke (stroke) for Lottie.`);
       if (["video", "audio"].includes(layer.type))
         throw new Error(
           `Lottie export does not support ${layer.type} layer “${layer.name ?? layer.id}”.`,

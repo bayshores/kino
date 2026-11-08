@@ -242,7 +242,7 @@ export function groupEffect(group, maskedIds) {
   if (group.visible === false) return "is hidden";
   if (group.opacity !== 1) return "has opacity below 100%";
   if (group.blur) return "has blur";
-  if (group.shadow) return "has a shadow";
+  if (group.shadow || group.shadows?.length) return "has a shadow";
   if ((group.blendMode ?? "normal") !== "normal") return "has a blend mode";
   if (group.isMask) return "is a mask";
   if (group.isMaskGroup) return "is a mask group";
@@ -396,7 +396,7 @@ function clipChangesNothing(group, layers, scenes, fonts) {
   const groupSpace = inverse(worldMatrix(group, layers));
   if (!groupSpace) return false;
   return inside.every((layer) => {
-    if (layer.animations?.length || layer.shadow || layer.blur) return false;
+    if (layer.animations?.length || layer.shadow || layer.shadows?.length || layer.blur) return false;
     if (layer.type === "audio" || (layer.type === "group" && !visibleBoxStyleEffect(layer))) return true;
     const style = effectiveBoxStyle(layer);
     const box = geometryOf(style, scenes, fonts);
@@ -413,7 +413,7 @@ function clipChangesNothing(group, layers, scenes, fonts) {
 function ungroupOne(document, layers, group, fonts) {
   const name = label(group);
   const boxStyleEffect = visibleBoxStyleEffect(group);
-  if (group.animations?.length || group.shadow || group.blur || group.opacity !== 1 || (group.blendMode ?? "normal") !== "normal" || group.isMask || boxStyleEffect) {
+  if (group.animations?.length || group.shadow || group.shadows?.length || group.blur || group.opacity !== 1 || (group.blendMode ?? "normal") !== "normal" || group.isMask || boxStyleEffect) {
     // A mask group's mask can still be removed without ungrouping it (masking.js removeMasks).
     const maskHint = group.isMaskGroup ? " To remove only its mask and keep the group, use Remove mask (⌃⌘M)." : "";
     throw new Error(

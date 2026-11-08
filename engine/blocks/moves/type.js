@@ -7,6 +7,7 @@ import { safeArea } from "../formats.js";
 import { haloAlwaysPasses } from "../../quality/pixels.js";
 import { CURVES, changeText, coverScale, effect, frameShare, glyphInside, hide, inkPoint, luminance, mix, motion, round, scaledAbout } from "./kit.js";
 import { subjectInk } from "./subjectInk.js";
+import { shared } from "../move.js";
 
 // The checker's shortest reading time: 20 frames at 30 fps.
 const SHORTEST_READ = 20 / 30;
@@ -42,7 +43,10 @@ const WORD_POP = 0.12;
 const POP_FROM = 0.92;
 // highlight "active": the color switches this fast at each word's time; the rest sit at 70%.
 const WORD_SWITCH = 0.05;
-const dimmed = (color) => `${String(color).slice(0, 7)}B3`;
+// Words not said yet (karaoke, pop) and said (karaoke) sit at this opacity by default.
+const DIM = 0.7;
+// A color at an opacity, as fill alpha (#RRGGBBAA); full opacity keeps the color as given.
+const faded = (color, opacity) => (opacity >= 1 ? color : `${String(color).slice(0, 7)}${Math.round(opacity * 255).toString(16).padStart(2, "0").toUpperCase()}`);
 
 /**
  * One group's word timing as per-word animation keys (unit words, textAnchor words): `say`
@@ -293,26 +297,79 @@ function balancedLines(ctx, layer, box) {
   return { ...layer, width, x: Math.round(box.x + (box.width - width) / 2), height: Math.ceil(layout.height), lines: layout.lines.length };
 }
 
+/**
+ * activeBackground: a rounded box under one caption that sits behind each timed entry (a word or
+ * a short phrase) while it is said, sliding to the next one. It spans the entry's words on the
+ * line its first word is on, grown by `grow` about its middle like the word.
+ */
+function wordBacking(ctx, { layer, group, index, color, grow, rise, enter, easing, lift, final }) {
+  const units = textUnits(layoutText(layer, ctx.fonts), "words");
+  const size = layer.fontSize;
+  const boxes = [];
+  let next = 0;
+  for (const word of group.words) {
+    const own = units.slice(next, next + wordCount(word.text));
+    next += own.length;
+    const line = own[0]?.lineIndex;
+    const glyphs = own.filter((unit) => unit.lineIndex === line).flatMap((unit) => unit.glyphs).filter((glyph) => glyph.bounds?.width > 0);
+    if (!glyphs.length) { boxes.push(boxes.at(-1) ?? null); continue; }
+    const left = Math.min(...glyphs.map((glyph) => glyph.x));
+    const right = Math.max(...glyphs.map((glyph) => glyph.x + glyph.advance));
+    // Capitals and descenders with a little room: about the type size tall, centered on the ink.
+    const width = (right - left + size * 0.32) * grow;
+    const height = size * 1.08 * grow;
+    const middleX = layer.x + (left + right) / 2;
+    const middleY = layer.y + glyphs[0].y - size * 0.3;
+    boxes.push({ x: round(middleX - width / 2), y: round(middleY - height / 2), width: round(width), height: round(height) });
+  }
+  const first = boxes.find(Boolean);
+  if (!first) return;
+  const box = ctx.add(`hl${index + 1}`, createLayer("rectangle", { name: "Word backing", ...first, radius: Math.round(size * 0.2), fill: color, role: "decor", allowOverlap: true }));
+  // It shows when the first word is said (a caption shown early waits for it).
+  const on = round(Math.max(group.at, group.words[0].at));
+  if (rise && on === group.at) ctx.animate(box, "in", motion({ name: "Rise in", kind: "in", start: on, duration: enter, easing, from: { opacity: 0, y: first.y + lift }, to: { opacity: 1, y: first.y } }));
+  else ctx.animate(box, "in", motion({ name: "Fade in", kind: "in", start: on, duration: CAPTION_CUT, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
+  let was = first;
+  group.words.forEach((word, step) => {
+    const now = boxes[step];
+    if (step === 0 || !now || now === was) return;
+    ctx.animate(box, `to${step + 1}`, motion({ name: "Next word", start: round(Math.max(group.at, word.at)), duration: ctx.reduced ? WORD_SWITCH : 0.12, easing: CURVES.arrive, from: was, to: now }));
+    was = now;
+  });
+  const out = rise ? CAPTION_LAST_OUT : CAPTION_CUT;
+  if (final) ctx.animate(box, "out", motion({ name: "Fade out", kind: "out", start: group.end - out, duration: out, easing: rise ? CURVES.leave : CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
+  ctx.animate(box, "hide", hide(group.end));
+}
+
 export const captionWords = {
   name: "caption-words",
-  about: "captions a phrase at a time (never across a sentence's end), as written, each cutting on as it is said and replacing the last, on one line or two balanced, low and clear of a phone, a card or a status line",
-  fits: "spoken words, a voice or an app talking; a quiet line over footage",
+  about: "captions a phrase at a time as said (never across a sentence's end), one or two balanced lines, low, clear of a phone, card or status line",
+  fits: "speech, a voice or an app talking; a quiet line over footage",
   tags: ["type-words", "type-cut"],
   length: 2,
   lasts: "not needed: it lasts until the last word ends",
   fields: {
-    words: { kind: "timed", ends: true, most: 300, max: 40, about: "[{text, at, end?}]: each word (or short phrase) and when it is said, in scene seconds" },
-    text: { kind: "text", max: 400, about: "the words as one text, said from at (with times, or at a speaking pace)" },
-    times: { kind: "times", most: 300, about: "with text: when each word is said, one time per word" },
-    position: { kind: "choice", values: ["bottom", "middle", "top"], aliases: { center: "middle" }, about: "where the captions sit (default bottom; center is middle)" },
-    keepCase: { kind: "choice", values: [true, false], about: "false lowercases the captions (default true: the case as written)" },
-    entrance: { kind: "choice", values: ["cut", "rise", "pop"], about: "cut (default): an 80 ms fade on and off; rise: slides up out of a blur; pop: words wait at 70% color and 92% size, each going full as it is said" },
-    highlight: { kind: "choice", values: ["none", "active"], about: "active: the word being said takes the look's accent color and the others sit at 70% (karaoke); none (default)" },
-    scrim: { kind: "choice", values: [true, false], about: "true: a soft dark backing behind each caption; false: none (default: only when the shadowed words could fail contrast, as dark or dimmed words can)" },
-    avoid: { kind: "layers", most: 8, about: "layers the captions keep clear of (default: pictures, videos and groups that cover part of the frame, such as a phone)" },
-    energy: { kind: "choice", values: ["high", "talk", "calm"], about: "words a caption: high 2 to 3, talk 3 to 5, calm 4 to 6 (default from the pace of the words and the music)" },
-    group: { kind: "number", low: 1, high: 6, about: "most words a caption (over energy); 1: one word at a time" },
-    size: { kind: "choice", values: ["small", "medium", "big"], about: "big (default, capitals 6% of the height), medium (75%) or small (55%, a quiet line)" },
+    words: { kind: "timed", ends: true, most: 300, max: 40, about: "[{text, at, end?}]: words or short phrases and when said (scene s)" },
+    text: { kind: "text", max: 400, about: "one text, from at (with times, or at a speaking pace)" },
+    times: { kind: "times", most: 300, about: "with text: one time per word" },
+    position: { kind: "choice", values: ["bottom", "middle", "top"], aliases: { center: "middle" }, about: "bottom (default), middle/center or top" },
+    keepCase: { kind: "choice", values: [true, false], about: "false lowercases (default true)" },
+    entrance: { kind: "choice", values: ["cut", "rise", "pop"], about: "cut (default, 80 ms fade); rise: up out of a blur; pop: each word grows from 92% as said" },
+    highlight: { kind: "choice", values: ["none", "active"], about: "active: karaoke, the said word in accent; none (default)" },
+    scrim: { kind: "choice", values: [true, false], about: "true: a soft dark box behind; false: none (default: only if contrast could fail)" },
+    avoid: { kind: "layers", most: 8, about: "layers kept clear of (default: pictures, videos, groups partly covering the frame)" },
+    energy: { kind: "choice", values: ["high", "talk", "calm"], about: "words a caption: high 2-3, talk 3-5, calm 4-6 (default from pace, music)" },
+    group: { kind: "number", low: 1, high: 6, about: "most words a caption (over energy); 1: one at a time" },
+    size: { kind: "choice", values: ["small", "medium", "big"], about: "big (default, caps 6% of height), medium (75%) or small (55%)" },
+    // Type knobs (named as add_captions names them); knob: true keeps them out of the short moves list.
+    fontFamily: { kind: "text", max: 100, knob: true, about: "default the brand's, project's or look's" },
+    fontWeight: { kind: "number", low: 100, high: 900, whole: true, knob: true, about: "100-900 (default the font's, or 600)" },
+    fill: { kind: "color", knob: true, about: "text color (default the look's)" },
+    ...shared({ accent: "said word's color under highlight active (default the look's)" }),
+    activeScale: { kind: "number", low: 1, high: 2, knob: true, about: "1-2: the said word's size (default 1)" },
+    saidOpacity: { kind: "number", low: 0, high: 1, knob: true, about: "0-1: said words (default 0.7 if highlight active, else 1)" },
+    unsaidOpacity: { kind: "number", low: 0, high: 1, knob: true, about: "0-1: unsaid words (default 0.7 if highlight active or pop, else 1)" },
+    activeBackground: { kind: "text", max: 9, knob: true, about: '"none" (default) or hex: a box behind the said word' },
   },
   oneOf: [["words", "text"]],
   example: { words: [{ text: "so", at: 0.4 }, { text: "we gave", at: 1.2 }, { text: "it eyes.", at: 2.2, end: 3.4 }] },
@@ -344,12 +401,18 @@ export const captionWords = {
     const floor = Math.min(safe.y + safe.height, Math.round(ctx.frame.height * 0.86));
     // Where the captions go: the asked position (bottom by default), or the other one, in the
     // widest stretch of the frame that no layer to avoid covers while they play (see captionSpot).
-    // The brand's or the project's font at its own weight; the look's font at 600.
-    const weight = ctx.brandFonts ? undefined : 600;
+    // The brand's or the project's font at its own weight; the look's font at 600. fontFamily
+    // and fontWeight replace them; the caller loads the face (ctx.fontFace), also for a weight
+    // asked of the default family.
+    const family = input.fontFamily ?? (input.fontWeight !== undefined ? ctx.style.fonts.body?.fontFamily : undefined);
+    const face = family ? ctx.fontFace(family) : null;
+    if (input.fontFamily && !face) throw new Error(`caption-words fontFamily: no font "${input.fontFamily}"; give a family kino has (library {topic:"fonts"}).`);
+    const weight = input.fontWeight ?? face?.fontWeight ?? (ctx.brandFonts ? undefined : 600);
+    const typeCtx = face ? Object.create(ctx, { style: { value: { ...ctx.style, fonts: { ...ctx.style.fonts, body: face } } } }) : ctx;
     const texts = groups.map((group) => (input.keepCase === false ? group.text.toLowerCase() : group.text));
     // A stretch fits when every caption takes at most two lines in it at 70% of the full size.
     const fits = (width) => texts.every((text) => {
-      const probe = textLayer(ctx, { part: "probe", text, role: "caption", step: "body", size, weight, box: { x: 0, y: 0, width: ctx.frame.width * 4, height: ctx.frame.height }, align: "center", face: "body", maxLines: 1 });
+      const probe = textLayer(typeCtx, { part: "probe", text, role: "caption", step: "body", size, weight, box: { x: 0, y: 0, width: ctx.frame.width * 4, height: ctx.frame.height }, align: "center", face: "body", maxLines: 1 });
       return layoutText({ ...probe, fontSize: Math.round(size * 0.7), width }, ctx.fonts).lines.length <= 2;
     });
     const spot = captionSpot(ctx, input, groups, { safe, size, floor, fits });
@@ -358,7 +421,7 @@ export const captionWords = {
     // Each group's text layer, laid out first so the shade below can be shaped around them.
     const layers = groups.map((group, index) => {
       const text = texts[index];
-      const layer = balancedLines(ctx, textLayer(ctx, { part: `w${index + 1}`, text, role: "caption", step: "body", size, weight, box, align: "center", face: "body", maxLines: 2, name: `Caption: ${text}` }), box);
+      const layer = balancedLines(ctx, textLayer(typeCtx, { part: `w${index + 1}`, text, role: "caption", step: "body", size, weight, box, align: "center", face: "body", maxLines: 2, name: `Caption: ${text}` }), box);
       layer.y = position === "top" ? box.y : position === "middle" ? Math.round(box.y + (box.height - layer.height) / 2) : box.y + box.height - layer.height;
       return layer;
     });
@@ -368,10 +431,25 @@ export const captionWords = {
     // it is said, so it never blinks between them. 72% black: white words pass the contrast gate
     // (3:1 for large type) even on white footage. Left out when the words' halo shadow already
     // passes over any picture (needsScrim), unless scrim is true.
-    const ink = ctx.style.colors.text;
-    // Every color a word takes: the ink, the dimmed 70% (karaoke, pop) and the accent (karaoke).
-    const fills = input.highlight === "active" ? [ink, dimmed(ink), ctx.style.colors.accent] : input.entrance === "pop" ? [ink, dimmed(ink)] : [ink];
-    if (needsScrim(ctx, input.scrim, { fills, shadow: shadowFor(ctx), size: layers[0].fontSize, weight: layers[0].fontWeight })) {
+    const rise = input.entrance === "rise" && !ctx.reduced;
+    const pop = input.entrance === "pop" && !ctx.reduced;
+    const active = input.highlight === "active";
+    const ink = input.fill ?? ctx.style.colors.text;
+    // The said word's color, and the words not said yet and already said (fill alpha, so the
+    // caption's own fade is untouched): 70% under karaoke, unsaid ones 70% under pop, else full.
+    const lit = active ? input.accent ?? ctx.style.colors.accent : ink;
+    const past = faded(ink, input.saidOpacity ?? (active ? DIM : 1));
+    const futureFor = (popping) => faded(ink, input.unsaidOpacity ?? (active || popping ? DIM : 1));
+    const future = futureFor(pop);
+    const backing = input.activeBackground && input.activeBackground !== "none" ? input.activeBackground.toUpperCase() : null;
+    if (backing && !/^#[0-9A-F]{6}([0-9A-F]{2})?$/.test(backing)) throw new Error('caption-words activeBackground is "none" or a hex color such as #FF6B4A.');
+    // Every color a word takes over the picture (the contrast check reads pop's colors in reduced
+    // motion too); the said word on its own box is not.
+    const fills = [...new Set([ink, futureFor(input.entrance === "pop"), past, ...(backing ? [] : [lit])])];
+    // A dark word on a lighter box loses its drop shadow (a dark halo on the box); the shade
+    // behind the caption keeps the other words readable instead.
+    const shadow = backing && luminance(lit) < luminance(backing.slice(0, 7)) ? null : shadowFor(ctx);
+    if (needsScrim(ctx, input.scrim, { fills, shadow, size: layers[0].fontSize, weight: layers[0].fontWeight })) {
       const padX = Math.round(size * 0.7);
       const padY = Math.round(size * 0.35);
       const fit = (layer) => ({ x: layer.x - padX, y: layer.y - padY, width: layer.width + padX * 2, height: layer.height + padY * 2 });
@@ -391,27 +469,27 @@ export const captionWords = {
       ctx.animate(scrim, "out", motion({ name: "Fade out", kind: "out", start: shownUntil - Math.min(shadeFade, CAPTION_LAST_OUT), duration: Math.min(shadeFade, CAPTION_LAST_OUT), easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
       ctx.animate(scrim, "hide", hide(shownUntil));
     }
-    const rise = input.entrance === "rise" && !ctx.reduced;
-    const pop = input.entrance === "pop" && !ctx.reduced;
-    const active = input.highlight === "active";
+    const grow = input.activeScale ?? 1;
     groups.forEach((group, index) => {
       const final = index === groups.length - 1;
-      // Karaoke and pop start every word at 70% (fill alpha, so the caption's own fade is untouched).
-      const made = ctx.add(`w${index + 1}`, { ...layers[index], shadow: shadowFor(ctx), fill: active || pop ? dimmed(ink) : ink });
-      const keys = wordKeys(group);
-      if (active) {
-        // Karaoke: the word being said takes the accent; the rest sit at 70%.
-        const accent = ctx.style.colors.accent;
-        ctx.animate(made, "say", { ...motion({ name: "Say word", start: group.at, duration: WORD_SWITCH, easing: CURVES.fade, from: { fill: dimmed(ink) }, to: { fill: accent } }), ...keys.say });
-        ctx.animate(made, "said", { ...motion({ name: "Word said", start: group.at, duration: WORD_SWITCH, easing: CURVES.fade, from: { fill: accent }, to: { fill: dimmed(ink) } }), ...keys.said });
-      } else if (pop) ctx.animate(made, "say", { ...motion({ name: "Say word", start: group.at, duration: WORD_SWITCH, easing: CURVES.fade, from: { fill: dimmed(ink) }, to: { fill: ink } }), ...keys.say });
-      // Pop: the group cuts on whole (words not said yet already in place at 70% and 92%, so the
-      // line stays centered on its shade) and each word scales up to 100% as it is said, no overshoot.
-      if (pop) ctx.animate(made, "pop", { ...motion({ name: "Pop words", kind: "in", start: group.at, duration: WORD_POP, easing: CURVES.arrive,
-        from: { scaleX: POP_FROM, scaleY: POP_FROM }, to: { scaleX: 1, scaleY: 1 } }), ...keys.say });
       // Small, seeded differences so a run of captions never moves as one machine.
       const enter = round(CAPTION_IN + [0, 0.04, -0.02, 0.02, 0.06][(index * 3 + ctx.rng.pick([0, 1, 2])) % 5]);
       const easing = index % 2 ? CURVES.arrive : [0.18, 0.95, 0.3, 1];
+      // activeBackground: a box under the caption that slides to each word as it is said.
+      if (backing) wordBacking(ctx, { layer: layers[index], group, index, color: backing, grow, rise, enter, easing, lift, final });
+      const made = ctx.add(`w${index + 1}`, { ...layers[index], ...(shadow ? { shadow } : {}), fill: future });
+      const keys = wordKeys(group);
+      // Karaoke: the word being said takes the accent; pop: it goes full; then it takes the said look.
+      if (future !== lit) ctx.animate(made, "say", { ...motion({ name: "Say word", start: group.at, duration: WORD_SWITCH, easing: CURVES.fade, from: { fill: future }, to: { fill: lit } }), ...keys.say });
+      if (past !== lit) ctx.animate(made, "said", { ...motion({ name: "Word said", start: group.at, duration: WORD_SWITCH, easing: CURVES.fade, from: { fill: lit }, to: { fill: past } }), ...keys.said });
+      // Pop: the group cuts on whole (words not said yet already in place at 92%, so the line stays
+      // centered on its shade) and each word scales up as it is said (to activeScale), no overshoot.
+      if (pop) ctx.animate(made, "pop", { ...motion({ name: "Pop words", kind: "in", start: group.at, duration: WORD_POP, easing: CURVES.arrive,
+        from: { scaleX: POP_FROM, scaleY: POP_FROM }, to: { scaleX: grow, scaleY: grow } }), ...keys.say });
+      else if (grow !== 1) ctx.animate(made, "grow", { ...motion({ name: "Grow word", start: group.at, duration: ctx.reduced ? WORD_SWITCH : WORD_POP, easing: CURVES.arrive,
+        from: { scaleX: 1, scaleY: 1 }, to: { scaleX: grow, scaleY: grow } }), ...keys.say });
+      if (grow !== 1) ctx.animate(made, "settle", { ...motion({ name: "Word settles", start: group.at, duration: ctx.reduced ? WORD_SWITCH : WORD_POP, easing: CURVES.arrive,
+        from: { scaleX: grow, scaleY: grow }, to: { scaleX: 1, scaleY: 1 } }), ...keys.said });
       if (rise) ctx.animate(made, "in", motion({ name: "Blur up", kind: "in", start: group.at, duration: enter, easing,
         from: { opacity: 0, y: made.y + lift, blur }, to: { opacity: 1, y: made.y, blur: 0 } }));
       else ctx.animate(made, "in", motion({ name: "Fade in", kind: "in", start: group.at, duration: CAPTION_CUT, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));

@@ -857,11 +857,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // A font family a move's font field asks for, ready to draw, or null when kino has none by that name.
-  async function askedFace(document, family, text, work) {
+  async function askedFace(document, family, text, work, weight = 700) {
     const fonts = await fontsOf(document, work);
-    const layer = { id: "move-font", type: "text", text: `${PRINTABLE}${text}`, fontFamily: family, fontWeight: 700, fontStyle: "normal", fontSource: "", animations: [], textStyleRanges: [] };
+    const layer = { id: "move-font", type: "text", text: `${PRINTABLE}${text}`, fontFamily: family, fontWeight: weight, fontStyle: "normal", fontSource: "", animations: [], textStyleRanges: [] };
     try {
-      const [patch] = await prepareFontPatches([layer], { family, weight: 700 }, { fonts, catalog: fontCatalog });
+      const [patch] = await prepareFontPatches([layer], { family, weight }, { fonts, catalog: fontCatalog });
       return { fontFamily: patch.fontFamily, fontSource: patch.fontSource, fontWeight: patch.fontWeight, fontStyle: patch.fontStyle };
     } catch { return null; }
   }
@@ -1099,7 +1099,12 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const style = styleFor({ look, brand, frame, faces, feel: settings.feel ?? composition.feel ?? null });
     const start = resolveAt(settings.at ?? "auto", timeLookup(document, scene, fonts, work));
     const alphas = await alphasOf(scene, input);
-    const fontFaces = typeof input.font === "string" ? { [input.font]: await askedFace(document, input.font, copyText(input), work) } : {};
+    // font (push-through-type, a display face at 700) or fontFamily (caption-words, body text at
+    // 600); a fontWeight alone loads that weight of the body font the move would use.
+    const weightFamily = typeof input.fontFamily === "string" ? input.fontFamily
+      : typeof input.fontWeight === "number" ? style.fonts.body?.fontFamily : undefined;
+    const fontFaces = typeof input.font === "string" ? { [input.font]: await askedFace(document, input.font, copyText(input), work) }
+      : typeof weightFamily === "string" ? { [weightFamily]: await askedFace(document, weightFamily, copyText(input), work, input.fontWeight ?? 600) } : {};
     let made;
     try {
       made = runMove(definition, {
@@ -2253,11 +2258,12 @@ export function variantSet(document, scene) {
 // ---- library ----------------------------------------------------------------------------------
 /** library {topic:"moves"}: every move in one line each; with name, one move's fields and an example. */
 export function movesLibraryText(name) {
-  // Shared fields (move.js SHARED: ease, speed, color, accent, angle) show as one "+" in the short list.
+  // Shared fields (move.js SHARED: ease, speed, color, accent, angle) and a move's knobs (font,
+  // color and size knobs) show as one "+" in the short list.
   const fieldList = (move) => {
     const fields = Object.entries(move.fields).filter(([, field]) => !field.retired);
-    const own = fields.filter(([, field]) => !field.shared).map(([key, field]) => `${key}${field.required ? "*" : ""}`).join(" ");
-    return fields.some(([, field]) => field.shared) ? `${own} +` : own;
+    const own = fields.filter(([, field]) => !field.shared && !field.knob).map(([key, field]) => `${key}${field.required ? "*" : ""}`).join(" ");
+    return fields.some(([, field]) => field.shared || field.knob) ? `${own} +` : own;
   };
   if (name) {
     const move = MOVES[String(name)];
@@ -2275,7 +2281,7 @@ export function movesLibraryText(name) {
     ].filter(Boolean).join("\n");
   }
   return [
-    'Moves: move {name, at, …} on your layers, pictures, brand. * required; + also ease, speed, maybe color/angle. library {topic:"moves", name}: fields, example.',
+    'Moves: move {name, at, …} on your layers, pictures, brand. * required; + more knobs (ease, speed, color, font…). library {topic:"moves", name}: fields, example.',
     ...MOVE_NAMES.map((key) => { const move = MOVES[key]; return `- ${key}(${fieldList(move)}) [${move.tags.join(", ")}]: fits ${move.fits}.`; }),
   ].join("\n");
 }

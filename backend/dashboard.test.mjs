@@ -490,7 +490,7 @@ test("a note sent through a Claude Code channel is marked, and the stream carrie
 
 test("the library lists every kind with its count, and a sample is built through the edit path (or says why not)", async () => {
   const catalog = (await dashboard("library", { method: "GET" })).body;
-  assert.deepEqual(catalog.kinds.map((kind) => kind.label), ["moves", "effects", "animations", "recipes", "looks", "video formats"]);
+  assert.deepEqual(catalog.kinds.map((kind) => kind.label), ["moves", "effects", "animations", "layer styles", "recipes", "looks", "video formats"]);
   assert.equal(catalog.total, catalog.kinds.reduce((sum, kind) => sum + kind.count, 0));
   assert.ok(catalog.entries.find((entry) => entry.id === "move:zoom-through").groups.includes("transition"));
   const sample = async (kind, name) => (await dashboard(`library-sample?kind=${kind}&name=${name}`, { method: "GET" })).body;

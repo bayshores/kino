@@ -3,6 +3,15 @@
 Glow and bloom, light rays (god rays) and lens flares. Each is an effect you put on a layer.
 The accent-hit and light-sweep moves use glow to light one word.
 
+## Stacked shadows and strokes
+
+- A layer's `shadows` list draws more drop shadows after `shadow`, later ones on top: up to
+  32 `{color, x?, y?, blur?, opacity?}`. Neon glow: one color at no offset, blur 4, 16, 40.
+  Long shadow: hard copies stepping one way (2, 4, 6 ... px). Static; not in Lottie.
+- `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?}`
+  after `stroke`, later on top. Sticker: wide outside outlines first, `join:"round"`. Neon tube:
+  `fillEnabled:false`, one color wide and faint to a thin bright core. Static; not in Lottie.
+
 ## Light: glow, rays and flares
 
 - `glow` adds the layer's bright parts back on top, blurred. `threshold` picks how bright a part

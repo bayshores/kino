@@ -132,9 +132,11 @@ const maskTag = (id, field, content, origin) =>
  *  progress is strictly between 0 and 1 here. */
 export function generalReveal(width, height, reveal, defs, id, origin = { x: 0, y: 0 }) {
   const field = wipeField(width, height, reveal);
-  const { feather, band, front, picture } = wipeEdges(field, reveal.progress, reveal.softness);
+  // Inverted, the layer shows exactly what a plain wipe at 1 - progress hides, without its band.
+  const invert = reveal.invert === true;
+  const { feather, band, front, picture } = wipeEdges(invert ? { ...field, edgeWidth: 0 } : field, invert ? 1 - reveal.progress : reveal.progress, reveal.softness);
   const maskId = id("wipe-mask");
-  defs.push(maskTag(maskId, field, fieldMarkup(field, front, feather, false, defs, () => id("wipe-gradient")), origin));
+  defs.push(maskTag(maskId, field, fieldMarkup(field, front, feather, invert, defs, () => id("wipe-gradient")), origin));
   const attribute = ` mask="url(#${maskId})"`;
   if (band <= 0) return { attribute, band: null };
   // The band is the layer's own drawing (its alpha) in edgeColor, from the picture's edge to the front.

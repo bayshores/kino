@@ -1,4 +1,4 @@
-// The library screen: everything an agent can use (moves, effects, animations, recipes, looks,
+// The library screen: everything an agent can use (moves, effects, animations, layer styles, recipes, looks,
 // video formats), by what it does (the technique groups) or by kind. Each card shows a still of a
 // short sample; the open entry plays its sample on a loop and says what it is, when it fits and
 // where this video uses it. "ask for this" adds it (on a storyboard shot, or anywhere) to a note at
@@ -16,7 +16,7 @@ import { Back, Screen } from "./screens.jsx";
 import "./library.css";
 
 // In a group or a search, each card says its kind (a move and an effect can share a name).
-const KIND_LABEL = { move: "move", effect: "effect", animation: "animation", recipe: "recipe", look: "look", format: "format", technique: "plain edit" };
+const KIND_LABEL = { move: "move", effect: "effect", animation: "animation", style: "layer style", recipe: "recipe", look: "look", format: "format", technique: "plain edit" };
 
 // Samples are the same for every project: fetched once a session, with their fonts loaded so
 // the text draws (as the stage loads a project's).

@@ -30,7 +30,7 @@
  *   radius?:number,cornerRadii?:number[],donut?:number,sweep?:number,startAngle?:number,
  *   spikes?:number,starThickness?:number,stroke?:string|Gradient,strokeWidth?:number,path?:string,
  *   shadow?:{color:string,x:number,y:number,blur:number}|null,letterSpacing?:number,
- *   lineHeight?:number,reveal?:{progress:number,direction:'up'|'down'|'left'|'right',softness:number,shape?:'linear'|'radial'|'iris'|'clock',angle?:number,centerX?:number,centerY?:number,edgeColor?:string,edgeWidth?:number},
+ *   lineHeight?:number,reveal?:{progress:number,direction:'up'|'down'|'left'|'right',softness:number,shape?:'linear'|'radial'|'iris'|'clock',angle?:number,centerX?:number,centerY?:number,edgeColor?:string,edgeWidth?:number,invert?:boolean},
  *   effectPreset?:{id:string,parameters:Object,progress:number},volume?:number,speed?:number,lowpass?:number}} Values
  *   A Shadow animation's `shadow` may be null (no shadow): it then fades in or out as the other
  *   end's shadow with zero alpha (see shadowInterpolation.js).
@@ -131,6 +131,8 @@
  *   locked:boolean,lockAspect:boolean,blur:number,backgroundBlur?:BackgroundBlur,glass?:Glass,
  *   blendMode:string,isMask:boolean,isMaskGroup:boolean,maskInvert?:boolean,maskMode?:'luminance'|'alpha',clipContent:boolean,
  *   shadow:{color:string,x:number,y:number,blur:number}|null,
+ *   shadows?:Array<{color:string,x:number,y:number,blur:number,opacity?:number}>, (stackedShadows.js; static, drawn after shadow)
+ *   strokes?:Array<{color:string,width:number,align?:'center'|'inside'|'outside',opacity?:number,dash?:number[],join?:'miter'|'round'|'bevel'}>, (stackedStrokes.js; static, drawn after stroke)
  *   text:string,fontFamily:string,fontSource:string,fontSize:number,fontWeight:number,fontStyle:'normal'|'italic',
  *   textStyleRanges?:TextStyleRange[],
  *   lineHeight:number,letterSpacing:number,textAlign:'left'|'center'|'right',

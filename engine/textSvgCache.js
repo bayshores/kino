@@ -15,6 +15,7 @@
 //   animates gets a new layout on every frame; keeping those would only fill memory.
 // - A layout keeps at most MAX_ENTRIES_PER_LAYOUT entries and starts over when it has more: a
 //   fill color that animates makes a new entry on every frame.
+import { stackedStrokes } from "./stackedStrokes.js";
 import { isFillEnabled } from "./paints.js";
 
 const MAX_ENTRIES_PER_LAYOUT = 256;
@@ -72,5 +73,9 @@ export function plainPaintKey(state, context) {
   const strokeWidth = Number(state.strokeWidth);
   const stroked = Number.isFinite(strokeWidth) && strokeWidth > 0;
   if (stroked && (isObject(state.stroke) || (state.strokeAlign ?? "center") !== "center")) return null;
-  return JSON.stringify([fillOn, state.fill, state.stroke, state.strokeWidth, state.strokeAlign, Boolean(context.canvas)]);
+  // A stacked stroke list (stackedStrokes.js) is remembered too, unless one adds a clip or mask.
+  const strokes = stackedStrokes(state);
+  if (strokes.some((stroke) => (stroke.align ?? "center") !== "center")) return null;
+  const key = [fillOn, state.fill, state.stroke, state.strokeWidth, state.strokeAlign, Boolean(context.canvas)];
+  return JSON.stringify(strokes.length ? [...key, strokes] : key);
 }

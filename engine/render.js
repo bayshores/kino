@@ -13,6 +13,8 @@ import { maskStyle, maskSwitchedOff } from "./maskVisibility.js";
 import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
 import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
+import { shadowStrength, stackedShadows } from "./stackedShadows.js";
+import { splitLetterStrokes, stackedStrokes, strokeReach } from "./stackedStrokes.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
 import { hasTextChanges } from "./textChange.js";
@@ -473,8 +475,11 @@ const TO_BLACK = '<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0
 
 function filterFor(layer, context, bounds = null, last = "") {
   const blur = Math.max(0, checkedNumber(layer.blur, 0, 0, 1000));
-  const shadow =
+  const single =
     layer.shadow && typeof layer.shadow === "object" && shadowAlpha(layer.shadow.color) > 0 ? layer.shadow : null;
+  // The single shadow first, then the stacked list (stackedShadows.js), each one pass.
+  const passes = [...(single ? [single] : []), ...stackedShadows(layer)];
+  const shadow = passes.length > 0;
   if (!blur && !shadow && !last) return "";
   const id = idFor(context, "filter");
   const effects = [];
@@ -482,24 +487,29 @@ function filterFor(layer, context, bounds = null, last = "") {
     // Spell out the drop-shadow filter: the rasterizer's feDropShadow shorthand
     // brightens non-primary RGB colors under sRGB filters. These standard steps
     // retain the same straight color and alpha in browsers and raster exports.
-    const shadowColor = withShadowAlpha(shadow.color, 1);
-    let dx = shadow.x, dy = shadow.y;
-    if (context.raster) {
-      // resvg-js 2.6.2 scales filter offsets by matrix row lengths but discards
-      // their direction (upstream resvg #949/#1081). Pre-map the vector so the
-      // native rasterizer produces the browser's rotated/skewed/mirrored offset.
-      const [a, b, c, d] = multiply(parentWorldMatrix(layer.parentId, context), layerMatrix(layer));
-      const sx = Math.hypot(a, c), sy = Math.hypot(b, d);
-      dx = sx > 1e-12 ? (a * shadow.x + c * shadow.y) / sx : 0;
-      dy = sy > 1e-12 ? (b * shadow.x + d * shadow.y) / sy : 0;
-    }
-    effects.push(
-      `<feGaussianBlur in="SourceAlpha" stdDeviation="${fmt(Math.max(0, finite(shadow.blur)) / 2)}" result="shadow-blur"/>` +
-      `<feOffset in="shadow-blur" dx="${fmt(dx)}" dy="${fmt(dy)}" result="shadow-offset"/>` +
-      `<feFlood flood-color="${escapeXml(shadowColor)}" flood-opacity="${shadowAlpha(shadow.color)}" result="shadow-color"/>` +
-      '<feComposite in="shadow-color" in2="shadow-offset" operator="in" result="shadow-paint"/>' +
-      '<feMerge result="shadowed"><feMergeNode in="shadow-paint"/><feMergeNode in="SourceGraphic"/></feMerge>',
-    );
+    // resvg-js 2.6.2 scales filter offsets by matrix row lengths but discards
+    // their direction (upstream resvg #949/#1081). Pre-map the vector so the
+    // native rasterizer produces the browser's rotated/skewed/mirrored offset.
+    const matrix = context.raster ? multiply(parentWorldMatrix(layer.parentId, context), layerMatrix(layer)) : null;
+    const paints = passes.map((pass, index) => {
+      const tag = index ? `-${index}` : "";
+      const shadowColor = withShadowAlpha(pass.color, 1);
+      let dx = pass.x, dy = pass.y;
+      if (matrix) {
+        const [a, b, c, d] = matrix;
+        const sx = Math.hypot(a, c), sy = Math.hypot(b, d);
+        dx = sx > 1e-12 ? (a * pass.x + c * pass.y) / sx : 0;
+        dy = sy > 1e-12 ? (b * pass.x + d * pass.y) / sy : 0;
+      }
+      effects.push(
+        `<feGaussianBlur in="SourceAlpha" stdDeviation="${fmt(Math.max(0, finite(pass.blur)) / 2)}" result="shadow-blur${tag}"/>` +
+        `<feOffset in="shadow-blur${tag}" dx="${fmt(dx)}" dy="${fmt(dy)}" result="shadow-offset${tag}"/>` +
+        `<feFlood flood-color="${escapeXml(shadowColor)}" flood-opacity="${pass === single ? shadowAlpha(pass.color) : shadowStrength(pass)}" result="shadow-color${tag}"/>` +
+        `<feComposite in="shadow-color${tag}" in2="shadow-offset${tag}" operator="in" result="shadow-paint${tag}"/>`,
+      );
+      return `<feMergeNode in="shadow-paint${tag}"/>`;
+    });
+    effects.push(`<feMerge result="shadowed">${paints.join("")}<feMergeNode in="SourceGraphic"/></feMerge>`);
   }
   if (blur)
     effects.push(
@@ -546,8 +556,45 @@ function patternStroke(d, state) {
   }).join("");
 }
 
-// `strokeElement` draws the stroke apart from the fill (a trimmed or dashed stroke).
-function paintedVector(element, state, context, fill, bounds, paintBounds = bounds, strokeElement = null) {
+// The stroke alone, placed by `alignment`: `stroked` draws it, `element` gives the shape that
+// clips it (inside) or masks it out (outside).
+function alignedStroke(element, stroked, attributes, alignment, weight, bounds, context) {
+  if (alignment === "center") return stroked(attributes);
+  const id = idFor(context, "stroke");
+  if (alignment === "inside") {
+    context.defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse">${element('fill="white" stroke="none"')}</clipPath>`);
+    return `<g clip-path="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(attributes)}</g>`;
+  }
+  if (alignment !== "outside") throw new Error(`Unsupported stroke position “${alignment}”.`);
+  // An inverse luminance mask keeps the entire outer half, including holes in
+  // compound paths. Its margin includes the longest allowed miter join.
+  const margin = weight * 10 + 1;
+  context.defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" style="mask-type:luminance"><rect x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" fill="white"/>${element('fill="black" stroke="none"')}</mask>`);
+  return `<g mask="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(attributes)}</g>`;
+}
+
+// The layer's `strokes` list (stackedStrokes.js), each over the last. `pathData()` gives the
+// outline for a dashed or trimmed entry; without it a dash is drawn on `element` directly.
+function listStrokes(element, state, context, bounds, pathData = null) {
+  return stackedStrokes(state).map((entry) => {
+    const alignment = entry.align ?? "center";
+    const opacity = entry.opacity ?? 1;
+    const attributes = `fill="none" stroke="${escapeXml(entry.color)}" stroke-width="${fmt(alignment === "center" ? entry.width : entry.width * 2)}"${opacity < 1 ? ` stroke-opacity="${fmt(opacity)}"` : ""} stroke-linecap="butt" stroke-linejoin="${entry.join ?? "miter"}" stroke-miterlimit="10"`;
+    const patternState = { ...state, dash: entry.dash ?? [] };
+    const stroked = pathData && hasStrokePattern(patternState) ? patternStroke(pathData(), patternState)
+      : entry.dash ? (more) => element(`${more} stroke-dasharray="${entry.dash.map(fmt).join(" ")}"`) : element;
+    return alignedStroke(element, stroked, attributes, alignment, entry.width, bounds, context);
+  }).join("");
+}
+
+// `strokeElement` draws the stroke apart from the fill (a trimmed or dashed stroke). The
+// `strokes` list follows the single stroke; `pathData` serves its dashes and trim.
+function paintedVector(element, state, context, fill, bounds, paintBounds = bounds, strokeElement = null, pathData = null) {
+  const painted = singleStrokePainted(element, state, context, fill, bounds, paintBounds, strokeElement);
+  return stackedStrokes(state).length ? `${painted}${listStrokes(element, state, context, bounds, pathData)}` : painted;
+}
+
+function singleStrokePainted(element, state, context, fill, bounds, paintBounds, strokeElement) {
   const weight = Math.max(0, finite(state.strokeWidth));
   const alignment = state.strokeAlign ?? "center";
   const fillGraphic = element(`fill="${escapeXml(fill)}" stroke="none"${offFillClickArea(state, context, "visibleFill")}`);
@@ -558,18 +605,7 @@ function paintedVector(element, state, context, fill, bounds, paintBounds = boun
   if (alignment === "center" && strokeElement) return `${fillGraphic}${strokeElement(strokeAttributes)}`;
   if (alignment === "center")
     return element(`fill="${escapeXml(fill)}" ${strokeAttributes.replace('fill="none" ', "")}${offFillClickArea(state, context, "visible")}`);
-  const stroked = strokeElement ?? element;
-  const id = idFor(context, "stroke");
-  if (alignment === "inside") {
-    context.defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse">${element('fill="white" stroke="none"')}</clipPath>`);
-    return `${fillGraphic}<g clip-path="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(strokeAttributes)}</g>`;
-  }
-  if (alignment !== "outside") throw new Error(`Unsupported stroke position “${alignment}”.`);
-  // An inverse luminance mask keeps the entire outer half, including holes in
-  // compound paths. Its margin includes the longest allowed miter join.
-  const margin = weight * 10 + 1;
-  context.defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" style="mask-type:luminance"><rect x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" fill="white"/>${element('fill="black" stroke="none"')}</mask>`);
-  return `${fillGraphic}<g mask="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(strokeAttributes)}</g>`;
+  return `${fillGraphic}${alignedStroke(element, strokeElement ?? element, strokeAttributes, alignment, weight, bounds, context)}`;
 }
 
 function geometry(layer, state, context, overrides = {}) {
@@ -579,8 +615,9 @@ function geometry(layer, state, context, overrides = {}) {
   const patterned = finite(state.strokeWidth) > 0 && hasStrokePattern(state);
   const paint = (element, bounds = { x: 0, y: 0, width, height }, d = null) => {
     const fill = overrides.fill ?? fillPaintFor(state, context, bounds);
-    const stroke = patterned ? patternStroke(d ?? shapePath(layer.type, state), state) : null;
-    return paintedVector(element, state, context, fill, bounds, bounds, stroke);
+    const pathData = () => d ?? shapePath(layer.type, state);
+    const stroke = patterned ? patternStroke(pathData(), state) : null;
+    return paintedVector(element, state, context, fill, bounds, bounds, stroke, pathData);
   };
   if (layer.type === "rectangle") {
     if (Array.isArray(state.cornerRadii))
@@ -637,8 +674,23 @@ function clipTextUnit(markup, state, context) {
 }
 
 // The glyph outlines of `unit` (its `glyphs` in textbox coordinates), painted with `state`'s
-// fill and stroke.
+// fill and stroke. The `strokes` list then outlines all the letters together, so an outside
+// outline never covers a neighbor letter.
 function textGlyphPaths(unit, state, context) {
+  if (!stackedStrokes(state).length) return glyphPaths(unit, state, context);
+  return `${glyphPaths(unit, { ...state, strokes: null }, context)}${textListStrokes(unit, state, context)}`;
+}
+
+// The `strokes` list around all the outlined letters of `unit` together.
+function textListStrokes(unit, state, context) {
+  const outlined = unit.glyphs.filter((glyph) => glyph.path && !glyph.color);
+  if (!outlined.length) return "";
+  const d = outlined.map((glyph) => glyphPath(glyph)).join(" ");
+  const bounds = mergeBounds(outlined.map(glyphPathBounds).filter(Boolean)) ?? { x: 0, y: 0, width: state.width, height: state.height };
+  return listStrokes((attributes) => `<path d="${escapeXml(d)}" ${attributes}/>`, state, context, bounds, () => d);
+}
+
+function glyphPaths(unit, state, context) {
   const paints = new Map();
   return unit.glyphs.filter((glyph) => glyph.path || glyph.color).map((glyph) => {
     if (glyph.color?.kind === "image") {
@@ -655,7 +707,7 @@ function textGlyphPaths(unit, state, context) {
   }).join("");
 }
 
-const hasFilterEffect = (state) => state.blur > 0 || (state.shadow && shadowAlpha(state.shadow.color) > 0);
+const hasFilterEffect = (state) => state.blur > 0 || (state.shadow && shadowAlpha(state.shadow.color) > 0) || stackedShadows(state).length > 0;
 function textGlyphBounds(unit) {
   return mergeBounds(unit.glyphs.map(glyphDrawBounds).filter(Boolean));
 }
@@ -750,10 +802,10 @@ function effectContent(content, layer, state, context, paintBounds, drawnBounds 
   // Maps keep a fixed layer-local coordinate system, while filter regions follow any overflow
   // from preceding effects. The layer's own shadow/blur is applied to the resulting paint later.
   const bounds = { x: 0, y: 0, width: Math.max(0.001, finite(state.width)), height: Math.max(0.001, finite(state.height)) };
-  let extent = expandEffectBounds(paintBounds ?? bounds, { strokeWidth: state.strokeWidth });
+  let extent = expandEffectBounds(paintBounds ?? bounds, { strokeWidth: strokeReach(state) });
   extent = { ...extent, width: Math.max(0.001, extent.width), height: Math.max(0.001, extent.height) };
   // Everything drawn so far, also where a later effect keeps the paint inside a smaller box.
-  let drawn = mergeBounds([expandEffectBounds(drawnBounds ?? bounds, { strokeWidth: state.strokeWidth }), extent]);
+  let drawn = mergeBounds([expandEffectBounds(drawnBounds ?? bounds, { strokeWidth: strokeReach(state) }), extent]);
   // The scene's size and this layer's place in it, for effects that reach across the picture
   // (lens flare) or stop at its edge (light rays). `tilted`: the matrix leaves out a 3D tilt.
   const scene = { width: context.width, height: context.height, matrix: multiply(parentWorldMatrix(state.parentId, context), layerMatrix(state)), tilted: hasTilt(state) };
@@ -790,7 +842,7 @@ function glassSilhouetteState(state) {
 // Media retain their source alpha; groups use their design box, and text uses glyph
 // outlines (including a color glyph's alpha image). This is separate from hit targets.
 function backdropSilhouette(layer, state, context, mediaContent, unit) {
-  const white = { ...glassSilhouetteState(state), fill: "#FFFFFF", fillEnabled: true, strokeWidth: 0 };
+  const white = { ...glassSilhouetteState(state), fill: "#FFFFFF", fillEnabled: true, strokeWidth: 0, strokes: null };
   if (layer.type === "text") {
     const glyphs = unit ?? textUnits(layoutText(state, context.fonts), "layer")[0];
     return { markup: copyContent(textGlyphPaths(glyphs, white, context)),
@@ -850,35 +902,47 @@ function textSvg(layer, base, context) {
     const missing = layout.lines.some((line) => line.glyphs.some((glyph) => glyph.missing));
     return `<g role="img" aria-label="${escapeXml(layout.text)}"${missing ? ' data-missing-glyphs="true"' : ""}>${missing ? "<title>Some characters are unavailable and are shown as boxes.</title>" : ""}${layoutUnitPaths(layout, "layer", wholeLayout(layout, context), base, context)}</g>`;
   }
-  return units.map((unit, index) => {
-    const state = textAnimationUnitState(plan, index, context.time, { design: context.design });
+  return unitsSvg(layer, units.map((unit, index) => ({ unit,
+    state: textAnimationUnitState(plan, index, context.time, { design: context.design }) })), context, true);
+}
+
+// Text units drawn apart, each in its own state. Independently animated text units keep their
+// motion and blur. They sample the same layer-local field/clock before each unit's shadow/blur,
+// rather than warping the parent coordinate system or applying its transform twice. This
+// ordering is our own design. A `strokes` list that starts with outside strokes draws those
+// under every unit's letters first, one stroke at a time across all units, as on whole text
+// (splitLetterStrokes). A solid first stroke casts the shadows; otherwise the letters do.
+function unitsSvg(layer, items, context, label) {
+  const drawn = items.map(({ unit, state }) => {
     // The unit's own letters, laid out in its state: a Letter spacing, size or width change can
     // wrap the text onto other lines (textLayout.js unitGlyphs).
     const layout = layoutText(state, context.fonts), range = unitRange(unit);
     const current = layoutUnit(layout, range, () => unitGlyphs(layout, unit), context);
-    if (state.visible === false) return "";
-    // Independently animated text units keep their motion and blur. They sample the same
-    // layer-local field/clock before each unit's shadow/blur, rather than warping the parent
-    // coordinate system or applying its transform twice. This ordering is our own design.
-    const painted = effectContent(backdropContent(layoutUnitPaths(layout, range, current, state, context), layer, state, context, { unit: current }), layer, state, context, layoutUnitBounds(layout, range, current, context));
-    recordTextUnitBounds(layer, state, painted, context);
-    return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(state, context, hasFilterEffect(state) ? painted.bounds : null)} aria-label="${escapeXml(unit.text)}">${painted.content}</g>`, state, context);
-  }).join("");
+    return { unit, state, layout, range, current };
+  }).filter(({ state }) => state.visible !== false);
+  const unitSvg = ({ unit, state, layout, range, current }, part, entry = 0) => {
+    const split = part && splitLetterStrokes(state);
+    const unshadowed = { shadow: null, shadows: null };
+    const shown = !split ? state : part === "under" ? { ...state, strokes: [split.under[entry]], ...(split.solid && !entry ? {} : unshadowed) }
+      : { ...state, strokes: split.over, ...(split.solid ? unshadowed : {}) };
+    const paths = part === "under" ? textListStrokes(current, shown, context)
+      : backdropContent(layoutUnitPaths(layout, range, current, shown, context), layer, shown, context, { unit: current });
+    const painted = effectContent(paths, layer, shown, context, layoutUnitBounds(layout, range, current, context));
+    recordTextUnitBounds(layer, shown, painted, context);
+    return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(shown, context, hasFilterEffect(shown) ? painted.bounds : null)}${label ? ` aria-label="${escapeXml(unit.text)}"` : ""}>${painted.content}</g>`, state, context);
+  };
+  if (!drawn.some(({ state }) => splitLetterStrokes(state))) return drawn.map((item) => unitSvg(item, null)).join("");
+  const entries = Math.max(...drawn.map(({ state }) => splitLetterStrokes(state)?.under.length ?? 0));
+  const under = Array.from({ length: entries }, (_, entry) => drawn.filter(({ state }) => splitLetterStrokes(state)?.under.length > entry)
+    .map((item) => unitSvg(item, "under", entry)).join("")).join("");
+  return `${under}${drawn.map((item) => unitSvg(item, "over")).join("")}`;
 }
 
 // A text layer with Change text operations (textChange.js): each string drawn at this time, with
 // each of its units in its own state (textChangeDraw.js), as one labelled image per string.
 function changedTextSvg(layer, context) {
   return textDrawingsAt(layer, context.time, context.fonts).map((drawing) => {
-    const units = drawing.units.map(({ unit, state }) => {
-      if (state.visible === false) return "";
-      // The unit's own letters, laid out in its state, as textSvg draws them.
-      const layout = layoutText(state, context.fonts), range = unitRange(unit);
-      const current = layoutUnit(layout, range, () => unitGlyphs(layout, unit), context);
-      const painted = effectContent(backdropContent(layoutUnitPaths(layout, range, current, state, context), layer, state, context, { unit: current }), layer, state, context, layoutUnitBounds(layout, range, current, context));
-      recordTextUnitBounds(layer, state, painted, context);
-      return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(state, context, hasFilterEffect(state) ? painted.bounds : null)}>${painted.content}</g>`, state, context);
-    }).join("");
+    const units = unitsSvg(layer, drawing.units, context, false);
     return `<g role="img" aria-label="${escapeXml(drawing.text)}">${units}</g>`;
   }).join("");
 }
@@ -932,7 +996,7 @@ function videoHolderIds(roots, context) {
 const SOFT_VIDEO_FROM = 16;
 function softVideoBlur(state) {
   const blur = Math.max(0, checkedNumber(state.blur, 0, 0, 1000));
-  const shadow = state.shadow && typeof state.shadow === "object" && shadowAlpha(state.shadow.color) > 0;
+  const shadow = (state.shadow && typeof state.shadow === "object" && shadowAlpha(state.shadow.color) > 0) || stackedShadows(state).length > 0;
   return blur >= SOFT_VIDEO_FROM && !shadow ? blur : 0;
 }
 
