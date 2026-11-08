@@ -347,4 +347,8 @@ test("the library: a group, a kind or a search; what this video uses and on whic
   assert.deepEqual(asks.map(askChip), ["embers", "zoom through · shot 2"], "asking again moves it to the new shot");
   assert.equal(askNote(asks, "warm, at the end"), "From the library, use: effect embers; move zoom-through on shot 2. warm, at the end");
   assert.equal(askNote([], "just words"), "just words");
+  // Shadow and stroke stacks are static layer fields, not animations, and the note names the field.
+  const sticker = catalog.entries.find((entry) => entry.name === "stroke-double");
+  assert.deepEqual([sticker.kind, catalog.entries.filter((entry) => entry.kind === "style").map((entry) => entry.name)], ["style", ["shadow-long", "shadow-neon", "stroke-double", "stroke-neon"]]);
+  assert.equal(askNote(withAsk([], sticker)), "From the library, use: layer style stroke-double (layer field strokes).");
 });

@@ -1,5 +1,5 @@
 // The library screen's catalog (frontend/dashboard/library.jsx): everything an agent can use, by
-// kind (moves, effects, animations, recipes, looks, video formats) and by what it does (the
+// kind (moves, effects, animations, layer styles, recipes, looks, video formats) and by what it does (the
 // technique groups of engine/techniques.js). Each entry has one line on what it is, when it fits,
 // and the ops that build a short sample of it (sampleOps), which the service runs on an empty
 // scene so the screen can play it.
@@ -15,7 +15,8 @@ export const SAMPLE_FRAME = Object.freeze({ width: 960, height: 540 });
 
 export const LIBRARY_KINDS = Object.freeze([
   { kind: "move", label: "moves" }, { kind: "effect", label: "effects" }, { kind: "animation", label: "animations" },
-  { kind: "recipe", label: "recipes" }, { kind: "look", label: "looks" }, { kind: "format", label: "video formats" },
+  { kind: "style", label: "layer styles" }, { kind: "recipe", label: "recipes" }, { kind: "look", label: "looks" },
+  { kind: "format", label: "video formats" },
 ]);
 
 const GROUP_WORDS = {
@@ -69,24 +70,24 @@ const WIPES = {
     parameters: { shape: "clock", softness: 6 } },
 };
 
-// Stacked shadows (layer field shadows, engine/stackedShadows.js), each shown on a word coming in.
+// Layer styles: static layer fields, not animations. Stacked shadows (shadows, engine/stackedShadows.js).
 const SHADOW_STACKS = {
-  "shadow-long": { line: "long shadow: a layer's shadows list holds hard copies stepping out one way (static; a Shadow animation moves only the single shadow)",
+  "shadow-long": { line: "long shadow: the layer field shadows holds hard copies stepping out one way (add_layer or update_layer; a Shadow animation moves only the single shadow)",
     shadows: Array.from({ length: 24 }, (_, index) => ({ color: "#8A3414", x: 2 * (index + 1), y: 2 * (index + 1), blur: 0 })),
-    fill: "#FFF4E6", ground: "#FF7D3D", preset: "slide-up" },
-  "shadow-neon": { line: "neon glow: a shadows list of one color at no offset, tight to wide blur, under a pale word (static)",
+    fill: "#FFF4E6", ground: "#FF7D3D" },
+  "shadow-neon": { line: "neon glow: the layer field shadows, one color at no offset, tight to wide blur, under a pale word",
     shadows: [{ color: "#FF2BD6", x: 0, y: 0, blur: 4 }, { color: "#FF2BD6", x: 0, y: 0, blur: 16 }, { color: "#FF2BD6", x: 0, y: 0, blur: 40, opacity: 0.9 }, { color: "#7A1BFF", x: 0, y: 0, blur: 90, opacity: 0.8 }],
-    fill: "#FFE6FA", ground: "#0D0716", preset: "fade-in" },
+    fill: "#FFE6FA", ground: "#0D0716" },
 };
 
 // Stacked strokes (layer field strokes, engine/stackedStrokes.js), drawn like the shadow stacks.
 const STROKE_STACKS = {
-  "stroke-double": { line: "double outline: a strokes list stacks outside outlines on the letters, wide first, like a sticker (static)",
+  "stroke-double": { line: "double outline: the layer field strokes stacks outside outlines on the letters, wide first, like a sticker",
     strokes: [{ color: "#FFFFFF", width: 26, align: "outside", join: "round" }, { color: "#141414", width: 11, align: "outside", join: "round" }],
-    fill: "#FFE14D", ground: "#2E5BFF", preset: "preset-grow" },
-  "stroke-neon": { line: "neon tube: fill off, a strokes list of one color from wide and faint to a thin white core (static)",
+    fill: "#FFE14D", ground: "#2E5BFF" },
+  "stroke-neon": { line: "neon tube: fill off, the layer field strokes in one color from wide and faint to a thin white core",
     strokes: [{ color: "#26F0FF", width: 16, opacity: 0.25, join: "round" }, { color: "#26F0FF", width: 8, opacity: 0.6, join: "round" }, { color: "#E8FFFF", width: 2.5, join: "round" }],
-    fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A", preset: "fade-in" },
+    fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A" },
 };
 
 let built = null;
@@ -106,8 +107,8 @@ export function libraryCatalog() {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
-  for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push(entry("animation", name, line, "a title or logo that needs depth or glow", []));
-  for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push(entry("animation", name, line, "a title or sticker word that must stand out", []));
+  for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push({ ...entry("style", name, line, "a title or logo that needs depth or glow", []), field: "shadows" });
+  for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push({ ...entry("style", name, line, "a title or sticker word that must stand out", []), field: "strokes" });
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
@@ -267,11 +268,10 @@ export function sampleOps(kind, name) {
     const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
-  if (kind === "animation" && (SHADOW_STACKS[name] || STROKE_STACKS[name])) {
-    const { line, ground, preset, ...style } = SHADOW_STACKS[name] ?? STROKE_STACKS[name];
+  if (kind === "style" && (SHADOW_STACKS[name] || STROKE_STACKS[name])) {
+    const { line, ground, ...style } = SHADOW_STACKS[name] ?? STROKE_STACKS[name];
     const word = WORD("kino", 150);
-    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, ...style } },
-      anim("word", preset, 0.3, 0.8, { easing: "smooth" })], duration: 2.6, still: 1.6 };
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, ...style } }], duration: 2.6, still: 1.6 };
   }
   if (kind === "animation" && WIPES[name])
     return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };

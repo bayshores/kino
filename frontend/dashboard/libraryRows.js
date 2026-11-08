@@ -55,7 +55,7 @@ export function shotWords(numbers) {
   return `shots ${numbers.slice(0, -1).join(", ")} and ${numbers.at(-1)}`;
 }
 
-const KIND_WORDS = { move: "move", effect: "effect", animation: "animation", recipe: "recipe", look: "look", format: "video format", technique: "technique" };
+const KIND_WORDS = { move: "move", effect: "effect", animation: "animation", style: "layer style", recipe: "recipe", look: "look", format: "video format", technique: "technique" };
 
 /** One pick's chip: "zoom through · shot 2", or the entry's words alone. */
 export function askChip(ask) {
@@ -64,7 +64,7 @@ export function askChip(ask) {
 
 /** The note the picks become: each entry by its kind and name (and shot), then the person's words. */
 export function askNote(asks, words = "") {
-  const lines = asks.map((ask) => `${KIND_WORDS[ask.kind] ?? ask.kind} ${ask.name}${ask.shot ? ` on shot ${ask.shot}` : ""}`);
+  const lines = asks.map((ask) => `${KIND_WORDS[ask.kind] ?? ask.kind} ${ask.name}${ask.field ? ` (layer field ${ask.field})` : ""}${ask.shot ? ` on shot ${ask.shot}` : ""}`);
   const said = words.trim();
   if (!lines.length) return said;
   return `From the library, use: ${lines.join("; ")}.${said ? ` ${said}` : ""}`;
@@ -72,6 +72,6 @@ export function askNote(asks, words = "") {
 
 /** Adds a pick, or moves an entry already picked to the new shot. */
 export function withAsk(asks, entry, shot = null) {
-  const ask = { id: entry.id, kind: entry.kind, name: entry.name, words: entry.words, shot };
+  const ask = { id: entry.id, kind: entry.kind, name: entry.name, words: entry.words, shot, ...(entry.field ? { field: entry.field } : {}) };
   return [...asks.filter((item) => item.id !== entry.id), ask];
 }
