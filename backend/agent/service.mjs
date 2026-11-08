@@ -405,6 +405,8 @@ export function createAgentService(deps) {
   const { store, agentState, look, fontCatalog, loadFonts, operationContext, exportBatches, agentDirectory } = deps;
   const now = deps.now ?? Date.now;
   const quality = deps.quality ?? createQualityChecker({ mediaRoot: deps.mediaRoot, renderFrames: deps.renderFrames ?? renderSceneFrames,
+    // screen_unreadable: a video measured before kino read its picture facts gets them once.
+    videoFacts: deps.videoFacts ?? null,
     // reference_drift: the project's saved Inspire references, measured like a render.
     references: deps.inspire ? (projectId) => deps.inspire.savedFingerprints(projectId) : null,
     // seen_before: what kino rendered in other projects (house-memory.mjs).

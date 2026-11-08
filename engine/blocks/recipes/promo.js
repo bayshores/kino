@@ -82,7 +82,8 @@ function stageLight(ctx, picture) {
 // (recipe.js); region: false keeps it still. Returns the picture's facts, or null.
 function screenOf(ctx, picture, settings) {
   ctx.used.add("region");
-  return picture && settings.region !== false && (settings.region || looksLikeScreen(picture)) ? picture : null;
+  // A video's frame facts are measured another way (looksLikeScreenClip): only a region pushes it.
+  return picture && settings.region !== false && (settings.region || (picture.kind !== "video" && looksLikeScreen(picture))) ? picture : null;
 }
 
 export const deviceSlide = {

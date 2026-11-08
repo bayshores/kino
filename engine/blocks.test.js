@@ -13,7 +13,7 @@ import { RECIPES, RECIPE_NAMES, ALL_RECIPE_NAMES, recipeOf, describeRecipes } fr
 import { runRecipe, settingsFrom } from "./blocks/recipe.js";
 import { composeScene, readComposition } from "./blocks/compose.js";
 import { backdropLayers } from "./blocks/backdrop.js";
-import { imageFacts, looksLikeScreen } from "./imageFacts.js";
+import { imageFacts, looksLikeScreen, looksLikeScreenClip } from "./imageFacts.js";
 import { applyTransition } from "./blocks/recipes/transitions.js";
 import { EXAMPLES } from "./blocks/examples.js";
 
@@ -359,6 +359,8 @@ test("screens: a screenshot's busiest region is measured, and device-slide pushe
   const facts = imageFacts(gray, 96, 60);
   assert.ok(facts.busy[0] >= 50 && facts.busy[1] >= 50, `busy ${facts.busy}`);
   assert.ok(looksLikeScreen({ width: 1440, height: 900, edges: 0.1, flat: 0.8 }) && !looksLikeScreen({ width: 1440, height: 900, edges: 0.3, flat: 0.3 }));
+  // A video frame (384 px, exact flats): UI fills and text edges, not camera grain.
+  assert.ok(looksLikeScreenClip({ width: 2560, height: 1536, edges: 0.11, flat: 0.5 }) && !looksLikeScreenClip({ width: 1920, height: 1080, edges: 0.1, flat: 0.21 }) && !looksLikeScreenClip({ width: 1920, height: 1080, edges: 0.007, flat: 0.95 }));
   const shot = { ...PICTURES.product, edges: 0.1, flat: 0.8, busy: [55, 55, 40, 40] };
   const style = styleFor({ look: "crisp", frame: parseFormat("16:9") });
   const run = (settings) => runRecipe(RECIPES["device-slide"], { id: "r", settings: { media: "product", ...settings }, style, frame: style.frame, fonts: defaultFonts, start: 0, end: 5, media: () => shot });

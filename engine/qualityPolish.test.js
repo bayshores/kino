@@ -383,6 +383,33 @@ test("screen_unreadable: a screenshot drawn under 55% of its width for over 1.5 
   await silent("screen_unreadable", shot({ width: 700 }), PHOTO);
 });
 
+// A 2x screen recording (frame facts read as UI) and camera footage of the same size.
+const REC = "/api/media/rec.mp4";
+const UI_CLIP = { mediaSizes: { [REC]: { width: 2560, height: 1536, edges: 0.12, flat: 0.6, busy: [0, 60, 40, 40] } } };
+const CAMERA_CLIP = { mediaSizes: { [REC]: { width: 2560, height: 1536, edges: 0.1, flat: 0.2, busy: [30, 30, 40, 40] } } };
+
+test("screen_unreadable: a screen recording shown whole under 2 px a screen point for over 1.5 s", async () => {
+  const recording = (props = {}, animations = [], layers = []) => scene({ duration: 4, layers: [
+    { type: "video", id: "rec", name: "rec", src: REC, mediaSourceDuration: 10, x: 0, y: -36, width: 1920, height: 1152, ...props, animations }, ...layers] });
+  const [finding] = await fires("screen_unreadable", recording(), UI_CLIP);
+  assert.match(finding.measured, /1\.5 px a screen point/);
+  assert.match(finding.fix.text, /name:"perceive-insert", layer:"rec", region:\[0,60,40,40\]/);
+  // Drawn 2400 wide (1.9 px a point) still fires; 2600 wide (2.03) reads.
+  await fires("screen_unreadable", recording({ x: -240, y: -180, width: 2400, height: 1440 }), UI_CLIP);
+  await silent("screen_unreadable", recording({ x: -340, y: -240, width: 2600, height: 1560 }), UI_CLIP);
+  // A 2x push into a region, or an insert of the same file, shows the detail.
+  await silent("screen_unreadable", recording({}, [move(0.5, 1, { scaleX: 1, scaleY: 1 }, { scaleX: 2, scaleY: 2 })]), UI_CLIP);
+  const insert = { type: "video", id: "insert", name: "insert", src: REC, mediaSourceDuration: 10, x: -1920, y: -1500, width: 5120, height: 3072, animations: [move(1, 0.01, { opacity: 0 }, { opacity: 1 })], opacity: 0 };
+  await silent("screen_unreadable", recording({}, [], [insert]), UI_CLIP);
+  // Camera footage, and a clip with no frame facts (measured before kino read them), are left alone.
+  await silent("screen_unreadable", recording(), CAMERA_CLIP);
+  await silent("screen_unreadable", recording(), { mediaSizes: { [REC]: { width: 2560, height: 1536 } } });
+  // A clip kino recorded knows its points: 1512 points drawn 1920 wide is 1.27 px a point.
+  const recorded = { mediaSizes: { [REC]: { width: 1920, height: 1242, screen: true, points: 1512 } } };
+  const [own] = await fires("screen_unreadable", recording({ height: 1242, y: -81 }), recorded);
+  assert.match(own.fix.text, /name:"screen-recording", layer:"rec"/);
+});
+
 test("a slow hold drift is left alone by duration_band", async () => {
   const drifting = scene({ duration: 5, layers: [text("title", "The end", { animations: [fadeIn(0, 0.5), move(0.6, 2.2, { y: 200 }, { y: 160 })] })] });
   await silent("duration_band", drifting);

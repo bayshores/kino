@@ -20,6 +20,7 @@ import { RULES, runQuality } from "../../engine/quality/index.js";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { judderBlurId, techniqueCounts, techniquesUsed } from "../../engine/quality/techniques.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
+import { SCREEN_NAME } from "../../engine/movePicks.js";
 import { BACKGROUND_OWNER_ID } from "../../engine/sceneBackground.js";
 import { refName, sec } from "./describe.mjs";
 import { keyedProperties } from "./overridden-values.mjs";
@@ -501,7 +502,8 @@ async function peopleIn(scene, peopleOf, make) {
  * gives the other projects' house memory, the project's copies left out (backend/house-memory.mjs) for seen_before. `quietMs`: how
  * long its renders wait after the last call or render (render-activity.mjs QUIET_MS; tests shorten it).
  */
-export function createQualityChecker({ mediaRoot, renderFrames, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
+
+export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = null, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
   const cache = new Map();
   // Frames rendered for earlier checks, reused where a changed scene looks the same (frame-reuse.mjs).
   const frameReuse = reuseFrames ? createFrameReuse() : null;
@@ -545,7 +547,15 @@ export function createQualityChecker({ mediaRoot, renderFrames, references = nul
         const id = mediaIdFromSource(layer.src);
         let record = null;
         try { record = id && mediaRoot ? JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8")) : null; } catch { record = null; }
-        const size = record?.width > 0 && record?.height > 0 ? { width: record.width, height: record.height, ...(Array.isArray(record.busy) ? { busy: record.busy, edges: record.edges, flat: record.flat } : {}) } : null;
+        // A video measured before kino read a frame's facts (backend/media-probe.mjs videoFrameFacts).
+        if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && !Object.hasOwn(record, "busy") && !record.recording) {
+          try { record = { ...record, ...(await videoFacts(id, record)) }; } catch { /* left unmeasured */ }
+        }
+        const size = record?.width > 0 && record?.height > 0 ? { width: record.width, height: record.height,
+          ...(Array.isArray(record.busy) ? { busy: record.busy, edges: record.edges, flat: record.flat } : {}),
+          // screen_unreadable: kino recorded it (its frame in points), or its name says screen.
+          ...(layer.type === "video" && record.recording ? { screen: true, ...(record.recording.frame?.[0] > 0 ? { points: record.recording.frame[0] } : {}) } : {}),
+          ...(layer.type === "video" && SCREEN_NAME.test(String(record.name ?? "")) ? { named: true } : {}) } : null;
         sizes.set(layer.src, { size, name: typeof record?.name === "string" ? record.name : null });
         if (sizes.size > 4096) sizes.delete(sizes.keys().next().value);
       }

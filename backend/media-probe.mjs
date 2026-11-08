@@ -6,10 +6,12 @@
 // GIFs are read by engine/gifDecode.js, the same decoder the editor uses, with browser rules; never by FFmpeg.
 // It also builds the FFmpeg arguments that sample a video on a fixed frame grid (videoGridArgs).
 import { spawn } from "node:child_process";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { ImageData, createCanvas } from "@napi-rs/canvas";
 import { composeGifFrames, parseGif } from "../engine/gifDecode.js";
+import { CLIP_FACTS_WIDTH, imageFacts } from "../engine/imageFacts.js";
 import { probeSlot } from "./process-slots.mjs";
 
 const MAX_ERROR_LENGTH = 12000;
@@ -193,6 +195,32 @@ async function probeMediaNow(path, { signal } = {}) {
   const streamDuration = Math.max(0, ...streams.map((stream) => positive(stream.duration)));
   const log = footageLogOf(video, info.format?.tags);
   return { ...result, duration: positive(info.format?.duration) || streamDuration, ...(log ? { log: log.profile, logWhy: log.why } : {}) };
+}
+
+/**
+ * A video's picture facts (engine/imageFacts.js: edges, flat, busy) from one frame in its middle,
+ * as a 384 px wide gray copy (looksLikeScreenClip): screen_unreadable tells a screen recording from
+ * camera footage by them. One short FFmpeg run; {busy: null} when the frame cannot be read.
+ */
+export async function videoFrameFacts(path, duration = 0, { signal } = {}) {
+  const folder = await mkdtemp(join(tmpdir(), "kino-facts-"));
+  const output = join(folder, "frame.gray");
+  try {
+    await runMediaTool("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+      ...(duration > 0.2 ? ["-ss", (duration / 2).toFixed(3)] : []),
+      "-i", path, "-map", "0:v:0", "-frames:v", "1",
+      "-vf", `scale=${CLIP_FACTS_WIDTH}:-2:flags=area,format=gray`, "-f", "rawvideo", output,
+    ], { signal, timeoutMs: 60_000 });
+    const gray = await readFile(output);
+    const width = CLIP_FACTS_WIDTH;
+    const height = Math.min(1200, Math.floor(gray.length / width));
+    return height > 1 ? imageFacts(new Uint8Array(gray.buffer, gray.byteOffset, width * height), width, height, { flatStep: 0 }) : { busy: null };
+  } catch {
+    return { busy: null };
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 }
 
 const UNTAGGED = new Set([undefined, "", "unknown", "unspecified", "reserved"]);
