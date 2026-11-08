@@ -177,7 +177,7 @@ export function alignedStart(at, duration, align = "start", name = "move") {
  * Returns {added: [{layer, place}], animations: [{layerId, animation}], start, end, notes}.
  */
 export function runMove(definition, options) {
-  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null } = options;
+  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, fontFaces = {} } = options;
   const frame = { width: scene.width, height: scene.height };
   const added = [];
   const animations = [];
@@ -206,6 +206,12 @@ export function runMove(definition, options) {
     picture(ref) { return media(ref); },
     /** A clip's or picture's file size by its src ({width, height}), or null when unknown. */
     fileSize(src) { return fileSize(src); },
+    /** A picture's alpha grid by its src ({columns, rows, solid: 1 where mostly opaque}), or null when unknown. */
+    alpha(src) { return alpha(src); },
+    /** A font family the op asked for (a move's font field), ready to draw, or null when kino has none by that name. */
+    fontFace(family) { return fontFaces[family] ?? null; },
+    /** Every layer of the scene (groups' parts too), as they are now. */
+    sceneLayers() { return scene.layers; },
     /**
      * One of the scene's layers by ID, as it is now. Moves work on top-level layers, except in
      * the fields a move lists in `nested`: it only animates that layer and adds its parts beside

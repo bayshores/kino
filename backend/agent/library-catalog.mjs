@@ -63,6 +63,7 @@ export function libraryCatalog() {
   if (built) return built;
   const entries = [];
   for (const name of MOVE_NAMES) entries.push(entry("move", name, MOVES[name].about, MOVES[name].fits, [...(MOVES[name].tags ?? [])]));
+  for (const [name, variant] of Object.entries(MOVE_VARIANTS)) entries.push(entry("move", name, variant.line, MOVES[variant.move].fits, [...(MOVES[variant.move].tags ?? [])]));
   for (const effect of EFFECTS) {
     const tags = EFFECT_TAGS[effect.key] ?? [];
     const settings = Object.values(effect.parameters ?? {}).map((parameter) => parameter.label.toLowerCase());
@@ -141,6 +142,11 @@ const PRESET_LAYER = {
   trim: { op: "add_layer", layerType: "path", name: "line", properties: { x: W * 0.2, y: H / 2, width: W * 0.6, height: 40, path: "M0 20 C190 0 380 40 576 20", fillEnabled: false, stroke: "#FFFFFF", strokeWidth: 8 } },
   counter: WORD("98%"),
 };
+// A move's sample on other input than its example, as its own entry (push-through-type on a logo picture).
+const MOVE_VARIANTS = {
+  "push-through-type on a logo": { move: "push-through-type", line: "push-through-type with layer: the camera pushes into a picture logo's solid part (its see-through parts are measured) and the next shot shows inside it",
+    layers: () => [SHOT_A, picture("logo", { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 })], fields: { layer: "logo", next: "shot-a", at: 0.3 } },
+};
 const INSTANT = new Set(["hide", "show", "change-text"]);
 // Where in a move its card is caught, when not the middle: slice's bands cover the whole frame at
 // its middle, so its card shows them half way in.
@@ -182,6 +188,10 @@ const TECHNIQUE_SAMPLES = {
 /** The ops that build a short sample of one entry on an empty 960 × 540 scene, its length and the
  *  moment its card shows; null when the entry has no sample (a video format is a whole video). */
 export function sampleOps(kind, name) {
+  if (kind === "move" && MOVE_VARIANTS[name]) {
+    const { move, layers, fields: { at, ...fields } } = MOVE_VARIANTS[name];
+    return { ops: [...layers(), { op: "move", name: move, id: "piece", at, ...fields }], duration: 6, still: Math.min(5, at + 1.2), share: 0.68 };
+  }
   if (kind === "move" && MOVES[name]) {
     const { at = 0.3, ...fields } = { ...MOVES[name].example, ...MOVE_EXTRA[name] };
     // Only the layers the example names, over the warm shot when it names no picture.

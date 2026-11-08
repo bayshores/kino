@@ -820,7 +820,8 @@ function copyText(value, depth = 0) {
 // footageFacts(document, input), footageDeck(document, {seed, material}) and runOps(document, ops):
 // what compose {footage} needs from the service (backend/agent/footage.mjs, the deck, an edit's
 // translate-and-apply).
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null }) {
+// pictureAlpha(src): a picture's alpha grid (backend/agent/picture-alpha.mjs) for moves that push into it.
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf });
   async function mediaOf(document, work) {
@@ -853,6 +854,30 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
         body: await face(brand.fonts[1] ?? brand.fonts[0], "body", brand.fonts[1]?.weight ?? look.fonts.body.weight),
       };
     } catch (error) { throw problem(`Brand ${brand.name}'s font: ${error.message}`); }
+  }
+
+  // A font family a move's font field asks for, ready to draw, or null when kino has none by that name.
+  async function askedFace(document, family, text, work) {
+    const fonts = await fontsOf(document, work);
+    const layer = { id: "move-font", type: "text", text: `${PRINTABLE}${text}`, fontFamily: family, fontWeight: 700, fontStyle: "normal", fontSource: "", animations: [], textStyleRanges: [] };
+    try {
+      const [patch] = await prepareFontPatches([layer], { family, weight: 700 }, { fonts, catalog: fontCatalog });
+      return { fontFamily: patch.fontFamily, fontSource: patch.fontSource, fontWeight: patch.fontWeight, fontStyle: patch.fontStyle };
+    } catch { return null; }
+  }
+
+  // The alpha grids of the pictures a move names, and of the pictures inside a group it names.
+  async function alphasOf(scene, input) {
+    const named = new Set(Object.values(input).filter((value) => typeof value === "string"));
+    const grids = new Map();
+    if (!pictureAlpha || !named.size) return grids;
+    for (const layer of scene.layers) {
+      if (layer.type !== "image" || grids.has(layer.src)) continue;
+      let hit = false;
+      for (let at = layer; at && !hit; at = scene.layers.find((entry) => entry.id === at.parentId)) hit = named.has(at.id);
+      if (hit) grids.set(layer.src, await pictureAlpha(layer.src).catch(() => null));
+    }
+    return grids;
   }
   function logoOf(brand, media) {
     const logo = brand?.logos?.[0];
@@ -1073,11 +1098,14 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const frame = { width: scene.width, height: scene.height };
     const style = styleFor({ look, brand, frame, faces, feel: settings.feel ?? composition.feel ?? null });
     const start = resolveAt(settings.at ?? "auto", timeLookup(document, scene, fonts, work));
+    const alphas = await alphasOf(scene, input);
+    const fontFaces = typeof input.font === "string" ? { [input.font]: await askedFace(document, input.font, copyText(input), work) } : {};
     let made;
     try {
       made = runMove(definition, {
         id: operation.id, input, scene, style, fonts, start, align: settings.align ?? "start", dur: settings.dur ?? null, media, logo: logoOf(brand, media),
         reduced: settings.reduced ?? composition.reduced ?? false, seed: settings.seed ?? 1, brandFonts: Boolean(faces), bpm: document.rhythm?.bpm ?? null,
+        alpha: (src) => alphas.get(src) ?? null, fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),
         fileSize: (src) => {
           const item = work.mediaList?.find((entry) => entry.src === src || `/api/media/${entry.id}` === src);
           return item?.width > 0 && item?.height > 0 ? { width: item.width, height: item.height } : null;

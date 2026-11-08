@@ -33,8 +33,9 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
   shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"`. A clip `to` starts when shown.
 - **whip-pan**: both shots slide a frame width, smeared.
-- **push-through-type**: a big glossy word sharpens in; the camera speeds into one letter and
-  the next shot shows inside it until it fills the frame.
+- **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
+  group) sharpens in; the camera speeds into one letter (or the logo's solid part) and the next
+  shot shows inside it until it fills the frame.
 - **logo-match-move**: the logo arrives big, then flies into its place on a page, screen or
   sign (`spot`, in % of that layer), which sharpens.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.

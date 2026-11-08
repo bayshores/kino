@@ -177,18 +177,18 @@ function insideInk(polygons, x, y) {
 }
 
 /**
- * The least scale at which a frame-shaped box centered on (x, y) (font units) lies wholly inside
- * the ink, checked at points around the box's edge: the push into the letter can drop its mask
- * at that scale without a gap showing. `unit` is the glyph's pixels per font unit.
+ * The least scale at which a frame-shaped box centered on (x, y) lies wholly inside the ink
+ * (inside(x, y) is true), checked at points around the box's edge: the push into the letter can
+ * drop its mask at that scale without a gap showing. `unit` is the pixels per ink unit.
  */
-function coverNeed(polygons, x, y, frame, unit) {
+export function coverScale(inside, x, y, frame, unit) {
   const fits = (scale) => {
     const halfWidth = frame.width / (2 * scale * unit);
     const halfHeight = frame.height / (2 * scale * unit);
     for (let step = 0; step <= 8; step += 1) {
       const along = -1 + step / 4;
       const points = [[x + along * halfWidth, y - halfHeight], [x + along * halfWidth, y + halfHeight], [x - halfWidth, y + along * halfHeight], [x + halfWidth, y + along * halfHeight]];
-      if (!points.every(([px, py]) => insideInk(polygons, px, py))) return false;
+      if (!points.every(([px, py]) => inside(px, py))) return false;
     }
     return true;
   };
@@ -202,19 +202,13 @@ function coverNeed(polygons, x, y, frame, unit) {
   return high;
 }
 
-/**
- * A point inside the ink of a laid-out glyph (in its text layer's own pixels), where pushing in
- * fills the frame soonest, with the ink's width and height through that point (in pixels).
- * The point is the middle of the ink both across and down, and `need` is the scale at which the
- * whole frame, centered on it, is ink (so a mask shaped like the letter can go without a gap).
- * Returns null when the glyph has no outline. Inside/outside is even-odd, like the renderer.
- */
-export function inkPoint(glyph, frame) {
-  if (!glyph?.path) return null;
-  const polygons = glyphPolygons(glyph.path);
+/** Scans polygons for the point where a push fills the frame soonest: {x, middle, wide, tall, need} in their units. */
+function scanInk(polygons, frame, unit) {
   const ys = polygons.flat().map((point) => point[1]);
+  if (!ys.length) return null;
   const low = Math.min(...ys);
   const high = Math.max(...ys);
+  const inside = (px, py) => insideInk(polygons, px, py);
   let best = null;
   for (let step = 2; step <= 18; step += 1) {
     const y = low + ((high - low) * step) / 20;
@@ -228,10 +222,61 @@ export function inkPoint(glyph, frame) {
       const tall = down[pair + 1] - down[pair];
       // The middle of the ink down through x too, so the letter's edge is as far above as below.
       const middle = (down[pair] + down[pair + 1]) / 2;
-      const need = coverNeed(polygons, x, middle, frame, glyph.scale);
+      const need = coverScale(inside, x, middle, frame, unit);
       if (!Number.isFinite(need)) continue;
-      if (!best || need < best.need) best = { x: glyph.x + x * glyph.scale, y: glyph.y - middle * glyph.scale, width: wide * glyph.scale, height: tall * glyph.scale, need };
+      if (!best || need < best.need) best = { x, middle, wide, tall, need };
     }
   }
   return best;
+}
+
+/**
+ * A point inside the ink of a laid-out glyph (in its text layer's own pixels), where pushing in
+ * fills the frame soonest, with the ink's width and height through that point (in pixels).
+ * The point is the middle of the ink both across and down, and `need` is the scale at which the
+ * whole frame, centered on it, is ink (so a mask shaped like the letter can go without a gap).
+ * Returns null when the glyph has no outline. Inside/outside is even-odd, like the renderer.
+ */
+export function inkPoint(glyph, frame) {
+  if (!glyph?.path) return null;
+  const best = scanInk(glyphPolygons(glyph.path), frame, glyph.scale);
+  return best && { x: glyph.x + best.x * glyph.scale, y: glyph.y - best.middle * glyph.scale, width: best.wide * glyph.scale, height: best.tall * glyph.scale, need: best.need };
+}
+
+/** Whether a point (font units) is inside a glyph's ink. */
+export function glyphInside(glyph) {
+  const polygons = glyph?.path ? glyphPolygons(glyph.path) : [];
+  return (x, y) => polygons.length > 0 && insideInk(polygons, (x - glyph.x) / glyph.scale, (glyph.y - y) / glyph.scale);
+}
+
+/**
+ * The same for closed outlines in pixels (y down), such as a path's or a shape's: the point
+ * where a push fills the frame soonest, its `need` and an inside(x, y) test. Null with no ink.
+ */
+export function outlineInk(polygons, frame) {
+  const best = scanInk(polygons, frame, 1);
+  return { best: best && { x: best.x, y: best.middle, need: best.need }, inside: (x, y) => insideInk(polygons, x, y) };
+}
+
+/**
+ * The same for a picture's alpha grid ({columns, rows, solid: 1 where a cell is mostly opaque})
+ * stretched over a width × height box: every solid cell's middle is tried.
+ */
+export function gridInk(grid, width, height, frame) {
+  const inside = (x, y) => {
+    const column = Math.floor((x / width) * grid.columns);
+    const row = Math.floor((y / height) * grid.rows);
+    return column >= 0 && row >= 0 && column < grid.columns && row < grid.rows && grid.solid[row * grid.columns + column] === 1;
+  };
+  let best = null;
+  for (let row = 0; row < grid.rows; row += 1) {
+    for (let column = 0; column < grid.columns; column += 1) {
+      if (grid.solid[row * grid.columns + column] !== 1) continue;
+      const x = ((column + 0.5) / grid.columns) * width;
+      const y = ((row + 0.5) / grid.rows) * height;
+      const need = coverScale(inside, x, y, frame, 1);
+      if (Number.isFinite(need) && (!best || need < best.need)) best = { x, y, need };
+    }
+  }
+  return { best, inside };
 }

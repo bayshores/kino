@@ -5,7 +5,8 @@ import { layoutText, textUnits } from "../../textLayout.js";
 import { readSeconds, textLayer } from "../build.js";
 import { safeArea } from "../formats.js";
 import { haloAlwaysPasses } from "../../quality/pixels.js";
-import { CURVES, changeText, effect, frameShare, hide, inkPoint, luminance, mix, motion, round, scaledAbout } from "./kit.js";
+import { CURVES, changeText, coverScale, effect, frameShare, glyphInside, hide, inkPoint, luminance, mix, motion, round, scaledAbout } from "./kit.js";
+import { subjectInk } from "./subjectInk.js";
 
 // The checker's shortest reading time: 20 frames at 30 fps.
 const SHORTEST_READ = 20 / 30;
@@ -433,139 +434,239 @@ const TYPE_IN = 0.55;
 const PUSH = 0.9;
 // How much wider the letters are spaced at the start of the entrance (they close up to 1).
 const OPEN_SPACING = 2.2;
-// Glossy type: the text color with a soft cooler band, like light on chrome. The band sits at
-// `at` (0 top, 1 bottom); the hold slides it down the word, so the title has motion while it is read.
-const CHROME = (text, at) => ({ type: "linear", angle: 90, stops: [
+const SHEEN = "#8E95A3";
+// The color split's size on screen, in pixels on a 1080-high frame.
+const SPLIT = 10;
+const HEX = /^#[0-9a-fA-F]{6}$/;
+// Glossy type: the text color with a soft band of the sheen color, like light on chrome. The band
+// sits at `at` (0 top, 1 bottom); the hold slides it down the word, so the title has motion while it is read.
+const CHROME = (text, at, sheen = SHEEN) => ({ type: "linear", angle: 90, stops: [
   { offset: 0, color: text }, { offset: round(Math.max(0.01, at - 0.2)), color: text },
-  { offset: round(at), color: mix(text, "#8E95A3", 0.5) }, { offset: round(Math.min(0.99, at + 0.2)), color: text }, { offset: 1, color: text },
+  { offset: round(at), color: mix(text, sheen, 0.5) }, { offset: round(Math.min(0.99, at + 0.2)), color: text }, { offset: 1, color: text },
 ] });
+const pct = (value) => round(value * 100, 1);
+
+/** The plain word: laid out by the move in the brand's, the project's or the asked font. */
+function wordSubject(ctx, input, next, { fill, sheen, open }) {
+  // The brand's or the project's display font (ctx.brandFonts); without one, the bundled serif
+  // at a weight it ships (700), so it never falls back to another face.
+  const asked = input.font ? ctx.fontFace(input.font) : null;
+  if (input.font && !asked) throw new Error(`push-through-type font: no font "${input.font}"; give a family kino has (library {topic:"fonts"}).`);
+  const serif = asked ?? (!ctx.brandFonts ? { fontFamily: "Noto Serif", fontSource: "", fontWeight: 700, fontStyle: "normal" } : null);
+  const safe = safeArea(ctx.frame);
+  // Big type: the word is about half of a wide frame (most of a tall one).
+  const target = ctx.frame.width * (input.size ?? (ctx.portrait ? 0.7 : 0.5));
+  const probe = textLayer(ctx, { part: "word", text: input.text, role: "headline", step: "display", size: 100, box: { ...safe, width: ctx.frame.width * 4 }, align: "center", maxLines: 1, name: input.text });
+  const measure = (layer) => {
+    const layout = layoutText({ ...layer, width: ctx.frame.width * 8 }, ctx.fonts);
+    return { width: Math.max(...layout.lines.map((line) => line.width ?? 0)), height: layout.height };
+  };
+  const spacing = (size) => round(size * 0.06);
+  const at100 = measure({ ...probe, ...(serif ?? {}), fontSize: 100, letterSpacing: spacing(100) });
+  const fontSize = Math.round(Math.min(100 * target / at100.width, (ctx.frame.height * 0.42 * 100) / at100.height));
+  const ink = ctx.style.colors.text;
+  const paint = fill === "chrome" ? CHROME(ink, 0.2, sheen) : fill === "none" ? ink : fill;
+  const word = ctx.add("word", { ...probe, ...(serif ?? {}), fontSize, letterSpacing: spacing(fontSize), fill: paint }, next ? { below: next.id } : "top");
+  // The box is as wide as the word with its letters spaced open (the entrance), plus room, so
+  // the word stays on one line the whole time (a narrower box wraps its last letter).
+  const size = measure(word);
+  const opened = measure({ ...word, letterSpacing: spacing(fontSize) * open });
+  word.width = Math.ceil(Math.max(size.width, opened.width) + fontSize * 0.6);
+  word.height = Math.ceil(size.height);
+  word.x = Math.round((ctx.frame.width - word.width) / 2);
+  word.y = Math.round((ctx.frame.height - word.height) / 2);
+  const lines = layoutText(word, ctx.fonts).lines.length;
+  if (lines !== 1) throw new Error(`push-through-type: "${input.text}" does not fit on one line; shorten it.`);
+  const units = textUnits(layoutText(word, ctx.fonts), "letters").filter((unit) => unit.text.trim());
+  const letters = units.map((unit) => unit.glyphs.map((glyph) => inkPoint(glyph, ctx.frame)).filter(Boolean).sort((a, b) => a.need - b.need)[0] ?? null);
+  const glyphs = units.flatMap((unit) => unit.glyphs).map(glyphInside);
+  return {
+    name: `"${input.text}"`, text: input.text, layer: word, state: { x: word.x, y: word.y, width: word.width, height: word.height, scaleX: 1, scaleY: 1, opacity: 1 },
+    letters, inside: (x, y) => glyphs.some((test) => test(x, y)), measured: true,
+    sheenBase: fill === "chrome" ? ink : null, solid: null,
+    spacing: { from: spacing(fontSize) * open, to: spacing(fontSize) },
+    window: () => ctx.add("window", { ...word, fill: "#FFFFFF", isMask: true, role: "decor", animations: [] }, { below: next.id }),
+  };
+}
+
+/** One of your layers: it keeps its own font, size, color and place; the move animates it. */
+function layerSubject(ctx, input, next, { fill, open }) {
+  for (const key of ["font", "size"]) if (input[key] !== undefined) throw new Error(`push-through-type ${key}: for words only; ${input.layer} keeps its own (leave ${key} out).`);
+  const subject = ctx.subject(input.layer, { field: "layer" });
+  const layer = subject.layer;
+  if (layer.parentId) throw new Error(`push-through-type layer: ${layer.id} is inside a group; give the group.`);
+  if (next && next.id === layer.id) throw new Error("push-through-type: layer and next must be two layers.");
+  if (input.letter !== undefined && layer.type !== "text") throw new Error(`push-through-type letter: for words and text layers; ${layer.id} is a ${layer.type}, give point instead.`);
+  const ink = subjectInk(layer, { layers: ctx.sceneLayers(), time: ctx.start, fonts: ctx.fonts, frame: ctx.frame, alpha: ctx.alpha });
+  const paintable = ["text", "path", "rectangle", "ellipse", "star"].includes(layer.type);
+  if (fill !== "none" && !paintable) throw new Error(`push-through-type fill: chrome or a color is for words, text, paths and shapes; ${layer.id} is a ${layer.type} (leave fill out).`);
+  const own = typeof ink.state.fill === "string" && HEX.test(ink.state.fill.slice(0, 7)) ? ink.state.fill.slice(0, 7) : null;
+  if (fill === "chrome" && !own) throw new Error(`push-through-type fill: chrome needs ${layer.id} to have one solid color; give a color instead.`);
+  const spacing = layer.type === "text" && open > 1 ? (() => {
+    // The letters open by the same share of the size as plain words do, if the line still fits.
+    const base = ink.state.letterSpacing ?? 0;
+    const from = round(base + round(ink.state.fontSize * 0.06) * (open - 1));
+    const lines = (spaced) => layoutText({ ...ink.state, letterSpacing: spaced }, ctx.fonts).lines.length;
+    if (lines(from) !== lines(base)) { ctx.note(`${layer.id}'s letters do not open: its box is too narrow for them`); return null; }
+    return { from, to: base };
+  })() : null;
+  return {
+    name: layer.id, text: layer.type === "text" ? ink.state.text : null, layer: null, id: layer.id, kind: layer.type,
+    state: { x: ink.state.x, y: ink.state.y, width: ink.state.width, height: ink.state.height, scaleX: ink.state.scaleX ?? 1, scaleY: ink.state.scaleY ?? 1, opacity: layer.opacity > 0 ? layer.opacity : 1 },
+    letters: ink.letters ?? null, best: ink.best, inside: ink.inside, measured: ink.measured,
+    sheenBase: fill === "chrome" ? own : null, solid: HEX.test(fill) ? fill : null, spacing,
+    // Already on screen before the move: no entrance unless typeIn asks for one.
+    shown: ctx.shownAt(layer.id, Math.max(0, ctx.start - 1 / 30)) && ctx.start > 0,
+    window: () => subject.mask("window", { below: next.id }),
+  };
+}
 
 export const pushThroughType = {
   name: "push-through-type",
-  about: "a big glossy word (the brand's or the project's font; a serif when there is none) sharpens in and drifts closer while a sheen slides down it, then the camera pushes into one of its letters, slowly at first and faster all the time, the colors splitting as it starts, until the next shot, seen inside the letter, fills the frame",
-  fits: "an opening title or a name reveal that leads straight into the first shot",
+  about: "a big glossy word (or your text, logo, path, shape or group) sharpens in and drifts closer while a sheen slides down it, then the camera pushes into it, faster all the time, the colors splitting as it starts, until the next shot, seen inside it, fills the frame",
+  fits: "an opening title or a name or logo reveal that leads straight into the first shot",
   tags: ["type-giant", "zoom-through", "rgb-split"],
   length: 2.6,
   shortest: 1.8,
+  oneOf: [["text", "layer"]],
   fields: {
-    text: { kind: "text", required: true, max: 24, about: "the word (a name or one short line)" },
-    next: { kind: "layer", about: "the shot seen inside the letter and then revealed (it is put just above the word)" },
-    letter: { kind: "number", low: 1, high: 24, whole: true, about: "which letter to push into, counting from 1 (default the one that fills the frame soonest)" },
+    text: { kind: "text", max: 24, about: "the word (one short line), or give layer" },
+    layer: { kind: "layer", about: "your layer to push into: a text (keeps its look and place), a picture logo (its see-through parts are measured), a filled path or shape, or a group" },
+    next: { kind: "layer", about: "the shot seen inside it, then revealed (put just above it)" },
+    letter: { kind: "number", low: 1, high: 200, whole: true, about: "words and text: which letter, from 1 (default the one that fills the frame soonest)" },
+    point: { kind: "point", about: "where to push, [x, y] in % of its box, on what it draws (default the spot that fills the frame soonest)" },
+    font: { kind: "text", max: 80, about: "words only: a font family (default the brand's or project's, else Noto Serif)" },
+    size: { kind: "number", low: 0.1, high: 0.9, about: "words only: width as a share of the frame (default 0.5, tall 0.7)" },
+    fill: { kind: "text", max: 7, about: '"chrome" (sheen; words\' default), a color like "#F4F2EE", or "none" (a layer\'s default: as it is); not on pictures or groups' },
+    sheenColor: { kind: "text", max: 7, about: "the chrome sheen's color (default #8E95A3)" },
+    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to sharpen in (default 0.55; 0 for a layer already on screen)" },
+    push: { kind: "number", low: 0.3, high: 4, about: "seconds of the fast push (default 0.9; whole beats with music)" },
+    spacing: { kind: "number", low: 1, high: 4, about: "words and text: how far open the letters start, times their spacing (default 2.2)" },
+    split: { kind: "number", low: 0, high: 40, about: "the color split as the push starts, px on a 1080-high frame (default 10; 0 none)" },
   },
   example: { text: "acme.", next: "shot-a", at: 0.2 },
   setup: "shot-a, a full-frame picture or video",
   build(ctx, input) {
     const next = input.next ? ctx.layer(input.next, "next") : null;
-    // The brand's or the project's display font (ctx.brandFonts); without one, the bundled serif
-    // at a weight it ships (700), so it never falls back to another face.
-    const serif = !ctx.brandFonts ? { fontFamily: "Noto Serif", fontSource: "", fontWeight: 700, fontStyle: "normal" } : null;
-    const safe = safeArea(ctx.frame);
-    // Big type: the word is about half of a wide frame (most of a tall one).
-    const target = ctx.frame.width * (ctx.portrait ? 0.7 : 0.5);
-    const probe = textLayer(ctx, { part: "word", text: input.text, role: "headline", step: "display", size: 100, box: { ...safe, width: ctx.frame.width * 4 }, align: "center", maxLines: 1, name: input.text });
-    const measure = (layer) => {
-      const layout = layoutText({ ...layer, width: ctx.frame.width * 8 }, ctx.fonts);
-      return { width: Math.max(...layout.lines.map((line) => line.width ?? 0)), height: layout.height };
-    };
-    const spacing = (size) => round(size * 0.06);
-    const at100 = measure({ ...probe, ...(serif ?? {}), fontSize: 100, letterSpacing: spacing(100) });
-    const fontSize = Math.round(Math.min(100 * target / at100.width, (ctx.frame.height * 0.42 * 100) / at100.height));
-    const word = ctx.add("word", { ...probe, ...(serif ?? {}), fontSize, letterSpacing: spacing(fontSize), fill: CHROME(ctx.style.colors.text, 0.2) }, next ? { below: next.id } : "top");
-    // The box is as wide as the word with its letters spaced open (the entrance), plus room, so
-    // the word stays on one line the whole time (a narrower box wraps its last letter).
-    const size = measure(word);
-    const open = measure({ ...word, letterSpacing: spacing(fontSize) * OPEN_SPACING });
-    word.width = Math.ceil(Math.max(size.width, open.width) + fontSize * 0.6);
-    word.height = Math.ceil(size.height);
-    word.x = Math.round((ctx.frame.width - word.width) / 2);
-    word.y = Math.round((ctx.frame.height - word.height) / 2);
-    const lines = layoutText(word, ctx.fonts).lines.length;
-    if (lines !== 1) throw new Error(`push-through-type: "${input.text}" does not fit on one line; shorten it.`);
-    // The letter to push into, and the point inside its ink where the frame fills soonest.
-    const units = textUnits(layoutText(word, ctx.fonts), "letters").filter((unit) => unit.text.trim());
-    const inks = units.map((unit) => unit.glyphs.map((glyph) => inkPoint(glyph, ctx.frame)).filter(Boolean).sort((a, b) => a.need - b.need)[0] ?? null);
-    const chosen = input.letter !== undefined ? Math.min(units.length, input.letter) - 1
-      : inks.reduce((best, ink, index) => (ink && (best < 0 || ink.need < inks[best].need) ? index : best), -1);
-    const ink = inks[chosen];
-    if (!ink) throw new Error(`push-through-type: letter ${chosen + 1} of "${input.text}" has no ink wide enough to push into; choose another letter.`);
-    const hold = Math.max(readTime(input.text) + 0.15, 0.8);
-    const needs = round(TYPE_IN + hold + 0.5);
-    if (ctx.duration + 1e-6 < needs) throw new Error(`push-through-type needs dur of at least ${needs} s to show "${input.text}" long enough to read.`);
+    const fill = input.fill ?? (input.layer ? "none" : "chrome");
+    if (fill !== "chrome" && fill !== "none" && !HEX.test(fill)) throw new Error('push-through-type fill is "chrome", "none" or a color such as "#F4F2EE".');
+    if (input.sheenColor !== undefined && !HEX.test(input.sheenColor)) throw new Error('push-through-type sheenColor is a color such as "#8E95A3".');
+    const sheen = input.sheenColor ?? SHEEN;
+    const open = input.spacing ?? OPEN_SPACING;
+    const it = input.layer ? layerSubject(ctx, input, next, { fill, open }) : wordSubject(ctx, input, next, { fill, sheen, open });
+    // Animations go on the move's own word, or on your layer (role "layer").
+    const animate = (name, animation) => (it.layer ? ctx.animate(it.layer, name, animation) : ctx.animate(it.id, name, animation, "layer"));
+    const { x, y, width, height, scaleX: sx, scaleY: sy } = it.state;
+    const least = Math.min(Math.abs(sx), Math.abs(sy)) || 1;
+    // Where to push: the point asked for, else the letter (or spot) that fills the frame soonest.
+    let ink;
+    if (input.point) {
+      const at = { x: (width * input.point[0]) / 100, y: (height * input.point[1]) / 100 };
+      const inside = it.measured ? it.inside : (px, py) => px >= 0 && py >= 0 && px <= width && py <= height;
+      const need = coverScale(inside, at.x, at.y, ctx.frame, 1);
+      const best = it.best ?? it.letters?.filter(Boolean).sort((a, b) => a.need - b.need)[0];
+      if (!Number.isFinite(need)) throw new Error(`push-through-type point: [${input.point.join(", ")}] is not on what ${it.name} draws${best ? `; try [${pct(best.x / width)}, ${pct(best.y / height)}]` : ""}.`);
+      ink = { ...at, need };
+    } else if (it.letters) {
+      const chosen = input.letter !== undefined ? Math.min(it.letters.length, input.letter) - 1
+        : it.letters.reduce((best, entry, index) => (entry && (best < 0 || entry.need < it.letters[best].need) ? index : best), -1);
+      ink = it.letters[chosen];
+      if (!ink) throw new Error(`push-through-type: letter ${chosen + 1} of ${it.name} has no ink wide enough to push into; choose another letter.`);
+    } else {
+      ink = it.best;
+      if (!ink) throw new Error(`push-through-type: ${it.name} has no part wide enough to push into; give point.`);
+    }
+    if (!it.measured) ctx.note(`${it.name}'s see-through parts were not measured, so the push aims as if its whole box were solid`);
+    const typeIn = input.typeIn ?? (it.shown ? 0 : TYPE_IN);
+    const hold = Math.max((it.text ? readTime(it.text) : 0) + 0.15, 0.8);
+    const needs = round(typeIn + hold + 0.5);
+    if (ctx.duration + 1e-6 < needs) throw new Error(`push-through-type needs dur of at least ${needs} s to show ${it.name} long enough to read.`);
     const cut = ctx.end;
     // With music, the push lasts whole beats, so a cut on a beat starts the push on one too.
     const period = ctx.bpm ? 60 / ctx.bpm : null;
-    const push = period ? Math.max(1, Math.round(PUSH / period)) * period : PUSH;
-    const pushAt = round(Math.max(ctx.start + TYPE_IN + hold, cut - push));
-    // 1. The word sharpens out of a blur while its letters close up; a sheen slides down it while
-    // it is read (it never sits still).
-    const sheen = motion({ name: "Sheen", start: ctx.start, duration: round(pushAt - ctx.start), easing: CURVES.drift, from: { fill: CHROME(ctx.style.colors.text, 0.2) }, to: { fill: CHROME(ctx.style.colors.text, 0.8) } });
+    const pushFor = input.push ?? PUSH;
+    const push = period ? Math.max(1, Math.round(pushFor / period)) * period : pushFor;
+    const pushAt = round(Math.max(ctx.start + typeIn + hold, cut - push));
+    const opacity = it.state.opacity;
+    // 1. The subject sharpens out of a blur (letters closing up); a sheen slides down it while it
+    // is read (it never sits still), or it holds its asked color.
+    const sheenFill = (at) => CHROME(it.sheenBase, at, sheen);
+    const color = it.sheenBase ? motion({ name: "Sheen", start: ctx.start, duration: round(pushAt - ctx.start), easing: CURVES.drift, from: { fill: sheenFill(0.2) }, to: { fill: sheenFill(0.8) } })
+      : it.solid ? motion({ name: "Color", start: ctx.start, duration: round(pushAt - ctx.start), easing: CURVES.drift, from: { fill: it.solid }, to: { fill: it.solid } }) : null;
+    const fadeIn = (name) => (typeIn > 0 ? motion({ name, kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity } }) : null);
     if (ctx.reduced) {
-      ctx.animate(word, "in", motion({ name: "Fade in", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
-      ctx.animate(word, "sheen", sheen);
-      ctx.animate(word, "out", motion({ name: "Fade out", kind: "out", start: pushAt, duration: 0.4, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
-      ctx.animate(word, "hide", hide(pushAt + 0.4));
+      const entrance = fadeIn("Fade in");
+      if (entrance) animate("in", entrance);
+      if (color) animate(it.sheenBase ? "sheen" : "color", color);
+      animate("out", motion({ name: "Fade out", kind: "out", start: pushAt, duration: 0.4, easing: CURVES.fade, from: { opacity }, to: { opacity: 0 } }));
+      animate("hide", hide(pushAt + 0.4));
       if (next) ctx.animate(next.id, "in", motion({ name: "Fade in", kind: "in", start: pushAt + 0.2, duration: 0.4, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "next");
       return { end: round(Math.max(ctx.end, pushAt + 0.6)) };
     }
+    if (next && !it.layer && ctx.order(next.id) < ctx.order(it.id)) ctx.raise(next.id, it.id);
     // One push from the first frame to the cut, in two parts that meet at the same speed: a slow
-    // drift closer while the word is read (30%), then faster and faster into the letter's ink,
-    // which ends centered at twice the scale where the letter first covers the frame, so it covers
+    // drift closer while it is read (30%), then faster and faster into the chosen ink,
+    // which ends centered at twice the scale where it first covers the frame, so it covers
     // the frame a few frames before the cut and the mask goes without a pop.
-    const box = { x: word.x, y: word.y, width: word.width, height: word.height };
-    const point = { x: word.x + ink.x, y: word.y + ink.y };
+    const box = { x, y, width, height };
+    const point = { x: x + width / 2 + (ink.x - width / 2) * sx, y: y + height / 2 + (ink.y - height / 2) * sy };
     const creep = 1.3;
-    const final = round(Math.min(400, ink.need * 2.2), 2);
-    const landed = { x: round(ctx.frame.width / 2 - word.width / 2 - (ink.x - word.width / 2) * final, 1), y: round(ctx.frame.height / 2 - word.height / 2 - (ink.y - word.height / 2) * final, 1) };
-    // The word moves along one straight line as it grows (its place a fixed share of the way to
+    const final = round(Math.min(400, (ink.need / least) * 2.2), 2);
+    const landed = { x: round(ctx.frame.width / 2 - width / 2 - (ink.x - width / 2) * sx * final, 1), y: round(ctx.frame.height / 2 - height / 2 - (ink.y - height / 2) * sy * final, 1) };
+    // It moves along one straight line as it grows (its place a fixed share of the way to
     // where it lands for each step of scale), so the creep and the push meet at the same speed.
-    const along = (scale) => ({ x: round(word.x + (landed.x - word.x) * (scale - 1) / (final - 1), 1), y: round(word.y + (landed.y - word.y) * (scale - 1) / (final - 1), 1) });
+    const along = (scale) => ({ x: round(x + (landed.x - x) * (scale - 1) / (final - 1), 1), y: round(y + (landed.y - y) * (scale - 1) / (final - 1), 1) });
     const crept = Number.isFinite(final) && final > creep ? along(creep) : scaledAbout(box, point, creep);
     const creepTime = pushAt - ctx.start;
     const pushTime = cut - pushAt;
     // The creep ends moving at (creep - 1) / creepTime a second; the push starts at that speed.
     const startSlope = Math.max(0.0005, ((creep - 1) / creepTime) * (pushTime / (final - creep)));
     const pushEase = [0.5, round(0.5 * startSlope, 5), 0.9, 0.22];
-    const moves = (layer) => {
-      ctx.animate(layer, "creep", motion({ name: "Creep in", start: ctx.start, duration: creepTime, easing: [0.2, 0.1, 0.7, 0.7],
-        from: { x: word.x, y: word.y, scaleX: 1, scaleY: 1 }, to: { x: crept.x, y: crept.y, scaleX: creep, scaleY: creep } }));
-      ctx.animate(layer, "push", motion({ name: "Push into the letter", start: pushAt, duration: pushTime, easing: pushEase,
-        from: { x: crept.x, y: crept.y, scaleX: creep, scaleY: creep }, to: { x: landed.x, y: landed.y, scaleX: final, scaleY: final } }));
+    const moves = (to) => {
+      to("creep", motion({ name: "Creep in", start: ctx.start, duration: creepTime, easing: [0.2, 0.1, 0.7, 0.7],
+        from: { x, y, scaleX: sx, scaleY: sy }, to: { x: crept.x, y: crept.y, scaleX: creep * sx, scaleY: creep * sy } }));
+      to("push", motion({ name: "Push into the letter", start: pushAt, duration: pushTime, easing: pushEase,
+        from: { x: crept.x, y: crept.y, scaleX: creep * sx, scaleY: creep * sy }, to: { x: landed.x, y: landed.y, scaleX: final * sx, scaleY: final * sy } }));
     };
-    ctx.animate(word, "in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle,
-      from: { opacity: 0, blur: Math.round(14 * ctx.scale), letterSpacing: spacing(fontSize) * OPEN_SPACING }, to: { opacity: 1, blur: 0, letterSpacing: spacing(fontSize) } }));
-    ctx.animate(word, "sheen", sheen);
-    moves(word);
+    const spaced = it.spacing ? { from: { letterSpacing: it.spacing.from }, to: { letterSpacing: it.spacing.to } } : { from: {}, to: {} };
+    if (typeIn > 0) animate("in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.settle,
+      from: { opacity: 0, blur: Math.round(14 * ctx.scale), ...spaced.from }, to: { opacity, blur: 0, ...spaced.to } }));
+    else if (it.spacing) animate("in", motion({ name: "Close up", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle, ...spaced }));
+    if (color) animate(it.sheenBase ? "sheen" : "color", color);
+    moves(animate);
     // 2. The colors split as the push sets off and close again before the next shot shows in the
-    // letter. The split's size is a share of the word's own box, so it is kept to about 10 px on
-    // screen at the scale the word has then (a split at the push's full scale is a slab of color).
+    // subject. The split's size is a share of its own box, so it is kept to about `split` px on
+    // screen at the scale it has then (a split at the push's full scale is a slab of color).
     const showAt = round(pushAt + pushTime * 0.15);
     const splitPeak = round(pushAt - Math.min(0.25, creepTime * 0.3));
-    const splitAmount = round(Math.min(0.4, (10 * ctx.scale) / (0.1 * Math.min(word.width, word.height) * creep)), 3);
-    ctx.animate(word, "split", effect({ name: "RGB split", effect: "rgb-shift", start: splitPeak - 0.2, duration: 0.2, easing: CURVES.accelerate,
-      from: { amount: 0 }, to: { amount: splitAmount, direction: 0 }, keepStill: "off" }));
-    ctx.animate(word, "unsplit", effect({ name: "RGB split closes", effect: "rgb-shift", start: splitPeak, duration: round(showAt - splitPeak), easing: CURVES.settle,
-      from: { amount: splitAmount }, to: { amount: 0, direction: 0 }, keepStill: "off" }));
+    const splitPx = input.split ?? SPLIT;
+    if (splitPx > 0) {
+      const splitAmount = round(Math.min(0.4, (splitPx * ctx.scale) / (0.1 * Math.min(width, height) * least * creep)), 3);
+      animate("split", effect({ name: "RGB split", effect: "rgb-shift", start: splitPeak - 0.2, duration: 0.2, easing: CURVES.accelerate,
+        from: { amount: 0 }, to: { amount: splitAmount, direction: 0 }, keepStill: "off" }));
+      animate("unsplit", effect({ name: "RGB split closes", effect: "rgb-shift", start: splitPeak, duration: round(showAt - splitPeak), easing: CURVES.settle,
+        from: { amount: splitAmount }, to: { amount: 0, direction: 0 }, keepStill: "off" }));
+    }
     if (!next) {
-      ctx.animate(word, "out", motion({ name: "Fade out", kind: "out", start: cut - pushTime * 0.4, duration: pushTime * 0.4, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
-      ctx.animate(word, "hide", hide(cut));
+      animate("out", motion({ name: "Fade out", kind: "out", start: cut - pushTime * 0.4, duration: pushTime * 0.4, easing: CURVES.fade, from: { opacity }, to: { opacity: 0 } }));
+      animate("hide", hide(cut));
       return { end: cut };
     }
-    // 3. The next shot shows inside the letters (a copy of the word masks it) and comes forward
-    // as the push passes into the letter, while the glossy word fades away under it (its edges
-    // would ring the letter). The mask goes at the cut, when the letter covers the whole frame.
-    const window = ctx.add("window", { ...word, fill: "#FFFFFF", isMask: true, role: "decor", animations: [] }, { below: next.id });
-    ctx.animate(window, "in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle,
-      from: { letterSpacing: spacing(fontSize) * OPEN_SPACING }, to: { letterSpacing: spacing(fontSize) } }));
-    moves(window);
+    // 3. The next shot shows inside the subject (a white copy of it masks it) and comes forward
+    // as the push passes into it, while the subject fades away under it (its edges would ring
+    // it). The mask goes at the cut, when the subject covers the whole frame.
+    const window = it.window();
+    if (it.spacing) ctx.animate(window, "in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn > 0 ? typeIn : TYPE_IN, easing: CURVES.settle, ...spaced }));
+    moves((name, animation) => ctx.animate(window, name, animation));
     const showFor = round(pushTime * 0.35);
     ctx.animate(next.id, "in", motion({ name: "Show in the letter", kind: "in", start: showAt, duration: showFor, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "next");
-    ctx.animate(word, "out", motion({ name: "Fade out", kind: "out", start: showAt, duration: showFor, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
-    // No zoom blur on the word: it smeared the glossy word's edges and stayed on
-    // after the move ended. The word fades out during the push instead.
+    animate("out", motion({ name: "Fade out", kind: "out", start: showAt, duration: showFor, easing: CURVES.fade, from: { opacity }, to: { opacity: 0 } }));
+    // No zoom blur on the subject: it smeared the glossy word's edges and stayed on
+    // after the move ended. It fades out during the push instead.
     const settle = 0.5;
     ctx.animate(next.id, "settle", motion({ name: "Come forward", start: showAt, duration: round(cut + settle - showAt), easing: CURVES.settle,
       from: { scaleX: 1.3 * (next.scaleX ?? 1), scaleY: 1.3 * (next.scaleY ?? 1) }, to: { scaleX: next.scaleX ?? 1, scaleY: next.scaleY ?? 1 } }), "next");
-    ctx.animate(word, "hide", hide(round(showAt + showFor)));
+    animate("hide", hide(round(showAt + showFor)));
     ctx.animate(window, "hide", hide(cut));
     return { end: round(cut + settle) };
   },

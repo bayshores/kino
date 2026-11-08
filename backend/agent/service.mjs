@@ -41,6 +41,7 @@ import { hideShareSecrets } from "../shares.mjs";
 import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
+import { pictureAlpha } from "./picture-alpha.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
@@ -401,6 +402,7 @@ export function createAgentService(deps) {
   // The building-block ops (recipe, compose, place, set_cue, …) and relative times (blocks.mjs).
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,
     deckDeals: (document, count) => nextDecks(document.id, document, count),
+    pictureAlpha: (src) => pictureAlpha(deps.mediaRoot, src),
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops) });
