@@ -32,6 +32,19 @@ test("maskInvert swaps the inside and outside of a mask", async () => {
   close((await png(scene({ maskInvert: false }, { maskInvert: true }))).pixel(10, 10), [255, 255, 255, 255]);
 });
 
+test("an inverted mask with opacity or blur exports as 1 - the mask", async () => {
+  // These crashed the raster worker when the inverted mask nested the plain one.
+  const green = async (group, mask) => (await png(scene(group, mask))).pixel(50, 50)[1];
+  for (const maskMode of ["luminance", "alpha"]) {
+    assert.ok(Math.abs(await green({ maskInvert: true, maskMode }, { opacity: 0.5 }) - 128) <= 2, maskMode);
+    const edge = async (group) => (await png(scene(group, { blur: 6 }))).pixel(26, 50)[1];
+    assert.ok(Math.abs((await edge({ maskMode })) + (await edge({ maskInvert: true, maskMode })) - 255) <= 3, maskMode);
+  }
+  // A gray mask: luminance halves, alpha (opaque gray) hides it all.
+  assert.ok(Math.abs(await green({ maskInvert: true }, { fill: "#808080" }) - 128) <= 2);
+  assert.equal(await green({ maskInvert: true, maskMode: "alpha" }, { fill: "#808080" }), 255);
+});
+
 test("maskMode alpha lets a picture's transparent hole through", async () => {
   // A white picture with a see-through hole (40..60) masks a red layer.
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill-rule="evenodd" fill="white" d="M0 0H100V100H0Z M40 40V60H60V40Z"/></svg>';
@@ -75,4 +88,29 @@ test("the fields are checked and reach only masks", () => {
   made.scenes[0].layers = ["a", "b"].map((id) => createLayer("rectangle", { id, name: id }));
   const masked = applyOperations(made, [{ type: "create_mask", sceneId: made.scenes[0].id, layerIds: ["a", "b"], groupId: "g", maskInvert: true }]);
   assert.equal(masked.scenes[0].layers.find((layer) => layer.id === "g").maskInvert, true);
+});
+
+test("the quality checks see an inverted mask's layers outside the mask", async () => {
+  const { kinoTimeline } = await import("../engine/quality/kinoTimeline.js");
+  const { visibleBoxAt } = await import("../engine/quality/model.js");
+  const { runDataQuality } = await import("../engine/quality/index.js");
+  // A small square in the corner masks a title well away from it.
+  const check = (maskInvert) => {
+    const document = createDocument();
+    const s = Object.assign(document.scenes[0], { width: 960, height: 540, duration: 3 });
+    s.layers = [
+      createLayer("rectangle", { id: "dot", name: "dot", x: 0, y: 0, width: 60, height: 60, fill: "#ffffff" }),
+      createLayer("text", { id: "title", name: "title", x: 200, y: 220, text: "Launch day", fontSize: 90, fill: "#ffffff", textResize: "width-height" }),
+    ];
+    const edited = applyOperations(document, [{ type: "create_mask", sceneId: s.id, layerIds: ["dot", "title"], maskLayerId: "dot", groupId: "g", maskInvert }]);
+    const model = kinoTimeline(edited, s.id, { fps: 10 });
+    const box = visibleBoxAt(model, model.items.find((item) => item.id === "title"), 5);
+    const result = runDataQuality(model);
+    return { width: box.x1 - box.x0, reading: (result.findings ?? result).some((f) => f.rule === "reading_time" && f.severity === "error") };
+  };
+  const plain = check(false);
+  assert.ok(plain.width <= 0 && plain.reading, "a plain mask hides it");
+  const inverted = check(true);
+  assert.ok(inverted.width > 400, `${inverted.width}`);
+  assert.equal(inverted.reading, false);
 });

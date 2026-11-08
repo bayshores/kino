@@ -149,7 +149,7 @@ function latticeSteps(lut) {
 
 /**
  * Per-channel tables for a LUT that changes each channel on its own (1D, or a separable 3D LUT).
- * `sample(value)` gives the output for grey `value`; by default it reads the LUT.
+ * `sample(value)` gives the output for gray `value`; by default it reads the LUT.
  */
 function separableTables(lut, strength, sample = (value) => sampleLut(lut, [value, value, value])) {
   const columns = [[], [], []];

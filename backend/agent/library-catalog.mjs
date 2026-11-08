@@ -44,7 +44,7 @@ const EFFECT_TAGS = {
 };
 // Lines for effects no technique tag describes.
 const EFFECT_LINES = {
-  "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; greys stay grey",
+  "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; grays stay gray",
     "one color pushed or muted, sky or foliage shifted, a brand color matched"],
   "color-look": [`color look: a ready-made grade, ${COLOR_LOOK_NAMES[0]} by default (${COLOR_LOOK_NAMES.join(", ")}), with amount 0..1`,
     "one grade over footage or a whole group; amount below 1 for a lighter touch"],

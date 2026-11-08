@@ -50,26 +50,26 @@ test("every default is 0 and changes nothing; neighboring ranges blend", () => {
   assert.deepEqual([rangeWeights(330)[0], rangeWeights(330)[7]], [0.5, 0.5]);
 });
 
-test("red saturation -1 greys pure red and leaves pure blue within 2/255", async () => {
+test("red saturation -1 grays pure red and leaves pure blue within 2/255", async () => {
   const [red, blue] = await draw({ redSaturation: -1 }, [[255, 0, 0], [0, 0, 255]]);
   assert.ok(spread(red) <= 2, `red became ${red}`);
   assert.ok(Math.abs(red[0] - 54) <= 2, `red keeps its luma: ${red}`);
   assert.ok(largestError([blue], [[0, 0, 255]]) <= 2, `blue became ${blue}`);
 });
 
-test("greys stay grey under every range setting", async () => {
-  const greys = [];
-  for (let value = 0; value <= 255; value += 15) greys.push([value, value, value]);
+test("grays stay gray under every range setting", async () => {
+  const grays = [];
+  for (let value = 0; value <= 255; value += 15) grays.push([value, value, value]);
   const parameters = {};
   for (const name of ["red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"])
     Object.assign(parameters, { [`${name}Hue`]: 120, [`${name}Saturation`]: 1, [`${name}Lightness`]: -0.6 });
-  const drawn = await draw(parameters, greys);
-  assert.ok(largestError(drawn, greys) <= 2, `greys moved by ${largestError(drawn, greys)}/255`);
+  const drawn = await draw(parameters, grays);
+  assert.ok(largestError(drawn, grays) <= 2, `grays moved by ${largestError(drawn, grays)}/255`);
 });
 
-test("highlights +0.5 brightens a 0.9 grey more than a 0.2 grey", async () => {
+test("highlights +0.5 brightens a 0.9 gray more than a 0.2 gray", async () => {
   const [light, dark] = await draw({ highlights: 0.5 }, [[230, 230, 230], [51, 51, 51]]);
-  assert.ok(light[0] - 230 >= 5, `0.9 grey became ${light}`);
-  assert.ok(light[0] - 230 > dark[0] - 51, `0.9 grey +${light[0] - 230}, 0.2 grey +${dark[0] - 51}`);
+  assert.ok(light[0] - 230 >= 5, `0.9 gray became ${light}`);
+  assert.ok(light[0] - 230 > dark[0] - 51, `0.9 gray +${light[0] - 230}, 0.2 gray +${dark[0] - 51}`);
   assert.ok(spread(light) <= 1 && spread(dark) <= 1);
 });

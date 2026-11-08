@@ -468,11 +468,14 @@ function mirroredEdges(body, state, context) {
   return `<g id="${id}">${body}</g>` + flips.map(([sx, sy, x, y]) => `<use href="#${id}" transform="matrix(${sx} 0 0 ${sy} ${x} ${y})"/>`).join("");
 }
 
-function filterFor(layer, context, bounds = null) {
+// Last filter step of an inverted alpha mask's drawing: black, its alpha kept (maskDefinition).
+const TO_BLACK = '<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0"/>';
+
+function filterFor(layer, context, bounds = null, last = "") {
   const blur = Math.max(0, checkedNumber(layer.blur, 0, 0, 1000));
   const shadow =
     layer.shadow && typeof layer.shadow === "object" && shadowAlpha(layer.shadow.color) > 0 ? layer.shadow : null;
-  if (!blur && !shadow) return "";
+  if (!blur && !shadow && !last) return "";
   const id = idFor(context, "filter");
   const effects = [];
   if (shadow) {
@@ -502,6 +505,7 @@ function filterFor(layer, context, bounds = null) {
     effects.push(
       `<feGaussianBlur in="${shadow ? "shadowed" : "SourceGraphic"}" stdDeviation="${fmt(blur / 2)}" result="blurred"/>`,
     );
+  if (last) effects.push(last);
   let region = 'x="-100%" y="-100%" width="300%" height="300%"';
   if (bounds) {
     // Include the actual offset, independent of how narrow the source paint is.
@@ -955,7 +959,8 @@ function decoderVideoMarkup(layer, state, blur) {
     `data-soft-video="${fmt(width / scale)} ${fmt(height / scale)} ${fmt(margin / scale)} ${blur ? 3 : 0}" width="${Math.max(1, Math.round(outerWidth / scale))}" height="${Math.max(1, Math.round(outerHeight / scale))}" style="display:block;width:100%;height:100%"/></foreignObject>`;
 }
 
-function renderLayer(node, context, { maskContent = false } = {}) {
+// maskInvert ("luminance" or "alpha") draws an inverted mask's drawing as maskDefinition needs.
+function renderLayer(node, context, { maskContent = false, maskInvert = null } = {}) {
   const { layer } = node;
   if (layer.visible === false || layer.type === "audio") return "";
   let state = resizeTextLayer(getAnimatedLayer(layer, context), context.fonts);
@@ -976,7 +981,8 @@ function renderLayer(node, context, { maskContent = false } = {}) {
   const reveal = context.design ? FULL_REVEAL : normalizeReveal(state.reveal);
   const revealRender = revealAttributes(state, reveal, context);
   if (revealRender.hidden) opacity = 0;
-  const blend = blendStyle(layer);
+  // Over the inverted mask's white, difference draws 1 - the drawing: 1 - its luminance.
+  const blend = maskInvert === "luminance" ? ' style="mix-blend-mode:difference"' : blendStyle(layer);
   const transform = textHasUnits ? "" : transformFor(state);
   let children = context.trackBackdrop ? "" : renderSiblings(node.children, context, layer.type === "group" && layer.isMaskGroup === true && layer);
   let body = "";
@@ -1073,10 +1079,11 @@ function renderLayer(node, context, { maskContent = false } = {}) {
     const painted = effectContent(content, layer, state, context, contentBounds(node, state, context), drawnContentBounds(node, state, context));
     content = painted.content;
     const filtered = soft ? { ...state, blur: 0 } : state;
-    filter = filterFor(filtered, context, hasFilterEffect(filtered) ? painted.bounds : null);
+    filter = filterFor(filtered, context, hasFilterEffect(filtered) ? painted.bounds : null, maskInvert === "alpha" ? TO_BLACK : "");
     context.renderedBounds.set(layer.id, mappedBounds(expandEffectBounds(painted.bounds, state), layerMatrix(state)));
     context.drawnBounds.set(layer.id, mappedBounds(expandEffectBounds(painted.drawn ?? painted.bounds, state), layerMatrix(state)));
   }
+  if (maskInvert === "alpha" && !filter) filter = filterFor({}, context, null, TO_BLACK);
   let tag = `<g data-layer-id="${safeId}"${owner}${ahead ? ' visibility="hidden"' : ""} transform="${transform}" opacity="${fmt(opacity)}"${filter}${blend}${revealRender.attribute}>${content}</g>`;
   if (hasTilt(state)) tag = tiltedTag(tag, node, state, context);
   if (!context.design && !ahead && !maskContent) tag = motionSmear(tag, node, state, context);
@@ -1294,6 +1301,14 @@ const MASK_RECT = 'x="-100000" y="-100000" width="200000" height="200000"';
 function maskDefinition(node, context, group = null) {
   const { invert, mode } = maskStyle(node.layer, group);
   const maskId = idFor(context, "mask");
+  // Inverted: over white, the drawing darkens by itself (luminance, a difference blend) or by
+  // its alpha (drawn black). A mask nested in a mask, or a large group around the drawing,
+  // panicked resvg once the drawing had opacity or blur.
+  if (invert) {
+    const graphic = renderLayer(node, context, { maskContent: true, maskInvert: mode === "alpha" ? "alpha" : "luminance" });
+    context.defs.push(`<mask id="${maskId}" ${MASK_AREA} style="mask-type:luminance"><rect ${MASK_RECT} fill="white"/>${graphic}</mask>`);
+    return maskId;
+  }
   const maskGraphic = renderLayer(node, context, { maskContent: true });
   // The mask's own area is as large as its black backing: without x, y, width and height it is
   // the frame plus 10% in the masked layer's own units, so a scaled-down group lost what it drew
@@ -1302,11 +1317,7 @@ function maskDefinition(node, context, group = null) {
   context.defs.push(mode === "alpha"
     ? `<mask id="${maskId}" ${MASK_AREA} style="mask-type:alpha">${maskGraphic}</mask>`
     : `<mask id="${maskId}" ${MASK_AREA} style="mask-type:luminance"><rect ${MASK_RECT} fill="black"/>${maskGraphic}</mask>`);
-  if (!invert) return maskId;
-  // Inverted: white everywhere, darkened by black drawn through the mask (1 - mask).
-  const invertedId = idFor(context, "mask");
-  context.defs.push(`<mask id="${invertedId}" ${MASK_AREA} style="mask-type:luminance"><rect ${MASK_RECT} fill="white"/><rect ${MASK_RECT} fill="black" mask="url(#${maskId})"/></mask>`);
-  return invertedId;
+  return maskId;
 }
 
 // Draws the layers of one parent from the bottom up. A mask layer masks the next visible

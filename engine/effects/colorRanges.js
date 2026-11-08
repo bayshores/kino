@@ -11,8 +11,8 @@ export const COLOR_RANGES = Object.freeze([
   ["red", 0], ["orange", 30], ["yellow", 60], ["green", 120], ["aqua", 180], ["blue", 240], ["purple", 270], ["magenta", 300],
 ].map(([name, hue]) => Object.freeze({ name, hue })));
 // Chroma (max - min of r, g, b) below GATE_LOW is left alone and above GATE_HIGH gets the full
-// change, so greys stay grey. GATE_LOW is past one 17-point LUT step (1/16), so the lattice
-// corners next to a grey are untouched too and greys draw exactly.
+// change, so grays stay gray. GATE_LOW is past one 17-point LUT step (1/16), so the lattice
+// corners next to a gray are untouched too and grays draw exactly.
 const GATE_LOW = 0.07;
 const GATE_HIGH = 0.25;
 // Highlights and shadows move luma by at most this share of their bump (keeps the curve rising).
@@ -78,7 +78,7 @@ export function colorRangesColor(r, g, b, { ranges, highlights = 0, shadows = 0 
     saturation *= gate;
     if (saturation) {
       const y = luma(rgb);
-      // Up to double the chroma, never past the edge of 0..1; -1 is the grey of the same luma.
+      // Up to double the chroma, never past the edge of 0..1; -1 is the gray of the same luma.
       const room = Math.min(...rgb.map((c) => c > y ? (1 - y) / (c - y) : c < y ? y / (y - c) : Infinity));
       const factor = saturation < 0 ? 1 + saturation : 1 + saturation * Math.min(1, room - 1);
       rgb = rgb.map((c) => y + (c - y) * factor);

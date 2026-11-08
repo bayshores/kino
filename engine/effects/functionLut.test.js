@@ -68,9 +68,9 @@ test("a known curve matches its function within 3/255 at 27 probe colors", async
     assert.ok(error <= 3, `size ${size}: largest error ${error}/255`);
   }
   // A steep per-channel curve reads the function itself, not the 17-point lattice.
-  const greys = [[2, 2, 2], [9, 9, 9], [40, 40, 40], [200, 200, 200]];
-  const drawn = await draw({ name: "test-root", color: (r, g, b) => [r, g, b].map(Math.sqrt) }, greys);
-  assert.ok(largestError(drawn, greys.map((rgb) => rgb.map((value) => Math.round(Math.sqrt(value / 255) * 255)))) <= 1);
+  const grays = [[2, 2, 2], [9, 9, 9], [40, 40, 40], [200, 200, 200]];
+  const drawn = await draw({ name: "test-root", color: (r, g, b) => [r, g, b].map(Math.sqrt) }, grays);
+  assert.ok(largestError(drawn, grays.map((rgb) => rgb.map((value) => Math.round(Math.sqrt(value / 255) * 255)))) <= 1);
 });
 
 test("a second call with the same rounded parameters hits the cache", () => {
