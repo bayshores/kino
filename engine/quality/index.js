@@ -18,7 +18,7 @@ import { speechCaptions, speechCut, speechQuotes } from "./rules/speech.js";
 import { bedJump, endOnFade, muteWord, musicHardStop, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
-import { cropNoSubject, frozenFootage, jumpCut, softUpscale, trackLost } from "./rules/footage.js";
+import { clipReuse, cropNoSubject, frozenFootage, jumpCut, softUpscale, trackLost } from "./rules/footage.js";
 import { darkUnderTitle, lowFpsMotion, sourceJump } from "./rules/sourcePixels.js";
 import { headCutOff } from "./rules/people.js";
 import { outOfSync } from "./rules/sync.js";
@@ -64,6 +64,7 @@ export const RULES = [
   rule("overlay_covers_subject", "error", overlayCoversSubject, "a layer over footage covers at most 30% of the marked subject for 0.5 s (full-clip frames and scrims aside); a gate for an opaque layer or caption over its middle (auto: moved aside), a warning for light tints and big type; unmarked, a warning over a found face or raised hands"),
   rule("out_of_sync", "error", outOfSync, "a line heard from one file over the picture (25% of the frame) of a file filmed with it (sync_clips) is from the same moment, within 0.25 s; J or L cuts under 1 s and slowed or reversed clips pass; the fix retimes the picture's mediaOffset (auto when nothing else depends on it)"),
   rule("text_wrap", "warn", textWrap, "a 1-word title does not wrap and punctuation is never alone on a line (both errors); a 2 or 3 word title that wraps, and a one-word last line under a long line, are warnings"),
+  rule("clip_reuse", "warn", clipReuse, "in 15 s or more with 4+ clips full frame, one clip fills it under 4 times and at most 35% of the video"),
   rule("crop_no_subject", "warn", cropNoSubject, "footage filling the frame and drawn past it (over 8% of the file cut off on a side) has a subject marked (mark_subject); a marked subject less than 85% in the frame is an error"),
   rule("track_lost", "warn", trackLost, "a layer pinned to a track (pin) never follows it through a stretch under 0.5 confidence longer than 0.3 s (the layer holds its last good place there); names the seconds"),
   rule("head_cut_off", "warn", headCutOff, "a person 40% of the picture tall or more keeps their head in the picture: their box touching the top with no head found (or the highest eye or ear at the edge) for 1 s while the clip shows, from filming or from the crop; found by Apple Vision on a Mac in a full check (elsewhere it does not run)"),

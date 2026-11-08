@@ -21,7 +21,7 @@ import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { sec } from "../analysis.js";
 import { LOW_CONFIDENCE, lowRuns } from "../../pin.js";
 import { inPicture, positionAt } from "../../recording.js";
-import { boxAt, itemById } from "../model.js";
+import { boxAt, itemById, visibleBoxAt } from "../model.js";
 import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
@@ -423,6 +423,65 @@ export function trackLost(model, ctx) {
       measured: `track confidence under ${LOW_CONFIDENCE} at ${where}`,
       required: `confidence ${LOW_CONFIDENCE} or more, or no stretch under it longer than 0.3 s`,
       fix: { kind: "hint", text: `Track again from a clearer moment (track {at}) or a box on more texture, hide ${layer.name} there, or waive_check if holding still is fine.` },
+    });
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------- clip_reuse
+// One clip filling the frame again and again reads as a short reel stretched: three first passes
+// in a row cut back to the same red dancer clip about six times. A hero shot returning twice or
+// three times is a motif; four times, or a third of the video, is a loop. Only once the video
+// shows 4 or more files full frame (with fewer there is no other clip to cut to).
+const REUSE_USES = 4;
+const REUSE_SHARE = 0.35;
+const REUSE_FILES = 4;
+const REUSE_SECONDS = 15;
+// A gap this short (a flash frame, a glimpse) does not split one use into two.
+const REUSE_GAP = 0.25;
+
+export function clipReuse(model, ctx) {
+  if (model.duration < REUSE_SECONDS) return [];
+  const frame = { x0: 0, y0: 0, x1: model.width, y1: model.height };
+  const whole = model.width * model.height;
+  const videos = model.items.filter((item) => item.kind === "video" && item.src && !item.isMask);
+  // The file that fills the frame at each sample: the topmost playing video covering 90% of it.
+  const shown = model.times.map((_, index) => {
+    let best = null;
+    for (const item of videos) {
+      if (item.samples.opacity[index] < 0.5 || coveredAt(model, item, index)) continue;
+      const box = visibleBoxAt(model, item, index);
+      const inside = { x0: Math.max(box.x0, frame.x0), y0: Math.max(box.y0, frame.y0), x1: Math.min(box.x1, frame.x1), y1: Math.min(box.y1, frame.y1) };
+      if (Math.max(0, inside.x1 - inside.x0) * Math.max(0, inside.y1 - inside.y0) < 0.9 * whole) continue;
+      if (!best || item.z > best.z) best = item;
+    }
+    return best?.src ?? null;
+  });
+  const files = new Map();
+  const gap = Math.round(REUSE_GAP * model.fps);
+  for (let index = 0; index < shown.length; index += 1) {
+    const src = shown[index];
+    if (!src) continue;
+    const entry = files.get(src) ?? { samples: 0, uses: [], last: -Infinity };
+    entry.samples += 1;
+    if (index - entry.last > gap + 1) entry.uses.push(index);
+    entry.last = index;
+    files.set(src, entry);
+  }
+  if (files.size < REUSE_FILES) return [];
+  const findings = [];
+  for (const [src, entry] of files) {
+    const share = entry.samples / shown.length;
+    if (entry.uses.length < REUSE_USES && share <= REUSE_SHARE) continue;
+    const layers = [...new Set(videos.filter((item) => item.src === src).map((item) => item.name))];
+    const name = layers.length === 1 ? layers[0] : `${src.split("/").pop()} (${layers.slice(0, 3).join(", ")})`;
+    const at = entry.uses.map((index) => sec(model.times[index]));
+    findings.push({
+      rule: "clip_reuse", severity: "warn", itemId: videos.find((item) => item.src === src).id, at: at[0], media: src,
+      measured: `${name} fills the frame ${entry.uses.length === 1 ? "once" : `${entry.uses.length} times`} (${at.slice(0, 6).map((time) => `${time}s`).join(", ")}), ${Math.round(share * 100)}% of the video`,
+      required: `under ${REUSE_USES} returns and at most ${Math.round(REUSE_SHARE * 100)}% of the video for one clip`,
+      message: `${ctx.sceneName} keeps cutting back to ${name}: ${entry.uses.length} times, ${Math.round(share * 100)}% of the video.`,
+      fix: { kind: "hint", text: "Keep its strongest return or two; cut the others to other clips (look source shows them all)." },
     });
   }
   return findings;
