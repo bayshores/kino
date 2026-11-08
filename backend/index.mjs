@@ -28,7 +28,7 @@ import { documentChanges } from "../engine/documentChanges.js";
 import { mergeDocuments } from "../engine/documentMerge.js";
 import { createOperationRequest } from "./operation-request.mjs";
 import { accessFor, openShareStore, sameSecret } from "./shares.mjs";
-import { probeMedia, runMediaTool } from "./media-probe.mjs";
+import { probeMedia, runMediaTool, videoFrameFacts } from "./media-probe.mjs";
 import { REMUX_MIMES, remuxToMp4 } from "./media-remux.mjs";
 import { createShotFinder, findShots, firstErrorLine, shotFilters } from "./shot-detection.mjs";
 import { createGifFrameCache } from "./gif-frame-cache.mjs";
@@ -230,6 +230,7 @@ const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => ad
   onChange: (recording) => dashboard.publish({ type: "recording", recording }) });
 const agentService = createAgentService({
   store,
+  videoFacts: (id) => videoFactsOf(id),
   // seen_before: the layouts kino rendered in each project, in <data>/house (house-memory.mjs).
   house: createHouseMemory(path.join(dataRoot, "house")),
   recorder,
@@ -655,7 +656,10 @@ async function measureMedia(filename, mime) {
       return { ...probe, measurementVersion: 1, measurementSucceeded: false };
     }
     await decodeOneMediaUnit(filename, mime);
+    // A video's frame facts tell a screen recording from camera footage (screen_unreadable).
+    const frame = mime.startsWith("video/") && probe.hasVideo ? await videoFrameFacts(filename, probe.duration) : {};
     return {
+      ...(frame ?? {}),
       duration: probe.duration,
       width: probe.width,
       height: probe.height,
@@ -739,6 +743,27 @@ function withMeasurements(entry) {
     mediaRecordWrites.set(entry.id, promise);
   }
   return promise;
+}
+
+// A video measured before kino read its frame facts gets them once, the first time check needs
+// them (backend/agent/quality.mjs): one FFmpeg run at a time, saved into its record. A failed run
+// saves nothing and is tried again after FACTS_RETRY_MS.
+let videoFactsQueue = Promise.resolve();
+const FACTS_RETRY_MS = 10 * 60_000;
+const factsFailed = new Map();
+function videoFactsOf(id) {
+  if (!mediaFilePattern.test(id)) return Promise.resolve({});
+  if (Date.now() - (factsFailed.get(id) ?? -Infinity) < FACTS_RETRY_MS) return Promise.resolve({});
+  const job = videoFactsQueue.then(async () => {
+    const record = JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8"));
+    if (Object.hasOwn(record, "busy")) return { busy: record.busy, edges: record.edges, flat: record.flat };
+    const facts = await videoFrameFacts(path.join(mediaRoot, id), record.duration);
+    if (!facts) { factsFailed.set(id, Date.now()); return {}; }
+    await saveMediaRecord(id, facts);
+    return facts;
+  });
+  videoFactsQueue = job.catch(() => {});
+  return job;
 }
 
 // Saves `fields` into a media record, in turn with the other record writes (as withMeasurements

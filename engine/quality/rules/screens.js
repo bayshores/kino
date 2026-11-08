@@ -1,12 +1,16 @@
 // Screen rules: an app screenshot is the hardest picture to hold. The blind judge called a fresh
 // agent's launch film "stalled on frozen, hard-to-read screenshots" (2026-10-29):
 //   frozen_screen      a screenshot that barely moves for 2.5 s with nothing moving over it
-//   screen_unreadable  a screenshot drawn so small its words cannot be read, with no push or crop
-// A picture is a screenshot when its file facts say so (engine/imageFacts.js looksLikeScreen); the
-// agent service hands them in with ctx.mediaSizes.
+//   screen_unreadable  a screenshot or screen recording drawn so small its words cannot be read,
+//                      with no push or crop
+// A picture is a screenshot when its file facts say so (engine/imageFacts.js looksLikeScreen); a
+// video is a screen recording when kino recorded it or a frame's facts say so (looksLikeScreenClip).
+// The agent service hands them in with ctx.mediaSizes.
 import { sec } from "../analysis.js";
 import { area, boxAt, chainOf, intersection, isText, longestRun, roundBox, runs, tweensOf } from "../model.js";
 import { coveredAt } from "../techniques.js";
+import { CLIP_READABLE, clipPoints, looksLikeScreenClip } from "../../imageFacts.js";
+import { SOFT_BLUR } from "./footage.js";
 import { layerMovingAt, screenSize } from "./polish.js";
 
 const FRAME = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
@@ -15,6 +19,7 @@ const seconds = (model, run) => run.length / model.fps;
 const spanOf = (model, run) => ({ at: sec(model.times[run.from]), until: sec(model.times[run.to]) });
 const centerOf = (box) => ({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 });
 const widthOf = (box) => box.x1 - box.x0;
+const blurred = (item, index) => item.blur >= SOFT_BLUR || item.samples.blur?.[index] >= SOFT_BLUR;
 const hits = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 // ---------------------------------------------------------------- frozen_screen
@@ -131,7 +136,17 @@ const DETAIL_PUSH = 1.4;
 // Screens smaller than this share of the frame are thumbnails nobody is asked to read.
 const SEEN = 0.05;
 
-/** screen_unreadable: a screenshot shown for over 1.5 s too small to read, with no push or crop. */
+// UI type size in screen points (CLIP_READABLE, engine/imageFacts.js, is the readable px a point).
+const UI_POINTS = 13;
+
+/** The facts of a video that is a screen recording (kino recorded it, or a frame reads as UI), or null. */
+export function screenClipSize(ctx, item) {
+  const size = item.kind === "video" && item.src ? ctx.mediaSizes?.[item.src] : null;
+  if (!size) return null;
+  return size.screen || looksLikeScreenClip(size) || (size.named && !Array.isArray(size.busy)) ? size : null;
+}
+
+/** screen_unreadable: a screenshot or screen recording shown for over 1.5 s too small to read, with no push or crop. */
 // A capture 2400 px or wider is taken at 2x (a Retina screen): its words are drawn twice as large,
 // so it reads at half the drawn share a 1x capture needs.
 export const pointWidth = (size) => (size.width >= 2400 ? size.width / 2 : size.width);
@@ -139,17 +154,27 @@ export const pointWidth = (size) => (size.width >= 2400 ? size.width / 2 : size.
 export function screenUnreadable(model, ctx) {
   const findings = [];
   for (const item of model.items) {
-    const found = screenSize(ctx, item);
-    if (!found || item.isMask) continue;
-    const size = { ...found, width: pointWidth(found) };
+    if (item.isMask) continue;
+    const found = screenSize(ctx, item) ?? screenClipSize(ctx, item);
+    if (!found) continue;
+    const clip = item.kind === "video";
+    // A recording kino made knows its frame in points; any other clip is read as a 2x capture (3x
+    // when phone-shaped), so a 1x clip is never called smaller than it is.
+    const size = { ...found, width: clip ? clipPoints(found) : found.points ?? pointWidth(found) };
+    // The narrowest drawn width that reads: a share of a screenshot's points, px a point for a clip.
+    const needed = clip ? (CLIP_READABLE * size.width * Math.min(model.width, model.height)) / 1080 : READABLE * size.width;
     const small = (index) => {
-      if (item.samples.opacity[index] < 0.5 || coveredAt(model, item, index)) return false;
+      // A blurred screen is a backdrop nobody is asked to read.
+      if (item.samples.opacity[index] < 0.5 || coveredAt(model, item, index) || blurred(item, index)) return false;
       const box = boxAt(item, index);
-      return frameShare(model, box) >= SEEN && widthOf(box) / size.width < READABLE;
+      return frameShare(model, box) >= SEEN && widthOf(box) < needed;
     };
-    // A crop of the same file (screen-detail's lifted card, a clipped copy) shown then shows the detail.
-    const crops = model.items.filter((other) => other !== item && other.src === item.src && other.clipIds?.length);
+    // A crop of the same file (screen-detail's lifted card, a clipped copy, a clip's insert) shown then shows the detail.
+    // A clip's insert must be sharp and drawn 1.4x larger: a blurred backdrop copy or a twin beside it shows none.
+    const crops = model.items.filter((other) => other !== item && other.src === item.src && (other.clipIds?.length || clip));
     const shown = (index) => item.samples.opacity[index] >= 0.5;
+    const detailAt = (crop, index) => crop.samples.opacity[index] >= 0.5
+      && (!clip || (!blurred(crop, index) && widthOf(boxAt(crop, index)) >= DETAIL_PUSH * widthOf(boxAt(item, index))));
     const stretches = runs(model.times.length, small).filter((run) => {
       if (seconds(model, run) <= UNREADABLE_SECONDS) return false;
       // A push that grows it 1.4x while it stays on screen shows its detail on the way in, even
@@ -157,17 +182,33 @@ export function screenUnreadable(model, ctx) {
       const widths = [];
       for (let index = run.from; index < model.times.length && (index <= run.to || shown(index)); index += 1) widths.push(widthOf(boxAt(item, index)));
       if (Math.max(...widths) >= DETAIL_PUSH * Math.min(...widths)) return false;
-      return !crops.some((crop) => crop.samples.opacity.slice(run.from, run.to + 1).some((opacity) => opacity >= 0.5));
+      for (let index = run.from; index <= run.to; index += 1) if (crops.some((crop) => detailAt(crop, index))) return false;
+      return true;
     });
     const longest = longestRun(stretches);
     if (!longest) continue;
     const at = Math.round((longest.from + longest.to) / 2);
     const drawn = widthOf(boxAt(item, at)) / size.width;
     const region = Array.isArray(size.busy) ? ` (its busiest part is region:[${size.busy.join(",")}])` : "";
+    const span = { rule: "screen_unreadable", severity: "warn", itemId: item.id, ...spanOf(model, longest), bbox: roundBox(boxAt(item, at)) };
+    if (clip) {
+      const perPoint = (drawn * 1080) / Math.min(model.width, model.height);
+      const rect = `[${(Array.isArray(size.busy) ? size.busy : [30, 30, 40, 40]).map(Math.round).join(",")}]`;
+      const zoom = found.screen ? `{op:"move", name:"screen-recording", layer:"${item.id}"} (a zoom at each click)`
+        : `{op:"move", name:"perceive-insert", layer:"${item.id}", region:${rect}, entry:"push"} or lift-focus {detail:{layer:"${item.id}", rect:${rect}}}${region ? " (its busiest part)" : ""}`;
+      findings.push({
+        ...span,
+        measured: `drawn at ${sec(perPoint)} px a screen point at 1080p (UI text about ${Math.round(perPoint * UI_POINTS)} px) for ${sec(seconds(model, longest))}s`,
+        required: `${CLIP_READABLE} px a point or more, a push past ${DETAIL_PUSH}x, or a zoom into a region`,
+        message: `${ctx.name(item)} is a screen recording shown whole at ${sec(perPoint)} px a screen point for ${sec(seconds(model, longest))}s: its UI text is too small to read.`,
+        fix: { kind: "hint", text: `Zoom into what matters: ${zoom}.` },
+      });
+      continue;
+    }
     const hint = { kind: "hint", text: `Push into the part being talked about${region}: the screen-detail recipe, region on device-slide, or crop ${ctx.name(item)} to that part and draw it larger.` };
     const push = detailPush(model, item, longest, size, found.width, ctx);
     findings.push({
-      rule: "screen_unreadable", severity: "warn", itemId: item.id, ...spanOf(model, longest), bbox: roundBox(boxAt(item, at)),
+      ...span,
       measured: `drawn at ${Math.round(drawn * 100)}% of its ${size.width} px width${found.width !== size.width ? ` (a 2x capture, ${found.width} px)` : ""} for ${sec(seconds(model, longest))}s`,
       required: `${Math.round(READABLE * 100)}% or more, a push past ${DETAIL_PUSH}x, or a crop of the detail`,
       message: `${ctx.name(item)} is a screenshot shown at ${Math.round(drawn * 100)}% of its size for ${sec(seconds(model, longest))}s: its words are too small to read.`,

@@ -23,7 +23,7 @@ import { darkUnderTitle, lowFpsMotion, sourceJump } from "./rules/sourcePixels.j
 import { headCutOff } from "./rules/people.js";
 import { outOfSync } from "./rules/sync.js";
 import { beatKick, cutMotivation, deckUnused, fewTechniques, flatSections, metronome, plainBeats, styleAvoided, styleWanted, techniqueRepeat, textSlides } from "./rules/style.js";
-import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadable, textOnlyOpen, overlayCoversSubject, pacingJump, roleFontDrift, storyStall, vocabularyBudget } from "./rules/consistency.js";
+import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadable, templateEnd, textOnlyOpen, overlayCoversSubject, pacingJump, roleFontDrift, storyStall, vocabularyBudget } from "./rules/consistency.js";
 import { rejectedText, spineDrift } from "./rules/spine.js";
 import { signatureMissing } from "./rules/signature.js";
 import { busyEdit, restraint } from "./rules/restraint.js";
@@ -74,7 +74,7 @@ export const RULES = [
   rule("cut_off_at_rest", "warn", cutOffAtRest, "a picture, clip or device (8% to 70% of the frame) at rest is inside the safe margin or clearly bleeding off, not cut or cramped at the edge"),
   rule("held_static", "warn", heldStatic, "something visibly moves at least every 1.5 s: a clip, an effect, a fade, or a layer moving 1% of the frame diagonal a second (0.4% for a picture filling 30% of it); a still end card over 3 s with no change in sound too, an error over 4.5 s (a slow push alone counts as still) or 5 s silent"),
   rule("frozen_screen", "warn", frozenScreen, "a screenshot filling 8% of the frame or more grows 3% or moves 1.5% of the frame diagonal in every 2.5 s it shows, or something moves over it; the fix pushes into its busiest part (picture facts)"),
-  rule("screen_unreadable", "warn", screenUnreadable, "a screenshot (5% of the frame or more) is not drawn under 55% of its file width for over 1.5 s unless it pushes in 1.4x or a crop of it shows the detail"),
+  rule("screen_unreadable", "warn", screenUnreadable, "a screenshot (5% of the frame or more) is not drawn under 55% of its file width, nor a screen recording under 2 px a screen point at 1080p, for over 1.5 s unless it pushes in 1.4x or a crop or insert of it shows the detail"),
   rule("off_brand_font", "warn", offBrandFont, "text uses the brand's fonts (set_brand fonts, or fonts the brief names); with none, at most 2 type families"),
   rule("text_on_busy", "warn", textOnBusy, "text is not over fine detail (under 16% edge pixels behind it, scrims included)", true),
   rule("small_on_empty", "warn", smallOnEmpty, "a picture shown on a flat frame fills 25% of it or more (over 1.5 s)", true),
@@ -148,6 +148,7 @@ export const RULES = [
   rule("accent_budget", "warn", accentBudget, "with style.accent, its color (fills, outlines and a gradient's main stop) covers at most its share of the frame for over 1 s"),
   rule("pacing_jump", "info", pacingJump, "median shot length changes at most 3x between neighboring 8 s windows, unless a marker cue, a sound layer's start or end, or a spine beat edge is within 1 s of where the change starts and the new pace holds 12 s"),
   rule("ending_count", "warn", endingCount, "after the last story beat (the spine's, else the last 20%), at most 2 closing beats: logos or display type coming on, 1.5 s apart or more (a caption track running since before is not one; one that starts after it counts once)"),
+  rule("template_end", "warn", templateEnd, "in a video of 8 s or more, it does not end on a centered name or logo with a smaller line under it (tagline, address, credit) over a still or flat frame (no clip playing, no camera move) for 1.5 s or more"),
   rule("story_stall", "warn", storyStall, "between the first and last 10%, no stretch over 4 s with no picture on a dark frame"),
   rule("hook_readable", "warn", hookReadable, "the first 3 s show type at 8% of the frame's short side or a clear picture (30% of the frame, unblurred) for 1 s"),
   rule("text_only_open", "warn", textOnlyOpen, "in a promo or ad of 8 s or more (videoType, or a logo layer when unset), at most 3 s of the first 4 s show text with no picture (an image or clip on 25% of the frame) and no logo; a text hook over footage is fine"),

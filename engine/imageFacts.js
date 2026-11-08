@@ -17,9 +17,9 @@ const STEPS = 7;
 /**
  * Facts about a picture from its gray pixels (one byte a pixel, row by row, `width` x `height`,
  * about 96 px wide). Returns {edges, flat, busy}: the shares of edge and flat pixels (0 to 1), busy the
- * busiest region as [x, y, w, h] in % of the picture.
+ * busiest region as [x, y, w, h] in % of the picture. `flatStep` overrides FLAT (video frames: 0).
  */
-export function imageFacts(gray, width, height) {
+export function imageFacts(gray, width, height, { flatStep = FLAT } = {}) {
   const energy = new Float32Array(width * height);
   let edges = 0;
   let flat = 0;
@@ -30,7 +30,7 @@ export function imageFacts(gray, width, height) {
     const step = Math.max(right, down);
     energy[at] = step;
     if (step >= EDGE) edges += 1;
-    if (step <= FLAT) flat += 1;
+    if (step <= flatStep) flat += 1;
   }
   // A summed table, so each window's total is four lookups.
   const sums = new Float64Array((width + 1) * (height + 1));
@@ -59,3 +59,24 @@ export function looksLikeScreen({ width, height, edges, flat }) {
   const shape = width / height;
   return edges >= 0.03 && flat >= 0.6 && (shape >= 1.05 || (shape >= 0.4 && shape <= 0.6));
 }
+
+// A video frame reads as a screen when, on a 384 px wide gray copy, 8% or more of its pixels are
+// sharp edges (text) and 45% or more are exactly flat (UI fills). Measured on 16 clips: screen
+// recordings 11-17% and 50-73%, camera footage under 35% flat (or under 7% edges when flatter).
+export const CLIP_FACTS_WIDTH = 384;
+export function looksLikeScreenClip({ width, height, edges, flat }) {
+  if (!(width > 0 && height > 0) || typeof edges !== "number" || typeof flat !== "number") return false;
+  const shape = width / height;
+  return edges >= 0.08 && flat >= 0.45 && (shape >= 1.05 || (shape >= 0.4 && shape <= 0.75));
+}
+
+// A screen recording's UI text reads in a video at 2 output px a screen point or more at 1080p
+// (13 pt type about 26 px): a whole window drawn to fill the frame is under it, a zoom is over it.
+export const CLIP_READABLE = 2;
+/**
+ * A screen recording's width in screen points: kino's own recordings know it; a phone-shaped
+ * (portrait) clip is read as a 3x capture (an iPhone's 1179 px is 393 pt), any other as 2x.
+ */
+export const clipPoints = (size) => size.points ?? (size.height > size.width ? size.width / 3 : size.width / 2);
+/** The narrowest drawn width at which a screen recording's UI text reads in `frame`. */
+export const readableClipWidth = (size, frame) => (CLIP_READABLE * clipPoints(size) * Math.min(frame.width, frame.height)) / 1080;

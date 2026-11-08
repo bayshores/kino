@@ -64,7 +64,7 @@ export function backgroundLuma(model, index) {
 
 /** True when an opaque full-frame picture above the item hides it at a sample. */
 export function coveredAt(model, item, index) {
-  return plates(model).some((plate) => plate.z > item.z && plate.samples.opacity[index] >= 0.9 && !chainOf(model, item).includes(plate));
+  return plates(model).some((plate) => plate.z > item.z && plate.samples.opacity[index] * (plate.paintAlpha ?? 1) >= 0.9 && !chainOf(model, item).includes(plate));
 }
 
 // The top plate fully shown (opacity 0.9 or more) at a sample, or null.
