@@ -125,3 +125,18 @@ export function animationJumps(document, operations, ref, previous = null, cover
   }
   return lines;
 }
+
+/**
+ * Lines for the edit receipt when update_animation changed an animation a move made (its id is
+ * "<move id>.<role>"): the move's other parts (a caret, its cues, a field) do not follow a hand
+ * edit, so the line says to send the move again with the same id. `ref(id)` names an animation.
+ */
+export function moveHandEdits(document, operations, ref = (id) => id) {
+  const lines = [];
+  for (const operation of operations.flat()) {
+    if (operation?.type !== "update_animation" || typeof operation.animationId !== "string") continue;
+    const move = (document?.scenes ?? []).flatMap((scene) => scene.moves ?? []).find((entry) => operation.animationId.startsWith(`${entry.id}.`));
+    if (move) lines.push(`${ref(operation.animationId)} is part of move ${move.name} ${move.id}: its other parts (a caret, cues, a field) do not follow a hand edit. To retime all of it, send {op:"move", name:"${move.name}", id:"${move.id}", <field>} again.`);
+  }
+  return [...new Set(lines)];
+}

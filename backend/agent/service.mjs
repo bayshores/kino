@@ -62,7 +62,7 @@ import { boardLook, BoardLookError, boardShotImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
-import { animationJumps } from "./jumps.mjs";
+import { animationJumps, moveHandEdits } from "./jumps.mjs";
 import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, mergeFindings, openFindingLines, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
@@ -2031,6 +2031,8 @@ export function createAgentService(deps) {
       // (not on a place a line above already joins).
       const jumps = animationJumps(after, translation.operations, (id) => refName(id, afterCodes), before, covered);
       if (jumps.length) (work.warnings ??= []).push(...jumps);
+      const handEdits = moveHandEdits(after, translation.operations, (id) => refName(id, afterCodes));
+      if (handEdits.length) (work.warnings ??= []).push(...handEdits);
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

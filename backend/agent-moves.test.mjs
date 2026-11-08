@@ -57,6 +57,11 @@ test("a move animates your layers, is made again with the same id and taken away
   assert.ok(pushed.length >= 2, "the from shot is pushed in and blurred");
   assert.ok(shotB.animations.some((animation) => animation.id.startsWith("zoom-through.")), "the to shot settles");
 
+  // A hand edit to one of its animations says the rest does not follow, and how to retime it all.
+  const hand = await api.agent("again", "edit", { ops: [{ op: "update_animation", animationId: pushed[0].id, properties: { duration: pushed[0].duration + 0.1 } }] });
+  assert.equal(hand.isError, undefined, hand.text);
+  assert.match(hand.text, /is part of move zoom-through zoom-through: .*send \{op:\\?"move/);
+
   // The same id again with a change: what it made before is replaced, nothing doubles.
   const again = await api.agent("again", "edit", { ops: [{ op: "move", name: "zoom-through", id: "zoom-through", at: 2, point: [30, 60] }] });
   assert.equal(again.isError, undefined, again.text);
