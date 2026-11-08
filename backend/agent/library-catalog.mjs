@@ -69,6 +69,16 @@ const WIPES = {
     parameters: { shape: "clock", softness: 6 } },
 };
 
+// Stacked shadows (layer field shadows, engine/stackedShadows.js), each shown on a word coming in.
+const SHADOW_STACKS = {
+  "shadow-long": { line: "long shadow: a layer's shadows list holds hard copies stepping out one way (static; a Shadow animation moves only the single shadow)",
+    shadows: Array.from({ length: 24 }, (_, index) => ({ color: "#8A3414", x: 2 * (index + 1), y: 2 * (index + 1), blur: 0 })),
+    fill: "#FFF4E6", ground: "#FF7D3D", preset: "slide-up" },
+  "shadow-neon": { line: "neon glow: a shadows list of one color at no offset, tight to wide blur, under a pale word (static)",
+    shadows: [{ color: "#FF2BD6", x: 0, y: 0, blur: 4 }, { color: "#FF2BD6", x: 0, y: 0, blur: 16 }, { color: "#FF2BD6", x: 0, y: 0, blur: 40, opacity: 0.9 }, { color: "#7A1BFF", x: 0, y: 0, blur: 90, opacity: 0.8 }],
+    fill: "#FFE6FA", ground: "#0D0716", preset: "fade-in" },
+};
+
 let built = null;
 
 /** Every entry, the kinds with their counts and the technique groups. Built once. */
@@ -86,6 +96,7 @@ export function libraryCatalog() {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
+  for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push(entry("animation", name, line, "a title or logo that needs depth or glow", []));
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
@@ -244,6 +255,12 @@ export function sampleOps(kind, name) {
     const layers = effect.group === "Generate" || PICTURE_ONLY.has(name) ? ["shot-a"] : ["shot-a", "word"];
     const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
+  }
+  if (kind === "animation" && SHADOW_STACKS[name]) {
+    const { shadows, fill, ground, preset } = SHADOW_STACKS[name];
+    const word = WORD("kino", 150);
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, fill, shadows } },
+      anim("word", preset, 0.3, 0.8, { easing: "smooth" })], duration: 2.6, still: 1.6 };
   }
   if (kind === "animation" && WIPES[name])
     return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };

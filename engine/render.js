@@ -13,6 +13,7 @@ import { maskSwitchedOff } from "./maskVisibility.js";
 import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
 import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
+import { shadowStrength, stackedShadows } from "./stackedShadows.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
 import { hasTextChanges } from "./textChange.js";
@@ -470,8 +471,11 @@ function mirroredEdges(body, state, context) {
 
 function filterFor(layer, context, bounds = null) {
   const blur = Math.max(0, checkedNumber(layer.blur, 0, 0, 1000));
-  const shadow =
+  const single =
     layer.shadow && typeof layer.shadow === "object" && shadowAlpha(layer.shadow.color) > 0 ? layer.shadow : null;
+  // The single shadow first, then the stacked list (stackedShadows.js), each one pass.
+  const passes = [...(single ? [single] : []), ...stackedShadows(layer)];
+  const shadow = passes.length > 0;
   if (!blur && !shadow) return "";
   const id = idFor(context, "filter");
   const effects = [];
@@ -479,24 +483,29 @@ function filterFor(layer, context, bounds = null) {
     // Spell out the drop-shadow filter: the rasterizer's feDropShadow shorthand
     // brightens non-primary RGB colors under sRGB filters. These standard steps
     // retain the same straight color and alpha in browsers and raster exports.
-    const shadowColor = withShadowAlpha(shadow.color, 1);
-    let dx = shadow.x, dy = shadow.y;
-    if (context.raster) {
-      // resvg-js 2.6.2 scales filter offsets by matrix row lengths but discards
-      // their direction (upstream resvg #949/#1081). Pre-map the vector so the
-      // native rasterizer produces the browser's rotated/skewed/mirrored offset.
-      const [a, b, c, d] = multiply(parentWorldMatrix(layer.parentId, context), layerMatrix(layer));
-      const sx = Math.hypot(a, c), sy = Math.hypot(b, d);
-      dx = sx > 1e-12 ? (a * shadow.x + c * shadow.y) / sx : 0;
-      dy = sy > 1e-12 ? (b * shadow.x + d * shadow.y) / sy : 0;
-    }
-    effects.push(
-      `<feGaussianBlur in="SourceAlpha" stdDeviation="${fmt(Math.max(0, finite(shadow.blur)) / 2)}" result="shadow-blur"/>` +
-      `<feOffset in="shadow-blur" dx="${fmt(dx)}" dy="${fmt(dy)}" result="shadow-offset"/>` +
-      `<feFlood flood-color="${escapeXml(shadowColor)}" flood-opacity="${shadowAlpha(shadow.color)}" result="shadow-color"/>` +
-      '<feComposite in="shadow-color" in2="shadow-offset" operator="in" result="shadow-paint"/>' +
-      '<feMerge result="shadowed"><feMergeNode in="shadow-paint"/><feMergeNode in="SourceGraphic"/></feMerge>',
-    );
+    // resvg-js 2.6.2 scales filter offsets by matrix row lengths but discards
+    // their direction (upstream resvg #949/#1081). Pre-map the vector so the
+    // native rasterizer produces the browser's rotated/skewed/mirrored offset.
+    const matrix = context.raster ? multiply(parentWorldMatrix(layer.parentId, context), layerMatrix(layer)) : null;
+    const paints = passes.map((pass, index) => {
+      const tag = index ? `-${index}` : "";
+      const shadowColor = withShadowAlpha(pass.color, 1);
+      let dx = pass.x, dy = pass.y;
+      if (matrix) {
+        const [a, b, c, d] = matrix;
+        const sx = Math.hypot(a, c), sy = Math.hypot(b, d);
+        dx = sx > 1e-12 ? (a * pass.x + c * pass.y) / sx : 0;
+        dy = sy > 1e-12 ? (b * pass.x + d * pass.y) / sy : 0;
+      }
+      effects.push(
+        `<feGaussianBlur in="SourceAlpha" stdDeviation="${fmt(Math.max(0, finite(pass.blur)) / 2)}" result="shadow-blur${tag}"/>` +
+        `<feOffset in="shadow-blur${tag}" dx="${fmt(dx)}" dy="${fmt(dy)}" result="shadow-offset${tag}"/>` +
+        `<feFlood flood-color="${escapeXml(shadowColor)}" flood-opacity="${pass === single ? shadowAlpha(pass.color) : shadowStrength(pass)}" result="shadow-color${tag}"/>` +
+        `<feComposite in="shadow-color${tag}" in2="shadow-offset${tag}" operator="in" result="shadow-paint${tag}"/>`,
+      );
+      return `<feMergeNode in="shadow-paint${tag}"/>`;
+    });
+    effects.push(`<feMerge result="shadowed">${paints.join("")}<feMergeNode in="SourceGraphic"/></feMerge>`);
   }
   if (blur)
     effects.push(
@@ -651,7 +660,7 @@ function textGlyphPaths(unit, state, context) {
   }).join("");
 }
 
-const hasFilterEffect = (state) => state.blur > 0 || (state.shadow && shadowAlpha(state.shadow.color) > 0);
+const hasFilterEffect = (state) => state.blur > 0 || (state.shadow && shadowAlpha(state.shadow.color) > 0) || stackedShadows(state).length > 0;
 function textGlyphBounds(unit) {
   return mergeBounds(unit.glyphs.map(glyphDrawBounds).filter(Boolean));
 }
@@ -925,7 +934,7 @@ function videoHolderIds(roots, context) {
 const SOFT_VIDEO_FROM = 16;
 function softVideoBlur(state) {
   const blur = Math.max(0, checkedNumber(state.blur, 0, 0, 1000));
-  const shadow = state.shadow && typeof state.shadow === "object" && shadowAlpha(state.shadow.color) > 0;
+  const shadow = (state.shadow && typeof state.shadow === "object" && shadowAlpha(state.shadow.color) > 0) || stackedShadows(state).length > 0;
   return blur >= SOFT_VIDEO_FROM && !shadow ? blur : 0;
 }
 

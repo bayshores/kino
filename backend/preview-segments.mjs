@@ -103,7 +103,7 @@ function walk(value, visit) {
 // Any other group (blur, shadow, mask, clip, blend, effects, fill...) may draw its children
 // together, so all of them count with it.
 function plainGroup(group) {
-  if (group.blur || group.shadow || group.isMask || group.isMaskGroup || group.clipContent) return false;
+  if (group.blur || group.shadow || group.shadows?.length || group.isMask || group.isMaskGroup || group.clipContent) return false;
   if ((group.blendMode ?? "normal") !== "normal" || group.fillEnabled || Number(group.strokeWidth) > 0) return false;
   if (group.playbackWindows?.length || animatesSpeed(group)) return false;
   let plain = true;

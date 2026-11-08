@@ -282,6 +282,8 @@ ops: add_layer, update_layer, add_animation, update_animation
 
 A drop shadow (a layer's shadow, and the from.shadow and to.shadow values of a Shadow animation) is null (no shadow) or {color as hex (#rgb, #rgba, #rrggbb, or #rrggbbaa, whose alpha is the shadow's opacity), x and y offset in pixels from -1000000 to 1000000 (x to the right, y down), blur in pixels from 0 to 10000}; anything else is refused. add_animation with preset "shadow" adds a Shadow animation (every layer type except audio, which has no shadow and refuses any shadow animation): from.shadow is the layer's current shadow and to.shadow doubles its x, y, and blur with the same color (stopping at those limits), or is {color "#000000", x 0, y 4, blur 12} when the layer has no shadow. update_animation can set either end to any shadow or null. Between from and to, the color mixes red, green, blue, and alpha in a straight line like a Color animation, and x, y, and blur each move in a straight line. A null end acts as the other end's shadow with alpha 0, so the shadow fades in or out in place; two null ends draw no shadow.
 
+Stacked shadows: a layer's optional shadows is a list of up to 32 {color, x?, y?, blur? (each 0 when left out), opacity? 0..1 (1)}, drawn after the single shadow, later ones over earlier ones, on any drawn layer. Long shadow: hard copies stepping one way (x and y 2, 4, 6 ...). Neon: one color at no offset with blur 4, 16, 40. Soft plus hard: a wide faint one, then a tight dark one. The list does not animate (a Shadow animation moves only shadow); [] or null removes it. Lottie export refuses it.
+
 ## text-animation: Text animation units, anchors, clipping and Custom text
 ops: add_animation, update_animation
 

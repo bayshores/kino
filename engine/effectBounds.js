@@ -1,5 +1,6 @@
 import { point } from "./geometry.js";
 import { shadowAlpha } from "./shadowInterpolation.js";
+import { stackedShadows } from "./stackedShadows.js";
 
 export function mergeBounds(boxes) {
   let result = null;
@@ -23,6 +24,11 @@ export function mappedBounds(bounds, matrix) {
 // Three Gaussian sigmas around the original paint and its displaced shadow.
 export function expandEffectBounds(bounds, state) {
   if (!bounds) return null;
+  // A stacked list adds one box per shadow, each sized like a single shadow's.
+  const stacked = stackedShadows(state);
+  if (stacked.length)
+    return mergeBounds([{ ...state, shadows: null }, ...stacked.map((shadow) => ({ ...state, shadow, shadows: null }))]
+      .map((one) => expandEffectBounds(bounds, one)));
   const shadow = state.shadow && shadowAlpha(state.shadow.color) > 0 ? state.shadow : null;
   const spread = 1.5 * (Math.max(0, state.blur ?? 0) + (shadow?.blur ?? 0)) + Math.max(0, state.strokeWidth ?? 0);
   const dx = shadow?.x ?? 0, dy = shadow?.y ?? 0;

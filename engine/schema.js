@@ -124,6 +124,7 @@
  *   locked:boolean,lockAspect:boolean,blur:number,backgroundBlur?:BackgroundBlur,glass?:Glass,
  *   blendMode:string,isMask:boolean,isMaskGroup:boolean,clipContent:boolean,
  *   shadow:{color:string,x:number,y:number,blur:number}|null,
+ *   shadows?:Array<{color:string,x:number,y:number,blur:number,opacity?:number}>, (stackedShadows.js; static, drawn after shadow)
  *   text:string,fontFamily:string,fontSource:string,fontSize:number,fontWeight:number,fontStyle:'normal'|'italic',
  *   textStyleRanges?:TextStyleRange[],
  *   lineHeight:number,letterSpacing:number,textAlign:'left'|'center'|'right',
