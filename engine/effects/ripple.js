@@ -17,13 +17,13 @@ const sharpWave = (value, sharpness) => Math.sign(value) * Math.pow(Math.abs(val
  */
 export function renderRipple(frame) {
   const speed = numberParameter(frame, "speed", 0.6, -4, 4);
-  const strength = numberParameter(frame, "strength", 0.18, 0, 0.5);
+  const strength = numberParameter(frame, "strength", 0.03, 0, 0.5);
   if (strength === 0) return frame.content;
-  const frequency = numberParameter(frame, "frequency", 8, 0.1, 32);
+  const frequency = numberParameter(frame, "frequency", 6, 0.1, 32);
   const centerX = numberParameter(frame, "centerX", 0.5, 0, 1);
   const centerY = numberParameter(frame, "centerY", 0.5, 0, 1);
   const falloff = numberParameter(frame, "falloff", 1.2, 0, 8);
-  const sharpness = numberParameter(frame, "sharpness", 6, 1, 16);
+  const sharpness = numberParameter(frame, "sharpness", 1, 1, 16);
   const temporalPosition = wrappedUnit(timeSeconds(frame) * speed) * 4;
   const phaseIndex = Math.floor(temporalPosition);
   const phaseWeight = temporalPosition - phaseIndex;

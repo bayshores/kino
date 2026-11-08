@@ -24,7 +24,7 @@ function pixel(pixels, width, x, y = 0) {
   return [...pixels.subarray(offset, offset + 4)];
 }
 
-test("Color Grade identity is exact, default contrast changes real pixels, and alpha is preserved", () => {
+test("Color Grade identity is exact, contrast changes real pixels, and alpha is preserved", () => {
   const content = [
     '<rect x="0" width="1" height="1" fill="#404040"/>',
     '<rect x="1" width="1" height="1" fill="#FF0000"/>',
@@ -37,8 +37,9 @@ test("Color Grade identity is exact, default contrast changes real pixels, and a
   assert.equal(identity.svg.includes("<filter"), false, "the identity grade returns the original paint directly");
   assert.deepEqual(identity.pixels, source);
 
-  const graded = renderPixels(renderColorGrade, {}, content, width, height).pixels;
-  assert.ok(pixel(graded, width, 0)[0] < pixel(source, width, 0)[0], "default 1.5 contrast darkens a below-midpoint gray");
+  assert.equal(renderPixels(renderColorGrade, {}, content, width, height).svg.includes("<filter"), false, "the defaults are the identity");
+  const graded = renderPixels(renderColorGrade, { contrast: 1.5 }, content, width, height).pixels;
+  assert.ok(pixel(graded, width, 0)[0] < pixel(source, width, 0)[0], "1.5 contrast darkens a below-midpoint gray");
   assert.deepEqual(pixel(graded, width, 2).slice(3), pixel(source, width, 2).slice(3), "half alpha stays half alpha");
 });
 

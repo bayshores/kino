@@ -33,6 +33,7 @@ import { LOWPASS_MIN, LOWPASS_OPEN } from "./lowpass.js";
 export { EASINGS, easingAt } from "./easing.js";
 import { DEFAULT_PERSPECTIVE } from "./tilt.js";
 import { TRIM_LAYER_TYPES } from "./strokeTrim.js";
+import { REPEAT_LAYER_TYPES } from "./repeater.js";
 import { applyPin } from "./pin.js";
 
 const PRESET_ENTRIES = [
@@ -68,6 +69,8 @@ const PRESET_ENTRIES = [
   ["stroke", "Stroke", "custom"],
   // Trim draws a shape's stroke on along its outline: strokeEnd 0 to 1 (strokeTrim.js).
   ["trim", "Trim paths", "custom"],
+  // Repeater grows a layer's copies from 1 to its own count, or to 8 turned 45 degrees each (repeater.js).
+  ["repeat", "Repeater", "custom"],
   // Letter spacing animates a text layer's letter spacing, in percent of the font size
   // (letterSpacing.js). Its From ("Initial value") is optional.
   ["letter-spacing", "Letter spacing", "custom"],
@@ -354,6 +357,20 @@ export function presetAnimation(presetId, layer, start = 0, scene, options = {})
       const start = currentNumber(layer, "strokeStart");
       from = { strokeStart: start, strokeEnd: start };
       to = { strokeStart: start, strokeEnd: currentNumber(layer, "strokeEnd", 1) };
+      duration = 0.8;
+      break;
+    }
+    case "repeat": {
+      if (!REPEAT_LAYER_TYPES.has(layer.type))
+        throw new TypeError("Repeater preset requires a rectangle, ellipse, star, path, text, or group layer");
+      // A burst: copies appear one after another. A layer without a repeater gets 8 copies a turn apart.
+      const copies = currentNumber(layer, "repeatCopies", 1);
+      // Copies are placed by a move, a turn or a scale (the anchor only matters with a turn or scale).
+      const placed = ["repeatX", "repeatY", "repeatRotation"].some((key) => currentNumber(layer, key) !== 0) ||
+        currentNumber(layer, "repeatScale", 1) !== 1;
+      from = { repeatCopies: 1 };
+      to = { repeatCopies: copies > 1 ? copies : 8 };
+      if (!placed) from.repeatRotation = to.repeatRotation = 45;
       duration = 0.8;
       break;
     }

@@ -39,6 +39,7 @@ const EFFECT_TAGS = {
   embers: ["particles"], sparks: ["particles"], snow: ["particles"], dust: ["particles"], rain: ["particles"], bokeh: ["particles"], fog: ["particles"],
   "light-leaks": ["light-sweep"], "light-rays": ["light-sweep"], "lens-flare": ["light-sweep"], glow: ["light-sweep"],
   "3d-orbit": ["orbit-3d"], "card-flip": ["orbit-3d"], wiggle: ["shake"], "focus-band": ["depth-blur"],
+  grain: ["grain"], vignette: ["vignette"],
 };
 const RECIPE_TAGS = {
   "hook-slam": ["type-giant"], "caption-pop": ["type-pop"], "number-counter": ["type-counter"], "price-pop": ["type-pop"], "title-type": ["type-letters"],
@@ -55,6 +56,18 @@ const PRESET_KIND_WORDS = { in: "brings a layer in", out: "takes a layer out", c
 function entry(kind, name, line, fits, tags) {
   return { id: `${kind}:${name}`, kind, name, words: words(name), line, fits: fits ?? "", tags, groups: groupsOf(tags) };
 }
+
+// The wipe preset's shapes (engine/wipe.js), each sampled on the next shot over the last.
+const WIPES = {
+  wipe: { line: "wipe: a straight edge sweeps across at any angle, hard or soft, with an optional colored edge band (preset-wipe angle, softness, edgeWidth, edgeColor)",
+    parameters: { angle: 30, softness: 8, edgeWidth: 16, edgeColor: "#FF7D3D" } },
+  "wipe-radial": { line: "radial wipe: an oval in the layer's proportions grows from a center (preset-wipe shape radial, centerX, centerY)",
+    parameters: { shape: "radial", softness: 30 } },
+  "wipe-iris": { line: "iris wipe: a circle opens from any point (preset-wipe shape iris, centerX, centerY)",
+    parameters: { shape: "iris", centerX: 0.3, centerY: 0.4, softness: 0, edgeWidth: 10, edgeColor: "#FFFFFF" } },
+  "wipe-clock": { line: "clock wipe: a hand sweeps around a point (preset-wipe shape clock, angle where it starts, centerX, centerY)",
+    parameters: { shape: "clock", softness: 6 } },
+};
 
 let built = null;
 
@@ -73,6 +86,7 @@ export function libraryCatalog() {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
+  for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
   for (const look of Object.values(LOOKS)) entries.push(entry("look", look.name, look.about, "", []));
@@ -141,6 +155,9 @@ const PRESET_LAYER = {
   "star-shape": { op: "add_layer", layerType: "star", name: "star", properties: { x: W / 2 - 110, y: H / 2 - 110, width: 220, height: 220, fill: "#FF7D3D" } },
   trim: { op: "add_layer", layerType: "path", name: "line", properties: { x: W * 0.2, y: H / 2, width: W * 0.6, height: 40, path: "M0 20 C190 0 380 40 576 20", fillEnabled: false, stroke: "#FFFFFF", strokeWidth: 8 } },
   counter: WORD("98%"),
+  // A radial burst: one ray drawn 12 times around a point 120 px below its middle (engine/repeater.js).
+  repeat: rect("ray", { x: W / 2 - 9, y: H / 2 - 175, width: 18, height: 110, radius: 9, fill: "#FF7D3D",
+    repeatCopies: 12, repeatRotation: 30, repeatAnchorY: 120, repeatEndOpacity: 0.4 }),
 };
 // A move's sample on other input than its example, as its own entry (push-through-type on a logo picture).
 const MOVE_VARIANTS = {
@@ -155,6 +172,8 @@ const MOVE_VARIANTS = {
   "card-tilt up": { move: "card-tilt", line: "card-tilt with direction up: the shot tips back over its top edge and slides up as the next tips in from below",
     layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", direction: "up", at: 0.3 }, share: 0.45 },
 };
+// Where an animation's card is caught when not by its kind: the burst once every copy is out.
+const PRESET_STILL = { repeat: 1.5 };
 const INSTANT = new Set(["hide", "show", "change-text"]);
 // Where in a move its card is caught, when not the middle: slice's bands cover the whole frame at
 // its middle, so its card shows them half way in.
@@ -169,7 +188,11 @@ const EFFECT_STRONG = {
   "white-balance": { temperature: -100, tint: 70 },
   "color-wheels": { liftBlue: 0.35, liftGreen: 0.15, gainRed: 0.25, gamma: 1.2 },
   "noise-mask": { threshold: 0.5 },
+  "color-grade": { stops: 0.7, contrast: 1.2, saturation: 0.6 },
+  vignette: { amount: 0.85 },
 };
+// Effects shown on the picture only: a vignette on the word would shade the word's own box.
+const PICTURE_ONLY = new Set(["vignette"]);
 // Each transition recipe on the two shots, full frame, as it changes beats (recipes/transitions.js):
 // push slides the first out left and the next in from the right; cut-on-motion carries both
 // upward with a blur; mask-wipe sweeps an accent bar with the next shot behind it.
@@ -213,12 +236,14 @@ export function sampleOps(kind, name) {
     if (!effect) return null;
     const lut = name === "lut" ? { lut: src("look") } : {};
     const from = { ...effectDefaults(name, { neutral: true }), ...lut };
-    // On the picture and the word (particles once, on the picture). A ranged effect shows only
+    // On the picture and the word (particles and vignette once, on the picture). A ranged effect shows only
     // from its start to its end, so the still is inside that span, past the ramp up.
-    const layers = effect.group === "Generate" ? ["shot-a"] : ["shot-a", "word"];
+    const layers = effect.group === "Generate" || PICTURE_ONLY.has(name) ? ["shot-a"] : ["shot-a", "word"];
     const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
+  if (kind === "animation" && WIPES[name])
+    return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };
   if (kind === "animation") {
     const preset = PRESETS.find((item) => item.id === name);
     if (!preset) return null;
@@ -227,7 +252,7 @@ export function sampleOps(kind, name) {
     const start = preset.kind === "out" || INSTANT.has(name) ? 1.2 : 0.4;
     const animation = { op: "add_animation", layer: layer.name, preset: name, start, ...(INSTANT.has(name) ? {} : { duration: 0.8 }) };
     // An entrance is caught late in its move, an exit early, a change near its middle.
-    const still = INSTANT.has(name) ? 1.6 : preset.kind === "out" ? 1.5 : preset.kind === "in" ? 0.95 : 0.85;
+    const still = PRESET_STILL[name] ?? (INSTANT.has(name) ? 1.6 : preset.kind === "out" ? 1.5 : preset.kind === "in" ? 0.95 : 0.85);
     return { ops: [SHOT_B, layer, animation], duration: 2.6, still };
   }
   if (kind === "recipe" && TRANSITIONS[name]) return TRANSITION_SAMPLES[name]?.() ?? null;

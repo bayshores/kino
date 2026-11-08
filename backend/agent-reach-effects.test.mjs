@@ -148,6 +148,8 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "threshold-color": { contrast: 2, defaultColor: "#03045E", colorThreshold: 0.35, softness: 0.12, invertLuma: false },
   tritone: { threshold1: 0.28, threshold2: 0.7, softness: 0.2, contrast: 1.6, shadowColor: "#03045E", midtoneColor: "#D62828", highlightColor: "#CAF0F8" },
   "rgb-shift": { amount: 0.9, direction: 37, overflow: true },
+  grain: { amount: 0.8, size: 2, seed: 11, monochrome: false, rate: 24 },
+  vignette: { amount: 0.9, midpoint: 0.4, roundness: 0.5, feather: 0.4, color: "#03045E" },
   "3d-orbit": { rotateY: 42, rotateX: 28, rotateZ: -12, pivotZ: 5, perspective: 0.65, cameraDistance: 3.5, showFront: true, showBack: true },
   "card-flip": { rotationY: 82, rotationX: 18, rotationZ: -7, pivotX: 0.25, pivotY: -0.2, perspective: 0.62, frontFace: true, backFace: true },
   "color-grade": { exposure: 1.65, brightness: 0.82, contrast: 2.5, saturation: 0.25 },
@@ -175,7 +177,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "lens-flare": { style: "rings", x: 0.2, y: 0.25, size: 1.2, color: "#9FD0FF" },
 };
 
-assert.equal(EFFECTS.length, 49, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 51, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

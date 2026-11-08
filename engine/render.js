@@ -10,7 +10,8 @@ import { copyContent } from "./effects/svg.js";
 import { renderBackdropBlur, renderGlassBackdrop } from "./effects/backdrop.js";
 import { effectiveBoxStyle } from "./boxStyles.js";
 import { maskSwitchedOff } from "./maskVisibility.js";
-import { FULL_REVEAL, normalizeReveal } from "./reveal.js";
+import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
+import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
@@ -20,6 +21,7 @@ import { textDrawingsAt } from "./textChangeDraw.js";
 import { textAnimationMode, textAnimationPlan, textAnimationUnitState } from "./textAnimation.js";
 import { resolvedCornerRadii, shapePath } from "./shapes.js";
 import { contourLengths, hasStrokePattern, trimDash } from "./strokeTrim.js";
+import { repeatBounds, repeatMarkup, repeaterOf } from "./repeater.js";
 import { gradientCoordinates, isFillEnabled, pathGradientBounds } from "./paints.js";
 import { pathBounds, parsePath, serializePath } from "./vectorPath.js";
 import { backgroundPaintAt } from "./sceneBackground.js";
@@ -338,7 +340,7 @@ function ancestorsOnlyMove(state, context) {
   let parent = state.parentId;
   while (parent && context.layersById.has(parent)) {
     const source = context.layersById.get(parent), shown = shownState(source, context);
-    if (hasFilterEffect(shown) || shown.effectPreset || effectsAt(source, context.time).length) return false;
+    if (hasFilterEffect(shown) || shown.effectPreset || effectsAt(source, context.time).length || repeaterOf(shown)) return false;
     parent = source.parentId;
   }
   return true;
@@ -368,6 +370,13 @@ function revealAttributes(state, reveal, context) {
   if (reveal.progress <= 0 || finite(state.width) <= 0 || finite(state.height) <= 0)
     return { attribute: "", sentinel: "", hidden: true };
 
+  // A repeated layer wipes over the box around all its copies, drawn by the general wipe.
+  const copies = repeaterOf(state) && repeatBounds({ x: 0, y: 0, width: finite(state.width), height: finite(state.height) }, state);
+  if (copies || isGeneralReveal(reveal)) {
+    const box = copies || { x: 0, y: 0, width: finite(state.width), height: finite(state.height) };
+    const general = generalReveal(box.width, box.height, reveal, context.defs, (kind) => idFor(context, kind), box);
+    return { ...general, sentinel: context.canvas ? "" : rasterClipBounds(state, context), hidden: false };
+  }
   const rect = revealRectangle(state, reveal);
   let attribute;
   if (reveal.softness <= 0) {
@@ -687,19 +696,19 @@ function layoutUnitPaths(layout, range, unit, state, context) {
 function contentBounds(node, state, context) {
   if (state.type === "text") {
     const layout = layoutText(state, context.fonts);
-    return layoutUnitBounds(layout, "layer", wholeLayout(layout, context), context);
+    return repeatBounds(layoutUnitBounds(layout, "layer", wholeLayout(layout, context), context), state);
   }
-  return mergeBounds([{ x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) },
-    ...node.children.map((child) => paintBoundsInParent(child, context))]);
+  return repeatBounds(mergeBounds([{ x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) },
+    ...node.children.map((child) => paintBoundsInParent(child, context))]), state);
 }
 
 // What a group's children draw before effects that keep paint inside a box (Noise Mask, a
 // contained filter) cut it, for repeat effects that need the whole drawing (copySource's home).
 function drawnContentBounds(node, state, context) {
   if (state.type === "text") return contentBounds(node, state, context);
-  return mergeBounds([{ x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) },
+  return repeatBounds(mergeBounds([{ x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) },
     ...node.children.map((child) => context.drawnBounds.has(child.layer.id)
-      ? context.drawnBounds.get(child.layer.id) : paintBoundsInParent(child, context))]);
+      ? context.drawnBounds.get(child.layer.id) : paintBoundsInParent(child, context))]), state);
 }
 
 function paintBoundsInParent(node, context) {
@@ -1052,7 +1061,12 @@ function renderLayer(node, context, { maskContent = false } = {}) {
   const owner =
     (layer.componentOwnerId ? ` data-component-owner="${escapeXml(layer.componentOwnerId)}"` : "") +
     (layer.componentOwnerId && layer.componentPath ? ` data-component-path="${escapeXml(layer.componentPath)}"` : "");
-  let content = `${revealRender.sentinel}${body}${children}${border}`;
+  let content = `${body}${children}${border}`;
+  // A repeater draws the layer's drawing once per copy (repeater.js).
+  if (repeaterOf(state)) content = repeatMarkup(content, state, idFor(context, "repeat"));
+  // A wipe's edge band draws over the layer's own drawing (wipe.js).
+  if (revealRender.band) content = revealRender.band(content);
+  content = `${revealRender.sentinel}${content}`;
   let filter = "";
   if (!textHasUnits) {
     content = backdropContent(content, layer, state, context, { mediaContent: body });

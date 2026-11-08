@@ -45,6 +45,7 @@ import { enabledAnimations } from "../engine/animationEnabled.js";
 import { effectDefinition } from "../engine/effects/catalog.js";
 import { lottieShapeParts, roundedBoxMask } from "./lottie-shapes.mjs";
 import { hasSoftReveal, lottieRevealMask, revealSampleTimes } from "./lottie-reveal.mjs";
+import { isGeneralReveal } from "../engine/reveal.js";
 import { lottieFramePosition } from "./lottie-frame-time.mjs";
 import { isFillEnabled } from "../engine/paints.js";
 import { vectorLayer } from "./lottie-vector.mjs";
@@ -1974,6 +1975,10 @@ function assertLottieFeatures(scene, media = {}) {
       const tilted = (values) => ["rotateX", "rotateY"].some((key) => Math.abs(finite(values?.[key])) > 1e-6);
       if (tilted(layer) || enabledAnimations(layer.animations).some((animation) => tilted(animation.from) || tilted(animation.to)))
         throw new Error(`Lottie export cannot yet render the 3D tilt (rotateX, rotateY) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set rotateX and rotateY to 0 for Lottie.`);
+      // A repeater (engine/repeater.js) is not written to Lottie yet.
+      const repeated = (values) => finite(values?.repeatCopies, 1) > 1;
+      if (repeated(layer) || enabledAnimations(layer.animations).some((animation) => repeated(animation.from) || repeated(animation.to)))
+        throw new Error(`Lottie export cannot yet render the repeater (repeatCopies) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set repeatCopies to 1 for Lottie.`);
       if (["video", "audio"].includes(layer.type))
         throw new Error(
           `Lottie export does not support ${layer.type} layer “${layer.name ?? layer.id}”.`,
@@ -2443,6 +2448,9 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
       addLayerContent(node, parentMatrix, parentOpacity, target, domain);
       return;
     }
+    // A shaped or angled wipe, or one with an edge band (engine/wipe.js), is not written to Lottie yet.
+    if (states.some((state) => isGeneralReveal(state.reveal) && state.reveal.progress < 1))
+      throw new Error(`Lottie export draws only straight wipes up, down, left or right; layer “${layer.name ?? layer.id}” has a wipe with a shape, angle, center or edge band. Use PNG, video, or GIF export, or remove those wipe settings for Lottie.`);
     const frames = revealTimes.map((time) => lottieFramePosition(frameTimes, time));
     const matrices = states.map((state, index) => {
       const frame = frames[index], before = Math.min(frameCount, Math.floor(frame));

@@ -138,7 +138,7 @@ test("swaps: at most 2 a deal, each with a reason, for a card in the hand, into 
   assert.match(swapProblem(deck, { out: first, in: fresh[0] }), /needs why/);
   assert.match(swapProblem(deck, { out: "nope", in: fresh[0], why: "does not fit" }), /not in the hand/);
   assert.match(swapProblem(deck, { out: first, in: "cut", why: "plain" }), /plain default or a rhythm/);
-  assert.match(swapProblem(deck, { out: first, in: "grain", why: "film look" }), /cannot find it/);
+  assert.match(swapProblem(deck, { out: first, in: "match-cut", why: "shapes line up" }), /cannot find it/);
   assert.match(swapProblem(deck, { out: first, in: second, why: "again" }), /already in the hand/);
   assert.match(swapProblem(deck, { out: first, in: fresh[0], why: "no", extra: 1 }), /not extra/);
   assert.match(swapProblem(deck, { out: first, in: fresh[0], why: "too loud" }, { avoids: [fresh[0]] }), /avoids/);

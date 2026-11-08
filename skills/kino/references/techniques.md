@@ -15,7 +15,7 @@ fits. `*` marks ones check cannot find in a document yet.
 - **camera**: slow-push, drift, parallax, orbit-3d, speed-ramp, freeze-frame, shake
 - **type**: type-cut, type-fade, type-slide, type-pop, type-words, type-letters,
   type-mask-rise, type-blur-in, type-giant, type-counter, type-swap, type-kinetic
-- **texture**: speed-lines, particles, rgb-split, light-sweep, grain*, depth-blur, motion-blur
+- **texture**: speed-lines, particles, rgb-split, light-sweep, grain, vignette, depth-blur, motion-blur
 - **set piece**: tile-ring, clip-field*, draw-on, swipe-cards, logo-match-move, status-line, split-screen,
   device-in-scene*, screen-zoom (read from the `move` that built them)
 - **rhythm**: beat-cut, beat-kick, syncopated, hold

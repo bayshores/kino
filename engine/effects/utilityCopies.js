@@ -22,7 +22,7 @@ const definition = (key, label, render, parameters, easing = "linear") => Object
   parameters: freezeParameters(parameters),
 });
 
-const gridParameters = () => ({
+const gridParameters = (seed) => ({
   repeatX: number("Repeat X", 5, 1, MAX_GRID_REPETITIONS_PER_AXIS, 1, "", { integer: true }),
   repeatY: number("Repeat Y", 5, 1, MAX_GRID_REPETITIONS_PER_AXIS, 1, "", { integer: true }),
   gapX: number("Gap X", 60, 0, 512, 1, "px"),
@@ -31,11 +31,13 @@ const gridParameters = () => ({
   speedVariation: number("Speed Variation", 0.5, 0, 1, 0.01, "×"),
   lineOffset: number("Line Offset", 0.5, 0, 1, 0.01, "cell"),
   scaleFactor: number("Scale Factor", 0.7, 0, 2, 0.01, "×"),
+  // Picks each line's speed; the default is the pattern from before this setting.
+  seed: number("Seed", seed, 0, 1_000_000, 1, "", { integer: true, animatable: false, optional: true }),
 });
 
 export const UTILITY_COPY_EFFECTS = Object.freeze([
-  definition("grid-scroll-x", "Grid Scroll X", renderGridScrollX, gridParameters()),
-  definition("grid-scroll-y", "Grid Scroll Y", renderGridScrollY, gridParameters()),
+  definition("grid-scroll-x", "Grid Scroll X", renderGridScrollX, gridParameters(71)),
+  definition("grid-scroll-y", "Grid Scroll Y", renderGridScrollY, gridParameters(83)),
   definition("inward-echoes", "Inward Echoes", renderInwardEchoes, {
       scaleDown: number("Scale Down", 0.3, 0, 1, 0.01, "×", { initial: 1 }),
       repeatCount: number("Repeat Count", 5, 0, MAX_INWARD_ECHO_COPIES, 1, "", { integer: true }),
@@ -213,6 +215,7 @@ function renderGridScroll(frame, axis) {
   const variation = read(frame, effectKey, "speedVariation", { min: 0, max: 1 });
   const lineOffset = read(frame, effectKey, "lineOffset", { min: 0, max: 1 });
   const scaleFactor = read(frame, effectKey, "scaleFactor", { min: 0, max: 2 });
+  const seed = read(frame, effectKey, "seed", { min: 0, max: 1_000_000 }, { integer: true });
   // Repeat counts divide the source into cells. Gaps stay in pixels and extend the
   // scroll pitch, so small boxes can show sparse/cropped tiles rather than zero-area cells.
   const cellWidth = box.width / repeatX, cellHeight = box.height / repeatY;
@@ -226,7 +229,7 @@ function renderGridScroll(frame, axis) {
   if (axis === "x") {
     const period = stepX;
     for (let row = 0; row < repeatY; row += 1) {
-      const random = noise2d(row * 0.754877666, 0.314159, 71);
+      const random = noise2d(row * 0.754877666, 0.314159, seed);
       const speed = baseSpeed * (1 + variation * random);
       const alternate = row % 2 ? lineOffset * stepX : 0;
       const scroll = mod(speed * box.width * frame.time + alternate, period);
@@ -239,7 +242,7 @@ function renderGridScroll(frame, axis) {
   } else {
     const period = stepY;
     for (let column = 0; column < repeatX; column += 1) {
-      const random = noise2d(column * 0.754877666, 0.314159, 83);
+      const random = noise2d(column * 0.754877666, 0.314159, seed);
       const speed = baseSpeed * (1 + variation * random);
       const alternate = column % 2 ? lineOffset * stepY : 0;
       const scroll = mod(speed * box.height * frame.time + alternate, period);

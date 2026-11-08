@@ -82,8 +82,9 @@ test("utility copy definitions expose the observed defaults and bounded repeat c
   const defaults = (key) => Object.fromEntries(Object.entries(byKey.get(key).parameters).map(([name, field]) => [name, field.default]));
   assert.deepEqual(defaults("grid-scroll-x"), {
     repeatX: 5, repeatY: 5, gapX: 60, gapY: 60, baseSpeed: 0.25,
-    speedVariation: 0.5, lineOffset: 0.5, scaleFactor: 0.7,
+    speedVariation: 0.5, lineOffset: 0.5, scaleFactor: 0.7, seed: 71,
   });
+  assert.equal(defaults("grid-scroll-y").seed, 83);
   assert.deepEqual(defaults("inward-echoes"), { scaleDown: 0.3, repeatCount: 5, centerX: 0.5, centerY: 0.5 });
   assert.deepEqual(defaults("noise-tile"), {
     repetitionsX: 5, repetitionsY: 5, gapX: 12, gapY: 12, scale: 1, noiseScale: 1.5,

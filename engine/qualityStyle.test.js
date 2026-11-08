@@ -97,8 +97,8 @@ const twoShots = ({ a = [hide(2)], b = [show(2)], aProps = {}, bProps = {}, more
 
 // ---------------------------------------------------------------- the vocabulary
 
-test("the vocabulary: 53 tags in 6 groups, each with a line and when it fits; the undetectable ones say why", () => {
-  assert.equal(TECHNIQUES.length, 54);
+test("the vocabulary: 55 tags in 6 groups, each with a line and when it fits; the undetectable ones say why", () => {
+  assert.equal(TECHNIQUES.length, 55);
   assert.equal(new Set(TECHNIQUE_TAGS).size, TECHNIQUE_TAGS.length, "tags are unique");
   for (const entry of TECHNIQUES) {
     assert.match(entry.tag, /^[a-z0-9]+(-[a-z0-9]+)*$/, entry.tag);
@@ -231,11 +231,13 @@ test("type: giant, counter, swap and kinetic type", () => {
 
 // ---------------------------------------------------------------- texture and set pieces
 
-test("texture: particles, light-sweep, rgb-split, motion-blur and depth-blur", () => {
+test("texture: particles, light-sweep, rgb-split, grain, vignette, motion-blur and depth-blur", () => {
   const full = { x: 0, y: 0, width: 1920, height: 1080, fillEnabled: false, strokeWidth: 0 };
   uses("particles", scene({ layers: [rect("snow", { ...full, animations: [effect("snow", 0, 4, { count: 200 })] })] }));
   uses("light-sweep", scene({ layers: [rect("sun", { animations: [effect("lens-flare", 0, 2, { x: 1.2, y: 0.4 }, { x: -0.1, y: 0.2 })] })] }));
   uses("rgb-split", scene({ layers: [picture("still", { animations: [effect("rgb-shift", 1, 0.3)] })] }));
+  uses("grain", scene({ layers: [picture("still", { animations: [effect("grain", 0, 4)] })] }));
+  uses("vignette", scene({ layers: [picture("still", { animations: [effect("vignette", 0, 4)] })] }));
   uses("motion-blur", scene({ layers: [rect("panel", { animations: [custom(1, 0.4, { x: -800 }, { x: 560 }), effect("directional-blur", 1, 0.2, { length: 300, angle: 0 })] })] }));
   // Back-to-back blur keys on one layer (judder's fix) are one use.
   const keyed = scene({ layers: [rect("panel", { animations: [custom(1, 0.4, { x: -800 }, { x: 560 }),

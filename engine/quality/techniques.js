@@ -5,7 +5,7 @@
 // two full-frame pictures whose opacities cross, a slow push is a slow scale of a large picture,
 // type-words is a text entrance by words with a stagger. What it cannot see honestly it leaves
 // out instead of guessing (techniques.js marks those detect:false):
-//   match-cut (needs the shapes in the picture), speed-lines and grain (no effect for them yet),
+//   match-cut (needs the shapes in the picture), speed-lines (no effect for it yet),
 //   and the set pieces with no mark in the document (clip-field, device-in-scene). Set pieces built
 //   by moves are read from the scene's move records (scene.moves, with their tags).
 // A dissolve is found two ways: full-frame pictures that cross (transitions), and floating clips
@@ -499,7 +499,7 @@ export function techniquesUsed(model) {
       if (tag && !found[tag]?.some((entry) => Math.abs(entry.at - retime.start) < 0.1)) add(tag, retime.start, retime.itemId);
     }
 
-    // Effects: 3D turns, shakes, particles, light, color split and motion blur.
+    // Effects: 3D turns, shakes, particles, light, color split, grain, vignette and motion blur.
     const transitionBlurs = new Set(changes.filter((change) => ["zoom-through", "whip-pan"].includes(change.tag)).map((change) => sec(change.at)));
     // Blur keys that follow on from the layer's last one (judder's motion blur fix) are one use.
     const blurEnds = new Map();
@@ -515,6 +515,7 @@ export function techniquesUsed(model) {
       else if (PARTICLE_KEYS.has(effect.effect)) add("particles", effect.start, effect.itemId);
       else if (LIGHT_KEYS.has(effect.effect)) add("light-sweep", effect.start, effect.itemId);
       else if (effect.effect === "rgb-shift") add("rgb-split", effect.start, effect.itemId);
+      else if (effect.effect === "grain" || effect.effect === "vignette") add(effect.effect, effect.start, effect.itemId);
       else if (MOTION_BLUR_KEYS.has(effect.effect) && ![...transitionBlurs].some((time) => Math.abs(time - effect.start) <= 0.8)) add("motion-blur", effect.start, effect.itemId);
     }
 

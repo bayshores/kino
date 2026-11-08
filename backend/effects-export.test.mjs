@@ -146,7 +146,7 @@ const SAMPLE_EFFECTS = EVERY ? EFFECTS : EFFECTS.filter((definition, index, all)
 const SAMPLE_PRESETS = Object.values(EFFECT_PRESET_DEFINITIONS).slice(0, EVERY ? undefined : 1);
 
 test("each group's first effect and lut export a named local raster sequence with actual embedded PNG pixels", async () => {
-  assert.equal(EFFECTS.length, 49);
+  assert.equal(EFFECTS.length, 51);
   // The lut effect needs an imported .cube file: this one, made here, inverts the colors.
   const mediaRoot = await mkdtemp(path.join(tmpdir(), "kino-effects-export-"));
   const lutFile = "0a1b2c3d-0000-4000-8000-0000000000c1.cube";

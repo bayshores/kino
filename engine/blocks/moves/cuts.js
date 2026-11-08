@@ -408,7 +408,7 @@ export const cardTilt = {
   },
 };
 
-const SHAPES = ["circle", "rounded", "diamond"];
+const SHAPES = ["circle", "rounded", "diamond", "clock"];
 
 export const shapeWipe = {
   name: "shape-wipe",
@@ -420,7 +420,8 @@ export const shapeWipe = {
   shortest: 0.4,
   fields: {
     ...shots,
-    shape: { kind: "choice", values: SHAPES, about: "circle, rounded or diamond (default circle)" },
+    shape: { kind: "choice", values: SHAPES, about: "circle, rounded, diamond, or clock (a hand sweeps around the point) (default circle)" },
+    angle: { kind: "number", low: -360, high: 360, about: "clock only: where the hand starts, degrees (default -90, 12 o'clock)" },
     ...shared({ color: "the shape's color, hex (default the brand accent)" }),
     point: { kind: "point", about: "[x, y] in % of to's box where the shape grows from (default the center)" },
     ...shared({ ease: "the curve of the shape and the opening growing (default a strong ease-out)" }), ...SPEED,
@@ -434,6 +435,7 @@ export const shapeWipe = {
     const shape = input.shape ?? "circle";
     const box = boxOf(to);
     const origin = pointIn(box, input.point);
+    if (shape === "clock") return clockWipe(ctx, from, to, fill, box, origin, input.angle ?? -90);
     const pace = ctx.pace(ctx.start);
     const curve = ctx.ease(CURVE.smooth);
     const reach = Math.max(...[[0, 0], [ctx.frame.width, 0], [0, ctx.frame.height], [ctx.frame.width, ctx.frame.height]].map(([x, y]) => Math.hypot(x - origin.x, y - origin.y)));
@@ -456,5 +458,26 @@ export const shapeWipe = {
     return { end: ctx.end };
   },
 };
+
+// The clock: a frame of the color sweeps around the point (a reveal, engine/wipe.js), and the next
+// shot sweeps in behind it, a beat later.
+function clockWipe(ctx, from, to, fill, box, origin, angle) {
+  if (ctx.order(to.id) < ctx.order(from.id)) ctx.raise(to.id, from.id);
+  const { width, height } = ctx.frame;
+  const pace = ctx.pace(ctx.start);
+  const curve = ctx.ease(CURVE.smooth);
+  const sweep = (centerX, centerY, progress) => ({ reveal: { progress, direction: "up", softness: 0, shape: "clock", angle, centerX: within(centerX), centerY: within(centerY) } });
+  const within = (value) => round(Math.max(-1, Math.min(2, value)), 4);
+  const onFrame = [origin.x / width, origin.y / height], onShot = [(origin.x - box.x) / Math.max(1, box.width), (origin.y - box.y) / Math.max(1, box.height)];
+  const color = ctx.add("shape", createLayer("rectangle", { name: "Wipe shape", x: 0, y: 0, width, height, fill, opacity: 0, role: "decor", allowOverlap: true }), { below: to.id });
+  ctx.animate(color, "show", motion({ name: "Show", start: ctx.start, duration: 0.02, easing: ctx.curve(CURVE.fade), from: { opacity: 0 }, to: { opacity: 1 } }));
+  ctx.animate(color, "sweep", paced(motion, pace, { name: "Sweep", kind: "in", start: ctx.start, duration: ctx.duration * 0.6, easing: curve, from: sweep(...onFrame, 0), to: sweep(...onFrame, 1) }));
+  const opens = ctx.start + ctx.duration * 0.3;
+  ctx.animate(to.id, "sweep", paced(motion, pace, { name: "Sweep in", kind: "in", start: opens, duration: ctx.end - opens, easing: curve, from: sweep(...onShot, 0), to: sweep(...onShot, 1) }), "to");
+  startClips(ctx, to.id, pace.at(opens));
+  ctx.animate(color, "hide", hide(pace.at(ctx.end)), null);
+  ctx.animate(from.id, "hide", hide(pace.at(ctx.end)), "from");
+  return { end: ctx.end };
+}
 
 export const CUTS = [zoomBlur, flash, lightLeak, slice, glitch, blurDissolve, cardTilt, shapeWipe];

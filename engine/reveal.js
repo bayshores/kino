@@ -5,7 +5,19 @@ export const FULL_REVEAL = Object.freeze({
 });
 
 const DIRECTIONS = new Set(["up", "down", "left", "right"]);
-const REVEAL_KEYS = new Set(["progress", "direction", "softness"]);
+const REQUIRED_KEYS = ["progress", "direction", "softness"];
+// Optional wipe fields (engine/wipe.js). Absent, a reveal is today's straight wipe.
+export const WIPE_SHAPES = Object.freeze(["linear", "radial", "iris", "clock"]);
+export const WIPE_RANGES = Object.freeze({
+  angle: [-3600, 3600], centerX: [-1, 2], centerY: [-1, 2], edgeWidth: [0, 10000],
+});
+const OPTIONAL_KEYS = ["shape", "angle", "centerX", "centerY", "edgeColor", "edgeWidth"];
+const REVEAL_KEYS = new Set([...REQUIRED_KEYS, ...OPTIONAL_KEYS]);
+const HEX = /^#(?:[\da-fA-F]{3}|[\da-fA-F]{4}|[\da-fA-F]{6}|[\da-fA-F]{8})$/;
+// Defaults of the optional fields: angle comes from direction for a straight wipe, -90 (12 o'clock)
+// starts a clock.
+export const WIPE_DEFAULTS = Object.freeze({ shape: "linear", centerX: 0.5, centerY: 0.5, edgeColor: "#FFFFFF", edgeWidth: 0 });
+const DIRECTION_ANGLE = { right: 0, down: 90, left: 180, up: 270 };
 
 /** Validate a stored reveal endpoint without adding fields to legacy records. */
 export function normalizeReveal(value) {
@@ -17,8 +29,7 @@ export function normalizeReveal(value) {
   for (const key of Object.keys(value)) {
     if (!REVEAL_KEYS.has(key)) throw new TypeError(`Reveal has unknown field ${key}`);
   }
-  if (Object.keys(value).length !== REVEAL_KEYS.size ||
-      [...REVEAL_KEYS].some((key) => !Object.hasOwn(value, key))) {
+  if (REQUIRED_KEYS.some((key) => !Object.hasOwn(value, key))) {
     throw new TypeError("Reveal needs progress, direction, and softness");
   }
   if (typeof value.progress !== "number" || !Number.isFinite(value.progress) ||
@@ -32,11 +43,38 @@ export function normalizeReveal(value) {
       value.softness < 0 || value.softness > 100) {
     throw new RangeError("Reveal softness must be finite and from 0 to 100");
   }
-  return {
+  const out = {
     progress: value.progress,
     direction: value.direction,
     softness: value.softness,
   };
+  for (const key of OPTIONAL_KEYS) {
+    if (!Object.hasOwn(value, key)) continue;
+    const next = value[key];
+    if (key === "shape") {
+      if (!WIPE_SHAPES.includes(next)) throw new TypeError("Reveal shape must be linear, radial, iris, or clock");
+    } else if (key === "edgeColor") {
+      if (typeof next !== "string" || !HEX.test(next)) throw new TypeError("Reveal edgeColor must be a hex color");
+    } else {
+      const [min, max] = WIPE_RANGES[key];
+      if (typeof next !== "number" || !Number.isFinite(next) || next < min || next > max)
+        throw new RangeError(`Reveal ${key} must be finite and from ${min} to ${max}`);
+    }
+    out[key] = next;
+  }
+  return out;
+}
+
+/** True when a reveal uses any wipe field beyond today's four straight directions. */
+export function isGeneralReveal(reveal) {
+  return Boolean(reveal) && OPTIONAL_KEYS.some((key) => Object.hasOwn(reveal, key));
+}
+
+/** A reveal's wipe settings with every default filled in. */
+export function wipeSettings(reveal) {
+  const shape = reveal.shape ?? WIPE_DEFAULTS.shape;
+  const angle = reveal.angle ?? (shape === "clock" ? -90 : DIRECTION_ANGLE[reveal.direction]);
+  return { ...WIPE_DEFAULTS, ...reveal, shape, angle };
 }
 
 /** Interpolate reveal geometry; easing overshoot is clamped to valid endpoint range. */
@@ -47,9 +85,18 @@ export function interpolateReveal(from, to, progress) {
     throw new TypeError("Reveal interpolation progress must be finite");
   }
   const amount = Math.max(0, Math.min(1, progress));
-  return {
+  const out = {
     progress: start.progress + (end.progress - start.progress) * amount,
     direction: amount >= 1 ? end.direction : start.direction,
     softness: start.softness + (end.softness - start.softness) * amount,
   };
+  if (!isGeneralReveal(start) && !isGeneralReveal(end)) return out;
+  // Numbers move between the endpoints; shape and edge color switch at the end, like direction.
+  const a = wipeSettings(start), b = wipeSettings(end);
+  for (const key of OPTIONAL_KEYS) {
+    if (!Object.hasOwn(start, key) && !Object.hasOwn(end, key)) continue;
+    out[key] = key === "shape" || key === "edgeColor" ? (amount >= 1 ? b[key] : a[key])
+      : a[key] + (b[key] - a[key]) * amount;
+  }
+  return out;
 }
