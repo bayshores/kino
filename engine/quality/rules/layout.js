@@ -302,7 +302,7 @@ export function centeredRun(model, ctx) {
   return [{
     rule: "centered_run", severity: "warn", at: sec(longest[0].section.start), until: sec(longest.at(-1).section.end),
     measured: `${longest.length} sections centred`, required: "at most 2 in a row",
-    message: `Everything is centred in ${longest.length} sections in a row (${sec(longest[0].section.start)}s–${sec(longest.at(-1).section.end)}s) in ${ctx.sceneName}.`,
+    message: `Everything is centered in ${longest.length} sections in a row (${sec(longest[0].section.start)}s–${sec(longest.at(-1).section.end)}s) in ${ctx.sceneName}.`,
     fix: { kind: "hint", text: "Left-align or offset one section's text to give the layout a direction." },
   }];
 }

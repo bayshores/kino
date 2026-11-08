@@ -477,7 +477,7 @@ test("play and scrub by mouse: transport buttons, the playhead track, the scene 
   // The time under the frame, then the scene's length; the stage's title shows the same time.
   assert.match(await browser.evaluate(textOf(".stage-transport .transport-time")), /^00:00\.[45]\d/, "the transport's clock");
   assert.equal(await browser.evaluate(textOf(".stage-transport .transport-time .play-total")), "/00:01.00", "the scene's length");
-  assert.match(await browser.evaluate(textOf("#pane-1-title")), /^stage · 00:00\.[45]\d$/, "the stage's title clock");
+  assert.equal(await browser.evaluate(textOf("#pane-1-title")), "stage", "the stage's title has no second clock");
   await showScene(outroScene);
   await showScene(firstScene);
   // The agent's lane (in the first scene, which its edits changed): a mark per layer each turn
@@ -1516,17 +1516,13 @@ test("in [3] ← and k pick the older picture, → and j the newer; the focus mo
   assert.ok(view.right < 16 + 92 && view.scrollLeft % 92 === 0, `scrolled no further than needed, by whole cards: ${JSON.stringify(view)}`);
   assert.deepEqual([...new Set(seen)], [view.scrollLeft], "no jump after the Tab");
 
-  // The key line, as in the design: play, note and undo turn, in words, in the quieter text
+  // The key line: undo turn only (play and note are under the frame and in the rail), in words, in the quieter text
   // (--fg-mid); each key is in its button's tooltip and aria-keyshortcuts, and each button does
   // what its key does.
   const keyButtons = await browser.evaluate(`[...document.querySelectorAll(".keyline .tb")].map((item) => ({ word: item.innerText.trim(), key: item.getAttribute("aria-keyshortcuts"), title: item.title, colour: getComputedStyle(item).color }))`);
-  assert.deepEqual(keyButtons.map((entry) => [entry.word, entry.key, entry.title]), [["play", "Space", "play (space)"], ["note", "n", "note (n)"], ["undo turn", "u", "undo turn (u)"]], "the key line's buttons");
+  assert.deepEqual(keyButtons.map((entry) => [entry.word, entry.key, entry.title]), [["undo turn", "u", "undo turn (u)"]], "the key line's buttons");
   const quiet = await browser.evaluate(token("--fg-mid"));
   for (const entry of keyButtons) assert.equal(entry.colour, quiet, `${entry.word} is quiet text: ${JSON.stringify(keyButtons)}`);
-  await browser.click(button("play", ".keyline"));
-  await browser.waitFor(isPlaying, { what: "the key line's play button plays" });
-  await browser.click(q('.stage-transport button[aria-label="Pause"]'));
-  await browser.waitFor(isPaused, { what: "paused again" });
   // The status line draws no ▶ or ‖ before the time; a screen reader says the state as a word.
   assert.equal(await browser.evaluate(`${q(".play-time .sr-only")}.textContent`), ", paused");
   assert.doesNotMatch(await browser.evaluate(textOf(".statusline")), /[▶‖]/);
@@ -3014,7 +3010,7 @@ test("light rays playing in a 1440 to 1512 px window: the stage's facts give way
       const said = `at ${width}×${height}: ${JSON.stringify(playing)}`;
       t.diagnostic(`playing ${said}`);
       assert.ok(menuDrawn(playing), `playing, the scene menu is whole and a click reaches it ${said}`);
-      assert.match(playing.title, /^stage · \d\d:\d\d\.\d\d$/, `the title reads "stage · <time>" ${said}`);
+      assert.equal(playing.title, "stage", `the title reads "stage" ${said}`);
       assert.equal(playing.paneClass, paused.paneClass, `Play does not change the stage pane's classes ${said}`);
       if (reduced) {
         // The note on screen is short; the tooltip and the stage's name say it all.

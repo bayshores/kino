@@ -1152,6 +1152,9 @@ test("own_words: on-screen words come from the saved sources", async () => {
   await silent("own_words", titled("Watches wildfire cameras all night"), { sources });
   // Plurals and -ing forms match the source's words.
   await silent("own_words", titled("Watching the camera, texting stations"), { sources });
+  // A credit line names other people's work by design.
+  await silent("own_words", titled('Music: "Hot Pursuit" Kevin MacLeod (incompetech.com) CC BY 4.0'), { sources });
+  await silent("own_words", titled("Footage by Mariana Velasquez Ortega"), { sources });
   // No sources saved: a note says how to save one. Not run at all outside kino's service.
   const notes = await silent("own_words", titled("Revolutionary vigilance for tomorrow"), { sources: [] });
   assert.ok(notes.some((note) => note.includes('op:"source"')), notes.join("; "));

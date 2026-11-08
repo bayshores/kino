@@ -612,6 +612,16 @@ test("look critique: a packet for a fresh critic (protocol, brief, trace, seam p
   assert.equal((await agent("render", { project: barred, action: "start", quality: "final", format: "gif" })).data.error, "critique_open");
 });
 
+test("a briefed video of 15 s or more with 10 layers is a real edit: its open warnings hold the final render", async () => {
+  const id = await project("few-layers-long", 16);
+  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
+  await agent("edit", { project: id, ops: Array.from({ length: 10 }, (_, n) => ({ op: "add_layer", layerType: "rectangle", name: `bar${n}`, properties: { x: 40 + n * 60, y: 300, width: 40, height: 40, fill: "#ffffff" } })) });
+  await reviewAll(id);
+  const held = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
+  assert.ok(held.data.error, held.text);
+  assert.match(held.data.reason, /fix \d+ findings? \(/, "its open warnings are listed among what the final needs");
+});
+
 test("a real edit (a brief, over 30 layers) needs one critic round before its final render; after two rounds an open P0 goes to the person as the critique stop", async () => {
   const id = await project("critique-needed", 12);
   assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);

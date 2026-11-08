@@ -556,11 +556,14 @@ export function createAgentService(deps) {
   // rendered rules are not in the findings (checkSummary says so).
   // listen:false (the dashboard's own check) renders frames for the pixel rules but reads only
   // saved transcripts, peaks, loudness and people: no whisper and no sound or people decodes.
-  // A real edit (a brief, over 30 layers, as the critique gate reads it): every open warning
-  // holds its final render, not only the errors (blocksFinal).
+  const REAL_EDIT_SECONDS = 15, REAL_EDIT_LAYERS = 10;
+  // A real edit (a brief, and over 30 layers, or 10 or more in a scene of 15 s or more): every
+  // open warning holds its final render, not only the errors (blocksFinal). A long video made of
+  // text cards over clips is a real edit too, not a rough pass; a one-card sketch is not.
   async function isRealEdit(document) {
     const state = await agentState.read(document.id).catch(() => null);
-    return hasBrief(state?.brief) && videoFacts(document).layers > ROUGH_LAYERS;
+    const video = videoFacts(document);
+    return hasBrief(state?.brief) && (video.layers > ROUGH_LAYERS || (video.seconds >= REAL_EDIT_SECONDS && video.layers >= REAL_EDIT_LAYERS));
   }
 
   async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = 30, listen = true } = {}) {

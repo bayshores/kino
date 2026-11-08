@@ -909,7 +909,6 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
   const facts = !scene ? "" : playing ? liveLabel(smallNote) : label.replace(/^preview /, "").replace(/ · exact frame$/, "");
   const scenes = data.record?.document?.scenes ?? [];
   const sceneName = scene ? cut(scene.name || scene.id, 24) : "";
-  const titleTime = useRef(null);
   const hasMenu = Boolean(scene) && scenes.length > 1;
   const zooms = [{ value: "fit", label: "Fit" }, ...[0.25, 0.5, 1, 2].map((value) => ({ value, label: `${value * 100}%` }))];
   const zoomLabel = zooms.find((entry) => entry.value === zoom)?.label ?? "Fit";
@@ -953,7 +952,7 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
 
   return (
     <Pane {...pane} number={1} name="stage" className={`p-stage${need ? " needs" : ""}`} labelId="pane-1-title" facts={null}
-      title={scene ? <span ref={titleTime}>{clock(shownTime)}</span> : ""}>
+      title={null}>
       {toolbar}
       <div className="stage-well">
       {/* The frame's four corner marks (drawn only), and "▶ preview" while a render waits for you. */}
@@ -1967,14 +1966,15 @@ function layerValues(layer) {
 // ---- the key line and the status line --------------------------------------------------------
 
 /**
- * The bottom line's key hints: while working, play, note, hold, undo a turn and the keys; while
+ * The bottom line's key hints: while working, undo a turn; while
  * something waits for you (`need`), its answers first. Every hint is a button.
  */
 export function KeyLine({ onKey, inert = false, need = null, playing = false, empty = false }) {
   // [key, word, action, icon]: the key goes in the tooltip, not on the label.
   const keys = need
     ? [...(need.allow ? [["a", need.key === "approve" ? "approve" : need.key === "pick" || need.key === "review" ? need.allow : "allow", "allow", null]] : []), ...(need.deny ? [["d", need.deny, "deny", null]] : []), ["n", "note", "note", "note"]]
-    : [["space", playing ? "pause" : "play", "play", playing ? "pause" : "play"], ["n", "note", "note", "note"], ["u", "undo turn", "undo", "undo"]];
+    // Play and note are under the frame and in the side rail; the line keeps what is only here.
+    : [["u", "undo turn", "undo", "undo"]];
   return (
     <nav className="keyline" aria-label="Actions" inert={inert}>
       {keys.map(([key, word, action, icon]) => (
@@ -2030,7 +2030,7 @@ export function StatusLine({ data, scene, time, playing, timeStore, checks, onCh
         <PlayTime timeStore={timeStore} playing={playing} time={time} duration={scene?.duration ?? 0} />
         <span>{lastTurn ? `${lastTurn.id} ${lastTurn.ops ? `+${lastTurn.ops} ops` : lastTurn.turn.reverted ? "reverted" : `${lastTurn.calls.length} calls`}` : "no turns"}</span>
       </>}
-      <span className="s-mcp" title="What kino sent and received over MCP for this project">mcp {tokens(trafficTokens(data))}</span>
+      <span className="s-mcp" title="What kino sent and received over MCP for this project">{tokens(trafficTokens(data))} tokens</span>
       {/* The check counts are a link: it opens the checks view, which says what each one is. */}
       <button type="button" className={`tb s-checks${checks?.data?.errors ? " err" : checks?.data?.warnings ? " warn" : ""}`} onClick={onChecks} disabled={!data.projectId}
         title={checks?.error ?? "Show the checks: each error and warning, the layer it is about and its fix"}>{counts}</button>

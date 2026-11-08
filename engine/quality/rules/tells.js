@@ -20,6 +20,8 @@ const FILL_CLIP_SHARE = 0.2;
 
 const textsOf = (item) => (Array.isArray(item.texts) && item.texts.length ? item.texts : [item.text]).filter((text) => typeof text === "string" && text.trim());
 
+const CREDIT_LINE = /^\s*(music|song|track|footage|photos?|credits?)\s*(by)?\s*[:\-]|^\s*(music|song|footage|photos?)\s+by\b|\bCC[ -]?(BY|0)\b|\blicen[cs]ed?\b|\bcourtesy of\b/i;
+
 /** On-screen text whose words are mostly in none of the saved sources. */
 export function ownWords(model, ctx) {
   if (!Array.isArray(ctx.sources)) return [];
@@ -32,6 +34,8 @@ export function ownWords(model, ctx) {
   const known = sourceVocabulary(ctx.sources);
   const findings = [];
   for (const item of texts) {
+    // A credit line (music, footage, license) names other people's work by design.
+    if (CREDIT_LINE.test(textsOf(item).join(" "))) continue;
     const words = [...new Set(textsOf(item).flatMap(contentWords))];
     const missing = words.filter((word) => !known.has(word) && !known.has(stem(word)));
     if (missing.length < 2 || missing.length / words.length <= 0.5) continue;
