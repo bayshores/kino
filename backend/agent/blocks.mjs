@@ -1099,9 +1099,12 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const style = styleFor({ look, brand, frame, faces, feel: settings.feel ?? composition.feel ?? null });
     const start = resolveAt(settings.at ?? "auto", timeLookup(document, scene, fonts, work));
     const alphas = await alphasOf(scene, input);
-    // font (push-through-type, a display face at 700) or fontFamily (caption-words, body text at 600).
+    // font (push-through-type, a display face at 700) or fontFamily (caption-words, body text at
+    // 600); a fontWeight alone loads that weight of the body font the move would use.
+    const weightFamily = typeof input.fontFamily === "string" ? input.fontFamily
+      : typeof input.fontWeight === "number" ? style.fonts.body?.fontFamily : undefined;
     const fontFaces = typeof input.font === "string" ? { [input.font]: await askedFace(document, input.font, copyText(input), work) }
-      : typeof input.fontFamily === "string" ? { [input.fontFamily]: await askedFace(document, input.fontFamily, copyText(input), work, input.fontWeight ?? 600) } : {};
+      : typeof weightFamily === "string" ? { [weightFamily]: await askedFace(document, weightFamily, copyText(input), work, input.fontWeight ?? 600) } : {};
     let made;
     try {
       made = runMove(definition, {

@@ -27,6 +27,9 @@ played as one.
   `stagger` (seconds between words), and `order`, `smoothing` if needed (text layers only); a
   custom animation's `delays` [s per word] times each word itself. Karaoke or word-pop timed to
   speech: `move caption-words` with `highlight:"active"`, `entrance:"pop"` (the moves reference).
+  Its type: `fontFamily`, `fontWeight`, `fill`, `accent` (said word), `saidOpacity`,
+  `unsaidOpacity` (0-1), `activeScale` (said word grows; over 1.1 crowds), `activeBackground`
+  (a box behind the said word).
 - One animation, every letter timed (a range selector): `range` on an add_animation
   with a `unit`, in place of `stagger`. `"typewriter"` (soft, one after another), `"center-out"`
   and `"random"` (`{preset:"random", seed}`) work on an in or out; `"wave"` lifts each unit to

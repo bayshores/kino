@@ -1,5 +1,5 @@
-// caption-words type knobs: fontFamily, fontWeight, fill, accent, activeScale, pastOpacity,
-// futureOpacity and activeBackground. Left out (or set to today's values) they change nothing.
+// caption-words type knobs: fontFamily, fontWeight, fill, accent, activeScale, saidOpacity,
+// unsaidOpacity and activeBackground. Left out (or set to today's values) they change nothing.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
@@ -32,7 +32,7 @@ function unitsAt(made, time) {
 test("caption-words knobs left out or set to today's values make the same captions", () => {
   for (const fields of [{}, { highlight: "active" }, { entrance: "pop" }, { entrance: "rise", highlight: "active" }]) {
     const active = fields.highlight === "active";
-    const same = { fill: style.colors.text, activeScale: 1, activeBackground: "none", pastOpacity: active ? 0.7 : 1, futureOpacity: active || fields.entrance === "pop" ? 0.7 : 1, ...(active ? { accent: style.colors.accent } : {}) };
+    const same = { fill: style.colors.text, activeScale: 1, activeBackground: "none", saidOpacity: active ? 0.7 : 1, unsaidOpacity: active || fields.entrance === "pop" ? 0.7 : 1, ...(active ? { accent: style.colors.accent } : {}) };
     assert.deepEqual(run({ ...fields, ...same }), run(fields), JSON.stringify(fields));
   }
 });
@@ -46,16 +46,16 @@ test("fill colors the words and accent colors the said word under karaoke", () =
   assert.equal(part(run({ fill: "#22aaff" }), "w1").fill, "#22AAFF", "without karaoke the words are just that color");
 });
 
-test("pastOpacity and futureOpacity dim the words said and not said yet", () => {
-  const [so, we, , it] = unitsAt(run({ highlight: "active", pastOpacity: 0.3, futureOpacity: 0.5 }), 1);
+test("saidOpacity and unsaidOpacity dim the words said and not said yet", () => {
+  const [so, we, , it] = unitsAt(run({ highlight: "active", saidOpacity: 0.3, unsaidOpacity: 0.5 }), 1);
   assert.equal(so.fill.slice(7).toUpperCase(), "4D");
   assert.equal(it.fill.slice(7).toUpperCase(), "80");
   assert.equal(we.fill.toUpperCase(), `${style.colors.accent.toUpperCase()}FF`);
   // Without karaoke a said word dims too (a reading guide): plain captions take the knobs.
-  const plain = unitsAt(run({ pastOpacity: 0.4 }), 1);
+  const plain = unitsAt(run({ saidOpacity: 0.4 }), 1);
   assert.equal(plain[0].fill.slice(7).toUpperCase(), "66");
   assert.match(plain[1].fill.toUpperCase(), new RegExp(`^${style.colors.text.toUpperCase()}(FF)?$`), "the said word is full");
-  assert.throws(() => readMoveInput(move, { words: WORDS, pastOpacity: 1.5 }), /from 0 to 1/);
+  assert.throws(() => readMoveInput(move, { words: WORDS, saidOpacity: 1.5 }), /from 0 to 1/);
 });
 
 test("activeScale grows the said word and settles it after; with pop it pops to that size", () => {
@@ -92,6 +92,10 @@ test("fontFamily and fontWeight set the captions' type", () => {
   const made = run({ fontFamily: "Noto Serif" }, { fontFaces: { "Noto Serif": SERIF } });
   assert.deepEqual([part(made, "w1").fontFamily, part(made, "w1").fontWeight], ["Noto Serif", 700]);
   assert.equal(part(run({ fontWeight: 800 }), "w1").fontWeight, 800);
+  // A weight alone draws in the face the caller loaded for the default family at that weight.
+  const body = style.fonts.body.fontFamily;
+  const heavy = part(run({ fontWeight: 900 }, { fontFaces: { [body]: { fontFamily: body, fontSource: "/api/fonts/heavy.ttf", fontWeight: 900, fontStyle: "normal" } } }), "w1");
+  assert.deepEqual([heavy.fontFamily, heavy.fontSource, heavy.fontWeight], [body, "/api/fonts/heavy.ttf", 900]);
   assert.throws(() => run({ fontFamily: "Nope Sans" }), /no font "Nope Sans"/);
   assert.throws(() => readMoveInput(move, { words: WORDS, fontWeight: 1000 }), /from 100 to 900/);
 });

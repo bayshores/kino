@@ -193,7 +193,7 @@ const MOVE_VARIANTS = {
     layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", blocks: 5, strength: 0.8, at: 0.3 }, share: 0.42 },
   "caption-words with a word box": { move: "caption-words", line: "caption-words with activeBackground and activeScale: the said word grows on a colored box that slides from word to word, the rest dimmed",
     layers: () => [SHOT_A], fields: { words: [{ text: "so", at: 0.4 }, { text: "we gave", at: 1.2 }, { text: "it eyes.", at: 2.2, end: 3.4 }], highlight: "active",
-      fill: "#FFFFFF", accent: "#111111", activeBackground: "#FFD84A", activeScale: 1.08, pastOpacity: 0.6, futureOpacity: 0.6, at: 0.3 } },
+      fill: "#FFFFFF", accent: "#111111", activeBackground: "#FFD84A", activeScale: 1.08, saidOpacity: 0.6, unsaidOpacity: 0.6, at: 0.3 } },
   "card-tilt up": { move: "card-tilt", line: "card-tilt with direction up: the shot tips back over its top edge and slides up as the next tips in from below",
     layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", direction: "up", at: 0.3 }, share: 0.45 },
 };

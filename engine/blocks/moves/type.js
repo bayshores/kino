@@ -367,8 +367,8 @@ export const captionWords = {
     fill: { kind: "color", knob: true, about: "text color (default the look's)" },
     ...shared({ accent: "said word's color under highlight active (default the look's)" }),
     activeScale: { kind: "number", low: 1, high: 2, knob: true, about: "1-2: the said word's size (default 1)" },
-    pastOpacity: { kind: "number", low: 0, high: 1, knob: true, about: "0-1: said words (default 0.7 if highlight active, else 1)" },
-    futureOpacity: { kind: "number", low: 0, high: 1, knob: true, about: "0-1: unsaid words (default 0.7 if highlight active or pop, else 1)" },
+    saidOpacity: { kind: "number", low: 0, high: 1, knob: true, about: "0-1: said words (default 0.7 if highlight active, else 1)" },
+    unsaidOpacity: { kind: "number", low: 0, high: 1, knob: true, about: "0-1: unsaid words (default 0.7 if highlight active or pop, else 1)" },
     activeBackground: { kind: "text", max: 9, knob: true, about: '"none" (default) or hex: a box behind the said word' },
   },
   oneOf: [["words", "text"]],
@@ -402,8 +402,10 @@ export const captionWords = {
     // Where the captions go: the asked position (bottom by default), or the other one, in the
     // widest stretch of the frame that no layer to avoid covers while they play (see captionSpot).
     // The brand's or the project's font at its own weight; the look's font at 600. fontFamily
-    // (resolved by the caller into ctx.fontFace) and fontWeight replace them.
-    const face = input.fontFamily ? ctx.fontFace(input.fontFamily) : null;
+    // and fontWeight replace them; the caller loads the face (ctx.fontFace), also for a weight
+    // asked of the default family.
+    const family = input.fontFamily ?? (input.fontWeight !== undefined ? ctx.style.fonts.body?.fontFamily : undefined);
+    const face = family ? ctx.fontFace(family) : null;
     if (input.fontFamily && !face) throw new Error(`caption-words fontFamily: no font "${input.fontFamily}"; give a family kino has (library {topic:"fonts"}).`);
     const weight = input.fontWeight ?? face?.fontWeight ?? (ctx.brandFonts ? undefined : 600);
     const typeCtx = face ? Object.create(ctx, { style: { value: { ...ctx.style, fonts: { ...ctx.style.fonts, body: face } } } }) : ctx;
@@ -436,8 +438,8 @@ export const captionWords = {
     // The said word's color, and the words not said yet and already said (fill alpha, so the
     // caption's own fade is untouched): 70% under karaoke, unsaid ones 70% under pop, else full.
     const lit = active ? input.accent ?? ctx.style.colors.accent : ink;
-    const past = faded(ink, input.pastOpacity ?? (active ? DIM : 1));
-    const futureFor = (popping) => faded(ink, input.futureOpacity ?? (active || popping ? DIM : 1));
+    const past = faded(ink, input.saidOpacity ?? (active ? DIM : 1));
+    const futureFor = (popping) => faded(ink, input.unsaidOpacity ?? (active || popping ? DIM : 1));
     const future = futureFor(pop);
     const backing = input.activeBackground && input.activeBackground !== "none" ? input.activeBackground.toUpperCase() : null;
     if (backing && !/^#[0-9A-F]{6}([0-9A-F]{2})?$/.test(backing)) throw new Error('caption-words activeBackground is "none" or a hex color such as #FF6B4A.');

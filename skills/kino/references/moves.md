@@ -22,12 +22,11 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 ## The moves
 
 - **caption-words**: captions low as written, a phrase at a time (never across a sentence's
-  end), cut on as said, one or two balanced lines. `entrance:"rise"`/`"pop"`;
-  `highlight:"active"` is karaoke. Give `words` [{text, at}] (forced-aligned) or `text`. Words a
-  caption: `energy` or `group:1`. `size:"small"`; `scrim:false`; clear of a status line and
-  covers (`avoid`). Type: `fontFamily`, `fontWeight`, `fill`, `accent`, `pastOpacity`,
-  `futureOpacity`, `activeScale` (over 1.1 crowds), `activeBackground` (a box behind the said
-  word).
+  end), cut on as said, one or two balanced lines. `keepCase:false` lowercases;
+  `entrance:"rise"`/`"pop"`; `highlight:"active"` is karaoke. Give `words` [{text, at}]
+  (forced-aligned) or `text`. Words a caption: `energy` (high 2-3, talk 3-5, calm 4-6) or
+  `group:1`; short words hold 0.3 s or pair up. `size:"small"`; `scrim:false`; clear of a
+  status line and covers (`avoid`). Font, colors, word box: captions-beats-sequences.md.
 - **zoom-through**: pushes into a point of one shot and comes out in the next.
   `target:{layer, rect?}`: until a layer in `from` or its `rect` [x, y, w, h] % fills the
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
