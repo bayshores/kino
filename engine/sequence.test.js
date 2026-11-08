@@ -50,8 +50,8 @@ test("cuts place the parts back to back and show exactly one part at a time", ()
 });
 
 test("transitions overlap the parts by their length, and the sequence passes the quality checks", () => {
-  for (const transition of ["crossfade", "push", "wipe", "zoom", "whip", "spin"]) {
-    const { document, report, scene } = sequence(project(), { transition: { type: transition, duration: 0.5 } });
+  for (const transition of ["crossfade", "push", "wipe", "zoom", "whip", "spin", { type: "wipe", shape: "iris" }, { type: "wipe", shape: "clock", edgeWidth: 6 }]) {
+    const { document, report, scene } = sequence(project(), { transition: { ...(typeof transition === "string" ? { type: transition } : transition), duration: 0.5 } });
     assert.equal(report.duration, 9, transition);
     assert.deepEqual(report.parts.map((part) => part.start), [0, 2.5, 6], transition);
     assert.equal(scene.layers[1].animations.filter((animation) => animation.kind === "custom").length, 2, `${transition}: an in and an out on the middle part`);
@@ -138,4 +138,70 @@ test("impossible sequences are refused with a reason", () => {
   const mixed = project();
   mixed.scenes[1].width = 1920;
   refuse({}, /every scene must be 1080×1920/, mixed);
+});
+
+// A transition's animations without their random ids.
+const plain = (scene) => JSON.parse(JSON.stringify(scene.layers.map((layer) => layer.animations), (key, value) => (key === "id" ? undefined : value)));
+
+test("knobs left out or set to their defaults make today's transitions", () => {
+  const defaults = { crossfade: { ease: "smooth" }, push: { ease: "smooth" }, wipe: { ease: "smooth", softness: 10 }, zoom: { amount: 1 }, whip: { ease: "natural", blur: 0.2 }, spin: { turn: 90, blur: 30 } };
+  for (const [type, knobs] of Object.entries(defaults))
+    assert.deepEqual(plain(sequence(project(), { transition: { type, ...knobs } }).scene), plain(sequence(project(), { transition: type }).scene), type);
+  const wipe = sequence(project(), { transition: "wipe" }).scene.layers[1].animations.find((animation) => animation.name === "Wipe in");
+  assert.deepEqual(wipe.to.reveal, { progress: 1, direction: "left", softness: 10 }, "today's straight wipe, no general fields");
+});
+
+test("ease changes the middle frame of a transition", async () => {
+  const { renderSceneSvg } = await import("./render.js");
+  const { expandComponents } = await import("./linkedComponents.js");
+  const middle = (transition) => {
+    const { document, scene } = sequence(project(), { transition });
+    return { scene, svg: renderSceneSvg(expandComponents(document, "seq", { fonts: defaultFonts }), 2.6, { fonts: defaultFonts }).replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, "") };
+  };
+  const smooth = middle({ type: "push", duration: 0.5 });
+  const linear = middle({ type: "push", duration: 0.5, ease: "linear" });
+  assert.equal(linear.scene.layers[1].animations.find((animation) => animation.name === "Push in").easing, "linear");
+  assert.notEqual(linear.svg, smooth.svg);
+  const bezier = sequence(project(), { transition: { type: "whip", ease: [0.7, 0, 0.3, 1] } }).scene.layers[1].animations.find((animation) => animation.name === "Whip in");
+  assert.deepEqual(bezier.easing, [0.7, 0, 0.3, 1]);
+});
+
+test("a radial wipe draws: the next part shows inside the oval, the last part outside it", async () => {
+  const { renderSceneSvg } = await import("./render.js");
+  const { expandComponents } = await import("./linkedComponents.js");
+  const { report, document, scene } = sequence(project(), { transition: { type: "wipe", shape: "radial", centerX: 0.5, centerY: 0.4, softness: 0, edgeWidth: 8, edgeColor: "#FF7D3D" } });
+  assert.deepEqual(report.transitions, ["wipe 0.5s radial", "wipe 0.5s radial"]);
+  const into = scene.layers[1].animations.find((animation) => animation.name === "Wipe in");
+  const out = scene.layers[0].animations.find((animation) => animation.name === "Wipe out");
+  assert.deepEqual(into.to.reveal, { progress: 1, direction: "left", softness: 0, shape: "radial", centerX: 0.5, centerY: 0.4, edgeWidth: 8, edgeColor: "#FF7D3D" });
+  assert.deepEqual(out.from.reveal, { progress: 1, direction: "left", softness: 0, shape: "radial", centerX: 0.5, centerY: 0.4, invert: true });
+  const svg = renderSceneSvg(expandComponents(document, "seq", { fonts: defaultFonts }), 2.75, { fonts: defaultFonts });
+  assert.equal((svg.match(/<ellipse /g) ?? []).length >= 2, true, "both parts are masked by the oval");
+  assert.match(svg, /#FF7D3D/, "the edge band is drawn");
+});
+
+test("zoom amount, whip blur and spin turn and blur", () => {
+  const { scene } = sequence(project(), { transitions: [{ type: "zoom", amount: 2 }, { type: "spin", turn: 180, blur: 0 }] });
+  const zoomIn = scene.layers[1].animations.find((animation) => animation.name === "Zoom in");
+  const zoomOut = scene.layers[0].animations.find((animation) => animation.name === "Zoom out");
+  assert.deepEqual([zoomIn.from.scaleX, zoomOut.to.scaleX], [0.6, 1.2]);
+  const spin = scene.layers[2].animations;
+  assert.deepEqual(spin.find((animation) => animation.name === "Spin in").from.rotation, -180);
+  assert.equal(spin.filter((animation) => animation.effect === "spin-blur").length, 0);
+  const whip = sequence(project(), { transition: { type: "whip", blur: 0.4 } }).scene.layers[1].animations;
+  assert.equal(whip.find((animation) => animation.effect === "directional-blur").to.length, 432);
+  assert.equal(whip.find((animation) => animation.effect === "edge-fill").to.extend, 0.2);
+  const still = sequence(project(), { transition: { type: "whip", blur: 0 } }).scene.layers[1].animations;
+  assert.equal(still.filter((animation) => animation.kind === "effect").length, 0);
+  // A pair's own transition of the same type borrows the shared one's knobs and ease.
+  const lent = sequence(project(), { transition: { type: "zoom", amount: -1, ease: "linear" }, transitions: ["zoom", "crossfade"] }).scene.layers[1].animations;
+  assert.deepEqual([lent[1].from.scaleX, lent[1].easing], [1.2, "linear"]);
+});
+
+test("knobs are checked against their type", () => {
+  const refuse = (transition, pattern) => assert.throws(() => sequence(project(), { transition }), pattern);
+  refuse({ type: "push", blur: 0.2 }, /push has no field blur/);
+  refuse({ type: "zoom", amount: 9 }, /amount must be -4 to 4/);
+  refuse({ type: "wipe", shape: "star" }, /shape must be linear, radial, iris, or clock/);
+  refuse({ type: "crossfade", ease: "wobbly" }, /ease: unsupported easing "wobbly"/);
 });

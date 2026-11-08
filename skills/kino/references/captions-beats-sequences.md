@@ -53,6 +53,8 @@ played as one.
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.
+  Each takes `ease`; wipe `softness` and the wipe settings (`shape` radial, iris, clock...), zoom
+  `amount`, whip `blur`, spin `turn` and `blur` (library topic sequences).
   Render the sequence scene. Parts stay editable; the sequence follows them.
 
 ```json

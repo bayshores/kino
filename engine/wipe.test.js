@@ -144,3 +144,15 @@ test("shape-wipe's clock sweeps a frame of the color, then the next shot, around
   assert.deepEqual(at(done, 40, 10), [0, 0, 255]);
   assert.deepEqual(at(done, 120, 90), [0, 0, 255]);
 });
+
+test("an inverted wipe at 1 - progress shows exactly what the plain wipe hides", () => {
+  assert.throws(() => normalizeReveal({ progress: 0.5, direction: "up", softness: 0, invert: "yes" }), /invert must be true or false/);
+  assert.equal(interpolateReveal({ progress: 1, direction: "up", softness: 0, shape: "iris", invert: true }, { progress: 0, direction: "up", softness: 0, shape: "iris", invert: true }, 0.5).invert, true);
+  for (const shape of ["linear", "radial", "iris", "clock"]) for (const softness of [0, 10]) {
+    const plain = draw({ progress: 0.4, direction: "right", softness, shape }).pixels;
+    const inverted = draw({ progress: 0.6, direction: "right", softness, shape, invert: true, edgeWidth: 12 }).pixels;
+    let worst = 0;
+    for (let i = 0; i < W * H; i++) worst = Math.max(worst, Math.abs(plain[i * 4] + inverted[i * 4] - 255));
+    assert.ok(worst <= 4, `${shape} softness ${softness}: the two cover the box once (worst ${worst})`);
+  }
+});
