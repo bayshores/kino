@@ -57,6 +57,18 @@ function entry(kind, name, line, fits, tags) {
   return { id: `${kind}:${name}`, kind, name, words: words(name), line, fits: fits ?? "", tags, groups: groupsOf(tags) };
 }
 
+// The wipe preset's shapes (engine/wipe.js), each sampled on the next shot over the last.
+const WIPES = {
+  wipe: { line: "wipe: a straight edge sweeps across at any angle, hard or soft, with an optional colored edge band (preset-wipe angle, softness, edgeWidth, edgeColor)",
+    parameters: { angle: 30, softness: 8, edgeWidth: 16, edgeColor: "#FF7D3D" } },
+  "wipe-radial": { line: "radial wipe: an oval in the layer's proportions grows from a center (preset-wipe shape radial, centerX, centerY)",
+    parameters: { shape: "radial", softness: 30 } },
+  "wipe-iris": { line: "iris wipe: a circle opens from any point (preset-wipe shape iris, centerX, centerY)",
+    parameters: { shape: "iris", centerX: 0.3, centerY: 0.4, softness: 0, edgeWidth: 10, edgeColor: "#FFFFFF" } },
+  "wipe-clock": { line: "clock wipe: a hand sweeps around a point (preset-wipe shape clock, angle where it starts, centerX, centerY)",
+    parameters: { shape: "clock", softness: 6 } },
+};
+
 let built = null;
 
 /** Every entry, the kinds with their counts and the technique groups. Built once. */
@@ -73,6 +85,7 @@ export function libraryCatalog() {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
+  for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
   for (const look of Object.values(LOOKS)) entries.push(entry("look", look.name, look.about, "", []));
@@ -211,6 +224,8 @@ export function sampleOps(kind, name) {
     const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
+  if (kind === "animation" && WIPES[name])
+    return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };
   if (kind === "animation") {
     const preset = PRESETS.find((item) => item.id === name);
     if (!preset) return null;

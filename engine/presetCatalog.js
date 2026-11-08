@@ -9,6 +9,7 @@ import { counterTextProblem } from "./counter.js";
 import { resizeTextLayer } from "./textLayout.js";
 import { lineHeightPixels } from "./lineHeight.js";
 import { EFFECT_PRESET_DEFINITIONS, isEffectPreset, normalizeEffectPresetParameters } from "./effects/presetCatalog.js";
+import { WIPE_RANGES, WIPE_SHAPES } from "./reveal.js";
 
 const definitions = {
   appear: { name: "Appear", group: "Basic", parameters: {} },
@@ -43,6 +44,8 @@ const aliases = {
   appear: ["appear", "in"], wipe: ["wipe", "in"], blink: ["blink", "in"],
   "blur-slide": ["blur-slide", "in"], "whip-in": ["whip", "in"], "whip-out": ["whip", "out"],
 };
+// Optional wipe settings of wipe and (not text) mask: absent, today's straight wipe (reveal.js, wipe.js).
+export const WIPE_PARAMETERS = Object.freeze(["shape", "angle", "centerX", "centerY", "edgeColor", "edgeWidth"]);
 const ranges = { distance: [0, 1000], moveX: [-1000, 1000], moveY: [-1000, 1000], opacity: [0, 100], blur: [0, 1000], scale: [0, 1000], softness: [0, 100], count: [1, 20], angle: [-360000, 360000] };
 function record(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value) || ![Object.prototype, null].includes(Object.getPrototypeOf(value)))
@@ -67,19 +70,22 @@ export function normalizePreset(value) {
   const supplied = value.parameters === undefined ? {} : record(value.parameters, "preset.parameters");
   if (isEffectPreset(value)) return { id: value.id, mode, parameters: normalizeEffectPresetParameters(value.id, supplied),
     ...(value.text !== undefined ? { text: value.text } : {}) };
-  onlyKeys(supplied, Object.keys(parameters), "preset.parameters");
+  const wipes = value.id === "wipe" || (value.id === "mask" && !value.text);
+  onlyKeys(supplied, [...Object.keys(parameters), ...(wipes ? WIPE_PARAMETERS : [])], "preset.parameters");
   for (const [key, next] of Object.entries(supplied)) {
     if (value.id === "custom-text" && next === null) {
       parameters[key] = null;
       continue;
     }
-    if (key === "color") {
+    if (key === "shape") {
+      if (!WIPE_SHAPES.includes(next)) throw new TypeError("Preset shape must be linear, radial, iris, or clock");
+    } else if (key === "color" || key === "edgeColor") {
       if (typeof next !== "string" || !/^#(?:[\da-fA-F]{3}|[\da-fA-F]{4}|[\da-fA-F]{6}|[\da-fA-F]{8})$/.test(next))
-        throw new TypeError("Preset color must be a hex color or null");
+        throw new TypeError(`Preset ${key} must be a hex color${key === "color" ? " or null" : ""}`);
     } else if (key === "direction") {
       if (!PRESET_DIRECTIONS.includes(next)) throw new TypeError("Preset direction must be up, down, left, or right");
     } else {
-      const [min, max] = ranges[key];
+      const [min, max] = (wipes && WIPE_RANGES[key]) || ranges[key];
       if (typeof next !== "number" || !Number.isFinite(next) || next < min || next > max || (key === "count" && !Number.isInteger(next)))
         throw new RangeError(`Preset ${key} must be ${key === "count" ? "an integer" : "a finite number"} from ${min} to ${max}`);
     }
@@ -160,6 +166,7 @@ export function presetValues(value, source) {
     rest = { rotation: number(layer.rotation) }; effect = { rotation: rest.rotation + p.angle };
   } else {
     const reveal = { direction: p.direction, softness: id === "wipe" ? p.softness : 0 };
+    for (const key of WIPE_PARAMETERS) if (p[key] !== undefined) reveal[key] = p[key];
     rest = { reveal: { ...reveal, progress: 1 } }; effect = { reveal: { ...reveal, progress: 0 } };
   }
   return { kind: mode, from: mode === "in" ? effect : rest, to: mode === "in" ? rest : effect,

@@ -45,6 +45,7 @@ import { enabledAnimations } from "../engine/animationEnabled.js";
 import { effectDefinition } from "../engine/effects/catalog.js";
 import { lottieShapeParts, roundedBoxMask } from "./lottie-shapes.mjs";
 import { hasSoftReveal, lottieRevealMask, revealSampleTimes } from "./lottie-reveal.mjs";
+import { isGeneralReveal } from "../engine/reveal.js";
 import { lottieFramePosition } from "./lottie-frame-time.mjs";
 import { isFillEnabled } from "../engine/paints.js";
 import { vectorLayer } from "./lottie-vector.mjs";
@@ -2447,6 +2448,9 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
       addLayerContent(node, parentMatrix, parentOpacity, target, domain);
       return;
     }
+    // A shaped or angled wipe, or one with an edge band (engine/wipe.js), is not written to Lottie yet.
+    if (states.some((state) => isGeneralReveal(state.reveal) && state.reveal.progress < 1))
+      throw new Error(`Lottie export draws only straight wipes up, down, left or right; layer “${layer.name ?? layer.id}” has a wipe with a shape, angle, center or edge band. Use PNG, video, or GIF export, or remove those wipe settings for Lottie.`);
     const frames = revealTimes.map((time) => lottieFramePosition(frameTimes, time));
     const matrices = states.map((state, index) => {
       const frame = frames[index], before = Math.min(frameCount, Math.floor(frame));

@@ -29,7 +29,7 @@
  *   radius?:number,cornerRadii?:number[],donut?:number,sweep?:number,startAngle?:number,
  *   spikes?:number,starThickness?:number,stroke?:string|Gradient,strokeWidth?:number,path?:string,
  *   shadow?:{color:string,x:number,y:number,blur:number}|null,letterSpacing?:number,
- *   lineHeight?:number,reveal?:{progress:number,direction:'up'|'down'|'left'|'right',softness:number},
+ *   lineHeight?:number,reveal?:{progress:number,direction:'up'|'down'|'left'|'right',softness:number,shape?:'linear'|'radial'|'iris'|'clock',angle?:number,centerX?:number,centerY?:number,edgeColor?:string,edgeWidth?:number},
  *   effectPreset?:{id:string,parameters:Object,progress:number},volume?:number,speed?:number,lowpass?:number}} Values
  *   A Shadow animation's `shadow` may be null (no shadow): it then fades in or out as the other
  *   end's shadow with zero alpha (see shadowInterpolation.js).

@@ -10,7 +10,8 @@ import { copyContent } from "./effects/svg.js";
 import { renderBackdropBlur, renderGlassBackdrop } from "./effects/backdrop.js";
 import { effectiveBoxStyle } from "./boxStyles.js";
 import { maskSwitchedOff } from "./maskVisibility.js";
-import { FULL_REVEAL, normalizeReveal } from "./reveal.js";
+import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
+import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
@@ -369,6 +370,10 @@ function revealAttributes(state, reveal, context) {
   if (reveal.progress <= 0 || finite(state.width) <= 0 || finite(state.height) <= 0)
     return { attribute: "", sentinel: "", hidden: true };
 
+  if (isGeneralReveal(reveal)) {
+    const general = generalReveal(finite(state.width), finite(state.height), reveal, context.defs, (kind) => idFor(context, kind));
+    return { ...general, sentinel: context.canvas ? "" : rasterClipBounds(state, context), hidden: false };
+  }
   const rect = revealRectangle(state, reveal);
   let attribute;
   if (reveal.softness <= 0) {
@@ -1056,6 +1061,8 @@ function renderLayer(node, context, { maskContent = false } = {}) {
   let content = `${body}${children}${border}`;
   // A repeater draws the layer's drawing once per copy (repeater.js).
   if (repeaterOf(state)) content = repeatMarkup(content, state, idFor(context, "repeat"));
+  // A wipe's edge band draws over the layer's own drawing (wipe.js).
+  if (revealRender.band) content = revealRender.band(content);
   content = `${revealRender.sentinel}${content}`;
   let filter = "";
   if (!textHasUnits) {
