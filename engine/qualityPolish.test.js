@@ -410,6 +410,25 @@ test("screen_unreadable: a screen recording shown whole under 2 px a screen poin
   assert.match(own.fix.text, /name:"screen-recording", layer:"rec"/);
 });
 
+test("screen_unreadable: a phone recording is read as 3x; a blurred copy or a same-size twin is no insert", async () => {
+  // An iPhone recording (1179 px, 393 pt) filling a 9:16 frame is 2.75 px a point; drawn 500 wide it is 1.27.
+  const PHONE = { mediaSizes: { [REC]: { width: 1179, height: 2556, edges: 0.12, flat: 0.6, busy: [10, 10, 40, 40] } } };
+  const phone = (props) => scene({ width: 1080, height: 1920, duration: 4, layers: [{ type: "video", id: "rec", name: "rec", src: REC, mediaSourceDuration: 10, ...props }] });
+  await silent("screen_unreadable", phone({ x: 0, y: -210, width: 1080, height: 2341 }), PHONE);
+  const [small] = await fires("screen_unreadable", phone({ x: 290, y: 418, width: 500, height: 1084 }), PHONE);
+  assert.match(small.measured, /1\.27 px a screen point/);
+  // A 1200 px card of a 2560 px recording (0.94 px a point): a blurred full-frame copy behind it or a
+  // twin of the same size beside it shows no detail; a sharp copy drawn 1.4x larger does.
+  const card = { type: "video", id: "rec", name: "rec", src: REC, mediaSourceDuration: 10, x: 360, y: 202, width: 1200, height: 720 };
+  const copy = (props) => ({ type: "video", id: "copy", name: "copy", src: REC, mediaSourceDuration: 10, ...props });
+  await fires("screen_unreadable", scene({ duration: 4, layers: [copy({ x: -200, y: -120, width: 2320, height: 1392, blur: 40 }), card] }), UI_CLIP);
+  const twins = await fires("screen_unreadable", scene({ duration: 4, layers: [{ ...card, x: 60, width: 880, height: 528 }, copy({ x: 980, y: 202, width: 880, height: 528 })] }), UI_CLIP);
+  assert.equal(twins.length, 2);
+  await silent("screen_unreadable", scene({ duration: 4, layers: [copy({ x: -340, y: -240, width: 2600, height: 1560 }), card] }), UI_CLIP);
+  // Blurred itself, the recording is a backdrop nobody reads.
+  await silent("screen_unreadable", scene({ duration: 4, layers: [{ ...card, blur: 24 }] }), UI_CLIP);
+});
+
 test("a slow hold drift is left alone by duration_band", async () => {
   const drifting = scene({ duration: 5, layers: [text("title", "The end", { animations: [fadeIn(0, 0.5), move(0.6, 2.2, { y: 200 }, { y: 160 })] })] });
   await silent("duration_band", drifting);

@@ -22,6 +22,7 @@
 import { CUT_TIMING_TAGS, PLAIN_TAGS } from "../../techniques.js";
 import { cuts, designedTexts, drawnSize, readableAt, readingTexts, sec, speechTimed, typeLimits } from "../analysis.js";
 import { textSlideSamples } from "./style.js";
+import { isCredit } from "./tells.js";
 import { area, chainOf, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { subjectOnScene } from "../../sourceView.js";
@@ -652,7 +653,8 @@ export function endingCount(model, ctx) {
 // ---------------------------------------------------------------- template_end
 
 // The end card the owner keeps turning down: a centered name or logo with a smaller line (a
-// tagline, an address, a credit) over a still or flat frame, held at the end. Held this long it reads as a card.
+// tagline, an address) over a still or flat frame, held at the end. Held this long it reads as a card.
+// A big number with its label (a data ending) is no name, and a music or license credit is no tagline.
 const TEMPLATE_HOLD = 1.5;
 // The card's last readable sample is this close to the end (a fade out after it is fine).
 const END_TAIL = 0.75;
@@ -682,11 +684,12 @@ export function templateEnd(model, ctx) {
     const middle = (box.y0 + box.y1) / 2;
     return Math.abs((box.x0 + box.x1) / 2 - model.width / 2) <= CENTER_SLACK * model.width && middle > model.height * 0.2 && middle < model.height * 0.8;
   };
-  const names = model.items.filter((item) => !item.isMask && (isLogo(item, asset) ? item.kind !== "video" : texts.includes(item) && ["display", "stat"].includes(typeRole(model, item))));
+  const names = model.items.filter((item) => !item.isMask && (isLogo(item, asset) ? item.kind !== "video" : texts.includes(item) && typeRole(model, item) === "display"));
   let best = null;
   for (const name of names) {
     const size = sizeOf(name);
-    const lines = texts.filter((item) => item !== name && !names.includes(item) && drawnSize(model, item) <= SMALLER * size);
+    // A tagline set at headline size is still a line when it is this much smaller than the name.
+    const lines = texts.filter((item) => item !== name && !isCredit(item) && drawnSize(model, item) <= SMALLER * size);
     let held = 0;
     const seen = new Set();
     for (let index = from; index <= last; index += 1) {

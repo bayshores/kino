@@ -335,6 +335,8 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       sceneBackground: layer.sceneBackground === true,
       fill, painted: media || (fill != null && fillAlpha(fill) > 0.05) || (layer.strokeWidth > 0 && layer.type !== "text"),
       opaque: media || (fill != null && fillAlpha(fill, true) >= 0.5),
+      // The paint's clearest alpha: a scrim's fill alpha hides what is under it no more than its opacity would.
+      ...(!media && fill != null ? { paintAlpha: fillAlpha(fill, true) } : {}),
       // An outline's paint and width (accent_budget counts an accent stroke).
       stroke: layer.strokeWidth > 0 && layer.type !== "text" ? { paint: layer.stroke ?? null, width: finite(layer.strokeWidth) } : null,
       shadow: layer.shadow ? { blur: finite(layer.shadow.blur), x: finite(layer.shadow.x), y: finite(layer.shadow.y), color: layer.shadow.color ?? null } : null,

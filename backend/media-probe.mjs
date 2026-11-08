@@ -217,7 +217,8 @@ export async function videoFrameFacts(path, duration = 0, { signal } = {}) {
     const height = Math.min(1200, Math.floor(gray.length / width));
     return height > 1 ? imageFacts(new Uint8Array(gray.buffer, gray.byteOffset, width * height), width, height, { flatStep: 0 }) : { busy: null };
   } catch {
-    return { busy: null };
+    // A failed run (a timeout under load) is no fact: null, so it is measured again later.
+    return null;
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

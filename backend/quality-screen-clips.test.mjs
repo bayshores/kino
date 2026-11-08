@@ -32,3 +32,26 @@ test("an old video record gets its frame facts once; a clip kino recorded needs 
   assert.ok(unreadable(await recorded.check(clip(1920), { fonts: defaultFonts, pixels: false })));
   assert.equal(asked, 1);
 });
+
+test("a failed or slow frame measure is asked again next check, and check waits on it only so long", async (t) => {
+  const mediaRoot = await mkdtemp(path.join(tmpdir(), "kino-screen-clips-"));
+  t.after(() => rm(mediaRoot, { recursive: true, force: true }));
+  await writeFile(path.join(mediaRoot, `${ID}.json`), JSON.stringify({ id: ID, src: `/api/media/${ID}`, name: "dash.mp4", mime: "video/mp4", width: 2560, height: 1536, duration: 10, hasVideo: true }));
+  const facts = { edges: 0.12, flat: 0.6, busy: [0, 60, 40, 40] };
+  // Fails once (nothing saved), then measures.
+  let asked = 0;
+  const flaky = createQualityChecker({ mediaRoot, videoFacts: async () => (++asked === 1 ? {} : facts) });
+  assert.ok(!unreadable(await flaky.check(clip(1920), { fonts: defaultFonts, pixels: false })));
+  assert.ok(unreadable(await flaky.check(clip(1920), { fonts: defaultFonts, pixels: false })));
+  assert.equal(asked, 2);
+  // Slower than the wait: the check goes on without it; the next one has it.
+  let finish;
+  const slow = createQualityChecker({ mediaRoot, factsWaitMs: 20, videoFacts: () => new Promise((done) => { finish = () => done(facts); }) });
+  const started = Date.now();
+  assert.ok(!unreadable(await slow.check(clip(1920), { fonts: defaultFonts, pixels: false })));
+  assert.ok(Date.now() - started < 2000);
+  finish();
+  await new Promise((done) => setTimeout(done, 0));
+  await writeFile(path.join(mediaRoot, `${ID}.json`), JSON.stringify({ id: ID, src: `/api/media/${ID}`, name: "dash.mp4", width: 2560, height: 1536, duration: 10, hasVideo: true, ...facts }));
+  assert.ok(unreadable(await slow.check(clip(1920), { fonts: defaultFonts, pixels: false })));
+});

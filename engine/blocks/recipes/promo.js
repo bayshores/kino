@@ -4,7 +4,7 @@
 import { createLayer } from "../../model.js";
 import { alignIn, column, imageLayer, paint, shapeLayer, textLayer, textWidth, withAlpha } from "../build.js";
 import { isPortraitFrame, safeArea, slotBox } from "../formats.js";
-import { looksLikeScreen } from "../../imageFacts.js";
+import { looksLikeScreen, looksLikeScreenClip, readableClipWidth } from "../../imageFacts.js";
 import { alignOf, boundsOf, cardAround, headlineStep, logoLayer, pillWithText, px, RETIRED_KICKER, shiftX, styleOf } from "./common.js";
 
 export const logoSting = {
@@ -78,12 +78,29 @@ function stageLight(ctx, picture) {
   });
 }
 
-// A screenshot (or any picture given a region) pushes slowly into its region while it holds
-// (recipe.js); region: false keeps it still. Returns the picture's facts, or null.
+// A screenshot or screen recording (or any picture given a region) pushes slowly into its region
+// while it holds (recipe.js); region: false keeps it still. Returns the picture's facts, or null.
 function screenOf(ctx, picture, settings) {
   ctx.used.add("region");
-  // A video's frame facts are measured another way (looksLikeScreenClip): only a region pushes it.
-  return picture && settings.region !== false && (settings.region || (picture.kind !== "video" && looksLikeScreen(picture))) ? picture : null;
+  return picture && settings.region !== false && (settings.region || isScreen(picture)) ? picture : null;
+}
+const isScreen = (file) => (file.kind === "video" ? looksLikeScreenClip(file) : looksLikeScreen(file));
+const isScreenClip = (file) => file.kind === "video" && looksLikeScreenClip(file);
+
+// The most output px a file px before the hold's push (1.18x) takes it past soft_upscale's 1.3x.
+const SHARP_MOST = 1.1;
+const clampTo = (value, low, high) => Math.max(low, Math.min(high, value));
+
+/**
+ * A screen recording drawn at `scale` (output px a file px) inside `box`, panned so the middle of
+ * `region` (% of the clip) sits as near the box's middle as covering it allows. Returns the clip's box.
+ */
+function panned(file, box, scale, region) {
+  const [w, h] = [Math.round(file.width * scale), Math.round(file.height * scale)];
+  const [mx, my] = [(w * (region[0] + region[2] / 2)) / 100, (h * (region[1] + region[3] / 2)) / 100];
+  const x = Math.round(clampTo(box.x + box.width / 2 - mx, box.x + box.width - w, box.x));
+  const y = Math.round(clampTo(box.y + box.height / 2 - my, box.y + box.height - h, box.y));
+  return { box: { x, y, width: w, height: h } };
 }
 
 export const deviceSlide = {
@@ -119,7 +136,17 @@ export const deviceSlide = {
       pictureBox = portrait ? { x: 0, y: top, width: frame.width, height: Math.round(frame.height * 0.42) } : { x: safe.x, y: top, width: safe.width, height: safe.y + safe.height - top };
     }
     if (settings.slot && hasText) textBox = slotBox(frame, wide ? "A2:B5" : "A1:F2");
-    const picture = imageLayer(ctx, { media: media[0], box: pictureBox, role: "hero", name: media[0].name ?? "Product" });
+    let picture = imageLayer(ctx, { media: media[0], box: pictureBox, role: "hero", name: media[0].name ?? "Product" });
+    // A screen recording drawn too small to read (screen_unreadable) becomes a window onto its busy
+    // part, the clip inside drawn large enough to read. The playing clip is the window's motion: it holds still.
+    let inside = null;
+    // 6% past the bar, so a scene's own drift or a scale never takes it under.
+    const need = isScreenClip(media[0]) && settings.region !== false ? Math.min(1.06 * readableClipWidth(media[0], frame), SHARP_MOST * media[0].width) : 0;
+    if (need > picture.width * 1.05) {
+      const pan = panned(media[0], picture, need / media[0].width, settings.region || media[0].busy || [30, 30, 40, 40]);
+      inside = imageLayer(ctx, { media: media[0], box: pan.box, role: "decor", name: `${picture.name} (detail)` });
+      picture = createLayer("group", { name: picture.name, x: picture.x, y: picture.y, width: picture.width, height: picture.height, clipContent: true, radius: px(ctx, 14), role: "hero" });
+    }
     const align = wide ? "left" : "center";
     const head = copy.text ? textLayer(ctx, { part: "headline", text: copy.text, role: "headline", step: wide ? "h2" : headlineStep(copy.text), box: { ...textBox, height: textBox.height * (copy.sub ? 0.62 : 1) }, align, maxLines: wide ? 4 : 2 }) : null;
     const sub = copy.sub ? textLayer(ctx, { part: "sub", text: copy.sub, role: "subhead", step: "body", box: { ...textBox, height: textBox.height * (copy.text ? 0.34 : 1) }, align, maxLines: 3 }) : null;
@@ -131,7 +158,8 @@ export const deviceSlide = {
     return {
       parts: [
         glow && { part: "light", layer: glow, enter: { style: "fade", at: 0, kind: "large" } },
-        { part: null, layer: picture, enter: { style: pictureStyle, at: 0, kind: "large", easing: "hero" }, screen: screenOf(ctx, media[0], settings) },
+        { part: null, layer: picture, enter: { style: pictureStyle, at: 0, kind: "large", easing: "hero" }, ...(inside ? { still: true } : { screen: screenOf(ctx, media[0], settings) }) },
+        inside && { part: "detail", layer: inside, child: true, enter: { style: "scale", with: null, gap: 0, kind: "large", easing: "hero" } },
         // The words enter another way than the picture, so the parts never all fade up alike.
         head && { part: "headline", layer: head, enter: { style: pictureStyle === "fade-up" ? "lines" : "fade-up", with: null, gap: 0.25 } },
         sub && { part: "sub", layer: sub, enter: head ? { style: "fade-up", after: "headline", gap: -0.2 } : { style: "fade-up", with: null, gap: 0.3 } },
@@ -294,7 +322,7 @@ export const pricePop = {
 export const ctaEnd = {
   name: "cta-end",
   group: "promo",
-  about: "the call to action in an accent button, with an optional address or line under it, over the video's own shot (media: it fills the frame, dimmed, and pushes in); it stays to the end",
+  about: "the call to action in an accent button, with an optional address or line under it, over the video's own shot (media: it fills the frame, dimmed, and pushes in; blurred if too small to stay sharp); it stays to the end",
   copy: [
     { key: "text", required: true, max: 28, about: "the call to action, such as Start free" },
     { key: "sub", max: 48, about: "an address or a short line, such as kino.app" },
@@ -323,17 +351,27 @@ export const ctaEnd = {
 };
 
 
-/** A picture or clip covering the frame under a dim veil, as recipe parts; the picture pushes into its middle while it holds. */
+/**
+ * A picture or clip covering the frame under a dim veil, as recipe parts; it pushes into its middle
+ * (a screen's busy part) while it holds. A screen recording is drawn large enough to read; a file
+ * too small to cover the frame sharp is blurred into a backdrop instead of drawn soft.
+ */
 function fullFrame(ctx, file) {
   const { frame } = ctx;
   const [width, height] = [file.width || frame.width, file.height || frame.height];
+  const sized = { ...file, width, height };
   const cover = Math.max(frame.width / width, frame.height / height);
-  const [w, h] = [Math.round(width * cover), Math.round(height * cover)];
-  const shot = imageLayer(ctx, { media: file, box: { x: Math.round((frame.width - w) / 2), y: Math.round((frame.height - h) / 2), width: w, height: h }, role: "background", name: file.name ?? "Shot" });
+  const scale = Math.max(cover, isScreenClip(sized) ? readableClipWidth(sized, frame) / width : 0);
+  const region = isScreen(sized) && Array.isArray(file.busy) ? file.busy : [35, 35, 30, 30];
+  const { box } = panned(sized, { x: 0, y: 0, width: frame.width, height: frame.height }, scale, region);
+  const shot = imageLayer(ctx, { media: file, box, role: "background", name: file.name ?? "Shot" });
+  // It pushes about the frame's middle (the region is panned there), so no corner travels fast.
+  const focus = [(100 * (frame.width / 2 - box.x)) / box.width, (100 * (frame.height / 2 - box.y)) / box.height, 0, 0];
+  if (file.width > 0 && scale > SHARP_MOST) shot.blur = Math.max(18, px(ctx, 24));
   // Under half opaque, so the shot still reads through it.
   const veil = shapeLayer(ctx, { box: { x: 0, y: 0, width: frame.width, height: frame.height }, color: "#0B0B0C73", role: "decor", name: "Dim" });
   return [
-    { part: "shot", layer: shot, enter: { style: "fade", at: 0, kind: "large" }, screen: file, focus: [35, 35, 30, 30], still: true, exit: "fade" },
+    { part: "shot", layer: shot, enter: { style: "fade", at: 0, kind: "large" }, screen: file, focus, still: true, exit: "fade" },
     { part: "dim", layer: veil, enter: { style: "fade", with: "shot", gap: 0, kind: "large" }, still: true, exit: "fade" },
   ];
 }

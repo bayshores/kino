@@ -33,6 +33,8 @@ const CACHE_SIZE = 64;
 // The models kept are also bounded by the bytes of their samples: a ten-minute scene with a
 // caption page every 3 s has 402 items sampled 9,001 times, about 116 MB.
 const CACHE_BYTES = 512 * 1024 * 1024;
+// The longest a check waits, in all, on old videos' first frame facts (one FFmpeg run each).
+const FACTS_WAIT_MS = 8000;
 
 // Bytes of a model's samples (typed arrays; a plain array counts 8 bytes a slot).
 function modelBytes(model) {
@@ -503,7 +505,7 @@ async function peopleIn(scene, peopleOf, make) {
  * long its renders wait after the last call or render (render-activity.mjs QUIET_MS; tests shorten it).
  */
 
-export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = null, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
+export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = null, factsWaitMs = FACTS_WAIT_MS, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
   const cache = new Map();
   // Frames rendered for earlier checks, reused where a changed scene looks the same (frame-reuse.mjs).
   const frameReuse = reuseFrames ? createFrameReuse() : null;
@@ -541,29 +543,52 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
   async function mediaSizes(document) {
     const found = {};
     const names = {};
+    const pending = [];
+    // Videos measured before kino read a frame's facts (backend/media-probe.mjs videoFrameFacts):
+    // all are asked at once (videoFacts runs them one at a time) and waited on factsWaitMs in all.
+    // One not measured by then is judged without facts and asked again next check.
+    const asked = new Map();
+    const records = new Map();
+    for (const scene of document.scenes) for (const layer of scene.layers) {
+      if (!["image", "video", "audio"].includes(layer.type) || !layer.src || sizes.has(layer.src) || records.has(layer.src)) continue;
+      const id = mediaIdFromSource(layer.src);
+      let record = null;
+      try { record = id && mediaRoot ? JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8")) : null; } catch { record = null; }
+      records.set(layer.src, record);
+      if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && !Object.hasOwn(record, "busy") && !record.recording) {
+        const facts = {};
+        asked.set(layer.src, { facts, job: Promise.resolve().then(() => videoFacts(id, record)).then((value) => Object.assign(facts, value), () => {}) });
+      }
+    }
+    if (asked.size) {
+      let timer;
+      await Promise.race([Promise.all([...asked.values()].map((entry) => entry.job)), new Promise((done) => { timer = setTimeout(done, factsWaitMs); })]);
+      clearTimeout(timer);
+    }
     for (const scene of document.scenes) for (const layer of scene.layers) {
       if (!["image", "video", "audio"].includes(layer.type) || !layer.src || layer.src in names) continue;
-      if (!sizes.has(layer.src)) {
-        const id = mediaIdFromSource(layer.src);
-        let record = null;
-        try { record = id && mediaRoot ? JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8")) : null; } catch { record = null; }
-        // A video measured before kino read a frame's facts (backend/media-probe.mjs videoFrameFacts).
-        if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && !Object.hasOwn(record, "busy") && !record.recording) {
-          try { record = { ...record, ...(await videoFacts(id, record)) }; } catch { /* left unmeasured */ }
-        }
+      let entry = sizes.get(layer.src);
+      if (!entry) {
+        let record = records.get(layer.src) ?? null;
+        const measured = asked.get(layer.src)?.facts;
+        if (measured) record = { ...record, ...measured };
         const size = record?.width > 0 && record?.height > 0 ? { width: record.width, height: record.height,
           ...(Array.isArray(record.busy) ? { busy: record.busy, edges: record.edges, flat: record.flat } : {}),
           // screen_unreadable: kino recorded it (its frame in points), or its name says screen.
           ...(layer.type === "video" && record.recording ? { screen: true, ...(record.recording.frame?.[0] > 0 ? { points: record.recording.frame[0] } : {}) } : {}),
           ...(layer.type === "video" && SCREEN_NAME.test(String(record.name ?? "")) ? { named: true } : {}) } : null;
-        sizes.set(layer.src, { size, name: typeof record?.name === "string" ? record.name : null });
+        entry = { size, name: typeof record?.name === "string" ? record.name : null };
+        // Unmeasured (failed or still running): not kept, so the next check reads the saved facts.
+        if (!measured || Object.hasOwn(measured, "busy")) sizes.set(layer.src, entry);
+        else pending.push(layer.src);
         if (sizes.size > 4096) sizes.delete(sizes.keys().next().value);
       }
-      const { size, name } = sizes.get(layer.src);
+      const { size, name } = entry;
       if (layer.type !== "audio") found[layer.src] = size;
       names[layer.src] = name;
     }
-    return { sizes: found, names };
+    // In each scene's key, so a check made before the facts came is not kept after.
+    return { sizes: found, names, pending: pending.join(",") };
   }
 
   // A kept check, made the most recently used.
@@ -718,7 +743,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}`).join(",");
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
-      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}\nhouse:${houseStamp}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}`;
+      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}\nhouse:${houseStamp}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null

@@ -9,7 +9,8 @@
 import { sec } from "../analysis.js";
 import { area, boxAt, chainOf, intersection, isText, longestRun, roundBox, runs, tweensOf } from "../model.js";
 import { coveredAt } from "../techniques.js";
-import { looksLikeScreenClip } from "../../imageFacts.js";
+import { CLIP_READABLE, clipPoints, looksLikeScreenClip } from "../../imageFacts.js";
+import { SOFT_BLUR } from "./footage.js";
 import { layerMovingAt, screenSize } from "./polish.js";
 
 const FRAME = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
@@ -18,6 +19,7 @@ const seconds = (model, run) => run.length / model.fps;
 const spanOf = (model, run) => ({ at: sec(model.times[run.from]), until: sec(model.times[run.to]) });
 const centerOf = (box) => ({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 });
 const widthOf = (box) => box.x1 - box.x0;
+const blurred = (item, index) => item.blur >= SOFT_BLUR || item.samples.blur?.[index] >= SOFT_BLUR;
 const hits = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
 
 // ---------------------------------------------------------------- frozen_screen
@@ -134,9 +136,7 @@ const DETAIL_PUSH = 1.4;
 // Screens smaller than this share of the frame are thumbnails nobody is asked to read.
 const SEEN = 0.05;
 
-// A screen recording's UI text reads in a video at 2 output px a screen point or more at 1080p
-// (13 pt type about 26 px): a whole window drawn to fill the frame is under it, a zoom is over it.
-const CLIP_READABLE = 2;
+// UI type size in screen points (CLIP_READABLE, engine/imageFacts.js, is the readable px a point).
 const UI_POINTS = 13;
 
 /** The facts of a video that is a screen recording (kino recorded it, or a frame reads as UI), or null. */
@@ -158,19 +158,23 @@ export function screenUnreadable(model, ctx) {
     const found = screenSize(ctx, item) ?? screenClipSize(ctx, item);
     if (!found) continue;
     const clip = item.kind === "video";
-    // A recording kino made knows its frame in points; any other clip is read as a 2x capture (a
-    // crop of one is under 2400 px too), so a 1x clip is never called smaller than it is.
-    const size = { ...found, width: found.points ?? (clip ? found.width / 2 : pointWidth(found)) };
+    // A recording kino made knows its frame in points; any other clip is read as a 2x capture (3x
+    // when phone-shaped), so a 1x clip is never called smaller than it is.
+    const size = { ...found, width: clip ? clipPoints(found) : found.points ?? pointWidth(found) };
     // The narrowest drawn width that reads: a share of a screenshot's points, px a point for a clip.
     const needed = clip ? (CLIP_READABLE * size.width * Math.min(model.width, model.height)) / 1080 : READABLE * size.width;
     const small = (index) => {
-      if (item.samples.opacity[index] < 0.5 || coveredAt(model, item, index)) return false;
+      // A blurred screen is a backdrop nobody is asked to read.
+      if (item.samples.opacity[index] < 0.5 || coveredAt(model, item, index) || blurred(item, index)) return false;
       const box = boxAt(item, index);
       return frameShare(model, box) >= SEEN && widthOf(box) < needed;
     };
     // A crop of the same file (screen-detail's lifted card, a clipped copy, a clip's insert) shown then shows the detail.
+    // A clip's insert must be sharp and drawn 1.4x larger: a blurred backdrop copy or a twin beside it shows none.
     const crops = model.items.filter((other) => other !== item && other.src === item.src && (other.clipIds?.length || clip));
     const shown = (index) => item.samples.opacity[index] >= 0.5;
+    const detailAt = (crop, index) => crop.samples.opacity[index] >= 0.5
+      && (!clip || (!blurred(crop, index) && widthOf(boxAt(crop, index)) >= DETAIL_PUSH * widthOf(boxAt(item, index))));
     const stretches = runs(model.times.length, small).filter((run) => {
       if (seconds(model, run) <= UNREADABLE_SECONDS) return false;
       // A push that grows it 1.4x while it stays on screen shows its detail on the way in, even
@@ -178,7 +182,8 @@ export function screenUnreadable(model, ctx) {
       const widths = [];
       for (let index = run.from; index < model.times.length && (index <= run.to || shown(index)); index += 1) widths.push(widthOf(boxAt(item, index)));
       if (Math.max(...widths) >= DETAIL_PUSH * Math.min(...widths)) return false;
-      return !crops.some((crop) => crop.samples.opacity.slice(run.from, run.to + 1).some((opacity) => opacity >= 0.5));
+      for (let index = run.from; index <= run.to; index += 1) if (crops.some((crop) => detailAt(crop, index))) return false;
+      return true;
     });
     const longest = longestRun(stretches);
     if (!longest) continue;

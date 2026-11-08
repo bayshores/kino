@@ -659,7 +659,7 @@ async function measureMedia(filename, mime) {
     // A video's frame facts tell a screen recording from camera footage (screen_unreadable).
     const frame = mime.startsWith("video/") && probe.hasVideo ? await videoFrameFacts(filename, probe.duration) : {};
     return {
-      ...frame,
+      ...(frame ?? {}),
       duration: probe.duration,
       width: probe.width,
       height: probe.height,
@@ -746,14 +746,19 @@ function withMeasurements(entry) {
 }
 
 // A video measured before kino read its frame facts gets them once, the first time check needs
-// them (backend/agent/quality.mjs): one FFmpeg run at a time, saved into its record.
+// them (backend/agent/quality.mjs): one FFmpeg run at a time, saved into its record. A failed run
+// saves nothing and is tried again after FACTS_RETRY_MS.
 let videoFactsQueue = Promise.resolve();
+const FACTS_RETRY_MS = 10 * 60_000;
+const factsFailed = new Map();
 function videoFactsOf(id) {
   if (!mediaFilePattern.test(id)) return Promise.resolve({});
+  if (Date.now() - (factsFailed.get(id) ?? -Infinity) < FACTS_RETRY_MS) return Promise.resolve({});
   const job = videoFactsQueue.then(async () => {
     const record = JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8"));
     if (Object.hasOwn(record, "busy")) return { busy: record.busy, edges: record.edges, flat: record.flat };
     const facts = await videoFrameFacts(path.join(mediaRoot, id), record.duration);
+    if (!facts) { factsFailed.set(id, Date.now()); return {}; }
     await saveMediaRecord(id, facts);
     return facts;
   });

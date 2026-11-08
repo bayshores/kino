@@ -69,3 +69,14 @@ export function looksLikeScreenClip({ width, height, edges, flat }) {
   const shape = width / height;
   return edges >= 0.08 && flat >= 0.45 && (shape >= 1.05 || (shape >= 0.4 && shape <= 0.75));
 }
+
+// A screen recording's UI text reads in a video at 2 output px a screen point or more at 1080p
+// (13 pt type about 26 px): a whole window drawn to fill the frame is under it, a zoom is over it.
+export const CLIP_READABLE = 2;
+/**
+ * A screen recording's width in screen points: kino's own recordings know it; a phone-shaped
+ * (portrait) clip is read as a 3x capture (an iPhone's 1179 px is 393 pt), any other as 2x.
+ */
+export const clipPoints = (size) => size.points ?? (size.height > size.width ? size.width / 3 : size.width / 2);
+/** The narrowest drawn width at which a screen recording's UI text reads in `frame`. */
+export const readableClipWidth = (size, frame) => (CLIP_READABLE * clipPoints(size) * Math.min(frame.width, frame.height)) / 1080;

@@ -32,7 +32,7 @@ export const UPSCALE_MAX = 1.3;
 // 1080x1920 is drawn 1.78x, which is common and only a little soft.
 export const UPSCALE_GATE = 2;
 // A blur this strong is meant to be soft (a blurred backdrop): neither rule judges it.
-const SOFT_BLUR = 16;
+export const SOFT_BLUR = 16;
 // The most of the file a side may lose before the crop needs a reason (a marked subject).
 export const CROP_MAX = 8;
 // The least of a marked subject that must stay in the frame.

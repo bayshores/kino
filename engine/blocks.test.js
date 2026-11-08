@@ -13,7 +13,7 @@ import { RECIPES, RECIPE_NAMES, ALL_RECIPE_NAMES, recipeOf, describeRecipes } fr
 import { runRecipe, settingsFrom } from "./blocks/recipe.js";
 import { composeScene, readComposition } from "./blocks/compose.js";
 import { backdropLayers } from "./blocks/backdrop.js";
-import { imageFacts, looksLikeScreen, looksLikeScreenClip } from "./imageFacts.js";
+import { clipPoints, imageFacts, looksLikeScreen, looksLikeScreenClip } from "./imageFacts.js";
 import { applyTransition } from "./blocks/recipes/transitions.js";
 import { EXAMPLES } from "./blocks/examples.js";
 
@@ -361,6 +361,11 @@ test("screens: a screenshot's busiest region is measured, and device-slide pushe
   assert.ok(looksLikeScreen({ width: 1440, height: 900, edges: 0.1, flat: 0.8 }) && !looksLikeScreen({ width: 1440, height: 900, edges: 0.3, flat: 0.3 }));
   // A video frame (384 px, exact flats): UI fills and text edges, not camera grain.
   assert.ok(looksLikeScreenClip({ width: 2560, height: 1536, edges: 0.11, flat: 0.5 }) && !looksLikeScreenClip({ width: 1920, height: 1080, edges: 0.1, flat: 0.21 }) && !looksLikeScreenClip({ width: 1920, height: 1080, edges: 0.007, flat: 0.95 }));
+  // A flat-graphic render with big type (measured on kino's own renders: 2-5% edges) is no screen.
+  assert.ok(!looksLikeScreenClip({ width: 1920, height: 1080, edges: 0.053, flat: 0.749 }));
+  // A phone recording is read as a 3x capture: 1179 px is 393 points.
+  assert.equal(clipPoints({ width: 1179, height: 2556 }), 393);
+  assert.equal(clipPoints({ width: 2880, height: 1800 }), 1440);
   const shot = { ...PICTURES.product, edges: 0.1, flat: 0.8, busy: [55, 55, 40, 40] };
   const style = styleFor({ look: "crisp", frame: parseFormat("16:9") });
   const run = (settings) => runRecipe(RECIPES["device-slide"], { id: "r", settings: { media: "product", ...settings }, style, frame: style.frame, fonts: defaultFonts, start: 0, end: 5, media: () => shot });

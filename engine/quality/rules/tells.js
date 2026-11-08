@@ -20,7 +20,10 @@ const FILL_CLIP_SHARE = 0.2;
 
 const textsOf = (item) => (Array.isArray(item.texts) && item.texts.length ? item.texts : [item.text]).filter((text) => typeof text === "string" && text.trim());
 
-const CREDIT_LINE = /^\s*(music|song|track|footage|photos?|credits?)\s*(by)?\s*[:\-]|^\s*(music|song|footage|photos?)\s+by\b|\bCC[ -]?(BY|0)\b|\blicen[cs]ed?\b|\bcourtesy of\b/i;
+export const CREDIT_LINE = /^\s*(music|song|track|footage|photos?|credits?)\s*(by)?\s*[:\-]|^\s*(music|song|footage|photos?)\s+by\b|\bCC[ -]?(BY|0)\b|\blicen[cs]ed?\b|\bcourtesy of\b/i;
+
+/** True when a text layer is a music, footage or license credit. */
+export const isCredit = (item) => CREDIT_LINE.test(textsOf(item).join(" "));
 
 /** On-screen text whose words are mostly in none of the saved sources. */
 export function ownWords(model, ctx) {
