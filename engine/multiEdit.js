@@ -53,7 +53,7 @@ const TEXT_PROPERTIES = [
 // every layer.
 const PROPERTY_LAYERS = {
   x: VISUAL, y: VISUAL, rotation: VISUAL, scaleX: VISUAL, scaleY: VISUAL, skewX: VISUAL,
-  opacity: VISUAL, blur: VISUAL, shadow: VISUAL, blendMode: VISUAL, isMask: VISUAL,
+  opacity: VISUAL, blur: VISUAL, shadow: VISUAL, blendMode: VISUAL, isMask: VISUAL, maskInvert: VISUAL, maskMode: VISUAL,
   width: SIZED, height: SIZED, lockAspect: SIZED,
   fill: (layer) => FILL_LAYER_TYPES.has(layer.type),
   fillEnabled: (layer) => FILL_LAYER_TYPES.has(layer.type),

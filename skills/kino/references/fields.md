@@ -31,7 +31,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `outline_text {scene?, layer}`
 - `group_layers {scene?, layers, name?, groupId?}`
 - `ungroup_layer {scene?, layer}`
-- `create_mask {scene?, layers, maskLayerId?, name?, groupId?}`
+- `create_mask {scene?, layers, maskLayerId?, name?, groupId?, maskInvert?, maskMode?}`
 - `remove_mask {scene?, layer}`
 - `reorder_layer {scene?, layer, to}`
 - `move_layers {scene?, layers, position, referenceId? | parent?, mask?}`

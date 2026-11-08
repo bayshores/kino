@@ -57,6 +57,14 @@ function entry(kind, name, line, fits, tags) {
   return { id: `${kind}:${name}`, kind, name, words: words(name), line, fits: fits ?? "", tags, groups: groupsOf(tags) };
 }
 
+// Masks with maskInvert or maskMode (engine/maskVisibility.js), each with its sample (MASK_SAMPLES).
+const MASKS = {
+  "knockout-type": { line: "knockout type: a big word cut out of the shot, the next shot showing through its letters (create_mask with a text mask, maskInvert true)",
+    fits: "a title over footage that keeps the picture moving behind it", tags: ["type-giant"] },
+  "logo-cut": { line: "logo cut: a picture logo's own shape, by its see-through parts, shows the next shot (create_mask with a picture mask, maskMode alpha)",
+    fits: "a logo filled with footage", tags: [] },
+};
+
 // The wipe preset's shapes (engine/wipe.js), each sampled on the next shot over the last.
 const WIPES = {
   wipe: { line: "wipe: a straight edge sweeps across at any angle, hard or soft, with an optional colored edge band (preset-wipe angle, softness, edgeWidth, edgeColor)",
@@ -87,6 +95,7 @@ export function libraryCatalog() {
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
+  for (const [name, { line, fits, tags }] of Object.entries(MASKS)) entries.push(entry("technique", name, line, fits, tags));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
   for (const look of Object.values(LOOKS)) entries.push(entry("look", look.name, look.about, "", []));
@@ -216,6 +225,14 @@ const TECHNIQUE_SAMPLES = {
   hold: () => ({ ops: [SHOT_A, anim("shot-a", "scale", 0, 3, { from: 1, to: 1.04 })], duration: 3, still: 1.5 }),
 };
 
+// The masks: the top shot is masked, the other shows where it is cut away.
+const MASK_SAMPLES = {
+  "knockout-type": () => ({ ops: [SHOT_B, { op: "add_layer", layerType: "text", name: "word", properties: { text: "CITY", fontSize: 260, fontWeight: 900, fill: "#FFFFFF", textResize: "width-height", x: 165, y: 40 } }, SHOT_A, { op: "create_mask", layers: ["word", "shot-a"], maskLayerId: "word", name: "knockout", maskInvert: true },
+    anim("knockout", "scale", 0.2, 2.2, { from: 1, to: 1.06, easing: "smooth" })], duration: 3, still: 1.6 }),
+  "logo-cut": () => ({ ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: "#14161A" }), picture("logo", { x: W / 2 - 180, y: H / 2 - 180, width: 360, height: 360 }), SHOT_A,
+    { op: "create_mask", layers: ["logo", "shot-a"], maskLayerId: "logo", name: "logo cut", maskMode: "alpha" }], duration: 3, still: 1.6 }),
+};
+
 /** The ops that build a short sample of one entry on an empty 960 × 540 scene, its length and the
  *  moment its card shows; null when the entry has no sample (a video format is a whole video). */
 export function sampleOps(kind, name) {
@@ -266,6 +283,7 @@ export function sampleOps(kind, name) {
     const look = LOOKS[name];
     return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: look.colors.bg }), { op: "recipe", name: "headline-reveal", id: "piece", at: 0.2, look: name, copy: RECIPE_COPY["headline-reveal"] }], duration: 3, still: 2 };
   }
+  if (kind === "technique" && MASK_SAMPLES[name]) return MASK_SAMPLES[name]();
   if (kind === "technique" && TECHNIQUE_SAMPLES[name]) return TECHNIQUE_SAMPLES[name]();
   return null;
 }

@@ -24,3 +24,12 @@ export function maskSwitchedOff(layer, time, design = false) {
   if (design) return false;
   return !visibleByOperations(Array.isArray(layer.animations) ? layer.animations : [], resolvePlayback(layer, time).time);
 }
+
+// A mask's invert and mode. A mask group's own maskInvert or maskMode, when set, wins over its
+// mask layer's. Absent means a plain luminance mask, as every mask was before these fields.
+export const MASK_MODES = ["luminance", "alpha"];
+export function maskStyle(mask, group = null) {
+  const invert = group?.maskInvert ?? mask?.maskInvert ?? false;
+  const mode = group?.maskMode ?? mask?.maskMode ?? "luminance";
+  return { invert: invert === true, mode: mode === "alpha" ? "alpha" : "luminance" };
+}

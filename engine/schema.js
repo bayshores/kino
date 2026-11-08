@@ -9,7 +9,8 @@
  * keeps the paint for turning it back on. Fill animations do not turn it on.
  * A mask layer (isMask) is drawn as a luminance mask over the next visible layer
  * above it. In a mask group (isMaskGroup), the group's bottom-most mask layer
- * instead masks every visible layer above it in that group.
+ * instead masks every visible layer above it in that group. maskInvert swaps inside and
+ * outside, and maskMode "alpha" masks by transparency (the mask group's values win).
  *
  * @typedef {'rectangle'|'ellipse'|'star'|'text'|'image'|'video'|'path'|'group'|'audio'|'component'} LayerType
  * @typedef {{type:'linear'|'radial', angle:number, stops:Array<{offset:number,color:string}>}} Gradient
@@ -122,7 +123,7 @@
  *   radius:number,cornerRadii:number[]|null,inactiveBoxStyles?:Array<'fill'|'stroke'|'corners'>,donut:number,sweep:number,startAngle:number,
  *   spikes:number,starThickness:number,visible:boolean,
  *   locked:boolean,lockAspect:boolean,blur:number,backgroundBlur?:BackgroundBlur,glass?:Glass,
- *   blendMode:string,isMask:boolean,isMaskGroup:boolean,clipContent:boolean,
+ *   blendMode:string,isMask:boolean,isMaskGroup:boolean,maskInvert?:boolean,maskMode?:'luminance'|'alpha',clipContent:boolean,
  *   shadow:{color:string,x:number,y:number,blur:number}|null,
  *   text:string,fontFamily:string,fontSource:string,fontSize:number,fontWeight:number,fontStyle:'normal'|'italic',
  *   textStyleRanges?:TextStyleRange[],
