@@ -69,10 +69,28 @@ export function shutterTravel(stateAt, times, parent) {
 // shows it instead of showing two copies (backend/export.mjs frameMotionSamples).
 export const SAMPLE_SPACING = 8;
 
+// The farthest any corner or the center of a layer's box travels between the two shutter ends, in
+// scene pixels. A layer that grows or shrinks while it moves carries its corners farther than its
+// center, and the samples must be close enough there too. `stateAt(0|1)` is its state at each end.
+function boxReach(stateAt, parent) {
+  const ends = [stateAt(0), stateAt(1)];
+  if (ends.some((state) => !state || state.visible === false)) return 0;
+  const points = (state) => {
+    const width = Number(state.width) || 0, height = Number(state.height) || 0, matrix = layerMatrix(state);
+    return [[width / 2, height / 2], [0, 0], [width, 0], [0, height], [width, height]].map((point) => apply(matrix, point));
+  };
+  const [first, last] = ends.map(points);
+  const [a, b, c, d] = parent;
+  return Math.max(...first.map(([x, y], index) => {
+    const dx = last[index][0] - x, dy = last[index][1] - y;
+    return Math.hypot(a * dx + c * dy, b * dx + d * dy);
+  }));
+}
+
 /**
  * How many shutter samples the frame at `time` needs (2 to `max`): the fastest layer's own travel
  * while the shutter is open, in output pixels (scene pixels times `scale`), over SAMPLE_SPACING.
- * Each layer counts its move within its parent, as the preview smears it; a whip is left out,
+ * Each layer counts its box's farthest corner within its parent; a whip is left out,
  * since it smears itself (whipShutter). `layers` is the scene's flat layer list.
  */
 export function shutterSampleCount(layers, time, shutter, { scale = 1, duration = Infinity, fonts, max = 16 } = {}) {
@@ -101,11 +119,8 @@ export function shutterSampleCount(layers, time, shutter, { scale = 1, duration 
     if (layer.visible === false || !Array.isArray(layer.animations) || !layer.animations.length) continue;
     const animations = enabledAnimations(layer.animations);
     if (!animations.length || whipShutter(animations, time)) continue;
-    const travel = shutterTravel((at) => stateAt(layer, at === times[0] ? 0 : 1), times, worldOf(layer.parentId));
-    if (travel) fastest = Math.max(fastest, travel.pixels / 2);
+    fastest = Math.max(fastest, boxReach((index) => stateAt(layer, index), worldOf(layer.parentId)));
   }
-  // shutterTravel stretches two end samples by 2 (as if they sat mid-slice): halved, it is the
-  // whole shutter's travel.
   return Math.max(2, Math.min(max, Math.ceil(fastest * scale / SAMPLE_SPACING)));
 }
 

@@ -231,6 +231,9 @@ test("a final render without motionSamples draws as many shutter samples as its 
   // A whip smears itself, so it adds no samples.
   const whip = { ...card, animations: [presetAnimation("whip-in", card, 0, undefined, { parameters: { direction: "up" } })] };
   assert.equal(shutterSampleCount([whip], 0.05, shutter), 2);
+  // A box shrinking about its center: the center holds still, the corners travel, so it needs samples.
+  const shrink = { ...card, animations: [{ id: "s", kind: "custom", start: 0, duration: 0.2, easing: "linear", from: { scaleX: 3, scaleY: 3 }, to: { scaleX: 1, scaleY: 1 } }] };
+  assert.ok(shutterSampleCount([shrink], 0.1, shutter) > 2, "corners count, not only the center");
 });
 
 test("focus-band keeps a band sharp and blurs more and more outside it, smoothly, in the layer's own coordinates", async () => {
