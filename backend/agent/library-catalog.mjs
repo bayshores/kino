@@ -9,6 +9,7 @@ import { MOVES, MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 import { RECIPES, TRANSITIONS } from "../../engine/blocks/recipes/index.js";
 import { VIDEO_FORMATS } from "../../engine/blocks/videoFormats.js";
 import { EFFECTS, effectDefaults } from "../../engine/effects/catalog.js";
+import { COLOR_LOOK_NAMES } from "../../engine/effects/colorLook.js";
 import { TECHNIQUES, TECHNIQUE_GROUPS, techniqueOf } from "../../engine/techniques.js";
 
 export const SAMPLE_FRAME = Object.freeze({ width: 960, height: 540 });
@@ -45,6 +46,13 @@ const EFFECT_TAGS = {
 const EFFECT_LINES = {
   "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; greys stay grey",
     "one color pushed or muted, sky or foliage shifted, a brand color matched"],
+  "color-look": [`color look: a ready-made grade, ${COLOR_LOOK_NAMES[0]} by default (${COLOR_LOOK_NAMES.join(", ")}), with amount 0..1`,
+    "one grade over footage or a whole group; amount below 1 for a lighter touch"],
+};
+// One entry per setting value, each with its own still ("color-look ember" is color-look with look ember).
+const EFFECT_VARIANTS = {
+  "color-look": COLOR_LOOK_NAMES.slice(1).map((look) => ({ name: `color-look ${look}`, parameters: { look },
+    line: `color look ${look}: color-look with look "${look}" (amount 0..1)` })),
 };
 const RECIPE_TAGS = {
   "hook-slam": ["type-giant"], "caption-pop": ["type-pop"], "number-counter": ["type-counter"], "price-pop": ["type-pop"], "title-type": ["type-letters"],
@@ -95,6 +103,7 @@ export function libraryCatalog() {
     const settings = Object.values(effect.parameters ?? {}).map((parameter) => parameter.label.toLowerCase());
     const [line, fits] = EFFECT_LINES[effect.key] ?? [];
     entries.push(entry("effect", effect.key, line ?? firstLine(tags)?.line ?? `${effect.group.toLowerCase()} effect${settings.length ? `: ${settings.slice(0, 3).join(", ")}` : ""}`, fits ?? firstLine(tags)?.fits, tags));
+    for (const variant of EFFECT_VARIANTS[effect.key] ?? []) entries.push(entry("effect", variant.name, variant.line, fits, tags));
   }
   for (const preset of PRESETS) {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
@@ -256,14 +265,16 @@ export function sampleOps(kind, name) {
     return { ops: [...layers, { op: "move", name, id: "piece", at, ...fields }], duration: 6, still: Math.min(5, at + 1.2), ...(MOVE_STILL[name] ? { share: MOVE_STILL[name] } : {}) };
   }
   if (kind === "effect") {
+    const variant = Object.values(EFFECT_VARIANTS).flat().find((item) => item.name === name);
+    if (variant) name = name.split(" ")[0];
     const effect = EFFECTS.find((item) => item.key === name);
     if (!effect) return null;
     const lut = name === "lut" ? { lut: src("look") } : {};
-    const from = { ...effectDefaults(name, { neutral: true }), ...lut };
+    const from = { ...effectDefaults(name, { neutral: true }), ...lut, ...variant?.parameters };
     // On the picture and the word (particles and vignette once, on the picture). A ranged effect shows only
     // from its start to its end, so the still is inside that span, past the ramp up.
     const layers = effect.group === "Generate" || PICTURE_ONLY.has(name) ? ["shot-a"] : ["shot-a", "word"];
-    const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
+    const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name], ...variant?.parameters } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
   if (kind === "animation" && WIPES[name])

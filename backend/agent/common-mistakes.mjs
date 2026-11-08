@@ -751,7 +751,7 @@ const EFFECT_ALIASES = { bloom: "glow", halation: "glow", flare: "lens-flare", g
   sunrays: "light-rays", lightray: "light-rays", lightleak: "light-leaks", ember: "embers", spark: "sparks", snowflakes: "snow",
   raindrops: "rain", chromaticaberration: "rgb-shift", chromatic: "rgb-shift", rgbsplit: "rgb-shift",
   depthoffield: "focus-band", dof: "focus-band", tiltshift: "focus-band", rackfocus: "focus-band",
-  filmgrain: "grain", noisegrain: "grain", vignetting: "vignette" };
+  filmgrain: "grain", noisegrain: "grain", vignetting: "vignette", look: "color-look", filmlook: "color-look" };
 // Names that could mean more than one thing, refused with what to use instead.
 const BLURS = ["directional-blur", "zoom-blur", "spin-blur"];
 const EFFECT_CHOICES = {

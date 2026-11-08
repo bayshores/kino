@@ -6,10 +6,12 @@ or changing one color, plus the `add` blend mode.
 ## Color grading
 
 - The Color effects (`curves`, `lut`, `hue-saturation`, `white-balance`, `color-wheels`,
-  `keep-color`, `color-ranges`) go on with `add_animation` and stack in order; grade a group to
+  `keep-color`, `color-ranges`, `color-look`) go on with `add_animation` and stack in order; grade a group to
   grade its layers.
   `library {topic:"rules", name:"color"}` has their fields, the colour space (sRGB 0–1, Rec.709
   luma) and recipes: teal-orange, bleach-bypass, noir-keep-red.
+- A ready-made grade: `color-look` with `look` matte, ember, frost, ink, dusk, meadow, harbor or
+  punch and `amount` 0 to 1 (e.g. `{look:"harbor", amount:0.6}`).
 - One color only: `color-ranges` takes `<range>Hue`, `<range>Saturation`, `<range>Lightness` for red,
   orange, yellow, green, aqua, blue, purple, magenta (e.g. `blueHue:-20`), plus `highlights`, `shadows`.
 - A LUT: import the .cube with `project {action:"import", file}`, then `effect:"lut"` with
