@@ -4123,6 +4123,8 @@ test("storyboard screen: the rough cut, the shot panel and the timeline show eve
   await pickShot("S4");
   assert.equal(await browser.evaluate(textOf(".cut-clock")), "0:04.4 / 0:08.8");
   await browser.evaluate(openCropDetails);
+  // A slow runner draws the title card's "no footage" line a moment after the panel.
+  await browser.waitFor(`${boardPanel}?.dataset.shot === "S4" && !!${boardPanel}.querySelector(".board-missing")`, { what: "shot 4's no footage line" });
   const four = await browser.evaluate(boardSeen);
   assert.deepEqual([four.frames, four.tags, four.lines.footage, four.lines.subject, four.missing, four.crop],
     [[["still", "title card"]], ['"The dragon is back"', "zoom through"], "none", "none", "no footage", null]);
