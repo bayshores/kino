@@ -36,6 +36,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 const FOLLOW = new Set(["x", "y", "scaleX", "scaleY", "rotation", "skewX", "skewY", "width", "height"]);
 // Two frames at 30 fps: the color is on before the eye sees it change.
 const FLASH = 0.067;
+const REDUCED_FLASH = 0.15;
 const LINEAR = [0, 0, 1, 1];
 
 function colorOf(ctx, move, value) {
@@ -151,7 +152,8 @@ export const accentHit = {
   },
   example: { layer: "prompt", word: "issues", color: "#FF4F9A", at: 1 },
   setup: "prompt, a text layer",
-  timing: (input) => ({ length: (FLASH + (input.hold ?? 0.1) + (input.decay ?? 0.2)) * (input.repeat ?? 1) }),
+  // Reduced, each flash is gentler (REDUCED_FLASH), so the span is timed with it.
+  timing: (input, { reduced = false } = {}) => ({ length: ((reduced ? REDUCED_FLASH : FLASH) + (input.hold ?? 0.1) + (input.decay ?? 0.2)) * (input.repeat ?? 1) }),
   build(ctx, input) {
     const layer = ctx.layer(input.layer, "layer");
     const color = colorOf(ctx, "accent-hit", input.color);
@@ -159,7 +161,7 @@ export const accentHit = {
     const range = input.word ? wordRange(layer.text, input.word) : null;
     const hold = input.hold ?? 0.1;
     const decay = input.decay ?? 0.2;
-    const flash = ctx.reduced ? 0.15 : FLASH;
+    const flash = ctx.reduced ? REDUCED_FLASH : FLASH;
     const repeat = input.repeat ?? 1;
     const easing = curveOf(input.ease, CURVES.arrive);
     const each = flash + hold + decay;
@@ -222,6 +224,17 @@ export function inkSpan(layer, fonts) {
   const left = layer.textAlign === "center" ? (width - widest) / 2 : layer.textAlign === "right" ? width - widest : 0;
   return { width, lo: left / width, hi: (left + widest) / width };
 }
+/** A layer's box height and the part its lines fill top to bottom, as shares of it: {height, lo, hi}. */
+export function inkRows(layer, fonts) {
+  if (layer.type !== "text") return { height: layer.height, lo: 0, hi: 1 };
+  const measured = resizeTextLayer(layer, fonts);
+  const height = Math.max(1, measured.height);
+  const lines = layoutText(measured, fonts).lines ?? [];
+  if (!lines.length) return { height, lo: 0, hi: 1 };
+  const top = Math.max(0, Math.min(...lines.map((line) => line.y - line.ascent)));
+  const bottom = Math.min(height, Math.max(...lines.map((line) => line.y + line.descent)));
+  return bottom > top ? { height, lo: top / height, hi: bottom / height } : { height, lo: 0, hi: 1 };
+}
 // Keyframes of the band's crossing: between them its stops move in straight lines.
 const SWEEP_STEPS = 10;
 // The way the light travels, as the angle of its path (0: to the right, 90: down).
@@ -256,7 +269,7 @@ export const lightSweep = {
   fields: {
     layer: { kind: "layer", required: true, about: "the layer the light crosses: text, shape, path, picture, clip or group" },
     color: { kind: "text", max: 7, about: "the light's color, hex (default the brand accent)" },
-    width: { kind: "text", max: 12, about: "the band's width: \"2ch\" (characters; default for text and shapes), \"30%\" of the layer (25% default for pictures, clips and groups), or \"120px\"" },
+    width: { kind: "text", max: 12, about: "the band's width: \"2ch\" (characters; default for text and shapes going sideways), \"30%\" of the layer (25% default for pictures, clips and groups; up or down, a quarter of the lines' height), or \"120px\"" },
     direction: { kind: "choice", values: Object.keys(HEADINGS), about: "the way the light travels (default right)" },
     angle: { kind: "number", low: -60, high: 60, about: "degrees the band leans from straight across its path (default 0; 20 is a classic sheen)" },
     ease: { kind: "choice", values: EASES, about: "the band's speed across (default linear: a passing light never slows)" },
@@ -280,13 +293,14 @@ export const lightSweep = {
     const across = direction === "down" || direction === "up";
     // The gradient spans the layer's box; the light crosses only the letters in it (a wide box
     // with centered words would leave the band crossing empty space most of the time).
-    const span = clipped || across ? null : inkSpan(layer, ctx.fonts);
+    const span = clipped ? null : across ? inkRows(layer, ctx.fonts) : inkSpan(layer, ctx.fonts);
     const rect = clipped ? sweepRect({ x: sized.x, y: sized.y, width: sized.width, height: sized.height }, HEADINGS[direction] + lean, layer.rotation ?? 0) : null;
-    const length = clipped ? rect.width : across ? sized.height : span.width;
-    // Going left the gradient runs backwards (offset 0 at the right edge), so the letters' span flips.
-    const [lo, hi] = !span ? [0, 1] : direction === "left" ? [1 - span.hi, 1 - span.lo] : [span.lo, span.hi];
+    const length = clipped ? rect.width : across ? span.height : span.width;
+    // Going left or up the gradient runs backwards (offset 0 at the far edge), so the ink's span flips.
+    const [lo, hi] = !span ? [0, 1] : direction === "left" || direction === "up" ? [1 - span.hi, 1 - span.lo] : [span.lo, span.hi];
     // A picture, clip or group has no characters: its band is a quarter of its width by default.
-    const asked = input.width ?? (CLIPPED.includes(layer.type) ? "25%" : "2ch");
+    // Up or down, an upright band is a quarter of the lines' (or shape's) height: "2ch" would cover it.
+    const asked = input.width ?? (CLIPPED.includes(layer.type) ? "25%" : across && !clipped ? `${round(25 * (hi - lo))}%` : "2ch");
     const share = Math.min(0.8 * (hi - lo), Math.max(0.04 * (hi - lo), bandWidth(asked, length, size) / Math.max(1, length)));
     const t = ctx.start;
     const end = round(t + ctx.duration);
@@ -324,7 +338,8 @@ export const lightSweep = {
     // default (a light passing never slows), so it never stops or jumps.
     const from = lo - share / 2;
     const travel = hi - lo + share;
-    const middleAt = (step) => from + travel * (curve === LINEAR ? step / SWEEP_STEPS : easingAt(curve, step / SWEEP_STEPS));
+    // Linear keeps the old order of operations, so an old sweep's stops round the same.
+    const middleAt = (step) => from + (curve === LINEAR ? travel * step / SWEEP_STEPS : travel * easingAt(curve, step / SWEEP_STEPS));
     // The copy follows a fade of your layer too: a sign-off that fades takes its light with it.
     const { copy, paint } = makeCopy(bandAt(from));
     const target = paint ?? copy;

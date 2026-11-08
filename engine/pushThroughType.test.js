@@ -7,6 +7,7 @@ import { defaultFonts } from "./fonts.js";
 import { styleFor } from "./blocks/looks.js";
 import { readMoveInput, runMove } from "./blocks/move.js";
 import { MOVES } from "./blocks/moves/index.js";
+import { evaluateLayer } from "./animation.js";
 
 const frame = { width: 1920, height: 1080 };
 const move = MOVES["push-through-type"];
@@ -59,6 +60,13 @@ test("a text layer keeps its font, size, color and place; the push lands in one 
   // A layer on screen before the move has no entrance.
   const early = run([title], { layer: "title" }, { start: 1 });
   assert.equal(named(on(early, "title"), "layer-in")?.from.opacity, undefined);
+  // Nor do its letters jump open before the move and close up at it.
+  const shownTitle = { ...title, animations: on(early, "title") };
+  for (const t of [0, 0.5, 0.99, 1.02, 1.3]) assert.equal(evaluateLayer(shownTitle, t).letterSpacing ?? 0, 0, `letter spacing at ${t} s`);
+  const earlyWindow = run([title], { layer: "title", next: "shot" }, { start: 1 }).added.find((entry) => entry.layer.move.part === "window").layer;
+  assert.equal(earlyWindow.animations.some((animation) => animation.from?.letterSpacing !== undefined), false);
+  // From the scene start it still sharpens in with its letters closing up.
+  assert.ok(named(on(run([title], { layer: "title" }, { start: 0 }), "title"), "layer-in").from.letterSpacing > 0);
 });
 
 test("a picture logo: the push aims at its solid part from its alpha grid, never its see-through middle", () => {

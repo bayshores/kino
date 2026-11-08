@@ -628,10 +628,14 @@ export const pushThroughType = {
       to("push", motion({ name: "Push into the letter", start: pushAt, duration: pushTime, easing: pushEase,
         from: { x: crept.x, y: crept.y, scaleX: creep * sx, scaleY: creep * sy }, to: { x: landed.x, y: landed.y, scaleX: final * sx, scaleY: final * sy } }));
     };
-    const spaced = it.spacing ? { from: { letterSpacing: it.spacing.from }, to: { letterSpacing: it.spacing.to } } : { from: {}, to: {} };
+    // The letters open only as part of an entrance: a layer already on screen with no typeIn keeps
+    // its own spacing (an "in" animation would hold them open from the scene start).
+    const opens = Boolean(it.spacing) && (typeIn > 0 || !it.shown);
+    if (it.spacing && !opens && input.spacing !== undefined) ctx.note(`${it.name} is on screen before the move, so its letters stay closed; give typeIn to open them`);
+    const spaced = opens ? { from: { letterSpacing: it.spacing.from }, to: { letterSpacing: it.spacing.to } } : { from: {}, to: {} };
     if (typeIn > 0) animate("in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.settle,
       from: { opacity: 0, blur: Math.round(14 * ctx.scale), ...spaced.from }, to: { opacity, blur: 0, ...spaced.to } }));
-    else if (it.spacing) animate("in", motion({ name: "Close up", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle, ...spaced }));
+    else if (opens) animate("in", motion({ name: "Close up", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle, ...spaced }));
     if (color) animate(it.sheenBase ? "sheen" : "color", color);
     moves(animate);
     // 2. The colors split as the push sets off and close again before the next shot shows in the
@@ -656,7 +660,7 @@ export const pushThroughType = {
     // as the push passes into it, while the subject fades away under it (its edges would ring
     // it). The mask goes at the cut, when the subject covers the whole frame.
     const window = it.window();
-    if (it.spacing) ctx.animate(window, "in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn > 0 ? typeIn : TYPE_IN, easing: CURVES.settle, ...spaced }));
+    if (opens) ctx.animate(window, "in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn > 0 ? typeIn : TYPE_IN, easing: CURVES.settle, ...spaced }));
     moves((name, animation) => ctx.animate(window, name, animation));
     const showFor = round(pushTime * 0.35);
     ctx.animate(next.id, "in", motion({ name: "Show in the letter", kind: "in", start: showAt, duration: showFor, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "next");

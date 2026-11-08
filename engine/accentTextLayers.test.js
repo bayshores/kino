@@ -57,6 +57,24 @@ test("light-sweep direction, ease and repeat change the sweep; repeat makes it l
   assert.equal(part(leaning, "overlay-mask").fill, "#FFFFFF");
 });
 
+test("light-sweep up or down on text: a narrow band crossing only its lines", () => {
+  const box = title({ height: 200, textAlign: "left" });
+  const stops = (result, key) => part(result, "overlay").animations.find((animation) => animation.id.endsWith(key)).to.fill.stops.map((stop) => stop.offset);
+  const sideways = stops(run("light-sweep", { layer: "title" }, [box]), "sweep-5");
+  for (const direction of ["up", "down"]) {
+    const [, a, middle, b] = stops(run("light-sweep", { layer: "title", direction }, [box]), "sweep-5");
+    assert.ok(b - a < 0.25, `${direction}: the band is ${round(b - a)} of the box, not the whole word`);
+    assert.ok(b - a > 0.02, `${direction}: the band is still there`);
+    assert.ok(middle > 0.05 && middle < 0.75, `${direction}: halfway, it is on the lines (${middle}), not the empty box below`);
+  }
+  assert.ok(sideways[3] - sideways[1] < 0.2, "sideways is unchanged and narrow");
+  // The first and last keyframes start and end just outside the lines, not the whole box.
+  const first = stops(run("light-sweep", { layer: "title", direction: "down" }, [box]), "sweep-1");
+  const last = stops(run("light-sweep", { layer: "title", direction: "down" }, [box]), "sweep-10");
+  assert.ok(last[2] < 0.9, `down ends just past the last line (${last[2]})`);
+  assert.ok(first[2] >= 0, "down starts at the top of the lines");
+});
+
 test("accent-hit on a picture flashes the color through its alpha; repeat and ease", () => {
   const result = run("accent-hit", { layer: "logo", color: "#7FE3FF", repeat: 2, ease: "fade" }, [logo()]);
   const group = part(result, "overlay");
@@ -67,6 +85,12 @@ test("accent-hit on a picture flashes the color through its alpha; repeat and ea
   assert.deepEqual(group.animations[0].easing, [0.33, 0, 0.67, 1]);
   assert.equal(result.end, round(0.5 + 2 * (0.067 + 0.1 + 0.2)));
   assert.throws(() => run("accent-hit", { layer: "logo", word: "x" }, [logo()]), /not text/);
+  // Reduced, the gentler flash is timed in the span: a repeated hit ends where its span does.
+  const reduced = run("accent-hit", { layer: "logo", repeat: 6 }, [logo()], { reduced: true });
+  assert.equal(reduced.end, round(0.5 + 6 * (0.15 + 0.1 + 0.2)));
+  const late = createScene({ id: "s", name: "S", width: 1920, height: 1080, duration: 3.2, layers: [logo()] });
+  const ending = runMove(MOVES["accent-hit"], { id: "m", input: readMoveInput(MOVES["accent-hit"], { layer: "logo", repeat: 6 }), scene: late, style: styleFor({ look: "crisp", frame }), fonts: defaultFonts, start: 3, align: "end", reduced: true, media: () => null });
+  assert.equal(ending.end, 3, "ends at its aligned end, inside the 3.2 s scene");
 });
 
 test("headline-write on your text layer writes it on as it is", () => {

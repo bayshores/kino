@@ -231,8 +231,8 @@ export function runMove(definition, options) {
   // Layers inside a group a move works on as they are (definition.nested): layer ID -> its group.
   const lifted = new Map();
   // A move that stays (a status line) lasts to the end of the scene unless dur says otherwise.
-  // timing(input): a move whose length depends on its fields (zoom-through reverse is shorter).
-  const timing = { length: definition.length, shortest: definition.shortest, ...definition.timing?.(input) };
+  // timing(input, {reduced}): a move whose length depends on its fields (zoom-through reverse is shorter).
+  const timing = { length: definition.length, shortest: definition.shortest, ...definition.timing?.(input, { reduced }) };
   const duration = dur ?? (definition.untilEnd ? Math.max(0.1, scene.duration - at) : timing.length);
   const start = alignedStart(at, duration, align, definition.name);
   if (dur !== null && timing.shortest && dur < timing.shortest) throw new Error(`${definition.name} needs dur of at least ${timing.shortest} s.`);
