@@ -20,7 +20,8 @@
 // question for the taste judge and the person, not a gate. A deliberate choice is waived with
 // waive_check {code, target, reason}.
 import { CUT_TIMING_TAGS, PLAIN_TAGS } from "../../techniques.js";
-import { cuts, drawnSize, readableAt, readingTexts, sec, speechTimed, typeLimits } from "../analysis.js";
+import { cuts, designedTexts, drawnSize, readableAt, readingTexts, sec, speechTimed, typeLimits } from "../analysis.js";
+import { textSlideSamples } from "./style.js";
 import { area, chainOf, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { subjectOnScene } from "../../sourceView.js";
@@ -645,6 +646,66 @@ export function endingCount(model, ctx) {
     required: `at most ${ENDINGS}: one payoff and one end card`,
     message: `${ctx.sceneName} ends ${count} times after its last story beat${spine?.length ? "" : ` (the last ${Math.round(CLOSING_SHARE * 100)}%)`}; each new title or logo restarts the ending.`,
     fix: { kind: "hint", text: "Keep the strongest payoff and one end card; fold the other closing titles and logos into them or cut them." },
+  }];
+}
+
+// ---------------------------------------------------------------- template_end
+
+// The end card the owner keeps turning down: a centered name or logo with a smaller line (a
+// tagline, an address, a credit) over a still or flat frame, held at the end. Held this long it reads as a card.
+const TEMPLATE_HOLD = 1.5;
+// The card's last readable sample is this close to the end (a fade out after it is fine).
+const END_TAIL = 0.75;
+// Centered: the name's middle within this share of the frame width of the frame's middle.
+const CENTER_SLACK = 0.06;
+// A line this much smaller than the name, or less, sits under it as a tagline or credit.
+const SMALLER = 0.7;
+
+export function templateEnd(model, ctx) {
+  if (model.duration < EDIT_SECONDS) return [];
+  const slide = textSlideSamples(model);
+  let last = slide.length - 1;
+  while (last >= 0 && !slide[last]) last -= 1;
+  if (last < 0 || model.duration - model.times[last] > END_TAIL) return [];
+  let from = last;
+  while (from > 0 && slide[from - 1]) from -= 1;
+  if ((last - from + 1) / model.fps < TEMPLATE_HOLD) return [];
+  const asset = ctx.style?.logo?.asset ?? null;
+  const texts = designedTexts(model);
+  const shown = (item, index) => (item.kind === "text" ? readableAt(model, item, index) : logoOpacity(model, item, index) > 0.5) && !coveredAt(model, item, index);
+  const sizeOf = (item) => (item.kind === "text" ? drawnSize(model, item) : Math.max(0, ...Array.from({ length: last - from + 1 }, (_, step) => {
+    const box = visibleBoxAt(model, item, from + step);
+    return box.y1 - box.y0;
+  })));
+  const centered = (item, index) => {
+    const box = visibleBoxAt(model, item, index);
+    const middle = (box.y0 + box.y1) / 2;
+    return Math.abs((box.x0 + box.x1) / 2 - model.width / 2) <= CENTER_SLACK * model.width && middle > model.height * 0.2 && middle < model.height * 0.8;
+  };
+  const names = model.items.filter((item) => !item.isMask && (isLogo(item, asset) ? item.kind !== "video" : texts.includes(item) && ["display", "stat"].includes(typeRole(model, item))));
+  let best = null;
+  for (const name of names) {
+    const size = sizeOf(name);
+    const lines = texts.filter((item) => item !== name && !names.includes(item) && drawnSize(model, item) <= SMALLER * size);
+    let held = 0;
+    const seen = new Set();
+    for (let index = from; index <= last; index += 1) {
+      if (!shown(name, index) || !centered(name, index)) continue;
+      const under = lines.filter((item) => shown(item, index));
+      if (!under.length) continue;
+      held += 1;
+      under.forEach((item) => seen.add(item));
+    }
+    if (held / model.fps >= TEMPLATE_HOLD && (!best || held > best.held)) best = { name, held, lines: [...seen] };
+  }
+  if (!best) return [];
+  const label = (item) => (item.kind === "text" ? `"${String(item.text).replace(/\s+/g, " ").trim().slice(0, 30)}"` : item.name ?? "the logo");
+  return [{
+    rule: "template_end", severity: "warn", itemId: best.name.id, at: sec(model.times[from]), until: sec(model.times[last]),
+    measured: `${label(best.name)} centered with ${best.lines.length} smaller ${best.lines.length === 1 ? "line" : "lines"} (${best.lines.slice(0, 2).map(label).join(", ")}) over a still frame for the last ${sec(best.held / model.fps)}s`,
+    required: `no centered name and tagline card held ${TEMPLATE_HOLD}s or more at the end over a still or flat background`,
+    message: `${ctx.sceneName} ends on a template end card: a centered name with a small line under it on a picture that does not move.`,
+    fix: { kind: "hint", text: "End on the video's own material: its strongest shot or the hook's image with the name over moving footage, or a cut to black on a beat; never a card. A credit can ride the last shot small." },
   }];
 }
 

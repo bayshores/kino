@@ -23,7 +23,7 @@ import { darkUnderTitle, lowFpsMotion, sourceJump } from "./rules/sourcePixels.j
 import { headCutOff } from "./rules/people.js";
 import { outOfSync } from "./rules/sync.js";
 import { beatKick, cutMotivation, deckUnused, fewTechniques, flatSections, metronome, plainBeats, styleAvoided, styleWanted, techniqueRepeat, textSlides } from "./rules/style.js";
-import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadable, textOnlyOpen, overlayCoversSubject, pacingJump, roleFontDrift, storyStall, vocabularyBudget } from "./rules/consistency.js";
+import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadable, templateEnd, textOnlyOpen, overlayCoversSubject, pacingJump, roleFontDrift, storyStall, vocabularyBudget } from "./rules/consistency.js";
 import { rejectedText, spineDrift } from "./rules/spine.js";
 import { signatureMissing } from "./rules/signature.js";
 import { busyEdit, restraint } from "./rules/restraint.js";
@@ -148,6 +148,7 @@ export const RULES = [
   rule("accent_budget", "warn", accentBudget, "with style.accent, its color (fills, outlines and a gradient's main stop) covers at most its share of the frame for over 1 s"),
   rule("pacing_jump", "info", pacingJump, "median shot length changes at most 3x between neighboring 8 s windows, unless a marker cue, a sound layer's start or end, or a spine beat edge is within 1 s of where the change starts and the new pace holds 12 s"),
   rule("ending_count", "warn", endingCount, "after the last story beat (the spine's, else the last 20%), at most 2 closing beats: logos or display type coming on, 1.5 s apart or more (a caption track running since before is not one; one that starts after it counts once)"),
+  rule("template_end", "warn", templateEnd, "in a video of 8 s or more, it does not end on a centered name or logo with a smaller line under it (tagline, address, credit) over a still or flat frame (no clip playing, no camera move) for 1.5 s or more"),
   rule("story_stall", "warn", storyStall, "between the first and last 10%, no stretch over 4 s with no picture on a dark frame"),
   rule("hook_readable", "warn", hookReadable, "the first 3 s show type at 8% of the frame's short side or a clear picture (30% of the frame, unblurred) for 1 s"),
   rule("text_only_open", "warn", textOnlyOpen, "in a promo or ad of 8 s or more (videoType, or a logo layer when unset), at most 3 s of the first 4 s show text with no picture (an image or clip on 25% of the frame) and no logo; a text hook over footage is fine"),

@@ -23,7 +23,8 @@ const COMMON = {
 };
 // The opening logo beat: the picture, else the name as a wordmark.
 const opener = (slots, dur, extra = {}) => ({ recipe: "logo-sting", dur, cue: "open", ...(slots.logo ? { media: slots.logo } : { text: slots.name }), ...extra });
-const ending = (slots, dur) => ({ recipe: "cta-end", text: slots.cta, ...(slots.site ? { sub: slots.site } : {}), dur, transition: "cut-on-motion", cue: "outro" });
+// It ends over the video's own shot when it has one (template_end: never a card on a flat frame).
+const ending = (slots, dur, shot = null) => ({ recipe: "cta-end", text: slots.cta, ...(slots.site ? { sub: slots.site } : {}), ...(shot ? { media: shot } : {}), dur, transition: "cut-on-motion", cue: "outro" });
 
 export const VIDEO_FORMATS = Object.freeze({
   "product-launch": {
@@ -41,7 +42,7 @@ export const VIDEO_FORMATS = Object.freeze({
         { recipe: "device-slide", media: slots.product, dur: 5.5, transition: "mask-wipe", cue: "hero" },
         ...features,
         ...(slots.price ? [{ recipe: "price-pop", price: slots.price, text: "Launch price", dur: 3.2, transition: "push", cue: "price" }] : []),
-        ending(slots, 3.5),
+        ending(slots, 3.5, slots.product),
       ];
     },
     example: { name: "Orbit", headline: "Plan the week in one view", sub: "Shared calendars for busy teams", product: "product.png", features: ["Smart scheduling", "One shared link", "Focus hours"], price: "$29", cta: "Try Orbit free", site: "orbit.app" },
@@ -59,7 +60,7 @@ export const VIDEO_FORMATS = Object.freeze({
         opener(slots, 2.6),
         { recipe: "headline-reveal", text: slots.headline, dur: 3.4, cue: "headline" },
         ...slots.recordings.map((recording, index) => ({ recipe: "device-slide", media: recording, text: slots.steps[index], dur: 4.2, ...(index ? { transition: "push" } : {}), cue: `step-${index + 1}` })),
-        ending(slots, 3.2),
+        ending(slots, 3.2, slots.recordings.at(-1)),
       ];
     },
     example: { name: "Orbit", headline: "Book a meeting in 10 seconds", recordings: ["calendar.png", "invite.png"], steps: ["Pick a free slot", "Send one link"], cta: "Get Orbit", site: "orbit.app" },
@@ -80,7 +81,7 @@ export const VIDEO_FORMATS = Object.freeze({
         { recipe: "word-stack", words: slots.words, dur: words, transition: "push", cue: "words" },
         ...(slots.offer ? [{ recipe: "price-pop", price: slots.offer, dur: 2.0, transition: "push", cue: "offer" }] : []),
       ];
-      return [...beats, ending(slots, Math.round((15 - beats.reduce((sum, beat) => sum + beat.dur, 0)) * 100) / 100)];
+      return [...beats, ending(slots, Math.round((15 - beats.reduce((sum, beat) => sum + beat.dur, 0)) * 100) / 100, slots.product)];
     },
     example: { name: "Orbit", hook: "Stop double-booking", product: "product.png", words: ["Plan", "Focus", "Ship"], offer: "-20%", cta: "Try Orbit free", site: "orbit.app" },
   },
@@ -97,27 +98,28 @@ export const VIDEO_FORMATS = Object.freeze({
         { recipe: "headline-reveal", text: slots.feature, ...(slots.detail ? { sub: slots.detail } : {}), dur: 3.6, cue: "headline" },
         { recipe: "device-slide", media: slots.shot, dur: 5.0, transition: "mask-wipe", cue: "hero" },
         ...(slots.benefits?.length ? [{ recipe: "step-list", items: slots.benefits, dur: 4.0, transition: "push", cue: "benefits" }] : []),
-        ending(slots, 3.4),
+        ending(slots, 3.4, slots.shot),
       ];
     },
     example: { name: "Orbit", feature: "Focus hours are here", detail: "Orbit guards your deep work from meetings", shot: "product.png", benefits: ["Blocks meetings for you", "Syncs with your team", "One click to set"], cta: "Update Orbit", site: "orbit.app" },
   },
   testimonial: {
     title: "Testimonial or quote", aspects: ["1:1", "16:9", "9:16", "4:5"], length: "11 s (15 s with a number)", look: "editorial", feel: "calm", type: "other",
-    about: "logo, the quote held 5.5 s with who said it, an optional number, end card",
+    about: "logo, the quote held 5.5 s with who said it, an optional number, the call to action over the picture",
     slots: {
       ...COMMON, quote: text(66, { required: true, hint: "the words, without quote marks" }), person: text(48, { required: true, hint: "name, and role or company" }),
       number: { kind: "number", hint: "a result, such as 40" }, number_label: text(48), number_suffix: text(6), cta: text(28, { required: true }), site: text(48),
+      picture: media({ hint: "the person or the product, ended on (else the end is a card)" }),
     },
     plan(slots) {
       return [
         opener(slots, 2.6),
         { recipe: "headline-reveal", text: `“${slots.quote}”`, sub: slots.person, dur: 5.5, cue: "quote" },
         ...(typeof slots.number === "number" ? [{ recipe: "number-counter", value: slots.number, ...(slots.number_label ? { label: slots.number_label } : {}), ...(slots.number_suffix ? { suffix: slots.number_suffix } : {}), dur: 3.2, transition: "push", cue: "number" }] : []),
-        ending(slots, 3.2),
+        ending(slots, 3.2, slots.picture),
       ];
     },
-    example: { name: "Orbit", quote: "We stopped double-booking in the first week", person: "Maya Lin, Head of Ops at Fieldwork", number: 40, number_label: "fewer meetings a month", number_suffix: "%", cta: "Try Orbit free", site: "orbit.app" },
+    example: { name: "Orbit", quote: "We stopped double-booking in the first week", person: "Maya Lin, Head of Ops at Fieldwork", number: 40, number_label: "fewer meetings a month", number_suffix: "%", cta: "Try Orbit free", site: "orbit.app", picture: "team.jpg" },
   },
 });
 export const VIDEO_FORMAT_NAMES = Object.freeze(Object.keys(VIDEO_FORMATS));

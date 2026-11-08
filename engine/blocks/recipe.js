@@ -238,9 +238,9 @@ export function runRecipe(definition, options) {
   const exits = layers.map(({ layer }) => layer.animations.find((animation) => animation.kind === "out")).filter(Boolean);
   const holdEnd = exits.length ? Math.min(...exits.map((animation) => animation.start)) : end === null ? options.holdUntil ?? null : null;
   // A recipe that marks a place in the picture (a callout over footage) keeps still: a drift
-  // would slide it off what it marks.
+  // would slide it off what it marks. A part marked still (a full-frame shot and its veil) stays out of the drift.
   if (holdEnd !== null) {
-    const held = definition.still ? new Map() : holdMotion(layers.map(({ layer }) => layer), { frame, from: readyBy, to: holdEnd, seed: seed * 31 + hashName(definition.name), reduced });
+    const held = definition.still ? new Map() : holdMotion(layers.filter(({ entry }) => !entry.still).map(({ layer }) => layer), { frame, from: readyBy, to: holdEnd, seed: seed * 31 + hashName(definition.name), reduced });
     // A screenshot (a part marked screen) pushes into its region instead: settings.region, else
     // the picture's busiest part (engine/imageFacts.js). region: false keeps the group's hold.
     if (settings.region !== false) for (const { layer, entry } of layers) {
@@ -263,7 +263,8 @@ export function runRecipe(definition, options) {
       const own = card ? held.get(layer.id) : null;
       const shift = own ? { dx: own.dx, dy: own.dy } : null;
       // Every screen part pushes over the same time, so parts that sit on one another stay lined up.
-      const push = screenPush(layer, region, { from: readyBy + 0.1, to: holdEnd, keep, room, shift, reduced });
+      // A still part (a full-frame shot under the words) pushes from when it has landed, so it never sits still.
+      const push = screenPush(layer, region, { from: (entry.still ? ends.get(layer.id) : readyBy) + 0.1, to: holdEnd, keep, room, shift, reduced });
       // On a card it eases as the card does, so the two move together all the way.
       if (push && cardMove) push.animation.easing = [...cardMove.animation.easing];
       if (push) held.set(layer.id, push);

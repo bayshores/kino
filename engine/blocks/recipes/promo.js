@@ -293,21 +293,26 @@ export const pricePop = {
 export const ctaEnd = {
   name: "cta-end",
   group: "promo",
-  about: "the call to action in an accent button, with an optional address or line under it; it stays to the end",
+  about: "the call to action in an accent button, with an optional address or line under it, over the video's own shot (media: it fills the frame, dimmed, and pushes in); it stays to the end",
   copy: [
     { key: "text", required: true, max: 28, about: "the call to action, such as Start free" },
     { key: "sub", max: 48, about: "an address or a short line, such as kino.app" },
   ],
+  media: "optional",
   slots: { landscape: "B3:E5", portrait: "A2:F4", square: "A2:F5" },
-  build(ctx, { copy, box }) {
+  build(ctx, { copy, box, media }) {
     const { pill, label } = pillWithText(ctx, { text: copy.text, role: "cta", step: "h2", box: { ...box, height: box.height * 0.45 }, padX: 56, padY: 26 });
     const sub = copy.sub ? textLayer(ctx, { part: "sub", text: copy.sub, role: "cta", step: "body", box: { ...box, height: box.height * 0.25 }, align: "center", maxLines: 2 }) : null;
     column(box, [{ layer: pill }, sub && { layer: sub, gap: px(ctx, 34) }], { valign: "middle" });
     shiftX([pill, label], box.x + (box.width - pill.width) / 2 - pill.x);
     label.y = pill.y + px(ctx, 26);
+    // The end over the video's own shot (template_end): it fills the frame, dimmed, and pushes in.
+    const file = media[0] ?? null;
+    const behind = file ? fullFrame(ctx, file) : [];
     return {
       parts: [
-        { part: "button", layer: pill, enter: { style: "scale", at: 0, kind: "medium" } },
+        ...behind,
+        { part: "button", layer: pill, enter: { style: "scale", at: file ? 0.2 : 0, kind: "medium" } },
         { part: null, layer: label, enter: { style: "fade-up", with: "button", gap: 0.08 } },
         sub && { part: "sub", layer: sub, enter: { style: "fade-up", after: null, gap: -0.1 } },
       ].filter(Boolean),
@@ -316,6 +321,21 @@ export const ctaEnd = {
   },
 };
 
+
+/** A picture or clip covering the frame under a dim veil, as recipe parts; the picture pushes into its middle while it holds. */
+function fullFrame(ctx, file) {
+  const { frame } = ctx;
+  const [width, height] = [file.width || frame.width, file.height || frame.height];
+  const cover = Math.max(frame.width / width, frame.height / height);
+  const [w, h] = [Math.round(width * cover), Math.round(height * cover)];
+  const shot = imageLayer(ctx, { media: file, box: { x: Math.round((frame.width - w) / 2), y: Math.round((frame.height - h) / 2), width: w, height: h }, role: "background", name: file.name ?? "Shot" });
+  // Under half opaque, so the shot still reads through it.
+  const veil = shapeLayer(ctx, { box: { x: 0, y: 0, width: frame.width, height: frame.height }, color: "#0B0B0C73", role: "decor", name: "Dim" });
+  return [
+    { part: "shot", layer: shot, enter: { style: "fade", at: 0, kind: "large" }, screen: file, focus: [35, 35, 30, 30], still: true, exit: "fade" },
+    { part: "dim", layer: veil, enter: { style: "fade", with: "shot", gap: 0, kind: "large" }, still: true, exit: "fade" },
+  ];
+}
 
 // A UI detail lift: a screenshot fills the frame and the camera pushes into
 // one region of it while the rest dims and softens and the region lifts a little on a shadow.
