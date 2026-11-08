@@ -1575,7 +1575,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (operation.layerId !== undefined) {
       let placed;
       try { placed = footageCueTime(document, operation.layerId, operation.media); } catch (error) { throw problem(error.message); }
-      pin = { layer: operation.layerId, media: operation.media, shown: placed.shown, raw: placed.time };
+      pin = { layer: placed.layer.id, name: placed.layer.name || placed.layer.id, media: operation.media, shown: placed.shown, raw: placed.time };
       time = Math.min(MAX_TIME, Math.max(0, placed.time));
     } else if (typeof operation.at === "number" || /^\s*\d*\.?\d+\s*$/.test(String(operation.at))) time = Number(operation.at);
     else {
@@ -1591,7 +1591,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (same && same.kind !== "marker") throw problem(`The cue ${operation.name} comes from a ${same.kind}; choose another name for your marker.`);
     const cue = { name: operation.name, time: round(time), kind: "marker", ...(pin ? { layer: pin.layer, media: pin.media } : {}) };
     document.cues = [...cues.filter((entry) => entry.name !== operation.name), cue].sort((a, b) => a.time - b.time);
-    const where = pin ? ` (${pin.media} s into ${pin.layer}'s file${pin.shown ? "" : `; the clip does not show it, it would be at ${round(pin.raw)} s`})` : "";
+    const where = pin ? ` (${pin.media} s into ${pin.name}'s file${pin.shown ? "" : `; the clip does not show it, it would be at ${round(pin.raw)} s`})` : "";
     work.notes.push(`cue ${operation.name} at ${round(time)} s${where}${same ? " (moved)" : ""}`);
   }
 

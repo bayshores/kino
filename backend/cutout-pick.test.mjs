@@ -72,6 +72,12 @@ test("followPicked keeps the object that overlaps the kept one, forward and back
   const keeps = followPicked(grids, 1, new Set([1]));
   assert.deepEqual(keeps.map((keep) => [...keep]), [[1], [1], [2], [2]]);
   assert.deepEqual([...pickedLabels(Uint8Array.from([1, 1, 2, 2]), 4, 1, { points: [[10, 50], [80, 50]], exclude: [[90, 50]] })], [1]);
+  // 100 × 100, one object at 40..60: a point near it snaps to it, an exclude on background near it does not drop it.
+  const plane = new Uint8Array(100 * 100);
+  for (let y = 40; y < 60; y += 1) plane.fill(1, y * 100 + 40, y * 100 + 60);
+  assert.deepEqual([...pickedLabels(plane, 100, 100, { points: [[63, 50]] })], [1]);
+  assert.deepEqual([...pickedLabels(plane, 100, 100, { points: [[50, 50]], exclude: [[62, 50]] })], [1]);
+  assert.deepEqual([...pickedLabels(plane, 100, 100, { points: [[50, 50]], exclude: [[55, 50]] })], []);
 });
 
 test("followReport finds lost, shrunk and jumping frames, judged outward from the chosen one", () => {

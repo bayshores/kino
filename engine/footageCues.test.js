@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applyOperations } from "./operations.js";
 import { footageCueTime } from "./footageCues.js";
+import { splitLayer } from "./splitLayer.js";
 
 // A 10 s scene with a clip that starts at 2 s and reads its file from 3 s; one cue at 7 s of the file.
 function project(clip = {}, cues = [{ name: "goal", time: 0, kind: "marker", layer: "clip", media: 7 }]) {
@@ -53,4 +54,13 @@ test("set_cues pins a cue to footage, and a non-clip layer is refused", () => {
   assert.deepEqual(cue(read(document), "hit"), { name: "hit", time: 4, kind: "marker", layer: "clip", media: 5 });
   const withBox = createDocument({ scenes: [createScene({ id: "s1", duration: 5, layers: [createLayer("rectangle", { id: "box" })] })] });
   assert.throws(() => footageCueTime(withBox, "box", 1), /needs a video or audio layer/);
+});
+
+test("a split clip: the cue moves to the piece that shows its moment; a skipped moment stays on the head, not shown", () => {
+  // Skip file 5..6: the head plays file 3..5 (scene 2..4), the new piece file 6.. from scene 4.
+  const split = splitLayer(read(project()), "s1", "clip", { at: 4, to: 5, copy: { id: "rest", name: "clip 2" } }).document;
+  assert.deepEqual(cue(read(split)), { name: "goal", time: 5, kind: "marker", layer: "rest", media: 7 });
+  const skipped = read(splitLayer(read(project(undefined, [{ name: "gone", time: 0, kind: "marker", layer: "clip", media: 5.5 }])), "s1", "clip", { at: 4, to: 5, copy: { id: "rest" } }).document);
+  assert.deepEqual(cue(skipped, "gone"), { name: "gone", time: 4.5, kind: "marker", layer: "clip", media: 5.5 });
+  assert.equal(footageCueTime(skipped, "clip", 5.5).shown, false);
 });

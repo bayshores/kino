@@ -22,12 +22,12 @@ export function gridLabels(labels, width, height, step = gridStep(width, height)
   return out;
 }
 
-/** The label under [x%, y%], or the nearest one within REACH; 0 when none. */
-export function labelAt(labels, width, height, [px, py]) {
+/** The label under [x%, y%], or the nearest one within REACH (share of the long side); 0 when none. */
+export function labelAt(labels, width, height, [px, py], share = REACH) {
   const cx = Math.min(width - 1, Math.max(0, Math.floor((px / 100) * width)));
   const cy = Math.min(height - 1, Math.max(0, Math.floor((py / 100) * height)));
-  if (labels[cy * width + cx]) return labels[cy * width + cx];
-  const reach = Math.ceil(REACH * Math.max(width, height));
+  if (labels[cy * width + cx] || share <= 0) return labels[cy * width + cx];
+  const reach = Math.ceil(share * Math.max(width, height));
   let best = 0, bestDistance = Infinity;
   for (let y = Math.max(0, cy - reach); y <= Math.min(height - 1, cy + reach); y += 1)
     for (let x = Math.max(0, cx - reach); x <= Math.min(width - 1, cx + reach); x += 1) {
@@ -39,10 +39,13 @@ export function labelAt(labels, width, height, [px, py]) {
   return best;
 }
 
-/** The labels to keep at the chosen frame: under points, not under exclude. */
+/**
+ * The labels to keep at the chosen frame: under points, not under exclude. An exclude point
+ * drops only the object right under it, so one on background near a pointed object keeps it.
+ */
 export function pickedLabels(labels, width, height, { points, exclude = [] }) {
   const keep = new Set(points.map((point) => labelAt(labels, width, height, point)).filter(Boolean));
-  for (const point of exclude) keep.delete(labelAt(labels, width, height, point));
+  for (const point of exclude) keep.delete(labelAt(labels, width, height, point, 0));
   return keep;
 }
 

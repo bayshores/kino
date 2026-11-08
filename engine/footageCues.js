@@ -18,12 +18,23 @@ function findClip(document, layerId) {
 }
 
 /**
- * Where a clip plays `media` seconds of its file: {time, shown, scene, layer}. time is scene
- * seconds, not rounded or clamped; past either end of Play the same line goes on, so a moment
- * trimmed off the head lands before mediaStart. shown is false when Play never shows it.
+ * Where a clip plays `media` seconds of its file: {time, shown, scene, layer}. When the clip does
+ * not show that moment but another piece of the same file in its scene does (split_layer and
+ * cut_speech give the rest of a clip to new layers), layer is that piece and time is its time.
+ * time is scene seconds, not rounded or clamped; past either end of Play the same line goes on,
+ * so a moment trimmed off the head lands before mediaStart. shown is false when no piece shows it.
  * Throws a plain message for a missing layer, a layer without footage or an animated speed.
  */
 export function footageCueTime(document, layerId, media) {
+  const placed = clipTime(document, layerId, media);
+  if (placed.shown) return placed;
+  const pieces = placed.scene.layers.filter((item) => item !== placed.layer && item.type === placed.layer.type && item.src === placed.layer.src);
+  const shown = pieces.map((item) => { try { return clipTime(document, item.id, media); } catch { return null; } })
+    .filter((piece) => piece?.shown).sort((a, b) => a.time - b.time);
+  return shown[0] ?? placed;
+}
+
+function clipTime(document, layerId, media) {
   const found = findClip(document, layerId);
   if (!found) throw new Error(`No layer ${layerId} for a footage cue.`);
   const { scene, layer } = found;

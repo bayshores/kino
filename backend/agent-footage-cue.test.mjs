@@ -6,6 +6,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "../engi
 import { applyOperations } from "../engine/operations.js";
 import { createBlockRunner, translateBlock } from "./agent/blocks.mjs";
 import { createResolver } from "./agent/refs.mjs";
+import { cueListText } from "./agent/cue-list.mjs";
 
 const runner = createBlockRunner({ fontsFor: async () => [], listMedia: async () => [], fontCatalog: [], operationContext: {} });
 function project(clip = {}) {
@@ -38,4 +39,15 @@ test("set_cue says when the clip does not show that moment, and refuses bad pins
   await assert.rejects(run(project(), { op: "set_cue", name: "goal", layer: "title", media: 7 }), /needs a video or audio layer/);
   assert.throws(() => translateBlock({ op: "set_cue", name: "goal", layer: "clip", media: 7, at: 2 }, createResolver(project()), project()), /not both/);
   assert.throws(() => translateBlock({ op: "set_cue", name: "goal", media: 7 }, createResolver(project()), project()), /media needs layer/);
+});
+
+test("the note and inspect cues name the clip, not its ID, and say when no piece shows the moment", async () => {
+  const id = "7e058f58-188e-4137-b5ce-18e1aee05df4";
+  const document = project({ id, name: "goal clip" });
+  const { document: pinned, notes } = await run(document, { op: "set_cue", name: "goal", layer: "goal clip", media: 7 });
+  assert.match(notes.join("\n"), /7 s into goal clip's file\)/);
+  assert.equal(pinned.cues[0].layer, id);
+  assert.equal(cueListText(pinned, ["cues"]).text, "marker 1: goal 6 (goal clip file 7s)");
+  const { document: early } = await run(document, { op: "set_cue", name: "early", layer: "goal clip", media: 0 });
+  assert.equal(cueListText(early, ["cues"]).text, "marker 1: early 0 (goal clip file 0s, not shown)");
 });

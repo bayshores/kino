@@ -9,6 +9,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { createChromiumRasterizer } from "../backend/chromium-raster.mjs";
 import { appleLogToLinear, appleLogToRec709, linearToAppleLog } from "./footageLog.js";
 import { parseDocument, createDocument, createScene, createLayer } from "./model.js";
+import { layerWithReplacementMedia } from "./replaceMedia.js";
 import { renderSceneSvg } from "./render.js";
 
 let directory, chromium;
@@ -31,7 +32,7 @@ test("the Apple Log curve maps known code values to scene light within 1%", () =
   within(appleLogToLinear(1), 12.0004, 0.01, "top code value");
   assert.ok(Math.abs(appleLogToLinear(0.1504765)) < 1e-5, "black");
   for (const light of [0, 0.005, 0.01, 0.09, 0.18, 0.9, 4]) within(appleLogToLinear(linearToAppleLog(light)), light, 0.001, `round trip ${light}`);
-  // Middle gray lands where Rec.709 puts it (0.409), and greys stay grey.
+  // Middle gray lands where Rec.709 puts it (0.409), and grays stay gray.
   const gray = appleLogToRec709(0.4882725, 0.4882725, 0.4882725);
   within(gray[0], 0.409, 0.01, "Rec.709 middle gray");
   assert.ok(Math.abs(gray[0] - gray[1]) < 1e-3 && Math.abs(gray[0] - gray[2]) < 1e-3);
@@ -92,4 +93,18 @@ test("a clip without log draws exactly as before", () => {
   assert.equal(Object.hasOwn(parse(layer("video", { src: "/api/media/a.mp4" })).scenes[0].layers[0], "log"), false);
   assert.throws(() => parse(layer("image", { src: "/api/media/a.png", log: "apple-log" })), /log/);
   assert.throws(() => parse(layer("video", { src: "/api/media/a.mp4", log: "s-log3" })), /apple-log/);
+});
+
+test("replacing a log clip's file: log follows the new file", () => {
+  const record = (id, mime, extra) => ({ id: `${id}-0000-4000-8000-000000000000.${mime.split("/")[1]}`, mime, duration: 2, ...extra,
+    get src() { return `/api/media/${this.id}`; } });
+  const clip = createLayer("video", { id: "l", src: "/api/media/aaaaaaaa-0000-4000-8000-000000000000.mp4", log: "apple-log" });
+  const parse = (item) => parseDocument(createDocument({ id: "d", scenes: [createScene({ id: "s", layers: [item] })] })).scenes[0].layers[0];
+  const still = parse(layerWithReplacementMedia(clip, record("bbbbbbbb", "image/png")));
+  assert.equal(still.type, "image");
+  assert.equal(Object.hasOwn(still, "log"), false, "a still has no log");
+  assert.equal(Object.hasOwn(parse(layerWithReplacementMedia(clip, record("cccccccc", "video/mp4"))), "log"), false, "plain footage");
+  assert.equal(parse(layerWithReplacementMedia(clip, record("dddddddd", "video/mp4", { log: "apple-log" }))).log, "apple-log");
+  const plain = createLayer("video", { id: "l", src: clip.src });
+  assert.equal(parse(layerWithReplacementMedia(plain, record("eeeeeeee", "video/mp4", { log: "apple-log" }))).log, "apple-log", "as import sets it");
 });

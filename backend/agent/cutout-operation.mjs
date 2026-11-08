@@ -157,7 +157,10 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
     { type: "replace_media", sceneId, layerId: operation.cutoutId, mediaId: made.record.id },
     // A subject or silhouette is transparent around the subject, but the quality check sees layer
     // boxes, so it would call every title behind a subject hidden: allowOverlap says it is on purpose.
+    // Only a subject keeps the clip's own pixels, so only it keeps the log conversion; a
+    // silhouette's color and a matte's grays are kino's own.
     { type: "update_layer", sceneId, layerId: operation.cutoutId, properties: { name: operation.cutoutName, blur: 0, shadow: null, isMask: false,
+      log: output === "subject" ? layer.log ?? null : null,
       ...(output === "matte" ? {} : { allowOverlap: true }) } },
     // behind: the text right above the clip, so nothing else ends up between it and the person.
     ...(operation.behindText ? [{ type: "move_layers", sceneId, layerIds: [operation.referenceId], position: "above", referenceId: layerId }] : []),

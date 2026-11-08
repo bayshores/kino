@@ -12,6 +12,7 @@
 //
 //   beat 1200, 560 shown: beat-1 0.437, …, beat-560 280.937
 //   640 more from 281.437s: inspect "cues[kind=beat,from=281.437]" for the next ones
+import { footageCueTime } from "../../engine/footageCues.js";
 import { CUE_KINDS } from "../../engine/qualityFields.js";
 
 const CUE_TARGET = /^cues(?:\[([^\]]*)\])?$/;
@@ -68,6 +69,12 @@ export function cueListText(document, targets) {
     if (used > CUE_TEXT_BUDGET && shown > 0) break;
     shown += 1;
   }
+  // A footage cue names its clip (layer IDs are UUIDs) and says when no piece of it shows the moment.
+  const pinnedTo = (cue) => {
+    let placed = null;
+    try { placed = footageCueTime(document, cue.layer, cue.media); } catch { /* clip gone or sped up: as stored */ }
+    return `${placed?.layer.name || cue.layer} file ${cue.media}s${placed && !placed.shown ? ", not shown" : ""}`;
+  };
   const lines = [];
   if (document.rhythm) lines.push(`rhythm ${document.rhythm.bpm} bpm, first beat at ${document.rhythm.offset}s`);
   for (const kind of CUE_KINDS) {
@@ -76,7 +83,7 @@ export function cueListText(document, targets) {
     const listed = cues.slice(0, shown).filter((cue) => cue.kind === kind);
     if (!ofKind.length) continue;
     const label = listed.length < ofKind.length ? `${kind} ${ofKind.length}, ${listed.length} shown` : `${kind} ${ofKind.length}`;
-    lines.push(listed.length ? `${label}: ${listed.map((cue) => `${cue.name} ${cue.time}${cue.layer ? ` (${cue.layer} file ${cue.media}s)` : ""}`).join(", ")}` : label);
+    lines.push(listed.length ? `${label}: ${listed.map((cue) => `${cue.name} ${cue.time}${cue.layer ? ` (${pinnedTo(cue)})` : ""}`).join(", ")}` : label);
   }
   if (shown < cues.length) {
     const next = cues[shown].time;

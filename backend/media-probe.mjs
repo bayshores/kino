@@ -196,20 +196,26 @@ async function probeMediaNow(path, { signal } = {}) {
 }
 
 const UNTAGGED = new Set([undefined, "", "unknown", "unspecified", "reserved"]);
+const FREE_TEXT_TAG = /^(title|description|synopsis|keywords)$/i;
 
 /**
  * Log footage from a video stream's ffprobe facts: {profile:"apple-log", why} or null.
- * Either a tag names Apple Log (not Apple Log 2, a different gamut), or the stream is tagged the
- * way Apple Log is: BT.2020 primaries and matrix and no transfer tag, since no standard transfer
+ * The stream has no transfer tag, and either a tag (not a title or description) names Apple Log in
+ * whole words (not Apple Log 2, a different gamut), or the stream is tagged the way Apple Log is:
+ * BT.2020 primaries and matrix and no transfer tag, since no standard transfer
  * code names the Apple Log curve (HLG, PQ and Rec.709 clips each have their own). The codec is not
  * checked: iPhones record Apple Log as ProRes, and FFmpeg keeps these tags when re-encoding it.
  */
 export function footageLogOf(stream, formatTags = {}) {
-  if (!stream) return null;
-  const tags = [...Object.values(stream.tags ?? {}), ...Object.values(formatTags ?? {})].map(String);
-  const named = tags.find((value) => /apple[\s_-]*log/i.test(value) && !/apple[\s_-]*log[\s_-]*2/i.test(value));
+  // A stated transfer curve (Rec.709, HLG, PQ...) wins over any tag text.
+  if (!stream || !UNTAGGED.has(stream.color_transfer)) return null;
+  // Titles and descriptions (downloads write them) say what the video is about, not how it was shot.
+  const tags = [...Object.entries(stream.tags ?? {}), ...Object.entries(formatTags ?? {})]
+    .filter(([key]) => !FREE_TEXT_TAG.test(key)).map(([, value]) => String(value));
+  // Whole words only: "Apple logo" and "Applelogistics" are not Apple Log.
+  const named = tags.find((value) => /\bapple[\s_-]*log\b/i.test(value) && !/\bapple[\s_-]*log[\s_-]*2\b/i.test(value));
   if (named) return { profile: "apple-log", why: `a tag says "${named.slice(0, 60)}"` };
-  if (stream.color_primaries === "bt2020" && /^bt2020/.test(String(stream.color_space ?? "")) && UNTAGGED.has(stream.color_transfer))
+  if (stream.color_primaries === "bt2020" && /^bt2020/.test(String(stream.color_space ?? "")))
     return { profile: "apple-log", why: `${stream.codec_name ?? "video"} tagged BT.2020 with no transfer curve, as Apple Log is` };
   return null;
 }

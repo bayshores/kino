@@ -136,7 +136,8 @@ function footagePin(document, cue, path, maxTime) {
   const layer = document.scenes?.flatMap((scene) => scene.layers ?? []).find((item) => item.id === cue.layer);
   if (!layer || !FOOTAGE_CUE_TYPES.includes(layer.type)) return null;
   const time = placed ? Math.min(maxTime, Math.max(0, round(placed.time))) : cue.time;
-  return { layer: cue.layer, media: cue.media, time };
+  // The cue moves to the piece of a split clip that shows its moment.
+  return { layer: placed?.layer.id ?? cue.layer, media: cue.media, time };
 }
 
 // A media src (/api/media/<id>.mp4 or a file path): any text up to 2048 characters.

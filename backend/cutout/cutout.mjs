@@ -218,13 +218,13 @@ function killAll(children) {
  * `frameSize` bytes; onFrame(frame) returns the gray frames to write to `outFile` (FFV1 at
  * outSize), onEnd() the last ones. Resolves when all have exited.
  */
-async function runChain({ children: labelled, frameSize, outSize, rate, outFile, signal, onFrame, onEnd }) {
+async function runChain({ children: labeled, frameSize, outSize, rate, outFile, signal, onFrame, onEnd }) {
   const encode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray",
     "-s", `${outSize.width}x${outSize.height}`, "-r", rate, "-i", "pipe:0", "-c:v", "ffv1", "-level", "3", "-f", "matroska", outFile],
   { stdio: ["pipe", "ignore", "pipe"] });
-  const all = [...labelled, [encode, "FFmpeg"]];
+  const all = [...labeled, [encode, "FFmpeg"]];
   const children = all.map(([child]) => child);
-  const frames = labelled.at(-1)[0].stdout;
+  const frames = labeled.at(-1)[0].stdout;
   const onAbort = () => killAll(children);
   signal?.addEventListener("abort", onAbort, { once: true });
   // A process that stops early closes its pipe; the process feeding it then gets EPIPE, which is
@@ -319,7 +319,7 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
  * cleared outside them, steadied and written as the matte. Returns { frames, empty, soft, picked }; picked
  * has lost and weak spans in file seconds (pick.mjs followReport).
  */
-async function analysePicked({ source, video, size, helper, matteFile, work, pick, signal, onFraction }) {
+async function analyzePicked({ source, video, size, helper, matteFile, work, pick, signal, onFraction }) {
   const { width, height } = size;
   const pixels = width * height;
   const expected = Math.max(1, Math.round(video.duration * video.fps));
@@ -340,7 +340,7 @@ async function analysePicked({ source, video, size, helper, matteFile, work, pic
   if (grids.length === 0) throw cutoutError(`${basename(source)} has no picture to cut out.`, "CUTOUT_NO_PICTURE");
   // A time past the last frame picks on the last one.
   picked ??= { at: grids.length - 1, keep: pickedLabels(lastLabels, width, height, pick) };
-  if (!picked.keep.size) throw noPick(pick, picked.at / video.fps);
+  if (!picked.keep.size) throw noPick(pick, video.lead + picked.at / video.fps);
   const keeps = followPicked(grids, picked.at, picked.keep);
   const mattes = steadyMattes({ size, expected, onFraction: (fraction) => onFraction?.(0.9 + 0.1 * fraction) });
   const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", stackFile, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
@@ -554,7 +554,7 @@ export async function makeMatte({ source, kind, engine = "auto", cacheDir, signa
       const video = await probeVideo(source, signal);
       const size = analysisSize(video.width, video.height);
       const { frames, empty, soft, picked } = pick
-        ? await analysePicked({ source, video, size, helper, matteFile: join(work, "matte.mkv"), work, pick, signal, onFraction: onProgress })
+        ? await analyzePicked({ source, video, size, helper, matteFile: join(work, "matte.mkv"), work, pick, signal, onFraction: onProgress })
         : await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"), signal, onFraction: onProgress });
       info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty, soft, ...(picked ? { picked } : {}),
         source: { width: video.width, height: video.height, rate: video.rate, duration: video.duration, lead: video.lead, colour: video.colour } };

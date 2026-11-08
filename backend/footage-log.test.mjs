@@ -40,6 +40,11 @@ test("footageLogOf reads Apple Log from tags and leaves other footage alone", ()
   assert.equal(footageLogOf({ codec_name: "h264" }), null, "untagged");
   assert.equal(footageLogOf({ codec_name: "hevc", tags: { comment: "Apple Log" } })?.profile, "apple-log");
   assert.equal(footageLogOf({ codec_name: "hevc", tags: { comment: "Apple Log 2" } }), null, "a different gamut");
+  const rec709 = { codec_name: "h264", color_primaries: "bt709", color_transfer: "bt709", color_space: "bt709", tags: {} };
+  assert.equal(footageLogOf(rec709, { comment: "Apple Log" }), null, "a stated Rec.709 curve wins");
+  assert.equal(footageLogOf({ codec_name: "h264" }, { title: "Apple logo reveal" }), null);
+  assert.equal(footageLogOf({ codec_name: "h264" }, { comment: "Shot for the Applelogistics ad" }), null);
+  assert.equal(footageLogOf({ codec_name: "h264" }, { title: "Shooting Apple Log on iPhone" }), null, "a download's title");
   assert.equal(sceneNeedsChromium({ layers: [{ id: "v", type: "video", log: "apple-log", animations: [] }] }), true);
   assert.equal(sceneNeedsChromium({ layers: [{ id: "v", type: "video", animations: [] }] }), false);
 });

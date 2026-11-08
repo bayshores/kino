@@ -248,6 +248,29 @@ test("cut_out points keep the pointed object and the receipt says what was picke
   assert.match(JSON.parse(missed.text).reason, /no object under points \[95,5\] at 0 s of "clip"\. Point at an object/);
 });
 
+test("a log clip's subject keeps log; its silhouette and matte drop it (kino's own colors)", { skip: skipWithoutMediaTools }, async () => {
+  const video = await upload(server, clips.runner.path, "runner.mp4", "video/mp4");
+  await agent("project", { action: "create", id: "log-cut", name: "Log cut", width: 640, height: 360, duration: 2 });
+  const reply = await agent("edit", { project: "log-cut", ops: [
+    { op: "add_layer", layerType: "video", name: "clip", properties: { src: video.src, log: "apple-log" } },
+    { op: "cut_out", layer: "clip" }, { op: "cut_out", layer: "clip", output: "silhouette", color: "#3366ff" }, { op: "cut_out", layer: "clip", output: "matte" }] });
+  assert.equal(reply.isError, undefined, reply.text);
+  const logs = Object.fromEntries((await sceneLayers(server, "log-cut")).layers.map((layer) => [layer.name, layer.log ?? null]));
+  assert.deepEqual(logs, { clip: "apple-log", "clip-subject": "apple-log", "clip-silhouette": null, "clip-matte": null });
+});
+
+test("no object under points names the file time asked, in a file whose picture starts late", { skip: skipWithoutMediaTools }, async () => {
+  // Sound from 0 s, picture from 0.5 s: time 1 is the picture's frame 15, 1 s into the file.
+  const file = path.join(folder, "late.mp4");
+  await run(ffmpeg, ["-v", "error", "-y", "-itsoffset", "0.5", "-i", clips.guest.path, "-f", "lavfi", "-i", "sine=frequency=330:duration=2.5",
+    "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac", file]);
+  const video = await upload(server, file, "late.mp4", "video/mp4");
+  await agent("project", { action: "create", id: "late", name: "Late", width: 640, height: 360, duration: 2 });
+  const missed = await agent("edit", { project: "late", ops: [{ op: "add_layer", layerType: "video", name: "clip", properties: { src: video.src } },
+    { op: "cut_out", layer: "clip", points: [[95, 5]], time: 1 }] });
+  assert.match(JSON.parse(missed.text).reason, /no object under points \[95,5\] at 1 s of "clip"/);
+});
+
 test("cut_out points report where the object was lost, and seeAt gives the scene time to look at", { skip: skipWithoutMediaTools }, async () => {
   // A red square on navy, hidden from 0.5 s to 1 s (10 fps); the layer starts Play 1 s into the scene.
   const file = path.join(folder, "blink.mp4");
