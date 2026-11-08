@@ -37,6 +37,7 @@ import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs"
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
 import { createSteadier, finishMatte, softCounts } from "./matte.mjs";
+import { followPicked, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
 export const CUTOUT_OUTPUTS = Object.freeze(["subject", "matte", "silhouette"]);
@@ -211,53 +212,35 @@ function killAll(children) {
 }
 
 /**
- * Streams a video through FFmpeg → kino-cutout → the steadier → FFV1. Returns { frames, empty, soft }
- * (soft: the share of the subject's pixels that are see-through, from softCounts).
+ * Runs `children` ([[child, label]], already piped together) whose last stdout gives frames of
+ * `frameSize` bytes; onFrame(frame) returns the gray frames to write to `outFile` (FFV1 at
+ * outSize), onEnd() the last ones. Resolves when all have exited.
  */
-async function analyseVideo({ source, video, size, engine, helper, matteFile, signal, onFraction }) {
-  const { width, height } = size;
-  const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn",
-    "-vf", `fps=fps=${video.rate}:round=near,scale=${width}:${height}:flags=area,format=bgra`,
-    "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
-  const cut = spawn(helper, ["--width", String(width), "--height", String(height), "--engine", engine], { stdio: ["pipe", "pipe", "pipe"] });
+async function runChain({ children: labelled, frameSize, outSize, rate, outFile, signal, onFrame, onEnd }) {
   const encode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "gray",
-    "-s", `${width}x${height}`, "-r", video.rate, "-i", "pipe:0", "-c:v", "ffv1", "-level", "3", "-f", "matroska", matteFile],
+    "-s", `${outSize.width}x${outSize.height}`, "-r", rate, "-i", "pipe:0", "-c:v", "ffv1", "-level", "3", "-f", "matroska", outFile],
   { stdio: ["pipe", "ignore", "pipe"] });
-  const children = [decode, cut, encode];
+  const all = [...labelled, [encode, "FFmpeg"]];
+  const children = all.map(([child]) => child);
+  const frames = labelled.at(-1)[0].stdout;
   const onAbort = () => killAll(children);
   signal?.addEventListener("abort", onAbort, { once: true });
   // A process that stops early closes its pipe; the process feeding it then gets EPIPE, which is
   // reported through the stopped process's own error instead.
-  for (const stream of [cut.stdin, encode.stdin, decode.stdout, cut.stdout]) stream.on("error", () => {});
-  decode.stdout.pipe(cut.stdin);
-
-  const expected = Math.max(1, Math.round(video.duration * video.fps));
-  const steadier = createSteadier({ width, height, radius: STEADY_RADIUS });
-  const pixels = width * height;
-  let frames = 0, empty = 0, seen = 0, soft = 0;
-  const write = (mattes) => {
+  for (const [child] of all) for (const stream of [child.stdin, child.stdout]) stream?.on("error", () => {});
+  const write = (out) => {
     let ok = true;
-    for (const matte of mattes) {
-      let on = 0;
-      for (let i = 0; i < pixels; i += 1) if (matte[i] >= 128) on += 1;
-      if (on < pixels * EMPTY_SHARE) empty += 1;
-      // Every eighth frame is enough to tell a see-through body from a clean edge.
-      if (frames % 8 === 0) { const counts = softCounts(matte); seen += counts.seen; soft += counts.soft; }
-      frames += 1;
-      ok = encode.stdin.write(matte) && ok;
-    }
-    if (mattes.length) onFraction?.(Math.min(1, frames / expected));
+    for (const frame of out) ok = encode.stdin.write(frame) && ok;
     return ok;
   };
-  const collect = frameCollector(pixels, (matte) => {
-    if (!write(steadier.push(matte))) {
-      cut.stdout.pause();
-      encode.stdin.once("drain", () => cut.stdout.resume());
+  frames.on("data", frameCollector(frameSize, (frame) => {
+    if (!write(onFrame(frame))) {
+      frames.pause();
+      encode.stdin.once("drain", () => frames.resume());
     }
-  });
-  cut.stdout.on("data", collect);
-  cut.stdout.once("end", () => {
-    write(steadier.finish());
+  }));
+  frames.once("end", () => {
+    write(onEnd());
     encode.stdin.end();
   });
   try {
@@ -269,7 +252,7 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
       killAll(children);
       throw error;
     });
-    await Promise.allSettled([watch(decode, "FFmpeg"), watch(cut, "kino-cutout"), watch(encode, "FFmpeg")]);
+    await Promise.allSettled(all.map(([child, label]) => watch(child, label)));
     if (signal?.aborted) throw abortError(signal);
     if (first?.label === "kino-cutout") throw cutoutError(`Apple Vision could not cut out the subject: ${first.error.message}`, "CUTOUT_ENGINE_FAILED");
     if (first) throw first.error;
@@ -279,8 +262,97 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
+}
+
+// FFmpeg → kino-cutout, piped: the children for runChain.
+function visionChain({ source, video, size, engine, helper, instances = false }) {
+  const { width, height } = size;
+  const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn",
+    "-vf", `fps=fps=${video.rate}:round=near,scale=${width}:${height}:flags=area,format=bgra`,
+    "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
+  const cut = spawn(helper, ["--width", String(width), "--height", String(height), "--engine", engine, ...(instances ? ["--instances"] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+  decode.stdout.pipe(cut.stdin);
+  return [[decode, "FFmpeg"], [cut, "kino-cutout"]];
+}
+
+// The steadier and the matte's counts: steady(matte) and finish() give the frames to write;
+// result() gives { frames, empty, soft } (soft: the share of the subject's pixels that are
+// see-through, from softCounts).
+function steadyMattes({ size, expected, onFraction }) {
+  const { width, height } = size;
+  const steadier = createSteadier({ width, height, radius: STEADY_RADIUS });
+  const pixels = width * height;
+  let frames = 0, empty = 0, seen = 0, soft = 0;
+  const count = (mattes) => {
+    for (const matte of mattes) {
+      let on = 0;
+      for (let i = 0; i < pixels; i += 1) if (matte[i] >= 128) on += 1;
+      if (on < pixels * EMPTY_SHARE) empty += 1;
+      // Every eighth frame is enough to tell a see-through body from a clean edge.
+      if (frames % 8 === 0) { const counts = softCounts(matte); seen += counts.seen; soft += counts.soft; }
+      frames += 1;
+    }
+    if (mattes.length) onFraction?.(Math.min(1, frames / expected));
+    return mattes;
+  };
+  return { steady: (matte) => count(steadier.push(matte)), finish: () => count(steadier.finish()),
+    result: () => ({ frames, empty, soft: seen ? Math.round((1000 * soft) / seen) / 1000 : 0 }) };
+}
+
+/** Streams a video through FFmpeg → kino-cutout → the steadier → FFV1. Returns { frames, empty, soft }. */
+async function analyseVideo({ source, video, size, engine, helper, matteFile, signal, onFraction }) {
+  const expected = Math.max(1, Math.round(video.duration * video.fps));
+  const mattes = steadyMattes({ size, expected, onFraction });
+  await runChain({ children: visionChain({ source, video, size, engine, helper }), frameSize: size.width * size.height, outSize: size,
+    rate: video.rate, outFile: matteFile, signal, onFrame: mattes.steady, onEnd: mattes.finish });
+  const { frames, empty, soft } = mattes.result();
   if (frames === 0) throw cutoutError(`${basename(source)} has no picture to cut out.`, "CUTOUT_NO_PICTURE");
-  return { frames, empty, soft: seen ? Math.round((1000 * soft) / seen) / 1000 : 0 };
+  return { frames, empty, soft };
+}
+
+/**
+ * analyseVideo for cut_out points (pick: { points, exclude, time }): Vision's matte and instance
+ * labels go stacked into one lossless file while each frame's labels are kept on a small grid;
+ * then the kept instances are followed through the frames (pick.mjs) and the file is read back,
+ * cleared outside them, steadied and written as the matte. Returns { frames, empty, soft, picked }.
+ */
+async function analysePicked({ source, video, size, helper, matteFile, work, pick, signal, onFraction }) {
+  const { width, height } = size;
+  const pixels = width * height;
+  const expected = Math.max(1, Math.round(video.duration * video.fps));
+  const stackFile = join(work, "instances.mkv");
+  const step = gridStep(width, height);
+  const grids = [];
+  const at = Math.min(expected - 1, Math.max(0, Math.round(Math.max(0, (pick.time ?? 0) - video.lead) * video.fps)));
+  let picked = null, lastLabels = null;
+  await runChain({ children: visionChain({ source, video, size, engine: "subject", helper, instances: true }), frameSize: pixels * 2,
+    outSize: { width, height: height * 2 }, rate: video.rate, outFile: stackFile, signal,
+    onFrame: (frame) => {
+      const labels = lastLabels = frame.subarray(pixels);
+      if (grids.length === at) picked = { at, keep: pickedLabels(labels, width, height, pick) };
+      grids.push(gridLabels(labels, width, height, step));
+      onFraction?.(Math.min(1, grids.length / expected) * 0.9);
+      return [frame];
+    }, onEnd: () => [] });
+  if (grids.length === 0) throw cutoutError(`${basename(source)} has no picture to cut out.`, "CUTOUT_NO_PICTURE");
+  // A time past the last frame picks on the last one.
+  picked ??= { at: grids.length - 1, keep: pickedLabels(lastLabels, width, height, pick) };
+  if (!picked.keep.size) throw noPick(pick, picked.at / video.fps);
+  const keeps = followPicked(grids, picked.at, picked.keep);
+  const mattes = steadyMattes({ size, expected, onFraction: (fraction) => onFraction?.(0.9 + 0.1 * fraction) });
+  const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", stackFile, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
+    { stdio: ["ignore", "pipe", "pipe"] });
+  let index = 0;
+  await runChain({ children: [[decode, "FFmpeg"]], frameSize: pixels * 2, outSize: size, rate: video.rate, outFile: matteFile, signal,
+    onFrame: (frame) => mattes.steady(keepLabels(frame.subarray(0, pixels), frame.subarray(pixels), keeps[index++] ?? new Set())),
+    onEnd: mattes.finish });
+  await rm(stackFile, { force: true });
+  return { ...mattes.result(), picked: { frame: picked.at, objects: picked.keep.size } };
+}
+
+function noPick(pick, seconds) {
+  const where = pick.points.map(([x, y]) => `[${x},${y}]`).join(", ");
+  return cutoutError(`Apple Vision found no object under points ${where}${pick.exclude?.length ? " (after exclude)" : ""} at ${Math.round(seconds * 100) / 100} s`, "CUTOUT_NO_SUBJECT");
 }
 
 /** A still image as RGBA bytes at its own (upright) size and at `size`, read by @napi-rs/canvas. */
@@ -299,9 +371,9 @@ async function readImage(source, size) {
     small: size ? draw(size.width, size.height) : null };
 }
 
-/** Runs the helper on one picture (BGRA bytes) and returns its matte. */
-async function cutOnePicture({ helper, engine, size, bgra, signal }) {
-  const child = spawn(helper, ["--width", String(size.width), "--height", String(size.height), "--engine", engine], { stdio: ["pipe", "pipe", "pipe"] });
+/** Runs the helper on one picture (BGRA bytes) and returns its matte (then its labels with `instances`). */
+async function cutOnePicture({ helper, engine, size, bgra, signal, instances = false }) {
+  const child = spawn(helper, ["--width", String(size.width), "--height", String(size.height), "--engine", engine, ...(instances ? ["--instances"] : [])], { stdio: ["pipe", "pipe", "pipe"] });
   const onAbort = () => killAll([child]);
   signal?.addEventListener("abort", onAbort, { once: true });
   child.stdin.on("error", () => {});
@@ -314,7 +386,7 @@ async function cutOnePicture({ helper, engine, size, bgra, signal }) {
     throw cutoutError(`Apple Vision could not cut out the subject: ${error.message}`, "CUTOUT_ENGINE_FAILED");
   } finally { signal?.removeEventListener("abort", onAbort); }
   const matte = new Uint8Array(Buffer.concat(chunks));
-  if (matte.length !== size.width * size.height) throw cutoutError("kino-cutout returned a matte of the wrong size.", "CUTOUT_ENGINE_FAILED");
+  if (matte.length !== size.width * size.height * (instances ? 2 : 1)) throw cutoutError("kino-cutout returned a matte of the wrong size.", "CUTOUT_ENGINE_FAILED");
   return matte;
 }
 
@@ -377,18 +449,22 @@ async function cachedMatte(folder) {
   } catch { return null; }
 }
 
-function checkOptions({ source, kind, engine, cacheDir }) {
+function checkOptions({ source, kind, engine, cacheDir, pick }) {
   if (typeof source !== "string" || !source) throw new TypeError("makeMatte needs a source file path.");
   if (typeof cacheDir !== "string" || !cacheDir) throw new TypeError("makeMatte needs a cacheDir.");
   if (!["video", "image"].includes(kind)) throw new RangeError('kind must be "video" or "image".');
   if (!CUTOUT_ENGINES.includes(engine)) throw new RangeError(`engine must be one of ${CUTOUT_ENGINES.join(", ")}.`);
+  const point = (item) => Array.isArray(item) && item.length === 2 && item.every((value) => Number.isFinite(value) && value >= 0 && value <= 100);
+  if (pick != null && !(Array.isArray(pick.points) && pick.points.length && pick.points.every(point) && (pick.exclude ?? []).every(point)
+    && (pick.time === undefined || (Number.isFinite(pick.time) && pick.time >= 0))))
+    throw new RangeError("pick needs points: [[x%, y%], …], and optional exclude (the same) and time (seconds).");
 }
 
 // Which engine `engine` means on this computer, and the cache folder of the matte it would make
 // of `source`: { chosen, note, macOS, sourceHash, folder }. Throws CUTOUT_ENGINE_UNAVAILABLE when
 // no engine can be used.
-async function matteSlot({ source, kind, engine, cacheDir, signal }) {
-  checkOptions({ source, kind, engine, cacheDir });
+async function matteSlot({ source, kind, engine, cacheDir, signal, pick }) {
+  checkOptions({ source, kind, engine, cacheDir, pick });
   if (signal?.aborted) throw abortError(signal);
   const engines = await cutoutEngines();
   const usable = engines.filter((entry) => entry.available).map((entry) => entry.engine);
@@ -402,13 +478,21 @@ async function matteSlot({ source, kind, engine, cacheDir, signal }) {
     if (!entry.available) throw cutoutError(entry.reason, "CUTOUT_ENGINE_UNAVAILABLE");
   }
   const { macOS } = engines.find((entry) => entry.engine === chosen);
+  // Points pick among the subject engine's objects; the person engine has none to pick.
+  if (pick && chosen !== "subject") {
+    const reason = engines.find((entry) => entry.engine === "subject").reason;
+    throw cutoutError(`points pick objects found by the subject engine${reason ? `: ${reason}` : "; send engine \"subject\" or \"auto\""}`, "CUTOUT_ENGINE_UNAVAILABLE");
+  }
+  if (pick && !(await helperInfo(cutoutHelperPath())).pick)
+    throw cutoutError("The kino-cutout helper is too old for points; rebuild it with npm run desktop:cutout (a few seconds).", "CUTOUT_ENGINE_UNAVAILABLE");
 
   let sourceHash;
   try { sourceHash = await sha256File(source, signal); }
   catch (error) { if (signal?.aborted) throw abortError(signal); throw error; }
   // Vision's models can change with macOS, so a new major version makes new mattes.
   const key = createHash("sha256")
-    .update(JSON.stringify({ format: MATTE_FORMAT, source: sourceHash, kind, engine: chosen, macOS: majorVersion(macOS), side: ANALYSIS_SIDE, steady: STEADY_RADIUS }))
+    .update(JSON.stringify({ format: MATTE_FORMAT, source: sourceHash, kind, engine: chosen, macOS: majorVersion(macOS), side: ANALYSIS_SIDE, steady: STEADY_RADIUS,
+      ...(pick ? { pick: { points: pick.points, exclude: pick.exclude ?? [], time: kind === "video" ? pick.time ?? 0 : 0 } } : {}) }))
     .digest("hex").slice(0, 32);
   return { chosen, note, macOS, sourceHash, folder: join(cacheDir, key) };
 }
@@ -419,8 +503,8 @@ async function matteSlot({ source, kind, engine, cacheDir, signal }) {
  * reads the file (for its hash) and the cache: nothing is decoded and the helper is not run.
  * Throws as makeMatte does when no engine can be used.
  */
-export async function findMatte({ source, kind, engine = "auto", cacheDir, signal } = {}) {
-  const { chosen, note, folder } = await matteSlot({ source, kind, engine, cacheDir, signal });
+export async function findMatte({ source, kind, engine = "auto", cacheDir, signal, pick } = {}) {
+  const { chosen, note, folder } = await matteSlot({ source, kind, engine, cacheDir, signal, pick });
   const hit = await cachedMatte(folder);
   return hit ? { folder, info: hit, engine: chosen, cached: true, note } : null;
 }
@@ -435,6 +519,8 @@ export async function findMatte({ source, kind, engine = "auto", cacheDir, signa
  *   cacheDir    folder for mattes, one subfolder per cache key
  *   signal      AbortSignal; cancelling stops the helper and FFmpeg and removes partial files
  *   onProgress  called with a fraction from 0 to 1 of the frames looked at
+ *   pick        { points: [[x%, y%]], exclude?, time? }: keep only the subject engine's objects
+ *               under points (not under exclude) at `time` seconds, followed through the clip
  *
  * Resolves with { folder, info, engine, cached, note }. `info` is matte.json: { file, kind,
  * width, height (the matte's), source: { width, height, rate?, lead?, colour? }, frames, empty
@@ -443,8 +529,8 @@ export async function findMatte({ source, kind, engine = "auto", cacheDir, signa
  * While a matte is being made its files are in a ".work-…" folder of cacheDir (media.mjs removes
  * the ones a stopped server left behind).
  */
-export async function makeMatte({ source, kind, engine = "auto", cacheDir, signal, onProgress } = {}) {
-  const { chosen, note, macOS, sourceHash, folder } = await matteSlot({ source, kind, engine, cacheDir, signal });
+export async function makeMatte({ source, kind, engine = "auto", cacheDir, signal, onProgress, pick } = {}) {
+  const { chosen, note, macOS, sourceHash, folder } = await matteSlot({ source, kind, engine, cacheDir, signal, pick });
   const hit = await cachedMatte(folder);
   if (hit) {
     onProgress?.(1);
@@ -460,20 +546,29 @@ export async function makeMatte({ source, kind, engine = "auto", cacheDir, signa
     if (kind === "video") {
       const video = await probeVideo(source, signal);
       const size = analysisSize(video.width, video.height);
-      const { frames, empty, soft } = await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"),
-        signal, onFraction: onProgress });
-      info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty, soft,
+      const { frames, empty, soft, picked } = pick
+        ? await analysePicked({ source, video, size, helper, matteFile: join(work, "matte.mkv"), work, pick, signal, onFraction: onProgress })
+        : await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"), signal, onFraction: onProgress });
+      info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty, soft, ...(picked ? { picked } : {}),
         source: { width: video.width, height: video.height, rate: video.rate, duration: video.duration, lead: video.lead, colour: video.colour } };
     } else {
       const probe = await readImage(source, null);
       const size = analysisSize(probe.width, probe.height);
       const image = size.width === probe.width && size.height === probe.height ? probe : await readImage(source, size);
-      const matte = await cutOnePicture({ helper, engine: chosen, size, bgra: rgbaToBgra(image.small ?? image.rgba), signal });
+      let matte = await cutOnePicture({ helper, engine: chosen, size, bgra: rgbaToBgra(image.small ?? image.rgba), signal, instances: !!pick });
+      let picked = null;
+      if (pick) {
+        const pixels = size.width * size.height, labels = matte.subarray(pixels);
+        const keep = pickedLabels(labels, size.width, size.height, pick);
+        if (!keep.size) throw noPick(pick, 0);
+        matte = keepLabels(matte.subarray(0, pixels), labels, keep);
+        picked = { frame: 0, objects: keep.size };
+      }
       let on = 0;
       for (const value of matte) if (value >= 128) on += 1;
       await writeFile(join(work, "matte.gray"), matte);
       info = { file: "matte.gray", kind, width: size.width, height: size.height, frames: 1, empty: on < matte.length * EMPTY_SHARE ? 1 : 0,
-        source: { width: probe.width, height: probe.height } };
+        ...(picked ? { picked } : {}), source: { width: probe.width, height: probe.height } };
       onProgress?.(1);
     }
     Object.assign(info, { format: MATTE_FORMAT, engine: chosen, macOS, seconds: Math.round((performance.now() - started) / 100) / 10,

@@ -2,7 +2,7 @@
 // matte (white where the subject is, black elsewhere). Nothing leaves the computer and nothing is
 // downloaded: the models are part of macOS.
 //
-// Usage: kino-cutout --width <w> --height <h> --engine subject|person [--quality accurate|balanced]
+// Usage: kino-cutout --width <w> --height <h> --engine subject|person [--quality accurate|balanced] [--instances]
 //        kino-cutout --engines      (prints which engines this Mac has, as one JSON line)
 //        kino-cutout --version
 //        kino-cutout --track --width <w> --height <h> --box <x,y,w,h> [--level accurate|fast]
@@ -31,6 +31,10 @@
 // byte a pixel from 0 (background) to 255 (subject), in the same order. Errors go to standard error
 // with a non-zero exit code.
 //
+// --instances (subject engine only): after each matte, a second w × h plane of instance labels: 0
+// where no instance is, else 1 + the index of the instance strongest at that pixel. kino keeps
+// only the instances an agent pointed at (cut_out points, backend/cutout/cutout.mjs).
+//
 // Engines:
 //   subject  VNGenerateForegroundInstanceMaskRequest (macOS 14 and later): every salient object
 //            that stands out from the background (a person, an animal, a product, a cup), all
@@ -45,7 +49,7 @@ import CoreVideo
 import Foundation
 import Vision
 
-let version = "4"
+let version = "5"
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
     FileHandle.standardError.write(Data("kino-cutout: \(message)\n".utf8))
@@ -67,7 +71,7 @@ if arguments == ["--engines"] {
     if #available(macOS 14.0, *) { subject = true }
     var person = false
     if #available(macOS 12.0, *) { person = true }
-    print("{\"version\":\"\(version)\",\"macOS\":\"\(osVersion())\",\"subject\":\(subject),\"person\":\(person),\"track\":true,\"stabilize\":true}")
+    print("{\"version\":\"\(version)\",\"macOS\":\"\(osVersion())\",\"subject\":\(subject),\"person\":\(person),\"track\":true,\"stabilize\":true,\"pick\":true}")
     exit(0)
 }
 
@@ -296,12 +300,14 @@ if let mode = option("--stabilize") {
     exit(0)
 }
 let tracking = arguments.contains("--track")
+let instances = arguments.contains("--instances")
 let usage = "usage: kino-cutout --width <w> --height <h> --engine subject|person [--quality accurate|balanced]"
 guard let width = Int(option("--width") ?? ""), let height = Int(option("--height") ?? ""),
       width > 0, height > 0, width <= 8192, height <= 8192 else { fail(usage, code: 2) }
 let engine = option("--engine") ?? "subject"
 let quality = option("--quality") ?? "accurate"
 guard tracking || ["subject", "person"].contains(engine), ["accurate", "balanced"].contains(quality) else { fail(usage, code: 2) }
+if instances && engine != "subject" { fail("--instances needs --engine subject", code: 2) }
 
 let pictureBytes = width * height * 4
 let matteBytes = width * height
@@ -373,6 +379,9 @@ func copyMatte(_ matte: CVPixelBuffer, into output: UnsafeMutablePointer<UInt8>)
 
 let picture = UnsafeMutablePointer<UInt8>.allocate(capacity: pictureBytes)
 let matte = UnsafeMutablePointer<UInt8>.allocate(capacity: matteBytes)
+let labels = UnsafeMutablePointer<UInt8>.allocate(capacity: matteBytes)
+let strongest = UnsafeMutablePointer<UInt8>.allocate(capacity: matteBytes)
+let strongestScratch = UnsafeMutablePointer<UInt8>.allocate(capacity: matteBytes)
 setvbuf(stdout, nil, _IOFBF, 1 << 20)
 
 if tracking {
@@ -418,11 +427,23 @@ if engine == "subject" {
         autoreleasepool {
             let buffer = pixelBuffer(from: picture)
             let handler = VNImageRequestHandler(cvPixelBuffer: buffer, options: [:])
+            if instances { memset(labels, 0, matteBytes) }
             do {
                 try handler.perform([request])
                 if let found = request.results?.first, !found.allInstances.isEmpty {
                     let scaled = try found.generateScaledMaskForImage(forInstances: found.allInstances, from: handler)
                     copyMatte(scaled, into: matte)
+                    if instances {
+                        // Each pixel takes the instance whose own soft mask is strongest there.
+                        memset(strongest, 0, matteBytes)
+                        for (order, instance) in found.allInstances.sorted().prefix(255).enumerated() {
+                            let one = try found.generateScaledMaskForImage(forInstances: IndexSet(integer: instance), from: handler)
+                            copyMatte(one, into: strongestScratch)
+                            for i in 0..<matteBytes where strongestScratch[i] > strongest[i] {
+                                strongest[i] = strongestScratch[i]; labels[i] = UInt8(order + 1)
+                            }
+                        }
+                    }
                 } else {
                     memset(matte, 0, matteBytes)
                 }
@@ -430,6 +451,7 @@ if engine == "subject" {
                 fail("Vision could not find the subject: \(error.localizedDescription)")
             }
             writeExactly(matte, matteBytes)
+            if instances { writeExactly(labels, matteBytes) }
         }
     }
 } else {

@@ -235,6 +235,19 @@ test("the cut_out example op runs on the example project", { skip: skipWithoutMe
   assert.deepEqual(after.filter((layer) => layer.parentId).map((layer) => layer.name), ["footage", "card", "title", "footage-subject"]);
 });
 
+test("cut_out points keep the pointed object and the receipt says what was picked", { skip: skipWithoutMediaTools }, async () => {
+  const video = await upload(server, clips.runner.path, "runner.mp4", "video/mp4");
+  await agent("project", { action: "create", id: "picked", name: "Picked", width: 640, height: 360, duration: 2 });
+  const reply = await agent("edit", { project: "picked", ops: [{ op: "add_layer", layerType: "video", name: "clip", properties: { src: video.src } },
+    { op: "cut_out", layer: "clip", points: [[22, 52]], exclude: [[90, 10]], time: 0.2 }] });
+  assert.equal(reply.isError, undefined, reply.text);
+  assert.deepEqual(reply.data.cutout.picked, { frame: 6, objects: 1 });
+  assert.ok(byName((await sceneLayers(server, "picked")).layers, "clip-subject"));
+  const missed = await agent("edit", { project: "picked", ops: [{ op: "cut_out", layer: "clip", points: [[95, 5]], name: "none" }] });
+  assert.equal(JSON.parse(missed.text).cutoutError, "CUTOUT_NO_SUBJECT");
+  assert.match(JSON.parse(missed.text).reason, /no object under points \[95,5\] at 0 s of "clip"\. Point at an object/);
+});
+
 test("cut_out refusals say what is wrong and what to send, and change nothing", { skip: skipWithoutMediaTools }, async () => {
   const video = await upload(server, clips.runner.path, "runner.mp4", "video/mp4");
   const svg = await upload(server, Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'), "logo.svg", "image/svg+xml").catch(() => null);
@@ -261,6 +274,10 @@ test("cut_out refusals say what is wrong and what to send, and change nothing", 
   await refused({ op: "cut_out", layer: "clip", output: "silhouette", color: "#ffffff80" }, /opaque hex color/);
   await refused({ op: "cut_out", layer: "clip", invert: true }, /invert is for output "matte"/);
   await refused({ op: "cut_out", layer: "clip", blur: 4 }, /cut_out has no blur/);
+  await refused({ op: "cut_out", layer: "clip", points: [[120, 40]] }, /points must be 1 to 8 points \[x, y\] in % of the clip's own picture/);
+  await refused({ op: "cut_out", layer: "clip", points: [[50, 50]], engine: "person" }, /points pick among the objects the subject engine finds/);
+  await refused({ op: "cut_out", layer: "clip", time: 1 }, /time goes with points/);
+  await refused({ op: "cut_out", layer: "clip", points: [[50, 50]], time: -1 }, /time must be seconds into the clip's file/);
   // Files with no photo to cut out.
   const gifFile = path.join(folder, "spin.gif");
   await import("node:fs/promises").then(({ writeFile }) => writeFile(gifFile, makeAnimatedGif({ width: 8, height: 8, frames: [{ delayCs: 10, color: [255, 0, 0] }, { delayCs: 10, color: [0, 0, 255] }] })));

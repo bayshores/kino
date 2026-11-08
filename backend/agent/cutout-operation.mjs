@@ -1,4 +1,4 @@
-// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, above?, name?} for
+// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, name?} for
 // the agent service: finds the subject of a video or image layer on this computer (backend/cutout,
 // Apple Vision), adds the result to the media library (backend/cutout/media.mjs), and puts it in a
 // new layer.
@@ -41,7 +41,7 @@ function within(promise, seconds) {
 }
 
 // What to do when a cut-out can't be made: the plain next step for each error code.
-async function nextStep(error, { engine, cutoutMedia }) {
+async function nextStep(error, { engine, cutoutMedia, points }) {
   const engines = await cutoutMedia.engines().catch(() => []);
   const available = engines.filter((entry) => entry.available).map((entry) => entry.engine);
   if (error.code === "CUTOUT_ENGINE_UNAVAILABLE") {
@@ -54,6 +54,7 @@ async function nextStep(error, { engine, cutoutMedia }) {
     return /desktop:cutout/.test(engines[0]?.reason ?? "") ? "Then send the edit again."
       : "Build the helper (npm run desktop:cutout) or set KINO_CUTOUT_HELPER, then send the edit again.";
   }
+  if (error.code === "CUTOUT_NO_SUBJECT" && points) return 'Point at an object (look mode:"source" shows the picture), or leave points out to keep every object.';
   if (error.code === "CUTOUT_NO_SUBJECT") {
     if (engine === "person" || (engine === "auto" && available[0] === "person"))
       return available.includes("subject") ? 'The person engine finds only people; send engine:"subject" for any subject.' : "The person engine finds only people (this Mac has no subject engine).";
@@ -82,7 +83,8 @@ function roughly(seconds) {
 export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline }) {
   const { sceneId, layerId } = operation;
   // behind: a person matte by default, and the text moves right above the clip first (below).
-  const output = operation.output ?? "subject", engine = operation.engine ?? (operation.behindText ? "person" : "auto");
+  // points pick among the subject engine's objects, so they need it.
+  const output = operation.output ?? "subject", engine = operation.engine ?? (operation.points ? "subject" : operation.behindText ? "person" : "auto");
   const scene = document.scenes.find((item) => item.id === sceneId);
   const layer = scene?.layers.find((item) => item.id === layerId);
   if (!layer) throw new Error(`No layer "${layerId}" in this scene.`);
@@ -108,7 +110,8 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   const job = cutoutMedia.start({ file, name: typeof record.name === "string" ? record.name : layer.name,
     kind: layer.type === "video" ? "video" : "image", output, engine,
     grow: inFilePixels(operation.grow), feather: inFilePixels(operation.feather),
-    color: operation.color ?? "#ffffff", invert: operation.invert === true });
+    color: operation.color ?? "#ffffff", invert: operation.invert === true,
+    ...(operation.points ? { pick: { points: operation.points, ...(operation.exclude ? { exclude: operation.exclude } : {}), ...(layer.type === "video" && operation.time !== undefined ? { time: operation.time } : {}) } } : {}) });
 
   // Past the deadline the job is still started (or joined), so it is made while the agent waits.
   const left = deadline === undefined ? waitSeconds : Math.max(0, (deadline - performance.now()) / 1000);
@@ -123,7 +126,7 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
       return document;
     }
     const said = error.code === "CUTOUT_NO_SUBJECT" ? `${error.message.replace(/\.$/, "")} of "${layer.name}".` : error.message;
-    const next = await nextStep(error, { engine, cutoutMedia });
+    const next = await nextStep(error, { engine, cutoutMedia, points: !!operation.points });
     throw Object.assign(new Error(next ? `${said} ${next}` : said), error.code ? { cutoutError: error.code } : {});
   }
   if (made === STILL_RUNNING) {
@@ -159,6 +162,6 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   if (made.engine === "person" && made.soft > PERSON_SOFT) notes.push(`${Math.round(made.soft * 100)}% of the person is see-through (a silhouette or a dark figure?): engine:"subject" may give a solid one`);
   if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
-    cached: made.cached, ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+    cached: made.cached, ...(made.picked ? { picked: made.picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }
