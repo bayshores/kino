@@ -87,9 +87,10 @@ test("a pick from the app's pick box becomes a ladder pick by packet id", () => 
 test("a first pass sends only the ask and the files, and keeps the final MP4 over a draft", () => {
   assert.equal(promptFor({ ask: "make a 30 s launch video ", notes: "" }, ["/r/01-home.png"]), "make a 30 s launch video\n\nFiles:\n- /r/01-home.png");
   assert.equal(htmlText("<style>a{}</style><h1>Hi &amp; bye</h1><p>one</p><p>one</p>"), "Hi & bye\none");
-  const files = [{ path: "/o/v-r3-draft-R1.mp4", mtimeMs: 30 }, { path: "/o/v-r2.mp4", mtimeMs: 20 }, { path: "/o/old.mp4", mtimeMs: 1 }];
-  assert.deepEqual(pickMp4(files, 10), { path: "/o/v-r2.mp4", final: true });
-  assert.deepEqual(pickMp4(files.slice(0, 1), 10), { path: "/o/v-r3-draft-R1.mp4", final: false });
+  const files = [{ path: "/o/work/08-clip.mp4", mtimeMs: 40 }, { path: "/o/v-r3-draft-R1.mp4", mtimeMs: 30 }, { path: "/o/v-r2-final-R1.mp4", mtimeMs: 20 }, { path: "/o/old-r1-final-R1.mp4", mtimeMs: 1 }];
+  assert.deepEqual(pickMp4(files, 10), { path: "/o/v-r2-final-R1.mp4", final: true });
+  assert.equal(pickMp4(files.slice(0, 1), 10), null, "an agent's own copy of a clip is not a render");
+  assert.deepEqual(pickMp4(files.slice(0, 2), 10), { path: "/o/v-r3-draft-R1.mp4", final: false });
   const run = summarize([{ type: "system", subtype: "init", session_id: "s1" },
     { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } },
     { type: "result", total_cost_usd: 1.5, num_turns: 4, result: "Rendered.", modelUsage: { m: {} } }]);

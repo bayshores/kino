@@ -40,9 +40,14 @@ export function htmlText(html) {
     .filter((line, index, all) => all.indexOf(line) === index).join("\n");
 }
 
-/** The MP4 the run made: the newest final one, else the newest draft. files: [{path, mtimeMs}]. */
+/**
+ * The MP4 the run made: the newest final render, else the newest draft. Only kino's renders count
+ * (`<project>-r<rev>-<quality>-R<n>.mp4`): an agent's own working copies of the footage do not.
+ * files: [{path, mtimeMs}].
+ */
 export function pickMp4(files, since = 0) {
-  const made = files.filter((file) => /\.mp4$/i.test(file.path) && file.mtimeMs >= since).sort((a, b) => b.mtimeMs - a.mtimeMs);
+  const render = /-r\d+-[a-z0-9]+-R\d+\.mp4$/i;
+  const made = files.filter((file) => render.test(path.basename(file.path)) && file.mtimeMs >= since).sort((a, b) => b.mtimeMs - a.mtimeMs);
   const isDraft = (file) => /(^|[-_.])draft([-_.]|$)/i.test(path.basename(file.path));
   const best = made.find((file) => !isDraft(file)) ?? made[0];
   return best ? { path: best.path, final: !isDraft(best) } : null;
