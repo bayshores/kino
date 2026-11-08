@@ -241,6 +241,18 @@ test("frame steps a camera group onto a region of a layer, then eases on, and ch
   assert.equal(evaluateLayer(findLayer(await saved("camera"), "open-camera"), 0).scaleX, 2, "framed on frame 0");
 });
 
+test("retime stretches a behavior ramp's seconds with its animation", async () => {
+  const made = await agent("ramp", "project", { action: "create", id: "ramp", name: "ramp", width: 320, height: 180, duration: 6 });
+  assert.equal(made.isError, undefined, made.text);
+  const built = await agent("ramp", "edit", { ops: [{ op: "add_layer", layerType: "rectangle", name: "box", properties: { x: 0, y: 0, width: 40, height: 40, fill: "#00C853" } },
+    { op: "add_animation", layer: "box", animation: { kind: "custom", name: "Drift", start: 0, duration: 6, from: {}, to: {}, behavior: { ramp: { to: { x: 40 }, start: 4, duration: 2 } } } }] });
+  assert.equal(built.isError, undefined, built.text);
+  const retimed = await agent("ramp", "edit", { ops: [{ op: "retime", duration: 4 }] });
+  assert.equal(retimed.isError, undefined, retimed.text);
+  const animation = (await saved("ramp")).document.scenes[0].layers.find((layer) => layer.name === "box").animations[0];
+  assert.ok(animation.behavior.ramp.start + animation.behavior.ramp.duration <= animation.duration + 1e-9, JSON.stringify(animation));
+});
+
 test("retime moves a sequence part's own clock and a sound's Play start with its Show", async () => {
   const made = await agent("film", "project", { action: "create", id: "film", name: "film", width: 320, height: 180, duration: 4 });
   assert.equal(made.isError, undefined, made.text);

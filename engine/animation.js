@@ -893,6 +893,26 @@ function keyedStep(animation, progress) {
   return { from: a.value, to: b.value, eased: easingAt(ease, share, animation.intensity), ease, index };
 }
 
+// The overshoot's last move (keys: the last step, else from and to) and how fast its eased
+// progress runs over the last END_TIME seconds (a frame; an ease-in's end can be near vertical),
+// so the swing carries on at the speed the move was seen to have.
+const END_TIME = 1 / 60;
+function overshootMove(animation, duration, options) {
+  const step = Math.min(1, END_TIME / duration);
+  const keys = Array.isArray(animation.keys) && animation.keys.length > 1 ? animation.keys : null;
+  if (keys) {
+    const a = keys.at(-2), b = keys.at(-1), ease = a.ease ?? animation.easing ?? "linear";
+    const share = Math.min(1, step / (b.t - a.t || 1));
+    const slope = (easingAt(ease, 1, animation.intensity) - easingAt(ease, 1 - share, animation.intensity)) / share;
+    return { from: a.value, to: b.value, rate: b.t < 1 || !(b.t > a.t) ? 0 : slope / ((b.t - a.t) * duration), step };
+  }
+  const at = (progress) => {
+    const eased = discreteProgress(animation.discrete, easingAt(animation.easing ?? "linear", progress, animation.intensity));
+    return animation.range ? textRangeProgress(animation.range, eased, operationUnitIndex(animation, options), operationUnitCount(animation, options)) : eased;
+  };
+  return { from: null, to: null, rate: (at(1) - at(1 - step)) / (step * duration), at, step };
+}
+
 // Runs the timed operations `ordered` (sorted by start) on `target` at `time`: each operation
 // sets the values it names, and a later one overrides an earlier one. Before its start, only an
 // "in" operation applies (its From values). `onlyKeys` limits the values that are set.
@@ -978,7 +998,9 @@ function applyOperations(target, layer, ordered, time, options, {
     // numbers (behavior.js).
     const local = behaviorTime(animation, time - start, duration);
     const offsets = hasOffsets(animation.behavior) ? animation.behavior : null;
-    const overshoot = animation.behavior?.overshoot;
+    const after = time - start - duration;
+    const overshoot = after > 0 && duration > 0 && after < (animation.behavior?.overshoot?.settle ?? 0) ? animation.behavior.overshoot : null;
+    const lastMove = overshoot ? overshootMove(animation, duration, options) : null;
     // Ephemeral sampling metadata: a cycle jumps back at each new pass, which Lottie must hold.
     if (animation.behavior?.loop?.mode === "cycle" && duration > 0)
       target._loopPass = `${target._loopPass ?? ""}${animation.id}:${Math.floor((time - start) / duration)};`;
@@ -1025,8 +1047,10 @@ function applyOperations(target, layer, ordered, time, options, {
       if (key === "opacity") target[key] = Math.max(0, Math.min(1, target[key]));
     }
     // overshoot: a spring past the last move's end value after the animation ends (behavior.js).
-    if (overshoot && typeof target[key] === "number" && typeof fromValue === "number" && typeof toValue === "number") {
-      target[key] += overshootOffset(overshoot, time - start - duration, toValue - fromValue);
+    const lastFrom = lastMove?.from && Object.hasOwn(lastMove.from, key) ? lastMove.from[key] : fromValue;
+    const lastTo = lastMove?.to && Object.hasOwn(lastMove.to, key) ? lastMove.to[key] : toValue;
+    if (overshoot && typeof target[key] === "number" && typeof lastFrom === "number" && typeof lastTo === "number") {
+      target[key] += overshootOffset(overshoot, after, lastTo - lastFrom, (lastTo - lastFrom) * lastMove.rate);
       if (key === "opacity") target[key] = Math.max(0, Math.min(1, target[key]));
     }
     }
@@ -1034,6 +1058,12 @@ function applyOperations(target, layer, ordered, time, options, {
     if (followsPath) {
       const { start: pathStart, end: pathEnd } = motionEndpoints(layer, animation);
       const pose = motionPathAt(pathStart, pathEnd, animation.motionPath, eased);
+      if (overshoot && lastMove.at) {
+        // The swing carries on along the path's end direction at its end speed.
+        const near = motionPathAt(pathStart, pathEnd, animation.motionPath, lastMove.at(1 - lastMove.step));
+        for (const axis of ["x", "y"])
+          pose[axis] += overshootOffset(overshoot, after, pathEnd[axis] - pathStart[axis], (pose[axis] - near[axis]) / (lastMove.step * duration));
+      }
       if (!onlyKeys || onlyKeys.includes("x")) target.x = pose.x;
       if (!onlyKeys || onlyKeys.includes("y")) target.y = pose.y;
       if (aligns) alignment = pose.angle + (animation.motionPath.alignmentOffset ?? 0);

@@ -10,12 +10,14 @@
 //     period seconds a cycle, phase a share 0..1 of a cycle, wave sine | triangle | square | saw,
 //     decay per second (the swing is times e^(-decay t)).
 //   ramp { to, from?: 0, start?: 0, duration?, ease?: "linear" }  an offset that moves from `from`
-//     to `to` between start and start + duration seconds into the animation (default: to its end).
+//     to `to` between start and start + duration seconds into the animation (default: to its end);
+//     both stretch when the animation's duration changes (retimeBehavior).
 //   randomize { amount, rate?: 2, seed?: 0, mode?: "smooth" }  a new random value in -amount..amount
 //     `rate` times a second: smooth glides between them, stepped jumps.
 //   overshoot { bounce?: 0.3, settle?: 0.6 }  after the animation ends, each number carries on
 //     past its end value (the first swing bounce times its last move) and springs back, settled
-//     to the end value settle seconds later.
+//     to the end value settle seconds later. It leaves at the move's end speed (keys: the last
+//     step; a motion path along its end direction).
 //   follow { layer, property?, lag?: 0.1, scale?: 1, offset?: 0 }  adds the named layer's move
 //     (its value lag seconds earlier minus its own saved value) times scale, plus offset. The
 //     leader's values are sampled into `track` whenever the document is edited (behaviorLinks.js).
@@ -240,17 +242,48 @@ export function audioOffset(audio, key, local, duration) {
 }
 
 /**
- * The overshoot `after` seconds past the animation's end, for a key whose last move was `change`:
- * a damped swing that first passes the end by bounce times the change, then is exactly 0 from
- * settle seconds on. Its envelope falls to 1% at settle; more bounce gives more swings.
+ * The overshoot `after` seconds past the animation's end, for a key whose last move was `change`
+ * and ended at `speed` units a second: a damped swing that first passes the end by bounce times
+ * the change, then is exactly 0 from settle seconds on. Its envelope falls to 1% at settle; more
+ * bounce gives more swings. The swing leaves the end at the move's own speed (no jump): early
+ * time is warped, slower after an ease-out, faster after an ease-in. A move ending faster than
+ * OVERSHOOT_FASTEST times the plain swing's speed swings further, so its speed still carries on.
  */
-export function overshootOffset(overshoot, after, change) {
+export const OVERSHOOT_FASTEST = 3;
+export function overshootOffset(overshoot, after, change, speed = 0) {
   const bounce = overshoot?.bounce ?? 0, settle = overshoot?.settle ?? 0;
-  if (!(after > 0) || after >= settle || !bounce || !change) return 0;
+  if (!(after > 0) || after >= settle || !bounce || (!change && !speed)) return 0;
   const omega = (Math.PI * (2 + 4 * bounce)) / settle;
   const lambda = Math.log(100) / settle;
   const shape = (t) => Math.sin(omega * t) * (Math.exp(-lambda * t) - 0.01) / 0.99;
-  return (change * bounce * shape(after)) / shape(Math.atan(omega / lambda) / omega);
+  const crest = Math.atan(omega / lambda) / omega, peak = shape(crest);
+  // The plain swing leaves at amplitude * omega / peak a second (shape'(0) is omega).
+  let amplitude = change * bounce;
+  const fastest = (Math.abs(speed) * peak) / (omega * OVERSHOOT_FASTEST);
+  if (fastest > Math.abs(amplitude)) amplitude = Math.sign(speed) * fastest;
+  const ratio = Math.max(0, (speed * peak) / (amplitude * omega));
+  // Warp time over the first `span` seconds: tau'(0) = ratio, tau = t from span on (C1), and
+  // tau' >= 1 - 2/3 * (ratio - 1) > 0 while ratio <= 3, so the swing never runs backward.
+  const span = Math.min(0.9 * settle, 3 * crest), u = after / span;
+  const tau = u < 1 ? after + (ratio - 1) * after * (1 - u) ** 2 : after;
+  return (amplitude * shape(tau)) / peak;
+}
+
+/**
+ * The behavior of an animation stretched from `before` to `after` seconds: a ramp's start and
+ * duration (seconds into the animation) stretch with it, so it still fits. Else unchanged.
+ */
+export function retimeBehavior(behavior, before, after) {
+  const ramp = behavior?.ramp;
+  if (!isRecord(ramp) || !(before > 0) || !(after > 0) || before === after || (!ramp.start && ramp.duration == null)) return behavior;
+  const factor = after / before, round = (value) => Math.round(value * 1e6) / 1e6;
+  const next = { ...ramp, start: Math.min(after, round((ramp.start ?? 0) * factor)) };
+  if (ramp.duration != null) {
+    const span = Math.min(round(ramp.duration * factor), after - next.start);
+    if (span > 0) next.duration = span;
+    else delete next.duration;
+  }
+  return { ...behavior, ramp: next };
 }
 
 /** True when the behavior adds offsets (anything but a lone loop). */

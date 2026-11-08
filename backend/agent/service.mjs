@@ -356,6 +356,17 @@ function exampleOf(type, error, layer, moveName = error?.moveName) {
   return exampleFor(type, layer, moveName) ?? undefined;
 }
 
+// A refused effect setting (add_animation {effect, parameters}): the same op without that
+// setting, so it takes the effect's default and sending next as given keeps the effect.
+function effectSettingRetry(type, operation, error) {
+  const parameters = operation?.parameters;
+  if (type !== "add_animation" || typeof operation?.effect !== "string" || !parameters || typeof parameters !== "object" || Array.isArray(parameters)) return undefined;
+  const name = /\bparameters\.(\w+)/.exec(error instanceof Error ? error.message : String(error))?.[1];
+  if (!name || !Object.hasOwn(parameters, name)) return undefined;
+  const { [name]: _refused, ...kept } = parameters;
+  return { ...operation, parameters: kept };
+}
+
 // The answer to library {topic:"op", name}: the rules, then one working example (and, for a
 // use that is easy to get wrong, another on a line of its own: "Effect: {…}").
 function withExample(type, text) {
@@ -1873,7 +1884,8 @@ export function createAgentService(deps) {
     if (rules) details.rules = rules;
     // An op that works once one field is added (move_layers mask:true): that op is the example.
     const example = index == null ? undefined : error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
-      : exampleOf(type, error, typeof operation?.layer === "string" ? operation.layer : undefined, operation?.name);
+      : (!error?.example && !error?.noExample && effectSettingRetry(type, operation, error))
+        || exampleOf(type, error, typeof operation?.layer === "string" ? operation.layer : undefined, operation?.name);
     if (example) details.example = example;
     return new AgentError("op_failed", index == null ? `The operations were refused together: ${reason}` : `Operation ${index} (${type}) was refused: ${reason}`, details);
   }

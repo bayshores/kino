@@ -214,7 +214,10 @@ test("agent add_animation refuses a field expression the parser cannot read, wit
   const reply = await agent("edit", { project, ops: [{ op: "add_animation", layer: "Artwork", effect: "field",
     parameters: { use: "alpha", expression: "noise(u*8, v*8) + wobble" } }] });
   assert.equal(reply.isError, true);
-  assert.match(JSON.parse(reply.text).reason, /parameters\.expression: unknown name "wobble"; allowed names: inputs u, v, t, seed, a, b, c;.*\(at character 19\)/);
+  const refusal = JSON.parse(reply.text);
+  assert.match(refusal.reason, /parameters\.expression: unknown name "wobble"; allowed names: inputs u, v, t, seed, a, b, c;.*\(at character 19\)/);
+  // The retry keeps the field effect, without the refused setting (its default).
+  assert.deepEqual(JSON.parse(refusal.next.replace(/^edit /, "")).fix["0"], { op: "add_animation", layer: "Artwork", effect: "field", parameters: { use: "alpha" } });
   assert.equal((await saved(project)).document.scenes[0].layers.find((layer) => layer.id === "art").animations?.length ?? 0, 0, "nothing is saved");
 });
 

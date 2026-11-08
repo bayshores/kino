@@ -22,6 +22,7 @@ import { shiftScene } from "../../engine/speech.js";
 import { nextScenePosition } from "../../engine/sceneLayout.js";
 import { ALIGNMENTS } from "../../engine/arrange.js";
 import { animationTreeEntries } from "../../engine/animationTree.js";
+import { retimeBehavior } from "../../engine/behavior.js";
 import { composeScene, readComposition } from "../../engine/blocks/compose.js";
 import { buildVideoFormat, expandVideoFormat, VIDEO_FORMATS, VIDEO_FORMAT_NAMES } from "../../engine/blocks/videoFormats.js";
 import { runRecipe, settingsFrom, SETTING_KEYS } from "../../engine/blocks/recipe.js";
@@ -2216,7 +2217,8 @@ function retimeScene(document, scene, duration, work, { newScene = false } = {})
       return { ...animation, start: round(clamp(Math.min(start, duration - span))) };
     }
     const start = clamp(map(animation.start));
-    return { ...animation, start, duration: round(Math.max(0.05, clamp(map(end)) - start)) };
+    const length = round(Math.max(0.05, clamp(map(end)) - start));
+    return { ...animation, start, duration: length, ...(animation.behavior ? { behavior: retimeBehavior(animation.behavior, span, length) } : {}) };
   });
   for (const layer of scene.layers) {
     layer.animations = retimeList(layer.animations);

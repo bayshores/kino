@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { evaluateLayer } from "./animation.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applyOperations } from "./operations.js";
-import { measureAudioLevels } from "./audioLevels.js";
-import { audioLevelAt, overshootOffset } from "./behavior.js";
+import { bandEdges, measureAudioLevels } from "./audioLevels.js";
+import { audioLevelAt, overshootOffset, retimeBehavior } from "./behavior.js";
 
 const doc = (layers, duration = 6) => parseDocument(createDocument({ scenes: [createScene({ id: "s", duration, layers })] }));
 const add = (layerId, animation) => ({ type: "add_animation", sceneId: "s", layerId, animation: { id: `${layerId}-a`, name: "B", ...animation } });
@@ -23,6 +23,47 @@ test("overshoot passes the end value, then settles within 1% by settle seconds",
   assert.ok(overshootOffset({ bounce: 0.5, settle: 1 }, 0.1, -20) < 0, "a move down overshoots down");
   assert.throws(() => applyOperations(doc([box]), [add("box", { ...animation, behavior: { overshoot: { bounce: 2 } } })]), /overshoot.bounce/);
   assert.throws(() => applyOperations(doc([box]), [add("box", { ...animation, behavior: { overshoot: {}, loop: { mode: "cycle" } } })]), /can't loop/);
+});
+
+test("overshoot leaves the end at the move's speed, after keys and along a motion path", () => {
+  const box = createLayer("rectangle", { id: "box", x: 0, y: 0 });
+  const speed = (layer, t, axis = "x") => (evaluateLayer(layer, t + 1e-5)[axis] - evaluateLayer(layer, t - 1e-5)[axis]) / 2e-5;
+  const frame = (layer, t) => (evaluateLayer(layer, t).x - evaluateLayer(layer, t - 1 / 60).x) * 60;
+  for (const easing of ["linear", "ease-in", "ease-out"]) {
+    const layer = applyOperations(doc([box]), [add("box", { kind: "custom", start: 0, duration: 0.5, easing, from: { x: 0 }, to: { x: 100 }, behavior: { overshoot: {} } })]).scenes[0].layers[0];
+    // The speed seen over the last frame carries on (an ease-in's end is near vertical).
+    const before = easing === "ease-in" ? frame(layer, 0.5) : speed(layer, 0.5 - 1e-4);
+    assert.ok(Math.abs(speed(layer, 0.5 + 1e-4) - before) < 0.05 * before + 10, `${easing}: ${before} then ${speed(layer, 0.5 + 1e-4)} px/s`);
+    const top = Math.max(...Array.from({ length: 60 }, (_, i) => evaluateLayer(layer, 0.5 + i / 100).x));
+    assert.ok(Math.abs(top - 130) < 0.5, `${easing}: the first swing is bounce times the move: ${top}`);
+    assert.equal(evaluateLayer(layer, 1.1).x, 100);
+  }
+  // Keys: the last step (60 to 100) swings, not the flat step a finished animation reports.
+  const keyed = applyOperations(doc([box]), [add("box", { kind: "custom", start: 0, duration: 1, easing: "linear", keys: [{ t: 0, value: { x: 0 } }, { t: 0.5, value: { x: 60 } }, { t: 1, value: { x: 100 } }], behavior: { overshoot: { bounce: 0.5 } } })]).scenes[0].layers[0];
+  assert.ok(Math.max(...Array.from({ length: 40 }, (_, i) => evaluateLayer(keyed, 1 + i / 100).x)) > 115);
+  // A motion path swings too, leaving along its end direction (down here).
+  const path = { points: [{ x: 0, y: 0, out: { x: 120, y: 0 } }, { x: 100, y: 100, in: { x: 0, y: -120 } }] };
+  const curved = applyOperations(doc([box]), [add("box", { kind: "custom", start: 0, duration: 1, easing: "linear", from: { x: 0, y: 0 }, to: { x: 100, y: 100 }, motionPath: path, behavior: { overshoot: {} } })]).scenes[0].layers[0];
+  assert.ok(Math.max(...Array.from({ length: 30 }, (_, i) => evaluateLayer(curved, 1 + i / 100).y)) > 110);
+  assert.ok(Math.abs(speed(curved, 1 + 1e-4, "y") - speed(curved, 1 - 1e-4, "y")) < 0.05 * speed(curved, 1 - 1e-4, "y") + 10);
+  assert.equal(evaluateLayer(curved, 1.7).y, 100);
+});
+
+test("a ramp's seconds stretch when its animation is retimed, so the edit is kept", () => {
+  const box = createLayer("rectangle", { id: "box", x: 0, y: 0 });
+  const made = applyOperations(doc([box]), [add("box", { kind: "custom", start: 0, duration: 6, easing: "linear", from: {}, to: {}, behavior: { ramp: { to: { x: 40 }, start: 4, duration: 2 } } })]);
+  const shorter = applyOperations(made, [{ type: "update_animation", sceneId: "s", layerId: "box", animationId: "box-a", properties: { duration: 3 } }]);
+  assert.deepEqual(shorter.scenes[0].layers[0].animations[0].behavior.ramp, { to: { x: 40 }, start: 2, duration: 1, ease: "linear" });
+  assert.deepEqual(retimeBehavior({ ramp: { to: 5, start: 0, ease: "linear" } }, 6, 3), { ramp: { to: 5, start: 0, ease: "linear" } }, "a ramp to the end needs no change");
+  assert.deepEqual(retimeBehavior({ wiggle: { amount: 2 } }, 6, 3), { wiggle: { amount: 2 } });
+});
+
+test("audio bands split by bin center at any sample rate", () => {
+  // Bins are rate/1024 Hz apart: low bins are centered under 150 Hz, high from 2.5 kHz.
+  for (const rate of [22050, 44100, 48000]) {
+    const [low, high] = bandEdges(rate), hz = (bin) => (bin * rate) / 1024;
+    assert.ok(hz(low - 1) < 150 && hz(low) >= 150 && hz(high - 1) < 2500 && hz(high) >= 2500, `${rate}: ${low}, ${high}`);
+  }
 });
 
 test("follow trails its leader by lag seconds, scaled and offset, along a chain", () => {
