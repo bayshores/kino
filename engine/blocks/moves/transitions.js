@@ -2,17 +2,36 @@
 // Each works on two of the scene's own layers (usually full-frame pictures, videos or groups):
 // `from` leaves and `to` arrives. `to` stays hidden until the move reveals it, so it can sit
 // anywhere in the stack.
+// Every move takes the shared ease and speed fields (move.js SHARED); colors and curves come
+// from DEFAULTS through ctx.color and ctx.curve, so a field can change each one.
 import { createLayer } from "../../model.js";
-import { CURVES, boxOf, effect, hide, motion, pointIn, round, scaledAbout } from "./kit.js";
+import { boxOf, effect, hide, motion, pointIn, round, scaledAbout, show } from "./kit.js";
 import { constantSpeed, isReversed } from "../../mediaTime.js";
 import { speedAnimations } from "../../animation.js";
+import { shared } from "../move.js";
+
+// defaults:start (the only place transitions.js names a color or a curve; a guard test checks)
+const DEFAULTS = Object.freeze({
+  colors: Object.freeze({ flash: "#FFFFFF", mask: "#FFFFFF" }),
+  curves: Object.freeze({
+    accelerate: "accelerate", settle: "settle", fade: "fade", drift: "drift", whip: "whip", fly: "fly",
+    // The push through to the next shot: an ease-in that moves from its first frames (about 1.4x
+    // at 40% of a 5x push), not one that holds near 1x and jumps in the last frames.
+    push: Object.freeze([0.4, 0, 0.7, 0.2]),
+    // A whip's smear rising to the fastest moment, and falling after it.
+    smearUp: Object.freeze([0.5, 0, 1, 1]),
+    smearDown: Object.freeze([0, 0, 0.5, 1]),
+  }),
+});
+// defaults:end
+const COLORS = DEFAULTS.colors;
+const CURVE = DEFAULTS.curves;
 
 // Under reduced motion every transition is a plain cross-fade of this length (or the move's).
 const CROSS_FADE = 0.5;
 
-// The push through to the next shot: an ease-in that moves from its first frames (about 1.4x
-// at 40% of a 5x push), not one that holds near 1x and jumps in the last frames.
-const PUSH_CURVE = Object.freeze([0.4, 0, 0.7, 0.2]);
+/** A motion or effect record whose beat runs on the move's paced clock (ctx.pace). */
+export const paced = (make, pace, { start, duration, ...rest }) => make({ ...pace.span(start, duration), ...rest });
 
 /**
  * A clip `to` (or a clip in its group) that would start after the move shows it starts there
@@ -45,12 +64,13 @@ export function crossFade(ctx, fromId, toId) {
   const length = Math.min(CROSS_FADE, ctx.duration);
   const middle = ctx.start + ctx.duration / 2;
   const start = Math.max(0, middle - length / 2);
+  const fade = ctx.curve(CURVE.fade);
   // The new shot is full before the old one starts to fade, so whichever is on top, one of them
   // always covers the frame and the picture never dips toward the background (transition_dip).
   const half = length / 2;
   startClips(ctx, toId, start);
-  ctx.animate(toId, "in", motion({ name: "Fade in", kind: "in", start, duration: half, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
-  if (fromId) ctx.animate(fromId, "fade", motion({ name: "Fade", start: start + half, duration: half, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }), "from");
+  ctx.animate(toId, "in", motion({ name: "Fade in", kind: "in", start, duration: half, easing: fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
+  if (fromId) ctx.animate(fromId, "fade", motion({ name: "Fade", start: start + half, duration: half, easing: fade, from: { opacity: 1 }, to: { opacity: 0 } }), "from");
   if (fromId) ctx.animate(fromId, "hide", hide(start + length), "from");
 }
 
@@ -73,23 +93,28 @@ function fillPose(ctx, layer, target) {
   return { x, y, scale, middle };
 }
 
+/** zoom-through flashes when flash is white, or when color is given and flash is not none. */
+const flashes = (input) => input.flash === "white" || (input.color !== undefined && input.flash !== "none");
+
 /**
- * A white frame over everything: up fast to full at `peak`, then fading for 0.25 s, so a cut
- * under it is never seen. Skipped under reduced motion. Returns when the flash is gone (0 when
- * skipped), so the move's end covers it and a move near the scene's end is asked to start earlier.
+ * A flash over everything (white, or the color field): up fast to full at `peak`, then fading
+ * for 0.25 s, so a cut under it is never seen. Skipped under reduced motion. Returns when the
+ * flash is gone (0 when skipped), so the move's end covers it and a move near the scene's end is
+ * asked to start earlier.
  */
-function whiteFlash(ctx, peak) {
+function flashAt(ctx, peak, pace) {
   if (ctx.reduced) return 0;
-  const flash = ctx.add("flash", createLayer("rectangle", { name: "White flash", x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, fill: "#FFFFFF", opacity: 0, role: "decor", allowOverlap: true }));
+  const flash = ctx.add("flash", createLayer("rectangle", { name: "White flash", x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, fill: ctx.color("color", COLORS.flash), opacity: 0, role: "decor", allowOverlap: true }));
   let rise = Math.min(0.06, Math.max(0.001, peak - ctx.start));
   let from = peak - rise;
   // A flash at the very top of a scene (a pull at at:0) cannot start before 0 s: it peaks a hair late.
   if (from < 0) [from, rise] = [0, Math.max(0.001, peak)];
   const top = from + rise;
-  ctx.animate(flash, "up", motion({ name: "Flash", start: from, duration: rise, easing: CURVES.accelerate, from: { opacity: 0 }, to: { opacity: 1 } }));
-  ctx.animate(flash, "down", motion({ name: "Flash fades", start: top, duration: 0.25, easing: CURVES.settle, from: { opacity: 1 }, to: { opacity: 0 } }));
-  ctx.animate(flash, "hide", hide(top + 0.26));
-  return round(top + 0.26);
+  ctx.animate(flash, "up", paced(motion, pace, { name: "Flash", start: from, duration: rise, easing: ctx.curve(CURVE.accelerate), from: { opacity: 0 }, to: { opacity: 1 } }));
+  ctx.animate(flash, "down", paced(motion, pace, { name: "Flash fades", start: top, duration: 0.25, easing: ctx.curve(CURVE.settle), from: { opacity: 1 }, to: { opacity: 0 } }));
+  const gone = pace.at(top + 0.26);
+  ctx.animate(flash, "hide", hide(gone));
+  return round(gone);
 }
 
 /**
@@ -104,27 +129,28 @@ function pushToTarget(ctx, from, input) {
   const state = ctx.stateAt(from.id, ctx.start);
   const { x, y, scale, middle } = fillPose(ctx, { ...from, width: state.width, height: state.height }, input.target);
   const push = to ? ctx.duration * 0.8 : ctx.duration;
+  const pace = ctx.pace(ctx.start + push);
   const start = { x: state.x, y: state.y, scaleX: state.scaleX ?? 1, scaleY: state.scaleY ?? 1, rotation: state.rotation ?? 0 };
   const end = { x, y, scaleX: scale, scaleY: scale, rotation: 0 };
-  ctx.animate(from.id, "push", motion({ name: "Push into the target", start: ctx.start, duration: push, easing: ctx.reduced ? CURVES.drift : CURVES.accelerate, from: start, to: end }), "from");
+  ctx.animate(from.id, "push", paced(motion, pace, { name: "Push into the target", start: ctx.start, duration: push, easing: ctx.reduced ? ctx.curve(CURVE.drift) : ctx.ease(CURVE.accelerate), from: start, to: end }), "from");
   const blurAt = { centerX: round(middle.x / state.width), centerY: round(middle.y / state.height) };
   if (!ctx.reduced && input.blur !== false) {
     // The push eases in (fastest at its end), so the blur rises late; it is 0 again on the landing
     // frame, or (with to) it is still up when the cut hides it.
     const peak = 0.6;
     const [rise, top, fall] = to ? [0.45, 0.92, 1] : [0.45, 0.75, 1];
-    ctx.animate(from.id, "blur", effect({ name: "Zoom blur", effect: "zoom-blur", start: ctx.start + push * rise, duration: push * (top - rise), easing: CURVES.accelerate, from: { amount: 0 }, to: { amount: peak, ...blurAt } }), "from");
-    ctx.animate(from.id, "unblur", effect({ name: "Zoom blur ends", effect: "zoom-blur", start: ctx.start + push * top, duration: Math.max(0.04, push * (fall - top)), easing: CURVES.settle, from: { amount: peak }, to: { amount: 0, ...blurAt } }), "from");
+    ctx.animate(from.id, "blur", paced(effect, pace, { name: "Zoom blur", effect: "zoom-blur", start: ctx.start + push * rise, duration: push * (top - rise), easing: ctx.curve(CURVE.accelerate), from: { amount: 0 }, to: { amount: peak, ...blurAt } }), "from");
+    ctx.animate(from.id, "unblur", paced(effect, pace, { name: "Zoom blur ends", effect: "zoom-blur", start: ctx.start + push * top, duration: Math.max(0.04, push * (fall - top)), easing: ctx.curve(CURVE.settle), from: { amount: peak }, to: { amount: 0, ...blurAt } }), "from");
   }
   ctx.note(`${input.target.layer}${input.target.rect ? ` [${input.target.rect.join(", ")}]` : ""} fills the frame at scale ${scale}`);
-  const flashEnd = input.flash === "white" ? whiteFlash(ctx, ctx.start + push) : 0;
+  const flashEnd = flashes(input) ? flashAt(ctx, ctx.start + push, pace) : 0;
   const finish = round(Math.max(ctx.end, flashEnd));
   if (!to) return { end: finish };
   const cut = ctx.start + push;
-  ctx.animate(from.id, "hide", hide(cut + 0.06), "from");
-  startClips(ctx, to.id, cut - 0.06);
-  ctx.animate(to.id, "in", motion({ name: "Appear", kind: "in", start: cut - 0.06, duration: 0.12, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
-  ctx.animate(to.id, "settle", motion({ name: "Settle", start: cut, duration: ctx.end - cut, easing: CURVES.settle,
+  ctx.animate(from.id, "hide", hide(pace.at(cut + 0.06)), "from");
+  startClips(ctx, to.id, pace.at(cut - 0.06));
+  ctx.animate(to.id, "in", paced(motion, pace, { name: "Appear", kind: "in", start: cut - 0.06, duration: 0.12, easing: ctx.curve(CURVE.fade), from: { opacity: 0 }, to: { opacity: 1 } }), "to");
+  ctx.animate(to.id, "settle", paced(motion, pace, { name: "Settle", start: cut, duration: ctx.end - cut, easing: ctx.curve(CURVE.settle),
     from: { scaleX: 1.08 * (to.scaleX ?? 1), scaleY: 1.08 * (to.scaleY ?? 1) }, to: { scaleX: to.scaleX ?? 1, scaleY: to.scaleY ?? 1 } }), "to");
   return { end: finish };
 }
@@ -140,6 +166,7 @@ function pullBack(ctx, from, input) {
   if (to && to.id === from.id) throw new Error("zoom-through needs two different layers.");
   const shot = to ?? from;
   const role = to ? "to" : "from";
+  const pace = ctx.pace(ctx.start);
   const rest = { x: shot.x, y: shot.y, scaleX: shot.scaleX ?? 1, scaleY: shot.scaleY ?? 1, rotation: shot.rotation ?? 0 };
   const now = ctx.stateAt(shot.id, ctx.start);
   const box = boxOf(shot);
@@ -172,29 +199,28 @@ function pullBack(ctx, from, input) {
       const at = scaledAbout(box, point, 1.05);
       begin = { x: at.x, y: at.y, scaleX: round(1.05 * rest.scaleX, 4), scaleY: round(1.05 * rest.scaleY, 4), rotation: rest.rotation };
     }
-    ctx.animate(shot.id, "pull", motion({ name: "Pull back", start: ctx.start, duration: ctx.duration, easing: ctx.reduced ? CURVES.drift : CURVES.settle, from: begin, to: rest }), role);
+    ctx.animate(shot.id, "pull", paced(motion, pace, { name: "Pull back", start: ctx.start, duration: ctx.duration, easing: ctx.reduced ? ctx.curve(CURVE.drift) : ctx.ease(CURVE.settle), from: begin, to: rest }), role);
   }
   if (to && !ctx.reduced) {
-    ctx.animate(from.id, "hide", hide(ctx.start + 0.02), "from");
-    startClips(ctx, to.id, ctx.start - 0.02);
-    ctx.animate(to.id, "in", motion({ name: "Appear", kind: "in", start: Math.max(0, ctx.start - 0.02), duration: 0.04, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
+    ctx.animate(from.id, "hide", hide(pace.at(ctx.start + 0.02)), "from");
+    startClips(ctx, to.id, pace.at(ctx.start - 0.02));
+    ctx.animate(to.id, "in", paced(motion, pace, { name: "Appear", kind: "in", start: Math.max(0, ctx.start - 0.02), duration: 0.04, easing: ctx.curve(CURVE.fade), from: { opacity: 0 }, to: { opacity: 1 } }), "to");
   }
   if (!ctx.reduced && input.blur !== false) {
     // Expo-out is fastest at its start: the blur is there at once and gone before the settle.
     const peak = 0.4;
-    ctx.animate(shot.id, "blur", effect({ name: "Zoom blur", effect: "zoom-blur", start: ctx.start, duration: 0.03, easing: CURVES.fade, from: { amount: 0 }, to: { amount: peak, ...blurAt } }), role);
-    ctx.animate(shot.id, "unblur", effect({ name: "Zoom blur ends", effect: "zoom-blur", start: ctx.start + 0.03, duration: Math.max(0.06, ctx.duration * 0.4), easing: CURVES.settle, from: { amount: peak }, to: { amount: 0, ...blurAt } }), role);
+    ctx.animate(shot.id, "blur", paced(effect, pace, { name: "Zoom blur", effect: "zoom-blur", start: ctx.start, duration: 0.03, easing: ctx.curve(CURVE.fade), from: { amount: 0 }, to: { amount: peak, ...blurAt } }), role);
+    ctx.animate(shot.id, "unblur", paced(effect, pace, { name: "Zoom blur ends", effect: "zoom-blur", start: ctx.start + 0.03, duration: Math.max(0.06, ctx.duration * 0.4), easing: ctx.curve(CURVE.settle), from: { amount: peak }, to: { amount: 0, ...blurAt } }), role);
   }
-  const flashEnd = input.flash === "white" ? whiteFlash(ctx, ctx.start) : 0;
+  const flashEnd = flashes(input) ? flashAt(ctx, ctx.start, pace) : 0;
   if (!input.title) return { end: round(Math.max(ctx.end, flashEnd)) };
   const title = ctx.layer(input.title, "title");
   if (title.id === shot.id || title.id === from.id) throw new Error("zoom-through title: give a layer other than the shots, such as a title over them.");
   // It lands while the pull settles: up a little and in, finishing after the pull.
-  const start = ctx.start + ctx.duration * 0.4;
-  const length = Math.max(0.4, ctx.duration);
+  const lands = pace.span(ctx.start + ctx.duration * 0.4, Math.max(0.4, ctx.duration));
   const rise = ctx.reduced ? 0 : Math.round(24 * ctx.scale);
-  ctx.animate(title.id, "in", motion({ name: "Title lands", kind: "in", start, duration: length, easing: CURVES.settle, from: { opacity: 0, y: title.y + rise }, to: { opacity: 1, y: title.y } }), "title");
-  return { end: round(Math.max(ctx.end, start + length, flashEnd)) };
+  ctx.animate(title.id, "in", motion({ name: "Title lands", kind: "in", ...lands, easing: ctx.curve(CURVE.settle), from: { opacity: 0, y: title.y + rise }, to: { opacity: 1, y: title.y } }), "title");
+  return { end: round(Math.max(ctx.end, lands.start + lands.duration, flashEnd)) };
 }
 
 export const zoomThrough = {
@@ -214,6 +240,7 @@ export const zoomThrough = {
     blur: { kind: "choice", values: ["auto", false], aliases: { true: "auto" }, about: "auto (default) zoom-blurs only the fast part; false keeps every frame sharp" },
     flash: { kind: "choice", values: ["white", "none"], about: "white flashes the frame at the cut (the landing, or the start of a pull); default none" },
     title: { kind: "layer", about: "with reverse: a title layer that rises in as the pull settles" },
+    ...shared({ color: `the flash color, hex; flashes unless flash:none (default ${COLORS.flash})`, ease: "the push's (or pull's) curve", speed: "how quick its beats run about the cut, 0.5 to 4 (default 1)" }),
   },
   anyOf: [["to", "target", "reverse"]],
   // A pull back is quick by default, and a push to a target can be a fast snap;
@@ -237,34 +264,41 @@ export const zoomThrough = {
     const push = ctx.duration * 0.62;
     // The cut point: near the end of the push, when the blur hides everything.
     const cut = ctx.start + push * 0.9;
+    const pace = ctx.pace(cut);
+    const fade = ctx.curve(CURVE.fade);
     const landed = scaledAbout(box, aim, amount);
+    const center = { centerX: round((aim.x - box.x) / box.width), centerY: round((aim.y - box.y) / box.height) };
     // The push starts where the shot is drawn at that moment (its own slow push or drift included).
     const now = ctx.stateAt(from.id, ctx.start);
-    ctx.animate(from.id, "push", motion({ name: "Push through", start: ctx.start, duration: push, easing: PUSH_CURVE,
+    ctx.animate(from.id, "push", paced(motion, pace, { name: "Push through", start: ctx.start, duration: push, easing: ctx.ease(CURVE.push),
       from: { x: round(now.x ?? from.x, 1), y: round(now.y ?? from.y, 1), scaleX: round(now.scaleX ?? 1, 4), scaleY: round(now.scaleY ?? 1, 4) }, to: { x: landed.x, y: landed.y, scaleX: amount, scaleY: amount } }), "from");
-    if (!sharp) ctx.animate(from.id, "blur", effect({ name: "Zoom blur", effect: "zoom-blur", start: ctx.start + push * 0.3, duration: push * 0.7, easing: CURVES.accelerate,
-      from: { amount: 0 }, to: { amount: 0.9, centerX: round((aim.x - box.x) / box.width), centerY: round((aim.y - box.y) / box.height) } }), "from");
-    ctx.animate(from.id, "fade", motion({ name: "Fade", start: cut - 0.06, duration: 0.12, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }), "from");
-    ctx.animate(from.id, "hide", hide(ctx.start + push + 0.02), "from");
+    if (!sharp) ctx.animate(from.id, "blur", paced(effect, pace, { name: "Zoom blur", effect: "zoom-blur", start: ctx.start + push * 0.3, duration: push * 0.7, easing: ctx.curve(CURVE.accelerate),
+      from: { amount: 0 }, to: { amount: 0.9, ...center } }), "from");
+    ctx.animate(from.id, "fade", paced(motion, pace, { name: "Fade", start: cut - 0.06, duration: 0.12, easing: fade, from: { opacity: 1 }, to: { opacity: 0 } }), "from");
+    const hidden = pace.at(ctx.start + push + 0.02);
+    ctx.animate(from.id, "hide", hide(hidden), "from");
     // Once hidden, its blur goes back to 0, so the shot is sharp if it is shown again later.
-    if (!sharp) ctx.animate(from.id, "unblur", effect({ name: "Zoom blur rests", effect: "zoom-blur", start: ctx.start + push + 0.02, duration: 0.04, easing: CURVES.fade,
-      from: { amount: 0.9 }, to: { amount: 0, centerX: round((aim.x - box.x) / box.width), centerY: round((aim.y - box.y) / box.height) } }), "from");
+    if (!sharp) ctx.animate(from.id, "unblur", effect({ name: "Zoom blur rests", effect: "zoom-blur", start: hidden, duration: 0.04, easing: fade,
+      from: { amount: 0.9 }, to: { amount: 0, ...center } }), "from");
     // The next shot comes out of the same blur, a little too big, and settles.
     const arrive = ctx.end - cut;
     const big = 1.45;
     // The next shot is full before the pushed one fades, so the frame never dips between them.
-    startClips(ctx, to.id, cut - 0.12);
-    ctx.animate(to.id, "in", motion({ name: "Appear", kind: "in", start: cut - 0.12, duration: 0.06, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
-    ctx.animate(to.id, "settle", motion({ name: "Settle", start: cut, duration: arrive, easing: CURVES.settle,
+    startClips(ctx, to.id, pace.at(cut - 0.12));
+    ctx.animate(to.id, "in", paced(motion, pace, { name: "Appear", kind: "in", start: cut - 0.12, duration: 0.06, easing: fade, from: { opacity: 0 }, to: { opacity: 1 } }), "to");
+    ctx.animate(to.id, "settle", paced(motion, pace, { name: "Settle", start: cut, duration: arrive, easing: ctx.curve(CURVE.settle),
       from: { scaleX: big * (to.scaleX ?? 1), scaleY: big * (to.scaleY ?? 1) }, to: { scaleX: to.scaleX ?? 1, scaleY: to.scaleY ?? 1 } }), "to");
-    if (!sharp) ctx.animate(to.id, "blur", effect({ name: "Zoom blur", effect: "zoom-blur", start: cut, duration: arrive * 0.8, easing: CURVES.settle,
+    if (!sharp) ctx.animate(to.id, "blur", paced(effect, pace, { name: "Zoom blur", effect: "zoom-blur", start: cut, duration: arrive * 0.8, easing: ctx.curve(CURVE.settle),
       from: { amount: 0.55 }, to: { amount: 0, centerX: 0.5, centerY: 0.5 } }), "to");
-    const flashEnd = input.flash === "white" ? whiteFlash(ctx, cut) : 0;
+    const flashEnd = flashes(input) ? flashAt(ctx, cut, pace) : 0;
     return { end: round(Math.max(ctx.end, flashEnd)) };
   },
 };
 
 const DIRECTIONS = ["left", "right", "up", "down"];
+// A direction as a unit step along x and y (0 right, 90 down).
+const STEPS = Object.freeze({ right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] });
+const AXIS_ANGLES = Object.freeze({ 0: "right", 90: "down", 180: "left", "-180": "left", "-90": "up" });
 
 export const whipPan = {
   name: "whip-pan",
@@ -278,6 +312,8 @@ export const whipPan = {
     from: { kind: "layer", required: true, about: "the shot that leaves" },
     to: { kind: "layer", required: true, about: "the shot that arrives" },
     direction: { kind: "choice", values: DIRECTIONS, about: "where the picture moves: left, right, up or down (default a seeded left or right)" },
+    smear: { kind: "number", low: 0, high: 1, about: "the blur at the fastest moment, a share of the travel (default 0.24)" },
+    ...shared({ angle: "instead of direction, any way the picture moves in degrees: 0 right, 90 down; off the axes, copies of the shots fill the corners", ease: "the pan's curve (default whip)" }), ...shared("speed"),
   },
   example: { from: "shot-a", to: "shot-b", at: 1, direction: "left" },
   setup: "shot-a and shot-b, two full-frame pictures or videos",
@@ -285,32 +321,69 @@ export const whipPan = {
     const from = ctx.layer(input.from, "from");
     const to = ctx.layer(input.to, "to");
     if (from.id === to.id) throw new Error("whip-pan needs two different layers.");
+    if (input.direction && input.angle !== undefined) throw new Error("whip-pan takes direction or angle, not both.");
     if (ctx.reduced) return crossFade(ctx, from.id, to.id);
-    const direction = input.direction ?? ctx.rng.pick(["left", "right"]);
-    const across = direction === "left" || direction === "right";
-    const key = across ? "x" : "y";
-    // The whole frame's width (or height): the two shots stay side by side, like one strip of film.
-    const distance = across ? ctx.frame.width : ctx.frame.height;
-    const sign = direction === "left" || direction === "up" ? -1 : 1;
-    const smear = Math.round(distance * 0.24);
-    const angle = across ? 0 : 90;
+    const angle = input.angle;
+    const direction = angle === undefined ? input.direction ?? ctx.rng.pick(["left", "right"]) : AXIS_ANGLES[angle] ?? null;
+    const [ux, uy] = direction ? STEPS[direction] : [Math.cos((angle * Math.PI) / 180), Math.sin((angle * Math.PI) / 180)];
+    const keys = [ux && "x", uy && "y"].filter(Boolean);
+    const step = { x: ux, y: uy };
+    // How far each shot travels: the frame's width (or height) on an axis, so the two shots stay
+    // side by side like one strip of film; off the axes, until they meet along an edge.
+    const distance = Math.min(ux ? ctx.frame.width / Math.abs(ux) : Infinity, uy ? ctx.frame.height / Math.abs(uy) : Infinity);
+    const smear = Math.round(distance * (input.smear ?? 0.24));
+    // The smear runs along the motion; its angle reads the same both ways (0 to 180).
+    const blurAngle = direction ? (ux ? 0 : 90) : round((((angle % 180) + 180) % 180), 2);
     const half = ctx.duration / 2;
     const middle = ctx.start + half;
+    const pace = ctx.pace(middle);
+    const whip = ctx.ease(CURVE.whip);
     // The leaving shot starts where it is drawn at that moment (its own drift included).
-    const fromAt = ctx.stateAt(from.id, ctx.start)[key] ?? from[key];
-    for (const [layer, role, offset, place] of [[from, "from", 0, fromAt], [to, "to", -sign * distance, to[key]]]) {
-      ctx.animate(layer.id, "whip", motion({ name: "Whip", kind: role === "to" ? "in" : "custom", start: ctx.start, duration: ctx.duration, easing: CURVES.whip,
-        from: { [key]: round(place + offset) }, to: { [key]: round(place + offset + sign * distance) } }), role);
+    const fromNow = ctx.stateAt(from.id, ctx.start);
+    const where = (layer, role, key) => (role === "from" ? fromNow[key] ?? layer[key] : layer[key]);
+    const path = (layer, role, lead, shift = {}) => ({
+      begin: Object.fromEntries(keys.map((key) => [key, round(where(layer, role, key) + lead * step[key] * distance + (shift[key] ?? 0))])),
+      end: Object.fromEntries(keys.map((key) => [key, round(where(layer, role, key) + (lead + 1) * step[key] * distance + (shift[key] ?? 0))])),
+    });
+    const travel = (target, role, { begin, end }, kind) => {
+      const animate = (name, animation) => (role ? ctx.animate(target, name, animation, role) : ctx.animate(target, name, animation));
+      animate("whip", paced(motion, pace, { name: "Whip", kind, start: ctx.start, duration: ctx.duration, easing: whip, from: begin, to: end }));
       // The blur rises to its peak at the fastest moment and falls back as the move ends.
-      ctx.animate(layer.id, "smear", effect({ name: "Smear", effect: "directional-blur", start: ctx.start, duration: half, easing: [0.5, 0, 1, 1],
-        from: { length: 0 }, to: { length: smear, angle } }), role);
-      ctx.animate(layer.id, "unsmear", effect({ name: "Unsmear", effect: "directional-blur", start: middle, duration: half, easing: [0, 0, 0.5, 1],
-        to: { length: 0, angle } }), role);
-    }
-    ctx.animate(from.id, "hide", hide(ctx.end), "from");
+      animate("smear", paced(effect, pace, { name: "Smear", effect: "directional-blur", start: ctx.start, duration: half, easing: ctx.curve(CURVE.smearUp),
+        from: { length: 0 }, to: { length: smear, angle: blurAngle } }));
+      animate("unsmear", paced(effect, pace, { name: "Unsmear", effect: "directional-blur", start: middle, duration: half, easing: ctx.curve(CURVE.smearDown),
+        to: { length: 0, angle: blurAngle } }));
+    };
+    travel(from.id, "from", path(from, "from", 0), "custom");
+    travel(to.id, "to", path(to, "to", -1), "in");
+    if (!direction) fillCorners(ctx, { from, to, ux, uy, path, travel, pace });
+    ctx.animate(from.id, "hide", hide(pace.at(ctx.end)), "from");
     return { end: ctx.end };
   },
 };
+
+/**
+ * An off-axis whip: the two shots meet along one edge, so beside each there is a gap. A copy of
+ * `to` rides beside `from` and a copy of `from` beside `to` (one frame along that edge), so the
+ * frame stays covered like a tiled strip. Copies are parts, shown only during the whip.
+ */
+function fillCorners(ctx, { from, to, ux, uy, path, travel, pace }) {
+  if (from.type === "group" || to.type === "group") return ctx.note("whip-pan angle: a shot is a group, so its corners are not filled (give pictures or clips)");
+  const { width, height } = ctx.frame;
+  // Rows stacked along y when the height bounds the travel, else columns along x.
+  const rows = height / Math.abs(uy) <= width / Math.abs(ux);
+  const along = rows ? { x: Math.sign(ux) * width } : { y: Math.sign(uy) * height };
+  const back = Object.fromEntries(Object.entries(along).map(([key, value]) => [key, -value]));
+  const fromPath = path(from, "from", 0, back);
+  const toPath = path(to, "to", -1, along);
+  for (const [source, part, place, below] of [[to, "fill-to", fromPath, from], [from, "fill-from", toPath, to]]) {
+    const { id: _id, name: _name, animations: _animations, move: _move, parentId: _parent, ...look } = source;
+    const copy = ctx.add(part, createLayer(source.type, { ...look, ...place.begin, role: "decor", allowOverlap: true, ...(source.type === "video" ? { volume: 0 } : {}) }), { above: below.id });
+    travel(copy, null, place, "custom");
+    ctx.animate(copy, "show", show(pace.at(ctx.start)));
+    ctx.animate(copy, "hide", hide(pace.at(ctx.end)));
+  }
+}
 
 const SHAPES = ["circle", "rounded", "diamond"];
 
@@ -327,6 +400,8 @@ export const maskThroughShape = {
     from: { kind: "layer", about: "the shot underneath (it pushes in a little while the shape grows)" },
     shape: { kind: "choice", values: SHAPES, about: "circle, rounded or diamond (default a seeded circle or rounded)" },
     point: { kind: "point", about: "[x, y] in % of to's box where the shape grows from (default the center)" },
+    ring: { kind: "number", low: 0, high: 40, about: "the ring's width, px at 1080 tall; 0 = none (default 5)" },
+    ...shared({ accent: "the ring's color, hex (default the look's accent)", ease: "the shape's growth curve (default fly)" }), ...shared("speed"),
   },
   example: { to: "shot-b", from: "shot-a", at: 1, shape: "circle", point: [70, 45] },
   setup: "shot-a and shot-b, two full-frame pictures or videos",
@@ -338,6 +413,8 @@ export const maskThroughShape = {
     const shape = input.shape ?? ctx.rng.pick(["circle", "rounded"]);
     const box = boxOf(to);
     const origin = pointIn(box, input.point);
+    // speed gathers the growth toward the start: the shape opens sooner, then holds.
+    const pace = ctx.pace(ctx.start);
     // The shape's full size covers every corner of `to` from the origin, with a little room.
     const reach = Math.max(...[[box.x, box.y], [box.x + box.width, box.y], [box.x, box.y + box.height], [box.x + box.width, box.y + box.height]]
       .map(([x, y]) => Math.hypot(x - origin.x, y - origin.y)));
@@ -346,30 +423,33 @@ export const maskThroughShape = {
     const type = shape === "circle" ? "ellipse" : "rectangle";
     const outline = { radius: shape === "rounded" ? Math.round(size * 0.22) : 0, rotation: shape === "diamond" ? 45 : 0 };
     // The shape grows by its size (not its scale), from its center, so a stroke keeps its width.
-    const grow = { ...motion({ name: "Grow", kind: "in", start: ctx.start, duration: ctx.duration, easing: CURVES.fly, from: { width: 1, height: 1 }, to: { width: size, height: size } }), anchor: "center" };
+    const grow = { ...paced(motion, pace, { name: "Grow", kind: "in", start: ctx.start, duration: ctx.duration, easing: ctx.ease(CURVE.fly), from: { width: 1, height: 1 }, to: { width: size, height: size } }), anchor: "center" };
     // A mask shows the layer just above it where the mask is white: a growing white shape under
     // `to` shows it inside the shape. So `to` must be drawn above `from`; the move puts it there.
     if (from && ctx.order(to.id) < ctx.order(from.id)) ctx.raise(to.id, from.id);
-    const mask = ctx.add("mask", createLayer(type, { name: "Shape mask", ...place, ...outline, fill: "#FFFFFF", isMask: true, role: "decor" }), { below: to.id });
+    const mask = ctx.add("mask", createLayer(type, { name: "Shape mask", ...place, ...outline, fill: COLORS.mask, isMask: true, role: "decor" }), { below: to.id });
     ctx.animate(mask, "grow", grow);
     // A thin accent ring rides the edge, above `to`, gone by the time the shape fills the frame.
-    const ring = ctx.add("ring", createLayer(type, {
-      name: "Shape ring", ...place, ...outline, fillEnabled: false, stroke: ctx.style.colors.accent, strokeWidth: Math.max(2, Math.round(5 * ctx.scale)),
+    const width = input.ring === undefined ? Math.max(2, Math.round(5 * ctx.scale)) : Math.round(input.ring * ctx.scale * 10) / 10;
+    const ring = width > 0 ? ctx.add("ring", createLayer(type, {
+      name: "Shape ring", ...place, ...outline, fillEnabled: false, stroke: ctx.color("accent", "accent"), strokeWidth: width,
       strokeAlign: "center", role: "decor", allowOverlap: true,
-    }), { above: to.id });
-    ctx.animate(ring, "grow", { ...grow });
+    }), { above: to.id }) : null;
+    if (ring) ctx.animate(ring, "grow", { ...grow });
     // Inside the shape the new shot is a little too close and eases back, so it has depth.
     const inside = scaledAbout(box, origin, 1.12);
-    ctx.animate(to.id, "settle", motion({ name: "Settle", start: ctx.start, duration: ctx.duration * 1.15, easing: CURVES.settle,
+    ctx.animate(to.id, "settle", paced(motion, pace, { name: "Settle", start: ctx.start, duration: ctx.duration * 1.15, easing: ctx.curve(CURVE.settle),
       from: { x: inside.x, y: inside.y, scaleX: 1.12 * (to.scaleX ?? 1), scaleY: 1.12 * (to.scaleY ?? 1) }, to: { x: to.x, y: to.y, scaleX: to.scaleX ?? 1, scaleY: to.scaleY ?? 1 } }), "to");
-    ctx.animate(ring, "fade", motion({ name: "Fade", start: ctx.start + ctx.duration * 0.45, duration: ctx.duration * 0.4, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
-    ctx.animate(ring, "hide", hide(ctx.end));
+    if (ring) {
+      ctx.animate(ring, "fade", paced(motion, pace, { name: "Fade", start: ctx.start + ctx.duration * 0.45, duration: ctx.duration * 0.4, easing: ctx.curve(CURVE.fade), from: { opacity: 1 }, to: { opacity: 0 } }));
+      ctx.animate(ring, "hide", hide(pace.at(ctx.end)));
+    }
     if (from) {
       const pushed = scaledAbout(boxOf(from), origin, 1.08);
       const now = ctx.stateAt(from.id, ctx.start);
-      ctx.animate(from.id, "push", motion({ name: "Push", start: ctx.start, duration: ctx.duration, easing: CURVES.accelerate,
+      ctx.animate(from.id, "push", paced(motion, pace, { name: "Push", start: ctx.start, duration: ctx.duration, easing: ctx.curve(CURVE.accelerate),
         from: { x: round(now.x ?? from.x, 1), y: round(now.y ?? from.y, 1), scaleX: round(now.scaleX ?? 1, 4), scaleY: round(now.scaleY ?? 1, 4) }, to: { x: pushed.x, y: pushed.y, scaleX: Math.max(1.08, round((now.scaleX ?? 1) * 1.04, 4)), scaleY: Math.max(1.08, round((now.scaleY ?? 1) * 1.04, 4)) } }), "from");
-      ctx.animate(from.id, "hide", hide(ctx.end), "from");
+      ctx.animate(from.id, "hide", hide(pace.at(ctx.end)), "from");
     }
     return { end: ctx.end };
   },

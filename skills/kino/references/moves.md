@@ -30,13 +30,13 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **zoom-through**: pushes into a point of one shot and comes out in the next.
   `target:{layer, rect?}`: until a layer in `from` or its `rect` [x, y, w, h] % fills the
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
-  shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"`. A clip `to` starts when shown.
-- **whip-pan**: both shots slide a frame width, smeared.
+  shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"` (`color`). A clip `to` starts when shown.
+- **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
   group) sharpens in; the camera speeds into one letter (or the logo's solid part) and the next
   shot shows inside it until it fills the frame.
 - **logo-match-move**: the logo arrives big, then flies into its place on a page, screen or
-  sign (`spot`, in % of that layer), which sharpens.
+  sign (`spot`, % of that layer), which sharpens.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.
 - **status-line**: an app icon with a changing status line ("is
   listening…"): big left of center, or `place:"bottom-left"` a small corner badge whose words
@@ -51,27 +51,27 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   `layout:"wheel"` turns a list. Cues `<id>.1`… `<id>.land` for sound.
 - **rgb-split-hit**: on each beat colors split and snap back, kicking larger (`kick:0`: no).
 - **parallax-stack**: 2-4 layers (far to near) drift at different rates.
-- **mask-through-shape**: the next shot opens from a circle, box or diamond at a point, ringed.
+- **mask-through-shape**: the next shot opens from a circle, box or diamond at a point, ringed (`ring`, `accent`).
 - **accent-hit**, **light-sweep**: one word or shape lit in one color (light.md).
 - **tile-ring**: a shot breaks into a turning ring of tiles (it and your `pictures`).
 - **build-in**: split_image pieces resolve in turn (building-blocks.md).
 - **ui-plane**: UI tilted in a dark void; `flat` lays it flat (tilt.md).
 - **window-punch-in**: a product window grows from 60% to 92% of frame width (by 0.8 s),
-  then pushes in 2% a second (`beats:[…]`: 1.5x steps);
-  `glow` 0 to 1 adds an accent glow. Start it as the window shows.
+  then pushes in 2%/s (`beats:[…]`: 1.5x steps);
+  `glow` 0-1 adds an accent glow. Start it as the window shows.
 - **lift-focus**: `detail:{layer, rect?}` (a layer, or part of a picture in %) lifts to a third
-  of the frame's width in the middle while the rest dims and blurs; it goes back at the end.
+  of the frame's width in the middle while the rest dims and blurs, then goes back.
 - **card-into-device**: a big leaning card (`picture` or `card`) turns flat, then shrinks into
-  `into:{layer, rect?}` (a phone's screen, in %) as the phone fades in (`device:"there"`: on
-  already). `streaks` 0 to 1.
+  `into:{layer, rect?}` (a phone's screen, %) as the phone fades in (`device:"there"`: on
+  already). `streaks` 0-1.
 - **carry**: one thing becomes the next shot, no cut: `{from, to, at}` (dur 0.5, expo-out).
   Box, radius, fill and turn travel into `to`'s; contents crossfade in the middle third.
   `toRect`/`fromRect` [x, y, w, h] % carry into or out of a part (a phone's screen). `to` can be
   a split_image piece.
 - **cursor**: clicks or drags a split_image piece (screens).
 - **freeze-shutter**: footage stops on the beat with a one-frame `shutter` (white, black or
-  `kick`), holds `hold` 0.6 to 1.5 s leaning in with an optional `label`, then `release` (ramp
-  or cut).
+  `kick`), holds `hold` 0.6-1.5 s leaning in, optional `label`, then `release` (ramp or
+  cut).
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
   (a cut_out layer) stands it behind the person.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
@@ -91,8 +91,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 
 Launch-video type (words arrive faint and darken on any background):
 
-- **headline-write**: the `headline` writes on 4 words a second, centered, with no label
-  above it. `exit:"dim"` fades it to 20%.
+- **headline-write**: the `headline` writes on 4 words/s, centered, no label above it. `exit:"dim"` fades it to 20%.
 - **logo-settle**: the logo mark (`picture` or `logo`) lands from 2.6x, the `wordmark` types on
   beside it; `header:true` shrinks the lockup into a header.
 - **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,

@@ -251,6 +251,10 @@ const MOVE_VARIANTS = {
       fill: "#FFFFFF", accent: "#111111", activeBackground: "#FFD84A", activeScale: 1.08, saidOpacity: 0.6, unsaidOpacity: 0.6, at: 0.3 } },
   "card-tilt up": { move: "card-tilt", line: "card-tilt with direction up: the shot tips back over its top edge and slides up as the next tips in from below",
     layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", direction: "up", at: 0.3 }, share: 0.45 },
+  "whip-pan at an angle": { move: "whip-pan", line: "whip-pan with angle and smear: both shots fly along a slant, smeared along it, copies of them tiling the corners",
+    layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", angle: -30, smear: 0.35, at: 0.3 }, share: 0.4 },
+  "mask-through-shape with a thick ring": { move: "mask-through-shape", line: "mask-through-shape with ring and accent: a wide colored ring rides the growing shape's edge",
+    layers: () => [SHOT_A, SHOT_B], fields: { to: "shot-b", from: "shot-a", shape: "diamond", ring: 16, accent: "#FFD84A", at: 0.3 }, share: 0.5 },
 };
 // Where an animation's card is caught when not by its kind: the burst once every copy is out.
 const PRESET_STILL = { repeat: 1.5 };

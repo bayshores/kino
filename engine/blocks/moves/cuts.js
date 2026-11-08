@@ -6,7 +6,7 @@
 // from DEFAULTS through ctx.color and ctx.curve, so a field can change each one.
 import { createLayer } from "../../model.js";
 import { boxOf, effect, hide, motion, pointIn, round, scaledAbout, show } from "./kit.js";
-import { crossFade, startClips } from "./transitions.js";
+import { crossFade, paced, startClips } from "./transitions.js";
 import { shared } from "../move.js";
 
 // defaults:start (the only place cuts.js names a color or a curve; a guard test checks)
@@ -52,9 +52,6 @@ function scaleNow(ctx, layer) {
 function cover(ctx, part, name, fill, extra = {}) {
   return ctx.add(part, createLayer("rectangle", { name, x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, fill, opacity: 0, role: "decor", allowOverlap: true, ...extra }));
 }
-
-/** A motion or effect record whose beat runs on the move's paced clock. */
-const paced = (make, pace, { start, duration, ...rest }) => make({ ...pace.span(start, duration), ...rest });
 
 const shots = { from: { kind: "layer", required: true, about: "the shot that leaves" }, to: { kind: "layer", required: true, about: "the shot that arrives" } };
 const SETUP = "shot-a and shot-b, two full-frame pictures or videos";
