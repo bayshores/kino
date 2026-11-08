@@ -287,8 +287,11 @@ export function importedText(media) {
   ].filter(Boolean).join(", ");
   const sourceDuration = timed && duration ? `, mediaSourceDuration:${duration}` : "";
   const size = layerType !== "audio" && record?.width > 0 && record?.height > 0 ? `, x:0, y:0, width:${record.width}, height:${record.height}` : "";
-  const text = `imported ${record?.name ?? "file"}${facts ? ` (${facts})` : ""} as ${record?.src ?? record?.id}${layerType
-    ? `. Add it: edit {ops:[{op:"add_layer", layerType:"${layerType}", name, properties:{src:"${record?.src}"${size}${sourceDuration}}}]}`
+  // Log footage (media-probe.mjs footageLogOf) is added with its conversion to Rec.709 set.
+  const log = layerType === "video" && typeof record?.log === "string" ? `, log:"${record.log}"` : "";
+  const logNote = log ? `. Log footage found (${record.logWhy ?? record.log}), so it looks flat and gray as recorded: the add_layer below sets log:"${record.log}" to show it as Rec.709 (log:null shows the file as recorded)` : "";
+  const text = `imported ${record?.name ?? "file"}${facts ? ` (${facts})` : ""} as ${record?.src ?? record?.id}${logNote}${layerType
+    ? `. Add it: edit {ops:[{op:"add_layer", layerType:"${layerType}", name, properties:{src:"${record?.src}"${size}${sourceDuration}${log}}}]}`
     : kind === "font" ? ". It is now in library fonts; set_font uses it."
     : record?.lut ? `, a ${record.lut.type.toUpperCase()} LUT of size ${record.lut.size}. Grade a layer with it: edit {ops:[{op:"add_animation", layer, effect:"lut", parameters:{lut:"${record?.src}"}}]}` : ""}`;
   return kind === "video" ? `${text}\n${shotsLine(record)}` : text;

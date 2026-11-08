@@ -1,6 +1,7 @@
 // Editing document.cues: the named moments [{name, time, kind}] that timing can point at
-// ("cue:drop"). engine/qualityFields.js checks the list when the document is parsed (names, times,
-// kinds, at most 5,000); this file only adds, replaces and removes entries.
+// ("cue:drop"). A cue with {layer, media} is pinned to a clip's footage (footageCues.js).
+// engine/qualityFields.js checks the list when the document is parsed (names, times, kinds, at
+// most 5,000); this file only adds, replaces and removes entries.
 //
 // Who writes which kind:
 //   marker      set_cues (placed by the agent or a person)
@@ -8,6 +9,8 @@
 //   line, word  add_captions (from a caption file or a timed transcript): captions-1, … and
 //               captions-w1-hello, …
 import { CUE_KINDS } from "./qualityFields.js";
+import { footageCueTime } from "./footageCues.js";
+import { round } from "./numbers.js";
 
 /** A short lowercase name part from any text: "Ship faster!" → "ship-faster". */
 export function cueSlug(text, max = 24) {
@@ -45,7 +48,11 @@ export function applySetCues(document, operation) {
   if (missing.length) throw new Error(`No cue named ${missing.slice(0, 3).join(", ")}.`);
   const added = cues.map((cue, index) => {
     if (!cue || typeof cue !== "object" || Array.isArray(cue)) throw new Error(`set_cues cues[${index}] must be {name, time, kind?}.`);
-    return { name: cue.name, time: cue.time, kind: cue.kind ?? "marker" };
+    if (cue.layer === undefined && cue.media === undefined) return { name: cue.name, time: cue.time, kind: cue.kind ?? "marker" };
+    // Pinned to footage: the time comes from the clip (footageCues.js); parsing keeps it current.
+    if (typeof cue.media !== "number" || !Number.isFinite(cue.media) || cue.media < 0) throw new Error(`set_cues cues[${index}] media must be seconds into the clip's file, 0 or more.`);
+    const { time, layer } = footageCueTime(document, cue.layer, cue.media);
+    return { name: cue.name, time: Math.max(0, round(time)), kind: cue.kind ?? "marker", layer: layer.id, media: cue.media };
   });
   const kinds = replace === true ? CUE_KINDS : typeof replace === "string" ? [replace] : [];
   document.cues = withCues(document.cues, added, { kinds, names: operation.remove ?? [] });

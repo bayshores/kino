@@ -70,7 +70,7 @@ const PROPERTY_LAYERS = {
   componentStart: ofTypes("component"), componentVisibility: ofTypes("component"),
   mediaStart: hasMediaPlay, mediaDuration: hasMediaPlay, mediaOffset: hasMediaPlay,
   mediaFreeze: hasMediaPlay, volume: ofTypes("video", "audio"), lowpass: ofTypes("video", "audio"),
-  voiceCleanup: ofTypes("video", "audio"), morphIn: ofTypes("video"),
+  voiceCleanup: ofTypes("video", "audio"), morphIn: ofTypes("video"), log: ofTypes("video"),
   // Clip speed (mediaSpeed, mediaReverse, …) only on the layer types that play a file at a speed.
   ...Object.fromEntries(Object.entries(MEDIA_TIMING_TYPES).map(([key, types]) => [key, ofTypes(...types)])),
   ...Object.fromEntries(TEXT_PROPERTIES.map((key) => [key, ofTypes("text")])),

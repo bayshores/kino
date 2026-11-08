@@ -7,7 +7,8 @@
 // refuses with the reason.
 //
 // Matte = how much redder a pixel is than its green and blue, so an anti-aliased edge gives an
-// in-between value like a real matte does. Environment for tests:
+// in-between value like a real matte does. --instances adds a label plane after each matte: each
+// red blob (4-connected) is one instance, numbered in reading order. Environment for tests:
 //   KINO_STAND_IN_MACOS    the version --engines reports (default "15.0"); below 14 the subject
 //                          engine is reported missing, as on a real Mac
 //   KINO_STAND_IN_FAIL     exit with this message after the first picture
@@ -28,7 +29,7 @@ if (args[0] === "--version") {
 if (args[0] === "--engines") {
   const macOS = process.env.KINO_STAND_IN_MACOS ?? "15.0";
   const major = Number(macOS.split(".")[0]);
-  console.log(JSON.stringify({ version: "stand-in 1", macOS, subject: major >= 14, person: major >= 12 }));
+  console.log(JSON.stringify({ version: "stand-in 1", macOS, subject: major >= 14, person: major >= 12, pick: true }));
   process.exit(0);
 }
 
@@ -80,6 +81,38 @@ function matteOf(bgra) {
   return matte;
 }
 
+// Blobs of matte 64 and up, numbered from 1 in reading order; softer edge pixels join a neighbor.
+function labelsOf(matte) {
+  const labels = new Uint8Array(width * height);
+  let next = 0;
+  for (let start = 0; start < labels.length; start += 1) {
+    if (labels[start] || matte[start] < 64) continue;
+    next = Math.min(255, next + 1);
+    const stack = [start];
+    labels[start] = next;
+    while (stack.length) {
+      const i = stack.pop(), x = i % width;
+      for (const j of [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, i - width, i + width])
+        if (j >= 0 && j < labels.length && !labels[j] && matte[j] >= 64) { labels[j] = next; stack.push(j); }
+    }
+  }
+  for (let pass = 0; pass < 2; pass += 1) {
+    const before = Uint8Array.from(labels);
+    for (let i = 0; i < labels.length; i += 1) {
+      if (labels[i] || !matte[i]) continue;
+      const x = i % width;
+      labels[i] = (x > 0 && before[i - 1]) || (x < width - 1 && before[i + 1]) || before[i - width] || before[i + width] || 0;
+    }
+  }
+  return labels;
+}
+const instances = args.includes("--instances");
+const answer = (picture) => {
+  if (tracking) return trackLine(picture);
+  const matte = matteOf(picture);
+  return instances ? Buffer.concat([matte, labelsOf(matte)]) : matte;
+};
+
 process.stdin.on("data", (chunk) => {
   pending = Buffer.concat([pending, chunk]);
   while (pending.length >= size) {
@@ -92,7 +125,7 @@ process.stdin.on("data", (chunk) => {
         process.exit(3);
       }
       pictures += 1;
-      if (!process.stdout.write(tracking ? trackLine(picture) : matteOf(picture))) await new Promise((resolve) => process.stdout.once("drain", resolve));
+      if (!process.stdout.write(answer(picture))) await new Promise((resolve) => process.stdout.once("drain", resolve));
     });
   }
 });

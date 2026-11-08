@@ -19,6 +19,10 @@ Syncing two clips · B-roll on the spoken word
   .mp4 with the same picture, copied and not encoded again: H.264 and HEVC import this way, and
   the new `src` ends in `.mp4`. Another picture codec (ProRes, for example) is refused with an
   ffmpeg line that converts it.
+- Log footage (flat, gray): a video tagged BT.2020 with no transfer curve, as Apple Log is, imports
+  with `log:"apple-log"` in its add_layer example, which shows it as Rec.709. `log:null` shows the
+  file as recorded. Set log yourself on a log clip the tags missed. replace_media sets log from the
+  new file's import.
 - A video's import answer also lists its shots in file seconds (`shots: 3: 1) 0–1.25 s …`),
   found with FFmpeg's scdet filter; a flash of a few frames is not a cut. If the FFmpeg kino
   uses is older than 5.1 or lacks the scdet or signalstats filter, kino refuses the video, says

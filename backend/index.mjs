@@ -664,6 +664,7 @@ async function measureMedia(filename, mime) {
       measurementVersion: 1,
       measurementSucceeded: true,
       ...(mime === "image/gif" && probe.frameCount !== undefined ? { frameCount: probe.frameCount, animated: probe.animated } : {}),
+      ...(probe.log ? { log: probe.log, logWhy: probe.logWhy } : {}),
     };
   } catch (error) {
     console.warn(`[kino] Could not measure ${path.basename(filename)}: ${error.message}`);

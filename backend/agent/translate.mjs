@@ -159,7 +159,7 @@ function liftLayerFields(operation, fixes) {
 // A property outside this list is refused, so a misspelled one is never saved without effect.
 export const LAYER_PROPERTY_NAMES = [...new Set([
   ...[...LAYER_TYPES].flatMap((type) => Object.keys(createLayer(type))),
-  ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn",
+  ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn", "log",
   ...BACKDROP_STYLE_KEYS, "reveal", "effectPreset", "fillRule", "textStyleRanges", "inactiveBoxStyles", "convertedFrom",
   "componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides",
   "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, "maskInvert", "maskMode",
@@ -834,16 +834,22 @@ function checkTrackOrPin(operation, type) {
   }
 }
 
-// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, above?, name?} is
+// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, name?} is
 // checked here, so a wrong value is refused before any picture is decoded. It names the new layer
 // now ("<layer name>-<output>" without a file extension, or `name`), so later operations in the
 // same edit can use that name. The agent service does the rest (cutout-operation.mjs runCutOut).
-const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "referenceId", "behindText", "name"]);
+const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name"]);
+// [[x%, y%], …] of the clip's own picture, 1 to 8 points.
+function checkPoints(name, value) {
+  const point = (item) => Array.isArray(item) && item.length === 2 && item.every((part) => typeof part === "number" && part >= 0 && part <= 100);
+  if (!(Array.isArray(value) && value.length >= 1 && value.length <= 8 && value.every(point)))
+    throw new Error(`${name} must be 1 to 8 points [x, y] in % of the clip's own picture (0 to 100, from its top left; look mode:"source" shows the grid), not ${JSON.stringify(value)}.`);
+}
 function checkCutOut(operation, resolver) {
   const extra = Object.keys(operation).filter((key) => !CUTOUT_FIELDS.has(key));
   if (extra.length) {
-    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "above", "behind", "name"]);
-    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, above, behind and name.`), { suggestions });
+    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name"]);
+    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind and name.`), { suggestions });
   }
   if (typeof operation.layerId !== "string") throw new Error("cut_out needs layer: the video or image layer whose subject to cut out.");
   if (operation.behindText && (operation.output ?? "subject") !== "subject") throw new Error('behind puts a layer behind the person, so it takes output "subject" (the default).');
@@ -865,6 +871,15 @@ function checkCutOut(operation, resolver) {
     if (output !== "matte") throw new Error('invert is for output "matte" (black subject on white, so a mask shows everything but the subject).');
     if (typeof operation.invert !== "boolean") throw new Error(`invert must be true or false, not ${JSON.stringify(operation.invert)}.`);
   }
+  if (operation.points !== undefined) {
+    checkPoints("points", operation.points);
+    if (operation.engine === "person") throw new Error('points pick among the objects the subject engine finds; leave engine out or send engine:"subject".');
+  }
+  for (const field of ["exclude", "time"]) if (operation[field] !== undefined && operation.points === undefined)
+    throw new Error(`${field} goes with points: points name the objects to keep, exclude the ones to drop and time the moment they are pointed at.`);
+  if (operation.exclude !== undefined) checkPoints("exclude", operation.exclude);
+  if (operation.time !== undefined && !(typeof operation.time === "number" && operation.time >= 0 && operation.time <= 86400))
+    throw new Error(`time must be seconds into the clip's file (0 or more) where points are measured, not ${JSON.stringify(operation.time)}.`);
   if (operation.name !== undefined && !(typeof operation.name === "string" && operation.name.trim() && operation.name.length <= 200))
     throw new Error("name must be a name of 1 to 200 characters for the new layer.");
   const layerName = resolver.nameOf("layer", operation.layerId) ?? operation.layerId;

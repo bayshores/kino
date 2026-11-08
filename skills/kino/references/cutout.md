@@ -15,6 +15,13 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
 - `output`: `"subject"` (default: transparent around the subject), `"silhouette"` (its shape in
   `color`, default white) or `"matte"` (white on black, for `create_mask`; `invert:true` swaps
   them).
+- `points:[[x,y]]` (1 to 8, % of the clip's own picture as look `mode:"source"` shows it) keeps
+  only the objects under them; `exclude` (same form) drops the object right under it; `time` (file seconds, default
+  0) is when they are pointed at. The same objects are followed through the clip by overlap.
+  Needs the subject engine; receipt `picked {frame, objects, lost, weak, seeAt}`: `lost` and
+  `weak` are `[[from,to]]` file seconds where the object was gone or its mask shrank, grew or
+  jumped by over half; `seeAt` gives scene seconds of each span's first frame for look
+  `{mode:"frame", t}`.
 - `grow` (-100 to 100 layer pixels) makes the shape bigger, or smaller below 0; `feather`
   (0 to 200) softens its edge.
 - A clip's `subject` edge is cleaned: on a shot whose camera holds still, background the matte

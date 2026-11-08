@@ -15,7 +15,8 @@
 //   checkWaivers  [{code, target, reason}]: a check finding the author accepted on purpose
 //   cues          [{name, time, kind}]: named moments in seconds that timing can point at ("cue:drop").
 //                 kind is marker (placed by hand), beat or onset (found in the music), word or line
-//                 (from a voice-over or caption file). Kept sorted by time.
+//                 (from a voice-over or caption file). Kept sorted by time. A cue with {layer,
+//                 media} is pinned to that clip's footage: time follows the clip (footageCues.js).
 //   clipLinks     [{a, b, lag, confidence?}]: files (media src) recorded together, a at t = b at
 //                 t + lag seconds; sync_clips writes them (clipSync.js), out_of_sync reads them
 // Scene:
@@ -27,6 +28,8 @@
 //   rests         [{at, until}]: planned stills in scene seconds (a held end mark, a beat of black).
 //                 held_static and static_scene skip them (4 s in all per scene), and no drift or push is added there.
 import { MAX_MEDIA_SECONDS } from "./schema.js";
+import { FOOTAGE_CUE_TYPES, footageCueTime } from "./footageCues.js";
+import { round } from "./numbers.js";
 
 export const LAYER_ROLES = ["headline", "subhead", "body", "caption", "cta", "label", "logo", "hero", "decor", "background", "ui"];
 export const VIDEO_TYPES = ["promo", "ad", "clip", "explainer", "sting", "other"];
@@ -108,14 +111,33 @@ export function normalizeQualityDocumentFields(document, maxTime) {
       if (typeof cue.name !== "string" || !CUE_NAME_PATTERN.test(cue.name)) fail(`${path}.name`, "must be 1 to 64 letters, digits, dots, dashes or underscores");
       if (names.has(cue.name)) fail(`${path}.name`, `repeats the cue name ${cue.name}`);
       names.add(cue.name);
-      if (typeof cue.time !== "number" || !Number.isFinite(cue.time) || cue.time < 0 || cue.time > maxTime) fail(`${path}.time`, `must be a number of seconds from 0 to ${maxTime}`);
+      const pin = footagePin(document, cue, path, maxTime);
+      const time = pin?.time ?? cue.time;
+      if (typeof time !== "number" || !Number.isFinite(time) || time < 0 || time > maxTime) fail(`${path}.time`, `must be a number of seconds from 0 to ${maxTime}`);
       const kind = cue.kind ?? "marker";
       if (!CUE_KINDS.includes(kind)) fail(`${path}.kind`, `must be one of ${CUE_KINDS.join(", ")}`);
-      return { name: cue.name, time: cue.time, kind };
+      return pin ? { name: cue.name, time, kind, layer: pin.layer, media: pin.media } : { name: cue.name, time, kind };
     }).sort((a, b) => a.time - b.time);
     if (!document.cues.length) delete document.cues;
   }
   normalizeClipLinks(document);
+}
+
+// A footage cue {layer, media} (footageCues.js): its time again from the clip as it is now. A clip
+// that is gone or no longer footage leaves a plain cue at its last time; an animated speed keeps
+// the last time too (set_cue refuses one, but a later edit may add it).
+function footagePin(document, cue, path, maxTime) {
+  if (cue.layer === undefined && cue.media === undefined) return null;
+  if (typeof cue.layer !== "string" || !LAYER_ID_PATTERN.test(cue.layer)) fail(`${path}.layer`, "must be the ID of a video or audio layer");
+  if (typeof cue.media !== "number" || !Number.isFinite(cue.media) || cue.media < 0 || cue.media > MAX_MEDIA_SECONDS)
+    fail(`${path}.media`, `must be seconds into the clip's file, from 0 to ${MAX_MEDIA_SECONDS}`);
+  let placed;
+  try { placed = footageCueTime(document, cue.layer, cue.media); } catch { placed = null; }
+  const layer = document.scenes?.flatMap((scene) => scene.layers ?? []).find((item) => item.id === cue.layer);
+  if (!layer || !FOOTAGE_CUE_TYPES.includes(layer.type)) return null;
+  const time = placed ? Math.min(maxTime, Math.max(0, round(placed.time))) : cue.time;
+  // The cue moves to the piece of a split clip that shows its moment.
+  return { layer: placed?.layer.id ?? cue.layer, media: cue.media, time };
 }
 
 // A media src (/api/media/<id>.mp4 or a file path): any text up to 2048 characters.

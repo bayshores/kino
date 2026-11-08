@@ -155,7 +155,8 @@ async function remembered(kind, path, probe) {
 
 /**
  * Probes an image, GIF, video, or audio file.
- * Returns { duration, width, height, hasVideo, hasAudio } plus { frameCount, animated } for GIFs.
+ * Returns { duration, width, height, hasVideo, hasAudio } plus { frameCount, animated } for GIFs
+ * and { log, logWhy } for log footage (footageLogOf).
  * Duration is in seconds and is 0 for still images or when the file does not say.
  * The answer is kept for the file until it changes.
  */
@@ -167,7 +168,7 @@ async function probeMediaNow(path, { signal } = {}) {
   const text = await runMediaTool("ffprobe", [
     "-v", "error",
     "-show_entries",
-    "format=format_name,duration:stream=codec_type,width,height,duration:stream_disposition=attached_pic:stream_side_data=rotation:stream_tags=rotate",
+    "format=format_name,duration:format_tags:stream=codec_type,codec_name,width,height,duration,color_transfer,color_primaries,color_space:stream_disposition=attached_pic:stream_side_data=rotation:stream_tags",
     "-of", "json",
     path,
   ], { signal });
@@ -190,7 +191,33 @@ async function probeMediaNow(path, { signal } = {}) {
   }
   if (STILL_IMAGE_FORMAT.test(formatName)) return result;
   const streamDuration = Math.max(0, ...streams.map((stream) => positive(stream.duration)));
-  return { ...result, duration: positive(info.format?.duration) || streamDuration };
+  const log = footageLogOf(video, info.format?.tags);
+  return { ...result, duration: positive(info.format?.duration) || streamDuration, ...(log ? { log: log.profile, logWhy: log.why } : {}) };
+}
+
+const UNTAGGED = new Set([undefined, "", "unknown", "unspecified", "reserved"]);
+const FREE_TEXT_TAG = /^(title|description|synopsis|keywords)$/i;
+
+/**
+ * Log footage from a video stream's ffprobe facts: {profile:"apple-log", why} or null.
+ * The stream has no transfer tag, and either a tag (not a title or description) names Apple Log in
+ * whole words (not Apple Log 2, a different gamut), or the stream is tagged the way Apple Log is:
+ * BT.2020 primaries and matrix and no transfer tag, since no standard transfer
+ * code names the Apple Log curve (HLG, PQ and Rec.709 clips each have their own). The codec is not
+ * checked: iPhones record Apple Log as ProRes, and FFmpeg keeps these tags when re-encoding it.
+ */
+export function footageLogOf(stream, formatTags = {}) {
+  // A stated transfer curve (Rec.709, HLG, PQ...) wins over any tag text.
+  if (!stream || !UNTAGGED.has(stream.color_transfer)) return null;
+  // Titles and descriptions (downloads write them) say what the video is about, not how it was shot.
+  const tags = [...Object.entries(stream.tags ?? {}), ...Object.entries(formatTags ?? {})]
+    .filter(([key]) => !FREE_TEXT_TAG.test(key)).map(([, value]) => String(value));
+  // Whole words only: "Apple logo" and "Applelogistics" are not Apple Log.
+  const named = tags.find((value) => /\bapple[\s_-]*log\b/i.test(value) && !/\bapple[\s_-]*log[\s_-]*2\b/i.test(value));
+  if (named) return { profile: "apple-log", why: `a tag says "${named.slice(0, 60)}"` };
+  if (stream.color_primaries === "bt2020" && /^bt2020/.test(String(stream.color_space ?? "")))
+    return { profile: "apple-log", why: `${stream.codec_name ?? "video"} tagged BT.2020 with no transfer curve, as Apple Log is` };
+  return null;
 }
 
 /** A frame rate as ffprobe writes it ("30000/1001", "25/1", "0/0") in frames a second, or 0. */

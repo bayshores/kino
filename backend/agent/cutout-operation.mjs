@@ -1,4 +1,4 @@
-// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, above?, name?} for
+// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, name?} for
 // the agent service: finds the subject of a video or image layer on this computer (backend/cutout,
 // Apple Vision), adds the result to the media library (backend/cutout/media.mjs), and puts it in a
 // new layer.
@@ -27,6 +27,7 @@ import { aliasClipLinks } from "../../engine/clipSync.js";
 import { duplicateLayers } from "../../engine/layerClipboard.js";
 import { parseDocument } from "../../engine/model.js";
 import { applyOperations } from "../../engine/operations.js";
+import { mediaSceneTime } from "../../engine/playback.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 
 const STILL_RUNNING = Symbol("still running");
@@ -41,7 +42,7 @@ function within(promise, seconds) {
 }
 
 // What to do when a cut-out can't be made: the plain next step for each error code.
-async function nextStep(error, { engine, cutoutMedia }) {
+async function nextStep(error, { engine, cutoutMedia, points }) {
   const engines = await cutoutMedia.engines().catch(() => []);
   const available = engines.filter((entry) => entry.available).map((entry) => entry.engine);
   if (error.code === "CUTOUT_ENGINE_UNAVAILABLE") {
@@ -54,6 +55,7 @@ async function nextStep(error, { engine, cutoutMedia }) {
     return /desktop:cutout/.test(engines[0]?.reason ?? "") ? "Then send the edit again."
       : "Build the helper (npm run desktop:cutout) or set KINO_CUTOUT_HELPER, then send the edit again.";
   }
+  if (error.code === "CUTOUT_NO_SUBJECT" && points) return 'Point at an object (look mode:"source" shows the picture), or leave points out to keep every object.';
   if (error.code === "CUTOUT_NO_SUBJECT") {
     if (engine === "person" || (engine === "auto" && available[0] === "person"))
       return available.includes("subject") ? 'The person engine finds only people; send engine:"subject" for any subject.' : "The person engine finds only people (this Mac has no subject engine).";
@@ -70,6 +72,16 @@ function roughly(seconds) {
   return `about ${Math.round(seconds / 60)} minutes`;
 }
 
+// The receipt's picked, with seeAt: the scene seconds (sorted) where each lost or weak span's first
+// frame shows on the cut-out layer, for look {mode:"frame", t}; spans Play never shows are left out.
+function pickedReport(picked, layer) {
+  if (!layer || !(picked.lost?.length || picked.weak?.length)) return picked;
+  const starts = [...(picked.lost ?? []), ...(picked.weak ?? [])].map(([from]) => mediaSceneTime(layer, from + 0.0005))
+    .filter((time) => time !== null).map((time) => Math.ceil(time * 100 - 1e-6) / 100);
+  const seeAt = [...new Set(starts)].sort((a, b) => a - b);
+  return seeAt.length ? { ...picked, seeAt } : picked;
+}
+
 /**
  * Runs one cut_out operation on `document` (as the operations before it in the edit left it) and
  * returns the new document. Options: mediaRoot, cutoutMedia (createCutoutMedia), operationContext
@@ -82,7 +94,8 @@ function roughly(seconds) {
 export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline }) {
   const { sceneId, layerId } = operation;
   // behind: a person matte by default, and the text moves right above the clip first (below).
-  const output = operation.output ?? "subject", engine = operation.engine ?? (operation.behindText ? "person" : "auto");
+  // points pick among the subject engine's objects, so they need it.
+  const output = operation.output ?? "subject", engine = operation.engine ?? (operation.points ? "subject" : operation.behindText ? "person" : "auto");
   const scene = document.scenes.find((item) => item.id === sceneId);
   const layer = scene?.layers.find((item) => item.id === layerId);
   if (!layer) throw new Error(`No layer "${layerId}" in this scene.`);
@@ -108,7 +121,8 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   const job = cutoutMedia.start({ file, name: typeof record.name === "string" ? record.name : layer.name,
     kind: layer.type === "video" ? "video" : "image", output, engine,
     grow: inFilePixels(operation.grow), feather: inFilePixels(operation.feather),
-    color: operation.color ?? "#ffffff", invert: operation.invert === true });
+    color: operation.color ?? "#ffffff", invert: operation.invert === true,
+    ...(operation.points ? { pick: { points: operation.points, ...(operation.exclude ? { exclude: operation.exclude } : {}), ...(layer.type === "video" && operation.time !== undefined ? { time: operation.time } : {}) } } : {}) });
 
   // Past the deadline the job is still started (or joined), so it is made while the agent waits.
   const left = deadline === undefined ? waitSeconds : Math.max(0, (deadline - performance.now()) / 1000);
@@ -123,7 +137,7 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
       return document;
     }
     const said = error.code === "CUTOUT_NO_SUBJECT" ? `${error.message.replace(/\.$/, "")} of "${layer.name}".` : error.message;
-    const next = await nextStep(error, { engine, cutoutMedia });
+    const next = await nextStep(error, { engine, cutoutMedia, points: !!operation.points });
     throw Object.assign(new Error(next ? `${said} ${next}` : said), error.code ? { cutoutError: error.code } : {});
   }
   if (made === STILL_RUNNING) {
@@ -143,7 +157,10 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
     { type: "replace_media", sceneId, layerId: operation.cutoutId, mediaId: made.record.id },
     // A subject or silhouette is transparent around the subject, but the quality check sees layer
     // boxes, so it would call every title behind a subject hidden: allowOverlap says it is on purpose.
+    // Only a subject keeps the clip's own pixels, so only it keeps the log conversion; a
+    // silhouette's color and a matte's grays are kino's own.
     { type: "update_layer", sceneId, layerId: operation.cutoutId, properties: { name: operation.cutoutName, blur: 0, shadow: null, isMask: false,
+      log: output === "subject" ? layer.log ?? null : null,
       ...(output === "matte" ? {} : { allowOverlap: true }) } },
     // behind: the text right above the clip, so nothing else ends up between it and the person.
     ...(operation.behindText ? [{ type: "move_layers", sceneId, layerIds: [operation.referenceId], position: "above", referenceId: layerId }] : []),
@@ -158,7 +175,9 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   // behind it); the subject engine gives it a solid body.
   if (made.engine === "person" && made.soft > PERSON_SOFT) notes.push(`${Math.round(made.soft * 100)}% of the person is see-through (a silhouette or a dark figure?): engine:"subject" may give a solid one`);
   if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
+  const picked = made.picked && pickedReport(made.picked, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId));
+  if (picked?.lost?.length) notes.push(`the picked object is lost in ${picked.lost.length} span(s) of the file (picked.lost)${picked.seeAt ? "; look at the times in picked.seeAt" : ""}`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
-    cached: made.cached, ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+    cached: made.cached, ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }
