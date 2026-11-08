@@ -7,6 +7,7 @@ import { defaultFonts } from "./fonts.js";
 import { layerMatrix, point } from "./geometry.js";
 import { layoutText, resizeTextLayer, textUnits } from "./textLayout.js";
 import { textUnitGroup } from "./textUnitGeometry.js";
+import { textLoopUnit } from "./textLoop.js";
 
 const MODES = ["letters", "words", "lines", "layer"];
 export const finerTextUnit = (left, right) => MODES.indexOf(right) >= 0 && MODES.indexOf(right) < MODES.indexOf(left) ? right : left;
@@ -17,8 +18,10 @@ export function legacyTextUnitMode(layer) {
 }
 
 export function textAnimationMode(layer) {
-  return enabledAnimations(layer?.animations).reduce((mode, animation) => independentTextOperation(animation)
+  const mode = enabledAnimations(layer?.animations).reduce((mode, animation) => independentTextOperation(animation)
     ? finerTextUnit(finerTextUnit(mode, animation.unit), animation.textAnchor) : mode, legacyTextUnitMode(layer));
+  // A text loop (textLoop.js) draws its units apart too.
+  return layer?.textLoop ? finerTextUnit(mode, textLoopUnit(layer.textLoop)) : mode;
 }
 
 export function textAnimationPlan(layer, fonts = defaultFonts, drawingMode) {
@@ -28,7 +31,7 @@ export function textAnimationPlan(layer, fonts = defaultFonts, drawingMode) {
   const layout = layoutText(layer, fonts);
   const units = textUnits(layout, mode);
   return { layer, fonts, layout, units, mode, legacyMode,
-    independent: animations.some(independentTextOperation),
+    independent: animations.some(independentTextOperation) || Boolean(layer.textLoop),
     clips: animations.filter((animation) => animation.textClip === true),
     separate: mode !== "layer" || animations.some((animation) => animation.textClip === true),
   };

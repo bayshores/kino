@@ -24,12 +24,15 @@ played as one.
 - Text behind a person: `cut_out` with `layer:"<clip>"`, `behind:"<title>"` (person matte; when
   no person is found the title stays in front and the receipt's `cutout.fallback` says so).
 - Word by word on one text layer: `add_animation` with `preset-custom-text` and `unit:"words"`,
-  `stagger` (seconds between words), and `order`, `smoothing` if needed (text layers only); a
+  `stagger` (seconds between words), and `order` (forward, reverse, center-out, edges-in, random
+  with `orderSeed`), `smoothing` if needed (text layers only); a
   custom animation's `delays` [s per word] times each word itself. Karaoke or word-pop timed to
   speech: `move caption-words` with `highlight:"active"`, `entrance:"pop"` (the moves reference).
   Its type: `fontFamily`, `fontWeight`, `fill`, `accent` (said word), `saidOpacity`,
   `unsaidOpacity` (0-1), `activeScale` (said word grows; over 1.1 crowds), `activeBackground`
   (a box behind the said word).
+- Text that stays alive between its in and out: layer field `textLoop:{style: wave | float | pulse
+  | jitter, amount?, speed?, stagger?, unit?, seed?, ramp?}` (operations section text-loop).
 - One animation, every letter timed (a range selector): `range` on an add_animation
   with a `unit`, in place of `stagger`. `"typewriter"` (soft, one after another), `"center-out"`
   and `"random"` (`{preset:"random", seed}`) work on an in or out; `"wave"` lifts each unit to

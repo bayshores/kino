@@ -126,6 +126,19 @@ const SHAPE_STYLES = {
     layerType: "star", properties: { fill: "#26F0FF", spikes: 8, starThickness: 0.25, twistAngle: 120 }, ground: "#05121A" },
 };
 
+// Text loops (layer field textLoop, engine/textLoop.js): letters keep moving between the in and out.
+// Each sample fades the word in by letters, loops, then fades it out.
+const TEXT_LOOPS = {
+  "text-wave": { line: "text wave: the text layer field textLoop {style:\"wave\", amount px, speed, stagger s} lifts letters in sequence between the in and out animations",
+    loop: { style: "wave", amount: 24, speed: 0.8, stagger: 0.09 }, text: "wavelength", fill: "#141414", ground: "#FFE14D" },
+  "text-float": { line: "text float: textLoop {style:\"float\", amount, speed, seed} bobs each letter on its own pace and phase, calm and out of step",
+    loop: { style: "float", amount: 16, speed: 0.6 }, text: "drifting", fill: "#E8FFFF", ground: "#05121A" },
+  "text-pulse": { line: "text pulse: textLoop {style:\"pulse\", amount %, speed, stagger} grows and shrinks each letter about its own center, a beat running through the word",
+    loop: { style: "pulse", amount: 22, speed: 1, stagger: 0.12 }, text: "heartbeat", fill: "#FFF4E6", ground: "#FF5C8A" },
+  "text-jitter": { line: "text jitter: textLoop {style:\"jitter\", amount px, speed jumps/s, seed} hops each letter to a seeded spot and tilt, hand-drawn boil",
+    loop: { style: "jitter", amount: 6, speed: 8 }, text: "restless", fill: "#F4F2EE", ground: "#2E5BFF" },
+};
+
 let built = null;
 
 /** Every entry, the kinds with their counts and the technique groups. Built once. */
@@ -149,6 +162,7 @@ export function libraryCatalog() {
   for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push({ ...entry("style", name, line, "a title or sticker word that must stand out", []), field: "strokes" });
   for (const [name, { line, field }] of Object.entries(SHAPE_STYLES)) entries.push({ ...entry("style", name, line, "a badge, sticker or shape that needs a bolder edge", []), field });
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
+  for (const [name, { line }] of Object.entries(TEXT_LOOPS)) entries.push({ ...entry("animation", name, line, "a title that holds on screen and should stay alive", ["type-kinetic"]), field: "textLoop" });
   for (const [name, { line, fits, tags }] of Object.entries(MASKS)) entries.push(entry("technique", name, line, fits, tags));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
@@ -331,6 +345,13 @@ export function sampleOps(kind, name) {
     const over = top ? [{ op: "add_layer", layerType, name: "top", properties: { ...box, fill: top } }] : [];
     const label = word ? [{ ...WORD("NEW", 96), properties: { ...WORD("NEW", 96).properties, fill: word } }] : [];
     return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { op: "add_layer", layerType, name: "shape", properties: { ...box, ...properties } }, ...over, ...label, grow], duration: 2.6, still: 1.6 };
+  }
+  if (kind === "animation" && TEXT_LOOPS[name]) {
+    const { loop, text, fill, ground } = TEXT_LOOPS[name];
+    const word = WORD(text, 110);
+    const fade = (preset, start) => anim("word", preset, start, 0.5, { unit: "letters", stagger: 0.06 });
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, x: 60, width: W - 120, height: 160, textAlign: "center", fill, textLoop: loop } },
+      fade("preset-fade", 0.1), { ...fade("preset-fade", 3.6), mode: "out" }], duration: 4.4, still: 1.9 };
   }
   if (kind === "animation" && WIPES[name])
     return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };

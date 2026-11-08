@@ -30,7 +30,7 @@
 import { displayText, layoutText, textGraphemes, textUnits } from "./textLayout.js";
 import { TIMED_ANIMATION_FIELDS, VISIBILITY_TIME_TOLERANCE } from "./visibilityOps.js";
 import { isAnimationEnabled } from "./animationEnabled.js";
-import { totalUnitDelay } from "./textTiming.js";
+import { TEXT_UNIT_ORDERS, totalUnitDelay } from "./textTiming.js";
 import { flattenAnimations } from "./animationTree.js";
 
 export const TEXT_CHANGE_KIND = "change-text";
@@ -45,9 +45,9 @@ const TEXT_IN_EFFECTS = Object.freeze([
   "fade-in", "slide-up", "slide-down", "slide-left", "slide-right", "grow-in", "blur-in", "rotate-in",
 ]);
 export const TEXT_EFFECT_UNITS = Object.freeze(["layer", "letters", "words", "lines"]);
-export const TEXT_EFFECT_ORDERS = Object.freeze(["forward", "reverse"]);
+export const TEXT_EFFECT_ORDERS = TEXT_UNIT_ORDERS;
 // The settings a text effect may have; anything else is refused (model.js).
-export const TEXT_EFFECT_FIELDS = Object.freeze(["preset", "duration", "easing", "intensity", "unit", "stagger", "order", "distance", "smoothing", "smoothingIntensity", "range"]);
+export const TEXT_EFFECT_FIELDS = Object.freeze(["preset", "duration", "easing", "intensity", "unit", "stagger", "order", "orderSeed", "distance", "smoothing", "smoothingIntensity", "range"]);
 // A Change text has no duration, from or to of its own: its effects have them.
 export const TEXT_CHANGE_FORBIDDEN_FIELDS = TIMED_ANIMATION_FIELDS;
 

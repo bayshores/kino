@@ -11,7 +11,8 @@ import { isEffectAnimation, normalizeEffectAnimation } from "./effects/animation
 import { normalizeTextStyleRanges } from "./textStyleRanges.js";
 import { DOCUMENT_VERSION, MAX_MEDIA_SECONDS, MAX_TIME, MAX_UPLOAD_BYTES } from "./schema.js";
 import { normalizeEasing as canonicalEasing, normalizeIntensity } from "./easing.js";
-import { normalizeSmoothing, normalizeTextRange } from "./textTiming.js";
+import { TEXT_UNIT_ORDERS, normalizeSmoothing, normalizeTextRange } from "./textTiming.js";
+import { normalizeTextLoop } from "./textLoop.js";
 import { isMoveAnimation, normalizeMotionPath } from "./motionPath.js";
 import { normalizeBehavior } from "./behavior.js";
 import { normalizePreset, normalizeDiscrete } from "./presetCatalog.js";
@@ -916,8 +917,9 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     catch (error) { fail(`${path}.range`, error.message); }
   }
   animation.order ??= "forward";
-  if (!["forward", "reverse"].includes(animation.order))
-    fail(`${path}.order`, "must be forward or reverse");
+  if (!TEXT_UNIT_ORDERS.includes(animation.order))
+    fail(`${path}.order`, `must be ${TEXT_UNIT_ORDERS.join(", ")}`);
+  normalizeOrderSeed(animation, path);
   normalizeTextSmoothing(animation, path);
   if (animation.textAnchor == null) delete animation.textAnchor;
   else {
@@ -931,6 +933,14 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     animation.textClip = requireBoolean(animation.textClip, `${path}.textClip`);
   }
   return animation;
+}
+
+// A random order's seed (textTiming.js unitDelay): a whole number, only with order random.
+function normalizeOrderSeed(animation, path) {
+  if (animation.orderSeed == null) { delete animation.orderSeed; return; }
+  if (animation.order !== "random") fail(`${path}.orderSeed`, "only seeds order random");
+  animation.orderSeed = requireNumber(animation.orderSeed, `${path}.orderSeed`, 0, 4294967295);
+  if (!Number.isInteger(animation.orderSeed)) fail(`${path}.orderSeed`, "must be a whole number");
 }
 
 // One text effect of a Change text (textChange.js): null for none, or { preset, duration,
@@ -955,6 +965,7 @@ function normalizeTextEffect(raw, path, side) {
     stagger: requireNumber(raw.stagger ?? 0, `${path}.stagger`, 0, MAX_TEXT_EFFECT_STAGGER),
     order: raw.order ?? "forward",
   };
+  if (raw.orderSeed != null) effect.orderSeed = raw.orderSeed;
   if (raw.intensity !== undefined) {
     effect.intensity = raw.intensity;
     normalizeAnimationIntensity(effect, path);
@@ -963,7 +974,8 @@ function normalizeTextEffect(raw, path, side) {
   if (raw.smoothingIntensity !== undefined) effect.smoothingIntensity = raw.smoothingIntensity;
   normalizeTextSmoothing(effect, path);
   if (!TEXT_EFFECT_UNITS.includes(effect.unit)) fail(`${path}.unit`, "must be layer, letters, words, or lines");
-  if (!TEXT_EFFECT_ORDERS.includes(effect.order)) fail(`${path}.order`, "must be forward or reverse");
+  if (!TEXT_EFFECT_ORDERS.includes(effect.order)) fail(`${path}.order`, `must be ${TEXT_EFFECT_ORDERS.join(", ")}`);
+  normalizeOrderSeed(effect, path);
   // A range selector times each unit in place of the stagger, as on an in or out (textTiming.js).
   if (raw.range != null) {
     if (effect.unit === "layer") fail(`${path}.range`, "requires a unit of letters, words or lines");
@@ -1329,6 +1341,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
   layer.ligatures = requireBoolean(layer.ligatures, `${path}.ligatures`);
   // Optional: digits all one width (OpenType tnum), for a number that counts (count-up).
   if (layer.tabularNumbers !== undefined) layer.tabularNumbers = requireBoolean(layer.tabularNumbers, `${path}.tabularNumbers`);
+  // Optional per-unit loop between the in and out animations (textLoop.js); null clears it.
+  if (layer.textLoop == null) delete layer.textLoop;
+  else if (type !== "text") fail(`${path}.textLoop`, "only text layers loop their letters, words or lines");
+  else {
+    try { layer.textLoop = normalizeTextLoop(layer.textLoop); }
+    catch (error) { const [, key = "", why] = /^(\.\w+)? ?(.*)$/.exec(error.message); fail(`${path}.textLoop${key}`, why); }
+  }
   // Optional variable font axes {wght, wdth, slnt, opsz} (fontAxes.js); null clears them.
   if (layer.axes === null) delete layer.axes;
   else if (layer.axes !== undefined) {

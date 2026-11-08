@@ -35,6 +35,7 @@ import { DEFAULT_PERSPECTIVE } from "./tilt.js";
 import { TRIM_LAYER_TYPES } from "./strokeTrim.js";
 import { REPEAT_LAYER_TYPES } from "./repeater.js";
 import { applyPin } from "./pin.js";
+import { textLoopOffset, textLoopUnit } from "./textLoop.js";
 
 const PRESET_ENTRIES = [
   ["fade-in", "Fade In", "in"],
@@ -729,8 +730,44 @@ export function evaluateLayer(
       evaluated.y += (before[1] - after[1]) * dx + (before[3] - after[3]) * dy;
     }
   }
+  if (layer.type === "text" && layer.textLoop && options.textUnit) applyTextLoop(evaluated, layer, time, unitOptions);
   if (layer.pin) applyPin(evaluated, layer, pinTime);
   return evaluated;
+}
+
+// The text loop (textLoop.js) for the unit being drawn: it runs from the end of this unit's
+// latest in animation to the start of its earliest out, and moves the unit in the layer's own
+// axes; pulse and jitter turn and scale it about the unit's own center.
+function applyTextLoop(evaluated, layer, time, options) {
+  const loop = layer.textLoop;
+  const group = options.unitGroups?.[textLoopUnit(loop)];
+  if (!group) return;
+  let from = -Infinity, to = Infinity;
+  for (const animation of flattenAnimations(layer.animations, { enabledOnly: true })) {
+    if (animation?.kind !== "in" && animation?.kind !== "out") continue;
+    const begin = numberForAnimation(animation.start, 0) + operationStagger(animation, options);
+    if (animation.kind === "in") from = Math.max(from, begin + numberForAnimation(animation.duration, 0));
+    else to = Math.min(to, begin);
+  }
+  const offset = textLoopOffset(loop, group.index, time, from, to);
+  if (!offset.x && !offset.y && !offset.rotation && offset.scale === 1) return;
+  const before = layerMatrix(evaluated);
+  if (offset.rotation || offset.scale !== 1) {
+    evaluated.rotation = numberForAnimation(evaluated.rotation, 0) + offset.rotation;
+    evaluated.scaleX = numberForAnimation(evaluated.scaleX, 1) * offset.scale;
+    evaluated.scaleY = numberForAnimation(evaluated.scaleY, 1) * offset.scale;
+    const measured = resizeTextLayer(evaluated, options.fonts);
+    const unit = textUnitGroup(layoutText(measured, options.fonts), options.textUnit, textLoopUnit(loop));
+    if (unit) {
+      const after = layerMatrix(evaluated);
+      const [px, py] = pivotOf(measured);
+      const dx = unit.bounds.x + unit.bounds.width / 2 - px, dy = unit.bounds.y + unit.bounds.height / 2 - py;
+      evaluated.x += (before[0] - after[0]) * dx + (before[2] - after[2]) * dy;
+      evaluated.y += (before[1] - after[1]) * dx + (before[3] - after[3]) * dy;
+    }
+  }
+  evaluated.x = numberForAnimation(evaluated.x, 0) + before[0] * offset.x + before[2] * offset.y;
+  evaluated.y = numberForAnimation(evaluated.y, 0) + before[1] * offset.x + before[3] * offset.y;
 }
 
 // Auto height text sets its own height from the lines that fit its width (textLayout.js), so a

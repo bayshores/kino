@@ -8,7 +8,7 @@ const REST_FIELDS = Object.freeze([
 ]);
 const ANIMATION_FIELDS = Object.freeze([
   "duration", "easing", "intensity", "kind", "from", "to", "unit",
-  "stagger", "delays", "scatter", "range", "order", "anchor", "motionPath", "shadowChannels", "preset",
+  "stagger", "delays", "scatter", "range", "order", "orderSeed", "anchor", "motionPath", "shadowChannels", "preset",
   "discrete", "smoothing", "smoothingIntensity", "textAnchor", "textClip", "fromCurrent",
 ]);
 const TRANSIENT_FIELDS = new Set(["id", "start", "name", "enabled"]);

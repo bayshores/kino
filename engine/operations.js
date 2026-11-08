@@ -381,7 +381,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       if (operation.intensity !== undefined) added.intensity = operation.intensity;
       // unit, stagger and order space a text animation's letters, words or lines (smoothing and
       // smoothingIntensity ease that spacing), so a word-by-word reveal is one add_animation.
-      const unitFields = ["unit", "stagger", "order", "smoothing", "smoothingIntensity", "range"].filter((field) => operation[field] !== undefined);
+      const unitFields = ["unit", "stagger", "order", "orderSeed", "smoothing", "smoothingIntensity", "range"].filter((field) => operation[field] !== undefined);
       if (unitFields.length && layer.type !== "text")
         throw new Error(`add_animation ${unitFields.join(", ")} ${unitFields.length === 1 ? "spaces" : "space"} a text layer's letters, words or lines; ${layer.name || layer.id} is a ${layer.type} layer, so leave ${unitFields.length === 1 ? "it" : "them"} out.`);
       for (const field of unitFields) added[field] = operation[field];

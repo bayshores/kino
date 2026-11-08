@@ -36,7 +36,7 @@ import { MAX_COUNTER_DECIMALS, decimalPlaces, formatCounterValue, parseCounterTe
 export { COUNTER_KIND, isCounter };
 export const COUNTER_NAME = "Counter";
 // Fields of other animations that mean nothing for a Counter (its effects have their own units).
-export const COUNTER_FORBIDDEN_FIELDS = Object.freeze(["unit", "stagger", "order", "smoothing", "smoothingIntensity", "textAnchor", "textClip", "anchor", "motionPath", "shadowChannels", "text", "overlap"]);
+export const COUNTER_FORBIDDEN_FIELDS = Object.freeze(["unit", "stagger", "order", "orderSeed", "smoothing", "smoothingIntensity", "textAnchor", "textClip", "anchor", "motionPath", "shadowChannels", "text", "overlap"]);
 // The largest number a Counter counts to (and the largest Step): the largest number a document
 // stores (model.js).
 export const MAX_COUNTER_VALUE = 1e12;

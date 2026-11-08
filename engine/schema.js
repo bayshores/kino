@@ -49,7 +49,8 @@
  *   (engine/mediaTime.js). It never moves the layer, so the motion checks ignore it.
  * @typedef {{id:string,name:string,kind:'in'|'out'|'custom',start:number,duration:number,
  *   easing:string|[number,number,number,number],intensity?:number,from:Values,to:Values,
- *   unit?:'layer'|'letters'|'words'|'lines',stagger?:number,order?:'forward'|'reverse',
+ *   unit?:'layer'|'letters'|'words'|'lines',stagger?:number,
+ *   order?:'forward'|'reverse'|'center-out'|'edges-in'|'random',orderSeed?:number,
  *   scatter?:{x?:number,y?:number,rotation?:number,scale?:number,seed?:number},
  *   range?:Object|Object[],
  *   smoothing?:string|[number,number,number,number],smoothingIntensity?:number,
@@ -135,6 +136,8 @@
  *   strokes?:Array<{color:string,width:number,align?:'center'|'inside'|'outside',opacity?:number,dash?:number[],join?:'miter'|'round'|'bevel'}>, (stackedStrokes.js; static, drawn after stroke)
  *   text:string,fontFamily:string,fontSource:string,fontSize:number,fontWeight:number,fontStyle:'normal'|'italic',
  *   textStyleRanges?:TextStyleRange[],
+ *   textLoop?:{style:'wave'|'float'|'pulse'|'jitter',amount?:number,speed?:number,stagger?:number,
+ *     unit?:'letters'|'words'|'lines',seed?:number,ramp?:number}, (textLoop.js; per unit between in and out)
  *   lineHeight:number,letterSpacing:number,textAlign:'left'|'center'|'right',
  *   verticalAlign:'top'|'middle'|'bottom',textResize:'fixed'|'height'|'width-height',
  *   textCase:'normal'|'upper'|'lower',kerning:boolean,ligatures:boolean,tabularNumbers?:boolean,path:string,
