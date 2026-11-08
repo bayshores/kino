@@ -31,3 +31,25 @@ test("edit sets anchor and skewY on a layer and anchor on a rotate preset", asyn
   assert.equal(refused.isError, true);
   assert.match(refused.text, /anchor is the point a rotate or scale turns about/);
 });
+
+test("anchor on a Resize is its own anchor, and an animation's anchor on a rotate points to update_layer", async () => {
+  const document = parseDocument(createDocument({ id: "grow", name: "grow", scenes: [createScene({ id: "main", name: "Main", width: 160, height: 120, duration: 2,
+    layers: [createLayer("rectangle", { id: "bar", name: "Bar", x: 20, y: 20, width: 40, height: 60 })] })] }));
+  assert.equal((await server.api("/api/projects", { method: "POST", body: { document } })).status, 201);
+  const layer = async () => (await (await server.api("/api/projects/grow")).json()).document.scenes[0].layers[0];
+  const resized = await agent("edit", { project: "grow", ops: [{ op: "add_animation", layer: "Bar", preset: "resize", anchor: "top-left", start: 0 }] });
+  assert.equal(resized.isError, undefined, resized.text);
+  assert.equal((await layer()).animations[0].anchor, "top-left");
+  assert.equal((await layer()).anchor, undefined);
+  const badName = await agent("edit", { project: "grow", ops: [{ op: "add_animation", layer: "Bar", preset: "resize", anchor: [0, 0], start: 1 }] });
+  assert.match(badName.text, /anchor on a Resize is the point of the box that stays put/);
+  const spun = await agent("edit", { project: "grow", ops: [{ op: "add_animation", layer: "Bar", start: 1, animation: { kind: "custom", name: "Spin", duration: 0.5, from: { rotation: 0 }, to: { rotation: 90 }, anchor: "left" } }] });
+  assert.equal(spun.isError, true);
+  assert.match(spun.text, /update_layer \{anchor:\[x, y\]\}/);
+  const turned = await agent("edit", { project: "grow", ops: [{ op: "add_animation", layer: "Bar", preset: "rotate", start: 1, from: { rotation: 0 }, to: { rotation: 90 } }] });
+  assert.equal(turned.isError, undefined, turned.text);
+  const id = (await layer()).animations[1].id;
+  const later = await agent("edit", { project: "grow", ops: [{ op: "update_animation", animationId: id, properties: { anchor: [0, 0] } }] });
+  assert.equal(later.isError, true);
+  assert.match(later.text, /update_layer \{anchor:\[x, y\]\}/);
+});

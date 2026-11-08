@@ -859,10 +859,10 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   // and height change. Left out (or null, which removes it), x and y stay put instead.
   if (animation.anchor === null || animation.anchor === undefined) delete animation.anchor;
   else {
+    if (!propertyKeys.has("width") && !propertyKeys.has("height"))
+      fail(`${path}.anchor`, "only a Resize (an animation of width or height) has an anchor point; a rotate, scale or skew turns about the layer's anchor: update_layer {anchor:[x, y]} (percent of its box)");
     if (!isResizeAnchor(animation.anchor))
       fail(`${path}.anchor`, `must be one of ${RESIZE_ANCHOR_LIST}`);
-    if (!propertyKeys.has("width") && !propertyKeys.has("height"))
-      fail(`${path}.anchor`, "only a Resize (an animation of width or height) has an anchor point");
     if (["group", "audio", "component"].includes(layer.type))
       fail(`${path}.anchor`, resizeProblem(layer, animation));
   }

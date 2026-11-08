@@ -275,13 +275,17 @@ export function reparentLayer(layer, matrix, size = layer) {
         motionPath = normalizeMotionPath(adjusted);
       }
     }
-    return from === animation.from && to === animation.to && motionPath === animation.motionPath
+    // Keys hold the same values as from and to (their first and last), so they change too.
+    const keys = Array.isArray(animation.keys) && animation.keys.some((key) => changeValues(key.value) !== key.value)
+      ? animation.keys.map((key) => ({ ...key, value: changeValues(key.value) })) : animation.keys;
+    return from === animation.from && to === animation.to && motionPath === animation.motionPath && keys === animation.keys
       ? animation
       : {
         ...animation,
         ...(from !== animation.from ? { from } : {}),
         ...(to !== animation.to ? { to } : {}),
         ...(motionPath !== animation.motionPath ? { motionPath } : {}),
+        ...(keys !== animation.keys ? { keys } : {}),
       };
   }
   return {

@@ -66,7 +66,9 @@ function motionsOf(layer, keep) {
     const { id, shadowChannels, discrete, behavior, ...rest } = animation;
     const amount = behavior?.wiggle?.amount;
     const wiggle = behavior && (typeof amount !== "object" || Object.keys(amount).every((key) => keep.has(key)));
-    return [{ ...rest, from, to, ...(wiggle ? { behavior } : {}) }];
+    // Keys are cut the same way (their first and last value are from and to).
+    const keys = Array.isArray(rest.keys) ? rest.keys.map((key) => ({ ...key, value: pick(key.value, keep) })) : rest.keys;
+    return [{ ...rest, from, to, ...(keys ? { keys } : {}), ...(wiggle ? { behavior } : {}) }];
   });
 }
 
@@ -315,7 +317,8 @@ export const lightSweep = {
       motionsOf(layer, new Set(["x", "y", "scaleX", "scaleY", "rotation"])).forEach((animation, index) => {
         const shift = (values) => Object.fromEntries(Object.entries(values).map(([key, value]) =>
           [key, key === "x" ? value + dx : key === "y" ? value + dy : key === "rotation" ? value + turned : value]));
-        ctx.animate(made.paint, `follow-${index + 1}`, { ...animation, from: shift(animation.from), to: shift(animation.to) });
+        const keys = animation.keys?.map((key) => ({ ...key, value: shift(key.value) }));
+        ctx.animate(made.paint, `follow-${index + 1}`, { ...animation, from: shift(animation.from), to: shift(animation.to), ...(keys ? { keys } : {}) });
       });
       return { copy: made.group, paint: made.paint };
     };

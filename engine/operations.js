@@ -391,7 +391,12 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       if (operation.behavior !== undefined) added.behavior = operation.behavior;
       if (operation.duration !== undefined) added.duration = operation.duration;
       if (operation.keepStill !== undefined) added.keepStill = operation.keepStill;
-      if (operation.anchor !== undefined) {
+      // On a Resize (width or height) anchor is its own: the point that stays put.
+      if (operation.anchor !== undefined && sizeKeys(added).length) {
+        if (operation.anchor !== null && !RESIZE_ANCHORS.some((entry) => entry.id === operation.anchor))
+          throw new Error(`add_animation anchor on a Resize is the point of the box that stays put: one of ${RESIZE_ANCHORS.map((entry) => entry.id).join(", ")}.`);
+        added.anchor = operation.anchor;
+      } else if (operation.anchor !== undefined) {
         const pivot = pivotAnchor(operation.anchor, added, layer);
         if (pivot) layer.anchor = pivot;
         else delete layer.anchor;
@@ -438,9 +443,11 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
   return parseDocument(document);
 }
 
-// add_animation's anchor sets the layer's pivot (geometry.js pivotOf) for a rotate, scale or skew:
+// add_animation's anchor sets the layer's pivot (geometry.js pivotOf) for a rotate, scale or skew
+// (a Resize keeps its own anchor, above):
 // [x%, y%] of the box, or one of the nine Resize anchor names. null puts it back at the center.
 const PIVOT_KEYS = ["rotation", "scaleX", "scaleY", "skewX", "skewY"];
+const sizeKeys = (animation) => [animation.from, animation.to].flatMap((values) => Object.keys(values ?? {})).filter((key) => key === "width" || key === "height");
 function pivotAnchor(value, animation, layer) {
   const keys = [animation.from, animation.to].flatMap((values) => Object.keys(values ?? {}));
   if (!keys.some((key) => PIVOT_KEYS.includes(key)))

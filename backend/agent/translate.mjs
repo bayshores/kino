@@ -324,11 +324,42 @@ function stepsEasing(value, result) {
     if (value.intensity !== undefined && value.intensity !== count) throw new Error(`easing "${value.easing}" and intensity ${value.intensity} disagree: the intensity is the step count. Send one.`);
     result.easing = "steps";
     result.intensity = count;
-  } else if (typeof value.easing === "string" && /^\s*(?:steps|stepped)\s*$/i.test(value.easing) && value.intensity === undefined)
-    throw new Error(`easing "${value.easing}" needs its count: ${STEPS_HOW}.`);
+  }
   // A key's ease has no intensity of its own: the animation's intensity counts its steps.
   if (typeof value.ease === "string" && STEPS_TEXT.test(value.ease) && value.t !== undefined)
     throw new Error(`a key's ease "${value.ease}": write ease "steps" and give the animation intensity ${STEPS_TEXT.exec(value.ease)[1]} (the step count).`);
+}
+
+// A bare "steps" (easing, or a key's ease) needs a count: without an intensity in the op or on
+// the saved animation it would hold 50 poses. Checked once references are IDs.
+const BARE_STEPS = /^\s*(?:steps|stepped)\s*$/i;
+function checkStepsCount(operation, type, document) {
+  const savedAnimation = (id) => {
+    for (const scene of document?.scenes ?? []) for (const layer of scene.layers ?? []) {
+      const stack = [...(layer.animations ?? [])];
+      while (stack.length) {
+        const entry = stack.pop();
+        if (entry?.id === id) return entry;
+        if (Array.isArray(entry?.animations)) stack.push(...entry.animations);
+      }
+    }
+    return null;
+  };
+  const check = (fields, saved) => {
+    if (!fields || typeof fields !== "object" || !["easing", "keys", "intensity"].some((key) => fields[key] !== undefined)) return;
+    const pick = (key) => (fields[key] !== undefined ? fields[key] : saved?.[key]);
+    const keys = Array.isArray(pick("keys")) ? pick("keys") : [];
+    const bare = [pick("easing"), ...keys.map((key) => key?.ease)].find((easing) => typeof easing === "string" && BARE_STEPS.test(easing));
+    if (bare === undefined || pick("intensity") != null) return;
+    if (bare === pick("easing")) throw new Error(`easing "${bare}" needs its count: ${STEPS_HOW}.`);
+    throw new Error(`a key's ease "${bare}" counts by the animation's intensity: give intensity 4 for 4 held poses (1 to 100).`);
+  };
+  if (type === "add_animation") {
+    const animation = operation.animation && typeof operation.animation === "object" ? operation.animation : {};
+    check({ easing: animation.easing ?? operation.easing, intensity: animation.intensity ?? operation.intensity, keys: animation.keys ?? operation.keys }, null);
+  } else if (type === "update_animation") check(operation.properties, savedAnimation(operation.animationId));
+  else if (type === "update_animations" && Array.isArray(operation.animationIds))
+    for (const id of operation.animationIds) check(operation.properties, savedAnimation(typeof id === "string" ? id : id?.animationId));
 }
 
 // Fixes color and easing spellings anywhere in an operation (properties, from/to, keyframes).
@@ -517,6 +548,7 @@ function translateOne(raw, resolver, document) {
     checkMediaSource(operation, resolver, document);
     operation = normalizeValues(operation, resolver.fixes);
     resolveReferences(operation, type, resolver, document);
+    checkStepsCount(operation, type, document);
     if (type === "isolate_voice") checkIsolateVoice(operation, resolver);
     if (type === "cut_out") checkCutOut(operation, resolver);
     if (type === "cut_speech") checkCutSpeech(operation);

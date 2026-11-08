@@ -167,23 +167,25 @@ function freeAnimationId(scene, base) {
 // The animations that show or hide a layer, or fade it, copied for a layer drawn with it (a
 // plate under a text): show and hide as they are, and only the
 // opacity of the others, times `opacity` (the new layer's own).
-function timingCopies(animations, opacity) {
+export function timingCopies(animations, opacity) {
   const copies = [];
   for (const animation of Array.isArray(animations) ? animations : []) {
     if (!animation || typeof animation !== "object" || animation.enabled === false) continue;
+    // The curve's intensity goes too (a steps easing's count, a spring's bounce).
+    const intensity = animation.intensity !== undefined ? { intensity: animation.intensity } : {};
     if (animation.kind === "show" || animation.kind === "hide") { copies.push({ kind: animation.kind, name: animation.name ?? animation.kind, start: animation.start }); continue; }
     // A keyed fade or speed change is copied key by key (only its opacity, times `opacity`).
     if (animation.keys?.length && animation.kind === "custom") {
       const key = Number.isFinite(animation.to?.speed) ? "speed" : Number.isFinite(animation.to?.opacity) ? "opacity" : null;
-      if (key) copies.push({ kind: "custom", name: `${animation.name ?? "Fade"} (copy)`, start: animation.start, duration: animation.duration, easing: animation.easing ?? "smooth",
+      if (key) copies.push({ kind: "custom", name: `${animation.name ?? "Fade"} (copy)`, start: animation.start, duration: animation.duration, easing: animation.easing ?? "smooth", ...intensity,
         keys: animation.keys.map((entry) => ({ ...entry, value: { [key]: key === "speed" ? entry.value.speed : round3(entry.value.opacity * opacity) } })) });
       continue;
     }
-    if (Number.isFinite(animation.to?.speed)) { copies.push({ kind: "custom", name: animation.name ?? "Speed", start: animation.start, duration: animation.duration, easing: animation.easing, from: { speed: animation.from?.speed ?? 1 }, to: { speed: animation.to.speed } }); continue; }
+    if (Number.isFinite(animation.to?.speed)) { copies.push({ kind: "custom", name: animation.name ?? "Speed", start: animation.start, duration: animation.duration, easing: animation.easing, ...intensity, from: { speed: animation.from?.speed ?? 1 }, to: { speed: animation.to.speed } }); continue; }
     const from = animation.from?.opacity, to = animation.to?.opacity;
     if (!Number.isFinite(from) && !Number.isFinite(to)) continue;
     copies.push({
-      kind: ["in", "out"].includes(animation.kind) ? animation.kind : "custom", name: `${animation.name ?? "Fade"} (copy)`, start: animation.start, duration: animation.duration, easing: animation.easing ?? "smooth",
+      kind: ["in", "out"].includes(animation.kind) ? animation.kind : "custom", name: `${animation.name ?? "Fade"} (copy)`, start: animation.start, duration: animation.duration, easing: animation.easing ?? "smooth", ...intensity,
       ...(Number.isFinite(from) ? { from: { opacity: round3(from * opacity) } } : {}), ...(Number.isFinite(to) ? { to: { opacity: round3(to * opacity) } } : {}),
     });
   }

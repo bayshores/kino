@@ -108,3 +108,45 @@ test("every data quality rule runs on keyed x, opacity, scale and rotation anima
   const { findings } = await runQuality(kinoTimeline(document, "s", { fonts: defaultFonts }), { pixels: false });
   assert.deepEqual(findings.filter((finding) => finding.internal).map((finding) => finding.message), []);
 });
+
+test("grouping, ungrouping, a group resize and a light-sweep band move every key too", async () => {
+  const { applyOperations } = await import("./operations.js");
+  const { worldMatrix, point } = await import("./geometry.js");
+  const { resizeGroup } = await import("./groupResize.js");
+  const xs = [{ t: 0, value: { x: 100 } }, { t: 0.5, value: { x: 300 } }, { t: 1, value: { x: 200 } }];
+  const docOf = (layers) => parseDocument(createDocument({ scenes: [createScene({ id: "s", name: "S", width: 800, height: 600, duration: 3, layers })] }));
+  const worldX = (doc) => [1, 2, 3].map((time) => {
+    const states = doc.scenes[0].layers.map((layer) => evaluateLayer(layer, time));
+    return point(worldMatrix(states.find((state) => state.id === "r"), states), 0, 0).x;
+  });
+  const doc = docOf([createLayer("rectangle", { id: "r", name: "Box", x: 100, y: 100, width: 50, height: 50, animations: [keyed(xs)] }),
+    createLayer("rectangle", { id: "o", name: "Other", x: 300, y: 300, width: 50, height: 50 })]);
+  const grouped = docOf(applyOperations(doc, [{ type: "group_layers", sceneId: "s", layerIds: ["r", "o"], groupId: "g" }]).scenes[0].layers);
+  assert.deepEqual(worldX(grouped), worldX(doc));
+  assert.deepEqual(worldX(grouped), [100, 300, 200]);
+  const ungrouped = docOf(applyOperations(grouped, [{ type: "ungroup_layer", sceneId: "s", layerId: "g" }]).scenes[0].layers);
+  assert.deepEqual(worldX(ungrouped), [100, 300, 200]);
+
+  // Twice as wide: the plain child's from/to and the keyed child's keys both double.
+  const inGroup = docOf([createLayer("group", { id: "g", name: "G", x: 0, y: 0, width: 400, height: 200 }),
+    createLayer("rectangle", { id: "c", name: "C", parentId: "g", x: 100, y: 50, width: 50, height: 50, animations: [keyed(xs)] })]).scenes[0].layers;
+  const changes = resizeGroup(inGroup, "g", { x: 0, y: 0, width: 800, height: 200 });
+  const stretched = docOf(inGroup.map((layer) => ({ ...layer, ...(changes.find((change) => change.id === layer.id) ?? {}) }))).scenes[0].layers[1].animations[0];
+  assert.deepEqual(stretched.keys.map((key) => key.value.x), [200, 600, 400]);
+  assert.deepEqual([stretched.from.x, stretched.to.x], [200, 400]);
+
+  // The band of a light-sweep on a keyed picture keeps its offset after a save.
+  const { styleFor } = await import("./blocks/looks.js");
+  const { readMoveInput, runMove } = await import("./blocks/move.js");
+  const { MOVES } = await import("./blocks/moves/index.js");
+  const logo = docOf([createLayer("image", { id: "logo", x: 800, y: 400, width: 300, height: 300, src: "/api/media/logo.png", animations: [keyed(
+    [{ t: 0, value: { x: 800, opacity: 1 } }, { t: 0.5, value: { x: 1000, opacity: 1 } }, { t: 1, value: { x: 900, opacity: 1 } }], { start: 0 })] })]).scenes[0].layers[0];
+  const scene = createScene({ id: "s", name: "S", width: 1920, height: 1080, duration: 6, layers: [logo] });
+  const result = runMove(MOVES["light-sweep"], { id: "m", input: readMoveInput(MOVES["light-sweep"], { layer: "logo", angle: 20 }), scene,
+    style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.5, dur: null, reduced: false, media: () => null });
+  const band = result.added.find((entry) => entry.layer.move.part === "overlay-paint").layer;
+  const follow = docOf([{ ...band, parentId: null }]).scenes[0].layers[0].animations.find((animation) => animation.id.includes("follow"));
+  const dx = band.x - 800;
+  assert.deepEqual(follow.keys.map((key) => key.value), [{ x: 800 + dx }, { x: 1000 + dx }, { x: 900 + dx }]);
+  assert.deepEqual([follow.from, follow.to], [{ x: 800 + dx }, { x: 900 + dx }]);
+});

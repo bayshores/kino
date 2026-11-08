@@ -97,3 +97,27 @@ test("steps-4 stores the steps easing with intensity 4 on animations and moves; 
     assert.match(refused.text, pattern);
   }
 });
+
+test("a bare steps reads the saved intensity; a key ease steps without one is refused; a plate copy keeps the count", async () => {
+  const document = parseDocument(createDocument({ id: "steps2", name: "steps2", scenes: [createScene({ id: "main", name: "Main", width: 320, height: 180, duration: 4,
+    layers: [createLayer("rectangle", { id: "box", name: "Box", x: 0, y: 0, width: 20, height: 20,
+      animations: [{ id: "tick", name: "Tick", kind: "custom", start: 0, duration: 1, easing: "steps", intensity: 4, from: { x: 0 }, to: { x: 90 } }] })] })] }));
+  assert.equal((await server.api("/api/projects", { method: "POST", body: { document } })).status, 201);
+  const again = await agent("edit", { project: "steps2", ops: [{ op: "update_animation", layer: "Box", animation: "tick", properties: { easing: "steps", duration: 2 } }] });
+  assert.equal(again.isError, undefined, again.text);
+  const tick = (await (await server.api("/api/projects/steps2")).json()).document.scenes[0].layers[0].animations[0];
+  assert.deepEqual([tick.easing, tick.intensity, tick.duration], ["steps", 4, 2]);
+  const keyed = await agent("edit", { project: "steps2", ops: [{ op: "add_animation", layer: "Box", start: 2, keys: [{ t: 0, value: { x: 0 }, ease: "steps" }, { t: 0.5, value: { x: 5 } }, { t: 1, value: { x: 9 } }] }] });
+  assert.equal(keyed.isError, true);
+  assert.match(keyed.text, /counts by the animation's intensity/);
+  const counted = await agent("edit", { project: "steps2", ops: [{ op: "add_animation", layer: "Box", start: 2, intensity: 3, keys: [{ t: 0, value: { x: 0 }, ease: "steps" }, { t: 0.5, value: { x: 5 } }, { t: 1, value: { x: 9 } }] }] });
+  assert.equal(counted.isError, undefined, counted.text);
+  const dropped = await agent("edit", { project: "steps2", ops: [{ op: "update_animation", layer: "Box", animation: "tick", properties: { intensity: null } }] });
+  assert.equal(dropped.isError, true);
+  assert.match(dropped.text, /needs its count/);
+  const { timingCopies } = await import("./agent/quality.mjs");
+  const fade = { id: "f", name: "Fade", kind: "custom", start: 0, duration: 1, easing: "steps", intensity: 4, from: { opacity: 0 }, to: { opacity: 1 } };
+  const keyedFade = { ...fade, keys: [{ t: 0, value: { opacity: 0 } }, { t: 0.5, value: { opacity: 1 } }, { t: 1, value: { opacity: 0.5 } }] };
+  for (const copy of timingCopies([fade, keyedFade], 0.8)) assert.deepEqual([copy.easing, copy.intensity], ["steps", 4]);
+  assert.equal(timingCopies([{ ...fade, easing: "smooth", intensity: undefined }], 1)[0].intensity, undefined);
+});

@@ -161,13 +161,18 @@ function changeAnimations(layer, change, motionMap = null) {
     if (motionPath != null && typeof motionMap?.mapPosition === "function") {
       motionPath = mapMotionPath(motionPath, motionMap.mapPosition, motionMap.mapVector ?? ((value) => value));
     }
-    return from === animation.from && to === animation.to && motionPath === animation.motionPath
+    // Keys hold the same values as from and to (their first and last), so they change too.
+    // A keyed animation has no motion path, so its x and y go through `change` like from's.
+    const keys = Array.isArray(animation.keys) && animation.keys.some((key) => update(key.value) !== key.value)
+      ? animation.keys.map((key) => ({ ...key, value: update(key.value) })) : animation.keys;
+    return from === animation.from && to === animation.to && motionPath === animation.motionPath && keys === animation.keys
       ? animation
       : {
         ...animation,
         ...(from !== animation.from ? { from } : {}),
         ...(to !== animation.to ? { to } : {}),
         ...(motionPath !== animation.motionPath ? { motionPath } : {}),
+        ...(keys !== animation.keys ? { keys } : {}),
       };
   }
   return (layer.animations ?? []).map(changeAnimation);

@@ -33,8 +33,9 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
 ## Pivot and skew
 
 - `anchor:[x, y]` (layer property, percent of the box, default 50 50) is the point rotation,
-  scale and skew turn about. add_animation takes `anchor` (`[0, 100]` or `"top-left"`) on a
-  rotate or scale and sets it: a door swing turns about `"left"`, a bar grows from `"bottom"`.
+  scale and skew turn about. add_animation's top-level `anchor` (`[0, 100]` or `"top-left"`) on a
+  rotate or scale sets it: a door swing turns about `"left"`, a bar grows from `"bottom"`. On a
+  Resize it is the Resize's own anchor; later, change the pivot with update_layer.
 - `skewX`, `skewY` (degrees) slant a layer and animate like any value.
 
 ## Examples
