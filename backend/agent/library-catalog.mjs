@@ -146,6 +146,10 @@ const PRESET_LAYER = {
 const MOVE_VARIANTS = {
   "push-through-type on a logo": { move: "push-through-type", line: "push-through-type with layer: the camera pushes into a picture logo's solid part (its see-through parts are measured) and the next shot shows inside it",
     layers: () => [SHOT_A, picture("logo", { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 })], fields: { layer: "logo", next: "shot-a", at: 0.3 } },
+  "light-sweep on a logo": { move: "light-sweep", line: "light-sweep with a picture layer: a leaning band of light crosses a picture logo only where it is not see-through",
+    layers: () => [SHOT_A, picture("logo", { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 })], fields: { layer: "logo", angle: 20, color: "#FFFFFF", at: 0.3 }, share: 0.5 },
+  "accent-hit on a logo": { move: "accent-hit", line: "accent-hit with a picture layer: a picture logo flashes to one color only where it is not see-through, with a glow",
+    layers: () => [SHOT_A, picture("logo", { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 })], fields: { layer: "logo", color: "#7FE3FF", hold: 0.3, at: 0.3 }, share: 0.3 },
 };
 const INSTANT = new Set(["hide", "show", "change-text"]);
 // Where in a move its card is caught, when not the middle: slice's bands cover the whole frame at
@@ -189,8 +193,8 @@ const TECHNIQUE_SAMPLES = {
  *  moment its card shows; null when the entry has no sample (a video format is a whole video). */
 export function sampleOps(kind, name) {
   if (kind === "move" && MOVE_VARIANTS[name]) {
-    const { move, layers, fields: { at, ...fields } } = MOVE_VARIANTS[name];
-    return { ops: [...layers(), { op: "move", name: move, id: "piece", at, ...fields }], duration: 6, still: Math.min(5, at + 1.2), share: 0.68 };
+    const { move, layers, fields: { at, ...fields }, share = 0.68 } = MOVE_VARIANTS[name];
+    return { ops: [...layers(), { op: "move", name: move, id: "piece", at, ...fields }], duration: 6, still: Math.min(5, at + 1.2), share };
   }
   if (kind === "move" && MOVES[name]) {
     const { at = 0.3, ...fields } = { ...MOVES[name].example, ...MOVE_EXTRA[name] };

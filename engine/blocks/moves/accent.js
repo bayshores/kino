@@ -13,13 +13,24 @@
 // - light-sweep: the overlay's fill is a gradient that is transparent except one band of the
 //   color; the band travels across the layer once and the glow is its soft halo.
 // Reduced motion: no glow and no sweep, the layer just turns the color and back.
+//
+// Pictures, clips and groups (and a sweep at a slant on text or a shape): the overlay is a mask
+// group holding a white copy of your layer (its own alpha, engine/blocks/subject.js) under a
+// rectangle of the color or the band, so the color lands only where your layer draws; the glow
+// is on the group, so its halo spreads past the edges as it does on text.
 import { createLayer } from "../../model.js";
 import { layoutText, resizeTextLayer } from "../../textLayout.js";
 import { enabledAnimations } from "../../animationEnabled.js";
 import { withTextStyleRange } from "../../textStyleRanges.js";
+import { easingAt } from "../../easing.js";
 import { CURVES, effect, hide, motion, round, show } from "./kit.js";
 
 const COLORED = ["text", "rectangle", "ellipse", "star", "path"];
+// Drawn through a white copy of the layer: the color takes the layer's own alpha.
+const CLIPPED = ["image", "video", "group"];
+// The ease field: a named curve, or linear (the sweep's default: a light passing never slows).
+const EASES = ["linear", ...Object.keys(CURVES)];
+const curveOf = (name, fallback) => (name === undefined ? fallback : name === "linear" ? LINEAR : CURVES[name]);
 const HEX = /^#[0-9a-f]{6}$/i;
 // The overlay copies the moves of these: your layer's place, size and turn.
 const FOLLOW = new Set(["x", "y", "scaleX", "scaleY", "rotation", "skewX", "skewY", "width", "height"]);
@@ -76,14 +87,38 @@ function overlayRanges(layer, hit) {
  * stays on your letters while they slide, rise or drift. `hit` colors one word only.
  */
 function overlay(ctx, move, layer, props, { hit, fades = false } = {}) {
-  if (!COLORED.includes(layer.type)) throw new Error(`${move} colors a text or shape layer; ${layer.id} is a ${layer.type}.`);
-  if (!ctx.shownAt(layer.id, ctx.start)) throw new Error(`${move}: ${layer.id} is not on screen at ${ctx.start} s; start the move while it shows.`);
+  if (!COLORED.includes(layer.type)) throw new Error(`${move} colors a text, shape, picture, clip or group layer; ${layer.id} is a ${layer.type}.`);
+  onScreen(ctx, move, layer);
   const { id, name, animations, parentId, move: made, textStyleRanges, shadow, ...rest } = layer;
   const ranges = overlayRanges(layer, hit);
   const copy = ctx.add("overlay", createLayer(layer.type, { ...rest, ...props, ...(ranges ? { textStyleRanges: ranges } : {}), role: "decor", allowOverlap: true }), { above: layer.id });
   motionsOf(layer, fades ? new Set([...FOLLOW, "opacity"]) : FOLLOW)
     .forEach((animation, index) => ctx.animate(copy, `follow-${index + 1}`, animation));
   return copy;
+}
+
+function onScreen(ctx, move, layer) {
+  if (!ctx.shownAt(layer.id, ctx.start)) throw new Error(`${move}: ${layer.id} is not on screen at ${ctx.start} s; start the move while it shows.`);
+}
+
+/**
+ * The overlay for a layer drawn through its own alpha: a mask group (in your layer's group, just
+ * above it) holding a white copy of your layer that follows its moves of place, size and turn,
+ * and `paint` (a layer of the color, in the group's coordinates) over it. The group follows your
+ * layer's fades when `fades`. Returns {group, paint}.
+ */
+function clippedOverlay(ctx, move, layer, paint, { fades = false, opacity } = {}) {
+  if (![...COLORED, ...CLIPPED].includes(layer.type)) throw new Error(`${move} colors a text, shape, picture, clip or group layer; ${layer.id} is a ${layer.type}.`);
+  if (layer.isMask) throw new Error(`${move}: ${layer.id} is a mask; give the layer it masks or its group.`);
+  onScreen(ctx, move, layer);
+  const subject = ctx.subject(layer.id);
+  const holder = layer.parentId ? ctx.sceneLayers().find((entry) => entry.id === layer.parentId) : null;
+  const group = ctx.add("overlay", createLayer("group", { name: "Overlay", x: 0, y: 0, width: holder?.width ?? ctx.frame.width, height: holder?.height ?? ctx.frame.height,
+    opacity: opacity ?? (fades ? layer.opacity ?? 1 : 1), isMaskGroup: true, role: "decor", allowOverlap: true }), { above: layer.id });
+  const mask = subject.mask("overlay-mask", "top", group);
+  motionsOf(layer, FOLLOW).forEach((animation, index) => ctx.animate(mask, `follow-${index + 1}`, animation));
+  if (fades) motionsOf(layer, new Set(["opacity"])).forEach((animation, index) => ctx.animate(group, `fade-${index + 1}`, animation));
+  return { group, paint: ctx.add("overlay-paint", createLayer(paint.type ?? "rectangle", { name: "Overlay paint", ...paint, role: "decor", allowOverlap: true }), "top", group) };
 }
 
 /** Refuses a move whose own opacity steps would fight a fade of the layer during [start, end]. */
@@ -99,22 +134,24 @@ export const accentHit = {
   needsAt: true,
   // A layer inside a group works as itself: the overlay goes beside it in its group.
   nested: ["layer"],
-  about: "a word or shape flashes to one color with a glow that blooms and decays back to its own color in a few frames (a verb as it is said): color only where it means something",
+  about: "a word, shape or picture flashes to one color with a glow that blooms and decays back in a few frames (a verb as it is said): color only where it means something",
   fits: "the one word that matters in a line, a verb as it is said, a button pressed, a status that turns on",
   tags: ["accent-hit"],
   length: FLASH + 0.1 + 0.2,
-  lasts: "not needed: flash, hold and decay",
+  lasts: "not needed: flash, hold and decay (each repeat)",
   fields: {
-    layer: { kind: "layer", required: true, about: "the text or shape layer that is hit" },
+    layer: { kind: "layer", required: true, about: "the layer that is hit: text, shape, path, picture, clip or group (a picture takes the color only where it is not see-through)" },
     word: { kind: "text", max: 60, about: "only this word (or words) of a text layer is hit (default the whole layer)" },
     color: { kind: "text", max: 7, about: "the hit color, hex (default the brand accent)" },
     glow: { kind: "number", low: 0, high: 80, about: "the glow's radius in px at 1080p (default 30; 0: no glow)" },
     hold: { kind: "number", low: 0, high: 10, about: "seconds the color holds at full (default 0.1)" },
     decay: { kind: "number", low: 0.1, high: 2, about: "seconds back to the layer's own color (default 0.2)" },
+    ease: { kind: "choice", values: EASES, about: "the curve of the flash, decay and glow (default arrive)" },
+    repeat: { kind: "number", low: 1, high: 6, whole: true, about: "hits one after another (default 1)" },
   },
   example: { layer: "prompt", word: "issues", color: "#FF4F9A", at: 1 },
   setup: "prompt, a text layer",
-  timing: (input) => ({ length: FLASH + (input.hold ?? 0.1) + (input.decay ?? 0.2) }),
+  timing: (input) => ({ length: (FLASH + (input.hold ?? 0.1) + (input.decay ?? 0.2)) * (input.repeat ?? 1) }),
   build(ctx, input) {
     const layer = ctx.layer(input.layer, "layer");
     const color = colorOf(ctx, "accent-hit", input.color);
@@ -123,22 +160,34 @@ export const accentHit = {
     const hold = input.hold ?? 0.1;
     const decay = input.decay ?? 0.2;
     const flash = ctx.reduced ? 0.15 : FLASH;
+    const repeat = input.repeat ?? 1;
+    const easing = curveOf(input.ease, CURVES.arrive);
+    const each = flash + hold + decay;
     const t = ctx.start;
     // The hit steps the copy's opacity on and off, so it cannot also follow a fade of the layer.
-    steadyOpacity("accent-hit", layer, t, t + flash + hold + decay);
-    const copy = overlay(ctx, "accent-hit", layer, range ? { fill: "#00000000", opacity: 0 } : { fill: color, opacity: 0 },
-      { hit: range && { ...range, color } });
+    steadyOpacity("accent-hit", layer, t, t + each * repeat);
     const full = layer.opacity ?? 1;
-    ctx.animate(copy, "flash", motion({ name: "Accent on", start: t, duration: flash, easing: CURVES.arrive, from: { opacity: 0 }, to: { opacity: full } }));
-    ctx.animate(copy, "decay", motion({ name: "Accent decay", start: t + flash + hold, duration: decay, easing: CURVES.arrive, from: { opacity: full }, to: { opacity: 0 } }));
+    // Text and shapes: a copy in the color. Pictures, clips and groups: the color through their alpha.
+    const clipped = CLIPPED.includes(layer.type);
+    // The paint covers far past the frame (a group inside a group may be offset): the mask shapes it.
+    const cover = { x: -ctx.frame.width * 1.5, y: -ctx.frame.height * 1.5, width: ctx.frame.width * 4, height: ctx.frame.height * 4 };
+    const hit = clipped ? clippedOverlay(ctx, "accent-hit", layer, { ...cover, fill: color }, { opacity: 0 }) : null;
+    const copy = hit ? hit.group : overlay(ctx, "accent-hit", layer, range ? { fill: "#00000000", opacity: 0 } : { fill: color, opacity: 0 },
+      { hit: range && { ...range, color } });
     const radius = (input.glow ?? 30) * ctx.scale;
-    if (!ctx.reduced && radius > 0) {
-      // The glow blooms while the color is on and decays with it (keepStill off: no glow outside).
-      ctx.animate(copy, "bloom", effect({ name: "Bloom", effect: "glow", start: t, duration: flash + hold, easing: CURVES.arrive, from: { strength: 0 }, to: glowTo(color, radius, 1.6), keepStill: "off" }));
-      ctx.animate(copy, "fade", effect({ name: "Bloom decay", effect: "glow", start: t + flash + hold, duration: decay, easing: CURVES.arrive, from: { strength: 1.6 }, to: glowTo(color, radius, 0), keepStill: "off" }));
+    for (let index = 0; index < repeat; index += 1) {
+      const at = t + each * index;
+      const key = (name) => (index ? `${name}-${index + 1}` : name);
+      ctx.animate(copy, key("flash"), motion({ name: "Accent on", start: at, duration: flash, easing, from: { opacity: 0 }, to: { opacity: full } }));
+      ctx.animate(copy, key("decay"), motion({ name: "Accent decay", start: at + flash + hold, duration: decay, easing, from: { opacity: full }, to: { opacity: 0 } }));
+      if (!ctx.reduced && radius > 0) {
+        // The glow blooms while the color is on and decays with it (keepStill off: no glow outside).
+        ctx.animate(copy, key("bloom"), effect({ name: "Bloom", effect: "glow", start: at, duration: flash + hold, easing, from: { strength: 0 }, to: glowTo(color, radius, 1.6), keepStill: "off" }));
+        ctx.animate(copy, key("fade"), effect({ name: "Bloom decay", effect: "glow", start: at + flash + hold, duration: decay, easing, from: { strength: 1.6 }, to: glowTo(color, radius, 0), keepStill: "off" }));
+      }
     }
-    ctx.animate(copy, "hide", hide(t + flash + hold + decay));
-    return { end: round(t + flash + hold + decay), tags: accentHit.tags };
+    ctx.animate(copy, "hide", hide(t + each * repeat));
+    return { end: round(t + each * repeat), tags: accentHit.tags };
   },
 };
 
@@ -175,57 +224,116 @@ export function inkSpan(layer, fonts) {
 }
 // Keyframes of the band's crossing: between them its stops move in straight lines.
 const SWEEP_STEPS = 10;
+// The way the light travels, as the angle of its path (0: to the right, 90: down).
+const HEADINGS = { right: 0, down: 90, left: 180, up: 270 };
+const SWEEP_LENGTH = 1.2;
+
+/**
+ * The band's rectangle for a sweep through the layer's alpha: centered on the layer's box,
+ * turned to the light's path (`heading` degrees) and long and wide enough that the band, crossing
+ * it from end to end, crosses every corner of the box. In the layer's own group's coordinates.
+ */
+export function sweepRect(box, heading, rotation = 0) {
+  const turn = heading * Math.PI / 180;
+  const cos = Math.abs(Math.cos(turn));
+  const sin = Math.abs(Math.sin(turn));
+  // 4% more each way: a layer scaled unevenly at a slant stays covered.
+  const width = Math.ceil((box.width * cos + box.height * sin) * 1.04) + 2;
+  const height = Math.ceil((box.width * sin + box.height * cos) * 1.04) + 2;
+  const middle = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  return { x: round(middle.x - width / 2), y: round(middle.y - height / 2), width, height, rotation: round(heading + rotation) };
+}
 
 export const lightSweep = {
   name: "light-sweep",
   needsAt: true,
   nested: ["layer"],
-  about: "a band of light in one color, with a soft halo, travels once across a word or a shape, left to right (a sign-off)",
-  fits: "a name or wordmark that has just landed, a word that should catch the light; once, not on every line",
+  about: "a band of light in one color, with a soft halo, travels once across a word, a shape or a picture's solid part, left to right by default (a sign-off)",
+  fits: "a name, wordmark or logo just landed; once, not on every line",
   tags: ["light-sweep"],
-  length: 1.2,
+  length: SWEEP_LENGTH,
   shortest: 0.4,
   fields: {
-    layer: { kind: "layer", required: true, about: "the text or shape layer the light crosses" },
+    layer: { kind: "layer", required: true, about: "the layer the light crosses: text, shape, path, picture, clip or group" },
     color: { kind: "text", max: 7, about: "the light's color, hex (default the brand accent)" },
-    width: { kind: "text", max: 12, about: "the band's width: \"2ch\" (default, characters), \"30%\" of the layer, or \"120px\"" },
+    width: { kind: "text", max: 12, about: "the band's width: \"2ch\" (characters; default for text and shapes), \"30%\" of the layer (25% default for pictures, clips and groups), or \"120px\"" },
+    direction: { kind: "choice", values: Object.keys(HEADINGS), about: "the way the light travels (default right)" },
+    angle: { kind: "number", low: -60, high: 60, about: "degrees the band leans from straight across its path (default 0; 20 is a classic sheen)" },
+    ease: { kind: "choice", values: EASES, about: "the band's speed across (default linear: a passing light never slows)" },
+    repeat: { kind: "number", low: 1, high: 6, whole: true, about: "times the light crosses (default 1), each taking the same time" },
   },
   example: { layer: "prompt", at: 1 },
   setup: "prompt, a text layer",
+  timing: (input) => ({ length: round(SWEEP_LENGTH * (input.repeat ?? 1)) }),
   build(ctx, input) {
     const layer = ctx.layer(input.layer, "layer");
     const color = colorOf(ctx, "light-sweep", input.color);
+    const direction = input.direction ?? "right";
+    const lean = input.angle ?? 0;
+    const repeat = input.repeat ?? 1;
+    const curve = curveOf(input.ease, LINEAR);
+    // Text and shapes with an upright band: the copy's own fill is the band (as always). Pictures,
+    // clips, groups and a leaning band: the band is a turned rectangle through the layer's alpha.
+    const clipped = CLIPPED.includes(layer.type) || lean !== 0;
+    const sized = layer.type === "text" ? resizeTextLayer(layer, ctx.fonts) : layer;
     const size = layer.type === "text" ? layer.fontSize ?? 40 : layer.height;
+    const across = direction === "down" || direction === "up";
     // The gradient spans the layer's box; the light crosses only the letters in it (a wide box
     // with centered words would leave the band crossing empty space most of the time).
-    const { width, lo, hi } = inkSpan(layer, ctx.fonts);
-    const share = Math.min(0.8 * (hi - lo), Math.max(0.04 * (hi - lo), bandWidth(input.width, width, size) / Math.max(1, width)));
+    const span = clipped || across ? null : inkSpan(layer, ctx.fonts);
+    const rect = clipped ? sweepRect({ x: sized.x, y: sized.y, width: sized.width, height: sized.height }, HEADINGS[direction] + lean, layer.rotation ?? 0) : null;
+    const length = clipped ? rect.width : across ? sized.height : span.width;
+    // Going left the gradient runs backwards (offset 0 at the right edge), so the letters' span flips.
+    const [lo, hi] = !span ? [0, 1] : direction === "left" ? [1 - span.hi, 1 - span.lo] : [span.lo, span.hi];
+    // A picture, clip or group has no characters: its band is a quarter of its width by default.
+    const asked = input.width ?? (CLIPPED.includes(layer.type) ? "25%" : "2ch");
+    const share = Math.min(0.8 * (hi - lo), Math.max(0.04 * (hi - lo), bandWidth(asked, length, size) / Math.max(1, length)));
     const t = ctx.start;
     const end = round(t + ctx.duration);
+    // An upright band runs the copy's gradient the light's way (left and up: from the far edge).
+    const angle = clipped ? 0 : HEADINGS[direction];
+    const paintOf = (fill) => (clipped ? { ...rect, fill } : { fill });
+    const makeCopy = (fill) => {
+      if (!clipped) return { copy: overlay(ctx, "light-sweep", layer, { fill }, { fades: true }) };
+      const made = clippedOverlay(ctx, "light-sweep", layer, paintOf(fill), { fades: true });
+      // The band follows the layer's moves too, about the same middle (its own turn added).
+      const dx = rect.x - layer.x, dy = rect.y - layer.y, turned = rect.rotation - (layer.rotation ?? 0);
+      motionsOf(layer, new Set(["x", "y", "scaleX", "scaleY", "rotation"])).forEach((animation, index) => {
+        const shift = (values) => Object.fromEntries(Object.entries(values).map(([key, value]) =>
+          [key, key === "x" ? value + dx : key === "y" ? value + dy : key === "rotation" ? value + turned : value]));
+        ctx.animate(made.paint, `follow-${index + 1}`, { ...animation, from: shift(animation.from), to: shift(animation.to) });
+      });
+      return { copy: made.group, paint: made.paint };
+    };
+    const bandAt = (middle) => ({ ...band(color, middle, share), angle });
     if (ctx.reduced) {
       // No sweep: the layer turns the color and back (by its fill, so the copy can follow a fade
       // of your layer); on and off never overlap, however short the move.
       const clear = `${color}00`;
       const on = Math.min(0.2, ctx.duration / 2);
       const off = Math.max(t + on, end - 0.3);
-      const copy = overlay(ctx, "light-sweep", layer, { fill: clear }, { fades: true });
-      ctx.animate(copy, "on", motion({ name: "Color on", start: t, duration: on, easing: CURVES.fade, from: { fill: clear }, to: { fill: color } }));
-      ctx.animate(copy, "off", motion({ name: "Color off", start: off, duration: round(end - off), easing: CURVES.fade, from: { fill: color }, to: { fill: clear } }));
+      const { copy, paint } = makeCopy(clear);
+      const target = paint ?? copy;
+      ctx.animate(target, "on", motion({ name: "Color on", start: t, duration: on, easing: CURVES.fade, from: { fill: clear }, to: { fill: color } }));
+      ctx.animate(target, "off", motion({ name: "Color off", start: off, duration: round(end - off), easing: CURVES.fade, from: { fill: color }, to: { fill: clear } }));
       ctx.animate(copy, "show", show(t));
       ctx.animate(copy, "hide", hide(end));
       return { end, tags: [] };
     }
-    // The band's middle crosses from just outside the left edge to just outside the right at one
-    // speed (linear on purpose: a light passing never slows), so it never stops or jumps.
+    // The band's middle crosses from just outside one edge to just outside the other, linear by
+    // default (a light passing never slows), so it never stops or jumps.
     const from = lo - share / 2;
-    const across = hi - lo + share;
-    const middleAt = (step) => from + across * step / SWEEP_STEPS;
+    const travel = hi - lo + share;
+    const middleAt = (step) => from + travel * (curve === LINEAR ? step / SWEEP_STEPS : easingAt(curve, step / SWEEP_STEPS));
     // The copy follows a fade of your layer too: a sign-off that fades takes its light with it.
-    const copy = overlay(ctx, "light-sweep", layer, { fill: band(color, from, share) }, { fades: true });
-    const length = ctx.duration / SWEEP_STEPS;
-    for (let step = 0; step < SWEEP_STEPS; step += 1)
-      ctx.animate(copy, `sweep-${step + 1}`, motion({ name: "Light sweep", start: t + step * length, duration: length, easing: LINEAR,
-        from: { fill: band(color, middleAt(step), share) }, to: { fill: band(color, middleAt(step + 1), share) } }));
+    const { copy, paint } = makeCopy(bandAt(from));
+    const target = paint ?? copy;
+    const pass = ctx.duration / repeat;
+    const stepLength = pass / SWEEP_STEPS;
+    for (let crossing = 0; crossing < repeat; crossing += 1)
+      for (let step = 0; step < SWEEP_STEPS; step += 1)
+        ctx.animate(target, `sweep-${crossing ? `${crossing + 1}-` : ""}${step + 1}`, motion({ name: "Light sweep", start: t + crossing * pass + step * stepLength, duration: stepLength, easing: LINEAR,
+          from: { fill: bandAt(middleAt(step)) }, to: { fill: bandAt(middleAt(step + 1)) } }));
     // The halo: the band glows (only it has color), wide and soft.
     ctx.animate(copy, "halo", effect({ name: "Halo", effect: "glow", start: t, duration: ctx.duration, easing: CURVES.fade, to: glowTo(color, size * 0.35, 1.2), keepStill: "off" }));
     ctx.animate(copy, "show", show(t));

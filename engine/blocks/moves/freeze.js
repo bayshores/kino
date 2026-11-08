@@ -7,9 +7,10 @@
 // shots. masked-type follows the type-as-window titles of launch films: the shot falls away
 // around one big word that keeps playing the footage, or the word stands behind the subject.
 import { createLayer } from "../../model.js";
+import { resizeTextLayer } from "../../textLayout.js";
 import { readSeconds, textLayer } from "../build.js";
 import { safeArea } from "../formats.js";
-import { CURVES, boxOf, centerOf, contrast, frameShare, hide, motion, pointIn, round, scaledAbout } from "./kit.js";
+import { CURVES, boxOf, centerOf, contrast, frameShare, hide, motion, pointIn, round, scaledAbout, show } from "./kit.js";
 
 const TRANSFORM_KEYS = ["x", "y", "scaleX", "scaleY"];
 // The shutter: a white blink fades out in 0.12 s (one or two frames above half), a black one is
@@ -144,10 +145,12 @@ export const maskedType = {
   shortest: 1.6,
   fields: {
     layer: { kind: "layer", required: true, about: "the footage (a video layer)" },
-    text: { kind: "text", required: true, max: 14, about: "the word (one short word fills best)" },
+    text: { kind: "text", max: 14, about: "the word (one short word fills best), or give textLayer" },
+    textLayer: { kind: "layer", about: "your own text layer instead: the footage plays through it in its own font, size and place (with subject it keeps its color too); it is hidden while the move draws it" },
     subject: { kind: "layer", about: "the subject cut out of the footage (cut_out output subject, above the footage): the word goes between them" },
     place: { kind: "choice", values: ["middle", "top"], about: "where the word sits (default middle; top puts it behind a head)" },
   },
+  oneOf: [["text", "textLayer"]],
   example: { layer: "clip", text: "WALK", at: 0.5, dur: 2.4 },
   setup: "clip, a full-frame video (for subject: cut_out {layer: clip, output: subject})",
   build(ctx, input) {
@@ -155,17 +158,35 @@ export const maskedType = {
     const subject = input.subject ? ctx.layer(input.subject, "subject") : null;
     if (subject && ctx.order(subject.id) < ctx.order(layer.id)) throw new Error(`masked-type subject: ${subject.id} is under ${layer.id}; the cut-out must be above the footage (cut_out puts it there).`);
     if (frameShare(boxOf(layer), ctx.frame) < 0.6) throw new Error(`masked-type layer: ${layer.id} covers under 60% of the frame; give a full-frame shot.`);
-    const safe = safeArea(ctx.frame);
-    // The word fills most of the safe width, on one line, in the look's display face.
-    const probe = textLayer(ctx, { part: "word", text: input.text, role: "headline", step: "display", size: 100, box: { ...safe, width: ctx.frame.width * 6 }, align: "center", maxLines: 1, uppercase: true, name: input.text });
-    const at100 = probe.width;
-    const fontSize = Math.round(Math.min(100 * (safe.width * 0.92) / at100, 100 * (safe.height * (subject ? 0.42 : 0.6)) / probe.height));
-    const sized = textLayer(ctx, { part: "word", text: input.text, role: "headline", step: "display", size: fontSize, box: { ...safe, width: ctx.frame.width * 2 }, align: "center", maxLines: 1, uppercase: true, name: input.text });
-    const spacing = round(fontSize * 0.02);
-    const width = Math.ceil(sized.width + fontSize * OPEN * 0.02 * input.text.length + fontSize * 0.4);
-    const top = (input.place ?? "middle") === "top" ? safe.y + safe.height * 0.06 : ctx.frame.height / 2 - sized.height / 2;
-    const word = { ...sized, width, x: Math.round((ctx.frame.width - width) / 2), y: Math.round(top), textAlign: "center", letterSpacing: spacing };
+    // Your text layer: the move draws a copy of it (its font, size, place) and hides yours meanwhile.
+    const yours = input.textLayer ? ctx.layer(input.textLayer, "textLayer") : null;
+    if (yours && yours.type !== "text") throw new Error(`masked-type textLayer: ${yours.id} is a ${yours.type}; give a text layer.`);
+    let word, fontSize, spacing;
+    if (yours) {
+      const { id: _yid, name: _yname, animations: _animations, move: _made, parentId: _parent, ...look } = resizeTextLayer(yours, ctx.fonts);
+      word = { ...look, name: yours.name ?? yours.id, role: "headline" };
+      fontSize = word.fontSize ?? 40;
+      spacing = word.letterSpacing ?? 0;
+      input = { ...input, text: yours.text };
+    } else {
+      const safe = safeArea(ctx.frame);
+      // The word fills most of the safe width, on one line, in the look's display face.
+      const probe = textLayer(ctx, { part: "word", text: input.text, role: "headline", step: "display", size: 100, box: { ...safe, width: ctx.frame.width * 6 }, align: "center", maxLines: 1, uppercase: true, name: input.text });
+      const at100 = probe.width;
+      fontSize = Math.round(Math.min(100 * (safe.width * 0.92) / at100, 100 * (safe.height * (subject ? 0.42 : 0.6)) / probe.height));
+      const sized = textLayer(ctx, { part: "word", text: input.text, role: "headline", step: "display", size: fontSize, box: { ...safe, width: ctx.frame.width * 2 }, align: "center", maxLines: 1, uppercase: true, name: input.text });
+      spacing = round(fontSize * 0.02);
+      const width = Math.ceil(sized.width + fontSize * OPEN * 0.02 * input.text.length + fontSize * 0.4);
+      const top = (input.place ?? "middle") === "top" ? safe.y + safe.height * 0.06 : ctx.frame.height / 2 - sized.height / 2;
+      word = { ...sized, width, x: Math.round((ctx.frame.width - width) / 2), y: Math.round(top), textAlign: "center", letterSpacing: spacing };
+    }
     const t = ctx.start, end = ctx.end;
+    if (yours) {
+      // Yours is hidden while the move draws it, and back after if it showed then.
+      const back = ctx.shownAt(yours.id, end);
+      ctx.animate(yours.id, "hide", hide(t), "textLayer");
+      if (back) ctx.animate(yours.id, "show", show(end), "textLayer");
+    }
     if (ctx.duration < TYPE_IN + readSeconds(input.text) + TYPE_OUT - 1e-6) throw new Error(`masked-type needs dur of at least ${round(TYPE_IN + readSeconds(input.text) + TYPE_OUT, 2)} s for "${input.text}" to be read.`);
     const outAt = round(end - TYPE_OUT);
     const center = centerOf(word);
@@ -186,7 +207,7 @@ export const maskedType = {
       // Light ink whatever the look (a light look's text color is dark). cut_out's subject has
       // allowOverlap, so the checks know it covers the word on purpose.
       const { text: ink, bg } = ctx.style.colors;
-      const made = ctx.add("word", { ...word, fill: contrast(ink, SHADE) >= contrast(bg, SHADE) ? ink : bg }, { below: subject.id });
+      const made = ctx.add("word", { ...word, fill: yours ? word.fill : contrast(ink, SHADE) >= contrast(bg, SHADE) ? ink : bg }, { below: subject.id });
       if (ctx.reduced) ctx.animate(made, "in", motion({ name: "Fade in", kind: "in", start: t, duration: TYPE_IN, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
       else {
         ctx.animate(made, "in", motion({ name: "Rise", kind: "in", start: t, duration: TYPE_IN, easing: CURVES.settle,
@@ -205,7 +226,9 @@ export const maskedType = {
     ctx.animate(plate, "in", motion({ name: "Fall away", start: t, duration: TYPE_IN * 0.8, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
     ctx.animate(plate, "out", motion({ name: "Come back", start: outAt, duration: TYPE_OUT, easing: CURVES.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
     ctx.animate(plate, "hide", hide(end));
-    const mask = ctx.add("word", { ...word, fill: "#FFFFFF", isMask: true, role: "decor" }, { above: plate.id });
+    // A mask is white all over: your layer's styled words keep their sizes, not their colors.
+    const ranges = word.textStyleRanges?.map(({ start, end: stop, style: { fill: _fill, ...style } }) => ({ start, end: stop, style }));
+    const mask = ctx.add("word", { ...word, fill: "#FFFFFF", ...(ranges ? { textStyleRanges: ranges } : {}), isMask: true, role: "decor" }, { above: plate.id });
     const { id: _id, name: _name, move: _move, animations: own = [], ...rest } = layer;
     const fill = ctx.add("fill", { ...rest, volume: 0 }, { above: mask.id });
     own.forEach(({ id: _ignored, ...animation }, index) => ctx.animate(fill, `own-${index + 1}`, animation));

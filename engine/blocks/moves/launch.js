@@ -7,7 +7,7 @@
 // reads on a dark or a light background. Timings are the study's measurements.
 import { createLayer } from "../../model.js";
 import { parseCounterText } from "../../counterFormat.js";
-import { layoutText } from "../../textLayout.js";
+import { layoutText, resizeTextLayer } from "../../textLayout.js";
 import { readSeconds, textLayer } from "../build.js";
 import { safeArea } from "../formats.js";
 import { CURVES, centerOf, hide, motion, round, scaledAbout } from "./kit.js";
@@ -22,10 +22,10 @@ const readTime = (text) => Math.max(readSeconds(text), 20 / 30);
  * turn, `every` seconds apart, then darkens to full in `darken` seconds. Returns when the last
  * unit is full.
  */
-function writeOn(ctx, layer, { unit, start, every, gray, darken }) {
+function writeOn(ctx, layer, { unit, start, every, gray, darken, animate = (key, animation) => ctx.animate(layer, key, animation), full = 1 }) {
   const shared = { unit, stagger: every, order: "forward" };
-  ctx.animate(layer, "arrive", { ...motion({ name: "Arrive gray", kind: "in", start, duration: 0.03, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: gray } }), ...shared });
-  ctx.animate(layer, "ink", { ...motion({ name: "Darken", start: start + 0.03, duration: darken, easing: QUART_OUT, from: { opacity: gray }, to: { opacity: 1 } }), ...shared });
+  animate("arrive", { ...motion({ name: "Arrive gray", kind: "in", start, duration: 0.03, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: round(gray * full, 3) } }), ...shared });
+  animate("ink", { ...motion({ name: "Darken", start: start + 0.03, duration: darken, easing: QUART_OUT, from: { opacity: round(gray * full, 3) }, to: { opacity: full } }), ...shared });
   const count = unit === "words" ? layer.text.split(/\s+/).filter(Boolean).length : [...layer.text].filter((character) => character.trim()).length;
   return round(start + 0.03 + every * Math.max(0, count - 1) + darken);
 }
@@ -35,7 +35,7 @@ function writeOn(ctx, layer, { unit, start, every, gray, darken }) {
  * `from` to `until`: the study's holds always drift (1 to 3% a second), so a held title never
  * reads as a slide.
  */
-function holdPush(ctx, layers, from, until) {
+function holdPush(ctx, layers, from, until, animate = (layer, key, animation) => ctx.animate(layer, key, animation)) {
   if (ctx.reduced || until - from < 0.4) return;
   const left = Math.min(...layers.map((layer) => layer.x));
   const top = Math.min(...layers.map((layer) => layer.y));
@@ -43,9 +43,22 @@ function holdPush(ctx, layers, from, until) {
   const grow = round(1 + Math.min(0.03, 0.015 * (until - from)), 3);
   for (const layer of layers) {
     const pushed = scaledAbout(layer, pivot, grow);
-    ctx.animate(layer, "push", motion({ name: "Slow push", start: from, duration: round(until - from), easing: CURVES.drift,
-      from: { x: layer.x, y: layer.y, scaleX: 1, scaleY: 1 }, to: { x: pushed.x, y: pushed.y, scaleX: grow, scaleY: grow } }));
+    const [sx, sy] = [layer.scaleX ?? 1, layer.scaleY ?? 1];
+    animate(layer, "push", motion({ name: "Slow push", start: from, duration: round(until - from), easing: CURVES.drift,
+      from: { x: layer.x, y: layer.y, scaleX: sx, scaleY: sy }, to: { x: pushed.x, y: pushed.y, scaleX: round(grow * sx, 4), scaleY: round(grow * sy, 4) } }));
   }
+}
+
+/**
+ * Your own text layer for a move's `field` (it keeps its font, size, color and place) and how to
+ * animate a list of layers that may hold it: your layer by its ID under the role `field`, the
+ * move's own parts as they are.
+ */
+function yourText(ctx, id, field) {
+  const layer = ctx.layer(id, field);
+  if (layer.type !== "text") throw new Error(`${ctx.move} ${field}: ${layer.id} is a ${layer.type}; give a text layer.`);
+  const animate = (target, key, animation) => (target.id === layer.id ? ctx.animate(layer.id, key, animation, field) : ctx.animate(target, key, animation));
+  return { layer: resizeTextLayer(layer, ctx.fonts), animate };
 }
 
 // ---- headline-write -----------------------------------------------------------------------
@@ -63,13 +76,16 @@ export const headlineWrite = {
   tags: ["type-words"],
   length: 2.2,
   fields: {
-    headline: { kind: "text", required: true, max: 60, about: "the headline, one short line (4 to 7 words reads best)" },
+    headline: { kind: "text", max: 60, about: "the headline, one short line (4 to 7 words reads best), or give layer" },
+    layer: { kind: "layer", about: "your own text layer instead: it writes on in its own font, size, color and place" },
     kicker: { kind: "text", max: 80, retired: true, about: "retired: accepted and left out" },
     exit: { kind: "choice", values: ["stay", "dim", "fade"], about: "at the end: stay (default), dim (fades to 20% so the next section builds over it) or fade (out and gone)" },
   },
+  oneOf: [["headline", "layer"]],
   example: { headline: "Set it up in seconds", at: 0.3 },
   setup: "none",
   build(ctx, input) {
+    if (input.layer) return headlineOn(ctx, input, yourText(ctx, input.layer, "layer"));
     const safe = safeArea(ctx.frame);
     const width = Math.round(safe.width * (ctx.portrait ? 1 : 0.8));
     const box = { x: Math.round(ctx.frame.width / 2 - width / 2), y: safe.y, width, height: safe.height };
@@ -106,6 +122,21 @@ export const headlineWrite = {
     return { end };
   },
 };
+
+// headline-write on your text layer: the same write-on, hold and exit, on it as it is.
+function headlineOn(ctx, input, { layer, animate }) {
+  if (input.kicker) ctx.note("kicker left out: a small label stacked over a headline reads as a template");
+  const written = writeOn(ctx, layer, { unit: "words", start: ctx.start, every: WORD_EVERY, gray: WORD_GRAY, darken: WORD_DARKEN, full: layer.opacity ?? 1, animate: (key, animation) => animate(layer, key, animation) });
+  const exitFor = input.exit === "dim" || input.exit === "fade" ? 0.3 : 0;
+  const end = round(Math.max(ctx.end, written + Math.max(readTime(layer.text), 0.8) + exitFor));
+  holdPush(ctx, [layer], written, end - exitFor, animate);
+  const full = layer.opacity ?? 1;
+  if (exitFor) {
+    animate(layer, input.exit === "dim" ? "dim" : "out", motion({ name: input.exit === "dim" ? "Dim" : "Fade out", kind: input.exit === "dim" ? "custom" : "out", start: end - exitFor, duration: exitFor, easing: CURVES.fade, from: { opacity: full }, to: { opacity: input.exit === "dim" ? round(0.2 * full, 3) : 0 } }));
+    if (input.exit === "fade") animate(layer, "hide", hide(end));
+  }
+  return { end };
+}
 
 // ---- logo-settle --------------------------------------------------------------------------
 const LOGO_FROM = 2.6;
@@ -195,14 +226,17 @@ export const countUp = {
   tags: ["type-counter", "type-words"],
   length: 2.6,
   fields: {
-    value: { kind: "text", required: true, max: 16, about: "the stat as it should read at the end, with its prefix and suffix: 98%, $1.2M, 3x, 10,000+" },
+    value: { kind: "text", max: 16, about: "the stat as it should read at the end, with its prefix and suffix: 98%, $1.2M, 3x, 10,000+; or give layer" },
+    layer: { kind: "layer", about: "your own text layer holding the stat (its text, such as 98%): it counts up in its own font, size, color and place" },
     label: { kind: "text", max: 40, about: "the words under it, such as codebase context" },
     from: { kind: "number", low: -1e9, high: 1e9, about: "where the count starts (default 0)" },
     count: { kind: "number", low: 0.4, high: 3, about: "seconds the count takes (default 1)" },
   },
+  oneOf: [["value", "layer"]],
   example: { value: "98%", label: "codebase context", at: 0.3 },
   setup: "none",
   build(ctx, input) {
+    if (input.layer) return countOn(ctx, input, yourText(ctx, input.layer, "layer"));
     const parsed = parseCounterText(input.value);
     if (!parsed) throw new Error(`count-up: value "${input.value}" has no number in it; give one such as 98%, $1.2M or 3x.`);
     const decimals = (String(input.value).match(/\d+\.(\d+)/)?.[1] ?? "").length;
@@ -235,3 +269,29 @@ export const countUp = {
     return { end };
   },
 };
+
+// count-up on your text layer: it counts to its own text; a label (if given) writes on under it,
+// centered on it, in the move's own body style.
+function countOn(ctx, input, { layer, animate }) {
+  const parsed = parseCounterText(layer.text);
+  if (!parsed) throw new Error(`count-up layer: ${layer.id} reads "${layer.text}", with no number in it; its text is the stat, such as 98%.`);
+  const decimals = (String(layer.text).match(/\d+\.(\d+)/)?.[1] ?? "").length;
+  const seconds = input.count ?? COUNT_SECONDS;
+  const full = layer.opacity ?? 1;
+  animate(layer, "in", motion({ name: "Fade in", kind: "in", start: ctx.start, duration: 0.12, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: full } }));
+  animate(layer, "count", { name: "Count up", kind: "counter", start: round(ctx.start), duration: round(seconds), easing: [...QUART_OUT],
+    from: input.from ?? 0, to: parsed.value, step: 10 ** -decimals, out: null, in: null });
+  if (!layer.tabularNumbers) ctx.note(`${layer.id} has no tabularNumbers: its digits may shift while it counts (set tabularNumbers true on it)`);
+  let done = round(ctx.start + seconds);
+  const parts = [layer];
+  if (input.label) {
+    const size = Math.round(Math.min(ctx.frame.height * 0.05, ctx.frame.width * 0.06, layer.fontSize * 0.4));
+    const label = textLayer(ctx, { part: "label", text: input.label, role: "body", step: "body", size, box: { x: 0, y: 0, width: Math.max(layer.width, size * 12), height: ctx.frame.height }, align: "center", face: "body", maxLines: 2 });
+    const words = ctx.add("label", { ...label, x: Math.round(layer.x + layer.width / 2 - label.width / 2), y: Math.round(layer.y + layer.height + label.fontSize * 0.2), name: input.label });
+    parts.push(words);
+    done = writeOn(ctx, words, { unit: "words", start: round(ctx.start + seconds + 0.2), every: WORD_EVERY, gray: WORD_GRAY, darken: WORD_DARKEN });
+  }
+  const end = round(Math.max(ctx.end, done + Math.max(readTime(`${layer.text} ${input.label ?? ""}`), 0.8)));
+  holdPush(ctx, parts, done, end, animate);
+  return { end };
+}

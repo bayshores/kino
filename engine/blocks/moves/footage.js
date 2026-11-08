@@ -3,7 +3,7 @@
 // word by word as it is said, the way trailers set one line). Neither is dealt: an agent names
 // them when the idea calls for them.
 import { createLayer } from "../../model.js";
-import { layoutText } from "../../textLayout.js";
+import { layoutText, resizeTextLayer, textUnits } from "../../textLayout.js";
 import { textLayer } from "../build.js";
 import { safeArea } from "../formats.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechWords } from "../../speech.js";
@@ -182,6 +182,7 @@ export const voiceType = {
     over: { kind: "choice", values: ["footage", "plate"], about: "footage (default): over the picture, a soft shade behind the line; plate: cut to the look's background color" },
     hold: { kind: "number", low: 0.3, high: 3, about: "seconds the whole line stays after the last word ends (default 0.8)" },
     accent: { kind: "choice", values: [true, false], about: "true sets the last word in the accent color (default: on a plate only; over footage an accent can fail contrast)" },
+    layer: { kind: "layer", about: "your own text layer holding the line: its words cut on as said, in its own font, size, color and place (with speech, line defaults to its text)" },
   },
   anyOf: [["words", "speech"]],
   example: { words: [{ text: "I", at: 0.3 }, { text: "can", at: 0.45 }, { text: "see", at: 0.7 }, { text: "again.", at: 1, end: 1.6 }] },
@@ -194,6 +195,7 @@ export const voiceType = {
     const last = words.at(-1);
     const end = round((last.end ?? last.at + 0.5) + (input.hold ?? VOICE_HOLD));
     if (end > ctx.sceneDuration + 1e-6) throw new Error(`voice-type: the line ends at ${end} s, after the scene ends (${ctx.sceneDuration} s).`);
+    if (input.layer) return voiceOn(ctx, input, words, end);
     const safe = safeArea(ctx.frame);
     const room = { x: safe.x + safe.width * 0.06, width: safe.width * 0.88 };
     // Big: capitals about 11% of a wide frame's height; smaller until the line takes 3 lines or fewer.
@@ -239,6 +241,35 @@ export const voiceType = {
     return { start: first, end };
   },
 };
+
+// voice-type on your text layer: each of its words shows as it is said (one animation with a
+// delay per word), the shade or plate goes under it, and it hides with them at the end.
+function voiceOn(ctx, input, words, end) {
+  const own = ctx.layer(input.layer, "layer");
+  if (own.type !== "text") throw new Error(`voice-type layer: ${own.id} is a ${own.type}; give a text layer.`);
+  const layer = resizeTextLayer(own, ctx.fonts);
+  const count = textUnits(layoutText(layer, ctx.fonts), "words").length;
+  if (count !== words.length) throw new Error(`voice-type layer: ${layer.id} has ${count} words and the line has ${words.length}; they must match one for one.`);
+  if (input.accent === true) ctx.note("accent left out: your layer keeps its own colors (color its last word yourself)");
+  const first = words[0].at;
+  const size = layer.fontSize ?? 40;
+  const plate = input.over === "plate";
+  const pad = { x: Math.round(size * 0.5), y: Math.round(size * 0.3) };
+  const area = plate ? { x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height }
+    : { x: Math.round(layer.x - pad.x), y: Math.round(layer.y - pad.y), width: Math.round(layer.width + pad.x * 2), height: Math.round(layer.height + pad.y * 2) };
+  const back = ctx.add("back", createLayer("rectangle", { ...area, fill: plate ? ctx.style.colors.bg : "#000000A6", ...(plate ? {} : { radius: Math.round(size * 0.4), blur: Math.round(size * 0.26) }), role: "decor", allowOverlap: true }), { below: layer.id });
+  const dimAt = plate ? first : round(Math.max(0, first - 0.3));
+  if (dimAt > 0) ctx.animate(back, "show", show(dimAt));
+  if (!plate && !ctx.reduced) ctx.animate(back, "in", motion({ name: "Shade in", kind: "in", start: dimAt, duration: 0.3, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
+  ctx.animate(back, "hide", hide(end));
+  const full = layer.opacity ?? 1;
+  const delays = words.map((word) => round(word.at - first));
+  const land = ctx.reduced ? { from: { opacity: 0 }, to: { opacity: full } } : { from: { y: layer.y + Math.round(size * 0.08), opacity: round(0.4 * full, 3) }, to: { y: layer.y, opacity: full } };
+  ctx.animate(layer.id, "in", { ...motion({ name: "Land", kind: "in", start: first, duration: ctx.reduced ? 0.001 : WORD_IN, easing: CURVES.arrive, ...land }), unit: "words", delays }, "layer");
+  ctx.animate(layer.id, "hide", hide(end), "layer");
+  ctx.note(`voice-type: ${words.length} words of ${layer.id}, ${round(first)} to ${end} s`);
+  return { start: first, end };
+}
 
 // Each word as its own text layer at `size`, flowed into centered lines that fit room's width.
 function layWords(ctx, words, size, room) {

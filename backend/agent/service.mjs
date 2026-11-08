@@ -1500,7 +1500,11 @@ export function createAgentService(deps) {
   // (made on first use, as for add_captions {speech}); the move keeps them as its words.
   async function voiceLine(document, operation) {
     if (operation?.type !== "move" || operation.name !== "voice-type" || operation.speech === undefined) return;
-    if (operation.line === undefined) throw new Error("voice-type speech needs line: the words to set, as said.");
+    // With your text layer, the line is its text unless line says otherwise.
+    const own = operation.line === undefined && typeof operation.layer === "string"
+      ? document.scenes.flatMap((item) => item.layers).find((item) => item.id === operation.layer && item.type === "text") : null;
+    if (own) operation.line = own.text;
+    if (operation.line === undefined) throw new Error("voice-type speech needs line: the words to set, as said (or layer, your text layer holding them).");
     const scene = document.scenes.find((item) => item.layers.some((layer) => layer.id === operation.speech));
     const layer = scene?.layers.find((item) => item.id === operation.speech);
     if (!layer?.src) throw new Error("voice-type speech is the audio or video layer with the voice.");

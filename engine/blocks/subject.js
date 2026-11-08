@@ -132,11 +132,12 @@ export function subjectOf(ctx, layers, input, { field = "layer", at = ctx.start 
     /**
      * Adds a white copy of the subject as it is at `at` as a mask (isMask), placed by `place`
      * (default just below the subject, in its group). A group's copy holds white copies of its
-     * parts. The copy has no animations: the move animates it. Returns the mask layer.
+     * parts. The copy has no animations: the move animates it. `parent`: a group the move made
+     * to hold it (a mask group). Returns the mask layer.
      */
-    mask(part, place = { below: layer.id }) {
+    mask(part, place = { below: layer.id }, parent = null) {
       const whiten = (made, source) => { if (source.type === "image" || source.type === "video") ctx.animate(made, "white", { ...WHITEN, easing: [...WHITEN.easing], to: { ...WHITEN.to } }); return made; };
-      const top = whiten(ctx.add(part, { ...whiteCopy(layer, at, ctx.fonts), isMask: true }, place), layer);
+      const top = whiten(ctx.add(part, { ...whiteCopy(layer, at, ctx.fonts), isMask: true }, place, parent), layer);
       if (layer.type === "group") {
         let count = 0;
         const copyParts = (groupId, into) => {
