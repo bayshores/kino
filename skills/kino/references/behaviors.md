@@ -30,6 +30,13 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   `{y:40}`); `randomize:{amount, rate?:2 a s, seed?:0, mode?:"smooth"|"stepped"}` (random values,
   no ease-in: stepped jumps, a hand-drawn boil). An effect takes them on named settings
   (`behavior:{oscillate:{amount:{hue:30}}}`) but can't loop.
+- `overshoot:{bounce?:0.3 (0..1), settle?:0.6 s}`: after the end each number swings past its end
+  value (first swing bounce times its last move) and is back within 1% by settle. Best after a
+  linear or ease-in move. `follow:{layer, lag?:0.1 s, scale?:1, offset?:0, property?}` adds the
+  leader's move since its saved value, lag seconds late (`offset:{x:0, y:0}` names the keys; chain
+  layers for a trail; edits to the leader update it). `audio:{layer, band?:"all"|"low"|"mid"|"high",
+  amount, smoothing?:0.15 s}` adds amount times the sound's level 0..1 (1 at its loudest), rising at
+  once, falling over smoothing (effects too). None of the three loop; overshoot and follow not on effects.
 - `duplicate_layers {layers, count, layout?, spacing?, columns?, radius?, stagger?}` makes up to 50
   copies named "<name> 2", "<name> 3"…: `line` in a row (`spacing:{x, y}`, default the box
   width plus 24), `grid` in rows of `columns`, `radial` a ring of count + 1 with the original at

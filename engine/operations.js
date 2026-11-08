@@ -40,6 +40,7 @@ import { assertReplacementKeepsOverrides, layerWithReplacementMedia, mediaIdFrom
 import { applyAudioCaptionOperation } from "./audioCaptionOperations.js";
 import { colorFilterSteps } from "./colorFilter.js";
 import { RESIZE_ANCHORS } from "./resizeAnchor.js";
+import { refreshBehaviorLinks } from "./behaviorLinks.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -53,7 +54,7 @@ import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 // animation off for playback and true turns it on again (animationEnabled.js). parseDocument
 // drops `enabled: true`, so an animation that is on is saved without the field.
 
-export function applyOperations(source, operations, {fonts, mediaBySrc, mediaById, reports} = {}) {
+export function applyOperations(source, operations, {fonts, mediaBySrc, mediaById, reports, soundLevels} = {}) {
   if (!Array.isArray(operations) || operations.length > 1000)
     throw new Error("Provide an array of at most 1000 editing operations.");
   const document = structuredClone(source);
@@ -74,7 +75,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     // color_filter: a named look made of ordinary Color effects (colorFilter.js).
     if (operation.type === "color_filter") {
-      const filtered = applyOperations(document, colorFilterSteps(document, operation), { fonts, mediaBySrc, mediaById });
+      const filtered = applyOperations(document, colorFilterSteps(document, operation), { fonts, mediaBySrc, mediaById, soundLevels });
       document.scenes = filtered.scenes;
       continue;
     }
@@ -442,7 +443,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
   assertAxesInRange(source, document, fonts);
   // A waiver on a layer lapses when the layer is deleted or its file changes (projectSettings.js).
   if (document.checkWaivers?.length) document.checkWaivers = keptWaivers(source, document);
-  return parseDocument(document);
+  // follow and audio behaviors save what they read from their layer (behaviorLinks.js).
+  return refreshBehaviorLinks(parseDocument(document), { soundLevels });
 }
 
 // add_animation's anchor sets the layer's pivot (geometry.js pivotOf) for a rotate, scale or skew

@@ -67,6 +67,7 @@ import { createSongTaste } from "./songTaste.mjs";
 import { createMusicEmbed } from "./music-embed.mjs";
 import { createLookEmbed } from "./look-embed.mjs";
 import { decodeMono } from "./audio-analysis.mjs";
+import { createSoundBandsCache, soundLevelsFor } from "./sound-bands.mjs";
 import { analyzeBeats } from "../engine/beatDetection.js";
 import { createInspire, inspireTools } from "./inspire.mjs";
 import { createHouseMemory } from "./house-memory.mjs";
@@ -898,8 +899,11 @@ async function operationContext(document, operations, access) {
     ? await loadBulkCreateMediaSources(list, { mediaRoot, allowedIds: await allowedMedia(access), document }) : undefined;
   const mediaById = list.some((operation) => operation?.type === "replace_media")
     ? await replacementMediaRecords(document, list, access) : undefined;
-  return { fonts, mediaBySrc, mediaById };
+  // An audio behavior reads its sound's band levels (sound-bands.mjs), measured once per file.
+  const soundLevels = await soundLevelsFor(document, list, { mediaRoot, cache: soundBands });
+  return { fonts, mediaBySrc, mediaById, soundLevels };
 }
+const soundBands = createSoundBandsCache();
 // Only a draft goes ahead while the video's stops are open (direction plan B2c): anything else
 // these older export routes make is full quality, so it counts as a final render. Answers the
 // refusal's words, or null when the export may go on.

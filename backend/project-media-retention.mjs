@@ -40,6 +40,7 @@ export async function releaseProjectMedia({ projectId, removedIds, projects, med
         await rm(`${filename}.json`, { force: true });
         await rm(`${filename}.peaks`, { force: true });
         await rm(`${filename}.lufs`, { force: true });
+        await rm(`${filename}.bands`, { force: true });
         await rm(path.join(mediaRoot, "..", "media-frames", id), { recursive: true, force: true });
         deleted.push(id);
       } else {

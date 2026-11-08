@@ -358,3 +358,23 @@ test("oscillate, ramp and randomize reach the agent on a layer and on an effect'
   assert.equal(refused.isError, true);
   assert.match(refused.text, /on an effect, name the settings/);
 });
+
+test("overshoot and follow reach the agent; audio without a measured sound is refused", async () => {
+  const before = fixture("geometry-follow-behaviors");
+  await createProject(before.id, before);
+  const reply = await agent("edit", { project: before.id, ops: [
+    { op: "add_animation", layer: "red", animation: { kind: "custom", name: "Slide", start: 0, duration: 0.5, from: { x: 24 }, to: { x: 124 }, behavior: { overshoot: { bounce: 0.4 } } } },
+    { op: "add_animation", layer: "blue", animation: { kind: "custom", name: "Trail", start: 0, duration: 1, from: {}, to: {}, behavior: { follow: { layer: "Red", lag: 0.1, offset: { x: 0 } } } } },
+  ] });
+  assert.equal(reply.isError, undefined, reply.text);
+  const layers = (await saved(before.id)).document.scenes[0].layers;
+  assert.deepEqual(layers.find((layer) => layer.id === "red").animations[0].behavior, { overshoot: { bounce: 0.4, settle: 0.6 } });
+  const follow = layers.find((layer) => layer.id === "blue").animations[0].behavior.follow;
+  assert.equal(follow.layer, "red");
+  assert.equal(follow.track.rate, 60);
+  assert.equal(follow.track.values.x.length, 62);
+  const refused = await agent("edit", { project: before.id, ops: [
+    { op: "add_animation", layer: "blue", animation: { kind: "custom", name: "Pulse", start: 0, duration: 1, from: {}, to: {}, behavior: { audio: { layer: "Red", amount: { scaleX: 0.2 } } } } }] });
+  assert.equal(refused.isError, true);
+  assert.match(refused.text, /audio.layer .{0,4}Red.{0,4} is a rectangle layer/);
+});

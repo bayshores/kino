@@ -13,6 +13,15 @@
 //     to `to` between start and start + duration seconds into the animation (default: to its end).
 //   randomize { amount, rate?: 2, seed?: 0, mode?: "smooth" }  a new random value in -amount..amount
 //     `rate` times a second: smooth glides between them, stepped jumps.
+//   overshoot { bounce?: 0.3, settle?: 0.6 }  after the animation ends, each number carries on
+//     past its end value (the first swing bounce times its last move) and springs back, settled
+//     to the end value settle seconds later.
+//   follow { layer, property?, lag?: 0.1, scale?: 1, offset?: 0 }  adds the named layer's move
+//     (its value lag seconds earlier minus its own saved value) times scale, plus offset. The
+//     leader's values are sampled into `track` whenever the document is edited (behaviorLinks.js).
+//   audio { layer, band?: "all", amount, smoothing?: 0.15 }  adds amount times the sound layer's
+//     level 0..1 in a band (low under 150 Hz, mid to 2.5 kHz, high above, all); the level rises at
+//     once and falls with smoothing seconds. The levels are measured into `levels` by the edit.
 //   loop { mode: "cycle" | "pingpong" }  plays the animation again and again after its start:
 //     cycle starts over each time, pingpong plays forward then backward.
 // amount (and ramp's to and from) is one number for every animated number, or { key: number }.
@@ -126,7 +135,10 @@ function softLimit(value) {
 
 export const WAVES = Object.freeze(["sine", "triangle", "square", "saw"]);
 export const RANDOM_MODES = Object.freeze(["smooth", "stepped"]);
-const OFFSET_KINDS = ["wiggle", "oscillate", "ramp", "randomize"];
+const OFFSET_KINDS = ["wiggle", "oscillate", "ramp", "randomize", "follow", "audio"];
+export const AUDIO_BANDS = Object.freeze(["all", "low", "mid", "high"]);
+// A baked track or level list holds at most this many values (10 minutes at 60 a second).
+export const MAX_TRACK_VALUES = 36000;
 const MAX_PERIOD = 3600;
 const MAX_DECAY = 100;
 const MAX_RANDOM_RATE = 60;
@@ -182,7 +194,63 @@ export function behaviorOffset(behavior, key, local, duration) {
   if (behavior.oscillate) sum += oscillateOffset(behavior.oscillate, key, local, duration);
   if (behavior.ramp) sum += rampOffset(behavior.ramp, key, local, duration);
   if (behavior.randomize) sum += randomizeOffset(behavior.randomize, key, local, duration);
+  if (behavior.follow) sum += followOffset(behavior.follow, key, local, duration);
+  if (behavior.audio) sum += audioOffset(behavior.audio, key, local, duration);
   return sum;
+}
+
+// A value of an evenly sampled list at `index` (fractional), straight between samples.
+function sampled(values, index) {
+  if (!Array.isArray(values) || !values.length) return 0;
+  const x = Math.max(0, Math.min(values.length - 1, index)), i = Math.floor(x);
+  const a = values[i], b = values[Math.min(values.length - 1, i + 1)];
+  return a + (b - a) * (x - i);
+}
+
+/** follow: scale times the leader's sampled move (track) at `local`, plus offset; 0 unbaked. */
+export function followOffset(follow, key, local, duration) {
+  if (isRecord(follow?.offset) && !Object.hasOwn(follow.offset, key)) return 0;
+  const values = follow?.track?.values?.[follow.property ?? key];
+  if (!values) return 0;
+  const time = Math.max(0, Math.min(duration, local));
+  return (follow.scale ?? 1) * sampled(values, time * follow.track.rate) + (amountFor(follow.offset, key) ?? 0);
+}
+
+/**
+ * The audio level 0..1 at `local` seconds: the measured levels, rising at once and falling by
+ * e^(-1) each `smoothing` seconds (an envelope follower), so a hit lifts and then eases off.
+ */
+export function audioLevelAt(audio, local) {
+  const values = audio?.levels?.values;
+  if (!Array.isArray(values) || !values.length) return 0;
+  const x = Math.max(0, Math.min(values.length - 1, local * audio.levels.rate));
+  const raw = sampled(values, x);
+  if (!(audio.smoothing > 0)) return raw;
+  const keep = Math.exp(-1 / (audio.levels.rate * audio.smoothing));
+  let level = 0;
+  for (let i = 0; i <= Math.floor(x); i += 1) level = Math.max(values[i], level * keep);
+  return Math.max(raw, level * keep ** (x - Math.floor(x)));
+}
+
+/** audio: amount times the level at `local` (held after the animation). */
+export function audioOffset(audio, key, local, duration) {
+  const amount = amountFor(audio?.amount, key);
+  if (!amount) return 0;
+  return amount * audioLevelAt(audio, Math.max(0, Math.min(duration, local)));
+}
+
+/**
+ * The overshoot `after` seconds past the animation's end, for a key whose last move was `change`:
+ * a damped swing that first passes the end by bounce times the change, then is exactly 0 from
+ * settle seconds on. Its envelope falls to 1% at settle; more bounce gives more swings.
+ */
+export function overshootOffset(overshoot, after, change) {
+  const bounce = overshoot?.bounce ?? 0, settle = overshoot?.settle ?? 0;
+  if (!(after > 0) || after >= settle || !bounce || !change) return 0;
+  const omega = (Math.PI * (2 + 4 * bounce)) / settle;
+  const lambda = Math.log(100) / settle;
+  const shape = (t) => Math.sin(omega * t) * (Math.exp(-lambda * t) - 0.01) / 0.99;
+  return (change * bounce * shape(after)) / shape(Math.atan(omega / lambda) / omega);
 }
 
 /** True when the behavior adds offsets (anything but a lone loop). */
@@ -209,7 +277,8 @@ export function behaviorJumps(behavior, local, duration) {
 /** The keys a behavior names in a { key: number } amount (or ramp to/from): they wiggle in place. */
 export function behaviorKeys(behavior) {
   if (!isRecord(behavior)) return [];
-  const specs = [behavior.wiggle?.amount, behavior.oscillate?.amount, behavior.randomize?.amount, behavior.ramp?.to, behavior.ramp?.from];
+  const specs = [behavior.wiggle?.amount, behavior.oscillate?.amount, behavior.randomize?.amount, behavior.ramp?.to, behavior.ramp?.from,
+    behavior.follow?.offset, behavior.audio?.amount];
   return [...new Set(specs.flatMap((spec) => (isRecord(spec) ? Object.keys(spec) : [])))];
 }
 
@@ -220,16 +289,19 @@ export function behaviorKeys(behavior) {
  * `keyHint(key, label)` (the message for a key isKey refuses).
  */
 export function normalizeBehavior(raw, isKey = () => true, options = {}) {
-  const kinds = [...OFFSET_KINDS, ...(options.effect ? [] : ["loop"])];
+  const kinds = options.effect ? OFFSET_KINDS.filter((kind) => kind !== "follow") : [...OFFSET_KINDS, "overshoot", "loop"];
   const example = options.effect ? "{oscillate:{amount:{hue:20}}}" : "{loop:{mode:\"cycle\"}} or {wiggle:{amount:8}}";
   if (!isRecord(raw)) throw new Error(`must be an object such as ${example}`);
   const unknown = Object.keys(raw).filter((key) => !kinds.includes(key));
-  if (unknown.length) throw new Error(`has no ${unknown.join(", ")}: use ${kinds.join(", ")}${options.effect && unknown.includes("loop") ? " (an effect can't loop)" : ""}`);
+  if (unknown.length) throw new Error(`has no ${unknown.join(", ")}: use ${kinds.join(", ")}${options.effect && unknown.some((kind) => ["loop", "overshoot", "follow"].includes(kind)) ? " (an effect can't loop, overshoot or follow)" : ""}`);
   const behavior = {};
   if (raw.wiggle !== undefined && raw.wiggle !== null) behavior.wiggle = normalizeWiggle(raw.wiggle, isKey, options);
   if (raw.oscillate != null) behavior.oscillate = normalizeOscillate(raw.oscillate, isKey, options);
   if (raw.ramp != null) behavior.ramp = normalizeRamp(raw.ramp, isKey, options);
   if (raw.randomize != null) behavior.randomize = normalizeRandomize(raw.randomize, isKey, options);
+  if (raw.follow != null) behavior.follow = normalizeFollow(raw.follow, isKey, options);
+  if (raw.audio != null) behavior.audio = normalizeAudio(raw.audio, isKey, options);
+  if (raw.overshoot != null) behavior.overshoot = normalizeOvershoot(raw.overshoot);
   if (raw.loop !== undefined && raw.loop !== null) {
     const loop = typeof raw.loop === "string" ? { mode: raw.loop } : raw.loop;
     if (!isRecord(loop) || !LOOP_MODES.includes(loop.mode) || Object.keys(loop).length !== 1)
@@ -237,7 +309,66 @@ export function normalizeBehavior(raw, isKey = () => true, options = {}) {
     behavior.loop = { mode: loop.mode };
   }
   if (!Object.keys(behavior).length) throw new Error(`needs ${kinds.join(", ").replace(/, (\w+)$/, " or $1")}`);
+  const looped = ["overshoot", "follow", "audio"].find((kind) => behavior[kind]);
+  if (behavior.loop && looped) throw new Error(`${looped} can't loop: it reads the time after the start once`);
   return behavior;
+}
+
+const layerRef = (value, label) => {
+  if (typeof value !== "string" || !value.trim() || value.length > 256) throw new Error(`${label} must name a layer of the scene`);
+  return value;
+};
+
+// A baked list: {rate, values} (or values per property), checked but not made by the agent.
+function bakedList(raw, label, perKey) {
+  if (raw == null) return undefined;
+  const list = (values, where) => {
+    if (!Array.isArray(values) || values.length > MAX_TRACK_VALUES || !values.every(finiteNumber)) throw new Error(`${where} must be at most ${MAX_TRACK_VALUES} numbers`);
+    return values;
+  };
+  if (!isRecord(raw) || !finiteNumber(raw.rate) || raw.rate <= 0 || raw.rate > 240) throw new Error(`${label} must be {rate, values}; kino fills it`);
+  const values = perKey
+    ? (isRecord(raw.values) ? Object.fromEntries(Object.entries(raw.values).map(([key, entry]) => [key, list(entry, `${label}.values.${key}`)])) : list(null, `${label}.values`))
+    : list(raw.values, `${label}.values`);
+  return { ...raw, rate: raw.rate, values };
+}
+
+function normalizeFollow(raw, isKey, options) {
+  onlyFields(raw, "follow", ["layer", "property?", "lag?", "scale?", "offset?", "track?"]);
+  if (raw.property != null && (typeof raw.property !== "string" || !raw.property)) throw new Error("follow.property must name a number property of the leader, such as x");
+  const follow = {
+    layer: layerRef(raw.layer, "follow.layer"),
+    ...(raw.property != null ? { property: raw.property } : {}),
+    lag: numberIn(raw.lag, "follow.lag", 0.1, 0, 60, { unit: " seconds" }),
+    scale: numberIn(raw.scale, "follow.scale", 1, -1000, 1000),
+    offset: raw.offset == null ? 0 : amountSpec(raw.offset, "follow.offset", isKey, options, { min: -MAX_AMOUNT, verb: "follow" }),
+  };
+  const track = bakedList(raw.track, "follow.track", true);
+  if (track) follow.track = track;
+  return follow;
+}
+
+function normalizeAudio(raw, isKey, options) {
+  onlyFields(raw, "audio", ["layer", "band?", "amount", "smoothing?", "levels?"]);
+  const band = raw.band ?? "all";
+  if (!AUDIO_BANDS.includes(band)) throw new Error(`audio.band must be ${AUDIO_BANDS.join(", ")}`);
+  const audio = {
+    layer: layerRef(raw.layer, "audio.layer"),
+    band,
+    amount: amountSpec(raw.amount, "audio.amount", isKey, options, { min: -MAX_AMOUNT, verb: "move with sound" }),
+    smoothing: numberIn(raw.smoothing, "audio.smoothing", 0.15, 0, 5, { unit: " seconds" }),
+  };
+  const levels = bakedList(raw.levels, "audio.levels", false);
+  if (levels) audio.levels = levels;
+  return audio;
+}
+
+function normalizeOvershoot(raw) {
+  onlyFields(raw, "overshoot", ["bounce?", "settle?"]);
+  return {
+    bounce: numberIn(raw.bounce, "overshoot.bounce", 0.3, 0, 1, { unit: " (share of the last move)" }),
+    settle: numberIn(raw.settle, "overshoot.settle", 0.6, 0.05, 10, { unit: " seconds" }),
+  };
 }
 
 function onlyFields(raw, label, fields) {

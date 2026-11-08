@@ -26,7 +26,7 @@ import { interpolateReveal, normalizeReveal } from "./reveal.js";
 import { scatteredAnimation, textRangeProgress, unitDelay } from "./textTiming.js";
 import { usesCurrentInitialValue } from "./animationInitialValue.js";
 import { flattenAnimations } from "./animationTree.js";
-import { behaviorJumps, behaviorOffset, behaviorTime, hasOffsets } from "./behavior.js";
+import { behaviorJumps, behaviorOffset, behaviorTime, hasOffsets, overshootOffset } from "./behavior.js";
 
 import { easingAt } from "./easing.js";
 import { LOWPASS_MIN, LOWPASS_OPEN } from "./lowpass.js";
@@ -978,6 +978,7 @@ function applyOperations(target, layer, ordered, time, options, {
     // numbers (behavior.js).
     const local = behaviorTime(animation, time - start, duration);
     const offsets = hasOffsets(animation.behavior) ? animation.behavior : null;
+    const overshoot = animation.behavior?.overshoot;
     // Ephemeral sampling metadata: a cycle jumps back at each new pass, which Lottie must hold.
     if (animation.behavior?.loop?.mode === "cycle" && duration > 0)
       target._loopPass = `${target._loopPass ?? ""}${animation.id}:${Math.floor((time - start) / duration)};`;
@@ -1021,6 +1022,11 @@ function applyOperations(target, layer, ordered, time, options, {
             : interpolateValue(fromValue, toValue, eased);
     if (offsets && typeof target[key] === "number") {
       target[key] += behaviorOffset(offsets, key, Math.min(local, duration), duration);
+      if (key === "opacity") target[key] = Math.max(0, Math.min(1, target[key]));
+    }
+    // overshoot: a spring past the last move's end value after the animation ends (behavior.js).
+    if (overshoot && typeof target[key] === "number" && typeof fromValue === "number" && typeof toValue === "number") {
+      target[key] += overshootOffset(overshoot, time - start - duration, toValue - fromValue);
       if (key === "opacity") target[key] = Math.max(0, Math.min(1, target[key]));
     }
     }
