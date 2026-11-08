@@ -11,7 +11,8 @@ import { isEffectAnimation, normalizeEffectAnimation } from "./effects/animation
 import { normalizeTextStyleRanges } from "./textStyleRanges.js";
 import { DOCUMENT_VERSION, MAX_MEDIA_SECONDS, MAX_TIME, MAX_UPLOAD_BYTES } from "./schema.js";
 import { normalizeEasing as canonicalEasing, normalizeIntensity } from "./easing.js";
-import { normalizeSmoothing, normalizeTextRange } from "./textTiming.js";
+import { TEXT_UNIT_ORDERS, normalizeSmoothing, normalizeTextRange } from "./textTiming.js";
+import { normalizeTextLoop } from "./textLoop.js";
 import { isMoveAnimation, normalizeMotionPath } from "./motionPath.js";
 import { behaviorKeys, normalizeBehavior } from "./behavior.js";
 import { normalizePreset, normalizeDiscrete } from "./presetCatalog.js";
@@ -45,6 +46,7 @@ import { LOWPASS_MIN, LOWPASS_OPEN } from "./lowpass.js";
 import { MORPH_MAX, MORPH_MIN } from "./morphCut.js";
 import { TRIM_KEYS, TRIM_LAYER_TYPES } from "./strokeTrim.js";
 import { REPEAT_FRACTION_KEYS, REPEAT_KEYS, REPEAT_LAYER_TYPES, REPEAT_REST, repeatRange } from "./repeater.js";
+import { MODIFIER_CHOICES, MODIFIER_CHOICE_KEYS, MODIFIER_KEYS, MODIFIER_LAYER_TYPES, MODIFIER_REST, modifierRange } from "./shapeModifiers.js";
 import { DEFAULT_PERSPECTIVE, PERSPECTIVE_MAX, PERSPECTIVE_MIN, TILT_LIMIT } from "./tilt.js";
 import { MASK_MODES } from "./maskVisibility.js";
 import { LOG_PROFILES } from "./footageLog.js";
@@ -120,9 +122,11 @@ const VALUE_KEYS = new Set([
   "perspective",
   // A repeater (repeater.js); only shape, path, text and group layers.
   ...REPEAT_KEYS,
+  // Shape modifiers (shapeModifiers.js); only shape and path layers.
+  ...MODIFIER_KEYS,
 ]);
 // Keys measured in fractions (1 is 100%): a wiggle amount for pixels or degrees is far too big.
-const FRACTION_KEYS = new Set(["scaleX", "scaleY", "opacity", "lineHeight", "donut", "starThickness", ...REPEAT_FRACTION_KEYS]);
+const FRACTION_KEYS = new Set(["scaleX", "scaleY", "opacity", "lineHeight", "donut", "starThickness", "bloatAmount", ...REPEAT_FRACTION_KEYS]);
 // What a tilt animation starts from when the layer has no tilt of its own.
 const TILT_REST = { rotateX: 0, rotateY: 0, perspective: DEFAULT_PERSPECTIVE };
 // What a trim or dash animation starts from when the layer has none of its own (strokeTrim.js).
@@ -528,6 +532,9 @@ function validateAnimatedValue(key, value, path) {
     case "repeatCopies": case "repeatX": case "repeatY": case "repeatRotation": case "repeatScale":
     case "repeatAnchorX": case "repeatAnchorY": case "repeatStartOpacity": case "repeatEndOpacity":
       return requireNumber(value, path, ...repeatRange(key));
+    case "zigzagSize": case "zigzagCount": case "offsetAmount": case "roundCorners": case "bloatAmount":
+    case "twistAngle": case "twistX": case "twistY":
+      return requireNumber(value, path, ...modifierRange(key));
     case "cornerRadii": {
       const radii = requireArray(value, path, 4);
       if (radii.length !== 4) fail(path, "must contain four corner radii");
@@ -748,7 +755,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     const rest = layerRest === undefined && BACKDROP_STYLE_KEYS.includes(key) ? defaultBackdropStyle(key)
       : layerRest === undefined && TILT_REST[key] !== undefined ? TILT_REST[key]
         : layerRest === undefined && Object.hasOwn(TRIM_REST, key) ? structuredClone(TRIM_REST[key])
-          : layerRest === undefined && Object.hasOwn(REPEAT_REST, key) ? REPEAT_REST[key] : layerRest;
+          : layerRest === undefined && Object.hasOwn(REPEAT_REST, key) ? REPEAT_REST[key]
+            : layerRest === undefined && Object.hasOwn(MODIFIER_REST, key) ? MODIFIER_REST[key] : layerRest;
     if ((key === "stroke" || key === "strokeWidth") && !STROKE_LAYER_TYPES.has(layer.type)) {
       fail(
         path,
@@ -773,6 +781,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
       fail(path, "a Letter spacing animation needs a text layer; only text has letter spacing");
     if (REPEAT_KEYS.includes(key) && !REPEAT_LAYER_TYPES.has(layer.type))
       fail(path, `a ${key} animation needs a rectangle, ellipse, star, path, text or group layer; a ${layer.type} layer has no repeater`);
+    if (MODIFIER_KEYS.includes(key) && !MODIFIER_LAYER_TYPES.has(layer.type))
+      fail(path, `a ${key} animation needs a rectangle, ellipse, star or path layer; a ${layer.type} layer has no outline`);
     if (key === "lineHeight" && layer.type !== "text")
       fail(path, "a Line height animation needs a text layer; only text has a line height");
     if (key === "axes" && layer.type !== "text")
@@ -908,8 +918,9 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     catch (error) { fail(`${path}.range`, error.message); }
   }
   animation.order ??= "forward";
-  if (!["forward", "reverse"].includes(animation.order))
-    fail(`${path}.order`, "must be forward or reverse");
+  if (!TEXT_UNIT_ORDERS.includes(animation.order))
+    fail(`${path}.order`, `must be ${TEXT_UNIT_ORDERS.join(", ")}`);
+  normalizeOrderSeed(animation, path);
   normalizeTextSmoothing(animation, path);
   if (animation.textAnchor == null) delete animation.textAnchor;
   else {
@@ -923,6 +934,14 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     animation.textClip = requireBoolean(animation.textClip, `${path}.textClip`);
   }
   return animation;
+}
+
+// A random order's seed (textTiming.js unitDelay): a whole number, only with order random.
+function normalizeOrderSeed(animation, path) {
+  if (animation.orderSeed == null) { delete animation.orderSeed; return; }
+  if (animation.order !== "random") fail(`${path}.orderSeed`, "only seeds order random");
+  animation.orderSeed = requireNumber(animation.orderSeed, `${path}.orderSeed`, 0, 4294967295);
+  if (!Number.isInteger(animation.orderSeed)) fail(`${path}.orderSeed`, "must be a whole number");
 }
 
 // One text effect of a Change text (textChange.js): null for none, or { preset, duration,
@@ -947,6 +966,7 @@ function normalizeTextEffect(raw, path, side) {
     stagger: requireNumber(raw.stagger ?? 0, `${path}.stagger`, 0, MAX_TEXT_EFFECT_STAGGER),
     order: raw.order ?? "forward",
   };
+  if (raw.orderSeed != null) effect.orderSeed = raw.orderSeed;
   if (raw.intensity !== undefined) {
     effect.intensity = raw.intensity;
     normalizeAnimationIntensity(effect, path);
@@ -955,7 +975,8 @@ function normalizeTextEffect(raw, path, side) {
   if (raw.smoothingIntensity !== undefined) effect.smoothingIntensity = raw.smoothingIntensity;
   normalizeTextSmoothing(effect, path);
   if (!TEXT_EFFECT_UNITS.includes(effect.unit)) fail(`${path}.unit`, "must be layer, letters, words, or lines");
-  if (!TEXT_EFFECT_ORDERS.includes(effect.order)) fail(`${path}.order`, "must be forward or reverse");
+  if (!TEXT_EFFECT_ORDERS.includes(effect.order)) fail(`${path}.order`, `must be ${TEXT_EFFECT_ORDERS.join(", ")}`);
+  normalizeOrderSeed(effect, path);
   // A range selector times each unit in place of the stagger, as on an in or out (textTiming.js).
   if (raw.range != null) {
     if (effect.unit === "layer") fail(`${path}.range`, "requires a unit of letters, words or lines");
@@ -1162,6 +1183,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
     if (!REPEAT_LAYER_TYPES.has(type)) fail(`${path}.${key}`, "only rectangle, ellipse, star, path, text and group layers have a repeater");
     layer[key] = requireNumber(layer[key], `${path}.${key}`, ...repeatRange(key));
   }
+  for (const key of [...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS]) {
+    if (layer[key] == null) { delete layer[key]; continue; }
+    if (!MODIFIER_LAYER_TYPES.has(type)) fail(`${path}.${key}`, "only rectangle, ellipse, star and path layers have shape modifiers (zig zag, offset, twist, bloat, round corners)");
+    if (MODIFIER_CHOICES[key]) {
+      if (!MODIFIER_CHOICES[key].includes(layer[key])) fail(`${path}.${key}`, `must be ${MODIFIER_CHOICES[key].map((choice) => `"${choice}"`).join(" or ")}`);
+    } else layer[key] = requireNumber(layer[key], `${path}.${key}`, ...modifierRange(key));
+  }
   layer.donut = requireNumber(layer.donut, `${path}.donut`, 0, 1);
   layer.sweep = requireNumber(layer.sweep, `${path}.sweep`, 0, 1);
   layer.startAngle = requireNumber(
@@ -1314,6 +1342,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
   layer.ligatures = requireBoolean(layer.ligatures, `${path}.ligatures`);
   // Optional: digits all one width (OpenType tnum), for a number that counts (count-up).
   if (layer.tabularNumbers !== undefined) layer.tabularNumbers = requireBoolean(layer.tabularNumbers, `${path}.tabularNumbers`);
+  // Optional per-unit loop between the in and out animations (textLoop.js); null clears it.
+  if (layer.textLoop == null) delete layer.textLoop;
+  else if (type !== "text") fail(`${path}.textLoop`, "only text layers loop their letters, words or lines");
+  else {
+    try { layer.textLoop = normalizeTextLoop(layer.textLoop); }
+    catch (error) { const [, key = "", why] = /^(\.\w+)? ?(.*)$/.exec(error.message); fail(`${path}.textLoop${key}`, why); }
+  }
   // Optional variable font axes {wght, wdth, slnt, opsz} (fontAxes.js); null clears them.
   if (layer.axes === null) delete layer.axes;
   else if (layer.axes !== undefined) {

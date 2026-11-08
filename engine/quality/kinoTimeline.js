@@ -103,7 +103,7 @@ function unitSpread(layer, animation, fonts) {
   let count = 1;
   try { count = textUnits(layoutText(resizeTextLayer(layer, fonts), fonts), animation.unit).length; } catch { count = 1; }
   // Each unit's own delay (caption words timed to speech): the spread is the longest.
-  if (animation.delays?.length) return totalUnitDelay(animation, count);
+  if (animation.delays?.length || !["forward", "reverse", undefined].includes(animation.order)) return totalUnitDelay(animation, count);
   if (count < 2) return 0;
   try { return Math.max(0, unitDelay(animation, count - 1, count), unitDelay(animation, 0, count)); } catch { return animation.stagger * (count - 1); }
 }

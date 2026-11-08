@@ -5,6 +5,7 @@ import { enabledAnimations } from "../engine/animationEnabled.js";
 import { letterSpacingPixels } from "../engine/letterSpacing.js";
 import { hasCounters, hasTextChanges } from "../engine/textChange.js";
 import { isFillEnabled } from "../engine/paints.js";
+import { modifierReach } from "../engine/shapeModifiers.js";
 import { isStringDrawnAt, textDrawnPlansAt, textStringPlans, textStringUnitState } from "../engine/textChangeDraw.js";
 import { textAnimationPlan, textAnimationUnitState } from "../engine/textAnimation.js";
 
@@ -118,7 +119,9 @@ export function compositionBounds(nodes, frameTimes, helpers) {
   }
 
   const times = frameTimes.length ? frameTimes : [0];
-  const padding = (layer, state) => helpers.ignoreEffects?.has(layer.id) ? 0 : effectPadding(state);
+  // A zig zag or offset path draws past the box (engine/shapeModifiers.js).
+  const padding = (layer, state) => modifierReach({ ...state, type: layer.type }) +
+    (helpers.ignoreEffects?.has(layer.id) ? 0 : effectPadding(state));
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;

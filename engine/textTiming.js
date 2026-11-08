@@ -22,6 +22,25 @@ export function normalizeSmoothing(value) {
 // The last one holds for any further units. It replaces the stagger, order and smoothing.
 const ownDelays = (animation) => (Array.isArray(animation?.delays) && animation.delays.length ? animation.delays : null);
 
+/** The orders a text animation's units can start in; random is seeded by `orderSeed` (default 1). */
+export const TEXT_UNIT_ORDERS = Object.freeze(["forward", "reverse", "center-out", "edges-in", "random"]);
+
+// How many stagger steps the last unit waits: center-out and edges-in start two units at once
+// on each side, so they take half the steps (the middle two of an even count start together).
+const orderSpan = (order, units) => (order === "center-out" || order === "edges-in" ? Math.floor((units - 1) / 2) : units - 1);
+
+/** A unit's place in the start order (0 starts first), from 0 to orderSpan. */
+function orderPosition(animation, index, units) {
+  const order = animation?.order;
+  if (order === "reverse") return units - 1 - index;
+  if (order === "random") return randomOrder(units, Math.floor(finite(animation?.orderSeed, 1)))[Math.min(units - 1, Math.max(0, Math.floor(index)))];
+  if (order === "center-out" || order === "edges-in") {
+    const far = Math.abs(index - (units - 1) / 2) - (units % 2 ? 0 : 0.5);
+    return order === "center-out" ? far : orderSpan(order, units) - far;
+  }
+  return index;
+}
+
 /** The delay before one text unit, eased within the animation's nominal stagger spread. */
 export function unitDelay(animation, index, count) {
   if (animation?.range) return 0; // a range selector times every unit itself (textRangeProgress)
@@ -31,15 +50,16 @@ export function unitDelay(animation, index, count) {
   const stagger = Math.max(0, finite(animation?.stagger));
   if (units <= 1 || stagger <= 0) return 0;
 
-  const unitIndex = finite(index, 0);
-  const position = animation?.order === "reverse" ? units - 1 - unitIndex : unitIndex;
+  const position = orderPosition(animation, finite(index, 0), units);
+  const span = orderSpan(animation?.order, units);
+  if (span <= 0) return 0;
   const smoothing = normalizeSmoothing(animation?.smoothing ?? "linear") ?? "linear";
   const intensity = normalizeIntensity(animation?.smoothingIntensity ?? 50);
   // Preserve the original stagger arithmetic bit for bit for omitted and linear smoothing.
   if (smoothing === "linear") return stagger * position;
-  const normalized = position / (units - 1);
+  const normalized = position / span;
   const eased = easingAt(smoothing, normalized, intensity);
-  return Math.max(0, Math.min(1, eased)) * stagger * (units - 1);
+  return Math.max(0, Math.min(1, eased)) * stagger * span;
 }
 
 // `scatter`: each unit starts (in) or ends (out) away from its place by a seeded amount, so
@@ -84,7 +104,7 @@ export function totalUnitDelay(animation, count) {
   const delays = ownDelays(animation);
   if (delays) return Math.max(0, ...delays.slice(0, units).map((delay) => finite(delay)));
   const stagger = Math.max(0, finite(animation?.stagger));
-  return units <= 1 || stagger <= 0 ? 0 : stagger * (units - 1);
+  return units <= 1 || stagger <= 0 ? 0 : stagger * orderSpan(animation?.order, units);
 }
 
 // Range selector, ported from ArtCraft EffectCraft, effectcraft/crates/text/src/selectors.rs

@@ -10,7 +10,7 @@
 //   { preset, duration, easing, unit, stagger, order, distance? }
 // - `preset` is one of the Out presets (for `out`) or In presets (for `in`) the Animate tab has.
 // - `unit` ("layer", "letters", "words" or "lines"), `stagger` (seconds between units) and
-//   `order` ("forward" or "reverse") work as on any text animation.
+//   `order` (forward, reverse, center-out, edges-in, random + orderSeed) work as on any text animation.
 // - `distance` (pixels) is how far a Slide effect travels; only Slide effects have it.
 //
 // How the strings follow each other (textChangeSchedule):
@@ -30,7 +30,7 @@
 import { displayText, layoutText, textGraphemes, textUnits } from "./textLayout.js";
 import { TIMED_ANIMATION_FIELDS, VISIBILITY_TIME_TOLERANCE } from "./visibilityOps.js";
 import { isAnimationEnabled } from "./animationEnabled.js";
-import { totalUnitDelay } from "./textTiming.js";
+import { TEXT_UNIT_ORDERS, totalUnitDelay } from "./textTiming.js";
 import { flattenAnimations } from "./animationTree.js";
 
 export const TEXT_CHANGE_KIND = "change-text";
@@ -45,9 +45,9 @@ const TEXT_IN_EFFECTS = Object.freeze([
   "fade-in", "slide-up", "slide-down", "slide-left", "slide-right", "grow-in", "blur-in", "rotate-in",
 ]);
 export const TEXT_EFFECT_UNITS = Object.freeze(["layer", "letters", "words", "lines"]);
-export const TEXT_EFFECT_ORDERS = Object.freeze(["forward", "reverse"]);
+export const TEXT_EFFECT_ORDERS = TEXT_UNIT_ORDERS;
 // The settings a text effect may have; anything else is refused (model.js).
-export const TEXT_EFFECT_FIELDS = Object.freeze(["preset", "duration", "easing", "intensity", "unit", "stagger", "order", "distance", "smoothing", "smoothingIntensity", "range"]);
+export const TEXT_EFFECT_FIELDS = Object.freeze(["preset", "duration", "easing", "intensity", "unit", "stagger", "order", "orderSeed", "distance", "smoothing", "smoothingIntensity", "range"]);
 // A Change text has no duration, from or to of its own: its effects have them.
 export const TEXT_CHANGE_FORBIDDEN_FIELDS = TIMED_ANIMATION_FIELDS;
 

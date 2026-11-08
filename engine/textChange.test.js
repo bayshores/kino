@@ -201,7 +201,8 @@ test("the document check fills an effect's defaults and refuses what a Change te
   refused({ in: { preset: "fade-in", duration: 0 } }, /duration/);
   refused({ in: { preset: "fade-in", stagger: 61 } }, /stagger/);
   refused({ in: { preset: "fade-in", unit: "glyphs" } }, /unit/);
-  refused({ in: { preset: "fade-in", order: "random" } }, /order/);
+  refused({ in: { preset: "fade-in", order: "sideways" } }, /order/);
+  refused({ in: { preset: "fade-in", orderSeed: 2 } }, /orderSeed/);
   refused({ start: MAX_TIME - 0.5 }, /cannot exceed/);
   refused({}, /needs a text layer/, () => createLayer("rectangle", { id: "box", animations: [raw] }));
   // null (or no) effects: an instant swap.

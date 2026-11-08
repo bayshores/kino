@@ -119,6 +119,34 @@ const STROKE_STACKS = {
     fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A" },
 };
 
+// Shape modifiers (engine/shapeModifiers.js): layer fields that change a shape's outline. Each
+// sample grows its field from 0, as the numbers animate.
+const SHAPE_STYLES = {
+  "zigzag-badge": { field: "zigzagSize", line: "zig zag: the layer fields zigzagSize, zigzagCount (teeth per side) and zigzagPoints corner|smooth turn a shape's edge into teeth or a wave, like a sale sticker",
+    layerType: "ellipse", properties: { fill: "#FFE14D", zigzagSize: 14, zigzagCount: 9 }, word: "#141414", ground: "#2E5BFF" },
+  "offset-outline": { field: "offsetAmount", line: "offset path: the layer field offsetAmount grows a shape's outline (below 0 shrinks it), offsetJoin miter|round|bevel shapes the corners; a grown copy under a star is a sticker border",
+    layerType: "star", properties: { fill: "#FFFFFF", offsetAmount: 22, offsetJoin: "round" }, top: "#FF7D3D", ground: "#141414" },
+  "round-corners": { field: "roundCorners", line: "round corners: the layer field roundCorners (px) rounds every sharp corner of a star or path, a soft badge or blob",
+    layerType: "star", properties: { fill: "#FF7D3D", spikes: 6, starThickness: 0.6, roundCorners: 26 }, ground: "#FFF4E0" },
+  "bloat-flower": { field: "bloatAmount", line: "pucker/bloat: the layer field bloatAmount -1..1 bows a shape's sides out (a star turns into a flower) or, below 0, pinches them into spikes",
+    layerType: "star", properties: { fill: "#FF5C8A", spikes: 8, starThickness: 0.7, bloatAmount: 0.3 }, ground: "#FFF0F4" },
+  "twist-swirl": { field: "twistAngle", line: "twist: the layer field twistAngle (degrees) turns a shape's far points around twistX, twistY (px from the middle) more than near ones, a swirl",
+    layerType: "star", properties: { fill: "#26F0FF", spikes: 8, starThickness: 0.25, twistAngle: 120 }, ground: "#05121A" },
+};
+
+// Text loops (layer field textLoop, engine/textLoop.js): letters keep moving between the in and out.
+// Each sample fades the word in by letters, loops, then fades it out.
+const TEXT_LOOPS = {
+  "text-wave": { line: "text wave: the text layer field textLoop {style:\"wave\", amount px, speed, stagger s} lifts letters in sequence between the in and out animations",
+    loop: { style: "wave", amount: 24, speed: 0.8, stagger: 0.09 }, text: "wavelength", fill: "#141414", ground: "#FFE14D" },
+  "text-float": { line: "text float: textLoop {style:\"float\", amount, speed, seed} bobs each letter on its own pace and phase, calm and out of step",
+    loop: { style: "float", amount: 16, speed: 0.6 }, text: "drifting", fill: "#E8FFFF", ground: "#05121A" },
+  "text-pulse": { line: "text pulse: textLoop {style:\"pulse\", amount %, speed, stagger} grows and shrinks each letter about its own center, a beat running through the word",
+    loop: { style: "pulse", amount: 22, speed: 1, stagger: 0.12 }, text: "heartbeat", fill: "#FFF4E6", ground: "#FF5C8A" },
+  "text-jitter": { line: "text jitter: textLoop {style:\"jitter\", amount px, speed jumps/s, seed} hops each letter to a seeded spot and tilt, hand-drawn boil",
+    loop: { style: "jitter", amount: 6, speed: 8 }, text: "restless", fill: "#F4F2EE", ground: "#2E5BFF" },
+};
+
 let built = null;
 
 /** Every entry, the kinds with their counts and the technique groups. Built once. */
@@ -140,7 +168,9 @@ export function libraryCatalog() {
   }
   for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push({ ...entry("style", name, line, "a title or logo that needs depth or glow", []), field: "shadows" });
   for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push({ ...entry("style", name, line, "a title or sticker word that must stand out", []), field: "strokes" });
+  for (const [name, { line, field }] of Object.entries(SHAPE_STYLES)) entries.push({ ...entry("style", name, line, "a badge, sticker or shape that needs a bolder edge", []), field });
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
+  for (const [name, { line }] of Object.entries(TEXT_LOOPS)) entries.push({ ...entry("animation", name, line, "a title that holds on screen and should stay alive", ["type-kinetic"]), field: "textLoop" });
   for (const [name, { line, fits, tags }] of Object.entries(MASKS)) entries.push(entry("technique", name, line, fits, tags));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
@@ -229,6 +259,10 @@ const MOVE_VARIANTS = {
       fill: "#FFFFFF", accent: "#111111", activeBackground: "#FFD84A", activeScale: 1.08, saidOpacity: 0.6, unsaidOpacity: 0.6, at: 0.3 } },
   "card-tilt up": { move: "card-tilt", line: "card-tilt with direction up: the shot tips back over its top edge and slides up as the next tips in from below",
     layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", direction: "up", at: 0.3 }, share: 0.45 },
+  "whip-pan at an angle": { move: "whip-pan", line: "whip-pan with angle and smear: both shots fly along a slant, smeared along it, copies of them tiling the corners",
+    layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", angle: -30, smear: 0.35, at: 0.3 }, share: 0.4 },
+  "mask-through-shape with a thick ring": { move: "mask-through-shape", line: "mask-through-shape with ring and accent: a wide colored ring rides the growing shape's edge",
+    layers: () => [SHOT_A, SHOT_B], fields: { to: "shot-b", from: "shot-a", shape: "diamond", ring: 16, accent: "#FFD84A", at: 0.3 }, share: 0.5 },
 };
 // Where an animation's card is caught when not by its kind: the burst once every copy is out.
 const PRESET_STILL = { repeat: 1.5 };
@@ -315,6 +349,21 @@ export function sampleOps(kind, name) {
     const { line, ground, ...style } = SHADOW_STACKS[name] ?? STROKE_STACKS[name];
     const word = WORD("kino", 150);
     return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, ...style } }], duration: 2.6, still: 1.6 };
+  }
+  if (kind === "style" && SHAPE_STYLES[name]) {
+    const { field, layerType, properties, word, top, ground } = SHAPE_STYLES[name];
+    const box = { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 };
+    const grow = { op: "add_animation", layer: "shape", start: 0.2, duration: 1, easing: "smooth", from: { [field]: 0 }, to: { [field]: properties[field] } };
+    const over = top ? [{ op: "add_layer", layerType, name: "top", properties: { ...box, fill: top } }] : [];
+    const label = word ? [{ ...WORD("NEW", 96), properties: { ...WORD("NEW", 96).properties, fill: word } }] : [];
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { op: "add_layer", layerType, name: "shape", properties: { ...box, ...properties } }, ...over, ...label, grow], duration: 2.6, still: 1.6 };
+  }
+  if (kind === "animation" && TEXT_LOOPS[name]) {
+    const { loop, text, fill, ground } = TEXT_LOOPS[name];
+    const word = WORD(text, 110);
+    const fade = (preset, start) => anim("word", preset, start, 0.5, { unit: "letters", stagger: 0.06 });
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, x: 60, width: W - 120, height: 160, textAlign: "center", fill, textLoop: loop } },
+      fade("preset-fade", 0.1), { ...fade("preset-fade", 3.6), mode: "out" }], duration: 4.4, still: 1.9 };
   }
   if (kind === "animation" && WIPES[name])
     return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };

@@ -344,6 +344,11 @@ export function fixLayerProperties(properties, fixes, { layerType, scene, layerN
       ? `src ${quote(next.src)} is on the web; kino draws only imported files. Save the file on this computer, send project {action:"import", file:"<its path>"}, then use the src it answers (/api/media/…).`
       : `src ${quote(next.src)} is not an imported file. Send project {action:"import", file:"<path to ${next.src}>"} first and use the src it answers (/api/media/…); library {topic:"media", search:${quote(next.src)}} lists files already imported.`, null);
   }
+  // A star or path has no radius; its sharp corners round with roundCorners (shapeModifiers.js).
+  if ((layerType === "star" || layerType === "path") && typeof next.radius === "number" && next.roundCorners === undefined) {
+    set("roundCorners", next.radius, `radius → roundCorners (a ${layerType} rounds its corners with roundCorners)`);
+    delete next.radius;
+  }
   for (const [alias, field, which] of PROPERTY_ALIASES) {
     if (next[alias] === undefined || known?.has(alias)) continue;
     if (!aliasFits(which, layerType)) {
@@ -623,7 +628,7 @@ function presetValues(presetId, given) {
 
 // add_animation reads these fields; any other is refused, so nothing is dropped unseen.
 const ANIMATION_FIELDS = new Set(["type", "sceneId", "layerId", "id", "animation", "effect", "preset", "start", "at", "mode", "parameters",
-  "easing", "intensity", "unit", "stagger", "order", "smoothing", "smoothingIntensity", "range", "motionPath", "shadowChannels", "fromCurrent", "textAnchor", "textClip",
+  "easing", "intensity", "unit", "stagger", "order", "orderSeed", "smoothing", "smoothingIntensity", "range", "motionPath", "shadowChannels", "fromCurrent", "textAnchor", "textClip",
   "duration", "keepStill", "from", "behavior", "anchor"]);
 const KINDS = ["in", "out", "custom", "hide", "show"];
 

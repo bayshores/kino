@@ -41,6 +41,7 @@ export const TIMED_ANIMATION_FIELDS = Object.freeze([
   "scatter", // each text unit's seeded offsets (textTiming.js scatteredAnimation)
   "range", // a range selector that times each text unit (textTiming.js textRangeProgress)
   "order",
+  "orderSeed", // seeds order random (textTiming.js unitDelay)
   "smoothing",
   "smoothingIntensity",
   "textAnchor",

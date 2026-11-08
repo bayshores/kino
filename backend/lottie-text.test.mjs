@@ -397,3 +397,13 @@ test("aligned glyph strokes use native shape groups and one unit-opacity composi
     }
   }
 });
+
+test("a text loop exports as each letter's own sampled motion", async () => {
+  const fonts = await fontsPromise;
+  const layer = textLayer({ text: "AB", width: 100, textLoop: { style: "wave", amount: 10, speed: 1, stagger: 0.25, ramp: 0 } });
+  const layers = exportText(layer, [0.1, 0.35], fonts);
+  assert.equal(layers.length, 2);
+  const y = (unit) => layers[unit].ks.p.k.map((key) => key.s[1]);
+  assert.notEqual(y(0)[0], y(0)[1], "the first letter moves");
+  assert.notEqual(y(0)[0], y(1)[0], "the letters are out of step");
+});
