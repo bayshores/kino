@@ -9,7 +9,7 @@ import { freshAnimationIds } from "./animationTree.js";
 import { isAnimationCompatible } from "./animationCompatibility.js";
 
 // The group carries where the text is and how it moves; each letter carries how it is painted.
-const PLACE = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "opacity", "blendMode",
+const PLACE = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY", "anchor", "opacity", "blendMode",
   "playbackWindows", "anchorX", "anchorY", "rotateX", "rotateY", "perspective"];
 const PAINT = ["fill", "fillEnabled", "stroke", "strokeWidth", "strokeAlign", "shadow", "blur"];
 

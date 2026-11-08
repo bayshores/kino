@@ -40,17 +40,30 @@ export function point(matrix, x, y) {
   };
 }
 
+// The point of the box that rotation, scale and skew turn about, in box pixels: the layer's
+// optional anchor [x%, y%] of its box (0 0 top-left, 100 100 bottom-right), else the center.
+export function pivotOf(layer, width = layer.width, height = layer.height) {
+  const anchor = layer.anchor;
+  if (!Array.isArray(anchor)) return [width / 2, height / 2];
+  return [(width * anchor[0]) / 100, (height * anchor[1]) / 100];
+}
+
+// rotate · scale · skewX · skewY; skewY 0 (or absent) leaves the matrix as before it existed.
 export function layerMatrix(layer) {
   const angle = ((layer.rotation || 0) * Math.PI) / 180,
     c = Math.cos(angle),
     s = Math.sin(angle);
-  const a = c * (layer.scaleX ?? 1),
-    b = s * (layer.scaleX ?? 1),
-    shear = Math.tan(((layer.skewX || 0) * Math.PI) / 180);
+  let a = c * (layer.scaleX ?? 1),
+    b = s * (layer.scaleX ?? 1);
+  const shear = Math.tan(((layer.skewX || 0) * Math.PI) / 180);
   const d = c * (layer.scaleY ?? 1) + b * shear,
     e = -s * (layer.scaleY ?? 1) + a * shear;
-  const cx = layer.width / 2,
-    cy = layer.height / 2;
+  if (layer.skewY) {
+    const shearY = Math.tan((layer.skewY * Math.PI) / 180);
+    a += e * shearY;
+    b += d * shearY;
+  }
+  const [cx, cy] = pivotOf(layer);
   return [
     a,
     b,
@@ -61,10 +74,15 @@ export function layerMatrix(layer) {
   ];
 }
 
-export function transformProperties(matrix, width, height) {
+// `anchor` is the layer's optional anchor [x%, y%] (pivotOf); the result has no skewY.
+export function transformProperties(matrix, width, height, anchor = undefined) {
   const [a, b, c, d, e, f] = matrix,
     scaleX = Math.hypot(a, b);
   if (scaleX < 1e-9) throw new Error("Reset zero scale before ungrouping.");
+  if (Array.isArray(anchor)) {
+    const [px, py] = pivotOf({ anchor }, width, height);
+    return { ...transformProperties([a, b, c, d, 0, 0], width, height), x: e - px + a * px + c * py, y: f - py + b * px + d * py };
+  }
   return {
     x: e - width / 2 + (a * width) / 2 + (c * height) / 2,
     y: f - height / 2 + (b * width) / 2 + (d * height) / 2,

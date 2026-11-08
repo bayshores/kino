@@ -1,7 +1,7 @@
 // The 2D camera: the transform of a group that puts a region of one of its
 // layers at a spot in the frame. The `frame` op (backend/agent/blocks.mjs) animates the group to
 // it, as a cut (an instant step, a stepped punch-in) or an eased move.
-import { inverse, layerMatrix, multiply, parentMatrix, point, worldMatrix } from "./geometry.js";
+import { inverse, layerMatrix, multiply, parentMatrix, pivotOf, point, worldMatrix } from "./geometry.js";
 import { hasTilt, tiltPivot, tiltProjector } from "./tilt.js";
 
 const round = (value, places = 4) => Math.round(value * 10 ** places) / 10 ** places;
@@ -17,7 +17,7 @@ const round = (value, places = 4) => Math.round(value * 10 ** places) / 10 ** pl
  * so the region as seen on the plane is what fills the frame.
  */
 export function frameTransform({ group, layer, geometry = layer, layers, rect, to = "center", frame, evaluate = (value) => value }) {
-  if (group.rotation || group.skewX) throw new Error(`frame needs an unrotated group; ${group.name || group.id} is rotated or skewed.`);
+  if (group.rotation || group.skewX || group.skewY) throw new Error(`frame needs an unrotated group; ${group.name || group.id} is rotated or skewed.`);
   const groupWorld = worldMatrix(group, layers);
   const fromGroup = inverse(groupWorld);
   if (!fromGroup) throw new Error(`${group.name || group.id} is scaled to zero.`);
@@ -58,6 +58,12 @@ export function frameTransform({ group, layer, geometry = layer, layers, rect, t
   const scale = target.scale / Math.hypot(parent[0], parent[1]);
   // The group scales about its own center, so its x, y is where that center lands, less half its size.
   const center = { x: (left + right) / 2, y: (top + bottom) / 2 };
+  // A group with an anchor scales about that point instead (geometry.js pivotOf).
+  if (Array.isArray(group.anchor)) {
+    const [px, py] = pivotOf(group);
+    return { x: round(spot.x - scale * center.x - px + scale * px, 2), y: round(spot.y - scale * center.y - py + scale * py, 2),
+      scaleX: round(scale), scaleY: round(scale) };
+  }
   return {
     x: round(spot.x - scale * center.x - group.width / 2 + (scale * group.width) / 2, 2),
     y: round(spot.y - scale * center.y - group.height / 2 + (scale * group.height) / 2, 2),

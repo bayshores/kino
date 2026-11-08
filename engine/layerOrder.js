@@ -22,7 +22,7 @@ export const ORDER_MOVES = ["front", "back", "forward", "backward"];
 
 // The values that place a group's space on the canvas (geometry.js layerMatrix): its layers
 // are drawn inside that space, so animating any of them moves its layers too.
-const SPACE_KEYS = ["x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX"];
+const SPACE_KEYS = ["x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY"];
 
 // True when a group's animations move, resize or turn its space, and so its layers.
 function movesItsLayers(group) {

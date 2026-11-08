@@ -20,7 +20,7 @@
 // rule below changes a value with a fixed "multiply, then add" formula, so a value halfway
 // through an animation is still halfway through after the change. That is why the animated
 // result matches the original at every time, not only at the keyframes.
-import { layerMatrix, multiply, transformProperties } from "./geometry.js";
+import { layerMatrix, multiply, pivotOf, transformProperties } from "./geometry.js";
 import { shiftAnimation } from "./animationShift.js";
 import { isMoveAnimation, mapMotionPath, motionEndpoints, normalizeMotionPath } from "./motionPath.js";
 import { resizeTextLayer } from "./textLayout.js";
@@ -120,9 +120,11 @@ export function reparentLayer(layer, matrix, size = layer) {
   if (!sameShape && (animated.has("width") || animated.has("height"))) {
     throw new Error(`${label(layer)} animates its size, which can't stay in place when it moves into a rotated or scaled group.`);
   }
+  // The pivot (the box center, or the layer's anchor) is the point that goes through the matrix.
+  const [px, py] = pivotOf(layer, width, height);
   const moveCenter = (x, y) => ({
-    x: a * (x + width / 2) + c * (y + height / 2) + e - width / 2,
-    y: b * (x + width / 2) + d * (y + height / 2) + f - height / 2,
+    x: a * (x + px) + c * (y + py) + e - px,
+    y: b * (x + px) + d * (y + py) + f - py,
   });
   const mapPosition = (value) => {
     const mapped = moveCenter(value.x, value.y);
@@ -204,10 +206,10 @@ export function reparentLayer(layer, matrix, size = layer) {
   } else {
     // An uneven stretch at an angle to the layer turns it into a skewed shape. The design pose
     // can still be written that way, but an animated rotation or scale can't.
-    for (const key of ["rotation", "scaleX", "scaleY"]) {
+    for (const key of ["rotation", "scaleX", "scaleY", "skewX", "skewY"]) {
       if (animated.has(key)) {
         throw new Error(
-          `${label(layer)} animates its ${key === "rotation" ? "rotation" : "scale"}, which can't keep its look when it moves into a group that is stretched unevenly at an angle to it.`,
+          `${label(layer)} animates its ${key === "rotation" ? "rotation" : key.startsWith("skew") ? "skew" : "scale"}, which can't keep its look when it moves into a group that is stretched unevenly at an angle to it.`,
         );
       }
     }
@@ -218,6 +220,8 @@ export function reparentLayer(layer, matrix, size = layer) {
       scaleX: tidy(pose.scaleX),
       scaleY: tidy(pose.scaleY),
       skewX: tidy(pose.skewX),
+      // The pose holds the whole skew; skewY is folded into it.
+      ...(layer.skewY ? { skewY: 0 } : {}),
     };
   }
   base ??= {
@@ -287,6 +291,7 @@ export function reparentLayer(layer, matrix, size = layer) {
     scaleX: check("scaleX", base.scaleX),
     scaleY: check("scaleY", base.scaleY),
     skewX: check("skewX", base.skewX),
+    ...(base.skewY === 0 ? { skewY: 0 } : {}),
     animations: (layer.animations ?? []).map(changeAnimation),
   };
 }

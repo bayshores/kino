@@ -14,7 +14,7 @@ import { interpolateShadowChannels } from "./shadowChannels.js";
 import { DEFAULT_RESIZE_ANCHOR, isResizeAnchor, resizableSides, resizeAnchorShift, resizePresetValues } from "./resizeAnchor.js";
 import { layoutText, resizeTextLayer } from "./textLayout.js";
 import { textUnitGroup } from "./textUnitGeometry.js";
-import { layerMatrix } from "./geometry.js";
+import { layerMatrix, pivotOf } from "./geometry.js";
 import { LETTER_SPACING_LIMIT } from "./letterSpacing.js";
 import { lineHeightPresetTo } from "./lineHeight.js";
 import { interpolateAxes } from "./fontAxes.js";
@@ -720,9 +720,10 @@ export function evaluateLayer(
     for (const { mode, before, after } of pivots) {
       const group = textUnitGroup(layout, options.textUnit, mode);
       if (!group) continue;
-      const dx = group.bounds.x + group.bounds.width / 2 - measured.width / 2;
-      const dy = group.bounds.y + group.bounds.height / 2 - measured.height / 2;
-      // Add the translation that changes the operation's pivot from the layer center to its
+      const [px, py] = pivotOf(measured);
+      const dx = group.bounds.x + group.bounds.width / 2 - px;
+      const dy = group.bounds.y + group.bounds.height / 2 - py;
+      // Add the translation that changes the operation's pivot from the layer pivot to its
       // shaped unit center. Matrix differences work through mirrored and zero scales too.
       evaluated.x += (before[0] - after[0]) * dx + (before[2] - after[2]) * dy;
       evaluated.y += (before[1] - after[1]) * dx + (before[3] - after[3]) * dy;
@@ -760,7 +761,7 @@ function sizeChange(before, after) {
     typeof after === "number" && Number.isFinite(after) ? after - before : 0;
 }
 
-const TRANSFORM_KEYS = ["rotation", "scaleX", "scaleY", "skewX"];
+const TRANSFORM_KEYS = ["rotation", "scaleX", "scaleY", "skewX", "skewY"];
 
 // The layer's rotation, scale and skew at `time` (the layer's own clock), from its operations.
 function transformAt(layer, ordered, time, options, initialStates) {
@@ -769,6 +770,9 @@ function transformAt(layer, ordered, time, options, initialStates) {
     scaleX: numberForAnimation(layer.scaleX, 1),
     scaleY: numberForAnimation(layer.scaleY, 1),
     skewX: numberForAnimation(layer.skewX, 0),
+    skewY: numberForAnimation(layer.skewY, 0),
+    // The layer's pivot (geometry.js pivotOf); a Resize keeps its anchor point still about it.
+    ...(Array.isArray(layer.anchor) ? { anchor: layer.anchor } : {}),
   };
   applyOperations(state, layer, ordered, time, options, { onlyKeys: TRANSFORM_KEYS, initialStates });
   return state;

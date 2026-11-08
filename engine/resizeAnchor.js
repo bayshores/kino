@@ -124,7 +124,8 @@ function finiteOr(value, fallback) {
 /**
  * How far x and y move so that `anchor` stays on the same spot when the box's size changes by
  * `change` ({ width: dw, height: dh }, in pixels). `transform` is the layer's { rotation (degrees),
- * scaleX, scaleY, skewX (degrees) }. Returns { x, y }. An unknown anchor moves nothing.
+ * scaleX, scaleY, skewX, skewY (degrees), anchor? ([x%, y%] pivot, default center) }. Returns
+ * { x, y }. An unknown anchor moves nothing.
  */
 export function resizeAnchorShift(anchor, change, transform = {}) {
   const point = ANCHOR_BY_ID.get(anchor);
@@ -138,15 +139,19 @@ export function resizeAnchorShift(anchor, change, transform = {}) {
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
   // L = rotate · scale · skewX, as in render.js transformFor and geometry.js layerMatrix.
-  const a = cos * sx;
-  const b = sin * sx;
+  let a = cos * sx;
+  let b = sin * sx;
   const c = cos * sx * shear - sin * sy;
   const d = sin * sx * shear + cos * sy;
-  const px = (point.u - 0.5) * dw;
-  const py = (point.v - 0.5) * dh;
+  const shearY = Math.tan((finiteOr(transform.skewY, 0) * Math.PI) / 180);
+  if (shearY) { a += c * shearY; b += d * shearY; }
+  // The pivot is a share of the box too, so it moves by that share of the change.
+  const [pu, pv] = Array.isArray(transform.anchor) ? [transform.anchor[0] / 100, transform.anchor[1] / 100] : [0.5, 0.5];
+  const px = (point.u - pu) * dw;
+  const py = (point.v - pv) * dh;
   return {
-    x: -dw / 2 - (a * px + c * py) + 0,
-    y: -dh / 2 - (b * px + d * py) + 0,
+    x: -pu * dw - (a * px + c * py) + 0,
+    y: -pv * dh - (b * px + d * py) + 0,
   };
 }
 

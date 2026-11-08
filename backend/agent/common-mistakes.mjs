@@ -624,7 +624,7 @@ function presetValues(presetId, given) {
 // add_animation reads these fields; any other is refused, so nothing is dropped unseen.
 const ANIMATION_FIELDS = new Set(["type", "sceneId", "layerId", "id", "animation", "effect", "preset", "start", "at", "mode", "parameters",
   "easing", "intensity", "unit", "stagger", "order", "smoothing", "smoothingIntensity", "range", "motionPath", "shadowChannels", "fromCurrent", "textAnchor", "textClip",
-  "duration", "keepStill", "from", "behavior"]);
+  "duration", "keepStill", "from", "behavior", "anchor"]);
 const KINDS = ["in", "out", "custom", "hide", "show"];
 
 const customExample = (layer, name = "Move", from = { x: 100 }, to = { x: 1600 }) =>

@@ -25,7 +25,7 @@ import { repeatBounds, repeatMarkup, repeaterOf } from "./repeater.js";
 import { gradientCoordinates, isFillEnabled, pathGradientBounds } from "./paints.js";
 import { pathBounds, parsePath, serializePath } from "./vectorPath.js";
 import { backgroundPaintAt } from "./sceneBackground.js";
-import { IDENTITY, inverse, layerMatrix, multiply } from "./geometry.js";
+import { IDENTITY, inverse, layerMatrix, multiply, pivotOf } from "./geometry.js";
 import { PREVIEW_BLUR_FROM, previewSampleTimes, previewShutter, shutterTravel, smearTag, whipShutter } from "./previewBlur.js";
 import { TILT_TOLERANCE, hasTilt, tiltPivot, tiltTriangles, tiltVisiblePart, tiltedBounds } from "./tilt.js";
 
@@ -879,10 +879,13 @@ function changedTextSvg(layer, context) {
   }).join("");
 }
 
+// Turns about the pivot (geometry.js pivotOf: the anchor, else the center); skewY only when set.
 function transformFor(state) {
   const width = finite(state.width);
   const height = finite(state.height);
-  return `translate(${fmt(state.x)} ${fmt(state.y)}) translate(${fmt(width / 2)} ${fmt(height / 2)}) rotate(${fmt(state.rotation)}) scale(${fmt(state.scaleX ?? 1)} ${fmt(state.scaleY ?? 1)}) skewX(${fmt(state.skewX ?? 0)}) translate(${fmt(-width / 2)} ${fmt(-height / 2)})`;
+  const [px, py] = pivotOf(state, width, height);
+  const skewY = state.skewY ? ` skewY(${fmt(state.skewY)})` : "";
+  return `translate(${fmt(state.x)} ${fmt(state.y)}) translate(${fmt(px)} ${fmt(py)}) rotate(${fmt(state.rotation)}) scale(${fmt(state.scaleX ?? 1)} ${fmt(state.scaleY ?? 1)}) skewX(${fmt(state.skewX ?? 0)})${skewY} translate(${fmt(-px)} ${fmt(-py)})`;
 }
 
 // How long before a video shows that the live preview puts it in the page, hidden, and the

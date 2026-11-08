@@ -30,6 +30,13 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   12 o'clock (`radius`). `stagger` starts each copy's animations that many seconds later. A field
   the layout does not use is refused; numbers already taken are skipped.
 
+## Pivot and skew
+
+- `anchor:[x, y]` (layer property, percent of the box, default 50 50) is the point rotation,
+  scale and skew turn about. add_animation takes `anchor` (`[0, 100]` or `"top-left"`) on a
+  rotate or scale and sets it: a door swing turns about `"left"`, a bar grows from `"bottom"`.
+- `skewX`, `skewY` (degrees) slant a layer and animate like any value.
+
 ## Examples
 
 A badge that spins forever, a floating card, and a row of dots that pop in one after another:

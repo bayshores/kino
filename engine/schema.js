@@ -122,7 +122,8 @@
  *   duration scales all member starts, durations, delays, and nested text effects together.
  * @typedef {TimedAnimation|VisibilityOperation|TextChange|Counter|ComposedAnimation|EffectAnimation} Animation
  * @typedef {{id:string,name:string,type:LayerType,parentId:string|null,x:number,y:number,
- *   width:number,height:number,rotation:number,scaleX:number,scaleY:number,skewX:number,opacity:number,
+ *   width:number,height:number,rotation:number,scaleX:number,scaleY:number,skewX:number,skewY?:number,
+ *   anchor?:[number,number],opacity:number,
  *   fill:Paint,fillEnabled:boolean,stroke:Paint,strokeWidth:number,strokeAlign:'center'|'inside'|'outside',
  *   radius:number,cornerRadii:number[]|null,inactiveBoxStyles?:Array<'fill'|'stroke'|'corners'>,donut:number,sweep:number,startAngle:number,
  *   spikes:number,starThickness:number,visible:boolean,

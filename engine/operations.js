@@ -39,6 +39,7 @@ import { applyProjectUpdate, keptWaivers, withWaiver, withoutWaiver } from "./pr
 import { assertReplacementKeepsOverrides, layerWithReplacementMedia, mediaIdFromSource } from "./replaceMedia.js";
 import { applyAudioCaptionOperation } from "./audioCaptionOperations.js";
 import { colorFilterSteps } from "./colorFilter.js";
+import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -390,6 +391,11 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       if (operation.behavior !== undefined) added.behavior = operation.behavior;
       if (operation.duration !== undefined) added.duration = operation.duration;
       if (operation.keepStill !== undefined) added.keepStill = operation.keepStill;
+      if (operation.anchor !== undefined) {
+        const pivot = pivotAnchor(operation.anchor, added, layer);
+        if (pivot) layer.anchor = pivot;
+        else delete layer.anchor;
+      }
       if (operation.from !== undefined && added.kind === "effect") added.from = operation.from;
       if (added.kind === "effect" && isRangedEffect(added.effect)) rangedEffectWindow(added, operation, scene);
       if (operation.animation) fillLeftOutFrom(added, layer);
@@ -430,6 +436,21 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
   // A waiver on a layer lapses when the layer is deleted or its file changes (projectSettings.js).
   if (document.checkWaivers?.length) document.checkWaivers = keptWaivers(source, document);
   return parseDocument(document);
+}
+
+// add_animation's anchor sets the layer's pivot (geometry.js pivotOf) for a rotate, scale or skew:
+// [x%, y%] of the box, or one of the nine Resize anchor names. null puts it back at the center.
+const PIVOT_KEYS = ["rotation", "scaleX", "scaleY", "skewX", "skewY"];
+function pivotAnchor(value, animation, layer) {
+  const keys = [animation.from, animation.to].flatMap((values) => Object.keys(values ?? {}));
+  if (!keys.some((key) => PIVOT_KEYS.includes(key)))
+    throw new Error(`add_animation anchor is the point a rotate or scale turns about; this animation changes ${[...new Set(keys)].join(", ") || "no transform"}. Leave anchor out, or set the layer's anchor with update_layer.`);
+  if (value === null) return undefined;
+  const named = RESIZE_ANCHORS.find((entry) => entry.id === value);
+  if (named) return [named.u * 100, named.v * 100];
+  if (!Array.isArray(value) || value.length !== 2 || !value.every((entry) => typeof entry === "number" && Number.isFinite(entry) && Math.abs(entry) <= 1000))
+    throw new Error(`add_animation anchor must be [x, y] in percent of ${layer.name || layer.id}'s box (0 0 top-left, 100 100 bottom-right) or a name like "top-left".`);
+  return [...value];
 }
 
 // set_component_overrides { sceneId, layerId, overrides, replace? } and

@@ -86,10 +86,13 @@ export function frameShare(box, frame) {
  */
 export function coversFrameAt(ctx, layerId, time) {
   const state = ctx.stateAt(layerId, time);
-  if (state.rotation || state.rotateX || state.rotateY || state.skewX) return false;
+  if (state.rotation || state.rotateX || state.rotateY || state.skewX || state.skewY) return false;
   const width = state.width * Math.abs(state.scaleX ?? 1);
   const height = state.height * Math.abs(state.scaleY ?? 1);
-  const box = { x: state.x + (state.width - width) / 2, y: state.y + (state.height - height) / 2, width, height };
+  // Scaled about its anchor (geometry.js pivotOf) when it has one.
+  const [u, v] = Array.isArray(state.anchor) ? state.anchor.map((value) => value / 100) : [0.5, 0.5];
+  const box = u === 0.5 && v === 0.5 ? { x: state.x + (state.width - width) / 2, y: state.y + (state.height - height) / 2, width, height }
+    : { x: state.x + (state.width - width) * u, y: state.y + (state.height - height) * v, width, height };
   return frameShare(box, ctx.frame) > 0.9;
 }
 

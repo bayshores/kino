@@ -72,7 +72,7 @@ const MAX_COMPONENTS = 99;
 const MAX_ANIMATIONS = 256;
 const MEDIA_SOURCE = /^\/api\/media\/[a-f0-9-]+\.[a-z0-9]+$/;
 // The values that place a layer. A copied top layer carries them measured in the scene.
-const PLACEMENT_KEYS = ["x", "y", "rotation", "scaleX", "scaleY", "skewX", "animations"];
+const PLACEMENT_KEYS = ["x", "y", "rotation", "scaleX", "scaleY", "skewX", "skewY", "animations"];
 // Fields the editor adds only while it draws component instances; a stored layer never has them.
 const DRAWING_ONLY_FIELDS = ["componentOwnerId", "componentSourceSceneId", "componentBackground", "componentPath", "componentOverridden", "_textClips"];
 const COMPONENT_FIELDS = ["componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides"];
@@ -151,7 +151,7 @@ function worldPlacement(layer, layers, scenes) {
   const size = componentGeometry(layer, scenes);
   try {
     const values = reparentLayer(layer, parentMatrix(size, layers), size);
-    return Object.fromEntries(PLACEMENT_KEYS.map((key) => [key, values[key]]));
+    return Object.fromEntries(PLACEMENT_KEYS.filter((key) => values[key] !== undefined).map((key) => [key, values[key]]));
   } catch {
     return null;
   }

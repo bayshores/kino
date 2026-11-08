@@ -71,6 +71,9 @@ const VALUE_KEYS = new Set([
   "rotation",
   "scaleX",
   "scaleY",
+  // Skew in degrees (geometry.js layerMatrix: rotate · scale · skewX · skewY).
+  "skewX",
+  "skewY",
   "opacity",
   "blur",
   "backgroundBlur",
@@ -477,6 +480,13 @@ function normalizeTrimValue(key, value, path) {
   return requireNumber(value, path, 0, 1);
 }
 
+// A layer's anchor: [x, y] percent of its box, -1000 to 1000 each.
+function readLayerAnchor(value, path) {
+  const list = requireArray(value, path, 2);
+  if (list.length !== 2) fail(path, "must be [x, y]: percent of the box (0 0 top-left, 50 50 center, 100 100 bottom-right)");
+  return list.map((entry, index) => requireNumber(entry, `${path}[${index}]`, -1_000, 1_000));
+}
+
 function validateAnimatedValue(key, value, path) {
   if (!VALUE_KEYS.has(key))
     fail(path, `cannot animate unsupported property "${key}"`);
@@ -540,6 +550,9 @@ function validateAnimatedValue(key, value, path) {
     case "rotateX":
     case "rotateY":
       return requireTilt(value, path);
+    case "skewX":
+    case "skewY":
+      return requireNumber(value, path, -89.999, 89.999);
     case "perspective":
       return requirePerspective(value, path);
     case "scaleX":
@@ -1090,6 +1103,12 @@ function normalizeLayer(raw, path, animationIds, counters) {
   layer.scaleX = requireNumber(layer.scaleX, `${path}.scaleX`, -1_000, 1_000);
   layer.scaleY = requireNumber(layer.scaleY, `${path}.scaleY`, -1_000, 1_000);
   layer.skewX = requireNumber(layer.skewX, `${path}.skewX`, -89.999, 89.999);
+  // Optional skewY (absent is 0) and anchor [x%, y%]: the pivot of rotation, scale and skew
+  // (geometry.js pivotOf; absent is the center). null removes either.
+  if (layer.skewY === null || layer.skewY === 0) delete layer.skewY;
+  if (layer.skewY !== undefined) layer.skewY = requireNumber(layer.skewY, `${path}.skewY`, -89.999, 89.999);
+  if (layer.anchor === null) delete layer.anchor;
+  if (layer.anchor !== undefined) layer.anchor = readLayerAnchor(layer.anchor, `${path}.anchor`);
   // 2.5D tilt (tilt.js): optional; null removes it.
   for (const key of ["rotateX", "rotateY", "perspective"]) {
     if (layer[key] === null) delete layer[key];

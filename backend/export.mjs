@@ -1,3 +1,4 @@
+import { pivotOf } from "../engine/geometry.js";
 import { resizeTextLayer } from "../engine/textLayout.js";
 import { missingDocumentFonts } from "../engine/fontRecovery.js";
 import { documentGlyphProblems } from "../engine/fontGlyphReferences.js";
@@ -1731,12 +1732,17 @@ function localMatrix(layer, state) {
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
   const shear = Math.tan((finite(state.skewX) * Math.PI) / 180);
-  const a = cos * sx;
-  const b = sin * sx;
+  let a = cos * sx;
+  let b = sin * sx;
   const c = cos * sx * shear - sin * sy;
   const d = sin * sx * shear + cos * sy;
-  const cx = width / 2;
-  const cy = height / 2;
+  // skewY after skewX (geometry.js layerMatrix), only when set.
+  if (finite(state.skewY)) {
+    const shearY = Math.tan((finite(state.skewY) * Math.PI) / 180);
+    a += c * shearY;
+    b += d * shearY;
+  }
+  const [cx, cy] = pivotOf(state, width, height);
   return [a, b, c, d, x + cx - a * cx - c * cy, y + cy - b * cx - d * cy];
 }
 
@@ -1823,7 +1829,7 @@ function imageFitMatrix(state, image) {
 function measureLottieImageAssets(scene, options, images, signal) {
   if (options.imageDPIRatio === "original") return;
   const duration = finite(options.duration, finite(scene.duration, 1));
-  const basisProperties = new Set(["width", "height", "rotation", "scaleX", "scaleY", "skewX"]);
+  const basisProperties = new Set(["width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY"]);
   const visit = (nodes, parents = []) => {
     for (const { layer, children } of nodes) {
       if (layer.visible === false) continue;
@@ -1936,10 +1942,8 @@ function sampledTransform(layer, matrices, states, label, anchor = null) {
       finite(states[index].width),
       finite(states[index].height),
       label,
-      anchor ?? [
-        finite(states[index].width) / 2,
-        finite(states[index].height) / 2,
-      ],
+      // The layer's anchor is Lottie's anchor too, so a turn about it keeps p still.
+      anchor ?? pivotOf(states[index], finite(states[index].width), finite(states[index].height)),
     ),
   );
   // A cycling loop jumps back at each new pass: hold across that frame gap (lottie-visibility.mjs).
