@@ -1067,6 +1067,12 @@ test("stage zoom: the zoom menu draws the frame at 200% in a box that scrolls, a
   await browser.key("Enter");
   await browser.waitFor(`!${wrap}.classList.contains("scrolls") && ${wrap}.scrollWidth <= ${wrap}.clientWidth && document.activeElement === ${zoomButton}`, { what: "Fit again, the focus back on the button" });
 
+  // The render menu sits at the window's right edge: its list opens leftward, wholly inside the window.
+  await browser.click(q("#render-menu"));
+  await browser.waitFor(`!!document.querySelector('[role="menu"][aria-label="Render"]')?.style.maxHeight`, { what: "the render list placed" });
+  assert.ok(await browser.evaluate(`document.querySelector('[role="menu"][aria-label="Render"]').getBoundingClientRect().right <= window.innerWidth`), "the render list inside the window");
+  await browser.key("Escape");
+
   // The full-window button: the stage pane fills the window; pressed again, the panes come back.
   const full = q('.p-stage button[aria-label^="Fill the window"]');
   await browser.click(full);

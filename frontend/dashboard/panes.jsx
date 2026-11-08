@@ -161,6 +161,9 @@ export function Menu({ id, label, ariaLabel, listLabel, title, value, options, o
     const roomAbove = rect.top - 2 - MENU_EDGE;
     const below = height <= roomBelow || roomBelow >= roomAbove;
     const { top, visibility, ...rest } = place;
+    // Once drawn its real width is known: keep it inside the window (a menu at the right edge opens leftward).
+    const width = listRef.current.offsetWidth;
+    rest.left = Math.max(4, Math.min(rest.left, window.innerWidth - width - 4));
     setPlace({ ...rest, sized: true, maxHeight: Math.max(40, Math.floor(below ? roomBelow : roomAbove)),
       ...(below ? { top: rect.bottom + 2 } : { bottom: window.innerHeight - rect.top + 2 }) });
   }, [place]);
