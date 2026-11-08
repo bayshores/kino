@@ -123,7 +123,7 @@ test("generated effect documentation reflects every registered effect and its pa
 
 test("Post FX uses the observed catalog order, starting values and typed color inputs", () => {
   assert.deepEqual(EFFECTS.filter(({ group }) => group === "Post FX").map(({ key }) => key), [
-    "dithering", "dot-grid", "duotone", "luma-highlight", "noise-mask", "pixelate", "threshold-color", "tritone", "rgb-shift",
+    "dithering", "dot-grid", "duotone", "luma-highlight", "noise-mask", "pixelate", "threshold-color", "tritone", "rgb-shift", "grain", "vignette",
   ]);
   assert.deepEqual(effectInitialValues("luma-highlight"), { lumaThreshold: 0, fuzzWidth: 0.2, fuzzIntensity: 0.5 });
   assert.deepEqual(effectInitialValues("noise-mask"), { threshold: 1 });

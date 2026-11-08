@@ -55,7 +55,8 @@ export const TECHNIQUES = Object.freeze([
   technique("particles", "texture", "particles: dust, snow, sparks, embers, rain, bokeh, fog", "atmosphere, weather, celebration"),
   technique("rgb-split", "texture", "the color channels pull apart", "tech, noise, a glitchy accent"),
   technique("light-sweep", "texture", "light passes over the picture (rays, flare, leaks)", "a reveal, warmth, a product shine"),
-  technique("grain", "texture", "film grain or noise over the picture", "film look, analog warmth", false, "kino has no grain effect yet"),
+  technique("grain", "texture", "film grain or noise over the picture", "film look, analog warmth"),
+  technique("vignette", "texture", "the picture darkens toward its edges and corners", "film look, pulling the eye to the middle"),
   technique("depth-blur", "texture", "a blurred full-frame picture behind sharp layers", "floating clips or text in front of a scene"),
   technique("motion-blur", "texture", "a directional, zoom or spin blur on something that moves", "fast moves that should feel physical"),
   // Set pieces: bigger designed moments, built by moves.

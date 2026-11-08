@@ -748,7 +748,8 @@ const EFFECT_BY_FLAT = new Map(EFFECT_KEYS.map((key) => [key.replace(/-/g, ""), 
 const EFFECT_ALIASES = { bloom: "glow", halation: "glow", flare: "lens-flare", godrays: "light-rays", godray: "light-rays",
   sunrays: "light-rays", lightray: "light-rays", lightleak: "light-leaks", ember: "embers", spark: "sparks", snowflakes: "snow",
   raindrops: "rain", chromaticaberration: "rgb-shift", chromatic: "rgb-shift", rgbsplit: "rgb-shift",
-  depthoffield: "focus-band", dof: "focus-band", tiltshift: "focus-band", rackfocus: "focus-band" };
+  depthoffield: "focus-band", dof: "focus-band", tiltshift: "focus-band", rackfocus: "focus-band",
+  filmgrain: "grain", noisegrain: "grain", vignetting: "vignette" };
 // Names that could mean more than one thing, refused with what to use instead.
 const BLURS = ["directional-blur", "zoom-blur", "spin-blur"];
 const EFFECT_CHOICES = {
@@ -756,8 +757,6 @@ const EFFECT_CHOICES = {
   radialblur: { suggestions: ["zoom-blur", "spin-blur"], message: "\"radial-blur\" is zoom-blur (out from a centre) or spin-blur (around a centre)." },
   blur: { suggestions: BLURS, message: "\"blur\" is not an effect: a plain blur is the layer's blur property (update_layer properties {blur:8}, or a custom animation of blur); the blur effects are directional-blur, zoom-blur and spin-blur." },
   gaussianblur: { suggestions: BLURS, message: "\"gaussian-blur\" is not an effect: a plain blur is the layer's blur property (update_layer properties {blur:8}, or a custom animation of blur)." },
-  grain: { suggestions: ["noise-mask"], message: "Film grain is the noise-mask effect with cellSize 1 or 2.", parameters: { cellSize: 2 } },
-  filmgrain: { suggestions: ["noise-mask"], message: "Film grain is the noise-mask effect with cellSize 1 or 2.", parameters: { cellSize: 2 } },
   particles: { suggestions: ["embers", "sparks", "snow", "dust", "rain", "bokeh"], message: "\"particles\" is a group: choose embers, sparks, snow, dust, rain or bokeh (library {topic:\"rules\", name:\"particles\"})." },
 };
 

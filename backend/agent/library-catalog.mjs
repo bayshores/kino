@@ -39,6 +39,7 @@ const EFFECT_TAGS = {
   embers: ["particles"], sparks: ["particles"], snow: ["particles"], dust: ["particles"], rain: ["particles"], bokeh: ["particles"], fog: ["particles"],
   "light-leaks": ["light-sweep"], "light-rays": ["light-sweep"], "lens-flare": ["light-sweep"], glow: ["light-sweep"],
   "3d-orbit": ["orbit-3d"], "card-flip": ["orbit-3d"], wiggle: ["shake"], "focus-band": ["depth-blur"],
+  grain: ["grain"], vignette: ["vignette"],
 };
 const RECIPE_TAGS = {
   "hook-slam": ["type-giant"], "caption-pop": ["type-pop"], "number-counter": ["type-counter"], "price-pop": ["type-pop"], "title-type": ["type-letters"],
@@ -156,7 +157,10 @@ const EFFECT_STRONG = {
   "color-wheels": { liftBlue: 0.35, liftGreen: 0.15, gainRed: 0.25, gamma: 1.2 },
   "noise-mask": { threshold: 0.5 },
   "color-grade": { exposure: 1.6, contrast: 1.2, saturation: 0.6 },
+  vignette: { amount: 0.85 },
 };
+// Effects shown on the picture only: a vignette on the word would shade the word's own box.
+const PICTURE_ONLY = new Set(["vignette"]);
 // Each transition recipe on the two shots, full frame, as it changes beats (recipes/transitions.js):
 // push slides the first out left and the next in from the right; cut-on-motion carries both
 // upward with a blur; mask-wipe sweeps an accent bar with the next shot behind it.
@@ -196,9 +200,9 @@ export function sampleOps(kind, name) {
     if (!effect) return null;
     const lut = name === "lut" ? { lut: src("look") } : {};
     const from = { ...effectDefaults(name, { neutral: true }), ...lut };
-    // On the picture and the word (particles once, on the picture). A ranged effect shows only
+    // On the picture and the word (particles and vignette once, on the picture). A ranged effect shows only
     // from its start to its end, so the still is inside that span, past the ramp up.
-    const layers = effect.group === "Generate" ? ["shot-a"] : ["shot-a", "word"];
+    const layers = effect.group === "Generate" || PICTURE_ONLY.has(name) ? ["shot-a"] : ["shot-a", "word"];
     const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }

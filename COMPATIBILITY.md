@@ -187,7 +187,7 @@ How to read it:
   real videos. Evidence: `backend/agent-taste.test.mjs`, `engine/qualityRules.test.js`.
 - **Techniques and variety warnings**: Verified (tests). `engine/techniques.js` names 49 techniques
   (check finds 39); `plain_beats` judges the key beats and holds a final render when none is designed.
-  Gaps: match-cut, speed-lines, grain and 7 set pieces are not found; thresholds tuned on 2 projects.
+  Gaps: match-cut, speed-lines and 7 set pieces are not found; thresholds tuned on 2 projects.
   Evidence: `engine/qualityStyle.test.js`, `engine/qualityRules.test.js`.
 - **Style spec**: Verified (tests). Brief field `style {wants, avoids, lines, by}`; an avoided tag is a
   gate (style_avoided) only when the person set it, a warning when guessed. Evidence:

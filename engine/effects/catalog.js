@@ -18,6 +18,7 @@ import { FOCUS_BAND_EFFECT } from "./focusBand.js";
 import { EDGE_EFFECTS } from "./edges.js";
 import { LIGHT_EFFECTS } from "./light.js";
 import { PARTICLE_EFFECTS } from "./particles.js";
+import { FINISH_EFFECTS } from "./finish.js";
 import { copyContent } from "./svg.js";
 
 const number = (label, value, min, max, step, unit = "", extra = {}) =>
@@ -147,6 +148,8 @@ const definitions = [
       amount: number("Amount", 0.25, 0, 1, 0.01), direction: number("Direction", 0, -360, 360, 1, "°"),
       overflow: boolean("Overflow", false),
     } },
+  // Film grain and vignette (finish.js).
+  ...FINISH_EFFECTS,
   { key: "3d-orbit", label: "3D Orbit", group: "Utility", kind: "ranged", render: renderOrbit,
     parameters: {
       rotateY: number("Rotate Y", 0, -3600, 3600, 1, "°", { initial: 360 }),
