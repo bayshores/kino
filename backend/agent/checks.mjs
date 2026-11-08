@@ -193,7 +193,7 @@ export function checkSummary(findings, { unchecked = [] } = {}) {
   return `${counts.errors} err · ${counts.warnings} warn${counts.waived ? ` · ${counts.waived} waived` : ""}${top ? ` (${top})` : ""}${left}`;
 }
 
-export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (each also blocks a final render until fixed or waived with a reason); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";
+export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (in a real edit, a brief and 30+ layers, each also blocks a final render until fixed or waived); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";
 
 // {rule: {errors, warnings}} for the findings that count (not waived, not info), for
 // --json readers and the eval runner; MCP answers carry only the text.

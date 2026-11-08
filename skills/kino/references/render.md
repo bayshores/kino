@@ -5,7 +5,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
 
 ## Render ladder and queue
 
-- `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 err and 0 warn and
+- `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 errors (a real edit: 0 warn too) and
   `look {mode:"review"}` has shown every moment (else `review_needed`). With `wait:true` it
   answers when the file is checked; if the render takes longer, it says it is still running:
   then `render {action:"wait"}` until it returns the file. Use `quality:"draft"` only
@@ -18,7 +18,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   `quality:"final"` uses full dimensions and `fps` (default 30; 23.976, 29.97 and 59.94 for
   editing apps and broadcast, or `options:{fps:"30000/1001"}`), `motionBlur:0.5` (two shutter
   samples) and `dither:true`. Override with `motionBlur:0`, `dither:false` for the original
-  appearance. Unwaived errors and warnings block final (a png still: errors only), and so do the video's open stops (`stops_open`:
+  appearance. Unwaived errors (in a real edit, a brief and 30+ layers, warnings too) block final, and so do the video's open stops (`stops_open`:
   ask them in order, or the person allows them in settings; drafts still render). Saved
   reduced-motion choices stay in effect.
 - Motion blur comes from how layers move while the shutter is open. By default each frame

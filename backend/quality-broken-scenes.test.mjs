@@ -170,12 +170,6 @@ test("a waiver accepts one finding on purpose and lets the final render start", 
   // No saved reference edits in this test: the reference gate is waived (agent-review tests it).
   await agent("edit", { project: id, ops: [{ op: "waive_check", code: "reference", target: "*", reason: "a check test" }] });
   await reviewAll(id);
-  // Open warnings hold a final render too: the refusal lists one line per rule with its first target.
-  const held = await agent("render", { project: id, action: "start", quality: "final" });
-  assert.equal(held.data.error, "check_failed", held.text);
-  assert.match(held.data.reason, /open findings? in s1 block a final render \(fix each or waive it with a reason\):\n {2}\S+( x\d+)? \(\S+\)/);
-  const codes = [...new Set(Object.keys(check.data.byRule))];
-  await agent("edit", { project: id, ops: codes.map((code) => ({ op: "waive_check", code, target: "*", reason: "a check test" })) });
   const render = await agent("render", { project: id, action: "start", quality: "final" });
   assert.equal(render.isError, undefined, render.text);
   await agent("render", { project: id, action: "cancel", job: render.data.job });

@@ -120,8 +120,10 @@ test("check warns deck_unused when the video uses under half the deck, and recor
     { op: "add_layer", layerType: "text", properties: { id: "title", name: "title", text: "skate now", x: 200, y: 600, fontSize: 96 } },
     { op: "add_animation", layerId: "title", animation: { kind: "in", start: 0.3, duration: 0.6, easing: "smooth", from: { opacity: 0 }, to: { opacity: 1 } } }] });
   assert.equal(edited.isError, undefined, edited.text);
-  const checked = await agent("check", { project: "deck-check", pixels: false });
-  const line = checked.text.split("\n").find((entry) => entry.startsWith("W deck_unused"));
+  // deck_unused is advice: one line in a plain check, the finding itself when check names it.
+  assert.match((await agent("check", { project: "deck-check", pixels: false })).text, /^advice \(does not block\): .*deck_unused/m);
+  const checked = await agent("check", { project: "deck-check", rules: ["deck_unused"], pixels: false });
+  const line = checked.text.split("\n").find((entry) => entry.startsWith("I deck_unused"));
   assert.ok(line, checked.text);
   assert.match(line, /of the deck \(seed \d+\) unused/);
   assert.ok(Array.isArray((await savedState("deck-check")).deck.used));

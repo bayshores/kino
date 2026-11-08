@@ -452,7 +452,8 @@ export function createAgentService(deps) {
     const codes = await syncCodes(document.id, document);
     for (const sceneId of sceneIds) {
       const { findings } = await findingsFor(document, { fonts, codes, sceneId, pixels: true, outputFps: parseFps(options?.fps) ?? 30 });
-      const errors = findings.filter(blocksFinal);
+      const real = await isRealEdit(document);
+      const errors = findings.filter((finding) => blocksFinal(finding, real));
       if (errors.length) throw new AgentError("check_failed", `${errors.length} open findings block final export of ${refName(sceneId, codes)}: ${openFindingLines(errors).join("; ")}. Run check, fix each or waive it with a reason.`);
     }
   } });
@@ -535,6 +536,13 @@ export function createAgentService(deps) {
   // rendered rules are not in the findings (checkSummary says so).
   // listen:false (the dashboard's own check) renders frames for the pixel rules but reads only
   // saved transcripts, peaks, loudness and people: no whisper and no sound or people decodes.
+  // A real edit (a brief, over 30 layers, as the critique gate reads it): every open warning
+  // holds its final render, not only the errors (blocksFinal).
+  async function isRealEdit(document) {
+    const state = await agentState.read(document.id).catch(() => null);
+    return hasBrief(state?.brief) && videoFacts(document).layers > ROUGH_LAYERS;
+  }
+
   async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = 30, listen = true } = {}) {
     const basic = checkDocument(document, { fonts, mediaRoot: deps.mediaRoot, codes, sceneId });
     // The brief's style spec (notes brief fields.style) sets the style rules; none is kino's default style.
@@ -2377,7 +2385,7 @@ export function createAgentService(deps) {
         // A fix that leaves its own finding in place is not kept either: so the next
         // check {fix:"auto"} does not stack another change on the same thing.
         const still = added.length ? [] : candidates.filter((group) => checked.findings.some((finding) => !finding.waived
-          && (finding.severity === "error" || finding.severity === "warn") && `${finding.rule} ${finding.ref}` === group.key));
+          && `${finding.rule} ${finding.ref}` === group.key));
         if (still.length) {
           for (const group of still) dropped.push(`${group.key}: it did not clear the finding`);
           // Tried with others, it may have been undone by one of them: the next round tries it again.
@@ -4903,12 +4911,13 @@ export function createAgentService(deps) {
         // The direction lock comes before the stops: they are judged against the locked story.
         await refuseWithoutLock(record, { format });
         await refuseFinalWhileStopsOpen(record);
-        // The final-render gate: no final render while an error or a warning is open (not fixed,
-        // not waived with a reason). Advice (info) does not hold it.
+        // The final-render gate: no final render while an error is open (not fixed, not waived with
+        // a reason), nor in a real edit a warning. Advice (info) does not hold it. A still (one PNG
+        // frame) is held as a sketch is: the video's motion warnings are not in it.
+        const real = format !== "png" && await isRealEdit(record.document);
         for (const scene of scenes) {
           const { findings } = await findingsFor(record.document, { fonts, codes, sceneId: scene.id, pixels: true, outputFps: fps });
-          // A still (one PNG frame) is held by errors only: the video's motion warnings are not in it.
-          const blocking = findings.filter((finding) => blocksFinal(finding) && (format !== "png" || finding.severity === "error"));
+          const blocking = findings.filter((finding) => blocksFinal(finding, real));
           if (blocking.length)
             throw new AgentError("check_failed", `${plural(blocking.length, "open finding")} in ${refName(scene.id, codes)} block a final render (fix each or waive it with a reason):\n${openFindingLines(blocking).map((line) => `  ${line}`).join("\n")}`, {
               next: 'check {fix:"auto"} applies the safe fixes; fix the rest with edit, or waive_check {code, target, reason} for a deliberate exception. A draft render is allowed now.',
@@ -6150,7 +6159,8 @@ export function createAgentService(deps) {
       break;
     }
     const { findings } = await findingsFor(document, { fonts, codes });
-    const blocking = findings.filter(blocksFinal);
+    const real = await isRealEdit(document);
+    const blocking = findings.filter((finding) => blocksFinal(finding, real));
     if (blocking.length) {
       const fixable = blocking.find((finding) => finding.severity === "error" && finding.fix && typeof finding.fix === "object");
       const call = fixable ? nextOf("edit", { ops: [fixable.fix].flat() }) : nextOf("check", { fix: "auto" });

@@ -33,7 +33,7 @@ export const AGENT_INSTRUCTIONS = [
     "- Every answer ends with next: the most likely next call, written out. When unsure, send it as it is; put your own words where it has <angle brackets>.",
     "- Read each edit's receipt instead of calling status again. Refer to layers, scenes and animations by name or code (L1, s1, A1).",
     "- A refused edit saves nothing: its next call resends it with the fix (retry and fix).",
-    "- Check errors and warnings block a final render; check fix:\"auto\" applies the safe fixes.",
+    "- Check errors (in a real edit, warnings too) block a final render; check fix:\"auto\" applies the safe fixes.",
     "- Ask each stop when status next: names it (notes checkpoint). A stop may answer waiting_for_you: send its ask to the person and end your turn. Until they answer, that project's writes answer {waiting}; record their reply with notes answer.",
     "- Look once per pass, then look mode:\"changed\" after fixes. Before a final render, look mode:\"review\" until every moment is reviewed, and fix what it shows.",
     "- Cropping footage to another shape: look mode:\"source\" first, then mark the subject (library guide framing).",
@@ -103,7 +103,7 @@ export const AGENT_TOOLS = withSaid([
     alwaysLoad: true,
     description: [
       "Check the animation's quality: the top 10 findings, each with a measured value, what is required and a fix op.",
-      "Every open error and warning (gates: type size, overlap, contrast, reading time, …) blocks a final render; advice (info) does not.",
+      "Errors (gates: type size, overlap, contrast, reading time, …) block a final render, in a real edit warnings too; advice (info) never.",
       "fix:\"auto\" applies the fixes marked (auto) as one edit. rules: only these rule codes (true: repeat the Rules line). pixels:false skips pixel checks.",
       "A deliberate exception: edit with waive_check {code, target, reason}.",
     ].join("\n"),

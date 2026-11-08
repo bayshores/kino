@@ -191,17 +191,17 @@ test("the same request_id is saved once, and dry_run saves nothing", async () =>
 
 test("check and inspect answer about the saved project", async () => {
   const edit = await agent("edit", { project: "alpha", ops: [{ op: "add_animation", layer: "title", preset: "preset-fade", mode: "out", start: 2.8, duration: 1 }] });
-  assert.match(edit.data.check, /^1 err · 5 warn \(safe_zone title, past_scene_end A\d+\) · unchecked: contrast, flashing, luma_jump, frozen_picture$/);
+  assert.match(edit.data.check, /^1 err · 4 warn \(safe_zone title, past_scene_end A\d+\) · unchecked: contrast, flashing, luma_jump, frozen_picture$/);
   const check = await agent("check", { project: "alpha" });
   const lines = check.text.split("\n");
-  assert.match(lines[0], /^rev \d+ · 1 err · 5 warn · \d+ ms$/);
+  assert.match(lines[0], /^rev \d+ · 1 err · 4 warn · 1 info · \d+ ms$/);
   assert.match(lines[1], /^E safe_zone title/);
   assert.ok(lines.some((line) => /^W past_scene_end A\d+ @2\.8: A\d+ runs 2\.8–3\.8s but s1 ends at 3s, so it is cut off\. fix: \{"op":"update_animation","animationId":"A\d+","properties":\{"duration":0\.2\}\}$/.test(line)));
   assert.equal(check.data.errors, 1);
-  assert.equal(check.data.warnings, 5);
+  assert.equal(check.data.warnings, 4);
   // The same check again on the same revision answers in one line; rules:true lists them again.
   const again = await agent("check", { project: "alpha", why: "again" });
-  assert.match(withoutNext(again.text), /^rev \d+ · 1 err · 5 warn · \d+ ms\nUnchanged since your same check \d+ s ago at this rev: the same findings\. check \{rules:true\} lists them again\.$/);
+  assert.match(withoutNext(again.text), /^rev \d+ · 1 err · 4 warn · 1 info · \d+ ms\nUnchanged since your same check \d+ s ago at this rev: the same findings\. check \{rules:true\} lists them again\.$/);
   assert.equal(again.data.unchanged, true);
   assert.match((await agent("check", { project: "alpha", rules: true })).text, /^E safe_zone title/m);
 

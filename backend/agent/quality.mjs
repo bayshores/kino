@@ -737,7 +737,7 @@ export function qualityRulesText() {
     ...RULES.filter((entry) => entry.level === "error").map(line),
     "  av_offset: after a final render with sound, audio within 45 ms early to 125 ms late (ITU-R BT.1359)",
     "Render checks: missing_media (error), empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs.",
-    "Warnings (block final until fixed or waived):",
+    "Warnings (a real edit: block final until fixed or waived):",
     ...RULES.filter((entry) => entry.level === "warn").map(line),
     "Advice (info, never blocks):",
     ...RULES.filter((entry) => entry.level === "info").map(line),

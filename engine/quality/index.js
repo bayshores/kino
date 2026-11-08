@@ -175,11 +175,13 @@ export const ruleOf = (code) => RULES.find((entry) => entry.code === code);
 // Warnings while editing that block a final render: the edit may be unfinished, the render may not.
 export const FINAL_GATES = Object.freeze(RULES.filter((entry) => entry.final).map((entry) => entry.code));
 /**
- * True for a finding that blocks a final render: every error and warning not waived (fixed, or
- * waive_check with a reason). Advice (info) never blocks. FINAL_GATES are the warnings the
- * edit's next call names before the final render (signature_missing).
+ * True for a finding that blocks a final render (unless waived with a reason). In a real edit
+ * (a brief, over 30 layers: `real`, the default) every error and warning blocks; elsewhere (a
+ * sketch, a test) errors, FINAL_GATES warnings (signature_missing) and a warning marked final
+ * (plain_beats). Advice (info) never blocks.
  */
-export const blocksFinal = (finding) => !finding.waived && (finding.severity === "error" || finding.severity === "warn");
+export const blocksFinal = (finding, real = true) => !finding.waived && (finding.severity === "error"
+  || (finding.severity === "warn" && (real || finding.final === true || FINAL_GATES.includes(finding.rule))));
 
 // Advice rules (level info): taste and planning notes, not a defect a viewer sees. Their findings
 // come as info, listed in one line and never counted as warnings (a safe auto fix still applies).

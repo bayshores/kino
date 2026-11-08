@@ -640,9 +640,12 @@ test("signature_missing: an idea needs a signature range that holds a designed m
   // It warns while editing and blocks only a final render; reviewers get the idea and signature lines.
   assert.equal(blocksFinal(plain), true);
   assert.equal(blocksFinal({ ...plain, waived: "on purpose" }), false);
-  // Every open warning holds a final render; advice (info) never does.
+  // In a real edit every open warning holds a final render; advice (info) never does.
   assert.equal(blocksFinal({ severity: "warn", rule: "text_slides" }), true);
   assert.equal(blocksFinal({ severity: "info", rule: "busy_edit" }), false);
+  // Outside a real edit (no brief, a sketch), a plain warning does not hold it; signature_missing still does.
+  assert.equal(blocksFinal({ severity: "warn", rule: "text_slides" }, false), false);
+  assert.equal(blocksFinal(plain, false), true);
   assert.deepEqual(ideaLines(styleContext(spec(16).styleSpec)), ["Idea: your streak becomes a map", "Signature: the streak map using home screen @9-16s"]);
 });
 
