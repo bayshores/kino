@@ -45,6 +45,7 @@ import { LOWPASS_MIN, LOWPASS_OPEN } from "./lowpass.js";
 import { MORPH_MAX, MORPH_MIN } from "./morphCut.js";
 import { TRIM_KEYS, TRIM_LAYER_TYPES } from "./strokeTrim.js";
 import { REPEAT_FRACTION_KEYS, REPEAT_KEYS, REPEAT_LAYER_TYPES, REPEAT_REST, repeatRange } from "./repeater.js";
+import { MODIFIER_CHOICES, MODIFIER_CHOICE_KEYS, MODIFIER_KEYS, MODIFIER_LAYER_TYPES, MODIFIER_REST, modifierRange } from "./shapeModifiers.js";
 import { DEFAULT_PERSPECTIVE, PERSPECTIVE_MAX, PERSPECTIVE_MIN, TILT_LIMIT } from "./tilt.js";
 import { MASK_MODES } from "./maskVisibility.js";
 import {
@@ -119,6 +120,8 @@ const VALUE_KEYS = new Set([
   "perspective",
   // A repeater (repeater.js); only shape, path, text and group layers.
   ...REPEAT_KEYS,
+  // A zig zag and offset path (shapeModifiers.js); only shape and path layers.
+  ...MODIFIER_KEYS,
 ]);
 // Keys measured in fractions (1 is 100%): a wiggle amount for pixels or degrees is far too big.
 const FRACTION_KEYS = new Set(["scaleX", "scaleY", "opacity", "lineHeight", "donut", "starThickness", ...REPEAT_FRACTION_KEYS]);
@@ -527,6 +530,8 @@ function validateAnimatedValue(key, value, path) {
     case "repeatCopies": case "repeatX": case "repeatY": case "repeatRotation": case "repeatScale":
     case "repeatAnchorX": case "repeatAnchorY": case "repeatStartOpacity": case "repeatEndOpacity":
       return requireNumber(value, path, ...repeatRange(key));
+    case "zigzagSize": case "zigzagCount": case "offsetAmount":
+      return requireNumber(value, path, ...modifierRange(key));
     case "cornerRadii": {
       const radii = requireArray(value, path, 4);
       if (radii.length !== 4) fail(path, "must contain four corner radii");
@@ -748,7 +753,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     const rest = layerRest === undefined && BACKDROP_STYLE_KEYS.includes(key) ? defaultBackdropStyle(key)
       : layerRest === undefined && TILT_REST[key] !== undefined ? TILT_REST[key]
         : layerRest === undefined && Object.hasOwn(TRIM_REST, key) ? structuredClone(TRIM_REST[key])
-          : layerRest === undefined && Object.hasOwn(REPEAT_REST, key) ? REPEAT_REST[key] : layerRest;
+          : layerRest === undefined && Object.hasOwn(REPEAT_REST, key) ? REPEAT_REST[key]
+            : layerRest === undefined && Object.hasOwn(MODIFIER_REST, key) ? MODIFIER_REST[key] : layerRest;
     if ((key === "stroke" || key === "strokeWidth") && !STROKE_LAYER_TYPES.has(layer.type)) {
       fail(
         path,
@@ -773,6 +779,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
       fail(path, "a Letter spacing animation needs a text layer; only text has letter spacing");
     if (REPEAT_KEYS.includes(key) && !REPEAT_LAYER_TYPES.has(layer.type))
       fail(path, `a ${key} animation needs a rectangle, ellipse, star, path, text or group layer; a ${layer.type} layer has no repeater`);
+    if (MODIFIER_KEYS.includes(key) && !MODIFIER_LAYER_TYPES.has(layer.type))
+      fail(path, `a ${key} animation needs a rectangle, ellipse, star or path layer; a ${layer.type} layer has no outline`);
     if (key === "lineHeight" && layer.type !== "text")
       fail(path, "a Line height animation needs a text layer; only text has a line height");
     if (key === "axes" && layer.type !== "text")
@@ -1160,6 +1168,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
     if (layer[key] == null) { delete layer[key]; continue; }
     if (!REPEAT_LAYER_TYPES.has(type)) fail(`${path}.${key}`, "only rectangle, ellipse, star, path, text and group layers have a repeater");
     layer[key] = requireNumber(layer[key], `${path}.${key}`, ...repeatRange(key));
+  }
+  for (const key of [...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS]) {
+    if (layer[key] == null) { delete layer[key]; continue; }
+    if (!MODIFIER_LAYER_TYPES.has(type)) fail(`${path}.${key}`, "only rectangle, ellipse, star and path layers have a zig zag and offset path");
+    if (MODIFIER_CHOICES[key]) {
+      if (!MODIFIER_CHOICES[key].includes(layer[key])) fail(`${path}.${key}`, `must be ${MODIFIER_CHOICES[key].map((choice) => `"${choice}"`).join(" or ")}`);
+    } else layer[key] = requireNumber(layer[key], `${path}.${key}`, ...modifierRange(key));
   }
   layer.donut = requireNumber(layer.donut, `${path}.donut`, 0, 1);
   layer.sweep = requireNumber(layer.sweep, `${path}.sweep`, 0, 1);

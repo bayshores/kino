@@ -115,10 +115,10 @@ Zoom shot-a into shot-b at 1 s, then karaoke captions.
 
 ## Trim paths and dashes
 
-Rectangles, ellipses, stars and paths take `strokeStart`, `strokeEnd` (0 to 1 of each contour),
-`strokeOffset` (turns; wraps), `dash` ([on, off, …] px) and `dashOffset` (px), all animatable.
-Lottie exports them.
-The `trim` preset (also `trim-paths`, `draw-on`) draws `strokeEnd` from 0; the move times it.
+Rectangles, ellipses, stars, paths: `strokeStart`, `strokeEnd` (0 to 1 a contour), `strokeOffset`
+(turns), `dash` ([on, off, …] px), `dashOffset` (px), zig zag (`zigzagSize`, `zigzagCount`,
+`zigzagPoints`), offset (`offsetAmount`, `offsetJoin`); numbers animate, Lottie too.
+`trim` (or `draw-on`) draws `strokeEnd` from 0.
 
 ```json
 {"op":"add_layer","layerType":"path","name":"underline","properties":{"x":560,"y":700,"width":800,"height":40,"path":"M0 20 C260 0 540 40 800 20","fillEnabled":false,"stroke":"#FFD166","strokeWidth":10}}

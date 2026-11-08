@@ -574,3 +574,15 @@ test("trim paths and dashes export as a Lottie tm modifier and d list that read 
   assert.throws(() => lottieShapes(shape, [states[0], { ...states[1], dash: [4, 2, 1, 2] }], "Dash count", helpers), /one dash pattern/);
 });
 
+
+test("a zig zag or offset path exports the outline kino draws", () => {
+  const rect = layer("rectangle", { fill: "#335577", zigzagSize: 5, zigzagCount: 3 });
+  const groups = lottieShapes(rect, [rect, { ...rect, zigzagCount: 4, offsetAmount: 6 }], "Zig zag", helpers);
+  const shape = groups.flatMap((group) => group.it).find((item) => item.ty === "sh");
+  assert.equal(shape.ks.a, 1, "the changing outline is keyed");
+  const first = shape.ks.k[0].s[0];
+  const xs = first.v.map(([x]) => x);
+  assert.ok(Math.min(...xs) < 0 && Math.max(...xs) > 200, "the teeth reach past the box");
+  const plain = lottieShapes(layer("rectangle", { fill: "#335577" }), [layer("rectangle", { fill: "#335577" })], "Plain", helpers);
+  assert.equal(plain.flatMap((group) => group.it)[0].ty, "rc", "a shape without modifiers keeps its native rectangle");
+});

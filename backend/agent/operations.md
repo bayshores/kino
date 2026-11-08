@@ -343,6 +343,11 @@ ops: add_layer, update_layer, add_animation, update_animation
 
 One layer drawn as several copies: a ring of dots, radial rays, a row of bars, a burst. repeatCopies 1 to 64 (the original counts; 1 is off), and each copy moves repeatX, repeatY px, turns repeatRotation degrees and scales by repeatScale (1 = same) from the copy before, so the steps compound. repeatAnchorX, repeatAnchorY: the point copies turn and scale around, px from the layer's middle (0 0). repeatStartOpacity and repeatEndOpacity (0 to 1) fade the first to the last copy. Twelve rays around a point: add_layer {layerType:"rectangle", name:"Ray", properties:{x:470, y:95, width:18, height:110, radius:9, repeatCopies:12, repeatRotation:30, repeatAnchorY:120}}. Every field animates; a fraction of a copy fades the last one in, so add_animation {layer:"Ray", preset:"repeat", start:0, duration:0.8} grows the copies one after another (on a layer without a repeater it makes 8 copies 45 degrees apart). The layer's own move, effects and mask apply to all copies. Lottie export refuses a repeater (use video, GIF or PNG).
 
+## shape-modifiers: Zig zag and offset path
+ops: add_layer, update_layer, add_animation
+
+Rectangles, ellipses, stars and paths change their outline before fill and stroke. zigzagSize (px, -1000 to 1000, 0 off) pushes points off the outline, zigzagCount teeth per side (1 to 100, default 5; an ellipse has 4 sides), zigzagPoints "corner" (default) or "smooth" (a wave). offsetAmount (px, -1000 to 1000, 0 off) grows the outline, or shrinks it below 0; offsetJoin "miter" (default), "round" or "bevel" shapes the grown corners. The zig zag runs first. A stamp edge: add_layer {layerType:"ellipse", properties:{width:300, height:300, zigzagSize:10, zigzagCount:6}}. The numbers animate: from:{offsetAmount:0}, to:{offsetAmount:20}. Lottie gets the outline as drawn.
+
 ## line-height: Line height and its animation
 ops: add_animation, update_animation, update_layer
 

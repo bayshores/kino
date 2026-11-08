@@ -111,6 +111,15 @@ const STROKE_STACKS = {
     fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A" },
 };
 
+// Shape modifiers (engine/shapeModifiers.js): layer fields that change a shape's outline. Each
+// sample grows its field from 0, as the numbers animate.
+const SHAPE_STYLES = {
+  "zigzag-badge": { field: "zigzagSize", line: "zig zag: the layer fields zigzagSize, zigzagCount (teeth per side) and zigzagPoints corner|smooth turn a shape's edge into teeth or a wave, like a sale sticker",
+    layerType: "ellipse", properties: { fill: "#FFE14D", zigzagSize: 14, zigzagCount: 9 }, word: "#141414", ground: "#2E5BFF" },
+  "offset-outline": { field: "offsetAmount", line: "offset path: the layer field offsetAmount grows a shape's outline (below 0 shrinks it), offsetJoin miter|round|bevel shapes the corners; a grown copy under a star is a sticker border",
+    layerType: "star", properties: { fill: "#FFFFFF", offsetAmount: 22, offsetJoin: "round" }, top: "#FF7D3D", ground: "#141414" },
+};
+
 let built = null;
 
 /** Every entry, the kinds with their counts and the technique groups. Built once. */
@@ -132,6 +141,7 @@ export function libraryCatalog() {
   }
   for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push({ ...entry("style", name, line, "a title or logo that needs depth or glow", []), field: "shadows" });
   for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push({ ...entry("style", name, line, "a title or sticker word that must stand out", []), field: "strokes" });
+  for (const [name, { line, field }] of Object.entries(SHAPE_STYLES)) entries.push({ ...entry("style", name, line, "a badge, sticker or shape that needs a bolder edge", []), field });
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const [name, { line, fits, tags }] of Object.entries(MASKS)) entries.push(entry("technique", name, line, fits, tags));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
@@ -307,6 +317,14 @@ export function sampleOps(kind, name) {
     const { line, ground, ...style } = SHADOW_STACKS[name] ?? STROKE_STACKS[name];
     const word = WORD("kino", 150);
     return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, ...style } }], duration: 2.6, still: 1.6 };
+  }
+  if (kind === "style" && SHAPE_STYLES[name]) {
+    const { field, layerType, properties, word, top, ground } = SHAPE_STYLES[name];
+    const box = { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 };
+    const grow = { op: "add_animation", layer: "shape", start: 0.2, duration: 1, easing: "smooth", from: { [field]: 0 }, to: { [field]: properties[field] } };
+    const over = top ? [{ op: "add_layer", layerType, name: "top", properties: { ...box, fill: top } }] : [];
+    const label = word ? [{ ...WORD("NEW", 96), properties: { ...WORD("NEW", 96).properties, fill: word } }] : [];
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { op: "add_layer", layerType, name: "shape", properties: { ...box, ...properties } }, ...over, ...label, grow], duration: 2.6, still: 1.6 };
   }
   if (kind === "animation" && WIPES[name])
     return { ops: [SHOT_A, SHOT_B, anim("shot-b", "preset-wipe", 0.4, 1.6, { mode: "in", parameters: WIPES[name].parameters, easing: "smooth" })], duration: 2.6, still: 0.95 };

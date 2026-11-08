@@ -24,6 +24,7 @@ import { textAnimationMode, textAnimationPlan, textAnimationUnitState } from "./
 import { resolvedCornerRadii, shapePath } from "./shapes.js";
 import { contourLengths, hasStrokePattern, trimDash } from "./strokeTrim.js";
 import { repeatBounds, repeatMarkup, repeaterOf } from "./repeater.js";
+import { modifierReach, modifiersOf, modifyContours } from "./shapeModifiers.js";
 import { gradientCoordinates, isFillEnabled, pathGradientBounds } from "./paints.js";
 import { pathBounds, parsePath, serializePath } from "./vectorPath.js";
 import { backgroundPaintAt } from "./sceneBackground.js";
@@ -613,12 +614,14 @@ function geometry(layer, state, context, overrides = {}) {
   const height = Math.max(0, finite(state.height));
   // A trimmed or dashed stroke follows the shape's path data, so it starts where Lottie's does.
   const patterned = finite(state.strokeWidth) > 0 && hasStrokePattern(state);
-  const paint = (element, bounds = { x: 0, y: 0, width, height }, d = null) => {
+  const paint = (element, bounds = { x: 0, y: 0, width, height }, d = null, strokeBounds = bounds) => {
     const fill = overrides.fill ?? fillPaintFor(state, context, bounds);
     const pathData = () => d ?? shapePath(layer.type, state);
     const stroke = patterned ? patternStroke(pathData(), state) : null;
-    return paintedVector(element, state, context, fill, bounds, bounds, stroke, pathData);
+    return paintedVector(element, state, context, fill, strokeBounds, bounds, stroke, pathData);
   };
+  // A zig zag or offset path redraws the outline as a path (shapeModifiers.js).
+  if (modifiersOf({ ...state, type: layer.type })) return modifiedGeometry(layer, state, context, paint, width, height);
   if (layer.type === "rectangle") {
     if (Array.isArray(state.cornerRadii))
       return paint((attributes) => `<path d="${escapeXml(shapePath(layer.type, state))}" ${attributes}/>`);
@@ -649,16 +652,46 @@ function geometry(layer, state, context, overrides = {}) {
     const scaleY =
       bounds && finite(bounds.height) > 0 ? height / finite(bounds.height) : 1;
     const point = ([x, y]) => [x * scaleX, y * scaleY];
-    const scaledPath = scaleX === 1 && scaleY === 1 ? path : serializePath(parsePath(path).map((contour) => ({
-      start: point(contour.start), closed: contour.closed,
-      segments: contour.segments.map((segment) => ({ c1: point(segment.c1), c2: point(segment.c2), end: point(segment.end) })),
-    })));
+    const scaledPath = scaledPathData(layer, state, path, width, height);
     const localBox = { x: 0, y: 0, width, height };
     const paintBounds = layer.convertedFrom ? localBox : pathGradientBounds(pathBounds(scaledPath), localBox);
     const fillRule = state.fillRule === "evenodd" ? "evenodd" : "nonzero";
     return paint((attributes) => `<path d="${escapeXml(scaledPath)}" fill-rule="${fillRule}" ${attributes}/>`, paintBounds, scaledPath);
   }
   return "";
+}
+
+// A path layer's data stretched from its pathBounds to the layer's box.
+function scaledPathData(layer, state, path, width, height) {
+  const bounds = state.pathBounds ?? layer.pathBounds;
+  const scaleX = bounds && finite(bounds.width) > 0 ? width / finite(bounds.width) : 1;
+  const scaleY = bounds && finite(bounds.height) > 0 ? height / finite(bounds.height) : 1;
+  const point = ([x, y]) => [x * scaleX, y * scaleY];
+  return scaleX === 1 && scaleY === 1 ? path : serializePath(parsePath(path).map((contour) => ({
+    start: point(contour.start), closed: contour.closed,
+    segments: contour.segments.map((segment) => ({ c1: point(segment.c1), c2: point(segment.c2), end: point(segment.end) })),
+  })));
+}
+
+// A shape whose outline a zig zag or offset path changes: drawn as one path, its paint still
+// spread over the layer's box (a path's over its own outline).
+function modifiedGeometry(layer, state, context, paint, width, height) {
+  const box = { x: 0, y: 0, width, height };
+  let source, paintBounds = box;
+  if (layer.type === "path") {
+    const path = String(state.path ?? "");
+    if (!path.trim()) return "";
+    if (!/^[MmLlHhVvCcSsQqTtAaZz0-9eE ,.\t\r\n+\-]+$/.test(path))
+      throw new Error(`Path layer “${layer.name ?? layer.id}” contains invalid SVG path data.`);
+    source = scaledPathData(layer, state, path, width, height);
+    if (!layer.convertedFrom) paintBounds = pathGradientBounds(pathBounds(source), box);
+  } else source = shapePath(layer.type, state);
+  const d = serializePath(modifyContours(parsePath(source), { ...state, type: layer.type }));
+  if (!d.trim()) return "";
+  const fillRule = layer.type === "path" && state.fillRule === "evenodd" ? "evenodd" : "nonzero";
+  const reach = modifierReach({ ...state, type: layer.type });
+  return paint((attributes) => `<path d="${escapeXml(d)}" fill-rule="${fillRule}" ${attributes}/>`, paintBounds, d,
+    { x: -reach, y: -reach, width: width + reach * 2, height: height + reach * 2 });
 }
 
 // The first animation by letters, words or lines that is used in playback sets the units.
@@ -754,15 +787,22 @@ function contentBounds(node, state, context) {
     const layout = layoutText(state, context.fonts);
     return repeatBounds(layoutUnitBounds(layout, "layer", wholeLayout(layout, context), context), state);
   }
-  return repeatBounds(mergeBounds([{ x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) },
+  return repeatBounds(mergeBounds([shapeBox(state),
     ...node.children.map((child) => paintBoundsInParent(child, context))]), state);
+}
+
+// The layer's box, grown by how far a zig zag or offset path reaches past it (shapeModifiers.js).
+function shapeBox(state) {
+  const reach = modifierReach(state);
+  if (!reach) return { x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) };
+  return { x: -reach, y: -reach, width: Math.max(0, state.width) + reach * 2, height: Math.max(0, state.height) + reach * 2 };
 }
 
 // What a group's children draw before effects that keep paint inside a box (Noise Mask, a
 // contained filter) cut it, for repeat effects that need the whole drawing (copySource's home).
 function drawnContentBounds(node, state, context) {
   if (state.type === "text") return contentBounds(node, state, context);
-  return repeatBounds(mergeBounds([{ x: 0, y: 0, width: Math.max(0, state.width), height: Math.max(0, state.height) },
+  return repeatBounds(mergeBounds([shapeBox(state),
     ...node.children.map((child) => context.drawnBounds.has(child.layer.id)
       ? context.drawnBounds.get(child.layer.id) : paintBoundsInParent(child, context))]), state);
 }
