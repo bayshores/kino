@@ -27,6 +27,8 @@ import { buildVideoFormat, expandVideoFormat, VIDEO_FORMATS, VIDEO_FORMAT_NAMES 
 import { runRecipe, settingsFrom, SETTING_KEYS } from "../../engine/blocks/recipe.js";
 import { placeMove, readMoveInput, removeMove, runMove } from "../../engine/blocks/move.js";
 import { withCues } from "../../engine/cues.js";
+import { footageCueTime } from "../../engine/footageCues.js";
+import { MAX_TIME } from "../../engine/schema.js";
 import { MOVES, MOVE_NAMES, moveOf } from "../../engine/blocks/moves/index.js";
 import { describeRecipes, recipeOf, RECIPE_NAMES, TRANSITIONS, TRANSITION_NAMES } from "../../engine/blocks/recipes/index.js";
 import { applyTransition } from "../../engine/blocks/recipes/transitions.js";
@@ -148,7 +150,7 @@ const OPERATIONS = {
     fields: ["layerId", "sceneId", "rect", "at", "to", "cut", "dur"],
     rules: 'frame {layer, rect:[x, y, w, h], at, to?, cut?, dur?}: the 2D camera. It moves the layer\'s group (one named <layer>-camera is made around it when it has none; nothing looks different) so the region rect (% of the layer) fills the frame, centered (to:"center", the default), or sits with its center at x, y and w wide (to:[x, y, w], % of the frame). cut:true jumps there at `at` (a stepped punch-in or an axial cut, exempt from speed_jump); otherwise an expo-out move of dur seconds (default 0.7). Several frame ops make a sequence: each starts from where the camera is at its time.',
   },
-  set_cue: { fields: ["name", "at", "time"], rules: 'set_cue {name, at}: a named moment (a marker) that at:"cue:<name>" points at. at is seconds or any other at form.' },
+  set_cue: { fields: ["name", "at", "time", "layerId", "media"], rules: 'set_cue {name, at | layer, media}: a named moment (a marker) that at:"cue:<name>" points at. at is seconds or any other at form. Or layer + media: pinned to media seconds into a video or audio clip\'s file; it follows the clip when trimmed, moved or sped up (not a Speed animation).' },
   remove_cue: { fields: ["name"], rules: "remove_cue {name}: removes a marker you set." },
   set_brand: {
     fields: ["name", "colors", "fonts", "logos", "motion"],
@@ -534,8 +536,16 @@ const TRANSLATE = {
     if (operation.dur !== undefined && (operation.cut || typeof operation.dur !== "number" || !(operation.dur >= 0.1 && operation.dur <= 20)))
       throw problem(operation.cut ? "A cut has no dur: leave dur out, or set cut:false for a move." : "dur is seconds, from 0.1 to 20.");
   },
-  set_cue(operation) {
+  set_cue(operation, resolver) {
     if (typeof operation.name !== "string" || !CUE_NAME.test(operation.name)) throw problem("name is 1 to 64 letters, digits, dots, dashes or underscores.");
+    if (operation.layerId !== undefined || operation.media !== undefined) {
+      if (operation.at !== undefined || operation.time !== undefined) throw problem("Give at (a scene time) or layer + media (a moment of a clip's file), not both.");
+      if (operation.layerId === undefined) throw problem("media needs layer: the video or audio layer whose file it counts in.");
+      if (typeof operation.media !== "number" || !Number.isFinite(operation.media) || operation.media < 0)
+        throw problem("media is seconds into the clip's own file, 0 or more.");
+      operation.layerId = layerRef(resolver, operation.layerId);
+      return;
+    }
     if (operation.at === undefined) { operation.at = operation.time; delete operation.time; }
     if (operation.at === undefined) throw problem("set_cue needs at: seconds, or a time such as \"after:title.in\".");
     parseAt(operation.at);
@@ -750,7 +760,7 @@ export function blockCreatedIds(operation) {
 export function blockReferencedIds(operation) {
   if (!isBlockOperation(operation?.type)) return [];
   const ids = [operation.sceneId, operation.template, operation.out, operation.in, operation.below, operation.above, operation.left_of, operation.right_of];
-  if (operation.type === "mark_subject" || operation.type === "frame" || operation.type === "split_image") ids.push(operation.layerId);
+  if (["mark_subject", "frame", "split_image", "set_cue"].includes(operation.type)) ids.push(operation.layerId);
   if (operation.type === "move" && MOVES[operation.name]) {
     for (const [key, field] of Object.entries(MOVES[operation.name].fields)) {
       const value = operation[moveFieldKey(key)];
@@ -919,6 +929,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       cue(name) {
         const cue = (document.cues ?? []).find((entry) => entry.name === name);
         if (!cue) throw problem(`No cue "${name}".${document.cues?.length ? "" : " set_cue {name, at} makes one."}`, closest(name, (document.cues ?? []).map((entry) => entry.name)));
+        // A footage cue follows its clip as earlier ops in this edit left it.
+        if (cue.layer !== undefined) {
+          try { return Math.min(MAX_TIME, Math.max(0, round(footageCueTime(document, cue.layer, cue.media).time))); } catch { return cue.time; }
+        }
         return cue.time;
       },
       auto() { return lastEntranceEnd(scene, fonts, { skip }); },
@@ -1557,7 +1571,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // ---- cues and brands ----------------------------------------------------------------------
   async function applySetCue(document, operation, work) {
     let time;
-    if (typeof operation.at === "number" || /^\s*\d*\.?\d+\s*$/.test(String(operation.at))) time = Number(operation.at);
+    let pin = null;
+    if (operation.layerId !== undefined) {
+      let placed;
+      try { placed = footageCueTime(document, operation.layerId, operation.media); } catch (error) { throw problem(error.message); }
+      pin = { layer: operation.layerId, media: operation.media, shown: placed.shown, raw: placed.time };
+      time = Math.min(MAX_TIME, Math.max(0, placed.time));
+    } else if (typeof operation.at === "number" || /^\s*\d*\.?\d+\s*$/.test(String(operation.at))) time = Number(operation.at);
     else {
       const fonts = await fontsOf(document, work);
       const parsed = parseAt(operation.at);
@@ -1569,8 +1589,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const cues = document.cues ?? [];
     const same = cues.find((cue) => cue.name === operation.name);
     if (same && same.kind !== "marker") throw problem(`The cue ${operation.name} comes from a ${same.kind}; choose another name for your marker.`);
-    document.cues = [...cues.filter((cue) => cue.name !== operation.name), { name: operation.name, time: round(time), kind: "marker" }].sort((a, b) => a.time - b.time);
-    work.notes.push(`cue ${operation.name} at ${round(time)} s${same ? " (moved)" : ""}`);
+    const cue = { name: operation.name, time: round(time), kind: "marker", ...(pin ? { layer: pin.layer, media: pin.media } : {}) };
+    document.cues = [...cues.filter((entry) => entry.name !== operation.name), cue].sort((a, b) => a.time - b.time);
+    const where = pin ? ` (${pin.media} s into ${pin.layer}'s file${pin.shown ? "" : `; the clip does not show it, it would be at ${round(pin.raw)} s`})` : "";
+    work.notes.push(`cue ${operation.name} at ${round(time)} s${where}${same ? " (moved)" : ""}`);
   }
 
   function applyRemoveCue(document, operation, work) {

@@ -76,7 +76,7 @@ export function cueListText(document, targets) {
     const listed = cues.slice(0, shown).filter((cue) => cue.kind === kind);
     if (!ofKind.length) continue;
     const label = listed.length < ofKind.length ? `${kind} ${ofKind.length}, ${listed.length} shown` : `${kind} ${ofKind.length}`;
-    lines.push(listed.length ? `${label}: ${listed.map((cue) => `${cue.name} ${cue.time}`).join(", ")}` : label);
+    lines.push(listed.length ? `${label}: ${listed.map((cue) => `${cue.name} ${cue.time}${cue.layer ? ` (${cue.layer} file ${cue.media}s)` : ""}`).join(", ")}` : label);
   }
   if (shown < cues.length) {
     const next = cues[shown].time;

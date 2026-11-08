@@ -13,7 +13,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `move {name, at, align?, dur?, scene?, id?, seed?, reduced?, look?, brand?, …its fields}`
 - `set_brand {name, colors?: {bg, surface, text, accent, accent2}, fonts?: [{family, weight?}] (headlines, then body), logos?: [{media}|{text}], motion?: snappy|smooth|calm}`
 - `remove_brand {name}`
-- `set_cue {name, at}`
+- `set_cue {name, at | layer, media}`
 - `remove_cue {name}`
 - `variants {scene, vary?:"layout"|"timing"|"look"|"deck"|"format", count?, formats?}`
 - `pick_variant {scene}`
