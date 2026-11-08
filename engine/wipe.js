@@ -97,12 +97,11 @@ function fieldMarkup(field, edge, feather, invert, defs, id) {
   if (edge <= 0) return out;
   if (field.shape === "clock") {
     if (feather <= 0) return out + wedge(field, 0, edge, fill(1));
-    out += wedge(field, 0, edge - feather, fill(1));
-    for (let i = 0; i < CLOCK_STEPS; i++) {
-      const from = edge - feather + feather * i / CLOCK_STEPS;
-      out += wedge(field, from, from + feather / CLOCK_STEPS, fill(1 - (i + 0.5) / CLOCK_STEPS));
-    }
-    return out;
+    // Nested wedges from the start, widest (dimmest) first: each step's edge lies over the next
+    // step's paint, so no background shows through a seam between side-by-side wedges.
+    for (let i = CLOCK_STEPS - 1; i >= 0; i--)
+      out += wedge(field, 0, edge - feather + feather * (i + 1) / CLOCK_STEPS, fill(1 - (i + 0.5) / CLOCK_STEPS));
+    return out + wedge(field, 0, edge - feather, fill(1));
   }
   if (feather <= 0) {
     if (field.shape === "linear") return out + polygonMarkup(halfPlane(field, edge), fill(1));
@@ -124,24 +123,26 @@ function fieldMarkup(field, edge, feather, invert, defs, id) {
   return out + box(`url(#${gradient})`);
 }
 
-const maskTag = (id, field, content) =>
-  `<mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="0" y="0" width="${fmt(field.w)}" height="${fmt(field.h)}" style="mask-type:luminance">${content}</mask>`;
+// origin moves the box (a repeated layer's wipe covers every copy: render.js revealAttributes).
+const shift = (origin, content) => origin.x || origin.y ? `<g transform="translate(${fmt(origin.x)} ${fmt(origin.y)})">${content}</g>` : content;
+const maskTag = (id, field, content, origin) =>
+  `<mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${fmt(origin.x)}" y="${fmt(origin.y)}" width="${fmt(field.w)}" height="${fmt(field.h)}" style="mask-type:luminance">${shift(origin, content)}</mask>`;
 
 /** The mask attribute and, with an edge band, a function that adds the band over the content.
  *  progress is strictly between 0 and 1 here. */
-export function generalReveal(width, height, reveal, defs, id) {
+export function generalReveal(width, height, reveal, defs, id, origin = { x: 0, y: 0 }) {
   const field = wipeField(width, height, reveal);
   const { feather, band, front, picture } = wipeEdges(field, reveal.progress, reveal.softness);
   const maskId = id("wipe-mask");
-  defs.push(maskTag(maskId, field, fieldMarkup(field, front, feather, false, defs, () => id("wipe-gradient"))));
+  defs.push(maskTag(maskId, field, fieldMarkup(field, front, feather, false, defs, () => id("wipe-gradient")), origin));
   const attribute = ` mask="url(#${maskId})"`;
   if (band <= 0) return { attribute, band: null };
   // The band is the layer's own drawing (its alpha) in edgeColor, from the picture's edge to the front.
   const bandMask = id("wipe-band");
-  defs.push(maskTag(bandMask, field, fieldMarkup(field, picture, 0, true, defs, () => id("wipe-gradient"))));
+  defs.push(maskTag(bandMask, field, fieldMarkup(field, picture, 0, true, defs, () => id("wipe-gradient")), origin));
   return { attribute, band(content) {
     const contentId = id("wipe-content"), alpha = id("wipe-alpha");
-    defs.push(`<mask id="${alpha}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000" style="mask-type:alpha"><use href="#${contentId}"/></mask>`);
-    return `<g id="${contentId}">${content}</g><g mask="url(#${alpha})"><g mask="url(#${bandMask})"><rect x="0" y="0" width="${fmt(field.w)}" height="${fmt(field.h)}" fill="${reveal.edgeColor ?? "#FFFFFF"}"/></g></g>`;
+    defs.push(`<mask id="${alpha}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000" mask-type="alpha"><use href="#${contentId}"/></mask>`);
+    return `<g id="${contentId}">${content}</g><g mask="url(#${alpha})"><g mask="url(#${bandMask})"><rect x="${fmt(origin.x)}" y="${fmt(origin.y)}" width="${fmt(field.w)}" height="${fmt(field.h)}" fill="${reveal.edgeColor ?? "#FFFFFF"}"/></g></g>`;
   } };
 }

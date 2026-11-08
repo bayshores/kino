@@ -340,7 +340,7 @@ function ancestorsOnlyMove(state, context) {
   let parent = state.parentId;
   while (parent && context.layersById.has(parent)) {
     const source = context.layersById.get(parent), shown = shownState(source, context);
-    if (hasFilterEffect(shown) || shown.effectPreset || effectsAt(source, context.time).length) return false;
+    if (hasFilterEffect(shown) || shown.effectPreset || effectsAt(source, context.time).length || repeaterOf(shown)) return false;
     parent = source.parentId;
   }
   return true;
@@ -370,8 +370,11 @@ function revealAttributes(state, reveal, context) {
   if (reveal.progress <= 0 || finite(state.width) <= 0 || finite(state.height) <= 0)
     return { attribute: "", sentinel: "", hidden: true };
 
-  if (isGeneralReveal(reveal)) {
-    const general = generalReveal(finite(state.width), finite(state.height), reveal, context.defs, (kind) => idFor(context, kind));
+  // A repeated layer wipes over the box around all its copies, drawn by the general wipe.
+  const copies = repeaterOf(state) && repeatBounds({ x: 0, y: 0, width: finite(state.width), height: finite(state.height) }, state);
+  if (copies || isGeneralReveal(reveal)) {
+    const box = copies || { x: 0, y: 0, width: finite(state.width), height: finite(state.height) };
+    const general = generalReveal(box.width, box.height, reveal, context.defs, (kind) => idFor(context, kind), box);
     return { ...general, sentinel: context.canvas ? "" : rasterClipBounds(state, context), hidden: false };
   }
   const rect = revealRectangle(state, reveal);

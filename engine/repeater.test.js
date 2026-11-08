@@ -78,3 +78,31 @@ test("saved documents check repeater fields and their ranges", () => {
   assert.throws(() => parseDocument(doc(createLayer("star", { id: "s2", repeatCopies: 65 }))), /repeatCopies/);
   assert.throws(() => parseDocument(doc(createLayer("video", { id: "v", repeatCopies: 3 }))), /repeater/);
 });
+
+test("a wipe sweeps across every copy, and raster renders keep a repeated group's copies", async () => {
+  const { Resvg } = await import("@resvg/resvg-js");
+  const pixel = (svg, x, y) => { const p = new Resvg(svg).render().pixels; return [...p.subarray((y * 400 + x) * 4, (y * 400 + x) * 4 + 3)]; };
+  // Three 100 px squares 120 px apart (x 20 to 360): a right wipe at 0.5 reaches x 190.
+  const row = (reveal) => renderSceneSvg(scene([createLayer("rectangle", { id: "r", x: 20, y: 150, width: 100, height: 100, fill: "#FFFFFF", repeatCopies: 3, repeatX: 120, reveal })]), 0);
+  for (const reveal of [{ progress: 0.5, direction: "right", softness: 0 }, { progress: 0.5, direction: "right", softness: 0, shape: "linear" }]) {
+    const svg = row(reveal);
+    assert.deepEqual([pixel(svg, 50, 200), pixel(svg, 170, 200), pixel(svg, 210, 200), pixel(svg, 310, 200)],
+      [[255, 255, 255], [255, 255, 255], [0, 0, 0], [0, 0, 0]], JSON.stringify(reveal));
+  }
+  const late = row({ progress: 0.95, direction: "right", softness: 0, shape: "iris" });
+  assert.deepEqual(pixel(late, 310, 200), [255, 255, 255], "the last copy shows before the wipe ends");
+  // A group left of the frame whose copies land inside: raster culling must not drop its child.
+  const group = createLayer("group", { id: "g", x: -150, y: 150, width: 100, height: 100, repeatCopies: 3, repeatX: 200 });
+  const child = createLayer("rectangle", { id: "c", parentId: "g", x: 0, y: 0, width: 100, height: 100, fill: "#FFFFFF" });
+  const svg = renderSceneSvg(scene([group, child]), 0, { raster: true });
+  assert.deepEqual([pixel(svg, 100, 200), pixel(svg, 300, 200)], [[255, 255, 255], [255, 255, 255]]);
+});
+
+test("the repeat preset keeps a layer's own placement, scale included", async () => {
+  const { presetAnimation } = await import("./animation.js");
+  const rings = createLayer("ellipse", { id: "e", width: 100, height: 100, repeatCopies: 6, repeatScale: 0.8 });
+  const burst = presetAnimation("repeat", rings, 0, scene([rings]));
+  assert.deepEqual([burst.from, burst.to], [{ repeatCopies: 1 }, { repeatCopies: 6 }]);
+  const plain = createLayer("rectangle", { id: "r", width: 10, height: 80 });
+  assert.deepEqual(presetAnimation("repeat", plain, 0, scene([plain])).to, { repeatCopies: 8, repeatRotation: 45 });
+});

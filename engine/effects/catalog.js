@@ -168,8 +168,10 @@ const definitions = [
     } },
   { key: "color-grade", label: "Color Grade", group: "Utility", kind: "ranged", render: renderColorGrade,
     parameters: {
-      // Exposure is a gain in linear light (2 is one stop brighter); Brightness multiplies sRGB.
-      exposure: number("Exposure", 1, 0, 8, 0.05, "x"), brightness: number("Brightness", 1, 0, 4, 0.05),
+      // Stops: exposure in linear light (1 is one stop brighter). Brightness multiplies sRGB. exposure
+      // is the old sRGB multiplier, stored only when given, so grades saved before stops draw the same.
+      stops: number("Exposure", 0, -5, 5, 0.05, "stops"),
+      exposure: number("Gain", 1, 0, 4, 0.05, "x", { optional: true }), brightness: number("Brightness", 1, 0, 4, 0.05),
       contrast: number("Contrast", 1, 0, 4, 0.05), saturation: number("Saturation", 1, 0, 4, 0.05),
     } },
   { key: "color-remover", label: "Color Remover", group: "Utility", kind: "ranged", render: renderColorRemover,

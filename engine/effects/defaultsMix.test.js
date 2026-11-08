@@ -5,6 +5,7 @@ import { Resvg } from "@resvg/resvg-js";
 import { EFFECTS, effectDefaults, effectDefinition, MIX_DOCUMENTATION, normalizeEffectParameters } from "./catalog.js";
 import { describeOperation } from "../../backend/operation-guide.mjs";
 import { effectsAt } from "./animation.js";
+import { createHash } from "node:crypto";
 
 const W = 48, H = 32;
 // Dark to light bars with colored stripes: enough detail to see warps and tone changes.
@@ -22,6 +23,7 @@ function draw(key, parameters, { content = SOURCE, raster = true, time = 0.5 } =
 }
 const source = () => draw("color-grade", {}).pixels; // the identity grade draws the source as it is
 const at = (pixels, x, y) => [...pixels.subarray((y * W + x) * 4, (y * W + x) * 4 + 4)];
+const hash = (text) => createHash("sha256").update(text).digest("hex").slice(0, 16);
 const meanDifference = (a, b) => a.reduce((sum, value, index) => sum + Math.abs(value - b[index]), 0) / a.length;
 
 test("every effect has mix 0..1, default 1, stored only when given", () => {
@@ -76,24 +78,34 @@ test("the fixed defaults: dot grid in two tones, warps that keep the picture, lu
   assert.deepEqual(at(red, 2, 4).slice(0, 3), [255, 0, 0], "dark tones turn the chosen color");
 });
 
-test("color grade: neutral defaults, exposure is a gain in linear light, not brightness", () => {
-  assert.deepEqual(effectDefaults("color-grade"), { exposure: 1, brightness: 1, contrast: 1, saturation: 1 });
+test("color grade: neutral defaults, stops is exposure in linear light; a saved exposure draws as before", () => {
+  assert.deepEqual(effectDefaults("color-grade"), { stops: 0, brightness: 1, contrast: 1, saturation: 1 });
   const gray = '<rect width="48" height="32" fill="#404040"/>';
-  const exposed = at(draw("color-grade", { exposure: 2 }, { content: gray }).pixels, 1, 1)[0];
-  const brighter = at(draw("color-grade", { brightness: 2 }, { content: gray }).pixels, 1, 1)[0];
-  assert.ok(Math.abs(exposed - 90) <= 2, `one stop up from 64 is about 90 in sRGB (got ${exposed})`);
-  assert.ok(Math.abs(brighter - 128) <= 2, `brightness 2 doubles the sRGB value (got ${brighter})`);
+  const value = (settings) => at(draw("color-grade", settings, { content: gray }).pixels, 1, 1)[0];
+  assert.ok(Math.abs(value({ stops: 1 }) - 90) <= 2, `one stop up from 64 is about 90 in sRGB (got ${value({ stops: 1 })})`);
+  assert.ok(Math.abs(value({ stops: -1 }) - 44) <= 2, `one stop down is about 44 (got ${value({ stops: -1 })})`);
+  assert.ok(Math.abs(value({ brightness: 2 }) - 128) <= 2, "brightness 2 doubles the sRGB value");
+  // exposure is the old sRGB multiplier, stored only when given: a grade saved with it draws the
+  // markup origin/main drew (hash recorded from main's renderer).
+  assert.equal("exposure" in effectDefaults("color-grade"), false);
+  const saved = { exposure: 2, brightness: 1, contrast: 1.5, saturation: 0.5 };
+  assert.equal(hash(draw("color-grade", { ...saved, stops: 0 }).markup), "380d723c72c1b355");
 });
 
 test("seeds: the default draws as before, another seed draws another pattern", () => {
-  for (const [key, extra, before] of [["pixelate", { noiseEnabled: true }, 17], ["grid-scroll-x", {}, 71], ["grid-scroll-y", {}, 83],
-    ["fluid-warp", {}, 0], ["noise-warp", {}, 0]]) {
+  // Hashes of the markup origin/main drew for these saved settings (before seeds existed).
+  const grid = { repeatX: 5, repeatY: 5, gapX: 60, gapY: 60, baseSpeed: 0.25, speedVariation: 0.5, lineOffset: 0.5, scaleFactor: 0.7 };
+  for (const [key, saved, before, mainHash] of [
+    ["pixelate", { pixelSize: 25, pixelSizeStep: 1, noiseScale: 1, noiseThreshold: 0.5, noiseEnabled: true }, 17, "ba7963105623ac37"],
+    ["grid-scroll-x", grid, 71, "7aeb963d06b72a7b"], ["grid-scroll-y", grid, 83, "be73be9e8dfe024c"],
+    ["fluid-warp", { amount: 25, noiseScale: 1, octaves: 4, speed: 1, contain: false }, 0, "cd159b8c7b4edb5a"],
+    ["noise-warp", { amount: 26, noiseScale: 1, speed: 1, contain: true }, 0, "462f01b10b5282ef"]]) {
     const field = effectDefinition(key).parameters.seed;
     assert.deepEqual([field.default, field.animatable, field.optional], [before, false, true], `${key} seed`);
     assert.equal("seed" in effectDefaults(key), false, "saved effects without a seed stay as they were");
-    const withoutSeed = { ...effectDefaults(key), ...extra }, settings = { ...withoutSeed, seed: before };
-    const drawn = draw(key, settings).markup;
-    assert.equal(drawn, draw(key, withoutSeed).markup, `${key} seed ${before} is the old pattern`);
-    assert.notEqual(draw(key, { ...settings, seed: before + 5 }).markup, drawn, `${key} seed changes the pattern`);
+    assert.equal(hash(draw(key, saved).markup), mainHash, `${key} without a seed draws main's pattern`);
+    const drawn = draw(key, { ...saved, seed: before }).markup;
+    assert.equal(hash(drawn), mainHash, `${key} seed ${before} is the old pattern`);
+    assert.notEqual(draw(key, { ...saved, seed: before + 5 }).markup, drawn, `${key} seed changes the pattern`);
   }
 });

@@ -16,27 +16,28 @@ export function exposureTable(gain, samples = 256) {
 }
 
 /**
- * Color Grade. Exposure is a gain in linear light (2 is one stop brighter, 0.5 one stop darker),
- * drawn as one table so the shadows open the way a camera's exposure does. Brightness multiplies
- * sRGB, Contrast pivots at middle gray, and Saturation mixes against sRGB luma. The alpha row stays
- * the identity so transparent and semitransparent paint keeps its original coverage.
+ * Color Grade. Stops is exposure in linear light (1 is one stop brighter, -1 one darker), drawn as
+ * one table so the shadows open the way a camera's exposure does. Brightness, and exposure (the old
+ * multiplier kept for color grades saved before stops), multiply sRGB; Contrast pivots at middle
+ * gray, and Saturation mixes against sRGB luma. The alpha row stays the identity so transparent and
+ * semitransparent paint keeps its original coverage.
  */
 export function renderColorGrade(frame) {
-  const exposure = numberParameter(frame, "exposure", 1, 0, 8);
+  const stops = numberParameter(frame, "stops", 0, -5, 5);
+  const exposure = numberParameter(frame, "exposure", 1, 0, 4);
   const brightness = numberParameter(frame, "brightness", 1, 0, 4);
   const contrast = numberParameter(frame, "contrast", 1, 0, 4);
   const saturation = numberParameter(frame, "saturation", 1, 0, 4);
-  if (exposure === 1 && brightness === 1 && contrast === 1 && saturation === 1)
-    return frame.content;
+  const plain = exposure === 1 && brightness === 1 && contrast === 1 && saturation === 1;
+  if (stops === 0 && plain) return frame.content;
 
   const primitives = [];
-  if (exposure !== 1) {
-    const values = exposureTable(exposure);
+  if (stops !== 0) {
+    const values = exposureTable(2 ** stops);
     primitives.push(`<feComponentTransfer><feFuncR type="table" tableValues="${values}"/><feFuncG type="table" tableValues="${values}"/><feFuncB type="table" tableValues="${values}"/></feComponentTransfer>`);
   }
-  if (brightness === 1 && contrast === 1 && saturation === 1)
-    return filterEffect(frame, primitives, { padding: 0 });
-  const scale = brightness * contrast;
+  if (plain) return filterEffect(frame, primitives, { padding: 0 });
+  const scale = exposure * brightness * contrast;
   const offset = (1 - contrast) / 2;
   const [redLuma, greenLuma, blueLuma] = LUMA;
   const saturationMatrix = [
@@ -50,8 +51,9 @@ export function renderColorGrade(frame) {
     `${number(saturationMatrix[6] * scale)} ${number(saturationMatrix[7] * scale)} ${number(saturationMatrix[8] * scale)} 0 ${number(offset)}`,
     "0 0 0 1 0",
   ].join(" ");
-  primitives.push(`<feColorMatrix type="matrix" values="${values}"/>`);
-  return filterEffect(frame, primitives, { padding: 0 });
+  // Alone, the matrix is passed as one string, as before stops existed (the same markup).
+  const matrix = `<feColorMatrix type="matrix" values="${values}"/>`;
+  return filterEffect(frame, primitives.length ? [...primitives, matrix] : matrix, { padding: 0 });
 }
 
 function normalizedColor(value) {

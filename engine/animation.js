@@ -365,7 +365,9 @@ export function presetAnimation(presetId, layer, start = 0, scene, options = {})
         throw new TypeError("Repeater preset requires a rectangle, ellipse, star, path, text, or group layer");
       // A burst: copies appear one after another. A layer without a repeater gets 8 copies a turn apart.
       const copies = currentNumber(layer, "repeatCopies", 1);
-      const placed = ["repeatX", "repeatY", "repeatRotation"].some((key) => currentNumber(layer, key) !== 0);
+      // Copies are placed by a move, a turn or a scale (the anchor only matters with a turn or scale).
+      const placed = ["repeatX", "repeatY", "repeatRotation"].some((key) => currentNumber(layer, key) !== 0) ||
+        currentNumber(layer, "repeatScale", 1) !== 1;
       from = { repeatCopies: 1 };
       to = { repeatCopies: copies > 1 ? copies : 8 };
       if (!placed) from.repeatRotation = to.repeatRotation = 45;

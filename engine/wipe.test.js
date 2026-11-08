@@ -51,6 +51,22 @@ test("linear at any angle, radial, iris and clock show what their field says", (
   assert.ok(at(pixels, 120, 20)[0] > 240 && at(pixels, 40, 20)[0] < 15 && at(pixels, 120, 80)[0] < 15);
 });
 
+test("a soft clock fades evenly, with no dark seams between its steps", () => {
+  const size = 300;
+  const layer = createLayer("rectangle", { id: "r", x: 0, y: 0, width: size, height: size, fill: "#FFFFFF",
+    reveal: { progress: 0.5, direction: "right", softness: 30, shape: "clock" } });
+  const pixels = new Resvg(renderSceneSvg(createScene({ id: "s", width: size, height: size, background: "#000000", layers: [layer] }), 0)).render().pixels;
+  // Clockwise from 12 o'clock on a 120 px circle the mask only darkens: a seam was a dip and rise.
+  let last = 255;
+  for (let deg = 90; deg <= 250; deg += 0.25) {
+    const r = (deg - 90) * Math.PI / 180;
+    const x = Math.round(150 + Math.cos(r) * 120), y = Math.round(150 + Math.sin(r) * 120);
+    const value = pixels[(y * size + x) * 4];
+    assert.ok(value <= last + 3, `${deg} deg: ${value} after ${last}`);
+    last = Math.min(last, value);
+  }
+});
+
 test("today's four directions draw as before, and the same wipe written as an angle matches them", () => {
   for (const [direction, angle] of [["right", 0], ["down", 90], ["left", 180], ["up", 270]]) {
     for (const softness of [0, 20]) {
@@ -72,7 +88,11 @@ test("an edge band rides ahead of the picture in its color, on the layer's own d
   assert.deepEqual(at(pixels, 60, 50), [255, 255, 255]);
   assert.deepEqual(at(pixels, 80, 50), [255, 0, 0]);
   assert.deepEqual(at(pixels, 100, 50), [0, 0, 0]);
-  assert.match(svg, /mask-type:alpha"><use href="#/);
+  // mask-type as an attribute: resvg reads a style one as luminance, so a dark layer's band went pale.
+  assert.match(svg, /mask-type="alpha"><use href="#/);
+  const dark = draw(reveal, "#203060").pixels;
+  assert.deepEqual(at(dark, 80, 50), [255, 0, 0], "the band is solid on a dark layer");
+  assert.deepEqual(at(dark, 60, 50), [32, 48, 96]);
   // Soft: the picture meets the band hard, the band stays solid, its front fades.
   const soft = draw({ ...reveal, softness: 10 }).pixels;
   // Front 0.5 × (1 + 0.1 + 0.125) = 0.6125 (x 98); band from x 66 to 82, fading to x 98.

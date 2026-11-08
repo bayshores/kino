@@ -174,7 +174,7 @@ const EFFECT_STRONG = {
   "white-balance": { temperature: -100, tint: 70 },
   "color-wheels": { liftBlue: 0.35, liftGreen: 0.15, gainRed: 0.25, gamma: 1.2 },
   "noise-mask": { threshold: 0.5 },
-  "color-grade": { exposure: 1.6, contrast: 1.2, saturation: 0.6 },
+  "color-grade": { stops: 0.7, contrast: 1.2, saturation: 0.6 },
   vignette: { amount: 0.85 },
 };
 // Effects shown on the picture only: a vignette on the word would shade the word's own box.
