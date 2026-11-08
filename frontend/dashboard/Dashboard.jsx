@@ -47,6 +47,7 @@ import { ApprovalCard, ApprovalScreen, CommandLine, ConfirmBox, HelpScreen, Proj
 import { SettingsScreen } from "./settings.jsx";
 import { StopCard, StopDone, StopElsewhere, StopScreen, StopsCard, StopSettings } from "./stops.jsx";
 import { BoardScreen } from "./board.jsx";
+import { directionWords } from "./boardRows.js";
 import { CrewScreen } from "./crew.jsx";
 import { InspireScreen } from "./inspire.jsx";
 import { JudgeBox } from "./judge.jsx";
@@ -795,7 +796,8 @@ export function Dashboard() {
   const pressStop = useCallback(async (round, press) => {
     const key = `${projectId}/${round.id}`;
     const note = stopNotes[key] ?? { text: "", mode: "notes" };
-    const shots = Object.entries(shotNotes[key] ?? {}).map(([id, entry]) => ({ id, words: entry.text }));
+    // Each shot's directions (an option, a length, remove, a note) in the words the agent reads.
+    const shots = Object.entries(shotNotes[key] ?? {}).map(([id, entry]) => ({ id, words: directionWords(entry) }));
     const result = stopAnswer(round, { press, mode: note.mode, text: note.text, shots, noCalls: callNos[key] ?? [] });
     if (result.focus || result.error) {
       if (result.error) say(result.error, true);
@@ -827,13 +829,13 @@ export function Dashboard() {
     if (field) field.focus();
     else row.querySelector("[data-note-open]")?.click();
   };
-  // j, k, ↓ and ↑ on a board: the focus goes to the next or previous shot row.
+  // j, k, ↓ and ↑ on a board: the shot panel takes the focus; once it has it, the next or
+  // previous shot goes into it (its › and ‹ buttons).
   const stepShot = (step) => {
-    const rows = [...window.document.querySelectorAll("article.board-shot")];
-    if (!rows.length) return;
-    const at = rows.indexOf(window.document.activeElement?.closest?.("article.board-shot"));
-    const next = at < 0 ? (step > 0 ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, at + step));
-    rows[next].focus();
+    const panel = window.document.querySelector("article.board-shot");
+    if (!panel) return;
+    if (window.document.activeElement?.closest?.("article.board-shot")) panel.querySelector(step > 0 ? "[data-shot-next]" : "[data-shot-prev]")?.click();
+    requestAnimationFrame(() => window.document.querySelector("article.board-shot")?.focus());
   };
   // The stop screen; "redo" opens it with the redo note focused.
   const openStop = (round, mode = null) => {
@@ -1607,7 +1609,6 @@ export function Dashboard() {
       const list = (value[noteKey(round.id)] ?? []).filter((entry) => entry !== call);
       return { ...value, [noteKey(round.id)]: no ? [...list, call] : list };
     }),
-    onSeeAll: () => setScreen({ name: "stop", id: round.id }),
   });
   const recentLine = recentStop ? stopLines.find((row) => row.key === recentStop) ?? null : null;
   const saveSettings = async (change) => { try { await server.saveSettings(change); say("Saved."); } catch (cause) { fail(cause); } };

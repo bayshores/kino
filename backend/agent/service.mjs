@@ -1085,7 +1085,9 @@ export function createAgentService(deps) {
     const document = shownRev === record.revision ? record.document : await store.getProjectRevision(projectId, shownRev);
     if (!document) throw new AgentError("not_found", `rev ${shownRev} is no longer kept.`);
     const records = new Map();
-    for (const shot of document.board?.shots ?? []) if (shot.media !== "none" && !records.has(shot.media)) records.set(shot.media, await mediaRecord(shot.media));
+    // Each shot's file and its options' files (an option may use another clip).
+    const sources = (document.board?.shots ?? []).flatMap((shot) => [shot.media, ...(shot.alts ?? []).map((alt) => alt.media)]);
+    for (const src of sources) if (typeof src === "string" && src !== "none" && !records.has(src)) records.set(src, await mediaRecord(src));
     const data = boardScreenData(document, { state, round, rev: shownRev, project: projectId, records, soundFiles: await soundFilesFor(document), soundSearch: soundSearchOn() });
     if (!data) throw new AgentError("not_found", `No storyboard in rev ${shownRev}.`);
     return data;

@@ -1003,6 +1003,10 @@ How to read it:
   Evidence: `backend/board-rules.test.mjs`, `backend/agent-board.test.mjs`.
 - **After a redo**: Verified. The next ask lists what changed as asked, unasked, and not changed.
   Evidence: `backend/board-redo.test.mjs`.
+- **Board screen (v4)**: Verified. The dashboard plays a rough cut of the board from its files (crop, text, directed
+  lengths), shows one shot at a time (first and last frame, options A to C from `alts`) and a timeline with the
+  story roles; a picked option, a new length or remove shot goes to the agent as that shot's note. Evidence:
+  `frontend/dashboardBoard.test.js`, `backend/board-data.test.mjs`, `tests/dashboard-browser.test.mjs` (storyboard screen).
 - **Fresh-eyes check**: Partly verified. A second agent reviews the board with only the brief; the
   ask reports ran, skipped or not reported. Not verified: a real agent starting a second agent.
 - **Gaps**: 9:16 app covered areas are third-party numbers; only 3D footage tested; a real session

@@ -11,6 +11,7 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { shotMeasures } from "../engine/boardMeasure.js";
+import { shotRoles } from "../engine/movePicks.js";
 import { aspectWords, boardData } from "./agent/board-data.mjs";
 import { skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
@@ -22,9 +23,9 @@ const RECORDS = new Map([[CLIP_SRC, { name: "sintel-village-dragon.mp4", width: 
 const shotOf = (id, cue, dur, extra = {}) => ({ id, cue, dur, pacing: "free", media: CLIP_SRC, in: cue, crop: [20, 12, 24, 76],
   subject: { what: "the dragon", boxes: [[24, 30, 14, 30]] }, follow: "steady", text: "none", sound: "none", why: "the dragon over the village", alts: [], move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, ...extra });
 const titleCard = (id, cue, dur) => ({ id, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none",
-  text: { text: "The dragon is back", family: "Inter", weight: 700, size: 96, y: 40, fill: "#ffffff" }, sound: "none", why: "the line", alts: ["a lower line"], move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" } });
+  text: { text: "The dragon is back", family: "Inter", weight: 700, size: 96, y: 40, fill: "#ffffff" }, sound: "none", why: "the line", alts: [{ why: "a lower line" }], move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" } });
 const documentOf = (width, height) => ({ scenes: [{ id: "main", width, height, duration: 6, layers: [] }],
-  board: { rev: 3, music: "none", calls: ["End on the title"], open: [], shots: [shotOf("S1", 0, 2), shotOf("S2", 2, 2, { media: GONE_SRC }), titleCard("S3", 4, 2)] } });
+  board: { rev: 3, music: "none", calls: ["End on the title"], open: [], shots: [shotOf("S1", 0, 2, { alts: [{ media: GONE_SRC, in: 1, why: "the other clip" }] }), shotOf("S2", 2, 2, { media: GONE_SRC }), titleCard("S3", 4, 2)] } });
 const STATE = { brief: { fields: { message: { text: "The dragon is back" }, plays_on: { text: "TikTok" } } } };
 
 test("board-data for a 9:16 board: header, the app's covered areas, each shot's file, subject, measures and change", () => {
@@ -35,17 +36,17 @@ test("board-data for a 9:16 board: header, the app's covered areas, each shot's 
   const { shots, ...rest } = data;
   assert.deepEqual(rest, {
     project: "dragon", rev: 7, stop: "C2", status: "waiting", answer: null, fresh: "skipped",
-    header: { board: 3, shots: 3, seconds: 6, width: 1080, height: 1920, aspect: "9:16", platform: "TikTok" },
+    header: { board: 3, shots: 3, seconds: 6, width: 1080, height: 1920, aspect: "9:16", background: "#000000", platform: "TikTok" },
     purpose: "The dragon is back", music: null, audio: [], calls: ["End on the title"], open: [], lapsed: null, redone: round.redone,
     covered: { right: 11.1, bottom: 36.8, verified: false }, soundSearch: false, soundFiles: true,
   });
   const frame = { width: 1080, height: 1920 };
-  assert.deepEqual(shots[0], { n: 1, id: "S1", start: 0, end: 2, dur: 2, pacing: "free", follow: "steady", in: 0, crop: [20, 12, 24, 76], text: "none", sound: "none",
-    why: "the dragon over the village", alts: [], move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, media: { src: CLIP_SRC, name: "sintel-village-dragon.mp4", width: 384, height: 216, kind: "video" },
+  assert.deepEqual(shots[0], { n: 1, id: "S1", start: 0, end: 2, dur: 2, speed: 1, role: shotRoles(document.board.shots, { [CLIP_SRC]: "sintel-village-dragon.mp4", [GONE_SRC]: null })[0], pacing: "free", follow: "steady", in: 0, crop: [20, 12, 24, 76], text: "none", sound: "none",
+    why: "the dragon over the village", alts: [{ media: { src: GONE_SRC, missing: true }, in: 1, why: "the other clip" }], move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, media: { src: CLIP_SRC, name: "sintel-village-dragon.mp4", width: 384, height: 216, kind: "video" },
     subject: { what: "the dragon", boxes: [[24, 30, 14, 30]], by: "agent" }, measures: shotMeasures(document.board.shots[0], frame), change: { asked: true, what: ["crop"] } });
   assert.deepEqual(shots[1].media, { src: GONE_SRC, missing: true }, "kino's library no longer has it");
   assert.deepEqual(shots[1].change, { asked: false, what: ["footage"] }, "changed without being asked");
-  assert.deepEqual([shots[2].media, shots[2].subject, shots[2].crop, shots[2].in, shots[2].follow, shots[2].change, shots[2].alts], ["none", "none", "none", "none", "none", null, ["a lower line"]]);
+  assert.deepEqual([shots[2].media, shots[2].subject, shots[2].crop, shots[2].in, shots[2].follow, shots[2].change, shots[2].alts], ["none", "none", "none", "none", "none", null, [{ why: "a lower line" }]]);
   assert.deepEqual(shots[2].measures, shotMeasures(document.board.shots[2], frame));
 
   // No shot named: a change is not "asked" either way.
@@ -96,7 +97,7 @@ const footage = (cue, dur, inPoint, x, extra = {}) => ({ cue, dur, pacing: "free
   subject: { what: "the dragon", box: [x + 4, 30, 14, 30] }, follow: "steady", text: "none", sound: "none", why: "the dragon over the village", move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" }, ...extra });
 const motion = (cue, dur) => ({ cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none",
   text: { text: "The dragon is back", family: "Inter" }, sound: "none", why: "the line on its own", move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" } });
-const STOP_SHOTS = () => [footage(0, 1.25, 0, 20), footage(1.25, 2.083, 1.25, 38), footage(3.333, 1.084, 3.333, 55), motion(4.417, 4.383)];
+const STOP_SHOTS = () => [footage(0, 1.25, 0, 20), footage(1.25, 2.083, 1.25, 38), footage(3.333, 1.084, 3.333, 55, { alts: [{ crop: [8, 12, 24, 76], why: "wider" }] }), motion(4.417, 4.383)];
 const editBoard = async (project, shots) => {
   const edited = await agent("edit", { project, ops: [{ op: "board", music: "none", shots, calls: ["End on the title"] }] });
   assert.equal(edited.isError, undefined, edited.text);
@@ -186,9 +187,13 @@ test("GET board-shot: a shot's source frame and cropped still as PNGs the asked 
   assert.deepEqual(pngSize(await shotImage({ shot: "S4", part: "still", w: 240 })), { width: 240, height: 427 }, "a title card's still");
   const head = await server.api(`/api/dashboard/board-shot?${new URLSearchParams({ project: id, rev, shot: "S1", part: "still", w: 240 })}`, { method: "HEAD" });
   assert.equal(head.status, 200);
+  // The last frame and an option still are the video's shape too.
+  assert.deepEqual(pngSize(await shotImage({ shot: "S2", part: "last", w: 240 })), { width: 240, height: 427 });
+  assert.deepEqual(pngSize(await shotImage({ shot: "S3", part: "alt1", w: 240 })), { width: 240, height: 427 });
 
   for (const [query, status, error] of [
-    [{ shot: "S2", part: "frame", w: 240 }, 400, "part is source or still."],
+    [{ shot: "S2", part: "frame", w: 240 }, 400, "part is source, still, last, alt1 or alt2."],
+    [{ shot: "S1", part: "alt1", w: 240 }, 404, "shot S1 has no option 1."],
     [{ shot: "S2", part: "source", w: 300 }, 400, "w is 240, 480 or 960."],
     [{ shot: "S2", part: "source" }, 400, "w is 240, 480 or 960."],
     [{ shot: "S9", part: "source", w: 240 }, 404, `shot S9 is not in rev ${rev}.`],

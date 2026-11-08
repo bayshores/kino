@@ -265,24 +265,6 @@ export function overlayBoxes(shot) {
 }
 
 /**
- * The shots a phone's stop card shows: what changed after a redo first, then the flagged ones,
- * then the rest, each in board order; at most `limit` (2: a shot row is most of a phone's
- * screen, and the answers come after the rows). The stop screen shows every shot.
- */
-export function phoneShots(data, limit = 2) {
-  const missed = new Set(data?.redone?.missed ?? []);
-  const rank = (shot) => (shot.change || missed.has(shot.id) ? 0 : shot.measures?.flags?.length ? 1 : 2);
-  return [...(data?.shots ?? [])].sort((a, b) => rank(a) - rank(b) || a.n - b.n).slice(0, limit);
-}
-
-/** The notes on shots, as the buttons say them: "notes on shots 2 and 4" (notes: {id: {n, text}}). */
-export function shotNotesWords(notes = {}) {
-  const numbers = Object.values(notes).filter((note) => String(note?.text ?? "").trim()).map((note) => note.n).sort((a, b) => a - b);
-  if (!numbers.length) return null;
-  return `note${numbers.length === 1 ? "" : "s"} on ${shotList(numbers)}`;
-}
-
-/**
  * Where a board stands, for the read-only screen, in the stop line's words (state.js): "waits for
  * you", "answered: approved with notes on the dashboard at 14:03", "not asked yet: the agent has
  * not shown you this board", … `time` turns an ISO time into "14:03" (format.js timeOfDay).
@@ -303,26 +285,7 @@ export function statusWords(data, time = (iso) => iso ?? "") {
   }
 }
 
-// ---- the reel and the shot cards (board.jsx) -------------------------------------------------
-
-/**
- * The reel's segments, one a shot: its place and width in % of the board's length, so a long
- * shot takes more room, as on a timeline. `flagged`: kino's look flags; `changed`: after a redo.
- */
-export function reelSegments(data) {
-  const shots = data?.shots ?? [];
-  const total = Number(shots.at(-1)?.end) || 0;
-  const share = (value) => (total > 0 ? (value / total) * 100 : 0);
-  return shots.map((shot) => {
-    const start = Number(shot.start) || 0;
-    const end = Number(shot.end) || 0;
-    return {
-      id: shot.id, n: shot.n, start, end, left: share(start), width: share(end - start),
-      flagged: Boolean(shot.measures?.flags?.length),
-      changed: Boolean(shot.change) || Boolean(data?.redone?.missed?.includes(shot.id)),
-    };
-  });
-}
+// ---- the rough cut and the timeline (board.jsx) -------------------------------------------------
 
 /** The place in `data.shots` of the shot at `time` (seconds): the first before it starts, the last after it ends. */
 export function shotIndexAt(data, time) {
@@ -380,4 +343,106 @@ export function headChips(data) {
 /** What a "no" on the agent's calls adds to the answer: 'no to your call "Inter 700 for every line"'. */
 export function callNoWords(calls = []) {
   return (calls ?? []).map((call) => String(call ?? "").trim()).filter(Boolean).map((call) => `no to your call "${call}"`).join("; ");
+}
+
+// ---- the person's directions on shots (board.jsx shot panel, the answer bar) ------------------
+//
+// A direction is one shot's entry in the notes: {n, text, pick, length, remove}. pick is
+// {n: 1 or 2 (the option), letter: "B", why}, length {to, was} in seconds, remove true. They go to
+// the agent as that shot's note, in words it already reads (no new op).
+
+/** The option letters: A is the shot as the agent made it, B and C its options (alts). */
+export const OPTION_LETTERS = ["A", "B", "C"];
+/** The shortest and longest a person can make a shot, and the step of the length buttons. */
+export const LENGTH_LIMITS = Object.freeze({ min: 0.3, max: 20, step: 0.1 });
+
+/** Whether a shot's entry says anything: a note, an option, a length or remove. */
+export function hasDirection(entry) {
+  return Boolean(entry && (String(entry.text ?? "").trim() || entry.pick || entry.length || entry.remove));
+}
+
+/** One shot's directions as the words the agent hears: 'use option B: wider; make it 1.8 s (was 2.1 s); tighter'. */
+export function directionWords(entry) {
+  if (!entry) return "";
+  const text = String(entry.text ?? "").trim();
+  if (entry.remove) return ["remove this shot", text].filter(Boolean).join("; ");
+  return [
+    entry.pick ? `use option ${entry.pick.letter}: ${entry.pick.why}` : "",
+    entry.length ? `make it ${seconds(entry.length.to)} s (was ${seconds(entry.length.was)} s)` : "",
+    text,
+  ].filter(Boolean).join("; ");
+}
+
+/**
+ * The answer bar's chips, one a direction, in shot order: [{id, field, text}], field "remove",
+ * "pick", "length" or "text" (the chip's × takes that one back).
+ */
+export function directionChips(notes = {}) {
+  const chips = [];
+  const entries = Object.entries(notes ?? {}).filter(([, entry]) => hasDirection(entry)).sort(([, a], [, b]) => a.n - b.n);
+  for (const [id, entry] of entries) {
+    if (entry.remove) chips.push({ id, field: "remove", text: `shot ${entry.n}: remove` });
+    else {
+      if (entry.pick) chips.push({ id, field: "pick", text: `shot ${entry.n}: ${entry.pick.why}` });
+      if (entry.length) chips.push({ id, field: "length", text: `shot ${entry.n}: ${seconds(entry.length.to)} s` });
+    }
+    if (String(entry.text ?? "").trim()) chips.push({ id, field: "text", text: `shot ${entry.n}: note` });
+  }
+  return chips;
+}
+
+/** A shot's entry without one field (a chip's ×); null when nothing is left. */
+export function withoutDirection(entry, field) {
+  const next = { ...entry };
+  if (field === "text") next.text = "";
+  else delete next[field];
+  return hasDirection(next) ? next : null;
+}
+
+/** A length a step longer or shorter, within LENGTH_LIMITS, to one decimal. */
+export function steppedLength(value, step) {
+  const next = Math.round((Number(value) + step) * 10) / 10;
+  return Math.min(LENGTH_LIMITS.max, Math.max(LENGTH_LIMITS.min, next));
+}
+
+/**
+ * The board as the person directs it, for the rough cut and the timeline: each shot with its
+ * picked option's footage, in-point, crop and subject, its new length, and new start and end;
+ * a removed shot keeps its place at no length (removed: true). picked is the option (0 is A).
+ */
+export function directedShots(data, notes = {}) {
+  let at = 0;
+  return (data?.shots ?? []).map((shot) => {
+    const entry = notes?.[shot.id] ?? null;
+    const option = entry?.pick ? shot.alts?.[entry.pick.n - 1] ?? null : null;
+    const { why, ...fields } = option ?? {};
+    const removed = Boolean(entry?.remove);
+    const dur = removed ? 0 : Number(entry?.length?.to ?? shot.dur) || 0;
+    const start = at;
+    at += dur;
+    return { ...shot, ...fields, dur, start, end: at, removed, picked: option ? entry.pick.n : 0, lengthChanged: Boolean(entry?.length) };
+  });
+}
+
+
+/**
+ * Where a shot's footage sits in the video's frame, in % of it, as the still draws it
+ * (backend/agent/board-look.mjs stillScene): a crop fills the frame at the footage's own shape
+ * (the larger scale), crop "none" fits the whole picture inside. null without footage or sizes.
+ */
+export function footageBox(shot, header) {
+  const media = shot?.media;
+  const width = Number(header?.width), height = Number(header?.height);
+  if (!media || media === NONE || media.missing || !(media.width > 0 && media.height > 0) || !(width > 0 && height > 0)) return null;
+  const place = (x, y, w, h) => ({ left: (x / width) * 100, top: (y / height) * 100, width: (w / width) * 100, height: (h / height) * 100 });
+  if (Array.isArray(shot.crop)) {
+    const [x, y, w, h] = shot.crop;
+    const cropWidth = (w / 100) * media.width, cropHeight = (h / 100) * media.height;
+    const scale = Math.max(width / cropWidth, height / cropHeight);
+    const centerX = ((x + w / 2) / 100) * media.width, centerY = ((y + h / 2) / 100) * media.height;
+    return place(width / 2 - centerX * scale, height / 2 - centerY * scale, media.width * scale, media.height * scale);
+  }
+  const scale = Math.min(width / media.width, height / media.height);
+  const w = media.width * scale, h = media.height * scale;
+  return place((width - w) / 2, (height - h) / 2, w, h);
 }

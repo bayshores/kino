@@ -116,21 +116,43 @@ export async function boardLook(input, { document, look, fontsFor, mediaRecord, 
 
 // The widths the board screen asks a shot's image at (its srcset).
 export const SHOT_WIDTHS = Object.freeze([240, 480, 960]);
-const SHOT_PARTS = ["source", "still"];
+const SHOT_PARTS = ["source", "still", "last", "alt1", "alt2"];
+// The last frame is one frame before the shot ends, so it is still the shot's own footage.
+const LAST_FRAME = 1 / 30;
+
+// The shot a picture part shows: "last" is the shot at its last frame (its file time moved by
+// its length at its speed); "alt1" and "alt2" are the shot with that option's media, in-point,
+// crop and subject (an option leaves out what it keeps). Null when the shot has no such option.
+export function shotForPart(shot, part) {
+  if (part === "last") {
+    if (typeof shot.in !== "number") return shot;
+    return { ...shot, in: shot.in + Math.max(0, shot.dur * (shot.speed ?? 1) - LAST_FRAME) };
+  }
+  const option = part === "alt1" ? shot.alts?.[0] : part === "alt2" ? shot.alts?.[1] : undefined;
+  if (part === "alt1" || part === "alt2") {
+    if (!option) return null;
+    const { why, ...fields } = option;
+    return { ...shot, ...fields };
+  }
+  return shot;
+}
 
 /**
  * One shot of the board in `document` as a picture, for the dashboard's board screen (GET
  * /api/dashboard/board-shot): `part` "source" is the file's frame at the shot's in-point, with
  * nothing drawn on it (the screen draws the crop and the boxes); "still" the cropped still in
- * the video's shape with the shot's text in its real font. `width` is one of SHOT_WIDTHS; `rev`
- * names the revision in refusals. Returns { png } or throws BoardLookError (bad_input,
- * not_found). The same scenes as the look board's rows, drawn on their own.
+ * the video's shape with the shot's text in its real font; "last" the same at the shot's last
+ * frame; "alt1" and "alt2" the still of the shot's first and second option. `width` is one of
+ * SHOT_WIDTHS; `rev` names the revision in refusals. Returns { png } or throws BoardLookError
+ * (bad_input, not_found). The same scenes as the look board's rows, drawn on their own.
  */
 export async function boardShotImage({ shot: shotId, part, width }, { document, rev, look, fontsFor, mediaRecord }) {
-  if (!SHOT_PARTS.includes(part)) throw new BoardLookError("bad_input", "part is source or still.");
+  if (!SHOT_PARTS.includes(part)) throw new BoardLookError("bad_input", `part is ${SHOT_PARTS.slice(0, -1).join(", ")} or ${SHOT_PARTS.at(-1)}.`);
   if (!SHOT_WIDTHS.includes(width)) throw new BoardLookError("bad_input", `w is ${SHOT_WIDTHS.slice(0, -1).join(", ")} or ${SHOT_WIDTHS.at(-1)}.`);
-  const shot = (document.board?.shots ?? []).find((entry) => entry.id === shotId);
-  if (!shot) throw new BoardLookError("not_found", `shot ${shotId} is not in rev ${rev}.`);
+  const saved = (document.board?.shots ?? []).find((entry) => entry.id === shotId);
+  if (!saved) throw new BoardLookError("not_found", `shot ${shotId} is not in rev ${rev}.`);
+  const shot = shotForPart(saved, part);
+  if (!shot) throw new BoardLookError("not_found", `shot ${shotId} has no option ${part === "alt1" ? 1 : 2}.`);
   const record = isNone(shot.media) ? null : await mediaRecord(shot.media);
   const scene = part === "source" ? sourceScene(shot, record) : stillScene(shot, record, mainScene(document));
   if (!scene) throw new BoardLookError("not_found", `shot ${shotId} has no footage.`);

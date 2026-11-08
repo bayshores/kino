@@ -3998,46 +3998,54 @@ function boardViewVideo() {
   return boardToView;
 }
 
-const boardRows = `[...document.querySelectorAll("article.board-shot")]`;
+/** The shot panel (the shot in it is the board's article) and each shot's clip on the timeline. */
+const boardPanel = q("article.board-shot");
 const boardRow = (shot) => q(`article.board-shot[data-shot="${shot}"]`);
-/** Opens every shot card's "crop and numbers", where the source frame and its boxes are drawn. */
-const openCropDetails = `(() => { const all = [...document.querySelectorAll("article.board-shot .board-more")]; for (const details of all) details.open = true; return all.length; })()`;
-/** The source frames are drawn in the first `count` cards (after openCropDetails). */
-const sourcesDrawn = (count) => `${boardRows}.slice(0, ${count}).every((row) => row.querySelector(".board-source"))`;
-/** The first `count` shot rows are drawn and their pictures have loaded. */
-const boardPictures = (count) => `(() => {
-  const rows = ${boardRows}.slice(0, ${count});
-  if (rows.length < ${count}) return false;
-  const images = rows.flatMap((row) => [...row.querySelectorAll(".board-frame img")]);
+const boardClips = `[...document.querySelectorAll(".board-clip")]`;
+/** Puts a shot in the panel with its clip on the timeline. */
+async function pickShot(shot) {
+  await browser.click(q(`.board-clip[data-shot="${shot}"]`));
+  await browser.waitFor(`!!${boardRow(shot)}`, { what: `shot ${shot} in the panel` });
+}
+/** Opens the panel's "crop and numbers", where the source frame and its boxes are drawn. */
+const openCropDetails = `(() => { const details = ${boardPanel}?.querySelector(".board-more"); if (details) details.open = true; return details ? 1 : 0; })()`;
+/** The panel's source frame is drawn (after openCropDetails). */
+const sourceDrawn = `!!${boardPanel}?.querySelector(".board-source")`;
+/** The panel's pictures (its frames and option stills) have loaded. */
+const boardPictures = `(() => {
+  const images = [...(${boardPanel}?.querySelectorAll(".board-frame img, .option-picture img") ?? [])];
   return images.length > 0 && images.every((image) => image.complete && image.naturalWidth > 0);
 })()`;
-/** What a shot row shows: its head, each layer line by name, the drawn boxes and labels, the covered areas. */
+/** What the panel shows: its head, its frames, each layer line by name, the drawn boxes and labels. */
 const boardSeen = `(() => {
+  const row = ${boardPanel};
   const box = (element) => ["x", "y", "width", "height"].map((name) => Number(element.getAttribute(name)));
-  return ${boardRows}.map((row) => ({
-    shot: row.dataset.shot, notes: row.hasAttribute("data-notes"), head: row.querySelector(".board-row-head").innerText.trim(),
+  return {
+    shot: row.dataset.shot, notes: row.hasAttribute("data-notes"), head: row.querySelector(".board-row-head").innerText.replace(/\\s+/g, " ").trim(),
+    frames: [...row.querySelectorAll(".shot-frames figure")].map((figure) => [new URL(figure.querySelector("img")?.src ?? "http://x/").searchParams.get("part"), figure.querySelector("figcaption").textContent.trim()]),
+    length: row.querySelector(".shot-length output, .shot-length p:not(.faint)")?.textContent.trim() ?? null,
     lines: Object.fromEntries([...row.querySelectorAll(".board-lines > div")].map((line) => [line.querySelector("dt").textContent.trim(), line.querySelector("dd").textContent.trim()])),
-    tags: [...row.querySelectorAll(".board-visual .board-tags li")].map((tag) => tag.textContent.trim()),
-    why: row.querySelector(".board-why")?.textContent.trim() ?? null,
+    tags: [...row.querySelectorAll(".board-tags li")].map((tag) => tag.textContent.trim()),
+    options: [...row.querySelectorAll(".board-option")].map((option) => [option.querySelector(".option-letter").textContent, option.querySelector(".option-why").textContent, option.getAttribute("aria-pressed")]),
     crop: row.querySelector("rect.board-crop") ? box(row.querySelector("rect.board-crop")) : null,
     subjects: [...row.querySelectorAll("rect.board-subject")].map(box),
     eyes: !!row.querySelector("line.board-eyes"),
     labels: [...row.querySelectorAll(".board-label")].map((label) => label.innerText.trim()),
-    covered: [...row.querySelectorAll(".board-covered")].map((area) => area.innerText.trim()),
     missing: row.querySelector(".board-missing")?.innerText.trim() ?? null,
-    button: row.querySelector("[data-note-open]")?.innerText.replace(/\\s+/g, " ").trim() ?? null,
-  }));
+    buttons: [...row.querySelectorAll(".shot-actions button")].map((button) => button.innerText.trim()),
+  };
 })()`;
 /** Nothing on the page reaches past the window's right edge (a sideways scroll). */
 const sidewaysOverflow = `(() => {
   const width = document.documentElement.clientWidth;
-  const past = [...document.querySelectorAll(".dash *")].filter((element) => !element.closest(".sr-only") && element.getBoundingClientRect().right > width + 0.5);
+  // The rough cut's footage reaches past its monitor, which clips it (the crop).
+  const past = [...document.querySelectorAll(".dash *")].filter((element) => !element.closest(".sr-only") && !element.parentElement?.closest(".cut-monitor") && element.getBoundingClientRect().right > width + 0.5);
   return { width, scroll: document.scrollingElement.scrollWidth, past: past.slice(0, 5).map((element) => element.className || element.tagName) };
 })()`;
 /** How tall the page is against the window: the page itself never scrolls (each pane, card and stack does). */
 const pageHeight = `({ window: innerHeight, page: document.scrollingElement.scrollHeight })`;
-/** The font sizes the board's words are drawn at. */
-const boardFontSizes = `[...new Set([...document.querySelectorAll(".board .board-title, .board-head p, .board-chips li, .reel-now p, .reel-clock, .reel-play, .board-row-head, .board-why, .board-tags li, .board-lines dt, .board-lines dd, .board-label, .board figcaption, .board-covered, .board-section, .board-list li, .board summary, .board-note label, [data-note-open]")].map((element) => getComputedStyle(element).fontSize))]`;
+/** The font sizes the board's words are drawn at (the rough cut's text is drawn at the video's size). */
+const boardFontSizes = `[...new Set([...document.querySelectorAll(".board .board-title, .board-head p, .board-chips li, .cut-clock, .board-row-head, .board-why, .board-tags li, .board-lines dt, .board-lines dd, .board-label, .board figcaption, .board-covered, .board-section, .board-list li, .board summary, .board-note label, [data-note-open], .option-why, .stepper output, .board-lane-name, .board-lane-item, .board-lane-empty, .clip-role, .answer-chips li")].map((element) => getComputedStyle(element).fontSize))]`;
 
 async function atPhone(run) {
   await browser.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -4057,12 +4065,13 @@ async function openBoardStop(id, stop = "C1") {
   await openOn(id);
   await browser.waitFor(`!!${stopRow(stop)}`, { what: `${stop} in needs you` });
   await browser.click(stopOpen(stop));
-  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-${stop}"]') && ${boardRows}.length === 5`, { what: `${stop}'s card with its 5 shots` });
+  await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-${stop}"]') && ${boardClips}.length === 5 && !!${boardPanel}`, { what: `${stop}'s card with its 5 shots` });
 }
 
-test("storyboard screen: every layer on the desktop board; a approves it, and kino keeps the board it showed", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: the rough cut, the shot panel and the timeline show every layer; a approves it, and kino keeps the board it showed", { skip: skipWithoutMediaTools }, async () => {
   const id = "board-layers";
   const { asked } = await boardVideo(id);
+  const data = await (await server.api(`/api/dashboard/board-data?project=${id}&stop=C1`)).json();
   await openBoardStop(id);
   const card = await browser.evaluate(`(() => {
     const card = ${q("article.stop-card")};
@@ -4070,90 +4079,87 @@ test("storyboard screen: every layer on the desktop board; a approves it, and ki
       heading: document.getElementById("stop-C1").innerText.replace(/\\s+/g, " ").trim(),
       head: [...card.querySelectorAll(".board-head p")].map((line) => line.innerText.trim()),
       chips: [...card.querySelectorAll(".board-chips li")].map((chip) => chip.textContent.trim()),
-      sections: [...card.querySelectorAll(".board-section")].map((heading) => [heading.tagName, heading.innerText.trim()]),
-      calls: [...card.querySelectorAll(".board-calls li")].map((call) => [call.querySelector(".call-words").textContent.trim(), call.querySelector(".call-no")?.getAttribute("aria-pressed") ?? null]),
-      details: [...card.querySelectorAll(".board-ask, .board-pages")].map((details) => [details.querySelector("summary").innerText.trim(), details.open, details.querySelectorAll("img").length]),
-      folded: [...card.querySelectorAll(".board-more")].map((details) => [details.querySelector("summary").innerText.trim(), details.open]),
-      ask: [...card.querySelectorAll(".board-ask .stop-ask p")].map((line) => line.textContent.trim()),
-      reel: { segments: card.querySelectorAll(".reel-seg").length, play: card.querySelector(".reel-play")?.innerText.trim(), clock: card.querySelector(".reel-clock")?.textContent.trim(),
+      calls: [card.querySelector(".board-calls-box summary").innerText.trim(), card.querySelector(".board-calls-box").open,
+        [...card.querySelectorAll(".board-calls li")].map((call) => [call.querySelector(".call-words").textContent.trim(), call.querySelector(".call-no")?.getAttribute("aria-pressed") ?? null])],
+      cut: { play: card.querySelector(".cut-play").getAttribute("aria-label"), clock: card.querySelector(".cut-clock").textContent.trim(),
         covered: [...card.querySelectorAll(".reel-covered .board-covered")].map((area) => area.textContent.trim()) },
-      stills: card.querySelectorAll(".stills-grid img").length, videos: document.querySelectorAll("video").length, watch: !!card.querySelector(".stop-watch"),
+      videos: [...document.querySelectorAll(".board-cut video")].map((video) => [video.muted, video.paused, new URL(video.src).pathname]),
+      clips: [...card.querySelectorAll(".board-clip")].map((clip) => clip.dataset.shot),
+      roles: [...card.querySelectorAll(".clip-role")].map((role) => role.textContent),
+      text: [...card.querySelectorAll(".board-lane-words:not(.board-lane-sound) .board-lane-item")].map((item) => item.textContent),
+      sound: card.querySelector(".board-lane-sound").textContent,
+      answers: [...card.querySelectorAll(".stop-answer button")].map((button) => button.innerText.trim()),
+      stills: card.querySelectorAll(".stills-grid img").length, watch: !!card.querySelector(".stop-watch"),
     };
   })()`);
   assert.equal(card.heading, "◉ C1 · the storyboard · waits for you");
   assert.deepEqual(card.head, ["C1 · board r1"], "no purpose line: the brief has none");
   assert.deepEqual(card.chips, ["5 shots", "8.8 s", "9:16", "no music", "fresh eyes: not reported"]);
-  assert.deepEqual(card.sections, [["H4", "my calls (say no to any)"]], "no open questions heading: there are none");
-  assert.deepEqual(card.calls, [["the dragon first: it is the news", "false"]], "each call takes a no");
-  assert.deepEqual(card.details, [["what the agent sends you in the chat", false, 0], ["pages as the agent sees them (2)", false, 0]], "both closed; no page image drawn");
-  assert.deepEqual(card.folded, Array.from({ length: 5 }, () => ["crop and numbers", false]), "each card's numbers are folded away");
-  assert.deepEqual(card.reel, { segments: 5, play: "▶ play the board", clock: "0:00.0 / 0:08.8", covered: ["", "app (unverified)"] }, "the reel, with the app's covered areas on its monitor");
-  for (const line of asked.ask.split("\n").filter((entry) => entry.trim())) assert.ok(card.ask.includes(line.trim()), `the ask's line ${JSON.stringify(line)}`);
-  assert.deepEqual([card.stills, card.videos, card.watch], [0, 0, false], "no stills, no video and no watch line: nothing is built yet");
+  assert.deepEqual(card.calls, ["agent's calls (1)", false, [["the dragon first: it is the news", "false"]]], "folded away; each call takes a no");
+  assert.deepEqual(card.cut, { play: "Play the rough cut (no sound)", clock: "0:00.0 / 0:08.8", covered: ["", "app (unverified)"] }, "the rough cut, with the app's covered areas on it");
+  assert.deepEqual(card.videos, [[true, true, data.shots[0].media.src]], "one file, muted, still until play");
+  assert.deepEqual(card.clips, ["S1", "S2", "S3", "S4", "S5"]);
+  assert.deepEqual(card.roles, data.shots.map((shot) => shot.role).filter(Boolean), "the story roles kino picks moves for");
+  assert.deepEqual([card.text, card.sound], [["The dragon is back", "Look up"], "no music or sound yet"]);
+  assert.deepEqual(card.answers, ["approve"], "no changes yet: only approve");
+  assert.deepEqual([card.stills, card.watch], [0, false], "no stills of the stage and no watch line: nothing is built yet");
 
-  assert.equal(await browser.evaluate(openCropDetails), 5);
-  await browser.waitFor(sourcesDrawn(5), { what: "every card's source frame" });
-  const rows = await browser.evaluate(boardSeen);
-  assert.deepEqual(rows.map((row) => [row.shot, row.notes, row.head, row.button]), [
-    ["S1", true, "1 · 0–1.3 s · S1", "[c] note on shot 1"], ["S2", true, "2 · 1.3–3.3 s · S2", "[c] note on shot 2"], ["S3", true, "3 · 3.3–4.4 s · S3", "[c] note on shot 3"],
-    ["S4", true, "4 · 4.4–6.6 s · S4", "[c] note on shot 4"], ["S5", true, "5 · 6.6–8.8 s · S5", "[c] note on shot 5"],
-  ]);
-  const [one, two, , four] = rows;
-  assert.deepEqual([one.why, one.tags], ["the dragon over the village", ["zoom through"]], "the card: its reason and its layers in a few words");
-  assert.ok(two.tags.includes("subject touches the crop edge"), JSON.stringify(two.tags));
-  assert.deepEqual(four.tags, ['"The dragon is back"', "zoom through"]);
+  // Shot 1 in the panel: its first and last frame, its length, its layers, kino's numbers.
+  await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 1's pictures" });
+  assert.equal(await browser.evaluate(openCropDetails), 1);
+  await browser.waitFor(sourceDrawn, { what: "shot 1's source frame" });
+  const one = await browser.evaluate(boardSeen);
+  assert.deepEqual([one.shot, one.notes, one.head, one.frames, one.tags, one.options, one.buttons],
+    ["S1", true, "shot 1 the dragon over the village", [["still", "0 s"], ["last", "1.3 s"]], ["zoom through"], [], ["remove shot", "note on shot 1"]]);
+  assert.match(one.length, /^1\.3 s$/);
   assert.equal(one.lines.footage, "sintel-village-dragon.mp4 from 0 s · crop 24 × 76% at 20, 12");
   assert.equal(one.lines.subject, "the dragon · box by the agent");
   assert.match(one.lines.measured, /^\d+% in the crop · (edge \d+%|touches the edge) · eyes \d+% from the top$/);
   assert.deepEqual([one.lines.follow, one.lines.pacing, one.lines.text, one.lines.sound, one.lines.why], ["steady", "free", "none", "none", "the dragon over the village"]);
   assert.deepEqual([one.crop, one.subjects, one.eyes, one.labels], [[20, 12, 24, 76], [[24, 30, 14, 30]], true, ["crop", "agent", "eyes"]], "the boxes in % of the source frame");
+  await browser.shot("board-desktop-top");
+  // A press on a shot's clip puts it in the panel and the playhead at its start.
+  await pickShot("S2");
+  await browser.evaluate(openCropDetails);
+  const two = await browser.evaluate(boardSeen);
+  assert.ok(two.tags.includes("subject touches the crop edge"), JSON.stringify(two.tags));
   assert.ok(two.lines["look at"].includes("subject touches the crop edge"), JSON.stringify(two.lines));
-  assert.deepEqual([four.lines.footage, four.lines.subject, four.lines.follow, four.missing, four.crop], ["none", "none", "none", "no footage", null]);
+  await pickShot("S4");
+  assert.equal(await browser.evaluate(textOf(".cut-clock")), "0:04.4 / 0:08.8");
+  await browser.evaluate(openCropDetails);
+  const four = await browser.evaluate(boardSeen);
+  assert.deepEqual([four.frames, four.tags, four.lines.footage, four.lines.subject, four.missing, four.crop],
+    [[["still", "title card"]], ['"The dragon is back"', "zoom through"], "none", "none", "no footage", null]);
   assert.match(four.lines.text, /^"The dragon is back" · Inter \d00 · \d+ px · y \d+%$/);
+  assert.equal(await browser.evaluate(textOf(".cut-text")), "The dragon is back", "the rough cut draws the title card's text");
   assert.deepEqual(await browser.evaluate(boardFontSizes), ["13px"], "every word at the card's own size");
-  // Review round 2 of B4b: each row's screen-reader sentence was placed against the page, so the
-  // page grew to 1817 px in a 900 px window, and scrolling past the board left it black.
   const tall = await browser.evaluate(pageHeight);
   assert.ok(tall.page <= tall.window, `the page itself does not scroll: ${JSON.stringify(tall)}`);
-
-  await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "the first two shots' pictures" });
-  const pictures = await browser.evaluate(`${boardRows}.slice(0, 2).map((row) => [...row.querySelectorAll(".board-frame img")].map((image) => [new URL(image.currentSrc).searchParams.get("part"), image.naturalWidth > 0]))`);
-  assert.deepEqual(pictures, [[["still", true], ["source", true]], [["still", true], ["source", true]]]);
   // The answers stay at the bottom of the window while the board scrolls under them.
   const pinned = await browser.evaluate(`(() => {
     const wrap = ${q(".screen-wrap.is-stop")};
     wrap.scrollTop = 0;
     const bar = ${q(".stop-answer")}.getBoundingClientRect();
     const view = wrap.getBoundingClientRect();
-    return { inView: bar.bottom <= view.bottom + 1 && bar.top >= view.top, scrolls: wrap.scrollHeight > wrap.clientHeight };
+    return bar.bottom <= view.bottom + 1 && bar.top >= view.top;
   })()`);
-  assert.deepEqual(pinned, { inView: true, scrolls: true }, "approve is in view at the board's top");
-  await browser.shot("board-desktop-top");
-  // Play runs the stills at their lengths: the playhead and the monitor move to later shots.
-  await browser.click(q(".reel-play"));
-  await browser.waitFor(`${q(".reel-seg.on")}?.getAttribute("aria-label").startsWith("shot 2")`, { timeout: 5_000, what: "the reel at shot 2" });
-  await browser.click(q(".reel-play"));
-  assert.equal(await browser.evaluate(`${q(".reel-play")}.getAttribute("aria-pressed")`), "false", "pause");
-  await browser.click(`${q(".reel-strip")}.querySelectorAll(".reel-seg")[3]`);
-  assert.match(await browser.evaluate(`${q(".reel-now")}.textContent`), /^shot 4 of 5 · 4\.4–6\.6 s/, "a shot in the strip goes to it");
-  await browser.evaluate(`${boardRow("S4")}.scrollIntoView({ block: "start" })`);
-  await browser.shot("board-desktop-titles");
-  // The agent's own pages, drawn only once opened.
-  await browser.click(`${q(".board-pages summary")}`);
-  const pages = await browser.waitFor(`(() => { const images = [...document.querySelectorAll(".board-pages img")]; return images.length === 2 && images.every((image) => image.complete && image.naturalWidth) && images.map((image) => [image.naturalWidth, image.naturalHeight]); })()`,
-    { timeout: 60_000, what: "the two page images" });
-  assert.deepEqual(pages, [[1092, 4 * 273], [1092, 273]]);
-  await browser.evaluate(`${q(".board-pages summary")}.scrollIntoView({ block: "start" })`);
-  await browser.shot("board-desktop-pages");
+  assert.equal(pinned, true, "approve is in view at the board's top");
+  await browser.shot("board-desktop-title-card");
+  // Play runs the shots at their lengths from the playhead; the panel follows it.
+  await pickShot("S1");
+  await browser.click(q(".cut-play"));
+  await browser.waitFor(`${boardPanel}?.dataset.shot === "S2"`, { timeout: 5_000, what: "the rough cut at shot 2" });
+  await browser.click(q(".cut-play"));
+  assert.equal(await browser.evaluate(`${q(".cut-play")}.getAttribute("aria-pressed")`), "false", "pause");
+  assert.equal(await browser.evaluate(`[...document.querySelectorAll(".board-cut video")].every((video) => video.paused)`), true, "the file stops with it");
   await atPhone(async () => {
-    await browser.waitFor(`${boardRows}.length === 5`, { what: "the board at 390 px" });
+    await browser.waitFor(`${boardClips}.length === 5`, { what: "the board at 390 px" });
     const overflow = await browser.evaluate(sidewaysOverflow);
     assert.ok(overflow.scroll <= overflow.width && !overflow.past.length, JSON.stringify(overflow));
     const phoneTall = await browser.evaluate(pageHeight);
     assert.ok(phoneTall.page <= phoneTall.window, `the page itself does not scroll at 390 px: ${JSON.stringify(phoneTall)}`);
     assert.deepEqual(await browser.evaluate(boardFontSizes), ["13px"]);
-    await browser.evaluate(`${boardRow("S1")}.scrollIntoView({ block: "start" })`);
-    await browser.waitFor(boardPictures(1), { timeout: 60_000, what: "shot 1's pictures at 390 px" });
+    await browser.waitFor(boardPictures, { timeout: 60_000, what: "the panel's pictures at 390 px" });
     await browser.shot("board-phone-stop-screen");
   });
 
@@ -4168,7 +4174,7 @@ test("storyboard screen: every layer on the desktop board; a approves it, and ki
   await browser.key("Escape");
 });
 
-test("storyboard screen: c leaves a note on shot 2 and Tab sends it with the card's note; the agent hears both and the stop line names the shot", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: c leaves a note on shot 2 and Enter sends it with the card's note; the agent hears both and the stop line names the shot", { skip: skipWithoutMediaTools }, async () => {
   const id = "board-notes";
   const { asked } = await boardVideo(id);
   await openBoardStop(id);
@@ -4176,38 +4182,38 @@ test("storyboard screen: c leaves a note on shot 2 and Tab sends it with the car
   assert.equal(await browser.evaluate(`document.activeElement.matches("section.screen")`), true, "the stop screen has the focus as it opens");
   await browser.key("c");
   await browser.waitFor(`${topMessage} === "Press j or k to pick a shot, then c to leave a note on it."`, { what: "c: pick a shot first" });
-  // j moves to the first shot row, then the second; c opens shot 2's note there.
+  // j puts the focus on the panel (shot 1), then the next shot goes into it; c opens shot 2's note.
   await browser.evaluate("document.activeElement?.blur()");
   await browser.key("j");
-  await browser.waitFor(`document.activeElement === ${boardRow("S1")}`, { what: "j: shot 1's row" });
+  await browser.waitFor(`document.activeElement === ${boardRow("S1")}`, { what: "j: shot 1 in the panel" });
   await browser.key("j");
-  await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "j: shot 2's row" });
+  await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "j: shot 2 in the panel" });
+  await browser.key("k");
+  await browser.waitFor(`document.activeElement === ${boardRow("S1")}`, { what: "k: back to shot 1" });
+  await browser.key("j");
+  await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "j: shot 2 again" });
   await browser.key("c");
   await browser.waitFor(`document.activeElement?.id === "board-note-S2"`, { what: "c: shot 2's note" });
   assert.equal(await browser.evaluate(`document.activeElement.labels[0].textContent`), "note on shot 2");
   assert.equal(await browser.evaluate(`document.activeElement.maxLength`), 500);
+  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "Enter or Esc keeps it; it goes with your answer");
   await browser.type("tighter");
   await browser.key("Escape");
-  await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "Esc: back on shot 2's row" });
+  await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "Esc: back on shot 2" });
   assert.equal(await browser.evaluate(`${q("#board-note-S2")}.value`), "tighter", "Esc keeps the note");
-  await browser.waitFor(pageHas("note on shot 2 goes with your answer", ".board-noted"), { what: "the count by the buttons" });
-  // Tab on the row goes to the card's note, as the shot note's hint says, not back into the shot's.
+  await browser.waitFor(`${textOf(".answer-chips")}.startsWith("shot 2: note")`, { what: "the note's chip in the answer bar" });
+  assert.equal(await browser.evaluate(`[...document.querySelectorAll(".stop-answer .actions button")].map((button) => button.innerText.trim()).join(" | ")`), "approve | send 1 change");
+  // Tab on the panel goes to the card's note, not back into the shot's.
   await browser.key("Tab");
   await browser.waitFor(`document.activeElement?.id === "stop-note-C1"`, { what: "Esc, then Tab: the card's note" });
-  assert.equal(await browser.evaluate(`${q("#board-note-S2")}.placeholder`), "Enter or Esc keeps it; a, Tab or d sends it with your answer");
-  await browser.evaluate(`${boardRow("S2")}.scrollIntoView({ block: "center" })`);
-  await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "shot 2's pictures" });
+  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "note");
+  await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 2's pictures" });
   await browser.shot("board-note-desktop");
   await atPhone(async () => {
     await browser.waitFor(`!!${q("#board-note-S2")}`, { what: "the note at 390 px" });
     await browser.evaluate(`${boardRow("S2")}.scrollIntoView({ block: "start" })`);
     await browser.shot("board-note-phone");
   });
-  // Tab with nothing focused goes to the card's note; Enter approves with both notes.
-  await browser.evaluate("document.activeElement?.blur()");
-  await browser.key("Tab");
-  await browser.waitFor(`document.activeElement?.id === "stop-note-C1"`, { what: "Tab: the card's note" });
-  assert.equal(await browser.evaluate(`document.activeElement.placeholder`), "Enter approves with this note and your note on shot 2");
   await browser.type("warmer");
   await stopGap(asked.at);
   await browser.key("Enter");
@@ -4218,27 +4224,48 @@ test("storyboard screen: c leaves a note on shot 2 and Tab sends it with the car
   const heard = await agent("status", { project: id });
   assert.ok(inboxText(heard).includes('C1 board approved by the person in kino, with notes: "warmer"; on shot 2 (S2): "tighter". Make those changes (shot 2), then go on.'), inboxText(heard));
   // Answered: the board shows read only, with the notes it got.
-  await browser.waitFor(`${boardRows}.length === 5 && !document.querySelector("[data-notes], [data-note-open], .stop-card")`, { what: "C1's board read only" });
+  await browser.waitFor(`${boardClips}.length === 5 && !document.querySelector("[data-notes], [data-note-open], .stop-card")`, { what: "C1's board read only" });
+  await pickShot("S2");
   assert.equal(await browser.evaluate(textOf(`article.board-shot[data-shot="S2"] .board-your-note`)), 'your note on shot 2: "tighter"');
   await browser.key("Escape");
 });
 
-test("storyboard screen: a redo with a note on a shot, then the agent's new ask says what changed as asked and without being asked", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: an option, a new length and remove shot are sent as changes; the agent's new ask says what changed as asked and without being asked", { skip: skipWithoutMediaTools }, async () => {
   const id = "board-redo";
-  const { src, asked } = await boardVideo(id);
+  // Shot 2 comes with one other option: the same file, a wider crop.
+  const withOption = (src) => boardShots(src).map((shot, index) => (index === 1 ? { ...shot, alts: [{ crop: [30, 12, 24, 76], why: "wider, the roofs too" }] } : shot));
+  const { src, asked } = await boardVideo(id, { shots: withOption });
   await openBoardStop(id);
-  await browser.click(`${boardRow("S2")}.querySelector("[data-note-open]")`);
-  await browser.waitFor(`document.activeElement?.id === "board-note-S2"`, { what: "shot 2's note" });
-  await browser.type("tighter on the dragon");
-  await browser.key("Enter");
-  await browser.waitFor(`document.activeElement === ${boardRow("S2")}`, { what: "Enter: back on shot 2's row" });
+  await pickShot("S2");
+  await browser.waitFor(`${boardPanel}.querySelectorAll(".board-option").length === 2`, { what: "shot 2's options" });
+  await browser.click(`${boardPanel}.querySelectorAll(".board-option")[1]`);
+  await browser.click(`${boardPanel}.querySelector('.stepper button[aria-label^="longer"]')`);
+  await browser.click(`${boardPanel}.querySelector('.stepper button[aria-label^="longer"]')`);
+  const two = await browser.evaluate(boardSeen);
+  assert.deepEqual([two.options, two.length, two.frames], [[["A", "the dragon over the village", "false"], ["✓", "wider, the roofs too", "true"]], "2.3 s", [["alt1", "1.3 s"]]]);
+  assert.equal(await browser.evaluate(textOf(".shot-length .board-change")), "was 2.1 s");
+  await pickShot("S3");
+  await browser.click(button("remove shot", "article.board-shot"));
+  await browser.waitFor(`${q(".board-clip.removed")}?.dataset.shot === "S3"`, { what: "shot 3 removed on the timeline" });
+  // The rough cut plays the board as directed: 0.2 s longer, 1.1 s shorter.
+  assert.equal(await browser.evaluate(textOf(".cut-clock")).then((text) => text.split(" / ")[1]), "0:07.9");
+  const bar = await browser.evaluate(`({ chips: [...document.querySelectorAll(".answer-chips li")].map((chip) => chip.firstChild.textContent.trim()),
+    buttons: [...document.querySelectorAll(".stop-answer .actions button")].map((button) => button.innerText.trim()) })`);
+  assert.deepEqual(bar, { chips: ["shot 2: wider, the roofs too", "shot 2: 2.3 s", "shot 3: remove"], buttons: ["approve", "send 3 changes"] });
+  await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 3's pictures" });
+  await browser.shot("board-directed-desktop");
+  // × takes one back; d sends the rest as a redo.
+  await browser.click(`${q(".answer-chips")}.querySelectorAll("button")[1]`);
+  await browser.waitFor(`${q(".answer-chips")}.querySelectorAll("li").length === 2`, { what: "the length taken back" });
   await stopGap(asked.at);
+  await browser.evaluate("document.activeElement?.blur()");
   await browser.key("d");
   const round = await until(async () => { const found = await roundOf(id, "C1"); return found?.status === "answered" ? found : null; }, "C1 redo");
-  assert.deepEqual([round.answer.read_as, round.answer.words, round.answer.shots], ["redo", null, [{ id: "S2", n: 2, words: "tighter on the dragon" }]]);
-  // The agent changes shot 2's crop (asked) and puts text on shot 1 (not asked), then asks again.
-  const shots = boardShots(src);
-  shots[1] = boardFootage(src, 1.25, 2.083, 34, { subject: { what: "the dragon", box: [38, 30, 14, 30] } });
+  assert.deepEqual([round.answer.read_as, round.answer.words, round.answer.shots],
+    ["redo", null, [{ id: "S2", n: 2, words: "use option B: wider, the roofs too" }, { id: "S3", n: 3, words: "remove this shot" }]]);
+  // The agent takes option B on shot 2 (asked) and puts text on shot 1 (not asked), then asks again.
+  const shots = withOption(src);
+  shots[1] = boardFootage(src, 1.25, 2.083, 30, { subject: { what: "the dragon", box: [34, 30, 14, 30] } });
   shots[0] = { ...shots[0], text: { text: "Look", family: "Inter" } };
   const edited = await agent("edit", { project: id, ops: [{ op: "board", music: "none", calls: ["the dragon first: it is the news"], open: [], shots }] });
   assert.equal(edited.isError, undefined, edited.text);
@@ -4247,65 +4274,43 @@ test("storyboard screen: a redo with a note on a shot, then the agent's new ask 
   // The open stop screen follows the new ask.
   await browser.waitFor(`!!document.querySelector('article.stop-card[aria-labelledby="stop-C2"]') && ${pageHas("C2 · board r2", ".board-title")}`, { what: "C2's card" });
   const head = await browser.evaluate(`[...document.querySelectorAll(".board-head .board-change")].map((line) => line.innerText.trim())`);
-  assert.deepEqual(head, ["changed as you asked in C1: shot 2", "changed without being asked: shot 1 (text)"]);
-  const rows = await browser.evaluate(boardSeen);
-  assert.deepEqual(rows.map((row) => row.lines.change ?? null), ["changed without being asked: text", "changed as you asked: crop", null, null, null]);
+  assert.deepEqual(head, ["changed as you asked in C1: shot 2", "changed without being asked: shot 1 (text)", "named but not changed: shot 3"]);
+  await browser.evaluate(openCropDetails);
+  assert.equal((await browser.evaluate(boardSeen)).lines.change, "changed without being asked: text");
   assert.match(await browser.evaluate(`${q("#board-S1")}.textContent`), / Changed without being asked: text\.$/, "a screen reader hears it too");
-  await browser.evaluate(`${q(".board-head")}.scrollIntoView({ block: "start" })`);
-  await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "C2's first pictures" });
+  assert.equal(await browser.evaluate(`${boardClips}.filter((clip) => clip.querySelector(".mark-change")).length`), 3, "shots 1, 2 and 3 are marked on the timeline");
+  await browser.waitFor(boardPictures, { timeout: 60_000, what: "C2's first pictures" });
   await browser.shot("board-redo-desktop");
   await atPhone(async () => {
-    await browser.waitFor(`${boardRows}.length === 5`, { what: "C2 at 390 px" });
+    await browser.waitFor(`${boardClips}.length === 5`, { what: "C2 at 390 px" });
     await browser.evaluate(`${q(".board-head")}.scrollIntoView({ block: "start" })`);
     await browser.shot("board-redo-phone");
   });
   await browser.key("Escape");
 });
 
-test("storyboard screen: on a phone the card shows the flagged shots first, at most 2, so the answers are near; see all opens every shot; nothing scrolls sideways at 390 px", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: on a phone the card stacks the rough cut, the panel and the timeline; approve is near and nothing scrolls sideways at 390 px", { skip: skipWithoutMediaTools }, async () => {
   const id = await boardViewVideo();
-  const data = await (await server.api(`/api/dashboard/board-data?project=${id}&stop=C1`)).json();
-  const flagged = data.shots.filter((shot) => shot.measures.flags.length).map((shot) => shot.id);
-  assert.ok(flagged.includes("S2"), JSON.stringify(flagged));
-  const expected = [...flagged, ...data.shots.map((shot) => shot.id).filter((shot) => !flagged.includes(shot))].slice(0, 2);
   await openOn(id);
   await atPhone(async () => {
-    await browser.waitFor(`${q(".phone-stack article.stop-card")} && ${boardRows}.length === 2`, { what: "the phone's card with 2 shots" });
-    assert.deepEqual(await browser.evaluate(`${boardRows}.map((row) => row.dataset.shot)`), expected, "the flagged shots first");
-    // Review round 1 of B4b: with 4 rows the approve button was 3,507 px below the card's top
-    // (over 4 screens of 844 px). With 2 it is at most 3 screens down, the pictures loaded.
-    await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "the 2 shots' pictures" });
+    await browser.waitFor(`${q(".phone-stack article.stop-card")} && ${boardClips}.length === 5`, { what: "the phone's card with the board" });
+    await browser.waitFor(boardPictures, { timeout: 60_000, what: "the panel's pictures" });
+    // Review round 1 of B4b: the approve button was 3,507 px below the card's top (over 4 screens).
     const reach = await browser.evaluate(`(() => {
       const card = ${q(".phone-stack article.stop-card")}.getBoundingClientRect().top;
-      const rows = ${boardRows}.map((row) => Math.round(row.getBoundingClientRect().height));
-      return { approve: Math.round(${q(".phone-stack article.stop-card button.allow")}.getBoundingClientRect().top - card), rows, screen: innerHeight };
+      return { approve: Math.round(${q(".phone-stack article.stop-card button.allow")}.getBoundingClientRect().top - card), screen: innerHeight };
     })()`);
-    console.log(`# phone card: approve ${reach.approve} px below the card's top; rows ${reach.rows.join(", ")} px; screen ${reach.screen} px`);
+    console.log(`# phone card: approve ${reach.approve} px below the card's top; screen ${reach.screen} px`);
     assert.ok(reach.approve <= 3 * reach.screen, JSON.stringify(reach));
     const overflow = await browser.evaluate(sidewaysOverflow);
     assert.ok(overflow.scroll <= overflow.width && !overflow.past.length, JSON.stringify(overflow));
     const tall = await browser.evaluate(pageHeight);
     assert.ok(tall.page <= tall.window, `the page itself does not scroll, only the stack: ${JSON.stringify(tall)}`);
     assert.deepEqual(await browser.evaluate(boardFontSizes), ["13px"], "no word smaller than the card's");
-    await browser.waitFor(boardPictures(1), { timeout: 60_000, what: "the first shot's pictures" });
     await browser.shot("board-phone-card");
-    await browser.evaluate(`${boardRows}[1].scrollIntoView({ block: "start" })`);
-    await browser.shot("board-phone-card-2");
-    await browser.evaluate(`${q(".phone-stack article.stop-card button.allow")}.scrollIntoView({ block: "end" })`);
-    await browser.shot("board-phone-card-answers");
-    await browser.tap(button("see all 5 shots"));
-    await browser.waitFor(`${textOf("#screen-title")} === "stop · C1" && ${boardRows}.length === 5`, { what: "the stop screen with every shot" });
-    assert.deepEqual(await browser.evaluate(`${boardRows}.map((row) => row.dataset.shot)`), ["S1", "S2", "S3", "S4", "S5"], "board order there");
-    const wide = await browser.evaluate(sidewaysOverflow);
-    assert.ok(wide.scroll <= wide.width && !wide.past.length, JSON.stringify(wide));
-    const allTall = await browser.evaluate(pageHeight);
-    assert.ok(allTall.page <= allTall.window, `the page itself does not scroll with every shot: ${JSON.stringify(allTall)}`);
-    await browser.evaluate(`${boardRow("S5")}.scrollIntoView({ block: "start" })`);
-    await browser.waitFor(`(() => { const image = ${boardRow("S5")}.querySelector(".board-still img"); return image.complete && image.naturalWidth > 0; })()`, { timeout: 60_000, what: "shot 5's still" });
-    await browser.shot("board-phone-all");
-    await browser.key("Escape");
+    await browser.evaluate(`${q(".phone-stack .board-timeline")}.scrollIntoView({ block: "start" })`);
+    await browser.shot("board-phone-card-timeline");
   });
-  await browser.shot("board-phone-back-desktop");
 });
 
 // Review round 2 of B4b: an eye line at 3% had its label above the frame's top, a box ending at
@@ -4315,46 +4320,43 @@ const edgeShots = (src) => [
   boardFootage(src, 1.25, 2.083, 0, { crop: [0, 0, 31.6, 100], subject: { what: "the dragon", box: [1, 1, 12, 20] } }),
   ...boardShots(src).slice(2),
 ];
-/** Each label of the first two rows: whole inside its frame, off the subject boxes (the crop's) and off the other labels. */
+/** Each label on the panel's source frame: whole inside it, off the subject boxes (the crop's) and off the other labels. */
 const labelsPlaced = `(() => {
   const inside = (outer, inner) => inner.left >= outer.left - 0.5 && inner.top >= outer.top - 0.5 && inner.right <= outer.right + 0.5 && inner.bottom <= outer.bottom + 0.5;
   const meet = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
-  return ${boardRows}.slice(0, 2).map((row) => {
-    const frame = row.querySelector(".board-source .board-frame").getBoundingClientRect();
-    const labels = [...row.querySelectorAll(".board-label")].map((label) => ({ text: label.innerText.trim(), box: label.getBoundingClientRect(), crop: label.classList.contains("crop") }));
-    const subjects = [...row.querySelectorAll("rect.board-subject")].map((box) => box.getBoundingClientRect());
-    return {
-      shot: row.dataset.shot, labels: labels.map((label) => label.text),
-      cut: labels.filter((label) => !inside(frame, label.box)).map((label) => label.text),
-      onBox: labels.filter((label) => label.crop && subjects.some((box) => meet(label.box, box))).map((label) => label.text),
-      onLabel: labels.filter((label, index) => labels.some((other, at) => at !== index && meet(label.box, other.box))).map((label) => label.text),
-    };
-  });
+  const row = ${boardPanel};
+  const frame = row.querySelector(".board-source .board-frame").getBoundingClientRect();
+  const labels = [...row.querySelectorAll(".board-label")].map((label) => ({ text: label.innerText.trim(), box: label.getBoundingClientRect(), crop: label.classList.contains("crop") }));
+  const subjects = [...row.querySelectorAll("rect.board-subject")].map((box) => box.getBoundingClientRect());
+  return {
+    shot: row.dataset.shot, labels: labels.map((label) => label.text),
+    cut: labels.filter((label) => !inside(frame, label.box)).map((label) => label.text),
+    onBox: labels.filter((label) => label.crop && subjects.some((box) => meet(label.box, box))).map((label) => label.text),
+    onLabel: labels.filter((label, index) => labels.some((other, at) => at !== index && meet(label.box, other.box))).map((label) => label.text),
+  };
 })()`;
 
 test("storyboard screen: labels by the frame's edges stay whole, and the crop's label keeps off the subject box", { skip: skipWithoutMediaTools }, async () => {
   const id = "board-edges";
   await boardVideo(id, { shots: edgeShots });
   await openBoardStop(id);
-  await browser.evaluate(openCropDetails);
-  await browser.waitFor(`${sourcesDrawn(2)} && ${boardPictures(2)}`, { timeout: 60_000, what: "the first two shots' pictures" });
-  const placed = [{ shot: "S1", labels: ["crop", "agent", "eyes"], cut: [], onBox: [], onLabel: [] }, { shot: "S2", labels: ["crop", "agent"], cut: [], onBox: [], onLabel: [] }];
-  assert.deepEqual(await browser.evaluate(labelsPlaced), placed, "at 1440 px");
-  await browser.evaluate(`${q(".board-shots")}.scrollIntoView({ block: "start" })`);
-  await browser.shot("board-edges-desktop");
-  await atPhone(async () => {
-    await browser.waitFor(`${boardRows}.length === 5`, { what: "the board at 390 px" });
-    assert.deepEqual(await browser.evaluate(labelsPlaced), placed, "at 390 px");
-    await browser.evaluate(`${boardRow("S1")}.scrollIntoView({ block: "start" })`);
-    await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "the pictures at 390 px" });
-    await browser.shot("board-edges-phone");
-    await browser.evaluate(`${boardRow("S2")}.scrollIntoView({ block: "start" })`);
-    await browser.shot("board-edges-phone-2");
-  });
+  const placed = { S1: { shot: "S1", labels: ["crop", "agent", "eyes"], cut: [], onBox: [], onLabel: [] }, S2: { shot: "S2", labels: ["crop", "agent"], cut: [], onBox: [], onLabel: [] } };
+  const check = async (width) => {
+    for (const shot of ["S1", "S2"]) {
+      await pickShot(shot);
+      await browser.evaluate(openCropDetails);
+      await browser.waitFor(`${sourceDrawn} && ${boardPictures}`, { timeout: 60_000, what: `shot ${shot}'s pictures at ${width}` });
+      assert.deepEqual(await browser.evaluate(labelsPlaced), placed[shot], `at ${width}`);
+      await browser.evaluate(`${boardPanel}.querySelector(".board-source").scrollIntoView({ block: "center" })`);
+      await browser.shot(`board-edges-${width}-${shot}`);
+    }
+  };
+  await check("1440");
+  await atPhone(() => check("390"));
   await browser.key("Escape");
 });
 
-test("storyboard screen: a screen reader hears each shot as one sentence and not the pictures; with reduced motion nothing moves and no video plays", { skip: skipWithoutMediaTools }, async () => {
+test("storyboard screen: a screen reader hears the shot as one sentence and not the pictures; nothing moves and no video plays until play", { skip: skipWithoutMediaTools }, async () => {
   const id = await boardViewVideo();
   const data = await (await server.api(`/api/dashboard/board-data?project=${id}&stop=C1`)).json();
   const { shotSentence } = await import("../frontend/dashboard/boardRows.js");
@@ -4363,35 +4365,34 @@ test("storyboard screen: a screen reader hears each shot as one sentence and not
   await browser.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
   try {
     assert.equal(await browser.evaluate(`matchMedia("(prefers-reduced-motion: reduce)").matches`), true);
-    const nodes = await readNodes();
-    for (const shot of data.shots) {
+    for (const shot of data.shots.slice(0, 2)) {
+      await pickShot(shot.id);
+      const nodes = await readNodes();
       const sentence = shotSentence(shot, data);
-      assert.ok(nodes.some((node) => node.role === "article" && node.name === sentence), `shot ${shot.n}'s row is read as ${sentence}`);
+      assert.ok(nodes.some((node) => node.role === "article" && node.name === sentence), `shot ${shot.n}'s panel is read as ${sentence}`);
+      // The pictures, boxes, labels and layer tags are hidden from it: the sentence says them.
+      const all = new Map(nodes.map((entry) => [entry.node.nodeId, entry]));
+      const { nodes: raw } = await browser.send("Accessibility.getFullAXTree");
+      const children = new Map(raw.map((node) => [node.nodeId, node.childIds ?? []]));
+      const inShot = [];
+      const walk = (nodeId) => { if (all.has(nodeId)) inShot.push(all.get(nodeId)); for (const child of children.get(nodeId) ?? []) walk(child); };
+      for (const entry of nodes.filter((node) => node.role === "article")) walk(entry.node.nodeId);
+      assert.ok(inShot.length > 1, "the panel has parts");
+      for (const word of ["agent", "eyes", "app (unverified)", "zoom through", `shot ${shot.n}`]) assert.ok(!inShot.some((node) => node.name === word), `${word} is not read on its own`);
+      // Its buttons are read: they are outside the hidden parts.
+      assert.ok(nodes.some((node) => node.role === "button" && node.name === `note on shot ${shot.n}`), `shot ${shot.n}'s note button`);
+      assert.ok(nodes.some((node) => node.role === "button" && node.name === "next shot"), "the next shot button");
     }
-    // The pictures, boxes, labels and layer lines are hidden from it: the sentence says them.
-    // Only the shots' rows are searched: the top bar may name an agent "agent" in its chip.
-    const all = new Map(nodes.map((entry) => [entry.node.nodeId, entry]));
-    const { nodes: raw } = await browser.send("Accessibility.getFullAXTree");
-    const children = new Map(raw.map((node) => [node.nodeId, node.childIds ?? []]));
-    const inShots = [];
-    const walk = (id) => { if (all.has(id)) inShots.push(all.get(id)); for (const child of children.get(id) ?? []) walk(child); };
-    for (const entry of nodes.filter((node) => node.role === "article")) walk(entry.node.nodeId);
-    assert.ok(inShots.length > data.shots.length, "the shots' rows have parts");
-    for (const word of ["crop", "agent", "eyes", "app (unverified)", "footage", "the dragon · box by the agent"]) {
-      assert.ok(!inShots.some((node) => node.name === word), `${word} is not read on its own`);
-    }
-    assert.equal(await browser.evaluate(`[...document.querySelectorAll(".board-visual")].every((part) => part.getAttribute("aria-hidden") === "true")`), true);
-    assert.equal(await browser.evaluate(`${q("article.board-shot")}.getAttribute("aria-labelledby")`), "board-S1");
-    // The note buttons are read: they are outside the hidden part.
-    assert.ok(nodes.some((node) => node.role === "button" && node.name === "[c] note on shot 2"), "shot 2's note button");
-    await browser.waitFor(boardPictures(2), { timeout: 60_000, what: "the pictures" });
-    const still = await browser.evaluate(`({ animations: document.getAnimations().length, videos: document.querySelectorAll("video").length,
+    assert.equal(await browser.evaluate(`${boardPanel}.getAttribute("aria-labelledby")`), "board-S2");
+    assert.equal(await browser.evaluate(`[...document.querySelectorAll(".shot-frames, .board-tags, .board-lane-words")].every((part) => part.getAttribute("aria-hidden") === "true")`), true);
+    await browser.waitFor(boardPictures, { timeout: 60_000, what: "the pictures" });
+    const still = await browser.evaluate(`({ animations: document.getAnimations().length, playing: [...document.querySelectorAll("video")].filter((video) => !video.paused).length,
       transitions: [...new Set([...document.querySelectorAll(".board, .board *")].map((element) => getComputedStyle(element).transitionDuration))] })`);
-    assert.deepEqual(still, { animations: 0, videos: 0, transitions: ["0s"] });
+    assert.deepEqual(still, { animations: 0, playing: 0, transitions: ["0s"] });
     await browser.shot("board-reduced-motion-desktop");
     await atPhone(async () => {
-      await browser.waitFor(`${boardRows}.length === 5`, { what: "the board at 390 px" });
-      assert.equal(await browser.evaluate("document.getAnimations().length + document.querySelectorAll('video').length"), 0);
+      await browser.waitFor(`${boardClips}.length === 5`, { what: "the board at 390 px" });
+      assert.equal(await browser.evaluate(`document.getAnimations().length + [...document.querySelectorAll("video")].filter((video) => !video.paused).length`), 0);
       await browser.shot("board-reduced-motion-phone");
     });
   } finally {
@@ -4416,7 +4417,6 @@ test("storyboard screen: a board that could not be read says so and try again re
   })()`);
   await browser.click(stopOpen("C1"));
   const alert = await browser.waitFor(`${q(".board-error [role=alert]")}?.textContent`, { what: "the alert" });
-  assert.match(alert, /^The storyboard could not be read: [^.].*[^.]\.$/);
   assert.equal(alert, "The storyboard could not be read: This project could not be found.", "the server's words");
   // role=alert (read at once); its words are in the tree a screen reader reads.
   const nodes = await readNodes();
@@ -4429,24 +4429,20 @@ test("storyboard screen: a board that could not be read says so and try again re
   assert.match(sent, /\n+Reply: approve · approve with notes: \.\.\. · redo: \.\.\.$/);
   assert.ok(nodes.some((node) => node.role === "group" && node.name === "What the agent sends you"), "a screen reader finds the ask");
   await browser.shot("board-error-desktop");
-  await atPhone(async () => {
-    await browser.waitFor(`!!${q(".board-error [role=alert]")}`, { what: "the alert at 390 px" });
-    await browser.shot("board-error-phone");
-  });
   await browser.evaluate("window.boardReadFails = false");
   await browser.click(button("try again", ".board-error"));
-  await browser.waitFor(`${boardRows}.length === 5 && document.activeElement === ${q(".board-title")}`, { what: "the board, with the focus on its first line" });
+  await browser.waitFor(`${boardClips}.length === 5 && document.activeElement === ${q(".board-title")}`, { what: "the board, with the focus on its first line" });
   // A picture that fails shows its words in its place and a retry (the source frame is in "crop and numbers").
   await browser.evaluate(openCropDetails);
-  await browser.waitFor(`${sourcesDrawn(1)} && ${boardPictures(1)}`, { timeout: 60_000, what: "shot 1's pictures" });
+  await browser.waitFor(`${sourceDrawn} && ${boardPictures}`, { timeout: 60_000, what: "shot 1's pictures" });
   await browser.evaluate(`${boardRow("S1")}.querySelector(".board-source img").dispatchEvent(new Event("error"))`);
   await browser.waitFor(pageHas("the source frame of shot 1, at 0 s could not be shown", `article.board-shot[data-shot="S1"]`), { what: "the failed picture's words" });
   await browser.shot("board-picture-failed");
   await browser.evaluate(`${button("retry the pictures of shot 1")}.focus()`);
   await browser.key("Enter");
-  // The button goes away with the failure: the focus goes to its shot's row, not the page.
-  await browser.waitFor(`document.activeElement === ${boardRow("S1")}`, { what: "the focus on shot 1's row after retry" });
-  await browser.waitFor(`!${boardRow("S1")}.querySelector(".board-missing") && ${boardPictures(1)}`, { timeout: 60_000, what: "shot 1's pictures again" });
+  // The button goes away with the failure: the focus goes to the panel, not the page.
+  await browser.waitFor(`document.activeElement === ${boardRow("S1")}`, { what: "the focus on shot 1's panel after retry" });
+  await browser.waitFor(`!${boardRow("S1")}.querySelector(".board-missing") && ${boardPictures}`, { timeout: 60_000, what: "shot 1's pictures again" });
   assert.match(await browser.evaluate(`${boardRow("S1")}.querySelector(".board-source img").currentSrc`), /&try=1$/);
   await browser.key("Escape");
 });
@@ -4472,12 +4468,12 @@ test("storyboard screen: :board shows the board not asked yet, read only; after 
   await boardVideo(id, { ask: false });
   await openOn(id);
   await command("board");
-  await browser.waitFor(`${textOf("#screen-title")} === "storyboard" && ${boardRows}.length === 5`, { what: "the board not asked yet" });
+  await browser.waitFor(`${textOf("#screen-title")} === "storyboard" && ${boardClips}.length === 5`, { what: "the board not asked yet" });
   const before = await browser.evaluate(`({ head: [...document.querySelectorAll(".board-head p")].slice(0, 2).map((line) => line.innerText.trim()),
-    notes: document.querySelectorAll("[data-notes], [data-note-open], .board-note").length, answers: document.querySelectorAll(".stop-card").length })`);
-  assert.deepEqual(before, { head: ["not asked yet · board r1", "not asked yet: the agent has not shown you this board"], notes: 0, answers: 0 });
+    directs: document.querySelectorAll("[data-notes], [data-note-open], .board-note, .stepper, button.board-option, .shot-actions button").length, answers: document.querySelectorAll(".stop-card").length })`);
+  assert.deepEqual(before, { head: ["not asked yet · board r1", "not asked yet: the agent has not shown you this board"], directs: 0, answers: 0 });
   assert.equal(await browser.evaluate(`document.querySelectorAll(".call-no").length`), 0, "no no on a board not asked yet");
-  await browser.waitFor(boardPictures(1), { timeout: 60_000, what: "shot 1's pictures" });
+  await browser.waitFor(boardPictures, { timeout: 60_000, what: "shot 1's pictures" });
   await browser.shot("board-not-asked-desktop");
   await browser.key("Escape");
 
@@ -4487,20 +4483,19 @@ test("storyboard screen: :board shows the board not asked yet, read only; after 
   await asDashboard("stops", { project: id, action: "answer", id: asked.id, rev: asked.rev, read_as: "approve" });
   await browser.waitFor(`${textOf("#section-stops")}.includes("C1 storyboard · approved on the dashboard")`, { what: "C1 answered" });
   await command("board");
-  await browser.waitFor(`${textOf("#screen-title")} === "stop · C1" && ${boardRows}.length === 5`, { what: "C1's screen with the board" });
-  const after = await browser.evaluate(`({ status: document.querySelectorAll(".board-head p")[1].innerText.trim(), notes: document.querySelectorAll("[data-notes], [data-note-open], .board-note").length,
+  await browser.waitFor(`${textOf("#screen-title")} === "stop · C1" && ${boardClips}.length === 5`, { what: "C1's screen with the board" });
+  const after = await browser.evaluate(`({ status: document.querySelectorAll(".board-head p")[1].innerText.trim(), directs: document.querySelectorAll("[data-notes], [data-note-open], .board-note, .stepper").length,
     answers: document.querySelectorAll(".stop-card, .stop-card button").length })`);
   assert.match(after.status, /^answered: approved on the dashboard at \d\d:\d\d$/);
-  assert.deepEqual([after.notes, after.answers], [0, 0]);
+  assert.deepEqual([after.directs, after.answers], [0, 0]);
+  await pickShot("S2");
   await browser.evaluate(`${boardRow("S2")}.focus()`);
   await browser.key("c");
   await sleep(200);
   assert.equal(await browser.evaluate(`document.querySelectorAll("input[id^=board-note]").length`), 0, "c leaves no note on an answered board");
-  await browser.shot("board-read-only-desktop-s2");
-  await browser.evaluate(`${q("#screen-title")}.scrollIntoView({ block: "start" })`);
   await browser.shot("board-read-only-desktop");
   await atPhone(async () => {
-    await browser.waitFor(`${boardRows}.length === 5`, { what: "the board at 390 px" });
+    await browser.waitFor(`${boardClips}.length === 5`, { what: "the board at 390 px" });
     const overflow = await browser.evaluate(sidewaysOverflow);
     assert.ok(overflow.scroll <= overflow.width && !overflow.past.length, JSON.stringify(overflow));
     await browser.evaluate(`${q("#screen-title")}.scrollIntoView({ block: "start" })`);

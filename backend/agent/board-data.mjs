@@ -7,6 +7,7 @@
 // revision, the agent state and the media records.
 import { boardSpan, mainScene, NONE } from "../../engine/board.js";
 import { isPortrait, shotMeasures } from "../../engine/boardMeasure.js";
+import { shotRoles } from "../../engine/movePicks.js";
 import { SAFE_ZONES } from "../../engine/quality/rules/layout.js";
 import { boardFacts } from "./board.mjs";
 import { sec } from "./describe.mjs";
@@ -60,6 +61,9 @@ export function boardData(document, { state = null, round = null, rev, project, 
   const fields = state?.brief?.fields ?? {};
   const answer = round?.answer;
   const redone = round?.redone ?? null;
+  // The hook, the reveal and the payoff, as kino picks moves for them (engine/movePicks.js).
+  const names = Object.fromEntries([...records].map(([src, record]) => [src, record?.name ?? null]));
+  const roles = shotRoles(board.shots, names);
   return {
     project,
     rev,
@@ -67,7 +71,7 @@ export function boardData(document, { state = null, round = null, rev, project, 
     status: round?.status ?? "not asked yet",
     answer: answer ? { via: answer.via, read_as: answer.read_as, words: answer.words ?? null, shots: answer.shots ?? [], at: answer.at } : null,
     fresh: round?.fresh ?? null,
-    header: { board: board.rev, shots: board.shots.length, seconds: sec(Number(scene?.duration) || 0), width: frame.width, height: frame.height, aspect: aspectWords(frame),
+    header: { board: board.rev, shots: board.shots.length, seconds: sec(Number(scene?.duration) || 0), width: frame.width, height: frame.height, aspect: aspectWords(frame), background: scene?.background ?? "#000000",
       platform: fields.plays_on?.text ?? null },
     purpose: fields.message?.text ?? null,
     music: boardSpan(document, board).music,
@@ -84,6 +88,8 @@ export function boardData(document, { state = null, round = null, rev, project, 
       start: sec(shot.cue),
       end: sec(shot.cue + shot.dur),
       dur: sec(shot.dur),
+      speed: shot.speed ?? 1,
+      role: roles[index],
       pacing: shot.pacing,
       follow: shot.follow,
       in: shot.in,
@@ -91,7 +97,8 @@ export function boardData(document, { state = null, round = null, rev, project, 
       text: shot.text,
       sound: shot.sound,
       why: shot.why,
-      alts: shot.alts ?? [],
+      // An option keeps the shot's own media, in-point and crop where it leaves them out.
+      alts: (shot.alts ?? []).map((alt) => ({ ...alt, ...(alt.media === undefined ? {} : { media: mediaFacts(alt.media, records.get(alt.media) ?? null) }) })),
       move: shot.move ?? NONE,
       media: mediaFacts(shot.media, records.get(shot.media) ?? null),
       // Every subject box is the agent's until kino has detectors (direction plan B12).

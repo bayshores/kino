@@ -17,7 +17,7 @@
 //   GET  picks/<pair>/<left|right>   one video of a waiting blind pair (agent/picks.mjs; Range works)
 //   GET  board?project&rev&page   one page of the storyboard, as look {mode:"board"} draws it (PNG)
 //   GET  board-data?project&stop|rev   the storyboard a board stop showed, as data (JSON)
-//   GET  board-shot?project&rev&shot&part&w   one shot's source frame or cropped still (PNG)
+//   GET  board-shot?project&rev&shot&part&w   one shot's source frame, still, last frame or option still (PNG)
 //   GET  turn?project&turn        one turn for turn review: revisions, changes and calls
 //   GET  inspire/thumb/<video id> a YouTube reference's thumbnail, kept by backend/inspire.mjs
 //   GET  inspire/strip/<video id>/<NN.jpg>  one of its frame strips (6 small frames side by side)

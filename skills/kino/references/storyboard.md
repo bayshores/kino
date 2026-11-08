@@ -7,7 +7,7 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 ## Build it
 
 - Put the clip in the scene first, one video layer from 0 s, so scene time is file time
-  (`look source` needs it; the storyboard stop asks only when the video has footage). When
+  (`look source` needs it). When
   you build the shots, delete it (or make it shot 1), so the clip's sound plays once.
 - One `board` op holds the whole storyboard; each call replaces it (undo, `rev`). Shots in
   time order, no gap and no overlap: from the music layer's start to its end, or the whole
@@ -23,10 +23,10 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 - `follow`: `steady` (the crop holds still), `track` (it follows the subject) or `sweep` (one
   straight pan). A subject that crosses the frame needs `track` or `sweep`.
 - `text` is `{text, family, weight?, size?, y?, fill?}` in a font kino has (`y`: its center,
-  % from the top). Keep it off faces; no meme or novelty fonts unless the brief asks for them.
+  % from the top). Keep it off faces; no meme or novelty fonts unless asked.
 - `sound` is `"none"` or `{what}`, a concrete effect ("phone buzz on the table"): from the
   person's files, or kino's own (`library sounds`, sound-library reference). Never a
-  made-up synth sound.
+  made-up synth.
 - `pacing`: `beat_cut` (cuts on beats), `phrase_flow` (with the music's phrases or the voice)
   or `free`. `why`: one line. `calls` (at most 6): your own choices, so an approval covers
   them. `open` (at most 3): questions only the person can answer.
@@ -37,7 +37,7 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 - Send the whole board again to change it, each shot with the `id` `look board` prints after
   its number (`2 (S5)`); a shot without one keeps the id of the shot it continues.
 - Refused (`op_failed`; its `boardError` says which): `missing_layer` (say "none"), `gap` or
-  `overlap` (the answer names the shot to change), `bad_shot` (every bad field named).
+  `overlap` (the answer names the shot), `bad_shot` (every bad field named).
 
 ## Look at it
 
@@ -64,13 +64,14 @@ Then ask with `fresh:"ran"`; when your app cannot start one, with `fresh:"skippe
   id:"board", words:"<their reply>"}` (kino logs them: do not log them again;
   "not your call" is not one). It answers `your_call`: decide each item, write your decisions
   in `calls` and empty `open` (edit `board`), then ask again with the fresh-eyes answer:
-  `notes {action:"checkpoint", id:"board", fresh:"ran"}` (or `"skipped"`). Every ask carries
-  `fresh` (else "Fresh-eyes check: not reported").
+  `notes {action:"checkpoint", id:"board", fresh:"ran"}` (or `"skipped"`).
 - `notes {action:"checkpoint", id:"board"}`: kino writes the ask (your calls, plain then flagged
   shots first, at most 8 shots). Send it as written, with the `look board` pages
   when your app can send files, and end your turn. "All shots": the same call with `all:true`.
   After a redo or approve with notes, kino lists what changed (asked or not), what they named
   but did not change, and a new shot order or music: send it as written.
+- Shot notes from the board screen: "use option B: <why>" (`alts[0]`; C is `alts[1]`), "make it 1.8 s
+  (was 2.1 s)", "remove this shot": edit `board` to match.
 - No `check` first: the board comes before building.
 - Refused: `board_first` (save one first), `board_gap` (it no longer covers the music or
   video), `open_items` (above), `move_needed` (no designed move on the hook,

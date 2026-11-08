@@ -9,8 +9,9 @@ import { boardData as serverBoardData } from "../backend/agent/board-data.mjs";
 import { normalizeBoard } from "../engine/board.js";
 import { answerStop, boardData, boardShotUrl } from "./dashboard/api.js";
 import {
-  aspectWords, boardHeader, changeLines, changeWords, clockWords, freshLine, headChips, measureWords, overlayBoxes, phoneShots, reelSegments, seconds, shotIndexAt,
-  shotLines, shotList, shotNotesWords, shotSentence, shotTags, statusWords,
+  aspectWords, boardHeader, changeLines, changeWords, clockWords, freshLine, headChips, measureWords, overlayBoxes, seconds, shotIndexAt,
+  shotLines, shotList, shotSentence, shotTags, statusWords,
+  directedShots, directionChips, directionWords, footageBox, steppedLength, withoutDirection,
 } from "./dashboard/boardRows.js";
 import { KEY_HELP, keyAction, parseCommand } from "./dashboard/keys.js";
 import { fromSnapshot, stopAnswer, stopRows } from "./dashboard/state.js";
@@ -173,11 +174,6 @@ test("after a redo the board says what changed as asked, without being asked, an
   assert.deepEqual(changeLines({ ...data, lapsed: { why: ["shot 2's crop changed"], approved: "C1" } }), ["changed since you approved C1: shot 2's crop changed"]);
   // The phone's card: the changed and named shots first, then the flagged one, then the rest; 2 at
   // most (review round 1 of B4b: with 4 rows the answers were 4 phone screens down).
-  assert.deepEqual(phoneShots(after).map((shot) => shot.id), ["S1", "S2"]);
-  assert.deepEqual(phoneShots(after, 4).map((shot) => shot.id), ["S1", "S2", "S3", "S4"]);
-  assert.deepEqual(phoneShots(data, 4).map((shot) => shot.id), ["S2", "S4", "S5", "S1"], "the flagged shots first (S4 and S5 have no subject marked)");
-  assert.deepEqual(phoneShots(data).map((shot) => shot.id), ["S2", "S4"]);
-  assert.equal(phoneShots(data, 10).length, 5);
 });
 
 test("the read-only board says where it stands", () => {
@@ -224,20 +220,14 @@ test("notes on shots go with the answer: a approves with notes, Tab, d and Enter
   // Without notes on shots, as before.
   assert.deepEqual(stopAnswer(round, { press: "approve", shots: [{ id: "S2", words: " " }] }), { send: { id: "C1", rev: 7, read_as: "approve" } });
   assert.deepEqual(stopAnswer(round, { press: "redo" }), stopAnswer(round, { press: "redo", shots: [] }));
-  assert.equal(shotNotesWords({ S2: { n: 2, text: "tighter" } }), "note on shot 2");
-  assert.equal(shotNotesWords({ S4: { n: 4, text: "x" }, S2: { n: 2, text: "y" }, S3: { n: 3, text: " " } }), "notes on shots 2 and 4");
-  assert.equal(shotNotesWords({}), null);
   // A no on the agent's calls is a note too: its words follow the note's.
   const noCalls = ["Inter 700 for every line"];
   assert.deepEqual(stopAnswer(round, { press: "approve", noCalls }), { send: { id: "C1", rev: 7, read_as: "approve with notes", words: 'no to your call "Inter 700 for every line"' } });
   assert.equal(stopAnswer(round, { press: "redo", text: "warmer", noCalls: [...noCalls, "no music"] }).send.words, 'warmer; no to your call "Inter 700 for every line"; no to your call "no music"');
 });
 
-test("the reel's segments are as wide as the shots are long; the head's chips and each card's tags say the shot in a few words", () => {
+test("the playhead's shot and clock; the head's chips and each shot's tags say the shot in a few words", () => {
   const data = board();
-  const segments = reelSegments(data);
-  assert.deepEqual(segments.map((segment) => [segment.id, Number(segment.left.toFixed(1)), Number(segment.width.toFixed(1)), segment.flagged]),
-    [["S1", 0, 14.8, false], ["S2", 14.8, 22.7, true], ["S3", 37.5, 25, false], ["S4", 62.5, 17, true], ["S5", 79.5, 20.5, true]]);
   assert.deepEqual([shotIndexAt(data, 0), shotIndexAt(data, 1.3), shotIndexAt(data, 5), shotIndexAt(data, 99)], [0, 1, 2, 4]);
   assert.deepEqual([clockWords(0), clockWords(4.42), clockWords(65.5)], ["0:00.0", "0:04.4", "1:05.5"]);
   assert.deepEqual(headChips(data), ["5 shots", "8.8 s", "9:16", "TikTok", "no music", "fresh eyes: ran"]);
@@ -292,4 +282,31 @@ test("the requests: the board's data, a shot's picture and an answer with notes 
     { project: "p1", action: "answer", id: "C1", rev: 7, read_as: "approve" },
   ], "shots only when there are some");
   assert.equal(boardShotUrl({ projectId: "p1", rev: 7, shot: "S2", part: "source", width: 480 }), "/api/dashboard/board-shot?project=p1&rev=7&shot=S2&part=source&w=480");
+});
+
+test("directions on shots: an option, a length and remove become the shot's note, a chip each, and the board as directed", () => {
+  const data = board();
+  const notes = {
+    S2: { n: 2, text: " tighter ", pick: { n: 1, letter: "B", why: "wider, the roofs too" }, length: { to: 1.8, was: 2 } },
+    S3: { n: 3, text: "", remove: true },
+    S1: { n: 1, text: "", noteOpen: true },
+  };
+  assert.equal(directionWords(notes.S2), "use option B: wider, the roofs too; make it 1.8 s (was 2 s); tighter");
+  assert.equal(directionWords(notes.S3), "remove this shot");
+  assert.equal(directionWords(notes.S1), "", "an empty open note says nothing");
+  assert.deepEqual(directionChips(notes).map((chip) => [chip.id, chip.field, chip.text]), [
+    ["S2", "pick", "shot 2: wider, the roofs too"], ["S2", "length", "shot 2: 1.8 s"], ["S2", "text", "shot 2: note"], ["S3", "remove", "shot 3: remove"],
+  ]);
+  assert.deepEqual(withoutDirection(notes.S2, "pick"), { n: 2, text: " tighter ", length: { to: 1.8, was: 2 } });
+  assert.equal(withoutDirection(notes.S3, "remove"), null, "nothing left");
+  assert.deepEqual([steppedLength(2, 0.1), steppedLength(0.3, -0.1), steppedLength(20, 0.1), steppedLength(1.25, -0.1)], [2.1, 0.3, 20, 1.2]);
+  // The board as directed: shot 2 takes option B's footage and crop at 1.8 s, shot 3 has no length.
+  const shots = directedShots(data, notes);
+  assert.deepEqual(shots.map((shot) => [shot.id, Number(shot.start.toFixed(2)), Number(shot.dur.toFixed(2)), shot.picked, shot.removed]),
+    [["S1", 0, 1.3, 0, false], ["S2", 1.3, 1.8, 1, false], ["S3", 3.1, 0, 0, true], ["S4", 3.1, 1.5, 0, false], ["S5", 4.6, 1.8, 0, false]]);
+  assert.deepEqual([shots[1].in, shots[1].crop, shots[1].subject, shots[1].why], [2, [30, 12, 24, 76], "none", data.shots[1].why], "the option's fields; the shot keeps its reason");
+  // The footage placed as the still places it: a 9:16 crop of 384×216 fills the 1080×1920 frame.
+  const box = footageBox(data.shots[0], data.header);
+  assert.deepEqual(Object.values(box).map((value) => Number(value.toFixed(1))), [-83.3, -15.9, 416.7, 131.8]);
+  assert.deepEqual(footageBox(data.shots[2], data.header), null, "a title card has no footage");
 });
