@@ -79,6 +79,7 @@ import { decodeMono } from "../audio-analysis.mjs";
 import { songShape } from "../song-shape.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { sectionsInVideo, soundMapImage, soundMapText, volumeDips } from "./sound-map.mjs";
+import { createTries, triesView } from "./tries.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, pairCount, pinnedPairs, refForKey, resultText, roundView, tally, VERSUS_ROWS } from "./judge.mjs";
 import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
@@ -444,6 +445,10 @@ export function createAgentService(deps) {
   // Judge rounds (judge.mjs): the person picks blind between edit and reference frames.
   const judge = createJudge({ agentState, inspire: deps.inspire, directory: path.join(agentDirectory, "judge"), emit: (...args) => deps.emit?.(...args),
     editFrame: async (document, sceneId, time, width) => (await look.frame(await prepare(document, sceneId, await fontsFor(document)), time, width)).png });
+  // Try rounds (tries.mjs): 2 to 4 versions of one moment of the video; the person picks one.
+  const tries = createTries({ agentState, directory: path.join(agentDirectory, "try"), emit: (...args) => deps.emit?.(...args),
+    documentWith: (record, ops) => documentWith(record, ops),
+    renderClip: async (document, sceneId, from, to, outputPath) => look.clip(await prepare(document, sceneId, await fontsFor(document)), { from, to, outputPath }) });
   // The blind pick box (picks.mjs): two videos side by side; the person picks, the ladder reads picks.jsonl.
   const picks = createPicks({ directory: deps.tasteDirectory ?? path.join(agentDirectory, "taste"), mediaRoot: deps.mediaRoot,
     emit: (view) => deps.emit?.(null, { kind: "picks", picks: view }) });
@@ -705,6 +710,25 @@ export function createAgentService(deps) {
     const text = existing && round.status === "done" ? resultText(round)
       : `judge ${round.id} ${existing ? "is already" : "started"} for rev ${round.rev}: the person picks blind on the dashboard; the counts arrive in your inbox. Keep working.`;
     return done(projectId, { text, data: { id: round.id, rev: round.rev, status: round.status } });
+  }
+
+  // notes {action:"try", question, at, options:[{name, ops}], scene?, topic?, later?}: the agent
+  // asks the person to pick one version of a moment (tries.mjs); the person's answer comes from
+  // the dashboard as {action:"try", round, pick, note?} and reaches the agent's inbox.
+  async function notesTry(record, input, meta) {
+    const projectId = record.document.id;
+    if (input.pick !== undefined || input.round !== undefined) {
+      if (meta.by !== "you") throw new AgentError("bad_input", "Only the person picks, on the dashboard. Keep working; their pick arrives in your inbox.");
+      let round;
+      try { round = await tries.answer(projectId, { id: String(input.round ?? ""), pick: input.pick, note: input.note }); }
+      catch (error) { throw new AgentError("bad_input", error.message); }
+      return done(projectId, { text: `${round.id}: ${round.pick}`, data: { tries: triesView(await agentState.read(projectId)) } });
+    }
+    let round;
+    try { round = await tries.start(record, input, { by: meta.by === "you" ? "you" : "agent" }); }
+    catch (error) { throw new AgentError("bad_input", error.message, { safeToRetry: true }); }
+    const text = `try ${round.id} started: ${round.options.length} options of ${round.from} to ${round.to} s render one by one; the person picks on the dashboard and the pick arrives in your inbox (with the ops to apply). Keep working on other parts.`;
+    return done(projectId, { text, data: { id: round.id, rev: round.rev, status: round.status, options: round.options.map((option) => option.letter) } });
   }
 
   async function approvalFor(kinds, projectId, verb, input, rev) {
@@ -1922,6 +1946,22 @@ export function createAgentService(deps) {
     const changes = documentChanges(before, after);
     const name = (id) => refName(id, codes);
     return [...changes.created, ...changes.changed, ...changes.removed].slice(0, RECEIPT_LIST).map(name);
+  }
+
+  // The document with `ops` applied as an edit would apply them, nothing saved (try rounds):
+  // throws the edit's refusal when an op is wrong.
+  async function documentWith(record, ops) {
+    const list = Array.isArray(ops) ? ops : [ops];
+    if (!list.length) return record.document;
+    const before = record.document;
+    const projectId = before.id;
+    const codes = await syncCodes(projectId, before);
+    const resolver = createResolver(before, codes);
+    const translation = translateAll(list, resolver, before);
+    const problems = translation.problems.map(translationProblem);
+    const after = await applyAll(before, translation.operations, list, { resolver, notes: [], reports: new Map() }, problems, translation.blocked);
+    if (problems.length) throw refusal(projectId, list, problems, translation.blocked);
+    return after;
   }
 
   async function edit(input) {
@@ -4251,6 +4291,7 @@ export function createAgentService(deps) {
     }
     if (action === "helper" || action === "release") return notesCrew(projectId, input, meta, action);
     if (action === "judge") return notesJudge(record, input, meta);
+    if (action === "try") return notesTry(record, input, meta);
     if (action === "list") {
       const state = await agentState.read(projectId);
       const open = state.notes.filter((note) => note.status !== "resolved");

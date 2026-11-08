@@ -15,7 +15,7 @@ import { documentFontReferences } from "../../engine/fontDocuments.js";
 import { fontGlyphReferences } from "../../engine/fontGlyphReferences.js";
 import { desktopServiceLine, openStream } from "./stream.js";
 import { tickWhileShown } from "./visibleClock.js";
-import { applyEvent, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
+import { applyEvent, openTryOf, attention, backgroundCheckInput, briefRows, fromSnapshot, keyTarget, movedNeedWords, needKey, needsShift, needsYouRows, noteRows, otherStops, pendingApprovals, pointRange, quietToTell, recommendedOption, seenImages, stopAnswer, stopAnswered, stopChanges, stopRows, timelineRows, turnChips, turnRows, variantChoices, videoLayers, waitingStopOf, withRecord } from "./state.js";
 import { isTyping, keyAction } from "./keys.js";
 
 // Whether the stage draws its outlines: the check's boxes (findings) and the agents' marks
@@ -48,6 +48,7 @@ import { SettingsScreen } from "./settings.jsx";
 import { StopCard, StopDone, StopElsewhere, StopScreen, StopsCard, StopSettings } from "./stops.jsx";
 import { BoardScreen } from "./board.jsx";
 import { directionWords } from "./boardRows.js";
+import { TryScreen } from "./tries.jsx";
 import { CrewScreen } from "./crew.jsx";
 import { InspireScreen } from "./inspire.jsx";
 import { JudgeBox } from "./judge.jsx";
@@ -1120,6 +1121,8 @@ export function Dashboard() {
       case "projects": case "crew": case "inspire": case "shares": case "settings": case "help": case "transcript": case "variants": setScreen({ name: command.action }); return;
       // The blind pick box comes back (put off with esc).
       case "picks": setScreen({ name: "main" }); setPicksLater(null); return;
+      // Try options (tries.jsx): the open round, else the newest.
+      case "try": setScreen({ name: "try" }); return;
       // The newest storyboard stop, else the board now, read only ("not asked yet").
       case "board": {
         const boardRound = [...(data?.agent?.stops?.rounds ?? [])].reverse().find((entry) => entry.kind === "board");
@@ -1163,6 +1166,7 @@ export function Dashboard() {
     { id: "variants", words: "variants", hint: "compare and pick a variant", command: { action: "variants" } },
     { id: "picks", words: "picks", hint: "blind A or B", command: { action: "picks" } },
     { id: "storyboard", words: "storyboard", hint: "the board, read only", command: { action: "board" } },
+    { id: "try", words: "try options", hint: "versions of one moment to pick from", command: { action: "try" } },
     { id: "render", words: "render", hint: "a final render of this scene", keys: "r", command: { action: "export", value: { quality: "final" } } },
     { id: "draft", words: "export draft", hint: "a quick draft render", command: { action: "export", value: { quality: "draft" } } },
     { id: "cancel", words: "cancel render", hint: "the newest render that runs", keys: "x", command: { action: "cancel-render" } },
@@ -1235,6 +1239,7 @@ export function Dashboard() {
         }
         if (row?.type === "stop") { stopKeyOnMain(row.round, action); return; }
         if (row?.type === "judge") { setJudgeLater(null); return; }
+        if (row?.type === "try") { if (action === "allow") setScreen({ name: "try" }); return; }
         // A material question: a picks the recommended option; the others are chips on its row.
         if (row?.type === "material") {
           if (action === "allow") { answerMaterial(row.need, `option ${recommendedOption(row.need)}`); return; }
@@ -1309,6 +1314,7 @@ export function Dashboard() {
           else if (row.type === "elsewhere") openProject(row.projectId);
           else if (row.type === "ideas") setScreen({ name: "inspire" });
           else if (row.type === "judge") setJudgeLater(null);
+          else if (row.type === "try") setScreen({ name: "try" });
           else if (row.type === "material") say(`${row.need.id}: a picks option ${recommendedOption(row.need)}; click a chip on its row for another answer.`);
           else setScreen({ name: "approval", id: row.approval.id });
         }
@@ -1605,6 +1611,7 @@ export function Dashboard() {
     onNote: (note) => setStopNote(round.id, note), onPress: (press) => pressStop(round, press),
     shotNotes: shotNotes[noteKey(round.id)] ?? {}, onShotNote: (shot, note) => setShotNote(round.id, shot, note),
     noCalls: callNos[noteKey(round.id)] ?? [],
+    trying: data ? openTryOf(data) : null, onTry: () => setScreen({ name: "try" }),
     onCallNo: (call, no) => setCallNos((value) => {
       const list = (value[noteKey(round.id)] ?? []).filter((entry) => entry !== call);
       return { ...value, [noteKey(round.id)]: no ? [...list, call] : list };
@@ -1627,7 +1634,7 @@ export function Dashboard() {
   const session = (
     <SessionPane data={{ ...data, renders: (data.renders ?? []).filter((job) => job.projectId === projectId) }} still={still} now={now}
       sections={sections} onSections={setSections}
-      cursor={list === 1 ? cursors[1] : -1} onAnswer={answer} onOpenApproval={(id) => setScreen({ name: "approval", id })} onIdeas={() => setScreen({ name: "inspire" })} onJudge={() => setJudgeLater(null)} onMaterial={answerMaterial}
+      cursor={list === 1 ? cursors[1] : -1} onAnswer={answer} onOpenApproval={(id) => setScreen({ name: "approval", id })} onIdeas={() => setScreen({ name: "inspire" })} onJudge={() => setJudgeLater(null)} onTry={() => setScreen({ name: "try" })} onMaterial={answerMaterial}
       onStop={(round, press) => (press === "approve" && round.kind !== "board" ? pressStop(round, "approve") : openStop(round, press === "redo" ? "redo" : null))}
       onReopen={reopenStop} onKeepAsking={keepAsking} onOpenProject={openProject}
       onCancelRender={cancelRender} onShare={makeShare} onShares={() => setScreen({ name: "shares" })} share={share} onAddFiles={dropFiles} onExport={() => exportScene()} bare />
@@ -1697,6 +1704,8 @@ export function Dashboard() {
         focusPane(1);
       }} />,
       board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} onBack={back} />,
+      try: () => <TryScreen projectId={projectId} tries={data.agent?.tries ?? null} shots={doc?.board?.shots ?? []} onBack={back}
+        onAnswer={(round, pick) => server.act("notes", { action: "try", project: projectId, round: round.id, pick }).then((reply) => { if (reply.isError) say(reply.text, true); }, fail)} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,
       help: () => <HelpScreen onBack={back} />,
       transcript: () => <TranscriptScreen data={data} onBack={back} />,

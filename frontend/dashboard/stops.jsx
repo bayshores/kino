@@ -39,7 +39,7 @@ const STILL_WIDTH = 160;
  * one; the answer bar shows each as a chip with × to take it back, then the note, approve and
  * "send N changes" (a redo: the agent changes the board and shows it again).
  */
-export function StopCard({ round, document, projectId, note, onNote, onPress, noteRef, focusNote = false, compact = false, shotNotes = {}, onShotNote = null, noCalls = [], onCallNo = null }) {
+export function StopCard({ round, document, projectId, note, onNote, onPress, noteRef, focusNote = false, compact = false, shotNotes = {}, onShotNote = null, noCalls = [], onCallNo = null, trying = null, onTry = null }) {
   const word = STOP_WORDS[round.kind] ?? round.kind;
   const mode = note?.mode === "redo" ? "redo" : "notes";
   const titleId = `stop-${round.id}`;
@@ -67,7 +67,7 @@ export function StopCard({ round, document, projectId, note, onNote, onPress, no
         </div>
       )}
       {board ? <BoardView projectId={projectId} stop={round.id} version={round.rev} ask={lines} notes={shotNotes} onNote={onShotNote}
-        noCalls={noCalls} onCallNo={onCallNo} compact={compact} />
+        noCalls={noCalls} onCallNo={onCallNo} compact={compact} trying={trying} onTry={onTry} />
         : stills.length ? (
         <figure className="stop-stills">
           <div className={`stills-grid${scene.height > scene.width ? " tall" : ""}`}>

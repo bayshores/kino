@@ -1,0 +1,45 @@
+/* The try options screen (tries.jsx): the rounds on the left, the question, the options side by
+   side on one clock, then none of these and skip, and the shots with the moment marked. Orange is
+   the round open and the picked option, teal the moment, green a round picked. Nothing moves
+   until play is pressed. */
+.try-place { margin-right: 2ch; font-weight: 400; }
+.try-body { display: grid; grid-template-columns: minmax(16ch, 24ch) minmax(0, 1fr); gap: 1lh 3ch; align-items: start; }
+.try-rounds { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.try-rounds li { padding: 0 1ch; border-left: 2px solid transparent; color: var(--fg-mid); }
+.try-rounds li.current { border-left-color: var(--accent); background: var(--bg1); color: var(--fg0); font-weight: 700; }
+.try-mark { display: inline-block; width: 2ch; color: var(--fg1); }
+.try-mark.mark-done { color: var(--ok); }
+.try-mark.mark-open { color: var(--accent); }
+.try-round { display: grid; gap: 0.75lh; min-width: 0; }
+.try-screen .try-question { margin: 0; font: inherit; font-weight: 700; color: var(--fg0); }
+.try-options { display: grid; grid-template-columns: repeat(var(--count, 4), minmax(0, 1fr)); gap: 1ch; }
+.try-options.count-2 { --count: 2; max-width: 90ch; }
+.try-options.count-3 { --count: 3; }
+.try-option { display: grid; gap: 2px; margin: 0; min-width: 0; }
+.try-video { position: relative; display: grid; place-items: center; aspect-ratio: 9 / 16; max-height: 52vh; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: #000; }
+.try-video video { display: block; width: 100%; height: 100%; object-fit: contain; }
+.try-option:hover .try-video { border-color: var(--fg1); }
+.try-option.picked .try-video { border-color: var(--accent); }
+.try-letter { position: absolute; top: 6px; left: 6px; min-width: 2.5ch; padding: 0 0.5ch; border-radius: 2px; background: rgb(11 14 18 / 0.85); color: var(--fg0); font-weight: 700; text-align: center; }
+.try-option.picked .try-letter { background: var(--accent); color: var(--bg0); }
+.try-missing { color: var(--fg1); }
+/* The pick button shows on hover and focus (always on a touch screen). */
+.try-pick { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgb(11 14 18 / 0.85); border-color: var(--accent); opacity: 0; }
+.try-option:hover .try-pick, .try-pick:focus-visible { opacity: 1; }
+@media (hover: none) { .try-pick { opacity: 1; } }
+.try-option figcaption { color: var(--fg-mid); overflow-wrap: anywhere; }
+.try-controls { display: flex; align-items: center; gap: 2ch; }
+.try-scrub { position: relative; flex: 1; display: flex; align-items: center; }
+.try-scrub input { width: 100%; accent-color: var(--accent); }
+.try-moment { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--agent); pointer-events: none; }
+.try-clock { color: var(--fg-mid); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.try-screen .try-answers { display: flex; justify-content: center; gap: 3ch; }
+.try-answers .tb { color: var(--fg-mid); }
+.try-answer { margin: 0; color: var(--fg-mid); text-align: center; }
+.try-shots { display: grid; grid-template-columns: 6ch minmax(0, 1fr); gap: 1ch; align-items: center; padding: 0.5lh 1ch; border-top: 1px solid var(--line); background: var(--lane); }
+.try-strip { position: relative; height: 1.5lh; }
+.try-shot { position: absolute; top: 0; bottom: 0; padding: 0 0.5ch; border: 1px solid var(--line); border-radius: 2px; background: var(--bg1); color: var(--fg-mid); overflow: hidden; }
+.try-at { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--accent); }
+/* A phone: the rounds over the options, two options a row. */
+.phone .try-body { grid-template-columns: minmax(0, 1fr); }
+.phone .try-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }

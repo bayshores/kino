@@ -35,8 +35,9 @@ const hasFootage = (shot) => Boolean(shot.media && shot.media !== "none" && !sho
  * person's directions on single shots, {S2: {n, text, pick, length, remove}}, and
  * `onNote(id, entry | null)` changes one; `noCalls` the agent's calls the person said no to, and
  * `onCallNo(call, no)` changes one. Without onNote, or with `readOnly`, nothing takes a direction.
+ * `trying` is the try round open (tries.jsx); its button opens the try options screen (`onTry`).
  */
-export function BoardView({ projectId, stop = null, rev = null, version = null, ask = null, notes = {}, onNote = null, noCalls = [], onCallNo = null, readOnly = false, compact = false, level = 4 }) {
+export function BoardView({ projectId, stop = null, rev = null, version = null, ask = null, notes = {}, onNote = null, noCalls = [], onCallNo = null, readOnly = false, compact = false, level = 4, trying = null, onTry = null }) {
   const [state, setState] = useState({ data: null, error: null });
   const [attempt, setAttempt] = useState(0);
   // The rough cut's place, in seconds of the directed board, whether it plays, and the shot in the panel.
@@ -106,6 +107,11 @@ export function BoardView({ projectId, stop = null, rev = null, version = null, 
         <ul className="board-chips" aria-label="The board">
           {headChips(data).map((chip) => <li key={chip}>{chip}</li>)}
         </ul>
+        {trying && onTry ? (
+          <button type="button" className="tb tb-box board-try" onClick={onTry} title={`${trying.id}: ${trying.question}`}>
+            try options <span className="board-try-count">{trying.options.length}</span>
+          </button>
+        ) : null}
         {readOnly ? <p className="dim">{statusWords(data, timeOfDay)}</p> : null}
         {data.purpose ? <p className="board-purpose">{data.purpose}</p> : null}
         {changeLines(data).map((line) => <p key={line} className="board-change">{line}</p>)}

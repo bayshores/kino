@@ -117,6 +117,7 @@ export function parseCommand(text) {
     case "transcript": return { action: "transcript" };
     case "variants": return { action: "variants" };
     case "board": case "storyboard": return { action: "board" };
+    case "try": case "options": return { action: "try" };
     case "turn": return /^T\d+$/i.test(value) ? { action: "turn", value: value.toUpperCase() } : { error: "turn needs a turn id, such as turn T3." };
     case "note": return value ? { action: "note", value } : { error: "note needs text, such as note make the title larger." };
     case "hold": return { action: "hold", value: true, note: value };

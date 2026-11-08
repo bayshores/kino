@@ -22,6 +22,7 @@ import { shownTextAt } from "../../engine/textChangeDraw.js";
 import { resizeTextLayer } from "../../engine/textLayout.js";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { exportScene, renderStills } from "../export.mjs";
+import { PREVIEW_FPS, PREVIEW_QUALITY, previewSize } from "../preview-segments.mjs";
 import { renderContentKey } from "../render-segment-cache.mjs";
 import { graphicsCacheInput } from "../render-devices.mjs";
 import { sec } from "./describe.mjs";
@@ -853,6 +854,19 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       if (!changed.length) return { png: null, changed: [], labels: [], frames };
       const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile });
       return { png, changed: changed.map((entry) => entry.time), labels: changed.map((entry) => entry.label), frames };
+    },
+
+    // A stretch of a scene (`from` to `to` seconds) as a silent mp4 at the preview size and
+    // frame rate, drawn as playback draws it (try rounds, tries.mjs).
+    async clip(prepared, { from, to, outputPath, signal }) {
+      const render = renderSettings?.() ?? {};
+      const size = previewSize(prepared.scene);
+      const first = Math.max(0, Math.round(from * PREVIEW_FPS));
+      const count = Math.max(1, Math.round((to - from) * PREVIEW_FPS));
+      await exportScene(prepared.scene, { format: "mp4", fps: PREVIEW_FPS, width: size.width, height: size.height, videoQuality: PREVIEW_QUALITY }, {
+        mediaRoot, fonts: prepared.fonts, render, outputPath, silent: true, previewBlur: true, signal, frameRange: { first, count },
+      });
+      return { outputPath, ...size };
     },
   };
 }

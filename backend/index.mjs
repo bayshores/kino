@@ -365,6 +365,7 @@ const agentService = createAgentService({
     // The agent edits an always note stopped (the whole list, so an answered one goes).
     if (event.kind === "stopped") dashboard.publish({ type: "stopped", projectId, stopped: event.stopped });
     if (event.kind === "judge") dashboard.publish({ type: "judge", projectId, judge: event.judge });
+    if (event.kind === "tries") dashboard.publish({ type: "tries", projectId, tries: event.tries });
   },
   // Your dashboard settings and rules (plan §5.7, §5.9).
   approvals: {

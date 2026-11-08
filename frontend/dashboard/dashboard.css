@@ -1105,13 +1105,15 @@
 .board { display: grid; gap: 0.75lh; min-width: 0; }
 .board p { margin: 0; }
 .board-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25lh 1.5ch; }
-.board-head > :not(.board-title, .board-chips) { flex: 1 0 100%; }
+.board-head > :not(.board-title, .board-chips, .board-try) { flex: 1 0 100%; }
 .board-title { font-weight: 700; }
 .board-title:focus:not(:focus-visible) { outline: none; }
 .board-purpose { color: var(--fg0); border-left: 2px solid var(--accent); padding-left: 1ch; }
 .board-chips { display: flex; flex-wrap: wrap; gap: 0.5ch; }
 .board-chips li { padding: 0 1ch; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg1); color: var(--fg-mid); }
 .board-change { color: var(--accent); }
+.board-try { margin-left: auto; }
+.board-try-count { margin-left: 0.5ch; padding: 0 0.75ch; border-radius: 2px; background: var(--accent); color: var(--bg0); font-weight: 700; }
 .board-tags { display: flex; flex-wrap: wrap; gap: 0.5ch; }
 .board-tags li { max-width: 100%; padding: 0 0.75ch; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg1); color: var(--fg-mid); overflow-wrap: anywhere; }
 .board-tags .tag-text::before { content: "T "; color: var(--fg1); }

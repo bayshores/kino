@@ -1,5 +1,7 @@
 # History, notes and the dashboard
 
+Contents: History and notes · Approvals, hold and undo · The crew · Try options
+
 The person watches in the kino app. They approve some calls, can hold your writes, undo your
 turns and leave notes. They see each call as it happens, under a name and color kino gives
 your session (such as Nova), in plain words (`look at 1.0–2.0 s`), and a striped "building"
@@ -97,3 +99,16 @@ screen, F2). Each agent kino starts gets its own name, a task, what it may do (`
   arrives in your inbox as `judged rev 147: references 7 · same 2 · yours 1` and the times where a
   reference won. kino starts one by itself when a final render asks for approval. Only the person
   picks. With `videos:[[a, b]], audio?|picture?` it queues videos for blind A/B picks (`evals/taste/picks.md`).
+
+## Try options
+
+`notes {action:"try", question, at, options:[{name, ops}], scene?, topic?, later?}` asks the
+person to pick one version of a moment (2 to 4 options; `ops` are edit ops, `[]` keeps it as it
+is; `later` lists the topics you plan next). Each option's ops are checked on a copy, then kino
+renders the 2 s around `at` once per option; the person picks on the dashboard and your inbox
+gets the picked option's ops to apply (or none of these, or skip). One question a round.
+
+```json
+{"tool":"edit","ops":[{"op":"add_layer","layerType":"rectangle","name":"card","properties":{"x":0,"y":0,"width":400,"height":300,"fill":"#C8935A"}}]}
+{"tool":"notes","action":"try","question":"which color for the card?","at":1,"topic":"color","later":["sound"],"options":[{"name":"as made","ops":[]},{"name":"film","ops":[{"op":"color_filter","layer":"card","filter":"film"}]}]}
+```

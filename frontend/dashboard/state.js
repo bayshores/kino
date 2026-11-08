@@ -186,6 +186,11 @@ export function applyEvent(state, event) {
       if (!here) return next;
       next.agent = { ...state.agent, judge: event.judge ?? null };
       return next;
+    // A try round was asked, rendered or answered (backend/agent/tries.mjs).
+    case "tries":
+      if (!here) return next;
+      next.agent = { ...state.agent, tries: event.tries ?? null };
+      return next;
     case "note":
       if (!here || !event.note) return next;
       next.agent = { ...state.agent, notes: upsert(state.agent.notes, event.note) };
@@ -429,6 +434,8 @@ export function otherStops(state) {
 /** The open project's ideas from a reference waiting for the person (inspire, F3), or null. */
 /** The open judge round of the open project, or null (backend/agent/judge.mjs). */
 export const openJudgeOf = (state) => (state?.agent?.judge?.status === "open" ? state.agent.judge : null);
+/** The open project's try round that is rendering or waiting for a pick, or null (backend/agent/tries.mjs). */
+export const openTryOf = (state) => (state?.agent?.tries?.rounds ?? []).findLast((round) => round.status === "waiting" || round.status === "rendering") ?? null;
 export const waitingIdeasOf = (state) => (state?.inspire?.ideas?.status === "waiting" ? state.inspire.ideas : null);
 /** The open project's material questions not answered yet (notes needs, backend/agent/needs.mjs). */
 export const openMaterialOf = (state) => (state?.agent?.needs ?? []).filter((need) => need?.status === "open" && Array.isArray(need.options));
@@ -437,16 +444,18 @@ export const recommendedOption = (need) => Math.max(1, (need?.options ?? []).fin
 
 /**
  * "needs you", in order: the open project's waiting stop, the stops in other projects, the ideas
- * an agent took from a reference (answered on the inspire screen), an open judge round, the
+ * an agent took from a reference (answered on the inspire screen), an open judge round, a try round, the
  * material questions (answered with one of their options), then the pending approvals.
  */
 export function needsYouRows(state) {
   const round = waitingStopOf(state);
   const ideas = waitingIdeasOf(state);
   const judge = openJudgeOf(state);
+  const trying = openTryOf(state);
   return [...(round ? [{ type: "stop", projectId: state.projectId, round }] : []), ...otherStops(state).map((entry) => ({ type: "elsewhere", ...entry })),
     ...(ideas ? [{ type: "ideas", projectId: state.projectId, ideas }] : []),
     ...(judge ? [{ type: "judge", projectId: state.projectId, judge }] : []),
+    ...(trying ? [{ type: "try", projectId: state.projectId, round: trying }] : []),
     ...openMaterialOf(state).map((need) => ({ type: "material", projectId: state.projectId, need })),
     ...pendingApprovals(state).map((approval) => ({ type: "approval", approval }))];
 }
@@ -488,9 +497,9 @@ const NEED_VERBS = { allow: "allow it once", "allow-always": "always allow it", 
 /** What a, A, d or D (`action`) says instead of answering a row that moved under it (needsShift). */
 export function movedNeedWords(row, action) {
   const key = NEED_KEYS[action] ?? "a";
-  const what = row.type === "approval" ? `${row.approval.id} (${cut(row.approval.summary ?? "", 80)})` : row.type === "judge" ? `judge ${row.judge.id}` : row.type === "material" ? `${row.need.id} (${cut(row.need.ask ?? "", 80)})`
+  const what = row.type === "approval" ? `${row.approval.id} (${cut(row.approval.summary ?? "", 80)})` : row.type === "judge" ? `judge ${row.judge.id}` : row.type === "try" ? `try ${row.round.id}` : row.type === "material" ? `${row.need.id} (${cut(row.need.ask ?? "", 80)})`
     : row.type === "ideas" ? `the ideas from ${cut(row.ideas.title ?? row.ideas.ref, 60)}` : stopName(row.round);
-  const verb = row.type === "approval" ? NEED_VERBS[action] : row.type === "material" ? `pick option ${recommendedOption(row.need)}` : "approve it";
+  const verb = row.type === "approval" ? NEED_VERBS[action] : row.type === "try" ? "open it" : row.type === "material" ? `pick option ${recommendedOption(row.need)}` : "approve it";
   return `"needs you" changed, so nothing was answered: ${key} now acts on ${what}. Press ${key} again to ${verb}.`;
 }
 

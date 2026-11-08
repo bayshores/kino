@@ -1007,6 +1007,9 @@ How to read it:
   lengths), shows one shot at a time (first and last frame, options A to C from `alts`) and a timeline with the
   story roles; a picked option, a new length or remove shot goes to the agent as that shot's note. Evidence:
   `frontend/dashboardBoard.test.js`, `backend/board-data.test.mjs`, `tests/dashboard-browser.test.mjs` (storyboard screen).
+- **Try options**: Partly verified. `notes {action:"try"}` checks 2 to 4 options' ops on a copy, renders the 2 s
+  around the moment once per option, and the person's pick (or none, or skip) reaches the inbox with the ops to apply.
+  Evidence: `backend/tries.test.mjs`, `frontend/dashboardBoard.test.js`. Gap: the clips are silent, so sound options cannot be heard yet.
 - **Fresh-eyes check**: Partly verified. A second agent reviews the board with only the brief; the
   ask reports ran, skipped or not reported. Not verified: a real agent starting a second agent.
 - **Gaps**: 9:16 app covered areas are third-party numbers; only 3D footage tested; a real session

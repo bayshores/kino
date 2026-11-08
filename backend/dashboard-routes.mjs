@@ -14,6 +14,7 @@
 //   GET  preview/<key>.mp4        a ready preview segment (silent H.264, Range requests work)
 //   GET  seen/<project>/<file>    an image kino returned to the agent
 //   GET  judge/<project>/<file>   a picture of the latest judge round (agent/judge.mjs)
+//   GET  try/<project>/<T1-B.mp4>   one option's clip of a try round (agent/tries.mjs)
 //   GET  picks/<pair>/<left|right>   one video of a waiting blind pair (agent/picks.mjs; Range works)
 //   GET  board?project&rev&page   one page of the storyboard, as look {mode:"board"} draws it (PNG)
 //   GET  board-data?project&stop|rev   the storyboard a board stop showed, as data (JSON)
@@ -63,6 +64,7 @@ import { PALETTE } from "./agent/live.mjs";
 import { assignCodes } from "./agent/refs.mjs";
 import { briefSummary } from "./agent/brief.mjs";
 import { judgeView } from "./agent/judge.mjs";
+import { triesView } from "./agent/tries.mjs";
 import { keepAsking, StopError, stopRules, stopsSummary } from "./agent/stops.mjs";
 import { sceneSoundClips, soundMixArgs, soundMixDuration } from "./export.mjs";
 import { runExportProcess } from "./export-process.mjs";
@@ -202,7 +204,7 @@ export function createDashboardRoutes(deps) {
 
   async function agentSlice(projectId) {
     const state = await agentState.read(projectId);
-    return { plan: state.plan, notes: state.notes.slice(-100), turns: state.turns.slice(-60), codes: state.codes?.byId ?? {}, brief: briefSummary(state), stops: stopsSummary(state), stopped: state.stopped ?? [], judge: judgeView(state), needs: openNeeds(state.needs),
+    return { plan: state.plan, notes: state.notes.slice(-100), turns: state.turns.slice(-60), codes: state.codes?.byId ?? {}, brief: briefSummary(state), stops: stopsSummary(state), stopped: state.stopped ?? [], judge: judgeView(state), tries: triesView(state), needs: openNeeds(state.needs),
       // Soundtrack candidates (backend/soundtrack.mjs) for the inspire screen: no file addresses.
       soundtrack: state.soundtrack ? { story: state.soundtrack.story, candidates: state.soundtrack.candidates.map(({ url, filetype, ...entry }) => entry) } : null };
   }
@@ -721,6 +723,11 @@ export function createDashboardRoutes(deps) {
     if (parts[2] === "judge" && parts.length === 5 && ["GET", "HEAD"].includes(method)) {
       if (!PROJECT_ID.test(parts[3]) || !/^J\d+-\d{2}-[12]\.jpg$/.test(parts[4])) throw failure(400, "That is not a judge picture.");
       return sendFile(req, res, path.join(deps.agentDirectory, "judge", encodeURIComponent(parts[3]), parts[4]), "image/jpeg", true);
+    }
+    // GET try/<project>/<T1-B.mp4>: one option's clip of a try round (agent/tries.mjs; Range works).
+    if (parts[2] === "try" && parts.length === 5 && ["GET", "HEAD"].includes(method)) {
+      if (!PROJECT_ID.test(parts[3]) || !/^T\d+-[A-D]\.mp4$/.test(parts[4])) throw failure(400, "That is not a try clip.");
+      return sendFile(req, res, path.join(deps.agentDirectory, "try", encodeURIComponent(parts[3]), parts[4]), "video/mp4");
     }
     // GET picks/<P3>/<left|right>: one video of a waiting blind pair (agent/picks.mjs). The name
     // never says which file it is.

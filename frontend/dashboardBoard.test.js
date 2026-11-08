@@ -310,3 +310,19 @@ test("directions on shots: an option, a length and remove become the shot's note
   assert.deepEqual(Object.values(box).map((value) => Number(value.toFixed(1))), [-83.3, -15.9, 416.7, 131.8]);
   assert.deepEqual(footageBox(data.shots[2], data.header), null, "a title card has no footage");
 });
+
+test("try options: the round shown, the rounds and planned topics on the left, the answer's words, and the needs-you row", async () => {
+  const { answerWords, roundList, shownRound } = await import("./dashboard/tryRows.js");
+  const { needsYouRows, needKey } = await import("./dashboard/state.js");
+  const option = (letter, name, ready = true) => ({ letter, name, ready, file: `T1-${letter}.mp4` });
+  const done = { id: "T1", topic: "framing", question: "which framing?", status: "picked", pick: "B", options: [option("A", "close"), option("B", "wide")] };
+  const open = { id: "T2", topic: "the cut into 2", question: "which cut into shot 2?", status: "rendering", pick: null, options: [option("A", "plain cut"), option("B", "whip pan", false)] };
+  const tries = { rounds: [done, open], later: ["color", "sound"] };
+  assert.equal(shownRound(tries).id, "T2", "the open round");
+  assert.equal(shownRound({ rounds: [done], later: [] }).id, "T1", "else the newest");
+  assert.deepEqual(roundList(tries, open).map((entry) => [entry.mark, entry.text, entry.current]),
+    [["✓", "framing", false], ["●", "the cut into 2", true], ["○", "color", false], ["○", "sound", false]]);
+  assert.deepEqual([answerWords(done), answerWords({ ...done, pick: "none" }), answerWords({ ...done, pick: "skip" }), answerWords(open)], ["B · wide", "none of these", "skipped", null]);
+  const rows = needsYouRows({ projectId: "p1", agent: { tries }, approvals: [] });
+  assert.deepEqual(rows.map((row) => [row.type, needKey(row)]), [["try", "try/p1/T2"]]);
+});

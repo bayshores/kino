@@ -278,7 +278,7 @@ function Section({ name, label, open, onToggle, count, urgent, children }) {
  * it is not the open one. `onMaterial(need, answer)` answers a material question ("option N",
  * "have" or "drop").
  */
-export function SessionPane({ data, still, cursor, sections: open, onSections: setOpen, onAnswer, onOpenApproval, onIdeas, onJudge, onMaterial, onStop, onReopen, onKeepAsking, onOpenProject, onCancelRender, onShare, onShares, share, onAddFiles, onExport, now, bare = false, ...pane }) {
+export function SessionPane({ data, still, cursor, sections: open, onSections: setOpen, onAnswer, onOpenApproval, onIdeas, onJudge, onTry, onMaterial, onStop, onReopen, onKeepAsking, onOpenProject, onCancelRender, onShare, onShares, share, onAddFiles, onExport, now, bare = false, ...pane }) {
   const fileRef = useRef(null);
   const toggle = (name) => setOpen((value) => ({ ...value, [name]: !value[name] }));
   const anyOpen = Object.keys(SECTIONS).some((name) => open[name]);
@@ -363,6 +363,21 @@ export function SessionPane({ data, still, cursor, sections: open, onSections: s
                 </button>
                 <div className="actions">
                   <button type="button" className="tb allow" onClick={onJudge}>[<span className="key">a</span>] pick</button>
+                </div>
+              </div>
+            );
+          }
+          // A try round (agent/tries.mjs): opens the try options screen.
+          if (row.type === "try") {
+            const ready = row.round.options.filter((option) => option.ready).length;
+            const state = row.round.status === "rendering" ? `making ${ready} of ${row.round.options.length}` : `${row.round.options.length} options`;
+            return (
+              <div key={`try-${row.round.id}`} className={`needs-you${cursor === index ? " selected" : ""}`}>
+                <button type="button" className="tb row-button" onClick={onTry} aria-label={`Try ${row.round.id}: ${row.round.question}, ${state}. Open it.`}>
+                  <span className="dot s-needs-you" aria-hidden="true" /><span className="grow"><strong>{row.round.id}</strong> {row.round.question} · {state}</span>
+                </button>
+                <div className="actions">
+                  <button type="button" className="tb allow" onClick={onTry}>[<span className="key">a</span>] try options</button>
                 </div>
               </div>
             );
