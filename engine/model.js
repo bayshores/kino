@@ -25,6 +25,7 @@ import { RESIZE_ANCHOR_LIST, isResizeAnchor, resizeProblem } from "./resizeAncho
 import { SHADOW_LIMITS } from "./shadowInterpolation.js";
 import { normalizeShadowChannels } from "./shadowChannels.js";
 import { normalizeShadowList } from "./stackedShadows.js";
+import { STACKED_STROKE_TYPES, normalizeStrokeList } from "./stackedStrokes.js";
 import { migrateDocument } from "./documentMigration.js";
 import { sceneRectangles, MAX_CANVAS_COORDINATE } from "./sceneLayout.js";
 import { LETTER_SPACING_LIMIT } from "./letterSpacing.js";
@@ -1182,6 +1183,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
   else {
     layer.shadows = normalizeShadowList(layer.shadows, `${path}.shadows`);
     if (!layer.shadows) delete layer.shadows;
+  }
+  // Stacked strokes (stackedStrokes.js): optional, left out when empty.
+  if (layer.strokes == null) delete layer.strokes;
+  else if (!STACKED_STROKE_TYPES.has(type)) fail(`${path}.strokes`, "only text, rectangle, ellipse, star and path layers take a strokes list");
+  else {
+    layer.strokes = normalizeStrokeList(layer.strokes, `${path}.strokes`);
+    if (!layer.strokes) delete layer.strokes;
   }
   layer.text = requireString(layer.text, `${path}.text`, MAX_STRING_LENGTH);
   if (layer.textStyleRanges !== undefined) {

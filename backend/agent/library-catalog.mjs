@@ -79,6 +79,16 @@ const SHADOW_STACKS = {
     fill: "#FFE6FA", ground: "#0D0716", preset: "fade-in" },
 };
 
+// Stacked strokes (layer field strokes, engine/stackedStrokes.js), drawn like the shadow stacks.
+const STROKE_STACKS = {
+  "stroke-double": { line: "double outline: a strokes list stacks outside outlines on the letters, wide first, like a sticker (static)",
+    strokes: [{ color: "#FFFFFF", width: 26, align: "outside", join: "round" }, { color: "#141414", width: 11, align: "outside", join: "round" }],
+    fill: "#FFE14D", ground: "#2E5BFF", preset: "preset-grow" },
+  "stroke-neon": { line: "neon tube: fill off, a strokes list of one color from wide and faint to a thin white core (static)",
+    strokes: [{ color: "#26F0FF", width: 16, opacity: 0.25, join: "round" }, { color: "#26F0FF", width: 8, opacity: 0.6, join: "round" }, { color: "#E8FFFF", width: 2.5, join: "round" }],
+    fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A", preset: "fade-in" },
+};
+
 let built = null;
 
 /** Every entry, the kinds with their counts and the technique groups. Built once. */
@@ -97,6 +107,7 @@ export function libraryCatalog() {
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
   for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push(entry("animation", name, line, "a title or logo that needs depth or glow", []));
+  for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push(entry("animation", name, line, "a title or sticker word that must stand out", []));
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
@@ -256,10 +267,10 @@ export function sampleOps(kind, name) {
     const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
-  if (kind === "animation" && SHADOW_STACKS[name]) {
-    const { shadows, fill, ground, preset } = SHADOW_STACKS[name];
+  if (kind === "animation" && (SHADOW_STACKS[name] || STROKE_STACKS[name])) {
+    const { line, ground, preset, ...style } = SHADOW_STACKS[name] ?? STROKE_STACKS[name];
     const word = WORD("kino", 150);
-    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, fill, shadows } },
+    return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { ...word, properties: { ...word.properties, ...style } },
       anim("word", preset, 0.3, 0.8, { easing: "smooth" })], duration: 2.6, still: 1.6 };
   }
   if (kind === "animation" && WIPES[name])

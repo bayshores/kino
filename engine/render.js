@@ -14,6 +14,7 @@ import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
 import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { shadowStrength, stackedShadows } from "./stackedShadows.js";
+import { stackedStrokes, strokeReach } from "./stackedStrokes.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
 import { hasTextChanges } from "./textChange.js";
@@ -551,8 +552,45 @@ function patternStroke(d, state) {
   }).join("");
 }
 
-// `strokeElement` draws the stroke apart from the fill (a trimmed or dashed stroke).
-function paintedVector(element, state, context, fill, bounds, paintBounds = bounds, strokeElement = null) {
+// The stroke alone, placed by `alignment`: `stroked` draws it, `element` gives the shape that
+// clips it (inside) or masks it out (outside).
+function alignedStroke(element, stroked, attributes, alignment, weight, bounds, context) {
+  if (alignment === "center") return stroked(attributes);
+  const id = idFor(context, "stroke");
+  if (alignment === "inside") {
+    context.defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse">${element('fill="white" stroke="none"')}</clipPath>`);
+    return `<g clip-path="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(attributes)}</g>`;
+  }
+  if (alignment !== "outside") throw new Error(`Unsupported stroke position “${alignment}”.`);
+  // An inverse luminance mask keeps the entire outer half, including holes in
+  // compound paths. Its margin includes the longest allowed miter join.
+  const margin = weight * 10 + 1;
+  context.defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" style="mask-type:luminance"><rect x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" fill="white"/>${element('fill="black" stroke="none"')}</mask>`);
+  return `<g mask="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(attributes)}</g>`;
+}
+
+// The layer's `strokes` list (stackedStrokes.js), each over the last. `pathData()` gives the
+// outline for a dashed or trimmed entry; without it a dash is drawn on `element` directly.
+function listStrokes(element, state, context, bounds, pathData = null) {
+  return stackedStrokes(state).map((entry) => {
+    const alignment = entry.align ?? "center";
+    const opacity = entry.opacity ?? 1;
+    const attributes = `fill="none" stroke="${escapeXml(entry.color)}" stroke-width="${fmt(alignment === "center" ? entry.width : entry.width * 2)}"${opacity < 1 ? ` stroke-opacity="${fmt(opacity)}"` : ""} stroke-linecap="butt" stroke-linejoin="${entry.join ?? "miter"}" stroke-miterlimit="10"`;
+    const patternState = { ...state, dash: entry.dash ?? [] };
+    const stroked = pathData && hasStrokePattern(patternState) ? patternStroke(pathData(), patternState)
+      : entry.dash ? (more) => element(`${more} stroke-dasharray="${entry.dash.map(fmt).join(" ")}"`) : element;
+    return alignedStroke(element, stroked, attributes, alignment, entry.width, bounds, context);
+  }).join("");
+}
+
+// `strokeElement` draws the stroke apart from the fill (a trimmed or dashed stroke). The
+// `strokes` list follows the single stroke; `pathData` serves its dashes and trim.
+function paintedVector(element, state, context, fill, bounds, paintBounds = bounds, strokeElement = null, pathData = null) {
+  const painted = singleStrokePainted(element, state, context, fill, bounds, paintBounds, strokeElement);
+  return stackedStrokes(state).length ? `${painted}${listStrokes(element, state, context, bounds, pathData)}` : painted;
+}
+
+function singleStrokePainted(element, state, context, fill, bounds, paintBounds, strokeElement) {
   const weight = Math.max(0, finite(state.strokeWidth));
   const alignment = state.strokeAlign ?? "center";
   const fillGraphic = element(`fill="${escapeXml(fill)}" stroke="none"${offFillClickArea(state, context, "visibleFill")}`);
@@ -563,18 +601,7 @@ function paintedVector(element, state, context, fill, bounds, paintBounds = boun
   if (alignment === "center" && strokeElement) return `${fillGraphic}${strokeElement(strokeAttributes)}`;
   if (alignment === "center")
     return element(`fill="${escapeXml(fill)}" ${strokeAttributes.replace('fill="none" ', "")}${offFillClickArea(state, context, "visible")}`);
-  const stroked = strokeElement ?? element;
-  const id = idFor(context, "stroke");
-  if (alignment === "inside") {
-    context.defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse">${element('fill="white" stroke="none"')}</clipPath>`);
-    return `${fillGraphic}<g clip-path="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(strokeAttributes)}</g>`;
-  }
-  if (alignment !== "outside") throw new Error(`Unsupported stroke position “${alignment}”.`);
-  // An inverse luminance mask keeps the entire outer half, including holes in
-  // compound paths. Its margin includes the longest allowed miter join.
-  const margin = weight * 10 + 1;
-  context.defs.push(`<mask id="${id}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" style="mask-type:luminance"><rect x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" fill="white"/>${element('fill="black" stroke="none"')}</mask>`);
-  return `${fillGraphic}<g mask="url(#${id})">${context.rasterClipBounds ?? ""}${stroked(strokeAttributes)}</g>`;
+  return `${fillGraphic}${alignedStroke(element, strokeElement ?? element, strokeAttributes, alignment, weight, bounds, context)}`;
 }
 
 function geometry(layer, state, context, overrides = {}) {
@@ -584,8 +611,9 @@ function geometry(layer, state, context, overrides = {}) {
   const patterned = finite(state.strokeWidth) > 0 && hasStrokePattern(state);
   const paint = (element, bounds = { x: 0, y: 0, width, height }, d = null) => {
     const fill = overrides.fill ?? fillPaintFor(state, context, bounds);
-    const stroke = patterned ? patternStroke(d ?? shapePath(layer.type, state), state) : null;
-    return paintedVector(element, state, context, fill, bounds, bounds, stroke);
+    const pathData = () => d ?? shapePath(layer.type, state);
+    const stroke = patterned ? patternStroke(pathData(), state) : null;
+    return paintedVector(element, state, context, fill, bounds, bounds, stroke, pathData);
   };
   if (layer.type === "rectangle") {
     if (Array.isArray(state.cornerRadii))
@@ -642,8 +670,19 @@ function clipTextUnit(markup, state, context) {
 }
 
 // The glyph outlines of `unit` (its `glyphs` in textbox coordinates), painted with `state`'s
-// fill and stroke.
+// fill and stroke. The `strokes` list then outlines all the letters together, so an outside
+// outline never covers a neighbor letter.
 function textGlyphPaths(unit, state, context) {
+  if (!stackedStrokes(state).length) return glyphPaths(unit, state, context);
+  const letters = glyphPaths(unit, { ...state, strokes: null }, context);
+  const outlined = unit.glyphs.filter((glyph) => glyph.path && !glyph.color);
+  if (!outlined.length) return letters;
+  const d = outlined.map((glyph) => glyphPath(glyph)).join(" ");
+  const bounds = mergeBounds(outlined.map(glyphPathBounds).filter(Boolean)) ?? { x: 0, y: 0, width: state.width, height: state.height };
+  return `${letters}${listStrokes((attributes) => `<path d="${escapeXml(d)}" ${attributes}/>`, state, context, bounds, () => d)}`;
+}
+
+function glyphPaths(unit, state, context) {
   const paints = new Map();
   return unit.glyphs.filter((glyph) => glyph.path || glyph.color).map((glyph) => {
     if (glyph.color?.kind === "image") {
@@ -755,10 +794,10 @@ function effectContent(content, layer, state, context, paintBounds, drawnBounds 
   // Maps keep a fixed layer-local coordinate system, while filter regions follow any overflow
   // from preceding effects. The layer's own shadow/blur is applied to the resulting paint later.
   const bounds = { x: 0, y: 0, width: Math.max(0.001, finite(state.width)), height: Math.max(0.001, finite(state.height)) };
-  let extent = expandEffectBounds(paintBounds ?? bounds, { strokeWidth: state.strokeWidth });
+  let extent = expandEffectBounds(paintBounds ?? bounds, { strokeWidth: strokeReach(state) });
   extent = { ...extent, width: Math.max(0.001, extent.width), height: Math.max(0.001, extent.height) };
   // Everything drawn so far, also where a later effect keeps the paint inside a smaller box.
-  let drawn = mergeBounds([expandEffectBounds(drawnBounds ?? bounds, { strokeWidth: state.strokeWidth }), extent]);
+  let drawn = mergeBounds([expandEffectBounds(drawnBounds ?? bounds, { strokeWidth: strokeReach(state) }), extent]);
   // The scene's size and this layer's place in it, for effects that reach across the picture
   // (lens flare) or stop at its edge (light rays). `tilted`: the matrix leaves out a 3D tilt.
   const scene = { width: context.width, height: context.height, matrix: multiply(parentWorldMatrix(state.parentId, context), layerMatrix(state)), tilted: hasTilt(state) };
@@ -795,7 +834,7 @@ function glassSilhouetteState(state) {
 // Media retain their source alpha; groups use their design box, and text uses glyph
 // outlines (including a color glyph's alpha image). This is separate from hit targets.
 function backdropSilhouette(layer, state, context, mediaContent, unit) {
-  const white = { ...glassSilhouetteState(state), fill: "#FFFFFF", fillEnabled: true, strokeWidth: 0 };
+  const white = { ...glassSilhouetteState(state), fill: "#FFFFFF", fillEnabled: true, strokeWidth: 0, strokes: null };
   if (layer.type === "text") {
     const glyphs = unit ?? textUnits(layoutText(state, context.fonts), "layer")[0];
     return { markup: copyContent(textGlyphPaths(glyphs, white, context)),

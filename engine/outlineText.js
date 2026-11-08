@@ -11,7 +11,7 @@ import { isAnimationCompatible } from "./animationCompatibility.js";
 // The group carries where the text is and how it moves; each letter carries how it is painted.
 const PLACE = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "opacity", "blendMode",
   "playbackWindows", "anchorX", "anchorY", "rotateX", "rotateY", "perspective"];
-const PAINT = ["fill", "fillEnabled", "stroke", "strokeWidth", "strokeAlign", "shadow", "shadows", "blur"];
+const PAINT = ["fill", "fillEnabled", "stroke", "strokeWidth", "strokeAlign", "shadow", "shadows", "strokes", "blur"];
 
 const animationKeys = (animation) => [animation.from, animation.to, ...(animation.animations ?? []).flatMap((member) => [member.from, member.to])]
   .flatMap((side) => (side && typeof side === "object" ? Object.keys(side) : []));
