@@ -9,6 +9,7 @@ import { MOVES, MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 import { RECIPES, TRANSITIONS } from "../../engine/blocks/recipes/index.js";
 import { VIDEO_FORMATS } from "../../engine/blocks/videoFormats.js";
 import { EFFECTS, effectDefaults } from "../../engine/effects/catalog.js";
+import { COLOR_LOOK_NAMES } from "../../engine/effects/colorLook.js";
 import { TECHNIQUES, TECHNIQUE_GROUPS, techniqueOf } from "../../engine/techniques.js";
 
 export const SAMPLE_FRAME = Object.freeze({ width: 960, height: 540 });
@@ -41,6 +42,18 @@ const EFFECT_TAGS = {
   "3d-orbit": ["orbit-3d"], "card-flip": ["orbit-3d"], wiggle: ["shake"], "focus-band": ["depth-blur"],
   grain: ["grain"], vignette: ["vignette"],
 };
+// Lines for effects no technique tag describes.
+const EFFECT_LINES = {
+  "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; grays stay gray",
+    "one color pushed or muted, sky or foliage shifted, a brand color matched"],
+  "color-look": [`color look: a ready-made grade, ${COLOR_LOOK_NAMES[0]} by default (${COLOR_LOOK_NAMES.join(", ")}), with amount 0..1`,
+    "one grade over footage or a whole group; amount below 1 for a lighter touch"],
+};
+// One entry per setting value, each with its own still ("color-look ember" is color-look with look ember).
+const EFFECT_VARIANTS = {
+  "color-look": COLOR_LOOK_NAMES.slice(1).map((look) => ({ name: `color-look ${look}`, parameters: { look },
+    line: `color look ${look}: color-look with look "${look}" (amount 0..1)` })),
+};
 const RECIPE_TAGS = {
   "hook-slam": ["type-giant"], "caption-pop": ["type-pop"], "number-counter": ["type-counter"], "price-pop": ["type-pop"], "title-type": ["type-letters"],
   "wordmark-type": ["type-letters"], "split-reveal": ["type-mask-rise"], "headline-reveal": ["type-mask-rise"], "connector-draw": ["draw-on"],
@@ -56,6 +69,14 @@ const PRESET_KIND_WORDS = { in: "brings a layer in", out: "takes a layer out", c
 function entry(kind, name, line, fits, tags) {
   return { id: `${kind}:${name}`, kind, name, words: words(name), line, fits: fits ?? "", tags, groups: groupsOf(tags) };
 }
+
+// Masks with maskInvert or maskMode (engine/maskVisibility.js), each with its sample (MASK_SAMPLES).
+const MASKS = {
+  "knockout-type": { line: "knockout type: a big word cut out of the shot, the next shot showing through its letters (create_mask with a text mask, maskInvert true)",
+    fits: "a title over footage that keeps the picture moving behind it", tags: ["type-giant"] },
+  "logo-cut": { line: "logo cut: a picture logo's own shape, by its see-through parts, shows the next shot (create_mask with a picture mask, maskMode alpha)",
+    fits: "a logo filled with footage", tags: [] },
+};
 
 // The wipe preset's shapes (engine/wipe.js), each sampled on the next shot over the last.
 const WIPES = {
@@ -80,13 +101,16 @@ export function libraryCatalog() {
   for (const effect of EFFECTS) {
     const tags = EFFECT_TAGS[effect.key] ?? [];
     const settings = Object.values(effect.parameters ?? {}).map((parameter) => parameter.label.toLowerCase());
-    entries.push(entry("effect", effect.key, firstLine(tags)?.line ?? `${effect.group.toLowerCase()} effect${settings.length ? `: ${settings.slice(0, 3).join(", ")}` : ""}`, firstLine(tags)?.fits, tags));
+    const [line, fits] = EFFECT_LINES[effect.key] ?? [];
+    entries.push(entry("effect", effect.key, line ?? firstLine(tags)?.line ?? `${effect.group.toLowerCase()} effect${settings.length ? `: ${settings.slice(0, 3).join(", ")}` : ""}`, fits ?? firstLine(tags)?.fits, tags));
+    for (const variant of EFFECT_VARIANTS[effect.key] ?? []) entries.push(entry("effect", variant.name, variant.line, fits, tags));
   }
   for (const preset of PRESETS) {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
     entries.push(entry("animation", preset.id, `${preset.name.toLowerCase()}: ${PRESET_KIND_WORDS[preset.kind] ?? preset.kind}`, firstLine(tags)?.fits, tags));
   }
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
+  for (const [name, { line, fits, tags }] of Object.entries(MASKS)) entries.push(entry("technique", name, line, fits, tags));
   for (const recipe of [...Object.values(RECIPES), ...Object.values(TRANSITIONS)])
     entries.push(entry("recipe", recipe.name, recipe.about, recipe.group ? `${recipe.group} videos` : "a change between two beats", RECIPE_TAGS[recipe.name] ?? []));
   for (const look of Object.values(LOOKS)) entries.push(entry("look", look.name, look.about, "", []));
@@ -190,6 +214,7 @@ const EFFECT_STRONG = {
   "noise-mask": { threshold: 0.5 },
   "color-grade": { stops: 0.7, contrast: 1.2, saturation: 0.6 },
   vignette: { amount: 0.85 },
+  "color-ranges": { orangeHue: -60, orangeSaturation: 0.5, yellowHue: -40, blueHue: 40, blueSaturation: -0.6, shadows: 0.4, highlights: -0.3 },
 };
 // Effects shown on the picture only: a vignette on the word would shade the word's own box.
 const PICTURE_ONLY = new Set(["vignette"]);
@@ -216,6 +241,14 @@ const TECHNIQUE_SAMPLES = {
   hold: () => ({ ops: [SHOT_A, anim("shot-a", "scale", 0, 3, { from: 1, to: 1.04 })], duration: 3, still: 1.5 }),
 };
 
+// The masks: the top shot is masked, the other shows where it is cut away.
+const MASK_SAMPLES = {
+  "knockout-type": () => ({ ops: [SHOT_B, { op: "add_layer", layerType: "text", name: "word", properties: { text: "CITY", fontSize: 260, fontWeight: 900, fill: "#FFFFFF", textResize: "width-height", x: 165, y: 40 } }, SHOT_A, { op: "create_mask", layers: ["word", "shot-a"], maskLayerId: "word", name: "knockout", maskInvert: true },
+    anim("knockout", "scale", 0.2, 2.2, { from: 1, to: 1.06, easing: "smooth" })], duration: 3, still: 1.6 }),
+  "logo-cut": () => ({ ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: "#14161A" }), picture("logo", { x: W / 2 - 180, y: H / 2 - 180, width: 360, height: 360 }), SHOT_A,
+    { op: "create_mask", layers: ["logo", "shot-a"], maskLayerId: "logo", name: "logo cut", maskMode: "alpha" }], duration: 3, still: 1.6 }),
+};
+
 /** The ops that build a short sample of one entry on an empty 960 × 540 scene, its length and the
  *  moment its card shows; null when the entry has no sample (a video format is a whole video). */
 export function sampleOps(kind, name) {
@@ -232,14 +265,16 @@ export function sampleOps(kind, name) {
     return { ops: [...layers, { op: "move", name, id: "piece", at, ...fields }], duration: 6, still: Math.min(5, at + 1.2), ...(MOVE_STILL[name] ? { share: MOVE_STILL[name] } : {}) };
   }
   if (kind === "effect") {
+    const variant = Object.values(EFFECT_VARIANTS).flat().find((item) => item.name === name);
+    if (variant) name = name.split(" ")[0];
     const effect = EFFECTS.find((item) => item.key === name);
     if (!effect) return null;
     const lut = name === "lut" ? { lut: src("look") } : {};
-    const from = { ...effectDefaults(name, { neutral: true }), ...lut };
+    const from = { ...effectDefaults(name, { neutral: true }), ...lut, ...variant?.parameters };
     // On the picture and the word (particles and vignette once, on the picture). A ranged effect shows only
     // from its start to its end, so the still is inside that span, past the ramp up.
     const layers = effect.group === "Generate" || PICTURE_ONLY.has(name) ? ["shot-a"] : ["shot-a", "word"];
-    const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name] } }));
+    const effects = layers.map((layer) => ({ op: "add_animation", layer, effect: name, start: 0.3, duration: 2.4, easing: "smooth", from, parameters: { ...effectDefaults(name), ...lut, ...EFFECT_STRONG[name], ...variant?.parameters } }));
     return { ops: [SHOT_A, WORD(), ...effects], duration: 3, still: 2.2 };
   }
   if (kind === "animation" && WIPES[name])
@@ -266,6 +301,7 @@ export function sampleOps(kind, name) {
     const look = LOOKS[name];
     return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: look.colors.bg }), { op: "recipe", name: "headline-reveal", id: "piece", at: 0.2, look: name, copy: RECIPE_COPY["headline-reveal"] }], duration: 3, still: 2 };
   }
+  if (kind === "technique" && MASK_SAMPLES[name]) return MASK_SAMPLES[name]();
   if (kind === "technique" && TECHNIQUE_SAMPLES[name]) return TECHNIQUE_SAMPLES[name]();
   return null;
 }

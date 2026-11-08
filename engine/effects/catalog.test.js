@@ -150,12 +150,18 @@ test("Post FX uses the observed catalog order, starting values and typed color i
 
 test("the Color group lists the grading effects with neutral defaults, typed curves and a required LUT", () => {
   assert.deepEqual(EFFECTS.filter(({ group }) => group === "Color").map(({ key, kind }) => `${key}:${kind}`), [
-    "curves:ranged", "lut:ranged", "hue-saturation:ranged", "white-balance:ranged", "color-wheels:ranged", "keep-color:ranged",
+    "curves:ranged", "lut:ranged", "hue-saturation:ranged", "white-balance:ranged", "color-wheels:ranged", "keep-color:ranged", "color-ranges:ranged", "color-look:ranged",
   ]);
   assert.deepEqual(effectDefaults("curves"), { master: IDENTITY_CURVE, red: IDENTITY_CURVE, green: IDENTITY_CURVE, blue: IDENTITY_CURVE, strength: 1 });
   assert.deepEqual(effectDefaults("hue-saturation"), { hue: 0, saturation: 1, lightness: 0, colorize: false, tint: "#C8935A" });
   assert.deepEqual(effectDefaults("white-balance"), { temperature: 0, tint: 0 });
   assert.deepEqual(effectDefaults("keep-color"), { targetColor: "#FF0000", hueRange: 25, softness: 15, amount: 1 });
+  const ranges = effectDefaults("color-ranges");
+  assert.equal(Object.keys(ranges).length, 26);
+  assert.ok(Object.values(ranges).every((value) => value === 0));
+  assert.deepEqual([ranges.redHue, ranges.aquaSaturation, ranges.magentaLightness, ranges.highlights, ranges.shadows], [0, 0, 0, 0, 0]);
+  assert.throws(() => normalizeEffectParameters("color-ranges", { blueHue: 181 }), /from -180 to 180/);
+  assert.deepEqual(effectDefaults("color-look"), { look: "matte", amount: 1 });
   const wheels = effectDefaults("color-wheels");
   assert.deepEqual([wheels.lift, wheels.gamma, wheels.gain, wheels.liftRed, wheels.gammaGreen, wheels.gainBlue], [0, 1, 1, 0, 0, 0]);
   // A hue cycle is an animation of hue, so its range allows ten turns either way.

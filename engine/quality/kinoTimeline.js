@@ -16,6 +16,7 @@ import { effectDefinition } from "../effects/catalog.js";
 import { IDENTITY, layerMatrix, multiply, point } from "../geometry.js";
 import { expandComponents } from "../linkedComponents.js";
 import { isFillEnabled } from "../paints.js";
+import { maskStyle } from "../maskVisibility.js";
 import { mediaFrameState, resolvePlayback } from "../playback.js";
 import { BACKGROUND_OWNER_ID, backgroundLayer, isBackgroundEnabled } from "../sceneBackground.js";
 import { textAnimationPlan, textAnimationUnitState } from "../textAnimation.js";
@@ -280,16 +281,20 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
   visit(null, 0);
 
   // A mask hides what is outside it: in a mask group, the layers above the bottom-most mask;
-  // otherwise the next layer above it.
+  // otherwise the next layer above it. An inverted mask shows them everywhere but the mask,
+  // which no box can hold: it clips nothing (invertedMasks; the item's maskInvert).
   const maskOf = new Map();
   const groupMaskOf = new Map();
+  const invertedMasks = new Set();
   for (const [parentId, siblings] of children) {
     const parent = byId.get(parentId);
     const groupMask = parent?.isMaskGroup ? siblings.findIndex((layer) => layer.isMask) : -1;
     if (groupMask >= 0) groupMaskOf.set(parentId, siblings[groupMask].id);
     siblings.forEach((layer, index) => {
-      if (groupMask >= 0 && index > groupMask) maskOf.set(layer.id, siblings[groupMask].id);
-      else if (index > 0 && siblings[index - 1].isMask && groupMask < 0) maskOf.set(layer.id, siblings[index - 1].id);
+      if (layer.isMask && maskStyle(layer, groupMask >= 0 ? parent : null).invert) invertedMasks.add(layer.id);
+      const mask = groupMask >= 0 && index > groupMask ? siblings[groupMask].id
+        : index > 0 && siblings[index - 1].isMask && groupMask < 0 ? siblings[index - 1].id : null;
+      if (mask && !invertedMasks.has(mask)) maskOf.set(layer.id, mask);
     });
   }
 
@@ -318,6 +323,7 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       // A copy a move lays over your layer to color it (accent-hit, light-sweep): drawn as part of that layer.
       overlay: layer.move?.part === "overlay",
       z, parentId: byId.has(layer.parentId) ? layer.parentId : null, clipIds, maskId: groupMaskOf.get(layer.id) ?? null, isMask: layer.isMask === true,
+      ...(invertedMasks.has(layer.id) ? { maskInvert: true } : {}),
       text: isTextLayer ? String(layer.text ?? "") : null, texts: null,
       counter: isTextLayer && hasCounters(layer),
       fontSize: isTextLayer ? finite(layer.fontSize, 48) : null, fontWeight: isTextLayer ? finite(layer.fontWeight, 400) : null,

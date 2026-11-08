@@ -11,6 +11,8 @@ import { renderDithering, renderDotGrid, renderDuotone, renderLumaHighlight, ren
 import { renderOrbit, renderCardFlip } from "./projection.js";
 import { renderColorGrade, renderColorRemover } from "./colorUtility.js";
 import { renderColorWheels, renderCurves, renderHueSaturation, renderKeepColor, renderLut, renderWhiteBalance } from "./colorGrading.js";
+import { colorRangesFields, renderColorRanges } from "./colorRanges.js";
+import { colorLookFields, renderColorLook } from "./colorLook.js";
 import { IDENTITY_CURVE, MAX_CURVE_POINTS, normalizeCurve } from "./colorMath.js";
 import { UTILITY_COPY_EFFECTS } from "./utilityCopies.js";
 import { BLUR_EFFECTS } from "./motionBlurs.js";
@@ -205,6 +207,12 @@ const definitions = [
       targetColor: color("Target Color", "#FF0000"), hueRange: number("Hue Range", 25, 0, 90, 1, "°"),
       softness: number("Softness", 15, 0, 90, 1, "°"), amount: number("Amount", 1, 0, 1, 0.01),
     } },
+  // Hue, saturation and lightness per hue range, plus highlights and shadows (colorRanges.js).
+  { key: "color-ranges", label: "Color Ranges", group: "Color", kind: "ranged", render: renderColorRanges,
+    parameters: colorRangesFields(number) },
+  // Eight ready-made looks with an amount (colorLook.js).
+  { key: "color-look", label: "Color Look", group: "Color", kind: "ranged", render: renderColorLook,
+    parameters: colorLookFields(number) },
   // Directional, zoom and spin blur (motionBlurs.js); edge fill, mirror, kaleidoscope (edges.js).
   ...BLUR_EFFECTS, FOCUS_BAND_EFFECT, ...EDGE_EFFECTS,
   // Glow, light rays and lens flare (light.js).

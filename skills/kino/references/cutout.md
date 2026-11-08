@@ -87,6 +87,10 @@ A layer masked by the matte shows only inside the subject (a double exposure):
 {"op":"create_mask","layers":["portrait-matte","city"],"maskLayerId":"portrait-matte","name":"double exposure"}
 ```
 
+Any mask takes `maskInvert:true` (show only outside it) and `maskMode:"alpha"` (cut by a
+picture's transparency, so a `"subject"` cut-out or a logo PNG works as the mask); feather is
+the mask's `blur`, strength its `opacity`. `library {topic:"masks"}`.
+
 ## Follow an object
 
 `track` follows one object through a video layer on this Mac (Apple Vision, no download, about

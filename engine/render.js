@@ -9,7 +9,7 @@ import { calmLightAnimations } from "./effects/light.js";
 import { copyContent } from "./effects/svg.js";
 import { renderBackdropBlur, renderGlassBackdrop } from "./effects/backdrop.js";
 import { effectiveBoxStyle } from "./boxStyles.js";
-import { maskSwitchedOff } from "./maskVisibility.js";
+import { maskStyle, maskSwitchedOff } from "./maskVisibility.js";
 import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
 import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
@@ -468,11 +468,14 @@ function mirroredEdges(body, state, context) {
   return `<g id="${id}">${body}</g>` + flips.map(([sx, sy, x, y]) => `<use href="#${id}" transform="matrix(${sx} 0 0 ${sy} ${x} ${y})"/>`).join("");
 }
 
-function filterFor(layer, context, bounds = null) {
+// Last filter step of an inverted alpha mask's drawing: black, its alpha kept (maskDefinition).
+const TO_BLACK = '<feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0"/>';
+
+function filterFor(layer, context, bounds = null, last = "") {
   const blur = Math.max(0, checkedNumber(layer.blur, 0, 0, 1000));
   const shadow =
     layer.shadow && typeof layer.shadow === "object" && shadowAlpha(layer.shadow.color) > 0 ? layer.shadow : null;
-  if (!blur && !shadow) return "";
+  if (!blur && !shadow && !last) return "";
   const id = idFor(context, "filter");
   const effects = [];
   if (shadow) {
@@ -502,6 +505,7 @@ function filterFor(layer, context, bounds = null) {
     effects.push(
       `<feGaussianBlur in="${shadow ? "shadowed" : "SourceGraphic"}" stdDeviation="${fmt(blur / 2)}" result="blurred"/>`,
     );
+  if (last) effects.push(last);
   let region = 'x="-100%" y="-100%" width="300%" height="300%"';
   if (bounds) {
     // Include the actual offset, independent of how narrow the source paint is.
@@ -958,7 +962,8 @@ function decoderVideoMarkup(layer, state, blur) {
     `data-soft-video="${fmt(width / scale)} ${fmt(height / scale)} ${fmt(margin / scale)} ${blur ? 3 : 0}" width="${Math.max(1, Math.round(outerWidth / scale))}" height="${Math.max(1, Math.round(outerHeight / scale))}" style="display:block;width:100%;height:100%"/></foreignObject>`;
 }
 
-function renderLayer(node, context, { maskContent = false } = {}) {
+// maskInvert ("luminance" or "alpha") draws an inverted mask's drawing as maskDefinition needs.
+function renderLayer(node, context, { maskContent = false, maskInvert = null } = {}) {
   const { layer } = node;
   if (layer.visible === false || layer.type === "audio") return "";
   let state = resizeTextLayer(getAnimatedLayer(layer, context), context.fonts);
@@ -979,9 +984,10 @@ function renderLayer(node, context, { maskContent = false } = {}) {
   const reveal = context.design ? FULL_REVEAL : normalizeReveal(state.reveal);
   const revealRender = revealAttributes(state, reveal, context);
   if (revealRender.hidden) opacity = 0;
-  const blend = blendStyle(layer);
+  // Over the inverted mask's white, difference draws 1 - the drawing: 1 - its luminance.
+  const blend = maskInvert === "luminance" ? ' style="mix-blend-mode:difference"' : blendStyle(layer);
   const transform = textHasUnits ? "" : transformFor(state);
-  let children = context.trackBackdrop ? "" : renderSiblings(node.children, context, layer.type === "group" && layer.isMaskGroup === true);
+  let children = context.trackBackdrop ? "" : renderSiblings(node.children, context, layer.type === "group" && layer.isMaskGroup === true && layer);
   let body = "";
   // A heavily blurred live <video>, drawn small and soft by the page (softVideoMarkup).
   let soft = 0, leadImage = "";
@@ -1051,7 +1057,7 @@ function renderLayer(node, context, { maskContent = false } = {}) {
     const local = inverse(layerMatrix(state));
     const inherited = !isolatesBackdrop(layer, state, context) && local
       ? `<g transform="matrix(${local.map(fmt).join(" ")})">${context.backdrop ?? ""}</g>` : "";
-    children = renderSiblings(node.children, { ...context, backdrop: `${inherited}${body}` }, layer.type === "group" && layer.isMaskGroup === true);
+    children = renderSiblings(node.children, { ...context, backdrop: `${inherited}${body}` }, layer.type === "group" && layer.isMaskGroup === true && layer);
     if (layer.clipContent && layer.type === "group") {
       const id = idFor(context, "children-clip");
       context.defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse"><path d="${escapeXml(shapePath("rectangle", paintState))}"/></clipPath>`);
@@ -1076,10 +1082,11 @@ function renderLayer(node, context, { maskContent = false } = {}) {
     const painted = effectContent(content, layer, state, context, contentBounds(node, state, context), drawnContentBounds(node, state, context));
     content = painted.content;
     const filtered = soft ? { ...state, blur: 0 } : state;
-    filter = filterFor(filtered, context, hasFilterEffect(filtered) ? painted.bounds : null);
+    filter = filterFor(filtered, context, hasFilterEffect(filtered) ? painted.bounds : null, maskInvert === "alpha" ? TO_BLACK : "");
     context.renderedBounds.set(layer.id, mappedBounds(expandEffectBounds(painted.bounds, state), layerMatrix(state)));
     context.drawnBounds.set(layer.id, mappedBounds(expandEffectBounds(painted.drawn ?? painted.bounds, state), layerMatrix(state)));
   }
+  if (maskInvert === "alpha" && !filter) filter = filterFor({}, context, null, TO_BLACK);
   let tag = `<g data-layer-id="${safeId}"${owner}${ahead ? ' visibility="hidden"' : ""} transform="${transform}" opacity="${fmt(opacity)}"${filter}${blend}${revealRender.attribute}>${content}</g>`;
   if (hasTilt(state)) tag = tiltedTag(tag, node, state, context);
   if (!context.design && !ahead && !maskContent) tag = motionSmear(tag, node, state, context);
@@ -1290,21 +1297,34 @@ function liveTiltTag(tag, state, box, pivot, context) {
     `<foreignObject x="${fmt(left)}" y="${fmt(top)}" width="${fmt(width)}" height="${fmt(height)}"><canvas xmlns="http://www.w3.org/1999/xhtml" ${attributes} style="display:block;width:100%;height:100%"/></foreignObject></g>`;
 }
 
-// Adds a <mask> made from a mask layer to the SVG definitions and returns its ID.
-function maskDefinition(node, context) {
+// Adds a <mask> made from a mask layer to the SVG definitions and returns its ID. `group` is
+// the mask group it masks, if any (its maskInvert and maskMode win, maskVisibility.js).
+const MASK_AREA = 'maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000"';
+const MASK_RECT = 'x="-100000" y="-100000" width="200000" height="200000"';
+function maskDefinition(node, context, group = null) {
+  const { invert, mode } = maskStyle(node.layer, group);
   const maskId = idFor(context, "mask");
+  // Inverted: over white, the drawing darkens by itself (luminance, a difference blend) or by
+  // its alpha (drawn black). A mask nested in a mask, or a large group around the drawing,
+  // panicked resvg once the drawing had opacity or blur.
+  if (invert) {
+    const graphic = renderLayer(node, context, { maskContent: true, maskInvert: mode === "alpha" ? "alpha" : "luminance" });
+    context.defs.push(`<mask id="${maskId}" ${MASK_AREA} style="mask-type:luminance"><rect ${MASK_RECT} fill="white"/>${graphic}</mask>`);
+    return maskId;
+  }
   const maskGraphic = renderLayer(node, context, { maskContent: true });
-  context.defs.push(
-    // The mask's own area is as large as its black backing: without x, y, width and height it is
-    // the frame plus 10% in the masked layer's own units, so a scaled-down group lost what it drew
-    // past that (a phone screen's map showed in a band).
-    `<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000" style="mask-type:luminance"><rect x="-100000" y="-100000" width="200000" height="200000" fill="black"/>${maskGraphic}</mask>`,
-  );
+  // The mask's own area is as large as its black backing: without x, y, width and height it is
+  // the frame plus 10% in the masked layer's own units, so a scaled-down group lost what it drew
+  // past that (a phone screen's map showed in a band). An alpha mask has no backing: its empty
+  // parts are see-through, so they hide.
+  context.defs.push(mode === "alpha"
+    ? `<mask id="${maskId}" ${MASK_AREA} style="mask-type:alpha">${maskGraphic}</mask>`
+    : `<mask id="${maskId}" ${MASK_AREA} style="mask-type:luminance"><rect ${MASK_RECT} fill="black"/>${maskGraphic}</mask>`);
   return maskId;
 }
 
 // Draws the layers of one parent from the bottom up. A mask layer masks the next visible
-// layer. In a mask group (`maskGroup`), the bottom-most mask layer masks every visible layer
+// layer. In a mask group (`maskGroup`, the group layer), the bottom-most mask layer masks every visible layer
 // above it instead; layers below it are drawn as usual. A mask that a Hide operation hides at
 // this time masks nothing, like a mask whose eye is off (maskVisibility.js).
 function renderSiblings(nodes, context, maskGroup = false) {
@@ -1316,7 +1336,7 @@ function renderSiblings(nodes, context, maskGroup = false) {
     const below = renderSiblings(nodes.slice(0, groupMask), context);
     const above = nodes.slice(groupMask + 1);
     if (!above.some((node) => node.layer.visible !== false)) return below;
-    const maskId = maskDefinition(nodes[groupMask], context);
+    const maskId = maskDefinition(nodes[groupMask], context, maskGroup === true ? null : maskGroup);
     return `${below}<g mask="url(#${maskId})">${renderSiblings(above, context.trackBackdrop ? { ...context, backdrop: `${context.backdrop ?? ""}${below}` } : context)}</g>`;
   }
   const visible = nodes.filter((node) => node.layer.visible !== false);

@@ -175,10 +175,10 @@ export function busyEdit(model, ctx) {
 // Restraint defaults: the
 // "AI edit" look comes from stacking, not from any one effect. Four things, warnings only:
 //   transition    a non-cut transition (dissolve, push, whip) away from a shot change
-//   stacked grade two color grades (curves, LUT, wheels, white balance, hue) on one layer at once
+//   stacked grade two color grades (curves, LUT, wheels, white balance, hue, look) on one layer at once
 //   reused        one moment of a footage file shown twice (source ranges overlapping 0.5 s)
 //   letterboxed   footage filling the frame one way and leaving bars the other way for 1 s
-const GRADES = new Set(["curves", "lut", "color-wheels", "white-balance", "hue-saturation"]);
+const GRADES = new Set(["curves", "lut", "color-wheels", "white-balance", "hue-saturation", "color-look"]);
 // A transition this close to a shot change belongs to it.
 const AT_CHANGE = 0.35;
 // Two uses of one file overlapping this long in the file are one moment shown twice.

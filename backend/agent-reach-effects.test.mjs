@@ -165,6 +165,8 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "white-balance": { temperature: 70, tint: -30 },
   "color-wheels": { liftBlue: 0.12, liftRed: -0.04, gamma: 1.2, gainRed: 0.15, gainBlue: -0.15 },
   "keep-color": { targetColor: "#D62828", hueRange: 20, softness: 10 },
+  "color-look": { look: "harbor", amount: 0.7 },
+  "color-ranges": { blueHue: -30, orangeSaturation: 0.4, greenLightness: -0.3, highlights: 0.3, shadows: -0.2 },
   "directional-blur": { length: 36, angle: 20 },
   "zoom-blur": { amount: 0.35, centerX: 0.4, centerY: 0.6 },
   "spin-blur": { angle: 24, centerX: 0.45, centerY: 0.55 },
@@ -177,7 +179,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "lens-flare": { style: "rings", x: 0.2, y: 0.25, size: 1.2, color: "#9FD0FF" },
 };
 
-assert.equal(EFFECTS.length, 51, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 53, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

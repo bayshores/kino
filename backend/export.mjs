@@ -61,7 +61,7 @@ import { cleansVoice, voiceChainFilters } from "./voice-chain.mjs";
 import { lowpassFilters, lowpassPlan, writeLowpassPlan } from "./lowpass-track.mjs";
 import { createLoudnessCurves, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
 import { leveledVoice, loudnessOver, voiceLeveling } from "../engine/mixLevels.js";
-import { maskSwitchedOff } from "../engine/maskVisibility.js";
+import { maskStyle, maskSwitchedOff } from "../engine/maskVisibility.js";
 import { captureLayerSvg, escapeXml, EXPORT_FRAME_URL, normalizeMediaHref, renderSceneSvg } from "../engine/render.js";
 import { backgroundLayer, isBackgroundEnabled, withoutBackground } from "../engine/sceneBackground.js";
 import { ffmpegRate, readFps } from "../engine/frameRate.js";
@@ -2081,7 +2081,9 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
   // the matte is then empty, and a copy of the masked layers without the matte shows on those
   // frames only. Its opacity switches with hold keyframes, at the same frames as the matte's.
   // A mask that is off on every frame adds the masked layers without a matte.
-  const addMatte = (maskNode, addMasked, maskedName, parentMatrix, parentOpacity, target, domain) => {
+  // maskMode and maskInvert pick the matte type: 1 alpha, 2 alpha inverted, 3 luma, 4 luma inverted.
+  const addMatte = (maskNode, addMasked, maskedName, parentMatrix, parentOpacity, target, domain, group = null) => {
+    const { invert, mode } = maskStyle(maskNode.layer, group);
     const off = frameTimes.map((time) => maskSwitchedOff(maskNode.layer, time));
     if (off.every(Boolean)) {
       addMasked(target);
@@ -2093,9 +2095,10 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
     const matte = compositionLayer(maskContent, maskNode.layer.name ?? "Mask", domain);
     const graphic = compositionLayer(maskedContent, maskedName, domain);
     matte.td = 1;
-    graphic.tt = 3;
+    graphic.tt = (mode === "alpha" ? 1 : 3) + (invert ? 1 : 0);
     graphic.tp = matte.ind;
-    if (off.some(Boolean)) {
+    // An empty inverted matte already shows the masked layers whole.
+    if (off.some(Boolean) && !invert) {
       const unmaskedContent = [];
       addMasked(unmaskedContent);
       const unmasked = compositionLayer(unmaskedContent, `${maskedName} (mask off)`, domain, { precompose: true });
@@ -2117,7 +2120,7 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
       const above = nodes.slice(groupMask + 1);
       if (above.some((node) => node.layer.visible !== false)) {
         addMatte(nodes[groupMask], (content) => addSiblings(above, parentMatrix, parentOpacity, content, domain),
-          "Masked layers", parentMatrix, parentOpacity, target, domain);
+          "Masked layers", parentMatrix, parentOpacity, target, domain, maskGroup === true ? null : maskGroup);
       }
       return;
     }
@@ -2230,14 +2233,14 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
     const opaque = states.map(() => 1);
     if (clipped) {
       const inside = imageLayer ? [imageLayer] : [];
-      if (group) addSiblings(node.children, identity, opaque, inside, { width, height }, layer.isMaskGroup === true);
+      if (group) addSiblings(node.children, identity, opaque, inside, { width, height }, layer.isMaskGroup === true && layer);
       const refId = `composition_${nextIndex()}`;
       assets.push({ id: refId, w: width, h: height, layers: inside.reverse() });
       content.push({ ddd: 0, ind: nextIndex(), ty: 0, nm: `${layer.name ?? layer.type} content`, refId,
         w: width, h: height, sr: 1, ao: 0, ip: 0, op: frameCount, st: 0, bm: 0,
         ks: offset, hasMask: true, masksProperties: [roundedBoxMask(states)] });
     } else {
-      addSiblings(node.children, states.map(() => [1, 0, 0, 1, -left, -top]), opaque, content, domain, layer.isMaskGroup === true);
+      addSiblings(node.children, states.map(() => [1, 0, 0, 1, -left, -top]), opaque, content, domain, layer.isMaskGroup === true && layer);
     }
     if (states.some((state) => state.strokeWidth > 0)) paint(true);
     const refId = `composition_${nextIndex()}`;
@@ -2281,7 +2284,7 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
         const opaque = states.map(() => 1);
         const width = Math.max(1, ...states.map((state) => Math.ceil(finite(state.width))));
         const height = Math.max(1, ...states.map((state) => Math.ceil(finite(state.height))));
-        addSiblings(node.children, identity, opaque, content, {width, height}, layer.isMaskGroup === true);
+        addSiblings(node.children, identity, opaque, content, {width, height}, layer.isMaskGroup === true && layer);
         const refId = `composition_${nextIndex()}`;
         assets.push({id: refId, w: width, h: height, layers: content.reverse()});
         target.push(applyEffects({
@@ -2296,7 +2299,7 @@ function lottieAnimation(scene, options, media, dimensions, fontRegistry, warnin
       const bounds = compositionBounds(node.children, frameTimes, {sampleLayer: sample, localMatrix, multiplyMatrix, fonts: fontRegistry});
       const content = [];
       const offset = states.map(() => [1,0,0,1,-bounds.x,-bounds.y]);
-      addSiblings(node.children, offset, states.map(() => 1), content, bounds, layer.isMaskGroup === true);
+      addSiblings(node.children, offset, states.map(() => 1), content, bounds, layer.isMaskGroup === true && layer);
       const refId = `composition_${nextIndex()}`;
       assets.push({id: refId, w: bounds.width, h: bounds.height, layers: content.reverse()});
       const matrices = worldMatrices.map((matrix) => multiplyMatrix(matrix, [1,0,0,1,bounds.x,bounds.y]));

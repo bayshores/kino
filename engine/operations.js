@@ -164,6 +164,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       const properties = operation.properties || {};
       const added = createLayer(operation.layerType, properties);
       validatePathFillRule([added], properties, "add_layer");
+      validateMaskFields([added], properties, "add_layer");
       const problem = animationListProblem(added, [], scene.duration);
       if (problem) throw new Error(problem);
       // Footage goes under a status-line badge on top of the stack (a small overlay that stays
@@ -326,6 +327,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     if (operation.type === "update_layer") {
       validatePathFillRule([layer], operation.properties, "update_layer");
+      validateMaskFields([layer], operation.properties, "update_layer");
       const previousAnimations = layer.animations;
       const before = { ...layer };
       // axes merge per axis (fontAxes.js): {axes:{wdth:80}} keeps a set wght, {wdth:null} drops one.
@@ -516,9 +518,9 @@ function groupSceneLayers(document, scene, { layerIds, name, groupId }, fonts) {
   scene.layers = groupLayers(document, scene.id, layerIds, { name, id: groupId, fonts }).layers;
 }
 
-// create_mask { sceneId, layerIds, maskLayerId?, name?, groupId? }: the same mask group as ⌃⌘M in
+// create_mask { sceneId, layerIds, maskLayerId?, name?, groupId?, maskInvert?, maskMode? }: the same mask group as ⌃⌘M in
 // the editor. The bottom-most layer is the mask unless maskLayerId names another one.
-function createSceneMask(document, scene, { layerIds, maskLayerId, name, groupId }, fonts) {
+function createSceneMask(document, scene, { layerIds, maskLayerId, name, groupId, maskInvert, maskMode }, fonts) {
   if (!Array.isArray(layerIds) || layerIds.length < 2 || layerIds.length > 5000 || layerIds.some((id) => typeof id !== "string"))
     throw new Error("create_mask needs layerIds: an array of 2 to 5000 layer IDs.");
   if (maskLayerId !== undefined && typeof maskLayerId !== "string")
@@ -527,7 +529,12 @@ function createSceneMask(document, scene, { layerIds, maskLayerId, name, groupId
     throw new Error("create_mask name must be text of 1 to 256 characters.");
   if (groupId !== undefined && (typeof groupId !== "string" || !/^[a-zA-Z0-9._:-]{1,128}$/.test(groupId)))
     throw new Error("create_mask groupId must be 1 to 128 letters, digits, or . _ : - characters.");
-  scene.layers = createMask(document, scene.id, layerIds, { maskLayerId, name, id: groupId, fonts }).layers;
+  if (maskInvert !== undefined && typeof maskInvert !== "boolean") throw new Error("create_mask maskInvert must be true or false.");
+  if (maskMode !== undefined && maskMode !== "luminance" && maskMode !== "alpha") throw new Error('create_mask maskMode must be "luminance" or "alpha".');
+  const made = createMask(document, scene.id, layerIds, { maskLayerId, name, id: groupId, fonts });
+  // The new mask group carries them (maskVisibility.js maskStyle).
+  scene.layers = maskInvert === undefined && maskMode === undefined ? made.layers
+    : made.layers.map((layer) => (layer.id === made.groupId ? { ...layer, ...(maskInvert === undefined ? {} : { maskInvert }), ...(maskMode === undefined ? {} : { maskMode }) } : layer));
 }
 
 const layerIdList = (layerIds) =>
@@ -558,6 +565,15 @@ function operationAnimationName(name, type) {
   if (typeof name !== "string" || !name.trim() || name.length > 256)
     throw new Error(`${type} name must be text of 1 to 256 characters.`);
   return name;
+}
+
+// maskInvert and maskMode change only a mask layer or a mask group (render.js maskDefinition).
+function validateMaskFields(layers, properties, operation) {
+  const keys = ["maskInvert", "maskMode"].filter((key) => properties?.[key] != null);
+  if (!keys.length) return;
+  const masks = (layer) => (properties.isMask ?? layer.isMask) === true || (properties.isMaskGroup ?? layer.isMaskGroup) === true;
+  const other = layers.find((layer) => !masks(layer));
+  if (other) throw new Error(`${operation} ${keys.join(" and ")} only change a mask layer or a mask group; ${other.name ?? other.id} is neither. Make one with create_mask, then set it on the mask group.`);
 }
 
 function validatePathFillRule(layers, properties, operation) {
@@ -600,6 +616,7 @@ function updateSceneLayers(document, scene, operation, fonts, reports) {
     return layer;
   });
   validatePathFillRule(layers, properties, "update_layers");
+  validateMaskFields(layers, properties, "update_layers");
   const edit = updateLayersEdit(layers, properties);
   scene.layers = editLayers(scene.layers, layerIds, edit, { scenes: document.scenes, fonts });
   const old = new Map(layers.map((layer) => [layer.id, layer]));

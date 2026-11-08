@@ -44,6 +44,7 @@ import { MORPH_MAX, MORPH_MIN } from "./morphCut.js";
 import { TRIM_KEYS, TRIM_LAYER_TYPES } from "./strokeTrim.js";
 import { REPEAT_FRACTION_KEYS, REPEAT_KEYS, REPEAT_LAYER_TYPES, REPEAT_REST, repeatRange } from "./repeater.js";
 import { DEFAULT_PERSPECTIVE, PERSPECTIVE_MAX, PERSPECTIVE_MIN, TILT_LIMIT } from "./tilt.js";
+import { MASK_MODES } from "./maskVisibility.js";
 import {
   MAX_MEDIA_FRAME_RATE, MAX_MEDIA_SPEED, MAX_VOLUME, MEDIA_INTERPOLATIONS, MEDIA_PITCHES, MEDIA_TIMING_TYPES, MIN_MEDIA_FRAME_RATE, MIN_MEDIA_SPEED,
 } from "./mediaTime.js";
@@ -1195,6 +1196,11 @@ function normalizeLayer(raw, path, animationIds, counters) {
   // A mask group's bottom-most mask hides its other layers outside the mask's shape.
   layer.isMaskGroup = requireBoolean(layer.isMaskGroup, `${path}.isMaskGroup`);
   if (layer.isMaskGroup && type !== "group") fail(`${path}.isMaskGroup`, "only a group can be a mask group");
+  // A mask's invert and mode (maskVisibility.js maskStyle); absent is a plain luminance mask.
+  if (layer.maskInvert == null) delete layer.maskInvert;
+  else layer.maskInvert = requireBoolean(layer.maskInvert, `${path}.maskInvert`);
+  if (layer.maskMode == null) delete layer.maskMode;
+  else if (!MASK_MODES.includes(layer.maskMode)) fail(`${path}.maskMode`, `must be ${MASK_MODES.map((mode) => `"${mode}"`).join(" or ")}`);
   layer.clipContent = requireBoolean(layer.clipContent, `${path}.clipContent`);
   normalizeQualityLayerFields(layer, path);
   normalizeBlockLayerFields(layer, path);

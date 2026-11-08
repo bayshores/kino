@@ -18,7 +18,8 @@
 //   `matrix` (optional, not text) is the world transform [a, b, c, d, e, f] of each sample, 6
 //   floats a sample (sample i at i * 6), parents included.
 //   `clipIds` are the groups that clip it and the mask over it; `maskId` (a mask group only) is
-//   the group's own mask. visibleBoxAt clips the box by both.
+//   the group's own mask. visibleBoxAt clips the box by both. A mask with `maskInvert` true
+//   shows its layers everywhere but itself: it is in no clipIds and clips no box.
 //   `move` (optional) is the ID of the move (engine/blocks/move.js) that made the layer, or null.
 //   Text items may also have (engine/quality/textFacts.js): `font` {family, weight, style,
 //   drawnFamily, drawnWeight, drawnStyle, sameFamily}, the face asked for and the one drawn;
@@ -67,7 +68,7 @@ export function visibleBoxAt(model, item, index) {
   let box = boxAt(item, index);
   for (const id of item.maskId ? [...(item.clipIds ?? []), item.maskId] : item.clipIds ?? []) {
     const clip = itemById(model, id);
-    if (clip) box = intersection(box, boxAt(clip, index));
+    if (clip && !clip.maskInvert) box = intersection(box, boxAt(clip, index));
   }
   return box;
 }
