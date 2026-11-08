@@ -2932,6 +2932,33 @@ export function createAgentService(deps) {
 
   const intentsCall = () => nextOf("notes", { action: "intents", beats: [{ from: 0, to: 5, intent: "<what the viewer should know or feel after this beat>" }] });
 
+  // Viewer sheets of `source` at `times` (9 to a sheet, each frame labeled with its time).
+  async function sheetsOf(source, list) {
+    const out = [];
+    for (let index = 0; index < list.length; index += VIEWER_PER_SHEET) {
+      const chunk = list.slice(index, index + VIEWER_PER_SHEET);
+      out.push((await look.sheetImage(source, { times: chunk, longEdge: VIEWER_TILE, labels: chunk.map((time) => `${time.toFixed(1)}s`) })).png);
+    }
+    return out;
+  }
+
+  // A scene's viewer sheets and heard.txt text (no bar).
+  async function viewerSheets(document, scene, prepared) {
+    const times = viewerTimes(scene.duration);
+    // Every sheet's frames in one render first: each video is decoded once, not once a sheet.
+    await look.drawAhead?.(prepared, times, { longEdge: VIEWER_TILE });
+    const pngs = await sheetsOf(prepared, times);
+    return { pngs, heard: heardText({ duration: scene.duration, sheets: pngs.length, ...(await viewerHeard(scene, document)) }) };
+  }
+
+  // Whether the viewer gate asks a new packet of this scene now (intents written, no fix due, no
+  // bar): look critique then carries the viewer's sheets too, one helper for both.
+  async function viewerJoins(document, state, scene, revision) {
+    if (barOf(state.verdicts) || !state.story?.intents?.[scene.id]) return false;
+    const needed = await viewerNeeded(document, state, revision, [scene]);
+    return Boolean(needed && !needed.gap.fix && !needed.gap.spoiler);
+  }
+
   async function viewerLook({ record, codes, fonts, scene, state }) {
     const document = record.document;
     const projectId = document.id;
@@ -2941,18 +2968,8 @@ export function createAgentService(deps) {
     noteLive({ sceneId: scene.id, range: [0, scene.duration] }, [{ sceneId: scene.id, range: [0, scene.duration] }]);
     const prepared = await prepare(document, scene.id, fonts);
     const times = viewerTimes(scene.duration);
-    // Every sheet's frames in one render first: each video is decoded once, not once a sheet.
-    await look.drawAhead?.(prepared, times, { longEdge: VIEWER_TILE });
-    const sheetsOf = async (source, list) => {
-      const out = [];
-      for (let index = 0; index < list.length; index += VIEWER_PER_SHEET) {
-        const chunk = list.slice(index, index + VIEWER_PER_SHEET);
-        out.push((await look.sheetImage(source, { times: chunk, longEdge: VIEWER_TILE, labels: chunk.map((time) => `${time.toFixed(1)}s`) })).png);
-      }
-      return out;
-    };
-    const pngs = await sheetsOf(prepared, times);
-    let heardWords = heardText({ duration: scene.duration, sheets: pngs.length, ...(await viewerHeard(scene, document)) });
+    const { pngs, heard: ownHeard } = await viewerSheets(document, scene, prepared);
+    let heardWords = ownHeard;
     // With a bar: the bar's frames at the same story points as each of this cut's (same density),
     // blind as cut A or B; which one is the bar changes with the revision (position bias).
     const bar = await barCut(state);
@@ -2978,6 +2995,7 @@ export function createAgentService(deps) {
     const idea = ideaLines(styleContext(state.brief?.style));
     const lines = [
       `viewer packet ${sceneName} rev ${record.revision}: ${plural(pngs.length, "sheet")} of ${VIEWER_PER_SHEET} frames (every 0.5 s) and heard.txt in ${folder}`,
+      ...(!bar && critiqueAsks(state, document, scene, record.revision) ? ['The critic asks too: look {mode:"critique"} carries these sheets for one subagent to do both; use it instead.'] : []),
       "Start a fresh subagent that never saw the brief, the plan or this chat, and give it only this prompt:",
       "---", prompt, "---",
       `Then match its answer against your ${plural(intents.beats.length, "beat")}' intents (yourself, or a second fresh agent given the intents and the answer), and record both: notes {action:"viewer", rev:${record.revision}, report:"<its whole answer>", matches:[{beat:1, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}. A bug is a story problem with its time: confusion, a missed beat, a drag, too much to read.`,
@@ -3016,13 +3034,21 @@ export function createAgentService(deps) {
   async function notesViewer(record, input, codes) {
     const state = await agentState.read(record.document.id);
     const scene = sceneFor(record.document, codes, input.scene, state.focus);
-    const sceneName = refName(scene.id, codes);
+    const report = viewerReport(state, scene, refName(scene.id, codes), input);
+    const nextCall = report.bugs.length || report.warns.length ? STATUS_CALL : nextOf("render", { action: "start", quality: "final", wait: true });
+    return done(record.document.id, { text: report.text, nextCall, data: report.data }, { change: report.change });
+  }
+
+  // A viewer's report on the rev `input.rev` packet (look viewer, or look critique carrying it),
+  // matched against the intents saved before it: {entry, bugs, warns, text, data, change}.
+  // `again` names the next packet's look mode.
+  function viewerReport(state, scene, sceneName, input, again = "viewer") {
     const intents = state.story?.intents?.[scene.id];
     if (!intents) throw Object.assign(new AgentError("intents_needed", `${sceneName} has no intents: write them before any viewer watches (notes {action:"intents", beats}).`), { nextCall: intentsCall() });
     const rev = Number(input.rev);
     const packet = (state.story?.packets ?? []).find((entry) => entry.rev === rev && entry.sceneId === scene.id);
     if (!packet) throw Object.assign(new AgentError("bad_input", `There is no viewer packet of ${sceneName} at rev ${input.rev ?? "?"}: rev is the revision look {mode:"viewer"} made the packet of.`), { nextCall: nextOf("look", { mode: "viewer" }) });
-    if (intents.at > packet.at) throw Object.assign(new AgentError("bad_input", `The intents changed after the rev ${rev} packet was made: make a new packet (look {mode:"viewer"}) and give it to a new fresh viewer.`), { nextCall: nextOf("look", { mode: "viewer" }) });
+    if (intents.at > packet.at) throw Object.assign(new AgentError("bad_input", `The intents changed after the rev ${rev} packet was made: make a new packet (look {mode:"${again}"}) and give it to a new fresh viewer.`), { nextCall: nextOf("look", { mode: again }) });
     let parsed;
     try { parsed = parseViewer(input, intents.beats, scene.duration, { bar: Boolean(packet.barSide) }); } catch (error) { throw new AgentError("bad_input", error.message); }
     if (parsed.prefer) parsed.prefer.bar = parsed.prefer.cut === packet.barSide;
@@ -3040,16 +3066,15 @@ export function createAgentService(deps) {
     const round = viewerRounds({ viewers: [...(state.story?.viewers ?? []), entry] }, scene.id);
     const after = round >= VIEWER_ROUNDS
       ? `Fix them (${SHOW_FIRST}); this was viewer round ${round} of ${VIEWER_ROUNDS}, so no new viewer is asked for: after an edit for them a final render no longer waits on them (a cut changed over ${VIEWER_RECENT} revisions is watched again).`
-      : `Fix them (${SHOW_FIRST}), then one new packet (look {mode:"viewer"}, round ${round + 1} of ${VIEWER_ROUNDS}) for a new fresh viewer; a final render waits until then.`;
+      : `Fix them (${SHOW_FIRST}), then one new packet (look {mode:"${again}"}, round ${round + 1} of ${VIEWER_ROUNDS}) for a new fresh viewer; a final render waits until then.`;
     const text = bugs.length
       ? `${head}; ${plural(bugs.length, "open story bug")}:\n${bugs.map((bug) => `  @${bug.at}s ${bug.what}`).join("\n")}\n${after}${later}`
       : `${head}; no open story bugs.${later || " A final render may go ahead."}`;
-    const nextCall = bugs.length || warns.length ? STATUS_CALL : nextOf("render", { action: "start", quality: "final", wait: true });
-    return done(record.document.id, { text, nextCall, data: { rev, bugs, ...(warns.length ? { warnings: warns } : {}), ...(miss ? { miss } : {}) } },
-      { change(draft) {
+    return { entry, bugs, warns, text, data: { rev, bugs, ...(warns.length ? { warnings: warns } : {}), ...(miss ? { miss } : {}) },
+      change(draft) {
         draft.story ??= {};
         draft.story.viewers = [...(draft.story.viewers ?? []), entry].slice(-10);
-      } });
+      } };
   }
 
   // Whether a scene tells something a viewer test can check: footage, or a voice with words.
@@ -3116,9 +3141,12 @@ export function createAgentService(deps) {
     }
     if (needed.gap.fix) throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. Fix them first; ${needed.gap.last ? `that was viewer round ${VIEWER_ROUNDS}, so after the edit nothing waits on them` : "a new viewer watches the changed cut"}.`, { next: `edit the cut at those times${needed.gap.last ? "" : ', then look {mode:"viewer"}'}. ${skip}` }),
       { nextCall: viewerFixCall(needed.gap) });
-    throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. A final render needs a fresh viewer's report (look {mode:"viewer"}, then notes {action:"viewer"}) with no open story bugs.`, {
-      next: `${needed.intents ? "" : "notes intents first, then "}look {mode:"viewer"} and give its prompt to a fresh subagent. ${skip}`,
-    }), { nextCall: needed.intents ? nextOf("look", { mode: "viewer", ...sceneField }) : intentsCall() });
+    // The critic asks too: look critique carries the viewer's sheets, one subagent for both.
+    const joined = needed.intents && !barOf(state.verdicts) && critiqueAsks(state, record.document, needed.scene, record.revision);
+    const asks = joined ? 'look {mode:"critique"} (it carries the viewer\'s sheets too)' : 'look {mode:"viewer"}';
+    throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. A final render needs a fresh viewer's report (${asks}, then notes {action:"${joined ? "critique" : "viewer"}"}) with no open story bugs.`, {
+      next: `${needed.intents ? "" : "notes intents first, then "}${asks} and give its prompt to one fresh subagent. ${skip}`,
+    }), { nextCall: !needed.intents ? intentsCall() : joined ? critiqueCall(sceneField) : nextOf("look", { mode: "viewer", ...sceneField }) });
   }
 
   // The fix a viewer's open story bug asks for, before another viewer watches.
@@ -3146,6 +3174,15 @@ export function createAgentService(deps) {
     const call = personCall(state, sceneId, open);
     if (!open || (call && (!call.fix || revision > call.rev))) return null;
     return { ...open, call };
+  }
+
+  // Whether the critic gate asks a new packet of this scene now: a real edit's first round, or a
+  // re-read of P0s an edit since has fixed (rounds left, no person's call).
+  function critiqueAsks(state, document, scene, revision) {
+    if (critiqueWaived(document, scene.id)) return false;
+    const open = critiqueStanding(state, document, scene.id, revision);
+    if (open) return !open.call && open.rounds < CRITIQUE_ROUNDS && open.rev < revision;
+    return critiqueWanted(scene, critiqueOf(state, scene.id)) && hasBrief(state.brief) && videoFacts(document).layers > ROUGH_LAYERS;
   }
 
   // What notes checkpoint {id:"critique"} asks: the first scene whose last critic round left P0
@@ -3251,24 +3288,36 @@ export function createAgentService(deps) {
       if (inRange(time) && !cutTimes.some((other) => Math.abs(other - time) <= SEAM_MERGE + 1e-6)) cutTimes.push(sec(time));
     const seams = cutTimes.slice(0, 24).map((time, index) => ({ n: index + 1, time }));
     const moments = critiqueTimes({ findings: listed, spine: direction.spine, duration: scene.duration }).filter((entry) => inRange(entry.time)).slice(0, 36);
+    // When the viewer gate asks too, its sheets (a frame every 0.5 s) and heard.txt come first, for
+    // the same helper; the moments are then frames on those sheets, not pages of their own.
+    const viewer = whole && await viewerJoins(document, state, scene, record.revision) ? await viewerSheets(document, scene, prepared) : null;
+    const intents = viewer ? state.story.intents[scene.id] : null;
+    const first = viewer ? viewer.pngs.length : 0;
+    const sheetName = (number) => `sheet-${String(number).padStart(2, "0")}.jpg`;
+    const viewerTimeList = viewer ? viewerTimes(scene.duration) : [];
+    // Where a moment is on the viewer sheets: the nearest frame ("sheet 3 frame 5").
+    const viewerFrame = (time) => {
+      const index = viewerTimeList.reduce((best, at, n) => (Math.abs(at - time) < Math.abs(viewerTimeList[best] - time) ? n : best), 0);
+      return `sheet ${Math.floor(index / VIEWER_PER_SHEET) + 1} frame ${(index % VIEWER_PER_SHEET) + 1}`;
+    };
     // The seam rows' frames in one render, then the moments' (another size): each video is
     // decoded once for all the pages, not once a page.
     await look.drawAhead?.(prepared, seams, { seams: true });
-    await look.drawAhead?.(prepared, moments.map((entry) => entry.time), { longEdge: VIEWER_TILE });
+    if (!viewer) await look.drawAhead?.(prepared, moments.map((entry) => entry.time), { longEdge: VIEWER_TILE });
     const pages = [];
     for (let index = 0; index < seams.length; index += CRITIQUE_SEAMS) {
       const chunk = seams.slice(index, index + CRITIQUE_SEAMS);
       pages.push({ png: (await look.seamImage(prepared, chunk)).png, about: `seams, a row a cut, frames at ${SEAM_OFFSETS.join(" ")} s across it: cut ${chunk.map((seam) => `${seam.n} @${seam.time}s`).join(", ")}`,
         ask: "After each cut, does the eye know where to look? Does the brightness hold across it (no accidental flash or dip; a planned flash on a hit is fine)? Does anything pop, jump or vanish?" });
     }
-    for (let index = 0; index < moments.length; index += CRITIQUE_FRAMES) {
+    for (let index = 0; !viewer && index < moments.length; index += CRITIQUE_FRAMES) {
       const chunk = moments.slice(index, index + CRITIQUE_FRAMES);
       const beats = direction.spine.filter((beat) => chunk.some((entry) => entry.time >= beat.from - 0.3 && entry.time <= beat.to + 0.3));
       pages.push({ png: (await look.sheetImage(prepared, { times: chunk.map((entry) => entry.time), longEdge: VIEWER_TILE, labels: chunk.map((entry) => `${entry.time}s ${entry.why}`.slice(0, 44)) })).png,
         about: `frames: ${chunk.map((entry) => `${entry.time}s (${entry.why})`).join(", ")}`,
         ask: `Does any element hang at the frame edge? Can every text be read? Does each beat do its purpose${beats.length ? ` (${beats.map((beat) => `${beat.role}: ${beat.purpose ?? "?"}`).join("; ")})` : ""}?` });
     }
-    if (!pages.length) pages.push({ png: (await look.sheetImage(prepared, { times: evenTimes(range.from, range.to, CRITIQUE_FRAMES), longEdge: VIEWER_TILE })).png, about: "frames spread over the stretch", ask: "Does the eye know where to look? Can every text be read?" });
+    if (!pages.length && !viewer) pages.push({ png: (await look.sheetImage(prepared, { times: evenTimes(range.from, range.to, CRITIQUE_FRAMES), longEdge: VIEWER_TILE })).png, about: "frames spread over the stretch", ask: "Does the eye know where to look? Can every text be read?" });
     // The bar first (bar.mjs): this cut and the person's best earlier cut at the same story points.
     const bar = whole ? await barCut(state) : null;
     if (bar) {
@@ -3285,31 +3334,51 @@ export function createAgentService(deps) {
       listed.length ? "Gates and findings about the brief (kino's checks):" : "Gates and findings about the brief: none open",
       ...listed.map((finding) => `  ${finding.at != null ? `t=${finding.at}` : "whole"} ${finding.severity === "error" ? "GATE" : "brief"} ${finding.rule} ${finding.ref}: ${String(finding.message ?? "").slice(0, 160)}`),
       "Pages (read in order; answer each page's questions):",
-      ...pages.map((page, index) => `  page ${index + 1} = sheet-${String(index + 1).padStart(2, "0")}.jpg: ${page.about}\n    ${page.ask}`),
+      ...pages.map((page, index) => `  page ${first + index + 1} = ${sheetName(first + index + 1)}: ${page.about}\n    ${page.ask}`),
+      ...(viewer && moments.length ? [`Moments, on the viewer sheets (${sheetName(1)} to ${sheetName(first)}): ${moments.map((entry) => `${entry.time}s (${entry.why}) ${viewerFrame(entry.time)}`).join(", ")}`,
+        `    Does any element hang at the frame edge? Can every text be read? Does each beat do its purpose${direction.spine.length ? ` (${direction.spine.map((beat) => `${beat.role}: ${beat.purpose ?? "?"}`).join("; ")})` : ""}?`] : []),
       "Motion trace (from the model, 0.5 s a line):",
       trace,
     ].join("\n");
-    const written = await writePacket(folder, pages.map((page) => page.png), packet, "packet.txt");
-    const pageNumber = Math.min(Math.max(1, input.page ?? 1), pages.length);
-    const file = await look.save(projectId, "critique", pages[pageNumber - 1].png);
-    const images = [{ path: file, mime: "image/png", data: input.inline === false ? undefined : pages[pageNumber - 1].png.toString("base64") }];
-    const prompt = `Read ${written.heard}, then ${folder}/sheet-01.jpg to sheet-${String(pages.length).padStart(2, "0")}.jpg in order.\n${bar ? `${BAR_PROTOCOL}\n` : ""}${CRITIQUE_PROTOCOL}`;
+    const all = [...(viewer?.pngs ?? []), ...pages.map((page) => page.png)];
+    const written = await writePacket(folder, all, packet, "packet.txt");
+    const heardFile = viewer ? path.join(folder, "heard.txt") : null;
+    if (viewer) await writeFile(heardFile, `${viewer.heard}\n`, { mode: 0o600 });
+    // The first critic page is shown (a viewer sheet when there is none).
+    const pageNumber = Math.min(Math.max(1, input.page ?? (pages.length ? first + 1 : 1)), all.length);
+    const file = await look.save(projectId, "critique", all[pageNumber - 1]);
+    const images = [{ path: file, mime: "image/png", data: input.inline === false ? undefined : all[pageNumber - 1].toString("base64") }];
+    const critic = `${bar ? `${BAR_PROTOCOL}\n` : ""}${CRITIQUE_PROTOCOL}`;
+    const prompt = viewer
+      ? `Two parts, one answer. Open each part's files in one go.\nPart 1, before you open packet.txt: read ${heardFile}, then ${folder}/${sheetName(1)} to ${sheetName(first)}.\n${VIEWER_PROTOCOL}\nThen the line CRITIC.\nPart 2: read ${written.heard}${pages.length ? `, then ${sheetName(first + 1)} to ${sheetName(all.length)}` : ""}.\n${critic}`
+      : `Read ${written.heard}, then ${folder}/sheet-01.jpg to ${sheetName(all.length)} in order.\n${critic}`;
     const shown = packet.split("\n");
+    const idea = viewer ? ideaLines(styleContext(state.brief?.style)) : [];
+    const record_ = viewer
+      ? [`Then record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its lines after CRITIC], report:"<its part 1, whole>", matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}: match part 1 against your ${plural(intents.beats.length, "beat")}' intents yourself. A P0 or a story bug asks for round 2.`,
+        ...(idea.length ? [`Match it against the idea too (did its "moment you cared most" land on the signature?): ${idea.join(" · ")}`] : [])]
+      : [`Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. A P0 blocks a final render until a newer rev's round has none.`];
     const lines = [
-      `critique packet ${sceneName} rev ${record.revision}: ${plural(pages.length, "page")} (${plural(seams.length, "seam")}, ${plural(moments.length, "moment")}) and packet.txt in ${folder}; page ${pageNumber} shown${pages.length > 1 ? `, look {mode:"critique", page} for others` : ""}`,
-      "Start a fresh subagent that never saw this chat; give it only this prompt:", "---", prompt, "---",
-      `Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. A P0 blocks a final render until a newer rev's round has none.`,
+      `critique packet ${sceneName} rev ${record.revision}: ${viewer ? `the viewer's ${plural(first, "sheet")} and heard.txt, then ` : ""}${plural(pages.length, "page")} (${plural(seams.length, "seam")}, ${plural(moments.length, "moment")}) and packet.txt in ${folder}; page ${pageNumber} shown${all.length > 1 ? `, look {mode:"critique", page} for others` : ""}`,
+      "Start one fresh subagent that never saw this chat; give it only this prompt:", "---", prompt, "---",
+      ...record_,
       "packet.txt:", ...shown.slice(0, 40), ...(shown.length > 40 ? [`... ${shown.length - 40} more lines in packet.txt`] : []),
       `image ${file}`,
     ];
+    const viewerFields = viewer ? { report: "<its part 1, whole>", matches: intents.beats.map((_, index) => ({ beat: index + 1, got: "<yes|partly|no>", note: "<what its answer shows>" })), bugs: [] } : {};
     return done(projectId, { text: lines.join("\n"), images,
-      nextCall: nextOf("notes", { action: "critique", rev: record.revision, lines: ["<the critic's lines, as it wrote them>"], ...sceneField }),
-      data: { rev: record.revision, mode: "critique", folder, packet: written.heard, pages: written.sheets, page: pageNumber, seams: seams.length, moments: moments.length, prompt } },
+      nextCall: nextOf("notes", { action: "critique", rev: record.revision, lines: ["<the critic's lines, as it wrote them>"], ...viewerFields, ...sceneField }),
+      data: { rev: record.revision, mode: "critique", folder, packet: written.heard, pages: written.sheets, page: pageNumber, seams: seams.length, moments: moments.length, prompt, ...(viewer ? { viewer: { sheets: first, heard: heardFile } } : {}) } },
     { change(draft) {
       draft.critique ??= {};
       const entry = draft.critique[scene.id] ?? { packets: [], rounds: [] };
-      entry.packets = [...entry.packets.filter((item) => item.rev !== record.revision), { rev: record.revision, at: now(), ...(bar ? { bar: true } : {}) }].slice(-4);
+      entry.packets = [...entry.packets.filter((item) => item.rev !== record.revision), { rev: record.revision, at: now(), ...(bar ? { bar: true } : {}), ...(viewer ? { viewer: true } : {}) }].slice(-4);
       draft.critique[scene.id] = entry;
+      if (!viewer) return;
+      // The viewer's packet too, so notes viewer accepts this rev as well.
+      draft.story ??= {};
+      const kept = (draft.story.packets ?? []).filter((item) => !(item.rev === record.revision && item.sceneId === scene.id));
+      draft.story.packets = [...kept, { rev: record.revision, sceneId: scene.id, at: now(), critique: true }].slice(-6);
     } });
   }
 
@@ -3344,6 +3413,12 @@ export function createAgentService(deps) {
     const count = (level) => parsed.filter((line) => line.level === level).length;
     // A P0 that would delete or shrink a designed moment is a question for the person, not a gate.
     const p0 = parsed.filter(blocksRender);
+    // A packet that carried the viewer's sheets: the same answer records the viewer's report.
+    const carried = kept.packets.find((packet) => packet.rev === rev)?.viewer && !(state.story?.viewers ?? []).some((entry) => entry.rev === rev && entry.sceneId === scene.id);
+    if (carried && input.report == null)
+      throw Object.assign(new AgentError("bad_input", `The rev ${rev} packet carried the viewer's sheets: add its part 1 as report, with matches (every beat) and bugs, in this same call.`), { nextCall: nextOf("notes", { action: "critique", rev, lines: input.lines, report: "<its part 1, whole>", matches: [{ beat: 1, got: "<yes|partly|no>", note: "<what it shows>" }], bugs: [], ...sceneField }) });
+    const viewer = input.report != null ? viewerReport(state, scene, sceneName, input, p0.length ? "critique" : "viewer") : null;
+    const goAhead = viewer?.bugs.length ? "" : "A final render may go ahead.";
     const asks = parsed.filter((line) => line.ask);
     const number = rounds.length + 1;
     const head = `critique round ${number} of ${CRITIQUE_ROUNDS} saved for ${sceneName} rev ${rev}: P0 ${count("P0")} · P1 ${count("P1")} · P2 ${count("P2")}${count("UP") ? ` · UP ${count("UP")}` : ""}`;
@@ -3358,15 +3433,16 @@ export function createAgentService(deps) {
     const own = parsed.find((line) => line.level === "OWN");
     const ownText = own ? `\nOnly this product: ${lineText(own)} (make it land harder, never cut it).` : parsed.some((line) => line.generic) ? "" : "\nThe critic did not say which moment only this product could have: ask it for an OWN or GENERIC line next round.";
     const raise = (ups.length ? `\nTo raise it (suggestions, not gates; act on the best one):\n${ups.slice(0, 6).map((line) => `  ${lineText(line)}`).join("\n")}` : `\nNo UP lines: the critic skipped the elevation pass${number < CRITIQUE_ROUNDS ? "; ask it for UP lines next round" : ""}.`) + ownText;
-    const text = (p0.length ? `${head}; the P0s block a final render:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no blocking P0" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}A final render may go ahead.`) + raise + asked;
-    const nextCall = !p0.length ? (asks.length ? critiqueStopCall() : nextOf("render", { action: "start", quality: "final", wait: true }))
+    const text = (p0.length ? `${head}; the P0s block a final render:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no blocking P0" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}${goAhead}`) + raise + asked + (viewer ? `\n${viewer.text}` : "");
+    const nextCall = !p0.length ? (viewer?.bugs.length ? viewerFixCall(viewer) : asks.length ? critiqueStopCall() : nextOf("render", { action: "start", quality: "final", wait: true }))
       : number >= CRITIQUE_ROUNDS ? critiqueStopCall() : nextOf("edit", { ops: [`<the edit for: ${p0[0].change}>`] });
-    return done(record.document.id, { text, nextCall, data: { rev, round: number, lines: parsed } },
+    return done(record.document.id, { text, nextCall, data: { rev, round: number, lines: parsed, ...(viewer ? { viewer: viewer.data } : {}) } },
       { change(draft) {
         draft.critique ??= {};
         const entry = draft.critique[scene.id] ?? { packets: [], rounds: [] };
         entry.rounds = [...entry.rounds.filter((item) => item.rev !== rev), round];
         draft.critique[scene.id] = entry;
+        viewer?.change(draft);
       } });
   }
 
@@ -6285,13 +6361,17 @@ export function createAgentService(deps) {
     const stops = openStops(state, videoFacts(document), stopRulesNow()).filter((stop) => stop.kind !== waiting?.kind);
     if (stops.length && add("stops_open", `notes checkpoint ${stops.map((stop) => stop.kind).join(", ")}`, nextOf("notes", { action: "checkpoint", id: stops[0].kind }))) return gates;
     const viewer = await viewerNeeded(document, state, record.revision, whole, options);
+    // When the critic asks a packet of the same scene, one look critique and one subagent serve both.
+    let joined = null;
     if (viewer?.gap.fix) { if (add("viewer_needed", `fix the viewer's story bugs${viewer.gap.last ? "" : ", look viewer again"}`, viewerFixCall(viewer.gap))) return gates; }
     else if (viewer) {
       if (!viewer.intents && add("intents_needed", "notes intents", intentsCall())) return gates;
-      if (add("viewer_needed", "look viewer, a fresh subagent, notes viewer", nextOf("look", { mode: "viewer", ...sceneField(viewer.scene) }))) return gates;
+      joined = !viewer.gap.spoiler && !barOf(state.verdicts) && critiqueAsks(state, document, viewer.scene, record.revision) ? viewer.scene.id : null;
+      const words = joined ? "look critique (viewer and critic), one fresh subagent, notes critique" : "look viewer, a fresh subagent, notes viewer";
+      if (add("viewer_needed", words, joined ? critiqueCall(sceneField(viewer.scene)) : nextOf("look", { mode: "viewer", ...sceneField(viewer.scene) }))) return gates;
     }
     for (const scene of whole) {
-      if (waived(CRITIQUE_WAIVER, scene)) continue;
+      if (waived(CRITIQUE_WAIVER, scene) || scene.id === joined) continue;
       const open = critiqueStanding(state, document, scene.id, record.revision);
       if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && hasBrief(state.brief) && videoFacts(document).layers > ROUGH_LAYERS) {
         if (add("critique_needed", "look critique, a fresh subagent, notes critique", critiqueCall(sceneField(scene)))) return gates;

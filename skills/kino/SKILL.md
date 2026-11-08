@@ -58,9 +58,9 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 9. Ask each stop `step:` names (`notes {action:"checkpoint", id:"rough"}`): final waits.
 10. Final (5 s+) needs a saved reference and a recent `look {mode:"versus"}`;
     `notes {action:"judge"}`: the person picks blind. Fix where they win.
-11. Final (15 s+, footage or speech): `notes intents`, a fresh subagent watches
-    `look {mode:"viewer"}`; `notes viewer`; fix story bugs ([viewer](references/viewer.md)).
-12. 10 s+: a fresh critic reads `look {mode:"critique"}`; `notes critique`; fix P0s, UPs; `notes verdict`: the bar ([critique](references/critique.md)).
+11. 15 s+, footage or speech: `notes intents`; a fresh viewer reads `look {mode:"viewer"}`;
+    `notes viewer`; fix bugs ([viewer](references/viewer.md)). With 12: one subagent.
+12. 10 s+: a fresh critic: `look {mode:"critique"}`; `notes critique`; fix P0s, UPs; `notes verdict`: the bar ([critique](references/critique.md)).
 13. Material short? Ask ([needs](references/needs.md)).
 
 ## Rules

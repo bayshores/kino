@@ -61,6 +61,9 @@ changes from packet to packet. The report must end with `PREFER A|B · <why>`; p
 is a warning only (blind viewers can prefer either cut in both orders): the critic's BAR
 line is what blocks.
 
+When the critic is due too, `look {mode:"critique"}` carries this packet: one subagent does
+both, one `notes critique` records both (the critique reference).
+
 When your app cannot start a subagent, say so to the person and waive the gate (step 6);
 never write the report yourself.
 

@@ -660,3 +660,81 @@ test("a real edit (a brief, over 30 layers) needs one critic round before its fi
   assert.match(asked.data.ask, /1\. P0 t=1 · box · too slow/);
   assert.equal(nextCallOf(await agent("status", { project: id })).input.action, "answer");
 });
+
+test("one helper a round: look critique carries the viewer's sheets when both gates ask; one notes critique answer passes both; a P0 asks round 2; separate answers still pass", { skip: skipWithoutMediaTools }, async (t) => {
+  const file = await makeVideo(path.join(server.dataDirectory, "walk.mp4"), { width: 64, height: 36, fps: 2, frames: 32, frameColor: (n) => [n * 6, 80, 120] });
+  const upload = await server.api("/api/media", { method: "POST", headers: { "content-type": "video/mp4", "x-file-name": "walk.mp4" }, body: await readFile(file) });
+  const media = await upload.json();
+  const beats = [{ from: 0, to: 8, intent: "the viewer sees the street change color" }, { from: 8, to: 16, intent: "the viewer expects it to keep going" }];
+  const yes = [{ beat: 1, got: "yes" }, { beat: 2, got: "yes" }];
+  const report = "Sheet 1: a colored frame that slowly shifts from blue to pink. I expect it to keep shifting.\nKEEP start=6 middle=6 end=6\nDRAG none\nCARED t=4";
+  // A real edit (a brief, over 30 layers) of 16 s with footage: both the viewer and the critic gate ask.
+  async function build(id) {
+    await agent("project", { action: "create", id, width: 320, height: 180, duration: 16 });
+    await agent("notes", { project: id, action: "brief", no_playback: "just start" });
+    const style = { wants: [], avoids: [], lines: [], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 16, purpose: "the street" }], fonts: { caption: { family: "Inter", size: 40 } } };
+    assert.equal((await agent("notes", { project: id, action: "brief", fields: { style } })).isError, undefined);
+    const built = await agent("edit", { project: id, ops: [
+      ...["reference", "review", "soft_upscale", "plain_beats", "held_static", "no_music", "static_scene", "default_font", "page_chrome", "seen_before", "text_slides", "needs", "treatments", "no_rhythm", "few_techniques"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a gate test" })),
+      { op: "add_layer", layerType: "video", name: "street", properties: { src: media.src ?? media.media?.src, x: 0, y: 0, width: 320, height: 180 } },
+      ...Array.from({ length: 30 }, (_, n) => ({ op: "add_layer", layerType: "rectangle", name: `dot${n}`, properties: { x: 10 + n * 10, y: 170, width: 4, height: 4, fill: "#ffffff" } })),
+    ] });
+    assert.equal(built.isError, undefined, built.text);
+    await agent("check", { project: id, fix: "auto" });
+    assert.equal((await agent("notes", { project: id, action: "intents", beats })).isError, undefined);
+    return id;
+  }
+  const final = (id) => agent("render", { project: id, action: "start", quality: "final", format: "gif" });
+  // The person's stops (board, rough, color, sound) come first; the gate list names the rest.
+  const passes = async (id) => {
+    const reply = await final(id);
+    assert.ok(!["viewer_needed", "critique_needed", "critique_open"].includes(reply.data?.error), reply.text);
+    assert.doesNotMatch(reply.data?.reason ?? "", /viewer|critique|critic/, "neither gate is open");
+    if (reply.data?.job) await agent("render", { project: id, action: "cancel", job: reply.data.job });
+  };
+  const size = (packet, texts) => texts.reduce((sum, text) => sum + text.length, packet.text.length);
+
+  // The old way still works: a viewer packet and a critic packet, two helpers, two answers.
+  const old = await build("one-helper-old");
+  const viewerPacket = await agent("look", { project: old, mode: "viewer" });
+  assert.match(viewerPacket.text, /look \{mode:"critique"\} carries these sheets/);
+  await agent("notes", { project: old, action: "viewer", rev: viewerPacket.data.rev, report, matches: yes });
+  const criticPacket = await agent("look", { project: old, mode: "critique", inline: false });
+  assert.equal(criticPacket.data.viewer, undefined, "the viewer already watched this rev: a critic packet only");
+  await agent("notes", { project: old, action: "critique", rev: criticPacket.data.rev, lines: ["none"] });
+  await passes(old);
+  const before = { helpers: 2, images: viewerPacket.data.sheets.length + criticPacket.data.pages.length,
+    chars: size(viewerPacket, [await readFile(viewerPacket.data.heard, "utf8")]) + size(criticPacket, [await readFile(criticPacket.data.packet, "utf8")]) };
+
+  // Both gates ask: the refusal and the gate list name one helper for both.
+  const one = await build("one-helper");
+  const asked = await final(one);
+  assert.match(asked.data.reason, /\d\) look critique \(viewer and critic\), one fresh subagent, notes critique \d\)/);
+  assert.equal(asked.data.reason.match(/fresh subagent/g).length, 1, asked.data.reason);
+  const packet = await agent("look", { project: one, mode: "critique", inline: false });
+  assert.equal(packet.isError, undefined, packet.text);
+  assert.equal(packet.data.viewer.sheets, 4, "32 frames, 9 to a sheet");
+  assert.match(packet.data.prompt, /Part 1, before you open packet\.txt: read .*heard\.txt[\s\S]*first time[\s\S]*Then the line CRITIC\.\nPart 2: read .*packet\.txt[\s\S]*fresh-eyes critic/);
+  assert.doesNotMatch(await readFile(packet.data.viewer.heard, "utf8"), /street change color|the street/, "the viewer part never sees the intents or the brief");
+  assert.match(await readFile(packet.data.packet, "utf8"), /Moments, on the viewer sheets/);
+  const after = { helpers: 1, images: packet.data.pages.length, chars: size(packet, [await readFile(packet.data.packet, "utf8"), await readFile(packet.data.viewer.heard, "utf8")]) };
+  t.diagnostic(`a round: before ${JSON.stringify(before)} after ${JSON.stringify(after)}`);
+  const rev = packet.data.rev;
+  // The answer must carry the viewer's part; then one call records both and both gates pass.
+  assert.match((await agent("notes", { project: one, action: "critique", rev, lines: ["none"] })).text, /carried the viewer's sheets/);
+  const both = await agent("notes", { project: one, action: "critique", rev, lines: ["none"], report, matches: yes });
+  assert.match(both.text, /critique round 1 of 2 saved[\s\S]*viewer report saved for s1 rev \d+: beats yes 2/);
+  await passes(one);
+
+  // A P0 asks a second round; the viewer saw the cut already, so round 2 is the critic's alone.
+  const p0 = await build("one-helper-p0");
+  const first = await agent("look", { project: p0, mode: "critique", inline: false });
+  const saved = await agent("notes", { project: p0, action: "critique", rev: first.data.rev, lines: ["P0 t=1 · dot0 · hangs at the edge → move it to x=40 · its size"], report, matches: yes });
+  assert.match(saved.text, /P0 1[\s\S]*look \{mode:"critique"\} for a fresh critic/);
+  assert.match((await final(p0)).data.reason, /\d\) fix the critic's P0s, look critique again \d\)/);
+  await agent("edit", { project: p0, ops: [{ op: "update_layer", layer: "dot0", properties: { x: 40 } }] });
+  const second = await agent("look", { project: p0, mode: "critique", inline: false });
+  assert.equal(second.data.viewer, undefined);
+  await agent("notes", { project: p0, action: "critique", rev: second.data.rev, lines: ["none"] });
+  await passes(p0);
+});
