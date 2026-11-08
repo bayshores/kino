@@ -1974,6 +1974,10 @@ function assertLottieFeatures(scene, media = {}) {
       const tilted = (values) => ["rotateX", "rotateY"].some((key) => Math.abs(finite(values?.[key])) > 1e-6);
       if (tilted(layer) || enabledAnimations(layer.animations).some((animation) => tilted(animation.from) || tilted(animation.to)))
         throw new Error(`Lottie export cannot yet render the 3D tilt (rotateX, rotateY) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set rotateX and rotateY to 0 for Lottie.`);
+      // A repeater (engine/repeater.js) is not written to Lottie yet.
+      const repeated = (values) => finite(values?.repeatCopies, 1) > 1;
+      if (repeated(layer) || enabledAnimations(layer.animations).some((animation) => repeated(animation.from) || repeated(animation.to)))
+        throw new Error(`Lottie export cannot yet render the repeater (repeatCopies) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set repeatCopies to 1 for Lottie.`);
       if (["video", "audio"].includes(layer.type))
         throw new Error(
           `Lottie export does not support ${layer.type} layer “${layer.name ?? layer.id}”.`,

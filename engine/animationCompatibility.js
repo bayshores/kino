@@ -1,6 +1,7 @@
 import { CORNER_LAYER_TYPES, STROKE_LAYER_TYPES } from "./boxStyles.js";
 import { BACKDROP_STYLE_KEYS } from "./backdropStyles.js";
 import { TRIM_KEYS, TRIM_LAYER_TYPES } from "./strokeTrim.js";
+import { REPEAT_KEYS, REPEAT_LAYER_TYPES } from "./repeater.js";
 
 export const SHAPE_PROPERTY_TYPES = Object.freeze({
   radius: "rectangle",
@@ -49,6 +50,8 @@ export function isAnimationCompatible(layer, animation) {
     }
     // Trim paths and dashes follow a shape's outline (strokeTrim.js).
     if (TRIM_KEYS.includes(key) && !TRIM_LAYER_TYPES.has(layer?.type)) return false;
+    // A repeater copies a shape, path, text or group (repeater.js).
+    if (REPEAT_KEYS.includes(key) && !REPEAT_LAYER_TYPES.has(layer?.type)) return false;
     // Audio is never drawn, so it has no shadow to animate.
     if ((key === "shadow" || key === "reveal" || key === "effectPreset") && layer?.type === "audio") return false;
     if (BACKDROP_STYLE_KEYS.includes(key) && layer?.type === "audio") return false;

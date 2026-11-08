@@ -549,7 +549,7 @@ export const PRESET_SAMPLE_TO = Object.freeze({
   corners: { cornerRadii: [40, 40, 40, 40] }, shadow: { shadow: { color: "#00000080", x: 0, y: 12, blur: 24 } },
   arc: { sweep: 0.5 }, "star-shape": { spikes: 8 }, "letter-spacing": { letterSpacing: 20 }, "line-height": { lineHeight: 1.6 },
   "background-blur": { backgroundBlur: { enabled: true, radius: 24 } }, glass: { glass: { enabled: true } }, speed: { speed: 0.25 },
-  tilt: { rotateX: 30, rotateY: -20 },
+  tilt: { rotateX: 30, rotateY: -20 }, repeat: { repeatCopies: 12 },
 });
 // Other names agents give those values.
 const VALUE_ALIASES = { angle: "rotation", degrees: "rotation", rotate: "rotation", alpha: "opacity", color: "fill", left: "x", top: "y",
@@ -563,6 +563,8 @@ const PRESET_WORDS = {
   typewriter: "preset-custom-text", spin: "rotate", "spin-in": "rotate-in", appear: "preset-appear", "blur-in": "blur-in",
   // Other animation tools' and Lottie's words for a stroke drawing on (the trim preset; the move is draw-on).
   "trim-path": "trim", "trim-paths": "trim", "draw-on": "trim", "line-draw": "trim", "stroke-draw": "trim", "write-on": "trim",
+  // A shape modifier's names for copies of a layer (the repeat preset).
+  repeater: "repeat", "repeat-copies": "repeat", burst: "repeat",
 };
 const MODE_WORDS = { in: "in", out: "out", enter: "in", entrance: "in", entry: "in", intro: "in", appear: "in", show: "in",
   exit: "out", leave: "out", outro: "out", disappear: "out", hide: "out" };

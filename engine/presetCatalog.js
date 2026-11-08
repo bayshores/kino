@@ -300,6 +300,7 @@ export function catalogEntries(layer) {
     ["hide", "Hide", "Other"], ["show", "Show", "Other"], ["resize", "Resize", "Other"],
     ["stroke", "Stroke", "Other", [...STROKE_LAYER_TYPES]], ["trim", "Trim Paths", "Shape", ["rectangle", "ellipse", "star", "path"]], ["corners", "Corner Radius", "Other", [...CORNER_LAYER_TYPES]],
     ["arc", "Arc", "Shape", ["ellipse"]], ["star-shape", "Star", "Shape", ["star"]],
+    ["repeat", "Repeater", "Shape", ["rectangle", "ellipse", "star", "path", "text", "group"]],
   ];
   for (const [id, name, group, types] of custom) {
     if (types && !types.includes(layer.type)) continue;

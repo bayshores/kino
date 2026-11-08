@@ -141,7 +141,12 @@ const PRESET_LAYER = {
   "star-shape": { op: "add_layer", layerType: "star", name: "star", properties: { x: W / 2 - 110, y: H / 2 - 110, width: 220, height: 220, fill: "#FF7D3D" } },
   trim: { op: "add_layer", layerType: "path", name: "line", properties: { x: W * 0.2, y: H / 2, width: W * 0.6, height: 40, path: "M0 20 C190 0 380 40 576 20", fillEnabled: false, stroke: "#FFFFFF", strokeWidth: 8 } },
   counter: WORD("98%"),
+  // A radial burst: one ray drawn 12 times around a point 120 px below its middle (engine/repeater.js).
+  repeat: rect("ray", { x: W / 2 - 9, y: H / 2 - 175, width: 18, height: 110, radius: 9, fill: "#FF7D3D",
+    repeatCopies: 12, repeatRotation: 30, repeatAnchorY: 120, repeatEndOpacity: 0.4 }),
 };
+// Where an animation's card is caught when not by its kind: the burst once every copy is out.
+const PRESET_STILL = { repeat: 1.5 };
 const INSTANT = new Set(["hide", "show", "change-text"]);
 // Where in a move its card is caught, when not the middle: slice's bands cover the whole frame at
 // its middle, so its card shows them half way in.
@@ -214,7 +219,7 @@ export function sampleOps(kind, name) {
     const start = preset.kind === "out" || INSTANT.has(name) ? 1.2 : 0.4;
     const animation = { op: "add_animation", layer: layer.name, preset: name, start, ...(INSTANT.has(name) ? {} : { duration: 0.8 }) };
     // An entrance is caught late in its move, an exit early, a change near its middle.
-    const still = INSTANT.has(name) ? 1.6 : preset.kind === "out" ? 1.5 : preset.kind === "in" ? 0.95 : 0.85;
+    const still = PRESET_STILL[name] ?? (INSTANT.has(name) ? 1.6 : preset.kind === "out" ? 1.5 : preset.kind === "in" ? 0.95 : 0.85);
     return { ops: [SHOT_B, layer, animation], duration: 2.6, still };
   }
   if (kind === "recipe" && TRANSITIONS[name]) return TRANSITION_SAMPLES[name]?.() ?? null;

@@ -21,6 +21,7 @@ import { REACH_OPERATIONS } from "./reach-operations.mjs";
 import { LAYER_ROLES } from "../../engine/qualityFields.js";
 import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
+import { REPEAT_KEYS } from "../../engine/repeater.js";
 import { bezierFromCss, fixLayerProperties, fixOperation, gradientFromCss, hexFromHsl, isLayerFieldAlias, reshapeOperation, timeFromText } from "./common-mistakes.mjs";
 
 export class OperationError extends Error {
@@ -161,7 +162,7 @@ export const LAYER_PROPERTY_NAMES = [...new Set([
   ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn",
   ...BACKDROP_STYLE_KEYS, "reveal", "effectPreset", "fillRule", "textStyleRanges", "inactiveBoxStyles", "convertedFrom",
   "componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides",
-  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "axes", "rotateX", "rotateY", "perspective", ...TRIM_KEYS,
+  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "axes", "rotateX", "rotateY", "perspective", ...TRIM_KEYS, ...REPEAT_KEYS,
 ])];
 const LAYER_PROPERTIES = new Set(LAYER_PROPERTY_NAMES);
 // Operations whose `properties` are layer fields.
