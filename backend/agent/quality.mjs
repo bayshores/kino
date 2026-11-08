@@ -22,6 +22,7 @@ import { judderBlurId, techniqueCounts, techniquesUsed } from "../../engine/qual
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { BACKGROUND_OWNER_ID } from "../../engine/sceneBackground.js";
 import { refName, sec } from "./describe.mjs";
+import { keyedProperties } from "./overridden-values.mjs";
 import { createFrameReuse } from "./frame-reuse.mjs";
 import { sceneKey } from "./look.mjs";
 import { inBackground, waitForQuiet } from "../render-activity.mjs";
@@ -123,7 +124,12 @@ function shiftedAnimations(animations, dx, dy, scale = 1) {
     if (!animation || typeof animation !== "object") continue;
     const moved = dx || dy ? shiftAnimation({ ...animation, animations: undefined }, dx, dy, position) : animation;
     const next = { from: scaled(moved.from), to: scaled(moved.to), motionPath: moved.motionPath };
-    const properties = Object.fromEntries(["from", "to", "motionPath"].filter((key) => next[key] !== animation[key]).map((key) => [key, next[key]]));
+    let properties = Object.fromEntries(["from", "to", "motionPath"].filter((key) => next[key] !== animation[key]).map((key) => [key, next[key]]));
+    // A keyed animation takes its moved keys (it refuses from and to).
+    if (animation.keys?.length) {
+      const keys = moved.keys.map((key) => ({ ...key, value: scaled(key.value) }));
+      properties = keys.some((key, index) => key.value !== animation.keys[index].value) ? { keys } : {};
+    }
     if (Object.keys(properties).length) changes.push({ animation, properties });
     if (isComposedAnimation(animation)) changes.push(...shiftedAnimations(animation.animations, dx, dy, scale));
   }
@@ -166,6 +172,13 @@ function timingCopies(animations, opacity) {
   for (const animation of Array.isArray(animations) ? animations : []) {
     if (!animation || typeof animation !== "object" || animation.enabled === false) continue;
     if (animation.kind === "show" || animation.kind === "hide") { copies.push({ kind: animation.kind, name: animation.name ?? animation.kind, start: animation.start }); continue; }
+    // A keyed fade or speed change is copied key by key (only its opacity, times `opacity`).
+    if (animation.keys?.length && animation.kind === "custom") {
+      const key = Number.isFinite(animation.to?.speed) ? "speed" : Number.isFinite(animation.to?.opacity) ? "opacity" : null;
+      if (key) copies.push({ kind: "custom", name: `${animation.name ?? "Fade"} (copy)`, start: animation.start, duration: animation.duration, easing: animation.easing ?? "smooth",
+        keys: animation.keys.map((entry) => ({ ...entry, value: { [key]: key === "speed" ? entry.value.speed : round3(entry.value.opacity * opacity) } })) });
+      continue;
+    }
     if (Number.isFinite(animation.to?.speed)) { copies.push({ kind: "custom", name: animation.name ?? "Speed", start: animation.start, duration: animation.duration, easing: animation.easing, from: { speed: animation.from?.speed ?? 1 }, to: { speed: animation.to.speed } }); continue; }
     const from = animation.from?.opacity, to = animation.to?.opacity;
     if (!Number.isFinite(from) && !Number.isFinite(to)) continue;
@@ -250,7 +263,7 @@ function layerFix(fix, model, document, codes) {
     // held_static's end card push (card) over a push of the layer's own.
     const overlap = (animation) => Math.min(end, animation.start + (animation.duration ?? 0)) - Math.max(fix.start, animation.start);
     const held = fix.technique === "slow-push" && (fix.dx || fix.dy || fix.card) ? (Array.isArray(layer.animations) ? layer.animations : []).find((animation) => animation?.kind === "custom"
-      && animation.from && animation.to && "scaleX" in animation.to && overlap(animation) >= 0.6 * fix.duration) : null;
+      && !animation.keys && animation.from && animation.to && "scaleX" in animation.to && overlap(animation) >= 0.6 * fix.duration) : null;
     if (held) {
       // The hold becomes the push: from where it starts, grown by the push and moved by dx, dy.
       const start = { x: layer.x ?? 0, y: layer.y ?? 0, scaleX: 1, scaleY: 1, ...held.from };
@@ -262,13 +275,13 @@ function layerFix(fix, model, document, codes) {
       const after = (Array.isArray(layer.animations) ? layer.animations : []).filter((animation) => animation !== held && animation?.from && animation.start >= heldEnd - 1e-3
         && JSON.stringify(shift(animation.from)) !== JSON.stringify(animation.from));
       return { fix: [{ op: "update_animation", animationId: refName(held.id, codes), ...sceneField, properties: { easing: fix.easing, from: start, to: next } },
-        ...after.map((animation) => ({ op: "update_animation", animationId: refName(animation.id, codes), ...sceneField, properties: { from: shift(animation.from) } }))], auto };
+        ...after.map((animation) => ({ op: "update_animation", animationId: refName(animation.id, codes), ...sceneField, properties: keyedProperties(animation, { from: shift(animation.from) }) }))], auto };
     }
     const add = { op: "add_animation", layerId: ref, ...sceneField, animation: { id: freeAnimationId(scene, `${layer.id}.hold`), kind: "custom", name: names[fix.technique] ?? "Hold motion", start: fix.start, duration: fix.duration, easing: fix.easing, from, to } };
     // A later animation that starts from the old value starts from the moved one, so nothing jumps.
     const later = (Array.isArray(layer.animations) ? layer.animations : []).filter((animation) => animation?.from && animation.start >= end - 1e-3 && change(animation.from) !== animation.from
       && JSON.stringify(change(animation.from)) !== JSON.stringify(animation.from));
-    return { fix: [add, ...later.map((animation) => ({ op: "update_animation", animationId: refName(animation.id, codes), ...sceneField, properties: { from: change(animation.from) } }))], auto };
+    return { fix: [add, ...later.map((animation) => ({ op: "update_animation", animationId: refName(animation.id, codes), ...sceneField, properties: keyedProperties(animation, { from: change(animation.from) }) }))], auto };
   }
   if (fix.kind === "smear") {
     // Motion blur: directional-blur keys that follow the layer's speed (judder). The IDs name the

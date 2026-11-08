@@ -783,6 +783,32 @@ function fixEffectName(word, fixes, field, layer) {
     { op: "add_animation", layer, effect: suggestions[0], ...(choice?.parameters ? { parameters: choice.parameters } : {}) }, suggestions);
 }
 
+// keyframes:[{time, x, ...}] with times in scene seconds: a custom animation from the first
+// time to the last, two frames as from/to, more as keys (t = share of the span). Anything
+// else (no or falling times, start or duration beside them, per-frame easing, other
+// properties per frame, another animation form) returns false and is refused.
+function keyframesAsAnimation(operation, fixes) {
+  const frames = operation.keyframes;
+  if (!Array.isArray(frames) || frames.length < 2 || frames.length > 64 || !frames.every(isRecord)) return false;
+  if (["start", "at", "duration", "animation", "preset", "effect", "from", "to", "keys"].some((field) => operation[field] !== undefined)) return false;
+  const times = frames.map((frame) => typeof frame.time === "number" ? frame.time : typeof frame.at === "number" && frame.time === undefined ? frame.at : NaN);
+  if (!times.every((time, index) => Number.isFinite(time) && time >= 0 && (index === 0 || time > times[index - 1]))) return false;
+  if (frames.some((frame) => ["t", "offset", "easing", "ease", "value"].some((field) => frame[field] !== undefined))) return false;
+  const values = frames.map((frame) => Object.fromEntries(Object.entries(frame).filter(([key]) => key !== "time" && key !== "at")));
+  const names = (value) => Object.keys(value).sort().join();
+  if (!names(values[0]) || values.some((value) => names(value) !== names(values[0]))) return false;
+  const [first, span] = [times[0], times.at(-1) - times[0]];
+  if (operation.kind !== undefined && !(operation.kind === "custom" || (frames.length === 2 && ["in", "out"].includes(operation.kind)))) return false;
+  const kind = operation.kind ?? "custom";
+  operation.animation = { kind, name: typeof operation.name === "string" && operation.name.trim() ? operation.name : "Animation",
+    start: first, duration: span, ...(operation.easing !== undefined ? { easing: operation.easing } : {}),
+    ...(frames.length === 2 ? { from: values[0], to: values[1] }
+      : { keys: values.map((value, index) => ({ t: Math.round(((times[index] - first) / span) * 1e6) / 1e6, value })) }) };
+  for (const field of ["keyframes", "kind", "easing"]) delete operation[field];
+  fixes.push(`keyframes → animation {kind:"${kind}", start ${first}, duration ${Math.round(span * 1e6) / 1e6}, ${frames.length === 2 ? "from, to" : `${frames.length} keys`}}`);
+  return true;
+}
+
 function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
   const layer = typeof layerRef === "string" ? layerRef : "title";
   const layerType = () => { try { return resolver?.layerTypeOf(resolver.resolve(operation.layerId ?? layerRef, "layer")); } catch { return null; } };
@@ -793,21 +819,22 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
       fixes.push(`${field} → layer`);
     }
   }
-  if (operation.keyframes !== undefined) {
+  if (operation.keyframes !== undefined && !keyframesAsAnimation(operation, fixes)) {
     const frames = Array.isArray(operation.keyframes) ? operation.keyframes.filter(isRecord) : [];
     const values = (frame) => Object.fromEntries(Object.entries(frame ?? {}).filter(([key]) => !["time", "t", "at", "offset", "easing"].includes(key)));
     const first = frames[0], last = frames.at(-1);
-    const example = customExample(layer, "Move", first ? values(first) : { x: 100 }, last ? values(last) : { x: 1600 });
+    let example = customExample(layer, "Move", first ? values(first) : { x: 100 }, last ? values(last) : { x: 1600 });
     if (first && typeof first.time === "number" && typeof last?.time === "number" && last.time > first.time)
       Object.assign(example.animation, { start: first.time, duration: last.time - first.time });
     if (frames.length > 2) {
+      // The short form: keys at the top beside start and duration.
       const span = Math.max(1e-3, (typeof last?.time === "number" ? last.time : 1) - (typeof first?.time === "number" ? first.time : 0));
-      delete example.animation.from; delete example.animation.to;
-      example.animation.keys = frames.slice(0, 64).map((frame, index) => ({
-        t: typeof frame.time === "number" && typeof first.time === "number" ? Math.min(1, Math.max(0, (frame.time - first.time) / span)) : index / (frames.length - 1),
-        value: values(frame) }));
+      example = { op: "add_animation", layer, start: example.animation.start, duration: example.animation.duration,
+        keys: frames.slice(0, 64).map((frame, index) => ({
+          t: typeof frame.time === "number" && typeof first.time === "number" ? Math.min(1, Math.max(0, (frame.time - first.time) / span)) : index / (frames.length - 1),
+          value: values(frame) })) };
     }
-    throw mistake("add_animation has no keyframes: send animation {kind:\"custom\", start, duration, keys:[{t, value, ease?}]}, t a share 0..1 of the duration (3+ keys), or from → to for two.", example);
+    throw mistake("keyframes each need a rising time (scene seconds) and the same properties; or send keys:[{t, value, ease?}], t a share 0..1 of the duration.", example);
   }
   fixTimes(operation, fixes);
   fixEase(operation, fixes, "");
@@ -865,9 +892,9 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
         fixes.push(`animation.kind ${quote(animation.kind)} → custom`);
         animation.kind = "custom";
       }
-      if (animation.kind === undefined && (animation.from !== undefined || animation.to !== undefined)) {
+      if (animation.kind === undefined && (animation.from !== undefined || animation.to !== undefined || Array.isArray(animation.keys))) {
         animation.kind = "custom";
-        fixes.push("animation.kind custom (it has from/to)");
+        fixes.push(`animation.kind custom (it has ${Array.isArray(animation.keys) ? "keys" : "from/to"})`);
       }
       if (["in", "out", "custom"].includes(animation.kind)) {
         // Top-level timing belongs to the animation.
@@ -892,17 +919,19 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
     }
   }
 
-  // No preset and no animation, but from/to: a custom animation.
+  // No preset and no animation, but from/to: a custom animation. keys at the top is the
+  // documented short form of animation {kind:"custom", keys}, so it is not listed in fixed.
+  const topKeys = Array.isArray(operation.keys);
   if (operation.animation === undefined && operation.preset === undefined && operation.effect === undefined
-    && (isRecord(operation.to) || isRecord(operation.from))) {
+    && (isRecord(operation.to) || isRecord(operation.from) || topKeys)) {
     // kind beside from/to ({layer, kind:"out", from, to}) is the animation's kind.
     const kind = ["in", "out", "custom"].includes(operation.kind) ? operation.kind : "custom";
     if (operation.kind === kind) delete operation.kind;
     operation.animation = { kind, name: givenName ?? "Animation", start: typeof operation.start === "number" ? operation.start : 0,
       duration: operation.duration ?? 0.6, ...(operation.easing !== undefined ? { easing: operation.easing } : {}),
-      from: operation.from ?? {}, to: operation.to ?? {} };
-    for (const field of ["from", "to", "start", "duration", "easing"]) delete operation[field];
-    fixes.push(`from/to → animation {kind:"${kind}"}`);
+      from: operation.from ?? {}, to: operation.to ?? {}, ...(topKeys ? { keys: operation.keys } : {}) };
+    for (const field of ["from", "to", "start", "duration", "easing", "keys"]) delete operation[field];
+    if (!topKeys) fixes.push(`from/to → animation {kind:"${kind}"}`);
   }
 
   // preset:"glow" (no animation preset has that name): the glow effect.

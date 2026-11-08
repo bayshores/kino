@@ -4,6 +4,10 @@ import assert from "node:assert/strict";
 import { evaluateLayer } from "./animation.js";
 import { animationProblem, createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { renderSceneSvg } from "./render.js";
+import { carryAnimations, shiftAnimation } from "./animationShift.js";
+import { defaultFonts } from "./fonts.js";
+import { runQuality } from "./quality/index.js";
+import { kinoTimeline } from "./quality/kinoTimeline.js";
 
 const keyed = (keys, extra = {}) => ({ id: "k", name: "Keys", kind: "custom", start: 1, duration: 2, easing: "linear", from: {}, to: {}, keys, ...extra });
 
@@ -80,4 +84,27 @@ test("Lottie export samples the keys frame by frame through the middle key", asy
   const box = JSON.parse(out.buffer.toString("utf8")).layers.find((item) => item.nm === "Box");
   const values = box.ks.o.k.map((key) => key.s[0]);
   assert.deepEqual(values, [0, 25, 50, 75, 100, 75, 50, 25, 0]);
+});
+
+test("moving a layer moves every key of its keyed animation, and old animations are kept as they are", () => {
+  const layer = parsed(createLayer("rectangle", { id: "a", x: 10, y: 20, width: 40, height: 40,
+    animations: [keyed([{ t: 0, value: { x: 0 } }, { t: 0.5, value: { x: 100 } }, { t: 1, value: { x: 50 } }])] }));
+  const shifted = shiftAnimation(layer.animations[0], 5, 7);
+  assert.deepEqual(shifted.keys.map((key) => key.value.x), [5, 105, 55]);
+  assert.deepEqual([shifted.from, shifted.to], [{ x: 5 }, { x: 55 }]);
+  const carried = carryAnimations(layer.animations, { x: 10, y: 20 }, { x: 30, y: 20 });
+  assert.deepEqual(carried[0].keys.map((key) => key.value.x), [20, 120, 70]);
+  const plain = { id: "p", kind: "custom", start: 0, duration: 1, from: { opacity: 0 }, to: { opacity: 1 } };
+  assert.equal(shiftAnimation(plain, 5, 7), plain);
+  assert.equal(carryAnimations([plain], { x: 0, y: 0 }, { x: 9, y: 0 })[0], plain);
+});
+
+test("every data quality rule runs on keyed x, opacity, scale and rotation animations without a checker error", async () => {
+  const keys = (name, values) => values.map((value, index) => ({ t: index / (values.length - 1), value: { [name]: value } }));
+  const layer = createLayer("rectangle", { id: "a", x: 10, y: 20, width: 80, height: 60, fill: "#e0e0e0", animations: [
+    keyed(keys("x", [0, 200, 120, 300])), { ...keyed(keys("opacity", [0, 1, 0.4])), id: "o" },
+    { ...keyed(keys("scaleX", [1, 1.4, 0.9, 1])), id: "s", start: 2 }, { ...keyed(keys("rotation", [0, 30, -10])), id: "r", start: 0.5 }] });
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "s", name: "S", width: 400, height: 300, duration: 4, background: "#202020", layers: [layer] })] }));
+  const { findings } = await runQuality(kinoTimeline(document, "s", { fonts: defaultFonts }), { pixels: false });
+  assert.deepEqual(findings.filter((finding) => finding.internal).map((finding) => finding.message), []);
 });

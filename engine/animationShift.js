@@ -32,7 +32,10 @@ export function shiftAnimation(animation, dx, dy, position = addChange) {
       (value) => ({ x: position(value.x, dx), y: position(value.y, dy) }),
       (value) => value,
     );
-  return from === animation.from && to === animation.to && motionPath === animation.motionPath && animations === animation.animations
+  // Keys hold the same x and y as from and to (their first and last value), so they move too.
+  const keys = Array.isArray(animation.keys) && animation.keys.some((key) => shiftValues(key.value, dx, dy, position) !== key.value)
+    ? animation.keys.map((key) => ({ ...key, value: shiftValues(key.value, dx, dy, position) })) : animation.keys;
+  return from === animation.from && to === animation.to && motionPath === animation.motionPath && animations === animation.animations && keys === animation.keys
     ? animation
     : {
       ...animation,
@@ -40,6 +43,7 @@ export function shiftAnimation(animation, dx, dy, position = addChange) {
       ...(from !== animation.from ? { from } : {}),
       ...(to !== animation.to ? { to } : {}),
       ...(motionPath !== animation.motionPath ? { motionPath } : {}),
+      ...(keys !== animation.keys ? { keys } : {}),
     };
 }
 
@@ -117,9 +121,12 @@ export function carryAnimations(animations, before, after, linear = [1, 0, 0, 1]
         else motionPath.alignmentOffset = alignmentOffset;
       }
     }
-    return from === animation.from && to === animation.to && motionPath === animation.motionPath
+    const keys = Array.isArray(animation.keys) && animation.keys.some((key) => values(key.value) !== key.value)
+      ? animation.keys.map((key) => ({ ...key, value: values(key.value) })) : animation.keys;
+    return from === animation.from && to === animation.to && motionPath === animation.motionPath && keys === animation.keys
       ? animation
-      : { ...animation, ...(from !== animation.from ? { from } : {}), ...(to !== animation.to ? { to } : {}), ...(motionPath !== animation.motionPath ? { motionPath } : {}) };
+      : { ...animation, ...(from !== animation.from ? { from } : {}), ...(to !== animation.to ? { to } : {}), ...(motionPath !== animation.motionPath ? { motionPath } : {}),
+        ...(keys !== animation.keys ? { keys } : {}) };
   };
   return animations.map(carry);
 }

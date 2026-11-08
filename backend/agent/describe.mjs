@@ -70,6 +70,8 @@ export function animationRef(animation, codes) {
 }
 
 const INSTANT = new Set(["hide", "show"]);
+// A keyed animation lists at most this many values per property (the last always).
+const KEYS_SHOWN = 8;
 
 // One animation in a few tokens: "hero-title.in in opacity 0.4–0.9".
 export function animationShort(animation, codes, offset = 0) {
@@ -91,7 +93,15 @@ export function animationLong(animation, codes, offset = 0) {
     parts.push(`preset ${animation.preset.id}${parameters ? ` (${parameters})` : ""}`);
   }
   const keys = [...new Set([...Object.keys(animation.from ?? {}), ...Object.keys(animation.to ?? {})])];
-  if (keys.length) parts.push(keys.map((key) => `${key} ${valueText(key, animation.from?.[key])}→${valueText(key, animation.to?.[key])}`).join(", "));
+  if (animation.keys?.length) {
+    // Keyed: every key's value in order, then where each key sits and its own ease.
+    const shown = animation.keys.length > KEYS_SHOWN ? [...animation.keys.slice(0, KEYS_SHOWN - 1), animation.keys.at(-1)] : animation.keys;
+    const gap = shown.length < animation.keys.length ? "→…→" : "";
+    const path = (key) => shown.map((entry, index) => `${index === shown.length - 1 && gap ? gap : index ? "→" : ""}${valueText(key, entry.value[key])}`).join("");
+    parts.push(keys.map((key) => `${key} ${path(key)}`).join(", "));
+    const eases = animation.keys.map((entry) => entry.ease == null ? "" : `/${typeof entry.ease === "string" ? entry.ease : JSON.stringify(entry.ease)}`);
+    parts.push(`${animation.keys.length} keys t ${animation.keys.map((entry, index) => `${num(entry.t)}${eases[index]}`).join(",")}`);
+  } else if (keys.length) parts.push(keys.map((key) => `${key} ${valueText(key, animation.from?.[key])}→${valueText(key, animation.to?.[key])}`).join(", "));
   if (animation.kind === "composed") parts.push(`${animation.animations?.length ?? 0} inside`);
   parts.push(INSTANT.has(animation.kind) ? `at ${start}s` : `${start}s+${sec(animationLength(animation))}s`);
   if (animation.easing) parts.push(`${typeof animation.easing === "string" ? animation.easing : JSON.stringify(animation.easing)}${animation.intensity != null && animation.intensity !== 50 ? `(${animation.intensity})` : ""}`);

@@ -43,11 +43,10 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
 - A shape that can mean only one thing is fixed and listed in `fixed` instead of refused: an op
   name such as `add_text` or `animate`, `"48px"`, `"50%"` opacity, `"500ms"`, `fontWeight:"bold"`,
   `font` or `color` on text, `ease` for `easing`, a property preset sent with values
-  (`preset:"move", parameters:{x}`) and an animation with `from`/`to` but no `kind`.
-- A percent `x` or `y` is refused (`place` centres a layer), and so are keyframes (send one
-  custom animation per step), a field the animation lacks (`durration`; `repeat`: a `behavior`
-  loop), `from`/`to` with a preset change, a field given two values (`size`, `width`) and a `src`
-  file path (import the file first).
+  (`preset:"move", parameters:{x}`), an animation with `from`/`to` but no `kind`, timed `keyframes`.
+- Refused: a percent `x` or `y` (`place` centers), a field the animation lacks
+  (`durration`; `repeat`: a `behavior` loop), `from`/`to` with a preset change, a field given
+  two values (`size`, `width`) and a `src` file path (import it first).
 
 ## Examples
 
@@ -96,6 +95,7 @@ A second scene (from then on every op names its `scene`):
   `quart-out`, `in-out`, `ease-in`, `ease-out`, `overshoot`, `elastic`, `bounce`, `impulse`,
   `swing`, `linear`, `[x1,y1,x2,y2]`. Presets default to smooth, fades to linear;
   `easeOutBack` and `cubic-bezier()` are converted.
+- 3+ steps: `keys:[{t, value, ease?}]` for from/to (behaviors.md).
 - An effect's settings are in `to` (and `from`): `update_animation {animation:"plate.effect",
   properties:{to:{gamma:0.6}}}` changes gamma and keeps the others.
 - slide, grow, rotate, blur, blur-slide never fade; add `preset-fade`, same timing (check's

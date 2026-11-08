@@ -196,6 +196,7 @@ export function overriddenValues(document, operations, ref, previous = null, cov
  * {preset:{id, parameters}} instead, which keeps it a preset. Otherwise they are `properties`.
  */
 export function advisedProperties(animation, properties, layer, document) {
+  if (animation?.keys?.length && isRecord(properties)) return keyedProperties(animation, properties);
   if (!isRecord(animation?.preset) || !isRecord(properties) || !Object.keys(properties).length
     || Object.keys(properties).some((key) => !["from", "to"].includes(key))) return properties;
   // A text layer's measured size needs its fonts, which are not here.
@@ -211,6 +212,28 @@ export function advisedProperties(animation, properties, layer, document) {
     return [...keys].every((key) => sameValue(key, a[key], b[key]));
   };
   return same(redone.from, wanted.from) && same(redone.to, wanted.to) ? keep : properties;
+}
+
+// A keyed animation refuses from/to edits: a new from is its first key, a new to its last, and
+// a number both ends moved by the same amount (a shift) moves every key by it.
+// Properties of an animation without keys are returned as they are.
+export function keyedProperties(animation, properties) {
+  if (!animation?.keys?.length) return properties;
+  const { from, to, ...rest } = properties;
+  if (!isRecord(from) && !isRecord(to)) return rest;
+  const last = animation.keys.length - 1;
+  const delta = (sent, stored, key) => (typeof sent?.[key] === "number" && typeof stored?.[key] === "number" ? sent[key] - stored[key] : null);
+  const keys = animation.keys.map((entry, index) => {
+    const value = { ...entry.value };
+    for (const key of Object.keys(value)) {
+      const [a, b] = [delta(from, animation.from, key), delta(to, animation.to, key)];
+      if (index === 0 && isRecord(from) && Object.hasOwn(from, key)) value[key] = from[key];
+      else if (index === last && isRecord(to) && Object.hasOwn(to, key)) value[key] = to[key];
+      else if (a !== null && b !== null && Math.abs(a - b) < 1e-9 && typeof value[key] === "number") value[key] += a;
+    }
+    return { ...entry, value };
+  });
+  return { ...rest, keys };
 }
 
 // The line for a value other than x and y (opacity, scale, rotation, a colour), or null. The ends

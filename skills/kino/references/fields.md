@@ -56,7 +56,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 
 ## Animations
 
-- `add_animation {scene?, layer, preset, start?, mode?, parameters?, duration?, easing?, intensity?, unit?, stagger?, ...} or {scene?, layer, animation}`
+- `add_animation {scene?, layer, preset, start?, mode?, parameters?, duration?, easing?, intensity?, unit?, stagger?, ...} or {scene?, layer, animation} or {scene?, layer, keys}`
 - `update_animation {scene?, layer, animation, properties}`
 - `update_animations {scene?, animationIds, properties}`
 - `delete_animation {scene?, layer, animation}`

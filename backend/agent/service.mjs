@@ -1950,6 +1950,17 @@ export function createAgentService(deps) {
     return { times, more };
   }
 
+  // How many keys each keyed animation the edit made or changed has: `keys: {A1: 4}`.
+  function animationKeyCounts(after, ids, codes) {
+    const wanted = new Set(ids);
+    const counts = {};
+    for (const entry of documentObjects(after).animations) {
+      if (!wanted.has(entry.id) || !entry.animation.keys?.length || Object.keys(counts).length >= TIMES_LIST) continue;
+      counts[refName(entry.id, codes)] = entry.animation.keys.length;
+    }
+    return Object.keys(counts).length ? { keys: counts } : {};
+  }
+
   function changedSince(before, after, codes) {
     const changes = documentChanges(before, after);
     const name = (id) => refName(id, codes);
@@ -2167,6 +2178,7 @@ export function createAgentService(deps) {
         ...listedMore("removed", changes),
         ...(Object.keys(timed.times).length ? { times: timed.times } : {}),
         ...(timed.more ? { timesMore: timed.more } : {}),
+        ...animationKeyCounts(after, [...changes.created, ...changes.changed], afterCodes),
         ...(resolver.fixes.length ? { fixed: [...new Set(resolver.fixes)] } : {}),
         ...(work.notes.length ? { notes: work.notes } : {}),
         // compose {footage}: the plan in words (all of it in a dry run).

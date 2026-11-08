@@ -58,6 +58,7 @@ const FIXED = [
   ["move with parameters", { op: "add_animation", layer: "box", preset: "move", start: 0, duration: 6, parameters: { x: 1600 } }, 'move with values → animation {kind:"custom", name:"Move", from, to}'],
   ["a preset inside animation", { op: "add_animation", layer: "box", animation: { preset: "move", start: 0, duration: 6, to: { x: 1600 } } }, "animation.preset → preset"],
   ["an animation with no kind", { op: "add_animation", layer: "box", animation: { start: 0, duration: 6, from: { x: 100 }, to: { x: 1600 } } }, "animation.kind custom (it has from/to)"],
+  ["keyframes", { op: "add_animation", layer: "box", keyframes: [{ time: 0, x: 0 }, { time: 1, x: 500 }] }, 'keyframes → animation {kind:"custom", start 0, duration 1, from, to}'],
   ["from and to at the top", { op: "add_animation", layer: "box", start: 0, duration: 2, from: { x: 100 }, to: { x: 1600 } }, 'from/to → animation {kind:"custom"}'],
   ["seconds as text", { op: "add_animation", layer: "box", preset: "preset-fade", start: "0.5s", duration: "500ms" }, 'duration "500ms" → 0.5'],
   ["fadeIn", { op: "add_animation", layer: "box", preset: "fadeIn", start: 0, duration: 0.5 }, 'preset "fadeIn" → fade-in'],
@@ -206,7 +207,7 @@ test("move_layers under a waiting mask needs mask:true, and the refusal's next s
 const REFUSED = [
   ["x in percent", { op: "add_layer", layerType: "rectangle", name: "r5", properties: { x: "50%" } }, "then place it", [{ op: "add_layer", layerType: "rectangle", name: "r5" }]],
   ["a file on this computer as src", { op: "add_layer", layerType: "image", name: "logo", properties: { src: "/Users/someone/logo.png" } }, 'project {action:"import", file:"/Users/someone/logo.png"}'],
-  ["keyframes",{ op: "add_animation", layer: "box", keyframes: [{ time: 0, x: 0 }, { time: 1, x: 500 }] }, "keyframes"],
+  ["keyframes with no times", { op: "add_animation", layer: "box", keyframes: [{ x: 0 }, { x: 200 }, { x: 500 }] }, "keyframes"],
   ["update_layer with no layer", { op: "update_layer", properties: { fill: "#000000" } }, "needs layer"],
   ["an unknown preset", { op: "add_animation", layer: "box", preset: "wobble", start: 0, duration: 1 }, "unknown animation preset"],
   ["move with a value it does not animate", { op: "add_animation", layer: "box", preset: "move", start: 0, duration: 1, to: { width: 400 } }, "move animates x, y"],

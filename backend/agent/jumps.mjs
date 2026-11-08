@@ -61,6 +61,8 @@ function jumpOf(layer, animation) {
 // The from (and, for an exit, the to) that start `stored` where the layer is drawn just before it.
 function joined(stored, jump) {
   const from = { ...(stored.from ?? {}), ...Object.fromEntries(jump.keys.map((key) => [key, exact(jump.before[key])])) };
+  // A keyed animation (from is its first key, and from/to edits are refused) moves its first key.
+  if (stored.keys?.length) return { keys: stored.keys.map((key, index) => (index ? key : { ...key, value: { ...key.value, ...from } })) };
   if (stored.kind !== "out" || !isRecord(stored.to)) return { from };
   const change = (key) => (jump.keys.includes(key) ? jump.before[key] - (typeof stored.from?.[key] === "number" ? stored.from[key] : jump.at[key]) : 0);
   return { from, to: shiftValues(stored.to, change("x"), change("y"), (place, amount) => exact(place + amount)) };
