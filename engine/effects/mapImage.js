@@ -25,13 +25,14 @@ function sample(image, u, v) {
  * See zimond/resvg@3495d870 filter/mod.rs apply_image and tiny-skia 0.10 to_int_rect:
  * origins use floor, while WIDTH/HEIGHT independently use ceil (not the far edge).
  */
-export function effectMapImage(frame, key, pixelFn, { outside = [0, 0, 0, 0], repeatBounds } = {}) {
+// maxSide (default 256) caps the local map's longer side, for a coarser grid of samples.
+export function effectMapImage(frame, key, pixelFn, { outside = [0, 0, 0, 0], repeatBounds, maxSide } = {}) {
   const bounds = frame.bounds;
   const sourceBounds = repeatBounds ?? bounds;
-  const dimensions = mapDimensions(sourceBounds);
+  const dimensions = maxSide ? mapDimensions(sourceBounds, maxSide) : mapDimensions(sourceBounds);
   if (repeatBounds && ![repeatBounds.x, repeatBounds.y].every(Number.isFinite))
     throw new RangeError("Repeating map origins must be finite.");
-  const sourceKey = JSON.stringify(["effect-map-local-v1", key, sourceBounds]);
+  const sourceKey = JSON.stringify(["effect-map-local-v1", key, sourceBounds, ...(maxSide ? [maxSide] : [])]);
   const source = cachedMapImage(sourceKey, dimensions.width, dimensions.height, pixelFn);
   const matrix = frame.helpers.raster && frame.helpers.transform;
   if (!Array.isArray(matrix)) return source.uri;
@@ -46,7 +47,8 @@ export function effectMapImage(frame, key, pixelFn, { outside = [0, 0, 0, 0], re
   if (!repeatBounds && matrix[0] > 0 && matrix[3] > 0 && Math.abs(matrix[1]) + Math.abs(matrix[2]) < 1e-12 &&
     [left, top, width, height].every((value) => Math.abs(value - Math.round(value)) < 1e-9)) return source.uri;
   const region = { x: Math.floor(left), y: Math.floor(top), width: Math.max(1, Math.ceil(width)), height: Math.max(1, Math.ceil(height)) };
-  const size = mapDimensions(region, 512);
+  // A coarse grid needs no 512 px prewarp: twice its side keeps its points sharp.
+  const size = mapDimensions(region, maxSide ? Math.min(512, 2 * maxSide) : 512);
   const cacheKey = JSON.stringify(["raster-map-v1", key, bounds, matrix, region, outside, repeatBounds ?? null]);
   return cachedMap(cacheKey, size.width, size.height, (x, y, mapWidth, mapHeight) => {
     const local = point(toLocal, region.x + (x + 0.5) * region.width / mapWidth,

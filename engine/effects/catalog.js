@@ -21,7 +21,9 @@ import { EDGE_EFFECTS } from "./edges.js";
 import { LIGHT_EFFECTS } from "./light.js";
 import { PARTICLE_EFFECTS } from "./particles.js";
 import { FINISH_EFFECTS } from "./finish.js";
+import { FIELD_EFFECT } from "./field.js";
 import { copyContent } from "./svg.js";
+import { compileExpression, ExpressionError } from "../expression.js";
 
 const number = (label, value, min, max, step, unit = "", extra = {}) =>
   ({ type: "number", label, default: value, min, max, step, unit, ...extra });
@@ -215,6 +217,8 @@ const definitions = [
     parameters: colorLookFields(number) },
   // Directional, zoom and spin blur (motionBlurs.js); edge fill, mirror, kaleidoscope (edges.js).
   ...BLUR_EFFECTS, FOCUS_BAND_EFFECT, ...EDGE_EFFECTS,
+  // A math expression per point that displaces, cuts or tints (field.js).
+  FIELD_EFFECT,
   // Glow, light rays and lens flare (light.js).
   ...LIGHT_EFFECTS,
 ];
@@ -301,6 +305,15 @@ export function normalizeEffectParameters(key, values, { partial = false, path =
       if (typeof value !== "string" || !LUT_SOURCE.test(value))
         throw new TypeError(`${at} must be the src of an imported .cube file, such as /api/media/<id>.cube (project {action:"import", file:"/absolute/look.cube"} gives it)`);
       output[name] = value;
+    } else if (field.type === "expression") {
+      if (typeof value !== "string") throw new TypeError(`${at} must be text: a math expression of ${field.inputs.join(", ")}`);
+      if (!(field.empty && value.trim() === "")) {
+        try { compileExpression(value, { inputs: field.inputs }); } catch (error) {
+          if (error instanceof ExpressionError) throw new TypeError(`${at}: ${error.message}`);
+          throw error;
+        }
+      }
+      output[name] = value;
     } else throw new TypeError(`Unsupported effect parameter type ${field.type}`);
   }
   if (!partial) for (const [name, field] of Object.entries(parameters))
@@ -325,6 +338,7 @@ function fieldRange(field) {
   if (field.type === "enum") return ` ${field.options.map(([value]) => value).join("/")}`;
   if (field.type === "curve") return ` [[in,out],…] 2..${MAX_CURVE_POINTS} points 0..1`;
   if (field.type === "lut") return " (an imported .cube file's src)";
+  if (field.type === "expression") return ` of ${field.inputs.join(" ")}${field.empty ? " or \"\"" : ""}`;
   return "";
 }
 

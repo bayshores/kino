@@ -363,6 +363,12 @@ export function compileExpression(source, { inputs = [], seed = 0 } = {}) {
   const names = inputs.slice();
   const tree = parse(source, inputIndex, names);
   const body = compileNode(tree, seedState(seed));
+  const read = new Set();
+  const walk = (node) => {
+    if (node.type === "var") read.add(names[node.index]);
+    for (const child of [node.a, node.b, ...(node.args ?? [])]) if (child) walk(child);
+  };
+  walk(tree);
   const scratch = new Float64Array(names.length);
   const run = (env) => {
     const value = body(env);
@@ -375,5 +381,7 @@ export function compileExpression(source, { inputs = [], seed = 0 } = {}) {
     }
     return run(scratch);
   };
-  return Object.freeze({ source, inputs: Object.freeze(names), constant: Boolean(body.constant), run, evaluate });
+  // used: the inputs the source names, in input order (a cache key can skip the others).
+  return Object.freeze({ source, inputs: Object.freeze(names), used: Object.freeze(names.filter((name) => read.has(name))),
+    constant: Boolean(body.constant), run, evaluate });
 }

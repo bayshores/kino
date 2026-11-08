@@ -1,7 +1,7 @@
 # Blur and edges
 
 Smears for fast moves (whip pans, zoom punches, spins), filling the frame's edges, mirrors and
-kaleidoscopes, and motion blur from movement in final renders.
+kaleidoscopes, an expression per point (field), and motion blur from movement in final renders.
 
 ## Blur, edge fill and mirror
 
@@ -64,4 +64,17 @@ where the first one is (repeat any setting changed from its default). Cost: abou
 {"op":"move","name":"ui-plane","layer":"app","at":0,"dur":4}
 {"op":"add_animation","layer":"app","effect":"focus-band","start":0,"duration":0.1,"from":{"centerY":0.3},"parameters":{"centerY":0.3}}
 {"op":"add_animation","layer":"app","effect":"focus-band","start":1.5,"duration":0.8,"easing":"smooth","parameters":{"centerY":0.6}}
+```
+
+## Field: an expression per point
+
+`field {use, expression, expressionY, amount, threshold, softness, color, a, b, c, seed, grid}`
+works out `expression` (math: `+ - * / ^ %`, `sin`, `noise(x,y[,z])`, `hash`, `smoothstep`, `mix`,
+`length`...) of `u`, `v` (0..1 across the layer), `t` (seconds), `seed`, `a`, `b`, `c` on a grid.
+`use:"alpha"` cuts where it is below `threshold` (animate 0 to 1 to dissolve or wipe in that
+pattern); `"color"` mixes toward `color` by it; `"displace"` moves points `amount` px by
+`(expression, expressionY)` or, with no expressionY, toward the angle `expression`. Animate a, b, c.
+
+```json
+{"op":"add_animation","layer":"app","effect":"field","start":1,"duration":1,"from":{"threshold":0},"parameters":{"use":"alpha","expression":"noise(u*10, v*10)","threshold":1}}
 ```

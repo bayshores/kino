@@ -177,9 +177,10 @@ const EFFECT_PARAMETER_OVERRIDES = {
   glow: { strength: 2.5, radius: 10, passes: 3, threshold: 0.45, color: "#FFB070", colorMix: 0.5 },
   "light-rays": { strength: 2, length: 0.55, decay: 0.4, centerX: 0.3, centerY: 0.35, threshold: 0.45 },
   "lens-flare": { style: "rings", x: 0.2, y: 0.25, size: 1.2, color: "#9FD0FF" },
+  field: { use: "color", expression: "0.5 + 0.5*sin(u*tau*3 + t*a)", a: 2, color: "#F77F00" },
 };
 
-assert.equal(EFFECTS.length, 53, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 54, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,
@@ -205,6 +206,16 @@ test("agent add_animation reaches every catalog effect with its settings in one 
     const animation = layers.find((layer) => layer.id === `layer-${definition.key}`).animations[0];
     assert.deepEqual([animation?.kind, animation?.effect], ["effect", definition.key], `${definition.key} is stored`);
   }
+});
+
+test("agent add_animation refuses a field expression the parser cannot read, with its message", async () => {
+  const project = "reach-effect-field-refused";
+  await createProject(fixture(project));
+  const reply = await agent("edit", { project, ops: [{ op: "add_animation", layer: "Artwork", effect: "field",
+    parameters: { use: "alpha", expression: "noise(u*8, v*8) + wobble" } }] });
+  assert.equal(reply.isError, true);
+  assert.match(JSON.parse(reply.text).reason, /parameters\.expression: unknown name "wobble"; allowed names: inputs u, v, t, seed, a, b, c;.*\(at character 19\)/);
+  assert.equal((await saved(project)).document.scenes[0].layers.find((layer) => layer.id === "art").animations?.length ?? 0, 0, "nothing is saved");
 });
 
 // Each effect drawing the right pixels is checked in engine/effects/*.test.js; here the first effect

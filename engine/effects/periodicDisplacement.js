@@ -24,7 +24,8 @@ export function timeSeconds(frame) {
   return Number.isFinite(frame?.time) ? frame.time : 0;
 }
 
-function mapUri(frame, key, vectorAt) {
+// A field's mapSide (optional) caps its map's longer side (effectMapImage maxSide).
+function mapUri(frame, key, vectorAt, mapSide) {
   if (typeof vectorAt !== "function") throw new TypeError("A displacement vector function is required.");
   const { width, height } = frame.bounds;
   const opaque = Boolean(frame.helpers.raster);
@@ -37,7 +38,7 @@ function mapUri(frame, key, vectorAt) {
         throw new TypeError("Displacement fields must return finite x and y values.");
       const y = channel(vector.y);
       return opaque ? [channel(vector.x), y, 128, 255] : [y, y, y, channel(vector.x)];
-    }, { outside: opaque ? [128, 128, 128, 255] : [0, 0, 0, 0] });
+    }, { outside: opaque ? [128, 128, 128, 255] : [0, 0, 0, 0], ...(mapSide ? { maxSide: mapSide } : {}) });
 }
 
 function opaqueRasterDisplacement(frame, fields, scale) {
@@ -49,7 +50,7 @@ function opaqueRasterDisplacement(frame, fields, scale) {
   const primitives = ['<feFlood flood-color="rgb(128,128,128)" result="displacementMapNeutral"/>'];
   const results = fields.map((field, index) => {
     const image = `displacementMapImage${index}`, result = `displacementMap${index}`;
-    primitives.push(`<feImage href="${mapUri(frame, field.key, field.vectorAt)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none" result="${image}"/>`);
+    primitives.push(`<feImage href="${mapUri(frame, field.key, field.vectorAt, field.mapSide)}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none" result="${image}"/>`);
     primitives.push(`<feComposite in="${image}" in2="displacementMapNeutral" operator="over" result="${result}"/>`);
     return result;
   });
@@ -107,7 +108,7 @@ export function vectorDisplacementMap(frame, fields, scale, {
   ];
   const xResults = [], yResults = [];
   fields.forEach((field, index) => {
-    const uri = mapUri(frame, field.key, field.vectorAt);
+    const uri = mapUri(frame, field.key, field.vectorAt, field.mapSide);
     const imageResult = `displacementMapImage${index}`;
     primitives.push(`<feImage href="${uri}" x="${x}" y="${y}" width="${width}" height="${height}" preserveAspectRatio="none" result="${imageResult}"/>`);
     // Extend each numeric coordinate with its .5 neutral value outside the
