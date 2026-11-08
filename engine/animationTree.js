@@ -1,6 +1,8 @@
 // Stored Composed operations contain members whose starts are relative to the group.
 // Evaluation receives ordinary operations at absolute scene times. Editor rows keep the
 // containers so grouping never changes the properties or easing of their members.
+import { retimeBehavior } from "./behavior.js";
+
 export const MAX_ANIMATION_GROUP_DEPTH = 8;
 export const isComposedAnimation = (animation) => animation?.kind === "composed";
 
@@ -59,7 +61,10 @@ export function scaleAnimationTimes(animation, factor, { start = true } = {}) {
   const scaled = { ...animation, ...(start ? { start: animation.start * factor } : {}) };
   if (isComposedAnimation(animation)) scaled.animations = animation.animations.map((item) => scaleAnimationTimes(item, factor));
   else {
-    if (Number.isFinite(animation.duration)) scaled.duration = animation.duration * factor;
+    if (Number.isFinite(animation.duration)) {
+      scaled.duration = animation.duration * factor;
+      if (animation.behavior) scaled.behavior = retimeBehavior(animation.behavior, animation.duration, scaled.duration);
+    }
     if (Number.isFinite(animation.stagger)) scaled.stagger = animation.stagger * factor;
     if (Array.isArray(animation.delays)) scaled.delays = animation.delays.map((delay) => delay * factor);
     for (const side of ["in", "out"]) if (animation[side]) scaled[side] = {

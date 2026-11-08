@@ -49,11 +49,19 @@ const EFFECT_LINES = {
     "one color pushed or muted, sky or foliage shifted, a brand color matched"],
   "color-look": [`color look: a ready-made grade, ${COLOR_LOOK_NAMES[0]} by default (${COLOR_LOOK_NAMES.join(", ")}), with amount 0..1`,
     "one grade over footage or a whole group; amount below 1 for a lighter touch"],
+  field: ["field: a math expression of u, v (0..1 across the layer), t (seconds), seed, a, b, c per point; use alpha cuts where it is below threshold (here a noise dissolve), displace moves pixels, color tints",
+    "a dissolve or wipe in any pattern, a wave or ripple, rings or stripes of color; animate threshold or a, b, c"],
 };
 // One entry per setting value, each with its own still ("color-look ember" is color-look with look ember).
 const EFFECT_VARIANTS = {
   "color-look": COLOR_LOOK_NAMES.slice(1).map((look) => ({ name: `color-look ${look}`, parameters: { look },
     line: `color look ${look}: color-look with look "${look}" (amount 0..1)` })),
+  field: [
+    { name: "field rings", parameters: { use: "color", expression: "0.5 + 0.5*sin(length((u - 0.5)*1.78, v - 0.5)*tau*6 - t*4)", color: "#FF7D3D" },
+      line: "field rings: field with use color, rings of color moving out from the middle (expression of length and t)" },
+    { name: "field wave", parameters: { use: "displace", expression: "0", expressionY: "sin(u*tau*2 + t*3)", amount: 16 },
+      line: "field wave: field with use displace, expression 0 and expressionY a sine of u and t: the layer waves up and down" },
+  ],
 };
 const RECIPE_TAGS = {
   "hook-slam": ["type-giant"], "caption-pop": ["type-pop"], "number-counter": ["type-counter"], "price-pop": ["type-pop"], "title-type": ["type-letters"],

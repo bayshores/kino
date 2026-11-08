@@ -10,6 +10,7 @@ import { resizeTextLayer } from "./textLayout.js";
 import { lineHeightPixels } from "./lineHeight.js";
 import { EFFECT_PRESET_DEFINITIONS, isEffectPreset, normalizeEffectPresetParameters } from "./effects/presetCatalog.js";
 import { WIPE_RANGES, WIPE_SHAPES } from "./reveal.js";
+import { retimeBehavior } from "./behavior.js";
 
 const definitions = {
   appear: { name: "Appear", group: "Basic", parameters: {} },
@@ -231,6 +232,9 @@ export function patchPresetAnimation(animation, patch, layer, { document, fonts 
   if (animation.keys && patch.keys === undefined && (Object.hasOwn(patch, "from") || Object.hasOwn(patch, "to")))
     throw new TypeError("This animation has keys, and its from and to are the first and last key: change keys, or send keys:null to use from and to");
   const next = { ...animation, ...patch, id: animation.id };
+  // A new duration stretches a ramp's seconds with it (a behavior sent with it is kept as sent).
+  if (animation.behavior && Object.hasOwn(patch, "duration") && !Object.hasOwn(patch, "behavior"))
+    next.behavior = retimeBehavior(animation.behavior, animation.duration, patch.duration);
   if (patch.preset === null) { delete next.preset; return next; }
   if (Object.hasOwn(patch, "preset")) {
     let supplied = record(patch.preset, "preset");

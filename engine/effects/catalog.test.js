@@ -66,9 +66,9 @@ function compactField(field) {
 test("the registry order, labels, groups, kinds, renderers, defaults and parameter bounds are stable", () => {
   assert.deepEqual(EFFECT_GROUPS, ["Distortion", "Post FX", "Utility", "Color", "Blur", "Light", "Generate"]);
   assert.deepEqual(KEEP_STILL, [["off", "Off"], ["start", "At start"], ["end", "At end"], ["both", "Both"]]);
-  // Edge fill, mirror and kaleidoscope (engine/effects/edges.test.js) follow the warps in the Distortion group.
+  // Edge fill, mirror, kaleidoscope (engine/effects/edges.test.js) and field (field.test.js) follow the warps.
   assert.deepEqual(EFFECTS.filter(({ group }) => group === "Distortion").map(({ key }) => key),
-    [...registry.map(([key]) => key), "edge-fill", "mirror", "kaleidoscope"]);
+    [...registry.map(([key]) => key), "edge-fill", "mirror", "kaleidoscope", "field"]);
 
   for (const [index, [key, label, group, kind, parameters]] of registry.entries()) {
     const effect = EFFECTS[index];

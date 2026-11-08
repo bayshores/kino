@@ -92,7 +92,7 @@ function animationKeys(animation) {
 
 /** A ranged effect whose values stay the same throughout (a steady glow) changes nothing over its time. */
 function steadyEffect(animation) {
-  if (animation.kind !== "effect") return false;
+  if (animation.kind !== "effect" || animation.behavior) return false;
   try { if (effectDefinition(animation.effect).kind !== "ranged") return false; } catch { return false; }
   return Object.entries(animation.from ?? {}).every(([key, value]) => JSON.stringify(value) === JSON.stringify(animation.to?.[key]));
 }
@@ -182,6 +182,7 @@ function writeSample(samples, index, result) {
 // duration: their Out and In effects (each with its own stagger) are counted on top, so the
 // samples while the old string leaves and the new one arrives are evaluated, not copied.
 // A looping animation (behavior.js) keeps changing after its first pass: never reused.
+// An overshoot changes for its settle seconds after the end.
 function changeWindows(layer) {
   const animations = enabledAnimations(layer.animations);
   if (flattenAnimations(animations).some(loops)) return null;
@@ -196,7 +197,8 @@ function changeWindows(layer) {
     const effects = animation.kind === "change-text" || animation.kind === "counter" ? effectWaits(animation.out) + effectWaits(animation.in) : 0;
     // Units with their own delays (textTiming.js) change until the last one has.
     const spread = animation.delays?.length ? Math.max(0, ...animation.delays.map((delay) => finite(delay))) : Math.max(0, finite(animation.stagger)) * characters;
-    const waits = spread + effects;
+    // An overshoot swings on for settle seconds after the end (behavior.js).
+    const waits = spread + effects + Math.max(0, finite(animation.behavior?.overshoot?.settle));
     windows.push({ from: start - STILL_MARGIN, to: start + Math.max(0, length) + waits + STILL_MARGIN, start });
   }
   return windows;
