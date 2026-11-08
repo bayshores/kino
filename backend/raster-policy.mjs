@@ -13,6 +13,8 @@ export function sceneNeedsChromium(scene) {
       seen.add(current.id);
     }
     if (layer.effectPreset || layer.backgroundBlur?.enabled || layer.glass?.enabled) return true;
+    // Log footage is converted by a 3D LUT, which resvg draws darker (about 4/255).
+    if (layer.type === "video" && layer.log) return true;
     // Resvg has no "add" (CSS plus-lighter) blending, so those scenes are drawn by Chromium.
     if (String(layer.blendMode ?? "").toLowerCase() === "add") return true;
     return enabledAnimations(layer.animations).some(operation => operation.kind === "effect" ||

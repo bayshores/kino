@@ -142,7 +142,7 @@
  *   src:string,mediaStart:number,mediaDuration:number,mediaOffset:number,
  *   mediaFreeze:'none'|'first'|'last'|'both',mediaSourceDuration:number,volume:number,lowpass?:number,morphIn?:number,
  *   mediaSpeed?:number,mediaReverse?:boolean,mediaFrameRate?:number,
- *   mediaInterpolation?:'nearest'|'blend'|'flow',mediaPitch?:'keep'|'follow',
+ *   mediaInterpolation?:'nearest'|'blend'|'flow',mediaPitch?:'keep'|'follow',log?:'apple-log',
  *   playbackWindows:Array<{start:number,end:number,visibility:'during'|'before'|'after'|'both',hold:boolean}>,
  *   animations:Animation[],componentSceneId?:string,componentStart?:number,componentVisibility?:'during'|'before'|'after'|'both',componentBackgroundEnabled?:boolean}} Layer
  *   `letterSpacing` is a percentage of `fontSize` (letterSpacing.js): 10 on 48 px text adds
@@ -155,6 +155,7 @@
  *   `mediaInterpolation` (video) picks how an export draws a time between two file frames, and
  *   `mediaPitch` (video and audio) keeps the sound's pitch or lets it follow the speed. With a
  *   speed, `mediaDuration` is still in scene seconds and `mediaOffset` is still a file time.
+ *   `log` (video, footageLog.js): "apple-log" converts log footage to Rec.709; absent shows it as decoded.
  * @typedef {{id:string,name:string,width:number,height:number,duration:number,
  *   background:Paint,backgroundEnabled:boolean,backgroundAnimations:Animation[],isComponent:boolean,layers:Layer[],
  *   componentPlayback?:'content'|'scene',bulkVariant?:{baseSceneId:string,key:string,instanceId:string}}} Scene

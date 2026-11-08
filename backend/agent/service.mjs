@@ -6411,7 +6411,8 @@ export function createAgentService(deps) {
     if (verb === "project") {
       if (asked.action === "import" && typeof data.src === "string") {
         const layerType = data.kind === "audio" || /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(data.src) ? "audio" : /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(data.src) ? "image" : "video";
-        return nextOf("edit", { ops: [{ op: "add_layer", layerType, name: layerType === "audio" ? "music" : "clip", properties: { src: data.src } }] });
+        return nextOf("edit", { ops: [{ op: "add_layer", layerType, name: layerType === "audio" ? "music" : "clip",
+          properties: { src: data.src, ...(layerType === "video" && typeof data.log === "string" ? { log: data.log } : {}) } }] });
       }
       if (["list", "duplicate"].includes(asked.action) && data.projects?.[0]) return nextOf("project", { action: "open", id: data.projects[0].id });
       if (asked.action === "archive") return nextOf("project", { action: "list" });

@@ -30,6 +30,7 @@ import { backgroundPaintAt } from "./sceneBackground.js";
 import { IDENTITY, inverse, layerMatrix, multiply, pivotOf } from "./geometry.js";
 import { PREVIEW_BLUR_FROM, previewSampleTimes, previewShutter, shutterTravel, smearTag, whipShutter } from "./previewBlur.js";
 import { TILT_TOLERANCE, hasTilt, tiltPivot, tiltTriangles, tiltVisiblePart, tiltedBounds } from "./tilt.js";
+import { footageLogMarkup } from "./footageLog.js";
 
 const SAFE_RASTER_DATA =
   /^data:image\/(?:png|jpeg|jpg|webp|gif|avif);base64,[a-z0-9+/=]+$/i;
@@ -1091,6 +1092,10 @@ function renderLayer(node, context, { maskContent = false, maskInvert = null } =
       `Layer “${layer.name ?? layer.id}” has unsupported type “${layer.type}”.`,
     );
   }
+  // Log footage (footageLog.js): the picture is converted before clips, effects and styles.
+  if (layer.type === "video" && layer.log) body = footageLogMarkup(layer, { content: body,
+    bounds: { x: 0, y: 0, width: Math.max(0.001, finite(state.width)), height: Math.max(0.001, finite(state.height)) },
+    helpers: { defs: context.defs, id: (kind) => idFor(context, `log-${kind}`), raster: context.raster } });
   const safeId = escapeXml(String(layer.id ?? ""));
   const isMedia = layer.type === "image" || layer.type === "video";
   const rasterBounds = (isMedia || layer.type === "group") ? rasterClipBounds(state, context) : "";

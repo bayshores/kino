@@ -47,6 +47,7 @@ import { TRIM_KEYS, TRIM_LAYER_TYPES } from "./strokeTrim.js";
 import { REPEAT_FRACTION_KEYS, REPEAT_KEYS, REPEAT_LAYER_TYPES, REPEAT_REST, repeatRange } from "./repeater.js";
 import { DEFAULT_PERSPECTIVE, PERSPECTIVE_MAX, PERSPECTIVE_MIN, TILT_LIMIT } from "./tilt.js";
 import { MASK_MODES } from "./maskVisibility.js";
+import { LOG_PROFILES } from "./footageLog.js";
 import {
   MAX_MEDIA_FRAME_RATE, MAX_MEDIA_SPEED, MAX_VOLUME, MEDIA_INTERPOLATIONS, MEDIA_PITCHES, MEDIA_TIMING_TYPES, MIN_MEDIA_FRAME_RATE, MIN_MEDIA_SPEED,
 } from "./mediaTime.js";
@@ -1386,6 +1387,10 @@ function normalizeLayer(raw, path, animationIds, counters) {
     if (layer.morphIn > 0 && layer.morphIn < MORPH_MIN) fail(`${path}.morphIn`, `must be 0 (off) or from ${MORPH_MIN} to ${MORPH_MAX} seconds`);
   }
   normalizeMediaTiming(layer, path);
+  // Log footage converted to Rec.709 (footageLog.js); absent or null is the picture as decoded.
+  if (layer.log == null) delete layer.log;
+  else if (layer.type !== "video") fail(`${path}.log`, `needs a video layer; a ${layer.type} layer has none`);
+  else if (!LOG_PROFILES.includes(layer.log)) fail(`${path}.log`, `must be ${LOG_PROFILES.map((name) => `"${name}"`).join(" or ")}, or null for none`);
   const animations = requireArray(
     layer.animations,
     `${path}.animations`,

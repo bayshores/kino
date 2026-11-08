@@ -159,7 +159,7 @@ function liftLayerFields(operation, fixes) {
 // A property outside this list is refused, so a misspelled one is never saved without effect.
 export const LAYER_PROPERTY_NAMES = [...new Set([
   ...[...LAYER_TYPES].flatMap((type) => Object.keys(createLayer(type))),
-  ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn",
+  ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn", "log",
   ...BACKDROP_STYLE_KEYS, "reveal", "effectPreset", "fillRule", "textStyleRanges", "inactiveBoxStyles", "convertedFrom",
   "componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides",
   "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, "maskInvert", "maskMode",
