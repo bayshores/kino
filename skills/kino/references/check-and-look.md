@@ -7,10 +7,10 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 ## Check
 
 - Each finding says what it measured, what is required and a fix op. `check {fix:"auto"}`
-  applies the `(auto)` fixes in one edit once proven (one that adds an error or leaves its
-  finding is skipped), re-checks and repeats up to 3 rounds: call it once. A warning's fix skips layers your last
-  edit moved, a waiver names or a spine beat `uses`.
-- Receipts, dry runs and `status` skip pixel gates until `check` runs.
+  applies the `(auto)` fixes in one edit (skipping one that adds an error or leaves its
+  finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
+  edit moved, a waiver names or a spine beat uses.
+- Receipts, dry runs and `status` skip pixel gates until `check`.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
 - `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate; fast
@@ -27,7 +27,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   shadow, a darker place, a large-text size, then a plate.
 - Errors, and in a real edit warnings, block final. On purpose:
   `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or a
-  glob (`"arch-*"`) waives each matching layer.
+  glob (`"arch-*"`) waives each matching layer. What viewers see (small screens, frozen
+  pictures, slides, template ends) needs `quote`: the person's words.
 - AI tells warn (ideas, taste): `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
   `split_card_layout`, `seen_before`. Technique rules, style spec: techniques reference.
@@ -71,7 +72,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 - Rendered (`check` only): `text_on_busy` (words over a phone, screen recording or sharp
   detail; fix: the nearest calm place beside it, all parts of a caption together, else a plate
   under the text), `small_on_empty` (a picture under 25% of a flat frame, 40% for footage, for
-  1.5 s; no auto fix: grow and crop, add a scene, move the camera or waive), `render_artifact` (an RGB split drawing flat
+  1.5 s; fix: grow and crop, add a scene or move the camera), `render_artifact` (an RGB split drawing flat
   saturated slabs; the fix op softens it to 40%, or delete the animation).
 
 ## Looking
@@ -105,8 +106,8 @@ loop:
 2. `look {mode:"review"}` (a scene; `from`/`to` for a stretch) picks the moments that matter
    (cuts, effects, moves, set pieces, text landing, quiet stretches),
    ranks them by risk and fills each call to about 6,600 image tokens: risky ones full size,
-   2 across; the rest compact, 4 across. A frame like the one before is counted. Each tile is the
-   whole frame, with its time, what happens, findings in yellow. Cuts add seam rows (the motion reference).
+   2 across; the rest compact, 4 across. Each tile is the whole frame with its time, what
+   happens and findings in yellow. Cuts add seam rows (the motion reference).
 3. Study every frame for type, wrapping and orphans, overlaps, framing, empty space and
    artifacts. Fix them all in one `edit`.
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
@@ -126,4 +127,4 @@ supporting parts, 2 motion and timing, 3 polish (color, type, sound). Each secti
 `edit`, then `look {mode:"sheet", from, to}` at the time it covers before the next one;
 those looks are your pass. With the fixes in one more `edit` that is at most 5 edits to build
 it; the storyboard, a redo the person asks for at a stop and a retry come on top. A short video
-needs no sections. The person sees a striped outline on each layer you changed until a `look` covers it.
+needs no sections. Changed layers show a striped outline until a `look` covers them.

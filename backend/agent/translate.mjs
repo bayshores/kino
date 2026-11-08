@@ -53,6 +53,9 @@ export const AGENT_OPERATION_TYPES = Object.freeze([...new Set([...OPERATION_TYP
 
 // Operations that work on one scene. Project operations and add_scene don't need one.
 const NO_SCENE = new Set(["rename_project", "update_project", "waive_check", "unwaive_check", "add_scene"]);
+// Findings about what a viewer sees: the agent fixes them; only the person's words keep one.
+export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "clip_reuse"]);
+const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
 // Fields that name one layer.
 const LAYER_FIELDS = ["layerId", "referenceId", "parentId", "maskLayerId", "speechId", "toId"];
 const LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group"]);
@@ -672,6 +675,19 @@ function resolveReferences(operation, type, resolver, document) {
   if (Array.isArray(operation.animationIds)) operation.animationIds = operation.animationIds.map(animationEntry);
   if (type === "stagger_animations" && Array.isArray(operation.items)) operation.items = operation.items.map((entry) => animationEntry(entry, { layers: true }));
 
+  // What a viewer sees (an unreadable screen, a frozen picture, slides, a template end, a clip
+  // looped): a blind judge marked fp-6 down for exactly the screen_unreadable and frozen_picture
+  // findings its agent waived. The agent fixes these; only the person's own words accept one
+  // (quote: what they said about it), never "your call", and only on named layers.
+  if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code)) {
+    const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
+    if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 4)
+      throw new Error(`${operation.code} is what viewers see: fix it (its finding's fix, or check {fix:"auto"}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.`);
+    if (operation.target === "*" || (Array.isArray(operation.target) && operation.target.includes("*")))
+      throw new Error(`waive_check ${operation.code} names the layers the person kept, not target:"*".`);
+    operation.reason = `${String(operation.reason ?? "").trim() || "the person kept it"} (the person: "${quote.slice(0, 200)}")`;
+  }
+  if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and
   // scenes, or a glob such as "arch-*" for the layers whose names match now (layers added later
   // are not covered). One target stays a string; several become a list of IDs.
