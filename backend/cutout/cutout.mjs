@@ -37,7 +37,7 @@ import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs"
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
 import { createSteadier, finishMatte, softCounts } from "./matte.mjs";
-import { followPicked, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
+import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
 export const CUTOUT_OUTPUTS = Object.freeze(["subject", "matte", "silhouette"]);
@@ -53,6 +53,8 @@ const EMPTY_SHARE = 0.0005;
 const MAX_ERROR = 4000;
 // The steadying window: 2 × 2 + 1 = 5 frames (measured in COMPATIBILITY.md "Subject cut-out").
 const STEADY_RADIUS = 2;
+// cut_out points: at most this many lost and this many weak spans in the receipt.
+const MAX_SPANS = 12;
 
 const require = createRequire(import.meta.url);
 
@@ -314,7 +316,8 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
  * analyseVideo for cut_out points (pick: { points, exclude, time }): Vision's matte and instance
  * labels go stacked into one lossless file while each frame's labels are kept on a small grid;
  * then the kept instances are followed through the frames (pick.mjs) and the file is read back,
- * cleared outside them, steadied and written as the matte. Returns { frames, empty, soft, picked }.
+ * cleared outside them, steadied and written as the matte. Returns { frames, empty, soft, picked }; picked
+ * has lost and weak spans in file seconds (pick.mjs followReport).
  */
 async function analysePicked({ source, video, size, helper, matteFile, work, pick, signal, onFraction }) {
   const { width, height } = size;
@@ -347,7 +350,11 @@ async function analysePicked({ source, video, size, helper, matteFile, work, pic
     onFrame: (frame) => mattes.steady(keepLabels(frame.subarray(0, pixels), frame.subarray(pixels), keeps[index++] ?? new Set())),
     onEnd: mattes.finish });
   await rm(stackFile, { force: true });
-  return { ...mattes.result(), picked: { frame: picked.at, objects: picked.keep.size } };
+  const report = followReport(grids, keeps, picked.at, Math.ceil(width / step));
+  // Spans in seconds into the file: [first frame's time, the time the next frame starts].
+  const seconds = (runs) => runs.slice(0, MAX_SPANS).map((run) => run.map((frame) => Math.round((video.lead + frame / video.fps) * 1000) / 1000));
+  const more = Math.max(0, report.lost.length - MAX_SPANS) + Math.max(0, report.weak.length - MAX_SPANS);
+  return { ...mattes.result(), picked: { frame: picked.at, objects: picked.keep.size, lost: seconds(report.lost), weak: seconds(report.weak), ...(more ? { moreSpans: more } : {}) } };
 }
 
 function noPick(pick, seconds) {

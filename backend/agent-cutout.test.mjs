@@ -241,11 +241,28 @@ test("cut_out points keep the pointed object and the receipt says what was picke
   const reply = await agent("edit", { project: "picked", ops: [{ op: "add_layer", layerType: "video", name: "clip", properties: { src: video.src } },
     { op: "cut_out", layer: "clip", points: [[22, 52]], exclude: [[90, 10]], time: 0.2 }] });
   assert.equal(reply.isError, undefined, reply.text);
-  assert.deepEqual(reply.data.cutout.picked, { frame: 6, objects: 1 });
+  assert.deepEqual(reply.data.cutout.picked, { frame: 6, objects: 1, lost: [], weak: [] });
   assert.ok(byName((await sceneLayers(server, "picked")).layers, "clip-subject"));
   const missed = await agent("edit", { project: "picked", ops: [{ op: "cut_out", layer: "clip", points: [[95, 5]], name: "none" }] });
   assert.equal(JSON.parse(missed.text).cutoutError, "CUTOUT_NO_SUBJECT");
   assert.match(JSON.parse(missed.text).reason, /no object under points \[95,5\] at 0 s of "clip"\. Point at an object/);
+});
+
+test("cut_out points report where the object was lost, and seeAt gives the scene time to look at", { skip: skipWithoutMediaTools }, async () => {
+  // A red square on navy, hidden from 0.5 s to 1 s (10 fps); the layer starts Play 1 s into the scene.
+  const file = path.join(folder, "blink.mp4");
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "color=c=0x19285a:s=320x180:r=10:d=2",
+    "-vf", "drawbox=x=100:y=60:w=60:h=60:color=0xe61919:t=fill:enable='not(between(t,0.45,1.05))'", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv444p", file]);
+  const video = await upload(server, file, "blink.mp4", "video/mp4");
+  await agent("project", { action: "create", id: "blink", name: "Blink", width: 640, height: 360, duration: 3 });
+  const reply = await agent("edit", { project: "blink", ops: [{ op: "add_layer", layerType: "video", name: "clip", properties: { src: video.src, mediaStart: 1 } },
+    { op: "cut_out", layer: "clip", points: [[40, 50]] }] });
+  assert.equal(reply.isError, undefined, reply.text);
+  const { picked, note } = reply.data.cutout;
+  assert.deepEqual(picked.lost, [[0.5, 1.1]]);
+  assert.deepEqual(picked.weak, []);
+  assert.deepEqual(picked.seeAt, [1.51]);
+  assert.match(note, /lost in 1 span/);
 });
 
 test("cut_out refusals say what is wrong and what to send, and change nothing", { skip: skipWithoutMediaTools }, async () => {

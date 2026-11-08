@@ -27,6 +27,7 @@ import { aliasClipLinks } from "../../engine/clipSync.js";
 import { duplicateLayers } from "../../engine/layerClipboard.js";
 import { parseDocument } from "../../engine/model.js";
 import { applyOperations } from "../../engine/operations.js";
+import { mediaSceneTime } from "../../engine/playback.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 
 const STILL_RUNNING = Symbol("still running");
@@ -69,6 +70,16 @@ async function nextStep(error, { engine, cutoutMedia, points }) {
 function roughly(seconds) {
   if (seconds < 90) return `about ${Math.max(10, Math.round(seconds / 10) * 10)} seconds`;
   return `about ${Math.round(seconds / 60)} minutes`;
+}
+
+// The receipt's picked, with seeAt: the scene seconds (sorted) where each lost or weak span's first
+// frame shows on the cut-out layer, for look {mode:"frame", t}; spans Play never shows are left out.
+function pickedReport(picked, layer) {
+  if (!layer || !(picked.lost?.length || picked.weak?.length)) return picked;
+  const starts = [...(picked.lost ?? []), ...(picked.weak ?? [])].map(([from]) => mediaSceneTime(layer, from + 0.0005))
+    .filter((time) => time !== null).map((time) => Math.ceil(time * 100 - 1e-6) / 100);
+  const seeAt = [...new Set(starts)].sort((a, b) => a - b);
+  return seeAt.length ? { ...picked, seeAt } : picked;
 }
 
 /**
@@ -161,7 +172,9 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   // behind it); the subject engine gives it a solid body.
   if (made.engine === "person" && made.soft > PERSON_SOFT) notes.push(`${Math.round(made.soft * 100)}% of the person is see-through (a silhouette or a dark figure?): engine:"subject" may give a solid one`);
   if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
+  const picked = made.picked && pickedReport(made.picked, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId));
+  if (picked?.lost?.length) notes.push(`the picked object is lost in ${picked.lost.length} span(s) of the file (picked.lost)${picked.seeAt ? "; look at the times in picked.seeAt" : ""}`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
-    cached: made.cached, ...(made.picked ? { picked: made.picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+    cached: made.cached, ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }

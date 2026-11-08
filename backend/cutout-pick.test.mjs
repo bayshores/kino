@@ -1,6 +1,6 @@
 // cut_out points (backend/cutout/pick.mjs, makeMatte pick): on two objects the pointed one is
 // kept and the other's area has no kept pixel, exclude drops one, and a clip follows the pointed
-// object before and after `time`. The stand-in helper (red blobs are instances) runs everywhere;
+// object before and after `time` and reports where it was lost or weak. The stand-in helper (red blobs are instances) runs everywhere;
 // Apple Vision runs on a two-ball still on macOS 14 and later.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { makeMatte } from "./cutout/cutout.mjs";
-import { followPicked, pickedLabels } from "./cutout/pick.mjs";
+import { followPicked, followReport, pickedLabels } from "./cutout/pick.mjs";
 import { ballFrame, skipWithoutVision, standInHelper, visionHelper } from "./cutout.test.support.mjs";
 import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
 
@@ -74,6 +74,22 @@ test("followPicked keeps the object that overlaps the kept one, forward and back
   assert.deepEqual([...pickedLabels(Uint8Array.from([1, 1, 2, 2]), 4, 1, { points: [[10, 50], [80, 50]], exclude: [[90, 50]] })], [1]);
 });
 
+test("followReport finds lost, shrunk and jumping frames, judged outward from the chosen one", () => {
+  // 10 × 10 grids: a 4 × 4 square (16 cells) kept as label 1.
+  const square = (x, y, size = 4) => {
+    const grid = new Uint8Array(100);
+    for (let row = y; row < y + size; row += 1) for (let column = x; column < x + size; column += 1) grid[row * 10 + column] = 1;
+    return grid;
+  };
+  const grids = [square(1, 1), square(1, 1), new Uint8Array(100), new Uint8Array(100), square(1, 1), square(1, 1, 2), square(1, 1), square(5, 5), square(5, 5), square(6, 0, 2)];
+  const keeps = grids.map((grid) => new Set(grid.some(Boolean) ? [1] : []));
+  // Frames 2-3 lost; 5 shrank to 4 cells; 7 jumped 4 cells; 8 stays where 7 went (no new jump);
+  // 9 is small and far but cut by the picture's edge, so it is not judged.
+  assert.deepEqual(followReport(grids, keeps, 0, 10), { lost: [[2, 4]], weak: [[5, 6], [7, 8]] });
+  // From the last frame back: frame 7 is sound, 6 is a jump from it, 5 shrank, 4 is sound again.
+  assert.deepEqual(followReport(grids, keeps, 8, 10), { lost: [[2, 4]], weak: [[5, 7]] });
+});
+
 const left = { cx: 80, cy: 90, r: 40 }, right = { cx: 240, cy: 90, r: 40 };
 
 test("points keep the pointed object of a still, and exclude drops one", { skip: skipWithoutMediaTools }, async (t) => {
@@ -107,13 +123,35 @@ test("points at a time follow the same object through a clip, before and after",
   await encode(source, Array.from({ length: 10 }, (_, n) => twoDiscs(at(n), still)));
   // At 0.5 s (frame 5) the moving disc is at 110 px: 34% across.
   const made = await makeMatte({ source, kind: "video", cacheDir: join(root, "cache"), pick: { points: [[(at(5).cx / W) * 100, 50]], time: 0.5 } });
-  assert.deepEqual(made.info.picked, { frame: 5, objects: 1 });
+  assert.deepEqual(made.info.picked, { frame: 5, objects: 1, lost: [], weak: [] });
   const frames = await matteFrames(made);
   assert.equal(frames.length, 10);
   for (const [n, matte] of frames.entries()) {
     assert.equal(keptIn(matte, still).kept, 0, `frame ${n}: the still disc has no kept pixel`);
     assert.ok(keptIn(matte, at(n)).kept > keptIn(matte, at(n)).all * 0.8, `frame ${n}: the moving disc is kept`);
   }
+});
+
+test("a clip whose object leaves the picture for a stretch reports that span as lost, within one frame", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await folder(t);
+  setEnv(t, "KINO_CUTOUT_HELPER", await standInHelper());
+  const source = join(root, "away.mp4");
+  // 10 fps: the right disc drifts out past the right edge (frames 0-11), is gone (12-19), drifts
+  // back (20-31). The left disc stays and is never kept.
+  const x = (n) => (n < 12 ? 280 + 6 * n : n < 20 ? 420 : 346 - 6 * (n - 20));
+  const stay = { ...left, r: 30 };
+  await encode(source, Array.from({ length: 32 }, (_, n) => twoDiscs(stay, { cx: x(n), cy: 90, r: 30 })));
+  const made = await makeMatte({ source, kind: "video", cacheDir: join(root, "cache"), pick: { points: [[(280 / W) * 100, 50]] } });
+  const { lost, weak } = made.info.picked;
+  assert.equal(lost.length, 1, JSON.stringify(made.info.picked));
+  // Gone from 1.2 s until 2.0 s.
+  assert.ok(Math.abs(lost[0][0] - 1.2) <= 0.1 + 1e-9 && Math.abs(lost[0][1] - 2.0) <= 0.1 + 1e-9, JSON.stringify(lost));
+  // Leaving and coming back, the disc is cut by the picture's edge, which is not weak.
+  assert.deepEqual(weak, []);
+  // Followed back in after the gap: the last frame keeps the right disc, never the left one.
+  const frames = await matteFrames(made);
+  assert.equal(keptIn(frames.at(-1), stay).kept, 0);
+  assert.ok(keptIn(frames.at(-1), { cx: x(31), cy: 90, r: 30 }).kept > 0);
 });
 
 test("Apple Vision: points keep one of two balls on a still", { skip: skipWithoutVision, timeout: 120_000 }, async (t) => {

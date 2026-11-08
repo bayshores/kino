@@ -93,3 +93,64 @@ export function keepLabels(matte, labels, keep) {
   for (let i = 0; i < matte.length; i += 1) if (keep.has(labels[i])) out[i] = matte[i];
   return out;
 }
+
+// A frame is weak when the kept area falls under SHRINK or grows past GROW times that of the last
+// sound frame, or its middle moves more than JUMP times the object's size since the frame before.
+const SHRINK = 0.5, GROW = 1.5, JUMP = 0.5;
+// An object of fewer grid cells is too small to judge a change of size by.
+const MIN_CELLS = 8;
+
+// Kept cells of each frame, their middle (in cells) and whether they touch the picture's edge.
+function keptStats(grids, keeps, columns) {
+  return grids.map((grid, n) => {
+    let area = 0, sx = 0, sy = 0, edge = false;
+    const keep = keeps[n], rows = grid.length / columns;
+    if (keep?.size) for (let i = 0; i < grid.length; i += 1) {
+      if (!keep.has(grid[i])) continue;
+      const x = i % columns, y = Math.floor(i / columns);
+      area += 1; sx += x; sy += y;
+      if (x === 0 || y === 0 || x === columns - 1 || y === rows - 1) edge = true;
+    }
+    return area ? { area, x: sx / area, y: sy / area, edge } : { area: 0 };
+  });
+}
+
+// [first, end) runs of frames whose state is `kind`.
+function runsOf(states, kind) {
+  const runs = [];
+  for (let n = 0; n < states.length; n += 1) {
+    if (states[n] !== kind) continue;
+    const last = runs.at(-1);
+    if (last && last[1] === n) last[1] = n + 1;
+    else runs.push([n, n + 1]);
+  }
+  return runs;
+}
+
+/**
+ * Where following the picked object went wrong (`keeps` from followPicked, `columns` the grid's
+ * width): { lost, weak } as [first, end) frame runs. lost: nothing kept. weak: the kept area fell
+ * under half or grew past 1.5 times that of the last sound frame, or jumped more than half its
+ * size in one frame. An object cut by the picture's edge is partly out, so its size and middle
+ * are not judged there. Judged outward from the chosen frame `at`, as the object was followed.
+ */
+export function followReport(grids, keeps, at, columns) {
+  const stats = keptStats(grids, keeps, columns);
+  const states = new Array(grids.length).fill(null);
+  for (const direction of [1, -1]) {
+    let sound = stats[at].edge ? null : stats[at], before = stats[at], back = false;
+    for (let n = at + direction; n >= 0 && n < grids.length; n += direction) {
+      const now = stats[n];
+      if (!now.area) { states[n] = "lost"; back = true; continue; }
+      if (now.edge) { sound = null; before = now; back = false; continue; }
+      const sized = sound?.area >= MIN_CELLS && (now.area < SHRINK * sound.area || now.area > GROW * sound.area);
+      // Right after a lost stretch or the edge the object may come back anywhere: no jump is judged.
+      const jumped = !back && !before.edge && before.area >= MIN_CELLS && Math.hypot(now.x - before.x, now.y - before.y) > JUMP * Math.sqrt(before.area);
+      if (sized || jumped) states[n] = "weak";
+      else sound = now;
+      before = now;
+      back = false;
+    }
+  }
+  return { lost: runsOf(states, "lost"), weak: runsOf(states, "weak") };
+}
