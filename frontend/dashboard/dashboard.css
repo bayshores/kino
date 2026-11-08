@@ -1352,7 +1352,9 @@ button.board-option:hover { border-color: var(--fg1); }
 /* A phone has no F keys: the tabs and the follow pill drop their key hints and share the
    title's row, so the screens nav keeps a whole row of its own. */
 .phone .topline .tab-key { display: none; }
-/* Three tabs (F3 inspire too) still fit beside the title and the follow pill at 390 px. */
+/* Three tabs (F3 inspire too) still fit beside the title and the follow pill at 390 px; the
+   library (F4) is in the command list there. */
+.phone .topline .tab[data-view="library"] { display: none; }
 .phone .topline .tabs { gap: 1.2ch; padding: 0 0.6ch; min-height: 44px; }
 /* The status line wraps to more rows on a phone; a bar before an item would start a row, so
    there the items are kept apart by a wider gap alone. */

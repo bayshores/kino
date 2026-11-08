@@ -487,3 +487,20 @@ test("a note sent through a Claude Code channel is marked, and the stream carrie
   const marked = await dashboard("channel-sent", { body: { project: "dash", note: added.body.data.note.id }, review: false });
   assert.ok(marked.body.note.channelAt);
 });
+
+test("the library lists every kind with its count, and a sample is built through the edit path (or says why not)", async () => {
+  const catalog = (await dashboard("library", { method: "GET" })).body;
+  assert.deepEqual(catalog.kinds.map((kind) => kind.label), ["moves", "effects", "animations", "recipes", "looks", "video formats"]);
+  assert.equal(catalog.total, catalog.kinds.reduce((sum, kind) => sum + kind.count, 0));
+  assert.ok(catalog.entries.find((entry) => entry.id === "move:zoom-through").groups.includes("transition"));
+  const sample = async (kind, name) => (await dashboard(`library-sample?kind=${kind}&name=${name}`, { method: "GET" })).body;
+  const zoom = await sample("move", "zoom-through");
+  assert.deepEqual(zoom.document.scenes[0].moves.map((move) => move.name), ["zoom-through"]);
+  assert.ok((await sample("effect", "glow")).document.scenes[0].layers.some((layer) => layer.animations.some((animation) => animation.effect === "glow")));
+  assert.match((await sample("move", "swipe-cards")).reason, /No uploaded picture/, "a move that needs pictures has no sample and says why");
+  assert.equal((await sample("format", "app-demo")).document, null);
+  const still = await server.api("/api/dashboard/library-still?kind=effect&name=glow");
+  assert.deepEqual(Buffer.from(await still.arrayBuffer()).subarray(0, 8), PNG_SIGNATURE, "a card's still is drawn by the renderer");
+  assert.equal((await server.api("/api/dashboard/library-still?kind=move&name=swipe-cards")).status, 404);
+  assert.ok(!(await agent("project", { action: "list" })).text.includes("library-sample"), "a sample is never a project");
+});

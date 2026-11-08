@@ -1,0 +1,58 @@
+/* The library screen (library.jsx): the lists on the left, the cards in the middle, the open entry
+   on the right and the note to the agent along the bottom. Orange is the open card and what you
+   picked, teal what this video already uses. */
+.library-screen { display: flex; flex-direction: column; min-height: 100%; }
+.lib-sub { margin-left: 2ch; color: var(--fg1); font-weight: 400; }
+.lib-search { margin-left: auto; width: min(36ch, 40vw); height: 26px; padding: 0 1ch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); color: var(--fg0); font: inherit; font-weight: 400; }
+.lib-scope { display: inline-flex; margin-left: 1ch; border: 1px solid var(--line); border-radius: var(--radius); font-weight: 400; }
+.lib-scope .tb { padding: 0 1ch; color: var(--fg1); }
+.lib-scope .tb[aria-pressed="true"] { background: var(--bg2); color: var(--fg0); }
+.lib-body { flex: 1; display: grid; grid-template-columns: minmax(18ch, 26ch) minmax(0, 1fr) minmax(30ch, 46ch); gap: 0 3ch; align-items: start; }
+.lib-nav { display: grid; gap: 2px; }
+.lib-label { margin: 0.5lh 0 0; color: var(--fg1); }
+.lib-pick { display: flex; justify-content: space-between; padding: 2px 1ch; border: 0; border-left: 2px solid transparent; background: none; color: var(--fg-mid); font: inherit; text-align: left; cursor: pointer; }
+.lib-pick:hover { color: var(--fg0); }
+.lib-pick[aria-current="true"] { border-left-color: var(--accent); background: var(--bg1); color: var(--fg0); font-weight: 700; }
+.lib-count { color: var(--fg1); font-weight: 400; }
+.lib-main { min-width: 0; }
+.lib-heading { margin: 0.5lh 0; }
+.lib-heading span { color: var(--fg1); }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(22ch, 1fr)); gap: 1lh 2ch; margin: 0; padding: 0; list-style: none; }
+.lib-card { display: grid; gap: 4px; width: 100%; padding: 0; border: 0; background: none; color: var(--fg-mid); font: inherit; text-align: left; cursor: pointer; }
+.lib-thumb { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); }
+.lib-card:hover .lib-thumb { border-color: var(--fg1); }
+.lib-card.open .lib-thumb { border-color: var(--accent); }
+.lib-card.open .lib-card-name { color: var(--fg0); font-weight: 700; }
+.lib-kind { color: var(--fg1); font-weight: 400; }
+.lib-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.lib-none { padding: 0 1ch; color: var(--fg1); text-align: center; }
+.lib-badge { position: absolute; top: 6px; left: 6px; padding: 0 0.5ch; border-radius: 2px; background: rgb(11 14 18 / 0.85); color: var(--agent); }
+.lib-detail { position: sticky; top: 0; display: grid; gap: 0.5lh; padding: 1lh 2ch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); }
+.lib-player { display: grid; gap: 4px; }
+.lib-stage { position: relative; display: grid; place-items: center; aspect-ratio: 16 / 9; overflow: hidden; background: #000; }
+.lib-stage > :not(.lib-none) { position: absolute; inset: 0; }
+.lib-controls { display: flex; align-items: center; gap: 1ch; }
+.lib-bar { flex: 1; height: 2px; background: var(--line); }
+.lib-bar span { display: block; height: 100%; background: var(--accent); }
+.library-screen .lib-name { margin: 0.5lh 0 0; font-weight: 700; color: var(--fg0); }
+.lib-line, .lib-fits { margin: 0; color: var(--fg-mid); }
+.lib-fits { color: var(--fg0); }
+.lib-used { margin: 0; color: var(--agent); }
+.lib-ask { display: flex; gap: 1ch; }
+.lib-ask .tb-accent { flex: 1; justify-content: center; color: var(--accent); }
+.lib-ask select { height: 26px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); color: var(--fg0); font: inherit; }
+.lib-tray { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 1ch 2ch; margin-top: 1lh; padding: 0.5lh 1ch; border-top: 1px solid var(--line); background: var(--bg0); }
+.lib-tray-label { color: var(--fg-mid); }
+.lib-chip { display: inline-flex; align-items: center; gap: 0.5ch; padding: 0 0 0 1ch; border: 1px solid var(--line); border-radius: 2px; background: var(--bg1); color: var(--fg0); }
+.lib-chip .tb { padding: 0 0.75ch; color: var(--fg1); }
+.lib-words { flex: 1; min-width: 20ch; height: 26px; padding: 0 1ch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg1); color: var(--fg0); font: inherit; }
+.lib-tray .tb-accent { color: var(--accent); }
+/* Narrow: the open entry under the cards; a phone: the lists as a row, one column of cards. */
+.library-screen h2 { flex-wrap: wrap; row-gap: 0.5lh; }
+@media (max-width: 1100px) { .lib-body { grid-template-columns: minmax(16ch, 22ch) minmax(0, 1fr); } .lib-detail { grid-column: 1 / -1; position: static; } .lib-sub { display: none; } }
+@media (max-width: 800px) { .lib-search { flex: 1; width: auto; min-width: 16ch; } }
+.phone .lib-body { grid-template-columns: minmax(0, 1fr); }
+.phone .lib-nav { display: flex; flex-wrap: wrap; gap: 0 1ch; }
+.phone .lib-label { width: 100%; }
+.phone .lib-search { width: 100%; margin: 0.5lh 0 0; }
+.phone .library-screen h2 { flex-wrap: wrap; }

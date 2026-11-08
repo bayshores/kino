@@ -19,6 +19,9 @@
 //   GET  board?project&rev&page   one page of the storyboard, as look {mode:"board"} draws it (PNG)
 //   GET  board-data?project&stop|rev   the storyboard a board stop showed, as data (JSON)
 //   GET  board-shot?project&rev&shot&part&w   one shot's source frame, still, last frame or option still (PNG)
+//   GET  library                  everything an agent can use, by kind and by what it does (JSON)
+//   GET  library-sample?kind&name  one entry's sample: a short document and the moment its card shows
+//   GET  library-still?kind&name   that moment drawn by the export renderer, 480 px wide (PNG)
 //   GET  turn?project&turn        one turn for turn review: revisions, changes and calls
 //   GET  inspire/thumb/<video id> a YouTube reference's thumbnail, kept by backend/inspire.mjs
 //   GET  inspire/strip/<video id>/<NN.jpg>  one of its frame strips (6 small frames side by side)
@@ -74,6 +77,7 @@ import { workerCap } from "./raster-workers.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 import { createPreviewScheduler } from "./preview-scheduler.mjs";
 import { openNeeds } from "./agent/needs.mjs";
+import { libraryCatalog } from "./agent/library-catalog.mjs";
 import { SONG_KEY } from "./soundtrack.mjs";
 
 const PROJECT_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -713,6 +717,17 @@ export function createDashboardRoutes(deps) {
     if (route === "board" && ["GET", "HEAD"].includes(method)) return boardPage(req, res, url);
     if (route === "board-data" && ["GET", "HEAD"].includes(method)) return boardData(req, res, url);
     if (route === "board-shot" && ["GET", "HEAD"].includes(method)) return boardShot(req, res, url);
+    if (route === "library" && method === "GET") return json(res, 200, libraryCatalog());
+    if (route === "library-sample" && method === "GET") {
+      const sample = await agentService.librarySample(url.searchParams.get("kind") ?? "", url.searchParams.get("name") ?? "");
+      return json(res, 200, sample ?? { document: null });
+    }
+    if (route === "library-still" && method === "GET") {
+      const png = await agentService.libraryStill(url.searchParams.get("kind") ?? "", url.searchParams.get("name") ?? "");
+      if (!png) throw failure(404, "This entry has no sample.");
+      res.writeHead(200, { "Content-Type": "image/png", "Content-Length": png.length, "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff" });
+      return res.end(png);
+    }
     if (parts[2] === "seen" && parts.length === 5 && ["GET", "HEAD"].includes(method)) {
       const [, , , projectId, name] = parts;
       if (!PROJECT_ID.test(projectId) || !SEEN_FILE.test(name)) throw failure(400, "That is not an image kino returned to the agent.");

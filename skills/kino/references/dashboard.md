@@ -33,6 +33,9 @@ In a shell: `kino check why="see what blocks a final render" next="fix the title
 - `notes {action:"reply", id, text}` when you fixed a person's note: they see it as fixed and
   answer "Looks good" (resolved) or "Not yet" (inbox `N2 not fixed yet: …`, the note is new
   again). A note may carry `@t`, a layer, a scene, an `area x,y w×h` (scene pixels) or `URGENT`.
+- A note from the library screen names what to use by kind and name ("From the library, use:
+  move zoom-through on shot 2; effect embers."): a `move`, an `add_animation` effect or preset,
+  a `recipe`, a look or a video format, as `library {topic:"moves"}` and the others describe.
 - Not connected through a Claude Code channel? Run `kino watch` in the background: it prints the
   person's new notes as they leave them, one line per batch (notes written close together come
   as one line). `kino watch pending` exits 2 while any note is unread, for a stop hook.

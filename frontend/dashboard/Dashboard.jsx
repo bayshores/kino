@@ -49,6 +49,7 @@ import { StopCard, StopDone, StopElsewhere, StopScreen, StopsCard, StopSettings 
 import { BoardScreen } from "./board.jsx";
 import { directionWords } from "./boardRows.js";
 import { TryScreen } from "./tries.jsx";
+import { LibraryScreen } from "./library.jsx";
 import { CrewScreen } from "./crew.jsx";
 import { InspireScreen } from "./inspire.jsx";
 import { JudgeBox } from "./judge.jsx";
@@ -1118,7 +1119,7 @@ export function Dashboard() {
   const runCommand = useCallback((command) => {
     setCommandOpen(false);
     switch (command.action) {
-      case "projects": case "crew": case "inspire": case "shares": case "settings": case "help": case "transcript": case "variants": setScreen({ name: command.action }); return;
+      case "projects": case "crew": case "inspire": case "library": case "shares": case "settings": case "help": case "transcript": case "variants": setScreen({ name: command.action }); return;
       // The blind pick box comes back (put off with esc).
       case "picks": setScreen({ name: "main" }); setPicksLater(null); return;
       // Try options (tries.jsx): the open round, else the newest.
@@ -1162,6 +1163,7 @@ export function Dashboard() {
       .map(([id, hint]) => ({ id: `view-${id}`, words: id, hint, command: { action: "view", value: id } })),
     { id: "crew", words: "crew", hint: "every agent (F2)", keys: "F2", command: { action: "crew" } },
     { id: "inspire", words: "inspire", hint: "references (F3)", keys: "F3", command: { action: "inspire" } },
+    { id: "library", words: "library", hint: "everything the agent can use (F4)", keys: "F4", command: { action: "library" } },
     { id: "projects", words: "projects", hint: "open, duplicate, Trash", command: { action: "projects" } },
     { id: "variants", words: "variants", hint: "compare and pick a variant", command: { action: "variants" } },
     { id: "picks", words: "picks", hint: "blind A or B", command: { action: "picks" } },
@@ -1205,6 +1207,7 @@ export function Dashboard() {
       case "stage": focusPane(1); return;
       case "crew": setScreen({ name: "crew" }); return;
       case "inspire": setScreen({ name: "inspire" }); return;
+      case "library": setScreen({ name: "library" }); return;
       case "command": setCommandOpen(true); return;
       // ⌘K opens the command list, and closes it again when it is open.
       case "command-toggle": setCommandOpen((open) => !open); return;
@@ -1523,7 +1526,7 @@ export function Dashboard() {
     else exportScene({ quality: "final", format: value });
   };
   const tab = (name, icon, word, onClick, key, extra = null) => (
-    <button type="button" className="tab" aria-current={screen.name === name ? "page" : undefined} aria-keyshortcuts={key} title={`${word} (${key})`} onClick={onClick}>
+    <button type="button" className="tab" data-view={name} aria-current={screen.name === name ? "page" : undefined} aria-keyshortcuts={key} title={`${word} (${key})`} onClick={onClick}>
       <Icon name={icon} /><span className="tab-word">{word}</span>{extra}
     </button>
   );
@@ -1536,12 +1539,13 @@ export function Dashboard() {
             value={projectId} options={projectOptions} className="project-menu"
             onPick={(value) => (value === "@projects" ? setScreen({ name: "projects" }) : value !== projectId ? openProject(value) : null)} /></> : null}
       </span>
-      {/* The views: the stage (F1), the crew (F2; it counts what waits for you) and inspire (F3). */}
+      {/* The views: the stage (F1), the crew (F2; it counts what waits for you), inspire (F3) and the library (F4). */}
       <nav className="tabs" aria-label="Views">
         {tab("main", "monitor", "stage", () => run("stage"), "F1")}
         {tab("crew", "users", "crew", () => setScreen({ name: "crew" }), "F2",
           needs.length ? <span className="tab-count" aria-label={`, ${needs.length} waiting for you`}>{needs.length}</span> : null)}
         {tab("inspire", "compass", "inspire", () => setScreen({ name: "inspire" }), "F3")}
+        {tab("library", "library", "library", () => setScreen({ name: "library" }), "F4")}
       </nav>
       <div className={`topbar${asking ? " asking" : ""}`}>
         {asking ? (
@@ -1706,6 +1710,8 @@ export function Dashboard() {
       board: () => <BoardScreen projectId={projectId} document={doc} revision={revision} onBack={back} />,
       try: () => <TryScreen projectId={projectId} tries={data.agent?.tries ?? null} shots={doc?.board?.shots ?? []} onBack={back}
         onAnswer={(round, pick) => server.act("notes", { action: "try", project: projectId, round: round.id, pick }).then((reply) => { if (reply.isError) say(reply.text, true); }, fail)} />,
+      library: () => <LibraryScreen document={doc} shots={doc?.board?.shots ?? []} onBack={back}
+        onSend={async (text) => { try { await sendNote(text); say("Sent to the agent."); } catch (cause) { fail(cause); throw cause; } }} />,
       inspire: () => <InspireScreen data={data} projectId={projectId} now={now} onBack={back} say={say} keysRef={inspireKeys} still={still} />,
       help: () => <HelpScreen onBack={back} />,
       transcript: () => <TranscriptScreen data={data} onBack={back} />,

@@ -97,6 +97,7 @@ const ICONS = {
   // The tabs, the top bar's buttons and the stage's switches: 1.3 px lines.
   monitor: <g fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="1.8" y="2.5" width="12.4" height="8.6" rx="1" /><path d="M5.5 13.8h5M6.9 5.1v3.4L9.7 6.8z" /></g>,
   users: <g fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="6" cy="5.4" r="2.4" /><path d="M1.8 13.5c.4-2.4 2.2-3.7 4.2-3.7s3.8 1.3 4.2 3.7M10.4 3.2a2.3 2.3 0 0 1 0 4.4M12 9.9c1.2.5 2 1.6 2.2 3.6" /></g>,
+  library: <g fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="8" cy="3.6" r="1.8" /><circle cx="3.6" cy="12" r="1.8" /><circle cx="12.4" cy="12" r="1.8" /><path d="M7.1 5.2 4.5 10.4M8.9 5.2l2.6 5.2M5.4 12h5.2" /></g>,
   compass: <g fill="none" stroke="currentColor" strokeWidth="1.3"><circle cx="8" cy="8" r="6.2" /><path d="m10.6 5.4-1.5 3.7-3.7 1.5 1.5-3.7z" /></g>,
   hold: <g fill="none" stroke="currentColor" strokeWidth="1.3"><rect x="3.6" y="3" width="2.6" height="10" rx=".5" /><rect x="9.8" y="3" width="2.6" height="10" rx=".5" /></g>,
   link: <g fill="none" stroke="currentColor" strokeWidth="1.3"><path d="M6.8 9.2a2.6 2.6 0 0 0 3.7 0l2.2-2.2a2.6 2.6 0 0 0-3.7-3.7l-.9.9" /><path d="M9.2 6.8a2.6 2.6 0 0 0-3.7 0L3.3 9a2.6 2.6 0 0 0 3.7 3.7l.9-.9" /></g>,

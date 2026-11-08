@@ -1010,6 +1010,10 @@ How to read it:
 - **Try options**: Partly verified. `notes {action:"try"}` checks 2 to 4 options' ops on a copy, renders the 2 s
   around the moment once per option, and the person's pick (or none, or skip) reaches the inbox with the ops to apply.
   Evidence: `backend/tries.test.mjs`, `frontend/dashboardBoard.test.js`. Gap: the clips are silent, so sound options cannot be heard yet.
+- **Library screen** (F4): Partly verified. Every move, effect, animation, recipe, look and video format, by what it
+  does or by kind, each with a sample built through the edit path and drawn by the renderer; what this video uses;
+  "ask for this" on a shot becomes one note. Evidence: `backend/dashboard.test.mjs`, `frontend/dashboardBoard.test.js`.
+  Gap: moves that need pictures or footage (9), LUTs, speed and the three beat transitions have no sample.
 - **Fresh-eyes check**: Partly verified. A second agent reviews the board with only the brief; the
   ask reports ran, skipped or not reported. Not verified: a real agent starting a second agent.
 - **Gaps**: 9:16 app covered areas are third-party numbers; only 3D footage tested; a real session

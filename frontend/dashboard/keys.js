@@ -6,7 +6,7 @@
 export const KEY_HELP = [
   ["1 2 3", "focus the stage, the agent pane, the timeline"], ["+ _", "zoom the pane, restore"], ["Tab ⇧Tab", "next, previous button or field"],
   ["j k ↑ ↓", "move"], ["← →", "older, newer picture (seen view); the agent pane's tabs"], ["Enter", "open"], ["Esc", "back"],
-  ["?", "all keys"], ["F1 F2 F3", "stage, crew, inspire"], ["⌘K :", "command list"], ["/", "filter the log"],
+  ["?", "all keys"], ["F1 F2 F3 F4", "stage, crew, inspire, library"], ["⌘K :", "command list"], ["/", "filter the log"],
   ["space", "play or pause"], [", .", "one frame back, forward"], ["[ ]", "previous, next turn"], ["{ }", "previous, next scene"],
   ["n c", "note at the playhead"], ["a A", "allow once, always allow"], ["d D", "not yet (deny), always deny"],
   ["a Tab d c", "on a stop: approve, approve with a note, redo with a note, a note on one shot (A, D off)"],
@@ -49,11 +49,13 @@ export function keyAction(event, { screen = "main", typing = false, idle = false
   // ⌘K opens the command list and closes it again; : (a typed character) only opens it.
   if (event.metaKey) return key === "k" || key === "K" ? "command-toggle" : null;
   if (event.altKey) return null;
-  // F1 the stage, F2 the crew screen (crew.jsx), F3 inspire (inspire.jsx), from any screen and
+  // F1 the stage, F2 the crew screen (crew.jsx), F3 inspire (inspire.jsx), F4 the library
+  // (library.jsx), from any screen and
   // from a text field too (they type nothing).
   if (key === "F1") return "stage";
   if (key === "F2") return "crew";
   if (key === "F3") return "inspire";
+  if (key === "F4") return "library";
   if (typing) return key === "Escape" ? "back" : null;
   if (key === "Escape") return "back";
   if (key === "?") return "help";
@@ -118,6 +120,7 @@ export function parseCommand(text) {
     case "variants": return { action: "variants" };
     case "board": case "storyboard": return { action: "board" };
     case "try": case "options": return { action: "try" };
+    case "library": case "lib": return { action: "library" };
     case "turn": return /^T\d+$/i.test(value) ? { action: "turn", value: value.toUpperCase() } : { error: "turn needs a turn id, such as turn T3." };
     case "note": return value ? { action: "note", value } : { error: "note needs text, such as note make the title larger." };
     case "hold": return { action: "hold", value: true, note: value };

@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { boardData as serverBoardData } from "../backend/agent/board-data.mjs";
+import { libraryCatalog } from "../backend/agent/library-catalog.mjs";
+import { askChip, askNote, shotWords, shotsUsing, shownEntries, usedIn, withAsk } from "./dashboard/libraryRows.js";
 import { normalizeBoard } from "../engine/board.js";
 import { answerStop, boardData, boardShotUrl } from "./dashboard/api.js";
 import {
@@ -325,4 +327,24 @@ test("try options: the round shown, the rounds and planned topics on the left, t
   assert.deepEqual([answerWords(done), answerWords({ ...done, pick: "none" }), answerWords({ ...done, pick: "skip" }), answerWords(open)], ["B · wide", "none of these", "skipped", null]);
   const rows = needsYouRows({ projectId: "p1", agent: { tries }, approvals: [] });
   assert.deepEqual(rows.map((row) => [row.type, needKey(row)]), [["try", "try/p1/T2"]]);
+});
+
+test("the library: a group, a kind or a search; what this video uses and on which shots; the note to the agent", () => {
+  const catalog = libraryCatalog();
+  assert.ok(shownEntries(catalog, { group: "transition" }).some((entry) => entry.id === "move:whip-pan"));
+  assert.ok(shownEntries(catalog, { kind: "look" }).every((entry) => entry.kind === "look"));
+  assert.deepEqual(shownEntries(catalog, { search: "zoom thr" }).map((entry) => entry.id), ["move:zoom-through"]);
+  const document = { scenes: [{ moves: [{ name: "zoom-through" }], layers: [
+    { animations: [{ kind: "effect", effect: "glow" }, { kind: "in", preset: { id: "slide", mode: "in", parameters: { direction: "left" } } }, { kind: "out", preset: { id: "grow", mode: "out" } }] },
+    { recipe: { name: "cta-end" }, animations: [{ kind: "counter" }] }] }] };
+  assert.deepEqual([...usedIn(document)].sort(), ["animation:counter", "animation:shrink-out", "animation:slide-left", "effect:glow", "move:zoom-through", "recipe:cta-end"]);
+  assert.equal(shownEntries(catalog, { onlyUsed: true, used: usedIn(document) }).length, 6);
+  const zoom = catalog.entries.find((entry) => entry.id === "move:zoom-through");
+  const shots = [{ move: { name: "cut" } }, { move: { name: "zoom-through" } }, {}, { move: { name: "zoom-through" } }];
+  assert.deepEqual([shotsUsing(zoom, shots), shotWords([2]), shotWords([1, 4, 6])], [[2, 4], "shot 2", "shots 1, 4 and 6"]);
+  const embers = catalog.entries.find((entry) => entry.id === "effect:embers");
+  const asks = withAsk(withAsk(withAsk([], zoom, 1), embers), zoom, 2);
+  assert.deepEqual(asks.map(askChip), ["embers", "zoom through · shot 2"], "asking again moves it to the new shot");
+  assert.equal(askNote(asks, "warm, at the end"), "From the library, use: effect embers; move zoom-through on shot 2. warm, at the end");
+  assert.equal(askNote([], "just words"), "just words");
 });

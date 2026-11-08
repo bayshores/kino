@@ -129,3 +129,18 @@ export function seenUrl(projectId, file) {
 }
 
 export const renderFileUrl = (jobId) => `/api/dashboard/renders/${encodeURIComponent(jobId)}/file`;
+
+/** The library screen's catalog (backend/agent/library-catalog.mjs): every entry, the kinds and the technique groups. */
+export function libraryCatalog() {
+  return api("/dashboard/library");
+}
+
+/** One library entry's sample: {document, still} (a short document and the moment its card shows), or {document: null}. */
+export function librarySample(kind, name) {
+  return api(`/dashboard/library-sample?${new URLSearchParams({ kind, name })}`);
+}
+
+/** One library card's still (PNG, 480 px wide); 404 when the entry has no sample. */
+export function libraryStillUrl(kind, name) {
+  return `/api/dashboard/library-still?${new URLSearchParams({ kind, name })}`;
+}

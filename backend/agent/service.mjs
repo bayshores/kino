@@ -12,7 +12,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile, writeFile, mkdir, rename, copyFile, readdir } from "node:fs/promises";
 import { callStarted } from "../render-activity.mjs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
@@ -40,6 +40,7 @@ import { ConflictError } from "../store.mjs";
 import { hideShareSecrets } from "../shares.mjs";
 import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
+import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
 import { callLabel, callTarget, pointingText } from "./labels.mjs";
@@ -1962,6 +1963,54 @@ export function createAgentService(deps) {
     const after = await applyAll(before, translation.operations, list, { resolver, notes: [], reports: new Map() }, problems, translation.blocked);
     if (problems.length) throw refusal(projectId, list, problems, translation.blocked);
     return after;
+  }
+
+  // The library screen's samples (library-catalog.mjs): the entry's sample ops run through the
+  // agent's own edit path on an empty scene, nothing saved. Kept once built; an entry the sample
+  // cannot build (it needs a picture or a video) answers null, or the reason it was refused.
+  const samples = new Map();
+  // A move's card shows the middle of the move (a transition halfway through), not its end.
+  const moveMiddle = (document) => {
+    const move = document.scenes[0]?.moves?.[0];
+    return Number.isFinite(move?.start) && Number.isFinite(move?.end) ? Math.round(((move.start + move.end) / 2) * 30) / 30 : null;
+  };
+  async function librarySample(kind, name) {
+    const key = `${kind}:${name}`;
+    if (!samples.has(key)) samples.set(key, (async () => {
+      const sample = sampleOps(kind, name);
+      if (!sample) return null;
+      const scene = createScene({ id: "library-scene", name: "sample", ...SAMPLE_FRAME, duration: sample.duration, background: "#0B0E12" });
+      const before = parseDocument(createDocument({ id: "library-sample", name: "sample", scenes: [scene] }));
+      const resolver = createResolver(before, assignCodes({}, before));
+      const translation = translateAll(sample.ops, resolver, before);
+      const problems = translation.problems.map(translationProblem);
+      try {
+        const document = await applyAll(before, translation.operations, sample.ops, { resolver, notes: [], reports: new Map() }, problems, translation.blocked);
+        return problems.length ? { document: null, reason: problems[0].message ?? String(problems[0]) } : { document, still: moveMiddle(document) ?? sample.still };
+      } catch (error) { return { document: null, reason: error.message }; }
+    })());
+    return samples.get(key);
+  }
+  // A card's still, drawn by the export renderer (effects included), 480 px wide. Kept on disk by
+  // the sample's content (about 0.5 s to draw), so a changed sample is drawn again.
+  const stills = new Map();
+  async function libraryStill(kind, name) {
+    const key = `${kind}:${name}`;
+    if (!stills.has(key)) stills.set(key, (async () => {
+      const sample = await librarySample(kind, name);
+      if (!sample?.document) return null;
+      const { document } = sample;
+      // Animation ids are new on each build, so they are left out of the key.
+      const content = JSON.stringify([sample.still, document], (field, value) => (field === "id" && /^[0-9a-f-]{36}$/.test(value) ? undefined : value));
+      const file = path.join(agentDirectory, "library", `${createHash("sha256").update(content).digest("hex").slice(0, 24)}.png`);
+      const kept = await readFile(file).catch(() => null);
+      if (kept) return kept;
+      const { png } = await look.frame(await prepare(document, document.scenes[0].id, await fontsFor(document)), sample.still, 480);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, png);
+      return png;
+    })().catch(() => null));
+    return stills.get(key);
   }
 
   async function edit(input) {
@@ -6514,7 +6563,7 @@ export function createAgentService(deps) {
     return { rev: record.revision, sceneId, shots, voice: await voiceSentences(scene, record.document) };
   }
 
-  return { call, verbs: VERBS, renderJobs, picks, lanes, soundtrackMeasuring: (projectId) => exploring.get(projectId) ?? Promise.resolve(), answerStop, reopenStop, afterYourStop, boardPage, boardData, boardShot, settleStop, currentProject: readCurrent, finalRefused };
+  return { call, verbs: VERBS, renderJobs, picks, lanes, librarySample, libraryStill, soundtrackMeasuring: (projectId) => exploring.get(projectId) ?? Promise.resolve(), answerStop, reopenStop, afterYourStop, boardPage, boardData, boardShot, settleStop, currentProject: readCurrent, finalRefused };
 }
 
 /**
