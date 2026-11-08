@@ -99,6 +99,9 @@ export function resolvePreset(id, { mode, parameters, text } = {}) {
 }
 
 const number = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
+// The opacity a fade shows the layer at: its own, or full when it is stored hidden (opacity 0),
+// so a fade on a layer kept invisible until its entrance still fades.
+export const shownOpacity = (layer) => number(layer.opacity, 1) > 0 ? number(layer.opacity, 1) : 1;
 export function presetLayerGeometry(layer, document, fonts) {
   const styled = effectiveBoxStyle(layer);
   if (styled.type === "component") {
@@ -133,10 +136,10 @@ export function presetValues(value, source) {
     if (p.scale !== null) {
       for (const key of ["scaleX", "scaleY"]) { rest[key] = number(layer[key], 1); effect[key] = rest[key] * p.scale / 100; }
     }
-    if (p.opacity !== null) { rest.opacity = number(layer.opacity, 1); effect.opacity = rest.opacity * p.opacity / 100; }
+    if (p.opacity !== null) { rest.opacity = shownOpacity(layer); effect.opacity = rest.opacity * p.opacity / 100; }
     if (p.color !== null) { rest.fill = layer.fill ?? "#000000"; effect.fill = p.color; }
   } else if (["appear", "fade", "blink"].includes(id)) {
-    rest = { opacity: number(layer.opacity, 1) }; effect = { opacity: 0 };
+    rest = { opacity: shownOpacity(layer) }; effect = { opacity: 0 };
     if (id === "appear") discrete = { type: "instant" };
     if (id === "blink") discrete = { type: "blink", count: p.count };
   } else if (["slide", "blur-slide", "whip"].includes(id) || (id === "mask" && preset.text)) {
@@ -147,7 +150,7 @@ export function presetValues(value, source) {
     const sign = p.direction === "up" || p.direction === "left" ? 1 : -1;
     rest = { [key]: number(layer[key]) }; effect = { [key]: rest[key] + sign * distance };
     if (id === "blur-slide") { rest.blur = number(layer.blur); effect.blur = Math.min(1000, rest.blur + p.blur); }
-    if (id === "whip") { rest.opacity = number(layer.opacity, 1); effect.opacity = 0; }
+    if (id === "whip") { rest.opacity = shownOpacity(layer); effect.opacity = 0; }
   } else if (id === "grow" || id === "shrink") {
     rest = { scaleX: number(layer.scaleX, 1), scaleY: number(layer.scaleY, 1) };
     effect = { scaleX: rest.scaleX * p.scale / 100, scaleY: rest.scaleY * p.scale / 100 };

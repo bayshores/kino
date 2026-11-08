@@ -190,3 +190,13 @@ test("preset distances use the real auto-text and linked component box through e
     }
   }
 });
+
+test("a fade on a layer stored hidden (opacity 0) fades to full, not from 0 to 0", () => {
+  const hidden = createLayer("rectangle", { id: "r", width: 10, height: 10, opacity: 0 });
+  for (const [id, mode, from, to] of [["preset-fade", "in", 0, 1], ["preset-fade", "out", 1, 0], ["opacity", undefined, 0, 1]]) {
+    const animation = presetAnimation(id, hidden, 0, undefined, mode ? { mode } : {});
+    assert.deepEqual([animation.from.opacity, animation.to.opacity], [from, to], `${id} ${mode ?? ""}`);
+  }
+  const half = presetAnimation("preset-fade", { ...hidden, opacity: 0.4 }, 0, undefined, { mode: "in" });
+  assert.equal(half.to.opacity, 0.4, "a layer with its own opacity keeps it");
+});

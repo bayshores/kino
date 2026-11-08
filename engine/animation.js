@@ -255,7 +255,7 @@ export function presetAnimation(presetId, layer, start = 0, scene, options = {})
       break;
     case "opacity":
       from = { opacity: 0 };
-      to = { opacity };
+      to = { opacity: opacity > 0 ? opacity : 1 };
       duration = 0.5;
       break;
     case "blur":
