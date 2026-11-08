@@ -70,7 +70,7 @@ const SIDES = ["left", "right", "up", "down"];
 export const parallaxStack = {
   name: "parallax-stack",
   about: "two to four layers drift the same way at different speeds, the near ones faster and a little closer, while the far ones fall softly out of focus, so a flat frame gets depth",
-  fits: "a still picture, a cut-out over its background, UI cards over a backdrop; a held moment that should still breathe",
+  fits: "a still picture, a cut-out or UI cards over a backdrop that should still breathe",
   tags: ["parallax", "depth-blur", "drift"],
   length: 3,
   shortest: 1.5,

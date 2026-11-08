@@ -14,9 +14,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
   animates (`<id>.<role>-<name>`). Its id is the move's name (`-2` for a second).
-- The same id again remakes it with your changes;
-  `{name, id, remove:true}` takes it away. Parts are rebuilt, so do not edit them by hand;
-  later ops of the same edit can name them by ID (`type-on-caret`).
+- The same id remakes it; `{name, id, remove:true}` takes it away. Parts are rebuilt, so
+  never edit them by hand; later ops can name them (`type-on-caret`).
 - `seed` picks other choices. `reduced:true`: calm fades and small moves.
 - No move runs past the scene's end: `retime` the scene or start earlier.
 

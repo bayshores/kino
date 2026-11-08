@@ -7,8 +7,7 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
 
 ## The vocabulary
 
-50 tags in 6 groups. `library {topic:"techniques"}` lists them; `name` gives one with when it
-fits. `*` marks ones check cannot find in a document yet.
+50 tags in 6 groups. `library {topic:"techniques", name?}` lists them, or one. `*` marks ones check cannot find in a document yet.
 
 - **transition**: cut, match-cut*, dissolve, fade-black, blur-through, zoom-through, whip-pan,
   mask-wipe, glitch-hit, flash, push-transition

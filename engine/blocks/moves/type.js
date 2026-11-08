@@ -524,7 +524,7 @@ function layerSubject(ctx, input, next, { fill, open }) {
 export const pushThroughType = {
   name: "push-through-type",
   about: "a big glossy word (or your text, logo, path, shape or group) sharpens in and drifts closer while a sheen slides down it, then the camera pushes into it, faster all the time, the colors splitting as it starts, until the next shot, seen inside it, fills the frame",
-  fits: "an opening title or a name or logo reveal that leads straight into the first shot",
+  fits: "an opening title, name or logo that leads into the first shot",
   tags: ["type-giant", "zoom-through", "rgb-split"],
   length: 2.6,
   shortest: 1.8,
