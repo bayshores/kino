@@ -2253,7 +2253,12 @@ export function variantSet(document, scene) {
 // ---- library ----------------------------------------------------------------------------------
 /** library {topic:"moves"}: every move in one line each; with name, one move's fields and an example. */
 export function movesLibraryText(name) {
-  const fieldList = (move) => Object.entries(move.fields).filter(([, field]) => !field.retired).map(([key, field]) => `${key}${field.required ? "*" : ""}`).join(" ");
+  // Shared fields (move.js SHARED: ease, speed, color, accent, angle) show as one "+" in the short list.
+  const fieldList = (move) => {
+    const fields = Object.entries(move.fields).filter(([, field]) => !field.retired);
+    const own = fields.filter(([, field]) => !field.shared).map(([key, field]) => `${key}${field.required ? "*" : ""}`).join(" ");
+    return fields.some(([, field]) => field.shared) ? `${own} +` : own;
+  };
   if (name) {
     const move = MOVES[String(name)];
     if (!move) {
@@ -2270,7 +2275,7 @@ export function movesLibraryText(name) {
     ].filter(Boolean).join("\n");
   }
   return [
-    'Moves: designed set pieces from your own layers, pictures and brand, one op each: move {name, at, …}. * = required field; library {topic:"moves", name} has one move\'s fields and a runnable example.',
+    'Moves: move {name, at, …} on your layers, pictures, brand. * required; + also ease, speed, maybe color/angle. library {topic:"moves", name}: fields, example.',
     ...MOVE_NAMES.map((key) => { const move = MOVES[key]; return `- ${key}(${fieldList(move)}) [${move.tags.join(", ")}]: fits ${move.fits}.`; }),
   ].join("\n");
 }

@@ -150,6 +150,10 @@ const MOVE_VARIANTS = {
     layers: () => [SHOT_A, picture("logo", { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 })], fields: { layer: "logo", angle: 20, color: "#FFFFFF", at: 0.3 }, share: 0.5 },
   "accent-hit on a logo": { move: "accent-hit", line: "accent-hit with a picture layer: a picture logo flashes to one color only where it is not see-through, with a glow",
     layers: () => [SHOT_A, picture("logo", { x: W / 2 - 150, y: H / 2 - 150, width: 300, height: 300 })], fields: { layer: "logo", color: "#7FE3FF", hold: 0.3, at: 0.3 }, share: 0.3 },
+  "glitch with torn bands": { move: "glitch", line: "glitch with blocks: bands of the shot torn sideways for two frames before the cut, the colors split the same way",
+    layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", blocks: 5, strength: 0.8, at: 0.3 }, share: 0.42 },
+  "card-tilt up": { move: "card-tilt", line: "card-tilt with direction up: the shot tips back over its top edge and slides up as the next tips in from below",
+    layers: () => [SHOT_B, SHOT_A], fields: { from: "shot-a", to: "shot-b", direction: "up", at: 0.3 }, share: 0.45 },
 };
 const INSTANT = new Set(["hide", "show", "change-text"]);
 // Where in a move its card is caught, when not the middle: slice's bands cover the whole frame at

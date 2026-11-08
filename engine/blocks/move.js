@@ -12,12 +12,50 @@ import { frameScale, isPortraitFrame } from "./formats.js";
 import { evaluateLayer } from "../animation.js";
 import { enabledAnimations } from "../animationEnabled.js";
 import { visibleByOperations } from "../visibilityOps.js";
-import { round } from "./moves/kit.js";
+import { CURVES, round } from "./moves/kit.js";
 import { RESTORED } from "../blockFields.js";
 import { subjectOf } from "./subject.js";
 
 const PART = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const MAX_TEXT = 200;
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const LINEAR = Object.freeze([0, 0, 1, 1]);
+/** Curve names a move's ease field takes: the kit's curves and linear. */
+export const EASE_NAMES = Object.freeze(["linear", ...Object.keys(CURVES)]);
+
+/**
+ * Fields any move may take (spread into its fields; shared: true keeps them out of the short
+ * moves list, which says once that these exist). A move says in its own about what they change.
+ */
+export const SHARED = Object.freeze({
+  ease: { kind: "ease", shared: true, about: `the curve of its main motion: ${EASE_NAMES.join(", ")} or [x1, y1, x2, y2] (default the move's own)` },
+  speed: { kind: "number", low: 0.5, high: 4, shared: true, about: "how quick its motion runs inside dur, about its key moment: 2 = twice as quick, then still; below 1 its short beats last longer, never past dur (default 1)" },
+  color: { kind: "color", shared: true, about: "its color, hex such as #FFFFFF" },
+  accent: { kind: "color", shared: true, about: "its second color, hex" },
+  angle: { kind: "number", low: -180, high: 180, shared: true, about: "the direction it travels in degrees: 0 right, 90 down (default 0)" },
+});
+/** Shared fields by name, with this move's own about where given: shared("ease", {color: "the flash color"}). */
+export function shared(...entries) {
+  const fields = {};
+  for (const entry of entries) {
+    if (typeof entry === "string") fields[entry] = SHARED[entry];
+    // A move's own ease about still names the curves it takes.
+    else for (const [key, about] of Object.entries(entry)) fields[key] = { ...SHARED[key], about: key === "ease" ? `${about}: ${EASE_NAMES.join(", ")} or [x1, y1, x2, y2]` : about };
+  }
+  return fields;
+}
+
+/** A curve by kit name ("accelerate", "linear") or a [x1, y1, x2, y2] bezier, as a new array. */
+export function curveOf(value, where = "ease") {
+  if (Array.isArray(value)) {
+    if (value.length !== 4 || !value.every((entry) => typeof entry === "number" && Number.isFinite(entry)) || value[0] < 0 || value[0] > 1 || value[2] < 0 || value[2] > 1 || Math.abs(value[1]) > 3 || Math.abs(value[3]) > 3)
+      throw new Error(`${where} as a bezier is [x1, y1, x2, y2] with x1 and x2 from 0 to 1, such as [0.5, 0, 0, 1].`);
+    return [...value];
+  }
+  if (value === "linear") return [...LINEAR];
+  if (typeof value === "string" && CURVES[value]) return [...CURVES[value]];
+  throw new Error(`${where} is ${EASE_NAMES.join(", ")} or [x1, y1, x2, y2].`);
+}
 
 /** Reads the fields a move was given, checking each against the move's field list. */
 export function readMoveInput(definition, raw) {
@@ -64,6 +102,11 @@ function readField(move, key, field, value) {
     case "layer": case "picture": return text(value, 128);
     case "layers": case "pictures": return list(value).map((entry) => text(entry, 128));
     case "text": return text(value);
+    case "ease": return typeof value === "string" ? (curveOf(value, where), value) : curveOf(value, where);
+    case "color": {
+      if (typeof value !== "string" || !HEX.test(value)) throw new Error(`${where} is a hex color such as #FFFFFF.`);
+      return value.toUpperCase();
+    }
     case "number": {
       if (typeof value !== "number" || !Number.isFinite(value) || value < field.low || value > field.high) throw new Error(`${where} must be a number from ${field.low} to ${field.high}.`);
       return field.whole ? Math.round(value) : value;
@@ -203,6 +246,41 @@ export function runMove(definition, options) {
     sceneDuration: scene.duration,
     // The music's tempo (document.rhythm), when there is one: caption-words reads its energy.
     bpm,
+    // The shared speed field (SHARED): 1 plays the move's beats as designed.
+    speed: input.speed ?? 1,
+    /** A curve by kit name or a bezier (a move's own defaults table), as a new array. */
+    curve(value) { return curveOf(value, `${definition.name} curve`); },
+    /** The move's main curve: its ease field when given, else `fallback` (a curve name or bezier). */
+    ease(fallback) { return input.ease !== undefined ? curveOf(input.ease) : curveOf(fallback, `${definition.name} curve`); },
+    /**
+     * A color: the move's field `key` when given (color, accent), else `fallback`, which is a hex
+     * or a look color role (accent, surface, bg, text) read from the style.
+     */
+    color(key, fallback) {
+      if (typeof input[key] === "string") return input[key];
+      const found = ctx.style?.colors?.[fallback] ?? fallback;
+      if (typeof found !== "string") throw new Error(`${definition.name}: no color for ${key}.`);
+      return found;
+    },
+    /**
+     * Times on the move's clock under its speed: each moment's distance from `pivot` (its key
+     * moment, such as the cut) is divided by speed, and a moment inside the move's span stays
+     * inside it. at(t) a moment; span(start, duration) a beat as {start, duration}.
+     */
+    pace(pivot) {
+      const speed = input.speed ?? 1;
+      const at = (time) => {
+        if (speed === 1) return time;
+        const moved = pivot + (time - pivot) / speed;
+        return Math.min(Math.max(moved, Math.min(time, ctx.start)), Math.max(time, ctx.end));
+      };
+      const span = (begin, length) => {
+        if (speed === 1) return { start: begin, duration: length };
+        const from = at(begin);
+        return { start: from, duration: at(begin + length) - from };
+      };
+      return { at, span };
+    },
     picture(ref) { return media(ref); },
     /** A clip's or picture's file size by its src ({width, height}), or null when unknown. */
     fileSize(src) { return fileSize(src); },
