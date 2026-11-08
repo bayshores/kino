@@ -15,6 +15,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Bot } from "./bot.jsx";
 import { moodOfRow } from "./bot.js";
 import { agentLog, agentSaid, agentTask, crewAgents, isWorking, paneIdle, planStep, railAgents, stepWords, turnWords } from "./agentView.js";
+import { needsYouRows } from "./state.js";
 import { AgentName, Pane, Spinner } from "./panes.jsx";
 import { notesForYou } from "./noteSpot.js";
 import { ago } from "./format.js";
@@ -155,7 +156,8 @@ export function AgentPane({ data, agent, still, now, view, onView, views, noteLi
   const [pinned, setPinned] = useState(false);
   const [folded, setFolded] = useState(false);
   const idle = paneIdle(data, now);
-  const railed = !pinned && (folded || idle);
+  // Never folded while something waits for you: the pane's card is the one place to answer it.
+  const railed = !pinned && (folded || idle) && !needsYouRows(data).length;
   const wasIdle = useRef(idle);
   useEffect(() => { if (wasIdle.current && !idle) setFolded(false); wasIdle.current = idle; }, [idle]);
   const crew = crewAgents(data, now);

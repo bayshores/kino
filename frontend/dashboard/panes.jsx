@@ -1036,16 +1036,8 @@ export function StagePane({ data, scene, time, rev, checkpoint, full, playing, f
       {scene && !phone ? <RenderDock data={data} still={still} /> : null}
       </div>
       {scene && !phone ? <SeenDrawer data={data} still={still} playing={playing} /> : null}
-      {scene && need ? (
-        // While something waits for you: its answers and, for a render, what it would make.
-        <div className="stage-actions" role="group" aria-label={`${need.who} needs you: ${need.todo}`}>
-          {need.allow ? <button type="button" className="tb action-allow" onClick={need.onAllow} aria-keyshortcuts="a" title={`${need.allow} (a)`}>{need.allow}</button> : null}
-          {need.deny ? <button type="button" className="tb" onClick={need.onDeny} aria-keyshortcuts="d" title={`${need.deny} (d)`}>{need.deny}</button> : null}
-          <button type="button" className="tb" onClick={need.onNote} aria-keyshortcuts="n" title="Note (n)"><Icon name="note" />note at {minutes(shownTime)}</button>
-          {/* The render's facts; a request saved before kino kept them says its summary instead. */}
-          <span className={`action-spec${need.spec ? "" : " is-summary"}`} title={need.summary}>{need.spec || need.summary}</span>
-        </div>
-      ) : scene ? (
+      {/* The playback controls stay while something waits for you: its answers are in the agent pane. */}
+      {scene ? (
         <div className="stage-transport" role="group" aria-label="Playback and view">
           <span className="transport-buttons">
             <button type="button" className="tb icon-button" onClick={() => onKey("frame-back")} aria-label="One frame back" aria-keyshortcuts="," title="One frame back (,)"><Icon name="frame-back" /></button>
