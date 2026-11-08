@@ -10,7 +10,7 @@
 //   { preset, duration, easing, unit, stagger, order, distance? }
 // - `preset` is one of the Out presets (for `out`) or In presets (for `in`) the Animate tab has.
 // - `unit` ("layer", "letters", "words" or "lines"), `stagger` (seconds between units) and
-//   `order` ("forward" or "reverse") work as on any text animation.
+//   `order` (forward, reverse, center-out, edges-in, random + orderSeed) work as on any text animation.
 // - `distance` (pixels) is how far a Slide effect travels; only Slide effects have it.
 //
 // How the strings follow each other (textChangeSchedule):

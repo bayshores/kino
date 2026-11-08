@@ -177,6 +177,11 @@ test("transition knobs change the look, and their defaults give the old one", ()
   const whip = slant.animations.find((entry) => entry.animation.id === "m.to-whip").animation;
   assert.deepEqual(Object.keys(whip.to), ["x", "y"]);
   assert.equal(smearOf(slant).angle, 30);
+  // The smear holds that angle while it rises, on the shots and their copies.
+  const smears = [...slant.animations.map((entry) => entry.animation), ...slant.added.flatMap((entry) => entry.layer.animations)]
+    .filter((animation) => animation.name === "Smear");
+  assert.equal(smears.length, 4);
+  for (const smear of smears) assert.deepEqual(smear.from, { length: 0, angle: 30 });
   assert.equal(whip.to.y - whip.from.y, 1080, "the steeper side sets the travel: up to the frame's height");
   assert.throws(() => runT("whip-pan", { angle: 30 }), /direction or angle/);
   // Copies fill the corners: beside from one frame width back (rows), beside to one forward.

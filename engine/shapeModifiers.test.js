@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { renderSceneSvg } from "./render.js";
 import { createLayer, createScene, parseDocument, createDocument } from "./model.js";
-import { modifierReach, modifyContours } from "./shapeModifiers.js";
+import { OUTLINE_LIMIT, modifierReach, modifyContours } from "./shapeModifiers.js";
 import { shapeContours } from "./shapes.js";
 import { parsePath, pathBounds } from "./vectorPath.js";
 
@@ -135,4 +135,27 @@ test("every modifier stays inside the box grown by its reach", () => {
   }
   assert.throws(() => parseDocument(JSON.stringify(createDocument({ scenes: [scene([createLayer("star", { id: "s", bloatAmount: 1.5 })])] }))), /bloatAmount/);
   assert.throws(() => parseDocument(JSON.stringify(createDocument({ scenes: [scene([createLayer("text", { id: "t", twistAngle: 30 })])] }))), /twistAngle/);
+});
+
+test("a zig zag after a twist keeps its teeth per side, and big outlines stay drawable", () => {
+  const state = square({ width: 400, height: 400, zigzagSize: 4, zigzagCount: 10, twistAngle: 45 });
+  assert.equal(vertices(modifyContours(shapeContours("rectangle", state), state)), 4 * 10 * 2);
+  const layers = [createLayer("rectangle", { id: "r", width: 400, height: 400, zigzagSize: 4, zigzagCount: 10, twistAngle: 45 }),
+    createLayer("star", { id: "s", width: 600, height: 600, spikes: 1000, zigzagSize: 5, zigzagCount: 100, twistAngle: 3600, offsetAmount: 6, offsetJoin: "round" }),
+    createLayer("star", { id: "t", width: 1600, height: 1600, spikes: 1000, starThickness: 0.5, roundCorners: 3, offsetAmount: 6, offsetJoin: "round" })];
+  assert.match(renderSceneSvg(scene(layers), 0), /<path d="M/);
+  for (const layer of layers) assert.ok(vertices(modifyContours(shapeContours(layer.type, layer), layer)) <= OUTLINE_LIMIT, layer.id);
+});
+
+test("an offset of a cusp or a tight twist stays inside its reach", () => {
+  const cases = [square({ width: 400, height: 400, bloatAmount: -1, offsetAmount: -5 }), square({ width: 160, bloatAmount: -1, offsetAmount: -5 }),
+    square({ width: 160, twistAngle: 720, offsetAmount: 15 }), square({ width: 160, zigzagSize: 10, twistAngle: 180, offsetAmount: 15, roundCorners: 20 }),
+    square({ width: 300, twistAngle: 150, offsetAmount: -8, offsetJoin: "round" }), { type: "star", width: 200, height: 200, bloatAmount: -1, offsetAmount: 10, offsetJoin: "bevel" }];
+  for (const state of cases) {
+    const contours = modifyContours(shapeContours(state.type, state), state), reach = modifierReach(state);
+    assert.ok(contours.length, JSON.stringify(state));
+    const box = curveBox(contours);
+    assert.ok(box.x >= -reach - 1e-6 && box.y >= -reach - 1e-6 && box.x + box.width <= state.width + reach + 1e-6 &&
+      box.y + box.height <= state.height + reach + 1e-6, JSON.stringify({ state, reach, box }));
+  }
 });

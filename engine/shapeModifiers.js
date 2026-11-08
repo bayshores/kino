@@ -14,7 +14,8 @@
 //   offsetAmount   px the outline grows (or shrinks, below 0), -1000..1000 (0 = off); animates
 //   offsetJoin     how grown corners join: "miter", "round" or "bevel" ("miter")
 // Peaks of the zig zag sit on the outline's corners and segment ends. Curves are offset and
-// twisted as fine straight pieces; an outline shrunk past its middle disappears.
+// twisted as fine straight pieces; an outline shrunk past its middle disappears. Each step keeps
+// the outline under a point budget (fewer teeth or coarser pieces past it) so the path can draw.
 export const MODIFIER_LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path"]);
 export const MODIFIER_REST = Object.freeze({ roundCorners: 0, bloatAmount: 0, twistAngle: 0, twistX: 0, twistY: 0, zigzagSize: 0, zigzagCount: 5, offsetAmount: 0 });
 export const MODIFIER_KEYS = Object.keys(MODIFIER_REST);
@@ -24,7 +25,11 @@ const RANGES = { roundCorners: [0, 1000], bloatAmount: [-1, 1], twistAngle: [-36
   zigzagSize: [-1000, 1000], zigzagCount: [1, 100], offsetAmount: [-1000, 1000] };
 const MITER_LIMIT = 4;
 const ROUND_STEP = Math.PI / 18;
-const MAX_POINTS = 20_000;
+// Point budgets. vectorPath.js draws at most 10,000 segments and 1,000,000 characters (about
+// 130 a segment), so the result stays at or under OUTLINE_LIMIT.
+export const OUTLINE_LIMIT = 7000;
+const TWIST_POINTS = 3000;
+const ZIGZAG_POINTS = 3000;
 const TWIST_STEP = 3;
 
 /** The range a modifier number accepts: [min, max]. */
@@ -64,7 +69,8 @@ export function modifierReach(state) {
     reach = Math.max(reach, dx + far - width / 2, dy + far - height / 2);
   }
   const zig = modifiers.zigzag ? Math.abs(modifiers.zigzag.size) * (modifiers.zigzag.smooth ? 1.5 : MITER_LIMIT) : 0;
-  const grow = Math.max(0, modifiers.offset?.amount ?? 0) * (modifiers.offset?.join === "miter" ? MITER_LIMIT : 1);
+  // Outer miters and inner corners move at most MITER_LIMIT x the amount.
+  const grow = Math.abs(modifiers.offset?.amount ?? 0) * MITER_LIMIT;
   return reach + zig + grow;
 }
 
@@ -78,8 +84,26 @@ export function modifyContours(contours, state) {
   if (modifiers.bloat) result = result.map((contour) => bloat(contour, modifiers.bloat));
   if (modifiers.twist) result = twist(result, modifiers.twist);
   if (modifiers.zigzag) result = result.map((contour) => zigzag(contour, modifiers.zigzag, sign));
-  if (modifiers.offset) result = result.map((contour) => offset(contour, modifiers.offset, sign)).filter(Boolean);
-  return result;
+  if (modifiers.offset) {
+    const plans = result.map(flattenPlan);
+    const total = plans.reduce((sum, plan) => sum + plan.count, 0) || 1;
+    result = result.map((contour, i) => offset(contour, modifiers.offset, sign, Math.max(8, Math.floor((OUTLINE_LIMIT * plans[i].count) / total)), plans[i]))
+      .filter(Boolean);
+  }
+  return withinLimit(result.map(({ start, segments, closed }) => ({ start, segments, closed })));
+}
+
+// Last resort for outlines still over the budget (say a path of thousands of segments): keep
+// every k-th point as straight pieces.
+function withinLimit(contours) {
+  const total = contours.reduce((sum, contour) => sum + contour.segments.length, 0);
+  if (total <= OUTLINE_LIMIT) return contours;
+  const stride = Math.ceil(total / (OUTLINE_LIMIT - contours.length));
+  return contours.map((contour) => {
+    const ends = contour.segments.map((segment) => segment.end).filter((_, i) => (i + 1) % stride === 0);
+    if (contour.closed && ends.length && length(sub(ends.at(-1), contour.start)) < 1e-9) ends.pop();
+    return polylineContour([contour.start, ...ends], contour.closed);
+  }).filter((contour) => contour && contour.segments.length);
 }
 
 // --- curve helpers ---
@@ -268,15 +292,16 @@ function bloat(contour, amount) {
 function twist(contours, { angle, center }) {
   const total = contours.reduce((sum, contour) => sum + segmentsOf(contour)
     .reduce((acc, { from, segment }) => acc + lengthTable(from, segment, 16).at(-1)[1], 0), 0);
-  const step = Math.max(TWIST_STEP, total / MAX_POINTS);
+  const step = Math.max(TWIST_STEP, total / TWIST_POINTS);
   const sampled = contours.map((contour) => {
-    const points = [];
+    const points = [], spans = [];
     for (const { from, segment } of segmentsOf(contour)) {
       const pieces = Math.max(1, Math.ceil(lengthTable(from, segment, 16).at(-1)[1] / step));
       for (let j = 0; j < pieces; j += 1) points.push(cubicAt(from, segment, j / pieces));
+      spans.push(pieces);
     }
     if (!contour.closed || !contour.segments.length) points.push(contour.segments.at(-1)?.end ?? contour.start);
-    return { points, closed: contour.closed };
+    return { points, closed: contour.closed, spans: contour.segments.length ? spans : null };
   });
   const far = Math.max(0, ...sampled.flatMap(({ points }) => points.map((point) => length(sub(point, center)))));
   if (far < 1e-9) return contours;
@@ -285,82 +310,133 @@ function twist(contours, { angle, center }) {
     const cos = Math.cos(a), sin = Math.sin(a);
     return add(center, [offset[0] * cos - offset[1] * sin, offset[0] * sin + offset[1] * cos]);
   };
-  return sampled.map(({ points, closed }) => polylineContour(points.map(turn), closed)).filter(Boolean);
+  // spans: how many straight pieces each original segment became, so a zig zag after the twist
+  // still puts its teeth per side.
+  return sampled.map(({ points, closed, spans }) => {
+    const contour = polylineContour(points.map(turn), closed);
+    if (contour && spans) contour.spans = spans;
+    return contour;
+  }).filter(Boolean);
 }
 
 // --- zig zag ---
+// Teeth go on each side: a segment, or the run of straight pieces a twist made of one. Past the
+// point budget sides take fewer teeth, then neighbor sides share theirs.
 function zigzag(contour, { size, count, smooth }, sign) {
-  const parts = segmentsOf(contour).map((part) => ({ ...part, table: lengthTable(part.from, part.segment) }))
-    .filter((part) => part.table.at(-1)[1] > 1e-6);
-  if (!parts.length) return contour;
-  const steps = Math.min(count * 2, Math.floor(MAX_POINTS / parts.length / 2) * 2 || 2);
+  const parts = segmentsOf(contour).map((part) => ({ ...part, table: lengthTable(part.from, part.segment, contour.spans ? 1 : 32) }));
+  let sides = [];
+  if (contour.spans && contour.spans.reduce((sum, n) => sum + n, 0) === parts.length) {
+    let at = 0;
+    for (const n of contour.spans) { sides.push(parts.slice(at, at + n)); at += n; }
+  } else sides = parts.map((part) => [part]);
+  sides = sides.map((side) => side.filter((part) => part.table.at(-1)[1] > 1e-6)).filter((side) => side.length);
+  if (!sides.length) return contour;
+  if (sides.length * 2 > ZIGZAG_POINTS) {
+    const per = Math.ceil((sides.length * 2) / ZIGZAG_POINTS), merged = [];
+    for (let i = 0; i < sides.length; i += per) merged.push(sides.slice(i, i + per).flat());
+    sides = merged;
+  }
+  const steps = Math.min(count * 2, Math.max(2, Math.floor(ZIGZAG_POINTS / sides.length / 2) * 2));
+  const runs = sides.map((pieces) => {
+    let total = 0;
+    const starts = pieces.map((piece) => { const start = total; total += piece.table.at(-1)[1]; return start; });
+    return { pieces, starts, total, first: pieces[0], last: pieces.at(-1) };
+  });
+  const along = (run, distance) => {
+    let lo = 0, hi = run.pieces.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (run.starts[mid] <= distance) lo = mid; else hi = mid - 1; }
+    const { from, segment, table } = run.pieces[lo], t = tAtDistance(table, distance - run.starts[lo]);
+    return [cubicAt(from, segment, t), tangentAt(from, segment, t)];
+  };
   const points = [];
   const corner = (incoming, outgoing) => {
     const sum = add(normalOf(incoming, sign), normalOf(outgoing, sign));
     return length(sum) > 1e-9 ? unit(sum) : normalOf(outgoing, sign);
   };
-  parts.forEach((part, index) => {
-    const { from, segment, table } = part, total = table.at(-1)[1];
+  runs.forEach((run, index) => {
     for (let k = 0; k < steps; k += 1) {
-      const t = tAtDistance(table, (total * k) / steps);
-      let normal = normalOf(tangentAt(from, segment, t), sign);
+      const [point, tangent] = along(run, (run.total * k) / steps);
+      let normal = normalOf(tangent, sign);
       if (k === 0 && (index > 0 || contour.closed)) {
-        const before = parts[(index - 1 + parts.length) % parts.length];
-        normal = corner(tangentAt(before.from, before.segment, 1), tangentAt(from, segment, 0));
+        const { last } = runs[(index - 1 + runs.length) % runs.length];
+        normal = corner(tangentAt(last.from, last.segment, 1), tangentAt(run.first.from, run.first.segment, 0));
       }
-      points.push(add(cubicAt(from, segment, t), scale(normal, k % 2 ? -size : size)));
+      points.push(add(point, scale(normal, k % 2 ? -size : size)));
     }
   });
   if (!contour.closed) {
-    const last = parts.at(-1);
+    const { last } = runs.at(-1);
     points.push(add(last.segment.end, scale(normalOf(tangentAt(last.from, last.segment, 1), sign), steps % 2 ? -size : size)));
   }
   return smooth ? smoothContour(points, contour.closed) : polylineContour(points, contour.closed);
 }
 
 // --- offset path ---
-function flatten(contour) {
+// Pieces per segment (1 when straight) and their sum.
+function flattenPlan(contour) {
+  const pieces = segmentsOf(contour).map(({ from, segment }) => isStraight(from, segment) ? 1
+    : Math.max(4, Math.min(64, Math.ceil(lengthTable(from, segment, 16).at(-1)[1] / 3))));
+  return { pieces, count: pieces.reduce((sum, n) => sum + n, 0) };
+}
+
+function flatten(contour, plan, most) {
   const points = [];
-  for (const { from, segment } of segmentsOf(contour)) {
-    if (isStraight(from, segment)) { points.push(from); continue; }
-    const total = lengthTable(from, segment, 16).at(-1)[1];
-    const pieces = Math.max(4, Math.min(64, Math.ceil(total / 3)));
+  const straight = plan.pieces.filter((n) => n === 1).length, curved = plan.count - straight;
+  const share = plan.count > most && curved ? Math.max(0, most - straight) / curved : 1;
+  segmentsOf(contour).forEach(({ from, segment }, i) => {
+    if (plan.pieces[i] === 1) { points.push(from); return; }
+    const pieces = Math.max(1, Math.floor(plan.pieces[i] * share));
     for (let j = 0; j < pieces; j += 1) points.push(cubicAt(from, segment, j / pieces));
-  }
+  });
   points.push(contour.segments.at(-1)?.end ?? contour.start);
   const clean = points.filter((point, index) => !index || length(sub(point, points[index - 1])) > 1e-9);
   if (contour.closed && clean.length > 1 && length(sub(clean[0], clean.at(-1))) < 1e-9) clean.pop();
   return clean;
 }
 
-function offset(contour, { amount, join }, sign) {
-  const points = flatten(contour);
+// room: the most points this contour may end with.
+function offset(contour, { amount, join }, sign, room, plan) {
+  const points = flatten(contour, plan, Math.floor(room / 2));
   const closed = contour.closed;
   if (points.length < 2) return closed ? null : contour;
   const edgeCount = closed ? points.length : points.length - 1;
   const directions = Array.from({ length: edgeCount }, (_, i) => unit(sub(points[(i + 1) % points.length], points[i])));
   const normals = directions.map((direction) => normalOf(direction, sign));
+  const corners = points.map((point, j) => {
+    if (!closed && (j === 0 || j === points.length - 1)) return null;
+    const n1 = normals[(j - 1 + edgeCount) % edgeCount], n2 = normals[j % edgeCount], cosine = dot(n1, n2);
+    const turn = Math.acos(Math.max(-1, Math.min(1, cosine)));
+    const gap = cross(directions[(j - 1 + edgeCount) % edgeCount], directions[j % edgeCount]) * sign * amount > 0;
+    return { n1, n2, cosine, turn, gap };
+  });
+  // Round joins share the points left in the room; past it their arcs get coarser.
+  let arcStep = ROUND_STEP;
+  if (join === "round") {
+    const arcs = corners.filter((c) => c && c.gap && c.turn >= ROUND_STEP && c.cosine <= 1 - 1e-12 && 1 + c.cosine >= 1e-9);
+    const turns = arcs.reduce((sum, c) => sum + c.turn, 0), spare = room - points.length - 2 * arcs.length;
+    if (arcs.length && turns / ROUND_STEP > spare) arcStep = spare > 0 ? turns / spare : Infinity;
+  }
   const out = [], anchors = [];
   for (let j = 0; j < points.length; j += 1) {
     const point = points[j];
-    if (!closed && (j === 0 || j === points.length - 1)) {
+    if (!corners[j]) {
       out.push(add(point, scale(normals[j === 0 ? 0 : edgeCount - 1], amount)));
       continue;
     }
-    const n1 = normals[(j - 1 + edgeCount) % edgeCount], n2 = normals[j % edgeCount];
+    const { n1, n2, cosine, turn, gap } = corners[j];
     const a = add(point, scale(n1, amount)), b = add(point, scale(n2, amount));
-    const cosine = dot(n1, n2);
     if (cosine > 1 - 1e-12) { out.push(a); anchors.push(a); continue; }
     if (1 + cosine < 1e-9) { out.push(a, b); anchors.push(a); continue; }
-    const miter = add(point, scale(add(n1, n2), amount / (1 + cosine)));
+    const far = Math.sqrt(2 / (1 + cosine)) > MITER_LIMIT;
+    // The inner side of a sharp corner (a cusp, a tight bend) stops MITER_LIMIT x the amount away.
+    const miter = !gap && far ? add(point, scale(unit(add(n1, n2)), amount * MITER_LIMIT))
+      : add(point, scale(add(n1, n2), amount / (1 + cosine)));
     anchors.push(miter);
-    const turn = Math.acos(Math.max(-1, Math.min(1, cosine)));
-    const gap = cross(directions[(j - 1 + edgeCount) % edgeCount], directions[j % edgeCount]) * sign * amount > 0;
     // Gentle turns (fine pieces of a curve) and the inner side of a corner meet at the miter point.
     if (!gap || turn < ROUND_STEP) { out.push(miter); continue; }
-    if (join === "miter" && Math.sqrt(2 / (1 + cosine)) <= MITER_LIMIT) out.push(miter);
+    if (join === "miter" && !far) out.push(miter);
     else if (join === "round") {
-      const start = Math.atan2(n1[1], n1[0]), steps = Math.ceil(turn / ROUND_STEP);
+      const start = Math.atan2(n1[1], n1[0]), steps = Math.max(1, Math.ceil(turn / arcStep));
       const direction = cross(n1, n2) >= 0 ? 1 : -1;
       for (let s = 0; s <= steps; s += 1) {
         const angle = start + (direction * turn * s) / steps;
@@ -369,8 +445,9 @@ function offset(contour, { amount, join }, sign) {
     } else out.push(a, b);
   }
   // A closed outline shrunk past its middle turns inside out (its winding flips, or most of its
-  // edges run backward): it is gone.
-  if (closed && insideOut(points, anchors, directions)) return null;
+  // edges run backward): it is gone. An outline that grows (a hole that shrinks) cannot.
+  const shrinks = (Math.sign(signedArea(points)) === sign) === amount < 0;
+  if (closed && shrinks && insideOut(points, anchors, directions)) return null;
   return polylineContour(out, closed);
 }
 

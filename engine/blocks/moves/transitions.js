@@ -350,7 +350,8 @@ export const whipPan = {
       animate("whip", paced(motion, pace, { name: "Whip", kind, start: ctx.start, duration: ctx.duration, easing: whip, from: begin, to: end }));
       // The blur rises to its peak at the fastest moment and falls back as the move ends.
       animate("smear", paced(effect, pace, { name: "Smear", effect: "directional-blur", start: ctx.start, duration: half, easing: ctx.curve(CURVE.smearUp),
-        from: { length: 0 }, to: { length: smear, angle: blurAngle } }));
+        // An angled whip holds its angle from the start (a direction keeps its old sweep).
+        from: direction ? { length: 0 } : { length: 0, angle: blurAngle }, to: { length: smear, angle: blurAngle } }));
       animate("unsmear", paced(effect, pace, { name: "Unsmear", effect: "directional-blur", start: middle, duration: half, easing: ctx.curve(CURVE.smearDown),
         to: { length: 0, angle: blurAngle } }));
     };
