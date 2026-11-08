@@ -147,12 +147,15 @@ function latticeSteps(lut) {
   return steps.join("");
 }
 
-/** Per-channel tables for a LUT that changes each channel on its own (1D, or a separable 3D LUT). */
-function separableTables(lut, strength) {
+/**
+ * Per-channel tables for a LUT that changes each channel on its own (1D, or a separable 3D LUT).
+ * `sample(value)` gives the output for grey `value`; by default it reads the LUT.
+ */
+function separableTables(lut, strength, sample = (value) => sampleLut(lut, [value, value, value])) {
   const columns = [[], [], []];
   for (let index = 0; index < TABLE_SIZE; index += 1) {
     const value = index / (TABLE_SIZE - 1);
-    const output = sampleLut(lut, [value, value, value]);
+    const output = sample(value);
     for (let channel = 0; channel < 3; channel += 1) columns[channel].push(value + strength * (output[channel] - value));
   }
   return columns;
@@ -171,11 +174,15 @@ export function renderLut(frame) {
   if (lut === null) return frame.content;
   if (lut === undefined) throw new Error(`The LUT ${source} was not loaded for this drawing.`);
   if (lut.error) throw new Error(lut.error);
-  const strength = numberParameter(frame, "strength", 1, 0, 1);
+  return drawLut(frame, lut, numberParameter(frame, "strength", 1, 0, 1));
+}
+
+/** Draws a parsed or generated LUT over frame.content, mixed with the layer by strength 0..1. */
+function drawLut(frame, lut, strength, sample) {
   if (strength === 0) return frame.content;
   const plan = lutPlan(lut);
   if (plan.separable) {
-    const step = transfer(separableTables(lut, strength));
+    const step = transfer(separableTables(lut, strength, sample));
     return step ? filterEffect(frame, step, { padding: 0 }) : frame.content;
   }
   return filterEffect(frame, [
@@ -183,6 +190,64 @@ export function renderLut(frame) {
     `<feComposite in="lut" in2="source" operator="arithmetic" k1="0" k2="${number(strength)}" k3="${number(1 - strength)}" k4="0" result="mixed"/>`,
     '<feComposite in="mixed" in2="SourceAlpha" operator="in"/>',
   ], { padding: 0 });
+}
+
+// ---- generated LUTs ------------------------------------------------------------------------------
+
+// LUTs built from a pixel function, kept by name, size and rounded parameters (oldest dropped first).
+const FUNCTION_LUT_LIMIT = 48;
+const functionLuts = new Map();
+
+const roundParameters = (value) => typeof value === "number" ? Number(value.toFixed(4))
+  : Array.isArray(value) ? value.map(roundParameters)
+  : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, roundParameters(value[key])]))
+  : value;
+
+/**
+ * A 3D LUT (17 or 33 points a side) from `color(r, g, b, parameters)`, which takes and returns
+ * 0..1 values. Numbers in `parameters` are rounded to 4 decimals; the rounded copy is what
+ * `color` gets and what the cache is keyed by, so equal looks share one LUT and one filter plan.
+ * Returns {lut, sample}; `sample` reads the function itself for a LUT that is separable.
+ */
+export function functionLut({ name, color, parameters = {}, size = 17 }) {
+  if (typeof name !== "string" || !name) throw new Error("A generated LUT needs a name.");
+  if (typeof color !== "function") throw new Error(`The generated LUT ${name} needs a color function.`);
+  if (size !== 17 && size !== 33) throw new Error(`The generated LUT ${name} has size ${size}; use 17 or 33.`);
+  const rounded = roundParameters(parameters);
+  const key = `${name}|${size}|${JSON.stringify(rounded)}`;
+  const cached = functionLuts.get(key);
+  if (cached) {
+    functionLuts.delete(key);
+    functionLuts.set(key, cached);
+    return cached;
+  }
+  const output = (r, g, b) => {
+    const rgb = color(r, g, b, rounded);
+    if (!Array.isArray(rgb) || rgb.length < 3 || !rgb.slice(0, 3).every(Number.isFinite))
+      throw new Error(`The generated LUT ${name} gave ${JSON.stringify(rgb)} for (${r}, ${g}, ${b}); it must give three numbers.`);
+    return [clamp01(rgb[0]), clamp01(rgb[1]), clamp01(rgb[2])];
+  };
+  const table = new Float64Array(size ** 3 * 3);
+  let at = 0;
+  for (let blue = 0; blue < size; blue += 1) for (let green = 0; green < size; green += 1) for (let red = 0; red < size; red += 1) {
+    table.set(output(red / (size - 1), green / (size - 1), blue / (size - 1)), at);
+    at += 3;
+  }
+  const lut = { title: name, type: "3d", size, domainMin: [0, 0, 0], domainMax: [1, 1, 1], table };
+  const entry = { lut, sample: (value) => output(value, value, value) };
+  functionLuts.set(key, entry);
+  if (functionLuts.size > FUNCTION_LUT_LIMIT) functionLuts.delete(functionLuts.keys().next().value);
+  return entry;
+}
+
+/**
+ * Draws a generated LUT (see functionLut) the way the lut effect draws a .cube: per-channel
+ * tables when each channel changes on its own, the 3D lattice otherwise. strength 0..1 mixes
+ * with the layer.
+ */
+export function renderFunctionLut(frame, { strength = 1, ...lutOptions }) {
+  const { lut, sample } = functionLut(lutOptions);
+  return drawLut(frame, lut, clamp01(strength), sample);
 }
 
 // ---- hue-saturation -------------------------------------------------------------------------------
