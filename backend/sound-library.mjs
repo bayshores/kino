@@ -49,8 +49,8 @@ export function musicQuery({ mood, energy, bpm, search } = {}) {
 
 // curl writes the file to a temp folder; the bytes come back (only with the real fetch: tests stub
 // both).
-async function curlBytes(url) {
-  const folder = await makeTempFolder("kino-sound-lib-");
+export async function curlBytes(url) {
+  const folder = await makeTempFolder("kino-sound-");
   try {
     const file = path.join(folder, "download");
     await run("curl", ["-fsSL", "--max-time", "120", "-o", file, url]);

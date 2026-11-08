@@ -109,6 +109,15 @@ test("reading_time: text must stay readable for its characters ÷ 20 seconds", a
   await silent("reading_time", readFor(1.6, "ease-in", { role: "ui" }));
 });
 
+test("reading_time: a typed line is read while it types, if the whole line then holds 20 frames", async () => {
+  // 60 characters need 3 s. Typed letter by letter from 0.2 s to about 2.65 s (0.04 s a letter).
+  const typed = (exitAt) => scene({ duration: 5, layers: [text("line", LONG_LINE, { fontSize: 48,
+    animations: [{ ...fadeIn(0.2, 0.05), unit: "letters", stagger: 0.04 }, fadeOut(exitAt, 0.2, "ease-in")] })] });
+  // Good: held about 0.9 s after the last letter. Bad: gone 0.15 s after it.
+  await silent("reading_time", typed(3.6));
+  await fires("reading_time", typed(2.8));
+});
+
 // A camera tour: a 1920x1080 group "arch" holds at x 0 until 1 s, travels to `stopX` (1.4 s),
 // holds until 2.3 s, then pulls back to x 0 at half size (2.8 s) and holds to the end. Its
 // texts are laid out on a canvas wider than the frame.

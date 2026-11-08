@@ -42,6 +42,18 @@ function entranceBefore(model, item, time) {
 // time and hold checks (launch films show every UI string small and briefly).
 const isUiText = (item) => item.role === "ui";
 
+// A line typed letter by letter or word by word is read while it types: the typing up to its
+// readable stretch counts, when the whole line then stays at least 20 frames (a viewer finishes
+// the last words). Without this a typed prompt had to hold 2.4 s after its last letter, the
+// dead spot two viewers flagged.
+function typedBefore(model, item, run) {
+  const from = model.times[run.from];
+  if (run.length / model.fps + 0.5 / model.fps < MIN_READ_SECONDS) return 0;
+  const typing = tweensOf(model, item.id).find((tween) => tween.kind === "in" && tween.unit !== "layer" && tween.spread > 0
+    && tween.keys.includes("opacity") && Math.abs(tween.end - from) <= 3 / model.fps);
+  return typing ? Math.max(0, from - typing.start) : 0;
+}
+
 export function readingTime(model, ctx) {
   const findings = [];
   for (const item of readingTexts(model)) {
@@ -54,7 +66,7 @@ export function readingTime(model, ctx) {
       const readable = readableRuns(model, item, textIndex);
       const best = longestRun(readable);
       const summed = readable.filter((run) => run.length >= 0.5 * model.fps).reduce((sum, run) => sum + run.length, 0);
-      const measured = best ? Math.max(best.length, summed) / model.fps : 0;
+      const measured = best ? Math.max(best.length / model.fps + typedBefore(model, item, best), summed / model.fps) : 0;
       if (measured + 0.5 / model.fps >= required) continue;
       const short = sec(required - measured);
       const at = best ? model.times[best.from] : model.times[item.samples.opacity.findIndex((value) => value >= 0.3)] ?? 0;

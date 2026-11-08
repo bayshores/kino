@@ -14,7 +14,7 @@ import { boardAsk } from "./agent/board-text.mjs";
 import { askText } from "./agent/stops.mjs";
 import { defaultSettings, mergeSettings } from "./agent/dashboard.mjs";
 import { startTestServer } from "./media.test.support.mjs";
-import { createSoundLibrary, musicDrop, reversedWav } from "./sound-library.mjs";
+import { createSoundLibrary, curlBytes, musicDrop, reversedWav } from "./sound-library.mjs";
 import { createSoundSearch, freesoundLicense } from "./sound-search.mjs";
 import { askedShape, junkSound, rankSounds, sfxPrompt } from "./sfx-rank.mjs";
 import { countOnsets } from "./inspire.mjs";
@@ -233,6 +233,10 @@ test("a library download that fails on the network is tried again, then names it
     const curl = async () => { throw new Error("curl: (6) Could not resolve host"); };
     const offline = createSoundLibrary({ directory: path.join(folder, "b"), catalog, fetch: down, curl, retryWaits: [1, 1], addMedia: async () => null });
     await assert.rejects(offline.importItem("music:one"), /could not download One\.mp3 \(fetch failed: ENOTFOUND; curl: curl: \(6\) Could not resolve host\)/);
+    // The real curl fallback runs (a local file URL: no network) in a temp folder kino allows.
+    const local = path.join(folder, "song.bin");
+    await writeFile(local, bytes);
+    assert.deepEqual(await curlBytes(`file://${local}`), bytes);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
