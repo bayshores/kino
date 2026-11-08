@@ -1,14 +1,17 @@
 # Color
 
-Grading a picture: curves, LUTs, hue and saturation, white balance, lift/gamma/gain and keeping
-one color, plus the `add` blend mode.
+Grading a picture: curves, LUTs, hue and saturation, white balance, lift/gamma/gain, keeping
+or changing one color, plus the `add` blend mode.
 
 ## Color grading
 
 - The Color effects (`curves`, `lut`, `hue-saturation`, `white-balance`, `color-wheels`,
-  `keep-color`) go on with `add_animation` and stack in order; grade a group to grade its layers.
+  `keep-color`, `color-ranges`) go on with `add_animation` and stack in order; grade a group to
+  grade its layers.
   `library {topic:"rules", name:"color"}` has their fields, the colour space (sRGB 0–1, Rec.709
   luma) and recipes: teal-orange, bleach-bypass, noir-keep-red.
+- One color only: `color-ranges` takes `<range>Hue`, `<range>Saturation`, `<range>Lightness` for red,
+  orange, yellow, green, aqua, blue, purple, magenta (e.g. `blueHue:-20`), plus `highlights`, `shadows`.
 - A LUT: import the .cube with `project {action:"import", file}`, then `effect:"lut"` with
   `parameters:{lut:"<src>"}`. `blendMode:"add"` on a layer is linear dodge.
 - Mixed sources: `match_color` with `layers` (or `layer`) and `to` (the reference layer) grades each

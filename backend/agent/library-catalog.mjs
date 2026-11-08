@@ -41,6 +41,11 @@ const EFFECT_TAGS = {
   "3d-orbit": ["orbit-3d"], "card-flip": ["orbit-3d"], wiggle: ["shake"], "focus-band": ["depth-blur"],
   grain: ["grain"], vignette: ["vignette"],
 };
+// Lines for effects no technique tag describes.
+const EFFECT_LINES = {
+  "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; greys stay grey",
+    "one color pushed or muted, sky or foliage shifted, a brand color matched"],
+};
 const RECIPE_TAGS = {
   "hook-slam": ["type-giant"], "caption-pop": ["type-pop"], "number-counter": ["type-counter"], "price-pop": ["type-pop"], "title-type": ["type-letters"],
   "wordmark-type": ["type-letters"], "split-reveal": ["type-mask-rise"], "headline-reveal": ["type-mask-rise"], "connector-draw": ["draw-on"],
@@ -88,7 +93,8 @@ export function libraryCatalog() {
   for (const effect of EFFECTS) {
     const tags = EFFECT_TAGS[effect.key] ?? [];
     const settings = Object.values(effect.parameters ?? {}).map((parameter) => parameter.label.toLowerCase());
-    entries.push(entry("effect", effect.key, firstLine(tags)?.line ?? `${effect.group.toLowerCase()} effect${settings.length ? `: ${settings.slice(0, 3).join(", ")}` : ""}`, firstLine(tags)?.fits, tags));
+    const [line, fits] = EFFECT_LINES[effect.key] ?? [];
+    entries.push(entry("effect", effect.key, line ?? firstLine(tags)?.line ?? `${effect.group.toLowerCase()} effect${settings.length ? `: ${settings.slice(0, 3).join(", ")}` : ""}`, fits ?? firstLine(tags)?.fits, tags));
   }
   for (const preset of PRESETS) {
     const tags = ANIMATION_TAGS[preset.id] ?? [];
@@ -199,6 +205,7 @@ const EFFECT_STRONG = {
   "noise-mask": { threshold: 0.5 },
   "color-grade": { stops: 0.7, contrast: 1.2, saturation: 0.6 },
   vignette: { amount: 0.85 },
+  "color-ranges": { orangeHue: -60, orangeSaturation: 0.5, yellowHue: -40, blueHue: 40, blueSaturation: -0.6, shadows: 0.4, highlights: -0.3 },
 };
 // Effects shown on the picture only: a vignette on the word would shade the word's own box.
 const PICTURE_ONLY = new Set(["vignette"]);
