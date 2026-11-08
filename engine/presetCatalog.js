@@ -227,6 +227,9 @@ export const PRESET_MADE_FIELDS = Object.freeze(["from", "to", "kind", "discrete
 
 /** Apply editor and MCP patches identically. Timing/easing edits keep generated values. */
 export function patchPresetAnimation(animation, patch, layer, { document, fonts } = {}) {
+  // A keyed animation saves its first and last key as from and to (model.js readAnimationKeys).
+  if (animation.keys && patch.keys === undefined && (Object.hasOwn(patch, "from") || Object.hasOwn(patch, "to")))
+    throw new TypeError("This animation has keys, and its from and to are the first and last key: change keys, or send keys:null to use from and to");
   const next = { ...animation, ...patch, id: animation.id };
   if (patch.preset === null) { delete next.preset; return next; }
   if (Object.hasOwn(patch, "preset")) {

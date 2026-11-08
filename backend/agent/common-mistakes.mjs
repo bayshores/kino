@@ -800,7 +800,14 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
     const example = customExample(layer, "Move", first ? values(first) : { x: 100 }, last ? values(last) : { x: 1600 });
     if (first && typeof first.time === "number" && typeof last?.time === "number" && last.time > first.time)
       Object.assign(example.animation, { start: first.time, duration: last.time - first.time });
-    throw mistake("add_animation has no keyframes: send one custom animation from one keyframe to the next (from → to), one add_animation per step.", example);
+    if (frames.length > 2) {
+      const span = Math.max(1e-3, (typeof last?.time === "number" ? last.time : 1) - (typeof first?.time === "number" ? first.time : 0));
+      delete example.animation.from; delete example.animation.to;
+      example.animation.keys = frames.slice(0, 64).map((frame, index) => ({
+        t: typeof frame.time === "number" && typeof first.time === "number" ? Math.min(1, Math.max(0, (frame.time - first.time) / span)) : index / (frames.length - 1),
+        value: values(frame) }));
+    }
+    throw mistake("add_animation has no keyframes: send animation {kind:\"custom\", start, duration, keys:[{t, value, ease?}]}, t a share 0..1 of the duration (3+ keys), or from → to for two.", example);
   }
   fixTimes(operation, fixes);
   fixEase(operation, fixes, "");

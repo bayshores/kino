@@ -813,7 +813,8 @@ export function lowpassSampler(layer) {
   if (!animatesLowpass(layer)) return () => cutoff(rest);
   // The animations are run on log2(Hz), so their easing is in octaves.
   const toOctaves = (values) => values && Object.hasOwn(values, "lowpass") ? { ...values, lowpass: Math.log2(values.lowpass) } : values;
-  const animations = enabledAnimations(layer.animations).map((animation) => ({ ...animation, from: toOctaves(animation.from), to: toOctaves(animation.to) }));
+  const animations = enabledAnimations(layer.animations).map((animation) => ({ ...animation, from: toOctaves(animation.from), to: toOctaves(animation.to),
+    ...(animation.keys ? { keys: animation.keys.map((key) => ({ ...key, value: toOctaves(key.value) })) } : {}) }));
   const ordered = orderedAnimations(animations);
   const withRest = { ...layer, lowpass: Math.log2(rest) };
   return (time) => {
@@ -872,6 +873,21 @@ function equalPowerProgress(from, to, progress) {
   return from === 0 ? Math.sin(progress * Math.PI / 2) : 1 - Math.cos(progress * Math.PI / 2);
 }
 
+// The step of a keyed animation at `progress` (0..1 of its duration): the two keys around it
+// and the eased share between them, in the first key's ease (else the animation's easing).
+// Before the first key it holds the first value, after the last key the last.
+function keyedStep(animation, progress) {
+  const keys = animation.keys;
+  const first = keys[0], last = keys.at(-1);
+  if (progress <= first.t) return { from: first.value, to: first.value, eased: 0 };
+  if (progress >= last.t) return { from: last.value, to: last.value, eased: 1 };
+  let index = 0;
+  while (index < keys.length - 2 && progress >= keys[index + 1].t) index++;
+  const a = keys[index], b = keys[index + 1];
+  const share = (progress - a.t) / (b.t - a.t);
+  return { from: a.value, to: b.value, eased: easingAt(a.ease ?? animation.easing ?? "linear", share, animation.intensity) };
+}
+
 // Runs the timed operations `ordered` (sorted by start) on `target` at `time`: each operation
 // sets the values it names, and a later one overrides an earlier one. Before its start, only an
 // "in" operation applies (its From values). `onlyKeys` limits the values that are set.
@@ -915,11 +931,11 @@ function applyOperations(target, layer, ordered, time, options, {
       // additive drawing adjustments and must still be applied only once by the outer evaluator.
       animation = withResolvedFrom(animation, initialState(layer, ordered, index, start, options, initialStates));
     }
-    const from =
+    let from =
       animation.from && typeof animation.from === "object"
         ? animation.from
         : {};
-    const to =
+    let to =
       animation.to && typeof animation.to === "object" ? animation.to : {};
     let keys = [...new Set([...Object.keys(from), ...Object.keys(to)])];
     const followsPath = isMoveAnimation(animation) && animation.motionPath?.points?.length > 0;
@@ -963,6 +979,9 @@ function applyOperations(target, layer, ordered, time, options, {
       duration <= 0 ? 1 : Math.max(0, Math.min(1, local / duration));
     if (progress > 1 - 1e-12) progress = 1;
     let eased = discreteProgress(animation.discrete, easingAt(animation.easing ?? "linear", progress, animation.intensity));
+    // A keyed animation plays the step of its keys that holds this moment (keyedStep).
+    const step = Array.isArray(animation.keys) && animation.keys.length > 1 ? keyedStep(animation, progress) : null;
+    if (step) ({ from, to, eased } = step);
     // A range selector (textTiming.js textRangeProgress): this unit's share of the eased sweep.
     if (animation.range) eased = textRangeProgress(animation.range, eased, operationUnitIndex(animation, options), operationUnitCount(animation, options));
     // Ephemeral sampling metadata: Lottie must hold these opacity switches between frames.
@@ -986,7 +1005,7 @@ function applyOperations(target, layer, ordered, time, options, {
             : key === "axes"
               // Axes the animation does not name keep the layer's own value (wdth stays while wght moves).
               ? { ...target.axes, ...interpolateAxes(fromValue, toValue, eased, target) }
-            : key === "volume" && isPowerFade(animation, fromValue, toValue)
+            : key === "volume" && !step && isPowerFade(animation, fromValue, toValue)
               ? interpolateValue(fromValue, toValue, equalPowerProgress(fromValue, toValue, progress))
             : interpolateValue(fromValue, toValue, eased);
     if (wiggle && typeof target[key] === "number") {

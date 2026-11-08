@@ -569,6 +569,35 @@ function normalizeEasing(value, path) {
   catch (error) { fail(path, error.message); }
 }
 
+// A custom animation's keys (animation.js keyedStep): 3 to 64 of {t, value, ease?}, t a share
+// of the duration (0..1) rising key by key, every value naming the same properties. from and to
+// become the first and last value. Returns the keys with their eases checked.
+const MAX_ANIMATION_KEYS = 64;
+const KEYS_CLASH = ["motionPath", "scatter", "range", "fromCurrent", "preset", "discrete"];
+function readAnimationKeys(animation, path) {
+  if (animation.kind !== "custom") fail(`${path}.keys`, "only a custom animation has keys");
+  for (const field of KEYS_CLASH) if (animation[field] != null) fail(`${path}.keys`, `can't be used with ${field}`);
+  const list = requireArray(animation.keys, `${path}.keys`, MAX_ANIMATION_KEYS);
+  if (list.length < 3) fail(`${path}.keys`, "needs 3 or more keys (two ends are from and to)");
+  let names = null, before = -1;
+  const keys = list.map((raw, index) => {
+    const at = `${path}.keys[${index}]`;
+    requireRecord(raw, at);
+    for (const field of Object.keys(raw)) if (!["t", "value", "ease"].includes(field)) fail(`${at}.${field}`, "is not t, value or ease");
+    const t = requireNumber(raw.t, `${at}.t`, 0, 1);
+    if (t <= before) fail(`${at}.t`, "must be later than the key before it");
+    before = t;
+    const own = Object.keys(requireRecord(raw.value, `${at}.value`)).sort().join(", ");
+    if (!own) fail(`${at}.value`, "must name at least one property");
+    names ??= own;
+    if (own !== names) fail(`${at}.value`, `must name the same properties as the first key (${names})`);
+    return { t, value: { ...raw.value }, ...(raw.ease == null ? {} : { ease: normalizeEasing(raw.ease, `${at}.ease`) }) };
+  });
+  animation.from = { ...keys[0].value };
+  animation.to = { ...keys.at(-1).value };
+  return keys;
+}
+
 // Missing intensity keeps old documents structurally unchanged and evaluates as 50.
 function normalizeAnimationIntensity(animation, path) {
   if (animation.intensity === undefined) return;
@@ -680,6 +709,8 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
     fail(path, `start plus duration cannot exceed ${MAX_TIME} seconds`);
   animation.easing = normalizeEasing(animation.easing, `${path}.easing`);
   normalizeAnimationIntensity(animation, path);
+  if (animation.keys == null) delete animation.keys;
+  const keyList = animation.keys ? readAnimationKeys(animation, path) : null;
   const from = requireRecord(animation.from, `${path}.from`);
   const to = requireRecord(animation.to, `${path}.to`);
   // A wiggle may name the keys it drifts in its amount (behavior.js): they join from and to at
@@ -764,6 +795,16 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   }
   animation.from = normalizedFrom;
   animation.to = normalizedTo;
+  if (keyList) {
+    animation.keys = keyList.map((key, index) => ({ ...key, value: Object.fromEntries(Object.entries(key.value).map(([name, value]) =>
+      [name, validateAnimatedValue(name, value, `${path}.keys[${index}].value.${name}`)])) }));
+    if (Object.hasOwn(normalizedTo, "path")) {
+      for (let index = 1; index < animation.keys.length; index++) {
+        try { interpolatePath(animation.keys[index - 1].value.path, animation.keys[index].value.path, 0.5); }
+        catch (error) { fail(`${path}.keys[${index}].value.path`, error.message); }
+      }
+    }
+  }
   if (animation.behavior === undefined || animation.behavior === null) delete animation.behavior;
   else {
     try { animation.behavior = normalizeBehavior(animation.behavior, (key) => typeof normalizedTo[key] === "number"); }

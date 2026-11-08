@@ -56,7 +56,12 @@
  *   anchor?:ResizeAnchor,motionPath?:MotionPath,enabled?:false,
  *   shadowChannels?:Array<'color'|'opacity'|'x'|'y'|'blur'>,fromCurrent?:true,
  *   preset?:{id:string,mode:'in'|'out',parameters:Object,text?:boolean},
- *   discrete?:{type:'instant'}|{type:'blink',count:number}}} TimedAnimation
+ *   discrete?:{type:'instant'}|{type:'blink',count:number},
+ *   keys?:Array<{t:number,value:Values,ease?:string|[number,number,number,number]}>}} TimedAnimation
+ *   `keys` (custom only, 3 to 64): t is a share 0..1 of the duration, rising; each value names the
+ *   same properties; ease shapes the step to the next key (default `easing`). from and to are
+ *   saved as the first and last value; the first holds before its t, the last after (model.js
+ *   readAnimationKeys, animation.js keyedStep).
  *   A preset's identity and controls regenerate its endpoints only on a parameter edit. Old
  *   endpoint-only animations are unchanged. Direct endpoint edits detach the preset controls.
  *   Reveal progress 0..1 clips content along its direction, with softness as a percentage.

@@ -49,6 +49,7 @@ export const TIMED_ANIMATION_FIELDS = Object.freeze([
   "motionPath",
   "shadowChannels",
   "behavior", // wiggle and loop (behavior.js)
+  "keys", // a custom animation's 3+ keys (model.js readAnimationKeys)
 ]);
 
 const NAMES = Object.freeze({ hide: "Hide", show: "Show" });

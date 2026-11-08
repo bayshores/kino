@@ -1,9 +1,15 @@
-# Behaviors: loop, wiggle and copies
+# Behaviors: keys, loop, wiggle and copies
 
-No expressions and no keyframe lists: an in, out or custom animation takes a `behavior`, and
+No expressions: an in, out or custom animation takes a `behavior`, a custom one `keys`, and
 `duplicate_layers` makes many real copies. Every result is a pure function of time and seed, so
 check, look and Lottie (baked to keyframes) see exactly what plays.
 
+- `animation:{kind:"custom", start, duration, keys:[{t:0, value:{x:0, opacity:0}}, {t:0.4,
+  value:{x:300, opacity:1}, ease:"overshoot"}, {t:1, value:{x:260, opacity:1}}]}`: 3 to 64 keys,
+  `t` a share 0..1 of the duration, rising; every `value` names the same keys (any animatable
+  one: effectPreset, rotateX...). `ease` shapes the step to the next key (default the
+  animation's easing). Before the first key it holds the first value, after the last the last;
+  from and to become the first and last value. Not with motionPath, scatter, range, fromCurrent.
 - `behavior:{loop:{mode:"cycle"}}` plays the animation again and again from its start until the
   scene ends (inside a component: its source scene's end); `"pingpong"` plays it forward then
   backward. A looping layer counts as perpetual, so a constant-speed spin may be `linear`.

@@ -302,6 +302,11 @@ ops: add_animation, update_animation
 
 Custom operations without preset metadata accept fromCurrent:true, also as an add_animation override: earlier enabled operations are sampled at this operation's staggered start, in start/list order. Those raw property values replace From during playback; stored From values are remembered and return when fromCurrent is false/null (removed). Existing omitted flags and catalog defaults retain exact legacy behavior, including Letter spacing and Line height's optional From representation. In/Out presets, Composed containers, Hide/Show, Change text and Counter refuse the flag.
 
+## keys: Multi-key animations
+ops: add_animation, update_animation
+
+A custom animation may take keys: 3 to 64 of {t, value, ease?} in place of from and to. t is a share 0..1 of the duration, rising key by key; every value names the same properties (any animatable one, effectPreset and rotateX/rotateY too); ease (an easing name or four Bezier numbers) shapes the step to the next key and defaults to the animation's easing. Before the first key the first value holds, after the last key the last. from and to are saved as the first and last value. keys can't be used with motionPath, scatter, range, fromCurrent, preset or discrete; null removes them.
+
 ## shadow-channels: Animating only some shadow properties
 ops: add_animation, update_animation
 
