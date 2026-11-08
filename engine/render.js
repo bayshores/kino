@@ -14,7 +14,7 @@ import { FULL_REVEAL, isGeneralReveal, normalizeReveal } from "./reveal.js";
 import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { shadowStrength, stackedShadows } from "./stackedShadows.js";
-import { stackedStrokes, strokeReach } from "./stackedStrokes.js";
+import { splitLetterStrokes, stackedStrokes, strokeReach } from "./stackedStrokes.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
 import { hasTextChanges } from "./textChange.js";
@@ -674,12 +674,16 @@ function clipTextUnit(markup, state, context) {
 // outline never covers a neighbor letter.
 function textGlyphPaths(unit, state, context) {
   if (!stackedStrokes(state).length) return glyphPaths(unit, state, context);
-  const letters = glyphPaths(unit, { ...state, strokes: null }, context);
+  return `${glyphPaths(unit, { ...state, strokes: null }, context)}${textListStrokes(unit, state, context)}`;
+}
+
+// The `strokes` list around all the outlined letters of `unit` together.
+function textListStrokes(unit, state, context) {
   const outlined = unit.glyphs.filter((glyph) => glyph.path && !glyph.color);
-  if (!outlined.length) return letters;
+  if (!outlined.length) return "";
   const d = outlined.map((glyph) => glyphPath(glyph)).join(" ");
   const bounds = mergeBounds(outlined.map(glyphPathBounds).filter(Boolean)) ?? { x: 0, y: 0, width: state.width, height: state.height };
-  return `${letters}${listStrokes((attributes) => `<path d="${escapeXml(d)}" ${attributes}/>`, state, context, bounds, () => d)}`;
+  return listStrokes((attributes) => `<path d="${escapeXml(d)}" ${attributes}/>`, state, context, bounds, () => d);
 }
 
 function glyphPaths(unit, state, context) {
@@ -894,35 +898,47 @@ function textSvg(layer, base, context) {
     const missing = layout.lines.some((line) => line.glyphs.some((glyph) => glyph.missing));
     return `<g role="img" aria-label="${escapeXml(layout.text)}"${missing ? ' data-missing-glyphs="true"' : ""}>${missing ? "<title>Some characters are unavailable and are shown as boxes.</title>" : ""}${layoutUnitPaths(layout, "layer", wholeLayout(layout, context), base, context)}</g>`;
   }
-  return units.map((unit, index) => {
-    const state = textAnimationUnitState(plan, index, context.time, { design: context.design });
+  return unitsSvg(layer, units.map((unit, index) => ({ unit,
+    state: textAnimationUnitState(plan, index, context.time, { design: context.design }) })), context, true);
+}
+
+// Text units drawn apart, each in its own state. Independently animated text units keep their
+// motion and blur. They sample the same layer-local field/clock before each unit's shadow/blur,
+// rather than warping the parent coordinate system or applying its transform twice. This
+// ordering is our own design. A `strokes` list that starts with outside strokes draws those
+// under every unit's letters first, one stroke at a time across all units, as on whole text
+// (splitLetterStrokes). A solid first stroke casts the shadows; otherwise the letters do.
+function unitsSvg(layer, items, context, label) {
+  const drawn = items.map(({ unit, state }) => {
     // The unit's own letters, laid out in its state: a Letter spacing, size or width change can
     // wrap the text onto other lines (textLayout.js unitGlyphs).
     const layout = layoutText(state, context.fonts), range = unitRange(unit);
     const current = layoutUnit(layout, range, () => unitGlyphs(layout, unit), context);
-    if (state.visible === false) return "";
-    // Independently animated text units keep their motion and blur. They sample the same
-    // layer-local field/clock before each unit's shadow/blur, rather than warping the parent
-    // coordinate system or applying its transform twice. This ordering is our own design.
-    const painted = effectContent(backdropContent(layoutUnitPaths(layout, range, current, state, context), layer, state, context, { unit: current }), layer, state, context, layoutUnitBounds(layout, range, current, context));
-    recordTextUnitBounds(layer, state, painted, context);
-    return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(state, context, hasFilterEffect(state) ? painted.bounds : null)} aria-label="${escapeXml(unit.text)}">${painted.content}</g>`, state, context);
-  }).join("");
+    return { unit, state, layout, range, current };
+  }).filter(({ state }) => state.visible !== false);
+  const unitSvg = ({ unit, state, layout, range, current }, part, entry = 0) => {
+    const split = part && splitLetterStrokes(state);
+    const unshadowed = { shadow: null, shadows: null };
+    const shown = !split ? state : part === "under" ? { ...state, strokes: [split.under[entry]], ...(split.solid && !entry ? {} : unshadowed) }
+      : { ...state, strokes: split.over, ...(split.solid ? unshadowed : {}) };
+    const paths = part === "under" ? textListStrokes(current, shown, context)
+      : backdropContent(layoutUnitPaths(layout, range, current, shown, context), layer, shown, context, { unit: current });
+    const painted = effectContent(paths, layer, shown, context, layoutUnitBounds(layout, range, current, context));
+    recordTextUnitBounds(layer, shown, painted, context);
+    return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(shown, context, hasFilterEffect(shown) ? painted.bounds : null)}${label ? ` aria-label="${escapeXml(unit.text)}"` : ""}>${painted.content}</g>`, state, context);
+  };
+  if (!drawn.some(({ state }) => splitLetterStrokes(state))) return drawn.map((item) => unitSvg(item, null)).join("");
+  const entries = Math.max(...drawn.map(({ state }) => splitLetterStrokes(state)?.under.length ?? 0));
+  const under = Array.from({ length: entries }, (_, entry) => drawn.filter(({ state }) => splitLetterStrokes(state)?.under.length > entry)
+    .map((item) => unitSvg(item, "under", entry)).join("")).join("");
+  return `${under}${drawn.map((item) => unitSvg(item, "over")).join("")}`;
 }
 
 // A text layer with Change text operations (textChange.js): each string drawn at this time, with
 // each of its units in its own state (textChangeDraw.js), as one labelled image per string.
 function changedTextSvg(layer, context) {
   return textDrawingsAt(layer, context.time, context.fonts).map((drawing) => {
-    const units = drawing.units.map(({ unit, state }) => {
-      if (state.visible === false) return "";
-      // The unit's own letters, laid out in its state, as textSvg draws them.
-      const layout = layoutText(state, context.fonts), range = unitRange(unit);
-      const current = layoutUnit(layout, range, () => unitGlyphs(layout, unit), context);
-      const painted = effectContent(backdropContent(layoutUnitPaths(layout, range, current, state, context), layer, state, context, { unit: current }), layer, state, context, layoutUnitBounds(layout, range, current, context));
-      recordTextUnitBounds(layer, state, painted, context);
-      return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(state, context, hasFilterEffect(state) ? painted.bounds : null)}>${painted.content}</g>`, state, context);
-    }).join("");
+    const units = unitsSvg(layer, drawing.units, context, false);
     return `<g role="img" aria-label="${escapeXml(drawing.text)}">${units}</g>`;
   }).join("");
 }

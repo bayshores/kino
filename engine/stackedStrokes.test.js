@@ -4,6 +4,8 @@ import { Resvg } from "@resvg/resvg-js";
 import { renderSceneSvg } from "./render.js";
 import { createDocument, createLayer, parseDocument } from "./model.js";
 import { normalizeStrokeList } from "./stackedStrokes.js";
+import { outlineTextLayers } from "./outlineText.js";
+import { defaultFonts } from "./fonts.js";
 
 const layer = (type, values = {}) => ({ ...createLayer(type), id: type, name: type, x: 40, y: 40, width: 160, height: 90, fill: "#ffffff", ...values });
 const scene = (...layers) => ({ width: 400, height: 300, background: "#000000", layers });
@@ -67,4 +69,31 @@ test("a bad list is refused with the field it names", () => {
   const document = createDocument();
   document.scenes[0].layers = [{ ...createLayer("group"), id: "g", strokes: [{ color: "#000", width: 2 }] }];
   assert.throws(() => parseDocument(JSON.stringify(document)), /strokes list/);
+});
+
+// A sticker outline: wide white under narrow black, both outside and round.
+const sticker = [{ color: "#ffffff", width: 18, align: "outside", join: "round" }, { color: "#111111", width: 8, align: "outside", join: "round" }];
+const word = (values = {}) => layer("text", { text: "kino", x: 40, y: 60, width: 320, height: 140, fontSize: 110, fill: "#ffe14d", strokes: sticker, ...values });
+const pixels = (layers, time) => new Resvg(renderSceneSvg({ width: 400, height: 300, background: "#335577", layers }, time, { raster: true })).render().pixels;
+// Letter pixels (the yellow fill) of `still` that `other` covers with something else.
+const covered = (still, other) => {
+  const yellow = (pixels, index) => Math.abs(pixels[index] - 0xff) + Math.abs(pixels[index + 1] - 0xe1) + Math.abs(pixels[index + 2] - 0x4d) < 12;
+  let count = 0, letters = 0;
+  for (let index = 0; index < still.length; index += 4) if (yellow(still, index)) { letters += 1; if (!yellow(other, index)) count += 1; }
+  assert.ok(letters > 3000, "the still shows its letters");
+  return count;
+};
+
+test("an outside outline stays under every letter when letters animate apart, and on outline_text letters", () => {
+  const still = pixels([word()], 2);
+  for (const unit of ["letters", "words"]) {
+    const rise = { id: "a1", name: "Rise", kind: "in", start: 0, duration: 1, easing: "linear", from: { y: 120 }, to: { y: 60 }, unit, stagger: 0.3, order: "forward" };
+    assert.equal(covered(still, pixels([word({ animations: [rise] })], 2.5)), 0, `${unit}: no outline covers a landed letter`);
+  }
+  const { group, letters, hidden } = outlineTextLayers(word({ shadow: { color: "#000000", x: 4, y: 4, blur: 0 } }), defaultFonts);
+  assert.deepEqual([letters[0].name, letters[0].fillEnabled, letters[0].strokes, Boolean(letters[0].shadow)], ["text outline", false, sticker, true]);
+  assert.ok(letters.slice(1).every((letter) => !letter.strokes && !letter.shadow), "letters keep no outside outline and the solid outline casts the shadow");
+  const plain = outlineTextLayers(word(), defaultFonts);
+  assert.equal(covered(still, pixels([plain.hidden, plain.group, ...plain.letters], 0)), 0, "no outline covers an outlined letter");
+  assert.ok(hidden.visible === false && group.type === "group");
 });

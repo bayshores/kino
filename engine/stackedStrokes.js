@@ -2,8 +2,10 @@
 // Each entry is { color, width, align? (center|inside|outside, default center), opacity? (0..1,
 // default 1), dash? ([on, off, ...] px, default solid), join? (miter|round|bevel, default miter) }.
 // Later entries paint over earlier ones, so list wide outside outlines first for a sticker or neon edge. On text the list follows the
-// outline of all the letters together; on shapes it follows the layer's trim. Static: no
+// outline of all the letters together (outside strokes listed first stay under letters drawn apart); on shapes it follows the layer's trim. Static: no
 // animation moves the list.
+
+import { shadowAlpha } from "./shadowInterpolation.js";
 
 export const MAX_STACKED_STROKES = 16;
 export const STACKED_STROKE_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text"]);
@@ -63,4 +65,19 @@ export function stackedStrokes(state) {
 export function strokeReach(state) {
   const single = Math.max(0, Number(state?.strokeWidth) || 0);
   return stackedStrokes(state).reduce((reach, stroke) => Math.max(reach, stroke.width), single);
+}
+
+/**
+ * Letters drawn apart (by letter or word, or outline_text's letter shapes) split the list: the
+ * outside strokes listed first go `under` every letter, so a neighbor's outline never covers a
+ * letter; the rest stay `over` each letter. `solid`: the first under stroke is opaque and the widest, so
+ * it rings each letter and casts the letters' shadows. null when the list does not start with an outside stroke.
+ */
+export function splitLetterStrokes(state) {
+  const list = stackedStrokes(state);
+  let count = 0;
+  while (count < list.length && list[count].align === "outside") count++;
+  if (!count) return null;
+  const under = list.slice(0, count);
+  return { under, over: list.slice(count), solid: (under[0].opacity ?? 1) === 1 && shadowAlpha(under[0].color) === 1 && under.every((stroke) => stroke.width <= under[0].width) };
 }
