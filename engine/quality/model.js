@@ -192,3 +192,22 @@ export function fillColorsAt(item, index) {
 }
 
 export const isGradient = (paint) => Boolean(paint && typeof paint === "object" && Array.isArray(paint.stops) && paint.stops.length >= 2);
+
+// Footage behind a full-frame tint this dark or darker is wallpaper, not a shot: three first
+// passes in a row ended on the same centered name and line over darkened, moving footage.
+const DIMMED = 0.35;
+const FULL_FRAME = 0.9;
+
+/** At sample `index`, a painted shape covering the frame tints a playing video under it at DIMMED or more. */
+export function dimmedAt(model, index) {
+  const frame = model.width * model.height;
+  const videos = model.items.filter((item) => item.kind === "video" && item.samples.opacity[index] > 0.5);
+  if (!videos.length) return false;
+  return model.items.some((item) => {
+    if (item.kind === "video" || item.kind === "image" || item.kind === "text" || item.isMask || !item.painted) return false;
+    const alpha = item.samples.opacity[index] * (item.paintAlpha ?? 1);
+    if (alpha < DIMMED) return false;
+    if (area(intersection(visibleBoxAt(model, item, index), { x0: 0, y0: 0, x1: model.width, y1: model.height })) < FULL_FRAME * frame) return false;
+    return videos.some((video) => video.z < item.z);
+  });
+}

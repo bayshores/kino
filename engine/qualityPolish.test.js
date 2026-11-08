@@ -671,6 +671,26 @@ test("mute_word: a mute ramp that starts after the word it hides begins", async 
   assert.deepEqual(await soundFindings("mute_word", fade, () => ({ transcript: TRANSCRIPT })), []);
 });
 
+test("music_stall: a loud stretch of the song with no shot at full strength and no cut, past 2.5 s", async () => {
+  // Quiet to 2 s, then loud to the end (12 s).
+  const loudness = peaksOf(12, [[2, 12]]);
+  const song = voice("song", { src: "/api/media/song.wav", mediaDuration: 12, volume: 0.8 });
+  const shot = (id, at, until, props = {}) => ({ type: "video", id, name: id, src: `/api/media/${id}.mp4`, mediaSourceDuration: 10, x: 0, y: 0, width: 1920, height: 1080, ...props,
+    animations: [{ kind: "show", start: at }, { kind: "hide", start: until }] });
+  const run = async (layers) => {
+    const document = scene({ duration: 12, layers: [song, ...layers] });
+    const [raw] = document.scenes;
+    return (await check("music_stall", document, { speechScene: raw, speech: [{ layer: raw.layers[0], music: true, loudness }] })).findings;
+  };
+  // A prompt typing over a blurred backdrop for 4 s of the loud part.
+  const [stall] = await run([shot("a", 0, 4), shot("log", 4, 8, { blur: 40 }), text("prompt", "whip to the red shot", { y: 500 }), shot("b", 8, 12)]);
+  assert.equal(stall?.rule, "music_stall");
+  assert.match(stall.measured, /^4s with the music/);
+  // The same 4 s over the shot at full strength, or before the music gets loud: left alone.
+  assert.deepEqual(await run([shot("a", 0, 4), shot("log", 4, 8), text("prompt", "whip to the red shot", { y: 500 }), shot("b", 8, 12)]), []);
+  assert.deepEqual(await run([shot("log", 0, 2, { blur: 40 }), shot("a", 2, 12)]), []);
+});
+
 test("music_hard_stop: a song that stops dead while loud", async () => {
   // Loud all through, with a quiet bar at 2.8 to 3.2 s.
   const loudness = peaksOf(10, [[0, 2.8], [3.2, 10]]);

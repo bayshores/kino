@@ -54,7 +54,7 @@ export const AGENT_OPERATION_TYPES = Object.freeze([...new Set([...OPERATION_TYP
 // Operations that work on one scene. Project operations and add_scene don't need one.
 const NO_SCENE = new Set(["rename_project", "update_project", "waive_check", "unwaive_check", "add_scene"]);
 // Findings about what a viewer sees: the agent fixes them; only the person's words keep one.
-export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "clip_reuse"]);
+export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "clip_reuse", "music_stall"]);
 const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
 // Fields that name one layer.
 const LAYER_FIELDS = ["layerId", "referenceId", "parentId", "maskLayerId", "speechId", "toId"];

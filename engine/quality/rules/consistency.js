@@ -23,7 +23,7 @@ import { CUT_TIMING_TAGS, PLAIN_TAGS } from "../../techniques.js";
 import { cuts, designedTexts, drawnSize, readableAt, readingTexts, sec, speechTimed, typeLimits } from "../analysis.js";
 import { textSlideSamples } from "./style.js";
 import { isCredit } from "./tells.js";
-import { area, chainOf, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
+import { area, chainOf, dimmedAt, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { subjectOnScene } from "../../sourceView.js";
 import { boxNear } from "./footage.js";
@@ -662,25 +662,6 @@ const END_TAIL = 0.75;
 const CENTER_SLACK = 0.06;
 // A line this much smaller than the name, or less, sits under it as a tagline or credit.
 const SMALLER = 0.7;
-
-// Footage behind a full-frame tint this dark or darker is wallpaper, not a shot: three first
-// passes in a row ended on the same centered name and line over darkened, moving footage.
-const DIMMED = 0.35;
-const FULL_FRAME = 0.9;
-
-/** At sample `index`, a painted shape covering the frame tints a playing video under it at DIMMED or more. */
-function dimmedAt(model, index) {
-  const frame = model.width * model.height;
-  const videos = model.items.filter((item) => item.kind === "video" && item.samples.opacity[index] > 0.5);
-  if (!videos.length) return false;
-  return model.items.some((item) => {
-    if (item.kind === "video" || item.kind === "image" || item.kind === "text" || item.isMask || !item.painted) return false;
-    const alpha = item.samples.opacity[index] * (item.paintAlpha ?? 1);
-    if (alpha < DIMMED) return false;
-    if (area(intersection(visibleBoxAt(model, item, index), { x0: 0, y0: 0, x1: model.width, y1: model.height })) < FULL_FRAME * frame) return false;
-    return videos.some((video) => video.z < item.z);
-  });
-}
 
 export function templateEnd(model, ctx) {
   if (model.duration < EDIT_SECONDS) return [];

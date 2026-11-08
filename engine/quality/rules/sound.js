@@ -21,7 +21,10 @@ import { animatesVolume, volumeAt } from "../../animation.js";
 import { enabledAnimations } from "../../animationEnabled.js";
 import { mediaPlaybackRange } from "../../playback.js";
 import { isRemapped } from "../../mediaTime.js";
-import { sec } from "../analysis.js";
+import { cuts, sec } from "../analysis.js";
+import { area, dimmedAt, intersection, visibleBoxAt } from "../model.js";
+import { coveredAt } from "../techniques.js";
+import { blurred } from "./people.js";
 import { levelBetween, soundLevels } from "../loudness.js";
 import { FRAGMENT_WORDS, TALKING_BEFORE, breakAfter, continues, heardEdges, isFiller } from "./speech.js";
 import { bedLoudness, energyMean, leveledVoice, sectionCues, voiceLines, VOICE_OVER_BED, VOICE_OVER_MUSIC } from "../../mixLevels.js";
@@ -659,5 +662,65 @@ export function sfxRestraint(model, ctx) {
       fix: { kind: "hint", text: "Keep the first one (or the one on the payoff) and delete the repeats." },
     });
   }
+  return findings;
+}
+
+// ---------------------------------------------------------------- music_stall
+// The song is at or above its middle level while the picture holds no shot: three of eight blind
+// judges marked fp-8 down for the 3.6 s of a prompt typing over a dim, blurred log right after the
+// drop. A shot is a clip or picture at full strength (not blurred to a backdrop, not under a dark
+// full-frame tint) filling SHOT_SHARE of the frame; a cut ends a stretch. The closing stretch is
+// the end card's (template_end).
+const STALL = 2.5;
+const SHOT_SHARE = 0.4;
+
+export function musicStall(model, ctx) {
+  const scene = ctx.speechScene;
+  if (!scene || model.duration < 8) return [];
+  const songs = (ctx.speech ?? []).filter((entry) => entry.music && entry.layer?.enabled !== false && entry.layer?.src);
+  const count = model.times.length;
+  const loud = new Uint8Array(count);
+  for (const entry of songs) {
+    const sound = soundLevels(entry.loudness);
+    const range = mediaPlaybackRange(entry.layer, scene.duration);
+    if (!sound || !range || range.remapped || isRemapped(entry.layer)) continue;
+    const median = medianLevel(sound);
+    for (let index = 0; index < count; index += 1) {
+      const time = model.times[index];
+      if (time < range.start || time > range.end || volumeAt(entry.layer, time) < AUDIBLE) continue;
+      const at = range.offset + (time - range.start);
+      if (levelBetween(sound, at - 0.25, at + 0.25) >= median) loud[index] = 1;
+    }
+  }
+  if (!loud.some(Boolean)) return [];
+  const frame = { x0: 0, y0: 0, x1: model.width, y1: model.height };
+  const whole = model.width * model.height;
+  const pictures = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && !item.isMask);
+  const shotAt = (index) => !dimmedAt(model, index) && pictures.some((item) => item.samples.opacity[index] >= 0.5 && !blurred(item, index) && !coveredAt(model, item, index)
+    && area(intersection(visibleBoxAt(model, item, index), frame)) >= SHOT_SHARE * whole);
+  const cutIndexes = new Set(cuts(model).map((time) => model.times.findIndex((each) => each >= time - 1e-6)));
+  const findings = [];
+  let from = -1;
+  const close = (to) => {
+    if (from < 0) return;
+    const seconds = (to - from) / model.fps;
+    // A stretch that runs to the end is the closing card's.
+    if (seconds >= STALL && to < count) {
+      findings.push({
+        rule: "music_stall", severity: "warn", at: sec(model.times[from]), until: sec(model.times[to - 1]),
+        measured: `${sec(seconds)}s with the music at or above its middle level and no shot at full strength, no cut`,
+        required: `under ${STALL}s: a loud stretch of the song carries a shot or a cut`,
+        message: `At ${sec(model.times[from])}s the music is loud but the picture stalls for ${sec(seconds)}s (text or a dim, blurred backdrop, no cut).`,
+        fix: { kind: "hint", text: "Put a shot under it at full strength, cut on the beats, or move this beat to the song's quiet part." },
+      });
+    }
+    from = -1;
+  };
+  for (let index = 0; index < count; index += 1) {
+    if (cutIndexes.has(index)) close(index);
+    if (loud[index] && !shotAt(index)) { if (from < 0) from = index; }
+    else close(index);
+  }
+  close(count);
   return findings;
 }

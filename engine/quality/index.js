@@ -15,7 +15,7 @@ import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, split
 import { cutOffAtRest, fontFallback, heldStatic, offBrandFont, renderArtifact, smallOnEmpty, textCollision, textGhost, textOnBusy, textWrap } from "./rules/polish.js";
 import { frozenScreen, screenUnreadable } from "./rules/screens.js";
 import { speechCaptions, speechCut, speechQuotes } from "./rules/speech.js";
-import { bedJump, endOnFade, muteWord, musicHardStop, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
+import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
 import { clipReuse, cropNoSubject, frozenFootage, jumpCut, softUpscale, trackLost } from "./rules/footage.js";
@@ -64,7 +64,7 @@ export const RULES = [
   rule("overlay_covers_subject", "error", overlayCoversSubject, "a layer over footage covers at most 30% of the marked subject for 0.5 s (full-clip frames and scrims aside); a gate for an opaque layer or caption over its middle (auto: moved aside), a warning for light tints and big type; unmarked, a warning over a found face or raised hands"),
   rule("out_of_sync", "error", outOfSync, "a line heard from one file over the picture (25% of the frame) of a file filmed with it (sync_clips) is from the same moment, within 0.25 s; J or L cuts under 1 s and slowed or reversed clips pass; the fix retimes the picture's mediaOffset (auto when nothing else depends on it)"),
   rule("text_wrap", "warn", textWrap, "a 1-word title does not wrap and punctuation is never alone on a line (both errors); a 2 or 3 word title that wraps, and a one-word last line under a long line, are warnings"),
-  rule("clip_reuse", "warn", clipReuse, "in 15 s or more with 4+ clips full frame, one clip fills it under 4 times and at most 35% of the video"),
+  rule("clip_reuse", "warn", clipReuse, "with 4+ clips, one clip fills the frame under 4 times and at most 35% of the video"),
   rule("crop_no_subject", "warn", cropNoSubject, "footage filling the frame and drawn past it (over 8% of the file cut off on a side) has a subject marked (mark_subject); a marked subject less than 85% in the frame is an error"),
   rule("track_lost", "warn", trackLost, "a layer pinned to a track (pin) never follows it through a stretch under 0.5 confidence longer than 0.3 s (the layer holds its last good place there); names the seconds"),
   rule("head_cut_off", "warn", headCutOff, "a person 40% of the picture tall or more keeps their head in the picture: their box touching the top with no head found (or the highest eye or ear at the edge) for 1 s while the clip shows, from filming or from the crop; found by Apple Vision on a Mac in a full check (elsewhere it does not run)"),
@@ -82,9 +82,10 @@ export const RULES = [
   rule("render_artifact", "warn", renderArtifact, "an RGB split draws no flat saturated slabs (3% of the frame or more)", true),
   rule("speech_captions", "warn", speechCaptions, "captions shown over a voice include every word it says"),
   rule("speech_quotes", "warn", speechQuotes, "captions of heard speech look different from caption-like text nobody says (in quotes, or another font, style or color), so speech never reads as narration"),
-  rule("speech_fragment", "warn", speechFragment, "a sound layer does not start on the tail of a sentence said just before its in point (up to 3 words carrying it on: a filler, a lowercase word or a word like at or and; said within 1.5 s of the last word) unless another voice as loud covers it or its volume is 0.25 or lower; the fix starts the sound after the tail; needs a transcript"),
+  rule("speech_fragment", "warn", speechFragment, "a sound does not start on the tail (up to 3 words, within 1.5 s) of a sentence said before its in point, unless a voice as loud covers it or its volume is 0.25 or lower; needs a transcript"),
   rule("mute_word", "warn", muteWord, "a volume ramp of 0.5 s or less that mutes or ducks a voice (to 35% or less) ends 0.03 s before the word it hides starts, and a ramp back up starts after that word ends (word times from the transcript; auto when no other word is lowered); a fade out at a clip's end and duck_audio's dips (unless they mute) are left alone"),
-  rule("music_hard_stop", "warn", musicHardStop, "a song (a file kino hears a steady beat in) does not stop at volume 0.08 or more while still loud (its last 120 ms within 10 dB of its median level) with no fade out; a stop within a frame of a marker cue or a beat is left alone; the fix names fit_music first, then adds a 0.25 s fade out (auto unless another volume animation is there)"),
+  rule("music_stall", "warn", musicStall, "loud music never runs 2.5 s with no cut and no clip at full strength over 40% of the frame"),
+  rule("music_hard_stop", "warn", musicHardStop, "a song does not stop while loud (last 120 ms within 10 dB of its median, volume 0.08+) with no fade, unless on a cue or beat; fix: fit_music, else a 0.25 s fade (auto)"),
   rule("voice_under_bed", "warn", voiceUnderBed, "each spoken line is 6 LU over the beds under it (music, street sound: sounds of 3 s or more), every 2 words in a row 3 LU (LUFS, voice leveled to -16 as exported, volumes and ducks applied; after a full check measures the files)"),
   rule("bed_jump", "warn", bedJump, "the beds together rise at most 8 LU at an in point or volume step (first 0.1 s after vs 0.3 s before; a 0.2 s fade in passes)"),
   rule("volume_churn", "warn", volumeChurn, "a song or bed turns volume direction (1.5 dB) under 3 times in any 10 s, fades in and out aside"),
@@ -134,7 +135,7 @@ export const RULES = [
   rule("page_chrome", "warn", pageChrome, "tracked caps labels under 40 px and rows of thin bars 8 s at most"),
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
   rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer"),
-  rule("text_slides", "warn", textSlides, "in a video of 8 s or more, text over a still or flat background (no clip playing, no camera move) for at most 25% of it, no such card over 3 s and under 3 of 1.2 s+, the closing one aside"),
+  rule("text_slides", "warn", textSlides, "in a video of 8 s or more, text over a still or flat background (no clip playing, no camera move) for at most 25% of it, no card over 3 s and under 3 of 1.2 s+, the end aside"),
   rule("few_techniques", "warn", fewTechniques, "in a video of 8 s or more, not flat: at least one designed device (two from 70 s, at most 4; cut, type-cut, hold, beat-cut and syncopated do not count), repeated as a motif"),
   rule("plain_beats", "warn", plainBeats, "in a video of 8 s or more, the key beats (the hook, the reveal and the payoff: board shots, else the first and last 2.5 s) with footage hold a designed technique, not only footage, words and plain cuts, fades, blurs or freezes; plain cuts elsewhere are right. A warning per plain key beat, and a gate at the final render when none of them is designed"),
   rule("technique_repeat", "warn", techniqueRepeat, "monotony only (2 or 3 uses is a motif): a set piece at most 3 times, no non-cut transition on 4+ and 75% of shot changes, a loud accent at most 3 times or once per 15 s, one entrance on under 75% of texts, one slide (same way, distance, size) at most 3 times"),
