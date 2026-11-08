@@ -26,11 +26,12 @@ const registry = [
     direction: ["enum", "horizontal", [["horizontal", "Horizontal"], ["vertical", "Vertical"], ["both", "Both"]]],
   }],
   ["fluid-warp", "Fluid Warp", "Distortion", "ranged", {
-    amount: ["number", 25, 0, 128, 1, "px"],
+    amount: ["number", 10, 0, 128, 1, "px"],
     noiseScale: ["number", 1, 0.1, 16, 0.05, ""],
-    octaves: ["number", 4, 1, 8, 1, "", undefined, true],
+    octaves: ["number", 2, 1, 8, 1, "", undefined, true],
     speed: ["number", 1, -4, 4, 0.05, "cycles/s"],
     contain: ["boolean", false],
+    seed: ["number", 0, 0, 1_000_000, 1, "", undefined, true],
   }],
   ["fluted-glass", "Fluted Glass", "Distortion", "ranged", {
     columns: ["number", 12, 1, 128, 1, "", undefined, true],
@@ -43,15 +44,16 @@ const registry = [
     noiseScale: ["number", 1, 0.1, 16, 0.05, ""],
     speed: ["number", 1, -4, 4, 0.05, "cycles/s"],
     contain: ["boolean", true],
+    seed: ["number", 0, 0, 1_000_000, 1, "", undefined, true],
   }],
   ["ripple", "Ripple", "Distortion", "ranged", {
     speed: ["number", 0.6, -4, 4, 0.05, "cycles/s"],
-    strength: ["number", 0.18, 0, 0.5, 0.01, ""],
-    frequency: ["number", 8, 0.1, 32, 0.1, ""],
+    strength: ["number", 0.03, 0, 0.5, 0.01, ""],
+    frequency: ["number", 6, 0.1, 32, 0.1, ""],
     centerX: ["number", 0.5, 0, 1, 0.01, ""],
     centerY: ["number", 0.5, 0, 1, 0.01, ""],
     falloff: ["number", 1.2, 0, 8, 0.1, ""],
-    sharpness: ["number", 6, 1, 16, 0.1, ""],
+    sharpness: ["number", 1, 1, 16, 0.1, ""],
   }],
 ];
 
@@ -80,9 +82,11 @@ test("the registry order, labels, groups, kinds, renderers, defaults and paramet
         ? [values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]]
         : values[0] === "enum" ? [values[0], values[1], values[2]] : [values[0], values[1]],
     ]));
-    const actual = Object.fromEntries(Object.entries(effect.parameters).map(([name, field]) => [name, compactField(field)]));
+    const actual = Object.fromEntries(Object.entries(effect.parameters).filter(([name]) => name !== "mix").map(([name, field]) => [name, compactField(field)]));
     assert.deepEqual(actual, expected, `${key} controls`);
-    assert.deepEqual(effectDefaults(key), Object.fromEntries(Object.entries(parameters).map(([name, values]) => [name, values[1]])));
+    // Optional settings (seeds added later) are stored only when given.
+    assert.deepEqual(effectDefaults(key), Object.fromEntries(Object.entries(parameters)
+      .filter(([name]) => !effect.parameters[name].optional).map(([name, values]) => [name, values[1]])));
   }
   assert.deepEqual(effectDefaults("bulge", { neutral: true }), { amount: 0 });
   assert.throws(() => effectDefinition("invented"), /Unknown effect/);
@@ -106,6 +110,7 @@ test("generated effect documentation reflects every registered effect and its pa
     assert.ok(documentation.includes(`${key} (${label}; ${kind}):`), `${key} appears in generated documentation`);
     const effect = effectDefinition(key);
     for (const [name, field] of Object.entries(effect.parameters)) {
+      if (name === "mix") continue; // said once in the guide (MIX_DOCUMENTATION)
       assert.ok(documentation.includes(`${name} ${field.type}`), `${key}.${name} type appears`);
       assert.ok(documentation.includes(`default ${JSON.stringify(field.default)}`), `${key}.${name} default appears`);
       if (field.type === "number") assert.ok(documentation.includes(`${field.min}..${field.max}`), `${key}.${name} limits appear`);
@@ -120,10 +125,11 @@ test("Post FX uses the observed catalog order, starting values and typed color i
   assert.deepEqual(EFFECTS.filter(({ group }) => group === "Post FX").map(({ key }) => key), [
     "dithering", "dot-grid", "duotone", "luma-highlight", "noise-mask", "pixelate", "threshold-color", "tritone", "rgb-shift",
   ]);
-  assert.deepEqual(effectInitialValues("luma-highlight"), { lumaThreshold: 0, fuzzWidth: 0.1, fuzzIntensity: 0.9 });
+  assert.deepEqual(effectInitialValues("luma-highlight"), { lumaThreshold: 0, fuzzWidth: 0.2, fuzzIntensity: 0.5 });
   assert.deepEqual(effectInitialValues("noise-mask"), { threshold: 1 });
   assert.deepEqual(effectInitialValues("pixelate"), { pixelSize: 1 });
-  assert.equal(effectDefaults("luma-highlight").lumaThreshold, 1);
+  assert.equal(effectDefaults("luma-highlight").lumaThreshold, 0.25);
+  assert.equal(effectDefaults("luma-highlight").color, "#FFFFFF");
   assert.equal(effectDefaults("pixelate").pixelSize, 25);
   for (const key of ["luma-highlight", "noise-mask", "pixelate"]) assert.equal(effectDefinition(key).easing, "smooth");
   assert.equal(normalizeEffectParameters("duotone", { shadowColor: "#abc" }).shadowColor, "#AABBCC");

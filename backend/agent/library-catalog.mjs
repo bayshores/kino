@@ -155,6 +155,7 @@ const EFFECT_STRONG = {
   "white-balance": { temperature: -100, tint: 70 },
   "color-wheels": { liftBlue: 0.35, liftGreen: 0.15, gainRed: 0.25, gamma: 1.2 },
   "noise-mask": { threshold: 0.5 },
+  "color-grade": { exposure: 1.6, contrast: 1.2, saturation: 0.6 },
 };
 // Each transition recipe on the two shots, full frame, as it changes beats (recipes/transitions.js):
 // push slides the first out left and the next in from the right; cut-on-motion carries both

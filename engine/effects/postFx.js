@@ -231,8 +231,8 @@ export function renderDotGrid(frame) {
   const dotScale = number(frame, "dotScale", 4, 0, 8);
   const contrast = number(frame, "contrast", 1.4, 0, 4);
   const invert = boolean(frame, "invertDetection", false);
-  const shadow = color(frame?.parameters?.shadowColor, "#FF0000");
-  const highlight = color(frame?.parameters?.highlightColor, "#FF0000");
+  const shadow = color(frame?.parameters?.shadowColor, "#2A2A30");
+  const highlight = color(frame?.parameters?.highlightColor, "#F5EFE4");
   const { width, height } = frame.bounds;
   const cellSize = Math.max(width, height) / repetition;
   const maxRadius = cellSize * dotScale / 16;
@@ -271,11 +271,11 @@ export function renderDuotone(frame) {
 /**
  * Original low-luma highlight overlay. Luma Threshold selects darker values;
  * Fuzz Width is a smooth transition in normalized sRGB luma and Fuzz Intensity
- * is the white blend amount. Partitioned source/flood pixels are added with an
+ * is the blend amount toward Color (white by default). Partitioned source/flood pixels are added with an
  * arithmetic composite so source alpha is preserved exactly.
  */
 export function renderLumaHighlight(frame) {
-  const threshold = number(frame, "lumaThreshold", 0.5, 0, 1);
+  const threshold = number(frame, "lumaThreshold", 0.3, 0, 1);
   const fuzzWidth = number(frame, "fuzzWidth", 0.1, 0, 1);
   const intensity = number(frame, "fuzzIntensity", 0.9, 0, 1);
   if (intensity === 0) return frame.content;
@@ -283,7 +283,7 @@ export function renderLumaHighlight(frame) {
   primitives.push(
     `<feComponentTransfer in="postFxLumaSelection" result="postFxBrightenSelection"><feFuncA type="linear" slope="${fmt(intensity)}"/></feComponentTransfer>`,
   );
-  compositeReplacement(primitives, "postFxBrightenSelection", [255, 255, 255]);
+  compositeReplacement(primitives, "postFxBrightenSelection", color(frame?.parameters?.color, "#FFFFFF"));
   return filterEffect(frame, primitives, { padding: 0, contain: true });
 }
 
@@ -387,6 +387,7 @@ export function renderPixelate(frame) {
   const step = number(frame, "pixelSizeStep", 1, 1, 128);
   const cellSize = Math.max(1, Math.round(requestedSize / step) * step);
   const useNoise = boolean(frame, "noiseEnabled", false);
+  const seed = number(frame, "seed", 17, 0, 1_000_000, { integer: true });
   const noiseScale = number(frame, "noiseScale", 1, 0.01, 16);
   const noiseThreshold = number(frame, "noiseThreshold", 0.5, 0, 1);
   if (cellSize <= 1) return frame.content;
@@ -396,7 +397,7 @@ export function renderPixelate(frame) {
   const cellBounds = { x, y, width: cellSize, height: cellSize };
   const fullField = rasterMap && pixelateNeedsAffinePrewarp(cellBounds, frame.helpers?.transform);
   const layout = fullField ? "full-field" : "cell-tile";
-  const cacheKey = JSON.stringify(["postfx-pixelate-v5", layout, rasterMap ? "opaque-rg" : "gray-alpha", cellSize, useNoise, noiseScale, noiseThreshold, width, height]);
+  const cacheKey = JSON.stringify(["postfx-pixelate-v5", layout, rasterMap ? "opaque-rg" : "gray-alpha", cellSize, useNoise, noiseScale, noiseThreshold, width, height, seed]);
   const mapBounds = fullField ? frame.bounds : cellBounds;
   const cellMap = effectMapImage({ ...frame, bounds: mapBounds }, `${cacheKey}|cell`, (pixelX, pixelY, mapWidth, mapHeight) => {
     const localX = (pixelX + 0.5) * cellSize / mapWidth;
@@ -424,7 +425,7 @@ export function renderPixelate(frame) {
       const localX = (pixelX + 0.5) * width / mapWidth;
       const localY = (pixelY + 0.5) * height / mapHeight;
       const cellX = Math.floor(localX / cellSize), cellY = Math.floor(localY / cellSize);
-      const value = (fractalNoise(cellX * noiseScale, cellY * noiseScale, 3, 17) + 1) / 2;
+      const value = (fractalNoise(cellX * noiseScale, cellY * noiseScale, 3, seed) + 1) / 2;
       const byte = value > noiseThreshold ? 255 : 0;
       return [byte, byte, byte, 255];
     }, { outside: [0, 0, 0, 255] });

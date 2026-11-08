@@ -5,21 +5,38 @@ import { clamp, smoothstep } from "../numbers.js";
 const LUMA = [0.2126, 0.7152, 0.0722];
 const number = (value) => Number(value.toFixed(8));
 
+// sRGB to linear light and back (the standard sRGB curves).
+const toLinear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+const toSrgb = (value) => value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+
+/** Exposure as a table: each sRGB value turned to linear light, multiplied, turned back. */
+export function exposureTable(gain, samples = 256) {
+  return Array.from({ length: samples }, (_, index) =>
+    number(clamp(toSrgb(Math.min(1, gain * toLinear(index / (samples - 1)))), 0, 1))).join(" ");
+}
+
 /**
- * Color Grade uses bounded multipliers in sRGB. Exposure and Brightness multiply
- * RGB, Contrast pivots at middle gray, and Saturation mixes against sRGB luma.
- * The alpha row stays the identity so transparent and semitransparent paint keeps
- * its original coverage.
+ * Color Grade. Exposure is a gain in linear light (2 is one stop brighter, 0.5 one stop darker),
+ * drawn as one table so the shadows open the way a camera's exposure does. Brightness multiplies
+ * sRGB, Contrast pivots at middle gray, and Saturation mixes against sRGB luma. The alpha row stays
+ * the identity so transparent and semitransparent paint keeps its original coverage.
  */
 export function renderColorGrade(frame) {
-  const exposure = numberParameter(frame, "exposure", 1, 0, 4);
+  const exposure = numberParameter(frame, "exposure", 1, 0, 8);
   const brightness = numberParameter(frame, "brightness", 1, 0, 4);
-  const contrast = numberParameter(frame, "contrast", 1.5, 0, 4);
+  const contrast = numberParameter(frame, "contrast", 1, 0, 4);
   const saturation = numberParameter(frame, "saturation", 1, 0, 4);
   if (exposure === 1 && brightness === 1 && contrast === 1 && saturation === 1)
     return frame.content;
 
-  const scale = exposure * brightness * contrast;
+  const primitives = [];
+  if (exposure !== 1) {
+    const values = exposureTable(exposure);
+    primitives.push(`<feComponentTransfer><feFuncR type="table" tableValues="${values}"/><feFuncG type="table" tableValues="${values}"/><feFuncB type="table" tableValues="${values}"/></feComponentTransfer>`);
+  }
+  if (brightness === 1 && contrast === 1 && saturation === 1)
+    return filterEffect(frame, primitives, { padding: 0 });
+  const scale = brightness * contrast;
   const offset = (1 - contrast) / 2;
   const [redLuma, greenLuma, blueLuma] = LUMA;
   const saturationMatrix = [
@@ -33,7 +50,8 @@ export function renderColorGrade(frame) {
     `${number(saturationMatrix[6] * scale)} ${number(saturationMatrix[7] * scale)} ${number(saturationMatrix[8] * scale)} 0 ${number(offset)}`,
     "0 0 0 1 0",
   ].join(" ");
-  return filterEffect(frame, `<feColorMatrix type="matrix" values="${values}"/>`, { padding: 0 });
+  primitives.push(`<feColorMatrix type="matrix" values="${values}"/>`);
+  return filterEffect(frame, primitives, { padding: 0 });
 }
 
 function normalizedColor(value) {

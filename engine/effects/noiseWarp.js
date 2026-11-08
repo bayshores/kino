@@ -20,7 +20,10 @@ export function renderNoiseWarp(frame) {
   const noiseScale = numberParameter(frame, "noiseScale", 1, 0.1, 16);
   const speed = numberParameter(frame, "speed", 1, -4, 4);
   const contain = booleanParameter(frame, "contain", true);
-  const { seed, weight } = temporalSeed(timeSeconds(frame), speed);
+  const start = numberParameter(frame, "seed", 0, 0, 1_000_000, { integer: true });
+  const { seed: tick, weight } = temporalSeed(timeSeconds(frame), speed);
+  // Seed 0 keeps the fields drawn before the setting existed.
+  const seed = tick + start * 7919;
   const side = Math.min(frame.bounds.width, frame.bounds.height);
   const scaleX = noiseScale * frame.bounds.width / side;
   const scaleY = noiseScale * frame.bounds.height / side;

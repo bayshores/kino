@@ -27,7 +27,7 @@ function nativeConstantFill(layer, times) {
   const colors = [];
   for (const time of times) {
     const frames = effectsAt(layer, time);
-    if (frames.length !== 1 || frames[0].effect.key !== "duotone") return null;
+    if (frames.length !== 1 || frames[0].effect.key !== "duotone" || frames[0].parameters.mix < 1) return null;
     const { shadowColor, highlightColor } = frames[0].parameters;
     if (shadowColor !== highlightColor) return null;
     colors.push(shadowColor);

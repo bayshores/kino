@@ -18,10 +18,17 @@ import { FOCUS_BAND_EFFECT } from "./focusBand.js";
 import { EDGE_EFFECTS } from "./edges.js";
 import { LIGHT_EFFECTS } from "./light.js";
 import { PARTICLE_EFFECTS } from "./particles.js";
+import { copyContent } from "./svg.js";
 
 const number = (label, value, min, max, step, unit = "", extra = {}) =>
   ({ type: "number", label, default: value, min, max, step, unit, ...extra });
 const boolean = (label, value) => ({ type: "boolean", label, default: value });
+// A noise seed: another whole number gives another pattern. It holds for the whole effect and,
+// like mix, is stored only when given (its default is the pattern from before it existed).
+const seed = (value) => number("Seed", value, 0, 1_000_000, 1, "", { integer: true, animatable: false, optional: true });
+// How much of the effect shows over the layer as it was: 0 none, 1 all (every effect has it).
+// Optional: stored and sampled only when given, so effects saved before it stay the same.
+const MIX = Object.freeze(number("Mix", 1, 0, 1, 0.01, "", { optional: true }));
 const color = (label, value) => ({ type: "color", label, default: value });
 // A tone curve: 2 to 16 points [input, output] from 0 to 1 (colorMath.js normalizeCurve).
 const curve = (label) => ({ type: "curve", label, default: IDENTITY_CURVE });
@@ -48,10 +55,11 @@ const definitions = [
     } },
   { key: "fluid-warp", label: "Fluid Warp", group: "Distortion", kind: "ranged", render: renderFluidWarp,
     parameters: {
-      amount: number("Amount", 25, 0, 128, 1, "px"),
+      amount: number("Amount", 10, 0, 128, 1, "px"),
       noiseScale: number("Noise Scale", 1, 0.1, 16, 0.05),
-      octaves: number("Octaves", 4, 1, 8, 1, "", { integer: true }),
+      octaves: number("Octaves", 2, 1, 8, 1, "", { integer: true }),
       speed: number("Speed", 1, -4, 4, 0.05, "cycles/s"), contain: boolean("Contain", false),
+      seed: seed(0),
     } },
   { key: "fluted-glass", label: "Fluted Glass", group: "Distortion", kind: "ranged", render: renderFlutedGlass,
     parameters: {
@@ -65,14 +73,15 @@ const definitions = [
       amount: number("Amount", 26, 0, 128, 1, "px"),
       noiseScale: number("Noise Scale", 1, 0.1, 16, 0.05),
       speed: number("Speed", 1, -4, 4, 0.05, "cycles/s"), contain: boolean("Contain", true),
+      seed: seed(0),
     } },
   { key: "ripple", label: "Ripple", group: "Distortion", kind: "ranged", render: renderRipple,
     parameters: {
       speed: number("Speed", 0.6, -4, 4, 0.05, "cycles/s"),
-      strength: number("Strength", 0.18, 0, 0.5, 0.01),
-      frequency: number("Frequency", 8, 0.1, 32, 0.1),
+      strength: number("Strength", 0.03, 0, 0.5, 0.01),
+      frequency: number("Frequency", 6, 0.1, 32, 0.1),
       centerX: number("Center X", 0.5, 0, 1, 0.01), centerY: number("Center Y", 0.5, 0, 1, 0.01),
-      falloff: number("Falloff", 1.2, 0, 8, 0.1), sharpness: number("Sharpness", 6, 1, 16, 0.1),
+      falloff: number("Falloff", 1.2, 0, 8, 0.1), sharpness: number("Sharpness", 1, 1, 16, 0.1),
     } },
   { key: "dithering", label: "Dithering", group: "Post FX", kind: "ranged", render: renderDithering,
     parameters: {
@@ -83,8 +92,8 @@ const definitions = [
   { key: "dot-grid", label: "Dot Grid", group: "Post FX", kind: "ranged", render: renderDotGrid,
     parameters: {
       gridRepetition: number("Grid Repetition", 40, 1, 512, 1, "", { integer: true }),
-      dotScale: number("Dot Scale", 4, 0, 8, 0.1), contrast: number("Contrast", 1.4, 0, 4, 0.05),
-      shadowColor: color("Shadow Color", "#FF0000"), highlightColor: color("Highlight Color", "#FF0000"),
+      dotScale: number("Dot Scale", 7, 0, 8, 0.1), contrast: number("Contrast", 1.1, 0, 4, 0.05),
+      shadowColor: color("Shadow Color", "#2A2A30"), highlightColor: color("Highlight Color", "#F5EFE4"),
       invertDetection: boolean("Invert Detection", false),
     } },
   { key: "duotone", label: "Duotone", group: "Post FX", kind: "ranged", render: renderDuotone,
@@ -94,9 +103,11 @@ const definitions = [
     } },
   { key: "luma-highlight", label: "Luma Highlight", group: "Post FX", kind: "ranged", render: renderLumaHighlight,
     parameters: {
-      lumaThreshold: number("Luma Threshold", 1, 0, 1, 0.01, "", { initial: 0 }),
-      fuzzWidth: number("Fuzz Width", 0.1, 0, 1, 0.01, "", { initial: 0.1 }),
-      fuzzIntensity: number("Fuzz Intensity", 0.9, 0, 1, 0.01, "", { initial: 0.9 }),
+      lumaThreshold: number("Luma Threshold", 0.25, 0, 1, 0.01, "", { initial: 0 }),
+      fuzzWidth: number("Fuzz Width", 0.2, 0, 1, 0.01, "", { initial: 0.2 }),
+      fuzzIntensity: number("Fuzz Intensity", 0.5, 0, 1, 0.01, "", { initial: 0.5 }),
+      // The color the selected tones turn (white before this field existed).
+      color: color("Color", "#FFFFFF"),
     } },
   { key: "noise-mask", label: "Noise Mask", group: "Post FX", kind: "ranged", render: renderNoiseMask,
     parameters: {
@@ -116,6 +127,7 @@ const definitions = [
       noiseScale: number("Noise Scale", 1, 0.01, 16, 0.05),
       noiseThreshold: number("Noise Threshold", 0.5, 0, 1, 0.01),
       noiseEnabled: boolean("Noise", false),
+      seed: seed(17),
     } },
   { key: "threshold-color", label: "Threshold Color", group: "Post FX", kind: "ranged", render: renderThresholdColor,
     parameters: {
@@ -153,8 +165,9 @@ const definitions = [
     } },
   { key: "color-grade", label: "Color Grade", group: "Utility", kind: "ranged", render: renderColorGrade,
     parameters: {
-      exposure: number("Exposure", 1, 0, 4, 0.05), brightness: number("Brightness", 1, 0, 4, 0.05),
-      contrast: number("Contrast", 1.5, 0, 4, 0.05), saturation: number("Saturation", 1, 0, 4, 0.05),
+      // Exposure is a gain in linear light (2 is one stop brighter); Brightness multiplies sRGB.
+      exposure: number("Exposure", 1, 0, 8, 0.05, "x"), brightness: number("Brightness", 1, 0, 4, 0.05),
+      contrast: number("Contrast", 1, 0, 4, 0.05), saturation: number("Saturation", 1, 0, 4, 0.05),
     } },
   { key: "color-remover", label: "Color Remover", group: "Utility", kind: "ranged", render: renderColorRemover,
     parameters: { targetColor: color("Target Color", "#00FF00"), range: number("Range", 0.18, 0, 1, 0.01),
@@ -193,7 +206,30 @@ const definitions = [
   ...LIGHT_EFFECTS,
 ];
 
+// Mix below 1 draws the layer as it was under the effect's result: (1 - mix) of one plus mix of
+// the other, added (plus-lighter), so an opaque picture is an exact cross-fade. Resvg has no
+// plus-lighter, so there the result goes over the full original at mix opacity (the same for
+// opaque pictures). The copy under it is decorative (copyContent drops its IDs).
+export function mixMarkup(original, result, mix, { raster = false } = {}) {
+  const amount = Math.round(mix * 10000) / 10000;
+  const under = copyContent(original);
+  return raster
+    ? `<g>${under}<g opacity="${amount}">${result}</g></g>`
+    : `<g style="isolation:isolate"><g opacity="${Math.round((1 - amount) * 10000) / 10000}">${under}</g><g opacity="${amount}" style="mix-blend-mode:plus-lighter">${result}</g></g>`;
+}
+
+function withMix(render) {
+  return (frame) => {
+    const mix = frame?.parameters?.mix;
+    if (!Number.isFinite(mix) || mix >= 1) return render(frame);
+    if (mix <= 0) return frame.content;
+    const result = render(frame);
+    return result === frame.content ? result : mixMarkup(frame.content, result, mix, { raster: Boolean(frame.helpers?.raster) });
+  };
+}
+
 function freezeDefinition(definition) {
+  if (Object.hasOwn(definition.parameters, "mix")) throw new TypeError(`Effect ${definition.key} cannot name a setting mix`);
   if (typeof definition.render !== "function") throw new TypeError(`Effect ${definition.key} needs a renderer`);
   for (const field of Object.values(definition.parameters)) {
     if (field.options) { field.options.forEach(Object.freeze); Object.freeze(field.options); }
@@ -201,7 +237,7 @@ function freezeDefinition(definition) {
   }
   return Object.freeze({ duration: definition.kind === "value" ? 0.8 : null,
     easing: Object.values(definition.parameters).some((field) => Object.hasOwn(field, "initial")) ? "smooth" : "linear",
-    ...definition, parameters: Object.freeze(definition.parameters) });
+    ...definition, render: withMix(definition.render), parameters: Object.freeze({ ...definition.parameters, mix: MIX }) });
 }
 export const EFFECTS = Object.freeze(definitions.map(freezeDefinition));
 const byKey = new Map(EFFECTS.map((effect) => [effect.key, effect]));
@@ -213,7 +249,7 @@ export function effectDefinition(key) {
 }
 
 export function effectDefaults(key, { neutral = false } = {}) {
-  return Object.fromEntries(Object.entries(effectDefinition(key).parameters).map(([name, field]) =>
+  return Object.fromEntries(Object.entries(effectDefinition(key).parameters).filter(([, field]) => !field.optional).map(([name, field]) =>
     [name, neutral && Object.hasOwn(field, "neutral") ? field.neutral : field.default]));
 }
 
@@ -281,11 +317,13 @@ function fieldRange(field) {
 
 // Kept generated so an MCP client sees the same names, types, defaults and limits as the UI.
 // `group` limits it to one catalog group; `exceptGroup` leaves one group (or a list) out; `keys` keeps only those effects.
+// Mix is on every effect, so the guide says it once (MIX_DOCUMENTATION) instead of once per effect.
+export const MIX_DOCUMENTATION = "Every effect also takes mix number 0..1 default 1 (how much of the effect shows over the layer as it was)";
 export function effectDocumentation({ group, exceptGroup, keys } = {}) {
   const left = [exceptGroup].flat();
   return EFFECTS.filter((effect) => (!group || effect.group === group) && !left.includes(effect.group) && (!keys || keys.includes(effect.key)))
     .map((effect) => `${effect.key} (${effect.label}; ${effect.kind}): ` +
-    Object.entries(effect.parameters).map(([key, field]) => `${key} ${field.type}${fieldRange(field)}` +
+    Object.entries(effect.parameters).filter(([key]) => key !== "mix").map(([key, field]) => `${key} ${field.type}${fieldRange(field)}` +
       (field.required ? " required" : ` default ${JSON.stringify(field.default)}`) +
       (Object.hasOwn(field, "initial") ? ` initial ${JSON.stringify(field.initial)}` : "")).join("; ")).join(". ");
 }

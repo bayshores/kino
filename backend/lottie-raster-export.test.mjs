@@ -14,7 +14,9 @@ import { startTestServer } from "./media.test.support.mjs";
 
 const outputOptions = { format: "lottie", fps: 2, duration: 1 };
 
-function effectOperation(key, { id = `effect-${key}`, parameters = effectDefaults(key) } = {}) {
+// Color Grade's defaults are the identity, so these captures use a visible 1.5 contrast.
+const VISIBLE = { "color-grade": { contrast: 1.5 } };
+function effectOperation(key, { id = `effect-${key}`, parameters = { ...effectDefaults(key), ...VISIBLE[key] } } = {}) {
   const definition = EFFECTS.find((effect) => effect.key === key);
   return {
     id, name: definition.label, kind: "effect", effect: key,
@@ -138,7 +140,7 @@ test("Color Grade capture preserves its expected colored pixel", () => {
   const x = Math.round((10 - capture.bounds.x) * 3);
   const y = Math.round((8 - capture.bounds.y) * 3);
   const pixel = [...image.pixels.subarray((y * image.width + x) * 4, (y * image.width + x) * 4 + 4)];
-  assert.deepEqual(pixel, [255, 21, 41, 255], "default contrast maps the red source to a saturated red pixel");
+  assert.deepEqual(pixel, [255, 21, 41, 255], "1.5 contrast maps the red source to a saturated red pixel");
 });
 
 test("time-varying Noise Warp embeds distinct actual pixels at the sampled frames", async () => {
