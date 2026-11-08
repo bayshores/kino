@@ -215,7 +215,7 @@ export const AGENT_TOOLS = withSaid([
     // A key the schema does not name still reaches the service, which refuses it for brief: a
     // typo such as "field" must not turn a save into a read (the SDK drops unknown keys otherwise).
     keepUnknownKeys: true,
-    description: "Plan and notes the person sees. set_plan {steps}, then {done:[2]}; list; reply {id, text}; resolve {id}; add {text}; keep {id, layers} ties layers to a note; brief {fields?, log?, no_playback?}; deck {reroll|swap}; checkpoint {id} asks a stop; answer {id, rev, words, read_as, rejected?}; helper {text}; release; judge: blind picks vs references or videos:[[a,b]]. intents {beats:[{from,to,intent}]}; viewer {rev, report, matches, bugs}; critique {rev, lines, +viewer's if carried}; verdict {of, rev, words, best}: their verdict, best = bar; needs {items:[{what,why,ask,options}]} or {id, answer|status}: missing material.",
+    description: "Plan and notes the person sees. set_plan {steps}, then {done:[2]}; list; reply {id, text}; resolve {id}; add {text}; keep {id, layers} ties layers to a note; brief {fields?, log?, no_playback?}; deck {reroll|swap}; checkpoint {id} asks a stop; answer {id, rev, words, read_as, rejected?}; helper {text}; release; judge: blind picks vs references or videos:[[a,b]]. intents {beats:[{from,to,intent}]}; viewer {rev, report, matches, bugs}; critique {rev, lines, +matches, bugs if carried}; verdict {of, rev, words, best}: their verdict, best = bar; needs {items:[{what,why,ask,options}]} or {id, answer|status}: missing material.",
     input: {
       // helper's may ("all" or "look") is not listed: keepUnknownKeys passes it to the service.
       action: z.enum(NOTES_ACTIONS).optional(),

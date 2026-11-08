@@ -27,9 +27,9 @@ answers in short lines; you record them, fix the P0s and try its UP lines.
 6. A round with no P0 (`none`, or only P1/P2) must be about the video as it is: on a packet
    the video was edited past it is refused.
 7. When the viewer gate is due too (intents written, no bar), the packet carries its sheets and
-   heard.txt: one subagent answers part 1 (the viewer, before packet.txt), the line `CRITIC`, then
-   part 2. One `notes critique` takes the lines plus `report`, `matches`, `bugs` and passes both
-   gates. A P0 or a story bug asks round 2; a fixed P0 alone is re-read by the critic only.
+   heard.txt: one subagent writes part 1 (the viewer) to viewer.txt; only then does packet.txt
+   appear, so it never sees the brief first. It answers part 2. One `notes critique` takes the
+   lines plus `matches`, `bugs` (the report comes from viewer.txt) and passes both gates. A P0 or a story bug asks round 2; a fixed P0 alone is re-read by the critic only.
 
 ## The bar and the person's verdicts
 
@@ -84,7 +84,7 @@ Read only the files named above. Do not open other files, do not run kino, do no
 Answer only with P0/P1/P2 lines in the form given, worst first (or: none), then the UP lines
 ```
 
-With the viewer's sheets, its part 1 answer comes first, then `CRITIC`, then the lines.
+With the viewer's sheets, its answer is the lines only; part 1 is in viewer.txt.
 
 Paste its answer into `notes critique` unchanged; do not soften or drop lines.
 

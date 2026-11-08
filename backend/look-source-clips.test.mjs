@@ -9,7 +9,7 @@ import { loadImage } from "@napi-rs/canvas";
 import { createAgentClient } from "./agent/client.mjs";
 import { clipTile, clipTimes, layoutClips, planClips } from "./agent/clips-sheet.mjs";
 import { makeWorkingCopy } from "./media-working-copy.mjs";
-import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
+import { ffmpeg, ffprobe, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 let server, client, folder;
 before(async () => {
@@ -107,4 +107,20 @@ test("a clip too long for a usable copy under the limit is refused with what to 
   const file = await clip("08-long.mp4", "64x48", 2);
   await assert.rejects(makeWorkingCopy({ actualPath: file, mime: "video/mp4", size: 999_999, name: "08-long.mp4" }, { maxBytes: 100_000 }),
     /08-long\.mp4 is 1 MB, over kino's 0\.1 MB upload limit, and at 2 s it is too long for a usable copy under it\. Import a shorter part of it\./);
+});
+
+test("a working copy of a picture bigger than 1080p is scaled to its long edge, either way up; one at the cap is not", { skip: skipWithoutMediaTools, timeout: 60_000 }, async () => {
+  // A small cap (160 px) stands in for 1920, so no 4K is decoded.
+  const size = async (file) => String(await run(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", file])).trim();
+  const copy = async (name, frame) => {
+    const made = await makeWorkingCopy({ actualPath: await clip(name, frame, 1), mime: "video/mp4", size: 999_999, name }, { maxBytes: 10 * 1024 * 1024, longEdge: 160 });
+    try { return { size: await size(made.path), note: made.note }; } finally { await made.cleanup(); }
+  };
+  const wide = await copy("09-wide.mp4", "320x180");
+  assert.equal(wide.size, "160x90");
+  assert.match(wide.note, /working copy \(H\.264, long edge 160 px, /);
+  assert.equal((await copy("10-tall.mp4", "180x320")).size, "90x160");
+  const same = await copy("11-at-cap.mp4", "160x90");
+  assert.equal(same.size, "160x90");
+  assert.match(same.note, /working copy \(H\.264, [\d.]+ MB\)/);
 });

@@ -3215,12 +3215,41 @@ export function createAgentService(deps) {
   // A page of a packet look {mode:"critique"} already wrote (same rev and stretch), or null.
   async function savedCritiquePage(folder, page) {
     const names = await readdir(folder).catch(() => []);
-    if (!names.includes("packet.txt")) return null;
+    // heard.txt: a viewer-carrying packet whose packet.txt is still held back.
+    if (!names.includes("packet.txt") && !names.includes("heard.txt")) return null;
     const sheets = names.filter((name) => /^sheet-\d+\.jpg$/.test(name)).sort();
     if (!sheets.length) return null;
     const number = Math.min(Math.max(1, page), sheets.length);
     const file = path.join(folder, sheets[number - 1]);
     return { number, file, count: sheets.length, data: await readFile(file) };
+  }
+
+  // A critique packet's folder (whole scene unless a stretch).
+  const critiqueFolder = (projectId, sceneId, rev, stretch = "") => path.join(agentDirectory, "out", encodeURIComponent(projectId), `critique-${sceneId}-r${rev}${stretch}`);
+  // Where a viewer-carrying packet keeps packet.txt (the brief) until the helper's viewer part is
+  // in viewer.txt: outside the folder, so that part is written before the brief can be read.
+  const heldPacket = (folder) => path.join(agentDirectory, "held", `${encodeURIComponent(path.relative(path.join(agentDirectory, "out"), folder))}.txt`);
+  const holding = new Map();
+  // Moves the held packet.txt into the folder once viewer.txt has words; true when it is there.
+  async function releasePacket(folder) {
+    const report = await readFile(path.join(folder, "viewer.txt"), "utf8").catch(() => "");
+    if (!report.trim()) return false;
+    await rename(heldPacket(folder), path.join(folder, "packet.txt")).catch(() => {});
+    return access(path.join(folder, "packet.txt")).then(() => true, () => false);
+  }
+  function holdPacket(folder) {
+    clearInterval(holding.get(folder));
+    const until = Date.now() + 3 * 3600_000;
+    let busy = false;
+    const timer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      const free = await releasePacket(folder).catch(() => false);
+      busy = false;
+      if (free || Date.now() > until) { clearInterval(timer); holding.delete(folder); }
+    }, 250);
+    timer.unref?.();
+    holding.set(folder, timer);
   }
 
   // The direction a critic judges by: the story spine and style bible, else the brief's lines.
@@ -3266,7 +3295,7 @@ export function createAgentService(deps) {
     const inRange = (time) => time >= range.from - 1e-6 && time <= range.to + 1e-6;
     const whole = range.from <= 1e-6 && range.to >= scene.duration - 1e-6;
     // Beside the look images, so a sandboxed critic subagent can read it (as the viewer packet).
-    const folder = path.join(agentDirectory, "out", encodeURIComponent(projectId), `critique-${scene.id}-r${record.revision}${whole ? "" : `-${sec(range.from)}-${sec(range.to)}`}`);
+    const folder = critiqueFolder(projectId, scene.id, record.revision, whole ? "" : `-${sec(range.from)}-${sec(range.to)}`);
     // page:n of a packet made at this rev: the saved page, not every page drawn again.
     const saved = input.page != null && kept.packets.some((packet) => packet.rev === record.revision) ? await savedCritiquePage(folder, input.page) : null;
     if (saved) {
@@ -3346,19 +3375,26 @@ export function createAgentService(deps) {
     const all = [...(viewer?.pngs ?? []), ...pages.map((page) => page.png)];
     const written = await writePacket(folder, all, packet, "packet.txt");
     const heardFile = viewer ? path.join(folder, "heard.txt") : null;
-    if (viewer) await writeFile(heardFile, `${viewer.heard}\n`, { mode: 0o600 });
+    if (viewer) {
+      await writeFile(heardFile, `${viewer.heard}\n`, { mode: 0o600 });
+      // packet.txt waits outside until the helper writes viewer.txt (holdPacket).
+      await mkdir(path.dirname(heldPacket(folder)), { recursive: true, mode: 0o700 });
+      await rename(written.heard, heldPacket(folder));
+      holdPacket(folder);
+    }
     // The first critic page is shown (a viewer sheet when there is none).
     const pageNumber = Math.min(Math.max(1, input.page ?? (pages.length ? first + 1 : 1)), all.length);
     const file = await look.save(projectId, "critique", all[pageNumber - 1]);
     const images = [{ path: file, mime: "image/png", data: input.inline === false ? undefined : all[pageNumber - 1].toString("base64") }];
     const critic = `${bar ? `${BAR_PROTOCOL}\n` : ""}${CRITIQUE_PROTOCOL}`;
+    const viewerFile = path.join(folder, "viewer.txt");
     const prompt = viewer
-      ? `Two parts, one answer. Open each part's files in one go.\nPart 1, before you open packet.txt: read ${heardFile}, then ${folder}/${sheetName(1)} to ${sheetName(first)}.\n${VIEWER_PROTOCOL}\nThen the line CRITIC.\nPart 2: read ${written.heard}${pages.length ? `, then ${sheetName(first + 1)} to ${sheetName(all.length)}` : ""}.\n${critic}`
+      ? `Two parts. Part 1, the viewer: read ${heardFile}, then ${folder}/${sheetName(1)} to ${sheetName(first)}.\n${VIEWER_PROTOCOL}\nWrite that report, whole, to ${viewerFile}. Only then does packet.txt appear beside it (if not yet, wait a second).\nPart 2, the critic: read ${written.heard}${pages.length ? `, then ${sheetName(first + 1)} to ${sheetName(all.length)}` : ""}.\n${critic}\nYour answer is part 2's lines only. If you cannot write files, answer with part 1 only.`
       : `Read ${written.heard}, then ${folder}/sheet-01.jpg to ${sheetName(all.length)} in order.\n${critic}`;
     const shown = packet.split("\n");
     const idea = viewer ? ideaLines(styleContext(state.brief?.style)) : [];
     const record_ = viewer
-      ? [`Then record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its lines after CRITIC], report:"<its part 1, whole>", matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}: match part 1 against your ${plural(intents.beats.length, "beat")}' intents yourself. A P0 or a story bug asks for round 2.`,
+      ? [`Then read ${viewerFile} (its part 1) and record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its answer], matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}; kino takes the report from viewer.txt. Match it against your ${plural(intents.beats.length, "beat")}' intents yourself. A P0 or a story bug asks for round 2. Answered part 1 only: notes {action:"critique", rev:${record.revision}, report:"<its answer>"}.`,
         ...(idea.length ? [`Match it against the idea too (did its "moment you cared most" land on the signature?): ${idea.join(" · ")}`] : [])]
       : [`Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. A P0 blocks a final render until a newer rev's round has none.`];
     const lines = [
@@ -3368,14 +3404,14 @@ export function createAgentService(deps) {
       "packet.txt:", ...shown.slice(0, 40), ...(shown.length > 40 ? [`... ${shown.length - 40} more lines in packet.txt`] : []),
       `image ${file}`,
     ];
-    const viewerFields = viewer ? { report: "<its part 1, whole>", matches: intents.beats.map((_, index) => ({ beat: index + 1, got: "<yes|partly|no>", note: "<what its answer shows>" })), bugs: [] } : {};
+    const viewerFields = viewer ? { matches: intents.beats.map((_, index) => ({ beat: index + 1, got: "<yes|partly|no>", note: "<what its answer shows>" })), bugs: [] } : {};
     return done(projectId, { text: lines.join("\n"), images,
       nextCall: nextOf("notes", { action: "critique", rev: record.revision, lines: ["<the critic's lines, as it wrote them>"], ...viewerFields, ...sceneField }),
       data: { rev: record.revision, mode: "critique", folder, packet: written.heard, pages: written.sheets, page: pageNumber, seams: seams.length, moments: moments.length, prompt, ...(viewer ? { viewer: { sheets: first, heard: heardFile } } : {}) } },
     { change(draft) {
       draft.critique ??= {};
       const entry = draft.critique[scene.id] ?? { packets: [], rounds: [] };
-      entry.packets = [...entry.packets.filter((item) => item.rev !== record.revision), { rev: record.revision, at: now(), ...(bar ? { bar: true } : {}), ...(viewer ? { viewer: true } : {}) }].slice(-4);
+      entry.packets = [...entry.packets.filter((item) => item.rev !== record.revision), { rev: record.revision, at: now(), ...(bar ? { bar: true } : {}), ...(viewer ? { viewer: true, sheets: all.length } : {}) }].slice(-4);
       draft.critique[scene.id] = entry;
       if (!viewer) return;
       // The viewer's packet too, so notes viewer accepts this rev as well.
@@ -3400,6 +3436,19 @@ export function createAgentService(deps) {
       throw Object.assign(new AgentError("bad_input", `rev ${last.rev}'s critic found P0 lines: fix them, then a new packet (look {mode:"critique"}) for a fresh critic to re-read.`), { nextCall: critiqueCall(sceneField) });
     const rounds = kept.rounds.filter((round) => round.rev !== rev);
     if (rounds.length >= CRITIQUE_ROUNDS) throw Object.assign(new AgentError("critique_rounds", `${sceneName} already had ${CRITIQUE_ROUNDS} critic rounds: the rest goes to the person.`), { nextCall: critiqueStopCall() });
+    // A packet that carried the viewer's sheets: the helper's viewer part is in viewer.txt.
+    const packetEntry = kept.packets.find((packet) => packet.rev === rev);
+    const carried = packetEntry?.viewer && !(state.story?.viewers ?? []).some((entry) => entry.rev === rev && entry.sceneId === scene.id);
+    const folder = critiqueFolder(record.document.id, scene.id, rev);
+    if (carried && input.report != null && input.lines == null) {
+      // A helper that could not write files answered part 1 only: save it, free packet.txt.
+      await writeFile(path.join(folder, "viewer.txt"), `${String(input.report).trim()}\n`, { mode: 0o600 });
+      if (!await releasePacket(folder)) throw new AgentError("bad_input", `The rev ${rev} packet is gone: make a new one (look {mode:"critique"}).`);
+      const prompt = `Read ${path.join(folder, "packet.txt")}, then ${folder}/sheet-01.jpg to sheet-${String(packetEntry.sheets ?? 1).padStart(2, "0")}.jpg in order.\n${CRITIQUE_PROTOCOL}`;
+      return done(record.document.id, { text: `viewer part saved for ${sceneName} rev ${rev}; packet.txt is ready. Start one fresh subagent that never saw this chat; give it only this prompt:\n---\n${prompt}\n---\nThen record: notes {action:"critique", rev:${rev}, lines:[its answer], matches, bugs}.`,
+        nextCall: nextOf("notes", { action: "critique", rev, lines: ["<the critic's lines, as it wrote them>"], matches: [{ beat: 1, got: "<yes|partly|no>", note: "<what it shows>" }], bugs: [], ...sceneField }), data: { rev, prompt } });
+    }
+    const fileReport = carried ? (await readFile(path.join(folder, "viewer.txt"), "utf8").catch(() => "")).trim() : "";
     let parsed;
     const moves = (Array.isArray(state.brief?.style?.moves) ? state.brief.style.moves : []).map((move) => move?.tag).filter(Boolean);
     const signatures = signatureRanges(state.brief?.style);
@@ -3416,11 +3465,11 @@ export function createAgentService(deps) {
     const count = (level) => parsed.filter((line) => line.level === level).length;
     // A P0 that would delete or shrink a designed moment is a question for the person, not a gate.
     const p0 = parsed.filter(blocksRender);
-    // A packet that carried the viewer's sheets: the same answer records the viewer's report.
-    const carried = kept.packets.find((packet) => packet.rev === rev)?.viewer && !(state.story?.viewers ?? []).some((entry) => entry.rev === rev && entry.sceneId === scene.id);
-    if (carried && input.report == null)
-      throw Object.assign(new AgentError("bad_input", `The rev ${rev} packet carried the viewer's sheets: add its part 1 as report, with matches (every beat) and bugs, in this same call.`), { nextCall: nextOf("notes", { action: "critique", rev, lines: input.lines, report: "<its part 1, whole>", matches: [{ beat: 1, got: "<yes|partly|no>", note: "<what it shows>" }], bugs: [], ...sceneField }) });
-    const viewer = input.report != null ? viewerReport(state, scene, sceneName, input, p0.length ? "critique" : "viewer") : null;
+    // The same answer records the viewer's report: viewer.txt, written before packet.txt was there.
+    const report = fileReport || input.report;
+    if (carried && report == null)
+      throw Object.assign(new AgentError("bad_input", `The rev ${rev} packet carried the viewer's sheets, and ${path.join(folder, "viewer.txt")} is empty: its helper wrote no part 1. Give the packet to a new fresh subagent.`), { nextCall: critiqueCall(sceneField) });
+    const viewer = report != null ? viewerReport(state, scene, sceneName, { ...input, report }, p0.length ? "critique" : "viewer") : null;
     const goAhead = viewer?.bugs.length ? "" : "A final render may go ahead.";
     const asks = parsed.filter((line) => line.ask);
     const number = rounds.length + 1;

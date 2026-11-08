@@ -693,6 +693,11 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
     if (reply.data?.job) await agent("render", { project: id, action: "cancel", job: reply.data.job });
   };
   const size = (packet, texts) => texts.reduce((sum, text) => sum + text.length, packet.text.length);
+  // The helper's step: part 1 into viewer.txt, then packet.txt appears (kino polls every 0.25 s).
+  const appears = async (file) => {
+    for (let n = 0; n < 40; n += 1) { if (await readFile(file, "utf8").catch(() => null) != null) return true; await new Promise((done) => setTimeout(done, 100)); }
+    return false;
+  };
 
   // The old way still works: a viewer packet and a critic packet, two helpers, two answers.
   const old = await build("one-helper-old");
@@ -714,22 +719,39 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   const packet = await agent("look", { project: one, mode: "critique", inline: false });
   assert.equal(packet.isError, undefined, packet.text);
   assert.equal(packet.data.viewer.sheets, 4, "32 frames, 9 to a sheet");
-  assert.match(packet.data.prompt, /Part 1, before you open packet\.txt: read .*heard\.txt[\s\S]*first time[\s\S]*Then the line CRITIC\.\nPart 2: read .*packet\.txt[\s\S]*fresh-eyes critic/);
+  assert.match(packet.data.prompt, /Part 1, the viewer: read .*heard\.txt[\s\S]*first time[\s\S]*Write that report, whole, to .*viewer\.txt\. Only then does packet\.txt appear[\s\S]*Part 2, the critic: read .*packet\.txt[\s\S]*fresh-eyes critic[\s\S]*Your answer is part 2's lines only/);
+  assert.doesNotMatch(packet.text, /report:"<its part 1/, "the main agent never pastes the report");
   assert.doesNotMatch(await readFile(packet.data.viewer.heard, "utf8"), /street change color|the street/, "the viewer part never sees the intents or the brief");
+  // The brief is held back: no packet.txt until viewer.txt has the viewer's part.
+  assert.equal(await readFile(packet.data.packet, "utf8").catch(() => null), null, "packet.txt is not there before viewer.txt");
+  const rev = packet.data.rev;
+  assert.match((await agent("notes", { project: one, action: "critique", rev, lines: ["none"], matches: yes })).text, /viewer\.txt is empty: its helper wrote no part 1/);
+  await writeFile(path.join(packet.data.folder, "viewer.txt"), "");
+  assert.equal(await appears(packet.data.packet), false, "an empty viewer.txt holds it back");
+  await writeFile(path.join(packet.data.folder, "viewer.txt"), report);
+  assert.ok(await appears(packet.data.packet), "packet.txt appears once viewer.txt is written");
   assert.match(await readFile(packet.data.packet, "utf8"), /Moments, on the viewer sheets/);
   const after = { helpers: 1, images: packet.data.pages.length, chars: size(packet, [await readFile(packet.data.packet, "utf8"), await readFile(packet.data.viewer.heard, "utf8")]) };
   t.diagnostic(`a round: before ${JSON.stringify(before)} after ${JSON.stringify(after)}`);
-  const rev = packet.data.rev;
-  // The answer must carry the viewer's part; then one call records both and both gates pass.
-  assert.match((await agent("notes", { project: one, action: "critique", rev, lines: ["none"] })).text, /carried the viewer's sheets/);
-  const both = await agent("notes", { project: one, action: "critique", rev, lines: ["none"], report, matches: yes });
-  assert.match(both.text, /critique round 1 of 2 saved[\s\S]*viewer report saved for s1 rev \d+: beats yes 2/);
+  // One call records both: the report comes from viewer.txt, not the answer.
+  const both = await agent("notes", { project: one, action: "critique", rev, lines: ["none"], matches: yes });
+  assert.match(both.text, /critique round 1 of 2 saved[\s\S]*viewer report saved for s1 rev \d+: beats yes 2 · partly 0 · no 0 · keep 6\/6\/6/);
   await passes(one);
+
+  // A helper that cannot write files answers part 1 only: kino saves it and frees packet.txt.
+  const nowrite = await build("one-helper-nowrite");
+  const held = await agent("look", { project: nowrite, mode: "critique", inline: false });
+  const freed = await agent("notes", { project: nowrite, action: "critique", rev: held.data.rev, report });
+  assert.match(freed.text, /viewer part saved for s1 rev \d+; packet\.txt is ready[\s\S]*fresh-eyes critic/);
+  assert.match(await readFile(held.data.packet, "utf8"), /Moments, on the viewer sheets/);
+  assert.match((await agent("notes", { project: nowrite, action: "critique", rev: held.data.rev, lines: ["none"], matches: yes })).text, /viewer report saved/);
+  await passes(nowrite);
 
   // A P0 asks a second round; the viewer saw the cut already, so round 2 is the critic's alone.
   const p0 = await build("one-helper-p0");
   const first = await agent("look", { project: p0, mode: "critique", inline: false });
-  const saved = await agent("notes", { project: p0, action: "critique", rev: first.data.rev, lines: ["P0 t=1 · dot0 · hangs at the edge → move it to x=40 · its size"], report, matches: yes });
+  await writeFile(path.join(first.data.folder, "viewer.txt"), report);
+  const saved = await agent("notes", { project: p0, action: "critique", rev: first.data.rev, lines: ["P0 t=1 · dot0 · hangs at the edge → move it to x=40 · its size"], matches: yes });
   assert.match(saved.text, /P0 1[\s\S]*look \{mode:"critique"\} for a fresh critic/);
   assert.match((await final(p0)).data.reason, /\d\) fix the critic's P0s, look critique again \d\)/);
   await agent("edit", { project: p0, ops: [{ op: "update_layer", layer: "dot0", properties: { x: 40 } }] });

@@ -56,6 +56,8 @@ test("SKILL.md is short, says what kino does and when to use it, and links each 
   // not the direction reference, so the loop's first step says to say the direction back.
   const firstStep = body.split("## The loop")[1].split(/\n2\. /)[0].replace(/\s+/g, " ");
   assert.match(firstStep, /New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory\./);
+  // The look row lists only the everyday modes; the final-render gate modes live in the loop's steps.
+  for (const mode of ["versus", "viewer", "critique"]) assert.match(body.split("## The loop")[1], new RegExp(`look \\{mode:"${mode}"\\}`), `the loop names look ${mode}`);
 
   const linked = [...skill.matchAll(/\]\((references\/[^)]+\.md)\)/g)].map((match) => match[1]);
   const references = Object.keys(files).filter((file) => file !== "SKILL.md");

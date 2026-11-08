@@ -14,14 +14,18 @@ const SOUND_RATE = 160_000;
 // Below these bit rates a copy is too poor to edit with: the file is refused instead.
 const LEAST_VIDEO_RATE = 600_000;
 const LEAST_SOUND_RATE = 64_000;
+// The copy's long edge at most (1080p): kino works from 1080p copies, never 4K.
+const LONG_EDGE = 1920;
 
 const megabytes = (bytes) => `${bytes >= 10 * MB ? Math.round(bytes / MB) : Number((bytes / MB).toFixed(1))} MB`;
 
 async function probe(file, signal) {
-  const output = await runMediaTool("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type:stream_disposition=attached_pic", "-of", "json", file], { signal });
+  const output = await runMediaTool("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height:stream_disposition=attached_pic", "-of", "json", file], { signal });
   const parsed = JSON.parse(output || "{}");
   const streams = parsed.streams ?? [];
+  const picture = streams.find((stream) => stream.codec_type === "video" && !stream.disposition?.attached_pic);
   return {
+    long: Math.max(Number(picture?.width) || 0, Number(picture?.height) || 0),
     duration: Number(parsed.format?.duration) || 0,
     video: streams.some((stream) => stream.codec_type === "video" && !stream.disposition?.attached_pic),
     audio: streams.some((stream) => stream.codec_type === "audio"),
@@ -32,7 +36,7 @@ async function probe(file, signal) {
  * Makes the working copy of `file` ({actualPath, mime, size, name}). Resolves with
  * {path, mime, size, note, cleanup}; rejects with a message when no usable copy fits `maxBytes`.
  */
-export async function makeWorkingCopy(file, { maxBytes, signal } = {}) {
+export async function makeWorkingCopy(file, { maxBytes, signal, longEdge = LONG_EDGE } = {}) {
   const kind = String(file.mime).split("/")[0];
   const over = `${file.name} is ${megabytes(file.size)}, over kino's ${megabytes(maxBytes)} upload limit`;
   if (kind !== "video" && kind !== "audio") throw new Error(`${over}. Make it smaller first (kino makes copies of video and sound only).`);
@@ -48,16 +52,18 @@ export async function makeWorkingCopy(file, { maxBytes, signal } = {}) {
   const folder = await mkdtemp(path.join(os.tmpdir(), "kino-working-copy-"));
   const cleanup = () => rm(folder, { recursive: true, force: true });
   const output = path.join(folder, video ? "copy.mp4" : "copy.m4a");
+  // A bigger picture (4K phone footage) is scaled down: the long edge to `longEdge`, either way up.
+  const scale = video && facts.long > longEdge;
   // H.264 at a constant quality, capped at the rate that keeps the copy under the limit.
   const args = video
-    ? ["-map", "0:v:0", "-map", "0:a:0?", "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-maxrate", String(videoRate), "-bufsize", String(videoRate * 2),
+    ? ["-map", "0:v:0", "-map", "0:a:0?", ...(scale ? ["-vf", `scale='if(gte(iw,ih),${longEdge},-2)':'if(gte(iw,ih),-2,${longEdge})'`] : []), "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-maxrate", String(videoRate), "-bufsize", String(videoRate * 2),
       "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", String(SOUND_RATE), "-movflags", "+faststart", "-f", "mp4"]
     : ["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", String(Math.floor(soundRate)), "-movflags", "+faststart", "-f", "ipod"];
   try {
     await runMediaTool("ffmpeg", ["-hide_banner", "-v", "error", "-y", "-i", file.actualPath, "-map_metadata", "0", ...args, output], { signal });
     const size = (await stat(output)).size;
     if (size > maxBytes) throw new Error(`${over}, and kino's smaller copy is still ${megabytes(size)}. Import a shorter part of it.`);
-    const what = video ? "H.264" : "AAC";
+    const what = video ? `H.264${scale ? `, long edge ${longEdge} px` : ""}` : "AAC";
     return {
       path: output, mime: video ? "video/mp4" : "audio/mp4", size, cleanup,
       note: `${over}, so kino imported its own working copy (${what}, ${megabytes(size)}); the original is unchanged. Do not re-encode it.`,
