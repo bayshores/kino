@@ -103,7 +103,7 @@ export const AGENT_TOOLS = withSaid([
     alwaysLoad: true,
     description: [
       "Check the animation's quality: the top 10 findings, each with a measured value, what is required and a fix op.",
-      "Errors (gates: type size, overlap, contrast, reading time, …) block a final render, in a real edit warnings too; advice (info) never.",
+      "Errors (type size, overlap, contrast, reading time, …) block a final render, in a real edit warnings too; advice (info) never.",
       "fix:\"auto\" applies the fixes marked (auto) as one edit. rules: only these rule codes (true: repeat the Rules line). pixels:false skips pixel checks.",
       "A deliberate exception: edit with waive_check {code, target, reason}.",
     ].join("\n"),
