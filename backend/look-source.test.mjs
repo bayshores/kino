@@ -198,7 +198,10 @@ test("look source and mark_subject refuse what they cannot do, in words", { skip
   assert.equal(made.isError, undefined, made.text);
   const look = (input) => agent("look", { project: "refusals", mode: "source", ...input });
   const refusal = (reply) => { assert.equal(reply.isError, true, reply.text); return reply.data; };
-  assert.deepEqual(refusal(await look({})), { error: "bad_input", reason: "source needs layer: a video layer's name or code, or an imported video's file name." });
+  // No layer: one sheet of every clip and picture the project uses.
+  const overview = await look({});
+  assert.equal(overview.isError, undefined, overview.text);
+  assert.match(overview.text, /^source: \d+ files?\./m);
   // An imported clip's file name (no layer yet) shows the whole clip in one sheet, in file seconds.
   const whole = await look({ layer: "sintel-village-dragon.mp4" });
   assert.match(whole.text, /^source sintel-village-dragon\.mp4 \(\d+×\d+, 4\.4\d* s\): the whole clip in 12 frames, labeled with file seconds\.$/m);
