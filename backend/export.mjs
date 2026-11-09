@@ -17,6 +17,7 @@ import {
 import { runExportProcess as runProcess, runExportStream } from "./export-process.mjs";
 import { defaultRenderPool, MAX_SVG_BYTES } from "./render-pool.mjs";
 import { renderFrameCache } from "./render-frame-cache.mjs";
+import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
 import { shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
@@ -798,8 +799,8 @@ function soundClipMaker(directory, sceneDuration, signal) {
 // The sound of a video layer whose file is at `path`. It is heard only while the video is drawn:
 // a Hide on the video or a group around it silences it until a Show, as in the editor preview
 // (videoSound.js), so there is one clip per audible range.
-async function videoSoundClips(layers, layer, path, sceneDuration, { signal, soundClip }) {
-  const ranges = audibleRanges(layers, layer, sceneDuration);
+async function videoSoundClips(layers, layer, path, sceneDuration, { signal, soundClip, soundStart = 0 }) {
+  const ranges = audibleRanges(layers, layer, sceneDuration).filter(range => soundStart === 0 || range.end > soundStart);
   const channels = ranges.length ? await audioChannelCount(path, signal) : 0;
   const clips = [];
   if (channels)
@@ -809,10 +810,13 @@ async function videoSoundClips(layers, layer, path, sceneDuration, { signal, sou
 }
 
 // The sound of an audio layer: one clip over its Play range (playback.js mediaPlaybackRange).
-async function audioLayerSoundClips(layer, mediaRoot, sceneDuration, { signal, soundClip }) {
-  const path = await resolveLocalMediaPath(layer.src, mediaRoot, `Audio layer “${layer.name ?? layer.id}”`);
+async function audioLayerSoundClips(layer, mediaRoot, sceneDuration, { signal, soundClip, soundStart = 0 }) {
+  // Full exports keep their existing missing-media validation even for inactive audio layers.
+  const source = () => resolveLocalMediaPath(layer.src, mediaRoot, `Audio layer “${layer.name ?? layer.id}”`);
+  const originalPath = soundStart === 0 ? await source() : null;
   const range = mediaPlaybackRange(layer, sceneDuration);
-  if (!range) return [];
+  if (!range || (soundStart > 0 && range.end <= soundStart)) return [];
+  const path = originalPath ?? await source();
   const channels = await audioChannelCount(path, signal);
   if (!channels) throw new Error(`Audio layer “${layer.name ?? layer.id}” contains no readable audio stream.`);
   return [await soundClip(layer, { name: layer.name ?? layer.id, path, channels, ...range })];
@@ -902,7 +906,7 @@ async function prepareMedia(
   scene,
   options,
   mediaRoot,
-  { directory, format, fps, frameTimes, samples = frameTimes, design = false, dimensions, signal, warnings, gifSlots, videoLimits, flowCacheDir, windowFrames = 0, silent = false, checkCache = null, morph = true } = {},
+  { directory, format, fps, frameTimes, samples = frameTimes, soundDuration = frameTimes.length / fps, soundStart = 0, design = false, dimensions, signal, warnings, gifSlots, videoLimits, flowCacheDir, windowFrames = 0, silent = false, checkCache = null, morph = true } = {},
 ) {
   const frameCount = frameTimes.length;
   // Video layers whose pictures a long export extracts a window at a time (`windowFrames` > 0):
@@ -923,7 +927,7 @@ async function prepareMedia(
   const videoSources = new Map();
   let videoFolders = 0;
   const audio = [];
-  const soundClip = soundClipMaker(directory, frameCount / fps, signal);
+  const soundClip = soundClipMaker(directory, soundDuration, signal);
   const lottieVideoIds = new Set();
   const lottieVideoLayerIds = new Set();
   let animatedGif = false;
@@ -1110,11 +1114,11 @@ async function prepareMedia(
           mediaRoot,
           `Video layer “${layer.name ?? layer.id}”`,
         );
-        audio.push(...await videoSoundClips(scene.layers, layer, sourcePath, frameCount / fps, { signal, soundClip }));
+        audio.push(...await videoSoundClips(scene.layers, layer, sourcePath, soundDuration, { signal, soundClip, soundStart }));
       }
     }
     if (layer.type === "audio" && ["mp4", "webm", "mov"].includes(format) && layer.src && !silent)
-      audio.push(...await audioLayerSoundClips(layer, mediaRoot, frameCount / fps, { signal, soundClip }));
+      audio.push(...await audioLayerSoundClips(layer, mediaRoot, soundDuration, { signal, soundClip, soundStart }));
   }
   // Decode each GIF once, with the frames that any of its layers shows.
   let gifFolders = 0;
@@ -2592,8 +2596,10 @@ function backgroundIsOpaque(scene) {
 }
 
 // The sounds an export can hear: they start before its end and are not muted.
-function audibleClips(audioInputs, duration) {
-  return audioInputs.filter((audio) => audio.start < duration && audio.volume > 0);
+function audibleClips(audioInputs, duration, start = 0) {
+  const end = start + duration;
+  return audioInputs.filter((audio) => audio.start < end && audio.volume > 0 &&
+    (start === 0 || audio.start + clipLength(audio, end) > start));
 }
 
 // The FFmpeg filter that numbers sound timestamps from the sample count (N samples so far, SR
@@ -2619,10 +2625,10 @@ function audioInputArgs(clips) {
  * `firstInput` is the FFmpeg input number of the first clip. The last filter's output has no
  * name, so callers add their own filters.
  */
-function audioMixGraph(clips, duration, format, firstInput) {
+function audioMixGraph(clips, duration, format, firstInput, start = 0) {
   let nextTrack = firstInput + clips.length;
   const filters = clips.map((audio, index) => {
-    const clipDuration = clipLength(audio, duration);
+    const clipDuration = clipLength(audio, start + duration);
     const delay = Math.round(audio.start * 1000);
     // Web Audio copies mono into both stereo channels. FFmpeg's automatic
     // remix instead attenuates each channel, changing the exported volume.
@@ -2647,7 +2653,10 @@ function audioMixGraph(clips, duration, format, firstInput) {
     return `${source}[s${index}];${track};[s${index}][v${index}]amultiply,${placed}`;
   });
   const sources = clips.map((_, index) => `[a${index}]`).join("");
-  filters.push(`${sources}amix=inputs=${clips.length}:duration=longest:dropout_transition=0:normalize=0,atrim=duration=${duration}`);
+  // Keep every source, volume track and animated filter on its original clock. Trimming the
+  // completed mix (rather than shifting clips) preserves fades, ducks and source remapping.
+  const trim = start > 0 ? `atrim=start=${start}:duration=${duration},asetpts=PTS-STARTPTS` : `atrim=duration=${duration}`;
+  filters.push(`${sources}amix=inputs=${clips.length}:duration=longest:dropout_transition=0:normalize=0,${trim}`);
   return filters.join(";");
 }
 
@@ -2680,19 +2689,21 @@ function audioCodecArgs(format, options) {
  * `loudness` is the gain filter used (loudnessGain), or null.
  */
 async function planMasterLimiter(audioInputs, duration, format, options, directory, signal) {
-  const clips = audibleClips(audioInputs, duration);
+  const start = options.audioStart ?? 0;
+  const clips = audibleClips(audioInputs, duration, start);
   const inputs = audioInputArgs(clips);
-  const graph = audioMixGraph(clips, duration, format, 0);
+  const graph = audioMixGraph(clips, duration, format, 0, start);
   const levels = await measureMixLevels(inputs, graph, signal);
   const sound = await fitLoudness(inputs, graph, levels, options.loudness, { codecArgs: audioCodecArgs(format, options), format, directory, signal });
   const { loudness } = sound;
   // A clip with a Volume animation is named with its volume at the loudest moment.
-  const named = clips.map((clip) => clip.volumeTrack && levels.loudestAt !== null
-    ? { ...clip, volume: trackVolumeAt(clip, levels.loudestAt) } : clip);
+  const sceneLevels = { ...levels, loudestAt: levels.loudestAt === null ? null : levels.loudestAt + start };
+  const named = clips.map((clip) => clip.volumeTrack && sceneLevels.loudestAt !== null
+    ? { ...clip, volume: trackVolumeAt(clip, sceneLevels.loudestAt) } : clip);
   // With a loudness target, kino's own gain sets the peaks: lowering clip volumes would be undone by
   // the next render's gain, and the limiter takes at most 6 dB off them (past that, the gain holds
   // and the file comes out quieter). Sound that still clips after encoding is warned about by the file checks.
-  return { ceiling: sound.ceiling, loudness, warning: loudness ? null : loudMixWarning(levels, named, sound) };
+  return { ceiling: sound.ceiling, loudness, warning: loudness ? null : loudMixWarning(sceneLevels, named, sound) };
 }
 
 function encodeArgs(
@@ -2723,7 +2734,8 @@ function encodeArgs(
     "-i",
     input,
   ];
-  const usableAudio = audibleClips(audioInputs, duration);
+  const audioStart = options.audioStart ?? 0;
+  const usableAudio = audibleClips(audioInputs, duration, audioStart);
   args.push(...audioInputArgs(usableAudio));
   args.push(
     "-frames:v",
@@ -2737,7 +2749,7 @@ function encodeArgs(
     // The loudness gain and the master limiter, as planMasterLimiter fitted them, bring the summed
     // sound to its target and keep it from clipping.
     const gain = options.loudnessFilter ? `${options.loudnessFilter},` : "";
-    const graph = `${audioMixGraph(usableAudio, duration, format, 1)},${gain}${masterLimiter(options.limiterCeiling)}[audio]`;
+    const graph = `${audioMixGraph(usableAudio, duration, format, 1, audioStart)},${gain}${masterLimiter(options.limiterCeiling)}[audio]`;
     args.push("-filter_complex", graph, "-map", "[audio]");
   } else args.push("-an");
   if (format === "mp4")
@@ -3130,17 +3142,25 @@ async function exportSceneNow(
     finite(options.duration, finite(scene.duration, 1)),
   );
   let frameTimes = exportFrameTimes(duration, fps, { format, playbackDirection: options.playbackDirection });
+  const requestedRange = renderRange(scene, { ...options, fps, draftFps: undefined });
+  if (requestedRange) {
+    if (frameRange !== undefined) throw new Error("Use from/to or a frame range, not both.");
+    frameRange = requestedRange;
+  }
   // `frameRange` {first, count} (preview-segments.mjs): only these frames of the scene's frame
   // grid, drawn at their own scene times, so a stretch of the scene is a short video of its own.
   // `silent` leaves every sound out.
   if (frameRange !== undefined) {
     const { first, count } = frameRange ?? {};
     if (!["mp4", "webm", "mov"].includes(format)) throw new Error("A frame range applies only to video exports.");
+    if (!silent && (options.playbackDirection ?? "normal") !== "normal") throw new Error("An audible frame range requires normal playback direction.");
     if (!Number.isInteger(first) || !Number.isInteger(count) || first < 0 || count < 1 || first >= frameTimes.length)
       throw new RangeError("A frame range needs a first frame inside the scene and a count of 1 or more.");
     frameTimes = frameTimes.slice(first, first + count);
   }
   const frameCount = frameTimes.length;
+  const audioStart = frameRange === undefined ? 0 : frameRange.first / fps;
+  const soundDuration = audioStart + frameCount / fps;
   // A PNG sequence ZIP (png-sequence.mjs, zip.mjs) holds at most 65,535 frames: refused here,
   // before any frame is drawn, rather than after a long scene is rendered.
   if (format === "png-sequence" && !sequenceDirectory && frameCount > PNG_ZIP_MAX_FRAMES)
@@ -3178,6 +3198,8 @@ async function exportSceneNow(
       format,
       fps,
       frameTimes: shownTimes,
+      soundDuration,
+      soundStart: audioStart,
       samples: samplesFor(shownTimes),
       design,
       dimensions,
@@ -3192,7 +3214,7 @@ async function exportSceneNow(
     if (media.videoPlans.length)
       pictureWindows = videoPictureWindows(media, { directory, frameTimes, windowFrames: limits.windowFrames, samplesFor, signal, limits, flowCacheDir });
     exportFacts = { ...(format !== "lottie" ? { renderedFrames: format === "png" ? 1 : frameCount } : {}),
-      hasAudio: ["mp4", "webm", "mov"].includes(format) && media.audio.some(item => item.start < frameCount / fps && item.volume > 0) };
+      hasAudio: ["mp4", "webm", "mov"].includes(format) && audibleClips(media.audio, frameCount / fps, audioStart).length > 0 };
     if (format === "lottie" && (options.motionBlur || options.dither)) warnings.push({ code: "lottie-quality", message: "Lottie keeps editable vector animation; motion blur and dither apply to raster formats only." });
     if (format === "lottie") {
       media.nativeEffectFills = effectPlan.nativeFills;
@@ -3306,11 +3328,11 @@ async function exportSceneNow(
         ...warningDetails(),
       };
     }
-    const audio = media.audio.filter((item) => item.start < frameCount / fps);
+    const audio = audibleClips(media.audio, frameCount / fps, audioStart);
     let limiterCeiling, loudnessFilter;
     if (exportFacts.hasAudio) {
       try {
-        const limiter = await planMasterLimiter(audio, frameCount / fps, format, options, directory, signal);
+        const limiter = await planMasterLimiter(audio, frameCount / fps, format, { ...options, audioStart }, directory, signal);
         limiterCeiling = limiter.ceiling;
         if (limiter.loudness) {
           loudnessFilter = limiter.loudness.filter;
@@ -3341,7 +3363,7 @@ async function exportSceneNow(
         throw error;
       }
     } else await runExportStream(ffmpeg,
-      encodeArgs(format, fps, frameCount, directory, output, audio, frameCount / fps, { ...options, pipeInput: true,
+      encodeArgs(format, fps, frameCount, directory, output, audio, frameCount / fps, { ...options, audioStart, pipeInput: true,
         rawFrameSize: rawFrames ? `${dimensions.width}x${dimensions.height}` : null, opaqueFrames: backgroundIsOpaque(scene), limiterCeiling, loudnessFilter }), {
         signal: exportSignal,
         input: async function* (encoderSignal) {

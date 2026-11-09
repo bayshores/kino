@@ -1,9 +1,25 @@
 # Render
 
+Contents: Render ladder and queue · Exports through the workspace
+
 Videos and stills come from `render` (the person sees each job in the dashboard). `out` must be
 an absolute folder (the `kino` command resolves a relative one or `~` for you).
 
 ## Render ladder and queue
+
+- For explicit rough review, `render {preview:"fast", from:10, to:15, wait:true}` uses
+  draft quality, at most 640px on the long side and 15fps, no motion blur or dither.
+  A lower requested `fps` or `options.draftWidth` wins. Saved scenes and export defaults stay
+  unchanged. Omit the range for a complete fast draft. Fast review is not motion-quality approval.
+- `from` and `to` select one draft video's scene-clock interval. Give both, within the scene,
+  with normal playback and no `options.duration`. The interval snaps outward to whole frames;
+  replies include the actual `range`. Pictures and sound preserve their original timing;
+  caption sidecars start at zero. Final renders and non-video formats reject ranges.
+- Excerpts skip rendering the rest of the movie. Repeating an unchanged excerpt reuses its
+  checked export. A changed scene invalidates that file cache, including edits outside the range.
+  Separately, dashboard playback already caches two-second silent picture segments and reuses
+  unaffected segments. This change does not concatenate those into a final movie. Export the
+  complete ordinary draft/final after approving excerpts, to check joins and continuous audio.
 
 - `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 errors (a real edit: 0 warn too) and
   `look {mode:"review"}` has shown every moment (else `review_needed`). With `wait:true` it
@@ -14,7 +30,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   and a refused final names every gate still open. Plan them all at once, in that order
   (stops, intents, viewer, critic, fixes, check, review, versus): a fix redoes what comes after.
 - `quality:"draft"` uses half each scene dimension at 30fps (even video sizes); `fps` sets another
-  rate up to 30 (the footage's 24 or 25). The person watches drafts, so never drop them to 15.
+  rate up to 30 (the footage's 24 or 25). Use this to judge motion fidelity.
   `quality:"final"` uses full dimensions and `fps` (default 30; 23.976, 29.97 and 59.94 for
   editing apps and broadcast, or `options:{fps:"30000/1001"}`), `motionBlur:0.5` (two shutter
   samples) and `dither:true`. Override with `motionBlur:0`, `dither:false` for the original
