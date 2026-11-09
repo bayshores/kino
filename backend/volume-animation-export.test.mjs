@@ -128,6 +128,41 @@ test("an MP4 of a mono sound with a Volume animation keeps the fade and the dip"
   }
 });
 
+test("an audible draft range keeps Volume automation on the original scene clock", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "kino-volume-range-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const mediaRoot = await makeMedia(root);
+  const scene = fadeAndDuckScene("music.wav");
+  const music = scene.layers.find((layer) => layer.id === "music");
+  const outputPath = join(root, "range.mov");
+  const result = await exportScene(scene, { profile: "mov", fps: 10, renderQuality: "draft", from: 2.8, to: 3.4 }, { mediaRoot, outputPath });
+  assert.equal(result.hasAudio, true);
+  assert.equal(result.renderedFrames, 6);
+  assert.ok(!result.warnings?.some((warning) => warning.code === "audio-level-unmeasured"));
+  const samples = await firstChannel(outputPath);
+  assert.ok(Math.abs(samples.length / RATE - 0.6) < 0.02, "the audio is only the selected range");
+  for (const time of [0.05, 0.15, 0.25, 0.35, 0.45, 0.55]) {
+    const error = dB(rms(samples, time) / expectedRms(music, 2.8 + time));
+    assert.ok(Math.abs(error) < 0.5, `range ${time} s follows scene ${2.8 + time} s: ${error.toFixed(3)} dB`);
+  }
+});
+
+test("a draft range includes late-starting audio and omits clips that already ended", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "kino-late-audio-range-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const mediaRoot = await makeMedia(root);
+  const scene = createScene({ id: "late", name: "Late sound", width: SIZE, height: SIZE, duration: 4, background: "#000000",
+    layers: [createLayer("audio", { id: "late", name: "Late", src: "/api/media/music.wav", mediaStart: 2, mediaOffset: 0.5, mediaDuration: 1 })] });
+  const outputPath = join(root, "late.mov");
+  const result = await exportScene(scene, { profile: "mov", fps: 10, renderQuality: "draft", from: 2.4, to: 2.8 }, { mediaRoot, outputPath });
+  assert.equal(result.hasAudio, true, "late audio intersects the selected range");
+  const samples = await firstChannel(outputPath);
+  assert.ok(Math.abs(dB(rms(samples, 0.1) / (AMPLITUDE / Math.SQRT2))) < 0.5);
+  const silent = await exportScene(scene, { profile: "mov", fps: 10, renderQuality: "draft", from: 3.4, to: 3.8 },
+    { mediaRoot, outputPath: join(root, "after.mov") });
+  assert.equal(silent.hasAudio, false, "a clip that ended before the range does not add an audio stream");
+});
+
 test("a sound without a Volume animation is mixed exactly as before", { skip: skipWithoutMediaTools }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "kino-volume-plain-"));
   t.after(() => rm(root, { recursive: true, force: true }));

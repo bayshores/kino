@@ -265,3 +265,38 @@ test("render start with wait:true answers with the checked file, or says it is s
   const capped = await agent("render", { action: "start", quality: "draft", options: { fps: 60 }, wait: true });
   assert.match(capped.text, /960×540 30fps/);
 });
+
+test("fast draft excerpts keep the project, expose actual bounds and reuse only matching intervals", { skip: skipWithoutMediaTools }, async () => {
+  const project = "fast-range";
+  await agent("project", { action: "create", id: project, name: "Fast range", width: 1280, height: 720, duration: 2 });
+  await agent("edit", { project, ops: [{ op: "add_layer", layerType: "rectangle", name: "review-tile",
+    properties: { x: 100, y: 100, width: 200, height: 200, fill: "#2563eb" } }] });
+  const before = await saved(project);
+  const request = { project, preview: "fast", from: 1, to: 1.5, wait: true };
+  const began = performance.now();
+  const first = await agent("render", request);
+  assert.equal(first.isError, undefined, first.text);
+  assert.equal(first.data.status, "done", first.text);
+  assert.deepEqual(first.data.range, { first: 15, count: 8, from: 1, to: 23 / 15, duration: 8 / 15 });
+  const file = first.data.files[0];
+  assert.deepEqual([file.width, file.height, file.fps], [640, 360, 15]);
+  assert.equal(file.validation.ok, true);
+  const cachedAt = performance.now();
+  const repeated = await agent("render", request);
+  const cachedMs = performance.now() - cachedAt;
+  assert.equal(repeated.data.status, "done", repeated.text);
+  assert.equal(repeated.data.cachedScenes.length, 1);
+  const otherInterval = await agent("render", { ...request, from: 0, to: 0.5 });
+  assert.equal(otherInterval.data.status, "done", otherInterval.text);
+  assert.equal(otherInterval.data.cachedScenes.length, 0, "different interval with otherwise identical settings is not reused");
+  const changed = await agent("render", { ...request, from: 0, to: 0.5, fps: 12, options: { draftWidth: 320 } });
+  assert.equal(changed.data.status, "done", changed.text);
+  assert.equal(changed.data.cachedScenes.length, 0);
+  assert.deepEqual([changed.data.files[0].width, changed.data.files[0].height, changed.data.files[0].fps], [320, 180, 12]);
+  assert.equal((await saved(project)).revision, before.revision);
+  for (const bad of [{ from: 1 }, { from: 1, to: 3 }, { from: 1, to: 1.5, quality: "final" }]) {
+    const reply = await agent("render", { project, preview: "fast", ...bad });
+    assert.equal(reply.isError, true, reply.text);
+  }
+  console.log(`Synthetic 0.533s excerpt, 640x360/15fps: first ${Math.round(cachedAt - began)}ms; identical cached export ${Math.round(cachedMs)}ms.`);
+});

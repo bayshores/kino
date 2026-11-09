@@ -97,5 +97,5 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 - [taste](references/taste.md): motion, readability, restraint.
 - [direction](references/direction.md): the brief, the stops, playback.
 - [dashboard](references/dashboard.md): history, notes, helpers.
-- [render](references/render.md): formats, encoders.
+- [render](references/render.md): `preview=fast`, exports.
 - [inspire](references/inspire.md): edits' cuts, [songs, no music](references/soundtrack.md); [workspace](references/workspace.md): copying, imports.

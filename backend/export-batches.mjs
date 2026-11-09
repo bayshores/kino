@@ -15,10 +15,11 @@ import { graphicsCacheInput } from "./render-devices.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
 import { LOUDNESS_OPTIONS, LOUDNESS_TARGETS } from "./audio-levels.mjs";
 import { normalizeRenderQuality } from "./render-quality.mjs";
+import { renderRange } from "./render-range.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 
 const TERMINAL = new Set(["completed", "failed", "canceled"]);
-const OPTION_KEYS = new Set(["format", "profile", "size", "fps", "width", "height", "quality", "gifEncoder", "mp4Encoder", "videoEncoder", "videoQuality", "loop", "playbackDirection", "transparent", "time", "design", "duration", "imageDPIRatio", "motionBlur", "shutterAngle", "motionSamples", "dither", "renderQuality", "sequenceArchive", "draftWidth", "draftFps", "loudness"]);
+const OPTION_KEYS = new Set(["format", "profile", "size", "fps", "width", "height", "quality", "gifEncoder", "mp4Encoder", "videoEncoder", "videoQuality", "loop", "playbackDirection", "transparent", "time", "design", "duration", "from", "to", "imageDPIRatio", "motionBlur", "shutterAngle", "motionSamples", "dither", "renderQuality", "sequenceArchive", "draftWidth", "draftFps", "loudness"]);
 
 function createExportSemaphore(limit) {
   let active = 0;
@@ -152,7 +153,7 @@ function frameRate(options) {
 // Exported for tests.
 export function sceneOptions(options, scene) {
   const scoped = stillOptionsForScene(options, scene);
-  if (options.renderQuality === undefined) return scoped;
+  if (options.renderQuality === undefined) { renderRange(scene, scoped); return scoped; }
 
   const draft = options.renderQuality === "draft";
   const defaults = draft ? { motionBlur: 0, dither: false } : { motionBlur: 0.5, dither: true };
@@ -190,11 +191,14 @@ export function sceneOptions(options, scene) {
   // Without motionSamples each frame draws as many as its fastest move needs (export.mjs
   // frameMotionSamples); normalizeRenderQuality's default of 2 would turn that off.
   if (options.motionSamples === undefined) delete result.motionSamples;
+  renderRange(scene, result);
   return result;
 }
 
 // How many frames the exporter draws for a job: its duration, fps and playback direction.
 function jobFrameCount(jobOptions, scene) {
+  const range = renderRange(scene, jobOptions);
+  if (range) return range.count;
   const fps = frameRate(jobOptions);
   const duration = Math.max(1 / fps, Number(jobOptions.duration ?? scene.duration ?? 1));
   return exportFrameTimes(duration, fps, { format: jobOptions.format, playbackDirection: jobOptions.playbackDirection }).length;
@@ -386,7 +390,8 @@ export function createExportBatches({ mediaRoot, lifetime = 60 * 60 * 1000, maxB
         ...(job.validation ? { validation: job.validation } : {}),
         ...(job.result?.outputAudit ? { outputAudit: job.result.outputAudit } : {}),
         ...(job.queuePosition != null ? { queuePosition: job.queuePosition } : {}),
-        duration: job.options.duration ?? job.scene.duration,
+        duration: renderRange(job.scene, job.options)?.duration ?? job.options.duration ?? job.scene.duration,
+        ...(renderRange(job.scene, job.options) ? { range: renderRange(job.scene, job.options) } : {}),
         // The version changes each time the thumbnail is drawn again, so the page reloads it.
         thumbnailReady: Boolean(job.thumbnailPath), thumbnailVersion: job.thumbnailVersion,
         ...(job.sequence ? { sequence: { ...job.sequence } } : {}),
@@ -483,7 +488,8 @@ export function createExportBatches({ mediaRoot, lifetime = 60 * 60 * 1000, maxB
         if (!output) {
           if (!job.thumbnailPath) {
             // A still PNG's thumbnail shows the frame it saves; animated formats show their first frame.
-            const frame = thumbnailFrame(job.options);
+            const range = renderRange(job.scene, job.options);
+            const frame = range ? { time: range.from } : thumbnailFrame(job.options);
             const version = job.thumbnailVersion + 1;
             const thumbnail = path.join(job.directory, `thumbnail-${version}.png`);
             await exportScene(job.scene, { format: "png", width: 150, height: 84, ...frame }, {
@@ -629,6 +635,8 @@ export function createExportBatches({ mediaRoot, lifetime = 60 * 60 * 1000, maxB
     if (sceneIds.some((id) => !document.scenes.some((scene) => scene.id === id))) throw requestError("One of the selected scenes is no longer in the file.");
     if (batches.size + pendingCreates >= maxBatches) throw requestError("Too many export queues are open. Close an earlier queue and try again.", 429);
     const settings = withVideoDefaults(exportOptions(options), exportDefaults?.());
+    if ((settings.from !== undefined || settings.to !== undefined) && sceneIds.length !== 1)
+      throw requestError("Choose one scene for a render range.");
     assertBatchStillTime(settings, sceneIds.map((id) => document.scenes.find((scene) => scene.id === id)));
     pendingCreates += 1;
     let directory;

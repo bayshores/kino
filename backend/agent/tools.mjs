@@ -168,10 +168,13 @@ export const AGENT_TOOLS = withSaid([
     name: "render",
     title: "Render video",
     hints: CAN_LOSE_DATA, // can overwrite an earlier export file (after the person approves); history cannot bring that file back
-    description: "Render (export) saved scenes to video or image files. start returns a job; wait returns checked files (55s; repeat if running); status, queue, cancel. draft: half size, 30fps. final: full size, blocked by errors and unreviewed moments (look review). May answer awaiting_approval {id}: keep working, then wait {job:id}. Details: library rules render.",
+    description: "Export: start, wait (checked files, 55s), status, queue, cancel. draft: half size/30fps; preview:fast: 640px/15fps. from/to: draft excerpt. final: full size, gated. awaiting_approval: wait {job:id}. Details: library rules render.",
     input: {
       action: z.enum(["start", "wait", "status", "cancel", "queue"]).optional(),
       quality: z.enum(["draft", "final"]).optional(),
+      preview: z.literal("fast").optional(),
+      from: z.number().nonnegative().optional(),
+      to: z.number().positive().optional(),
       format: z.enum(["mp4", "webm", "mov", "gif", "png", "apng", "png-sequence", "lottie"]).optional(),
       motionBlur: z.number().min(0).max(1).optional(),
       dither: z.boolean().optional(),
