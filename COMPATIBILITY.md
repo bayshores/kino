@@ -1083,6 +1083,10 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Taste judge (evals/taste/judge.mjs)**: Verified on a first-pass edit against a published launch film. Mends broken model
   JSON, retries once, and flags "too few samples" (under 2 answers, kept off the ladder). Evidence: `tests/taste-harness.test.mjs`. Gap:
   advisory until calibrated.
+- **First-pass house seed (evals/taste/firstpass.mjs)**: Verified (test, plus a hand check: fp-11's ending is 0.1 from
+  "earlier project 06"). Each run's house memory starts as `evals/taste/house/launch-v1` (10 signature files) so
+  `seen_before` can fire; `KINO_FIRSTPASS_HOUSE=none` is off; run.json keeps `house: {snapshot, sha256}`. Evidence:
+  `tests/taste-harness.test.mjs`. Gap: not yet seen in a full run.
 - **Look versus and the reference gate**: Verified with a copied saved reference (temp server).
   `look {mode:"versus"}` pairs like with like: a board shot's `move.ref` beside that moment (key from `save yt:<id> as <key>`, id or title), else the reference moment of the same kind (app, type, footage, end card, read from pixels), else "no fair match" with no gaps; gaps are hero fill, contrast and the craft drift rows only; a final render of 5 s or more is
   refused without saved references (`reference_needed`) or a versus in the last 10 revisions, or while its judge round has the references winning (waivable). Evidence:
