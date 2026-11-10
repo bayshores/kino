@@ -6,16 +6,17 @@
 //    the middle of each shot.
 // 2. The stills go through the injected image embedder (SigLIP, look-embed.mjs); `want` through
 //    its text half, so each shot gets a match against the agent's visual words.
-// 3. The pure half (scanMarks, shotFacts, mergeAlike, rankShots): text that sits in one place
-//    on half the shots of the whole scan or more (a channel logo, a copyright line, read however
-//    the OCR spells it) is a mark: said once, never counted as text. Neighbors 0.95 or more alike
+// 3. The pure half (scanMarks, shotFacts, mergeAlike, rankShots): small text that sits in one
+//    place near an edge on 40% of the shots of the whole scan or more (a channel logo, a copyright
+//    line, read however the OCR spells it) is a mark: said once, never counted as text. Subtitles
+//    and captions are never marks. Neighbors 0.95 or more alike
 //    join into one shot (a held picture the cut finder split), then shots rank on motion, faces
 //    and clean frames. Dark shots, shots full of text, shots with burned-in subtitles (a line at
 //    the bottom center) and shots under 0.4 s go last; a logo fixed within one stretch costs a
 //    little. Drawn footage (the stills read closer to "an anime screenshot or a cartoon" than to
 //    "a photo") is not ranked by faces: the face detector is made for photos. `match` is a
-//    z-score among this scan's shots and counts only when the best clean shot (no dark, text or
-//    subtitles flag) reaches matchBar: 2, or more in a long scan of photos, where noise alone
+//    z-score among this scan's shots and counts only when the best clean shot (no dark, text,
+//    subtitles or short flag) reaches matchBar: 2, or more in a long scan of photos, where noise alone
 //    tops 2; otherwise the answer says there is no visual match, how close the best came, or that
 //    the image model did not run.
 // Times: yt-dlp cuts each stretch without re-encoding, so its file starts at the keyframe before
@@ -88,15 +89,36 @@ export function placeName(box) {
 
 // The grid scanMarks counts text on: cells of 1/24 of the frame.
 const MARK_CELLS = 24;
+/** A line counts toward a mark only when it is logo-sized: at most this wide and high. */
+export const MARK_LINE_MOST = [0.25, 0.1];
+/** A mark is at most this wide and high (its grid cells, so a little more than a line). */
+export const MARK_MOST = [0.375, 0.25];
+/** A mark lies within this distance of one frame edge (a corner or a strip along an edge). */
+export const MARK_EDGE = 0.2;
+// Where burned-in subtitles sit (x, y, w, h): no mark reaches into it.
+const SUBTITLE_BAND = [0.25, 0.65, 0.5, 0.35];
+
+// True when a mark's group box is logo-sized, near an edge and clear of the subtitle band.
+// One grid cell of slack, as a group's box is rounded out to whole cells.
+function markLike([x, y, w, h]) {
+  const slack = 1 / MARK_CELLS;
+  if (w > MARK_MOST[0] + 1e-9 || h > MARK_MOST[1] + 1e-9) return false;
+  const nearEdge = x + w <= MARK_EDGE + slack || x >= 1 - MARK_EDGE - slack || y + h <= MARK_EDGE + slack || y >= 1 - MARK_EDGE - slack;
+  const [bx, by, bw, bh] = SUBTITLE_BAND;
+  const inBand = x < bx + bw && x + w > bx && y < by + bh && y + h > by;
+  return nearEdge && !inBand;
+}
 
 /**
  * The marks of a whole scan: text that stays in one place across shots, however the OCR read it
  * (a logo over a moving picture comes out as "TOHO", "TOH" or "TO", its boxes a different size
  * each time). shotLines: one entry a shot, the boxes ([x, y, w, h], fractions) of every text line
- * read in it, or null when its text was not read. A grid cell some line touched in MARK_SHARE of
- * the read shots (3 at least) is marked, outside the subtitle area at the bottom center; touching
- * marked cells make one mark. Answers [{where, box, share}], share being the most shots any of
- * its cells was seen in, as a part of the read shots.
+ * read in it, or null when its text was not read. Only logo-sized lines (MARK_LINE_MOST) count: a
+ * grid cell such a line touched in MARK_SHARE of the read shots (3 at least) is marked, and
+ * touching marked cells make one mark. A mark is small, near an edge and clear of the subtitle
+ * band at the bottom center, so captions and subtitles on most shots stay text. Answers
+ * [{where, box, share}], share being the most shots any of its cells was seen in, as a part of
+ * the read shots.
  */
 export function scanMarks(shotLines = []) {
   const read = shotLines.filter((lines) => Array.isArray(lines));
@@ -105,14 +127,14 @@ export function scanMarks(shotLines = []) {
   for (const lines of read) {
     const touched = new Set();
     for (const box of lines) {
+      if (box[2] > MARK_LINE_MOST[0] || box[3] > MARK_LINE_MOST[1]) continue;
       for (let row = cellOf(box[1]); row <= cellOf(box[1] + box[3]); row += 1)
         for (let col = cellOf(box[0]); col <= cellOf(box[0] + box[2]); col += 1) touched.add(row * MARK_CELLS + col);
     }
     for (const cell of touched) seen[cell] += 1;
   }
   const need = Math.max(3, MARK_SHARE * read.length);
-  const cellBox = (cell) => [(cell % MARK_CELLS) / MARK_CELLS, Math.floor(cell / MARK_CELLS) / MARK_CELLS, 1 / MARK_CELLS, 1 / MARK_CELLS];
-  const on = seen.map((count, cell) => count >= need && !isSubtitle(cellBox(cell)));
+  const on = seen.map((count) => count >= need);
   const marks = [];
   const done = new Set();
   for (let start = 0; start < on.length; start += 1) {
@@ -134,6 +156,7 @@ export function scanMarks(shotLines = []) {
     }
     const rows = group.map((cell) => Math.floor(cell / MARK_CELLS)), cols = group.map((cell) => cell % MARK_CELLS);
     const box = [Math.min(...cols) / MARK_CELLS, Math.min(...rows) / MARK_CELLS, (Math.max(...cols) - Math.min(...cols) + 1) / MARK_CELLS, (Math.max(...rows) - Math.min(...rows) + 1) / MARK_CELLS];
+    if (!markLike(box)) continue;
     marks.push({ where: placeName(box), box: box.map(round3), share: round3(Math.max(...group.map((cell) => seen[cell])) / read.length) });
   }
   return marks.sort((a, b) => b.share - a.share);
@@ -173,7 +196,8 @@ export function shotFacts(start, end, samples = [], persistent = [], marks = [])
   const fixed = persistent.filter((element) => element.kind === "text").map((element) => element.box);
   const textFrames = inside.filter((sample) => Array.isArray(sample.text));
   const share = (test) => (textFrames.length ? round3(textFrames.filter(test).length / textFrames.length) : 0);
-  const isMark = (line) => marks.some((mark) => centerIn(line.box, mark.box));
+  // A subtitle-like line is never a mark, even when a mark's box takes its middle in.
+  const isMark = (line) => !isSubtitle(line.box) && marks.some((mark) => centerIn(line.box, mark.box));
   const isFixed = (line) => !isMark(line) && fixed.some((box) => centerIn(line.box, box));
   const loose = (line) => !isMark(line) && !isFixed(line);
   return {
@@ -239,7 +263,7 @@ export function matchBar(count, { drawn = false } = {}) {
  * The shots best first, each with {flags, score, match}. flags: "dark", "text", "subtitles",
  * "short" (these go last), "logo" (a small cost). match: the z-score of the shot's closeness to
  * `wantVector` among these shots (null without one); it adds to the score only when matchShown
- * (the best clean shot, one without dark, text or subtitles, reaches matchBar; drawn: the
+ * (the best clean shot, one without dark, text, subtitles or short, reaches matchBar; drawn: the
  * footage is drawn). Answers {shots, matchShown, matchBest (that best z-score, or null),
  * matchBar, skipped: {dark, text, subtitles, short}}.
  */
@@ -260,9 +284,9 @@ export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
     if (shot.logo >= TEXT_SHARE) flags.push("logo");
     return flags;
   });
-  // A title card that spells the searched name can match best; only clean shots decide. A short
-  // shot is no title card: a flash of the wanted character counts.
-  const clean = matches.filter((value, index) => value !== null && flagged[index].every((flag) => flag === "logo" || flag === "short"));
+  // A title card that spells the searched name can match best, and a short shot sorts last and is
+  // too short to import: only clean shots decide.
+  const clean = matches.filter((value, index) => value !== null && flagged[index].every((flag) => flag === "logo"));
   const bar = matchBar(known.length, { drawn });
   const matchBest = clean.length ? Math.max(...clean) : null;
   const matchShown = matchBest !== null && matchBest >= bar;

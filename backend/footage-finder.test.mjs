@@ -46,7 +46,7 @@ function commonsPage(pageid, { license = "CC BY-SA 4.0", licenseUrl = "https://c
   };
 }
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
-import { matchBar, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scansFolder } from "./footage-finder/score.mjs";
+import { matchBar, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts } from "./footage-finder/score.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
@@ -310,7 +310,7 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
   await assert.rejects(findShots("none.webm", { duration: 2000, maxSeconds: 1800 }), /up to 30 min/);
 });
 
-test("drawn footage: a logo on every shot is said once and is no text, subtitles go last, faces are not read, and a 2.3 match shows", async () => {
+test("drawn footage: a logo on every shot is said once and is no text, subtitles go last, faces are not read, and a 2.4 match shows", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "kino-test-drawn-"));
   const copyFolder = path.join(directory, "copy");
   await mkdir(copyFolder);
@@ -358,14 +358,30 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.deepEqual(logoLast([{ code: "F1", scan: { logo: "top-left" } }, { code: "F2" }]).map((entry) => entry.code), ["F2", "F1"]);
     assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: null, shots: [] }), /The image model did not run, so "white hair" was not looked for/);
     assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: "m", matchBest: 1.4, matchBar: 2, shots: [] }), /No visual match for "white hair" \(closest \+1\.4, a match needs \+2\.0\): shots rank on motion, faces/);
-    // Drawn footage keeps the bar at 2, so a recurring character's best shot (a 0.3 s flash at z 2.3) shows; on photos 20 shots need 2.45.
-    const twenty = Array.from({ length: 20 }, (_, index) => {
+    // Drawn footage keeps the bar at 2, so a recurring character's best shot (z 2.4) shows; on photos 20 shots need 2.45.
+    // The same shot as a 0.3 s flash is too short to import, so it decides nothing.
+    const twenty = (flash) => Array.from({ length: 20 }, (_, index) => {
       const c = index === 19 ? 0.22 : 0.1 + 0.02 * ((index * 7) % 5);
-      return { start: index, end: index + (index === 19 ? 0.3 : 1), motion: 50, face: null, luma: 0.5, text: 0, subs: 0, logo: 0, vector: Float32Array.from([c, Math.sqrt(1 - c * c)]) };
+      return { start: index, end: index + (index === 19 && flash ? 0.3 : 1), motion: 50, face: null, luma: 0.5, text: 0, subs: 0, logo: 0, vector: Float32Array.from([c, Math.sqrt(1 - c * c)]) };
     });
     const want = Float32Array.from([1, 0]);
-    assert.deepEqual([rankShots(twenty, { wantVector: want, drawn: true }).matchShown, rankShots(twenty, { wantVector: want }).matchShown], [true, false]);
+    assert.deepEqual([rankShots(twenty(false), { wantVector: want, drawn: true }).matchShown, rankShots(twenty(false), { wantVector: want }).matchShown,
+      rankShots(twenty(true), { wantVector: want, drawn: true }).matchShown], [true, false, false]);
     assert.equal(matchBar(77, { drawn: true }), 2);
+    // Two-line subtitles, mid-frame captions and fansubs of varying width on 12 of 20 shots are no mark: they stay text.
+    const corner = [0.02, 0.02, 0.08, 0.04];
+    const kinds = {
+      subtitles: () => [[0.3, 0.7, 0.4, 0.05], [0.3, 0.8, 0.4, 0.05]],
+      captions: (index) => [[0.5 - (0.15 + 0.02 * (index % 6)) / 2, 0.5, 0.15 + 0.02 * (index % 6), 0.08]],
+      fansubs: (index) => [[0.5 - (0.15 + 0.02 * (index % 6)) / 2, 0.85, 0.15 + 0.02 * (index % 6), 0.05]],
+    };
+    for (const [kind, lines] of Object.entries(kinds)) {
+      const shotLines = Array.from({ length: 20 }, (_, index) => [corner, ...(index % 5 < 3 ? lines(index) : [])]);
+      const marks = scanMarks(shotLines);
+      assert.deepEqual(marks.map((mark) => mark.where), ["top-left"], kind);
+      const facts = shotFacts(0, 1, [{ t: 0, luma: 0.5, change: 0.1, text: shotLines[0].map((box) => ({ box })) }], [], marks);
+      assert.deepEqual([facts.text, facts.subs], [1, kind === "captions" ? 0 : 1], kind);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
