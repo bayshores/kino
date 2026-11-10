@@ -509,6 +509,40 @@ test("song to footage: a 30 s drop at 140 bpm cut every 2 beats needs 35 shots, 
   assert.equal(answer.data.song.want.drop, "fast action, motion, impact");
 });
 
+test("the scan's song line counts the music layer, not a voice listed first, from saved beats only", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-song-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const mediaRoot = path.join(dataRoot, "media");
+  await mkdir(mediaRoot, { recursive: true });
+  const voice1 = "00000000-0000-4000-8000-000000000001.m4a";
+  const song1 = "00000000-0000-4000-8000-000000000002.mp3";
+  await writeFile(path.join(mediaRoot, voice1), "");
+  await writeFile(path.join(mediaRoot, song1), "");
+  const store = await openStore(dataRoot);
+  const layers = [createLayer("audio", { id: "voice", src: `/api/media/${voice1}` }), createLayer("audio", { id: "music", src: `/api/media/${song1}` })];
+  await store.createProject(createDocument({ id: "song-edit", name: "Song edit", scenes: [createScene({ id: "s1", duration: 20, layers })] }));
+  // A voice gets a beat grid too, but an unsure one (steadyBeat needs 0.65). get() would decode: never asked.
+  const saved = { [voice1]: { bpm: 96, confidence: 0.45, beats: [] }, [song1]: { bpm: 140, confidence: 0.85, beats: [] } };
+  const decode = async () => { throw new Error("decoded on the scan path"); };
+  const beatAnalysis = { get: decode, saved: async (file) => saved[path.basename(file)] ?? null };
+  const songShapes = { get: decode, saved: async () => ({ seconds: 60, sections: [{ at: 0, kind: "drop" }] }) };
+  const finder = {
+    search: async () => ({ words: "show fight", candidates: [found(1)], dropped: {}, cached: false }),
+    readScan: async () => null,
+    scan: async () => ({ want: "", windows: [{ start: 0, end: 60 }], skipped: {}, shots: [{ n: 1, start: 1, end: 3, motion: 50, face: 0, flags: [] }] }),
+  };
+  const service = createAgentService({ store, agentState: createAgentStateStore(dataRoot), agentDirectory: path.join(dataRoot, "agent"), mediaRoot,
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder, beatAnalysis, songShapes });
+  await service.call("library", { project: "song-edit", topic: "footage", search: "show fight" });
+  const scan = await service.call("library", { project: "song-edit", topic: "footage", scan: "F1" });
+  assert.equal(scan.isError, undefined, scan.text);
+  assert.match(scan.text, /\nThe song \(140 bpm\) needs about \d+ shots/);
+  // Without saved song files there is no song line, and still no decode.
+  delete saved[song1];
+  const unmeasured = await service.call("library", { project: "song-edit", topic: "footage", scan: "F1" });
+  assert.doesNotMatch(unmeasured.text, /The song/);
+});
+
 test("the look model counts as ready where transformers.js keeps it: <data>/models/hf/<model id>", async () => {
   const models = await mkdtemp(path.join(tmpdir(), "kino-look-model-"));
   assert.equal(lookModelReady(models), false);

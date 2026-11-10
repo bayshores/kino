@@ -5820,7 +5820,7 @@ export function createAgentService(deps) {
     const state = await agentState.read(projectId);
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     let reply;
-    const song = () => songNeeds(record.document, media);
+    const song = ({ signal } = {}) => songNeeds(record.document, media, signal);
     try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media), song }); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
@@ -5830,27 +5830,42 @@ export function createAgentService(deps) {
     return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
   }
 
-  // The shots the video's song needs (footage-finder/needs.mjs): the music in the video scene,
-  // over the stretch it plays, else the longest credited song of 20 s or more imported for this
-  // project and not placed yet (the whole song). Null without a song or a tempo kino is sure of.
-  async function songNeeds(document, media) {
+  // The shots the video's song needs (footage-finder/needs.mjs): the first audio layer of the video
+  // scene that plays like music and whose saved beats are a song's (steadyBeat: a voice scores
+  // lower), over the stretch it plays; else the longest credited song of 20 s or more imported for
+  // this project (not a library sound effect) with such beats, the whole song. Only the saved
+  // .beats and .song files are read, never a decode: a finished scan answers at once, and
+  // detect_beats or fit_music measure a song. Null without a measured song.
+  async function songNeeds(document, media, signal) {
+    const measured = async (file) => {
+      if (signal?.aborted) return null;
+      const analysis = await beatAnalysis.saved?.(file).catch(() => null);
+      if (!steadyBeat(analysis)) return null;
+      const shape = await songShapes.saved?.(file).catch(() => null);
+      return shape ? { bpm: analysis.bpm, sections: shape.sections, seconds: shape.seconds } : null;
+    };
     const scene = videoScene(document);
-    const layer = scene?.layers.find((item) => isMusicLayer(item, scene));
-    let file;
-    let stretch = {};
-    if (layer) {
-      file = mediaFileOf(layer);
+    const tried = new Set();
+    for (const layer of scene?.layers ?? []) {
+      if (!isMusicLayer(layer, scene)) continue;
+      let file;
+      try { file = mediaFileOf(layer); } catch { continue; }
+      tried.add(file);
+      const song = await measured(file);
+      if (!song) continue;
       const range = mediaPlaybackRange(layer, scene.duration);
-      if (range && !range.remapped) stretch = { from: range.offset, to: range.offset + range.duration };
-    } else {
-      const songs = media.filter((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.credit && item.duration >= 20)
-        .sort((a, b) => b.duration - a.duration);
-      if (!songs.length) return null;
-      file = mediaFileOf({ src: songs[0].src ?? `/api/media/${songs[0].id}` });
+      return shotsNeeded({ ...song, ...(range && !range.remapped ? { from: range.offset, to: range.offset + range.duration } : {}) });
     }
-    const analysis = await beatAnalysis.get(file);
-    const shape = await songShapes.get(file, analysis.bpm);
-    return shotsNeeded({ bpm: analysis.bpm, sections: shape.sections, seconds: shape.seconds, ...stretch });
+    const songs = media.filter((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.credit
+      && !/^sfx:/.test(String(item.credit?.id ?? "")) && item.duration >= 20).sort((a, b) => b.duration - a.duration);
+    for (const item of songs) {
+      let file;
+      try { file = mediaFileOf({ src: item.src ?? `/api/media/${item.id}` }); } catch { continue; }
+      if (tried.has(file)) continue;
+      const song = await measured(file);
+      if (song) return shotsNeeded(song);
+    }
+    return null;
   }
 
   async function soundtrack(input, name, search) {

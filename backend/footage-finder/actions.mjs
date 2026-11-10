@@ -338,7 +338,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     }
     // The video's song (needs.mjs), when it has one: the answer says how many shots it needs, and
     // the import call names every clean shot listed, up to 1.5 times that.
-    const need = await songOf?.().catch(() => null) ?? null;
+    const need = await songOf?.({ signal }).catch(() => null) ?? null;
     const picks = importPicks(result, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const update = (current) => {
       const { after, entry } = ensure(current);
