@@ -61,9 +61,10 @@ imported videos are never dropped from the list (24 kept).
   publishing. Never call found footage licensed or theirs.
 - `source:"commons"` searches Wikimedia Commons (needs the person's web search switch in
   Settings): CC0, CC BY and CC BY-SA only, with creator and license. No anime there.
-- Each clip keeps its credit line. The sound stop before the final render lists every credit
-  of the video, found footage included, with "license unknown": send it to the person as it
-  is, and put the credits in the end credits.
+- Each clip keeps its credit line; put the credits in the end credits. When the sound stop asks,
+  it lists every credit with "license unknown": send it to the person as it is. When it does not
+  ask (a video under 15 s, stops allowed in settings or by "stop asking", no brief), the final
+  render's answer has a `Credits` line: send that to the person yourself.
 
 ## Limits
 

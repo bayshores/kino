@@ -752,8 +752,8 @@ test("a slow import answers with a repeat call, and the repeat joins it: one dow
 
 // The whole path on a real server, never online: a stub yt-dlp (tests/fixtures/footage) serves a
 // generated 8 s clip of 4 shots as the found video. The footage reference's own calls search,
-// scan and import; the clips compose into a scene and render a frame that shows them.
-test("the skill's footage calls search, scan and import a stub video's shots, which compose and render a frame", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
+// scan and import; one clip goes in with add_layer and a final frame shows it, credited.
+test("the skill's footage calls search, scan and import a stub video's shots; a final frame shows one and its answer names the credit", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
   const folder = await mkdtemp(path.join(tmpdir(), "kino-footage-proof-"));
   t.after(() => rm(folder, { recursive: true, force: true }));
   const video = path.join(folder, "found.mp4");
@@ -786,9 +786,14 @@ test("the skill's footage calls search, scan and import a stub video's shots, wh
   }
   assert.equal((await agent("library", { topic: "guide", name: "footage" })).isError, undefined);
 
-  const composed = await agent("edit", { project: "found", ops: [{ op: "compose", footage: take.data.media.map((item) => item.src) }] });
-  assert.equal(composed.isError, undefined, composed.text);
-  const started = await agent("render", { project: "found", action: "start", quality: "draft", format: "png", options: { time: 1 } });
+  // The import answer's own add_layer call (compose of a whole scene is the slow path: a hand-run script).
+  const [clip] = take.data.media;
+  const added = await agent("edit", { project: "found", ops: [{ op: "add_layer", layerType: "video", name: "found shot", properties: { src: clip.src, x: 0, y: 0, width: 640, height: 360, mediaSourceDuration: 2 } }] });
+  assert.equal(added.isError, undefined, added.text);
+  // A 4 s video has no sound stop, so the final render's answer carries the found footage's credit.
+  const started = await agent("render", { project: "found", action: "start", quality: "final", format: "png", options: { time: 1 } });
+  assert.notEqual(started.isError, true, started.text);
+  assert.match(started.text, /Credits \(send them to the person, who checks the rights before publishing\): "Stub Series episode 1 fight scene" by Stub Studio \(.*\), license unknown\./);
   const done = await agent("render", { project: "found", action: "wait", job: started.data.job, timeout_s: 30 });
   assert.equal(done.data.status, "done", done.text);
   // The frame is the found footage, not an empty scene: many different colors.

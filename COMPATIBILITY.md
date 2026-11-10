@@ -670,8 +670,9 @@ How to read it:
 
 - **Footage finder**: Stub-verified. `library {topic:"footage"}` searches YouTube (or Commons),
   scans a 360p copy for its best shots, and `project import F1` cuts the picked shots to credited
-  H.264 clips that compose and render. Evidence: `backend/footage-finder.test.mjs` (stub yt-dlp:
-  search, scan, import, compose, a rendered frame), `skills/kino/references/footage.md`. Gaps: not
+  H.264 clips that render; a final render the sound stop did not ask names their credits. Evidence:
+  `backend/footage-finder.test.mjs` (stub yt-dlp: search, scan, import, add_layer, a final frame and
+  its credit line), `skills/kino/references/footage.md`. Gaps: not
   run live in CI; YouTube licenses unknown; the image model does not know character names.
 
 ## Audio and captions

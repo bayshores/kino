@@ -4101,11 +4101,22 @@ export function createAgentService(deps) {
   // used by one of its saves: media-use.mjs) and that it does not play now as its music or
   // voice-over. The library is shared, so another video's song does not count.
   // The credit lines of the found sounds (sound search) this video plays, for the sound stop.
-  async function soundCredits(document) {
+  // footageOnly: just the found footage (the footage finder's clips), for the final render's answer.
+  async function soundCredits(document, { footageOnly = false } = {}) {
     const playing = new Set((document.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "audio" || layer.type === "video").map((layer) => layer.src));
     const media = (await deps.listMedia?.()) ?? [];
     // Each line once: twelve found shots of one video share one credit.
-    return [...new Set(media.filter((item) => item.credit?.line && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line))];
+    return [...new Set(media.filter((item) => item.credit?.line && (!footageOnly || item.footage) && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line))];
+  }
+  // A final render of found footage the sound stop never showed the person (a video under the
+  // stop's length, the stop allowed in settings or by "stop asking", no brief): the answer carries
+  // the credits, so the person still sees "license unknown" before the video goes anywhere.
+  async function unseenFootageCredits(document) {
+    const state = await agentState.read(document.id);
+    if ((state.stops ?? []).some((round) => round.kind === "sound" && round.status !== "allowed")) return "";
+    const credits = await soundCredits(document, { footageOnly: true });
+    if (!credits.length) return "";
+    return ` Credits (send them to the person, who checks the rights before publishing): ${credits.slice(0, 3).join("; ")}${credits.length > 3 ? `; and ${credits.length - 3} more` : ""}.`;
   }
   // Whether the video (its longest scene) has music, for the sound stop: the no_music rule's test
   // (hasMusic) with the songs kino heard a beat in and the saved voice transcripts.
@@ -5428,7 +5439,8 @@ export function createAgentService(deps) {
       // Learned from this computer's last finished renders of the same quality (render-estimate.mjs).
       const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
-      const note = others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "";
+      const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
+        + (quality === "final" ? await unseenFootageCredits(record.document) : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
       if (input.wait === true) {
