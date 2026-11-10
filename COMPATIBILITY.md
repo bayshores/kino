@@ -204,7 +204,7 @@ How to read it:
 - **Signature check**: Verified (tests). `signature_missing` warns while editing and gates a final
   render when the idea has no designed signature range. Evidence: `engine/qualityStyle.test.js`,
   `backend/agent-judge.test.mjs`.
-- **Deck**: Verified (tests). After the brief, kino deals each project a seeded hand of techniques and
+- **Deck**: Verified (tests). After the brief and the treatment pick (none before it), kino deals each project a seeded hand of techniques and
   one set piece (`engine/deck.js`), with reroll, swap (MCP notes fields too) and a `deck_unused` warning; it never steers away
   from a recent project that shares most of its footage or the story. Evidence:
   `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: material is read from layer names and types,

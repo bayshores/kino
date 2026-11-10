@@ -95,8 +95,8 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 
 ## The deck
 
-Once the brief is settled, kino deals a hand: one or two techniques per group (transition,
-camera, type, texture), at most one set piece (a move). `status` shows it:
+Once a treatment is picked (or waived), kino deals a hand: one or two techniques per group
+(transition, camera, type, texture), at most one set piece (a move). `status` shows it:
 `deck (seed 4821): dissolve, parallax, type-words, depth-blur, set piece: zoom-through; swaps left 2`.
 The seed is the project's plus the reroll count. The deal:
 

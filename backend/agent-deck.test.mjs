@@ -1,4 +1,4 @@
-// The deck in the agent service (backend/agent/deck.mjs): dealt once the brief is settled, shown
+// The deck in the agent service (backend/agent/deck.mjs): dealt once the treatment is picked, shown
 // in status and on the brief, rerolled and swapped with notes {action:"deck"}, steered away from
 // this machine's last projects, counted by check (deck_unused), and varied by variants
 // {vary:"deck"}. Also the project seed recipes and compose use by default, and the treatments
@@ -38,10 +38,14 @@ async function newVideo(id, { madeFrom = "skate.mp4 footage, music, captions", d
 }
 const statusDeck = async (id) => (await agent("status", { project: id })).text.split("\n").find((line) => line.startsWith("deck ("));
 
-test("the deck is dealt once the brief is settled, shows in status and on the brief, and stays the same across reads", async () => {
+test("the deck is dealt once the treatment is picked, shows in status and on the brief, and stays the same across reads", async () => {
   await newVideo("deck-status");
   assert.equal(await statusDeck("deck-status"), undefined, "no deck while the brief is still being asked");
   await agent("notes", { project: "deck-status", action: "brief", no_playback: "just start" });
+  await agent("notes", { project: "deck-status", action: "brief", fields: { treatments: FIVE } });
+  assert.equal(await statusDeck("deck-status"), undefined, "no deck before the pick: the treatments are not the dealt cards");
+  assert.equal((await savedState("deck-status")).deck ?? null, null);
+  await agent("notes", { project: "deck-status", action: "brief", fields: { treatments: { pick: "B" } } });
   const line = await statusDeck("deck-status");
   assert.match(line, DECK_LINE);
   assert.equal(Number(DECK_LINE.exec(line)[1]), projectSeed("deck-status"));
@@ -53,6 +57,13 @@ test("the deck is dealt once the brief is settled, shows in status and on the br
   assert.equal(read.data.deck.cards.length + (read.data.deck.setPiece ? 1 : 0), read.text.split("\n").filter((entry) => entry.startsWith("- ")).length, "one line per card");
   assert.ok((await agent("notes", { project: "deck-status", action: "brief" })).text.includes(line), "the brief read shows the deck");
   assert.equal((await savedState("deck-status")).deck.seed, projectSeed("deck-status"));
+  // The pick's signature saved (the next order step): dealt again with its technique first.
+  const signed = await agent("notes", { project: "deck-status", action: "brief", fields: { style: {
+    signatures: [{ beat: 3, what: "mask-wipe along the line", source: "route.mp4, the full loop", why: "only this crew's route" }],
+    moments: [{ tag: "mask-wipe", beat: 3, what: "the route draws itself" }] } } });
+  assert.equal(signed.isError, undefined, signed.text);
+  await statusDeck("deck-status");
+  assert.deepEqual((await savedState("deck-status")).deck.cards[0], { tag: "mask-wipe", group: "transition", why: "signature" });
 });
 
 test("reroll deals again with the next seed; swaps need a reason and stop at 2 a deal; the brief keeps them", async () => {
@@ -197,7 +208,7 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   assert.deepEqual([style.idea, style.signatures[0].beat, style.signatures[0].source], [brief.fields.idea.text, 3, "route.mp4, the full loop at 0:40"]);
   // No idea: no template spine; the call asks for the idea and its signature first.
   const noIdea = lockCall({ brief: { fields: {} } }).input.fields.style;
-  assert.deepEqual([noIdea.spine, noIdea.idea, noIdea.signatures.length], [undefined, "<one sentence: what only this product can show, from its real material>", 1]);
+  assert.deepEqual([noIdea.spine, noIdea.idea, noIdea.signatures.length], [undefined, "<a story from this material: whose problem, and where it turns>", 1]);
 });
 
 test("treatments: 5 saved on the brief, the most typical dropped, the 3 least typical shown; a pick becomes the idea", async () => {

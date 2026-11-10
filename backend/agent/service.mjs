@@ -53,7 +53,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, orderSteps, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, orderSteps, pickOpen, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -4881,12 +4881,16 @@ export function createAgentService(deps) {
     await agentState.update(projectId, (draft) => { if (draft.deck) draft.deck.used = used; });
   }
 
-  // The project's deck, dealt (or dealt again) when it is due: once the brief is settled (the
-  // agent is about to plan and build), or when notes {action:"deck"} asks (`deal`). A project
-  // with no settled brief (a change to an old video) has none. Returns { deck, basis } or null.
+  // The project's deck, dealt (or dealt again) when it is due: once the brief is settled and the
+  // treatment is picked (or the treatments are waived or skipped for a short video), or when
+  // notes {action:"deck"} asks (`deal`). While the treatments or their pick are open there is no
+  // deck, not even one saved before, so the 5 ideas are not the dealt cards. A project with no
+  // settled brief (a change to an old video) has none. Returns { deck, basis } or null.
   async function deckFor(projectId, document, { deal = false, reroll = false } = {}) {
     const state = await agentState.read(projectId);
     if (!deal && !reroll && !state.deck && !isSettled(state.brief)) return null;
+    const treatmentsWaived = (document.checkWaivers ?? []).some((waiver) => waiver.code === TREATMENTS_WAIVER && waiver.target === "*");
+    if (!deal && !reroll && pickOpen(state.brief, { seconds: videoFacts(document).seconds, treatmentsWaived })) return null;
     const inputs = await deckInputs(state, document);
     const picked = pickedDeck(document);
     const adopt = picked && (picked.seed !== state.deck?.seed || picked.reroll !== state.deck?.reroll);

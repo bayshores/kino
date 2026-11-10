@@ -455,6 +455,8 @@ export function nextMove(state, video = {}, stop = null) {
 // The waiver that skips the treatments step (waive_check {code:"treatments", target:"*", reason}),
 // as waive_check {code:"reference"} skips the references step. The person sees both.
 export const TREATMENTS_WAIVER = "treatments";
+// The idea a treatment or a missing style.idea asks for: a story from the material, not a technique.
+const STORY_PLACEHOLDER = "<a story from this material: whose problem, and where it turns>";
 
 /**
  * The idea-first order a briefed video keeps before it is built: { step, call } for the first
@@ -467,6 +469,15 @@ export const TREATMENTS_WAIVER = "treatments";
  */
 export function orderStep(state, video = {}) {
   return orderSteps(state, video)[0] ?? null;
+}
+
+/**
+ * True while orderSteps still asks for the 5 treatments or their pick: the deck waits for the
+ * pick (service deckFor), so the treatments are not the dealt cards turned into ideas. video:
+ * { seconds, treatmentsWaived }.
+ */
+export function pickOpen(brief, video = {}) {
+  return hasBrief(brief) && !(video.seconds < REFERENCE_SKIP_UNDER) && !video.treatmentsWaived && !brief.treatments?.picked;
 }
 
 /**
@@ -490,7 +501,7 @@ export function orderSteps(state, video = {}) {
   if (video.treatmentsWaived) return open;
   const treatments = brief.treatments;
   if (!treatments?.list) {
-    const one = { idea: "<what only this product can show>", move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical>" };
+    const one = { idea: STORY_PLACEHOLDER, move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical>" };
     return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
   }
   const picked = treatments.picked;
@@ -553,7 +564,7 @@ export function lockCall(state, { approve = false } = {}) {
   if (approve) return briefCall({ style: { by: "you", quote: "<their words approving it>" } });
   if (bibleSaved || !idea) {
     // The idea first: one sentence and its signature moment from the real material, no spine yet.
-    const add = { idea: idea ?? "<one sentence: what only this product can show, from its real material>", signatures };
+    const add = { idea: idea ?? STORY_PLACEHOLDER, signatures };
     return briefCall({ style: saved.by ? { ...add, ...yours } : { ...add, by: "guessed" } });
   }
   const style = {

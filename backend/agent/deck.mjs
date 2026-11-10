@@ -2,8 +2,9 @@
 // reads (the brief's style spec and made_from line, the document, the moves library, the decks
 // of this machine's last projects), and the answers of notes {action:"deck"}.
 //
-// When it is dealt: the first status or notes call after the project has a brief (a new video
-// in the direction flow), or notes {action:"deck"}. Until the agent builds or swaps a card, a
+// When it is dealt: the first status or notes call after the brief is settled and the treatment
+// is picked (or the treatments are waived or skipped), or notes {action:"deck"}. Before the
+// pick there is none, so the 5 treatments come from the material, not from the dealt cards. Until the agent builds or swaps a card, a
 // deal follows the project: new material or a new spec deals again with the same seed. Once
 // the deal read built layers (`locked`) or a card was swapped, only reroll deals again, so the
 // hand does not change under the agent's feet.
