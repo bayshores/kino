@@ -695,6 +695,10 @@ How to read it:
   `onset-N` cues and `rhythm` (click tracks 70 to 200 BPM: worst beat 0.1 ms). Evidence:
   `backend/audio-analysis.test.mjs`, `engine/beatDetection.test.js`, `engine/beatCues.test.js`,
   `backend/agent-captions.test.mjs`. Gap: assumes one steady tempo; not measured on commercial music.
+- **Weighted hits**: Verified on generated audio. Onset cues carry `weight` and `band`, bar
+  starts `downbeat`, and `accent-N` cues mark each section's hardest hits (kick plus hi-hat track:
+  kicks low, hats high and under 0.3, accents on the loud bar kicks). Evidence:
+  `engine/beatDetection.test.js`. Gap: weight and band not measured on commercial music.
 - **Cue lists**: Verified. `inspect {targets:["cues"]}` pages with filters
   (`cues[kind=beat,from=60,to=90]`). Evidence: `backend/agent-cue-list.test.mjs`.
 - **Captions**: Verified. `add_captions {file|text|words|speech}` reads SRT and WebVTT, pages to

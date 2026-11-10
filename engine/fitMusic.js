@@ -28,7 +28,12 @@ function fail(message) {
   throw new Error(`fit_music: ${message}`);
 }
 
-/** The bar grid of a beat analysis {bpm, period, beats}: {bar, beat, downbeat}, the downbeat on the first drop's beat. */
+/**
+ * The bar grid of a beat analysis {bpm, period, beats, onsets}: {bar, beat, downbeat}, the
+ * downbeat on the first drop's beat. Without a drop, and with weighted onsets (beat analysis
+ * version 7), the downbeat is the first beat of the four whose beats carry the most heavy low
+ * sound (the kick on the one); otherwise the first beat.
+ */
 export function barGrid(analysis, sections = []) {
   const beats = Array.isArray(analysis?.beats) ? analysis.beats : [];
   const beat = analysis?.period > 0 ? analysis.period : analysis?.bpm > 0 ? 60 / analysis.bpm : null;
@@ -36,6 +41,17 @@ export function barGrid(analysis, sections = []) {
   const drop = sections.find((part) => part.kind === "drop");
   let downbeat = beats[0];
   if (drop) downbeat = beats.reduce((best, time) => (Math.abs(time - drop.at) < Math.abs(best - drop.at) ? time : best), beats[0]);
+  else {
+    const onsets = (Array.isArray(analysis?.onsets) ? analysis.onsets : []).filter((onset) => typeof onset.weight === "number");
+    const totals = [0, 0, 0, 0];
+    let cursor = 0;
+    beats.forEach((time, index) => {
+      while (cursor < onsets.length && onsets[cursor].time < time - 0.035) cursor += 1;
+      for (let at = cursor; at < onsets.length && onsets[at].time <= time + 0.035; at += 1) totals[index % 4] += onsets[at].weight * (onsets[at].low ?? 0);
+    });
+    const phase = totals.indexOf(Math.max(...totals));
+    if (totals[phase] > 0) downbeat = beats[phase];
+  }
   return { bar: beat * 4, beat, downbeat };
 }
 

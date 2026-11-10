@@ -14,8 +14,12 @@
 //   rhythm        {bpm, offset}: the music beat, so the checker can compare motion to it
 //   checkWaivers  [{code, target, reason}]: a check finding the author accepted on purpose
 //   cues          [{name, time, kind}]: named moments in seconds that timing can point at ("cue:drop").
-//                 kind is marker (placed by hand), beat or onset (found in the music), word or line
-//                 (from a voice-over or caption file). Kept sorted by time. A cue with {layer,
+//                 kind is marker (placed by hand), beat, onset or accent (found in the music), word or line
+//                 (from a voice-over or caption file). detect_beats adds, from a weighted analysis:
+//                 weight (0 to 1, how hard the hit is against the song) and band (low, mid, high) on
+//                 onsets and accents, rank (1 = its section's hardest) on accents, downbeat: true
+//                 on the beats that start a bar. Older cues have none of them.
+//                 Kept sorted by time. A cue with {layer,
 //                 media} is pinned to that clip's footage: time follows the clip (footageCues.js).
 //   clipLinks     [{a, b, lag, confidence?}]: files (media src) recorded together, a at t = b at
 //                 t + lag seconds; sync_clips writes them (clipSync.js), out_of_sync reads them
@@ -36,7 +40,10 @@ export const VIDEO_TYPES = ["promo", "ad", "clip", "explainer", "sting", "other"
 export const MAX_WAIVERS = 200;
 export const MAX_ASSERTIONS = 100;
 export const ASSERTION_TYPES = ["visible_by", "before", "inside_frame"];
-export const CUE_KINDS = ["marker", "beat", "onset", "word", "line"];
+export const CUE_KINDS = ["marker", "beat", "onset", "accent", "word", "line"];
+// The kinds detect_beats writes from the music (beatCues.js); they move with their sound.
+export const MUSIC_CUE_KINDS = ["beat", "onset", "accent"];
+export const CUE_BANDS = ["low", "mid", "high"];
 export const MAX_CUES = 5000;
 export const MAX_CLIP_LINKS = 100;
 export const MAX_RESTS = 20;
@@ -116,7 +123,8 @@ export function normalizeQualityDocumentFields(document, maxTime) {
       if (typeof time !== "number" || !Number.isFinite(time) || time < 0 || time > maxTime) fail(`${path}.time`, `must be a number of seconds from 0 to ${maxTime}`);
       const kind = cue.kind ?? "marker";
       if (!CUE_KINDS.includes(kind)) fail(`${path}.kind`, `must be one of ${CUE_KINDS.join(", ")}`);
-      return pin ? { name: cue.name, time, kind, layer: pin.layer, media: pin.media } : { name: cue.name, time, kind };
+      const base = pin ? { name: cue.name, time, kind, layer: pin.layer, media: pin.media } : { name: cue.name, time, kind };
+      return { ...base, ...hitFields(cue, path) };
     }).sort((a, b) => a.time - b.time);
     if (!document.cues.length) delete document.cues;
   }
@@ -138,6 +146,28 @@ function footagePin(document, cue, path, maxTime) {
   const time = placed ? Math.min(maxTime, Math.max(0, round(placed.time))) : cue.time;
   // The cue moves to the piece of a split clip that shows its moment.
   return { layer: placed?.layer.id ?? cue.layer, media: cue.media, time };
+}
+
+// A music cue's weight, band, rank and downbeat (detect_beats), when it has them.
+function hitFields(cue, path) {
+  const out = {};
+  if (cue.weight !== undefined) {
+    if (typeof cue.weight !== "number" || !(cue.weight >= 0 && cue.weight <= 1)) fail(`${path}.weight`, "must be a number from 0 to 1");
+    out.weight = cue.weight;
+  }
+  if (cue.band !== undefined) {
+    if (!CUE_BANDS.includes(cue.band)) fail(`${path}.band`, `must be one of ${CUE_BANDS.join(", ")}`);
+    out.band = cue.band;
+  }
+  if (cue.rank !== undefined) {
+    if (!Number.isInteger(cue.rank) || cue.rank < 1 || cue.rank > MAX_CUES) fail(`${path}.rank`, `must be a whole number from 1 to ${MAX_CUES}`);
+    out.rank = cue.rank;
+  }
+  if (cue.downbeat !== undefined && cue.downbeat !== false) {
+    if (cue.downbeat !== true) fail(`${path}.downbeat`, "must be true or false");
+    out.downbeat = true;
+  }
+  return out;
 }
 
 // A media src (/api/media/<id>.mp4 or a file path): any text up to 2048 characters.

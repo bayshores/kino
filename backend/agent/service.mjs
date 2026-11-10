@@ -25,6 +25,7 @@ import { shotsNeeded } from "../footage-finder/needs.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
+import { MUSIC_CUE_KINDS } from "../../engine/qualityFields.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { documentChanges } from "../../engine/documentChanges.js";
 import { mergeDocuments } from "../../engine/documentMerge.js";
@@ -3948,7 +3949,7 @@ export function createAgentService(deps) {
     for (const finding of shown) marks.push({ time: finding.at, kind: "finding", words: `${finding.severity === "error" ? "E" : "W"} ${finding.rule}` });
     // Cues (markers, beats from detect_beats); without beat cues, the document's rhythm.
     const cues = (document.cues ?? []).filter((cue) => Number.isFinite(cue.time));
-    for (const cue of cues) marks.push({ time: cue.time, kind: cue.kind === "beat" || cue.kind === "onset" ? "beat" : "cue", words: `cue ${cue.name}` });
+    for (const cue of cues) marks.push({ time: cue.time, kind: MUSIC_CUE_KINDS.includes(cue.kind) ? "beat" : "cue", words: `cue ${cue.name}` });
     const bpm = Number(document.rhythm?.bpm);
     if (!cues.some((cue) => cue.kind === "beat") && bpm > 0) for (let time = Number(document.rhythm.offset) || 0; time <= to; time += 60 / bpm) if (time >= from) marks.push({ time, kind: "beat" });
     // A finding or cue is noted once in the text (the graph marks every one).
