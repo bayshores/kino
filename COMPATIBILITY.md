@@ -173,6 +173,7 @@ How to read it:
   Unanswered needs show in "needs you" with their options as chips (a picks the recommended one);
   a chip saves the answer by:"you", checked in the desktop app. Evidence: `backend/agent-review.test.mjs`,
   `backend/agent-brief.test.mjs`, `frontend/dashboardInspire.test.js`.
+- **Needs drafted from the pick**: Done. The check-material call asks for footage of the picked treatment's who, for its tension, with what to make now left as a slot the agent fills from the files it found (refused unedited) and "tell it with what exists" as options. Evidence: `backend/agent-review.test.mjs`, `backend/agent-brief.test.mjs` (nextMove and the `notes needs` reply after a pick).
 - **Text measured by its letters**: Verified. `inkBox` (`engine/quality/kinoTimeline.js`) measures glyph
   outlines, so stacked headline lines do not count as overlapping.
 - **Rule details**: Verified. Large text starts at 48 px (36 px bold) at 1080p, other text needs 4.5:1
@@ -192,6 +193,9 @@ How to read it:
   (check finds 39); `plain_beats` judges the key beats and holds a final render when none is designed.
   Gaps: match-cut, speed-lines and 7 set pieces are not found; thresholds tuned on 2 projects.
   Evidence: `engine/qualityStyle.test.js`, `engine/qualityRules.test.js`.
+- **Payoff follows the spine**: Verified (tests). With a timed spine payoff beat, the board shots
+  inside it are the payoff (one `plain_beats` beat; `move_needed` too) and the last shot after it is
+  "end", not judged. Evidence: `engine/qualityStyle.test.js`, `engine/board.test.js`.
 - **Dimmed footage is a card**: Verified (tests). `text_slides` and `template_end` share one card
   definition: text over a still or flat picture, or over footage under a dark full-frame tint or
   blurred 8 px+ (unless the spec backs depth-blur), each with nothing sharp in front.
@@ -217,6 +221,12 @@ How to read it:
   turn and source): kino drops the most typical and asks
   the person to pick from 3, which becomes the idea. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`. Gap: no run
   with a real person yet.
+- **Treatment whos**: Verified (tests). Each treatment names `who` (whose want or fear drives it); 5 with fewer
+  than 3 different whos are refused, the 3 shown are one per who when the list allows, and the agent's own
+  "just start" pick says `why`. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`.
+- **Picked ending**: Verified (tests). Each treatment names its `ending` (the last image); the pick drafts the
+  spine's hook from its who and its end from that ending, and `template_end` quotes the payoff, its `uses` and
+  the picked ending. Evidence: `backend/agent-brief.test.mjs`, `backend/agent-deck.test.mjs`, `engine/qualityEnding.test.js`.
 - **Product picture first**: Verified (tests). `text_only_open` warns when a promo or ad of 8 s+ spends
   over 3 s of its first 4 s on text alone, and `reference_drift` warns at too much text alone. Evidence:
   `engine/qualityRules.test.js`, `backend/agent-brief.test.mjs`, `backend/measure-fingerprint.test.mjs`.
@@ -246,6 +256,10 @@ How to read it:
   cut-out, or masked-type with subject), never deals it, and technique_repeat warns from the 4th
   use; a style moment leaves out only its own use. Gap: not yet run on a real edit. Evidence:
   `engine/qualityStyle.test.js`, `engine/moves.test.js`.
+- **Repeated endings**: Partial. A house-memory hit in the last 15% or the end beat of the video's
+  scene is `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type
+  under a cut-out is part of the layout (house files say their `sigVersion`; older ones compare
+  without it). Gap: needs a house of earlier renders. Evidence: `engine/layoutSignature.test.js`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in
@@ -1092,6 +1106,10 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Taste judge (evals/taste/judge.mjs)**: Verified on a first-pass edit against a published launch film. Mends broken model
   JSON, retries once, and flags "too few samples" (under 2 answers, kept off the ladder). Evidence: `tests/taste-harness.test.mjs`. Gap:
   advisory until calibrated.
+- **First-pass house seed (evals/taste/firstpass.mjs)**: Verified (test, plus a hand check: fp-11's ending is 0.1 from
+  "earlier project 06"). Each run's house memory starts as `evals/taste/house/launch-v1` (10 signature files) so
+  `seen_before` can fire; `KINO_FIRSTPASS_HOUSE=none` is off; run.json keeps `house: {snapshot, sha256}`. Evidence:
+  `tests/taste-harness.test.mjs`. Gap: not yet seen in a full run.
 - **Look versus and the reference gate**: Verified with a copied saved reference (temp server).
   `look {mode:"versus"}` pairs like with like: a board shot's `move.ref` beside that moment (key from `save yt:<id> as <key>`, id or title), else the reference moment of the same kind (app, type, footage, end card, read from pixels), else "no fair match" with no gaps; gaps are hero fill, contrast and the craft drift rows only; a final render of 5 s or more is
   refused without saved references (`reference_needed`) or a versus in the last 10 revisions, or while its judge round has the references winning (waivable). Evidence:

@@ -5,9 +5,12 @@ import test from "node:test";
 import { agreement, bradleyTerry, cutsFrom, lineLevels, parseEbur128, shortTermCurve, splitPicks, stripTimes } from "../evals/taste/lib.mjs";
 import { answerJson, combine, factsText } from "../evals/taste/judge.mjs";
 import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
-import { htmlText, pickMp4, projectIdFor, projectIdFromStatus, promptFor, summarize } from "../evals/taste/firstpass.mjs";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { htmlText, pickMp4, projectIdFor, projectIdFromStatus, promptFor, seedHouse, summarize } from "../evals/taste/firstpass.mjs";
 import { projectSeed } from "../engine/deck.js";
-import { familyOf } from "../backend/house-memory.mjs";
+import { createHouseMemory, familyOf } from "../backend/house-memory.mjs";
 
 test("cuts become 12 fps strips 0.5 s each side, joined where they overlap", () => {
   const frames = [0.5, 1, 1.04, 3].map((t, i) => ({ t, score: [30, 40, 12, 50][i] }));
@@ -110,4 +113,19 @@ test("each first pass names its own project from the run id: its own deal seed a
   assert.equal(promptFor({ ask: "make a video" }, ["/r/a.mp4"], "kino-fp9"), "make a video\n\nFiles:\n- /r/a.mp4\n\nUse kino-fp9 as the project id.");
   assert.equal(projectIdFromStatus("kino launch (v2) trailer (kino-launch) rev 47 · 1 scene"), "kino-launch", "the id the agent really made");
   assert.equal(projectIdFromStatus("No project open."), null);
+});
+
+test("a first pass starts with the launch-v1 house memory, so seen_before can fire; none leaves it empty", async () => {
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "kino-house-seed-"));
+  try {
+    const seeded = await seedHouse(dataDir, "launch-v1");
+    assert.equal(seeded.snapshot, "launch-v1");
+    assert.match(seeded.sha256, /^[0-9a-f]{64}$/);
+    const others = await createHouseMemory(path.join(dataDir, "house")).others("kino-fp12", "Kino launch trailer");
+    assert.deepEqual(others.map((entry) => entry.name).sort(), Array.from({ length: 10 }, (_, i) => `earlier project ${String(i + 1).padStart(2, "0")}`));
+    assert.ok(others.every((entry) => !("savedAt" in entry) && entry.moments.length && entry.moments.every((moment) => moment.sig && !("print" in moment))));
+    assert.deepEqual(await seedHouse(dataDir, "launch-v1"), seeded, "one snapshot, one sha256");
+    assert.equal(await seedHouse(path.join(dataDir, "empty"), "none"), null);
+    assert.deepEqual(await readdir(dataDir), ["house"], "none writes nothing");
+  } finally { await rm(dataDir, { recursive: true, force: true }); }
 });

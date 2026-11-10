@@ -125,6 +125,35 @@ export function needState(need) {
   return "unanswered";
 }
 
+// The ask a step leads to when nothing better is known: every field a placeholder.
+const BLANK_NEED = { what: "<missing piece>", why: "<what the video loses>", ask: "Do you have <it>?",
+  options: [{ do: "<what you can do with what exists>", cost: "<what is lost>", recommended: true }] };
+
+/**
+ * The needs call the check-material step drafts, from the picked treatment (brief.treatments):
+ * the first item asks for footage of the pick's who (a person or a thing), because its tension is
+ * what the video loses without it, with what kino can make now and telling it with what exists,
+ * each with its cost. What to make now stays a slot only the material fills (the files the agent
+ * found), so kino refuses the draft sent unedited (next-call.mjs unfilledSlot) and the agent
+ * still looks first. With no pick or a pick from before who, every field is a placeholder.
+ * Returns {tool:"notes", input:{action:"needs", items}}.
+ */
+export function needsCall(treatments) {
+  const entry = treatments?.picked ? treatments.list?.[treatments.picked.index] : null;
+  const who = typeof entry?.who === "string" ? entry.who.trim() : "";
+  const tension = typeof entry?.tension === "string" ? entry.tension.trim() : "";
+  const item = !who ? BLANK_NEED : {
+    what: `footage of ${who}`,
+    why: tension.length >= NEED_LIMITS.why[0] ? tension : BLANK_NEED.why,
+    ask: `Do you have footage of ${who}, even from a phone?`,
+    options: [
+      { do: "<make it now from the files you found: a screen recording (project record), type, or cut-outs of them>", cost: `${who} is never on camera`, recommended: true },
+      { do: "tell it with what exists, no new footage", cost: `${who} is never on camera; type and the files carry the story` },
+    ],
+  };
+  return { tool: "notes", input: { action: "needs", items: [item] } };
+}
+
 /** The short status line: `needs: M1 "Do you have ..." (3 options) · M2 make option 2`, or "". */
 export function needsLine(needs) {
   const open = openNeeds(needs);

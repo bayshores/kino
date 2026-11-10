@@ -800,6 +800,10 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   assert.equal(step({ references: 1, needs: { checked: false } }), "find 1 more reference (inspire)");
   const needs = nextMove({ ...state, plan: { steps: [{ text: "Build" }] } }, { seconds: 24, layers: 3, references: 2, needs: { checked: false }, treatmentsWaived: true });
   assert.deepEqual([needs.step, needs.call.input.action], ["check material: notes needs", "needs"]);
+  // The call is drafted from the picked treatment saved in the brief: footage of its who.
+  const treatments = { picked: { index: 0 }, list: [{ idea: "the app finds the lost dog", who: "the app", tension: "will it find the dog before dark?" }] };
+  const fromPick = nextMove({ ...state, brief: { ...state.brief, treatments }, plan: { steps: [{ text: "Build" }] } }, { seconds: 24, layers: 3, references: 2, needs: { checked: false }, treatmentsWaived: true });
+  assert.deepEqual([fromPick.step, fromPick.call.input.items[0].what], ["check material: notes needs", "footage of the app"]);
   assert.equal(step({ references: 2, needs: { checked: true } }), "notes set_plan, then build");
   // Past a rough first pass (30 layers), the direction is locked first. With no idea, the lock
   // asks for the idea and its signature from the material: no template spine stands in for it.
@@ -876,21 +880,29 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.equal(studied.isError, undefined, studied.text);
   await refused("write 5 treatments");
   const treatments = ["the kickflip seen from the board", "one trick, five streets", "the crew's group chat lights up", "dawn to dusk in one line", "the wheels' sound leads"]
-    .map((idea, index) => ({ idea, tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, rhythm: "slow build, fast end", p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
+    .map((idea, index) => ({ idea, who: ["the kid", "the kid", "the crew", "the city", "a viewer"][index], tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, ending: `the board at rest, ending ${index}`, p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
   // Each treatment carries its story: without a turn all 5 are refused in one answer.
   const noTurn = await brief(id, { fields: { treatments: treatments.map(({ turn, ...rest }) => rest) } });
   assert.equal(noTurn.isError, true);
   assert.match(noTurn.text, /treatments\[0\]\.turn is 1 to 60 characters: the on-screen moment it flips\..*\(5 problems\)/);
+  // 5 stories driven by one who ("Kid" is "the kid") are one story told 5 ways: refused, naming who.
+  const oneWho = await brief(id, { fields: { treatments: treatments.map((entry, index) => ({ ...entry, who: index ? "the kid" : "Kid" })) } });
+  assert.match(oneWho.data.reason, /^treatments: 5 of 5 share who "Kid"; give at least 3 different whos\./);
   assert.equal((await brief(id, { fields: { treatments } })).isError, undefined);
-  await refused("ask their treatment pick", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", quote: "<their words>" } } } });
+  // Under "just start" the pick is the agent's own, and says why.
+  await refused("pick a treatment, with why", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } });
   // The pick's idea becomes style.idea; its move is offered as the first signature.
-  const picked = await brief(id, { fields: { treatments: { pick: "A", quote: "the wheels one" } } });
+  const picked = await brief(id, { fields: { treatments: { pick: "A", why: "the sound is what a skater retells" } } });
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
+  // The service drafts its needs call from the saved pick (the same state the needs gates read).
+  assert.equal(nextCallOf(await agent("notes", { project: id, action: "needs" })).input.items[0].what, "footage of a viewer");
   const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");
-  // The same call drafts the spine from the pick: the problem is its tension, the turn its turn.
+  // The same call drafts the spine from the pick, so it keeps the pick's story: the hook opens on
+  // its who, the problem is its tension, the turn its turn and the end its ending.
   const drafted = offer.input.fields.style.spine;
   assert.deepEqual([drafted.map((beat) => beat.role), drafted[1].purpose, drafted[2].purpose, offer.input.fields.style.signatures[0].beat], [["hook", "problem", "turn", "signature", "payoff", "end"], "can one kid land it?", "the board lands clean", 3]);
+  assert.deepEqual([drafted[0].purpose, drafted[5].purpose], ["<the first image of a viewer's story>", "the board at rest, ending 4"]);
   // A pick whose source names no picture asks for one, and the draft offers the project's own.
   assert.match(picked.text, /source is words only: build the signature from the product's own picture/);
   assert.equal(offer.input.fields.style.signatures[0].source, "<a screenshot or clip of the product, and the moment>");
@@ -912,6 +924,14 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   const built = await agent("edit", compose);
   assert.equal(built.isError, undefined, built.text);
   assert.equal(built.data.rev, 2, "the refused edits saved nothing");
+  // The check carries the picked ending (service findingsFor): the video's scene (the longest,
+  // quality.mjs videoScene) ending on a centered name and tagline card is told to end on the
+  // payoff and the ending the agent picked.
+  const line = (name, text, fontSize, y) => ({ type: "text", id: name, name, text, fontSize, fontFamily: "Inter", fill: "#f2f2f2", textAlign: "center", textResize: "height", x: 0, y, width: 1920 });
+  const card = await agent("edit", { project: id, ops: [{ op: "add_scene", properties: { id: "endcard", name: "End card", width: 1920, height: 1080, duration: 20, background: "#111111", layers: [line("name", "Skate now", 180, 380), line("tagline", "the crew is out tonight", 48, 620)] } }] });
+  assert.equal(card.isError, undefined, card.text);
+  const checked = await agent("check", { project: id, scene: "endcard", rules: ["template_end"], pixels: false });
+  assert.match(checked.text, /the ending you picked "the board at rest, ending 4"/, checked.text);
 });
 
 test("a waived order builds at once, and references saved after the first build do not pass the final render", async () => {

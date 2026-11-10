@@ -9,8 +9,8 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { projectSeed } from "../engine/deck.js";
 import { askText } from "./agent/stops.mjs";
-import { cleanTreatments, pickedSignature, pickLines, shownLines, treatmentsProblem, treatmentsText } from "./agent/treatments.mjs";
-import { lockCall } from "./agent/brief.mjs";
+import { cleanTreatments, pickedEnding, pickedSignature, pickLines, shownLines, treatmentsProblem, treatmentsText } from "./agent/treatments.mjs";
+import { briefChanges, lockCall } from "./agent/brief.mjs";
 import { mediaKeys, newDeal } from "./agent/deck.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 
@@ -45,7 +45,7 @@ test("the deck is dealt once the treatment is picked, shows in status and on the
   await agent("notes", { project: "deck-status", action: "brief", fields: { treatments: FIVE } });
   assert.equal(await statusDeck("deck-status"), undefined, "no deck before the pick: the treatments are not the dealt cards");
   assert.equal((await savedState("deck-status")).deck ?? null, null);
-  await agent("notes", { project: "deck-status", action: "brief", fields: { treatments: { pick: "B" } } });
+  await agent("notes", { project: "deck-status", action: "brief", fields: { treatments: { pick: "B", why: "the map is what a skater retells" } } });
   const line = await statusDeck("deck-status");
   assert.match(line, DECK_LINE);
   assert.equal(Number(DECK_LINE.exec(line)[1]), projectSeed("deck-status"));
@@ -182,11 +182,11 @@ test("variants {vary:\"deck\"} makes 3 scenes from the next decks; picking one m
 });
 
 const FIVE = [
-  { idea: "a slow city-at-dawn montage with a voice", tension: "is the city still asleep?", turn: "the first board hits the road", move: "slow push on every shot", rhythm: "even, calm", p: 0.6, source: "dawn.mp4, the empty street" },
-  { idea: "the crew's day told by one skateboard", tension: "whose board is it?", turn: "the owner lands the kickflip", move: "match cuts on the board", rhythm: "builds to the kickflip", p: 0.15, source: "crew.mp4, the board passed on" },
-  { idea: "a map that draws the route as they skate", tension: "where are they going?", turn: "the line closes the loop", move: "mask-wipe along the line", rhythm: "steady, then a stop", p: 0.1, source: "route.mp4, the loop" },
-  { idea: "every trick frozen with its name", tension: "will the hard one land?", turn: "the last freeze is a fall", move: "freeze-frame and type-giant", rhythm: "stop and go", p: 0.25, source: "tricks.mp4, each landing" },
-  { idea: "the city's sounds as the beat", tension: "what is that noise?", turn: "the wheels join the beat", move: "cuts on street sounds", rhythm: "syncopated", p: 0.05, source: "street.wav, the horns" },
+  { idea: "a slow city-at-dawn montage with a voice", who: "the city", tension: "is the city still asleep?", turn: "the first board hits the road", move: "slow push on every shot", ending: "the street wakes, one board rolling", p: 0.6, source: "dawn.mp4, the empty street" },
+  { idea: "the crew's day told by one skateboard", who: "the board's owner", tension: "whose board is it?", turn: "the owner lands the kickflip", move: "match cuts on the board", ending: "the board back in its owner's hands", p: 0.15, source: "crew.mp4, the board passed on" },
+  { idea: "a map that draws the route as they skate", who: "the crew", tension: "where are they going?", turn: "the line closes the loop", move: "mask-wipe along the line", ending: "the whole route glowing on the map", p: 0.1, source: "route.mp4, the loop" },
+  { idea: "every trick frozen with its name", who: "a skater", tension: "will the hard one land?", turn: "the last freeze is a fall", move: "freeze-frame and type-giant", ending: "the fall, frozen, then a laugh", p: 0.25, source: "tricks.mp4, each landing" },
+  { idea: "the city's sounds as the beat", who: "a passer-by", tension: "what is that noise?", turn: "the wheels join the beat", move: "cuts on street sounds", ending: "the horns and wheels in one beat", p: 0.05, source: "street.wav, the horns" },
 ];
 
 test("treatments: a source names the move's material; the pick drafts the lock's idea, signature and idea spine", () => {
@@ -194,15 +194,23 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   assert.equal(treatmentsProblem(withSource), null);
   assert.match(treatmentsProblem(withSource.map((entry) => ({ ...entry, source: "x".repeat(81) }))).message, /^treatments\[0\]\.source is 81 characters, limit 80\. .* \(5 problems\)$/);
   // Every field over its limit at once, named with its length and limit.
-  const long = withSource.map((entry, index) => (index === 1 ? { ...entry, idea: "x".repeat(85), rhythm: "y".repeat(61) } : entry));
-  assert.equal(treatmentsProblem(long).message, "treatments[1].idea is 85 characters, limit 80. treatments[1].rhythm is 61 characters, limit 60. (2 problems)");
+  const long = withSource.map((entry, index) => (index === 1 ? { ...entry, idea: "x".repeat(125), ending: "y".repeat(61) } : entry));
+  assert.equal(treatmentsProblem(long).message, "treatments[1].idea is 125 characters, limit 120. treatments[1].ending is 61 characters, limit 60. (2 problems)");
   const cleaned = cleanTreatments(withSource);
-  assert.equal(shownLines(cleaned)[1], "B. a map that draws the route as they skate · where are they going? → the line closes the loop · mask-wipe along the line");
-  // A list saved before tension and turn shows as it did.
-  const old = cleanTreatments(withSource.map(({ tension, turn, ...rest }) => rest));
+  // Picking a treatment with an idea of 81 to 120 characters fills the idea line and style.idea.
+  const longIdea = "a".repeat(100);
+  const longList = cleanTreatments(withSource.map((entry, index) => (index === cleaned.shown[0] ? { ...entry, idea: longIdea } : entry)));
+  const longPick = briefChanges({ treatments: longList }, { fields: { treatments: { pick: "A", why: "a reason" } } });
+  assert.deepEqual([longPick.lines[0].line.text, longPick.style.idea], [longIdea, longIdea]);
+  assert.equal(shownLines(cleaned)[1], "B. a map that draws the route as they skate · the crew: where are they going? → the line closes the loop · ends on the whole route glowing on the map");
+  // A list saved with a rhythm before ending shows its move; one before who, tension and turn as it did.
+  const rhythmList = cleanTreatments(withSource.map(({ ending, ...rest }) => ({ ...rest, rhythm: "steady, then a stop" })));
+  assert.equal(shownLines(rhythmList)[1], "B. a map that draws the route as they skate · the crew: where are they going? → the line closes the loop · mask-wipe along the line");
+  const old = cleanTreatments(rhythmList.list.map(({ who, tension, turn, ...rest }) => rest));
   assert.equal(shownLines(old)[1], "B. a map that draws the route as they skate · mask-wipe along the line (route.mp4, the full loop at 0:40) · steady, then a stop");
   const picked = cleanTreatments({ pick: "B" }, cleaned);
   assert.deepEqual(pickedSignature(picked), { what: "mask-wipe along the line", source: "route.mp4, the full loop at 0:40" });
+  assert.deepEqual([pickedEnding(picked), pickedEnding(cleanTreatments({ pick: "B" }, rhythmList))], ["the whole route glowing on the map", null]);
   assert.match(treatmentsText({ treatments: picked }), /: a map that draws the route as they skate · signature: mask-wipe along the line \(route\.mp4/);
   // The lock is drafted around the idea and its signature; the sales template only with no idea.
   const brief = { fields: { idea: { text: "a map that draws the route as they skate", by: "guessed" } }, treatments: picked };
@@ -228,13 +236,18 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   const cleaned = cleanTreatments(FIVE);
   assert.equal(cleaned.dropped, 0);
   assert.deepEqual(cleaned.shown, [4, 2, 1]);
+  // 3 whos ("The Crew" is "crew"): the 3 shown are the least typical of each who, so the 2nd crew story gives way.
+  const threeWhos = cleanTreatments(FIVE.map((entry, index) => ({ ...entry, who: ["the city", "a kid", "The Crew", "the city", "crew"][index] })));
+  assert.deepEqual([threeWhos.shown, threeWhos.shown.map((index) => threeWhos.list[index].who)], [[4, 1, 3], ["crew", "a kid", "the city"]]);
+  // Your own pick says why.
+  assert.match(treatmentsProblem({ pick: "B" }, cleaned).message, /^why is 1 to 80 characters, required on your own pick/);
 
   await newVideo("treat");
   await agent("notes", { project: "treat", action: "brief", log: [{ q: "What's wrong or missing?", a: "looks right", kind: "playback", rev: 1, confirmed: true }] });
   const saved = await agent("notes", { project: "treat", action: "brief", fields: { treatments: FIVE } });
   assert.equal(saved.isError, undefined, saved.text);
   assert.match(saved.text, /treatments: dropped the most typical \(p 0\.6: a slow city-at-dawn montage with a voice\)/);
-  assert.match(saved.text, /^A\. the city's sounds as the beat · what is that noise\? → the wheels join the beat · cuts on street sounds$/m);
+  assert.match(saved.text, /^A\. the city's sounds as the beat · a passer-by: what is that noise\? → the wheels join the beat · ends on the horns and wheels in one beat$/m);
   assert.equal(saved.data.brief.confirmedRev, saved.data.brief.rev, "saving treatments keeps a confirmed brief confirmed");
   // The stop's ask shows them until the person picks.
   const brief = (await savedState("treat")).brief;
@@ -249,4 +262,5 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   assert.deepEqual(pickLines(after.brief), [], "nothing to pick any more");
   // "just start": the stop does not ask; the agent picks.
   assert.deepEqual(pickLines({ treatments: cleaned, noPlayback: { reason: "just start" } }), []);
+  assert.match(treatmentsText({ treatments: cleaned, noPlayback: { reason: "just start" } }), /\npick the one a viewer would retell tomorrow that this material can carry; say why: fields:\{treatments:\{pick:"A", why:"<why>"\}\}\.$/);
 });

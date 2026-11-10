@@ -6,6 +6,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHouseMemory, familyOf } from "./house-memory.mjs";
+import { SIGNATURE_VERSION } from "../engine/quality/layoutSignature.js";
 
 test("familyOf drops copies and a trailing number", () => {
   assert.equal(familyOf("Promo [copy] [copy]"), "promo");
@@ -25,6 +26,8 @@ test("others leaves out the project and its copies", async () => {
     await house.record({ projectId: "c", name: "Recap", rev: 9, moments });
     const seen = await house.others("a", "Promo");
     assert.deepEqual(seen.map((entry) => entry.projectId), ["c"]);
+    // The signature format is saved, so seen_before knows an older file has no `o`.
+    assert.equal(seen[0].sigVersion, SIGNATURE_VERSION);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

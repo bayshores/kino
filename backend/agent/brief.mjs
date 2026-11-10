@@ -18,9 +18,10 @@
 // {seconds:30, tolerance:1}). check holds the video to it (the assertions gate, engine/quality/rules/pacing.js),
 // so a final render cannot be longer or shorter than asked. Saved as brief.length; like style, it
 // raises the revision but keeps a confirmed brief confirmed.
+import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
-import { cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
+import { OWN_PICK_CALL, cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
@@ -113,7 +114,8 @@ function lineProblem(name, line, current) {
   if (extra.length) return { code: "bad_input", message: `${name} takes text, by and quote, not ${extra.join(", ")}.`, details: { didYouMean: closest(extra[0], LINE_KEYS) } };
   if (line.by !== "you" && line.by !== "guessed")
     return { code: "bad_input", message: `${name}.by is "you" (the person said it; send quote) or "guessed" (your call).` };
-  const text = textProblem(`${name}.text`, line.text, BRIEF_LIMITS.text);
+  // The idea line takes as many characters as a treatment's idea and style.idea, so a picked treatment fits.
+  const text = textProblem(`${name}.text`, line.text, name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text);
   if (text) return { code: "bad_input", message: `${text} Keep the line short; the quote holds their words.` };
   if (line.by === "you") {
     if (!hasText(line.quote))
@@ -393,8 +395,6 @@ export function replyCount(state) {
 const guessLine = (name) => (name === "never" ? '<only what the person said not to do, or "none said">' : `<your guess: ${name.replace("_", " ")}>`);
 const briefCall = (fields) => ({ tool: "notes", input: { action: "brief", fields } });
 const guessAll = (missing) => briefCall(Object.fromEntries(ASK_ORDER.filter((name) => missing.includes(name)).map((name) => [name, guessLine(name)])));
-const NEEDS_CALL = { tool: "notes", input: { action: "needs", items: [{ what: "<missing piece>", why: "<what the video loses>", ask: "Do you have <it>?",
-  options: [{ do: "<what you can do with what exists>", cost: "<what is lost>", recommended: true }] }] } };
 export const PLAN_CALL = (stop) => ({ tool: "notes", input: { action: "set_plan", steps: [
   "Build the whole video in one edit (compose)", "check {fix:\"auto\"}", ...(stop ? [`Ask ${stop} (notes checkpoint)`] : []),
   "look {mode:\"review\"} until every moment is reviewed", "Render final"] } });
@@ -455,7 +455,8 @@ export function nextMove(state, video = {}, stop = null) {
   if (order) return order;
   // The material against the story, before planning: video.needs is {checked} when the video has
   // footage or speech (the service's directionFacts; left out otherwise, which skips this step).
-  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: NEEDS_CALL };
+  // The call is drafted from the pick (needs.mjs needsCall): footage of its who, for its tension.
+  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments) };
   if (stop === "board") {
     const askBoard = { tool: "notes", input: { action: "checkpoint", id: "board" } };
     if (planned) return { step: "ask board, then follow the plan", call: askBoard };
@@ -520,11 +521,14 @@ export function orderSteps(state, video = {}) {
   if (video.treatmentsWaived) return open;
   const treatments = brief.treatments;
   if (!treatments?.list) {
-    const one = { idea: STORY_PLACEHOLDER, tension: "<what the viewer wants, fears or wonders before the turn>", turn: "<the on-screen moment it flips>",
-      move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
+    const one = { idea: STORY_PLACEHOLDER, who: "<whose want or fear drives it: a person, a crew, a viewer, a thing>",
+      tension: "<what they want, fear or wonder before the turn>", turn: "<the on-screen moment it flips>",
+      move: "<the signature move>", ending: "<the last image, from this material>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
     return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
   }
   const picked = treatments.picked;
+  // Under "just start" the pick is the agent's own, with why (treatmentsText says what to pick).
+  if (!picked && /just start/i.test(brief.noPlayback?.reason ?? "")) return [...open, { step: "pick a treatment, with why", call: briefCall({ treatments: { ...OWN_PICK_CALL } }) }];
   if (!picked) return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
   // The pick's idea is copied into style.idea when it is saved (briefChanges); its move and
   // material are offered as the first signature. A pick that carries its story (tension and
@@ -572,15 +576,18 @@ const SPINE_SHARES = { hook: [0, 0.1], problem: [0.1, 0.3], turn: [0.3, 0.45], s
 const hasPurpose = (spine, role) => (Array.isArray(spine) ? spine : []).some((beat) => beat?.role === role && typeof beat.purpose === "string" && beat.purpose.trim() !== "");
 
 /**
- * The spine the signature step drafts from the pick: with none saved, IDEA_SPINE over the
- * video's seconds (30 when unknown), the problem's purpose the pick's tension and the turn's its
- * turn. A saved spine is kept as it is, with each missing story beat put after the last saved
- * beat that comes before it in IDEA_SPINE.
+ * The spine the signature step drafts from the pick, so the beats tell the picked story and not
+ * another: with none saved, IDEA_SPINE over the video's seconds (30 when unknown), the hook's
+ * purpose the first image of the pick's who, the problem's its tension, the turn's its turn and
+ * the end's its ending (a pick from before who or ending keeps "<what the hook does>" and
+ * "<what the end does>"). A saved spine is kept as it is, with each missing story beat put after
+ * the last saved beat that comes before it in IDEA_SPINE.
  */
 function draftSpine(saved, entry, seconds) {
   const total = Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
   const at = (share) => Math.round(share * total * 10) / 10;
-  const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>" };
+  const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>",
+    ...(entry.who ? { hook: `<the first image of ${entry.who}'s story>` } : {}), ...(entry.ending ? { end: entry.ending } : {}) };
   const drafted = (role) => ({ role, from: at(SPINE_SHARES[role][0]), to: at(SPINE_SHARES[role][1]), purpose: purposes[role] ?? `<what the ${role} does>` });
   if (!Array.isArray(saved) || !saved.length) return IDEA_SPINE.map(drafted);
   const spine = [...saved];

@@ -7,8 +7,10 @@
 //
 // Env: KINO_FIRSTPASS_MODEL (default: Claude Code's own), KINO_FIRSTPASS_EFFORT (low to max; default:
 // Claude Code's own), KINO_FIRSTPASS_MINUTES (default 45),
-// KINO_FIRSTPASS_REPLIES (most "your call" replies, default 10).
+// KINO_FIRSTPASS_REPLIES (most "your call" replies, default 10), KINO_FIRSTPASS_HOUSE (the house
+// memory snapshot in evals/taste/house, default launch-v1; none: an empty house).
 import { fork, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
 import { chmod, copyFile, cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -132,6 +134,29 @@ async function writeSettings(dataDir, outDir) {
   const approvals = { "final-render": "allow", "overwrite-export": "allow", "large-import": "allow" };
   await mkdir(path.join(dataDir, "agent"), { recursive: true });
   await writeFile(path.join(dataDir, "agent", "dashboard.json"), JSON.stringify({ settings: { approvals, exports: { folder: outDir }, compute: { previewCache: false }, sounds: { search: true } } }, null, 2));
+}
+
+/**
+ * Seeds the run's house memory (<data>/house, backend/house-memory.mjs) with a fixed snapshot,
+ * evals/taste/house/<snapshot>/*.json, so seen_before can fire in an eval: a fresh data folder
+ * has no earlier projects. "none" seeds nothing (null). The snapshot never takes in later runs by
+ * itself; a new one is a new folder. Gives {snapshot, sha256} of its files for run.json.
+ */
+export async function seedHouse(dataDir, snapshot, houseRoot = path.join(root, "evals/taste/house")) {
+  if (!snapshot || snapshot === "none") return null;
+  if (!/^[\w.-]+$/.test(snapshot)) throw new Error(`KINO_FIRSTPASS_HOUSE "${snapshot}": a folder name in evals/taste/house, or none.`);
+  const from = path.join(houseRoot, snapshot);
+  let names = [];
+  try { names = (await readdir(from)).filter((name) => name.endsWith(".json")).sort(); } catch { /* missing */ }
+  if (!names.length) throw new Error(`${from}: no house snapshot there (KINO_FIRSTPASS_HOUSE=none runs without one).`);
+  const hash = createHash("sha256");
+  await mkdir(path.join(dataDir, "house"), { recursive: true });
+  for (const name of names) {
+    const bytes = readFileSync(path.join(from, name));
+    hash.update(`${name}\n`).update(bytes);
+    await writeFile(path.join(dataDir, "house", name), bytes);
+  }
+  return { snapshot, sha256: hash.digest("hex") };
 }
 
 function startServer(dataDir, logFile) {
@@ -262,6 +287,7 @@ async function main() {
   const prompt = promptFor(brief, files, askedProjectId);
   if (args.includes("--dry-run")) { console.log(prompt); return; }
   await writeSettings(dataDir, outDir);
+  const house = await seedHouse(dataDir, process.env.KINO_FIRSTPASS_HOUSE || "launch-v1");
 
   const started = Date.now(), deadline = started + minutes * 60_000;
   const server = await startServer(dataDir, path.join(runDir, "server.log"));
@@ -322,7 +348,7 @@ async function main() {
   await rm(workDir, { recursive: true, force: true });
   const last = calls.at(-1) ?? {};
   const result = {
-    version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", effort: effort ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
+    version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", effort: effort ?? "(Claude Code default)", house, models: [...new Set(calls.flatMap((call) => call.models))],
     startedAt: new Date(started).toISOString(), seconds, budgetMinutes: minutes, timedOut: calls.some((call) => call.timedOut) || Date.now() >= deadline,
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
     finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY,

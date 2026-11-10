@@ -7,7 +7,10 @@ not quietly make do. Say it, ask the person, and let them choose what happens.
 ## When to look
 
 - Before building: once the brief is settled and the references are saved, `status` says
-  `check material: notes needs`. Hold each story beat against what you actually have.
+  `check material: notes needs`. Hold each story beat against what you actually have. Its call
+  is drafted from your pick (footage of its who, for its tension, with what kino can make now and
+  telling it with what exists). Look through the material first: kino refuses the draft until you
+  fill what to make now from the files you found; or send `items:[]` when it is enough.
 - After the viewer test: a story bug the material cannot fix (the viewer never sees his face,
   so the payoff does not land) becomes a need, not a caption that explains it away.
 

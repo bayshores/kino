@@ -15,7 +15,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
-import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
+import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
 import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
@@ -65,6 +65,7 @@ import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, workPrint } from "./stops.mjs";
 import { addRejected } from "./style.mjs";
+import { pickedEnding } from "./treatments.mjs";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, settleBoard } from "./board.mjs";
 import { boardLook, BoardLookError, boardShotImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
@@ -584,7 +585,9 @@ export function createAgentService(deps) {
     const basic = checkDocument(document, { fonts, mediaRoot: deps.mediaRoot, codes, sceneId });
     // The brief's style spec (notes brief fields.style) sets the style rules; none is kino's default style.
     const saved = await agentState.read(document.id).catch(() => null);
-    const styleSpec = saved?.brief?.style ?? null;
+    // A picked treatment's ending rides along (styleContext ending): template_end quotes it.
+    const ending = saved?.brief?.style ? pickedEnding(saved.brief.treatments) : null;
+    const styleSpec = ending ? { ...saved.brief.style, ending } : saved?.brief?.style ?? null;
     // The project's deck (notes deck): deck_unused counts the cards the video uses.
     const deck = saved?.deck ?? null;
     // Font families the brief names (in any field): off_brand_font holds the texts to them.
@@ -3617,7 +3620,8 @@ export function createAgentService(deps) {
   // answer; {id, status:"made"|"sent", layers|media} marks it done. Only the person answers: on
   // the dashboard, or in the chat recorded with their words. A final render waits while one is
   // unfinished (refuseWithoutNeeds).
-  const needsAskCall = () => nextOf("notes", { action: "needs", items: [{ what: "<missing piece>", why: "<what the video loses>", ask: "Do you have <it>?", options: [{ do: "<what you can do with what exists>", cost: "<what is lost>", recommended: true }] }] });
+  // Drafted from the picked treatment in the agent state (needs.mjs needsCall); placeholders without one.
+  const needsAskCall = (state) => nextOf("notes", needsCall(state?.brief?.treatments).input);
   const needNextCall = (need) => (need.status === "planned"
     ? nextOf("notes", { action: "needs", id: need.id, status: "made", layers: ["<the layer that does it>"] })
     : need.status === "waiting" ? nextOf("notes", { action: "needs", id: need.id, status: "sent", media: "<its imported src, /api/media/...>" })
@@ -3629,11 +3633,12 @@ export function createAgentService(deps) {
     const you = meta.by === "you";
     const at = new Date(now()).toISOString();
     if (input.id === undefined && input.items === undefined) {
-      const needs = (await agentState.read(projectId)).needs;
+      const state = await agentState.read(projectId);
+      const needs = state.needs;
       const open = openNeeds(needs);
       const head = !needs?.checked ? "needs: never checked" : open.length ? `${plural(open.length, "need")} not finished` : `needs: the material is enough (rev ${needs.checked.rev})`;
       const lines = open.flatMap((need) => [`${need.id} ${needState(need)}: ${need.ask} (${need.why})`, ...(need.status === "open" ? optionLines(need) : [])]);
-      return done(projectId, { text: [head, ...lines].join("\n"), nextCall: !needs?.checked ? needsAskCall() : open.length ? needNextCall(open[0]) : null, data: { needs: needs ?? emptyNeeds() } });
+      return done(projectId, { text: [head, ...lines].join("\n"), nextCall: !needs?.checked ? needsAskCall(state) : open.length ? needNextCall(open[0]) : null, data: { needs: needs ?? emptyNeeds() } });
     }
     if (input.id === undefined) {
       let items;
@@ -3699,7 +3704,7 @@ export function createAgentService(deps) {
     if (state.needs?.checked) return;
     for (const scene of whole) {
       if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, record.document))) continue;
-      throw Object.assign(new AgentError("needs_unchecked", "The material was never checked against the story: look for what it cannot give the video, search it for substitutes, then ask the person (notes needs), or items:[] when it is enough.", { next: `notes {action:"needs", items:[{what, why, ask, options}]}. ${skip}` }), { nextCall: needsAskCall() });
+      throw Object.assign(new AgentError("needs_unchecked", "The material was never checked against the story: look for what it cannot give the video, search it for substitutes, then ask the person (notes needs), or items:[] when it is enough.", { next: `notes {action:"needs", items:[{what, why, ask, options}]}. ${skip}` }), { nextCall: needsAskCall(state) });
     }
   }
 
@@ -6726,7 +6731,7 @@ export function createAgentService(deps) {
       else if (!state.needs?.checked) {
         for (const scene of whole) {
           if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, document))) continue;
-          if (add("needs_unchecked", "notes needs (check the material)", needsAskCall())) return gates;
+          if (add("needs_unchecked", "notes needs (check the material)", needsAskCall(state))) return gates;
           break;
         }
       }

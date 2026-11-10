@@ -17,7 +17,7 @@
 // with no move or move {none} is plain, "footage plus words" (isPlainShot).
 import { mediaPlaybackRange } from "./playback.js";
 import { subjectBox } from "./sourceView.js";
-import { boardPicks, pickWords } from "./movePicks.js";
+import { KEY_ROLES, boardPicks, pickWords } from "./movePicks.js";
 import { isRecord } from "./numbers.js";
 
 export const PACING = Object.freeze(["beat_cut", "phrase_flow", "free"]);
@@ -143,19 +143,27 @@ export function isUnplannedShot(shot) {
  * Why the board cannot be approved yet for want of a designed move, or null. Most shots should
  * be plain cuts on the voice or the beat (move {none:"cut"}), so only the key beats count: the
  * hook, the reveal and the payoff (shotRoles, engine/movePicks.js). The board is refused while
- * none of them names a designed move; the refusal names those shots (3 at most) with moves
- * that fit each, the board's own device first when it already has one (a motif). `names` maps
- * a shot's media src to its file's name, so a screen recording is offered UI moves.
+ * none of them names a designed move; the refusal names each role once (a run of payoff
+ * shots as "shots 3-6") with moves that fit it, the board's own device first when it already has one (a motif). `names` maps
+ * a shot's media src to its file's name, so a screen recording is offered UI moves. `spine`
+ * (the style spec's beats): its payoff beat's shots are the payoff, the last shot after it the end.
  * Returns { message, shots: [shot numbers to fix] }.
  */
-export function movesNeeded(board, names = {}) {
+export function movesNeeded(board, names = {}, spine = null) {
   const shots = board?.shots ?? [];
-  const picks = boardPicks(shots, names);
-  const keys = picks.flatMap((entry, index) => (entry.role ? [index + 1] : []));
+  const picks = boardPicks(shots, names, spine);
+  const keys = picks.flatMap((entry, index) => (KEY_ROLES.includes(entry.role) ? [index + 1] : []));
   if (!keys.length || keys.some((n) => !isPlainShot(shots[n - 1]))) return null;
-  const each = keys.map((n) => `shot ${n} (${picks[n - 1].role}, ${picks[n - 1].word}): ${picks[n - 1].picks.slice(0, 2).map(pickWords).join(" or ")}`);
+  // A run of shots in one role (a spine payoff beat cut on the beat) is named once, by its first shot's picks.
+  const runs = [];
+  for (const n of keys) {
+    const last = runs.at(-1);
+    if (last && last.to === n - 1 && picks[last.from - 1].role === picks[n - 1].role) last.to = n;
+    else runs.push({ from: n, to: n });
+  }
+  const each = runs.map(({ from, to }) => `${from === to ? `shot ${from}` : `shots ${from}-${to}`} (${picks[from - 1].role}, ${picks[from - 1].word}): ${picks[from - 1].picks.slice(0, 2).map(pickWords).join(" or ")}`);
   const which = keys.length === 1 ? `shot ${keys[0]}` : `one of shots ${keys.join(", ")}`;
-  const roles = keys.map((n) => picks[n - 1].role);
+  const roles = [...new Set(keys.map((n) => picks[n - 1].role))];
   const named = roles.length > 1 ? `${roles.slice(0, -1).join(", ")} or ${roles.at(-1)}` : roles[0];
   return { message: `no designed move on the ${named} (shot${keys.length === 1 ? "" : "s"} ${keys.join(", ")}). Give ${which} a designed move {kind, name, ref} (library {topic:"moves"}), then ask again; every other shot can stay a plain cut (move {none:"cut"}). Fits: ${each.join("; ")}.`, shots: keys };
 }

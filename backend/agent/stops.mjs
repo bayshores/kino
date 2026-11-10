@@ -451,7 +451,7 @@ function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, wor
       data: { status: "passed", id: approval.stop, kind: "board", rev: approval.rev, revisions: approval.revisions.slice(-8).map((entry) => entry.line) } };
   }
   // A designed move on a key beat (hook, reveal or payoff): the person never sees a board with no emphasis; plain cuts elsewhere are right.
-  const needed = movesNeeded(board, facts.mediaNames);
+  const needed = movesNeeded(board, facts.mediaNames, draft?.brief?.style?.spine ?? null);
   if (needed) throw new StopError("move_needed", `board refused: ${needed.message}`, { shots: needed.shots });
   const at = new Date(now).toISOString();
   const open = board.open ?? [];

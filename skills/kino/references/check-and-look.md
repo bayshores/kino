@@ -28,7 +28,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - Errors, and in a real edit warnings, block final. On purpose:
   `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or a
   glob (`"arch-*"`) waives each matching layer. What viewers see (small screens, frozen
-  pictures, slides, template ends) needs `quote`: the person's words.
+  pictures, slides, template ends, `ending_seen`) needs `quote`: the person's words.
 - AI tells warn (ideas, taste): `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
   `split_card_layout`, `seen_before`. Technique rules, style spec: techniques reference.
@@ -77,7 +77,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 
 ## Looking
 
-- `look` renders the **saved** project: look after an edit.
+- `look` renders the **saved** project.
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
 - `inspect {targets, fields}`: an unknown field is said so; `color` answers
   with `fill`, `size` with `width` and `height`, and `fontSize` on text.
