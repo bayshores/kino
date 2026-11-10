@@ -3,20 +3,39 @@
 // [{projectId, name, rev, moments: [{t, sig}]}]). The same choice in every project is the tell.
 // A saved reference of this project closer to the moment than the old one backs it
 // (ctx.referenceSignatures, engine/quality/layoutSignature.js referenceSignature).
-import { hasDesigned, layoutDistance, layoutMoments } from "../layoutSignature.js";
+// ending_seen (warning): the same, in the closing stretch (the last 15% or the spine's end beat).
+// It keeps one of the 3 slots however close the mid-video hits are, and only the person's words
+// waive it (backend/agent/translate.mjs VIEWER_WAIVERS): a repeated ending is what a viewer keeps.
+import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, signatureDistance } from "../layoutSignature.js";
 
 // Under this distance (layoutDistance: places and sizes, or the coarse shape) two moments read as
 // the same layout. Calibrated on kino's own projects: one end card in two videos 0.1, a chart or
 // footage with captions against it 0.6 to 0.8, under 3% of other moments warn.
 export const SEEN_THRESHOLD = 0.12;
 const MAX_FINDINGS = 3;
+// The closing stretch: the last share of the video.
+const CLOSING_SHARE = 0.15;
+// Under this signature distance a layout is the same one still on (layoutMoments' own step).
+const HELD = 0.03;
 
-export function seenBefore(model, ctx) {
+// One run's hits, shared by both rules (one house comparison per check).
+const hitsByRun = new WeakMap();
+
+function seenHits(model, ctx) {
+  const cached = hitsByRun.get(ctx);
+  if (cached?.model === model) return cached.hits;
   const house = (ctx.house ?? []).filter((entry) => Array.isArray(entry.moments) && entry.moments.length);
-  if (!house.length) return [];
   const references = (ctx.referenceSignatures ?? []).filter(Boolean);
+  const endBeats = (ctx.style?.spine ?? []).filter((beat) => beat?.role === "end" && Number.isFinite(beat.from));
+  const closingFrom = model.duration * (1 - CLOSING_SHARE);
+  // A layout kept from before the closing stretch and still on in it is a closing moment too
+  // (layoutMoments keeps one moment for a layout held unchanged).
+  const atClosing = house.length ? layoutSignature(model, closingFrom) : null;
+  const closing = (moment) => moment.t >= closingFrom
+    || endBeats.some((beat) => moment.t >= beat.from && moment.t <= (Number.isFinite(beat.to) ? beat.to : model.duration))
+    || signatureDistance(moment.sig, atClosing) < HELD;
   const found = [];
-  for (const moment of layoutMoments(model, { every: 1, max: 60 })) {
+  if (house.length) for (const moment of layoutMoments(model, { every: 1, max: 60 })) {
     if (!hasDesigned(moment.sig)) continue;
     let best = null;
     for (const entry of house) for (const old of entry.moments) {
@@ -27,13 +46,40 @@ export function seenBefore(model, ctx) {
     if (references.some((reference) => layoutDistance(moment.sig, reference) <= best.distance)) continue;
     // One finding per stretch: a moment next to one already found is the same repeat.
     if (found.some((finding) => Math.abs(finding.at - moment.t) <= 1.5)) continue;
-    found.push({ at: moment.t, distance: best.distance, ...best });
+    found.push({ at: moment.t, sig: moment.sig, closing: closing(moment), ...best });
   }
-  return found.sort((a, b) => a.distance - b.distance).slice(0, MAX_FINDINGS).map((hit) => ({
-    rule: "seen_before", severity: "warn", at: hit.at,
-    measured: `layout distance ${hit.distance} to "${hit.entry.name}" r${hit.entry.rev} at ${hit.old.t} s`,
-    required: `${SEEN_THRESHOLD} or more from kino's other projects, unless a saved reference is closer`,
+  const byDistance = (a, b) => a.distance - b.distance;
+  // The closest closing hit is the ending (the latest of equals); the others are the same ending again.
+  const ending = found.filter((hit) => hit.closing).sort((a, b) => byDistance(a, b) || b.at - a.at).slice(0, 1);
+  const middle = found.filter((hit) => !hit.closing).sort(byDistance).slice(0, MAX_FINDINGS - ending.length);
+  const hits = { ending, middle };
+  hitsByRun.set(ctx, { model, hits });
+  return hits;
+}
+
+const measured = (hit) => `layout distance ${hit.distance} to "${hit.entry.name}" r${hit.entry.rev} at ${hit.old.t} s`;
+const REQUIRED = `${SEEN_THRESHOLD} or more from kino's other projects, unless a saved reference is closer`;
+
+export function seenBefore(model, ctx) {
+  return seenHits(model, ctx).middle.map((hit) => ({
+    rule: "seen_before", severity: "warn", at: hit.at, measured: measured(hit), required: REQUIRED,
     message: `${ctx.sceneName} at ${hit.at} s repeats a layout kino already made in "${hit.entry.name}" (r${hit.entry.rev}, ${hit.old.t} s): distance ${hit.distance}. The same choice in every project reads as made by a machine.`,
     fix: { kind: "hint", text: `Rebuild this moment from this video's own material, or from a reference's technique (look {mode:"versus"}); restyling the same arrangement does not count. Waive it when the repeat is wanted.` },
   }));
+}
+
+export function endingSeen(model, ctx) {
+  return seenHits(model, ctx).ending.map((hit) => {
+    // Was the old moment that project's ending too (in the last share of what it kept of that scene)?
+    const kept = hit.entry.moments.filter((moment) => moment.scene === hit.old.scene).map((moment) => moment.t);
+    const theirEnding = hit.old.t >= Math.max(...kept) * (1 - CLOSING_SHARE);
+    const under = hit.sig.items.some((item) => item.o === 1) ? " (name under a cut-out subject)" : "";
+    const payoff = (ctx.style?.spine ?? []).filter((beat) => beat?.role === "payoff").at(-1);
+    const purpose = String(payoff?.purpose ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+    return {
+      rule: "ending_seen", severity: "warn", at: hit.at, measured: measured(hit), required: REQUIRED,
+      message: `${ctx.sceneName}: this ending's layout matches ${theirEnding ? "an earlier project's ending" : "a layout of an earlier project"}${under}, "${hit.entry.name}" r${hit.entry.rev} at ${hit.old.t} s. A repeated ending is what a viewer remembers as made by a machine.`,
+      fix: { kind: "hint", text: `End on this video's own payoff material${payoff && purpose ? `: the payoff "${purpose}" (${payoff.from}s)` : ""}. Only the person can keep this ending (waive_check with quote, their words).` },
+    };
+  });
 }
