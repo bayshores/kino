@@ -204,8 +204,9 @@ How to read it:
   `backend/quality-pixels.test.mjs`, `backend/agent-safe-zone-fix.test.mjs`.
 - **Readability-only type gates**: Verified. `type_min` is a floor of the frame's shorter side (body 3%, a
   `role` headline 4%; a 34 px or 54 px caption at 1080p passes), `default_font` flags only a default
-  face no brand, style spec font or reference line chose, `stagger_long` leaves word reveals whose
-  words land (within a frame) on speech words, named cues or beat cues (not onsets, not a made-up grid),
+  face no brand, style spec font or reference line chose, `stagger_long` leaves word reveals (by their own
+  delays when set) and one-layer-per-word groups that land (within a frame) on speech words, named cues
+  or beat cues (not onsets, not a made-up grid),
   `text_wrap`'s smaller-size fix stops at the same floor, and the docs call example faces
   placeholders, not a look. Evidence: `engine/qualityRules.test.js`, `engine/qualityPolish.test.js`. Gap: the floor's size basis is an ergonomics estimate, not a user study.
 - **Overlap from a non-fading entrance or exit**: Verified. The fix adds a `preset-fade` with the same

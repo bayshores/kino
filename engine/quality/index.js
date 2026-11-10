@@ -100,7 +100,7 @@ export const RULES = [
   rule("hold", "warn", hold, "text held for its recommended time (Clearcast)"),
   rule("duration_band", "warn", durationBand, "durations in the band for the layer's size (a slow push may be longer)"),
   rule("exit_ratio", "info", exitRatio, "exits 55–75% of the entrance"),
-  rule("stagger_long", "warn", staggerLong, "a stagger within 0.5 s (a word reveal on speech or beat cues is paced by them)"),
+  rule("stagger_long", "warn", staggerLong, "a stagger within 0.5 s (word reveals or layers that land on speech or beat cues are paced by them)"),
   rule("stagger_order", "warn", staggerOrder, "entrances in role order"),
   rule("first_entrance", "warn", firstEntrance, "first entrance 0.1–0.3 s after a cut"),
   rule("easing_repeat", "warn", easingRepeat, "at most 2 motions share an easing and duration"),

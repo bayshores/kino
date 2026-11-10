@@ -512,6 +512,8 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
         kind: ["in", "out"].includes(animation.kind) ? animation.kind : animation.preset?.mode === "in" || animation.preset?.mode === "out" ? animation.preset.mode : animation.kind ?? "custom",
         easing, intensity, overshoots: curve.overshoots, linear: curve.linear, wobbles: curve.wobbles,
         unit: animation.unit ?? "layer", spread, stagger: finite(animation.stagger), preset: animation.preset?.id ?? null,
+        // Each unit's own delay (words timed to speech), so stagger_long judges the real times.
+        delays: animation.delays?.length ? animation.delays.map((delay) => finite(delay)) : null,
         discrete: animation.discrete?.type ?? null, counter: animation.kind === "counter",
         move: madeBy(layer, animation), handoff: isCarry(animation),
         source: { animationId: sourceFlat?.[position]?.id ?? (item.source.componentPath ? null : animation.id), layerId: item.source.layerId, sceneId: item.source.sceneId },

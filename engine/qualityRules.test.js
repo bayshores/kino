@@ -516,6 +516,21 @@ test("stagger_long: a word reveal whose words land on beat cues is paced by the 
   assert.ok(notes.some((note) => note.startsWith("stagger_long leaves a word-by-word reveal alone")), notes.join(" | "));
 });
 
+test("stagger_long: a word reveal whose words land on the voice's words is paced by speech", async () => {
+  // A word every 0.2 s from 0.2 s over a heard voice clip. Good: the transcript says each word
+  // then. Bad: the same words said 0.1 s later. Words with their own delays are judged by them.
+  const voice = { type: "audio", id: "vo", src: "/api/media/vo.wav", mediaSourceDuration: 30, mediaStart: 0, mediaDuration: 4 };
+  const revealWith = (fields) => scene({ layers: [voice, text("line", "Bread baked fresh every single morning", { fontSize: 64,
+    animations: [{ ...fadeIn(0.2, 0.4), unit: "words", stagger: 0.2, ...fields }] })] });
+  const said = (shift) => ["Bread", "baked", "fresh", "every", "single", "morning"].map((word, index) => ({ text: word, start: 0.2 + index * 0.2 + shift, end: 0.35 + index * 0.2 + shift }));
+  const speechOf = (document, shift) => ({ speechScene: document.scenes[0], speech: [{ layer: document.scenes[0].layers.find((layer) => layer.id === "vo"), transcript: { words: said(shift) } }] });
+  const even = revealWith({});
+  await silent("stagger_long", even, speechOf(even, 0));
+  await fires("stagger_long", even, speechOf(even, 0.1));
+  const timed = revealWith({ delays: [0.1, 0.3, 0.5, 0.7, 0.9, 1.1] });
+  await silent("stagger_long", timed, speechOf(timed, 0.1));
+});
+
 test("stagger_long: layers entering one after another finish their stagger within 0.5 s", async () => {
   // Four cards with the same entrance. Bad: 0.3 s apart (0.9 s in all). Good: 0.1 s apart.
   const cards = (gap) => scene({ layers: [0, 1, 2, 3].map((index) =>
@@ -526,6 +541,11 @@ test("stagger_long: layers entering one after another finish their stagger withi
   assert.equal(finding.fix.auto, true);
   assert.deepEqual(finding.fix.changes.map((change) => [change.itemId, change.properties.start]), [["card-0", 0.2], ["card-1", 0.366], ["card-2", 0.532], ["card-3", 0.698]]);
   await silent("stagger_long", cards(0.1));
+  // One layer per word, each on a beat (0.35 s apart, 171 bpm): paced by the music. Onsets are not.
+  const beats = [0.2, 0.55, 0.9, 1.25].map((time) => ({ time, kind: "beat" }));
+  const notes = await silent("stagger_long", cards(0.35), { beatCues: beats });
+  assert.ok(notes.some((note) => note.startsWith("stagger_long leaves 4 layers")), notes.join(" | "));
+  await fires("stagger_long", cards(0.35), { beatCues: beats.map((beat) => ({ ...beat, kind: "onset" })) });
 });
 
 test("stagger_order: the headline enters before the body text", async () => {
