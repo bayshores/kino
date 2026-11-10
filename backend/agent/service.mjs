@@ -77,7 +77,7 @@ import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGl
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
-import { houseMoments, houseStructure } from "../house-memory.mjs";
+import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { styleContext } from "../../engine/styleSpec.js";
@@ -5223,7 +5223,7 @@ export function createAgentService(deps) {
       const document = !record ? null : job.rev === record.revision ? record.document : await store.getProjectRevision(job.projectId, job.rev);
       if (!document) return;
       const fonts = await fontsFor(document);
-      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts }), structure: houseStructure(document, videoScene(document), { fonts }) });
+      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts }), structure: houseStructure(document, videoScene(document), { fonts }), type: houseType(document, videoScene(document), { fonts }) });
     } catch (error) { job.warnings = [...(job.warnings ?? []), `house memory not saved: ${error.message}`]; }
   }
 

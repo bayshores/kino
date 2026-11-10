@@ -701,6 +701,10 @@ function resolveReferences(operation, type, resolver, document) {
     if (!named || !(document?.cues ?? []).some((cue) => cue.name === named))
       throw new Error(`waive_check effect_fit names the cue that motivates the effect in its reason ("on the punch at cue:<name>")${named ? `; there is no cue ${named}` : ""}. No cue motivates it: take the effect off.`);
   }
+  // type_seen: kino has no default type look, so a look kept from the last projects was chosen by a
+  // reference the agent studied (reason names it: yt:<id>) or by the picked treatment's type direction.
+  if (type === "waive_check" && operation.code === "type_seen" && !/\byt:[\w-]{6,}|\btreatment [A-E]\b/i.test(String(operation.reason ?? "")))
+    throw new Error('waive_check type_seen names the reference that chose this type in its reason ("set like the title in yt:<id>"), or the picked treatment ("treatment B type direction"). No reference or treatment chose it: take the type from your references and this footage instead.');
   if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and
   // scenes, or a glob such as "arch-*" for the layers whose names match now (layers added later

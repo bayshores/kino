@@ -287,6 +287,11 @@ How to read it:
   parts that only follow the song (steady pace, plain cut on the drop, plain ending) are not
   compared, and the hint never asks for an effect. Gap: needs earlier renders; effect weights wait for weighted cues. Evidence:
   `engine/layoutSignature.test.js`, `backend/house-memory.test.mjs`.
+- **Type recall**: Partial. A render saves its type look in the house file (face, weight class, case,
+  size class, how the main text comes in); `type_seen` warns when a new project has the same face and
+  4 of 5 parts as one of the last 3 projects, and an agent waives it only with a reason naming the
+  reference (`yt:<id>`) or picked treatment. Gap: treatments carry no type direction yet. Evidence:
+  `backend/house-memory.test.mjs`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

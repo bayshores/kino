@@ -12,8 +12,13 @@
 // section and 75% or more of the compared parts (first drop, burst, effect order, ending, title, colors).
 // Parts that only follow the song (a steady pace, a plain cut on the drop, a plain ending) are not
 // compared, and the hint never asks for an effect: a part changes only by a cue or event that motivates it.
+// type_seen (warning): the video's type look (typeSignature.js: face, weight, case, size, how it comes
+// in; saved as `type` in the house file) matches one of the last 3 projects'. kino has no default
+// type look, so a reused one needs a reference or treatment that chose it; an agent waives it only
+// with a reason naming the reference (translate.mjs).
 import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
 import { partWords, sameStructure, STRUCTURE_VERSION, structureAlike, structureSignature } from "../structureSignature.js";
+import { sameType, TYPE_PARTS, TYPE_VERSION, typeAlike, typeSignature } from "../typeSignature.js";
 
 // Under this distance (layoutDistance: places and sizes, or the coarse shape) two moments read as
 // the same layout. Calibrated on kino's own projects: one end card in two videos 0.1, a chart or
@@ -104,6 +109,27 @@ export function seenBefore(model, ctx) {
     message: `${ctx.sceneName} at ${hit.at} s repeats a layout kino already made in "${hit.entry.name}" (r${hit.entry.rev}, ${hit.old.t} s): distance ${hit.distance}. The same choice in every project reads as made by a machine.`,
     fix: { kind: "hint", text: `Rebuild this moment from this video's own material, or from a reference's technique (look {mode:"versus"}); restyling the same arrangement does not count. Waive it when the repeat is wanted.` },
   })), ...structureHit(model, ctx)];
+}
+
+// The last projects whose type look type_seen compares against (newest first by savedAt).
+export const TYPE_RECENT = 3;
+
+export function typeSeen(model, ctx) {
+  if (ctx.videoScene !== true) return [];
+  const recent = (ctx.house ?? []).filter((entry) => entry.type && entry.typeVersion === TYPE_VERSION)
+    .sort((a, b) => String(b.savedAt ?? "").localeCompare(String(a.savedAt ?? ""))).slice(0, TYPE_RECENT);
+  if (!recent.length) return [];
+  const mine = typeSignature(model);
+  const match = mine ? recent.find((entry) => sameType(mine, entry.type)) : null;
+  if (!match) return [];
+  const alike = typeAlike(mine, match.type);
+  const look = `${mine.family}, ${mine.weight}, ${mine.case}, ${mine.size}, ${mine.reveal} in`;
+  return [{
+    rule: "type_seen", severity: "warn", at: 0, measured: `type look (${look}) alike in ${alike.length} of ${TYPE_PARTS.length} parts (${alike.join(", ")}) to "${match.name}" r${match.rev}`,
+    required: "a type look unlike the last projects' (face plus 4 of 5 parts: face, weight, case, size, reveal), unless a saved reference or the picked treatment chose it",
+    message: `${ctx.sceneName}: the type (${look}) is the look of "${match.name}" (r${match.rev}), one of kino's last projects. The same type in every project reads as made by a machine, and kino has no default look.`,
+    fix: { kind: "hint", text: `Take the type from this video's own references and footage: study how the references set their type (face, weight, case, size, how it comes in) and set this video's from one of them, or from the picked treatment's type direction. Keep it when a reference chose it: waive_check type_seen with a reason naming the reference (yt:<id>).` },
+  }];
 }
 
 export function endingSeen(model, ctx) {
