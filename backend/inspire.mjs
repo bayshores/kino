@@ -27,6 +27,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { suggestStyleLines, suggestionText } from "./measure/suggest.mjs";
 import { backgroundStep, lowerIfBackground } from "./render-activity.mjs";
+import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTubeGate } from "./process-slots.mjs";
 import { SEARCH_KINDS } from "./agent/actions.mjs";
 import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
@@ -66,9 +67,8 @@ export function ytDlpCommand(env = process.env, exists = existsSync) {
   return ["/opt/homebrew/bin/yt-dlp", "/usr/local/bin/yt-dlp"].find((candidate) => exists(candidate)) ?? "yt-dlp";
 }
 
-export const BOT_CHECK = "YouTube asked to sign in to prove this is not a bot. kino never signs in or sends cookies, so it cannot read this video's cuts from this network now.";
-/** After YouTube's bot check, kino waits this long before it downloads again (unless asked to). */
-export const BOT_CHECK_PAUSE_MS = 15 * 60 * 1000;
+// The bot check and its pause live in process-slots.mjs (one gate for every YouTube download).
+export { BOT_CHECK, BOT_CHECK_PAUSE_MS };
 
 // The folders kino looks in for yt-dlp's helpers when the PATH it was started with is short (the
 // Mac app's is): Homebrew, /usr/local, and the usual per-user install folders.
@@ -415,6 +415,24 @@ function abortError() {
   return error;
 }
 
+/**
+ * Why yt-dlp can never play a video from here, from its error line: "region" (blocked in this
+ * country), "members only", "age" (needs a signed-in adult) or "private"; null for anything else.
+ */
+export function cannotPlayReason(line) {
+  const text = String(line ?? "");
+  if (/in your country|from your location|geo.?restrict/i.test(text)) return "region";
+  if (/members[- ]only|channel's members|join this channel/i.test(text)) return "members only";
+  if (/confirm your age|age.?restrict|inappropriate for some users/i.test(text)) return "age";
+  if (/private video/i.test(text)) return "private";
+  return null;
+}
+
+/** The agent's line for a found clip that cannot play: `F3 cannot play from here (region). Dropped; F4 is next.` */
+export function cannotPlayLine(code, reason, next) {
+  return `${code} cannot play from here (${reason}). Dropped${next ? `; ${next} is next` : ""}.`;
+}
+
 /** Runs yt-dlp; resolves with its standard output. Rejects with a plain reason. */
 export function runYtDlp(args, { command = ytDlpCommand(), signal, timeoutMs = 60_000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -443,8 +461,11 @@ export function runYtDlp(args, { command = ytDlpCommand(), signal, timeoutMs = 6
       if (timedOut) return reject(new Error(`yt-dlp took longer than ${Math.round(timeoutMs / 1000)} s.`));
       if (code !== 0) {
         const line = stderr.split("\n").map((text) => text.trim()).filter(Boolean).find((text) => text.startsWith("ERROR")) ?? stderr.trim().split("\n").at(-1) ?? "";
+        // A video this network or this visitor can never play (region, members, age): not a bot check.
+        const unplayable = cannotPlayReason(line);
+        if (unplayable) return reject(Object.assign(new Error(`yt-dlp cannot play this video from here (${unplayable}).`), { code: "UNPLAYABLE", reason: unplayable }));
         // YouTube's bot check wants an account's cookies, which kino never sends.
-        if (/sign in to confirm/i.test(line)) return reject(Object.assign(new Error(BOT_CHECK), { code: "BOT_CHECK" }));
+        if (/sign in to confirm/i.test(line)) return reject(botCheckError());
         return reject(new Error(`yt-dlp failed: ${line.replace(/^ERROR:\s*/, "").slice(0, 200) || `exit code ${code}`}`));
       }
       resolve(stdout);
@@ -634,15 +655,20 @@ export function createInspire(deps) {
   // reference a call waits for is measured at once, at normal priority, and so is the one ahead of
   // it in the queue: that call counts as busy, so a waiting step would hold its wanted ref back.
   const step = deps.backgroundStep ?? backgroundStep;
+  // YouTube downloads go through the gate kino shares with soundtrack and footage (one at a time,
+  // a gap between them, and after a bot check none until its pause ends; "m" on the screen
+  // (measure) forces one at once). Without one passed in, a gate of this service's own.
+  const youtube = deps.youtube ?? createYouTubeGate({ gapMs: 0, now, slot: createSlots(1) });
+  const downloads = new Set(["download", "downloadSound"]);
   const heavy = {};
   for (const name of ["download", "probe", "findShots", "findBeats", "fingerprint", "strips", "stills", "downloadSound", "decodeSound", "soundPreview", "soundLoudness"]) {
     if (typeof deps[name] !== "function") continue;
-    heavy[name] = (...args) => step(() => deps[name](...args), { urgent: () => wanted.size > 0, signal: running?.controller.signal });
+    const work = downloads.has(name)
+      ? (videoId, folder, { force, ...options } = {}) => youtube(() => deps[name](videoId, folder, options), { force, signal: options.signal })
+      : deps[name];
+    heavy[name] = (...args) => step(() => work(...args), { urgent: () => wanted.size > 0, signal: running?.controller.signal });
   }
   let started = null;
-  // After YouTube's bot check, no download is tried until then (ms), so YouTube is not asked
-  // again and again; "m" on the screen (measure) tries one at once.
-  let blockedUntil = 0;
   // The searches running now ("<project>/<n>"). A search saved as running that is not here was
   // cut off when kino stopped: it shows as failed.
   const inFlight = new Set();
@@ -879,9 +905,9 @@ export function createInspire(deps) {
     const folder = path.join(workRoot, `${record.id.slice(3)}-${randomUUID().slice(0, 8)}`);
     const force = forced.delete(id);
     try {
-      if (!force && now() < blockedUntil) throw Object.assign(new Error(BOT_CHECK), { code: "BOT_CHECK" });
+      if (!force && youtube.paused()) throw botCheckError();
       await mkdir(folder, { recursive: true, mode: 0o700 });
-      const file = await heavy.download(record.id.slice(3), folder, { signal });
+      const file = await heavy.download(record.id.slice(3), folder, { signal, force });
       setPhase(record, "reading cuts");
       const probed = await heavy.probe(file, { signal });
       // The downloaded picture tells a vertical edit for sure (a search only guesses from the link).
@@ -938,7 +964,6 @@ export function createInspire(deps) {
     } catch (error) {
       if (signal.aborted) record.state = "found";
       else Object.assign(record, { state: "failed", error: String(error?.message ?? error).split("\n")[0].slice(0, 200) });
-      if (error?.code === "BOT_CHECK" && now() >= blockedUntil) blockedUntil = now() + BOT_CHECK_PAUSE_MS;
     } finally {
       // The downloaded copy is never kept.
       await rm(folder, { recursive: true, force: true }).catch(() => {});
@@ -956,9 +981,9 @@ export function createInspire(deps) {
     const force = forced.delete(record.id);
     try {
       if (!deps.downloadSound || !deps.decodeSound || !deps.soundPreview) throw new Error("kino cannot measure sound effects here.");
-      if (!force && now() < blockedUntil) throw Object.assign(new Error(BOT_CHECK), { code: "BOT_CHECK" });
+      if (!force && youtube.paused()) throw botCheckError();
       await mkdir(folder, { recursive: true, mode: 0o700 });
-      const file = await heavy.downloadSound(record.id.slice(3), folder, { signal });
+      const file = await heavy.downloadSound(record.id.slice(3), folder, { signal, force });
       setPhase(record, "reading the sound");
       const { samples, sampleRate } = await heavy.decodeSound(file, { signal });
       const shape = soundShape(samples, sampleRate);
@@ -980,7 +1005,6 @@ export function createInspire(deps) {
     } catch (error) {
       if (signal.aborted) record.state = record.sound ? "measured" : "found";
       else Object.assign(record, { state: "failed", error: String(error?.message ?? error).split("\n")[0].slice(0, 200) });
-      if (error?.code === "BOT_CHECK" && now() >= blockedUntil) blockedUntil = now() + BOT_CHECK_PAUSE_MS;
     } finally {
       // The download is never kept.
       await rm(folder, { recursive: true, force: true }).catch(() => {});

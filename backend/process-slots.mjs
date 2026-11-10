@@ -26,3 +26,50 @@ export function createSlots(max) {
 export const heavyDecodeSlot = createSlots(1);
 /** At most three ffprobe runs at once in this process. */
 export const probeSlot = createSlots(3);
+
+// ---- YouTube downloads ------------------------------------------------------------------------
+
+export const BOT_CHECK = "YouTube asked to sign in to prove this is not a bot. kino never signs in or sends cookies, so it cannot read this video's cuts from this network now.";
+/** After YouTube's bot check, kino waits this long before it downloads again (unless asked to). */
+export const BOT_CHECK_PAUSE_MS = 15 * 60 * 1000;
+/** The quiet time between one YouTube download's end and the next one's start. */
+export const YOUTUBE_GAP_MS = 5000;
+
+export const botCheckError = () => Object.assign(new Error(BOT_CHECK), { code: "BOT_CHECK" });
+
+/**
+ * The one gate every YouTube download goes through (inspire, soundtrack, footage), so YouTube sees
+ * one careful visitor: one download at a time inside `slot` (yt-dlp runs FFmpeg itself, so it takes
+ * the heavy decode slot), `gapMs` between downloads, and after a bot check no download for
+ * `pauseMs` unless one is forced. `run(work, {force, signal})` runs one download.
+ * The gap is waited out before taking the slot, so other decodes run during it; a download whose
+ * `signal` was already aborted never reaches YouTube, so it does not start a new gap.
+ */
+export function createYouTubeGate({ slot = heavyDecodeSlot, gapMs = YOUTUBE_GAP_MS, pauseMs = BOT_CHECK_PAUSE_MS, now = Date.now,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {}) {
+  let pausedUntil = 0;
+  let lastEnd = -Infinity;
+  const gapLeft = () => lastEnd + gapMs - now();
+  const again = Symbol("again");
+  async function run(work, { force = false, signal } = {}) {
+    for (;;) {
+      if (!force && now() < pausedUntil) throw botCheckError();
+      const gap = gapLeft();
+      if (gap > 0) await wait(gap);
+      const result = await slot(async () => {
+        // Another download ran while this one waited for the slot: give the slot back and wait again.
+        if (gapLeft() > 0) return again;
+        if (!force && now() < pausedUntil) throw botCheckError();
+        const reachesYouTube = !signal?.aborted;
+        try { return await work(); } catch (error) {
+          // A forced try that meets the check again does not stretch the pause.
+          if (error?.code === "BOT_CHECK" && now() >= pausedUntil) pausedUntil = now() + pauseMs;
+          throw error;
+        } finally { if (reachesYouTube) lastEnd = now(); }
+      });
+      if (result !== again) return result;
+    }
+  }
+  run.paused = () => now() < pausedUntil;
+  return run;
+}
