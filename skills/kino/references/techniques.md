@@ -112,7 +112,7 @@ Write 5 stories first: idea, `who` (whose want or fear drives it; 3+ different),
 last image, from this material), `type` (`<family>, <size>, <case>, <how it appears>`, from your
 references; 3+ different of the 5; kino has no default type), `source` (file or screen
 used), `p` (0 to 1: how typical).
-kino shows the 3 least typical, one per who: `A. idea · who: tension → turn · ends on ending · type: type`.
+kino shows the 3 least typical, new whos and types first: `A. idea · who: tension → turn · ends on ending · type: type`.
 The pick (their words; under "just start" yours with `why`) sets `style.idea`, `style.type`, the first
 signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it.
 

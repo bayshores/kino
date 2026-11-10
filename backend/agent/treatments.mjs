@@ -97,21 +97,29 @@ export function treatmentsProblem(value, current) {
 }
 
 /**
- * The 3 shown of the list, least typical first: the most typical dropped, then the least typical
- * of each `who` (so a 4th story is not left out for being one more of the same who), then the
- * rest by p. A list saved without who shows its 3 least typical, as before.
+ * The 3 shown of the list, least typical first: the most typical dropped, then one at a time the
+ * least typical that adds the most of a new `who` and a new `type` (so the person is not shown 3 of
+ * one look, or a 4th story left out for being one more of the same who), ties by p. A list saved
+ * without who or type counts each entry as new there, so it shows as before.
  */
 function shownOf(list, dropped) {
   const rest = list.map((entry, index) => ({ entry, index })).filter(({ index }) => index !== dropped)
     .sort((a, b) => a.entry.p - b.entry.p || a.index - b.index);
-  const seen = new Set();
-  const firsts = rest.filter(({ entry, index }) => {
-    const key = entry.who ? whoKey(entry.who) : `#${index}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  const keyOf = ({ entry, index }) => ({
+    who: entry.who ? whoKey(entry.who) : `#${index}`,
+    type: typeof entry.type === "string" && entry.type.trim() ? entry.type.trim().toLowerCase() : `#${index}`,
   });
-  const chosen = [...firsts, ...rest.filter((item) => !firsts.includes(item))].slice(0, SHOWN_COUNT);
+  const whos = new Set();
+  const types = new Set();
+  const chosen = [];
+  while (chosen.length < Math.min(SHOWN_COUNT, rest.length)) {
+    const score = (item) => { const key = keyOf(item); return (whos.has(key.who) ? 0 : 1) + (types.has(key.type) ? 0 : 1); };
+    const next = rest.filter((item) => !chosen.includes(item)).reduce((best, item) => (score(item) > score(best) ? item : best));
+    const key = keyOf(next);
+    whos.add(key.who);
+    types.add(key.type);
+    chosen.push(next);
+  }
   return rest.filter((item) => chosen.includes(item)).map(({ index }) => index);
 }
 

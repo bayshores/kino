@@ -260,6 +260,11 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   // 3 whos ("The Crew" is "crew"): the 3 shown are the least typical of each who, so the 2nd crew story gives way.
   const threeWhos = cleanTreatments(FIVE.map((entry, index) => ({ ...entry, who: ["the city", "a kid", "The Crew", "the city", "crew"][index] })));
   assert.deepEqual([threeWhos.shown, threeWhos.shown.map((index) => threeWhos.list[index].who)], [[4, 1, 3], ["crew", "a kid", "the city"]]);
+  // 3 serif and 1 mono left after the drop: the mono one is shown, so the 3 are not one look.
+  const oneLook = FIVE.map((entry, index) => ({ ...entry, type: ["grotesk", "serif", "serif", "serif", "mono"][index], p: [0.6, 0.05, 0.1, 0.15, 0.5][index] }));
+  assert.equal(treatmentsProblem(oneLook), null);
+  const shownTypes = cleanTreatments(oneLook).shown.map((index) => oneLook[index].type);
+  assert.deepEqual(shownTypes, ["serif", "serif", "mono"]);
   // Your own pick says why.
   assert.match(treatmentsProblem({ pick: "B" }, cleaned).message, /^why is 1 to 80 characters, required on your own pick/);
 
