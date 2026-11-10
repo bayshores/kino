@@ -389,6 +389,11 @@ test("plain_beats: only a plain hook, reveal or payoff warns; the first holds a 
   const found = await fires("plain_beats", scene({ duration: 20, layers }));
   assert.deepEqual(found.map((entry) => [entry.at, entry.until, blocksFinal(entry), entry.final === true]), [[0, 2.5, true, true], [17.5, 20, true, false]]);
   assert.match(found[0].fix.text, /the hook \(0-2\.5s\) with a designed camera move: [a-z-]+ or [a-z-]+/);
+  // A plain cut within a frame of a song seam (a fit_music cue) is designed: the payoff lands the drop.
+  const quarters = [[0, 5], [5, 5], [10, 5], [15, 5]].map(([cue, dur]) => ({ cue, dur, move: null }));
+  assert.ok((await fires("plain_beats", scene({ duration: 20, layers }), { board: quarters })).some((entry) => entry.at === 15));
+  const seamed = await run("plain_beats", scene({ duration: 20, layers }), { board: quarters, cues: [{ name: "song-drop-1", time: 15.02, kind: "marker" }] });
+  assert.ok(!seamed.findings.some((entry) => entry.at === 15));
   // The video already uses a zoom (into shot 3 at 9.6 s): a plain hook is told to reuse it, a motif.
   const zoomed = scene({ duration: 20, layers: layers.map((layer) => (layer.id === "shot1" ? { ...layer, animations: [show(5), custom(9.6, 0.4, { scaleX: 1, scaleY: 1 }, { scaleX: 3, scaleY: 3 }, "ease-in"), hide(10)] } : layer)) });
   assert.match((await fires("plain_beats", zoomed))[0].fix.text, /^Reuse [a-z-]+, the device this video already uses, on the hook \(0-2\.5s\): repeat it as a motif/);

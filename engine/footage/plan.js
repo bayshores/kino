@@ -10,7 +10,7 @@
 //   4. the end card over the last shot, the music fading out
 import { seeded } from "../blocks/build.js";
 import { barAtOrAfter, beatGrid, editBeats } from "./cuts.js";
-import { faceCenter, KEEP_BAR, markedSubject, openingMoment, rankMoments } from "./moments.js";
+import { faceCenter, KEEP_BAR, markedSubject, openingMoment, rankMoments, samplesIn } from "./moments.js";
 import { isScreenRecording, shapeOf, shotLayout } from "./layout.js";
 import { editStyle } from "./treatments.js";
 import { accentTimes, PACES, phrasePlan, rateAt, runsOf } from "./pace.js";
@@ -25,6 +25,8 @@ const FREE_BEAT = 0.6;
 // The most of an edit that speech may fill (the rest is the title, the end card and pictures).
 const SPEECH_SHARE = 0.65;
 const SPEECH_BAR = 60;
+// A cut this close to a song seam (one frame at 30 fps) is on it.
+const SEAM = 1 / 30 + 1e-6;
 const TRANSITION_LENGTH = { "zoom-through": 0.9, "whip-pan": 0.5, "mask-wipe": 0.9, dissolve: 0.5, "blur-through": 0.6, "fade-black": 0.6, flash: 0.3, "glitch-hit": 0.3, "push-transition": 0.5 };
 // Transitions built by a move need whole shots on both sides.
 const MOVE_TRANSITIONS = { "zoom-through": "zoom-through", "whip-pan": "whip-pan", "mask-wipe": "mask-through-shape" };
@@ -64,12 +66,20 @@ const gainTo = (loud, target) => Math.min(1, Math.max(0.08, 10 ** ((target - lou
  *   frame     {width, height}; duration: seconds or undefined; treatment: a name
  *   deck      the project's deck or null; seed: a whole number; title, end: text or null
  *   pace      null, "promo" or "velocity": picture shots as runs of whole beats (pace.js)
- *   accents   true: a zoom punch on the downbeats (default: on with a pace)
+ *   accents   true: a zoom punch on the downbeats (default off: a downbeat alone does not
+ *             motivate an accent)
  * Returns the plan (see the top of this file) with `words`: the plan in plain lines.
+ *
+ * Quiet by default: an effect needs a measured reason. No hit lands on a beat number, only on
+ * the song's measured drop; no camera step on a shot's middle beat; no random title slam; a push
+ * follows the footage's measured sideways motion (sample dx), else one steady direction; slow
+ * motion holds frames, blending only footage measured as one frame per drawing
+ * (clip.framesPerDrawing 1: drawn footage on 2s or 3s would ghost); a flash is sized by how
+ * bright the shot is.
  */
 export function planEdit(input) {
   const { clips, music = null, voice = null, frame, treatment, deck = null, seed = 1, pace = null } = input;
-  const accents = input.accents ?? Boolean(pace);
+  const accents = input.accents ?? false;
   const paced = Boolean(pace);
   const rng = seeded(seed * 31 + 7);
   const style = editStyle(treatment, deck, seed);
@@ -324,6 +334,19 @@ export function planEdit(input) {
     if (shot.layout.kind !== "fill") side = 1 - side;
     shot.focus = focus;
   }
+  // What the footage measured over a shot's stretch of its clip.
+  const measuredIn = (shot, field) => samplesIn(byKey.get(shot.clip), shot.in, shot.in + (shot.end - shot.start)).map((sample) => sample[field]).filter(Number.isFinite);
+  const mean = (list) => (list.length ? sum(list) / list.length : null);
+  // -1 or 1 when the picture measurably moves left or right (sample dx, frame widths a second), else null.
+  const sideways = (shot) => {
+    const dx = mean(measuredIn(shot, "dx"));
+    return dx !== null && Math.abs(dx) >= 0.02 ? Math.sign(dx) : null;
+  };
+  // A flash's peak opacity: at most `most`, lower on a dark shot (0.3 over its mean brightness).
+  const flashPeak = (shot, most) => {
+    const luma = shot ? mean(measuredIn(shot, "luma")) : null;
+    return luma === null ? most : round3(Math.min(most, 0.3 + luma));
+  };
   const kinds = style.transitions;
   let previous = null;
   shots.forEach((shot, index) => {
@@ -347,6 +370,10 @@ export function planEdit(input) {
     const uses = shots.slice(0, index).filter((entry) => entry.transition?.kind === kind).length;
     const length = kind === "cut" ? 0 : round3((TRANSITION_LENGTH[kind] ?? 0) * [1, 1.15, 0.88, 1.25, 0.94][uses % 5]);
     shot.transition = { kind, at: shot.start, length, ...(MOVE_TRANSITIONS[kind] ? { move: MOVE_TRANSITIONS[kind] } : {}) };
+    // A push travels the way the incoming footage moves (measured), else always the same way.
+    if (kind === "push-transition") shot.transition.direction = sideways(shot) ?? -1;
+    // A flash is no brighter than the leaving shot can take (a white frame over a dark shot is the biggest jump there is).
+    if (kind === "flash") shot.transition.peak = flashPeak(shots[index - 1], 0.9);
     if (kind !== "cut") previous = kind;
   });
   let cameraTurn = Math.floor(rng.next() * style.camera.length);
@@ -356,36 +383,27 @@ export function planEdit(input) {
     let kind = style.camera[cameraTurn % style.camera.length];
     cameraTurn += 1;
     if (kind === "parallax" && shot.layout.kind === "fill") kind = "drift";
-    if (kind === "punch-in" && shot.end - shot.start < 2 * beat) kind = "slow-push";
     shot.camera = { kind, amount: moving ? 0.03 : 0.06, direction: rng.next() < 0.5 ? -1 : 1 };
-    if (kind === "punch-in" && beats) {
-      const middle = onBeat(shot.start + (shot.end - shot.start) / 2);
-      if (middle < shot.end - beat) shot.camera.at = middle;
-      else shot.camera.kind = "slow-push";
-    }
     if (clip.kind === "screen") shot.camera.amount = 0.03;
   }
 
   // ---- speed: only from the deck ---------------------------------------------------------------
   if (style.speedRamp) {
     const candidate = shots.find((shot) => !shot.speech && shot.role === "body" && shot.end - shot.start >= 2 && (shot.moment.motion ?? 0) > 0.05 && shot.layout.kind === "fill");
-    if (candidate) candidate.ramp = { at: round3(candidate.start + (candidate.end - candidate.start) * 0.5), to: 0.5 };
+    // Slow motion holds frames; only footage measured at one frame per drawing blends them.
+    if (candidate) candidate.ramp = { at: round3(candidate.start + (candidate.end - candidate.start) * 0.5), to: 0.5, ...(byKey.get(candidate.clip).framesPerDrawing === 1 ? { blend: true } : {}) };
   }
   if (style.freeze && shots[0].moment.kind !== "speech") shots[0].freezeAt = round3(Math.max(0.5, shots[0].end - 0.5));
 
-  // ---- hits on the strongest beats -------------------------------------------------------------
+  // ---- a hit on the song's drop only -----------------------------------------------------------
+  // A beat number is no reason for an accent: one hit at most, on the beat where the song
+  // measurably drops (where the title lands), over a picture with no words, and none when no drop
+  // was measured.
   const hits = [];
-  if (style.hits.length && beats) {
-    const body = shots.filter((shot) => shot.role === "body" && !shot.speech);
-    // The drop (the body's start) and then every fourth bar.
-    let next = titleAt + titleLength;
-    for (const shot of body) {
-      if (shot.start + 0.2 < next || shot.end - shot.start < 1) continue;
-      if (hits.length >= 2) break;
-      hits.push({ at: onBeat(shot.start + 0.05), shot: shot.n, kind: style.hits[hits.length % style.hits.length] });
-      next = shot.start + 16 * beat;
-    }
-  }
+  const landing = beats && musicPlan?.drop !== null && musicPlan?.drop !== undefined ? beats.nearest(musicPlan.drop) : null;
+  const dropShot = landing === null ? null : shots.find((shot) => shot.role === "body" && !shot.speech && landing >= shot.start - SEAM && landing <= shot.end - 0.5) ?? null;
+  const dropAt = dropShot ? round3(Math.max(dropShot.start, landing)) : null;
+  if (style.hits.length && dropShot) hits.push({ at: dropAt, shot: dropShot.n, kind: style.hits[0], ...(style.hits[0] === "flash" ? { peak: flashPeak(dropShot, 0.85) } : {}) });
 
   // ---- words on screen -------------------------------------------------------------------------
   const captions = [];
@@ -403,7 +421,8 @@ export function planEdit(input) {
     if (words.length) captions.push({ voice: true, energy: style.captions, words });
   }
   const titleText = input.title;
-  const title = titleText ? { kind: titleKind, text: titleText, at: round3(titleAt), dur: titleLength, over: shots[1]?.n ?? null, enter: ["rise", "lines", "fade-up", "slam"][Math.floor(rng.next() * 4)] } : null;
+  // Never a random slam: the seed's old slam slot (1 in 4) rises instead, so the other picks stay as they were.
+  const title = titleText ? { kind: titleKind, text: titleText, at: round3(titleAt), dur: titleLength, over: shots[1]?.n ?? null, enter: ["rise", "lines", "fade-up", "rise"][Math.floor(rng.next() * 4)] } : null;
   if (title && !shots[1]) title.kind = "headline";
   const endCard = { at: round3(bodyEnd + 0.2), text: titleText ?? input.end ?? null, sub: input.end && titleText ? input.end : null };
 
@@ -424,8 +443,8 @@ export function planEdit(input) {
       if (!shot || shot.layout.loose) continue;
       (shot.accents ??= []).push(at);
       accentCount += 1;
-      // A punch-in or slow push scales the same picture; a drift holds one scale the accent can punch from.
-      if (shot.layout.kind === "fill" && shot.camera.kind !== "drift") { shot.camera.kind = "drift"; delete shot.camera.at; }
+      // A slow push scales the same picture; a drift holds one scale the accent can punch from.
+      if (shot.layout.kind === "fill" && shot.camera.kind !== "drift") shot.camera.kind = "drift";
     }
   }
 
@@ -449,8 +468,10 @@ export function planEdit(input) {
   if (style.setPiece === "tile-ring") {
     const host = [...shots].reverse().find((shot) => shot.role === "body" && !shot.speech && shot.layout.kind === "fill" && shot.end - shot.start >= 2.4 && shot.end <= bodyEnd + 1e-6);
     if (host) setPiece = { name: "tile-ring", shot: host.n, at: round3(host.start + 0.3), dur: round3(Math.min(3.2, host.end - host.start - 0.3)) };
-  } else if (style.setPiece === "rgb-split-hit" && !hits.length && shots[2]) {
-    hits.push({ at: shots[2].start, shot: shots[2].n, kind: "rgb-split" });
+  } else if (style.setPiece === "rgb-split-hit" && !hits.length && dropShot) {
+    // A color split only on the song's drop, never on a fixed shot.
+    hits.push({ at: dropAt, shot: dropShot.n, kind: "rgb-split" });
+    setPiece = { name: "rgb-split-hit", shot: dropShot.n, at: dropAt };
   }
 
   // ---- the plan in words -----------------------------------------------------------------------

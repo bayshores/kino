@@ -6,7 +6,7 @@
 // Names: shot-N is a shot (a video, or a group of its parts: shot-N-clip, shot-N-blur,
 // shot-N-behind); sound-N a shot's sound when it lives in its own file; music, voice; said-N the
 // captions of shot N; title; end-card; flash-N and hit-N on the beats; Accent on a shot is a
-// downbeat zoom punch (compose {footage, pace}, engine/footage/pace.js).
+// downbeat zoom punch (compose {footage, accents:true}, engine/footage/pace.js).
 import { round as round3 } from "../numbers.js";
 
 const show = (start) => ({ kind: "show", start: round3(Math.max(0, start)) });
@@ -77,12 +77,9 @@ export function footageOps(plan, clips, { scene = null } = {}) {
     if (shot.ramp) speedKeys.push(custom("Slow motion", shot.ramp.at, 0.4, { speed: 1 }, { speed: shot.ramp.to }));
     if (shot.freezeAt !== undefined) speedKeys.push(custom("Freeze", shot.freezeAt - 0.05, 0.1, { speed: shot.ramp?.to ?? 1 }, { speed: 0 }));
     // A shot too short to hold still gets no camera move (it is gone before a move reads).
-    const still = camTo - camFrom < 1.5 && !(cam.kind === "punch-in" && cam.at !== undefined);
+    const still = camTo - camFrom < 1.5;
     const cameraOn = (box, factor = 1) => {
       if (still) return [];
-      if (cam.kind === "punch-in" && cam.at !== undefined) {
-        return [custom("Punch in", cam.at - 0.06, 0.14, scaleBy(1), scaleBy(1 + 0.12 * factor), "ease-out"), custom("Hold the push", cam.at + 0.08, Math.max(0.1, camTo - cam.at - 0.08), scaleBy(1 + 0.12 * factor), scaleBy(1 + 0.14 * factor))];
-      }
       if (cam.kind === "drift") {
         const dx = round3(cam.direction * 0.025 * W * factor);
         return [custom("Drift", camFrom, camTo - camFrom, { x: box.x, ...scaleBy(1.06) }, { x: round3(box.x + dx), ...scaleBy(1.06) })];
@@ -97,7 +94,7 @@ export function footageOps(plan, clips, { scene = null } = {}) {
     const accentsFrom = (base) => (shot.accents ?? []).flatMap((at) => [custom("Accent", at - 0.04, 0.08, scaleBy(base), scaleBy(base * 1.06), "ease-out"), custom("Accent settles", at + 0.04, 0.3, scaleBy(base * 1.06), scaleBy(base), "ease-out")]);
     if (layout.kind === "fill") {
       camera.push(...cameraOn(layout.main));
-      push({ op: "add_layer", layerType: "video", name: id, properties: { ...layout.main, ...media(clip.src, clip.duration), volume: 0, ...(shot.ramp ? { mediaInterpolation: "blend" } : {}) },
+      push({ op: "add_layer", layerType: "video", name: id, properties: { ...layout.main, ...media(clip.src, clip.duration), volume: 0, ...(shot.ramp?.blend ? { mediaInterpolation: "blend" } : {}) },
         animations: [show(visibleFrom), hide(visibleTo), ...camera, ...soundAnimations, ...speedKeys, ...accentsFrom(!still && cam.kind === "drift" ? 1.06 : 1)] });
     } else {
       const parts = [];
@@ -116,9 +113,9 @@ export function footageOps(plan, clips, { scene = null } = {}) {
       }
       const card = layout.main;
       push({ op: "add_layer", layerType: "video", name: layout.loose ? id : `${id}-clip`, properties: { ...card, ...media(clip.src, clip.duration), volume: 0, radius: layout.radius, shadow: { color: "#000000B3", x: 0, y: Math.round(0.02 * H), blur: Math.round(0.05 * H) } },
-        animations: [...(layout.loose ? [show(visibleFrom), hide(visibleTo)] : []), ...soundAnimations, ...speedKeys, ...(cam.kind === "punch-in" && cam.at !== undefined ? cameraOn(card, 0.5)
+        animations: [...(layout.loose ? [show(visibleFrom), hide(visibleTo)] : []), ...soundAnimations, ...speedKeys, ...(
           // The card drifts toward the middle of the frame, so it never leaves the safe area.
-          : still ? [] : [custom("Drift closer", camFrom, camTo - camFrom, { x: card.x, ...scaleBy(1) }, { x: round3(card.x + Math.sign(W / 2 - (card.x + card.width / 2) || cam.direction) * Math.min(0.02 * W, Math.abs(W / 2 - (card.x + card.width / 2)) || 0.01 * W)), ...scaleBy(1.02) })])] });
+          still ? [] : [custom("Drift closer", camFrom, camTo - camFrom, { x: card.x, ...scaleBy(1) }, { x: round3(card.x + Math.sign(W / 2 - (card.x + card.width / 2) || cam.direction) * Math.min(0.02 * W, Math.abs(W / 2 - (card.x + card.width / 2)) || 0.01 * W)), ...scaleBy(1.02) })])] });
       if (!layout.loose) {
         parts.push(`${id}-clip`);
         push({ op: "group_layers", layers: parts, name: id });
@@ -165,15 +162,18 @@ export function footageOps(plan, clips, { scene = null } = {}) {
       both(partsOf(previous).filter((layer) => !layer.endsWith("-blur")), custom("Blur out", at - half, half, { blur: 0 }, { blur: amount }, "ease-in"));
       both(partsOf(shot).filter((layer) => !layer.endsWith("-blur")), custom("Blur in", at, half, { blur: amount }, { blur: 0 }, "ease-out"));
     } else if (into.kind === "flash") {
+      // Sized by the leaving shot's brightness (plan.js flashPeak).
+      const peak = into.peak ?? 0.9;
       push({ op: "add_layer", layerType: "rectangle", name: `flash-${shot.n}`, properties: { x: 0, y: 0, width: W, height: H, fill: "#FFFFFF", opacity: 0 },
-        animations: [show(at - 0.08), custom("Flash", at - 0.08, 0.08, { opacity: 0 }, { opacity: 0.9 }, "ease-in"), custom("Flash fades", at, 0.2, { opacity: 0.9 }, { opacity: 0 }, "ease-out"), hide(at + 0.22)] });
+        animations: [show(at - 0.08), custom("Flash", at - 0.08, 0.08, { opacity: 0 }, { opacity: peak }, "ease-in"), custom("Flash fades", at, 0.2, { opacity: peak }, { opacity: 0 }, "ease-out"), hide(at + 0.22)] });
     } else if (into.kind === "glitch-hit") {
       // The leaving shot glitches out into the cut (a glitch on the new one would be an entrance).
       push({ op: "add_animation", layer: from, preset: "preset-glitch", mode: "out", start: round3(at - 0.45), duration: 0.45 });
     } else if (into.kind === "push-transition") {
       const fromBox = previous.layout.kind === "fill" ? previous.layout.main : (previous.layout.backdrop ?? previous.layout.partner.box);
       const toBox = shot.layout.kind === "fill" ? shot.layout.main : (shot.layout.backdrop ?? shot.layout.partner.box);
-      const direction = shot.n % 2 ? -1 : 1;
+      // The way the incoming footage moves, measured (plan.js), else one steady way.
+      const direction = into.direction ?? -1;
       push({ op: "add_animation", layer: from, animation: custom("Pushed off", at - half, into.length, { x: fromBox.x }, { x: round3(fromBox.x + direction * W) }, "ease-in-out") });
       push({ op: "add_animation", layer: to, animation: custom("Pushed in", at - half, into.length, { x: round3(toBox.x - direction * W) }, { x: toBox.x }, "ease-in-out") });
     }
@@ -183,8 +183,9 @@ export function footageOps(plan, clips, { scene = null } = {}) {
   plan.hits.forEach((hit, index) => {
     if (hit.kind === "rgb-split") push({ op: "move", name: "rgb-split-hit", id: `hit-${index + 1}`, layer: `shot-${hit.shot}`, at: hit.at, strength: 0.45 });
     else if (hit.kind === "flash" && !plan.shots.some((shot) => shot.transition?.kind === "flash" && Math.abs(shot.transition.at - hit.at) < 0.5)) {
+      const peak = hit.peak ?? 0.85;
       push({ op: "add_layer", layerType: "rectangle", name: `flash-hit-${index + 1}`, properties: { x: 0, y: 0, width: W, height: H, fill: "#FFFFFF", opacity: 0 },
-        animations: [show(hit.at - 0.05), custom("Flash", hit.at - 0.05, 0.05, { opacity: 0 }, { opacity: 0.85 }, "ease-in"), custom("Flash fades", hit.at, 0.22, { opacity: 0.85 }, { opacity: 0 }, "ease-out"), hide(hit.at + 0.25)] });
+        animations: [show(hit.at - 0.05), custom("Flash", hit.at - 0.05, 0.05, { opacity: 0 }, { opacity: peak }, "ease-in"), custom("Flash fades", hit.at, 0.22, { opacity: peak }, { opacity: 0 }, "ease-out"), hide(hit.at + 0.25)] });
     }
   });
   if (plan.setPiece?.name === "tile-ring") {

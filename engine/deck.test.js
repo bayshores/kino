@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applySwap, cardNames, DECK_GROUPS, dealDeck, dealSeed, DEFAULT_SET, deckLine, deckUse, materialOf, projectSeed, SWAP_LIMIT, swapProblem } from "./deck.js";
-import { PLAIN_TAGS, techniqueOf } from "./techniques.js";
+import { LOUD_TAGS, PLAIN_TAGS, techniqueOf } from "./techniques.js";
 import { styleContext } from "./styleSpec.js";
 
 const FOOTAGE = { known: true, fromLayers: true, video: true, pictures: true, pictureCount: 3, text: true, numbers: false, sound: true, device: false };
@@ -39,6 +39,14 @@ test("a hand has one or two cards per group, at most one set piece, and never th
     assert.ok(deck.cards.filter((card) => DEFAULT_SET.includes(card.tag)).length <= 1, deckLine(deck));
     // Every card is one check can find, so deck_unused can count it.
     assert.ok(deck.cards.every((card) => techniqueOf(card.tag).detect));
+  }
+  // A loud accent needs a measured moment, so it is never dealt: not as a card, not when a backed
+  // spec wants it, not inside a set piece.
+  const loudMoves = [{ name: "rgb-split-hit", tags: ["rgb-split", "beat-kick", "glitch-hit"] }, { name: "flash-cut", tags: ["flash"] }];
+  const style = styleContext({ wants: [...LOUD_TAGS], by: "guessed", lines: [{ text: "flashes and shakes", ref: "yt:abc", at: 2, tags: [...LOUD_TAGS] }] });
+  for (const deck of [...deals(200), ...deals(20, { style, moves: loudMoves })]) {
+    assert.ok(!deck.cards.some((card) => LOUD_TAGS.includes(card.tag)), deckLine(deck));
+    assert.ok(!loudMoves.some((move) => move.name === deck.setPiece?.name), deckLine(deck));
   }
 });
 
