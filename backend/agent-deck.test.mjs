@@ -213,14 +213,21 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   assert.deepEqual([pickedEnding(picked), pickedEnding(cleanTreatments({ pick: "B" }, rhythmList))], ["the whole route glowing on the map", null]);
   // Each treatment carries its type (60 characters); the pick saves it as the style spec's type
   // and the lock's font call says what the fonts are for. A list from before type shows and picks as it did.
-  assert.match(treatmentsProblem(withSource.map(({ type, ...rest }) => rest)).message, /^treatments\[0\]\.type is 1 to 60 characters: the type and how it appears.*\(5 problems\)$/);
+  assert.match(treatmentsProblem(withSource.map(({ type, ...rest }) => rest)).message, /^treatments\[0\]\.type is 1 to 60 characters: "<family class>, <size>, <case>, <how it appears>".*\(5 problems\)$/);
   assert.match(treatmentsProblem(withSource.map((entry) => ({ ...entry, type: "t".repeat(61) }))).message, /^treatments\[0\]\.type is 61 characters, limit 60\./);
+  assert.match(treatmentsProblem(withSource.map((entry, index) => ({ ...entry, type: index < 3 ? "one look" : "Other look" }))).message, /only 2 different type directions; give at least 3/);
   assert.equal(pickedType(picked), "small serif captions, each word cut on");
   assert.match(treatmentsText({ treatments: picked }), /signature: mask-wipe along the line \(route\.mp4.*\) · type: small serif captions, each word cut on/);
   const typed = briefChanges({ treatments: cleaned }, { fields: { treatments: { pick: "B", why: "a reason" } } });
   assert.equal(typed.style.type, "small serif captions, each word cut on");
   const repicked = briefChanges({ treatments: typed.treatments, style: typed.style }, { fields: { treatments: { pick: "A", why: "a reason" } } });
   assert.equal(repicked.style.type, cleaned.list[cleaned.shown[0]].type, "a new pick replaces the type the last pick saved");
+  // A new list of 5 saved over a picked one drops the old pick's type, so the next pick sets its own.
+  const retyped = withSource.map((entry) => ({ ...entry, idea: `${entry.idea} again`, type: `${entry.type} two` }));
+  const fresh = briefChanges({ treatments: typed.treatments, style: typed.style }, { fields: { treatments: retyped } });
+  assert.equal(fresh.style.type, undefined, "a new list drops the type the last pick saved");
+  const afterFresh = briefChanges({ treatments: fresh.treatments, style: fresh.style }, { fields: { treatments: { pick: "B", why: "a reason" } } });
+  assert.equal(afterFresh.style.type, fresh.treatments.list[fresh.treatments.shown[1]].type, "a pick after a new list replaces the old type");
   const own = briefChanges({ treatments: cleaned, style: { by: "guessed", wants: [], avoids: [], lines: [], idea: "x", type: "my own type" } }, { fields: { treatments: { pick: "B", why: "a reason" } } });
   assert.equal(own.style, undefined, "a type written since is kept");
   assert.equal(pickedType(cleanTreatments({ pick: "B" }, { ...rhythmList, list: rhythmList.list.map(({ type, ...rest }) => rest) })), null);

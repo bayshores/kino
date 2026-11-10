@@ -249,8 +249,8 @@ How to read it:
   spine's hook from its who and its end from that ending, and `template_end` quotes the payoff, its `uses` and
   the picked ending. Evidence: `backend/agent-brief.test.mjs`, `backend/agent-deck.test.mjs`, `engine/qualityEnding.test.js`.
 - **Type per treatment**: Verified (tests). Each treatment carries a `type` (60 characters: the type and how it
-  appears); the shown line includes it, the pick saves it as `style.type` (a later pick replaces it, a type
-  written since stays), the lock's font call names it, and reading a reference asks for one `type:` style line
+  appears); the 5 carry at least 3 different ones, the shown line includes it, the pick saves it as `style.type`
+  (a later pick replaces it, also after a new list of 5; a type written since stays), the lock's font call names it, and reading a reference asks for one `type:` style line
   with a time. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`, `backend/agent-style.test.mjs`,
   `backend/measure-fingerprint.test.mjs`. Gaps: the storyboard's rendered type frame and quick effort are not built.
 - **Product picture first**: Verified (tests). `text_only_open` warns when a promo or ad of 8 s+ spends

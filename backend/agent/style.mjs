@@ -19,7 +19,7 @@
 //   waived    why the agent locks it with no person to approve (by stays "guessed")
 // The idea and its signature (once a treatment is picked, the lock needs idea and a signature):
 //   idea        one sentence: what only this product can show
-//   type        the type direction, up to 60 characters ("small serif captions, each word cut on"):
+//   type        the type direction, up to 60 characters ("<family class>, <size>, <case>, <how it appears>"):
 //               the picked treatment's type (kino has no default type); fonts name its faces
 //   signatures  1 or 2 designed moments [{beat, what, source, why, at?:[from, to]}]: beat is the
 //               index of a spine beat, source the material it uses, why why only this product
@@ -175,7 +175,7 @@ function ideaProblems(spec) {
   if (spec.idea !== undefined && !shortText(spec.idea, STYLE_LIMITS.idea))
     found.push(problem(`style.idea is one sentence, 1 to ${STYLE_LIMITS.idea} characters: what only this product can show, such as "your notes turn into a deck while you watch".`));
   if (spec.type !== undefined && !shortText(spec.type, 60))
-    found.push(problem('style.type is the type direction, 1 to 60 characters, such as "small serif captions, each word cut on".'));
+    found.push(problem('style.type is the type direction, 1 to 60 characters: "<family class>, <size>, <case>, <how it appears>", from the references you studied.'));
   if (spec.signatures !== undefined) {
     if (!Array.isArray(spec.signatures) || !spec.signatures.length || spec.signatures.length > STYLE_LIMITS.signatures)
       found.push(problem(`style.signatures is 1 or ${STYLE_LIMITS.signatures} designed moments: ${SIGNATURE_EXAMPLE}.`));

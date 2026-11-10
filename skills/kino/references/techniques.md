@@ -109,15 +109,15 @@ Build a card where it fits; swap a misfit with a reason (2 a deal) or reroll.
 
 Write 5 stories first: idea, `who` (whose want or fear drives it; 3+ different),
 `tension` (what they want, fear or wonder), `turn` (the on-screen flip), move, `ending` (the
-last image, from this material), `type` (the type and how it appears, from your references, such as
-"small serif captions, each word cut on"; kino has no default type), `source` (file or screen
+last image, from this material), `type` (`<family>, <size>, <case>, <how it appears>`, from your
+references; 3+ different of the 5; kino has no default type), `source` (file or screen
 used), `p` (0 to 1: how typical).
 kino shows the 3 least typical, one per who: `A. idea · who: tension → turn · ends on ending · type: type`.
 The pick (their words; under "just start" yours with `why`) sets `style.idea`, `style.type`, the first
-signature and the spine's end; the lock's fonts name the faces for the type. Building first is `order_needed`; waive_check "treatments" skips it.
+signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it.
 
 ```json
-{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","ending":"noon","type":"serif, cut on","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","ending":"his","type":"serif, cut on","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","ending":"map","type":"serif, cut on","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","ending":"laugh","type":"serif, cut on","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","ending":"beat","type":"serif, cut on","p":0.05,"source":"street.wav"}]}}
+{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","ending":"noon","type":"grotesk, fade up","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","ending":"his","type":"handwriting, drawn on","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","ending":"map","type":"serif, cut on","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","ending":"laugh","type":"caps, a word a hit","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","ending":"beat","type":"mono, typed on","p":0.05,"source":"street.wav"}]}}
 {"tool":"notes","action":"brief","fields":{"treatments":{"pick":"B","quote":"the map one"}}}
 ```
 

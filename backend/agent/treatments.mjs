@@ -29,6 +29,8 @@ export const SHOWN_COUNT = 3;
 export const LABELS = Object.freeze(["A", "B", "C"]);
 // The fewest different `who` the 5 must name.
 export const WHO_MIN = 3;
+// The fewest different `type` directions the 5 must carry.
+export const TYPE_MIN = 3;
 export const TREATMENT_LIMITS = Object.freeze({ idea: 120, who: 40, tension: 60, turn: 60, move: 60, ending: 60, type: 60, quote: 120, why: 80, source: 80 });
 const KEYS = ["idea", "who", "tension", "turn", "move", "ending", "type", "p", "source"];
 // The text fields every treatment needs, in the order a refusal names them.
@@ -39,11 +41,11 @@ const FIELD_HINTS = Object.freeze({
   tension: ": what they want, fear or wonder before the turn",
   turn: ": the on-screen moment it flips",
   ending: ": the last image, from this material",
-  type: ': the type and how it appears, from the references you studied, such as "small serif captions, each word cut on"',
+  type: ': "<family class>, <size>, <case>, <how it appears>", from the references you studied; the 5 differ',
   source: ': the material the move uses, such as "review.mp4, the card flip at 0:12"',
 });
 const problem = (message) => ({ code: "bad_input", message });
-const EXAMPLE = '[{idea:"the crew skates the city at dawn", who:"the crew", tension:"will they land it before the cops come?", turn:"the bridge gap, landed as the sun hits", move:"whip-pan between spots", ending:"the crew walking off the bridge at sunrise", type:"small serif captions, each word cut on", p:0.3, source:"dawn.mp4, the empty bridge"}, …]';
+const EXAMPLE = '[{idea:"the crew skates the city at dawn", who:"the crew", tension:"will they land it before the cops come?", turn:"the bridge gap, landed as the sun hits", move:"whip-pan between spots", ending:"the crew walking off the bridge at sunrise", type:"<family class, size, case, how it appears; each of the 5 differs>", p:0.3, source:"dawn.mp4, the empty bridge"}, …]';
 
 /** The same `who` twice: trimmed, lowercased, a leading "the", "a" or "an" dropped. */
 export const whoKey = (who) => String(who ?? "").trim().toLowerCase().replace(/^(the|an?)\s+/, "");
@@ -88,6 +90,9 @@ export function treatmentsProblem(value, current) {
     const who = value.find((entry) => whoKey(entry.who) === key).who.trim();
     return problem(`treatments: ${count} of ${TREATMENT_COUNT} share who "${who}"; give at least ${WHO_MIN} different whos.`);
   }
+  // At least 3 different types: picking a treatment picks its look, so 5 of one look is no choice.
+  const types = new Set(value.map((entry) => entry.type.trim().toLowerCase()));
+  if (types.size < TYPE_MIN) return problem(`treatments: only ${types.size} different type directions; give at least ${TYPE_MIN}, from different families, so a pick picks a look.`);
   return null;
 }
 

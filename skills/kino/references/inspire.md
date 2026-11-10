@@ -88,7 +88,7 @@ frame strips · Proposing ideas · Sound effects
   the time it came from and technique tags (`[slow-push]`, `[type-words]`). They are guesses: look
   at the strips first, then keep the ones you confirm in the brief's style (with `ref` and `at`).
 - A reference with text asks for its type: read the family class (serif, sans, mono, script),
-  size, case and reveal off the strips; save `"type: small serif, lowercase, each word cut on"`
+  size, case and reveal off the strips; save `"type: <family class>, <size>, <case>, <reveal>"`
   with `ref` and `at`. Treatments take their `type` from these.
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.

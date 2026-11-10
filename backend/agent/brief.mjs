@@ -273,6 +273,13 @@ export function briefChanges(current, input = {}) {
     if (!saved?.idea || (type && type !== saved?.type))
       style = cleanStyle({ ...(saved ?? { by: "guessed" }), ...(saved?.idea ? {} : { idea: entry.idea }), ...(type ? { type } : {}) });
   }
+  // A new list of 5 saved over a picked one drops the type that pick saved: the old pick is gone,
+  // so the next pick must not see that type as one written since.
+  const oldType = pickedType(current?.treatments);
+  if (sentTreatments && !picking && treatments && !sentStyle && oldType && current.style?.type === oldType) {
+    const { type, ...rest } = current.style;
+    style = cleanStyle(rest);
+  }
   if (treatments && JSON.stringify(treatments) === JSON.stringify(current?.treatments ?? null)) treatments = undefined;
   // A save that unlocks a locked direction says so in its first line, with why.
   const lapsed = style !== undefined || treatments ? lockLapse(current, { ...current, ...(style !== undefined ? { style } : {}), ...(treatments ? { treatments } : {}) }, merged?.dropped) : null;
