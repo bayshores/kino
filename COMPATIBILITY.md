@@ -173,7 +173,7 @@ How to read it:
   Unanswered needs show in "needs you" with their options as chips (a picks the recommended one);
   a chip saves the answer by:"you", checked in the desktop app. Evidence: `backend/agent-review.test.mjs`,
   `backend/agent-brief.test.mjs`, `frontend/dashboardInspire.test.js`.
-- **Needs drafted from the pick**: Done. The check-material call asks for footage of the picked treatment's who, for its tension, with what to make now left as a slot the agent fills from the files it found (refused unedited) and "tell it with what exists" as options. Evidence: `backend/agent-review.test.mjs`, `backend/agent-brief.test.mjs` (nextMove and the `notes needs` reply after a pick).
+- **Needs drafted from the pick**: Done. The check-material call asks for footage of the picked treatment's who, for its tension, with what to make now left as a slot the agent fills from the files it found (refused unedited) and "tell it with what exists" as options; with web search on, a third option finds that footage (`library {topic:"footage"}`, then scan and import; license unknown), its search words a slot the agent fills. Evidence: `backend/agent-review.test.mjs`, `backend/agent-brief.test.mjs` (nextMove and the `notes needs` reply after a pick).
 - **Text measured by its letters**: Verified. `inkBox` (`engine/quality/kinoTimeline.js`) measures glyph
   outlines, so stacked headline lines do not count as overlapping.
 - **Rule details**: Verified. Large text starts at 48 px (36 px bold) at 1080p, other text needs 4.5:1

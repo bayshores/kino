@@ -894,8 +894,10 @@ export function createAgentService(deps) {
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
     // A footage-led brief with no clip in the project (the person's or found): the footage step
-    // (footage-finder/step.mjs). Any clip or picture of theirs makes it silent: their media leads.
-    // It ends once something is built, a plan is set or it is waived. On only while the library
+    // (footage-finder/step.mjs). Any clip or picture of theirs makes it silent: their media leads,
+    // and when the picked who is not in their clips the needs step below is the path (with search
+    // on, its drafted item offers finding that footage). It ends once something is built, a plan
+    // is set or it is waived. On only while the library
     // offers the footage topic (LIBRARY_TOPICS, which the tool schema checks).
     if (footageActions && footageStepShown && !facts.footage && footageLed(brief)) {
       const state = await agentState.read(document.id);
@@ -907,7 +909,7 @@ export function createAgentService(deps) {
     const storied = facts.footage || (await someAsync(document.scenes.filter((scene) => !scene.isComponent), (scene) => hasFootageOrSpeech(scene, document)));
     if (!storied) return facts;
     const checked = Boolean((await agentState.read(document.id)).needs?.checked);
-    return { ...facts, needs: { checked } };
+    return { ...facts, needs: { checked, ...(footageSearchOn() ? { search: true } : {}) } };
   }
   // The project's own picture for a signature: its largest screenshot or image (not a logo or
   // icon), else its longest clip, by the library's name; null with neither.
@@ -3620,8 +3622,9 @@ export function createAgentService(deps) {
   // answer; {id, status:"made"|"sent", layers|media} marks it done. Only the person answers: on
   // the dashboard, or in the chat recorded with their words. A final render waits while one is
   // unfinished (refuseWithoutNeeds).
-  // Drafted from the picked treatment in the agent state (needs.mjs needsCall); placeholders without one.
-  const needsAskCall = (state) => nextOf("notes", needsCall(state?.brief?.treatments).input);
+  // Drafted from the picked treatment in the agent state (needs.mjs needsCall); placeholders without
+  // one. With web search on it offers finding the footage too (footageSearchOn).
+  const needsAskCall = (state) => nextOf("notes", needsCall(state?.brief?.treatments, { search: footageSearchOn() }).input);
   const needNextCall = (need) => (need.status === "planned"
     ? nextOf("notes", { action: "needs", id: need.id, status: "made", layers: ["<the layer that does it>"] })
     : need.status === "waiting" ? nextOf("notes", { action: "needs", id: need.id, status: "sent", media: "<its imported src, /api/media/...>" })
@@ -4202,6 +4205,9 @@ export function createAgentService(deps) {
   }
   // Whether the person turned on sound search in Settings (backend/sound-search.mjs).
   const soundSearchOn = () => Boolean(deps.soundSearch?.enabled?.());
+  // Whether a need may offer found footage: the footage finder is here, its topic is offered and
+  // web search is on (the same Settings switch as sound search).
+  const footageSearchOn = () => Boolean(footageActions && footageStepShown && soundSearchOn());
   async function soundFilesFor(document) {
     const playing = new Set((document.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "audio").map((layer) => layer.src));
     const media = (await deps.listMedia?.()) ?? [];

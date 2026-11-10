@@ -309,6 +309,12 @@ test("needs: a question with 1 to 3 options and one recommended; only the person
   const filled = { ...drafted.items[0], options: [{ ...drafted.items[0].options[0], do: "type over the screen recording of the app" }, drafted.items[0].options[1]] };
   assert.equal(parseNeedItems([filled]).length, 1);
   assert.equal(needsCall({ list: pick.list, picked: null }).input.items[0].what, "<missing piece>", "no pick: placeholders");
+  // Web search on: finding footage of the who is an option (license cost), the files still lead.
+  const found = needsCall(pick, { search: true }).input.items[0].options;
+  assert.match(found[1].do, /^library \{topic:"footage", search:"a tired editor </);
+  assert.match(found[1].cost, /^license unknown/);
+  assert.deepEqual([found.length, found[0].recommended, drafted.items[0].options.some((option) => /topic:"footage"/.test(option.do))], [3, true, false], "search off: no such option");
+  assert.throws(() => parseNeedItems([{ ...filled, options: [filled.options[0], found[1]] }]), /options\[1\]\.do still has <doing what the tension needs>/);
 });
 
 test("viewer packet text: heard lines by voice and pause, a caption's words over a misheard line, the song muffled then full; a report's open story bugs", () => {

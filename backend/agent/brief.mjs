@@ -455,8 +455,9 @@ export function nextMove(state, video = {}, stop = null) {
   if (order) return order;
   // The material against the story, before planning: video.needs is {checked} when the video has
   // footage or speech (the service's directionFacts; left out otherwise, which skips this step).
-  // The call is drafted from the pick (needs.mjs needsCall): footage of its who, for its tension.
-  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments) };
+  // The call is drafted from the pick (needs.mjs needsCall): footage of its who, for its tension;
+  // with video.needs.search (web search on) finding that footage is one of its options.
+  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments, { search: video.needs.search === true }) };
   if (stop === "board") {
     const askBoard = { tool: "notes", input: { action: "checkpoint", id: "board" } };
     if (planned) return { step: "ask board, then follow the plan", call: askBoard };

@@ -14,7 +14,11 @@
 export const NEEDS_WAIVER = "needs";
 export const NEEDS_OPEN_LIMIT = 8;
 export const NEED_FROM = ["you", "agent", "music"];
-export const NEED_LIMITS = { what: [8, 120], why: [8, 160], ask: [8, 160], do: [8, 120], cost: [4, 100], quote: 300 };
+export const NEED_LIMITS = { what: [8, 120], why: [8, 160], ask: [8, 160], do: [8, 160], cost: [4, 100], quote: 300 };
+// The cost of found footage (library {topic:"footage"}), said the same way everywhere.
+export const FOUND_COST = "license unknown: fine for a private video; the person checks the rights before publishing";
+// A slot left inside an option, such as search:"<visual words>": the draft's words to replace.
+const INNER_SLOT = /<[a-z][^<>]*>/i;
 // open: not answered; waiting: the person has it and will send it; planned: an option to make.
 const UNFINISHED = ["open", "waiting", "planned"];
 
@@ -36,6 +40,8 @@ export function parseNeedItems(items) {
     if (/^(get|shoot|film|record|take|find|send|go)\b/i.test(ask)) throw new Error(`${at}.ask is a question the person can say no to ("Do you have ...?"), not an order: they may not be able to get it.`);
     const options = Array.isArray(item?.options) ? item.options : [];
     if (options.length < 1 || options.length > 3) throw new Error(`${at}.options lists 1 to 3 things you can do without it, from the material there is or what you can make: [{do, cost, recommended:true}].`);
+    const slot = options.map((option) => INNER_SLOT.exec(String(option?.do ?? ""))?.[0]).findIndex(Boolean);
+    if (slot >= 0) throw new Error(`${at}.options[${slot}].do still has ${INNER_SLOT.exec(options[slot].do)[0]}: put your own words there, or leave that option out.`);
     const parsed = options.map((option, number) => ({
       do: words(option?.do, `${at}.options[${number}].do`, NEED_LIMITS.do),
       cost: words(option?.cost, `${at}.options[${number}].cost`, NEED_LIMITS.cost),
@@ -136,9 +142,12 @@ const BLANK_NEED = { what: "<missing piece>", why: "<what the video loses>", ask
  * each with its cost. What to make now stays a slot only the material fills (the files the agent
  * found), so kino refuses the draft sent unedited (next-call.mjs unfilledSlot) and the agent
  * still looks first. With no pick or a pick from before who, every field is a placeholder.
+ * `search` (web search on, the footage finder offered): a third option finds footage of the who
+ * (library {topic:"footage"}, then scan and import), with its license cost. The person's files
+ * still lead: making it from them stays the recommended option, found clips fill the gap.
  * Returns {tool:"notes", input:{action:"needs", items}}.
  */
-export function needsCall(treatments) {
+export function needsCall(treatments, { search = false } = {}) {
   const entry = treatments?.picked ? treatments.list?.[treatments.picked.index] : null;
   const who = typeof entry?.who === "string" ? entry.who.trim() : "";
   const tension = typeof entry?.tension === "string" ? entry.tension.trim() : "";
@@ -148,10 +157,18 @@ export function needsCall(treatments) {
     ask: `Do you have footage of ${who}, even from a phone?`,
     options: [
       { do: "<make it now from the files you found: a screen recording (project record), type, or cut-outs of them>", cost: `${who} is never on camera`, recommended: true },
+      ...(search ? [{ do: findDo(who), cost: FOUND_COST }] : []),
       { do: "tell it with what exists, no new footage", cost: `${who} is never on camera; type and the files carry the story` },
     ],
   };
   return { tool: "notes", input: { action: "needs", items: [item] } };
+}
+
+// The found-footage option's do: the footage search for the who, with slots for its words.
+function findDo(who) {
+  const text = (name) => `library {topic:"footage", search:"${name} <doing what the tension needs>", want:"<visual words>"}, then scan and import`;
+  const plain = who.replace(/"/g, "'");
+  return text(plain).length <= NEED_LIMITS.do[1] ? text(plain) : text("<who>");
 }
 
 /** The short status line: `needs: M1 "Do you have ..." (3 options) · M2 make option 2`, or "". */

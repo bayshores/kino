@@ -804,6 +804,9 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   const treatments = { picked: { index: 0 }, list: [{ idea: "the app finds the lost dog", who: "the app", tension: "will it find the dog before dark?" }] };
   const fromPick = nextMove({ ...state, brief: { ...state.brief, treatments }, plan: { steps: [{ text: "Build" }] } }, { seconds: 24, layers: 3, references: 2, needs: { checked: false }, treatmentsWaived: true });
   assert.deepEqual([fromPick.step, fromPick.call.input.items[0].what], ["check material: notes needs", "footage of the app"]);
+  // With web search on (directionFacts sets needs.search), finding that footage is an option.
+  const searched = nextMove({ ...state, brief: { ...state.brief, treatments }, plan: { steps: [{ text: "Build" }] } }, { seconds: 24, layers: 3, references: 2, needs: { checked: false, search: true }, treatmentsWaived: true });
+  assert.match(searched.call.input.items[0].options[1].do, /^library \{topic:"footage"/);
   assert.equal(step({ references: 2, needs: { checked: true } }), "notes set_plan, then build");
   // Past a rough first pass (30 layers), the direction is locked first. With no idea, the lock
   // asks for the idea and its signature from the material: no template spine stands in for it.
