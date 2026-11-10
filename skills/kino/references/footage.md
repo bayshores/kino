@@ -34,16 +34,19 @@ The image model never learned character names: `want:"<character>"` matches noth
 into what the camera sees: hair color, clothes, a mask or blindfold, the setting, the action
 ("white hair, blindfold, dark coat, fight, close up"). Put the names in `search` instead, where
 YouTube's titles carry them. A match shows only when the best shot clearly beats the rest; else
-the answer says "no visual match" and shots rank on motion, faces and clean frames.
+the answer says "no visual match", how close the best came and what a match needs (or that the
+image model did not run), and shots rank on motion, faces and clean frames.
 
 ## Reading a scan
 
 `F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`: shot 37 of F1, its time in the video,
 length, motion and face (0 to 100), match (how far above the others it fits `want`). Dark shots,
-shots full of text or subtitles and shots under 0.4 s go last; `logo` marks a fixed channel
-logo. Skipped counts say what was left out. With a song in the video, the answer says how many
-shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call names up to
-1.5 times that. The answer's `next:` is that import call: change the shots after looking.
+shots full of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fixed
+for a while. A small logo near an edge on most shots is said once ("Logo top-left on every
+shot: crop or cover it."), and such videos list after clean ones; subtitles and captions stay text. Drawn footage has no face number ("Faces: not read
+on drawn footage."). Skipped counts say what was left out. With a song in the video, the answer
+says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
+names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
 
 ## Note a video
 
