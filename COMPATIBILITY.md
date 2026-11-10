@@ -193,6 +193,9 @@ How to read it:
   (check finds 39); `plain_beats` judges the key beats and holds a final render when none is designed.
   Gaps: match-cut, speed-lines and 7 set pieces are not found; thresholds tuned on 2 projects.
   Evidence: `engine/qualityStyle.test.js`, `engine/qualityRules.test.js`.
+- **Payoff follows the spine**: Verified (tests). With a timed spine payoff beat, the board shots
+  inside it are the payoff (one `plain_beats` beat; `move_needed` too) and the last shot after it is
+  "end", not judged. Evidence: `engine/qualityStyle.test.js`, `engine/board.test.js`.
 - **Dimmed footage is a card**: Verified (tests). `text_slides` and `template_end` share one card
   definition: text over a still or flat picture, or over footage under a dark full-frame tint or
   blurred 8 px+ (unless the spec backs depth-blur), each with nothing sharp in front.

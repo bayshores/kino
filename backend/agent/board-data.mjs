@@ -63,7 +63,7 @@ export function boardData(document, { state = null, round = null, rev, project, 
   const redone = round?.redone ?? null;
   // The hook, the reveal and the payoff, as kino picks moves for them (engine/movePicks.js).
   const names = Object.fromEntries([...records].map(([src, record]) => [src, record?.name ?? null]));
-  const roles = shotRoles(board.shots, names);
+  const roles = shotRoles(board.shots, names, state?.brief?.style?.spine ?? null);
   return {
     project,
     rev,
