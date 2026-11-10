@@ -918,6 +918,14 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   const built = await agent("edit", compose);
   assert.equal(built.isError, undefined, built.text);
   assert.equal(built.data.rev, 2, "the refused edits saved nothing");
+  // The check carries the picked ending (service findingsFor): the video's scene (the longest,
+  // quality.mjs videoScene) ending on a centered name and tagline card is told to end on the
+  // payoff and the ending the agent picked.
+  const line = (name, text, fontSize, y) => ({ type: "text", id: name, name, text, fontSize, fontFamily: "Inter", fill: "#f2f2f2", textAlign: "center", textResize: "height", x: 0, y, width: 1920 });
+  const card = await agent("edit", { project: id, ops: [{ op: "add_scene", properties: { id: "endcard", name: "End card", width: 1920, height: 1080, duration: 20, background: "#111111", layers: [line("name", "Skate now", 180, 380), line("tagline", "the crew is out tonight", 48, 620)] } }] });
+  assert.equal(card.isError, undefined, card.text);
+  const checked = await agent("check", { project: id, scene: "endcard", rules: ["template_end"], pixels: false });
+  assert.match(checked.text, /the ending you picked "the board at rest, ending 4"/, checked.text);
 });
 
 test("a waived order builds at once, and references saved after the first build do not pass the final render", async () => {
