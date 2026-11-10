@@ -87,6 +87,19 @@ export function suggestStyleLines(fp, numbers = null, ref = undefined) {
   return lines.sort((a, b) => b.score - a.score).slice(0, 6).map(({ score, ...line }) => ({ text: line.text, ...(ref ? { ref } : {}), ...(line.at != null ? { at: line.at } : {}), tags: line.tags, guess: true }));
 }
 
+/**
+ * The line that asks for the reference's type, or null when it shows little text. Numbers give the
+ * case, the size share and how lines appear; the family class (serif, sans, mono, script) is only
+ * seen, so the agent reads it off the text strips and saves one style line with its time.
+ */
+export function typeNote(fp, refId) {
+  const text = fp?.text;
+  if (!text || (text.share < 0.1 && text.bigShare < 0.1)) return null;
+  const examples = [...new Set(Object.values(text.examples ?? {}).flat())].sort((a, b) => a - b);
+  const case_ = text.lowercase == null ? "case" : text.lowercase >= 0.7 ? "case (mostly lowercase)" : text.lowercase <= 0.3 ? "case (mostly capitals)" : "case (mixed)";
+  return `type to note (the family class is not measured): look at the text strips${examples.length ? ` (${times(examples)})` : ""}, then save a style line "type: <family class (serif, sans, mono, script), size (big type ${percent(text.bigShare ?? 0)} of the time), ${case_}, how it appears>" with ref "${refId}" and its time in at, such as "small serif, lowercase, each word cut on".`;
+}
+
 /** The lines as text for an agent, one a line with their tags. */
 export function suggestionText(lines, refId) {
   if (!lines.length) return null;

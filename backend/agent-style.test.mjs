@@ -55,6 +55,9 @@ const IDEA_BIBLE = {
 
 test("style spec: idea, signatures and moments are checked; the lock needs them once a treatment is picked", () => {
   assert.equal(styleProblem(IDEA_BIBLE), null, "new beat roles and the quote face are accepted");
+  // The type direction the pick saves is one short line.
+  assert.equal(styleProblem({ ...IDEA_BIBLE, type: "small serif captions, each word cut on" }), null);
+  assert.match(styleProblem({ ...IDEA_BIBLE, type: "t".repeat(61) }).message, /style\.type is the type direction, 1 to 60 characters/);
   const bad = styleProblem({ ...IDEA_BIBLE, idea: "", signatures: [{ beat: 9, what: "x" }], moments: [{ tag: "zoomthrough", beat: 1, what: "x" }] });
   assert.match(bad.message, /style\.idea is one sentence.*signatures\[0\]\.beat is 0 to 3.*signatures\[0\]\.source is 1 to 80.*closest is zoom-through/);
   const context = styleContext(IDEA_BIBLE);

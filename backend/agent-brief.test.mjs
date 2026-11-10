@@ -883,7 +883,7 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.equal(studied.isError, undefined, studied.text);
   await refused("write 5 treatments");
   const treatments = ["the kickflip seen from the board", "one trick, five streets", "the crew's group chat lights up", "dawn to dusk in one line", "the wheels' sound leads"]
-    .map((idea, index) => ({ idea, who: ["the kid", "the kid", "the crew", "the city", "a viewer"][index], tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, ending: `the board at rest, ending ${index}`, p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
+    .map((idea, index) => ({ idea, who: ["the kid", "the kid", "the crew", "the city", "a viewer"][index], tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, ending: `the board at rest, ending ${index}`, type: `type ${index}, cut on`, p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
   // Each treatment carries its story: without a turn all 5 are refused in one answer.
   const noTurn = await brief(id, { fields: { treatments: treatments.map(({ turn, ...rest }) => rest) } });
   assert.equal(noTurn.isError, true);
@@ -897,6 +897,7 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   // The pick's idea becomes style.idea; its move is offered as the first signature.
   const picked = await brief(id, { fields: { treatments: { pick: "A", why: "the sound is what a skater retells" } } });
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
+  assert.equal(picked.data.brief.style.type, "type 4, cut on", "the pick saves its type into the style spec");
   // The service drafts its needs call from the saved pick (the same state the needs gates read).
   assert.equal(nextCallOf(await agent("notes", { project: id, action: "needs" })).input.items[0].what, "footage of a viewer");
   const offer = await refused("save the signature and spine");

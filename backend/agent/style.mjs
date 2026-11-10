@@ -19,6 +19,8 @@
 //   waived    why the agent locks it with no person to approve (by stays "guessed")
 // The idea and its signature (once a treatment is picked, the lock needs idea and a signature):
 //   idea        one sentence: what only this product can show
+//   type        the type direction, up to 60 characters ("small serif captions, each word cut on"):
+//               the picked treatment's type (kino has no default type); fonts name its faces
 //   signatures  1 or 2 designed moments [{beat, what, source, why, at?:[from, to]}]: beat is the
 //               index of a spine beat, source the material it uses, why why only this product
 //   moments     up to 3 set pieces [{tag, beat, what}]: one-off techniques, exempt from
@@ -28,7 +30,7 @@ import { closest } from "./refs.mjs";
 import { isRecord } from "../../engine/numbers.js";
 
 export const STYLE_LIMITS = Object.freeze({ tags: 16, lines: 8, text: 120, ref: 120, quote: 200, beats: 16, moves: 4, rejected: 12, idea: 120, signatures: 2, moments: 3, short: 80 });
-const SPEC_KEYS = ["wants", "avoids", "lines", "by", "quote", "spine", "fonts", "accent", "moves", "logo", "rejected", "waived", "idea", "signatures", "moments", "sources"];
+const SPEC_KEYS = ["wants", "avoids", "lines", "by", "quote", "spine", "fonts", "accent", "moves", "logo", "rejected", "waived", "idea", "type", "signatures", "moments", "sources"];
 export const BEAT_ROLES = ["hook", "problem", "turn", "product", "how", "proof", "signature", "breath", "payoff", "end", "coda"];
 // The spine kino drafts (brief.mjs orderSteps before the build, lockCall after), around the idea
 // and its signature: the problem is the pick's tension, the turn where it flips. With no idea
@@ -172,6 +174,8 @@ function ideaProblems(spec) {
   const beatHelp = beats ? `0 to ${beats - 1} (the index of a spine beat)` : "the index (0 = first) of a spine beat";
   if (spec.idea !== undefined && !shortText(spec.idea, STYLE_LIMITS.idea))
     found.push(problem(`style.idea is one sentence, 1 to ${STYLE_LIMITS.idea} characters: what only this product can show, such as "your notes turn into a deck while you watch".`));
+  if (spec.type !== undefined && !shortText(spec.type, 60))
+    found.push(problem('style.type is the type direction, 1 to 60 characters, such as "small serif captions, each word cut on".'));
   if (spec.signatures !== undefined) {
     if (!Array.isArray(spec.signatures) || !spec.signatures.length || spec.signatures.length > STYLE_LIMITS.signatures)
       found.push(problem(`style.signatures is 1 or ${STYLE_LIMITS.signatures} designed moments: ${SIGNATURE_EXAMPLE}.`));
@@ -293,6 +297,7 @@ export function cleanStyle(spec) {
     ...(spec.rejected?.length ? { rejected: spec.rejected.map((text) => text.trim()) } : {}),
     ...(hasText(spec.waived) ? { waived: spec.waived.trim() } : {}),
     ...(hasText(spec.idea) ? { idea: spec.idea.trim() } : {}),
+    ...(hasText(spec.type) ? { type: spec.type.trim() } : {}),
     ...(spec.signatures?.length ? { signatures: spec.signatures.map((entry) => ({ beat: entry.beat, what: entry.what.trim(), source: entry.source.trim(), why: entry.why.trim(), ...(entry.at ? { at: entry.at } : {}) })) } : {}),
     ...(spec.moments?.length ? { moments: spec.moments.map((entry) => ({ tag: entry.tag, beat: entry.beat, what: entry.what.trim() })) } : {}),
     ...sourcesOf(spec),
