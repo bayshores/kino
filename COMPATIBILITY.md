@@ -194,7 +194,8 @@ How to read it:
   Evidence: `engine/qualityStyle.test.js`, `engine/qualityRules.test.js`.
 - **Dimmed footage is a card**: Verified (tests). `text_slides` and `template_end` share one card
   definition: text over a still or flat picture, or over footage under a dark full-frame tint or
-  blurred 8 px+ with nothing sharp in front. Evidence: `engine/qualityStyle.test.js`.
+  blurred 8 px+ (unless the spec backs depth-blur), each with nothing sharp in front.
+  Evidence: `engine/qualityStyle.test.js`.
 - **Style spec**: Verified (tests). Brief field `style {wants, avoids, lines, by}`; an avoided tag is a
   gate (style_avoided) only when the person set it, a warning when guessed. Evidence:
   `backend/agent-style.test.mjs`, `engine/qualityStyle.test.js`, `backend/agent-brief.test.mjs`,

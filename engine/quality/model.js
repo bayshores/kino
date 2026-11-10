@@ -198,12 +198,12 @@ export const isGradient = (paint) => Boolean(paint && typeof paint === "object" 
 const DIMMED = 0.35;
 const FULL_FRAME = 0.9;
 
-/** At sample `index`, a painted shape covering the frame tints a playing video under it at DIMMED or more. */
-export function dimmedAt(model, index) {
+/** At sample `index`, the painted shapes covering the frame that tint a playing video under them at DIMMED or more. */
+export function tintsAt(model, index) {
   const frame = model.width * model.height;
   const videos = model.items.filter((item) => item.kind === "video" && item.samples.opacity[index] > 0.5);
-  if (!videos.length) return false;
-  return model.items.some((item) => {
+  if (!videos.length) return [];
+  return model.items.filter((item) => {
     if (item.kind === "video" || item.kind === "image" || item.kind === "text" || item.isMask || !item.painted) return false;
     const alpha = item.samples.opacity[index] * (item.paintAlpha ?? 1);
     if (alpha < DIMMED) return false;
@@ -211,3 +211,6 @@ export function dimmedAt(model, index) {
     return videos.some((video) => video.z < item.z);
   });
 }
+
+/** At sample `index`, a painted shape covering the frame tints a playing video under it at DIMMED or more. */
+export const dimmedAt = (model, index) => tintsAt(model, index).length > 0;

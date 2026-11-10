@@ -666,7 +666,7 @@ const SMALLER = 0.7;
 export function templateEnd(model, ctx) {
   if (model.duration < EDIT_SECONDS) return [];
   // Text over a still, flat, dimmed or blurred picture (one definition with text_slides).
-  const slide = textSlideSamples(model);
+  const slide = textSlideSamples(model, ctx);
   let last = slide.length - 1;
   while (last >= 0 && !slide[last]) last -= 1;
   if (last < 0 || model.duration - model.times[last] > END_TAIL) return [];

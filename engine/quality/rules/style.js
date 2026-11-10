@@ -14,7 +14,7 @@ import { deckUse } from "../../deck.js";
 import { boardPicks, pickOp, pickWords } from "../../movePicks.js";
 import { heardEdges, heardWords } from "./speech.js";
 import { designedTexts, readableAt, primaryItems, scaleOf, sec, sections, speedAt } from "../analysis.js";
-import { area, boxAt, dimmedAt, intersection, movingAt, tweensOf, visibleBoxAt } from "../model.js";
+import { area, boxAt, intersection, tintsAt, movingAt, tweensOf, visibleBoxAt } from "../model.js";
 import { backgroundLuma, coveredAt, plateChanges, plates, pulses, techniquesUsed, textEntrances, transitions } from "../techniques.js";
 
 const FRAME = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
@@ -44,14 +44,14 @@ const FIRST_PICKS = {
  * first (its moments' set pieces too), then one unused technique from each group, the groups the
  * video uses least first. With a signature and no set piece used yet, a set piece comes first.
  */
-function suggestions(ctx, used, count = 3, groups = ["transition", "camera", "type", "texture"]) {
+function suggestions(ctx, used, count = 3, groups = ["transition", "camera", "type", "texture"], skip = []) {
   const setPieceUsed = TECHNIQUES.some((entry) => entry.group === "set-piece" && used[entry.tag]);
   if (ctx.style?.signatures?.length && !setPieceUsed) groups = ["set-piece", ...groups];
   const wantedTags = [...(ctx.style?.moments ?? []).map((moment) => moment.tag), ...(ctx.style?.wants ?? [])];
-  const picks = [...new Set(wantedTags)].filter((tag) => !used[tag] && techniqueOf(tag)?.detect);
+  const picks = [...new Set(wantedTags)].filter((tag) => !used[tag] && techniqueOf(tag)?.detect && !skip.includes(tag));
   const usedIn = (group) => TECHNIQUES.filter((entry) => entry.group === group && used[entry.tag] && !PLAIN_TAGS.includes(entry.tag)).length;
   const ordered = [...groups].sort((a, b) => usedIn(a) - usedIn(b));
-  const free = (tag) => techniqueOf(tag)?.detect && !used[tag] && !PLAIN_TAGS.includes(tag) && !ctx.style?.avoids?.includes(tag);
+  const free = (tag) => techniqueOf(tag)?.detect && !used[tag] && !PLAIN_TAGS.includes(tag) && !ctx.style?.avoids?.includes(tag) && !skip.includes(tag);
   for (const group of ordered) {
     const pool = [...(FIRST_PICKS[group] ?? []), ...TECHNIQUES.filter((entry) => entry.group === group).map((entry) => entry.tag)];
     const pick = pool.find((tag) => free(tag) && !picks.includes(tag));
@@ -92,17 +92,20 @@ const SHARP_SHARE = 0.2;
 
 /**
  * True at a sample where the footage is wallpaper, not a shot: a dark full-frame tint over it
- * (dimmedAt), or a full-frame clip blurred BACKDROP_BLUR px or more with no sharp picture in front.
+ * (tintsAt), or a full-frame clip blurred BACKDROP_BLUR px or more (unless `blur` is false: a spec
+ * that wants depth-blur), each with no sharp picture covering SHARP_SHARE of the frame in front.
  * fp-8 typed its prompt over a log both blurred and dimmed, and the judges read it as a card.
  */
-function backdropAt(model, index) {
-  if (dimmedAt(model, index)) return true;
+function backdropAt(model, index, { blur = true } = {}) {
   const s = scaleOf(model);
   const blurOf = (item) => Math.max(item.samples.blur?.[index] ?? 0, item.blur ?? 0);
   const pictures = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && !item.isMask
     && item.samples.opacity[index] >= 0.5 && !coveredAt(model, item, index));
-  return pictures.some((back) => back.kind === "video" && blurOf(back) >= BACKDROP_BLUR * s && frameShare(model, back, index) >= 0.9
-    && !pictures.some((front) => front.z > back.z && blurOf(front) <= 2 * s && frameShare(model, front, index) >= SHARP_SHARE));
+  // A floating screen over the dimmed or blurred footage is the shot: the backdrop is its fill.
+  const sharpAbove = (z) => pictures.some((front) => front.z > z && blurOf(front) <= 2 * s && frameShare(model, front, index) >= SHARP_SHARE);
+  if (tintsAt(model, index).some((tint) => !sharpAbove(tint.z))) return true;
+  return blur && pictures.some((back) => back.kind === "video" && blurOf(back) >= BACKDROP_BLUR * s && frameShare(model, back, index) >= 0.9
+    && !sharpAbove(back.z));
 }
 
 // A line typing on letter by letter or word by word is read while it types (as reading_time
@@ -117,14 +120,16 @@ function typingAt(model, item, index) {
 /**
  * The samples where text being read (or typing on) sits over a still picture, a flat color or
  * footage dimmed or blurred to a backdrop (backdropAt): a text slide. The voice's captions are no
- * slide: they read along with what is said.
+ * slide: they read along with what is said. A spec that wants depth-blur (as blurred_backdrop
+ * backs off) keeps blurred footage a shot.
  */
-export function textSlideSamples(model) {
+export function textSlideSamples(model, ctx = {}) {
   const texts = designedTexts(model);
   const slide = new Uint8Array(model.times.length);
+  const backdrop = { blur: !wanted(ctx, "depth-blur") };
   for (let index = 0; index < model.times.length; index += 1) {
     const reading = texts.some((item) => (readableAt(model, item, index) || typingAt(model, item, index)) && !coveredAt(model, item, index));
-    if (reading && (!pictureMoves(model, index) || backdropAt(model, index))) slide[index] = 1;
+    if (reading && (!pictureMoves(model, index) || backdropAt(model, index, backdrop))) slide[index] = 1;
   }
   return slide;
 }
@@ -135,10 +140,12 @@ const LONGEST_CARD = 3;
 // short each is: fp-7 cut three 1.7 s lines on black between its shots.
 const MOST_CARDS = 3;
 const CARD_SECONDS = 1.2;
+// Text over full-frame footage blurred to a backdrop is itself a card (backdropAt): never the fix.
+const NOT_FOR_SLIDES = ["depth-blur"];
 
 export function textSlides(model, ctx) {
   if (!designedTexts(model).length || model.duration < EDIT_SECONDS) return [];
-  const slide = textSlideSamples(model);
+  const slide = textSlideSamples(model, ctx);
   const count = slide.reduce((sum, value) => sum + value, 0);
   const share = count / model.times.length;
   // The runs of slide samples (cards); the one that runs to the end is the closing card.
@@ -159,7 +166,7 @@ export function textSlides(model, ctx) {
     measured: `${percent(share)} of the video is text over a still, flat or dimmed background, in ${cards.length} ${cards.length === 1 ? "card" : "cards"} (longest ${sec(seconds(longest))}s)`,
     required: `at most 25%, no card held over ${LONGEST_CARD}s and fewer than ${MOST_CARDS} cards of ${CARD_SECONDS}s or more, the closing one aside`,
     message: `For ${sec(count / model.fps)}s of ${sec(model.duration)}s, ${ctx.sceneName} shows text over a picture that does not move or is dimmed to a backdrop (${cards.slice(0, 4).map((card) => `${sec(model.times[card.from])}s for ${sec(seconds(card))}s`).join(", ")}): it reads as slides.`,
-    fix: { kind: "hint", text: `Put the words over moving footage at full strength or move the frame: ${suggestions(ctx, used, 3, ["camera", "texture", "type"])}.` },
+    fix: { kind: "hint", text: `Put the words over moving footage at full strength or move the frame: ${suggestions(ctx, used, 3, ["camera", "texture", "type"], NOT_FOR_SLIDES)}.` },
   }];
 }
 

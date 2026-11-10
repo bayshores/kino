@@ -64,7 +64,7 @@ What a backed want does:
 |---|---|
 | dissolve, fade-black | `soft_cuts` is off (blur-through does not turn it off) |
 | type-words, type-letters | `word_by_word` off, typing keeps its stagger |
-| depth-blur | `blurred_backdrop` is off |
+| depth-blur | `blurred_backdrop` off, `text_slides` ignores blur |
 | beat-kick | `beat_kick` is off |
 | hold | `text_slides` is off |
 | the entrance every text uses | `same_entrance` is quiet |
@@ -81,7 +81,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 
 | Rule | Flags | Required |
 |---|---|---|
-| `text_slides` | text over a still picture, or footage dimmed or blurred to a backdrop | 25% of the video at most, no card over 3 s but the closing one |
+| `text_slides` | text over a still, or dimmed or blurred footage, no sharp 20% screen on top | 25% at most, no card over 3 s bar the last |
 | `few_techniques` | a flat edit: no designed device (cut, type-cut, hold, beat-cut, syncopated don't count) | 1 under 70 s, then 2, 4 at most |
 | `plain_beats` | the hook, reveal or payoff (else first, last 2.5 s) of only footage, words and plain cuts, fades, blurs or freezes | a move on one; all plain holds the final render |
 | `technique_repeat` | monotony: a set piece over 3 times; one non-cut transition on 4+, 75% of changes, no plain cut; a loud accent (flash, whip-pan...) over 3 times or once per 15 s; one entrance on 75% of texts | 2-3 alike uses: a motif |
