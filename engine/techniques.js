@@ -50,7 +50,8 @@ export const TECHNIQUES = Object.freeze([
   technique("type-words", "type", "text is revealed word by word", "captions read in time with the voice, lowercase captions"),
   technique("type-letters", "type", "text is revealed letter by letter", "titles, typing, a name"),
   technique("type-mask-rise", "type", "text rises into view from behind an edge", "editorial titles, clean reveals"),
-  technique("type-blur-in", "type", "text comes into focus from a blur", "soft, dreamy or tech titles"),
+  // Found and limited, never dealt: every model reaches for a blur-rise, so a deal would make it the default look.
+  Object.freeze({ ...technique("type-blur-in", "type", "text comes into focus from a blur", "only when a reference shows it; it reads as generic otherwise"), deal: false }),
   technique("type-giant", "type", "oversized type that fills most of the frame", "one word that is the whole message; pushing through type"),
   technique("type-counter", "type", "a number counts up or down", "stats, prices, time"),
   technique("type-swap", "type", "one text changes into another in place", "a word that changes its meaning, lists in one place"),

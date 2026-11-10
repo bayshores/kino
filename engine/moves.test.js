@@ -163,6 +163,12 @@ test("freeze-shutter stops the clip on the beat, blinks once and plays again; ma
   const behind = run("masked-type", { layer: "clip", text: "walk", subject: "person", place: "top" }, 0.5, 2.4);
   assert.deepEqual(behind.added.map(({ layer, place }) => [layer.move.part, place]), [["wash", { below: "person" }], ["word", { below: "person" }]]);
   assert.ok(behind.tags.includes("parallax") && behind.tags.includes("type-behind"));
+  // The word comes on without a blur or closing letters: a plain rise, or a cut-on by `reveal`.
+  const entrance = (made) => made.added.find(({ layer }) => layer.move.part === "word").layer.animations.find((animation) => animation.kind === "in");
+  assert.deepEqual([entrance(behind).name, Object.keys(entrance(behind).from)], ["Rise", ["opacity", "y"]]);
+  assert.ok(!behind.tags.includes("type-blur-in"));
+  const cutOn = run("masked-type", { layer: "clip", text: "walk", subject: "person", reveal: "cut" }, 0.5, 2.4);
+  assert.deepEqual([entrance(cutOn).name, entrance(cutOn).duration <= 0.05], ["Cut on", true]);
   assert.ok(!filled.tags.includes("type-behind"));
   // A light brand's text color is dark: the word over the dark wash takes the light one.
   const light = runMove(MOVES["masked-type"], { id: "masked-type", input: readMoveInput(MOVES["masked-type"], { layer: "clip", text: "walk", subject: "person" }), scene, style: styleFor({ look: "crisp", brand: { colors: { bg: "#F7F5F0", text: "#141414", accent: "#FF4D94" } }, frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.5, dur: 2.4, media });

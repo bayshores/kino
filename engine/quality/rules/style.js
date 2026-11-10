@@ -34,7 +34,7 @@ const wanted = (ctx, tag) => Boolean(ctx.style?.backed?.includes(tag));
 const FIRST_PICKS = {
   transition: ["dissolve", "blur-through", "zoom-through", "mask-wipe", "whip-pan", "push-transition"],
   camera: ["drift", "parallax", "slow-push", "speed-ramp"],
-  type: ["type-words", "type-mask-rise", "type-blur-in", "type-giant", "type-swap"],
+  type: ["type-words", "type-mask-rise", "type-giant", "type-swap"],
   texture: ["depth-blur", "light-sweep", "motion-blur", "particles"],
   // For the signature beat: set pieces that show the product doing its one thing.
   "set-piece": ["screen-zoom", "device-in-scene", "draw-on", "logo-match-move", "split-screen"],
@@ -704,7 +704,11 @@ export function styleWanted(model, ctx) {
 export function deckUnused(model, ctx) {
   if (!ctx.deck || model.duration < EDIT_SECONDS) return [];
   const counts = Object.fromEntries(Object.entries(techniquesUsed(model)).map(([tag, list]) => [tag, list.length]));
-  const { used, unused } = deckUse(ctx.deck, counts, ctx.movesUsed ?? []);
+  // When the references or the picked idea's signature already name the type, a type card that was
+  // only drawn (not wanted by them) is not forced: kino has no default type look.
+  const typeSet = [...(ctx.style?.backed ?? []), ...(ctx.style?.moments ?? []).map((moment) => moment.tag)].some((tag) => techniqueOf(tag)?.group === "type");
+  const deck = typeSet ? { ...ctx.deck, cards: ctx.deck.cards.filter((card) => card.group !== "type" || card.why === "spec" || card.why === "signature") } : ctx.deck;
+  const { used, unused } = deckUse(deck, counts, ctx.movesUsed ?? []);
   const total = used.length + unused.length;
   if (!total || used.length * 2 >= total) return [];
   return [{

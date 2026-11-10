@@ -12,7 +12,8 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
   mask-wipe, glitch-hit, flash, push-transition
 - **camera**: slow-push, drift, parallax, orbit-3d, speed-ramp, freeze-frame, shake
 - **type**: type-cut, type-fade, type-slide, type-pop, type-words, type-letters,
-  type-mask-rise, type-blur-in, type-giant, type-counter, type-swap, type-kinetic
+  type-mask-rise, type-blur-in (never dealt), type-giant, type-counter, type-swap, type-kinetic.
+  No default type look: it comes from the references and the treatment
 - **texture**: speed-lines, particles, rgb-split, light-sweep, grain, vignette, depth-blur, motion-blur
 - **set piece**: tile-ring, clip-field*, draw-on, swipe-cards, logo-match-move, status-line, split-screen,
   device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)
@@ -43,7 +44,6 @@ words): the techniques the video wants and avoids.
   it happens) and the `tags` that moment shows.
 - `by:"you"` with `quote` when the person asked for it in their words; else `"guessed"`,
   which never replaces theirs.
-- Saving it keeps a confirmed brief confirmed, like `idea`.
 
 **Only backed wants change rules.** A wanted tag turns rules off when the spec is `by:"you"`, or
 when a line with `ref` and `at` names it in `tags`. A guess with no reference is shown but
@@ -62,12 +62,12 @@ What a backed want does:
 | any tag | `technique_repeat` lets it repeat (not loud accents); `style_wanted` wants it |
 
 An avoided tag used is a gate (`style_avoided`) only if the person banned it. Other gates never
-change with the spec. With no spec, check says `style: kino default`.
+change with the spec.
 
 ## What check measures
 
-Warnings (style_avoided a gate); each fix names techniques that fit, never "add motion". `text_slides` and
-`few_techniques` leave videos under 8 s (a title card, a sting) alone.
+Warnings (style_avoided a gate); each fix names techniques that fit. `text_slides` and
+`few_techniques` leave videos under 8 s alone.
 
 | Rule | Flags | Required |
 |---|---|---|
@@ -81,7 +81,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 | `style_avoided` | a technique the spec avoids, used | |
 | `style_wanted` | a backed wanted technique not used (hard cuts stay free) | |
 | `off_beat` | an accent 1 frame to 70 ms off a beat: a near miss | on it, or clearly between (syncopated) |
-| `deck_unused` | fewer than half of the deck's cards used (a card swapped out does not count) | half or more |
+| `deck_unused` | fewer than half of the deck's cards used (a swapped card does not count; a named type is not forced) | half or more |
 | `effect_fit` | music edit: loud effect on no cue, too big, over budget, stacked, on a talking face | auto removes; waive with cue:<name> |
 
 ## The deck

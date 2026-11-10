@@ -27,11 +27,11 @@ export function alignOf(ctx, settings, choices = ["left", "center"]) {
   return ctx.rng.pick(choices);
 }
 
-/** A seeded pick of an entrance style, unless the settings name one of `choices`. */
-export function styleOf(ctx, settings, choices) {
+/** A seeded pick of an entrance style, unless the settings name one of `choices` or of `named` (never picked by the seed). */
+export function styleOf(ctx, settings, choices, named = []) {
   ctx.used?.add("enter");
   if (settings?.enter !== undefined) {
-    const offered = [...new Set(choices)];
+    const offered = [...new Set([...choices, ...named])];
     if (!offered.includes(settings.enter)) throw new Error(`${ctx.recipe} enter is one of ${offered.join(", ")}.`);
     return settings.enter;
   }

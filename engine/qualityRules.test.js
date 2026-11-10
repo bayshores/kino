@@ -1269,7 +1269,12 @@ test("AI tells: fades on everything, drift on every shot, even shots, a split ca
   // Five layers that only fade in (and the caption cuts in) over one shot.
   const fades = plainEdit([...shotsOf([12]), ...[0, 1, 2, 3, 4].map((index) => rect(`dot${index}`, { x: 200 + index * 340, animations: [fadeIn(1 + index)] }))]);
   const [fade] = await fires("fade_only_entrances", fades);
-  assert.match(fade.measured, /^5 of 6 entrances only fade/);
+  assert.match(fade.measured, /^5 of 6 entrances only fade or blur in/);
+  // The same five coming in through a blur (blur+fade, blur-rise) are the same tell, and the fix names the blur.
+  const blurs = plainEdit([...shotsOf([12]), ...[0, 1, 2, 3, 4].map((index) => rect(`dot${index}`, { x: 200 + index * 340, animations: [{ ...fadeIn(1 + index), from: { opacity: 0, y: 40, blur: 20 }, to: { opacity: 1, y: 0, blur: 0 } }] }))]);
+  const [blurred] = await fires("fade_only_entrances", blurs);
+  assert.match(blurred.measured, /5 through a blur/);
+  assert.match(blurred.fix.text, /blur\+fade in with a cut-on/);
   // Every shot drifts 3%.
   await fires("drift_on_every_shot", plainEdit(shotsOf(UNEVEN, (start, length) => [move(start, length, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.03, scaleY: 1.03 })])));
   // Six shots of 2 s.

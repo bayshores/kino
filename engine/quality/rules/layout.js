@@ -114,7 +114,7 @@ export function overlap(model, ctx) {
       const causes = [unfaded(model, upper, run), unfaded(model, lower, run)].filter(Boolean);
       const why = causes.map(({ item, tween, mode }) => mode === "out"
         ? ` ${ctx.name(item)}'s exit "${tween.name}" ends at ${sec(tween.end)}s without fading it, so it stays on screen.`
-        : ` ${ctx.name(item)}'s entrance "${tween.name}" starts at ${sec(tween.start)}s without fading it in, so it shows before then.`).join("");
+        : ` ${ctx.name(item)}'s entrance "${tween.name}" starts at ${sec(tween.start)}s without fading it in, so it shows before then.${tween.keys.includes("blur") ? " The fade only hides it: a blur entrance is the generic AI look, so a plain fade or slide in its place is better." : ""}`).join("");
       findings.push({
         rule: "overlap", severity: persistence(model, run), itemId: upper.id, otherId: lower.id,
         at: sec(model.times[run.from]), until: sec(model.times[run.to]), bbox: roundBox(intersection(visibleBoxAt(model, upper, run.from), visibleBoxAt(model, lower, run.from))),

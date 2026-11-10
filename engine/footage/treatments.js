@@ -9,14 +9,15 @@
 //   camera       how a shot moves while it holds: slow-push, drift, parallax (for a card over
 //                its blurred copy); no step on a beat number
 //   captions     words per caption: calm 4 to 6, talk 3 to 5, high 2 to 3 (caption-words energy)
-//   title        push-through-type (a giant word the camera flies into), blur-in or letters
+//   title        push-through-type (a giant word the camera flies into), or a headline-reveal
+//                enter style: fade (a plain fade), lines, letters, fade-up, scale; never a blur
 //   hits         what may land on the song's measured drop (the first one only): rgb-split
 //                (rgb-split-hit), flash
 import { seeded } from "../blocks/build.js";
 
 export const FOOTAGE_TREATMENTS = Object.freeze({
-  calm: Object.freeze({ line: "slow and clean: long holds, soft dissolves, calm captions", transitions: ["dissolve", "blur-through", "fade-black"], density: 0.45, beats: [4, 8], camera: ["slow-push", "drift"], captions: "calm", title: "blur-in", hits: [] }),
-  story: Object.freeze({ line: "a told story: shots on the phrase, shape wipes and dissolves, talk captions", transitions: ["dissolve", "mask-wipe", "zoom-through", "push-transition"], density: 0.4, beats: [2, 4], camera: ["drift", "slow-push", "parallax"], captions: "talk", title: "letters", hits: [] }),
+  calm: Object.freeze({ line: "slow and clean: long holds, soft dissolves, calm captions", transitions: ["dissolve", "blur-through", "fade-black"], density: 0.45, beats: [4, 8], camera: ["slow-push", "drift"], captions: "calm", title: "fade", hits: [] }),
+  story: Object.freeze({ line: "a told story: shots on the phrase, shape wipes and dissolves, talk captions", transitions: ["dissolve", "mask-wipe", "zoom-through", "push-transition"], density: 0.4, beats: [2, 4], camera: ["drift", "slow-push", "parallax"], captions: "talk", title: "lines", hits: [] }),
   punchy: Object.freeze({ line: "fast and bright: cuts on the beat, whips and zooms, short captions", transitions: ["whip-pan", "zoom-through", "flash"], density: 0.5, beats: [1, 2], camera: ["slow-push", "drift"], captions: "high", title: "push-through-type", hits: ["rgb-split"] }),
   loud: Object.freeze({ line: "raw energy: a glitch or flash cut and a color split, only on a real drop", transitions: ["glitch-hit", "flash", "whip-pan", "zoom-through"], density: 0.6, beats: [1, 2], camera: ["drift", "slow-push"], captions: "high", title: "push-through-type", hits: ["rgb-split", "flash"] }),
 });
@@ -104,7 +105,9 @@ export function guessTreatment({ speechShare = 0, bpm = null, deck = null, seed 
 const TRANSITION_CARDS = new Set(["dissolve", "fade-black", "blur-through", "zoom-through", "whip-pan", "mask-wipe", "glitch-hit", "flash", "push-transition"]);
 const CAMERA_CARDS = new Set(["slow-push", "drift", "parallax"]);
 const HIT_CARDS = { "rgb-split": "rgb-split", flash: "flash", shake: "rgb-split", "glitch-hit": "rgb-split" };
-const TITLE_CARDS = { "type-giant": "push-through-type", "type-letters": "letters", "type-blur-in": "blur-in", "type-mask-rise": "blur-in", "type-fade": "blur-in", "type-pop": "letters", "type-slide": "letters", "type-kinetic": "push-through-type" };
+// Each type card is its own reveal (headline-reveal enter styles, or the push-through-type move); none is a blur.
+// A saved deck's type-blur-in becomes a plain fade.
+const TITLE_CARDS = { "type-giant": "push-through-type", "type-letters": "letters", "type-blur-in": "fade", "type-mask-rise": "lines", "type-fade": "fade", "type-pop": "scale", "type-slide": "fade-up", "type-kinetic": "push-through-type" };
 
 /**
  * The style of one edit: the treatment's choices with the deck's cards first, ordered by the

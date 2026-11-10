@@ -62,9 +62,8 @@ test("the material filters the hand: no device cards without a phone, no type-he
   const silent = { ...FOOTAGE, text: false };
   for (const deck of deals(200, { material: silent, moves })) {
     assert.ok(!["swipe-cards", "speed-lines-phone"].includes(deck.setPiece?.name), deckLine(deck));
-    const words = deck.cards.filter((card) => card.group === "type");
-    assert.equal(words.length, 1, `one light type card: ${deckLine(deck)}`);
-    assert.ok(!["type-giant", "type-kinetic", "type-letters", "type-words", "type-swap", "type-counter"].includes(words[0].tag), deckLine(deck));
+    // No words on screen: no reveal of words is dealt at all (there is no default type look).
+    assert.equal(deck.cards.filter((card) => card.group === "type").length, 0, deckLine(deck));
   }
   const shapes = { known: true, fromLayers: true, video: false, pictures: false, pictureCount: 0, text: true, numbers: false, sound: false, device: false };
   for (const deck of deals(200, { material: shapes, moves: [{ name: "masked-type", tags: ["type-giant"], needs: ["video"] }] })) {
@@ -96,10 +95,12 @@ test("materialOf reads the document and the brief's made_from words", () => {
 });
 
 test("a backed style spec is dealt first; avoided tags never; a guessed spec only leans", () => {
-  const backed = styleContext({ wants: ["blur-through", "type-blur-in", "parallax"], avoids: ["glitch-hit"], by: "guessed",
-    lines: [{ text: "blur-through between screens", ref: "yt:abc", at: 4.2, tags: ["blur-through", "type-blur-in", "parallax"] }] });
+  const backed = styleContext({ wants: ["blur-through", "type-mask-rise", "type-blur-in", "parallax"], avoids: ["glitch-hit"], by: "guessed",
+    lines: [{ text: "blur-through between screens", ref: "yt:abc", at: 4.2, tags: ["blur-through", "type-mask-rise", "type-blur-in", "parallax"] }] });
   for (const deck of deals(100, { style: backed })) {
-    for (const tag of ["blur-through", "type-blur-in", "parallax"]) assert.ok(tags(deck).includes(tag), deckLine(deck));
+    for (const tag of ["blur-through", "type-mask-rise", "parallax"]) assert.ok(tags(deck).includes(tag), deckLine(deck));
+    // The blur-in is never dealt, not even when the spec wants it (style_wanted still holds the video to it).
+    assert.ok(!tags(deck).includes("type-blur-in"), deckLine(deck));
     assert.equal(deck.cards.find((card) => card.tag === "parallax").why, "spec");
     assert.ok(!tags(deck).includes("glitch-hit"));
   }

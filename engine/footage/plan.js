@@ -20,6 +20,8 @@ const sum = (list) => list.reduce((total, value) => total + value, 0);
 export const END_CARD = 2.8;
 // How long each title takes, in seconds (push-through-type needs at least 1.8).
 const TITLE_LENGTH = { "push-through-type": 2.4, headline: 2.4 };
+// The headline-reveal entrances a treatment or a type card may name for the title (never a blur).
+const TITLE_ENTERS = ["fade", "lines", "letters", "fade-up", "scale", "rise"];
 // Without music, a "beat" is this long, so the treatments' shot lengths still mean something.
 const FREE_BEAT = 0.6;
 // The most of an edit that speech may fill (the rest is the title, the end card and pictures).
@@ -656,7 +658,9 @@ export function planEdit(input) {
   }
   const titleText = input.title;
   // Never a random slam: the seed's old slam slot (1 in 4) rises instead, so the other picks stay as they were.
-  const title = titleText ? { kind: titleKind, text: titleText, at: round3(titleAt), dur: titleLength, over: shots[1]?.n ?? null, enter: ["rise", "lines", "fade-up", "rise"][Math.floor(rng.next() * 4)] } : null;
+  // The treatment's (or the deck's type card's) own reveal when it names one; else the seed's pick.
+  const picked = ["rise", "lines", "fade-up", "rise"][Math.floor(rng.next() * 4)];
+  const title = titleText ? { kind: titleKind, text: titleText, at: round3(titleAt), dur: titleLength, over: shots[1]?.n ?? null, enter: TITLE_ENTERS.includes(style.title) ? style.title : picked } : null;
   if (title && !shots[1]) title.kind = "headline";
   const endCard = { at: round3(bodyEnd + 0.2), text: titleText ?? input.end ?? null, sub: input.end && titleText ? input.end : null };
 

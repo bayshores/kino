@@ -584,6 +584,10 @@ test("deck_unused: a video that uses fewer than half of its deck's cards; a card
   // A move counts when the video shows a technique it is tagged with.
   // (parallax-stack's depth-blur is used, so 2 of 3 cards are.)
   await silent("deck_unused", designed, deck(["parallax", "dissolve"], { kind: "move", name: "parallax-stack", tags: ["parallax", "depth-blur"] }));
+  // Drawn type cards are not forced once the references name the type (kino has no default type look).
+  const typeCards = deck(["dissolve", "type-giant", "type-fade"]);
+  await fires("deck_unused", designed, typeCards);
+  await silent("deck_unused", designed, { ...typeCards, styleSpec: { wants: ["type-words"], by: "you", quote: "captions word by word like the reference" } });
   // No deck, or a video under 8 s: quiet.
   await silent("deck_unused", designed, {});
   await silent("deck_unused", scene({ duration: 4, layers: [text("title", "hello")] }), deck(["dissolve", "parallax", "particles"]));

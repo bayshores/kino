@@ -55,7 +55,7 @@ export const headlineReveal = {
     const head = textLayer(ctx, { part: "headline", text: copy.text, role: "headline", step: headlineStep(copy.text), box: { ...box, height: box.height * (copy.sub ? 0.6 : 0.82) }, align, maxLines: 3 });
     const sub = copy.sub ? textLayer(ctx, { part: "sub", text: copy.sub, role: "subhead", step: "body", box: { ...box, height: box.height * 0.28 }, align, maxLines: 3 }) : null;
     column(box, [{ layer: head }, sub && { layer: sub, gap: px(ctx, 30) }], { valign: "middle" });
-    const headStyle = styleOf(ctx, settings, ["rise", "lines", "fade-up", "slam"]);
+    const headStyle = styleOf(ctx, settings, ["rise", "lines", "fade-up", "slam"], ["fade", "letters", "scale"]);
     return {
       parts: [
         { part: null, layer: head, enter: { style: headStyle, at: 0 } },

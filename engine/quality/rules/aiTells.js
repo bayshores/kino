@@ -1,5 +1,5 @@
 // Warnings for design defaults nobody chose, the tells viewers name when an edit "looks AI
-// edited": every layer fading in (fade_only_entrances), a slow drift
+// edited": every layer fading or blurring in (fade_only_entrances), a slow drift
 // on every shot (drift_on_every_shot), shots of even length (even_shot_lengths), a big number
 // beside a small framed card on a flat frame (split_card_layout), and small tracked caps
 // labels or a progress bar left on screen (page_chrome). Each is a warning with a measured
@@ -9,7 +9,8 @@ import { area, chainOf, insideShare, isText, runs, tweensOf, visibleBoxAt } from
 import { shotBounds } from "./style.js";
 
 // fade_only_entrances: judged from this many entering layers, warns above this share that only
-// fade (ai-tells-viewers.md 1: "everything fades in from opacity 0").
+// fade, or come in through a blur (blur, blur+fade, blur-rise: every model reaches for it;
+// ai-tells-viewers.md 1: "everything fades in from opacity 0").
 const FADE_MIN_ENTRANCES = 5;
 const FADE_SHARE = 0.6;
 // drift_on_every_shot: a shot is footage filling this share of the frame; a drift changes its
@@ -48,8 +49,9 @@ const firstShown = (item, threshold = 0.05) => item.samples.opacity.findIndex((v
 
 /**
  * How each layer that comes on during the scene enters: "cut" (no animation where it appears),
- * "fade" (only opacity, or opacity and blur) or "move" (a move, scale, wipe or a reveal by
- * words). A layer that appears with the group around it is that group's entrance.
+ * "blur" (any entrance that blurs: blur, blur+fade, a blur-rise), "fade" (only opacity) or "move"
+ * (a move, scale, wipe or a reveal by words). A layer that appears with the group around it is
+ * that group's entrance.
  */
 export function entranceKinds(model) {
   const step = 1 / model.fps + 1e-6;
@@ -67,24 +69,25 @@ export function entranceKinds(model) {
     const tweens = [...own, ...parents.flatMap(covering)];
     const keys = tweens.flatMap((tween) => tween.keys).filter((key) => key !== "visible");
     const byUnit = tweens.some((tween) => tween.unit && tween.unit !== "layer" && (tween.stagger ?? 0) > 0);
-    const kind = !keys.length ? "cut" : byUnit || keys.some((key) => MOVE_KEYS.has(key)) || !keys.every((key) => FADE_ONLY.has(key)) ? "move" : "fade";
+    const kind = !keys.length ? "cut" : keys.includes("blur") ? "blur" : byUnit || keys.some((key) => MOVE_KEYS.has(key)) || !keys.every((key) => FADE_ONLY.has(key)) ? "move" : "fade";
     list.push({ item, at, kind });
   }
   return list;
 }
 
-/** Most layers that come on only fade in: the default entrance nobody chose. */
+/** Most layers that come on only fade in or blur in: the default entrance nobody chose. */
 export function fadeOnlyEntrances(model, ctx) {
   const list = entranceKinds(model);
   if (list.length < FADE_MIN_ENTRANCES) return [];
-  const fades = list.filter((entry) => entry.kind === "fade");
+  const fades = list.filter((entry) => entry.kind === "fade" || entry.kind === "blur");
   const share = fades.length / list.length;
   if (share <= FADE_SHARE) return [];
+  const blurs = fades.filter((entry) => entry.kind === "blur").length;
   return [{
     rule: "fade_only_entrances", severity: "warn", itemId: fades[0].item.id, at: sec(fades[0].at),
-    measured: `${fades.length} of ${list.length} entrances only fade (${pct(share)})`, required: `${pct(FADE_SHARE)} or fewer`,
-    message: `${fades.length} of the ${list.length} layers that come on in ${ctx.sceneName} only fade in (${fades.slice(0, 3).map((entry) => ctx.name(entry.item)).join(", ")}${fades.length > 3 ? ", ..." : ""}); a fade on everything reads as a template.`,
-    fix: { kind: "hint", text: "Cut most layers in on a motion or on the beat (show with no fade), and give the few that matter a move with the entrance (a slide, scale or wipe)." },
+    measured: `${fades.length} of ${list.length} entrances only fade or blur in (${pct(share)})${blurs ? `, ${blurs} through a blur` : ""}`, required: `${pct(FADE_SHARE)} or fewer`,
+    message: `${fades.length} of the ${list.length} layers that come on in ${ctx.sceneName} only fade${blurs ? " or blur" : ""} in (${fades.slice(0, 3).map((entry) => ctx.name(entry.item)).join(", ")}${fades.length > 3 ? ", ..." : ""}); a fade on everything reads as a template${blurs ? ", and a blur, blur+fade or blur-rise in is the entrance every AI model reaches for" : ""}.`,
+    fix: { kind: "hint", text: `Cut most layers in on a motion or on the beat (show with no fade), and give the few that matter a move with the entrance (a slide, scale or wipe)${blurs ? "; replace each blur or blur+fade in with a cut-on or a plain slide, unless a reference shows the blur" : ""}.` },
   }];
 }
 

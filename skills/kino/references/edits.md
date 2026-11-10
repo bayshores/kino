@@ -18,29 +18,28 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   next to `properties` (`text`, `x`, …) is moved into them (in `fixed`); any other unknown
   field is refused, never dropped.
 - One scene: no `scene` needed. Several: add `scene:"s2"` (or its name). A scene or
-  layer added earlier in the same edit can be used by its name or the code it will get.
+  layer added earlier in the same edit can be used by its name or its coming code.
 - Positions are the layer's top-left corner in scene pixels. Text boxes do not grow by
   themselves: give text layers a `width` and `height` that fit, or `textResize:"width-height"`.
 - Colors are hex (`#ffffff`, `#00000000` for transparent); color words, `rgba()`, `hsl()` and
   CSS gradients are converted (in `fixed`).
 - Rounded corners are `radius` (one number) or `cornerRadii` (four); `cornerRadius` and
   `borderRadius` are converted. A property no layer has is refused with the closest names.
-- `rev` (optional): the revision you read. If the project changed since, the edit is applied to
-  the new version when it still fits (`rebased:true`), else refused.
+- `rev` (optional): the revision you read. If the project changed since, the edit goes onto
+  the new version when it still fits (`rebased:true`), else is refused.
 - A `role` one letter off is corrected (in `fixed`); `set_font` over shapes sets only the text
   layers (`notes` names the rest).
-- Leave out fields at their defaults (text: Inter, weight 400, line height 1.2, left
-  aligned).
+- Leave out fields at their defaults (text: weight 400, line height 1.2, left aligned).
 
 ## Refusals and fixes
 
 - A refused edit saves nothing. It lists the failing ops with the reason (the first with its
   `rules` and an `example` op that works, then up to 4 more in `alsoRefused`); ops that use a
   refused layer are still checked. `missing` lists every name not found
-  (`{layer:[…], animation:[…]}`). It gives a code such as `E2`. Send only the fixes:
+  (`{layer:[…], animation:[…]}`). Its code is such as `E2`. Send only the fixes:
   `edit {retry:"E2", fix:{"3":{"easing":"smooth", "pacing":null}, "7":null}}` changes op 3,
   removes its pacing and drops op 7; a fix with `op` replaces the op.
-- A shape that can mean only one thing is fixed and listed in `fixed` instead of refused: an op
+- A shape with one meaning is fixed and listed in `fixed`, not refused: an op
   name such as `add_text` or `animate`, `"48px"`, `"50%"` opacity, `"500ms"`, `fontWeight:"bold"`,
   `font` or `color` on text, `ease` for `easing`, a property preset sent with values
   (`preset:"move", parameters:{x}`), an animation with `from`/`to` but no `kind`, timed `keyframes`.
@@ -98,8 +97,9 @@ A second scene (from then on every op names its `scene`):
 - 3+ steps: `keys:[{t, value, ease?}]` for from/to (behaviors.md).
 - An effect's settings are in `to` (and `from`): `update_animation {animation:"plate.effect",
   properties:{to:{gamma:0.6}}}` changes gamma and keeps the others.
-- slide, grow, rotate, blur, blur-slide never fade; add `preset-fade`, same timing (check's
-  auto fix does). An entrance holds its first frame until it starts (hidden, for a fade).
+- slide, grow, rotate, blur, blur-slide never fade; check's auto fix adds `preset-fade` to hide
+  them. Blur or blur+fade in is the AI tell: use a plain fade or slide. An entrance holds its
+  first frame until it starts.
 - An animation's value is drawn over the layer's: `opacity:0` on a layer whose fade-in ends at
   opacity 1 leaves it on screen; the receipt gives the `update_animation` for each end
   that used the old value. To hide a layer, `update_layer` `properties:{visible:false}`.
