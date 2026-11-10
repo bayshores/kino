@@ -7,7 +7,11 @@
 // the video's scene (ctx.videoScene; another scene's tail stays seen_before).
 // It keeps one of the 3 slots however close the mid-video hits are, and only the person's words
 // waive it (backend/agent/translate.mjs VIEWER_WAIVERS): a repeated ending is what a viewer keeps.
+// seen_before also warns once when the video's scene is built like another kino edit
+// (structureSignature.js, saved as `structure` in the house file): the same cut rate per song
+// section and 75% or more of the compared parts (first drop, burst, effect order, ending, title, colors).
 import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
+import { partWords, sameStructure, STRUCTURE_VERSION, structureAlike, structureSignature } from "../structureSignature.js";
 
 // Under this distance (layoutDistance: places and sizes, or the coarse shape) two moments read as
 // the same layout. Calibrated on kino's own projects: one end card in two videos 0.1, a chart or
@@ -72,12 +76,32 @@ function seenHits(model, ctx) {
 const measured = (hit) => `layout distance ${hit.distance} to "${hit.entry.name}" r${hit.entry.rev} at ${hit.old.t} s`;
 const REQUIRED = `${SEEN_THRESHOLD} or more from kino's other projects, unless a saved reference is closer`;
 
+// The video's whole structure (structureSignature.js) against each other project's saved one: the
+// closest that reads as the same structure, as one finding.
+function structureHit(model, ctx) {
+  if (ctx.videoScene !== true) return [];
+  const house = (ctx.house ?? []).filter((entry) => entry.structure && entry.structVersion === STRUCTURE_VERSION);
+  if (!house.length) return [];
+  const mine = structureSignature(model, { markers: ctx.cues ?? [], beats: ctx.beatCues ?? [] });
+  if (!mine) return [];
+  const best = house.map((entry) => ({ entry, ...structureAlike(mine, entry.structure) })).filter(sameStructure)
+    .sort((a, b) => b.alike.length / b.compared.length - a.alike.length / a.compared.length)[0];
+  if (!best) return [];
+  const { entry, alike, compared } = best;
+  return [{
+    rule: "seen_before", severity: "warn", at: 0, measured: `alike in ${alike.length} of ${compared.length} parts (${partWords(alike)}) to "${entry.name}" r${entry.rev}`,
+    required: "the same pace and under 75% of the compared parts alike to another kino edit",
+    message: `${ctx.sceneName} is built like "${entry.name}" (r${entry.rev}): alike in ${partWords(alike)}. Two kino edits shaped the same read as made by a machine.`,
+    fix: { kind: "hint", text: `Take the structure from this song's seams and this footage's own events (cut rate per section, what the first drop does, where a burst goes, the ending, the title's place), not from the last edit. Change ${partWords(alike.filter((part) => part !== "pace").slice(0, 2)) || "the pace"} at least. Waive it when the repeat is wanted.` },
+  }];
+}
+
 export function seenBefore(model, ctx) {
-  return seenHits(model, ctx).middle.map((hit) => ({
+  return [...seenHits(model, ctx).middle.map((hit) => ({
     rule: "seen_before", severity: "warn", at: hit.at, measured: measured(hit), required: REQUIRED,
     message: `${ctx.sceneName} at ${hit.at} s repeats a layout kino already made in "${hit.entry.name}" (r${hit.entry.rev}, ${hit.old.t} s): distance ${hit.distance}. The same choice in every project reads as made by a machine.`,
     fix: { kind: "hint", text: `Rebuild this moment from this video's own material, or from a reference's technique (look {mode:"versus"}); restyling the same arrangement does not count. Waive it when the repeat is wanted.` },
-  }));
+  })), ...structureHit(model, ctx)];
 }
 
 export function endingSeen(model, ctx) {
