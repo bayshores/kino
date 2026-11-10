@@ -314,11 +314,12 @@ test("before any stop, status names the first stop to ask once the brief is sett
 });
 
 test("a clip imported into the project but not placed yet is footage: the board asks before the build; short videos still skip", () => {
-  const document = (seconds) => ({ id: "p1", scenes: [{ id: "s", width: 1080, height: 1920, duration: seconds, layers: [{ type: "text" }] }] });
-  const media = [{ id: "m1", mime: "video/mp4", projectId: "p1" }, { id: "m2", mime: "video/mp4", projectId: "other" }];
+  const document = (seconds, layers = [{ type: "audio" }]) => ({ id: "p1", scenes: [{ id: "s", width: 1080, height: 1920, duration: seconds, layers }] });
+  const media = [{ id: "m1", mime: "video/mp4", projectId: "p1" }, { id: "m2", mime: "video/mp4", projectId: "other", usedInProjects: ["p1"] }];
   assert.equal(videoFacts(document(24)).footage, false, "no library: only placed video layers count");
-  assert.equal(videoFacts(document(24), media.slice(1)).footage, false, "another project's clip is not this video's");
+  assert.equal(videoFacts(document(24), media.slice(1)).footage, false, "a clip uploaded elsewhere, even once used here, is not this video's");
   assert.equal(videoFacts(document(24), [{ ...media[0], hasVideo: false }]).footage, false, "a sound-only file is not footage");
+  assert.equal(videoFacts(document(24, [{ type: "text" }]), media).footage, false, "built, its clips removed: no footage, so a waiting board lapses");
   const imported = { ...videoFacts(document(24), media), treatmentsWaived: true };
   assert.equal(imported.footage, true);
   const state = ready(4);
