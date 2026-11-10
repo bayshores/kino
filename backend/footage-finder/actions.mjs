@@ -26,8 +26,8 @@ export const FOOTAGE_SHOTS_SHOWN = 12;
 /** Shots the scan answer's import call names. */
 export const FOOTAGE_IMPORT_PICKS = 6;
 /**
- * The line the library topics list gains once importing lands (P9); hidden until then. At most
- * 150 characters, as the topics answer is read by every agent.
+ * The footage topic's line in the library topics answer. At most 150 characters, as the topics
+ * answer is read by every agent.
  */
 export const FOOTAGE_TOPIC_LINE = 'footage {search, want?, scan?, note?} (found video: YouTube, license unknown, or source:"commons"; scan ranks shots to import)';
 

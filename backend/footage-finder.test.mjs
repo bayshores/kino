@@ -55,6 +55,8 @@ import { createCanvas } from "@napi-rs/canvas";
 import { createLook } from "./agent/look.mjs";
 import { foundClipTag, groupClips, groupLine } from "./footage-finder/sheet.mjs";
 import { shotsNeeded, wantBySection } from "./footage-finder/needs.mjs";
+import { joinStretches, planTake, takeCredit, takeFootage, takeText } from "./footage-finder/take.mjs";
+import { writeFileSync } from "node:fs";
 
 test("library passes the fields its listed schema leaves out (scan, want, note, measure) on to kino", async () => {
   const calls = [];
@@ -650,4 +652,67 @@ test("look source puts the person's clips first and untagged, and 30 found clips
   assert.deepEqual(entries.slice(0, 2).map((entry) => [entry.clips[0].name, entry.clips[0].tag]), [["beach.mp4", null], ["intro.mov", null]]);
   assert.deepEqual(entries.slice(2).map((entry) => entry.clips.length), [10, 10, 10]);
   assert.equal(groupLine(entries[2]), "F1: 10 shots (F1.3, F1.6, F1.9, F1.12, F1.15, F1.18, …)");
+});
+
+test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its exact frame to H.264, credited license unknown, and shown under F1", async () => {
+  const candidate = { ...found(1), code: "F1", scan: { id: "yt-vvvvvvvvvv1", shots: 3 } };
+  const scan = { shots: [{ n: 37, start: 197.2, end: 199 }, { n: 38, start: 201, end: 203 }, { n: 40, start: 210, end: 212 }] };
+  const pieces = planTake(candidate, scan, { file: "F1.37", shots: [38, "F1.40"] });
+  assert.deepEqual(joinStretches(pieces).map(({ start, end, pieces: list }) => [start, end, list.map((piece) => piece.n)]), [[196.7, 212.5, [37, 38, 40]]]);
+  const runs = [];
+  // A stub yt-dlp: one file a section, named by its start, as yt-dlp names it.
+  const run = async (args) => {
+    runs.push(args);
+    const out = args[args.indexOf("-o") + 1];
+    args.forEach((arg, index) => { if (arg === "--download-sections") writeFileSync(out.replace("%(section_start)s", args[index + 1].slice(1).split("-")[0]).replace("%(ext)s", "webm"), ""); });
+    return "";
+  };
+  const encoded = [];
+  // The file starts 1.3 s early (the keyframe before 196.7); each cut is found 0.1 s after the scanned time.
+  const tools = {
+    probe: async () => ({ duration: 15.8 + 1.3 }),
+    sceneScores: async (_file, from, seconds) => [{ t: from, score: 0 }, { t: Math.round((from + seconds / 2 + 0.1) * 100) / 100, score: 0.8 }],
+    encode: async (file, out, { start, seconds }) => { encoded.push([path.basename(file), start, Math.round(seconds * 100) / 100]); await writeFile(out, ""); return out; },
+  };
+  const added = [];
+  const addMedia = async (file, { name, mime, extra }) => { added.push({ name, mime, ...extra }); return { id: `m${added.length}.mp4`, src: `/api/media/m${added.length}.mp4`, name, mime, duration: 1.8, width: 1920, height: 1080, ...extra }; };
+  const result = await takeFootage(candidate, pieces, { addMedia, projectId: "anime-edit", run, tools, runtime: { name: "node", path: process.execPath } });
+  assert.equal(runs.length, 1);
+  const args = runs[0];
+  assert.equal(args[args.indexOf("-f") + 1], "bv*[height<=1080]+ba/b[height<=1080]");
+  assert.deepEqual(args.filter((_, index) => args[index - 1] === "--download-sections"), ["*196.7-212.5"]);
+  assert.ok(!args.some((arg) => /cookies/.test(arg)));
+  // 197.2 in the video is 1.8 s into the file (0.5 pad + 1.3 lead-in); the cut comes 0.1 s later.
+  assert.deepEqual(encoded, [["take.196.7.webm", 1.9, 1.8], ["take.196.7.webm", 5.7, 2], ["take.196.7.webm", 14.7, 2]]);
+  assert.deepEqual(added.map((each) => [each.name, each.mime, each.projectId, each.credit.license, each.footage.shot]),
+    [37, 38, 40].map((n) => [`F1.${n} Episode 1.mp4`, "video/mp4", "anime-edit", "unknown", n]));
+  assert.equal(result.failed.length, 0);
+  assert.deepEqual(result.media.map((item) => foundClipTag(item, { candidates: [candidate] }).label), ["F1.37", "F1.38", "F1.40"]);
+  assert.match(takeText(candidate, result), /License unknown: fine for a private video; the person checks the rights before publishing\./);
+});
+
+test("import refuses a bare F1 of a 23 min video, an unscanned video and a stretch over 60 s; yt: names the footage scan", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  await store.createProject(createDocument({ id: "anime-edit", name: "Anime edit", scenes: [createScene({ id: "s1" })] }));
+  const agentState = createAgentStateStore(dataRoot);
+  await agentState.update("anime-edit", (draft) => { draft.footage = addCandidates(null, [found(1), found(2)]); draft.footage.candidates[0].scan = { id: "yt-vvvvvvvvvv1", shots: 1 }; });
+  const taken = [];
+  const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }] }),
+    take: async (candidate, pieces, { projectId }) => { taken.push([candidate.code, pieces.map((piece) => piece.n), projectId]); return { media: [{ id: "m1.mp4", src: "/api/media/m1.mp4", duration: 2, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot: 4 } }], failed: [] }; } };
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder });
+  const importing = (input) => service.call("project", { project: "anime-edit", action: "import", ...input });
+  const bare = await importing({ file: "F2" });
+  assert.equal(bare.isError, true);
+  assert.match(bare.text, /"F2 is 23:40 long: import shots \(F2\.37\) or a stretch \(from, to, 60 s at most\)\. Scan it first\./);
+  assert.match((await importing({ file: "F2", options: { shots: [3] } })).text, /F2 is not scanned yet/);
+  assert.match((await importing({ file: "F1", from: "1:00", to: "2:30" })).text, /A stretch is 60 s at most/);
+  assert.equal(JSON.parse((await importing({ file: "yt:abcdefghijk" })).text).reason, 'yt:abcdefghijk is a reference; as footage: library {topic:"footage", scan:"yt:abcdefghijk"}');
+  const imported = await importing({ file: "F1", options: { shots: [4] } });
+  assert.equal(imported.isError, undefined, imported.text);
+  assert.deepEqual(taken, [["F1", [4], "anime-edit"]]);
+  assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\)/);
+  assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
 });

@@ -195,7 +195,7 @@ export const AGENT_TOOLS = withSaid([
     // Fields the list leaves out for its budget (music note and measure, sounds source, footage
     // scan and want) still reach the service: keepUnknownKeys passes them on.
     keepUnknownKeys: true,
-    description: "Look up how kino works: op {name} (exact fields), rules {name} (captions, beats, cues…), search {search}, fonts {search}, media {page}, sounds|music {search} (CC0 effects; moods), blocks (recipes, looks), inspire {search|name|ideas} (YouTube edits), techniques (check's tags).",
+    description: "How kino works: op {name} (exact fields), rules {name} (captions, beats, cues…), search {search}, fonts {search}, media {page}, sounds|music {search} (CC0 effects; moods), blocks (recipes, looks), inspire {search|name|ideas} (YouTube edits), techniques.",
     input: {
       topic: z.enum(LIBRARY_TOPICS),
       name: z.union([z.string(), z.array(z.string()).max(8)]).optional(),
@@ -397,7 +397,7 @@ export async function runAgentTool(server, client, name, input, context) {
   try {
     if (name === "project" && input.action === "import") {
       if (!input.file) return toolResult({ isError: true, text: "import needs file: an absolute path." });
-      const media = await client.importFile(input.file, { signal: context?.signal, client: clientName });
+      const media = await client.importFile(input.file, { signal: context?.signal, client: clientName, input });
       return toolResult(media.refused ?? media.reply ?? { text: importedText(media) });
     }
     return toolResult(await client.call(name, withHomeFolders(name, input), { signal: context?.signal, client: clientName }));

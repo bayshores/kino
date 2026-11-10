@@ -243,6 +243,8 @@ const footageFinder = createFootageFinder({
   commons: createCommonsSource({ enabled: () => dashboard.settings().sounds?.search === true, directory: path.join(dataRoot, "footage", "commons") }),
   // With looks or their download switched off nothing downloads, so no scan promises a download.
   modelReady: () => !lookEmbed || process.env.KINO_LOOK_DOWNLOAD === "0" || lookEmbed.ready(),
+  // Imported shots join the media library for their project, with their credit and F code.
+  addMedia: (...args) => addGeneratedMedia(...args),
 });
 // Screen recordings agents make (project {action:"record"}): folders in <data>/recordings while
 // recording, then the video joins the media library. The dashboard shows one while it runs.
@@ -701,7 +703,8 @@ async function measureMedia(filename, mime) {
 // The file is moved in.
 // Like the agent's imports it belongs to no one project; saving a project that uses it records
 // the use (rememberMediaUse).
-// `extra` adds fields to the record (an Openverse sound's credit).
+// `extra` adds fields to the record (an Openverse sound's credit; a found clip's projectId, credit
+// and footage code). A video gets its shots found, as an upload does.
 async function addGeneratedMedia(file, { name, mime, extra = {} }) {
   const extension = mediaTypes[mime];
   if (!extension || !(/^(?:audio|video)\//.test(mime) || mime === "image/png")) throw new Error(`kino does not keep made ${mime} files.`);
@@ -716,7 +719,8 @@ async function addGeneratedMedia(file, { name, mime, extra = {} }) {
     const measurements = await measureMedia(target, mime);
     if (measurements.measurementSucceeded !== true) throw new Error(`The made file ${name} could not be read back as ${mime}.`);
     const { size } = await stat(target);
-    const metadata = { id, src: `/api/media/${id}`, name: String(name).slice(0, 200), mime, size, ...measurements, ...extra };
+    const shots = mime.startsWith("video/") && measurements.hasVideo !== false ? await uploadShots(target, measurements.duration) : {};
+    const metadata = { id, src: `/api/media/${id}`, name: String(name).slice(0, 200), mime, size, ...measurements, ...shots, ...extra };
     await writeMediaRecord(mediaRoot, id, metadata);
     return metadata;
   } catch (error) {

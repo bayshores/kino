@@ -17,7 +17,8 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
-import { createFootageActions, FootageError, isFoundClip, personClipCount } from "../footage-finder/actions.mjs";
+import { createFootageActions, FootageError, FOOTAGE_TOPIC_LINE, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
+import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { shotsNeeded } from "../footage-finder/needs.mjs";
@@ -5521,8 +5522,7 @@ export function createAgentService(deps) {
   // ---- library ----------------------------------------------------------------------------
   async function library(input) {
     let topic = input.topic ?? "topics";
-    // footage: found video (backend/footage-finder/actions.mjs). Left out of LIBRARY_TOPICS and the
-    // topics line until importing found shots lands.
+    // footage: found video (backend/footage-finder/actions.mjs); project import takes its shots (take.mjs).
     if (topic === "footage") return footage(input);
     // A topic one letter off ("effect", "ops") is that topic; a rules name ("render") is rules {name}.
     let topicNote = "";
@@ -5539,7 +5539,7 @@ export function createAgentService(deps) {
     // `query` is another name for `search` (kino library topic=fonts query=Roboto).
     const search = String(input.search ?? input.query ?? "");
     if (topic === "topics")
-      return { text: "library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, CC BY with credit), effects, blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\", \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {search?, source?, like?, measure?, note?} (songs from Openverse, CC with credit, and YouTube, reference only, measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), techniques {name?} (the named editing techniques check finds and the style spec uses).", data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
+      return { text: `library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, CC BY with credit), effects, blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\", \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {search?, source?, like?, measure?, note?} (songs from Openverse, CC with credit, and YouTube, reference only, measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), ${FOOTAGE_TOPIC_LINE}, techniques {name?} (the named editing techniques check finds and the style spec uses).`, data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
     // op and rules take several names at once (a list, or "a, b"), answered one after another.
     const names = (Array.isArray(input.name) ? input.name : String(input.name ?? "").split(",")).map((name) => String(name).trim()).filter(Boolean);
     if ((topic === "op" || topic === "rules") && names.length > 1) {
@@ -5899,6 +5899,48 @@ export function createAgentService(deps) {
     return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
   }
 
+  // project {action:"import", file:"F1", options:{shots}} (or F1.37, clip:<id>, from/to): shots of a
+  // scanned found video become clips for this project (footage-finder/take.mjs), each with its
+  // credit and code; the candidate keeps what it imported, for the 15 min a project cap.
+  async function footageImport(input) {
+    if (!deps.footage?.take) throw new AgentError("failed", "The footage finder is not available here.");
+    const footageError = (error) => Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
+    const record = await projectFor(input);
+    const projectId = record.document.id;
+    const state = await agentState.read(projectId);
+    const file = input.file.trim();
+    const asked = parseFootageRef(file);
+    const candidate = asked && !asked.top ? (state.footage?.candidates ?? []).find((entry) => (asked.code ? entry.code === asked.code : entry.id === asked.id)) : null;
+    if (!candidate) {
+      throw Object.assign(new AgentError("not_found", `${file} is not one of this video's found videos: search and scan first, then import the scan's shots.`),
+        { nextCall: asked?.id ? nextOf("library", { topic: "footage", scan: file }) : nextOf("library", { topic: "footage" }) });
+    }
+    const options = input.options && typeof input.options === "object" ? input.options : {};
+    const scan = candidate.scan ? await deps.footage.readScan(scanIdOf(candidate)).catch(() => null) : null;
+    let pieces;
+    try { pieces = planTake(candidate, scan, { file, shots: options.shots, from: input.from ?? options.from, to: input.to ?? options.to, used: importedSeconds(state.footage) }); }
+    catch (error) { if (error instanceof FootageError) throw footageError(error); throw error; }
+    let result;
+    try { result = await deps.footage.take(candidate, pieces, { projectId }); }
+    catch (error) {
+      if (error?.code === "BOT_CHECK") throw new AgentError("bot_check", 'YouTube asked for a bot check, so kino pauses YouTube downloads for 15 minutes (no cookies are ever sent). Use the person\'s own clips, or Commons: library {topic:"footage", search, source:"commons"}.');
+      throw new AgentError("failed", `${candidate.code} could not be imported: ${String(error?.message ?? error).split("\n")[0].slice(0, 240)}`);
+    }
+    if (!result.media.length) throw new AgentError("failed", takeText(candidate, result));
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    const lead = personClipsLine(personClipCount(record.document, media));
+    const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
+    const shots = result.media.map((item) => item.footage?.shot).filter((n) => n !== null && n !== undefined);
+    const answer = { text: [lead, takeText(candidate, result)].filter(Boolean).join("\n"),
+      data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed },
+      nextCall: nextOf("look", { mode: "source" }) };
+    return done(projectId, answer, { change(draft) {
+      const entry = draft.footage?.candidates?.find((each) => each.id === candidate.id);
+      if (!entry) return;
+      entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
+    } });
+  }
+
   // The shots the video's song needs (footage-finder/needs.mjs): the first audio layer of the video
   // scene that plays like music and whose saved beats are a song's (steadyBeat: a voice scores
   // lower), over the stretch it plays; else the longest credited song of 20 s or more imported for
@@ -6256,6 +6298,8 @@ export function createAgentService(deps) {
     // A YouTube sound effect from library {topic:"inspire", search, kind:"sounds"}, measured: its
     // short preview comes in with its credit (license unknown). source or file names it.
     if (action === "import" && input.file === undefined && typeof input.source === "string") input = { ...input, file: input.source };
+    // Found footage: F1 or F1.37 (with options {shots} or from/to), or clip:yt-<id> (footage-finder/take.mjs).
+    if (action === "import" && typeof input.file === "string" && /^(?:clip:|F\d{1,3}(?:\.\d+)?$)/i.test(input.file.trim())) return footageImport(input);
     if (action === "import" && typeof input.file === "string" && /^yt:/i.test(input.file.trim()) && deps.inspire) {
       const id = refId(input.file.trim());
       let ref = id ? await deps.inspire.reference(id) : null;
@@ -6284,7 +6328,10 @@ export function createAgentService(deps) {
         const rights = media.credit.source === "youtube" ? " License unknown: fine for a private video; the person checks the rights before publishing it." : "";
         return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}. Put it in the end credits.${rights}`, data: { media } };
       }
-      if (/^yt:/i.test(input.file.trim())) throw new AgentError("reference_only", `${input.file.trim()} is reference only: kino imports a YouTube song once it is one of this video's measured songs (library {topic:"soundtrack", search, measure}) and a measured sound effect, never a video.`);
+      if (/^yt:/i.test(input.file.trim())) {
+        const ref = input.file.trim();
+        throw Object.assign(new AgentError("reference_only", `${ref} is a reference; as footage: library {topic:"footage", scan:"${ref}"}`), { nextCall: nextOf("library", { topic: "footage", scan: ref }) });
+      }
       if (/^archive:/i.test(input.file.trim())) throw new AgentError("not_found", `${input.file.trim()} is not one of this video's songs: find it first (library {topic:"soundtrack", search}).`);
     }
     // A built-in library sound or track (sfx:<id>, music:<id>): downloaded once, kept with its credit.

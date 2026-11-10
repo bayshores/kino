@@ -311,7 +311,7 @@ test("soundtrack: search, measure against the intents, note, the person's use, i
   assert.match(imported.text, /credit kept with the file: "Rain on a roof" by someone \(https:\/\/freesound\.org\/[^)]+\), CC0 1\.0/);
   const refused = await agent("project", { action: "import", file: "yt:dQw4w9WgXcQ" });
   assert.equal(refused.isError, true);
-  assert.match(refused.text, /reference only.*one of this video's measured songs/);
+  assert.match(refused.text, /yt:dQw4w9WgXcQ is a reference; as footage: library \{topic/);
 });
 
 test("Freesound with a key: its results join Openverse's (token header, previews, never NC); no key, no request", async () => {

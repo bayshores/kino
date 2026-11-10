@@ -8,6 +8,7 @@ import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { downloadScanCopy, pickWindows, probeFootage } from "./scan.mjs";
 import { readScan, readScanSheet, scanFootage } from "./score.mjs";
 import { searchFootage } from "./search.mjs";
+import { takeFootage } from "./take.mjs";
 
 /** A footage search answer lasts this long (ms): the same search within a day asks YouTube nothing. */
 export const FOOTAGE_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -23,13 +24,15 @@ class NothingFound extends Error {
  * cache/), ytDlp(args, {signal}) → yt-dlp's output (default runYtDlp: KINO_YTDLP, no cookies),
  * now() (the clock); for scans: dataRoot (scans are kept in <data>/footage/scans), youtube (the
  * shared gate), embed (look-embed.mjs, or null), commons (licensed.mjs createCommonsSource),
- * keep() (scan ids the cap leaves alone), modelReady() (false: the image model still downloads).
+ * keep() (scan ids the cap leaves alone), modelReady() (false: the image model still downloads);
+ * for imports: addMedia(file, {name, mime, extra}) (backend/index.mjs addGeneratedMedia), takeTools (tests).
  * Returns {search(words, {count, signal}) → {words, tried?, candidates, dropped, cached},
- * scan(candidate, options), readScan(id), readSheet(id) → the scan's sheet jpg or null, searchCommons(words)}.
+ * scan(candidate, options), take(candidate, pieces, {projectId}), readScan(id),
+ * readSheet(id) → the scan's sheet jpg or null, searchCommons(words)}.
  */
 export function createFootageFinder(deps) {
   const { directory, ytDlp = (args, options) => runYtDlp(args, options), now = Date.now,
-    dataRoot = null, youtube = null, embed = null, commons = null, keep = () => [], modelReady = () => true } = deps;
+    dataRoot = null, youtube = null, embed = null, commons = null, keep = () => [], modelReady = () => true, addMedia = null, takeTools } = deps;
   if (!directory) throw new Error("createFootageFinder needs a directory.");
   const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: FOOTAGE_CACHE_MS, now });
   // The same search running twice at once (two agents) asks YouTube once. The shared job has its
@@ -99,9 +102,20 @@ export function createFootageFinder(deps) {
     return scanFootage(id, copy, { dataRoot, want, embed, title: candidate.title ?? "", keep: keep(), onProgress, modelReady: modelReady(), signal });
   }
 
+  /**
+   * Imports `pieces` (take.mjs planTake) of a scanned candidate into the media library for
+   * `projectId`: one 1080p download through the gate, then each shot cut and re-encoded to H.264.
+   * Answers {media, failed}.
+   */
+  function take(candidate, pieces, { projectId, signal } = {}) {
+    if (!addMedia) throw new Error("The footage finder cannot add clips here.");
+    return takeFootage(candidate, pieces, { addMedia, projectId, youtube, commons, run: ytDlp, tools: takeTools, signal });
+  }
+
   return {
     search,
     scan,
+    take,
     readScan: (id) => (dataRoot ? readScan(dataRoot, id) : Promise.resolve(null)),
     readSheet: (id) => (dataRoot ? readScanSheet(dataRoot, id) : Promise.resolve(null)),
     searchCommons: async (words) => {
