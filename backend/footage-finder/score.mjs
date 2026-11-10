@@ -10,7 +10,10 @@
 //    shot (a held picture the cut finder split), then shots rank on motion, faces and clean
 //    frames. Dark shots, shots full of text or subtitles and shots under 0.4 s go last; a fixed
 //    logo costs a little. `match` is a z-score among this scan's shots and counts only when the
-//    best one is 2 or more; otherwise the answer says there is no visual match.
+//    best clean shot (no dark, text or short flag) reaches matchBar: 2, or more in a long scan,
+//    where noise alone tops 2; otherwise the answer says there is no visual match.
+// Times: yt-dlp cuts each stretch without re-encoding, so its file starts at the keyframe before
+// the stretch. The probe's length minus the stretch's length is that lead-in, taken off each time.
 // 4. Saves <data>/footage/scans/<id>.json and one sheet (<id>.jpg, the best 12 stills, 4 by 3),
 //    then removes the 360p copy. At most 300 files or 200 MB of scans: the oldest unused go
 //    first; a scan the caller keeps (noted or imported) stays.
@@ -27,7 +30,7 @@ export const SCAN_VERSION = 1;
 export const SHORT_SECONDS = 0.4;
 /** Neighbor shots at least this alike (SigLIP cosine) are one shot. */
 export const SAME_SHOT = 0.95;
-/** The best shot's match z-score must reach this for match to count and show. */
+/** The best shot's match z-score must reach at least this for match to count and show (matchBar). */
 export const MATCH_SHOWN = 2;
 /** A shot this dark on average (0 to 1) is a dark shot. */
 export const DARK_LUMA = 0.12;
@@ -124,10 +127,22 @@ function zScores(values) {
 }
 
 /**
+ * The z-score the best of `count` match z-scores must reach to count. Among N shots that match
+ * nothing, the best z-score is about sqrt(2 ln N) (2.6 for 150 shots), so a long scan needs more
+ * than MATCH_SHOWN. A few shots cannot reach 2 at all (the most is sqrt(N - 1)), so then 90% of
+ * that most is enough.
+ */
+export function matchBar(count) {
+  if (count < 3) return Infinity;
+  return Math.min(Math.max(MATCH_SHOWN, Math.sqrt(2 * Math.log(count))), 0.9 * Math.sqrt(count - 1));
+}
+
+/**
  * The shots best first, each with {flags, score, match}. flags: "dark", "text", "short" (these
  * go last), "logo" (a small cost). match: the z-score of the shot's closeness to `wantVector`
- * among these shots (null without one); it adds to the score only when matchShown (the best is
- * MATCH_SHOWN or more). Answers {shots, matchShown, skipped: {dark, text, short}}.
+ * among these shots (null without one); it adds to the score only when matchShown (the best
+ * clean shot, one without dark, text or short, reaches matchBar). Answers {shots, matchShown,
+ * skipped: {dark, text, short}}.
  */
 export function rankShots(shots, { wantVector = null } = {}) {
   const closeness = wantVector ? shots.map((shot) => (shot.vector ? dot(wantVector, shot.vector) : null)) : [];
@@ -135,15 +150,21 @@ export function rankShots(shots, { wantVector = null } = {}) {
   const z = zScores(known);
   let next = 0;
   const matches = closeness.map((value) => (value === null ? null : round1(z[next++])));
-  const matchShown = known.length >= 3 && Math.max(...matches.filter((value) => value !== null)) >= MATCH_SHOWN;
   const skipped = { dark: 0, text: 0, short: 0 };
-  const rows = shots.map((shot, index) => {
+  const flagged = shots.map((shot) => {
     const flags = [];
     if (shot.luma < DARK_LUMA) flags.push("dark");
     if (shot.text >= TEXT_SHARE) flags.push("text");
     if (shot.end - shot.start < SHORT_SECONDS) flags.push("short");
     for (const flag of flags) skipped[flag] += 1;
     if (shot.logo >= TEXT_SHARE) flags.push("logo");
+    return flags;
+  });
+  // A title card that spells the searched name can match best; only clean shots decide.
+  const clean = matches.filter((value, index) => value !== null && flagged[index].every((flag) => flag === "logo"));
+  const matchShown = clean.length > 0 && Math.max(...clean) >= matchBar(known.length);
+  const rows = shots.map((shot, index) => {
+    const flags = flagged[index];
     const match = wantVector ? matches[index] : null;
     const score = round1(0.5 * shot.motion + 0.3 * (shot.face ?? 0) + 20 * (1 - shot.text)
       + (matchShown && match !== null ? 10 * match : 0) - (flags.includes("logo") ? 10 : 0));
@@ -275,7 +296,12 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const vision = { faces: false, text: false, flow: false };
     for (const window of copy.files) {
       const facts = await use.probe(window.file, { signal });
-      const duration = facts.duration > 0 ? facts.duration : window.end - window.start;
+      const span = window.end - window.start;
+      const duration = facts.duration > 0 ? facts.duration : span;
+      // The lead-in before window.start (the file starts at the keyframe before it); 0 when the
+      // file is no longer than the stretch (a stretch that reached the video's end early).
+      const lead = Math.max(0, duration - span);
+      const at = window.start - lead;
       const { shots } = await use.findShots(window.file, { duration, signal, maxSeconds: WHOLE_MAX_SECONDS });
       const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal });
       for (const key of Object.keys(vision)) vision[key] ||= measured.vision?.[key] === true;
@@ -285,7 +311,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       const stills = await use.stills(window.file, shots.map((shot) => (shot.start + shot.end) / 2), path.join(copy.folder, `stills-${all.length}`), { signal });
       shots.forEach((shot, index) => {
         all.push({
-          start: round3(window.start + shot.start), end: round3(window.start + shot.end),
+          start: round3(Math.max(0, at + shot.start)), end: round3(at + shot.end),
           ...shotFacts(shot.start, shot.end, samples, persistent), still: stills[index] ?? null,
         });
       });

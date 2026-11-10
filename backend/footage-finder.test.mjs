@@ -10,7 +10,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKinoMcpServer } from "./mcp.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
-import { pruneScans, rankShots, readScan, scanFootage, scansFolder } from "./footage-finder/score.mjs";
+import { matchBar, pruneScans, rankShots, readScan, scanFootage, scansFolder } from "./footage-finder/score.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
@@ -154,7 +154,8 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
   };
   const embed = {
     images: async (files) => ({ model: "test", vectors: files.map((file) => encodeVector(normalize(looks[file.slice(-1)]))) }),
-    text: async () => [Float32Array.from([1, 0, 0, 0])],
+    // The words look like the title card (E) only.
+    text: async () => [Float32Array.from([0, 0, 0, 1])],
   };
   try {
     const copy = { folder: copyFolder, files: [{ start: 60, end: 70, file: path.join(copyFolder, "scan.60.webm") }] };
@@ -166,8 +167,8 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
     assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [62, 66], [66, 68], [68, 70]]);
     assert.deepEqual(scan.shots.slice(2).map((shot) => shot.flags), [["dark"], ["text"]]);
     assert.equal(scan.shots[0].face, 100);
-    // Closeness 1, 0, 0, 0 as z-scores; 1.7 is under 2, so match does not count.
-    assert.deepEqual(scan.shots.map((shot) => shot.match), [1.7, -0.6, -0.6, -0.6]);
+    // Closeness 0, 0, 0, 1 as z-scores; only the title card matches, and a flagged shot never shows a match.
+    assert.deepEqual(scan.shots.map((shot) => shot.match), [-0.6, -0.6, -0.6, 1.7]);
     assert.equal(scan.matchShown, false);
     assert.deepEqual(sheetStills, ["still-A", "still-B", "still-D", "still-E"]);
     assert.deepEqual((await readScan(directory, "yt-abcdefghijk")).shots.length, 4);
@@ -177,12 +178,44 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
     const ranked = rankShots(ten, { wantVector: Float32Array.from([1, 0, 0, 0]) });
     assert.equal(ranked.matchShown, true);
     assert.deepEqual([ranked.shots[0].start, ranked.shots[0].match], [7, 3]);
+    // 150 shots of noise: the best z-score tops 2 by chance, but not the bar for 150 shots.
+    let seed = 12345;
+    const noise = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const gauss = () => Math.sqrt(-2 * Math.log(noise())) * Math.cos(2 * Math.PI * noise());
+    const many = Array.from({ length: 150 }, (_, index) => ({ ...ten[0], start: index, end: index + 1, vector: normalize([0.2 * gauss(), 1, 0, 0]) }));
+    const noisy = rankShots(many, { wantVector: Float32Array.from([1, 0, 0, 0]) });
+    const best = Math.max(...noisy.shots.map((shot) => shot.match));
+    assert.ok(best >= 2 && best < matchBar(150), `best ${best}`);
+    assert.equal(noisy.matchShown, false);
+    // Four shots can reach a z-score of 1.73 at most, so one clear match still shows.
+    assert.equal(rankShots(ten.slice(4, 8), { wantVector: Float32Array.from([1, 0, 0, 0]) }).matchShown, true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
   // Without the footage finder's allowance, a 25 min file is still too long to look in.
   await assert.rejects(findShots("none.webm", { duration: 1500 }), { code: "TOO_LONG" });
   await assert.rejects(findShots("none.webm", { duration: 2000, maxSeconds: 1800 }), /up to 30 min/);
+});
+
+test("a scan copy that starts at the keyframe before its stretch saves shot times in the video's seconds", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-times-"));
+  const copyFolder = path.join(directory, "copy");
+  await mkdir(copyFolder);
+  // The stretch 60 to 70 s comes as a 12 s file: its first 2 s are 58 to 60.
+  const tools = {
+    probe: async () => ({ duration: 12, width: 640, height: 360 }),
+    findShots: async () => ({ shots: [{ start: 0, end: 5 }, { start: 5, end: 12 }] }),
+    measure: async () => ({ samples: [] }),
+    stills: async (file, times) => times.map(() => null),
+    sheet: async () => {},
+  };
+  try {
+    const copy = { folder: copyFolder, files: [{ start: 60, end: 70, file: path.join(copyFolder, "scan.60.webm") }] };
+    const scan = await scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, tools });
+    assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]).sort((a, b) => a[0] - b[0]), [[58, 63], [63, 70]]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("the scans folder keeps its cap by removing the least recently used scans, never a kept one", async () => {
