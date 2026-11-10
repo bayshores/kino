@@ -134,6 +134,34 @@ test("kicks weigh more than hi-hats, the loud kick starts the bar, and accents a
   assert.ok(cues.filter((cue) => cue.kind === "onset").every((cue) => typeof cue.weight === "number" && cue.band));
 });
 
+test("a louder kick over a steady pad weighs more than a quiet kick alone, and gets the accents", () => {
+  // 12 s of kicks alone, then 12 s of kicks twice as loud over a steady pad (220 and 330 Hz). A
+  // weight from loudness after minus loudness before shrank the drop's kicks under the pad, so
+  // the accents went to the quiet half. Under the pad an onset can come out up to 35 ms late.
+  const DROP = 12;
+  const samples = new Float32Array(LENGTH * RATE);
+  for (let i = 0; i < samples.length; i += 1) {
+    const t = i / RATE;
+    const since = t % PERIOD;
+    const loud = t >= DROP;
+    const kick = (loud ? 0.8 : 0.4) * Math.sin(2 * Math.PI * 55 * since) * Math.exp(-since * 25);
+    const pad = loud ? 0.2 * (Math.sin(2 * Math.PI * 220 * t) + Math.sin(2 * Math.PI * 330 * t)) : 0;
+    samples[i] = 0.001 * noise(i) + kick + pad;
+  }
+  const analysis = analyzeBeats(samples, RATE);
+  const kicks = analysis.onsets.filter((onset) => Math.abs(onset.time / PERIOD - Math.round(onset.time / PERIOD)) * PERIOD < 0.04);
+  const mean = (list) => list.reduce((sum, onset) => sum + onset.weight, 0) / list.length;
+  const quiet = kicks.filter((onset) => onset.time < DROP - 0.1);
+  const drop = kicks.filter((onset) => onset.time > DROP + 0.1);
+  assert.ok(quiet.length >= 20 && drop.length >= 20, `${quiet.length} quiet kicks, ${drop.length} drop kicks`);
+  assert.ok(mean(drop) > mean(quiet) * 1.5, `drop ${mean(drop)}, quiet ${mean(quiet)}`);
+  assert.ok(Math.min(...drop.map((onset) => onset.weight)) > Math.max(...quiet.map((onset) => onset.weight)), "every drop kick outweighs every quiet kick");
+  // Phrases of 8 bars: the first (0 to 16 s) keeps 2 accents, the second 1; all three are drop kicks.
+  const accents = cuesFor(samples).filter((cue) => cue.kind === "accent");
+  assert.equal(accents.length, 3);
+  assert.ok(accents.every((cue) => cue.time > DROP), accents.map((cue) => cue.time).join(", "));
+});
+
 test("a long, steady song keeps every beat on its kick to the end", () => {
   // The tempo from the onset curve can be off by half a millisecond a beat; fitting the grid to
   // the whole song at once then put it between the kicks for much of a 150 s song at these

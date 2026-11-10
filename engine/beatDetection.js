@@ -199,6 +199,8 @@ function movingMax(values, radius) {
 }
 
 export const BANDS = ["low", "mid", "high"];
+// How far before an onset weighOnsets looks for its hit (step 2d).
+const LATE_SECONDS = 0.04;
 
 // Step 2c: the band that gained the most new sound at frame i and the two after it (a kick's body
 // follows its click): low (kick, bass, under 150 Hz), mid (snare, clap, voice) or high (hi-hats).
@@ -212,17 +214,34 @@ function gainBand(gain, i) {
 }
 
 /**
- * Step 2d: each onset's weight, how hard it hits, from 0 to 1: how much louder the 50 ms after it
- * are than the 50 ms before, against the song's hardest hits (the 95th percentile, so one freak
- * peak does not shrink the rest). A drop's kick weighs about 1, a hi-hat or a soft intro little.
- * Unlike strength, which compares an onset with the sound within 4 s of it, weight compares it
- * with the whole song.
+ * Step 2d: each onset's weight, how hard it hits, from 0 to 1: the sound it adds, against the
+ * song's hardest hits (the 95th percentile, so one freak peak does not shrink the rest). The added
+ * sound is the power of 50 ms from the hit minus the power of 50 ms ending 20 ms before it, as a
+ * loudness (square root). Powers add up where loudness does not, so a kick over a steady pad or
+ * bass keeps its full size. Under a steady tone an onset can be placed up to about 35 ms after
+ * its hit (step 2b reads sample-to-sample change, which a pad drowns), so the hit is looked for
+ * from LATE_SECONDS before the onset to the onset and the largest gain counts. A loud drop's kick
+ * weighs about 1, a hi-hat or a soft intro little. Unlike strength, which compares an onset with
+ * the sound within 4 s of it, weight compares it with the whole song.
  */
 export function weighOnsets(samples, sampleRate, onsets) {
   const span = Math.round(0.05 * sampleRate);
+  const gap = Math.round(0.02 * sampleRate);
+  const step = Math.max(1, Math.round(0.005 * sampleRate));
+  const late = Math.round(LATE_SECONDS * sampleRate);
+  // Running sums of squares, so the power of any stretch is one subtraction.
+  const squares = new Float64Array(samples.length + 1);
+  for (let i = 0; i < samples.length; i += 1) squares[i + 1] = squares[i] + samples[i] * samples[i];
+  const power = (start, end) => {
+    const from = Math.max(0, start);
+    const to = Math.min(samples.length, end);
+    return to > from ? (squares[to] - squares[from]) / (to - from) : 0;
+  };
   const punches = onsets.map((onset) => {
     const at = Math.round(onset.time * sampleRate);
-    return Math.max(0, loudness(samples, at, at + span) - loudness(samples, at - span - Math.round(0.005 * sampleRate), at - Math.round(0.005 * sampleRate)));
+    let best = 0;
+    for (let hit = at; hit >= Math.max(0, at - late); hit -= step) best = Math.max(best, power(hit, hit + span) - power(hit - gap - span, hit - gap));
+    return Math.sqrt(best);
   });
   const sorted = [...punches].sort((a, b) => a - b);
   const reference = sorted[Math.floor(0.95 * (sorted.length - 1))] ?? 0;
