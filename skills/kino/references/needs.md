@@ -44,7 +44,8 @@ things you can do without it, each with its cost, and one you recommend:
 ```
 
 Then say it plainly in the chat: what is missing, why the video loses it, and the options. The
-dashboard shows the same question with a button for each option, "I have it" and "do without".
+dashboard shows the same question with a button for each option, "I have it" and "do without"
+(the found footage option reads "find footage (license unknown)" there).
 
 ## Their answer
 

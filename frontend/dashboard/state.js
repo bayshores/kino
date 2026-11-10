@@ -441,6 +441,13 @@ export const waitingIdeasOf = (state) => (state?.inspire?.ideas?.status === "wai
 export const openMaterialOf = (state) => (state?.agent?.needs ?? []).filter((need) => need?.status === "open" && Array.isArray(need.options));
 /** The option the agent recommends for a material need, from 1 (needs.mjs marks exactly one). */
 export const recommendedOption = (need) => Math.max(1, (need?.options ?? []).findIndex((option) => option.recommended) + 1);
+/**
+ * A need option's words for the person. The agent's `do` stays as written, except the found
+ * footage option (library {topic:"footage"} tool syntax, needs.mjs findDo): it reads as plain
+ * words with its license cost kept in view.
+ */
+export const optionLabel = (option) => (/^library\s*\{\s*topic\s*:\s*"footage"/.test(String(option?.do ?? ""))
+  ? "find footage (license unknown)" : String(option?.do ?? ""));
 
 /**
  * "needs you", in order: the open project's waiting stop, the stops in other projects, the ideas

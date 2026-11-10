@@ -11,7 +11,7 @@ import { leftWords, needWords, renderDock, seenNow, specWords } from "./agentVie
 import { act, boardShotUrl, frameUrl, renderFileUrl, seenUrl } from "./api.js";
 import { ago } from "./format.js";
 import { tickWhileShown } from "./visibleClock.js";
-import { keyTarget, needsYouRows, recommendedOption } from "./state.js";
+import { keyTarget, needsYouRows, optionLabel, recommendedOption } from "./state.js";
 import "./live.css";
 
 /** The clock, once a second, for panels that count down or fade out on their own. */
@@ -187,11 +187,12 @@ export function MaterialChoices({ need, onPick, className = "tb", recommendedCla
     <>
       {need.options.map((option, index) => {
         const n = index + 1;
+        const label = optionLabel(option);
         return (
           <button key={n} type="button" className={`${className}${n === rec ? ` ${recommendedClass}` : ""}`} onClick={() => onPick(need, `option ${n}`)}
-            title={`${option.do} · cost: ${option.cost}${n === rec ? " (recommended, a)" : ""}`} aria-keyshortcuts={n === rec ? "a" : undefined}
-            aria-label={`Option ${n}${n === rec ? ", recommended" : ""}: ${option.do}. Cost: ${option.cost}.`}>
-            {n}{n === rec ? <span aria-hidden="true"> ★</span> : null} {cutWords(option.do, 34)}
+            title={`${label} · cost: ${option.cost}${n === rec ? " (recommended, a)" : ""}`} aria-keyshortcuts={n === rec ? "a" : undefined}
+            aria-label={`Option ${n}${n === rec ? ", recommended" : ""}: ${label}. Cost: ${option.cost}.`}>
+            {n}{n === rec ? <span aria-hidden="true"> ★</span> : null} {cutWords(label, 34)}
           </button>
         );
       })}

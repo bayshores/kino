@@ -12,7 +12,7 @@ import { calmLightAnimations } from "../../engine/effects/light.js";
 import { frameUrl, renderFileUrl, seenUrl } from "./api.js";
 import { heavyLiveEffects, heavyLiveEffectsAt, reducedLayout } from "./liveResolution.js";
 import { ago, baseName, bytes, callLine, callSummary, clock, cut, fixWords, imageKind, imageTokens, progressBar, SPINNER, timeOfDay, tokens } from "./format.js";
-import { activeAgents, activeAgentsText, agentRows, briefRows, callAgent, commentRows, dragPoint, rulerSeconds, needsYouRows, noteRows, otherStops, planRows, pointingLine, pointRange, rangeText, seenImages, stepPoint, stopName, stopRows, timelineRows, trafficTokens, turnRows, videoLayers, waitingStopOf } from "./state.js";
+import { activeAgents, activeAgentsText, agentRows, briefRows, callAgent, commentRows, dragPoint, rulerSeconds, needsYouRows, noteRows, optionLabel, otherStops, planRows, pointingLine, pointRange, rangeText, seenImages, stepPoint, stopName, stopRows, timelineRows, trafficTokens, turnRows, videoLayers, waitingStopOf } from "./state.js";
 import { StagePresence, TimelinePresence } from "./presence.jsx";
 import { Bot } from "./bot.jsx";
 import { moodOfRow } from "./bot.js";
@@ -1412,7 +1412,7 @@ export function NeedRows({ needs, act }) {
   return (
     <ol className="note-cards need-rows" aria-label="Needs">
       {needs.map((need) => {
-        const options = (need.options ?? []).map((option, index) => ({ ...option, n: index + 1 }))
+        const options = (need.options ?? []).map((option, index) => ({ ...option, label: optionLabel(option), n: index + 1 }))
           .sort((a, b) => Number(Boolean(b.recommended)) - Number(Boolean(a.recommended)));
         const answer = (value, words) => act({ action: "needs", id: need.id, answer: value }, words);
         return (
@@ -1423,15 +1423,15 @@ export function NeedRows({ needs, act }) {
                 <p className="note-actions">
                   {options.map((option) => (
                     <button key={option.n} type="button" className={`tb ${option.recommended ? "note-yes" : "tb-box"}`} title={option.cost}
-                      onClick={() => answer(`option ${option.n}`, `${need.id}: ${option.do}.`)}>
-                      {option.recommended ? <><span aria-hidden="true">★ </span><span className="sr-only">recommended: </span></> : null}{option.do}
+                      onClick={() => answer(`option ${option.n}`, `${need.id}: ${option.label}.`)}>
+                      {option.recommended ? <><span aria-hidden="true">★ </span><span className="sr-only">recommended: </span></> : null}{option.label}
                     </button>
                   ))}
                   <button type="button" className="tb tb-box" onClick={() => answer("have", `${need.id}: you have it.`)}>I have it</button>
                   <button type="button" className="tb tb-box" onClick={() => answer("drop", `${need.id}: do without.`)}>do without</button>
                 </p>
               ) : (
-                <p className="note-meta"><span className="note-chip c-working">{need.status === "waiting" ? "you have it" : need.answer?.plan ?? options.find((option) => option.n === need.answer?.option)?.do ?? "planned"}</span></p>
+                <p className="note-meta"><span className="note-chip c-working">{need.status === "waiting" ? "you have it" : need.answer?.plan ?? options.find((option) => option.n === need.answer?.option)?.label ?? "planned"}</span></p>
               )}
             </div>
           </li>

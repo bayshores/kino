@@ -9,7 +9,7 @@ import {
   SEARCHING_TILES, arrange, boardRows, boardTiles, briefLine, detailRows, filmCells, filterBoards, foundCount, ideaFrames, kindCounts, shelves, soundDetail, soundNote, soundRow, ideasSummary, ideaTimeWords, lengthWords, motionWords, searcher, soFarWords, soundtrackRows, musicOrder, seekTime, songPlayhead, songSeek, sourceWords, stepStates, ticks, tileChips, tileLabel, tileWords, tiles,
   watchSentence, withInspireEvent,
 } from "./dashboard/inspireView.js";
-import { applyEvent, fromSnapshot, needKey, needsYouRows } from "./dashboard/state.js";
+import { applyEvent, fromSnapshot, needKey, needsYouRows, optionLabel } from "./dashboard/state.js";
 import { needsBar } from "./dashboard/needsBar.js";
 import { needWords } from "./dashboard/agentView.js";
 import { keyAction, parseCommand } from "./dashboard/keys.js";
@@ -202,6 +202,9 @@ test("waiting ideas need you: a row the top bar names, answered on the inspire s
   assert.equal(needKey(material), "material/p1/M1");
   assert.deepEqual(needsBar([material], 0).keys, [["a", "option 2"]]);
   assert.deepEqual([needWords(material).todo, needWords(material).allow], ["Do you have a screen recording?", "option 2"]);
+  // The found footage option's tool syntax reads as plain words with its license cost.
+  const found = { do: 'library {topic:"footage", search:"the cook <doing>", want:"<words>"}, then scan and import', cost: "license unknown" };
+  assert.deepEqual([optionLabel(found), optionLabel(need.options[0])], ["find footage (license unknown)", "keep the phone capture"]);
 });
 
 test("the live frame is kept while its reference is measured and dropped when it is done", () => {
