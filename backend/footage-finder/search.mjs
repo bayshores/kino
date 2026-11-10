@@ -132,10 +132,19 @@ const mergeDropped = (a, b) => {
   return all;
 };
 
+// Why a pasted link was dropped: yt-dlp's reason ("region", "members only", "age", "private"),
+// "live" (no length yet), or "unavailable" (deleted, or any other failure).
+function givenDropReason(error) {
+  if (error?.code === "UNPLAYABLE" && error.reason) return error.reason;
+  if (/has no length yet/.test(String(error?.message ?? ""))) return "live";
+  return "unavailable";
+}
+
 /**
  * Searches YouTube for footage. `run(args, {signal})` runs yt-dlp and resolves with its output
  * (runYtDlp, or a stub in tests). A YouTube link among the words is the person's own pick: it is
- * looked up and ranked first, unfiltered. When nothing is left, the words are tried once more
+ * looked up and ranked first, unfiltered; one that cannot play from here counts in dropped as
+ * "yours: region", "yours: live" and the like. When nothing is left, the words are tried once more
  * without "4k", "raw", "clips for edits" and "hd". Answers {words, tried?, candidates, dropped}.
  */
 export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal } = {}) {
@@ -145,14 +154,24 @@ export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal 
   if (!words && !links.length) throw new Error("A footage search needs words, such as <series> fight, or a YouTube link.");
   const wanted = Math.max(1, Math.min(FOOTAGE_SEARCH_COUNT, Math.round(count) || FOOTAGE_SHOWN));
   const given = [];
+  const ownDropped = {};
   for (const link of links) {
     const videoId = refId(link).slice(3);
     if (given.some((candidate) => candidate.videoId === videoId)) continue;
-    const text = await run(["--no-playlist", "--skip-download", "--dump-json", "--ignore-no-formats-error", `https://www.youtube.com/watch?v=${videoId}`], { signal });
-    given.push(toCandidate(parseVideoInfo(text, videoId), { given: true }));
+    try {
+      const text = await run(["--no-playlist", "--skip-download", "--dump-json", "--ignore-no-formats-error", `https://www.youtube.com/watch?v=${videoId}`], { signal });
+      given.push(toCandidate(parseVideoInfo(text, videoId), { given: true }));
+    } catch (error) {
+      // A pasted video that cannot play here (region, members, private, live) is dropped and the
+      // word search carries on. A bot check, a cancel or a missing yt-dlp stops the whole search.
+      if (error?.name === "AbortError" || error?.code === "BOT_CHECK" || error?.code === "NO_YTDLP") throw error;
+      const reason = `yours: ${givenDropReason(error)}`;
+      ownDropped[reason] = (ownDropped[reason] ?? 0) + 1;
+    }
   }
   const ask = async (text) => parseFootageLines(await run(["--flat-playlist", "--dump-json", `ytsearch${FOOTAGE_SEARCH_COUNT}:${text}`], { signal }));
   let found = words ? await ask(words) : { candidates: [], dropped: {} };
+  found = { ...found, dropped: mergeDropped(ownDropped, found.dropped) };
   let tried;
   const reworded = words && !found.candidates.length ? rewordQuery(words) : null;
   if (reworded) {

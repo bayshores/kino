@@ -58,6 +58,9 @@ test("a footage search puts the pasted link and then verified channels first, dr
   const calls = [];
   const ytDlp = async (args) => {
     calls.push(args);
+    if (args.includes("--skip-download") && args.at(-1).endsWith("blocked1xxx")) {
+      throw Object.assign(new Error("yt-dlp cannot play this video from here (region)."), { code: "UNPLAYABLE", reason: "region" });
+    }
     if (args.includes("--skip-download")) return ytLine("given1", "My own pick", { channel: "Me" });
     return [
       ytLine("fan1", "Gojo vs Sukuna 4K scenepack clips for edits"),
@@ -70,15 +73,42 @@ test("a footage search puts the pasted link and then verified channels first, dr
   };
   try {
     const finder = createFootageFinder({ directory, ytDlp });
-    const answer = await finder.search("gojo fight https://youtu.be/given1xxxxx");
+    const answer = await finder.search("gojo fight https://youtu.be/given1xxxxx https://youtu.be/blocked1xxx");
     assert.deepEqual(answer.candidates.map((candidate) => candidate.id), ["clip:yt-given1xxxxx", "clip:yt-official1xx", "clip:yt-fan1xxxxxxx"]);
     assert.equal(answer.candidates[0].given, true);
     assert.equal(answer.candidates[2].doubt, "upscaled?");
-    assert.deepEqual(answer.dropped, { edits: 1, reactions: 1, live: 1, "over 3 h": 1 });
+    assert.deepEqual(answer.dropped, { "yours: region": 1, edits: 1, reactions: 1, live: 1, "over 3 h": 1 });
     const search = calls.find((args) => args.includes("--flat-playlist"));
     assert.ok(search.includes("ytsearch20:gojo fight"), search.join(" "));
     assert.equal(candidateLine(answer.candidates[1], "F2"), 'F2 Big Studio (verified) · 10:00 · "Episode 1" · license unknown');
-    assert.equal(droppedLine(answer.dropped), "Dropped 4: 1 edits, 1 reactions, 1 live, 1 over 3 h.");
+    assert.equal(droppedLine(answer.dropped), "Dropped 5: 1 yours: region, 1 edits, 1 reactions, 1 live, 1 over 3 h.");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("two identical searches at once share one yt-dlp call, and one caller cancelling leaves the other its answer", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  let calls = 0;
+  let answer;
+  const ytDlp = (args, { signal }) => {
+    calls += 1;
+    return new Promise((resolve, reject) => {
+      answer = () => resolve(ytLine("hit1", "Gojo fight scene"));
+      signal?.addEventListener("abort", () => reject(Object.assign(new Error("Cancelled."), { name: "AbortError" })), { once: true });
+    });
+  };
+  try {
+    const finder = createFootageFinder({ directory, ytDlp });
+    const cancel = new AbortController();
+    const first = finder.search("gojo fight", { signal: cancel.signal });
+    const second = finder.search("gojo fight");
+    while (!answer) await new Promise((resolve) => setImmediate(resolve));
+    cancel.abort();
+    await assert.rejects(first, { name: "AbortError" });
+    answer();
+    assert.equal((await second).candidates.length, 1);
+    assert.equal(calls, 1);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

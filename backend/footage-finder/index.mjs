@@ -24,27 +24,57 @@ export function createFootageFinder(deps) {
   const { directory, ytDlp = (args, options) => runYtDlp(args, options), now = Date.now } = deps;
   if (!directory) throw new Error("createFootageFinder needs a directory.");
   const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: FOOTAGE_CACHE_MS, now });
-  // The same search running twice at once (two agents) asks YouTube once.
+  // The same search running twice at once (two agents) asks YouTube once. The shared job has its
+  // own cancel: it stops only when every caller waiting on it has cancelled.
   const searching = new Map();
 
   async function search(words, { count, signal } = {}) {
+    if (signal?.aborted) throw abortError();
     const key = `youtube\n${count ?? ""}\n${String(words ?? "").replace(/\s+/g, " ").trim().toLowerCase()}`;
     let job = searching.get(key);
     if (!job) {
+      const controller = new AbortController();
       let asked = false;
-      job = cached(key, async () => {
+      const promise = cached(key, async () => {
         asked = true;
-        const answer = await searchFootage(words, { run: ytDlp, count, signal });
+        const answer = await searchFootage(words, { run: ytDlp, count, signal: controller.signal });
         if (!answer.candidates.length) throw new NothingFound(answer);
         return answer;
       })
         .then((answer) => ({ ...answer, cached: !asked }))
         .catch((error) => { if (error instanceof NothingFound) return { ...error.answer, cached: false }; throw error; })
-        .finally(() => searching.delete(key));
+        .finally(() => { if (searching.get(key) === job) searching.delete(key); });
+      job = { controller, promise, waiting: 0 };
       searching.set(key, job);
     }
-    return job;
+    job.waiting += 1;
+    try {
+      return await untilAborted(job.promise, signal);
+    } finally {
+      job.waiting -= 1;
+      // The last caller cancelled: stop yt-dlp, and let a later search start afresh.
+      if (signal?.aborted && job.waiting === 0) {
+        if (searching.get(key) === job) searching.delete(key);
+        job.controller.abort();
+      }
+    }
   }
 
   return { search };
+}
+
+function abortError() {
+  const error = new Error("Cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+// The shared promise for one caller: rejects with "Cancelled." as soon as this caller's signal aborts.
+function untilAborted(promise, signal) {
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
 }
