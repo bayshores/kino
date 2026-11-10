@@ -632,6 +632,10 @@ How to read it:
 - **Shots at import**: Verified. One FFmpeg pass finds cuts and flashes; shots are at least 6 frames
   (plan said 15; not yet confirmed); videos over 20 minutes get "shots: not found". Evidence:
   `backend/shot-detection.test.mjs` (clip sources in `tests/fixtures/footage/SOURCES.md`). Not built: dissolves. Not verified: drawn animation.
+- **Footage events**: Verified on a generated clip. Measuring a clip (`.footage-v2`, clips re-measured once) finds
+  impacts (contact, impact frames), light and motion with direction at the frame, and frames per drawing; look
+  source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
+  moments not yet checked; a busy still background hides a small mover; nothing in compose uses them yet.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and

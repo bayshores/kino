@@ -83,7 +83,13 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
         shots: Array.isArray(record.shots) ? record.shots : null, words: null, samples: null, sound: null,
       };
       if (!picture) {
-        try { clip.samples = (await footageCache.video(file, { width: clip.width, height: clip.height, duration })).samples; }
+        try {
+          const measured = await footageCache.video(file, { width: clip.width, height: clip.height, duration });
+          clip.samples = measured.samples;
+          // Impacts, light and motion at the frame, and frames per drawing (footage/events.mjs).
+          clip.events = measured.events ?? null;
+          clip.drawing = measured.drawing ?? null;
+        }
         catch (error) { notes.push(`${record.name} was not measured (${error.message}); framing and moments use the middle of the picture`); }
         // Its sound: its own track, or a sound file of the same length given in footage.
         const paired = sounds.find((sound) => !sound.used && Math.abs((Number(sound.record.duration) || 0) - duration) <= 0.15);

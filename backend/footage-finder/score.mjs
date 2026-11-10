@@ -308,7 +308,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       const lead = Math.max(0, duration - span);
       const at = window.start - lead;
       const { shots } = await use.findShots(window.file, { duration, signal, maxSeconds: WHOLE_MAX_SECONDS });
-      const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal });
+      const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal, events: false });
       for (const key of Object.keys(vision)) vision[key] ||= measured.vision?.[key] === true;
       const samples = measured.samples ?? [];
       const cuts = shots.slice(1).map((shot) => shot.start);
