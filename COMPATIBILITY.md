@@ -246,10 +246,10 @@ How to read it:
   cut-out, or masked-type with subject), never deals it, and technique_repeat warns from the 4th
   use; a style moment leaves out only its own use. Gap: not yet run on a real edit. Evidence:
   `engine/qualityStyle.test.js`, `engine/moves.test.js`.
-- **Repeated endings**: Partial. A house-memory hit in the last 15% or the end beat is
-  `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type under a
-  cut-out is part of the layout. Gap: needs a house of earlier renders. Evidence:
-  `engine/layoutSignature.test.js`.
+- **Repeated endings**: Partial. A house-memory hit in the last 15% or the end beat of the video's
+  scene is `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type
+  under a cut-out is part of the layout (house files say their `sigVersion`; older ones compare
+  without it). Gap: needs a house of earlier renders. Evidence: `engine/layoutSignature.test.js`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

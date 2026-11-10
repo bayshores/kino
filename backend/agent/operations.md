@@ -13,7 +13,7 @@ A refused edit saves nothing. Its answer has the `reason`, the failing op's numb
 
 - rename_project {name}
 - update_project {properties: {name?, videoType?, rhythm?}}: videoType is promo, ad, clip, explainer, sting or other; rhythm is {bpm, offset} for the music beat. null removes videoType or rhythm.
-- waive_check {code, target, reason}: accepts a `check` finding on purpose (code is the rule, such as reading_time; target is a layer, a scene, * for the project, a list of layers and scenes, or a glob such as "arch-*" for the layers named so now). What viewers see (screen_unreadable, frozen_picture, frozen_screen, frozen_footage, held_static, hook_readable, text_slides, template_end, clip_reuse) is fixed, not waived: only with quote, the person's own words keeping it (not "your call"), on named layers or a scene
+- waive_check {code, target, reason}: accepts a `check` finding on purpose (code is the rule, such as reading_time; target is a layer, a scene, * for the project, a list of layers and scenes, or a glob such as "arch-*" for the layers named so now). What viewers see (screen_unreadable, frozen_picture, frozen_screen, frozen_footage, held_static, hook_readable, text_slides, template_end, ending_seen, clip_reuse, music_stall) is fixed, not waived: only with quote, the person's own words keeping it (not "your call"), on named layers or a scene
 - unwaive_check {code, target}: target as in waive_check
 - add_scene {properties: {id?, name, width, height, duration, background, layers?, ...}}
 - update_scene {sceneId, properties}

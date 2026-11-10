@@ -3,10 +3,11 @@
 // [{projectId, name, rev, moments: [{t, sig}]}]). The same choice in every project is the tell.
 // A saved reference of this project closer to the moment than the old one backs it
 // (ctx.referenceSignatures, engine/quality/layoutSignature.js referenceSignature).
-// ending_seen (warning): the same, in the closing stretch (the last 15% or the spine's end beat).
+// ending_seen (warning): the same, in the closing stretch (the last 15% or the spine's end beat) of
+// the video's scene (ctx.videoScene; another scene's tail stays seen_before).
 // It keeps one of the 3 slots however close the mid-video hits are, and only the person's words
 // waive it (backend/agent/translate.mjs VIEWER_WAIVERS): a repeated ending is what a viewer keeps.
-import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, signatureDistance } from "../layoutSignature.js";
+import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
 
 // Under this distance (layoutDistance: places and sizes, or the coarse shape) two moments read as
 // the same layout. Calibrated on kino's own projects: one end card in two videos 0.1, a chart or
@@ -17,6 +18,8 @@ const MAX_FINDINGS = 3;
 const CLOSING_SHARE = 0.15;
 // Under this signature distance a layout is the same one still on (layoutMoments' own step).
 const HELD = 0.03;
+// How often a layout held into the closing stretch is sampled to see it never left (seconds).
+const HELD_STEP = 0.5;
 
 // One run's hits, shared by both rules (one house comparison per check).
 const hitsByRun = new WeakMap();
@@ -28,18 +31,27 @@ function seenHits(model, ctx) {
   const references = (ctx.referenceSignatures ?? []).filter(Boolean);
   const endBeats = (ctx.style?.spine ?? []).filter((beat) => beat?.role === "end" && Number.isFinite(beat.from));
   const closingFrom = model.duration * (1 - CLOSING_SHARE);
-  // A layout kept from before the closing stretch and still on in it is a closing moment too
-  // (layoutMoments keeps one moment for a layout held unchanged).
-  const atClosing = house.length ? layoutSignature(model, closingFrom) : null;
-  const closing = (moment) => moment.t >= closingFrom
+  const moments = house.length ? layoutMoments(model, { every: 1, max: 60 }) : [];
+  // The layout on screen when the closing stretch begins is a closing moment too when it came in
+  // before it (layoutMoments keeps one moment for a layout held unchanged): only the last moment
+  // before the stretch, and only when it stayed on without a break until the stretch.
+  const lastBefore = moments.filter((moment) => moment.t <= closingFrom).at(-1);
+  const sameAt = (t) => signatureDistance(lastBefore.sig, layoutSignature(model, t)) < HELD;
+  const steps = (moment) => Array.from({ length: Math.floor((closingFrom - moment.t) / HELD_STEP) }, (_, index) => moment.t + (index + 1) * HELD_STEP);
+  const heldIn = (moment) => moment === lastBefore && sameAt(closingFrom) && steps(moment).every(sameAt);
+  // Only the video's scene has an ending (quality.mjs videoScene: not a format variant or another scene).
+  const closing = (moment) => ctx.videoScene === true && (moment.t >= closingFrom
     || endBeats.some((beat) => moment.t >= beat.from && moment.t <= (Number.isFinite(beat.to) ? beat.to : model.duration))
-    || signatureDistance(moment.sig, atClosing) < HELD;
+    || heldIn(moment));
   const found = [];
-  if (house.length) for (const moment of layoutMoments(model, { every: 1, max: 60 })) {
+  for (const moment of moments) {
     if (!hasDesigned(moment.sig)) continue;
+    // House files older than signature format 2 have no `o` (type under a cut-out): compare without it.
+    const plain = withoutUnder(moment.sig);
     let best = null;
     for (const entry of house) for (const old of entry.moments) {
-      const distance = layoutDistance(moment.sig, old.sig);
+      const current = entry.sigVersion >= SIGNATURE_VERSION;
+      const distance = layoutDistance(current ? moment.sig : plain, current ? old.sig : withoutUnder(old.sig));
       if (!best || distance < best.distance) best = { distance, entry, old };
     }
     if (!best || best.distance >= SEEN_THRESHOLD) continue;

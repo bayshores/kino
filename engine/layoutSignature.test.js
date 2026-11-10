@@ -70,9 +70,11 @@ test("the shape term: one arrangement spaced two ways is near, a row of spread l
 test("seen_before warns on a layout another project already has", async () => {
   const house = [{ projectId: "old", name: "Old promo", rev: 7, moments: layoutMoments(endCard(10)) }];
   const codes = ["seen_before", "ending_seen"];
-  const { findings } = await runQuality(endCard(), { codes, pixels: false, context: { house } });
-  // Held to the end, the card is this video's ending.
+  const { findings } = await runQuality(endCard(), { codes, pixels: false, context: { house, videoScene: true } });
+  // Held to the end, the card is this video's ending; in another scene (a variant) its tail is not.
   assert.deepEqual(findings.map((finding) => finding.rule), ["ending_seen"]);
+  const variant = await runQuality(endCard(), { codes, pixels: false, context: { house, videoScene: false } });
+  assert.deepEqual(variant.findings.map((finding) => finding.rule), ["seen_before"]);
   assert.match(findings[0].message, /Old promo/);
   const other = await runQuality(sideTitle(), { codes, pixels: false, context: { house } });
   assert.equal(other.findings.length, 0);
@@ -90,13 +92,16 @@ test("type under a cut-out is part of the layout: a 2-row and a 3-row cut-out en
   assert.ok(layoutDistance(ending(3), ending(3, false)) >= SEEN_THRESHOLD);
 });
 
+// The end card shown from `from` to `to` s, `shift` px lower.
+const card = (from, shift, to = from + 2) => [["name", "acme", { x: 760, y: 380, fontSize: 150, role: "logo" }], ["tag", "Tools for small teams.", { x: 560, y: 600, fontSize: 56 }], ["url", "acme.dev", { x: 820, y: 700, fontSize: 36 }]]
+  .map(([id, value, props]) => text(`${id}${from}`, value, { ...props, y: props.y + shift, ...during(`${id}${from}`, from, to) }));
+const codes = ["seen_before", "ending_seen"];
+
 test("ending_seen: a repeated ending keeps its slot past 3 closer mid-video repeats", async () => {
-  const card = (from, shift) => [["name", "acme", { x: 760, y: 380, fontSize: 150, role: "logo" }], ["tag", "Tools for small teams.", { x: 560, y: 600, fontSize: 56 }], ["url", "acme.dev", { x: 820, y: 700, fontSize: 36 }]]
-    .map(([id, value, props]) => text(`${id}${from}`, value, { ...props, y: props.y + shift, ...during(`${id}${from}`, from, from + 2) }));
   // Three end cards mid-video (the house has the card: distance 0), then a cut-out ending from 16 s.
   const video = modelOf([...card(1, 0), ...card(5, 60), ...card(9, 120), ...cutoutEnding(2, { from: 16, to: 20 })], 20);
-  const house = [{ projectId: "old", name: "Old promo", rev: 7, moments: [...layoutMoments(endCard()), { t: 9, sig: layoutSignature(modelOf(cutoutEnding(3)), 1.5) }] }];
-  const { findings } = await runQuality(video, { codes: ["seen_before", "ending_seen"], pixels: false, context: { house } });
+  const house = [{ projectId: "old", name: "Old promo", rev: 7, sigVersion: 2, moments: [...layoutMoments(endCard()), { t: 9, sig: layoutSignature(modelOf(cutoutEnding(3)), 1.5) }] }];
+  const { findings } = await runQuality(video, { codes, pixels: false, context: { house, videoScene: true } });
   assert.deepEqual(findings.map((finding) => finding.rule), ["seen_before", "seen_before", "ending_seen"]);
   const ending = findings.at(-1);
   const distance = (finding) => Number(finding.measured.match(/distance ([\d.]+)/)[1]);
@@ -104,4 +109,23 @@ test("ending_seen: a repeated ending keeps its slot past 3 closer mid-video repe
   assert.ok(ending.at >= 16, ending.at);
   assert.match(ending.message, /matches an earlier project's ending \(name under a cut-out subject\)/);
   assert.match(ending.fix.text, /own payoff material/);
+});
+
+test("ending_seen: a house file from before signature format 2 (no `o`) still matches a cut-out ending", async () => {
+  const video = modelOf([...card(1, 0), ...cutoutEnding(3, { from: 8, to: 10 })], 10);
+  const { o, ...name } = layoutSignature(modelOf(cutoutEnding(3)), 1.5).items.find((item) => item.o === 1);
+  const old = { ...layoutSignature(modelOf(cutoutEnding(3)), 1.5) };
+  old.items = old.items.map((item) => (item.o ? name : item));
+  const rules = async (entry) => (await runQuality(video, { codes, pixels: false, context: { house: [entry], videoScene: true } })).findings.map((finding) => finding.rule);
+  assert.deepEqual(await rules({ projectId: "old", name: "Old promo", rev: 3, moments: [{ t: 2, sig: old }] }), ["ending_seen"]);
+  // Saved in format 2, the same file says that ending had no cut-out: not the same layout.
+  assert.deepEqual(await rules({ projectId: "old", name: "Old promo", rev: 3, sigVersion: 2, moments: [{ t: 2, sig: old }] }), []);
+});
+
+test("ending_seen: an earlier showing of the ending's layout is not the ending", async () => {
+  // The card at 1-3 s (the house's own place), a title, then the card 40 px lower from 8 s to the end.
+  const video = modelOf([...card(1, 10), text("title", "Chapter one", { x: 120, y: 120, fontSize: 96, textAlign: "left", ...during("title", 4, 7) }), ...card(8, 50, 10)], 10);
+  const house = [{ projectId: "old", name: "Old promo", rev: 7, sigVersion: 2, moments: layoutMoments(endCard(10)) }];
+  const { findings } = await runQuality(video, { codes, pixels: false, context: { house, videoScene: true } });
+  assert.deepEqual(findings.map((finding) => [finding.rule, finding.at >= 8]), [["seen_before", false], ["ending_seen", true]]);
 });

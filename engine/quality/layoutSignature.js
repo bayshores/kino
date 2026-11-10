@@ -83,6 +83,16 @@ export function layoutSignature(model, t, { families = null } = {}) {
   return { backdrop: round(backdrop), items };
 }
 
+// The signature format: 2 marks type under a cut-out (`o`). House files without `sigVersion` are
+// older (no `o`), so a comparison with one leaves `o` out of both sides (withoutUnder).
+export const SIGNATURE_VERSION = 2;
+
+/** The signature without the under-a-cut-out mark, as format 1 wrote it (the same object when it has none). */
+export function withoutUnder(signature) {
+  if (!signature?.items?.some((item) => "o" in item)) return signature;
+  return { ...signature, items: signature.items.map(({ o, ...item }) => item) };
+}
+
 /** True when the signature holds designed type or a logo (captions alone do not count). */
 export const hasDesigned = (signature) => Boolean(signature?.items?.some((item) => item.d));
 

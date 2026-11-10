@@ -6,7 +6,7 @@ import { mkdir, readdir, readFile, rename, stat, writeFile } from "node:fs/promi
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { kinoTimeline } from "../engine/quality/kinoTimeline.js";
-import { layoutMoments } from "../engine/quality/layoutSignature.js";
+import { layoutMoments, SIGNATURE_VERSION } from "../engine/quality/layoutSignature.js";
 
 // Moments kept per project (each about 0.5 KB).
 export const HOUSE_MAX = 40;
@@ -64,7 +64,7 @@ export function createHouseMemory(directory) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const target = fileOf(projectId);
     const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ projectId, name: name ?? projectId, family: familyOf(name ?? projectId), rev, savedAt: new Date().toISOString(), moments: kept }), { mode: 0o600 });
+    await writeFile(temporary, JSON.stringify({ projectId, name: name ?? projectId, family: familyOf(name ?? projectId), rev, sigVersion: SIGNATURE_VERSION, savedAt: new Date().toISOString(), moments: kept }), { mode: 0o600 });
     await rename(temporary, target);
   }
 
