@@ -24,6 +24,7 @@
 // Reduced motion: no shake and no strobe (a note says so); flashes and dips are half as strong.
 // The accent starts on its cue, so align and dur are refused; song seams and rests count only
 // when fit_music wrote them (fitted), never a song-* cue set by hand.
+import { IMPACT_KINDS } from "../../blockFields.js";
 import { parseAt } from "../timing.js";
 import { CURVES, effect, motion, round } from "./kit.js";
 
@@ -31,7 +32,7 @@ const FRAME = 1 / 30;
 // An event this close to the cue is at the cue (the impact may come up to 2 frames early).
 const NEAR = 2.5 * FRAME;
 const EARLY = 2 * FRAME + 1e-6;
-export const IMPACT_KINDS = Object.freeze(["flash", "shake", "impact-frame", "dip", "strobe"]);
+export { IMPACT_KINDS };
 const NEEDS = Object.freeze({ flash: ["light", "seam", "accent"], shake: ["impact"], "impact-frame": ["impact"], dip: ["dropout"], strobe: ["fill"] });
 const SAYS = { light: "light in the shot", seam: "a song seam", accent: "a top accent", impact: "an impact in the footage", dropout: "a rest in the song", fill: "a drum fill before it" };
 // Song seams (fit_music cues song-<kind>-<n>) by how hard the picture may answer them.

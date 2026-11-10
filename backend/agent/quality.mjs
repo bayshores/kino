@@ -371,6 +371,17 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
     }
     return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) };
   }
+  // An effect to take off (effect_fit: a loud effect nothing motivates): its animations, or the
+  // card layer that only flashes.
+  if (fix.kind === "remove") {
+    if (fix.layerItemId) {
+      const found = sourceLayer(document, itemOf(fix.layerItemId));
+      if (!found) return { fix: "Take the effect off.", auto: false };
+      return { fix: { op: "delete_layer", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id) }, auto: Boolean(fix.auto) };
+    }
+    const ops = fix.animationIds.map((animationId) => ({ op: "delete_animation", animationId: refName(animationId, codes) }));
+    return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) };
+  }
   // A layer to take out (stacked_label). Never auto: the agent decides the layer has to go.
   if (fix.kind === "delete_item") {
     const item = itemOf(fix.itemId);

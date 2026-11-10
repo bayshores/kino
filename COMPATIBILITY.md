@@ -630,7 +630,10 @@ How to read it:
   needs a motivating cue on its frame (2 frames early at most), ranks in strength with the cue's weight, fits its
   section's energy budget (none inside a rest but its edges), is not stacked (3 in 0.15 s), not on a talking face,
   not a jittering or steady shake; text animations and sound effects need a cue, cut or word; a gate at the final
-  render, waived only by naming a cue. A wanted accent no longer lifts technique_repeat's budget. Evidence:
+  render, waived only by naming a cue. It also finds hand-made exposure flashes, short wiggle or oscillate
+  shakes, threshold impact frames, quick color cards and single zoom punches of any size (timed from their
+  rise); an untriggered one's auto fix takes it off. An impact-accent record keeps its cue through a save.
+  A wanted accent no longer lifts technique_repeat's budget. Evidence:
   `engine/effectFit.test.js`, `engine/qualityStyle.test.js`, `engine/moves.test.js`. Gaps: no per-accent pixel
   check yet (luma jump, color mush, ghosting); footage events reach it only through cues pinned to a clip.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).

@@ -23,7 +23,7 @@ import { cueMotives } from "../../blocks/moves/impact.js";
 import { mediaFrameState } from "../../playback.js";
 import { sec } from "../analysis.js";
 import { itemById } from "../model.js";
-import { plateChanges, techniquesUsed, textEntrances } from "../techniques.js";
+import { plateChanges, punches, techniquesUsed, textEntrances } from "../techniques.js";
 import { peopleNear } from "./people.js";
 import { soundEffectsOf } from "./sound.js";
 import { heardEdges, heardWords } from "./speech.js";
@@ -68,26 +68,40 @@ export function songSections(cues, duration) {
 }
 
 // The loud effects, each with its trigger: [{tag, at, itemId, strength, frames, shape, rate, cue, weight, motive}].
-function loudEffects(model, cues) {
+// `motivated` is every cue with its strongest reason, worked out once: [{cue, best}].
+function loudEffects(model, cues, motivated) {
   const used = techniquesUsed(model);
+  // Zoom punches one at a time, of any size, timed from where they start to rise; a punch a move
+  // names its cue for is read from the move's record.
+  const named = (used["beat-kick"] ?? []).filter((use) => use.cue);
+  const kicks = [...named, ...punches(model).filter((punch) => !named.some((use) => Math.abs(use.at - punch.at) < 0.1))
+    .map((punch) => ({ at: sec(punch.at), itemId: punch.itemId, strength: Math.round(Math.min(1, punch.amount / 0.1) * 100) / 100, frames: 12, shape: "pulse", animationIds: punch.animationIds }))];
   const list = [];
-  for (const tag of LOUD_TAGS) for (const use of used[tag] ?? []) {
+  for (const tag of LOUD_TAGS) for (const use of tag === "beat-kick" ? kicks : used[tag] ?? []) {
     let trigger = null;
     if (use.cue) {
       // An accent move names its cue: it fits while the cue is still there, on its frame.
-      const cue = cues.find((entry) => entry.name === use.cue);
-      const best = cue && motivesOf(cue, cues)[0];
-      if (cue && onCue(use.at, cue.time)) trigger = { cue: cue.name, weight: use.strength ?? best?.weight ?? 0.5, motive: best?.motive ?? "cue" };
+      const found = motivated.find((entry) => entry.cue.name === use.cue) ?? (cues.some((cue) => cue.name === use.cue) ? { cue: cues.find((cue) => cue.name === use.cue), best: null } : null);
+      if (found && onCue(use.at, found.cue.time)) trigger = { cue: found.cue.name, weight: use.strength ?? found.best?.weight ?? 0.5, motive: found.best?.motive ?? "cue" };
     } else {
-      for (const cue of cues) {
-        if (!onCue(use.at, cue.time)) continue;
-        const best = motivesOf(cue, cues)[0];
-        if (best && (!trigger || best.weight > trigger.weight)) trigger = { cue: cue.name, weight: best.weight, motive: best.motive };
+      for (const { cue, best } of motivated) {
+        if (onCue(use.at, cue.time) && (!trigger || best.weight > trigger.weight)) trigger = { cue: cue.name, weight: best.weight, motive: best.motive };
       }
     }
     list.push({ tag, ...use, ...(trigger ? { trigger } : {}) });
   }
   return list.sort((a, b) => a.at - b.at);
+}
+
+// What takes an untriggered effect off: its own animations, or the card that flashes (a layer
+// that does nothing else). null when it is not one kino can take off alone (a glitch transition).
+function removal(model, use) {
+  const item = use.itemId && itemById(model, use.itemId);
+  if (item?.source?.componentPath) return null;
+  if (use.tag === "flash" && use.shape === "card" && item) return { kind: "remove", layerItemId: item.id, auto: true };
+  let ids = use.animationIds ?? [];
+  if (!ids.length && use.tag === "shake" && item) ids = (model.effects ?? []).filter((effect) => effect.itemId === item.id && effect.effect === "wiggle" && Math.abs(effect.start - use.at) < 0.02).map((effect) => effect.animationId).filter(Boolean);
+  return ids.length ? { kind: "remove", animationIds: ids, auto: true } : null;
 }
 
 // A face in the clip talking at `time`: the clip's own voice says a word, or a face is found in
@@ -126,16 +140,20 @@ export function effectFit(model, ctx) {
   const findings = [];
   const finding = (reason, at, measured, required, message, hint, extra = {}) => findings.push({
     rule: "effect_fit", severity: "warn", final: true, reason, at: sec(at), measured, required, message, fix: fix(hint), ...extra });
-  const nearest = (at) => cues.filter((cue) => motivesOf(cue, cues).length).sort((a, b) => Math.abs(a.time - at) - Math.abs(b.time - at))[0];
-  const effects = loudEffects(model, cues);
+  // The cues that motivate a loud effect, with their strongest reason, once per run.
+  const motivated = cues.map((cue) => ({ cue, best: motivesOf(cue, cues)[0] })).filter((entry) => entry.best);
+  const nearest = (at) => motivated.reduce((near, entry) => (!near || Math.abs(entry.cue.time - at) < Math.abs(near.time - at) ? entry.cue : near), null);
+  const effects = loudEffects(model, cues, motivated);
 
-  // untriggered: a loud effect with no reason on its frame.
+  // untriggered: a loud effect with no reason on its frame. Its fix takes it off (check fix:"auto").
   for (const use of effects.filter((entry) => !entry.trigger)) {
     const near = nearest(use.at);
+    const reason = `put it on a reason: move {name:"impact-accent", kind, at:"cue:${near?.name ?? "<cue>"}"}${near ? ` (${sec(near.time)}s)` : ""}. Most moments need no effect.`;
+    const off = removal(model, use);
     finding("untriggered", use.at, `${TAG_WORDS[use.tag]} at ${sec(use.at)}s on no measured cue${use.cue ? ` (its cue ${use.cue} moved or is gone)` : ""}`,
       "each loud effect on a cue that motivates it (footage impact or light, song seam or rest, top accent, fill), up to 2 frames early, never late",
-      `The ${TAG_WORDS[use.tag]} at ${sec(use.at)}s in ${ctx.sceneName} has nothing under it in the song or the footage: it is decoration.`,
-      `Take it off, or put it on a reason: move {name:"impact-accent", kind, at:"cue:${near?.name ?? "<cue>"}"}${near ? ` (${sec(near.time)}s)` : ""}. Most moments need no effect.`, use.itemId ? { itemId: use.itemId } : {});
+      `The ${TAG_WORDS[use.tag]} at ${sec(use.at)}s in ${ctx.sceneName} has nothing under it in the song or the footage: it is decoration.${off ? ` The fix takes it off; or ${reason}` : ""}`,
+      `Take it off, or ${reason}`, { ...(use.itemId ? { itemId: use.itemId } : {}), ...(off ? { fix: off } : {}) });
   }
 
   // strength ranks with the trigger's weight.

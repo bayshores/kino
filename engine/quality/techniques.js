@@ -292,6 +292,78 @@ export function pulses(model) {
   });
 }
 
+/**
+ * Zoom punches for effect_fit: every scale pulse of something on screen, of any size, one at a
+ * time (a kick run is not needed), as [{ at, peak, amount, itemId, animationIds }]. `at` is where
+ * the rise starts (a punch that rises over frames from its cue is on the cue), `peak` its top.
+ */
+export function punches(model) {
+  return memo(model, "punches", () => {
+    const found = [];
+    const rise = Math.max(1, Math.round(0.2 * model.fps));
+    const whole = Math.max(2, Math.round(0.45 * model.fps));
+    const last = model.times.length - 1;
+    for (const item of model.items) {
+      if (item.isMask || maxOpacity(item) < 0.3) continue;
+      const { scale, opacity } = item.samples;
+      for (let index = 1; index < last; index += 1) {
+        if (opacity[index] < 0.5 || opacity[index - 1] < 0.5 || !(scale[index] > scale[index - 1] + 1e-4) || scale[index] < scale[index + 1] - 1e-4) continue;
+        let from = index - 1;
+        for (let back = index - 1; back >= Math.max(0, index - rise) && opacity[back] >= 0.5; back -= 1) if (scale[back] < scale[from]) from = back;
+        const amount = scale[index] / Math.max(1e-6, scale[from]) - 1;
+        if (amount < 0.01) continue;
+        let back = -1;
+        for (let next = index + 1; next <= Math.min(last, from + whole) && opacity[next] >= 0.5; next += 1) if (scale[next] / scale[from] - 1 <= amount / 3) { back = next; break; }
+        if (back < 0) continue;
+        // The short scale animations that make it (they start between its rise and its peak).
+        const [start, peak] = [model.times[from], model.times[index]];
+        const chain = new Set(chainOf(model, item).map((entry) => entry.id));
+        const own = model.tweens.filter((tween) => chain.has(tween.itemId) && tween.keys.some((key) => SCALE_KEYS.has(key)) && tween.duration <= 0.5
+          && tween.start >= start - 0.05 && tween.start <= peak + 0.05);
+        const animationIds = [...new Set(own.map((tween) => tween.source?.animationId).filter(Boolean))];
+        // It starts where its first animation does, else at the last sample before it grew.
+        const at = own.length ? Math.max(start, Math.min(...own.map((tween) => tween.start))) : start;
+        found.push({ at, peak, amount: Math.round(amount * 100) / 100, itemId: item.id, z: item.z, animationIds });
+      }
+    }
+    found.sort((x, y) => x.peak - y.peak || x.z - y.z);
+    return found.filter((pulse, index) => !index || pulse.peak - found[index - 1].peak > 1.5 / model.fps).map(({ z, ...pulse }) => pulse);
+  });
+}
+
+// The longest a hand-made exposure lift may rise, and a hard grade may hold, to read as a hit.
+const LIFT_RISE = 0.2;
+const HIT_FRAMES = 4;
+
+/**
+ * Loud accents made by hand that no move record names: an exposure lift and fall (color-grade
+ * stops up then down) is a flash, a short wiggle or oscillate of the layer's place is a shake, a
+ * threshold-color of 4 frames or less is an impact frame (a flash). The animations a move that
+ * names its cue made (impact-accent, move.trigger) are left to its record. [{ tag, at, itemId, extra }].
+ */
+function handAccents(model) {
+  const triggered = (model.moves ?? []).filter((move) => move.trigger).map((move) => `${move.id}.`);
+  const ownAccent = (entry) => Boolean(entry.animationId) && triggered.some((prefix) => entry.animationId.startsWith(prefix));
+  const stops = (values) => (Number.isFinite(values?.stops) ? values.stops : 0);
+  const found = [];
+  const effects = (model.effects ?? []).filter((effect) => !ownAccent(effect));
+  for (const up of effects.filter((effect) => effect.effect === "color-grade")) {
+    const lift = stops(up.to) - stops(up.from);
+    if (lift < 0.4 || up.end - up.start > LIFT_RISE + 1e-3) continue;
+    const down = effects.find((effect) => effect !== up && effect.itemId === up.itemId && effect.effect === "color-grade" && Math.abs(effect.start - up.end) <= 0.05
+      && stops(effect.to) <= stops(up.from) + lift / 3 && effect.end - up.start <= 0.6);
+    if (!down) continue;
+    found.push({ tag: "flash", at: up.end, itemId: up.itemId, animationIds: [up.animationId, down.animationId], extra: { strength: round2(Math.min(1, stops(up.to) / 2)), frames: Math.max(1, Math.round((down.end - up.start) * 30)), shape: "decay" } });
+  }
+  for (const hit of effects.filter((effect) => effect.effect === "threshold-color" && effect.end - effect.start <= HIT_FRAMES / 30 + 0.006))
+    found.push({ tag: "flash", at: hit.start, itemId: hit.itemId, animationIds: [hit.animationId], extra: { strength: 1, frames: Math.max(1, Math.round((hit.end - hit.start) * 30)), shape: "frame" } });
+  for (const shake of (model.behaviors ?? []).filter((entry) => !ownAccent(entry) && entry.end - entry.start <= 0.5)) {
+    found.push({ tag: "shake", at: shake.start, itemId: shake.itemId, animationIds: [shake.animationId], extra: { strength: round2(Math.min(1.5, shake.amount / (0.02 * model.width))),
+      frames: Math.max(1, Math.round((shake.end - shake.start) * 30)), shape: shake.decay >= 6 ? "decay" : "steady", rate: round2(shake.rate) } });
+  }
+  return found.map((entry) => ({ ...entry, extra: { ...entry.extra, animationIds: entry.animationIds.filter(Boolean) } }));
+}
+
 // ---------------------------------------------------------------- screen zoom
 
 // The share of the frame (0 to 1) an item shows at a sample: its box inside the frame and inside
@@ -438,15 +510,19 @@ export function techniquesUsed(model) {
     for (const fade of crossfades(model)) if (!found.dissolve?.some((entry) => Math.abs(entry.at - fade.at) < 0.3)) add("dissolve", fade.at, fade.itemId);
     const glitchTimes = new Set(changes.filter((change) => change.tag === "glitch-hit").map((change) => sec(change.at)));
     for (const motion of motions(model)) if (presetOf(motion) === "glitch" && !glitchTimes.has(sec(motion.start))) { glitchTimes.add(sec(motion.start)); add("glitch-hit", motion.start, motion.itemId); }
-    // A flash that is not at a shot change: a light full-frame shape shown 0.35 s or less.
+    // A flash that is not at a shot change: a light full-frame shape shown 0.35 s or less, or a
+    // shape of any color that comes up within 2 frames and is gone within 0.15 s (a red frame).
     for (const item of plates(model)) {
       const { opacity, luma } = item.samples;
+      const card = item.kind !== "video" && item.kind !== "image";
       for (let index = 0; index < model.times.length; index += 1) {
-        if (!(opacity[index] >= 0.5 && luma[index] >= 0.85) || (index && opacity[index - 1] >= 0.5)) continue;
+        const light = luma[index] >= 0.85;
+        const spike = card && (index < 2 || opacity[index - 2] < 0.1);
+        if (!(opacity[index] >= 0.5 && (light || spike)) || (index && opacity[index - 1] >= 0.5)) continue;
         let length = 0;
         let peak = 0;
-        while (index + length < model.times.length && opacity[index + length] >= 0.5) { peak = Math.max(peak, opacity[index + length] * (luma[index + length] ?? 0)); length += 1; }
-        if (length / model.fps <= 0.35 && !found.flash?.some((entry) => Math.abs(entry.at - model.times[index]) < 0.4))
+        while (index + length < model.times.length && opacity[index + length] >= 0.5) { peak = Math.max(peak, opacity[index + length] * (light ? luma[index + length] ?? 0 : 1)); length += 1; }
+        if (length / model.fps <= (light ? 0.35 : 0.15) && !found.flash?.some((entry) => Math.abs(entry.at - model.times[index]) < 0.4))
           add("flash", model.times[index], item.id, { strength: round2(peak), frames: Math.max(1, Math.round((length / model.fps) * 30)), shape: "card" });
       }
     }
@@ -526,6 +602,7 @@ export function techniquesUsed(model) {
       else if (effect.effect === "grain" || effect.effect === "vignette") add(effect.effect, effect.start, effect.itemId);
       else if (MOTION_BLUR_KEYS.has(effect.effect) && ![...transitionBlurs].some((time) => Math.abs(time - effect.start) <= 0.8)) add("motion-blur", effect.start, effect.itemId);
     }
+    for (const accent of handAccents(model)) if (!found[accent.tag]?.some((entry) => Math.abs(entry.at - accent.at) < 1.5 * step)) add(accent.tag, accent.at, accent.itemId, accent.extra);
 
     // Type: how each text enters, and what it does after.
     for (const entry of textEntrances(model)) if (entry.tag) add(entry.tag, entry.at, entry.itemId);

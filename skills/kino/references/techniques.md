@@ -91,7 +91,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 | `style_wanted` | a backed wanted technique not used (hard cuts stay free) | |
 | `off_beat` | an accent 1 frame to 70 ms off a beat: a near miss | on it, or clearly between (syncopated) |
 | `deck_unused` | fewer than half of the deck's cards used (a card swapped out does not count) | half or more |
-| `effect_fit` | music edit: a loud effect with no cue for it, oversized, over budget, stacked, on a talking face | waive with cue:<name> |
+| `effect_fit` | music edit: loud effect on no cue, too big, over budget, stacked, on a talking face | auto removes; waive with cue:<name> |
 
 ## The deck
 
