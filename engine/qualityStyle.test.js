@@ -308,7 +308,9 @@ const cards = (seconds) => scene({ duration: 8, layers: [
 test("text_slides: text over a flat card for over 25% of the video, or a card held over 3 s, reads as slides", async () => {
   const [finding] = await fires("text_slides", cards(3.5));
   assert.match(finding.measured, /^4[0-9]% of the video/);
-  assert.match(finding.fix.text, /slow-push|drift|depth-blur|type-words|particles/);
+  assert.match(finding.fix.text, /slow-push|drift|type-words|particles/);
+  // Text over blurred footage is a card too, so the hint never suggests depth-blur.
+  assert.doesNotMatch(finding.fix.text, /depth-blur/);
   // 1.5 s of an 8 s video is under 25% and under 3 s.
   await silent("text_slides", cards(1.5));
   // A 3.5 s card at the start of a 20 s video is under 25%, but held too long.
@@ -324,6 +326,24 @@ test("text_slides: text over a flat card for over 25% of the video, or a card he
     clip(`shot${index}`, { animations: [show(index * 6 + 1.5), hide(index * 6 + 6)] })]).concat([clip("last", { animations: [show(18)] })]) });
   const [row] = await fires("text_slides", intertitles);
   assert.match(row.measured, /in 3 cards/);
+  // Two lines on the flat card and one over a playing clip under a full-frame 50% tint (fp-8) are
+  // three cards too, and so is one over the clip blurred to a backdrop, or a line still typing on
+  // over the tint (fp-8's prompt); over the clip alone, two.
+  const tint = rect("tint", { x: 0, y: 0, width: 1920, height: 1080, fill: "#000000", opacity: 0.5, animations: [show(12), hide(13.5)] });
+  const typing = [{ ...fadeIn(12, 0.05), unit: "letters", stagger: 0.06 }];
+  const dimmed = (back, entrance = []) => scene({ duration: 20, layers: [
+    text("card0", "line 1 of the story", { animations: [hide(1.5)] }), clip("shot0", { animations: [show(1.5), hide(6)] }),
+    text("card1", "line 2 of the story", { animations: [show(6), hide(7.5)] }), clip("shot1", { animations: [show(7.5)] }), ...back,
+    text("card2", "line 3 of the story", { fill: "#ffffff", animations: [show(12), ...entrance, hide(13.5)] })] });
+  const [tinted] = await fires("text_slides", dimmed([tint]));
+  assert.match(tinted.measured, /in 3 cards/);
+  const blurred = dimmed([clip("log", { blur: 18, animations: [show(12), hide(13.5)] })]);
+  await fires("text_slides", blurred);
+  await fires("text_slides", dimmed([tint], typing));
+  await silent("text_slides", dimmed([]));
+  // A sharp screen at half size floating over the tint is the shot; a spec backing depth-blur keeps the blur a shot.
+  await silent("text_slides", dimmed([tint, clip("screen", { x: 480, y: 270, width: 960, height: 540, animations: [show(12), hide(13.5)] })]));
+  await silent("text_slides", blurred, { styleSpec: { wants: ["depth-blur"], by: "you", quote: "like the reference edit" } });
   // A closing card may hold: 2 s at the end of a 10 s video.
   const closing = scene({ duration: 10, layers: [clip("street", { animations: [hide(8)] }), text("end", "kino.dev", { animations: [show(8)] })] });
   await silent("text_slides", closing);

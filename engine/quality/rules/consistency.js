@@ -23,7 +23,7 @@ import { CUT_TIMING_TAGS, PLAIN_TAGS } from "../../techniques.js";
 import { cuts, designedTexts, drawnSize, readableAt, readingTexts, sec, speechTimed, typeLimits } from "../analysis.js";
 import { textSlideSamples } from "./style.js";
 import { isCredit } from "./tells.js";
-import { area, chainOf, dimmedAt, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
+import { area, chainOf, fillColorsAt, hexRgba, intersection, isDecor, isGradient, longestRun, runs, visibleBoxAt } from "../model.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { subjectOnScene } from "../../sourceView.js";
 import { boxNear } from "./footage.js";
@@ -665,9 +665,8 @@ const SMALLER = 0.7;
 
 export function templateEnd(model, ctx) {
   if (model.duration < EDIT_SECONDS) return [];
-  const still = textSlideSamples(model);
-  const designed = designedTexts(model);
-  const slide = still.map((value, index) => (value || (dimmedAt(model, index) && designed.some((item) => readableAt(model, item, index)))) ? 1 : 0);
+  // Text over a still, flat, dimmed or blurred picture (one definition with text_slides).
+  const slide = textSlideSamples(model, ctx);
   let last = slide.length - 1;
   while (last >= 0 && !slide[last]) last -= 1;
   if (last < 0 || model.duration - model.times[last] > END_TAIL) return [];

@@ -121,7 +121,7 @@ export function signatureMissing(model, ctx) {
   // A signature shorter than the longest text card: the video spends more time on words than on its idea.
   const spine = Array.isArray(style.spine) ? style.spine : [];
   if (spine.length && readingTexts(model).length) {
-    const slide = textSlideSamples(model);
+    const slide = textSlideSamples(model, ctx);
     const cards = spine.filter((beat) => beat?.role !== "signature" && isRange([beat?.from, beat?.to]) && decorative(model, slide, beat));
     const longestCard = cards.reduce((best, beat) => (!best || beat.to - beat.from > best.to - best.from ? beat : best), null);
     const longest = ranges.reduce((best, range) => (range.to - range.from > best.to - best.from ? range : best));
