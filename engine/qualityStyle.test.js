@@ -94,11 +94,19 @@ async function silent(code, document, context) {
 // Two full-frame clips with a change at 2 s; `a` and `b` add animations to each.
 const twoShots = ({ a = [hide(2)], b = [show(2)], aProps = {}, bProps = {}, more = [], ...fields } = {}) =>
   scene({ ...fields, layers: [clip("a", { animations: a, ...aProps }), clip("b", { animations: b, ...bProps }), ...more] });
+// `count` shots 3 s apart, each a clip, a word and the clip's cut-out (cutoutOf) with the word
+// between them (`front`: the word over the cut-out instead).
+const wordsBehind = (count, front = false) => scene({ duration: count * 3, layers: Array.from({ length: count }, (unused, index) => {
+  const animations = () => [...(index ? [show(index * 3)] : []), hide(index * 3 + 2.5)];
+  const word = text(`word${index}`, `WORD ${index}`, { x: 400, y: 400, animations: animations() });
+  const cut = clip(`person${index}`, { cutoutOf: `shot${index}`, allowOverlap: true, animations: animations() });
+  return [clip(`shot${index}`, { animations: animations() }), ...(front ? [cut, word] : [word, cut])];
+}).flat() });
 
 // ---------------------------------------------------------------- the vocabulary
 
-test("the vocabulary: 55 tags in 6 groups, each with a line and when it fits; the undetectable ones say why", () => {
-  assert.equal(TECHNIQUES.length, 55);
+test("the vocabulary: 56 tags in 6 groups, each with a line and when it fits; the undetectable ones say why", () => {
+  assert.equal(TECHNIQUES.length, 56);
   assert.equal(new Set(TECHNIQUE_TAGS).size, TECHNIQUE_TAGS.length, "tags are unique");
   for (const entry of TECHNIQUES) {
     assert.match(entry.tag, /^[a-z0-9]+(-[a-z0-9]+)*$/, entry.tag);
@@ -253,6 +261,9 @@ test("set piece: split-screen is two clips side by side; one covered by a full-f
   const pair = (more = []) => scene({ layers: [clip("left", { width: 900, height: 1000, x: 40, y: 40 }), clip("right", { width: 900, height: 1000, x: 980, y: 40 }), ...more] });
   uses("split-screen", pair());
   notUses("split-screen", pair([rect("card", { x: 0, y: 0, width: 1920, height: 1080, fill: "#111111" })]));
+  // type-behind: a word above a clip and under the cut-out of that clip (cutoutOf); in front, none.
+  uses("type-behind", wordsBehind(1));
+  notUses("type-behind", wordsBehind(1, true));
 });
 
 // ---------------------------------------------------------------- rhythm
@@ -401,6 +412,14 @@ test("technique_repeat: one transition at most shot changes, a loud accent past 
   const melt = (to) => ({ styleSpec: { ...glue, spine: [{ role: "signature", from: 1, to, purpose: "the melt" }] } });
   assert.match((await fires("vocabulary_budget", shots([true, true, true, true]), melt(4)))[0].measured, /outside the moves: dissolve ×3/);
   await silent("vocabulary_budget", shots([true, true, true, true]), melt(9));
+  // A word between a clip and its cut-out, four times: type-behind past the motif. A moment
+  // leaves out only its own use (6 s, in its beat): four of five still warn, three of four do not.
+  const [repeat] = await fires("technique_repeat", wordsBehind(4));
+  assert.match(repeat.measured, /^type-behind 4 times$/);
+  assert.match(repeat.message, /\(0s, 3s, 6s, 9s\)/);
+  const turn = { styleSpec: { spine: [{ role: "turn", from: 5.5, to: 7, purpose: "the turn" }], moments: [{ tag: "type-behind", beat: 0, what: "the turn" }], by: "guessed" } };
+  await silent("technique_repeat", wordsBehind(4), turn);
+  assert.match((await fires("technique_repeat", wordsBehind(5), turn))[0].message, /\(0s, 3s, 9s, 12s\)/);
   // Six texts, all popping in.
   const pop = (start) => ({ ...fadeIn(start, 0.4), from: { opacity: 0, scaleX: 0.6, scaleY: 0.6 }, to: { opacity: 1, scaleX: 1, scaleY: 1 } });
   const texts = (count) => scene({ duration: 8, layers: [0, 1, 2, 3, 4, 5].map((index) => text(`t${index}`, `line ${index}`, { y: 60 + index * 160, animations: [index < count ? pop(index) : fadeIn(index)] })) });

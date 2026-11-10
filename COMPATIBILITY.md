@@ -233,6 +233,10 @@ How to read it:
 - **Consistency checks**: Partial. Warnings such as role_font_drift, vocabulary_budget, pacing_jump,
   busy_edit and restraint; overlay_covers_subject is a gate. Gap: a tinted clip needs a render for
   accent_budget. Evidence: `engine/qualityRules.test.js`, `engine/qualityStyle.test.js`.
+- **Type behind a subject**: Partial. check finds `type-behind` (text between a clip and its
+  cut-out, or masked-type with subject), never deals it, and technique_repeat warns from the 4th
+  use; a style moment leaves out only its own use. Gap: not yet run on a real edit. Evidence:
+  `engine/qualityStyle.test.js`, `engine/moves.test.js`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

@@ -160,7 +160,8 @@ test("freeze-shutter stops the clip on the beat, blinks once and plays again; ma
   scene.layers.push(createLayer("video", { id: "person", name: "person", src: "/api/media/clip-subject.webm", x: 0, y: 0, width: 1920, height: 1080 }));
   const behind = run("masked-type", { layer: "clip", text: "walk", subject: "person", place: "top" }, 0.5, 2.4);
   assert.deepEqual(behind.added.map(({ layer, place }) => [layer.move.part, place]), [["wash", { below: "person" }], ["word", { below: "person" }]]);
-  assert.ok(behind.tags.includes("parallax"));
+  assert.ok(behind.tags.includes("parallax") && behind.tags.includes("type-behind"));
+  assert.ok(!filled.tags.includes("type-behind"));
   // A light brand's text color is dark: the word over the dark wash takes the light one.
   const light = runMove(MOVES["masked-type"], { id: "masked-type", input: readMoveInput(MOVES["masked-type"], { layer: "clip", text: "walk", subject: "person" }), scene, style: styleFor({ look: "crisp", brand: { colors: { bg: "#F7F5F0", text: "#141414", accent: "#FF4D94" } }, frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.5, dur: 2.4, media });
   assert.equal(light.added.find(({ layer }) => layer.move.part === "word").layer.fill, "#F7F5F0");

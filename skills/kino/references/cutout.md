@@ -47,7 +47,8 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
 
 ### Title behind the subject
 
-The title goes between the clip and its cut-out:
+The title goes between the clip and its cut-out (`type-behind`: keep it for 1 to 3 key beats;
+`technique_repeat` warns from the 4th):
 
 ```json
 {"op":"add_layer","layerType":"video","name":"runner","properties":{"src":"/api/media/<runner>.mp4","x":0,"y":0,"width":1920,"height":1080}}

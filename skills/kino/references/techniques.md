@@ -7,7 +7,7 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
 
 ## The vocabulary
 
-50 tags in 6 groups. `library {topic:"techniques", name?}` lists them, or one. `*` marks ones check cannot find in a document yet.
+56 tags in 6 groups. `library {topic:"techniques", name?}` lists them, or one. `*` marks ones check cannot find in a document yet.
 
 - **transition**: cut, match-cut*, dissolve, fade-black, blur-through, zoom-through, whip-pan,
   mask-wipe, glitch-hit, flash, push-transition
@@ -16,7 +16,7 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
   type-mask-rise, type-blur-in, type-giant, type-counter, type-swap, type-kinetic
 - **texture**: speed-lines, particles, rgb-split, light-sweep, grain, vignette, depth-blur, motion-blur
 - **set piece**: tile-ring, clip-field*, draw-on, swipe-cards, logo-match-move, status-line, split-screen,
-  device-in-scene*, screen-zoom (read from the `move` that built them)
+  device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)
 - **rhythm**: beat-cut, beat-kick, syncopated, hold
 
 After its findings, every check answer lists the techniques the video uses, most used first:

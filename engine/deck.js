@@ -190,8 +190,8 @@ function pickWeighted(rng, entries) {
   return entries.at(-1).value;
 }
 
-/** The tags a group may deal: ones check can find, that are not plain. */
-export const dealableTags = (group) => TECHNIQUES.filter((entry) => entry.group === group && entry.detect && !PLAIN_TAGS.includes(entry.tag)).map((entry) => entry.tag);
+/** The tags a group may deal: ones check can find, that are not plain and not kept out of the deal. */
+export const dealableTags = (group) => TECHNIQUES.filter((entry) => entry.group === group && entry.detect && entry.deal !== false && !PLAIN_TAGS.includes(entry.tag)).map((entry) => entry.tag);
 
 /**
  * Deals a hand. `style` is styleContext(spec) or null; `recent` the tags (and move names) of the

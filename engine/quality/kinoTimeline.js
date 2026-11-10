@@ -324,6 +324,8 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       allowOverlap: layer.allowOverlap === true, move: layer.move?.instance ?? null,
       // A copy a move lays over your layer to color it (accent-hit, light-sweep): drawn as part of that layer.
       overlay: layer.move?.part === "overlay",
+      // The clip this layer was cut out of (cut_out): type between the two stands behind the subject.
+      ...(layer.cutoutOf ? { cutoutOf: layer.cutoutOf } : {}),
       z, parentId: byId.has(layer.parentId) ? layer.parentId : null, clipIds, maskId: groupMaskOf.get(layer.id) ?? null, isMask: layer.isMask === true,
       ...(invertedMasks.has(layer.id) ? { maskInvert: true } : {}),
       text: isTextLayer ? String(layer.text ?? "") : null, texts: null,
