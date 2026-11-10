@@ -226,6 +226,10 @@ test("type: how each text enters", () => {
   uses("type-letters", entering([{ ...fadeIn(0.5, 0.3), unit: "letters", stagger: 0.03 }]));
   uses("type-blur-in", entering([{ ...fadeIn(0.5, 0.5), from: { opacity: 0, blur: 20 }, to: { opacity: 1, blur: 0 } }]));
   uses("type-mask-rise", entering([{ kind: "in", start: 0.5, duration: 0.5, easing: "smooth", from: { reveal: { progress: 0, direction: "up", softness: 0 } }, to: { reveal: { progress: 1, direction: "up", softness: 0 } } }]));
+  // headline-reveal "lines": each line slides up out of a text clip, which is a mask rise, not a slide.
+  const lines = entering([{ ...fadeIn(0.5, 0.4), from: { opacity: 0, y: 260 }, to: { opacity: 1, y: 200 }, unit: "lines", stagger: 0.1, textClip: true }]);
+  uses("type-mask-rise", lines);
+  notUses("type-slide", lines);
   // Only the reveal: a word-by-word entrance is type-words, not also type-fade.
   notUses("type-fade", entering([{ ...fadeIn(0.5, 0.4), unit: "words", stagger: 0.1 }]));
 });
@@ -584,6 +588,10 @@ test("deck_unused: a video that uses fewer than half of its deck's cards; a card
   // A move counts when the video shows a technique it is tagged with.
   // (parallax-stack's depth-blur is used, so 2 of 3 cards are.)
   await silent("deck_unused", designed, deck(["parallax", "dissolve"], { kind: "move", name: "parallax-stack", tags: ["parallax", "depth-blur"] }));
+  // Drawn type cards are not forced once the references name the type (kino has no default type look).
+  const typeCards = deck(["dissolve", "type-giant", "type-fade"]);
+  await fires("deck_unused", designed, typeCards);
+  await silent("deck_unused", designed, { ...typeCards, styleSpec: { wants: ["type-words"], by: "you", quote: "captions word by word like the reference" } });
   // No deck, or a video under 8 s: quiet.
   await silent("deck_unused", designed, {});
   await silent("deck_unused", scene({ duration: 4, layers: [text("title", "hello")] }), deck(["dissolve", "parallax", "particles"]));

@@ -400,7 +400,7 @@ export const swipeCards = {
         }
         ctx.animate(fill, "rise", motion({ name: "Color rises", start: step.dragAt, duration: step.dragSeconds + 0.1 * step.pace, easing: CURVES.settle, from: { fill: rise(1) }, to: { fill: rise(0) } }));
         ctx.animate(answer, "in", motion({ name: "Stamp", kind: "in", start: step.dragAt + 0.1 * step.pace, duration: 0.3 * step.pace, easing: CURVES.settle,
-          from: { opacity: 0, scaleX: 1.25, scaleY: 1.25, blur: Math.round(8 * ctx.scale) }, to: { opacity: 1, scaleX: 1, scaleY: 1, blur: 0 } }));
+          from: { opacity: 0, scaleX: 1.25, scaleY: 1.25 }, to: { opacity: 1, scaleX: 1, scaleY: 1 } }));
         ctx.animate(fill, "show", motion({ name: "Show", kind: "in", start: step.dragAt, duration: 0.05, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
       }
       for (const [layer, layerRole] of [[target, role], [fill, null], [answer, null]]) ctx.animate(layer, "hide", hide(step.exitAt + step.exitSeconds), layerRole);

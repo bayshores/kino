@@ -114,13 +114,12 @@ test("novelty: each new project's deal steers away from the last projects' decks
   assert.deepEqual(mediaKeys({ scenes: [{ layers: [layer("video", "/a.mp4"), layer("audio", "/hit.wav"), layer("image", "/logo.png")] }] }), ["/a.mp4", "/logo.png"], "a shared sound is not shared material");
 });
 
-test("the material steers the deal: footage without words gets one light type card", async () => {
+test("the material steers the deal: footage without words gets no type card (no default type look)", async () => {
   await newVideo("deck-silent", { madeFrom: "drone.mp4 footage only" });
   await agent("notes", { project: "deck-silent", action: "brief", no_playback: "just start" });
   const deck = (await agent("notes", { project: "deck-silent", action: "deck" })).data.deck;
   const type = deck.cards.filter((card) => card.group === "type").map((card) => card.tag);
-  assert.equal(type.length, 1);
-  assert.ok(["type-fade", "type-slide", "type-pop", "type-mask-rise", "type-blur-in"].includes(type[0]), type[0]);
+  assert.deepEqual(type, []);
   assert.equal(deck.material, "video");
 });
 

@@ -100,6 +100,14 @@ test("pace: runs of whole beats on the beat grid, a calm open and an ending twic
   assert.deepEqual(plan.runs.slice(1).map((run) => `${run.count}x${run.beats}`), ["4x4", "6x2", "7x1"]);
 });
 
+test("title: each type card and treatment carries its own reveal, none a blur; a calm title is a plain fade", () => {
+  const titleOf = (treatment, tag) => paced("promo", 30, { treatment, deck: tag ? { cards: [{ tag }] } : null }).plan.title;
+  assert.equal(titleOf("calm").enter, "fade");
+  assert.equal(titleOf("story").enter, "lines");
+  const enters = Object.fromEntries(["type-mask-rise", "type-fade", "type-blur-in", "type-slide", "type-pop"].map((tag) => [tag, titleOf("calm", tag).enter]));
+  assert.deepEqual(enters, { "type-mask-rise": "lines", "type-fade": "fade", "type-blur-in": "fade", "type-slide": "fade-up", "type-pop": "scale" });
+});
+
 test("accents: a zoom punch on every other downbeat in the open, every one in the ending, none under words", () => {
   const bars = [0, 2, 4, 6, 8, 10, 12, 14];
   assert.deepEqual(accentTimes(bars, { ending: 10, quiet: [{ start: 3.9, end: 4.2 }] }), [0, 8, 10, 12, 14]);

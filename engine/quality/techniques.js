@@ -472,6 +472,8 @@ function entranceTag(model, item, starting, first) {
   const presets = starting.map(presetOf).filter(Boolean);
   for (const preset of presets) if (TEXT_PRESET_TAGS[preset]) return TEXT_PRESET_TAGS[preset];
   if (presets.includes("glitch")) return null;
+  // Lines sliding up out of a text clip (headline-reveal "lines") are a mask rise.
+  if (tweens.some((tween) => tween.textClip)) return "type-mask-rise";
   const keys = new Set(tweens.flatMap((tween) => tween.keys));
   if (keys.has("reveal")) return "type-mask-rise";
   if (keys.has("y") && item.clipIds?.length) return "type-mask-rise";

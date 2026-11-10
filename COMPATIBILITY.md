@@ -233,6 +233,18 @@ How to read it:
 - **Signature check**: Verified (tests). `signature_missing` warns while editing and gates a final
   render when the idea has no designed signature range. Evidence: `engine/qualityStyle.test.js`,
   `backend/agent-judge.test.mjs`.
+- **No default type look (blur bias removed)**: Verified (tests). type-blur-in is never dealt, text
+  reveal cards need words, each type card and treatment names its own title reveal (a calm title is a
+  plain fade), masked-type with subject rises plainly or cuts on (`reveal`), `fade_only_entrances`
+  counts blur, blur+fade and blur-rise and names them, `deck_unused` never forces a drawn type card
+  once the references or the signature name the type, and the critic asks whether the type was chosen
+  from the references and footage. push-through-type fades in by default (`entrance:"sharpen"` asks for
+  the blur), and a headline-reveal `lines` title counts as type-mask-rise. status-line rises and cuts
+  with no blur (`swap:"blur"` opts in), the swipe-cards stamp has no blur, and check's overlap auto
+  fix turns a blur entrance into a plain fade instead of adding a fade to it. Evidence:
+  `engine/deck.test.js`, `engine/footage.test.js`, `engine/moves.test.js`, `backend/agent-overlap-fade-fix.test.mjs`,
+  `engine/pushThroughType.test.js`, `engine/qualityRules.test.js`, `engine/qualityStyle.test.js`. Gap: the treatments' own type direction
+  and the style frame in the storyboard are later steps.
 - **Deck**: Verified (tests). After the brief and the treatment pick (none before it), kino deals each project a seeded hand of techniques and
   one set piece (`engine/deck.js`), with reroll, swap (MCP notes fields too) and a `deck_unused` warning; it never steers away
   from a recent project that shares most of its footage or the story. Evidence:

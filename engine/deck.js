@@ -44,6 +44,11 @@ const NEEDS = Object.freeze({
   "freeze-frame": ["video"],
   "depth-blur": ["pictures"],
   "split-screen": ["twoPictures"],
+  // Every reveal of words needs words: a footage edit without text is never dealt one.
+  "type-fade": ["text"],
+  "type-slide": ["text"],
+  "type-pop": ["text"],
+  "type-mask-rise": ["text"],
   "type-giant": ["text"],
   "type-kinetic": ["text"],
   "type-letters": ["text"],

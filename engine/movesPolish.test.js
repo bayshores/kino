@@ -59,7 +59,7 @@ const animation = (layer, name) => layer.animations.find((entry) => entry.id.end
 const overlaps = (a, b) => a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
 test("push-through-type: one line at the open spacing, a small split, the word gone before the letter fills, the mask dropped once the letter covers the frame", () => {
-  const made = run("push-through-type", { text: "oak.", next: "shot-a" }, { at: 0.2, dur: 2.6 });
+  const made = run("push-through-type", { text: "oak.", next: "shot-a", entrance: "sharpen" }, { at: 0.2, dur: 2.6 });
   const word = made.added.find((entry) => entry.layer.move.part === "word").layer;
   const window = made.added.find((entry) => entry.layer.move.part === "window").layer;
   const open = animation(word, "in").from.letterSpacing;

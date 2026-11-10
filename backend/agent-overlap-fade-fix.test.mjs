@@ -64,17 +64,26 @@ test("an overlap with fading layers keeps the plain hint", async () => {
   assert.equal(finding.auto, undefined, JSON.stringify(finding));
 });
 
-test("a blur entrance that waits on screen gets a fade in", async () => {
-  await agent("project", { action: "create", id: "waits", name: "Waits", width: 1920, height: 1080, duration: 6, background: "#101010" });
-  await agent("edit", { project: "waits", ops: [
-    title("first", "It watches cameras", [{ preset: "preset-fade", start: 0, duration: 0.4 }, { preset: "preset-fade", mode: "out", start: 2, duration: 0.4 }]),
-    title("second", "all night long", [{ preset: "preset-blur-slide", start: 2.6, duration: 0.5 }]),
-  ] });
-  const check = await agent("check", { project: "waits", pixels: false });
-  const [finding] = overlaps(check);
-  assert.ok(finding, check.text);
-  assert.match(finding.message, /entrance .* without fading it/, finding.message);
-  assert.deepEqual({ op: finding.fix.op, mode: finding.fix.mode, start: finding.fix.start, duration: finding.fix.duration }, { op: "add_animation", mode: "in", start: 2.6, duration: 0.5 });
-  const fixed = await agent("check", { project: "waits", fix: "auto", pixels: false });
-  assert.deepEqual(overlaps(fixed), [], fixed.text);
+test("a blur entrance that waits on screen loses its blur and fades in plainly (never blur and fade)", async () => {
+  // blur-slide becomes a plain slide plus a fade with its timing; preset-blur becomes preset-fade.
+  for (const [id, preset, expected] of [
+    ["waits", "preset-blur-slide", [["update_animation", "slide", undefined], ["add_animation", "preset-fade", 2.6]]],
+    ["blurs-in", "preset-blur", [["update_animation", "fade", undefined]]],
+  ]) {
+    await agent("project", { action: "create", id, name: id, width: 1920, height: 1080, duration: 6, background: "#101010" });
+    await agent("edit", { project: id, ops: [
+      title("first", "It watches cameras", [{ preset: "preset-fade", start: 0, duration: 0.4 }, { preset: "preset-fade", mode: "out", start: 2, duration: 0.4 }]),
+      title("second", "all night long", [{ preset, start: 2.6, duration: 0.5 }]),
+    ] });
+    const check = await agent("check", { project: id, pixels: false });
+    const [finding] = overlaps(check);
+    assert.ok(finding, check.text);
+    assert.match(finding.message, /entrance .* without fading it in.*swaps its blur for a plain fade/, finding.message);
+    assert.deepEqual([finding.fix].flat().map((op) => [op.op, op.properties?.preset?.id ?? op.preset, op.start]), expected);
+    const fixed = await agent("check", { project: id, fix: "auto", pixels: false });
+    assert.deepEqual(overlaps(fixed), [], fixed.text);
+    const second = await agent("inspect", { project: id, layer: "second" });
+    assert.match(second.text, /preset fade opacity 0→1 2\.6s/, second.text);
+    assert.doesNotMatch(second.text, /blur/i, second.text);
+  }
 });

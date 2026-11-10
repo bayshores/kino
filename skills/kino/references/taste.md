@@ -49,7 +49,7 @@ What the checks measure, and how to keep a video small.
   never counts plain cuts; `few_techniques` asks only for one signature device under 70 s (a flat
   edit); `vocabulary_budget` only holds the edit to the style bible's moves.
 - Defaults nobody chose read as AI edited; each warns with its measure: `fade_only_entrances`
-  (over 60% of 5+ layers coming on only fade: cut in on a motion or the beat),
+  (over 60% of 5+ layers coming on only fade or through a blur, blur+fade or blur-rise: cut in on a motion or the beat),
   `drift_on_every_shot` (every footage shot, 3+, drifts 0.5% to 5%: lock most off),
   `even_shot_lengths` (6+ shots spread under 0.6 stdev / mean, pro about 0.9: one long hold, a
   few quick cuts), `split_card_layout` (big type on one half, a framed card on the other over a

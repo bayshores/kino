@@ -163,6 +163,12 @@ test("freeze-shutter stops the clip on the beat, blinks once and plays again; ma
   const behind = run("masked-type", { layer: "clip", text: "walk", subject: "person", place: "top" }, 0.5, 2.4);
   assert.deepEqual(behind.added.map(({ layer, place }) => [layer.move.part, place]), [["wash", { below: "person" }], ["word", { below: "person" }]]);
   assert.ok(behind.tags.includes("parallax") && behind.tags.includes("type-behind"));
+  // The word comes on without a blur or closing letters: a plain rise, or a cut-on by `reveal`.
+  const entrance = (made) => made.added.find(({ layer }) => layer.move.part === "word").layer.animations.find((animation) => animation.kind === "in");
+  assert.deepEqual([entrance(behind).name, Object.keys(entrance(behind).from)], ["Rise", ["opacity", "y"]]);
+  assert.ok(!behind.tags.includes("type-blur-in"));
+  const cutOn = run("masked-type", { layer: "clip", text: "walk", subject: "person", reveal: "cut" }, 0.5, 2.4);
+  assert.deepEqual([entrance(cutOn).name, entrance(cutOn).duration <= 0.05], ["Cut on", true]);
   assert.ok(!filled.tags.includes("type-behind"));
   // A light brand's text color is dark: the word over the dark wash takes the light one.
   const light = runMove(MOVES["masked-type"], { id: "masked-type", input: readMoveInput(MOVES["masked-type"], { layer: "clip", text: "walk", subject: "person" }), scene, style: styleFor({ look: "crisp", brand: { colors: { bg: "#F7F5F0", text: "#141414", accent: "#FF4D94" } }, frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.5, dur: 2.4, media });
@@ -273,6 +279,7 @@ test("roll speeds up along its ramp, lands with a hold and a cue per item; swipe
   for (const { layer } of fast.filter((entry) => /^answer\d$/.test(entry.layer.move.part))) {
     const stamp = layer.animations.find((animation) => animation.name === "Stamp");
     const fling = layer.animations.find((animation) => /^Swipe/.test(animation.name));
+    assert.ok(!("blur" in stamp.from), "the answer stamps on with no blur");
     assert.ok(fling.start - (stamp.start + stamp.duration) >= 0.67, `${layer.text} reads for ${round3(fling.start - stamp.start - stamp.duration)} s`);
   }
 });
@@ -380,6 +387,13 @@ test("status-line: a square icon is the tile itself and the brand's name is not 
   assert.equal(parts.tile, undefined, "no white plate around the icon");
   assert.equal(parts.icon.width, 216);
   assert.ok(parts.icon.radius > 0, "the icon has rounded corners");
+  // By default the line rises on and changes with a cut: no blur anywhere (swap "blur" opts in).
+  const two = runMove(MOVES["status-line"], {
+    id: "s", input: readMoveInput(MOVES["status-line"], { icon: "logo", lines: [{ text: "is listening…", at: 0.6 }, { text: "is speaking…", at: 2.4 }] }),
+    scene: sceneFor(1920, 1080, 5), style: styleFor({ look: "crisp", frame }), fonts: defaultFonts, start: 0.3, media, logo: { media: PICTURES.logo },
+  });
+  const said = two.added.find(({ layer }) => layer.move.part === "status").layer.animations;
+  assert.ok(said.every((animation) => !("blur" in (animation.from ?? {})) && !/blur/.test(animation.in?.preset ?? "")), JSON.stringify(said));
   const right = runMove(MOVES["status-line"], {
     id: "s", input: readMoveInput(MOVES["status-line"], { icon: "logo", side: "right", lines: [{ text: "is listening…", at: 0.6 }] }), scene, style: styleFor({ look: "crisp", frame }),
     fonts: defaultFonts, start: 0.3, media, logo: { media: PICTURES.logo },

@@ -2,22 +2,22 @@
 
 A move is a designed set piece built in one op from your layers, pictures, brand.
 Most shots need none (a plain cut). Pick one or two as the signature, repeat them at alike
-moments, and spend them on the hook, reveal and payoff.
+moments, spend them on the hook, reveal and payoff.
 
 Contents: The move op · The moves · Moves example · Trim paths and dashes
 
 ## The move op
 
 - `move {name, at, dur?, id?, seed?, reduced?, look?, brand?, …its fields}`. `at` takes every
-  time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or groups (a
-  layer alone in a group, as frame makes, means the group).
+  time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or
+  groups (a layer alone in a group, as frame makes, means the group).
 - `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
   animates (`<id>.<role>-<name>`). Its id is the move's name (`-2` for a second).
-- The same id remakes it; `{name, id, remove:true}` takes it away. Parts are rebuilt, so
-  never edit them by hand; later ops can name them (`type-on-caret`).
-- `seed` picks other choices. `reduced:true`: calm fades and small moves.
-- No move runs past the scene's end: `retime` the scene or start earlier.
+- The same id remakes it; `{name, id, remove:true}` takes it away. Parts are rebuilt: never
+  edit them by hand.
+- `seed` picks other choices. `reduced:true`: calm fades, small moves.
+- No move runs past the scene's end: `retime` it or start earlier.
 
 ## The moves
 
@@ -33,14 +33,14 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"` (`color`). A clip `to` starts when shown.
 - **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
-  group) sharpens in; the camera speeds into one letter (or the logo's solid part) and the next
-  shot shows inside it until it fills the frame.
+  group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
+  and the next shot shows inside it until it fills the frame.
 - **logo-match-move**: the logo arrives big, then flies into its place on a page, screen or
   sign (`spot`, % of that layer), which sharpens.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.
 - **status-line**: an app icon with a changing status line ("is
-  listening…"): big left of center, or `place:"bottom-left"` a small corner badge whose words
-  cut; `size`, `swap`. Moves off text (or refuses); later footage
+  listening…"): big left of center, or `place:"bottom-left"` a small corner badge; words
+  cut (`swap:"blur"` to blur); `size`. Moves off text (or refuses); later footage
   goes under it; leaves before a dip to black or lone logo already there (else `dur`).
 - **swipe-cards**: the top card of a stack drags aside, tilts, fills with the brand color,
   says YES or NO, flies off. `ramp:"expo"` shrinks gaps from `every` to `last` (1 s); answers hold 0.75 s.
@@ -73,7 +73,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   `kick`), holds `hold` 0.6-1.5 s leaning in, optional `label`, then `release` (ramp or
   cut).
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
-  (a cut_out layer) stands it behind the person.
+  (a cut_out layer) stands it behind the person; `reveal`: `rise` (default) or `cut`.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
   fills the frame 1s (`dur` 0.6-1.4), hard cuts, muted; `entry:"push"`, `of`, `label`.
 - **voice-type**: a spoken line set big word by word; `speech`+`line` or `words`.

@@ -137,9 +137,9 @@ const WASH = 0.55;
 export const maskedType = {
   name: "masked-type",
   needsAt: true,
-  about: "one big word made of the footage: the shot falls away to the background around it while the word's letters close up and keep playing the clip, then the shot comes back; with subject (a cut_out layer) the word stands behind the person instead, rising out of a soft blur",
+  about: "one big word made of the footage: the shot falls away to the background around it while the word's letters close up and keep playing the clip, then the shot comes back; with subject (a cut_out layer) the word stands behind the person instead, rising plainly or cutting on (reveal)",
   fits: "a title that belongs to the shot: a place, one word over the moment it names",
-  tags: ["type-giant", "type-blur-in"],
+  tags: ["type-giant"],
   needs: ["video"],
   length: 2.4,
   shortest: 1.6,
@@ -149,6 +149,7 @@ export const maskedType = {
     textLayer: { kind: "layer", about: "your own text layer instead: the footage plays through it in its own font, size and place (with subject it keeps its color too); it is hidden while the move draws it" },
     subject: { kind: "layer", about: "the subject cut out of the footage (cut_out output subject, above the footage): the word goes between them" },
     place: { kind: "choice", values: ["middle", "top"], about: "where the word sits (default middle; top puts it behind a head)" },
+    reveal: { kind: "choice", values: ["rise", "cut"], about: "with subject: how the word comes on (default rise: it lifts and fades in; cut: it appears at once). No blur" },
   },
   oneOf: [["text", "textLayer"]],
   example: { layer: "clip", text: "WALK", at: 0.5, dur: 2.4 },
@@ -197,7 +198,7 @@ export const maskedType = {
     };
     if (subject) {
       // Behind the subject: a soft dark wash on the footage so the word reads, then the word
-      // rises out of a blur with its letters closing, standing between the footage and the cut-out.
+      // rises (or cuts on, `reveal`), standing between the footage and the cut-out.
       // The wash is down before the word reads and lifts after it goes, so even white sky keeps
       // the word at 3:1.
       const wash = ctx.add("wash", createLayer("rectangle", { name: "Wash", x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, fill: SHADE, opacity: 0, role: "decor", allowOverlap: true }), { below: subject.id });
@@ -208,16 +209,18 @@ export const maskedType = {
       // allowOverlap, so the checks know it covers the word on purpose.
       const { text: ink, bg } = ctx.style.colors;
       const made = ctx.add("word", { ...word, fill: yours ? word.fill : contrast(ink, SHADE) >= contrast(bg, SHADE) ? ink : bg }, { below: subject.id });
+      // No blur and no closing letters: a plain rise (opacity and a short lift), or a cut-on.
       if (ctx.reduced) ctx.animate(made, "in", motion({ name: "Fade in", kind: "in", start: t, duration: TYPE_IN, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
       else {
-        ctx.animate(made, "in", motion({ name: "Rise", kind: "in", start: t, duration: TYPE_IN, easing: CURVES.settle,
-          from: { opacity: 0, y: word.y + Math.round(word.height * 0.35), blur: Math.round(16 * ctx.scale), letterSpacing: round(fontSize * 0.02 * OPEN * 4) }, to: { opacity: 1, y: word.y, blur: 0, letterSpacing: spacing } }));
+        if (input.reveal === "cut") ctx.animate(made, "in", motion({ name: "Cut on", kind: "in", start: t, duration: 0.04, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } }));
+        else ctx.animate(made, "in", motion({ name: "Rise", kind: "in", start: t, duration: TYPE_IN, easing: CURVES.settle,
+          from: { opacity: 0, y: word.y + Math.round(word.height * 0.35) }, to: { opacity: 1, y: word.y } }));
         drift(made);
       }
       // The word goes before the wash lifts, so it never sits on the bright shot.
       ctx.animate(made, "out", motion({ name: "Fade out", kind: "out", start: outAt, duration: round(TYPE_OUT * 2 / 3), easing: CURVES.leave, from: { opacity: 1 }, to: { opacity: 0 } }));
       ctx.animate(made, "hide", hide(end));
-      return { end, tags: ["type-giant", "type-blur-in", "parallax", "type-behind"] };
+      return { end, tags: ["type-giant", "parallax", "type-behind"] };
     }
     // Inside the word: a plate in the background color covers the shot, and a copy of the shot
     // (same file, place, speed and moves, no sound) shows only through the word's letters, so

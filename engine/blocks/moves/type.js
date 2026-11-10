@@ -601,7 +601,7 @@ function layerSubject(ctx, input, next, { fill, open }) {
 
 export const pushThroughType = {
   name: "push-through-type",
-  about: "a big glossy word (or your text, logo, path, shape or group) sharpens in and drifts closer while a sheen slides down it, then the camera pushes into it, faster all the time, the colors splitting as it starts, until the next shot, seen inside it, fills the frame",
+  about: "a big glossy word (or your text, logo, path, shape or group) fades in and drifts closer while a sheen slides down it, then the camera pushes into it, faster all the time, the colors splitting as it starts, until the next shot, seen inside it, fills the frame",
   fits: "an opening title, name or logo that leads into the first shot",
   tags: ["type-giant", "zoom-through", "rgb-split"],
   length: 2.6,
@@ -617,9 +617,10 @@ export const pushThroughType = {
     size: { kind: "number", low: 0.1, high: 0.9, about: "words only: width as a share of the frame (default 0.5, tall 0.7)" },
     fill: { kind: "text", max: 7, about: '"chrome" (sheen; words\' default), a color like "#F4F2EE", or "none" (a layer\'s default: as it is); not on pictures or groups' },
     sheenColor: { kind: "text", max: 7, about: "the chrome sheen's color (default #8E95A3)" },
-    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to sharpen in (default 0.55; 0 for a layer already on screen)" },
+    entrance: { kind: "choice", values: ["fade", "sharpen"], about: "fade (default) or sharpen (out of a blur, letters closing)" },
+    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to come in (default 0.55; 0 if already on screen)" },
     push: { kind: "number", low: 0.3, high: 4, about: "seconds of the fast push (default 0.9; whole beats with music)" },
-    spacing: { kind: "number", low: 1, high: 4, about: "words and text: how far open the letters start, times their spacing (default 2.2)" },
+    spacing: { kind: "number", low: 1, high: 4, about: "sharpen only: how far open the letters start (default 2.2)" },
     split: { kind: "number", low: 0, high: 40, about: "the color split as the push starts, px on a 1080-high frame (default 10; 0 none)" },
   },
   example: { text: "acme.", next: "shot-a", at: 0.2 },
@@ -630,7 +631,9 @@ export const pushThroughType = {
     if (fill !== "chrome" && fill !== "none" && !HEX.test(fill)) throw new Error('push-through-type fill is "chrome", "none" or a color such as "#F4F2EE".');
     if (input.sheenColor !== undefined && !HEX.test(input.sheenColor)) throw new Error('push-through-type sheenColor is a color such as "#8E95A3".');
     const sheen = input.sheenColor ?? SHEEN;
-    const open = input.spacing ?? OPEN_SPACING;
+    // Only the sharpen entrance blurs and opens the letters; the default is a plain fade.
+    const sharpen = input.entrance === "sharpen";
+    const open = sharpen ? (input.spacing ?? OPEN_SPACING) : 1;
     const it = input.layer ? layerSubject(ctx, input, next, { fill, open }) : wordSubject(ctx, input, next, { fill, sheen, open });
     // Animations go on the move's own word, or on your layer (role "layer").
     const animate = (name, animation) => (it.layer ? ctx.animate(it.layer, name, animation) : ctx.animate(it.id, name, animation, "layer"));
@@ -666,7 +669,7 @@ export const pushThroughType = {
     const push = period ? Math.max(1, Math.round(pushFor / period)) * period : pushFor;
     const pushAt = round(Math.max(ctx.start + typeIn + hold, cut - push));
     const opacity = it.state.opacity;
-    // 1. The subject sharpens out of a blur (letters closing up); a sheen slides down it while it
+    // 1. The subject fades in (or, asked for, sharpens out of a blur with letters closing up); a sheen slides down it while it
     // is read (it never sits still), or it holds its asked color.
     const sheenFill = (at) => CHROME(it.sheenBase, at, sheen);
     const color = it.sheenBase ? motion({ name: "Sheen", start: ctx.start, duration: round(pushAt - ctx.start), easing: CURVES.drift, from: { fill: sheenFill(0.2) }, to: { fill: sheenFill(0.8) } })
@@ -708,10 +711,12 @@ export const pushThroughType = {
     };
     // The letters open only as part of an entrance: a layer already on screen with no typeIn keeps
     // its own spacing (an "in" animation would hold them open from the scene start).
-    const opens = Boolean(it.spacing) && (typeIn > 0 || !it.shown);
-    if (it.spacing && !opens && input.spacing !== undefined) ctx.note(`${it.name} is on screen before the move, so its letters stay closed; give typeIn to open them`);
+    const opens = sharpen && Boolean(it.spacing) && (typeIn > 0 || !it.shown);
+    if (input.spacing !== undefined && !sharpen) ctx.note("spacing opens the letters only with entrance sharpen");
+    else if (it.spacing && !opens && input.spacing !== undefined) ctx.note(`${it.name} is on screen before the move, so its letters stay closed; give typeIn to open them`);
     const spaced = opens ? { from: { letterSpacing: it.spacing.from }, to: { letterSpacing: it.spacing.to } } : { from: {}, to: {} };
-    if (typeIn > 0) animate("in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.settle,
+    if (typeIn > 0 && !sharpen) animate("in", fadeIn("Fade in"));
+    else if (typeIn > 0) animate("in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.settle,
       from: { opacity: 0, blur: Math.round(14 * ctx.scale), ...spaced.from }, to: { opacity, blur: 0, ...spaced.to } }));
     else if (opens) animate("in", motion({ name: "Close up", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle, ...spaced }));
     if (color) animate(it.sheenBase ? "sheen" : "color", color);
@@ -818,7 +823,7 @@ export const statusLine = {
   name: "status-line",
   untilEnd: true,
   lasts: "default: to the end of the scene, or until a quiet end already in the scene (a dip to black or a logo alone in the last 30%) starts",
-  about: "a big app icon tile (the icon picture itself, rounded) sits in the left (or right) third with a large status line under it that changes its words (\"is listening…\", \"is speaking…\"), each change blurring out and sliding up",
+  about: "a big app icon tile (the icon picture itself, rounded) sits in the left (or right) third with a large status line under it that changes its words (\"is listening…\", \"is speaking…\"), each change a plain cut",
   fits: "what an app or agent is doing over footage of it; a narrator that is the product",
   tags: ["status-line", "type-swap"],
   length: 4,
@@ -830,7 +835,7 @@ export const statusLine = {
     scrim: { kind: "choice", values: [true, false], about: "true puts a dark pill behind the status line, false never (default: only when the shadowed words could fail contrast)" },
     place: { kind: "choice", values: ["middle", "bottom-left", "bottom-right"], about: "middle (default): the big tile in the side's third; bottom-left or bottom-right: a small badge low in that corner with the line under it, aligned to its edge (like an app's 'is listening…' badge)" },
     size: { kind: "choice", values: ["small", "big"], about: "big: tile 20% of the frame's height; small: 11% (default: small in a bottom corner, big in the middle)" },
-    swap: { kind: "choice", values: ["blur", "cut"], about: "how the words change: blur (blur out, slide up) or cut (a plain switch) (default: cut in a bottom corner, blur in the middle)" },
+    swap: { kind: "choice", values: ["blur", "cut"], about: "how the words come and change: cut (default: a plain switch, the first line rising on) or blur (blur out, slide up)" },
   },
   example: { at: 0.3, label: "acme", lines: [{ text: "is listening…", at: 0.6 }, { text: "is speaking…", at: 2.4 }] },
   setup: "none (label names the app; give icon, or set_brand with a logo picture, for its icon)",
@@ -937,12 +942,15 @@ export const statusLine = {
       }
     });
     const first = lines[0].at;
+    // The first line rises on with no blur; it comes out of a blur only with swap "blur" (opt-in).
+    const blurs = input.swap === "blur";
+    const lift = { y: status.y + Math.round(12 * ctx.scale), ...(blurs ? { blur: Math.round(8 * ctx.scale) } : {}) };
     if (ctx.reduced) ctx.animate(status, "in", motion({ name: "Fade in", kind: "in", start: first, duration: 0.35, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
-    else ctx.animate(status, "in", motion({ name: "Blur up", kind: "in", start: first, duration: 0.36, easing: CURVES.arrive,
-      from: { opacity: 0, y: status.y + Math.round(12 * ctx.scale), blur: Math.round(8 * ctx.scale) }, to: { opacity: 1, y: status.y, blur: 0 } }));
+    else ctx.animate(status, "in", motion({ name: blurs ? "Blur up" : "Rise", kind: "in", start: first, duration: 0.36, easing: CURVES.arrive,
+      from: { opacity: 0, ...lift }, to: { opacity: 1, y: status.y, ...(blurs ? { blur: 0 } : {}) } }));
     lines.slice(1).forEach((line, index) => {
       const change = changeText({ start: line.at, text: line.text, distance: Math.round(status.fontSize * 0.4) });
-      if ((input.swap ?? (corner ? "cut" : "blur")) === "cut") {
+      if (!blurs) {
         // A plain switch: a frame of fade each way, no slide.
         change.out = { ...change.out, preset: "fade-out", duration: 0.04, easing: [...CURVES.fade] };
         change.in = { preset: "fade-in", duration: 0.04, easing: [...CURVES.fade], unit: "layer", stagger: 0, order: "forward" };
