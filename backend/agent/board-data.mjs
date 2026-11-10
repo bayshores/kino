@@ -74,6 +74,8 @@ export function boardData(document, { state = null, round = null, rev, project, 
     header: { board: board.rev, shots: board.shots.length, seconds: sec(Number(scene?.duration) || 0), width: frame.width, height: frame.height, aspect: aspectWords(frame), background: scene?.background ?? "#000000",
       platform: fields.plays_on?.text ?? null },
     purpose: fields.message?.text ?? null,
+    // The picked type direction over the first footage shot, the picture the ask carried (part "style"), or null.
+    styleFrame: round?.styleFrame ? { shot: round.styleFrame.shot, type: round.styleFrame.type } : null,
     music: boardSpan(document, board).music,
     audio: facts.audio,
     calls: board.calls ?? [],

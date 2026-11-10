@@ -13,7 +13,7 @@ import { answerStop, boardData, boardShotUrl } from "./dashboard/api.js";
 import {
   aspectWords, boardHeader, changeLines, changeWords, clockWords, freshLine, headChips, measureWords, overlayBoxes, seconds, shotIndexAt,
   shotLines, shotList, shotSentence, shotTags, statusWords,
-  directedShots, directionChips, directionWords, footageBox, steppedLength, withoutDirection,
+  directedShots, directionChips, directionWords, footageBox, steppedLength, styleFrameView, withoutDirection,
 } from "./dashboard/boardRows.js";
 import { KEY_HELP, keyAction, parseCommand } from "./dashboard/keys.js";
 import { fromSnapshot, stopAnswer, stopRows } from "./dashboard/state.js";
@@ -240,6 +240,14 @@ test("the playhead's shot and clock; the head's chips and each shot's tags say t
   ]);
   assert.deepEqual(shotTags({ ...three, move: { kind: "transition", name: "zoom-through", ref: "a@1" }, follow: "track" }, data).map((tag) => tag.text), ['"Look up"', "zoom through", "track"]);
   assert.deepEqual(shotTags({ ...three, text: "none", move: { none: "cut" } }, data), [], "a plain cut has no move tag");
+});
+
+test("the style frame figure asks for the style picture of its shot and says the type; no style frame, no figure", () => {
+  const data = { ...board(), rev: 7, styleFrame: { shot: "S1", type: "serif, lowercase" } };
+  const view = styleFrameView(data);
+  assert.equal(new URL(boardShotUrl({ projectId: "p1", rev: data.rev, ...view }), "http://x").searchParams.get("part"), "style");
+  assert.deepEqual([view.shot, view.caption, view.alt], ["S1", "serif, lowercase", "The type over S1: serif, lowercase"]);
+  assert.equal(styleFrameView({ ...data, styleFrame: null }), null);
 });
 
 test("an answered storyboard's stop line names the notes on shots", () => {

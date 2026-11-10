@@ -1109,6 +1109,9 @@
 .board-title { font-weight: 700; }
 .board-title:focus:not(:focus-visible) { outline: none; }
 .board-purpose { color: var(--fg0); border-left: 2px solid var(--accent); padding-left: 1ch; }
+.board-style { margin: 0; display: grid; gap: 0.25lh; justify-items: start; }
+.board-style[hidden] { display: none; }
+.board-style img { display: block; width: min(100%, 360px); max-height: 240px; object-fit: contain; border: 1px solid var(--line); border-radius: var(--radius); }
 .board-chips { display: flex; flex-wrap: wrap; gap: 0.5ch; }
 .board-chips li { padding: 0 1ch; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--bg1); color: var(--fg-mid); }
 .board-change { color: var(--accent); }

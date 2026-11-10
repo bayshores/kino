@@ -66,9 +66,9 @@ import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, workPrint } from "./stops.mjs";
 import { addRejected } from "./style.mjs";
-import { pickedEnding } from "./treatments.mjs";
+import { pickedEnding, pickedType } from "./treatments.mjs";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, settleBoard } from "./board.mjs";
-import { boardLook, BoardLookError, boardShotImage } from "./board-look.mjs";
+import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
@@ -1187,7 +1187,16 @@ export function createAgentService(deps) {
     if (!record) throw new AgentError("not_found", "This project could not be found.");
     const document = rev === record.revision ? record.document : await store.getProjectRevision(projectId, rev);
     if (!document) throw new AgentError("not_found", `rev ${rev} is no longer kept.`);
-    try { return await boardShotImage({ shot, part, width }, { document, rev, look, fontsFor, mediaRecord }); }
+    try {
+      // part "style": the style frame the board ask of this revision carried (board-look.mjs styleFrameImage).
+      if (part === "style") {
+        if (!SHOT_WIDTHS.includes(width)) throw new BoardLookError("bad_input", `w is ${SHOT_WIDTHS.slice(0, -1).join(", ")} or ${SHOT_WIDTHS.at(-1)}.`);
+        const facts = ((await agentState.read(projectId)).stops ?? []).findLast((round) => round.kind === "board" && round.rev === rev && round.styleFrame)?.styleFrame;
+        if (!facts) throw new BoardLookError("not_found", `The board ask at rev ${rev} carried no style frame.`);
+        return await styleFrameImage(facts, { document, look, fontsFor, mediaRecord, width });
+      }
+      return await boardShotImage({ shot, part, width }, { document, rev, look, fontsFor, mediaRecord });
+    }
     catch (error) {
       if (error instanceof BoardLookError) throw new AgentError(error.code, error.message);
       throw error;
@@ -4936,13 +4945,15 @@ export function createAgentService(deps) {
       const soundFiles = checkpoint ? await soundFilesFor(record.document) : false;
       const critique = checkpoint && String(input.id ?? "").trim().toLowerCase() === "critique" ? await critiqueToAsk(record) : null;
       const step = { rev: record.revision, work: workPrint(record.document), now: now(), client: meta.client ?? null, board };
+      // A storyboard ask carries one style frame of the picked type direction (null: no footage, no picked type).
+      const styled = checkpoint && String(input.id ?? "").trim().toLowerCase() === "board" ? await styleFrameFor(projectId, record.document) : null;
       let answer, refused;
       const finished = await done(projectId, {}, { change(draft) {
         try {
           // The approved storyboard is compared with the board now before the stops decide.
           settleBoard(draft, { ...board, rev: step.rev, now: step.now });
           if (checkpoint) {
-            answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique });
+            answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique, styleFrame: styled?.facts ?? null });
             const asked = answer.data.status === "waiting_for_you" ? roundOf(draft, answer.data.id) : null;
             if (asked && !asked.steady) asked.steady = { at: steady, boot: bootedAt };
             // Which agent asked it, for the dashboard (live.mjs); older rounds, and rounds asked by
@@ -4974,8 +4985,28 @@ export function createAgentService(deps) {
         const line = openStops(after, video, rules).length ? "" : await finalGates(await store.getProject(projectId)).then(toFinalLine, () => "");
         if (line) answer = { ...answer, text: `${answer.text}\n${line}` };
       }
+      // The style frame goes with the ask as one image (saved beside the look images).
+      if (styled && !refused && answer?.data?.status === "waiting_for_you" && answer.data.styleFrame) {
+        const file = await look.save(projectId, "style", styled.png);
+        answer = { ...answer, text: `${answer.text}\nimage ${file}`, images: [{ path: file, mime: "image/png", data: input.inline === false ? undefined : styled.png.toString("base64") }] };
+      }
       return { ...finished, ...(refused ? errorReply(refused) : answer) };
     });
+  }
+
+  // The storyboard ask's style frame (board-look.mjs): { facts, png } of the picked type direction
+  // (style.type, else the picked treatment's) over the first footage shot, or null: no board, no
+  // footage, no picked type, no face or words to show, or the still did not render.
+  async function styleFrameFor(projectId, document) {
+    if (!document.board?.shots?.length) return null;
+    const { brief } = await agentState.read(projectId);
+    const type = brief?.style?.type ?? pickedType(brief?.treatments);
+    if (!type) return null;
+    const records = new Map();
+    for (const shot of document.board.shots) if (typeof shot.media === "string" && shot.media !== "none" && !records.has(shot.media)) records.set(shot.media, await mediaRecord(shot.media));
+    const facts = styleFrameFacts({ board: document.board, type, records, fonts: brief?.style?.fonts ?? null, message: brief?.fields?.message?.text ?? null });
+    if (!facts) return null;
+    try { return { facts, png: (await styleFrameImage(facts, { document, look, fontsFor, mediaRecord })).png }; } catch { return null; }
   }
 
   // notes {action:"brief"}: with no fields, log or no_playback it reads the brief; otherwise
