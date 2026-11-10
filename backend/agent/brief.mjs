@@ -112,7 +112,8 @@ function lineProblem(name, line, current) {
   if (extra.length) return { code: "bad_input", message: `${name} takes text, by and quote, not ${extra.join(", ")}.`, details: { didYouMean: closest(extra[0], LINE_KEYS) } };
   if (line.by !== "you" && line.by !== "guessed")
     return { code: "bad_input", message: `${name}.by is "you" (the person said it; send quote) or "guessed" (your call).` };
-  const text = textProblem(`${name}.text`, line.text, BRIEF_LIMITS.text);
+  // The idea line takes as many characters as a treatment's idea and style.idea, so a picked treatment fits.
+  const text = textProblem(`${name}.text`, line.text, name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text);
   if (text) return { code: "bad_input", message: `${text} Keep the line short; the quote holds their words.` };
   if (line.by === "you") {
     if (!hasText(line.quote))

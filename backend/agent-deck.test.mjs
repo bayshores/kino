@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import { projectSeed } from "../engine/deck.js";
 import { askText } from "./agent/stops.mjs";
 import { cleanTreatments, pickedSignature, pickLines, shownLines, treatmentsProblem, treatmentsText } from "./agent/treatments.mjs";
-import { lockCall } from "./agent/brief.mjs";
+import { briefChanges, lockCall } from "./agent/brief.mjs";
 import { mediaKeys, newDeal } from "./agent/deck.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 
@@ -197,6 +197,11 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   const long = withSource.map((entry, index) => (index === 1 ? { ...entry, idea: "x".repeat(125), rhythm: "y".repeat(61) } : entry));
   assert.equal(treatmentsProblem(long).message, "treatments[1].idea is 125 characters, limit 120. treatments[1].rhythm is 61 characters, limit 60. (2 problems)");
   const cleaned = cleanTreatments(withSource);
+  // Picking a treatment with an idea of 81 to 120 characters fills the idea line and style.idea.
+  const longIdea = "a".repeat(100);
+  const longList = cleanTreatments(withSource.map((entry, index) => (index === cleaned.shown[0] ? { ...entry, idea: longIdea } : entry)));
+  const longPick = briefChanges({ treatments: longList }, { fields: { treatments: { pick: "A", why: "a reason" } } });
+  assert.deepEqual([longPick.lines[0].line.text, longPick.style.idea], [longIdea, longIdea]);
   assert.equal(shownLines(cleaned)[1], "B. a map that draws the route as they skate · the crew: where are they going? → the line closes the loop · mask-wipe along the line");
   // A list saved before who, tension and turn shows as it did.
   const old = cleanTreatments(withSource.map(({ who, tension, turn, ...rest }) => rest));

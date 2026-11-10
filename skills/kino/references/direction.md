@@ -40,8 +40,8 @@ person: only their answer or their settings let one pass.
 - Save at once, after each reply: `notes {action:"brief", fields, log}`. Lines merge by name;
   `null` removes one. With no fields and no log, it reads the brief.
 - `by:"you"` needs `quote`: their exact words, copied from their message (no fixed
-  typos). Not their words: `by:"guessed"`, no quote. `text` (at most 80 characters) is
-  how you read it.
+  typos). Not their words: `by:"guessed"`, no quote.
+  `text` (your reading): 80 characters max, idea 120.
 - Never put a guess over their line or remove it: ask them, then save their new words.
 - Log every reply `{q, a}` word for word (over 2,000 characters: the answering part). Their
   earlier words a lead passed on: `{a, kind:"passed_on"}`, not counted as a reply.
