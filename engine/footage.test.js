@@ -122,13 +122,21 @@ test("quiet by default: the same inputs give no effect without a measured reason
     assert.equal(plan.hits.length, 0);
     assert.ok(plan.shots.every((shot) => !shot.accents && shot.camera.kind !== "punch-in"));
     assert.notEqual(plan.title.enter, "slam");
-    assert.ok(!footageOps(plan, clips).some((op) => /^(flash-hit|hit-)/.test(op.id ?? op.name ?? "")));
+    assert.ok(!footageOps(plan, clips).some((op) => /^(flash-hit|hit-|flash-)/.test(op.id ?? op.name ?? "")));
+    // A flash or glitch cut needs the drop too: none on a cut picked by the seed.
+    assert.ok(!plan.shots.some((shot) => ["flash", "glitch-hit"].includes(shot.transition?.kind)));
   }
-  // A measured drop motivates one hit, on its beat.
-  const drop = [...Array(60).fill(-30), ...Array(180).fill(-10)];
-  const { plan: dropped, period } = paced("promo", 30, { treatment: "loud", curve: drop });
+  // A real drop motivates one hit, on its beat, as strong as the rise; a gentle swell places the
+  // music but motivates nothing.
+  const rise = (from, to) => [...Array(60).fill(from), ...Array(180).fill(to)];
+  const { plan: dropped, period } = paced("promo", 30, { treatment: "loud", curve: rise(-30, -10) });
   assert.equal(dropped.hits.length, 1);
   assert.ok(Math.abs(dropped.hits[0].at - dropped.music.drop) < period / 2);
+  assert.equal(dropped.hits[0].strength, 0.45);
+  const smaller = paced("promo", 30, { treatment: "loud", curve: rise(-18, -10) }).plan;
+  assert.ok(smaller.hits.length === 1 && smaller.hits[0].strength < 0.4);
+  const swell = paced("promo", 30, { treatment: "loud", curve: rise(-14, -11.5) }).plan;
+  assert.ok(swell.music.drop !== null && swell.hits.length === 0, swell.words[0]);
   // Slow motion holds frames and a push keeps one way, until the footage measures one frame per
   // drawing (blend) and a sideways motion (the push follows it).
   const story = (extra) => paced(null, 30, { treatment: "story", deck, ...extra });
@@ -139,8 +147,9 @@ test("quiet by default: the same inputs give no effect without a measured reason
   const measured = story({ sample: { dx: 0.1 }, clip: { framesPerDrawing: 1 } });
   assert.ok(pushes(measured.plan).every((direction) => direction === 1));
   assert.ok(footageOps(measured.plan, measured.clips).some((op) => op.properties?.mediaInterpolation === "blend"));
-  // A flash over a dim shot is softer than over a bright one.
-  const flashes = (luma) => paced("promo", 30, { treatment: "loud", seed: 2, sample: { luma } }).plan.shots.filter((shot) => shot.transition?.kind === "flash").map((shot) => shot.transition.peak);
-  assert.ok(flashes(0.15).length && flashes(0.15).every((peak) => peak === 0.45));
-  assert.ok(flashes(0.7).every((peak) => peak === 0.9));
+  // A flash on the drop is softer over a dim shot and on a smaller rise.
+  const flash = (luma, curve) => paced("promo", 30, { treatment: "calm", deck: { cards: [{ tag: "flash" }] }, sample: { luma }, curve }).plan.hits[0]?.peak;
+  assert.equal(flash(0.15, rise(-30, -10)), 0.45);
+  assert.equal(flash(0.7, rise(-30, -10)), 0.85);
+  assert.ok(flash(0.7, rise(-18, -10)) < 0.7);
 });

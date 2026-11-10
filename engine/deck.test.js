@@ -44,8 +44,11 @@ test("a hand has one or two cards per group, at most one set piece, and never th
   // spec wants it, not inside a set piece.
   const loudMoves = [{ name: "rgb-split-hit", tags: ["rgb-split", "beat-kick", "glitch-hit"] }, { name: "flash-cut", tags: ["flash"] }];
   const style = styleContext({ wants: [...LOUD_TAGS], by: "guessed", lines: [{ text: "flashes and shakes", ref: "yt:abc", at: 2, tags: [...LOUD_TAGS] }] });
-  for (const deck of [...deals(200), ...deals(20, { style, moves: loudMoves })]) {
+  // Nor as the signature: a spec whose first moment is a loud accent gets a set piece instead.
+  const signed = LOUD_TAGS.map((tag) => styleContext({ idea: "one fight", signatures: [{ at: [2, 4] }], moments: [{ tag, at: 3 }] }));
+  for (const deck of [...deals(200), ...deals(20, { style, moves: loudMoves }), ...signed.flatMap((entry) => deals(5, { style: entry }))]) {
     assert.ok(!deck.cards.some((card) => LOUD_TAGS.includes(card.tag)), deckLine(deck));
+    assert.ok(!LOUD_TAGS.includes(deck.setPiece?.name), deckLine(deck));
     assert.ok(!loudMoves.some((move) => move.name === deck.setPiece?.name), deckLine(deck));
   }
 });

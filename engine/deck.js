@@ -218,7 +218,9 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
   const around = Boolean(style?.moments?.length || style?.signatures?.length);
   let setPiece = null;
   if (around) {
-    const tag = (style.moments ?? []).map((moment) => moment.tag).find((entry) => techniqueOf(entry) && !avoids.has(entry));
+    // A loud accent (LOUD_TAGS) or a card the deal never draws is no signature either: a set piece instead.
+    const dealable = (entry) => !LOUD_TAGS.includes(entry) && (!DECK_GROUPS.includes(techniqueOf(entry).group) || dealableTags(techniqueOf(entry).group).includes(entry));
+    const tag = (style.moments ?? []).map((moment) => moment.tag).find((entry) => techniqueOf(entry) && !avoids.has(entry) && dealable(entry));
     if (tag && DECK_GROUPS.includes(techniqueOf(tag).group)) add(tag, "signature");
     else if (tag) setPiece = { kind: "technique", name: tag, tags: [tag] };
     else setPiece = drawSetPiece(true);

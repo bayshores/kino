@@ -181,7 +181,7 @@ export function footageOps(plan, clips, { scene = null } = {}) {
 
   // ---- hits on the beat ----------------------------------------------------------------------
   plan.hits.forEach((hit, index) => {
-    if (hit.kind === "rgb-split") push({ op: "move", name: "rgb-split-hit", id: `hit-${index + 1}`, layer: `shot-${hit.shot}`, at: hit.at, strength: 0.45 });
+    if (hit.kind === "rgb-split") push({ op: "move", name: "rgb-split-hit", id: `hit-${index + 1}`, layer: `shot-${hit.shot}`, at: hit.at, strength: hit.strength ?? 0.45 });
     else if (hit.kind === "flash" && !plan.shots.some((shot) => shot.transition?.kind === "flash" && Math.abs(shot.transition.at - hit.at) < 0.5)) {
       const peak = hit.peak ?? 0.85;
       push({ op: "add_layer", layerType: "rectangle", name: `flash-hit-${index + 1}`, properties: { x: 0, y: 0, width: W, height: H, fill: "#FFFFFF", opacity: 0 },

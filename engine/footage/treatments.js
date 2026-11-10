@@ -18,7 +18,7 @@ export const FOOTAGE_TREATMENTS = Object.freeze({
   calm: Object.freeze({ line: "slow and clean: long holds, soft dissolves, calm captions", transitions: ["dissolve", "blur-through", "fade-black"], density: 0.45, beats: [4, 8], camera: ["slow-push", "drift"], captions: "calm", title: "blur-in", hits: [] }),
   story: Object.freeze({ line: "a told story: shots on the phrase, shape wipes and dissolves, talk captions", transitions: ["dissolve", "mask-wipe", "zoom-through", "push-transition"], density: 0.4, beats: [2, 4], camera: ["drift", "slow-push", "parallax"], captions: "talk", title: "letters", hits: [] }),
   punchy: Object.freeze({ line: "fast and bright: cuts on the beat, whips and zooms, short captions", transitions: ["whip-pan", "zoom-through", "flash"], density: 0.5, beats: [1, 2], camera: ["slow-push", "drift"], captions: "high", title: "push-through-type", hits: ["rgb-split"] }),
-  loud: Object.freeze({ line: "raw energy: glitch cuts, flashes, a color split on the drop", transitions: ["glitch-hit", "flash", "whip-pan", "zoom-through"], density: 0.6, beats: [1, 2], camera: ["drift", "slow-push"], captions: "high", title: "push-through-type", hits: ["rgb-split", "flash"] }),
+  loud: Object.freeze({ line: "raw energy: a glitch or flash cut and a color split, only on a real drop", transitions: ["glitch-hit", "flash", "whip-pan", "zoom-through"], density: 0.6, beats: [1, 2], camera: ["drift", "slow-push"], captions: "high", title: "push-through-type", hits: ["rgb-split", "flash"] }),
 });
 export const TREATMENT_NAMES = Object.freeze(Object.keys(FOOTAGE_TREATMENTS));
 
