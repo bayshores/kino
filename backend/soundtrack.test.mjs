@@ -8,7 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { createSongTaste, rankSongs, storyScore, tasteEntry, tasteScore, tempoCloseness } from "./songTaste.mjs";
 import { createMusicEmbed, decodeVector, encodeVector, songWindows } from "./music-embed.mjs";
-import { joinSpans, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
+import { createSongShapeCache, joinSpans, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
 import { songKey as clientSongKey } from "../frontend/dashboard/inspireView.js";
 import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
 
@@ -277,10 +277,18 @@ test("song shape: the kick and bass coming in is a drop, leaving at the end an o
   assert.ok(shape.sections.some((part) => part.kind === "outro" && Math.abs(part.at - 36) <= 1), JSON.stringify(shape.sections));
   assert.equal(shape.features.groove, "four-on-the-floor");
   assert.ok(songShape(samples, rate, { bpm: 120, whole: false }).sections.some((part) => part.kind === "break"), "a cut-off song has no outro");
+  // A one-beat stop before the drop: a dropout, and the sound coming back is the drop's one cue (no return beside it).
+  const stopped = samples.map((value, i) => (i >= 15.5 * rate && i < 16 * rate ? 0 : value));
+  const { sections, seams } = songShape(stopped, rate, { bpm: 120 });
+  const hit = sections.find((part) => part.kind === "drop");
+  assert.ok(hit && Math.abs(hit.at - 16) <= 1 / 30, JSON.stringify(sections));
+  assert.ok(seams.some((seam) => seam.kind === "dropout" && Math.abs(seam.at - 15.5) <= 1 / 30), JSON.stringify(seams));
+  assert.ok(!seams.some((seam) => Math.abs(seam.at - hit.at) < 0.05), JSON.stringify(seams));
 });
 
-test("song seams: a filter return, a one-beat stop and its return, a voice coming in and a beat switch, each within one video frame", () => {
-  const rate = 8000;
+// 56 s at 8 kHz: kicks at 120 bpm under a tone, the highs filtered out 14 to 22 s, a one-beat stop
+// at 30 s, a voice 35.3 to 40 s, the kicks switching to every 0.75 s from 46.25 s.
+function seamSong(rate = 8000) {
   const samples = new Float32Array(rate * 56);
   for (let i = 0; i < samples.length; i += 1) {
     const t = i / rate;
@@ -292,12 +300,48 @@ test("song seams: a filter return, a one-beat stop and its return, a voice comin
     if (t >= 35.3 && t < 40) value += 0.15 * (Math.sin(2 * Math.PI * 400 * t) + Math.sin(2 * Math.PI * 800 * t));
     samples[i] = value;
   }
+  return samples;
+}
+
+test("song seams: a filter return, a one-beat stop and its return, a voice coming in and a beat switch, each within one video frame", () => {
+  const rate = 8000;
+  const samples = seamSong(rate);
   const { seams } = songShape(samples, rate, { bpm: 120, vocals: [[35, 40]] });
   const expected = [[22, "return"], [30, "dropout"], [30.5, "return"], [35.3, "vocal-in"], [46.25, "switch"]];
   assert.deepEqual(seams.map((seam) => seam.kind), expected.map(([, kind]) => kind), JSON.stringify(seams));
   for (const [index, [at]] of expected.entries()) assert.ok(Math.abs(seams[index].at - at) <= 1 / 30, JSON.stringify(seams[index]));
   assert.ok(seams.every((seam) => seam.weight > 0 && seam.weight <= 1));
   assert.ok(!songShape(samples, rate, { bpm: 120 }).seams.some((seam) => seam.kind === "vocal-in"), "no vocal-in without whisper's spans");
+});
+
+test("song shape cache: whisper's spans give a vocal-in seam kept in the .song; a failed whisper still keeps the seams and is tried again after 10 minutes", async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-song-"));
+  try {
+    const samples = seamSong();
+    let decodes = 0;
+    let clock = 0;
+    let fail = true;
+    const decode = async () => { decodes += 1; return { samples, sampleRate: 8000 }; };
+    const sung = createSongShapeCache({ decode, vocals: async () => [[35, 40]] });
+    const file = path.join(folder, "song.mp3");
+    const first = await sung.get(file, 120);
+    assert.ok(first.version === 2 && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
+    assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), first);
+    assert.deepEqual(await sung.get(file, 120), first);
+    assert.equal(decodes, 1, "the kept .song is read back, not measured again");
+
+    const flaky = createSongShapeCache({ decode, now: () => clock, vocals: async () => { if (fail) throw new Error("whisper-cli failed: exit 3"); return [[35, 40]]; } });
+    const other = path.join(folder, "other.mp3");
+    const failed = await flaky.get(other, 120);
+    assert.ok(failed.vocals === "failed" && failed.seams.some((seam) => seam.kind === "return") && !failed.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(failed));
+    clock = 60_000;
+    assert.equal((await flaky.get(other, 120)).vocals, "failed", "not tried again within 10 minutes");
+    [clock, fail] = [11 * 60_000, false];
+    assert.ok((await flaky.get(other, 120)).seams.some((seam) => seam.kind === "vocal-in"), "tried again after 10 minutes");
+    assert.equal(decodes, 3);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
 });
 
 test("vocal spans: whisper's sound labels and one-word guesses are not singing; near spans join", () => {

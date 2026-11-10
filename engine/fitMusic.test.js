@@ -28,6 +28,11 @@ test("planFitMusic: the drop on the payoff, an earlier drop on the turn, the son
   const plain = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30 });
   const before = plain.sections.filter((part) => part.at < 20 && part.at >= 10).map((part) => part.kind);
   assert.ok(before.includes("build") || before.includes("break"), JSON.stringify(plain.sections));
+  // A break heard 0.4 s before its bar line (more than the crossfade): the cut is on the bar line
+  // at 4 s, and the cue there too, not at 3.6 s, where the opening piece still plays.
+  const early = planFitMusic({ sections: SECTIONS.map((part) => (part.at === 64 ? { ...part, at: 63.6 } : part)), seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30 });
+  assert.equal(early.pieces[1].at + early.pieces[1].fadeIn, 4, JSON.stringify(early.pieces));
+  assert.deepEqual(early.sections.filter((part) => part.kind === "break").map((part) => part.at), [4], JSON.stringify(early.sections));
 });
 
 test("planFitMusic: a song cut off before its end fades out over at least a bar, ending on a bar line", () => {

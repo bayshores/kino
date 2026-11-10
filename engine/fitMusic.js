@@ -157,14 +157,20 @@ export function planFitMusic({ sections = [], seams = [], seconds, whole = true,
   }
 
   // The sections in video time.
-  // Each section and seam goes in the piece that plays it (not in a crossfade), at its heard time.
+  // Each section and seam goes in the piece that plays its heard time at full volume (not in a
+  // crossfade). A section heard just before the bar line its cut is on goes in the piece cut there,
+  // its cue on that piece's first full-volume moment: the change is heard at the cut, not earlier.
   const placed = [];
   const seamParts = seams.filter((seam) => Number.isFinite(seam?.at) && typeof seam.kind === "string").map((seam) => ({ kind: seam.kind, at: seam.at, heard: seam.at, weight: seam.weight }));
-  for (const piece of pieces) {
-    const offset = piece.at - piece.from;
-    for (const part of [...parts, ...seamParts]) {
-      if (!(part.at >= piece.from + (piece === pieces[0] ? 0 : (piece.fadeIn - EPS)) - EPS && part.at < piece.to - EPS)) continue;
-      const entry = { at: round(part.heard + offset), kind: part.kind, ...(Number.isFinite(part.weight) ? { weight: part.weight } : {}) };
+  const full = (piece) => piece.from + (piece === pieces[0] ? 0 : piece.fadeIn); // song time it reaches full volume
+  const plays = (piece, time) => time >= full(piece) - EPS && time < piece.to - EPS;
+  for (const part of [...parts, ...seamParts]) {
+    const byHeard = pieces.filter((piece) => plays(piece, part.heard));
+    // Heard after the piece that holds its bar line stops: the change is never heard, no cue.
+    const owners = byHeard.length ? byHeard : pieces.filter((piece) => plays(piece, part.at) && part.heard < piece.to);
+    for (const piece of owners) {
+      const offset = piece.at - piece.from;
+      const entry = { at: round(Math.max(part.heard, full(piece)) + offset), kind: part.kind, ...(Number.isFinite(part.weight) ? { weight: part.weight } : {}) };
       if (part.kind === "drop" && Math.abs(part.at + offset - payoff) < 0.01) entry.label = "payoff";
       else if (part.kind === "drop" && turnPiece && Math.abs(part.at + offset - turnPiece.lands) < 0.01) entry.label = "turn";
       placed.push(entry);

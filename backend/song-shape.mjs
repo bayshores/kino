@@ -16,7 +16,7 @@
 // songShape's voiceGuess is the rougher fallback when whisper is not installed.
 import { readFile, writeFile } from "node:fs/promises";
 import { decodeMono } from "./audio-analysis.mjs";
-import { SAMPLE_RATE as SPEECH_RATE, whisperSegments, whisperSetup } from "./speech/transcribe.mjs";
+import { SAMPLE_RATE as SPEECH_RATE, whisperSegments, whisperSetup, whisperTurn } from "./speech/transcribe.mjs";
 
 const round = (value, places = 1) => Math.round(value * 10 ** places) / 10 ** places;
 const clamp100 = (value) => Math.round(Math.max(0, Math.min(100, value)));
@@ -224,6 +224,7 @@ const REST_DB = 15; // a rest: the whole sound 15 dB or more under the median of
 const REST_SECONDS = [0.1, 4];
 const RETURN_DB = 12; // a filter return: the high band back up 12 dB after it was down
 const SWITCH_MIN = 0.5; // a switch: the hits' pattern this different (1 - cosine of the rhythms)
+const SAME_HIT = 0.05; // two edges closer than this (about a video frame) are one moment
 const weightOf = (db, full = 30) => round(Math.min(1, Math.max(0, db / full)), 2);
 
 // What fineEdge compares, frame by frame: one band's level in dB.
@@ -394,8 +395,10 @@ function seamsOf(frames, samples, sampleRate, sections, low, vocals) {
   for (const rest of restsOf(frames)) {
     const out = fineEdge(samples, sampleRate, rest.from, { band: "total", direction: -1 });
     const back = fineEdge(samples, sampleRate, rest.to, { band: "total", direction: 1 });
-    const weight = weightOf(rest.depth);
-    seams.push({ at: round(out.at, 3), kind: "dropout", weight }, { at: round(back.at, 3), kind: "return", weight: weightOf(back.change) });
+    // An edge within a video frame of a section's (the one-beat stop before a drop comes back on the
+    // drop) is that section's: one cue for one hit.
+    if (!near(out.at, SAME_HIT)) seams.push({ at: round(out.at, 3), kind: "dropout", weight: weightOf(rest.depth) });
+    if (!near(back.at, SAME_HIT)) seams.push({ at: round(back.at, 3), kind: "return", weight: weightOf(back.change) });
   }
   for (const at of filterReturns(frames)) {
     if (near(at, 1)) continue;
@@ -543,16 +546,24 @@ export function sungSegments(segments) {
 
 /**
  * Where a voice sings or raps in the first `seconds` of the file, from whisper.cpp in 15 s pieces
- * (whisper's times drift less in short pieces). Throws when whisper is not installed.
+ * (whisper's times drift less in short pieces). It waits its turn with the transcriptions (at most
+ * two whisper runs at once) and gives up after two minutes. Throws when whisper is not installed.
  */
-export async function songVocals(file, { seconds = 240, setup = whisperSetup(), decode = decodeMono, piece = 15 } = {}) {
-  const { samples } = await decode(file, { sampleRate: SPEECH_RATE });
-  const limited = samples.subarray(0, Math.round(seconds * SPEECH_RATE));
-  const pieces = [];
-  for (let from = 0; from < limited.length / SPEECH_RATE; from += piece) pieces.push({ from, samples: limited.subarray(from * SPEECH_RATE, Math.min(limited.length, (from + piece) * SPEECH_RATE)) });
-  const lists = await whisperSegments(pieces.map((part) => part.samples), setup, { args: ["-sns", "-mc", "0"] });
-  const spans = lists.flatMap((list, index) => sungSegments(list).map((segment) => [pieces[index].from + segment.from, Math.min(pieces[index].from + piece, pieces[index].from + segment.to)]));
-  return joinSpans(spans);
+export async function songVocals(file, { seconds = 240, setup = whisperSetup(), decode = decodeMono, piece = 15, timeoutMs = 120_000 } = {}) {
+  return whisperTurn(async () => {
+    const { samples } = await decode(file, { sampleRate: SPEECH_RATE });
+    const limited = samples.subarray(0, Math.round(seconds * SPEECH_RATE));
+    const pieces = [];
+    for (let from = 0; from < limited.length / SPEECH_RATE; from += piece) pieces.push({ from, samples: limited.subarray(from * SPEECH_RATE, Math.min(limited.length, (from + piece) * SPEECH_RATE)) });
+    const lists = await whisperSegments(pieces.map((part) => part.samples), setup, { args: ["-sns", "-mc", "0"], timeoutMs });
+    const spans = lists.flatMap((list, index) => sungSegments(list).map((segment) => [pieces[index].from + segment.from, Math.min(pieces[index].from + piece, pieces[index].from + segment.to)]));
+    return joinSpans(spans);
+  });
+}
+
+/** Whether a whisper model file is on this computer (songVocals can run). */
+export function whisperModelReady() {
+  try { return Boolean(whisperSetup()); } catch { return false; }
 }
 
 /**
@@ -575,14 +586,17 @@ export function vocalShare(spans, seconds) {
 // Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
 // millisecond, weights).
 export const SONG_SHAPE_VERSION = 2;
+const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**
  * Each media file's song shape, measured once and kept in a .song file beside it (like the
- * .beats file of the beat analysis): {version, seconds, whole, sections, seams}. fit_music reads
- * it. vocals(file, seconds) gives whisper's vocal spans for vocal-in seams (none without it, or
- * when whisper is not installed).
+ * .beats file of the beat analysis): {version, seconds, whole, sections, seams, vocals}. fit_music
+ * reads it. vocals(file, seconds) gives whisper's vocal spans for vocal-in seams; the .song says
+ * how they were found: "whisper", "none" (no whisper model) or "failed" (whisper did not run or
+ * failed). A "failed" file is measured again after 10 minutes, a "none" one once vocalsReady()
+ * says a model is there now.
  */
-export function createSongShapeCache({ decode = decodeMono, vocals = null } = {}) {
+export function createSongShapeCache({ decode = decodeMono, vocals = null, vocalsReady = () => false, now = () => Date.now() } = {}) {
   const pending = new Map();
   // The kept .song result, or null when it is missing or from an older version.
   async function saved(file) {
@@ -592,17 +606,31 @@ export function createSongShapeCache({ decode = decodeMono, vocals = null } = {}
     } catch { /* not measured yet */ }
     return null;
   }
+  // Whether a kept result's vocal-in seams can be found now when they could not before.
+  function vocalsAgain(kept) {
+    if (!vocals || kept.vocals === "whisper") return false;
+    if (kept.vocals === "failed") return now() - (kept.failedAt ?? 0) >= VOCALS_RETRY_MS;
+    try { return Boolean(vocalsReady()); } catch { return false; }
+  }
   async function readOrMeasure(file, bpm) {
     const sidecar = `${file}.song`;
     const kept = await saved(file);
-    if (kept) return kept;
+    if (kept && !vocalsAgain(kept)) return kept;
     const { samples, sampleRate } = await decode(file);
     if (!samples.length) throw new Error("The file has no sound.");
     const seconds = round(samples.length / sampleRate, 3);
     let spans = null;
-    if (vocals) try { spans = await vocals(file, Math.min(240, seconds)); } catch { /* whisper is not installed: no vocal-in seams */ }
+    let found = "none";
+    let failedAt = null;
+    if (vocals) {
+      try { spans = await vocals(file, Math.min(240, seconds)); found = "whisper"; } catch (error) {
+        // No model file is "none" (vocalsReady says when one is there); anything else, a missing
+        // whisper-cli included, is tried again after 10 minutes.
+        if (error?.code !== "SPEECH_MODEL_MISSING") { found = "failed"; failedAt = now(); }
+      }
+    }
     const shape = songShape(samples, sampleRate, { bpm, vocals: spans });
-    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams };
+    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams, vocals: found, ...(failedAt ? { failedAt } : {}) };
     await writeFile(sidecar, JSON.stringify(result), { mode: 0o600 }).catch(() => { /* it still counts unsaved */ });
     return result;
   }

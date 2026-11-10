@@ -765,8 +765,8 @@ How to read it:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
   (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
-  heard time. Synthetic songs only, unverified on real songs. Evidence: `backend/soundtrack.test.mjs`,
-  `engine/fitMusic.test.js`.
+  heard time, in the piece that plays it; one cue per hit. Synthetic songs only, unverified on real
+  songs. Evidence: `backend/soundtrack.test.mjs`, `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **music_hard_stop** (warning): a song that stops loud with no fade (a fade still running at the stop is
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.
