@@ -448,7 +448,8 @@ export function nextMove(state, video = {}, stop = null) {
   const order = orderStep(state, video);
   // A footage-led brief with none of the person's clips (the service's directionFacts sets
   // video.findFootage): the footage search comes after the references and before the treatments,
-  // so the ideas are built from found shots. It ends when a clip is in the project.
+  // so the ideas are built from found shots. It ends when a clip is in the project, something is
+  // built, a plan is set or waive_check {code:"footage"} waives it (footageStepOn).
   const referencesOpen = order && (order.call?.tool === "look" || order.call?.input?.topic === "inspire");
   if (video.findFootage && !referencesOpen) return footageMove(state?.footage);
   if (order) return order;
