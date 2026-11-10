@@ -211,7 +211,7 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   assert.deepEqual([style.idea, style.signatures[0].beat, style.signatures[0].source], [brief.fields.idea.text, 3, "route.mp4, the full loop at 0:40"]);
   // No idea: no template spine; the call asks for the idea and its signature first.
   const noIdea = lockCall({ brief: { fields: {} } }).input.fields.style;
-  assert.deepEqual([noIdea.spine, noIdea.idea, noIdea.signatures.length], [undefined, "<a story from this material: whose problem, and where it turns>", 1]);
+  assert.deepEqual([noIdea.spine, noIdea.idea, noIdea.signatures.length], [undefined, "<one sentence: what only this product can show, from its real material>", 1]);
 });
 
 test("treatments: 5 saved on the brief, the most typical dropped, the 3 least typical shown; a pick becomes the idea", async () => {

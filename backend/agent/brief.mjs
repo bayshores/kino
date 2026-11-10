@@ -455,8 +455,9 @@ export function nextMove(state, video = {}, stop = null) {
 // The waiver that skips the treatments step (waive_check {code:"treatments", target:"*", reason}),
 // as waive_check {code:"reference"} skips the references step. The person sees both.
 export const TREATMENTS_WAIVER = "treatments";
-// The idea a treatment or a missing style.idea asks for: a story from the material, not a technique.
-const STORY_PLACEHOLDER = "<a story from this material: whose problem, and where it turns>";
+// The idea a treatment asks for: the story in one line, from the material, not a technique. Neutral
+// on purpose: the tension and turn fields carry the rest, so not every video becomes a problem ad.
+const STORY_PLACEHOLDER = "<the story in one line, from this material>";
 
 /**
  * The idea-first order a briefed video keeps before it is built: { step, call } for the first
@@ -565,7 +566,7 @@ export function lockCall(state, { approve = false } = {}) {
   if (approve) return briefCall({ style: { by: "you", quote: "<their words approving it>" } });
   if (bibleSaved || !idea) {
     // The idea first: one sentence and its signature moment from the real material, no spine yet.
-    const add = { idea: idea ?? STORY_PLACEHOLDER, signatures };
+    const add = { idea: idea ?? "<one sentence: what only this product can show, from its real material>", signatures };
     return briefCall({ style: saved.by ? { ...add, ...yours } : { ...add, by: "guessed" } });
   }
   const style = {
