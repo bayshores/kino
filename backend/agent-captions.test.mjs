@@ -181,6 +181,9 @@ test("detect_beats finds the beat of an imported click track and writes beat cue
     assert.ok(error <= 0.02, `${cue.name} at ${cue.time} is ${Math.round(error * 1000)} ms off the click`);
   }
   assert.deepEqual(record.document.rhythm, { bpm: beats.bpm, offset: 1.25 });
+  // Weighted hits reach the saved project: each onset has a weight and a band; the receipt counts accents.
+  assert.match(beats.accents, /^\d+ \(top per section\)$/);
+  assert.ok(record.document.cues.filter((cue) => cue.kind === "onset").every((cue) => typeof cue.weight === "number" && cue.band));
 
   // The agent reads the cues back with inspect.
   const listed = await agent("inspect", { project: "beats", targets: ["cues[kind=beat]"] });
@@ -188,7 +191,7 @@ test("detect_beats finds the beat of an imported click track and writes beat cue
   assert.match(listed.text, new RegExp(`^rev \\d+\nrhythm ${beats.bpm} bpm, first beat at 1.25s\nbeat ${beatCues.length}: beat-1 1.25, beat-2 1.75, `));
   assert.equal(listed.data.cues, beatCues.length);
   const badKind = await agent("inspect", { project: "beats", targets: ["cues[kind=drums]"] });
-  assert.match(badKind.text, /kind is one of marker, beat, onset, word, line/);
+  assert.match(badKind.text, /kind is one of marker, beat, onset, accent, word, line/);
 
   // An animation put on beat-2 (1.75 s). It keeps that time when the beats move, and the receipt says so.
   const keyed = await agent("edit", { project: "beats", ops: [

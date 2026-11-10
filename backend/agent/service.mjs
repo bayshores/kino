@@ -25,6 +25,7 @@ import { shotsNeeded } from "../footage-finder/needs.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
+import { MUSIC_CUE_KINDS } from "../../engine/qualityFields.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { documentChanges } from "../../engine/documentChanges.js";
 import { mergeDocuments } from "../../engine/documentMerge.js";
@@ -76,7 +77,7 @@ import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGl
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
-import { houseMoments } from "../house-memory.mjs";
+import { houseMoments, houseStructure } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { styleContext } from "../../engine/styleSpec.js";
@@ -177,7 +178,7 @@ const REFERENCE_WAIVER = "reference";
 // it ask for no new versus (a test run looked again after each one).
 const versusSeen = (state, rev) => Number.isFinite(state.versus?.rev) && rev >= state.versus.rev && rev - state.versus.rev <= VIEWER_RECENT;
 const IDEAS_HELP = 'library {topic:"inspire", ideas:{ref, take:[{title, from, to?, what, why, use, place?:{at, to?}, tags?}], skip?:[{title, why}]}}: up to 6 ideas from one measured reference (from/to: seconds in it; place: seconds in this video), in plain words: what happens, why it is good, what it becomes here. The person turns each on or off on the inspire screen and allows them; the answer comes in your inbox.';
-const BORROW_HELP = 'borrow_rhythm {ref, fit?, at?, scene?}: a reference\'s cut times (library {topic:"inspire"}) become cue marks rhythm-1, rhythm-2, … (kind marker) that at:"cue:rhythm-3" points at. fit:true scales the measured stretch to the scene (from at); fit:<seconds> to that length; without fit the cuts keep their times and those past the scene are left out. at: seconds into the scene (default 0). scene: id or name (default the first). Borrowing again replaces the rhythm-* marks. Only the times come in: the footage never enters the project. The reference is saved in the project.';
+const BORROW_HELP = 'borrow_rhythm {ref, fit?, at?, scene?}: a reference\'s pace per section (library {topic:"inspire"}, its lend: line), never its cut times: each section\'s shot lengths in a new order become cue marks rhythm-1, rhythm-2, … (kind marker) that at:"cue:rhythm-3" points at, cut on the song\'s song- seams when fit_music marked them. fit:true scales the measured stretch to the scene (from at); fit:<seconds> to that length; marks past the scene are left out. at: seconds into the scene (default 0). scene: id or name (default the first). Borrowing again replaces the rhythm-* marks. Only times come in: the footage never enters the project. The reference is saved in the project.';
 const RENDER_WAIT_MS = 55_000;
 const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // The keys notes {action:"brief"} takes; the last three save (notesBrief).
@@ -417,6 +418,8 @@ export function createAgentService(deps) {
     videoFacts: deps.videoFacts ?? null,
     // reference_drift: the project's saved Inspire references, measured like a render.
     references: deps.inspire ? (projectId) => deps.inspire.savedFingerprints(projectId) : null,
+    // reference_closeness: the saved references' lent cuts (an edit must not copy their order).
+    rhythms: deps.inspire?.savedRhythms ? (projectId) => deps.inspire.savedRhythms(projectId) : null,
     // seen_before: what kino rendered in other projects (house-memory.mjs).
     house: deps.house ? (projectId, name) => deps.house.others(projectId, name) : null,
     measureRender: deps.measureRender ?? null });
@@ -424,6 +427,8 @@ export function createAgentService(deps) {
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,
     deckDeals: (document, count) => nextDecks(document.id, document, count),
     pictureAlpha: (src) => pictureAlpha(deps.mediaRoot, src),
+    // impact-accent: a clip's measured impacts and light (footage/events.mjs, kept beside the file).
+    clipEvents: (src) => clipEventsOf(src),
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops) });
@@ -468,7 +473,7 @@ export function createAgentService(deps) {
   // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
   // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
   const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
-  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache });
+  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache, songShapes });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
   const manageWorkspace = createReachWorkspace(deps);
@@ -3951,7 +3956,7 @@ export function createAgentService(deps) {
     for (const finding of shown) marks.push({ time: finding.at, kind: "finding", words: `${finding.severity === "error" ? "E" : "W"} ${finding.rule}` });
     // Cues (markers, beats from detect_beats); without beat cues, the document's rhythm.
     const cues = (document.cues ?? []).filter((cue) => Number.isFinite(cue.time));
-    for (const cue of cues) marks.push({ time: cue.time, kind: cue.kind === "beat" || cue.kind === "onset" ? "beat" : "cue", words: `cue ${cue.name}` });
+    for (const cue of cues) marks.push({ time: cue.time, kind: MUSIC_CUE_KINDS.includes(cue.kind) ? "beat" : "cue", words: `cue ${cue.name}` });
     const bpm = Number(document.rhythm?.bpm);
     if (!cues.some((cue) => cue.kind === "beat") && bpm > 0) for (let time = Number(document.rhythm.offset) || 0; time <= to; time += 60 / bpm) if (time >= from) marks.push({ time, kind: "beat" });
     // A finding or cue is noted once in the text (the graph marks every one).
@@ -4291,6 +4296,31 @@ export function createAgentService(deps) {
   // the video, 12 frames spread over the file (file seconds on each): one sheet, no FFmpeg sheets.
   // times:[…] (file seconds) draws those frames instead, for a video layer too.
   const sourceSrc = (item) => item.src ?? `/api/media/${item.id}`;
+  // One line naming a clip's measured events (footage/events.mjs; measured once, kept beside the
+  // file): "events (file s): impact 1.5 contact right · light 3.08 from 3 · …".
+  async function clipEventsOf(src) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return null;
+    const record = ((await deps.listMedia?.()) ?? []).find((item) => item.id === id);
+    if (!record) return null;
+    const measured = await footageCache.video(path.join(deps.mediaRoot, id), { width: record.width, height: record.height, duration: record.duration });
+    return Array.isArray(measured.events) ? measured.events : null;
+  }
+  async function clipEventsLine(src, record) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return "events: not measured (not in kino's media folder)";
+    let measured;
+    try { measured = await footageCache.video(path.join(deps.mediaRoot, id), { width: record.width, height: record.height, duration: record.duration }); }
+    catch (error) { return `events: not measured (${String(error?.message ?? error).split("\n")[0].slice(0, 120)})`; }
+    if (!Array.isArray(measured.events)) return `events: not measured (${measured.eventsError ?? "unknown"})`;
+    const shown = [...measured.events].sort((a, b) => b.confidence - a.confidence).slice(0, 12).sort((a, b) => a.t - b.t);
+    const words = shown.map((event) => (event.kind === "impact" ? `impact ${sec(event.t)} ${event.how}${event.dir ? ` ${event.dir}` : ""}${event.frames ? ` ${event.frames}f` : ""}`
+      : event.kind === "light" ? `light ${sec(event.t)} from ${sec(event.from)}`
+        : `motion ${event.dir} ${sec(event.t)}-${sec(event.to)}`));
+    const drawn = measured.drawing ? `drawn on ${measured.drawing.frames}s (${measured.drawing.perSecond} drawings a second)` : null;
+    const more = measured.events.length > shown.length ? ` (the ${shown.length} surest of ${measured.events.length})` : "";
+    return `events (file s)${more}: ${[...words, ...(drawn ? [drawn] : [])].join(" · ") || "no impacts, light changes or steady motion found"}.`;
+  }
   async function clipOverview(input, { fonts }, src = null) {
     if (!src) {
       const wanted = String(input.layer).trim().toLowerCase();
@@ -4316,6 +4346,7 @@ export function createAgentService(deps) {
     const text = asked
       ? `source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`
       : [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): the whole clip in ${count} frames, labeled with file seconds.`,
+        await clipEventsLine(src, record),
         `Exact frames: times:[…] (file seconds). For a crop, add it as a layer and look {mode:"source", layer, t}.`].join("\n");
     return { image, text, extra: { file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };
   }
@@ -5191,7 +5222,8 @@ export function createAgentService(deps) {
       const record = await store.getProject(job.projectId);
       const document = !record ? null : job.rev === record.revision ? record.document : await store.getProjectRevision(job.projectId, job.rev);
       if (!document) return;
-      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts: await fontsFor(document) }) });
+      const fonts = await fontsFor(document);
+      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts }), structure: houseStructure(document, videoScene(document), { fonts }) });
     } catch (error) { job.warnings = [...(job.warnings ?? []), `house memory not saved: ${error.message}`]; }
   }
 
@@ -6264,7 +6296,9 @@ export function createAgentService(deps) {
       const length = Number(scene.duration) || 0;
       const at = Math.max(0, Number(op.at) || 0);
       const fit = op.fit === true ? Math.max(0, length - at) : Number(op.fit) > 0 ? Number(op.fit) : null;
-      const { cues } = rhythmCues(ref.numbers, { length, fit, at });
+      // The song's seams (fit_music marks them song-...) are the sections the reference's pace maps onto.
+      const seams = (document.cues ?? []).filter((cue) => cue.kind === "marker" && String(cue.name ?? "").startsWith("song-") && Number.isFinite(cue.time)).map((cue) => cue.time);
+      const { cues } = rhythmCues(ref.numbers, { length, fit, at, seams });
       const remove = (document.cues ?? []).filter((cue) => cue.kind === "marker" && /^rhythm-\d+$/.test(cue.name) && !cues.some((entry) => entry.name === cue.name)).map((cue) => cue.name);
       out.push({ op: "set_cues", cues, ...(remove.length ? { remove } : {}) });
       if (!dryRun) await deps.inspire.setSaved(document.id, id, true).catch(() => {});
