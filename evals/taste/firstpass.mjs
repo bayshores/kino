@@ -5,7 +5,8 @@
 //
 //   node evals/taste/firstpass.mjs <brief name or path> [--run-id <id>] [--dry-run]
 //
-// Env: KINO_FIRSTPASS_MODEL (default: Claude Code's own), KINO_FIRSTPASS_MINUTES (default 45),
+// Env: KINO_FIRSTPASS_MODEL (default: Claude Code's own), KINO_FIRSTPASS_EFFORT (low to max; default:
+// Claude Code's own), KINO_FIRSTPASS_MINUTES (default 45),
 // KINO_FIRSTPASS_REPLIES (most "your call" replies, default 10).
 import { fork, spawn } from "node:child_process";
 import { createWriteStream, existsSync, readFileSync } from "node:fs";
@@ -164,13 +165,13 @@ function stopGroup(child) {
 }
 
 // One `claude -p` call: the first message, or a reply on the same session (--resume).
-function runClaude({ message, sessionId, workDir, env, transcript, deadline, model, system, addDirs }) {
+function runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs }) {
   // --restricted: none of your settings, hooks or plugins, file tools kept to the work folder and
   // --add-dir; --strict-mcp-config: none of your MCP servers. Restricted mode also skips project
   // skills, so the kino skill comes in the system prompt (see main).
   const args = ["-p", message, "--restricted", "--tools", TOOLS, "--allowedTools", TOOLS, "--strict-mcp-config",
     "--output-format", "stream-json", "--verbose", "--append-system-prompt", system,
-    ...addDirs.flatMap((dir) => ["--add-dir", dir]), ...(model ? ["--model", model] : []), ...(sessionId ? ["--resume", sessionId] : [])];
+    ...addDirs.flatMap((dir) => ["--add-dir", dir]), ...(model ? ["--model", model] : []), ...(effort ? ["--effort", effort] : []), ...(sessionId ? ["--resume", sessionId] : [])];
   const child = spawn("claude", args, { cwd: workDir, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
   running.add(child);
   child.once("exit", () => running.delete(child));
@@ -251,6 +252,7 @@ async function main() {
   const minutes = Number(process.env.KINO_FIRSTPASS_MINUTES ?? 45);
   const replyLimit = Number(process.env.KINO_FIRSTPASS_REPLIES ?? 10);
   const model = process.env.KINO_FIRSTPASS_MODEL || sessionModel();
+  const effort = process.env.KINO_FIRSTPASS_EFFORT || null;
   const runId = value("--run-id") ?? `${brief.name}-${new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15)}`;
   const runDir = path.join(root, ".local/taste/runs", runId);
   const dataDir = path.join(runDir, "data"), outDir = path.join(runDir, "out"), mediaDir = path.join(runDir, "media");
@@ -293,7 +295,7 @@ async function main() {
   let sessionId = null, message = prompt, made = null;
   try {
     for (;;) {
-      const call = await runClaude({ message, sessionId, workDir, env, transcript, deadline, model, system, addDirs: [mediaDir, outDir, looksDir] });
+      const call = await runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs: [mediaDir, outDir, looksDir] });
       calls.push({ message, code: call.code, timedOut: call.timedOut, cost: call.cost, turns: call.turns, toolCalls: call.toolCalls, models: call.models, finalMessage: call.finalMessage, errors: call.code ? call.errors : undefined });
       sessionId ??= call.sessionId;
       made = pickMp4([...await listFiles(outDir), ...await listFiles(workDir), ...await listFiles(path.join(dataDir, "exports"))], started);
@@ -320,7 +322,7 @@ async function main() {
   await rm(workDir, { recursive: true, force: true });
   const last = calls.at(-1) ?? {};
   const result = {
-    version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
+    version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", effort: effort ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
     startedAt: new Date(started).toISOString(), seconds, budgetMinutes: minutes, timedOut: calls.some((call) => call.timedOut) || Date.now() >= deadline,
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
     finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY,
