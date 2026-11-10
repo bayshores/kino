@@ -403,6 +403,11 @@ test("plain_beats: only a plain hook, reveal or payoff warns; the first holds a 
   // A key shot with no move is offered the moves that fit what it holds (engine/movePicks.js).
   const [bare] = await fires("plain_beats", zoomed, { board: board.map((shot, index) => (index ? shot : { ...shot, media: "/api/media/a.mp4" })) });
   assert.match(bare.fix.text, /^Build the hook \(shot 1, footage\) with camera window-punch-in \(phone-film@3\.13\) or camera frame reframe \(agent-launch@11\.25\) \(edit \{ops:\[\{op:"move", name:"window-punch-in"/);
+  // With a spine, the payoff is its payoff beat (shots 2 and 3, one beat), not the plain end shot after it.
+  const spine = [{ role: "hook", from: 0, to: 11 }, { role: "payoff", from: 11, to: 17 }, { role: "end", from: 17, to: 20 }];
+  const spined = await fires("plain_beats", zoomed, { board: [[0, 11], [11, 3], [14, 3], [17, 3]].map(([cue, dur]) => ({ cue, dur, move: null })), styleSpec: { spine } });
+  assert.deepEqual(spined.map((entry) => [entry.at, entry.until]), [[11, 17]]);
+  assert.match(spined[0].message, /payoff \(11s to 17s\)/);
   // Pure motion graphics (a shape that moves, no footage) are not plain; nor is a short sting.
   await silent("plain_beats", scene({ duration: 20, layers: [rect("bar", { animations: [custom(0, 20, { x: 0 }, { x: 1200 })] }), text("t", "hello")] }));
   await silent("plain_beats", scene({ duration: 6, layers: [clip("a")] }));

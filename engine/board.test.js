@@ -78,6 +78,9 @@ test("a shot's move: {kind, name, ref, planned?} or {none}; every bad field name
     motion(2, 1, { media: "/api/media/c.mp4", move: cut }), motion(3, 1, { ...named("Orbit"), move: cut }), motion(4, 1, { media: "/api/media/e.mp4" }), motion(5, 1, named("Get it"))] });
   assert.deepEqual(needed.shots, [1, 4, 6], "the hook, the reveal (a name) and the payoff; shot 2's move is off the key beats");
   assert.match(needed.message, /^no designed move on the hook, reveal or payoff \(shots 1, 4, 6\)\./);
+  // With a spine, the payoff is the shots in its payoff beat (2 and 3); a move on the last shot (the end) does not count.
+  const spine = [{ role: "payoff", from: 1, to: 3 }];
+  assert.deepEqual(movesNeeded({ shots: [motion(0, 1), motion(1, 1), motion(2, 1), motion(3, 1, { move })] }, {}, spine).shots, [1, 2, 3]);
 });
 
 test("picksFor offers each shot the moves that fit what it holds; a plain cut first off the key beats, and the board's own device again", () => {

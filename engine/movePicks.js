@@ -84,17 +84,45 @@ export function shotKinds(shot, { name = null, prev = null, next = null, prevNam
   return { kinds, word };
 }
 
+// The roles where a designed move earns its place. "end" (the last shot after the spine's
+// payoff) is named but is not one: a quiet end or a plain cut is right there.
+export const KEY_ROLES = Object.freeze(["hook", "reveal", "payoff"]);
+
+// The spine's payoff beat (the last one with a time range), or null.
+const payoffOf = (spine) => (Array.isArray(spine) ? spine : [])
+  .filter((beat) => beat?.role === "payoff" && Number.isFinite(beat.from) && Number.isFinite(beat.to) && beat.to > beat.from).at(-1) ?? null;
+const timed = (shot) => Number.isFinite(shot?.cue) && shot.dur > 0;
+
+// The shots (after the first) inside the payoff beat: those whose middle is in it, else the one that holds its start.
+function payoffShots(shots, beat) {
+  if (!beat) return [];
+  const indexes = shots.map((_, index) => index).filter((index) => index > 0 && timed(shots[index]));
+  const inside = indexes.filter((index) => {
+    const middle = shots[index].cue + shots[index].dur / 2;
+    return middle >= beat.from && middle < beat.to;
+  });
+  if (inside.length) return inside;
+  const holder = indexes.find((index) => shots[index].cue <= beat.from && shots[index].cue + shots[index].dur > beat.from);
+  return holder === undefined ? [] : [holder];
+}
+
 /**
  * Each shot's role: "hook" (the first), "payoff" (the last), "reveal" (the first shot between
- * them that says so, names the product, or first shows the app), else null. These few beats
- * are where a designed move earns its place; every other shot can be a plain cut.
+ * them that says so, names the product, or first shows the app), else null. With a story spine
+ * (`spine`, the style spec's beats) holding a timed payoff beat, the shots inside that beat are
+ * the payoff and the last shot after it is "end". These few beats (KEY_ROLES) are where a
+ * designed move earns its place; every other shot can be a plain cut.
  */
-export function shotRoles(shots = [], names = {}) {
+export function shotRoles(shots = [], names = {}, spine = null) {
   const roles = shots.map(() => null);
   if (!shots.length) return roles;
   roles[0] = "hook";
-  if (shots.length > 1) roles[shots.length - 1] = "payoff";
-  const middle = shots.slice(1, -1).map((_, index) => index + 1);
+  const payoffs = payoffShots(shots, payoffOf(spine));
+  for (const index of payoffs) roles[index] = "payoff";
+  if (shots.length > 1 && roles[shots.length - 1] === null) roles[shots.length - 1] = payoffs.length ? "end" : "payoff";
+  // The reveal comes between the hook and the payoff.
+  const before = roles.indexOf("payoff");
+  const middle = shots.slice(1, before < 0 ? -1 : before).map((_, index) => index + 1);
   const name = (index) => names[shots[index]?.media] ?? null;
   const reveal = middle.find((index) => REVEAL_WORDS.test(wordsOf(shots[index])))
     ?? middle.find((index) => namesIt(shots[index]))
@@ -107,7 +135,7 @@ export function shotRoles(shots = [], names = {}) {
  * { word, picks, role? }: up to 3 picks for `shot` ({kind, name, ref, note?}), best first. The
  * motif (`context.motif`, a device the board already uses on a shot of the same kind) comes
  * first, then the moves that fit what the shot holds. A shot that is not a key beat
- * (`context.role` null) is offered the plain cut first: most shots should be one. `context` is
+ * (`context.role` null or "end") is offered the plain cut first: most shots should be one. `context` is
  * shotKinds' plus role and motif.
  */
 export function picksFor(shot, context = {}) {
@@ -117,7 +145,7 @@ export function picksFor(shot, context = {}) {
   const turns = Array.from({ length: Math.max(...lists.map((list) => list.length)) }, (_, round) => lists.map((list) => list[round]).filter(Boolean)).flat();
   // The first of each name stays, so the motif keeps its "again, as shot N".
   const fits = [context.motif, ...turns].filter((entry, index, all) => entry && all.findIndex((other) => other?.name === entry.name) === index);
-  const list = context.role ? fits : [CUT, ...fits];
+  const list = KEY_ROLES.includes(context.role) ? fits : [CUT, ...fits];
   return { word, picks: list.slice(0, 3), ...(context.role ? { role: context.role } : {}) };
 }
 
@@ -125,10 +153,10 @@ export function picksFor(shot, context = {}) {
  * picksFor for every shot of a board: `names` maps a media src to its file's name. Each shot
  * gets its role (shotRoles) and, when another shot of the same kind already has a designed
  * move, that move as its motif (the device used most on the board first), so the video
- * repeats one or two devices instead of a new one per shot.
+ * repeats one or two devices instead of a new one per shot. `spine`: the style spec's beats (shotRoles).
  */
-export function boardPicks(shots = [], names = {}) {
-  const roles = shotRoles(shots, names);
+export function boardPicks(shots = [], names = {}, spine = null) {
+  const roles = shotRoles(shots, names, spine);
   const contexts = shots.map((shot, index) => {
     const prev = shots[index - 1] ?? null;
     const next = shots[index + 1] ?? null;

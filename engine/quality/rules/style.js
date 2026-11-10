@@ -11,7 +11,7 @@
 // Every fix hint names concrete techniques from the vocabulary, never "add motion".
 import { CUT_TIMING_TAGS, PLAIN_TAGS, TECHNIQUES, isTechnique, techniqueOf } from "../../techniques.js";
 import { deckUse } from "../../deck.js";
-import { boardPicks, pickOp, pickWords } from "../../movePicks.js";
+import { KEY_ROLES, boardPicks, pickOp, pickWords } from "../../movePicks.js";
 import { heardEdges, heardWords } from "./speech.js";
 import { designedTexts, readableAt, primaryItems, scaleOf, sec, sections, speedAt } from "../analysis.js";
 import { area, boxAt, intersection, tintsAt, movingAt, tweensOf, visibleBoxAt } from "../model.js";
@@ -196,7 +196,7 @@ export function fewTechniques(model, ctx) {
 
 // Craft plan section 3, with restraint: a pro edit cuts most shots plainly on the voice or the
 // beat, and that is right. Only the key beats need emphasis: the hook (the first shot), the
-// reveal (engine/movePicks.js shotRoles) and the payoff (the last). A key beat whose only contents
+// reveal (engine/movePicks.js shotRoles) and the payoff (the spine's payoff beat, else the last shot). A key beat whose only contents
 // are footage, words and plain changes (a cut, a fade, a blur, a freeze, captions word by word)
 // gets a warning; these tags do not make a beat designed, every other technique kino finds does.
 export const PLAIN_BEAT_TAGS = Object.freeze([...PLAIN_TAGS, ...CUT_TIMING_TAGS, "dissolve", "fade-black", "type-fade", "type-words", "blur-through", "freeze-frame"]);
@@ -216,14 +216,28 @@ const BEAT_KINDS = Object.keys(BEAT_MOVES);
 const ROLE_KINDS = Object.freeze({ hook: "camera", reveal: "transition", payoff: "type" });
 
 // The key beats to judge: the board's hook, reveal and payoff shots (ctx.board, cue and dur)
-// inside the video, else the first and last 2.5 s windows.
+// inside the video, else the first and last 2.5 s windows. With a story spine, the payoff is
+// the shots inside the spine's payoff beat, judged as one beat, and the last shot after it is
+// the end, not judged (engine/movePicks.js shotRoles).
 function keyBeatsOf(model, ctx) {
   const shots = (ctx.board ?? []).filter((shot) => Number.isFinite(shot.cue) && shot.dur > 0 && shot.cue < model.duration);
   if (shots.length) {
     // Each key shot is offered the moves that fit what it holds, the board's own device first (engine/movePicks.js).
-    const picks = boardPicks(shots, ctx.mediaNames ?? {});
-    return shots.flatMap((shot, index) => (picks[index].role
-      ? [{ from: shot.cue, to: Math.min(model.duration, shot.cue + shot.dur), n: index + 1, role: picks[index].role, kind: shot.move?.kind, fits: picks[index] }] : []));
+    const picks = boardPicks(shots, ctx.mediaNames ?? {}, ctx.style?.spine ?? null);
+    const beats = [];
+    shots.forEach((shot, index) => {
+      const role = picks[index].role;
+      if (!KEY_ROLES.includes(role)) return;
+      const to = Math.min(model.duration, shot.cue + shot.dur);
+      const last = beats.at(-1);
+      // Payoff shots in a row are one beat: a designed move anywhere in it lands the payoff.
+      if (role === "payoff" && last?.role === "payoff" && last.index === index - 1) {
+        Object.assign(last, { to, index, kind: last.kind ?? shot.move?.kind });
+        return;
+      }
+      beats.push({ from: shot.cue, to, n: index + 1, index, role, kind: shot.move?.kind, fits: picks[index] });
+    });
+    return beats;
   }
   const count = Math.max(1, Math.floor(model.duration / BEAT_WINDOW));
   const window = (index, role) => ({ from: index * BEAT_WINDOW, to: index === count - 1 ? model.duration : (index + 1) * BEAT_WINDOW, role });
