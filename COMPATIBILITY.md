@@ -972,6 +972,8 @@ How to read it:
   color, sound (from 15 s), in that order, each after a full `check`; settings allow or ask each stop with a skip-under length (0 to 3600 s); an allowed stop still waits while its ask holds a treatment pick or guessed bans.
   Evidence: `backend/agent-stops.test.mjs`, `backend/agent-checkpoint.test.mjs` (written against the
   design), `backend/agent-checkpoint-race.test.mjs`.
+- **Imported footage asks the board first**: Verified. A clip imported into the project but not placed counts as
+  footage, so the board stop comes before the build; short videos still skip it. Evidence: `backend/agent-stops.test.mjs`.
 - **Waiting**: Verified. While a stop waits, edits, renders and imports answer `{waiting:"C1"}` and change nothing;
   the agent records the reply word for word with `notes {action:"answer", id, rev, words, read_as}`
   (refused under 5 s or for a stale rev). A change to the work lapses a waiting stop.

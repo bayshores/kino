@@ -850,8 +850,18 @@ export function createAgentService(deps) {
   async function liveStop(record) {
     const projectId = record.document.id;
     if (!waitingStop(await agentState.read(projectId))) return null;
-    const facts = { video: videoFacts(record.document), rules: stopRulesNow(), rev: record.revision, work: workPrint(record.document), now: now(), board: boardFacts(record.document) };
+    const facts = { video: await videoFactsFor(record.document), rules: stopRulesNow(), rev: record.revision, work: workPrint(record.document), now: now(), board: boardFacts(record.document) };
     return agentState.update(projectId, (draft) => { settleWaiting(draft, facts); return structuredClone(waitingStop(draft)); });
+  }
+
+  // videoFacts, where footage also counts clips imported into the project but not placed yet, so
+  // the storyboard stop asks before the build. Every stop site uses it, so a board round asked on
+  // imported clips is not closed elsewhere as "no such stop now". The library is read only when
+  // no video layer is placed.
+  async function videoFactsFor(document) {
+    const facts = videoFacts(document);
+    if (facts.footage) return facts;
+    return videoFacts(document, (await deps.listMedia?.().catch(() => [])) ?? []);
   }
 
   // videoFacts plus what the direction step needs about references: how many the project saved
@@ -866,7 +876,7 @@ export function createAgentService(deps) {
     // The order step (brief.mjs orderStep) also wants the saved ids and whether one was studied.
     const saved = references ? await savedIds(document.id) : [];
     const studied = references !== undefined ? ((await agentState.read(document.id)).studied ?? []).length > 0 : undefined;
-    const facts = { ...videoFacts(document), references, referenceWaived, treatmentsWaived, saved, studied };
+    const facts = { ...(await videoFactsFor(document)), references, referenceWaived, treatmentsWaived, saved, studied };
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
@@ -906,7 +916,7 @@ export function createAgentService(deps) {
   async function finalStopsOpen(record) {
     await liveStop(record);
     await settleBoardNow(record);
-    const open = openStops(await agentState.read(record.document.id), videoFacts(record.document), stopRulesNow());
+    const open = openStops(await agentState.read(record.document.id), await videoFactsFor(record.document), stopRulesNow());
     return open.length ? finalRefusal(open, { byYou: byYou() }) : null;
   }
   async function refuseFinalWhileStopsOpen(record) {
@@ -1081,7 +1091,7 @@ export function createAgentService(deps) {
       const steady = steadyNow();
       const record = await store.getProject(projectId);
       // board: an approved storyboard freezes the board it showed (stops.mjs, board.mjs).
-      const step = { input, video: videoFacts(record.document), rules: stopRulesNow(), rev: record.revision, work: workPrint(record.document), now: now(), board: boardFacts(record.document) };
+      const step = { input, video: await videoFactsFor(record.document), rules: stopRulesNow(), rev: record.revision, work: workPrint(record.document), now: now(), board: boardFacts(record.document) };
       return dashboardStopUpdate(projectId, (draft) => {
         const asked = roundOf(draft, input.id)?.steady;
         return dashboardAnswerStep(draft, { ...step, waited: asked && sameBoot(asked.boot) ? steady - asked.at : null });
@@ -6487,7 +6497,7 @@ export function createAgentService(deps) {
     }
     // The stops this project's settings still ask (rough, color, sound): each leads to its pass's
     // edits, which the viewer, critic, review and versus would have to see again.
-    const stops = openStops(state, videoFacts(document), stopRulesNow()).filter((stop) => stop.kind !== waiting?.kind);
+    const stops = openStops(state, await videoFactsFor(document), stopRulesNow()).filter((stop) => stop.kind !== waiting?.kind);
     if (stops.length && add("stops_open", `notes checkpoint ${stops.map((stop) => stop.kind).join(", ")}`, nextOf("notes", { action: "checkpoint", id: stops[0].kind }))) return gates;
     const viewer = await viewerNeeded(document, state, record.revision, whole, options);
     // When the critic asks a packet of the same scene, one look critique and one subagent serve both.

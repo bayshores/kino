@@ -10,6 +10,7 @@ import { answerStep, checkpointStep, dashboardAnswerStep, keepAsking, reopenStep
 import { boardFacts, freezeBoard } from "./agent/board.mjs";
 import { personCall } from "./agent/critique.mjs";
 import { cleanTreatments } from "./agent/treatments.mjs";
+import { videoFacts } from "./agent/brief.mjs";
 import { ASK_SHOTS, ASK_TOKENS, FRESH_TOKENS, SHOT_TOKENS } from "./agent/board-text.mjs";
 
 const VIDEO = { seconds: 24, layers: 1, footage: false, width: 1080, height: 1920 };
@@ -310,6 +311,20 @@ test("before any stop, status names the first stop to ask once the brief is sett
   assert.equal(statusLines(state, IDEA)[1], "step: follow the plan, then ask rough", "the person still answers the stops");
   for (const lines of [statusLines(state, IDEA), statusLines({ ...state, brief: { ...state.brief, noPlayback: { reason: "just start" } } }, { ...IDEA, footage: true })])
     assert.ok(estimateTextTokens(lines.join("\n")) <= 40, lines.join("\n"));
+});
+
+test("a clip imported into the project but not placed yet is footage: the board asks before the build; short videos still skip", () => {
+  const document = (seconds) => ({ id: "p1", scenes: [{ id: "s", width: 1080, height: 1920, duration: seconds, layers: [{ type: "text" }] }] });
+  const media = [{ id: "m1", mime: "video/mp4", projectId: "p1" }, { id: "m2", mime: "video/mp4", projectId: "other" }];
+  assert.equal(videoFacts(document(24)).footage, false, "no library: only placed video layers count");
+  assert.equal(videoFacts(document(24), media.slice(1)).footage, false, "another project's clip is not this video's");
+  assert.equal(videoFacts(document(24), [{ ...media[0], hasVideo: false }]).footage, false, "a sound-only file is not footage");
+  const imported = { ...videoFacts(document(24), media), treatmentsWaived: true };
+  assert.equal(imported.footage, true);
+  const state = ready(4);
+  state.brief = { ...state.brief, rev: 1, fields: Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never"].map((name) => [name, { text: "x", by: "guessed" }])) };
+  assert.equal(statusLines(state, imported)[1], 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build');
+  assert.equal(stopPlan(state, videoFacts(document(6), media))[0].skipped, "under 8 s");
 });
 
 // ---- B2b: answers on the dashboard's stop card, and reopen ----------------------------------

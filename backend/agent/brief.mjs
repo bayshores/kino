@@ -24,6 +24,7 @@ import { cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatm
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
+import { mediaAllowedIn } from "../media-use.mjs";
 
 // The brief's lines, in the order they are shown.
 // idea is the agent's one creative idea for the video (ideas guide); it is shown to the person at
@@ -338,20 +339,24 @@ const briefState = (brief) => (isConfirmed(brief) ? "confirmed" : brief.noPlayba
 /**
  * What the next step and the stops need to know about the video, from its document: { seconds,
  * layers, footage, width, height }. A video is one scene, so its length is the longest scene's.
- * footage: a scene (not a component) has a video layer, so the storyboard stop asks. The frame
- * size is the first such scene's.
+ * footage: a scene (not a component) has a video layer, or `media` (the media library's records,
+ * which the service passes) holds a clip imported into this project but not placed yet, so the
+ * storyboard stop asks before the build. The frame size is the first such scene's.
  */
-export function videoFacts(document) {
+export function videoFacts(document, media = null) {
   const scenes = document?.scenes ?? [];
   const shown = scenes.filter((scene) => scene.isComponent !== true);
   return {
     seconds: scenes.reduce((longest, scene) => Math.max(longest, Number(scene.duration) || 0), 0),
     layers: scenes.reduce((sum, scene) => sum + (scene.layers?.length ?? 0), 0),
-    footage: shown.some((scene) => (scene.layers ?? []).some((layer) => layer.type === "video")),
+    footage: shown.some((scene) => (scene.layers ?? []).some((layer) => layer.type === "video")) || importedClip(media, document?.id),
     width: shown[0]?.width ?? null,
     height: shown[0]?.height ?? null,
   };
 }
+// A clip with pictures (not sound only) that this project may use: imported into it, or used in it.
+const importedClip = (media, projectId) => Array.isArray(media) && media.some((item) =>
+  /^video\//.test(item?.mime ?? "") && item.hasVideo !== false && mediaAllowedIn(item, projectId));
 
 // Under 8 s the guide asks only the open question. A length counts only once the agent chose
 // it: project create without a duration gives the scene 5 s (state.defaultLength), which says
