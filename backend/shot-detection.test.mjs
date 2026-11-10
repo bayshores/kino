@@ -142,6 +142,24 @@ describe("shotsFromCuts", () => {
     assert.deepEqual(shotsOf([["A", 30], ["X", 3], ["B", 30]]), { starts: [0, 30], flashes: 0 });
   });
 
+  test("minShotFrames 2 keeps a reference edit's 2-frame shots, and onFlash hears each flash", () => {
+    const pictures = [["A", 12], ["B", 2], ["C", 2], ["D", 2], ["W", 2], ["D", 10], ["E", 1], ["F", 12]];
+    const frames = pictures.flatMap(([letter, count]) => Array(count).fill(letter));
+    const cuts = frames.flatMap((picture, frame) => (frame > 0 && picture !== frames[frame - 1] ? [frame] : []));
+    const mad = (first, second) => (frames[first] === frames[second] ? 1 : 100);
+    const flashLike = (frame) => frames[frame] === "W";
+    const heard = [];
+    const short = shotsFromCuts(cuts, frames.length, mad, { flashLike, minShotFrames: 2, onFlash: (cut, back) => heard.push([cut, back]) });
+    assert.deepEqual(short, { starts: [0, 12, 14, 16, 30], flashes: 1 }, "a 1-frame E runs on into F");
+    assert.deepEqual(heard, [[18, 20]]);
+    assert.deepEqual(shotsFromCuts(cuts, frames.length, mad, { flashLike }).starts, [0, 12, 30], "the default keeps shots of 6 frames or more");
+    // A white flash on a cut (A, 3 white, B) is one cut and a flash; a 3-frame impact frame inside A is a flash.
+    const seam = [...Array(28).fill(0), 200, 200, 200, ...Array(30).fill(40)];
+    const seamMad = (first, second) => Math.abs(seam[first] - seam[second]) + (seam[first] === seam[second] ? 1 : 0);
+    assert.deepEqual(shotsFromCuts([28, 31], seam.length, seamMad, { flashLike: (frame) => seam[frame] === 200, minShotFrames: 2 }), { starts: [0, 28], flashes: 1 });
+    assert.deepEqual(shotsFromCuts([30, 33], 63, (first, second) => ((first >= 30 && first < 33) === (second >= 30 && second < 33) ? 1 : 100), { minShotFrames: 2 }), { starts: [0], flashes: 1 });
+  });
+
   test("a 14-frame real shot between two different shots stays", () => {
     assert.deepEqual(shotsOf([["A", 30], ["B", 14], ["C", 30]]), { starts: [0, 30, 44], flashes: 0 });
   });
@@ -257,9 +275,10 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
 
   test("two hard cuts and a 3-frame white flash between the same bars: three shots, one flash", async () => {
     const clip = await makeCutsClip(path.join(folder, "cuts.mp4"));
-    const { shots, found: { ms, ...found } } = await findShots(clip, { duration: (await probeMedia(clip)).duration });
+    const { shots, found: { ms, ...found }, flashes, fps } = await findShots(clip, { duration: (await probeMedia(clip)).duration });
     assert.deepEqual(shots, [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }]);
     assert.deepEqual(found, { version: 1, frames: 111, cuts: 2, flashes: 1 });
+    assert.deepEqual([flashes, fps], [[{ start: 2.25, end: 2.375 }], 24], "the flash's times and the frame rate, not saved with the record");
     assert.ok(Number.isInteger(ms) && ms >= 0);
   });
 

@@ -7,7 +7,7 @@ import { accentStripe, cardGrid, centeredRun, glowBlobPill, overlap, safeZone } 
 import { defaultFont, gradientBanding, gradientText, neonOnDark, pureFrame } from "./rules/look.js";
 import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, judder, linearMotion, sameMotion, speedJump, springOnFade, staggerLong, staggerOrder } from "./rules/motion.js";
 import { assertions, noRhythm, offBeat, promoBasics, sceneLengths, staticScene, transitionsDense } from "./rules/pacing.js";
-import { referenceDrift } from "./rules/reference.js";
+import { referenceCloseness, referenceDrift } from "./rules/reference.js";
 import { endingSeen, seenBefore } from "./rules/seenBefore.js";
 import { hold, readingTime, typeMin } from "./rules/text.js";
 import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
@@ -27,7 +27,9 @@ import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadab
 import { rejectedText, spineDrift } from "./rules/spine.js";
 import { signatureMissing } from "./rules/signature.js";
 import { busyEdit, restraint } from "./rules/restraint.js";
+import { restFit, seamLock } from "./rules/seams.js";
 import { requestUnmet } from "./rules/request.js";
+import { effectFit } from "./rules/effectFit.js";
 import { styleContext } from "../styleSpec.js";
 import { sec } from "./analysis.js";
 import { chainOf } from "./model.js";
@@ -135,7 +137,8 @@ export const RULES = [
   rule("split_card_layout", "warn", splitCardLayout, "no 160 px type beside a small framed card on a flat frame for 4 s"),
   rule("page_chrome", "warn", pageChrome, "tracked caps labels under 40 px and rows of thin bars 8 s at most"),
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
-  rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer"),
+  rule("reference_closeness", "warn", referenceCloseness, "no run of 6 shots timed like a saved reference (shot lengths in order at one scale, each within a frame, more than chance gives), and in a music edit not every device the studied anime-edit references share (black hole, seam flash, bars, word cards) or 3 of them in their order within 2 s"),
+  rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer; the edit not built like another (same pace and 75% of its parts)"),
   rule("ending_seen", "warn", endingSeen, "the ending (last 15% or the end beat) not laid out as in another kino project (0.12); only the person waives it"),
   rule("text_slides", "warn", textSlides, "in a video of 8 s or more, text over a still, flat or dimmed background (no clip, no camera move) for at most 25% of it, no card over 3 s and under 3 of 1.2 s+, the end aside"),
   rule("few_techniques", "warn", fewTechniques, "in a video of 8 s or more, not flat: at least one designed device (two from 70 s, at most 4; cut, type-cut, hold, beat-cut and syncopated do not count), repeated as a motif"),
@@ -158,7 +161,10 @@ export const RULES = [
   rule("text_only_open", "warn", textOnlyOpen, "in a promo or ad of 8 s or more (videoType, or a logo layer when unset), at most 3 s of the first 4 s show text with no picture (an image or clip on 25% of the frame) and no logo; a text hook over footage is fine"),
   rule("signature_missing", "warn", signatureMissing, "with an idea (style.idea), a signature range (a spine beat with role signature, or signatures[].at) that holds a designed technique, a set piece or a full-frame graphic or footage, and is no shorter than the longest text-only beat; a warning while editing, a gate at the final render", false, { final: true }),
   rule("busy_edit", "info", busyEdit, "in a video of 8 s or more, at most 3 designed devices (moves by name, transitions, camera, set pieces; cuts, holds, fades and slow pushes are plain), designed moves on at most 40% of 5+ shots, at most 2 text looks, and under 3 bright-dark swings of 64 levels between neighbor shots"),
+  rule("effect_fit", "warn", effectFit, "in a music edit (weighted accents or fitted song seams), each loud effect (flash, shake, impact frame, strobe, glitch, RGB split, zoom punch) sits on a cue that motivates it (up to 2 frames early, never late), its strength ranks with the cue's weight, a song section holds at most one per 4 s at full energy (none inside a rest but on its edges), at most 2 effects (text animations and sound effects too) within 0.15 s, each text animation and sound effect on a cue, cut or word, no shake or zoom punch on a talking face, no shake faster than a third of the frame rate or held steady past 4 frames; a warning while editing, a gate at the final render; a waiver names the cue", false, { final: true }),
   rule("restraint", "warn", restraint, "transitions only at shot changes, one color grade on a layer at a time (a new look replaces the old), each moment of a footage file shown once (0.5 s overlap), no letterboxed footage (97% of the frame one way, under 90% the other, for 1 s)"),
+  rule("seam_lock", "warn", seamLock, "with fit_music's song cues: a picture change within 0.2 s of a song seam (section edge, return, vocal-in, switch) lands within 1 frame of it, and a drop or a return is marked by a change (a cut, an accent or a large move)"),
+  rule("rest_fit", "warn", restFit, "with fit_music's song cues: while the music rests (a dropout to its return, 4 s at most) no cut, accent or fast move of a large picture starts (a hold, freeze, slow push or black is fine), and the picture restarts within 1 frame of the return"),
   rule("request_unmet", "warn", requestUnmet, "each item the person asked for (brief lines and notes) is in the edit: words in quotes on screen, music, voice, captions, a logo, sound effects, an end card ('no X' the other way round); a miss holds the final render, a note with nothing checkable is listed to confirm by looking", false, { final: false }),
   rule("deck_unused", "info", deckUnused, "in a video of 8 s or more, at least half of the project's deck is used (notes deck; a card swapped out does not count)"),
 ];

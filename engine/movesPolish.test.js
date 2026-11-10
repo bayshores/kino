@@ -248,7 +248,7 @@ test("every move writes in a face that is loaded: a bundled family at a weight i
   const phone = createLayer("image", { id: "phone", name: "phone", src: "/api/media/phone.png", x: 813, y: 205, width: 294, height: 670 });
   for (const look of LOOK_NAMES) {
     const style = styleFor({ look, frame: FRAME });
-    for (const name of MOVE_NAMES) {
+    for (const name of MOVE_NAMES.filter((key) => !MOVES[key].needsCue)) {
       const { at = 0.3, dur = null, ...fields } = MOVES[name].example;
       const definition = MOVES[name];
       const made = runMove(definition, { id: name, input: readMoveInput(definition, fields), scene: scene(fields.layer === "prompt" ? [phone, ...PROMPT] : [phone, CARD]), style, fonts: defaultFonts, start: at, dur, media, logo: { media: PICTURES.logo } });
@@ -261,7 +261,7 @@ test("every move writes in a face that is loaded: a bundled family at a weight i
 test("no move leaves a blur or a color split on after it ends", () => {
   const RESTING = { "zoom-blur": "amount", "rgb-shift": "amount", "directional-blur": "length" };
   const phone = createLayer("image", { id: "phone", name: "phone", src: "/api/media/phone.png", x: 813, y: 205, width: 294, height: 670 });
-  for (const name of MOVE_NAMES) {
+  for (const name of MOVE_NAMES.filter((key) => !MOVES[key].needsCue)) {
     const { at = 0.3, dur = null, ...fields } = MOVES[name].example;
     const made = run(name, fields, { on: scene([phone, CARD, ...PROMPT]), at, dur });
     const byLayer = new Map();

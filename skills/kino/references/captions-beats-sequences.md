@@ -44,7 +44,9 @@ played as one.
   animation. Change text and Counter `in`/`out` effects take `range` too.
 - Beats: import the music, add it as an audio layer, and run `detect_beats` in the same edit
   (it reads the sound the ops before it set). It writes cues `beat-1`, `beat-2`, … and
-  `onset-1`, … and sets the project's rhythm. The receipt's `beats` has bpm and confidence;
+  `onset-1`, … and sets the project's rhythm. Onsets carry `weight` (0 to 1 against the song)
+  and `band` (low, mid, high); bar starts have `downbeat`; `accent-1`, … are each section's
+  hardest hits (`inspect "cues[kind=accent]"`). The receipt's `beats` has bpm and confidence;
   under 0.5 the grid is a guess. Running it again (say after `replace_media`) can move beats;
   animations keep their times, and `beats.cuesMoved` lists those that started on a moved cue
   (`{"animation":"A1","cue":"beat-16","at":8.6,"moved":-0.53}`).
@@ -54,10 +56,14 @@ played as one.
   and its last line names the target for the next ones (`cues[kind=beat,from=281.437]`).
   `set_cue {name, layer, media}` pins a cue to `media` s into a clip's file: it follows the clip
   when trimmed, moved, sped up or split (refused for a Speed animation).
-- Footage cut to music: give `compose {footage, music}` a `pace` of `promo` (about 2 beats a
-  shot, one hero hold up to 5.5 s) or `velocity` (1 beat a shot). Shots come in runs of one
-  length in whole beats, every cut on the song's beat grid; the first 4 bars are calm, the last
-  2 run twice as fast, and a zoom punch lands on the downbeats (`accents:false` turns it off).
+- Footage cut to music: `compose {footage, music}` cuts on the song's seams within a frame,
+  holds a rest to its return, paces each section by its loudness (`pace` `promo` or `velocity`
+  scales it), dissolves only on smooth passages, moves a cut onto a clip's measured impact near
+  a hit and cuts a burst only over a measured dense passage. It adds no effect without a measured
+  reason (one hit on a real drop); slow motion blends frames only on footage drawn on 1s.
+  `accents:true` adds downbeat zoom punches (off by default; `effect_fit` asks each for a cue).
+- Accents: `move {name:"impact-accent", kind, at:"cue:<name>"}` (techniques reference); none
+  is fine.
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.

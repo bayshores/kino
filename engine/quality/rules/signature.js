@@ -10,7 +10,7 @@ import { techniqueOf } from "../../techniques.js";
 import { readingTexts, sec } from "../analysis.js";
 import { area, intersection, visibleBoxAt } from "../model.js";
 import { coveredAt, techniquesUsed } from "../techniques.js";
-import { textSlideSamples } from "./style.js";
+import { seamCuts, textSlideSamples } from "./style.js";
 
 // A layer covering this share of the frame is a full-frame graphic or footage.
 const FULL = 0.6;
@@ -21,7 +21,8 @@ const PICTURE = 0.05;
 // A technique this long before a range still lands in it (a transition into the moment).
 const LEAD = 0.3;
 // Not a designed moment on their own: how words come on (a faded text card is still a text card),
-// beat timing, and accents that dress any change.
+// beat timing, and accents that dress any change. A cut is designed only when it lands on a song
+// seam (designedIn, style.js seamCuts).
 const UNDESIGNED_GROUPS = new Set(["type", "rhythm"]);
 const UNDESIGNED_TAGS = new Set(["cut", "fade-black", "flash", "glitch-hit", "shake"]);
 const designedTag = (tag) => !UNDESIGNED_TAGS.has(tag) && Boolean(techniqueOf(tag)) && !UNDESIGNED_GROUPS.has(techniqueOf(tag).group);
@@ -61,6 +62,8 @@ function designedIn(model, ctx, from, to) {
     if (!designedTag(tag)) continue;
     if (places.some((place) => place.at >= from - LEAD && place.at <= to)) return tag;
   }
+  // A plain cut locked to a song seam is designed (style.js seamCuts).
+  if (seamCuts(techniquesUsed(model), ctx, model.fps).some((place) => place.at >= from - LEAD && place.at <= to)) return "cut on a song seam";
   const [first, last] = [indexOf(model, from), indexOf(model, to)];
   const moved = new Map((ctx.scene?.layers ?? []).filter((layer) => layer.move?.name).map((layer) => [layer.id, layer.move.name]));
   for (const item of model.items) {

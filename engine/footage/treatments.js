@@ -6,18 +6,19 @@
 //   transitions  the kinds used where shots change (a cut everywhere else), first ones likelier
 //   density      the share of shot changes that get a designed transition (the rest are cuts)
 //   beats        how many beats a shot without speech lasts: [shortest, longest]
-//   camera       how a shot moves while it holds: slow-push, drift, punch-in (a quick 10% step
-//                in on a beat), parallax (for a card over its blurred copy)
+//   camera       how a shot moves while it holds: slow-push, drift, parallax (for a card over
+//                its blurred copy); no step on a beat number
 //   captions     words per caption: calm 4 to 6, talk 3 to 5, high 2 to 3 (caption-words energy)
 //   title        push-through-type (a giant word the camera flies into), blur-in or letters
-//   hits         what lands on the strongest beats: rgb-split (rgb-split-hit), flash
+//   hits         what may land on the song's measured drop (the first one only): rgb-split
+//                (rgb-split-hit), flash
 import { seeded } from "../blocks/build.js";
 
 export const FOOTAGE_TREATMENTS = Object.freeze({
   calm: Object.freeze({ line: "slow and clean: long holds, soft dissolves, calm captions", transitions: ["dissolve", "blur-through", "fade-black"], density: 0.45, beats: [4, 8], camera: ["slow-push", "drift"], captions: "calm", title: "blur-in", hits: [] }),
   story: Object.freeze({ line: "a told story: shots on the phrase, shape wipes and dissolves, talk captions", transitions: ["dissolve", "mask-wipe", "zoom-through", "push-transition"], density: 0.4, beats: [2, 4], camera: ["drift", "slow-push", "parallax"], captions: "talk", title: "letters", hits: [] }),
-  punchy: Object.freeze({ line: "fast and bright: cuts on the beat, whips and zooms, punch-ins, short captions", transitions: ["whip-pan", "zoom-through", "flash"], density: 0.5, beats: [1, 2], camera: ["punch-in", "slow-push"], captions: "high", title: "push-through-type", hits: ["rgb-split"] }),
-  loud: Object.freeze({ line: "raw energy: glitch hits, flashes, color splits on the drops", transitions: ["glitch-hit", "flash", "whip-pan", "zoom-through"], density: 0.6, beats: [1, 2], camera: ["punch-in", "drift"], captions: "high", title: "push-through-type", hits: ["rgb-split", "flash"] }),
+  punchy: Object.freeze({ line: "fast and bright: cuts on the beat, whips and zooms, short captions", transitions: ["whip-pan", "zoom-through", "flash"], density: 0.5, beats: [1, 2], camera: ["slow-push", "drift"], captions: "high", title: "push-through-type", hits: ["rgb-split"] }),
+  loud: Object.freeze({ line: "raw energy: a glitch or flash cut and a color split, only on a real drop", transitions: ["glitch-hit", "flash", "whip-pan", "zoom-through"], density: 0.6, beats: [1, 2], camera: ["drift", "slow-push"], captions: "high", title: "push-through-type", hits: ["rgb-split", "flash"] }),
 });
 export const TREATMENT_NAMES = Object.freeze(Object.keys(FOOTAGE_TREATMENTS));
 
