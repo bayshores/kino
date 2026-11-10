@@ -49,6 +49,7 @@ import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
 import { removeTempFolder } from "./temp-folders.mjs";
+import { shotsNeeded, wantBySection } from "./footage-finder/needs.mjs";
 
 test("library passes the fields its listed schema leaves out (scan, want, note, measure) on to kino", async () => {
   const calls = [];
@@ -492,6 +493,20 @@ test("a scan longer than the wait answers with its progress, and the same call a
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.match((await stretch.handle({ scan: "F1", from: 60, to: 120 }, { footage, personClips: 0 })).text, /scanned 1:00/);
   assert.equal(started, 1);
+});
+
+test("song to footage: a 30 s drop at 140 bpm cut every 2 beats needs 35 shots, and the scan answer asks for 1.5x", async () => {
+  const need = shotsNeeded({ bpm: 140, sections: [{ at: 0, kind: "build" }, { at: 12, kind: "drop" }], seconds: 60, from: 0, to: 42 });
+  assert.deepEqual(need.parts, [{ kind: "build", from: 0, to: 12, beats: 28, every: 4, shots: 7 }, { kind: "drop", from: 12, to: 42, beats: 70, every: 2, shots: 35 }]);
+  assert.equal(need.shots, 42);
+  assert.equal(need.import, 63);
+  assert.deepEqual(wantBySection("white hair", need.parts), { build: "white hair, close-up face, calm, still", drop: "white hair, fast action, motion, impact" });
+  const finder = { readScan: async () => null, scan: async () => ({ want: "", windows: [{ start: 0, end: 60 }], skipped: {},
+    shots: Array.from({ length: 14 }, (_, index) => ({ n: index + 1, start: index * 2, end: index * 2 + 1.5, motion: 60, face: 10, flags: [] })) }) };
+  const answer = await createFootageActions({ finder }).handle({ scan: "F1" }, { footage: addCandidates(null, [found(1)]), personClips: 0, song: async () => need });
+  assert.match(answer.text, /\nThe song \(140 bpm\) needs about 42 shots: 35 on the drop \(a cut every 2 beats, high motion\), 7 on builds and lyrics \(every 4 to 8 beats, calm faces\)\. Import 1\.5x: about 63\.\n/);
+  assert.equal(answer.nextCall.input.options.shots.length, 12);
+  assert.equal(answer.data.song.want.drop, "fast action, motion, impact");
 });
 
 test("the look model counts as ready where transformers.js keeps it: <data>/models/hf/<model id>", async () => {

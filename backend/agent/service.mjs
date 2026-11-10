@@ -18,6 +18,7 @@ import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { createFootageActions, FootageError, personClipCount } from "../footage-finder/actions.mjs";
+import { shotsNeeded } from "../footage-finder/needs.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -5819,13 +5820,37 @@ export function createAgentService(deps) {
     const state = await agentState.read(projectId);
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     let reply;
-    try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media) }); }
+    const song = () => songNeeds(record.document, media);
+    try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media), song }); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
       throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
     }
     const { update, ...answer } = reply;
     return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
+  }
+
+  // The shots the video's song needs (footage-finder/needs.mjs): the music in the video scene,
+  // over the stretch it plays, else the longest credited song of 20 s or more imported for this
+  // project and not placed yet (the whole song). Null without a song or a tempo kino is sure of.
+  async function songNeeds(document, media) {
+    const scene = videoScene(document);
+    const layer = scene?.layers.find((item) => isMusicLayer(item, scene));
+    let file;
+    let stretch = {};
+    if (layer) {
+      file = mediaFileOf(layer);
+      const range = mediaPlaybackRange(layer, scene.duration);
+      if (range && !range.remapped) stretch = { from: range.offset, to: range.offset + range.duration };
+    } else {
+      const songs = media.filter((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.credit && item.duration >= 20)
+        .sort((a, b) => b.duration - a.duration);
+      if (!songs.length) return null;
+      file = mediaFileOf({ src: songs[0].src ?? `/api/media/${songs[0].id}` });
+    }
+    const analysis = await beatAnalysis.get(file);
+    const shape = await songShapes.get(file, analysis.bpm);
+    return shotsNeeded({ bpm: analysis.bpm, sections: shape.sections, seconds: shape.seconds, ...stretch });
   }
 
   async function soundtrack(input, name, search) {
