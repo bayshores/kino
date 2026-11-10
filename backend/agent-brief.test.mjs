@@ -325,6 +325,7 @@ test("the brief's length is a gate: check holds the video to it until it is reti
   const checked = await agent("check", { project: "brief-length", pixels: false, rules: ["assertions"] });
   assert.match(checked.text, /^next: edit {"ops":\[{"op":"compose","format":"9:16","duration":30,/m, "the first compose takes the brief's length");
   assert.doesNotMatch(checked.text, /^next: .*(headline-reveal|Skate now)/m, "never the message as a text slide");
+  assert.doesNotMatch(checked.text, /^next: .*cta-end/m, "no fixed closing recipe");
   assert.match(checked.text, /1 err.*E assertions s1: The video is 24 s, but the brief asks for 30 s \(within 0.6 s\): 6 s too short/s);
   const sceneId = (await agent("status", { project: "brief-length" })).text.match(/\b(s\d+)\b/)[1];
   await agent("edit", { project: "brief-length", ops: [{ op: "retime", scene: sceneId, duration: 30.4 }] });

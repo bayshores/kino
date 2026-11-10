@@ -138,7 +138,7 @@ export const maskedType = {
   name: "masked-type",
   needsAt: true,
   about: "one big word made of the footage: the shot falls away to the background around it while the word's letters close up and keep playing the clip, then the shot comes back; with subject (a cut_out layer) the word stands behind the person instead, rising out of a soft blur",
-  fits: "a title that belongs to the shot: a place, a name, one word over the moment it names",
+  fits: "a title that belongs to the shot: a place, one word over the moment it names",
   tags: ["type-giant", "type-blur-in"],
   needs: ["video"],
   length: 2.4,
