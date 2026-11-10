@@ -896,6 +896,9 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.deepEqual(["the tagline", "the founder's voice memo", "app.png"].map(wordsOnly), [true, false, false]);
   const state = { brief: (await brief(id, {})).data.brief };
   assert.equal(orderStep(state, { seconds: 24, treatmentsWaived: false, picture: "inbox.png" }).call.input.fields.style.signatures[0].source, "inbox.png, <the moment>");
+  // The beats are timed over the brief's length, not create's 5 s default scene.
+  const timed = orderStep({ ...state, defaultLength: 5, brief: { ...state.brief, length: { seconds: 30 } } }, { seconds: 5, treatmentsWaived: false }).call.input.fields.style.spine;
+  assert.deepEqual([timed[4].role, timed[4].from, timed[4].to], ["payoff", 21, 27]);
   const signature = { beat: 0, what: "move 4", source: "skate.mp4, the wheels at 0:03", why: "only this crew's sound" };
   const confirmed = await brief(id, { fields: { style: { signatures: [signature] } } });
   assert.equal(confirmed.isError, undefined, confirmed.text);

@@ -518,7 +518,10 @@ export function orderSteps(state, video = {}) {
   const needSignature = !style.idea || !style.signatures?.length;
   const missing = entry?.tension && entry?.turn ? STORY_ROLES.filter((role) => !hasPurpose(style.spine, role)) : [];
   if (!needSignature && !missing.length) return open;
-  const spine = missing.length ? draftSpine(style.spine, entry, video.seconds) : null;
+  // Beats are timed over the brief's length; else the scene's, unless it is still create's
+  // default (state.defaultLength, as questionLimit), which says nothing about the video.
+  const sceneSeconds = video.seconds !== state.defaultLength ? video.seconds : undefined;
+  const spine = missing.length ? draftSpine(style.spine, entry, lengthTarget(brief)?.seconds ?? sceneSeconds) : null;
   // Where a saved beat moved to in the drafted spine (a signature's beat is an index).
   const beatIn = (index) => {
     const at = spine && style.spine?.length ? spine.indexOf(style.spine[index]) : -1;
@@ -595,7 +598,8 @@ export function guessedBans(brief) {
  * from what is saved (the spec's wants and avoids, the deck's cards) so the agent fills in names
  * and times and asks the person, or waives with a reason when no one is watching. The spine is
  * drafted around the idea and its signature (IDEA_SPINE); a spine already saved (the signature
- * step drafts it before the build) is kept, and the call asks only the fonts. With no idea yet (no picked treatment,
+ * step drafts it before the build) is kept, and the call asks the rest of the bible: fonts, moves
+ * and logo. With no idea yet (no picked treatment,
  * idea line or spec idea) the call asks for the idea and its signature moment, built from the
  * real material, before any spine: no template spine stands in for a missing idea.
  * The approval sends only by:"you" and their quote: copied or dealt lists and guessed avoids keep their source
@@ -620,22 +624,29 @@ export function lockCall(state, { approve = false } = {}) {
     return briefCall({ style: saved.by ? { ...add, ...yours } : { ...add, by: "guessed" } });
   }
   const fonts = { caption: { family: "<font>", size: "<px>" }, display: { family: "<font>", size: "<px>" } };
-  // A spine saved before the build (the signature step) is kept: the lock asks only the fonts.
-  if (saved.spine?.length)
-    return briefCall({ style: { ...(saved.idea ? {} : { idea }), ...(saved.signatures ? {} : { signatures }), fonts, ...(saved.by ? yours : { by: "guessed" }) } });
-  const style = {
-    // No drafted avoids: a ban is the person's words (a guessed one only warns, and the board
-    // stop asks about it). Saved avoids are kept as they are.
-    ...(saved.wants?.length ? { wants: saved.wants } : {}), ...(saved.avoids?.length ? { avoids: saved.avoids } : {}),
-    idea, signatures,
-    spine: IDEA_SPINE.map((role) => ({ role, from: `<s>`, to: `<s>`, uses: ["<layer or media>"], purpose: `<what the ${role} does>` })),
-    fonts,
+  // No drafted avoids: a ban is the person's words (a guessed one only warns, and the board
+  // stop asks about it). Saved avoids are kept as they are.
+  const kept = { ...(saved.wants?.length ? { wants: saved.wants } : {}), ...(saved.avoids?.length ? { avoids: saved.avoids } : {}) };
+  const moves = {
     moves: (cards.length ? cards : ["<technique>"]).map((tag) => ({ tag, where: "<where it recurs>" })),
     // Deck cards are suggestions: they stay "dealt", never the person's style, unless they ask.
     ...(cards.length ? { sources: { ...saved.sources, moves: "dealt" } } : {}),
+  };
+  const logo = { asset: "<logo layer>", max: 2 };
+  // A spine saved before the build (the signature step) is kept: the lock asks the rest of the
+  // bible (fonts, plus the moves and logo when they are not saved yet), never the spine again.
+  if (saved.spine?.length)
+    return briefCall({ style: { ...kept, ...(saved.idea ? {} : { idea }), ...(saved.signatures ? {} : { signatures }), fonts,
+      ...(saved.moves?.length ? {} : moves), ...(saved.logo ? {} : { logo }), ...(saved.by ? yours : { by: "guessed" }) } });
+  const style = {
+    ...kept,
+    idea, signatures,
+    spine: IDEA_SPINE.map((role) => ({ role, from: `<s>`, to: `<s>`, uses: ["<layer or media>"], purpose: `<what the ${role} does>` })),
+    fonts,
+    ...moves,
     // No `waived` in the draft: the agent asks the person. Waiving is for when no one is watching,
     // and the step says so; a drafted waiver would invite skipping the person.
-    logo: { asset: "<logo layer>", max: 2 }, by: "guessed", ...yours,
+    logo, by: "guessed", ...yours,
   };
   return briefCall({ style });
 }

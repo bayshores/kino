@@ -25,7 +25,8 @@ Write these before the spine, then fill the spine around them:
 The pick's signature call also drafts the spine before the build: hook, problem (the pick's
 tension), turn (its turn), signature, payoff, end, in rough seconds. Building waits
 (`order_needed`) until the spine has a problem, a turn and a payoff; times may change later. The
-lock keeps that spine and asks only the fonts. With no idea, `lock direction: idea + signature`
+lock keeps that spine and asks the rest of the bible (fonts, plus moves and logo when not saved;
+beats are timed over the brief's length). With no idea, `lock direction: idea + signature`
 asks for the idea and its signature moment from the real material first; there is no template spine.
 
 ## The spine
