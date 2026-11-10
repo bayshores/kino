@@ -1,6 +1,7 @@
 # kino feature ledger
 
 - **Verified: fast draft excerpts.** Agent `render preview=fast from=1 to=1.5` returns a checked 640px/15fps excerpt with snapped bounds, reuses identical cached exports and leaves the project unchanged (`agent-answers.test.mjs`). Synthetic render tests check late audio, fades and ducking on the original scene clock (`volume-animation-export.test.mjs`). No production-film speedup benchmark.
+- **Verified: entry point for other apps.** `backend/integration.mjs` exports the agent client, document builders, `DOCUMENT_VERSION` and `MAX_UPLOAD_BYTES` under fixed names; a recorder-style document built from it parses (`integration.test.mjs`).
 
 Every kino feature, whether it is proven, and the proof. Agents edit through ten MCP tools and the
 `kino` command line; the app is a dashboard ([docs/agent-first-plan.md](docs/agent-first-plan.md)).
