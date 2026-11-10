@@ -5,7 +5,7 @@ import test from "node:test";
 import { agreement, bradleyTerry, cutsFrom, lineLevels, parseEbur128, shortTermCurve, splitPicks, stripTimes } from "../evals/taste/lib.mjs";
 import { answerJson, combine, factsText } from "../evals/taste/judge.mjs";
 import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
-import { htmlText, pickMp4, projectIdFor, promptFor, summarize } from "../evals/taste/firstpass.mjs";
+import { htmlText, pickMp4, projectIdFor, projectIdFromStatus, promptFor, summarize } from "../evals/taste/firstpass.mjs";
 import { projectSeed } from "../engine/deck.js";
 import { familyOf } from "../backend/house-memory.mjs";
 
@@ -107,5 +107,7 @@ test("each first pass names its own project from the run id: its own deal seed a
   assert.equal(new Set(ids.map((id) => projectSeed(id))).size, ids.length, "no two runs share a deal seed");
   assert.equal(projectIdFor("Fp 10 (retry)!"), "fp-10-retry");
   assert.equal(projectIdFor("x".repeat(80) + "-12").length, 63);
-  assert.equal(promptFor({ ask: "make a video" }, ["/r/a.mp4"], "kino-fp9"), "make a video\n\nFiles:\n- /r/a.mp4\n\nCall the project kino-fp9.");
+  assert.equal(promptFor({ ask: "make a video" }, ["/r/a.mp4"], "kino-fp9"), "make a video\n\nFiles:\n- /r/a.mp4\n\nUse kino-fp9 as the project id.");
+  assert.equal(projectIdFromStatus("kino launch (v2) trailer (kino-launch) rev 47 · 1 scene"), "kino-launch", "the id the agent really made");
+  assert.equal(projectIdFromStatus("No project open."), null);
 });
