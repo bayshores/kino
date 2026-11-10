@@ -8,7 +8,7 @@ import { defaultFont, gradientBanding, gradientText, neonOnDark, pureFrame } fro
 import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, judder, linearMotion, sameMotion, speedJump, springOnFade, staggerLong, staggerOrder } from "./rules/motion.js";
 import { assertions, noRhythm, offBeat, promoBasics, sceneLengths, staticScene, transitionsDense } from "./rules/pacing.js";
 import { referenceDrift } from "./rules/reference.js";
-import { seenBefore } from "./rules/seenBefore.js";
+import { endingSeen, seenBefore } from "./rules/seenBefore.js";
 import { hold, readingTime, typeMin } from "./rules/text.js";
 import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
 import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, splitCardLayout } from "./rules/aiTells.js";
@@ -136,6 +136,7 @@ export const RULES = [
   rule("page_chrome", "warn", pageChrome, "tracked caps labels under 40 px and rows of thin bars 8 s at most"),
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
   rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer"),
+  rule("ending_seen", "warn", endingSeen, "the ending (last 15% or the end beat) not laid out as in another kino project (0.12); only the person waives it"),
   rule("text_slides", "warn", textSlides, "in a video of 8 s or more, text over a still, flat or dimmed background (no clip, no camera move) for at most 25% of it, no card over 3 s and under 3 of 1.2 s+, the end aside"),
   rule("few_techniques", "warn", fewTechniques, "in a video of 8 s or more, not flat: at least one designed device (two from 70 s, at most 4; cut, type-cut, hold, beat-cut and syncopated do not count), repeated as a motif"),
   rule("plain_beats", "warn", plainBeats, "in a video of 8 s or more, the key beats (the hook, the reveal and the payoff: board shots, the payoff inside the spine's payoff beat when there is one, else the first and last 2.5 s) with footage hold a designed technique, not only footage, words and plain cuts, fades, blurs or freezes; plain cuts elsewhere are right. A warning per plain key beat, and a gate at the final render when none of them is designed"),

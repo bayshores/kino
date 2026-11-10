@@ -7,9 +7,10 @@
 // clip covers (footage filling the frame is backdrop, not an item); each item is
 //   {k: "t" text | "i" picture or logo | "m" inset clip, x, y (center), w, h (shares of the frame),
 //    r font size rank (0 largest, 2 the rest), a align, c case (caps, lower, mixed, none),
-//    m mono 0 or 1, n words bucket (0: 1 word, 1: 2-3, 2: 4-7, 3: 8+), d designed type or logo 0 or 1}.
+//    m mono 0 or 1, n words bucket (0: 1 word, 1: 2-3, 2: 4-7, 3: 8+), d designed type or logo 0 or 1,
+//    o 1 on type drawn under a cut-out of a subject (cut_out, cutoutOf), left out otherwise}.
 import { cuts, designedTexts, sec, speechTimed } from "./analysis.js";
-import { area, frameAt, insideShare, isDecor, isText, visibleBoxAt } from "./model.js";
+import { area, frameAt, insideShare, isDecor, isText, overlapArea, visibleBoxAt } from "./model.js";
 
 // A picture or clip covering this share of the frame is the backdrop.
 const BACKDROP = 0.6;
@@ -47,6 +48,9 @@ export function layoutSignature(model, t, { families = null } = {}) {
   const frame = model.width * model.height;
   const designed = new Set(designedTexts(model).map((item) => item.id));
   const captions = speechTimed(model);
+  // Cut-outs shown now: type under one (and over it) stands behind the subject.
+  const cutouts = model.items.filter((item) => item.cutoutOf && !item.isMask && (item.samples.opacity[index] ?? 0) >= 0.5);
+  const underCutout = (item, box) => cutouts.some((cut) => cut.z > item.z && overlapArea(visibleBoxAt(model, cut, index), box) > 0);
   let backdrop = 0;
   const found = [];
   for (const item of model.items) {
@@ -69,6 +73,7 @@ export function layoutSignature(model, t, { families = null } = {}) {
     if (text) {
       const value = shownText(item, index);
       Object.assign(entry, { size: (item.fontSize ?? 0) * (item.samples.scale[index] ?? 1), a: item.textAlign ?? "left", c: caseOf(value), m: MONO.test(families?.get(item.id) ?? item.fontFamily ?? item.font?.family ?? "") ? 1 : 0, n: wordsBucket(value) });
+      if (underCutout(item, box)) entry.o = 1;
     }
     found.push(entry);
   }
@@ -76,6 +81,16 @@ export function layoutSignature(model, t, { families = null } = {}) {
   const sizes = [...new Set(items.filter((item) => item.k === "t").map((item) => Math.round(item.size)))].sort((a, b) => b - a);
   for (const item of items) if (item.k === "t") { item.r = Math.min(2, sizes.indexOf(Math.round(item.size))); delete item.size; }
   return { backdrop: round(backdrop), items };
+}
+
+// The signature format: 2 marks type under a cut-out (`o`). House files without `sigVersion` are
+// older (no `o`), so a comparison with one leaves `o` out of both sides (withoutUnder).
+export const SIGNATURE_VERSION = 2;
+
+/** The signature without the under-a-cut-out mark, as format 1 wrote it (the same object when it has none). */
+export function withoutUnder(signature) {
+  if (!signature?.items?.some((item) => "o" in item)) return signature;
+  return { ...signature, items: signature.items.map(({ o, ...item }) => item) };
 }
 
 /** True when the signature holds designed type or a logo (captions alone do not count). */
@@ -93,6 +108,7 @@ export function itemCost(a, b) {
     look += a.a === b.a ? 0 : 0.05;
     look += 0.05 * Math.abs((a.r ?? 0) - (b.r ?? 0));
     look += 0.04 * Math.abs((a.n ?? 0) - (b.n ?? 0));
+    look += (a.o ?? 0) === (b.o ?? 0) ? 0 : 0.5;
   }
   return Math.min(1, place + size + look);
 }
@@ -168,20 +184,22 @@ const COLUMN_GAP = 0.05;
  * The coarse shape of a signature, which ignores exact places and sizes: its rows top to bottom
  * ("P" a row with a picture or logo, "T" type only, a run of one kind once), the share of rows
  * centered, a picture or logo above all the type, mono type present, how many rows of type
- * (bucket: 1, 2, 3-4, 5+), and a
- * plain or footage backdrop. Null with under 3 rows (one or two lines are too common to compare)
- * or a row of parts spread apart (not one stack).
+ * (bucket: 1, 2, 3-4, 5+), a
+ * plain or footage backdrop, and `under: 1` when type stands under a cut-out subject. Null with
+ * under 3 rows (one or two lines are too common to compare; type under a cut-out is rare enough
+ * at any count) or a row of parts spread apart (not one stack).
  */
 export function shapeOf(signature) {
   // Inset clips are footage, not part of a stack of type.
   const items = (signature?.items ?? []).filter((item) => item.k !== "m").sort((a, b) => a.y - b.y);
+  const under = items.some((item) => item.k === "t" && item.o === 1);
   const rows = [];
   for (const item of items) {
     const row = rows.at(-1);
     if (row && item.y - row.y <= ROW_GAP) { row.items.push(item); row.y = row.items.reduce((sum, entry) => sum + entry.y, 0) / row.items.length; }
     else rows.push({ y: item.y, items: [item] });
   }
-  if (rows.length < 3) return null;
+  if (rows.length < (under ? 1 : 3)) return null;
   // A stack has one column: a row of parts spread apart (chart labels, a grid) is not one.
   const spread = (row) => {
     const parts = [...row.items].sort((a, b) => a.x - b.x);
@@ -205,6 +223,7 @@ export function shapeOf(signature) {
     mono: texts.some((item) => item.m === 1) ? 1 : 0,
     lines: typeRows <= 1 ? 0 : typeRows === 2 ? 1 : typeRows <= 4 ? 2 : 3,
     footage: (signature.backdrop ?? 0) >= 0.6 ? 1 : 0,
+    ...(under ? { under: 1 } : {}),
   };
 }
 
@@ -227,7 +246,8 @@ function editShare(a, b) {
 export function shapeDistance(a, b) {
   if (!a || !b) return 1;
   return round(0.3 * editShare(a.order, b.order) + 0.3 * Math.abs(a.centered - b.centered) + 0.25 * Math.abs(a.logoAbove - b.logoAbove)
-    + 0.15 * Math.abs(a.mono - b.mono) + 0.1 * Math.abs(a.lines - b.lines) + 0.4 * Math.abs(a.footage - b.footage));
+    + 0.15 * Math.abs(a.mono - b.mono) + 0.1 * Math.abs(a.lines - b.lines) + 0.4 * Math.abs(a.footage - b.footage)
+    + 0.4 * Math.abs((a.under ?? 0) - (b.under ?? 0)));
 }
 
 /**

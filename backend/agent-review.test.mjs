@@ -568,6 +568,9 @@ test("a viewer-facing finding is the agent's to fix: its waiver needs the person
   await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "rectangle", name: "card", properties: { x: 0, y: 0, width: 640, height: 360, fill: "#202020" } }] });
   const bare = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "screen_unreadable", target: "card", reason: "the whole app on purpose" }] });
   assert.match(bare.text, /screen_unreadable is what viewers see: fix it/);
+  // A repeated ending (seen in an earlier project) too; mid-video repeats (seen_before) stay the agent's.
+  const ending = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "ending_seen", target: "card", reason: "our house ending" }] });
+  assert.match(ending.text, /ending_seen is what viewers see: fix it/);
   const handed = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "frozen_picture", target: "card", quote: "your call", reason: "bursts" }] });
   assert.match(handed.text, /your call\W{0,3} is not one/);
   const all = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "*", quote: "keep the title cards, I like them", reason: "their pick" }] });
@@ -667,7 +670,7 @@ test("a real edit (a brief, over 30 layers) needs one critic round before its fi
   const warned = await final();
   assert.equal(warned.data.error, "check_failed", warned.text);
   assert.match(warned.data.reason, /block a final render \(fix each or waive it with a reason\):\n {2}[a-z_]+/);
-  await agent("edit", { project: id, ops: ["no_music", "static_scene", "default_font", "page_chrome", "seen_before", "text_slides"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test card" })) });
+  await agent("edit", { project: id, ops: ["no_music", "static_scene", "default_font", "page_chrome", "seen_before", "ending_seen", "text_slides"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test card" })) });
   await reviewAll(id);
   const cancel = async (reply) => { if (reply.data?.job) await agent("render", { project: id, action: "cancel", job: reply.data.job }); };
   const needed = await final();
@@ -706,7 +709,7 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
     const style = { wants: [], avoids: [], lines: [], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 16, purpose: "the street" }], fonts: { caption: { family: "Inter", size: 40 } } };
     assert.equal((await agent("notes", { project: id, action: "brief", fields: { style } })).isError, undefined);
     const built = await agent("edit", { project: id, ops: [
-      ...["reference", "review", "soft_upscale", "plain_beats", "held_static", "no_music", "static_scene", "default_font", "page_chrome", "seen_before", "text_slides", "needs", "treatments", "no_rhythm", "few_techniques"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test" })),
+      ...["reference", "review", "soft_upscale", "plain_beats", "held_static", "no_music", "static_scene", "default_font", "page_chrome", "seen_before", "ending_seen", "text_slides", "needs", "treatments", "no_rhythm", "few_techniques"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test" })),
       { op: "add_layer", layerType: "video", name: "street", properties: { src: media.src ?? media.media?.src, x: 0, y: 0, width: 320, height: 180 } },
       ...Array.from({ length: 30 }, (_, n) => ({ op: "add_layer", layerType: "rectangle", name: `dot${n}`, properties: { x: 10 + n * 10, y: 170, width: 4, height: 4, fill: "#ffffff" } })),
     ] });
