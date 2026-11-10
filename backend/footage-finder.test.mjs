@@ -1,7 +1,7 @@
 // The footage finder: from a prompt alone to found, scanned and imported clips. No network here:
 // yt-dlp, fetch, the embedder and Vision are stubs.
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -10,6 +10,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKinoMcpServer } from "./mcp.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
+import { pruneScans, rankShots, readScan, scanFootage, scansFolder } from "./footage-finder/score.mjs";
+import { encodeVector, normalize } from "./music-embed.mjs";
+import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
 import { removeTempFolder } from "./temp-folders.mjs";
 
@@ -120,6 +123,84 @@ args.forEach((arg, index) => { if (arg === "--download-sections") fs.writeFileSy
     } finally {
       await removeTempFolder(copy.folder);
     }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives match as a z-score and removes the copy", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-times-"));
+  const copyFolder = path.join(directory, "copy");
+  await mkdir(copyFolder);
+  // Five 2 s shots: A moves with a face; B and C are one held picture (0.96 alike); D is dark; E is a title card.
+  const looks = { A: [1, 0, 0, 0], B: [0, 1, 0, 0], C: [0, 0.96, 0.28, 0], D: [0, 0, 1, 0], E: [0, 0, 0, 1] };
+  const shotAt = (t) => "ABCDE"[Math.min(4, Math.floor(t / 2))];
+  const samples = Array.from({ length: 40 }, (_, index) => {
+    const t = index / 4;
+    const shot = shotAt(t);
+    return { t, luma: shot === "D" ? 0.05 : 0.5, change: shot === "B" || shot === "C" ? 0.01 : 0.1, motion: null,
+      faces: shot === "A" ? [[0.4, 0.3, 0.2, 0.3]] : [], text: shot === "E" ? [{ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" }] : [] };
+  });
+  let sheetStills = null;
+  const tools = {
+    probe: async () => ({ duration: 10, width: 640, height: 360 }),
+    findShots: async (file, { maxSeconds }) => {
+      assert.equal(maxSeconds, 1800);
+      return { shots: [0, 2, 4, 6, 8].map((start) => ({ start, end: start + 2 })) };
+    },
+    measure: async () => ({ samples, vision: { faces: true, text: true, flow: false } }),
+    stills: async (file, times) => times.map((time) => `still-${shotAt(time)}`),
+    sheet: async (stills, out) => { sheetStills = stills; await writeFile(out, "jpg"); },
+  };
+  const embed = {
+    images: async (files) => ({ model: "test", vectors: files.map((file) => encodeVector(normalize(looks[file.slice(-1)]))) }),
+    text: async () => [Float32Array.from([1, 0, 0, 0])],
+  };
+  try {
+    const copy = { folder: copyFolder, files: [{ start: 60, end: 70, file: path.join(copyFolder, "scan.60.webm") }] };
+    const scan = await scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, want: "white hair", embed, tools });
+    await assert.rejects(stat(copyFolder), { code: "ENOENT" });
+    assert.deepEqual(scan.skipped, { dark: 1, text: 1, short: 0, repeats: 1 });
+    // Numbers follow time (A 1, B+C 2, D 3, E 4); the clean shots rank first, the dark and title shots last.
+    assert.deepEqual(scan.shots.map((shot) => shot.n), [1, 2, 3, 4]);
+    assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [62, 66], [66, 68], [68, 70]]);
+    assert.deepEqual(scan.shots.slice(2).map((shot) => shot.flags), [["dark"], ["text"]]);
+    assert.equal(scan.shots[0].face, 100);
+    // Closeness 1, 0, 0, 0 as z-scores; 1.7 is under 2, so match does not count.
+    assert.deepEqual(scan.shots.map((shot) => shot.match), [1.7, -0.6, -0.6, -0.6]);
+    assert.equal(scan.matchShown, false);
+    assert.deepEqual(sheetStills, ["still-A", "still-B", "still-D", "still-E"]);
+    assert.deepEqual((await readScan(directory, "yt-abcdefghijk")).shots.length, 4);
+    // Ten even shots, one of them close to the words: a z-score of 3 counts, and that shot leads.
+    const ten = Array.from({ length: 10 }, (_, index) => ({ start: index, end: index + 1, motion: index === 7 ? 10 : 60, face: 0, luma: 0.5, text: 0, logo: 0,
+      vector: normalize(index === 7 ? [1, 0, 0, 0] : [0, 1, 0, 0]) }));
+    const ranked = rankShots(ten, { wantVector: Float32Array.from([1, 0, 0, 0]) });
+    assert.equal(ranked.matchShown, true);
+    assert.deepEqual([ranked.shots[0].start, ranked.shots[0].match], [7, 3]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  // Without the footage finder's allowance, a 25 min file is still too long to look in.
+  await assert.rejects(findShots("none.webm", { duration: 1500 }), { code: "TOO_LONG" });
+  await assert.rejects(findShots("none.webm", { duration: 2000, maxSeconds: 1800 }), /up to 30 min/);
+});
+
+test("the scans folder keeps its cap by removing the least recently used scans, never a kept one", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-times-"));
+  try {
+    const folder = scansFolder(directory);
+    await mkdir(folder, { recursive: true });
+    for (const [index, id] of ["a", "b", "c", "d"].entries()) {
+      for (const extension of ["json", "jpg"]) {
+        const file = path.join(folder, `${id}.${extension}`);
+        await writeFile(file, "{}");
+        await utimes(file, 1000 + index, 1000 + index);
+      }
+    }
+    await readScan(directory, "b");
+    // 8 files, at most 4: a is the oldest but kept, b was just read; c and d go.
+    assert.deepEqual(await pruneScans(directory, { keep: ["a"], maxFiles: 4 }), ["c", "d"]);
+    assert.deepEqual(await pruneScans(directory, { keep: ["a"], maxFiles: 4 }), []);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
