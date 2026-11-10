@@ -388,12 +388,18 @@ export const SONG_SHAPE_VERSION = 1;
  */
 export function createSongShapeCache({ decode = decodeMono } = {}) {
   const pending = new Map();
+  // The kept .song result, or null when it is missing or from an older version.
+  async function saved(file) {
+    try {
+      const result = JSON.parse(await readFile(`${file}.song`, "utf8"));
+      if (result?.version === SONG_SHAPE_VERSION && Array.isArray(result.sections)) return result;
+    } catch { /* not measured yet */ }
+    return null;
+  }
   async function readOrMeasure(file, bpm) {
     const sidecar = `${file}.song`;
-    try {
-      const saved = JSON.parse(await readFile(sidecar, "utf8"));
-      if (saved?.version === SONG_SHAPE_VERSION && Array.isArray(saved.sections)) return saved;
-    } catch { /* Missing or old results are made again. */ }
+    const kept = await saved(file);
+    if (kept) return kept;
     const { samples, sampleRate } = await decode(file);
     if (!samples.length) throw new Error("The file has no sound.");
     const result = { version: SONG_SHAPE_VERSION, seconds: round(samples.length / sampleRate, 3), whole: true, sections: songShape(samples, sampleRate, { bpm }).sections };
@@ -405,5 +411,7 @@ export function createSongShapeCache({ decode = decodeMono } = {}) {
       if (!pending.has(file)) pending.set(file, readOrMeasure(file, bpm).finally(() => pending.delete(file)));
       return pending.get(file);
     },
+    // Only the kept result: no decode, for answers that must not wait.
+    saved,
   };
 }

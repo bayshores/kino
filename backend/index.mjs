@@ -70,6 +70,9 @@ import { decodeMono } from "./audio-analysis.mjs";
 import { createSoundBandsCache, soundLevelsFor } from "./sound-bands.mjs";
 import { analyzeBeats } from "../engine/beatDetection.js";
 import { createInspire, inspireTools } from "./inspire.mjs";
+import { createYouTubeGate } from "./process-slots.mjs";
+import { createFootageFinder } from "./footage-finder/index.mjs";
+import { createCommonsSource } from "./footage-finder/licensed.mjs";
 import { createHouseMemory } from "./house-memory.mjs";
 import { songVocals } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
@@ -175,6 +178,10 @@ const shotFinder = createShotFinder({ mediaRoot, saveRecord: saveMediaRecord });
 // thumbnails are kept in <data>/inspire; each project's searches and saved references in its
 // agent state. yt-dlp is KINO_YTDLP, else Homebrew's, else the one on the PATH.
 const inspireDeps = await inspireTools();
+// One gate for every YouTube download (inspire, soundtrack, footage): one at a time, 5 s apart, and
+// after a bot check none for 15 minutes (process-slots.mjs). KINO_YOUTUBE_GAP_MS sets the gap for
+// tests whose stub yt-dlp never reaches YouTube.
+const youtubeGate = createYouTubeGate(process.env.KINO_YOUTUBE_GAP_MS ? { gapMs: Math.max(0, Number(process.env.KINO_YOUTUBE_GAP_MS) || 0) } : {});
 // Reference looks (SigLIP via transformers.js): one vector a shot and a thumbnail, so searches rank
 // by how the frames match the words and the saved references. The model downloads once into
 // <data>/models on first use; KINO_LOOK_DOWNLOAD=0 keeps it to a model already there, off turns it off.
@@ -188,6 +195,7 @@ const inspire = createInspire({
   directory: path.join(dataRoot, "inspire"),
   ...inspireDeps,
   look: lookEmbed,
+  youtube: youtubeGate,
   projectState: {
     read: async (projectId) => (await agentState.read(projectId))?.inspire ?? null,
     update: (projectId, change) => agentState.update(projectId, (state) => {
@@ -217,6 +225,7 @@ const soundtrack = createSoundtrack({
   searchYouTube: (words, options) => inspireDeps.search(words, options),
   mixYouTube: (videoId, options) => inspireDeps.mix(videoId, options),
   downloadYouTube: (videoId, folder, options) => inspireDeps.downloadAudio(videoId, folder, options),
+  youtube: youtubeGate,
   decode: (file) => decodeMono(file),
   analyze: (samples, rate) => analyzeBeats(samples, rate),
   vocals: (file, seconds) => songVocals(file, { seconds }),
@@ -224,6 +233,20 @@ const soundtrack = createSoundtrack({
   addMedia: (...args) => addGeneratedMedia(...args),
 });
 soundtrack.sweep().catch(() => {});
+// The footage finder (backend/footage-finder): YouTube searches cached in <data>/footage/cache,
+// scans kept in <data>/footage/scans, Commons behind the same web search switch as sounds. Scans
+// match shots to the agent's words with the reference look model, when it is on.
+const footageFinder = createFootageFinder({
+  directory: path.join(dataRoot, "footage"),
+  dataRoot,
+  youtube: youtubeGate,
+  embed: lookEmbed,
+  commons: createCommonsSource({ enabled: () => dashboard.settings().sounds?.search === true, directory: path.join(dataRoot, "footage", "commons") }),
+  // With looks or their download switched off nothing downloads, so no scan promises a download.
+  modelReady: () => !lookEmbed || process.env.KINO_LOOK_DOWNLOAD === "0" || lookEmbed.ready(),
+  // Imported shots join the media library for their project, with their credit and F code.
+  addMedia: (...args) => addGeneratedMedia(...args),
+});
 // Screen recordings agents make (project {action:"record"}): folders in <data>/recordings while
 // recording, then the video joins the media library. The dashboard shows one while it runs.
 const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => addGeneratedMedia(...args),
@@ -267,6 +290,7 @@ const agentService = createAgentService({
   look: agentLook,
   inspire,
   soundtrack,
+  footage: footageFinder,
   // The person's song likes and rejects, across projects (backend/songTaste.mjs).
   songTaste: createSongTaste({ file: path.join(dataRoot, "song-taste.json") }),
   musicEmbed,
@@ -680,7 +704,8 @@ async function measureMedia(filename, mime) {
 // The file is moved in.
 // Like the agent's imports it belongs to no one project; saving a project that uses it records
 // the use (rememberMediaUse).
-// `extra` adds fields to the record (an Openverse sound's credit).
+// `extra` adds fields to the record (an Openverse sound's credit; a found clip's projectId, credit
+// and footage code). A video gets its shots found, as an upload does.
 async function addGeneratedMedia(file, { name, mime, extra = {} }) {
   const extension = mediaTypes[mime];
   if (!extension || !(/^(?:audio|video)\//.test(mime) || mime === "image/png")) throw new Error(`kino does not keep made ${mime} files.`);
@@ -695,7 +720,8 @@ async function addGeneratedMedia(file, { name, mime, extra = {} }) {
     const measurements = await measureMedia(target, mime);
     if (measurements.measurementSucceeded !== true) throw new Error(`The made file ${name} could not be read back as ${mime}.`);
     const { size } = await stat(target);
-    const metadata = { id, src: `/api/media/${id}`, name: String(name).slice(0, 200), mime, size, ...measurements, ...extra };
+    const shots = mime.startsWith("video/") && measurements.hasVideo !== false ? await uploadShots(target, measurements.duration) : {};
+    const metadata = { id, src: `/api/media/${id}`, name: String(name).slice(0, 200), mime, size, ...measurements, ...shots, ...extra };
     await writeMediaRecord(mediaRoot, id, metadata);
     return metadata;
   } catch (error) {

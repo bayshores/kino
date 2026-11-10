@@ -249,12 +249,12 @@ test("the board's sound line offers files or the built-in library, never the swi
   assert.equal(ask(true), ask(false));
 });
 
-test("the sound stop names where found sounds came from", () => {
-  const credits = ['"Door slam" by someone, CC0 1.0', '"Buzz" by b, CC0 1.0', '"Tap" by c, CC0 1.0', '"Rain" by d, CC0 1.0'];
+test("the sound stop names where found sounds and footage came from", () => {
+  const credits = ['"Door slam" by someone, CC0 1.0', '"Fight" by s (https://www.youtube.com/watch?v=stubFight01), license unknown', '"Tap" by c, CC0 1.0', '"Rain" by d, CC0 1.0'];
   const ask = askText({ id: "C5", kind: "sound", video: { seconds: 20, credits }, checked: { errors: 0, warnings: 0 } });
-  assert.match(ask, /^Sounds: "Door slam" by someone, CC0 1\.0; "Buzz" by b, CC0 1\.0; "Tap" by c, CC0 1\.0; and 1 more\.$/m);
-  assert.doesNotMatch(askText({ id: "C4", kind: "color", video: { seconds: 20, credits }, checked: {} }), /Sounds:/);
-  assert.doesNotMatch(askText({ id: "C5", kind: "sound", video: { seconds: 20 }, checked: {} }), /Sounds:/);
+  assert.match(ask, /^Credits: "Door slam" by someone, CC0 1\.0; "Fight" by s \(https:\/\/www\.youtube\.com\/watch\?v=stubFight01\), license unknown; "Tap" by c, CC0 1\.0; and 1 more\.$/m);
+  assert.doesNotMatch(askText({ id: "C4", kind: "color", video: { seconds: 20, credits }, checked: {} }), /Credits:/);
+  assert.doesNotMatch(askText({ id: "C5", kind: "sound", video: { seconds: 20 }, checked: {} }), /Credits:/);
 });
 
 test("soundtrack: search, measure against the intents, note, the person's use, import with credit; YouTube songs never import", async () => {
@@ -311,7 +311,7 @@ test("soundtrack: search, measure against the intents, note, the person's use, i
   assert.match(imported.text, /credit kept with the file: "Rain on a roof" by someone \(https:\/\/freesound\.org\/[^)]+\), CC0 1\.0/);
   const refused = await agent("project", { action: "import", file: "yt:dQw4w9WgXcQ" });
   assert.equal(refused.isError, true);
-  assert.match(refused.text, /reference only.*one of this video's measured songs/);
+  assert.match(refused.text, /yt:dQw4w9WgXcQ is a reference; as footage: library \{topic/);
 });
 
 test("Freesound with a key: its results join Openverse's (token header, previews, never NC); no key, no request", async () => {

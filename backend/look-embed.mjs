@@ -13,6 +13,7 @@
 // The pure half ranks search results: near-identical ones collapse into one (more views wins),
 // the query's text vector and the person's taste (saved references liked, unsaved ones rejected)
 // order the rest, and MMR keeps the list varied until there is taste.
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { centeredCosine, decodeVector, dot, encodeVector, meanVector, normalize } from "./music-embed.mjs";
 
@@ -205,5 +206,10 @@ export function createLookEmbed({ modelDir, load = () => import("@huggingface/tr
     return `reference looks are off (${failure}): results keep kino's views-and-slop order.`;
   }
 
-  return { model, images, text, notice, failed: () => failure };
+  return { model, images, text, notice, failed: () => failure, ready: () => lookModelReady(modelDir, model) };
+}
+
+/** True when the model is already on disk: transformers.js keeps it in <modelDir>/hf/<model id>. */
+export function lookModelReady(modelDir, model = LOOK_MODEL) {
+  return Boolean(modelDir) && existsSync(path.join(modelDir, "hf", model));
 }

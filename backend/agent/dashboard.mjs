@@ -91,8 +91,10 @@ export function defaultSettings() {
     // quiet: a silent notification when an agent goes quiet for 30 s while the dashboard window
     // is in the background (milestone LIVE). Off by default; the agent never sees it.
     notify: { quiet: false },
-    // search: library sounds and Openverse imports (backend/sound-search.mjs). Off by default: it
-    // sends the agent's search words to Openverse (direction plan fix 8).
+    // search: the "web search" switch in Settings: library sounds and Openverse imports
+    // (backend/sound-search.mjs), songs (soundtrack.mjs) and Commons footage
+    // (footage-finder/licensed.mjs). Off by default: it sends the agent's search words to those
+    // sites (direction plan fix 8).
     sounds: { search: false },
   };
 }

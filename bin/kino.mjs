@@ -514,7 +514,7 @@ async function runVerb(argv) {
   let reply;
   if (verb === "project" && input.action === "import") {
     if (!input.file) throw new Error("kino project import needs a file path.");
-    { const media = await client.importFile(input.file); reply = media.refused ?? media.reply ?? { text: importedText(media) }; }
+    { const media = await client.importFile(input.file, { input }); reply = media.refused ?? media.reply ?? { text: importedText(media) }; }
   } else {
     reply = await client.call(verb, input, { by: options.you ? "you" : undefined });
   }

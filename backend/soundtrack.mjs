@@ -3,7 +3,7 @@
 // Three sources, all reached only when an agent (or the person) asks:
 // - Openverse (https://api.openverse.org): Creative Commons music, often from Jamendo. Only
 //   licenses that allow commercial use and changes (CC0, CC BY, CC BY-SA) are kept, so a pick can
-//   be cut to the edit and credited. It shares the "sound search" switch in kino Settings with
+//   be cut to the edit and credited. It shares the "web search" switch in kino Settings with
 //   library sounds, because the search words leave this computer.
 // - The Internet Archive's netlabels collection (https://archive.org/details/netlabels): albums
 //   from Creative Commons labels, each with its license link. Only CC BY, CC BY-SA, CC0 and public
@@ -27,16 +27,18 @@
 //
 // Search answers are cached on disk for a day (<data>/soundtrack/cache), so the same words do not
 // reach Openverse, the Archive or YouTube again. No personal details: the requests carry kino's own name.
-import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { songShape, vocalShare } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
+import { createWebCache } from "./web-cache.mjs";
+import { createSlots, createYouTubeGate } from "./process-slots.mjs";
+import { hostAllowed, KINO_USER_AGENT } from "./web-files.mjs";
 
 const API = "https://api.openverse.org/v1/audio/";
 const ARCHIVE = "https://archive.org";
-const USER_AGENT = "kino (https://github.com/bayshores/kino)";
+const USER_AGENT = KINO_USER_AGENT;
 export const SOUNDTRACK_LIMITS = Object.freeze({ results: 5, words: 120, minSeconds: 20, cacheMs: 24 * 60 * 60 * 1000, measureSeconds: 240, megabytes: 15, kept: 24, previewSeconds: 90, previews: 24, mix: 12, searchMs: 60000, graceMs: 8000, slowSearchMs: 180000, downloadMs: 90000 });
 const TYPES = { mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac" };
 // Licenses that allow commercial use and changes (a song cut to an edit is a change).
@@ -479,10 +481,11 @@ export function importableId(file, candidates = []) {
 }
 
 /**
- * deps: enabled() (the sound search switch, for Openverse and the Archive), directory (<data>/soundtrack),
+ * deps: enabled() (the web search switch, sounds.search, for Openverse and the Archive), directory (<data>/soundtrack),
  * fetch (tests pass a stub), api, archiveApi (https://archive.org), graceMs, searchYouTube(words, {count}), mixYouTube(videoId, {count}) (YouTube's
  * mix for a song, as search results), downloadYouTube(videoId, folder)
- * (the file it saved), decode(file) → {samples, sampleRate}, analyze(samples, rate) (beats),
+ * (the file it saved; run through youtube, the download gate shared with inspire and footage in
+ * process-slots.mjs), decode(file) → {samples, sampleRate}, analyze(samples, rate) (beats),
  * vocals(file, seconds) → [[from, to]] (optional: whisper's vocal spans; without it, or when it
  * throws, a rough guess from the sound), addMedia(file, {name, mime, extra}), preview(file, target, {start, end}) (writes that stretch as
  * AAC .m4a; optional: without it no preview is kept), embed(samples, sampleRate) → {model, vector}
@@ -493,6 +496,8 @@ export function createSoundtrack(deps) {
   const stubs = [api === API ? null : new URL(api), archiveApi === ARCHIVE ? null : new URL(archiveApi)].filter(Boolean);
   const blockedUntil = { openverse: 0, archive: 0, listenbrainz: 0 };
   let measuring = Promise.resolve();
+  const youtube = deps.youtube ?? createYouTubeGate({ gapMs: 0, now, slot: createSlots(1) });
+  const fromYouTube = (candidate, folder, options) => youtube(() => deps.downloadYouTube(candidate.id.slice(3), folder, options), { signal: options?.signal });
 
   // Every request has a time limit: a network that never answers once held an agent's search
   // (and its turn) for minutes. ms covers the whole answer, body included. source names who is
@@ -516,20 +521,8 @@ export function createSoundtrack(deps) {
     return response;
   }
 
-  async function cached(key, make) {
-    const file = path.join(directory, "cache", `${createHash("sha1").update(key).digest("hex")}.json`);
-    try {
-      const saved = JSON.parse(await readFile(file, "utf8"));
-      if (now() - saved.at < SOUNDTRACK_LIMITS.cacheMs) return saved.results;
-    } catch { /* not cached */ }
-    const results = await make();
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    // Its own temporary name: the same search running twice at once (two agents) must not collide.
-    const temporary = `${file}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ at: now(), results }), { mode: 0o600 });
-    await rename(temporary, file);
-    return results;
-  }
+  // Search answers last a day (web-cache.mjs); sweep() below removes older files.
+  const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: SOUNDTRACK_LIMITS.cacheMs, now });
 
   // Openverse can take minutes to answer. The agent waits searchMs (or until `stop`, when another
   // source already answered); the search itself keeps going (up to slowSearchMs) and lands in the
@@ -595,7 +588,7 @@ export function createSoundtrack(deps) {
     const asks = (name) => !source || source === name;
     let release;
     const enough = new Promise((resolve) => { release = resolve; });
-    const off = (name) => ({ results: [], notes: [`${name}: off (the person turns on sound search in kino Settings).`] });
+    const off = (name) => ({ results: [], notes: [`${name}: off (the person turns on web search in kino Settings).`] });
     const openverseJob = !asks("openverse") ? null : !enabled() ? Promise.resolve(off("Openverse")) : (async () => {
       const notes = [];
       try {
@@ -653,13 +646,13 @@ export function createSoundtrack(deps) {
   function allowedFile(url) {
     const file = new URL(url);
     if (stubs.some((stub) => file.host === stub.host)) return file;
-    if (file.protocol !== "https:" || !FILE_HOSTS.some((host) => file.hostname === host || file.hostname.endsWith(`.${host}`)))
+    if (!hostAllowed(file, FILE_HOSTS))
       throw new SoundtrackError("refused", `The song's file is on ${file.hostname}, which kino does not download from.`);
     return file;
   }
 
   async function download(candidate, folder) {
-    if (candidate.source === "youtube") return deps.downloadYouTube(candidate.id.slice(3), folder);
+    if (candidate.source === "youtube") return fromYouTube(candidate, folder);
     const response = await get(allowedFile(candidate.url).href, SOUNDTRACK_LIMITS.downloadMs, candidate.source);
     // A redirect (the Archive sends one to its file server) must land on an allowed host too.
     if (typeof response.url === "string" && response.url) allowedFile(response.url);
@@ -749,7 +742,7 @@ export function createSoundtrack(deps) {
     if (candidate.source === "youtube") {
       const folder = await makeTempFolder("kino-sound-");
       try {
-        const file = await deps.downloadYouTube(candidate.id.slice(3), folder, { whole: true });
+        const file = await fromYouTube(candidate, folder, { whole: true });
         const type = path.extname(file).slice(1).toLowerCase();
         const credit = { source: "youtube", id: candidate.id, title: candidate.title, creator: candidate.creator, page: candidate.page, license: "unknown",
           line: `"${candidate.title}" by ${candidate.creator} (${candidate.page ?? "YouTube"})`, file: `${type.toUpperCase()} from YouTube` };

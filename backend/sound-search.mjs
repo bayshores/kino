@@ -2,7 +2,7 @@
 // (license_type=commercial: CC0, CC BY and the like, never NC; direction plan fix 8, milestone B8),
 // and from Freesound when the person adds a free Freesound API key in kino Settings (optional:
 // kino never needs an account; without the key it says so and searches Openverse alone). It is kino's first agent feature that goes online: the search words reach
-// Openverse, so it stays off until the person turns on "sound search" in kino Settings.
+// Openverse, so it stays off until the person turns on "web search" in kino Settings.
 //
 // - search(words): up to 10 sounds no longer than maxSeconds, as `openverse:<id>` (and
 //   `freesound:<id>`) lines the agent passes to project import. Openverse's category filter returns nothing for effects, so
@@ -57,7 +57,7 @@ export function createSoundSearch({ enabled, fetch = globalThis.fetch, addMedia,
   const seen = new Map();
 
   function ready() {
-    if (!enabled()) throw new SoundSearchError("sound_search_off", "Sound search is off: the person turns it on in kino Settings (sound search). Until then, ask them for sound files and import those.");
+    if (!enabled()) throw new SoundSearchError("sound_search_off", "Sound search is off: the person turns it on in kino Settings (web search). Until then, ask them for sound files and import those.");
     const wait = Math.ceil((blockedUntil - now()) / 1000);
     if (wait > 0) throw new SoundSearchError("rate_limited", `Openverse limits searches (20 a minute, 200 a day without an account). Try again in ${wait} s; kino does not retry on its own.`);
   }

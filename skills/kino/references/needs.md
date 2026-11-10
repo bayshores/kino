@@ -20,6 +20,8 @@ The person may not have it, and some moments cannot be shot again. Before you as
 exists for a substitute and put what you found into the options:
 
 - other shots and takes, the screen recording, stills and frame grabs (`look {mode:"source"}`)
+- for an edit of something that exists (a series, a sport, a trip): found clips,
+  `library {topic:"footage", search}` (footage guide); they fill gaps, never fake a real moment
 - the transcript: a line said elsewhere that carries the beat
 - other parts of the song (`library sounds`, the song's sections), or no music for a beat
 - your saved references: how other edits solved the same gap (`library inspire`)

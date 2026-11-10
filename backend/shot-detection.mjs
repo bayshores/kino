@@ -347,8 +347,8 @@ function analyseNow(command, file, signal, maxFrames) {
 }
 
 // The error for a video too long to look for shots in; its message is the reason the record keeps.
-function tooLongError(why) {
-  const error = new Error(`${TOO_LONG}: ${why}; kino looks in videos up to ${MAX_VIDEO_SECONDS / 60} min and ${MAX_VIDEO_FRAMES} frames`);
+function tooLongError(why, maxSeconds = MAX_VIDEO_SECONDS) {
+  const error = new Error(`${TOO_LONG}: ${why}; kino looks in videos up to ${maxSeconds / 60} min and ${MAX_VIDEO_FRAMES} frames`);
   error.code = "TOO_LONG";
   return error;
 }
@@ -362,11 +362,12 @@ export function shotsErrorReason(line) {
  * Finds the shots in a video file. `duration` (seconds, from the media record) ends the last shot.
  * Resolves with { shots: [{start, end}], found: {version, frames, cuts, flashes, ms} }: times in
  * file seconds with 3 decimals, `cuts` = shots − 1, `ms` how long it took. A video longer than
- * MAX_VIDEO_SECONDS, or with more than `maxFrames` frames, fails with a "too long" error.
+ * `maxSeconds` (MAX_VIDEO_SECONDS unless the caller allows more: the footage finder's 360p scan of
+ * a whole 30 min episode), or with more than `maxFrames` frames, fails with a "too long" error.
  */
-export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_FRAMES } = {}) {
+export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_FRAMES, maxSeconds = MAX_VIDEO_SECONDS } = {}) {
   const started = performance.now();
-  if (duration > MAX_VIDEO_SECONDS) throw tooLongError(`it is ${Math.round(duration / 60)} min`);
+  if (duration > maxSeconds) throw tooLongError(`it is ${Math.round(duration / 60)} min`, maxSeconds);
   const { ffmpegCommand, probeFrameRate } = await mediaProbe();
   const command = ffmpegCommand();
   const run = await analyse(command, file, signal, maxFrames);

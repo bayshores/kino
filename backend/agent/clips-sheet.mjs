@@ -65,12 +65,13 @@ export function layoutClips(blocks) {
 
 /**
  * Files ([{width, height, duration}]) as blocks and pages: 6 frames a clip at most, fewer (4,
- * then 3) when that keeps them all on one page. Answers { blocks, pages }.
+ * then 3) when that keeps them all on one page. A file with `times` keeps them (a group of found
+ * clips: one frame each). Answers { blocks, pages }.
  */
 export function planClips(files) {
   let plan = null;
   for (const most of [6, 4, 3]) {
-    const blocks = files.map((file) => ({ tile: clipTile(file.width, file.height), times: clipTimes(file.duration, most) }));
+    const blocks = files.map((file) => ({ tile: clipTile(file.width, file.height), times: file.times ?? clipTimes(file.duration, most) }));
     plan = { blocks, pages: layoutClips(blocks) };
     if (plan.pages.length === 1) break;
   }

@@ -20,7 +20,7 @@ Contents: Principles · Search · Measure and compare · Note your verdict · No
 - Speech needs room: under a spoken line, quieter is better (lower energy numbers in that beat).
 - Prefer cutting the song to the edit's beats (start it later, end on a section change) when the
   story needs its own timing; cut the edit to the song only when the music is the story.
-- YouTube songs have no known license. For a private video, `project {action:"import", file:"yt:<id>"}`
+- YouTube songs (and found footage: footage guide) have no known license. For a private video, `project {action:"import", file:"yt:<id>"}`
   brings a measured one in whole (WAV, credit kept); for anything published, find a licensed song.
 - Credit licensed songs. kino keeps the credit with the file; put it in the end credits.
 
@@ -29,7 +29,7 @@ Contents: Principles · Search · Measure and compare · Note your verdict · No
 Openverse (Creative Commons music, often from Jamendo) and the Internet Archive (netlabel albums:
 one or two tracks from each), only licenses that allow commercial use and changes (CC BY, BY-SA,
 CC0, public domain), need the person's sound search switch in kino Settings. YouTube needs yt-dlp.
-Answers are cached for a day, so the same words do not go out again. All are asked at once;
+Answers are cached for a day. All are asked at once;
 Openverse is often slow: when it says "slow right now", the search keeps going (the Archive's songs
 come first); send the same search again in a minute.
 

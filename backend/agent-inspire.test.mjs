@@ -208,7 +208,7 @@ test("sound effects: a sounds search measures each, the dashboard plays its prev
   assert.deepEqual([imported.data.media.credit.channel, imported.data.media.credit.license], ["Lens Distortions", "unknown (YouTube)"]);
   const video = await agent("project", { action: "import", project: "insp", source: FIRST });
   assert.equal(video.isError, true);
-  assert.match(video.text, /reference only/);
+  assert.match(video.text, /is a reference; as footage: library \{topic/);
   const forgot = await asYou("library", { topic: "inspire", project: "insp", name: `forget ${search.n}` });
   assert.match(forgot.text, new RegExp(`^Forgot search ${search.n} \\("fast cut"\\)`));
   const after = (await (await server.api("/api/dashboard/snapshot?project=insp")).json()).inspire;

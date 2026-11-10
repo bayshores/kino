@@ -17,6 +17,11 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
+import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
+import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
+import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
+import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
+import { shotsNeeded } from "../footage-finder/needs.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -458,6 +463,11 @@ export function createAgentService(deps) {
   const footageCache = deps.footageCache ?? createFootageCache();
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
+  // library {topic:"footage"}: found video for the project (deps.footage is footage-finder/index.mjs).
+  const footageActions = deps.footage ? createFootageActions({ finder: deps.footage, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
+  // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
+  // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
+  const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
   const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
@@ -883,6 +893,16 @@ export function createAgentService(deps) {
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
+    // A footage-led brief with no clip in the project (the person's or found): the footage step
+    // (footage-finder/step.mjs). Any clip or picture of theirs makes it silent: their media leads.
+    // It ends once something is built, a plan is set or it is waived. On only while the library
+    // offers the footage topic (LIBRARY_TOPICS, which the tool schema checks).
+    if (footageActions && footageStepShown && !facts.footage && footageLed(brief)) {
+      const state = await agentState.read(document.id);
+      const step = { built: !notBuilt(document), planned: Boolean(state.plan?.steps?.length), waived: waivers.some((waiver) => waiver.code === FOOTAGE_WAIVER && waiver.target === "*") };
+      if (!step.built && !step.planned && !step.waived) step.personMedia = ((await deps.listMedia?.().catch(() => [])) ?? []).some((item) => item?.projectId === document.id && /^image\//.test(item.mime ?? "") && !isFoundClip(item));
+      if (footageStepOn(brief, step)) facts.findFootage = true;
+    }
     if (waivers.some((waiver) => waiver.code === NEEDS_WAIVER)) return facts;
     const storied = facts.footage || (await someAsync(document.scenes.filter((scene) => !scene.isComponent), (scene) => hasFootageOrSpeech(scene, document)));
     if (!storied) return facts;
@@ -2788,7 +2808,7 @@ export function createAgentService(deps) {
       const part = image.clipped ? ` (its part on screen; the layer is ${image.layerSize.width}×${image.layerSize.height}${parent})` : "";
       text = `zoom ${refName(layerId, codes)} @${time}s crop ${image.crop.x},${image.crop.y} ${image.crop.width}×${image.crop.height}${part} at ${image.crop.scale}×`;
     } else if (mode === "source") {
-      ({ image, text, extra } = await sourceLook(input, { document, codes, resolver, fonts }));
+      ({ image, text, extra, nextCall = null } = await sourceLook(input, { document, codes, resolver, fonts, state }));
       // A clip by file name, or every clip (no layer), is on no layer.
       let layerId = null;
       if (input.layer) try { layerId = resolver.resolve(String(input.layer), "layer"); } catch { /* a file name */ }
@@ -4086,10 +4106,22 @@ export function createAgentService(deps) {
   // used by one of its saves: media-use.mjs) and that it does not play now as its music or
   // voice-over. The library is shared, so another video's song does not count.
   // The credit lines of the found sounds (sound search) this video plays, for the sound stop.
-  async function soundCredits(document) {
+  // footageOnly: just the found footage (the footage finder's clips), for the final render's answer.
+  async function soundCredits(document, { footageOnly = false } = {}) {
     const playing = new Set((document.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "audio" || layer.type === "video").map((layer) => layer.src));
     const media = (await deps.listMedia?.()) ?? [];
-    return media.filter((item) => item.credit?.line && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line);
+    // Each line once: twelve found shots of one video share one credit.
+    return [...new Set(media.filter((item) => item.credit?.line && (!footageOnly || item.footage) && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line))];
+  }
+  // A final render of found footage the sound stop never showed the person (a video under the
+  // stop's length, the stop allowed in settings or by "stop asking", no brief): the answer carries
+  // the credits, so the person still sees "license unknown" before the video goes anywhere.
+  async function unseenFootageCredits(document) {
+    const state = await agentState.read(document.id);
+    if ((state.stops ?? []).some((round) => round.kind === "sound" && round.status !== "allowed")) return "";
+    const credits = await soundCredits(document, { footageOnly: true });
+    if (!credits.length) return "";
+    return ` Credits (send them to the person, who checks the rights before publishing): ${credits.slice(0, 3).join("; ")}${credits.length > 3 ? `; and ${credits.length - 3} more` : ""}.`;
   }
   // Whether the video (its longest scene) has music, for the sound stop: the no_music rule's test
   // (hasMusic) with the songs kino heard a beat in and the saved voice transcripts.
@@ -4285,7 +4317,9 @@ export function createAgentService(deps) {
 
   // look {mode:"source"} with no layer: every clip and picture of the project (imported for it or
   // on a layer), 3 to 6 frames each, laid out by clips-sheet.mjs planClips; page:n past one page.
-  async function clipsOverview(input, { document, codes, fonts }) {
+  // The person's own files come first; found clips (footage-finder) follow, one block per video
+  // they came from ("F1: 12 shots"), one frame a shot (footage-finder/sheet.mjs groupClips).
+  async function clipsOverview(input, { document, codes, fonts, state }) {
     const used = new Map();
     for (const scene of document.scenes) for (const layer of scene.layers) {
       if (!["video", "image"].includes(layer.type) || typeof layer.src !== "string") continue;
@@ -4298,24 +4332,47 @@ export function createAgentService(deps) {
       const record = await mediaRecord(sourceSrc(item));
       if (!(record?.width > 0 && record?.height > 0)) continue;
       const video = /^video\//.test(String(record.mime ?? item.mime)) && record.hasVideo !== false && record.duration > 0;
-      clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [] });
+      // The person's own clips come first (groupClips), then found clips grouped by video.
+      clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [], tag: foundClipTag(item, state?.footage) });
     }
     if (!clips.length) throw new AgentError("not_found", 'No clips or pictures in this project yet: project {action:"import", file} brings one in.');
     clips.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
-    const { blocks, pages } = planClips(clips.map((clip) => ({ width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 0 })));
+    const entries = groupClips(clips);
+    const own = entries.filter((entry) => !entry.group).length;
+    const middle = (clip) => (clip.video ? sec(clip.record.duration / 2) : 0);
+    const { blocks, pages } = planClips(entries.map((entry) => {
+      const [clip] = entry.clips;
+      return { width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 0,
+        ...(entry.group ? { times: entry.clips.slice(0, GROUP_TILES_MOST).map(middle) } : {}) };
+    }));
     const pageNumber = Math.min(pages.length, Math.max(1, Math.round(Number(input.page) || 1)));
     const page = pages[pageNumber - 1];
+    const clipScene = (clip) => parseDocument(createDocument({ id: "source-view", name: "source", scenes: [createScene({
+      id: "clip", name: "clip", width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 1, background: "#000000",
+      layers: [clip.video
+        ? createLayer("video", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: clip.record.width, height: clip.record.height, mediaStart: 0, mediaOffset: 0, mediaSourceDuration: clip.record.duration, volume: 0 })
+        : createLayer("image", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: clip.record.width, height: clip.record.height })],
+    })] })).scenes[0];
+    const layersOf = (list) => [...new Set(list.flatMap((clip) => clip.layers))];
     const drawn = [];
     for (const place of page.places) {
-      const clip = clips[place.index];
-      const { record } = clip;
-      const scene = parseDocument(createDocument({ id: "source-view", name: "source", scenes: [createScene({
-        id: "clip", name: "clip", width: record.width, height: record.height, duration: clip.video ? record.duration : 1, background: "#000000",
-        layers: [clip.video
-          ? createLayer("video", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: record.width, height: record.height, mediaStart: 0, mediaOffset: 0, mediaSourceDuration: record.duration, volume: 0 })
-          : createLayer("image", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: record.width, height: record.height })],
-      })] })).scenes[0];
+      const entry = entries[place.index];
       const times = blocks[place.index].times;
+      if (entry.group) {
+        // One frame a found shot, from the middle of its clip.
+        const tiles = [];
+        for (const [index, clip] of entry.clips.slice(0, GROUP_TILES_MOST).entries()) {
+          const scene = clipScene(clip);
+          const [frame] = await look.frames({ scene, fonts, key: sceneKey(scene, fonts) }, [times[index]], place.tile.width);
+          tiles.push({ png: frame.png, label: clip.tag.label });
+        }
+        const layers = layersOf(entry.clips);
+        drawn[place.index] = { header: `${entry.group}: ${entry.clips.length} shot${entry.clips.length === 1 ? "" : "s"}${layers.length ? ` · ${layers.join(", ")}` : ""}`, tiles };
+        continue;
+      }
+      const [clip] = entry.clips;
+      const { record } = clip;
+      const scene = clipScene(clip);
       const frames = await look.frames({ scene, fonts, key: sceneKey(scene, fonts) }, times, place.tile.width);
       drawn[place.index] = {
         header: `${place.index + 1} ${clip.name}${clip.video ? ` · ${sec(record.duration)} s` : ""}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`,
@@ -4324,14 +4381,43 @@ export function createAgentService(deps) {
     }
     const png = await look.clipsImage(page, drawn);
     const first = page.places[0].index + 1, last = page.places.at(-1).index + 1;
-    const lines = [`source: ${clips.length} file${clips.length === 1 ? "" : "s"}${pages.length > 1 ? `, page ${pageNumber} of ${pages.length} (${first}–${last}; page:n for the rest)` : ""}. Each block: number, file, length, layers; frames labeled with file seconds.`,
-      ...clips.map((clip, index) => `${index + 1} ${clip.name} ${clip.record.width}×${clip.record.height}${clip.video ? ` ${sec(clip.record.duration)} s` : " picture"}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`),
+    const found = entries.filter((entry) => entry.group);
+    const foundCount = found.reduce((sum, entry) => sum + entry.clips.length, 0);
+    const counted = [`${own} file${own === 1 ? "" : "s"}`, ...(found.length ? [`${foundCount} found clip${foundCount === 1 ? "" : "s"} from ${found.length} video${found.length === 1 ? "" : "s"}`] : [])].join(", ");
+    const lines = [`source: ${counted}${pages.length > 1 ? `, page ${pageNumber} of ${pages.length} (${first}–${last}; page:n for the rest)` : ""}. Each block: number, file, length, layers; frames labeled with file seconds${found.length ? "; found clips: one frame a shot, by shot code" : ""}.`,
+      ...entries.map((entry, index) => {
+        if (entry.group) {
+          const layers = layersOf(entry.clips);
+          return `${groupLine(entry)}${layers.length ? ` · ${layers.join(", ")}` : ""}`;
+        }
+        const [clip] = entry.clips;
+        return `${index + 1} ${clip.name} ${clip.record.width}×${clip.record.height}${clip.video ? ` ${sec(clip.record.duration)} s` : " picture"}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`;
+      }),
       `Exact frames of one: look {mode:"source", layer:"<file name>", times:[…]} (file seconds).`];
-    return { image: { png }, text: lines.join("\n"), extra: { clips: clips.map((clip, index) => ({ n: index + 1, src: clip.src, name: clip.name, ...(clip.video ? { duration: clip.record.duration } : {}), layers: clip.layers })), page: pageNumber, pages: pages.length } };
+    const clipFacts = (clip) => ({ src: clip.src, name: clip.name, ...(clip.video ? { duration: clip.record.duration } : {}), layers: clip.layers });
+    return { image: { png }, text: lines.join("\n"), extra: {
+      clips: entries.map((entry, index) => (entry.group
+        ? { group: entry.group, shots: entry.clips.map((clip) => ({ code: clip.tag.label, ...clipFacts(clip) })) }
+        : { n: index + 1, ...clipFacts(entry.clips[0]) })),
+      page: pageNumber, pages: pages.length } };
   }
 
-  async function sourceLook(input, { document, codes, resolver, fonts }) {
-    if (input.layer == null || input.layer === "") return clipsOverview(input, { document, codes, fonts });
+  // look {mode:"source", ref:"F1"}: a scanned found video's saved shot sheet, labeled F1.<shot>.
+  async function footageSheetLook(input, state) {
+    if (!deps.footage) throw new AgentError("failed", "The footage finder is not available here.");
+    let shown;
+    try { shown = await footageSheet(input.ref, { footage: state?.footage ?? null, finder: deps.footage }); }
+    catch (error) {
+      if (!(error instanceof FootageError)) throw error;
+      throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
+    }
+    const image = shown.tiles ? await look.tilesImage(shown.tiles, { tile: shown.tile, columns: shown.columns }) : {};
+    return { image, text: shown.text, extra: shown.data, nextCall: shown.nextCall };
+  }
+
+  async function sourceLook(input, { document, codes, resolver, fonts, state: agentFacts }) {
+    if ((input.layer == null || input.layer === "") && input.ref != null && String(input.ref).trim() !== "") return footageSheetLook(input, agentFacts);
+    if (input.layer == null || input.layer === "") return clipsOverview(input, { document, codes, fonts, state: agentFacts });
     let layerId;
     try { layerId = resolver.resolve(String(input.layer), "layer"); } catch (error) {
       const overview = await clipOverview(input, { fonts });
@@ -5358,7 +5444,8 @@ export function createAgentService(deps) {
       // Learned from this computer's last finished renders of the same quality (render-estimate.mjs).
       const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
-      const note = others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "";
+      const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
+        + (quality === "final" ? await unseenFootageCredits(record.document) : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
       if (input.wait === true) {
@@ -5453,6 +5540,8 @@ export function createAgentService(deps) {
   // ---- library ----------------------------------------------------------------------------
   async function library(input) {
     let topic = input.topic ?? "topics";
+    // footage: found video (backend/footage-finder/actions.mjs); project import takes its shots (take.mjs).
+    if (topic === "footage") return footage(input);
     // A topic one letter off ("effect", "ops") is that topic; a rules name ("render") is rules {name}.
     let topicNote = "";
     if (!LIBRARY_TOPICS.includes(topic) && typeof topic === "string") {
@@ -5468,7 +5557,7 @@ export function createAgentService(deps) {
     // `query` is another name for `search` (kino library topic=fonts query=Roboto).
     const search = String(input.search ?? input.query ?? "");
     if (topic === "topics")
-      return { text: "library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, CC BY with credit), effects, blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\", \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {search?, source?, like?, measure?, note?} (songs from Openverse, CC with credit, and YouTube, reference only, measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), techniques {name?} (the named editing techniques check finds and the style spec uses).", data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
+      return { text: `library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, CC BY with credit), effects, blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\", \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {search?, source?, like?, measure?, note?} (songs from Openverse, CC with credit, and YouTube, reference only, measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), ${FOOTAGE_TOPIC_LINE}, techniques {name?} (the named editing techniques check finds and the style spec uses).`, data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
     // op and rules take several names at once (a list, or "a, b"), answered one after another.
     const names = (Array.isArray(input.name) ? input.name : String(input.name ?? "").split(",")).map((name) => String(name).trim()).filter(Boolean);
     if ((topic === "op" || topic === "rules") && names.length > 1) {
@@ -5808,6 +5897,140 @@ export function createAgentService(deps) {
     return job;
   }
 
+  // library {topic:"footage"}: the project's found videos (search, scan, note). The answer's
+  // update is applied to the saved footage state inside the call's own state update.
+  async function footage(input) {
+    if (!footageActions) throw new AgentError("failed", "The footage finder is not available here.");
+    if (byYou()) throw new AgentError("chat_only", "The agent searches and scans footage.");
+    const record = await projectFor(input);
+    const projectId = record.document.id;
+    const state = await agentState.read(projectId);
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    let reply;
+    const song = ({ signal } = {}) => songNeeds(record.document, media, signal);
+    try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media), song }); }
+    catch (error) {
+      if (!(error instanceof FootageError)) throw error;
+      throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
+    }
+    const { update, ...answer } = reply;
+    return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
+  }
+
+  // Found-footage imports running now, by project, candidate and the shots or stretch asked (like
+  // a footage scan): a repeated call joins the running one or collects its finished result.
+  const footageTakes = new Map();
+
+  // project {action:"import", file:"F1", options:{shots}} (or F1.37, clip:<id>, from/to): shots of a
+  // scanned found video become clips for this project (footage-finder/take.mjs), each with its
+  // credit and code; the candidate keeps what it imported, for the 15 min a project cap.
+  async function footageImport(input) {
+    if (!deps.footage?.take) throw new AgentError("failed", "The footage finder is not available here.");
+    const footageError = (error) => Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
+    const record = await projectFor(input);
+    const projectId = record.document.id;
+    const state = await agentState.read(projectId);
+    const file = input.file.trim();
+    const asked = parseFootageRef(file);
+    const candidate = asked && !asked.top ? (state.footage?.candidates ?? []).find((entry) => (asked.code ? entry.code === asked.code : entry.id === asked.id)) : null;
+    if (!candidate) {
+      throw Object.assign(new AgentError("not_found", `${file} is not one of this video's found videos: search and scan first, then import the scan's shots.`),
+        { nextCall: asked?.id ? nextOf("library", { topic: "footage", scan: file }) : nextOf("library", { topic: "footage" }) });
+    }
+    const options = input.options && typeof input.options === "object" ? input.options : {};
+    const from = input.from ?? options.from;
+    const to = input.to ?? options.to;
+    // A repeated call (the agent's tool call timed out or was cancelled) joins the import still
+    // running, or collects its finished result, instead of downloading and adding the clips twice.
+    const shotsAsked = (Array.isArray(options.shots) ? options.shots : options.shots === undefined ? [] : [options.shots]).map(String).sort();
+    const key = `${projectId}\n${candidate.id}\n${JSON.stringify({ file, shots: shotsAsked, from: from ?? null, to: to ?? null })}`;
+    let job = footageTakes.get(key);
+    if (!job) {
+      const scan = candidate.scan ? await deps.footage.readScan(scanIdOf(candidate)).catch(() => null) : null;
+      let pieces;
+      try { pieces = planTake(candidate, scan, { file, shots: options.shots, from, to, used: importedSeconds(state.footage) }); }
+      catch (error) { if (error instanceof FootageError) throw footageError(error); throw error; }
+      job = { pieces: pieces.length };
+      // The job saves what it imported itself, so the 15 min cap counts it even when no call
+      // collects the answer.
+      job.promise = deps.footage.take(candidate, pieces, { projectId }).then(async (result) => {
+        const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
+        const shots = result.media.map((item) => item.footage?.shot).filter((n) => n !== null && n !== undefined);
+        if (result.media.length) {
+          await agentState.update(projectId, (draft) => {
+            const entry = draft.footage?.candidates?.find((each) => each.id === candidate.id);
+            if (!entry) return;
+            entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
+          });
+        }
+        return { value: result };
+      }).catch((error) => ({ error }));
+      job.promise.finally(() => { setTimeout(() => { if (footageTakes.get(key) === job) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.(); });
+      footageTakes.set(key, job);
+    }
+    let timer;
+    const waited = await Promise.race([job.promise, new Promise((resolve) => { timer = setTimeout(() => resolve(null), deps.footageWaitMs ?? FOOTAGE_WAIT_MS); })]);
+    clearTimeout(timer);
+    const repeat = nextOf("project", { action: "import", file, ...(input.options !== undefined ? { options: input.options } : {}), ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) });
+    if (!waited) {
+      return done(projectId, { text: `${candidate.code} is still importing ${job.pieces} piece${job.pieces === 1 ? "" : "s"} (download, then an exact cut and encode each). Send the same call again: it joins this import and waits for it.`,
+        data: { importing: candidate.code }, nextCall: repeat });
+    }
+    // The answer is told once: the next same call imports again.
+    if (footageTakes.get(key) === job) footageTakes.delete(key);
+    if (waited.error) {
+      const error = waited.error;
+      if (error?.code === "BOT_CHECK") throw new AgentError("bot_check", 'YouTube asked for a bot check, so kino pauses YouTube downloads for 15 minutes (no cookies are ever sent). Use the person\'s own clips, or Commons: library {topic:"footage", search, source:"commons"}.');
+      throw new AgentError("failed", `${candidate.code} could not be imported: ${String(error?.message ?? error).split("\n")[0].slice(0, 240)}`);
+    }
+    const result = waited.value;
+    if (!result.media.length) throw new AgentError("failed", takeText(candidate, result));
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    const lead = personClipsLine(personClipCount(record.document, media));
+    const answer = { text: [lead, takeText(candidate, result)].filter(Boolean).join("\n"),
+      data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed },
+      nextCall: nextOf("look", { mode: "source" }) };
+    return done(projectId, answer);
+  }
+
+  // The shots the video's song needs (footage-finder/needs.mjs): the first audio layer of the video
+  // scene that plays like music and whose saved beats are a song's (steadyBeat: a voice scores
+  // lower), over the stretch it plays; else the longest credited song of 20 s or more imported for
+  // this project (not a library sound effect) with such beats, the whole song. Only the saved
+  // .beats and .song files are read, never a decode: a finished scan answers at once, and
+  // detect_beats or fit_music measure a song. Null without a measured song.
+  async function songNeeds(document, media, signal) {
+    const measured = async (file) => {
+      if (signal?.aborted) return null;
+      const analysis = await beatAnalysis.saved?.(file).catch(() => null);
+      if (!steadyBeat(analysis)) return null;
+      const shape = await songShapes.saved?.(file).catch(() => null);
+      return shape ? { bpm: analysis.bpm, sections: shape.sections, seconds: shape.seconds } : null;
+    };
+    const scene = videoScene(document);
+    const tried = new Set();
+    for (const layer of scene?.layers ?? []) {
+      if (!isMusicLayer(layer, scene)) continue;
+      let file;
+      try { file = mediaFileOf(layer); } catch { continue; }
+      tried.add(file);
+      const song = await measured(file);
+      if (!song) continue;
+      const range = mediaPlaybackRange(layer, scene.duration);
+      return shotsNeeded({ ...song, ...(range && !range.remapped ? { from: range.offset, to: range.offset + range.duration } : {}) });
+    }
+    const songs = media.filter((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.credit
+      && !/^sfx:/.test(String(item.credit?.id ?? "")) && item.duration >= 20).sort((a, b) => b.duration - a.duration);
+    for (const item of songs) {
+      let file;
+      try { file = mediaFileOf({ src: item.src ?? `/api/media/${item.id}` }); } catch { continue; }
+      if (tried.has(file)) continue;
+      const song = await measured(file);
+      if (song) return shotsNeeded(song);
+    }
+    return null;
+  }
+
   async function soundtrack(input, name, search) {
     if (!deps.soundtrack) throw new AgentError("failed", "Soundtrack search is not available here.");
     const record = await projectFor(input);
@@ -6127,6 +6350,8 @@ export function createAgentService(deps) {
     // A YouTube sound effect from library {topic:"inspire", search, kind:"sounds"}, measured: its
     // short preview comes in with its credit (license unknown). source or file names it.
     if (action === "import" && input.file === undefined && typeof input.source === "string") input = { ...input, file: input.source };
+    // Found footage: F1 or F1.37 (with options {shots} or from/to), or clip:yt-<id> (footage-finder/take.mjs).
+    if (action === "import" && typeof input.file === "string" && /^(?:clip:|F\d{1,3}(?:\.\d+)?$)/i.test(input.file.trim())) return footageImport(input);
     if (action === "import" && typeof input.file === "string" && /^yt:/i.test(input.file.trim()) && deps.inspire) {
       const id = refId(input.file.trim());
       let ref = id ? await deps.inspire.reference(id) : null;
@@ -6155,7 +6380,10 @@ export function createAgentService(deps) {
         const rights = media.credit.source === "youtube" ? " License unknown: fine for a private video; the person checks the rights before publishing it." : "";
         return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}. Put it in the end credits.${rights}`, data: { media } };
       }
-      if (/^yt:/i.test(input.file.trim())) throw new AgentError("reference_only", `${input.file.trim()} is reference only: kino imports a YouTube song once it is one of this video's measured songs (library {topic:"soundtrack", search, measure}) and a measured sound effect, never a video.`);
+      if (/^yt:/i.test(input.file.trim())) {
+        const ref = input.file.trim();
+        throw Object.assign(new AgentError("reference_only", `${ref} is a reference; as footage: library {topic:"footage", scan:"${ref}"}`), { nextCall: nextOf("library", { topic: "footage", scan: ref }) });
+      }
       if (/^archive:/i.test(input.file.trim())) throw new AgentError("not_found", `${input.file.trim()} is not one of this video's songs: find it first (library {topic:"soundtrack", search}).`);
     }
     // A built-in library sound or track (sfx:<id>, music:<id>): downloaded once, kept with its credit.
@@ -6616,7 +6844,7 @@ export function createAgentService(deps) {
   // The direction's advice calls (brief.mjs nextMove), not a waiting stop's answer or a redo's
   // fix. A stop to ask still comes in the build steps, after the check (openStops).
   const isAdvice = (next) => (next.tool === "notes" && ["brief", "set_plan", "needs", "checkpoint"].includes(next.input?.action))
-    || (next.tool === "library" && next.input?.topic === "inspire");
+    || (next.tool === "library" && (next.input?.topic === "inspire" || next.input?.topic === "footage"));
 
   // A video with something on screen (a layer that is not audio, outside components).
   const hasLayers = (document) => document.scenes.some((scene) => !scene.isComponent && (scene.layers ?? []).some((layer) => layer.type !== "audio"));

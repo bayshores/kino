@@ -276,12 +276,12 @@ export function critiqueAsk({ id, video = {}, scene, lines = [], question = fals
   ].filter(Boolean).join("\n");
 }
 
-// The sound stop names where each found effect came from (sound search keeps its credit):
-// at most 3, then how many more.
+// The sound stop names where each found sound, song or footage came from (each keeps its
+// credit; found footage says "license unknown"): at most 3, then how many more.
 function creditsLine(credits = []) {
   if (!credits?.length) return "";
   const shown = credits.slice(0, 3).join("; ");
-  return `Sounds: ${shown}${credits.length > 3 ? `; and ${credits.length - 3} more` : ""}.`;
+  return `Credits: ${shown}${credits.length > 3 ? `; and ${credits.length - 3} more` : ""}.`;
 }
 
 // What the agent does with a waiting stop: send the ask, end its turn, record the reply. Kept

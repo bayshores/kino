@@ -187,9 +187,13 @@ export function createAgentClient(connection, { name = "mcp", session, reconnect
    * it returns { refused: reply } instead of uploading. A .json or .motion project file
    * becomes a new project instead.
    */
-  async function importFile(filePath, { signal, client } = {}) {
-    // openverse:<id> (library sounds), archive:<id> (a soundtrack song), yt:<id> (a measured inspire sound effect) and sfx:<id> or music:<id> (the built-in library) come in through kino itself: {reply} is its answer.
-    if (/^(openverse|archive|yt|sfx|music):/i.test(String(filePath ?? "").trim())) return { reply: await call("project", { action: "import", file: String(filePath).trim() }, { signal, client }) };
+  async function importFile(filePath, { signal, client, input = {} } = {}) {
+    // openverse:<id> (library sounds), archive:<id> (a soundtrack song), yt:<id> (a measured inspire sound effect), sfx:<id> or music:<id> (the built-in library),
+    // and found footage (F1, F1.37 or clip:<id>, with options {shots} or from/to) come in through kino itself, checked before the file system: {reply} is its answer.
+    if (KINO_IMPORT.test(String(filePath ?? "").trim())) {
+      const asked = Object.fromEntries(["project", "options", "from", "to"].filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+      return { reply: await call("project", { ...asked, action: "import", file: String(filePath).trim() }, { signal, client }) };
+    }
     if ([".json", ".motion"].includes(path.extname(String(filePath)).toLowerCase())) {
       if (!path.isAbsolute(filePath)) throw new Error("Choose a project file by its absolute local path.");
       const actual = await realpath(filePath);
@@ -274,6 +278,9 @@ export function createAgentClient(connection, { name = "mcp", session, reconnect
 
   return { call, importFile, read, post, stream, tools, get toolsHash() { return toolsHash; }, get connection() { return current; } };
 }
+
+// Imports kino makes itself rather than a local file: sounds, songs and found footage codes.
+const KINO_IMPORT = /^(?:(?:openverse|archive|yt|sfx|music|clip):|F\d{1,3}(?:\.\d+)?$)/i;
 
 // A body fetch reads as it sends (a file upload): it can be sent only once.
 const isStream = (body) => Boolean(body) && typeof body.pipe === "function";
