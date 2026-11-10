@@ -255,9 +255,13 @@ test("the sound stop asks no rights or credits questions (sources go on the fina
   assert.doesNotMatch(ask, /Credits|license|rights/i);
 });
 
-test("soundtrack: search, measure against the intents, note, the person's use, import with credit; YouTube songs never import", async () => {
+test("soundtrack: search, measure against the intents, note, the person's use, import with credit; a YouTube song is picked by name", async () => {
   await setSearch(true);
   await agent("notes", { action: "intents", beats: [{ from: 0, to: 2, intent: "the viewer feels the quiet before" }, { from: 2, to: 4, intent: "the viewer feels the payoff land" }] });
+  // The topics answer every agent reads names the song field and no longer calls YouTube songs reference only.
+  const topics = await agent("library", { topic: "topics" });
+  assert.match(topics.text, /song:/);
+  assert.doesNotMatch(topics.text, /reference only/);
   // The reference's examples run as written, in order (skills/kino/references/soundtrack.md).
   const guide = await readFile(new URL("../skills/kino/references/soundtrack.md", import.meta.url), "utf8");
   const [searchCall, measureCall, noteCall, likeCall, briefCall] = [...guide.matchAll(/```json\n(.+?)\n```/g)].map((match) => {
