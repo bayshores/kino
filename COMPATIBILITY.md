@@ -242,6 +242,10 @@ How to read it:
   principle line without a spine) and names no move; the drafted first compose and masked-type no
   longer suggest an end card or a name. Evidence: `engine/qualityEnding.test.js`,
   `backend/agent-brief.test.mjs`.
+- **Type behind a subject**: Partial. check finds `type-behind` (text between a clip and its
+  cut-out, or masked-type with subject), never deals it, and technique_repeat warns from the 4th
+  use; a style moment leaves out only its own use. Gap: not yet run on a real edit. Evidence:
+  `engine/qualityStyle.test.js`, `engine/moves.test.js`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

@@ -71,6 +71,8 @@ export const TECHNIQUES = Object.freeze([
   technique("ui-build", "set-piece", "the parts of a real screenshot come in one by one, each resolving from a blur", "an app panel, list or table built up row by row"),
   technique("screen-zoom", "set-piece", "a zoom into a screen recording to one detail", "UI details, a button, a number"),
   technique("cursor", "set-piece", "a pointer glides to a real button in the product and clicks it, or drags a card", "showing what a person does in the app"),
+  // Found and limited (technique_repeat), never dealt: a trend look that wears out fast.
+  Object.freeze({ ...technique("type-behind", "set-piece", "a word stands behind a person cut out of the footage", "one word that names the moment, once or twice"), deal: false }),
   // Rhythm: how the edit relates to the music.
   technique("beat-cut", "rhythm", "a cut on the beat", "music-led edits"),
   technique("beat-kick", "rhythm", "a small scale pulse on the beat", "a bass hit worth feeling, used now and then"),

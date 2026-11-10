@@ -85,7 +85,8 @@ family, or a caption off its size by 15%), `brand_consistency` (the logo shown m
 `share` of the frame for 1 s; media is not measured), `vocabulary_budget` (a designed technique
 outside `moves`), `ending_count` (over 2 closing titles or logos after the last story beat; a
 running caption track is not one, and one that starts after it counts once). None of these
-fire inside a signature range (a `signature` beat, or a signature's `at`), and `moments` count
-toward neither `vocabulary_budget` nor `technique_repeat`.
+fire inside a signature range (a `signature` beat, or a signature's `at`). `moments` count
+toward no `vocabulary_budget`; for `technique_repeat` each moment leaves out one use of its tag
+(the one in its beat), so the other uses still count.
 
 A deliberate exception: `edit` op `waive_check {code, target, reason}`.

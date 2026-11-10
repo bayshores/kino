@@ -10,8 +10,9 @@
 //   by moves are read from the scene's move records (scene.moves, with their tags).
 // A dissolve is found two ways: full-frame pictures that cross (transitions), and floating clips
 // that fade one into the other in the same place (crossfades).
-// The set pieces it finds itself: split-screen (two clips side by side) and screen-zoom (a video,
-// or a group holding one, pushed in 2x or more so one detail fills the frame).
+// The set pieces it finds itself: split-screen (two clips side by side), screen-zoom (a video,
+// or a group holding one, pushed in 2x or more so one detail fills the frame) and type-behind
+// (readable text between a clip and the cut-out of that clip, cutoutOf, over it).
 import { PARTICLE_LOOKS } from "../effects/particles.js";
 import { coversFrame, cuts, drawnSize, entrances, maxOpacity, motions, readingTexts, scaleOf, sec, speechTimed, speedAt } from "./analysis.js";
 import { area, boxAt, chainOf, intersection, itemById, overlapArea } from "./model.js";
@@ -557,6 +558,16 @@ export function techniquesUsed(model) {
         run = sideBySide(clips[first], clips[second], index) ? run + 1 : 0;
         if (run === Math.round(model.fps)) { add("split-screen", model.times[index - run + 1], clips[first].id); break; }
       }
+    }
+
+    // Type behind a subject: a readable text above a clip and under the cut-out of that clip
+    // (cut_out marks it cutoutOf), shown over the cut-out at once. One use per text, when it shows.
+    const cutouts = model.items.filter((item) => item.cutoutOf && !item.isMask);
+    if (cutouts.length) for (const word of readingTexts(model)) {
+      const shown = cutouts.filter((cut) => { const clip = itemById(model, cut.cutoutOf); return clip && clip.z < word.z && word.z < cut.z; })
+        .map((cut) => model.times.findIndex((time, at) => word.samples.opacity[at] >= 0.5 && cut.samples.opacity[at] >= 0.5 && overlapArea(boxAt(word, at), boxAt(cut, at)) > 0))
+        .filter((index) => index >= 0);
+      if (shown.length) add("type-behind", model.times[Math.min(...shown)], word.id);
     }
 
     // Rhythm: pulses, and long holds where nothing at all changes.

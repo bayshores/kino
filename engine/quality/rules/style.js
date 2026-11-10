@@ -51,7 +51,7 @@ function suggestions(ctx, used, count = 3, groups = ["transition", "camera", "ty
   const picks = [...new Set(wantedTags)].filter((tag) => !used[tag] && techniqueOf(tag)?.detect && !skip.includes(tag));
   const usedIn = (group) => TECHNIQUES.filter((entry) => entry.group === group && used[entry.tag] && !PLAIN_TAGS.includes(entry.tag)).length;
   const ordered = [...groups].sort((a, b) => usedIn(a) - usedIn(b));
-  const free = (tag) => techniqueOf(tag)?.detect && !used[tag] && !PLAIN_TAGS.includes(tag) && !ctx.style?.avoids?.includes(tag) && !skip.includes(tag);
+  const free = (tag) => techniqueOf(tag)?.detect && techniqueOf(tag).deal !== false && !used[tag] && !PLAIN_TAGS.includes(tag) && !ctx.style?.avoids?.includes(tag) && !skip.includes(tag);
   for (const group of ordered) {
     const pool = [...(FIRST_PICKS[group] ?? []), ...TECHNIQUES.filter((entry) => entry.group === group).map((entry) => entry.tag)];
     const pick = pool.find((tag) => free(tag) && !picks.includes(tag));
@@ -311,15 +311,28 @@ const MOVE_STAGGER = 1;
 export function techniqueRepeat(model, ctx) {
   const used = techniquesUsed(model);
   const findings = [];
-  // The style bible's moments (style.moments) are designed one-off set pieces: not limited.
-  const moments = new Set((ctx.style?.moments ?? []).map((moment) => moment.tag));
-  const finding = (tag, measured, required, message, hint, at) => moments.has(tag) || findings.push({
+  // The style bible's moments (style.moments) are designed one-off set pieces: each one leaves out
+  // one use of its tag, the one in (or nearest) its spine beat, the first when the beat has no
+  // time. The other uses still count.
+  const spine = ctx.style?.spine ?? [];
+  const counted = (tag, list) => {
+    const left = [...list];
+    for (const moment of (ctx.style?.moments ?? []).filter((entry) => entry.tag === tag)) {
+      if (!left.length) break;
+      const beat = spine[moment.beat];
+      const timed = Number.isFinite(beat?.from) && Number.isFinite(beat?.to);
+      const away = (use) => (timed ? Math.max(0, beat.from - use.at, use.at - beat.to) : 0);
+      left.splice(left.reduce((best, use, index) => (away(use) < away(left[best]) ? index : best), 0), 1);
+    }
+    return left;
+  };
+  const finding = (tag, measured, required, message, hint, at) => findings.push({
     rule: "technique_repeat", severity: "warn", ...(at != null ? { at: sec(at) } : {}), measured, required, message,
     fix: { kind: "hint", text: hint },
   });
   // A set piece repeated at alike moments (2 or 3 times) is a motif; past that it is monotony.
   for (const entry of TECHNIQUES.filter((technique) => technique.group === "set-piece")) {
-    const list = used[entry.tag] ?? [];
+    const list = counted(entry.tag, used[entry.tag] ?? []);
     if (list.length > MOTIF && !wanted(ctx, entry.tag))
       finding(entry.tag, `${entry.tag} ${list.length} times`, `a set piece at most ${MOTIF} times (a motif)`, `${entry.tag} happens ${list.length} times (${list.map((use) => `${use.at}s`).join(", ")}); a set piece on that many shots stops being a moment.`, `Keep ${entry.tag} for the ${MOTIF} alike moments that matter (the hook, the turn, the payoff) and make the other shots plain cuts.`, list[MOTIF].at);
   }
@@ -328,17 +341,17 @@ export function techniqueRepeat(model, ctx) {
   const changes = transitions(model).filter((change) => change.tag);
   const plainCuts = changes.filter((change) => change.tag === "cut").length;
   if (changes.length > MOTIF && !plainCuts) {
-    const counts = {};
-    for (const change of changes) counts[change.tag] = (counts[change.tag] ?? 0) + 1;
-    for (const [tag, count] of Object.entries(counts)) {
+    for (const tag of new Set(changes.map((change) => change.tag))) {
+      const list = counted(tag, changes.filter((change) => change.tag === tag));
+      const count = list.length;
       if (count <= MOTIF || count / changes.length < NEARLY_ALL || wanted(ctx, tag)) continue;
-      finding(tag, `${tag} at ${count} of ${changes.length} shot changes, no plain cut`, `plain cuts at most changes; one transition at ${MOTIF} alike changes at most, or under ${Math.round(NEARLY_ALL * 100)}%`, `${count} of the ${changes.length} shot changes in ${ctx.sceneName} are ${tag} and none is a plain cut; one transition everywhere reads as a template.`, `Cut most changes plainly on an action, the voice or the beat, and keep ${tag} as the motif for the 2 or 3 changes that mean something.`, changes.find((change) => change.tag === tag).at);
+      finding(tag, `${tag} at ${count} of ${changes.length} shot changes, no plain cut`, `plain cuts at most changes; one transition at ${MOTIF} alike changes at most, or under ${Math.round(NEARLY_ALL * 100)}%`, `${count} of the ${changes.length} shot changes in ${ctx.sceneName} are ${tag} and none is a plain cut; one transition everywhere reads as a template.`, `Cut most changes plainly on an action, the voice or the beat, and keep ${tag} as the motif for the 2 or 3 changes that mean something.`, list[0].at);
     }
   }
   // Loud accents used past their budget.
   const budget = Math.max(MOTIF, Math.round(model.duration / 15));
   for (const tag of ACCENTS) {
-    const list = used[tag] ?? [];
+    const list = counted(tag, used[tag] ?? []);
     if (list.length <= budget || wanted(ctx, tag)) continue;
     finding(tag, `${tag} ${list.length} times`, `at most ${budget} in ${sec(model.duration)}s`, `${tag} happens ${list.length} times in ${ctx.sceneName}; an accent that comes back often stops landing.`, `Keep ${tag} for the ${budget} biggest hits; elsewhere cut plainly on the voice or the beat.`, list[budget].at);
   }
@@ -374,11 +387,11 @@ export function techniqueRepeat(model, ctx) {
   // The same entrance on most texts (a text that cuts in is the plain default, not counted).
   const entries = textEntrances(model).filter((entry) => entry.tag);
   if (entries.length >= 5) {
-    const counts = {};
-    for (const entry of entries) counts[entry.tag] = (counts[entry.tag] ?? 0) + 1;
-    for (const [tag, count] of Object.entries(counts)) {
+    for (const tag of new Set(entries.map((entry) => entry.tag))) {
+      const list = counted(tag, entries.filter((entry) => entry.tag === tag));
+      const count = list.length;
       if (tag === "type-cut" || count / entries.length < 0.75 || wanted(ctx, tag)) continue;
-      finding(tag, `${tag} on ${count} of ${entries.length} texts`, "one entrance on under 75% of texts", `${count} of ${entries.length} texts in ${ctx.sceneName} enter with ${tag}.`, `Let most text cut in with the picture and keep ${tag} for the key lines, so the words keep one look.`, entries.find((entry) => entry.tag === tag).at);
+      finding(tag, `${tag} on ${count} of ${entries.length} texts`, "one entrance on under 75% of texts", `${count} of ${entries.length} texts in ${ctx.sceneName} enter with ${tag}.`, `Let most text cut in with the picture and keep ${tag} for the key lines, so the words keep one look.`, list[0].at);
     }
   }
   return findings;

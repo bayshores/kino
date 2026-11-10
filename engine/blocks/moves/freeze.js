@@ -217,7 +217,7 @@ export const maskedType = {
       // The word goes before the wash lifts, so it never sits on the bright shot.
       ctx.animate(made, "out", motion({ name: "Fade out", kind: "out", start: outAt, duration: round(TYPE_OUT * 2 / 3), easing: CURVES.leave, from: { opacity: 1 }, to: { opacity: 0 } }));
       ctx.animate(made, "hide", hide(end));
-      return { end, tags: ["type-giant", "type-blur-in", "parallax"] };
+      return { end, tags: ["type-giant", "type-blur-in", "parallax", "type-behind"] };
     }
     // Inside the word: a plate in the background color covers the shot, and a copy of the shot
     // (same file, place, speed and moves, no sound) shows only through the word's letters, so
