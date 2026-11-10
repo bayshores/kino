@@ -65,7 +65,7 @@ import { createRecorder } from "./recorder/recorder.mjs";
 import { createSoundtrack } from "./soundtrack.mjs";
 import { createSongTaste } from "./songTaste.mjs";
 import { createMusicEmbed } from "./music-embed.mjs";
-import { createLookEmbed, LOOK_MODEL } from "./look-embed.mjs";
+import { createLookEmbed } from "./look-embed.mjs";
 import { decodeMono } from "./audio-analysis.mjs";
 import { createSoundBandsCache, soundLevelsFor } from "./sound-bands.mjs";
 import { analyzeBeats } from "../engine/beatDetection.js";
@@ -241,7 +241,8 @@ const footageFinder = createFootageFinder({
   youtube: youtubeGate,
   embed: lookEmbed,
   commons: createCommonsSource({ enabled: () => dashboard.settings().sounds?.search === true, directory: path.join(dataRoot, "footage", "commons") }),
-  modelReady: () => existsSync(path.join(dataRoot, "models", LOOK_MODEL)),
+  // With looks or their download switched off nothing downloads, so no scan promises a download.
+  modelReady: () => !lookEmbed || process.env.KINO_LOOK_DOWNLOAD === "0" || lookEmbed.ready(),
 });
 // Screen recordings agents make (project {action:"record"}): folders in <data>/recordings while
 // recording, then the video joins the media library. The dashboard shows one while it runs.

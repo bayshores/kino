@@ -5,14 +5,20 @@
 //
 // Each candidate video gets a short code per project (F1, F2, ...). At most FOOTAGE_KEPT stay;
 // the oldest go first, but a scanned, noted or imported one is never dropped. A scan waits up to
-// about 90 s; a longer one answers with its progress and a next call that repeats it.
+// about 50 s; a longer one answers with its progress and a next call that repeats it.
 import { call } from "../agent/next-call.mjs";
+import { readTime } from "./scan.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./search.mjs";
 
 /** Candidates kept per project. */
 export const FOOTAGE_KEPT = 24;
-/** How long a scan call waits before it answers with progress (ms). */
-export const FOOTAGE_WAIT_MS = 90_000;
+/**
+ * How long a scan call waits before it answers with progress (ms). Under a minute, like kino's
+ * other blocking waits (render, inspire), so an agent client's tool timeout never cuts it off.
+ */
+export const FOOTAGE_WAIT_MS = 50_000;
+/** How long a finished scan's result stays for the repeat call that collects it (ms). */
+export const FOOTAGE_RESULT_KEEP_MS = 10 * 60_000;
 /** Shots listed in a scan answer. */
 export const FOOTAGE_SHOTS_SHOWN = 12;
 /** Shots the scan answer's import call names. */
@@ -173,13 +179,28 @@ function candidateLabel(candidate) {
   return [line, status, note].filter(Boolean).join(" · ");
 }
 
-// Why a scan could not run, in the agent's words, with what to do instead.
-function scanFailure(error, candidate) {
+// Why a scan could not run, in the agent's words, with what to do instead: the next video of the
+// last search (never "top", which names the one that just failed), else a new search.
+function scanFailure(error, candidate, footage = null) {
   if (error?.name === "AbortError") throw error;
   if (error?.code === "BOT_CHECK")
     return new FootageError("bot_check", `YouTube asked for a bot check, so kino pauses YouTube downloads for 15 minutes (no cookies are ever sent). Use the person's own clips, or Commons: library {topic:"footage", search, source:"commons"}.`, call("library", { topic: "footage", search: "<subject> <scene words>", source: "commons" }));
   if (error?.code === "NO_YTDLP" || error?.code === "NO_JS_RUNTIME") return new FootageError("failed", error.message, null);
-  return new FootageError("failed", `${candidate.code} could not be scanned: ${short(oneLine(error?.message ?? error), 200)}`, scanCall("top"));
+  const next = nextCandidate(footage, candidate.code);
+  return new FootageError("failed", `${candidate.code} could not be scanned: ${short(oneLine(error?.message ?? error), 200)}`, next ? scanCall(next.code) : searchCall());
+}
+
+// A from or to that is no time, or a stretch that ends before it starts: refused before any download.
+function checkStretch(from, to, nextCall) {
+  const read = (name, value) => {
+    if (value === undefined || value === null || value === "") return null;
+    const time = readTime(value);
+    if (time === null || time < 0) throw new FootageError("bad_input", `"${name}" (${short(oneLine(value), 20)}) is not a time: use seconds (197) or minutes and seconds ("3:17").`, nextCall);
+    return time;
+  };
+  const start = read("from", from);
+  const end = read("to", to);
+  if (start !== null && end !== null && end <= start) throw new FootageError("bad_input", `"to" must come after "from".`, nextCall);
 }
 
 /**
@@ -188,7 +209,7 @@ function scanFailure(error, candidate) {
  * handle(input, {footage, personClips, signal}) answers {text, data, nextCall, update?}: update
  * maps the saved footage state to the new one (the service applies it inside its state update).
  */
-export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS }) {
+export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs = FOOTAGE_RESULT_KEEP_MS }) {
   // Scans running now, by scan id and options: a repeated call joins its scan instead of starting another.
   const scans = new Map();
 
@@ -226,7 +247,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS }) {
       `Found ${listed.length} for "${found.tried ?? found.words ?? words}"${found.cached ? " (from today's search)" : ""}${after.want ? `; want: "${after.want}"` : ""}:`,
       ...listed.map(candidateLabel),
       droppedLine(found.dropped),
-      "Scan one to see its best shots (it waits up to about 90 s).",
+      "Scan one to see its best shots (it waits up to about 50 s).",
     ];
     return { text: withLead(personClips, lines), data: { candidates: listed.map(({ code, id, title, seconds, license }) => ({ code, id, title, seconds, license })), dropped: found.dropped },
       nextCall: scanCall("top"), update };
@@ -265,6 +286,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS }) {
     const options = { want, from: input.from, to: input.to, whole: input.whole === true };
     const id = scanIdOf(candidate);
     const plain = options.from === undefined && options.to === undefined && !options.whole;
+    checkStretch(input.from, input.to, scanCall(candidate.code));
     const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }) });
     // A scan saved before with the same words answers at once.
     let result = plain ? await finder.readScan(id).catch(() => null) : null;
@@ -274,14 +296,18 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS }) {
       let job = scans.get(key);
       if (!job) {
         job = { progress: "Starting: reading the video's length, chapters and most-replayed parts." };
+        // A finished scan stays a while, so the repeat call after a progress answer collects it
+        // (a from/to or whole scan is not saved for readScan) instead of starting it again.
         job.promise = finder.scan(candidate, { ...options, signal: undefined, onProgress: (line) => { job.progress = line; } })
           .then((value) => ({ value }), (error) => ({ error }))
-          .finally(() => { setTimeout(() => scans.delete(key), 0); });
+          .finally(() => { setTimeout(() => { if (scans.get(key) === job) scans.delete(key); }, keepMs).unref?.(); });
         scans.set(key, job);
       }
       let timer;
       const waited = await Promise.race([job.promise, new Promise((resolve) => { timer = setTimeout(() => resolve(null), waitMs); })]);
       clearTimeout(timer);
+      // A failure is told once: the next same call tries again.
+      if (waited?.error && scans.get(key) === job) scans.delete(key);
       if (signal?.aborted) throw Object.assign(new Error("Cancelled."), { name: "AbortError" });
       if (!waited) {
         return { text: withLead(personClips, [`${candidate.code} is still scanning. ${job.progress}`, "Send the same call again: it joins this scan and waits for it."]),
@@ -300,7 +326,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS }) {
           return { text: withLead(personClips, [`${candidate.code} cannot play from here (${reason}). Dropped${next ? `; ${next.code} is next.` : "."}`]),
             data: { dropped: candidate.code, reason }, nextCall: next ? scanCall(next.code) : searchCall(), update };
         }
-        throw scanFailure(waited.error, candidate);
+        throw scanFailure(waited.error, candidate, saved);
       }
       result = waited.value;
     }

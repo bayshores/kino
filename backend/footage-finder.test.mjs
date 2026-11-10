@@ -13,6 +13,7 @@ import { createFootageFinder } from "./footage-finder/index.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
 import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE } from "./footage-finder/actions.mjs";
+import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { openStore } from "./store.mjs";
@@ -477,4 +478,26 @@ test("a scan longer than the wait answers with its progress, and the same call a
   assert.equal(answer.text, "F1 cannot play from here (region). Dropped; F2 is next.");
   assert.deepEqual(answer.update(footage).candidates.map((entry) => entry.code), ["F2"]);
   assert.ok(FOOTAGE_TOPIC_LINE.length <= 150, FOOTAGE_TOPIC_LINE.length);
+  // A scan that failed names the next video, never "top" (the one that just failed).
+  const broken = createFootageActions({ finder: { readScan: async () => null, scan: async () => { throw new Error("ffmpeg exited 1"); } } });
+  await assert.rejects(broken.handle({ scan: "top" }, { footage, personClips: 0 }),
+    (error) => error.message === "F1 could not be scanned: ffmpeg exited 1" && error.nextCall.input.scan === "F2");
+  // A from/to that is no time is refused before anything downloads.
+  await assert.rejects(broken.handle({ scan: "F1", from: "soon" }, { footage, personClips: 0 }), (error) => error.code === "bad_input");
+  // A from/to scan that finishes between the progress answer and the repeat is collected, not started again.
+  started = 0;
+  const stretch = createFootageActions({ finder, waitMs: 5 });
+  assert.match((await stretch.handle({ scan: "F1", from: 60, to: 120 }, { footage, personClips: 0 })).text, /still scanning/);
+  finish({ want: "", windows: [{ start: 60, end: 120 }], shots: [], skipped: {} });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.match((await stretch.handle({ scan: "F1", from: 60, to: 120 }, { footage, personClips: 0 })).text, /scanned 1:00/);
+  assert.equal(started, 1);
+});
+
+test("the look model counts as ready where transformers.js keeps it: <data>/models/hf/<model id>", async () => {
+  const models = await mkdtemp(path.join(tmpdir(), "kino-look-model-"));
+  assert.equal(lookModelReady(models), false);
+  await mkdir(path.join(models, "hf", LOOK_MODEL), { recursive: true });
+  assert.equal(lookModelReady(models), true);
+  await rm(models, { recursive: true, force: true });
 });

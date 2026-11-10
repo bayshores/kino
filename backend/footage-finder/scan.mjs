@@ -69,8 +69,8 @@ export function parseProbe(text) {
   };
 }
 
-// "3:17", "1:02:03", "197" or 197 → seconds; null when it is none of those.
-function seconds(value) {
+/** "3:17", "1:02:03", "197" or 197 → seconds; null when it is none of those. */
+export function readTime(value) {
   if (value === undefined || value === null || value === "") return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   const parts = String(value).trim().split(":");
@@ -96,7 +96,7 @@ function askedStretch(duration, from, to) {
   if (!given(from) && !given(to)) return null;
   const read = (name, value) => {
     if (!given(value)) return null;
-    const time = seconds(value);
+    const time = readTime(value);
     if (time === null || time < 0) throw new Error(`"${name}" (${value}) is not a time: use seconds (197) or minutes and seconds ("3:17").`);
     if (time > duration + 1) throw new Error(`"${name}" (${clock(time)}) is past the end of this video (${clock(duration)}).`);
     return Math.min(time, duration);
