@@ -242,7 +242,12 @@ test("waive_check takes a list or a glob of layer names and saves one waiver per
   assert.equal(translateOperations([{ op: "waive_check", code: "effect_fit", target: "card", reason: "the punch at cue:punch-1" }], resolver, cued).length, 1);
   // A type_seen waiver names the reference (or picked treatment) that chose the type.
   assert.throws(() => translateOperations([{ op: "waive_check", code: "type_seen", target: "card", reason: "I like it" }], resolver, document), /names the reference that chose this type/);
-  assert.equal(translateOperations([{ op: "waive_check", code: "type_seen", target: "card", reason: "set like the title in yt:dQw4w9WgXcQ" }], resolver, document).length, 1);
+  // The id must be one of this project's references (a style line's ref or a saved one).
+  const waiver = { op: "waive_check", code: "type_seen", target: "card", reason: "set like the title in yt:dQw4w9WgXcQ" };
+  assert.throws(() => translateOperations([waiver], resolver, document), /yt:dQw4w9WgXcQ, which is not a reference of this project/);
+  resolver.references = ["yt:other-ref1", "yt:dQw4w9WgXcQ"];
+  assert.equal(translateOperations([waiver], resolver, document).length, 1);
+  assert.throws(() => translateOperations([{ ...waiver, reason: "treatment B type direction" }], resolver, document), /names the reference that chose this type/);
   // A glob over hundreds of word layers passes the 200-waiver limit: the error says what to do instead.
   const many = { ...ops[1], target: Array.from({ length: 201 }, (_, index) => `word-${index}`) };
   assert.throws(() => applyOperations(document, [many]), /would make 201 waivers .*target:"\*"/);

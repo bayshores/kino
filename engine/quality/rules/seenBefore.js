@@ -14,9 +14,10 @@
 // compared, and the hint never asks for an effect: a part changes only by a cue or event that motivates it.
 // type_seen (warning): the video's type look (typeSignature.js: face, weight, case, size, how it comes
 // in; saved as `type` in the house file) matches one of the last 3 projects'. kino has no default
-// type look, so a reused one needs a reference or treatment that chose it: a style spec with a
-// `type` direction (the picked treatment's, ctx.style.type) is quiet; otherwise an agent waives it
-// only with a reason naming the reference (translate.mjs).
+// type look, so a reused one needs a reference or treatment that chose it: the picked treatment's
+// `type` direction (ctx.style.type) keeps it quiet only when its words describe the look (how it comes
+// in plus one more part, directionParts); a direction the look contradicts warns and is quoted.
+// Otherwise an agent waives it only with a reason naming one of the project's references (translate.mjs).
 import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
 import { partWords, sameStructure, STRUCTURE_VERSION, structureAlike, structureSignature } from "../structureSignature.js";
 import { sameType, TYPE_PARTS, TYPE_VERSION, typeAlike, typeSignature } from "../typeSignature.js";
@@ -115,22 +116,51 @@ export function seenBefore(model, ctx) {
 // The last projects whose type look type_seen compares against (newest first by savedAt).
 export const TYPE_RECENT = 3;
 
+// The words a type direction uses for each part of a look (typeSignature.js values). A direction
+// describes a look when it names how the type comes in plus one more part (face, weight, case, size).
+const DIRECTION_WORDS = {
+  weight: { light: /\b(light|thin)\b/, regular: /\b(regular|medium|book)\b/, bold: /\b(bold|semibold|semi-bold)\b/, black: /\b(heavy|black|extra-?bold|ultra)\b/ },
+  case: { caps: /\b(caps|capitals|uppercase|upper case)\b/, lower: /\b(lower ?case|all lower)\b/, mixed: /\b(sentence case|title case|mixed case)\b/ },
+  size: { caption: /\b(small|caption|captions|subtitle|subtitles|tiny)\b/, body: /\b(body|medium-sized|mid-sized)\b/, title: /\b(big|large|title|titles|headline)\b/, display: /\b(giant|huge|display|massive|oversized|big)\b/ },
+  reveal: {
+    blur: /\bblur/, "per-words": /\b(word|words|letter|letters|line|lines|character|characters)\b/, mask: /\b(mask|wipe|rise|rises|reveal)\b/,
+    slide: /\b(slide|slides|push)\b/, scale: /\b(scale|pop|pops|zoom)\b/, fade: /\bfade/, cut: /\b(cut|cuts|hard cut|appear|appears)\b/,
+  },
+};
+
+/** The parts of a type look (typeSignature) that a direction's words describe, as names. */
+export function directionParts(direction, look) {
+  const text = String(direction ?? "").toLowerCase();
+  const parts = [];
+  if (look.family && look.family !== "unknown" && text.includes(look.family)) parts.push("family");
+  for (const [part, words] of Object.entries(DIRECTION_WORDS)) {
+    // per-words, per-letters and per-lines are one family of reveals.
+    const key = part === "reveal" && look.reveal.startsWith("per-") ? "per-words" : look[part];
+    if (words[key]?.test(text)) parts.push(part);
+  }
+  return parts;
+}
+
 export function typeSeen(model, ctx) {
-  // A picked treatment (or the style spec) names the type direction: it chose this look.
-  if (ctx.videoScene !== true || ctx.style?.type) return [];
+  if (ctx.videoScene !== true) return [];
+  const direction = ctx.style?.type ? String(ctx.style.type).trim() : "";
   const recent = (ctx.house ?? []).filter((entry) => entry.type && entry.typeVersion === TYPE_VERSION)
     .sort((a, b) => String(b.savedAt ?? "").localeCompare(String(a.savedAt ?? ""))).slice(0, TYPE_RECENT);
   if (!recent.length) return [];
   const mine = typeSignature(model);
   const match = mine ? recent.find((entry) => sameType(mine, entry.type)) : null;
   if (!match) return [];
+  // The picked direction chose this look only when it names how the type comes in and one more part.
+  const described = direction ? directionParts(direction, mine) : [];
+  if (described.includes("reveal") && described.length >= 2) return [];
   const alike = typeAlike(mine, match.type);
   const look = `${mine.family}, ${mine.weight}, ${mine.case}, ${mine.size}, ${mine.reveal} in`;
+  const contradicts = direction ? ` The picked direction says "${direction.slice(0, 120)}", which this look does not follow (it names ${described.length ? described.join(", ") : "none of its parts"}).` : "";
   return [{
-    rule: "type_seen", severity: "warn", at: 0, measured: `type look (${look}) alike in ${alike.length} of ${TYPE_PARTS.length} parts (${alike.join(", ")}) to "${match.name}" r${match.rev}`,
-    required: "a type look unlike the last projects' (face plus 4 of 5 parts: face, weight, case, size, reveal), unless a saved reference or the picked treatment chose it",
-    message: `${ctx.sceneName}: the type (${look}) is the look of "${match.name}" (r${match.rev}), one of kino's last projects. The same type in every project reads as made by a machine, and kino has no default look.`,
-    fix: { kind: "hint", text: `Take the type from this video's own references and footage: study how the references set their type (face, weight, case, size, how it comes in) and set this video's from one of them, or from the picked treatment's type direction. Keep it when a reference chose it: waive_check type_seen with a reason naming the reference (yt:<id>).` },
+    rule: "type_seen", severity: "warn", at: 0, measured: `type look (${look}) alike in ${alike.length} of ${TYPE_PARTS.length} parts (${alike.join(", ")}) to "${match.name}" r${match.rev}${direction ? `; the direction names ${described.length ? described.join(", ") : "none of its parts"}` : ""}`,
+    required: "a type look unlike the last projects' (face plus 4 of 5 parts: face, weight, case, size, reveal), unless a saved reference chose it or the picked direction describes it (how it comes in plus one more part)",
+    message: `${ctx.sceneName}: the type (${look}) is the look of "${match.name}" (r${match.rev}), one of kino's last projects. The same type in every project reads as made by a machine, and kino has no default look.${contradicts}`,
+    fix: { kind: "hint", text: `Take the type from this video's own references and footage: study how the references set their type (face, weight, case, size, how it comes in) and set this video's from one of them, or build what the picked treatment's type direction says. Keep it when a reference of this project chose it: waive_check type_seen with a reason naming that reference (yt:<id>).` },
   }];
 }
 

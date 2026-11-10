@@ -294,9 +294,10 @@ How to read it:
   `engine/layoutSignature.test.js`, `backend/house-memory.test.mjs`.
 - **Type recall**: Partial. A render saves its type look in the house file (face, weight class, case,
   size class, how the main text comes in); `type_seen` warns when a new project has the same face and
-  4 of 5 parts as one of the last 3 projects, and an agent waives it only with a reason naming the
-  reference (`yt:<id>`) or picked treatment. A style spec with a `type` direction (the picked treatment's) is quiet. Evidence:
-  `backend/house-memory.test.mjs`.
+  4 of 5 parts as one of the last 3 projects. The picked treatment's `type` direction keeps it quiet
+  only when its words describe the look (how it comes in plus one more part); a contradicted direction
+  warns and is quoted. A waiver must name a `yt:<id>` that is a reference of the project (a style line's
+  ref or a saved one). Evidence: `backend/house-memory.test.mjs`, `backend/agent-core.test.mjs`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

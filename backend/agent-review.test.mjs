@@ -666,7 +666,7 @@ test("a briefed video of 15 s or more with 10 layers is a real edit: its open wa
 test("a real edit (a brief, over 30 layers) needs one critic round before its final render; after two rounds an open P0 goes to the person as the critique stop", async () => {
   const id = await project("critique-needed", 12);
   assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
-  const style = { wants: [], avoids: ["flash"], lines: [], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 12, purpose: "the promise" }], fonts: { caption: { family: "Inter", size: 40 } } };
+  const style = { wants: [], avoids: ["flash"], lines: [{ text: "the title type", ref: "yt:dQw4w9WgXcQ" }], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 12, purpose: "the promise" }], fonts: { caption: { family: "Inter", size: 40 } } };
   const locked = await agent("notes", { project: id, action: "brief", fields: { style } });
   assert.equal(locked.isError, undefined, locked.text);
   await agent("edit", { project: id, ops: [...Array.from({ length: 29 }, (_, n) => ({ op: "add_layer", layerType: "rectangle", name: `dot${n}`, properties: { x: 20 + n * 20, y: 320, width: 8, height: 8, fill: "#ffffff" } })),
