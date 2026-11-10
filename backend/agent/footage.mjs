@@ -30,10 +30,11 @@ export function readFootageList(value) {
 
 /**
  * The fact gatherer. deps: listMedia, mediaRoot, transcripts ({get}), beatAnalysis ({get}),
- * footageCache ({video, sound}). facts(document, {footage, music, voice}) resolves to {clips,
+ * footageCache ({video, sound}), songShapes ({get}: a song's sections and seams, optional).
+ * facts(document, {footage, music, voice}) resolves to {clips,
  * music, voice, notes}; notes say what could not be measured and why.
  */
-export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnalysis, footageCache }) {
+export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnalysis, footageCache, songShapes = null }) {
   const fileOf = (record) => {
     const file = mediaRoot ? path.join(mediaRoot, record.id) : null;
     if (!file || !existsSync(file)) throw new Error(`${record.name} is not in kino's media folder; import it again.`);
@@ -82,7 +83,15 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
         shots: Array.isArray(record.shots) ? record.shots : null, words: null, samples: null, sound: null,
       };
       if (!picture) {
-        try { clip.samples = (await footageCache.video(file, { width: clip.width, height: clip.height, duration })).samples; }
+        try {
+          const measured = await footageCache.video(file, { width: clip.width, height: clip.height, duration });
+          clip.samples = measured.samples;
+          // Impacts, light and motion at the frame, and frames per drawing (footage/events.mjs).
+          clip.events = measured.events ?? null;
+          clip.drawing = measured.drawing ?? null;
+          // Its own frame rate: an impact frame's length and a drawing's hold are in its frames.
+          clip.rate = measured.rate ?? null;
+        }
         catch (error) { notes.push(`${record.name} was not measured (${error.message}); framing and moments use the middle of the picture`); }
         // Its sound: its own track, or a sound file of the same length given in footage.
         const paired = sounds.find((sound) => !sound.used && Math.abs((Number(sound.record.duration) || 0) - duration) <= 0.15);
@@ -108,6 +117,11 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
       const file = fileOf(record);
       const [analysis, loudness] = await Promise.all([beatAnalysis.get(file).catch((error) => { notes.push(`the music's beat could not be found (${error.message}); cuts follow the shots`); return null; }), footageCache.sound(file)]);
       musicFacts = { src: record.src ?? `/api/media/${record.id}`, name: record.name, duration: Number(record.duration) || analysis?.duration || 0, analysis, loud: loudness.loud, curve: loudness.curve };
+      // The song's sections and seams (the .song file fit_music keeps): cuts lock to them (plan.js).
+      if (songShapes && analysis?.bpm) {
+        const shape = await songShapes.get(file, analysis.bpm).catch((error) => { notes.push(`the music's sections could not be read (${error.message}); cuts follow the beat`); return null; });
+        if (shape) musicFacts.shape = { sections: shape.sections ?? [], seams: shape.seams ?? [] };
+      }
       if (analysis && !analysis.bpm) notes.push(`no steady beat in ${record.name}; cuts follow the shots`);
     }
     let voiceFacts = null;

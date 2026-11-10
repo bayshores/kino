@@ -122,6 +122,27 @@ How to read it:
   so `duration_band` passes them); run through the agent service once on generated clips and a click
   track, not yet judged on real footage. Evidence: `engine/footage.test.js` (pace, accents),
   `engine/qualityPolish.test.js` (accent punch).
+- **Quiet footage defaults**: Partly verified (plan level). compose {footage} adds no effect without a
+  measured reason: downbeat punches only with `accents:true`; one hit, and flash or glitch cuts, only
+  on a real drop (6 dB rise), sized by the rise and the shot's brightness; no beat step or slam title;
+  push direction and frame blending only from measured footage; the deck never deals loud accents,
+  not even as a signature; a plain cut on a song seam counts as designed. Not
+  yet rendered on real footage. Evidence: `engine/footage.test.js` (quiet by default),
+  `engine/deck.test.js`, `engine/qualityStyle.test.js` (plain_beats).
+- **Seam-locked cuts**: Partly verified (plan level). compose {footage} with music reads the song's
+  sections and seams (the `.song` file fit_music keeps) and cuts on each seam to the millisecond,
+  holds a dropout through to its return or the next section edge, cuts each section at a beat range
+  from its loudness (sections under about 4 dB apart stay in the middle range; the pace or
+  treatment scales the ranges; a hold of twice the range only over measured motion), and dissolves
+  only on smooth passages; a clip too short for its shot cuts on an earlier safe beat, else holds
+  its last frame to the seam. The dry-run plan lists the seams it cut on. Synthetic song shape only;
+  not rendered on real footage.
+  Evidence: `engine/footage.test.js` (seam-locked cuts).
+- **Cut snapping and burst**: Partly verified (plan level). Inside a section, compose {footage} moves a cut onto
+  a clip's measured impact near a song hit (impact frame on the hit, up to 2 output frames early, never late;
+  the impact held for its frames at the clip's measured rate; a plain cut; motion carry only breaks ties), and
+  cuts one burst of short shots only over a measured onset-dense run of 1 to 2 bars, on shots within 0.1 luma
+  of each other, never in a calm edit (zero is normal). Synthetic hits and impacts only. Evidence: `engine/footage.test.js` (cut snapping and burst).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).
@@ -260,6 +281,12 @@ How to read it:
   scene is `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type
   under a cut-out is part of the layout (house files say their `sigVersion`; older ones compare
   without it). Gap: needs a house of earlier renders. Evidence: `engine/layoutSignature.test.js`.
+- **Repeated edit structure**: Partial. A render of 6+ shots saves its structure in the house file
+  (cut rate per song section, effects with cue weights, burst, first drop, ending, title, colors);
+  `seen_before` warns once when the video is built like another project (same pace, 75% of parts);
+  parts that only follow the song (steady pace, plain cut on the drop, plain ending) are not
+  compared, and the hint never asks for an effect. Gap: needs earlier renders; effect weights wait for weighted cues. Evidence:
+  `engine/layoutSignature.test.js`, `backend/house-memory.test.mjs`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in
@@ -616,6 +643,36 @@ How to read it:
 - **Shots at import**: Verified. One FFmpeg pass finds cuts and flashes; shots are at least 6 frames
   (plan said 15; not yet confirmed); videos over 20 minutes get "shots: not found". Evidence:
   `backend/shot-detection.test.mjs` (clip sources in `tests/fixtures/footage/SOURCES.md`). Not built: dissolves. Not verified: drawn animation.
+- **Footage events**: Verified on a generated clip. Measuring a clip (`.footage-v2`, clips re-measured once) finds
+  impacts (contact, impact frames), light and motion with direction at the frame, and frames per drawing; look
+  source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
+  moments not yet checked; a busy still background hides a small mover. compose uses impacts (cut snapping) and
+  frames per drawing (frame blending only at 1).
+- **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
+  impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
+  top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues
+  not written by fit_music are refused; a shake adds to the shot's own moves; a strobe flashes 3 times a second
+  at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
+  through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **Anime edit guidance and proof**: Partly verified. The skill says every effect needs a cue that motivates it,
+  reference counts are ceilings and none of a device is fine; a title 0.1 to 0.3 s after a cut counts as on it.
+  compose writes the song's seams and rests as fitted `song-*` cues and the end card's entrance as an `end-card`
+  marker, so seam_lock, rest_fit and effect_fit judge them (a text 0.1 to 0.3 s after a named marker is on it).
+  Evidence: `engine/footage.test.js` (anime proof: seams within a frame, the cues, no blend on footage drawn on 2s,
+  impacts pull cuts), `engine/effectFit.test.js`; by hand `tests/anime-proof.mjs` (3 made-up clips and a song
+  through compose, check and render, 3 seeds: 3 of 3 pass, seam cue within a frame of a cut). Gaps: not judged on
+  real anime footage; compose places no impact-accent itself (accents are agent-placed on a cue, so the guard
+  "motivated accents appear where strong triggers exist" is unmet); the made-up song has no rest.
+- **effect_fit check**: Partly verified. In a music edit (weighted accents or fitted song seams) each loud effect
+  needs a motivating cue on its frame (2 frames early at most), ranks in strength with the cue's weight, fits its
+  section's energy budget (none inside a rest but its edges), is not stacked (3 in 0.15 s), not on a talking face,
+  not a jittering or steady shake; text animations and sound effects need a cue, cut or word; a gate at the final
+  render, waived only by naming a cue. It also finds hand-made exposure flashes, short wiggle or oscillate
+  shakes, threshold impact frames, quick color cards and single zoom punches of any size (timed from their
+  rise); an untriggered one's auto fix takes it off. An impact-accent record keeps its cue through a save.
+  A wanted accent no longer lifts technique_repeat's budget. Evidence:
+  `engine/effectFit.test.js`, `engine/qualityStyle.test.js`, `engine/moves.test.js`. Gaps: no per-accent pixel
+  check yet (luma jump, color mush, ghosting); footage events reach it only through cues pinned to a clip.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and
@@ -688,6 +745,11 @@ How to read it:
   `backend/footage-finder.test.mjs` (stub yt-dlp: search, scan, import, add_layer, a final frame and
   its credit line), `skills/kino/references/footage.md`. Gaps: not
   run live in CI; the image model does not know character names.
+- **Scan marks, subtitles and drawn footage**: Stub-verified. A small logo near an edge on most shots
+  of a scan is said once and is no text (its video lists after clean ones), subtitles and captions
+  on most shots never become a mark, bottom-center subtitles go last, a short flash decides no match,
+  drawn footage is not ranked by faces and keeps the match bar at 2, and a miss says how close it
+  came. Evidence: `backend/footage-finder.test.mjs` (drawn footage). Gap: tuned on one live anime scan.
 
 ## Audio and captions
 
@@ -695,6 +757,10 @@ How to read it:
   `onset-N` cues and `rhythm` (click tracks 70 to 200 BPM: worst beat 0.1 ms). Evidence:
   `backend/audio-analysis.test.mjs`, `engine/beatDetection.test.js`, `engine/beatCues.test.js`,
   `backend/agent-captions.test.mjs`. Gap: assumes one steady tempo; not measured on commercial music.
+- **Weighted hits**: Verified on generated audio. Onset cues carry `weight` and `band`, bar
+  starts `downbeat`, and `accent-N` cues mark each section's hardest hits (kick plus hi-hat track:
+  kicks low, hats high and under 0.3, accents on the loud bar kicks). Evidence:
+  `engine/beatDetection.test.js`. Gap: weight and band not measured on commercial music.
 - **Cue lists**: Verified. `inspect {targets:["cues"]}` pages with filters
   (`cues[kind=beat,from=60,to=90]`). Evidence: `backend/agent-cue-list.test.mjs`.
 - **Captions**: Verified. `add_captions {file|text|words|speech}` reads SRT and WebVTT, pages to
@@ -763,6 +829,13 @@ How to read it:
 - **fit_music** (op): cuts a song on bar lines with downbeat crossfades so its drop lands on the
   payoff and its ending on the end; sections become `song-*` cues. Unverified by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
+  (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
+  heard time, in the piece that plays it; one cue per hit. Synthetic songs only, unverified on real
+  songs. Evidence: `backend/soundtrack.test.mjs`, `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **seam_lock, rest_fit** (warnings): a picture change near a song seam lands within 1 frame, a drop
+  or return is marked (a move of a large picture counts; only the video's scene is judged); inside a dropout no cut, accent or fast move starts, and the picture restarts
+  within 1 frame of the return. Document only, no pixels. Evidence: `engine/qualityRules.test.js`.
 - **music_hard_stop** (warning): a song that stops loud with no fade (a fade still running at the stop is
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.
@@ -1148,6 +1221,18 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   and AI-made results go last with a `doubt`; `borrow_rhythm` uses a reference's cuts. TikTok and
   Instagram links are refused. Gaps: link lookup run live once; the reference cache is not trimmed.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`.
+- **Reference event reader**: Test-verified on synthetic frames and clips. Inspire keeps 2-frame shots and
+  counts flashes; a reference answer adds "cuts n · x% within 1 frame of a beat (random y%)" with offsets in
+  frames; taste packets list every cut plus flash, black and hold events. A flash on a cut is one cut, bright
+  shots are not flashes, and `borrow_rhythm` lends only cuts 6 frames apart. Evidence: `tests/taste-harness.test.mjs`,
+  `backend/inspire.test.mjs`, `backend/shot-detection.test.mjs`. Gaps: not yet run on the saved contest
+  references.
+- **Reference closeness**: Test-verified on synthetic scenes. `borrow_rhythm` lends each section's shot
+  lengths in a new order (the song's `song-` seams as sections and cuts), never cut times; `reference_closeness`
+  warns on 6 shots in a row timed like a saved reference beyond chance (1 and 2 beat cutting is quiet), and in
+  music edits on the pooled contest device stack (a flash inside one shot is no seam flash). Evidence:
+  `engine/qualityStyle.test.js`, `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: title moment
+  and section colors are not compared (references do not measure them); `look versus` is unchanged.
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
   measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with its credit.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.

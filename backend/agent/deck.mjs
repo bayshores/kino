@@ -28,7 +28,8 @@ let moving = null;
  */
 export function loadMoves() {
   moving ??= import("../../engine/blocks/moves/index.js")
-    .then((module) => Object.values(module.MOVES ?? {}).map((move) => ({ name: move.name, tags: [...(move.tags ?? [])], needs: [...(move.needs ?? [])], fits: move.fits ?? "" })))
+    // A move marked deal: false (impact-accent: only where a cue motivates it) is never dealt.
+    .then((module) => Object.values(module.MOVES ?? {}).filter((move) => move.deal !== false).map((move) => ({ name: move.name, tags: [...(move.tags ?? [])], needs: [...(move.needs ?? [])], fits: move.fits ?? "" })))
     .catch((error) => {
       if (error?.code !== "ERR_MODULE_NOT_FOUND") console.warn(`kino: the moves library could not be read, so the deck deals techniques only: ${error.message}`);
       return [];

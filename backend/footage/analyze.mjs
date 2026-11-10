@@ -1,7 +1,7 @@
 // What compose needs to know about a clip before it cuts it (compose {footage}, engine/footage/):
 // where the faces are, how much moves, where text is on screen and how bright each moment is,
-// measured on this computer and kept beside the file as a .footage-v1 file, so a clip is measured
-// once. Sound files get their loudness instead.
+// measured on this computer and kept beside the file as a .footage-v2 file, so a clip is measured
+// once. Sound files get their loudness instead (.loudness-v1).
 //
 // How a video is measured:
 //   1. FFmpeg decodes it at 4 frames a second, at most 480 pixels on the long side (never the
@@ -9,12 +9,18 @@
 //   2. kino works out each frame's brightness and how much it differs from the frame before.
 //   3. The kino-measure helper (backend/measure/kino-measure.swift, Apple Vision) gets each frame
 //      with jobs: optical flow every frame (motion), faces and text twice a second.
+//   4. A tiny gray copy of every frame finds the biggest changes; around them (and 3 spread
+//      moments) FFmpeg decodes short windows at the clip's own rate, 480 px, and
+//      footage/events.mjs finds impacts, light and motion (with direction) at the frame, and how
+//      many frames each drawing is held.
 // Without the helper (not a Mac, or KINO_MEASURE_HELPER=none) faces and text are null (unknown)
-// and motion comes from the frame differences.
+// and motion comes from the frame differences. Version 2 added the events: clips measured before
+// are measured again once.
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { ffmpegCommand } from "../media-probe.mjs";
+import { ffmpegCommand, probeFrameRate } from "../media-probe.mjs";
+import { eventWindows, footageEvents, reduceGray } from "./events.mjs";
 import { endWithService } from "../child-exit.mjs";
 import { helperSession, measureAbilities, measureSize } from "../measure/measure.mjs";
 import { decodeMono } from "../audio-analysis.mjs";
@@ -22,7 +28,8 @@ import { energyFrames, silenceLevel } from "../speech/transcribe.mjs";
 import { round as round3 } from "../../engine/numbers.js";
 import { heavyDecodeSlot } from "../process-slots.mjs";
 
-export const FOOTAGE_VERSION = 1;
+export const FOOTAGE_VERSION = 2;
+export const LOUDNESS_VERSION = 1;
 export const FOOTAGE_FPS = 4;
 const SIDE = 480;
 // The helper's job bits (kino-measure.swift): 1 flow, 2 text, 16 faces.
@@ -57,14 +64,16 @@ function flowSpeed(flow, width) {
  * luma, change, motion, faces, text}]}: faces [[x, y, w, h]] and text [{box, s}] in fractions of
  * the frame (null when not measured at that frame or not on this computer), motion in frame
  * widths a second (null without the helper), change the mean brightness difference to the frame
- * before (0 to 1).
+ * before (0 to 1). Also events [{t, kind: impact|light|motion, confidence, ...}], drawing
+ * ({frames, perSecond, sure} or null) and rate (the clip's frames a second): footage/events.mjs.
+ * options.events false skips them (the footage finder's scan).
  */
 export function measureFootage(file, options = {}) {
   // One video decode at a time in this process (process-slots.mjs).
   return heavyDecodeSlot(() => measureFootageNow(file, options));
 }
 
-async function measureFootageNow(file, { width, height, duration, signal } = {}) {
+async function measureFootageNow(file, { width, height, duration, signal, events = true } = {}) {
   const size = measureSize(width, height, SIDE);
   const abilities = await measureAbilities();
   const helper = abilities.flow === true || abilities.text === true ? abilities.helper : null;
@@ -111,11 +120,84 @@ async function measureFootageNow(file, { width, height, duration, signal } = {})
     if (Array.isArray(answer.faces)) { sample.faces = answer.faces; faces = true; }
     if (Array.isArray(answer.text)) { sample.text = answer.text.filter((line) => line.c >= 0.3).map((line) => ({ box: line.box, s: String(line.s).slice(0, 80) })); text = true; }
   });
+  const length = duration || samples.length / FOOTAGE_FPS;
+  const found = events ? await clipEvents(file, length, size, signal) : {};
   return {
-    version: FOOTAGE_VERSION, duration: round3(duration || samples.length / FOOTAGE_FPS), width, height, fps: FOOTAGE_FPS,
+    version: FOOTAGE_VERSION, duration: round3(length), width, height, fps: FOOTAGE_FPS,
     vision: { faces, text, flow: samples.some((sample) => sample.motion !== null), ...(error ? { error } : {}) },
-    samples,
+    samples, ...found,
   };
+}
+
+// The clip's events (footage/events.mjs) from short windows decoded at its own rate:
+// {events, drawing, rate}, or {events: null, eventsError} when they could not be read.
+async function clipEvents(file, duration, size, signal) {
+  try {
+    const rate = await probeFrameRate(file, { signal });
+    // Every frame, tiny, finds the moments (a 1-frame flash falls between the 4 a second samples).
+    // Worked out while decoding, keeping only the last 5 tiny frames: 3 numbers a frame in memory.
+    const luma = [], change = [], back = [], recent = [];
+    const differ = (a, b) => { let diff = 0; for (let i = 0; i < a.length; i += 1) diff += Math.abs(a[i] - b[i]); return diff / a.length / 255; };
+    await decodeGray(file, 0, null, { width: 64, height: 36 }, signal, (gray) => {
+      const index = luma.length;
+      let sum = 0;
+      for (let i = 0; i < gray.length; i += 1) sum += gray[i];
+      luma.push(sum / gray.length / 255);
+      change.push(recent.length ? differ(gray, recent.at(-1)) : 0);
+      back.push(null);
+      // back[k]: the least difference between frame k - 1 and frames k + 1 to k + 4 (recent holds index - 5 to index - 1).
+      for (let k = Math.max(1, index - 4); k < index; k += 1) {
+        const before = recent[recent.length - (index - (k - 1))];
+        if (before) back[k] = Math.min(back[k] ?? Infinity, differ(gray, before));
+      }
+      recent.push(gray);
+      if (recent.length > 5) recent.shift();
+    });
+    const windows = [];
+    for (const [start, end] of eventWindows({ luma, change, back }, rate, duration)) {
+      // Start on a frame: the first decoded frame is the one at or after start.
+      const first = Math.ceil(start * rate - 1e-6);
+      const frames = await decodeGray(file, Math.max(0, (first - 0.5) / rate), end - first / rate, size, signal);
+      windows.push({ start: first / rate, fps: rate, frames });
+    }
+    const { events, drawing } = footageEvents(windows);
+    return { events, drawing, rate: round3(rate) };
+  } catch (error) {
+    return { events: null, drawing: null, eventsError: String(error?.message ?? error).split("\n")[0].slice(0, 200) };
+  }
+}
+
+// Gray frames of `length` seconds (null: to the end) from `start`, every frame, each kept as
+// keep(gray bytes) (default: footage/events.mjs reduceGray grids); a keep that answers undefined
+// keeps nothing (the scan works out its numbers as frames arrive).
+async function decodeGray(file, start, length, size, signal, keep = (gray) => reduceGray(gray, size.width, size.height)) {
+  const span = length === null ? [] : ["-t", String(round3(length))];
+  const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-threads", "2", "-ss", String(round3(start)), "-i", file, ...span,
+    "-map", "0:V:0", "-an", "-sn", "-dn", "-fps_mode", "passthrough", "-vf", `scale=${size.width}:${size.height}:flags=area,format=gray`, "-f", "rawvideo", "pipe:1"],
+  { stdio: ["ignore", "pipe", "pipe"], signal });
+  endWithService(decode);
+  let decodeError = "";
+  decode.stderr.setEncoding("utf8").on("data", (chunk) => { decodeError = (decodeError + chunk).slice(-1000); });
+  decode.on("error", () => {});
+  const frameBytes = size.width * size.height;
+  const frames = [];
+  let current = Buffer.alloc(frameBytes), filled = 0, read = 0;
+  for await (const chunk of decode.stdout) {
+    let offset = 0;
+    while (offset < chunk.length) {
+      const take = Math.min(frameBytes - filled, chunk.length - offset);
+      chunk.copy(current, filled, offset, offset + take);
+      filled += take; offset += take;
+      if (filled < frameBytes) continue;
+      const kept = keep(current);
+      if (kept !== undefined) frames.push(kept);
+      read += 1;
+      current = Buffer.alloc(frameBytes); filled = 0;
+    }
+  }
+  const code = decode.exitCode ?? await new Promise((resolve) => decode.once("close", resolve));
+  if (code !== 0 && !read) throw new Error(`FFmpeg could not decode a window: ${decodeError.trim().split("\n").at(-1) || `exit ${code}`}`);
+  return frames;
 }
 
 /**
@@ -136,16 +218,16 @@ export async function measureLoudness(file) {
     for (let frame = start; frame < end; frame += 1) power += 10 ** (db[frame] / 10);
     curve.push(Math.round(10 * Math.log10(power / Math.max(1, end - start) + 1e-10) * 10) / 10);
   }
-  return { version: FOOTAGE_VERSION, loud: Math.round((count ? sum / count : -60) * 10) / 10, curve };
+  return { version: LOUDNESS_VERSION, loud: Math.round((count ? sum / count : -60) * 10) / 10, curve };
 }
 
-/** Measures each file once and keeps the answer beside it (`.footage-v1`, `.loudness-v1`). */
+/** Measures each file once and keeps the answer beside it (`.footage-v2`, `.loudness-v1`). */
 export function createFootageCache({ measureVideo = measureFootage, measureSound = measureLoudness } = {}) {
   const pending = new Map();
-  async function readOrMake(sidecar, make) {
+  async function readOrMake(sidecar, version, make) {
     try {
       const saved = JSON.parse(await readFile(sidecar, "utf8"));
-      if (saved?.version === FOOTAGE_VERSION) return saved;
+      if (saved?.version === version) return saved;
     } catch { /* Missing or old answers are made again. */ }
     const result = await make();
     const temporary = `${sidecar}.${randomUUID()}.tmp`;
@@ -156,14 +238,14 @@ export function createFootageCache({ measureVideo = measureFootage, measureSound
     finally { await rm(temporary, { force: true }).catch(() => {}); }
     return result;
   }
-  const once = (key, make) => {
-    if (!pending.has(key)) pending.set(key, readOrMake(key, make).finally(() => pending.delete(key)));
+  const once = (key, version, make) => {
+    if (!pending.has(key)) pending.set(key, readOrMake(key, version, make).finally(() => pending.delete(key)));
     return pending.get(key);
   };
   return {
     /** The measures of a video file; `info` is {width, height, duration} from the media record. */
-    video: (file, info) => once(`${file}.footage-v${FOOTAGE_VERSION}`, () => measureVideo(file, info)),
+    video: (file, info) => once(`${file}.footage-v${FOOTAGE_VERSION}`, FOOTAGE_VERSION, () => measureVideo(file, info)),
     /** The loudness of a sound (or a video's sound). */
-    sound: (file) => once(`${file}.loudness-v${FOOTAGE_VERSION}`, () => measureSound(file)),
+    sound: (file) => once(`${file}.loudness-v${LOUDNESS_VERSION}`, LOUDNESS_VERSION, () => measureSound(file)),
   };
 }

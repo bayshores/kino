@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHouseMemory, familyOf } from "./house-memory.mjs";
 import { SIGNATURE_VERSION } from "../engine/quality/layoutSignature.js";
+import { STRUCTURE_VERSION } from "../engine/quality/structureSignature.js";
 
 test("familyOf drops copies and a trailing number", () => {
   assert.equal(familyOf("Promo [copy] [copy]"), "promo");
@@ -23,11 +24,15 @@ test("others leaves out the project and its copies", async () => {
     const moments = [{ scene: "s", t: 1, sig: { backdrop: 0, items: [] } }];
     await house.record({ projectId: "a", name: "Promo", rev: 3, moments });
     await house.record({ projectId: "b", name: "Promo [copy]", rev: 1, moments });
-    await house.record({ projectId: "c", name: "Recap", rev: 9, moments });
+    const structure = { sections: [{ kind: "start", from: 0, rate: 1 }] };
+    await house.record({ projectId: "c", name: "Recap", rev: 9, moments, structure });
     const seen = await house.others("a", "Promo");
     assert.deepEqual(seen.map((entry) => entry.projectId), ["c"]);
     // The signature format is saved, so seen_before knows an older file has no `o`.
     assert.equal(seen[0].sigVersion, SIGNATURE_VERSION);
+    // The video's structure is saved with its format (a render with too few shots saves none).
+    assert.deepEqual([seen[0].structVersion, seen[0].structure], [STRUCTURE_VERSION, structure]);
+    assert.equal("structure" in (await house.others("c", "Recap"))[0], false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

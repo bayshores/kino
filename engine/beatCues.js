@@ -6,8 +6,11 @@
 // file from mediaOffset, starting at mediaStart, until its Play range ends (playback.js). Beats
 // and onsets outside what the scene plays are left out.
 //
-// Writes: beat cues beat-1, beat-2, … and onset cues onset-1, onset-2, … (all earlier beat and
-// onset cues are replaced, so there is one beat grid per project). With a steady beat
+// Writes: beat cues beat-1, beat-2, … and onset cues onset-1, onset-2, … (all earlier beat,
+// onset and accent cues are replaced, so there is one beat grid per project). From a weighted
+// analysis (beatDetection.js version 7) onsets keep their weight and band, the beats that start a
+// bar (barGrid) get downbeat: true, and accent-1, accent-2, … mark the hardest hits of each
+// section with their rank (pickAccents), so an effect can be sized by the hit that motivates it. With a steady beat
 // (confidence 0.5 or more) it also sets document.rhythm {bpm, offset: first beat}, which the
 // quality checker compares motion to. When it runs again and moves a beat or onset cue that an
 // animation starts on, the report's cuesMoved lists that animation (it keeps its time). When
@@ -19,7 +22,8 @@ import { mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "./playback.j
 import { constantSpeed, isRemapped } from "./mediaTime.js";
 import { animatesSpeed } from "./animation.js";
 import { withCues } from "./cues.js";
-import { MAX_CUES } from "./qualityFields.js";
+import { MAX_CUES, MUSIC_CUE_KINDS } from "./qualityFields.js";
+import { barGrid } from "./fitMusic.js";
 import { round } from "./numbers.js";
 
 export const MAX_ONSET_CUES = 1000;
@@ -64,24 +68,36 @@ export function applyDetectBeats(document, operation) {
   const analysis = operation.analysis;
   if (!analysis || !Array.isArray(analysis.beats) || !Array.isArray(analysis.onsets))
     fail("the sound has not been analysed; send detect_beats through the agent service (edit), which analyses it first.");
-  const beats = sceneTimes(layer, scene.duration, analysis.beats);
-  const others = (document.cues ?? []).filter((cue) => cue.kind !== "beat" && cue.kind !== "onset").length;
+  // A weighted analysis (version 7) gives each onset a weight and a band; then the beats that
+  // start a bar are marked and the hardest hits become accent cues. An older one gives times only.
+  const weighted = analysis.onsets.some((onset) => typeof onset.weight === "number");
+  const grid = weighted ? barGrid(analysis) : null;
+  const headIndex = grid ? analysis.beats.indexOf(grid.downbeat) : -1;
+  const beats = analysis.beats
+    .map((time, index) => ({ time: sceneTimes(layer, scene.duration, [time])[0], ...(headIndex >= 0 && (index - headIndex) % 4 === 0 ? { downbeat: true } : {}) }))
+    .filter((beat) => beat.time !== undefined)
+    .sort((a, b) => a.time - b.time);
+  const others = (document.cues ?? []).filter((cue) => !MUSIC_CUE_KINDS.includes(cue.kind)).length;
   let onsets = [];
+  let accents = [];
   if (operation.onsets !== false) {
-    const room = Math.max(0, Math.min(MAX_ONSET_CUES, MAX_CUES - others - beats.length));
     const placed = analysis.onsets
-      .map((onset) => ({ time: sceneTimes(layer, scene.duration, [onset.time])[0], strength: onset.strength }))
+      .map((onset) => ({ time: sceneTimes(layer, scene.duration, [onset.time])[0], strength: onset.strength, ...(weighted ? { weight: onset.weight ?? 0, band: onset.band ?? "mid" } : {}) }))
       .filter((onset) => onset.time !== undefined);
+    if (weighted) accents = pickAccents(placed, beats, document.cues ?? []).slice(0, Math.max(0, MAX_CUES - others - beats.length));
+    const room = Math.max(0, Math.min(MAX_ONSET_CUES, MAX_CUES - others - beats.length - accents.length));
     // The strongest ones when there are too many, back in time order.
-    onsets = placed.sort((a, b) => b.strength - a.strength).slice(0, room).map((onset) => onset.time).sort((a, b) => a - b);
+    onsets = placed.sort((a, b) => b.strength - a.strength).slice(0, room).sort((a, b) => a.time - b.time);
   }
   if (others + beats.length > MAX_CUES) fail(`the document can hold ${MAX_CUES} cues and already has ${others}.`);
+  const hit = (onset) => (weighted ? { weight: onset.weight, band: onset.band } : {});
   const cues = [
-    ...beats.map((time, index) => ({ name: `beat-${index + 1}`, time, kind: "beat" })),
-    ...onsets.map((time, index) => ({ name: `onset-${index + 1}`, time, kind: "onset" })),
+    ...beats.map((beat, index) => ({ name: `beat-${index + 1}`, time: beat.time, kind: "beat", ...(beat.downbeat ? { downbeat: true } : {}) })),
+    ...onsets.map((onset, index) => ({ name: `onset-${index + 1}`, time: onset.time, kind: "onset", ...hit(onset) })),
+    ...accents.map((onset, index) => ({ name: `accent-${index + 1}`, time: onset.time, kind: "accent", ...hit(onset), rank: onset.rank })),
   ];
   const before = (document.cues ?? []).filter(isBeatCue);
-  document.cues = withCues(document.cues, cues, { kinds: ["beat", "onset"] });
+  document.cues = withCues(document.cues, cues, { kinds: MUSIC_CUE_KINDS });
   if (!document.cues.length) delete document.cues;
   const cuesMoved = animationsOnMovedCues(document, before);
   // The tempo the scene hears: a sound at 2× plays its beats twice as fast. A Speed animation
@@ -90,7 +106,7 @@ export function applyDetectBeats(document, operation) {
   const bpm = constantSpeed(layer) === 1 ? analysis.bpm : round(analysis.bpm * constantSpeed(layer));
   const steady = !rampsTempo && bpm >= 30 && bpm <= 300 && analysis.confidence >= CONFIDENT && beats.length >= 2;
   const setRhythm = operation.rhythm !== false && steady;
-  if (setRhythm) document.rhythm = { bpm, offset: beats[0] };
+  if (setRhythm) document.rhythm = { bpm, offset: beats[0].time };
   const note = [analysis.note, rampsTempo && operation.rhythm !== false ? `"${layer.name}" has a Speed animation, so its tempo changes and no rhythm was set` : null].filter(Boolean).join("; ");
   return {
     layer: layer.name,
@@ -98,7 +114,8 @@ export function applyDetectBeats(document, operation) {
     confidence: analysis.confidence,
     beats: beats.length,
     onsets: onsets.length,
-    ...(beats.length ? { firstBeat: beats[0], lastBeat: beats.at(-1) } : {}),
+    ...(weighted && operation.onsets !== false ? { accents: `${accents.length} (top per section)` } : {}),
+    ...(beats.length ? { firstBeat: beats[0].time, lastBeat: beats.at(-1).time } : {}),
     ...(setRhythm ? { rhythm: document.rhythm } : {}),
     ...(note ? { note } : {}),
     ...(cuesMoved.length ? { cuesMoved: cuesMoved.slice(0, MAX_MOVED_REPORTED) } : {}),
@@ -106,8 +123,54 @@ export function applyDetectBeats(document, operation) {
   };
 }
 
+// Accents: a hit this light (against the song's hardest) is never one, so a quiet intro gets none.
+const ACCENT_FLOOR = 0.3;
+// Without the song's sections (fit_music's song-* cues), a section is a phrase of 8 bars.
+const PHRASE_BARS = 8;
+// At most one accent per bar, and about one per 4 bars of a section: the top few, not every hit.
+const BARS_PER_ACCENT = 4;
+// An onset this close before a bar line is in that bar (a hit a hair early).
+const EARLY = 0.035;
+
+/**
+ * The accent cues: the hardest hits of each section. `onsets` [{time, weight, band}] and `beats`
+ * [{time, downbeat?}] are on the scene clock; `cues` are the document's cues, whose song-*
+ * markers (fit_music) are the sections, else phrases of 8 bars. Each bar offers its heaviest
+ * onset; a section of n bars keeps the ceil(n / 4) heaviest of those that weigh at least 0.3.
+ * Returns them in time order, each with rank (1 = its section's heaviest).
+ */
+export function pickAccents(onsets, beats, cues) {
+  if (beats.length < 2 || !onsets.length) return [];
+  let heads = beats.filter((beat) => beat.downbeat).map((beat) => beat.time);
+  if (!heads.length) heads = beats.filter((_, index) => index % 4 === 0).map((beat) => beat.time);
+  const songMarks = cues.filter((cue) => cue.kind === "marker" && cue.name.startsWith("song-")).map((cue) => cue.time).sort((a, b) => a - b);
+  // A pickup before the first bar line belongs to the first phrase.
+  const edges = songMarks.length ? songMarks : heads.filter((_, index) => index % PHRASE_BARS === 0).slice(1);
+  const countUpTo = (list, time) => list.filter((value) => value <= time + EARLY).length;
+  const sections = new Map();
+  for (const onset of onsets) {
+    const section = countUpTo(edges, onset.time);
+    const bar = countUpTo(heads, onset.time);
+    if (!sections.has(section)) sections.set(section, new Map());
+    const bars = sections.get(section);
+    const best = bars.get(bar);
+    if (!best || onset.weight > best.weight || (onset.weight === best.weight && onset.time < best.time)) bars.set(bar, onset);
+  }
+  const picked = [];
+  for (const [section, bars] of sections) {
+    const from = section === 0 ? -Infinity : edges[section - 1];
+    const to = section < edges.length ? edges[section] : Infinity;
+    const barCount = Math.max(1, heads.filter((time) => time + EARLY >= from && time + EARLY < to).length);
+    const keep = Math.min(bars.size, Math.ceil(barCount / BARS_PER_ACCENT));
+    const ranked = [...bars.values()].filter((onset) => onset.weight >= ACCENT_FLOOR)
+      .sort((a, b) => b.weight - a.weight || a.time - b.time).slice(0, keep);
+    ranked.forEach((onset, index) => picked.push({ ...onset, rank: index + 1 }));
+  }
+  return picked.sort((a, b) => a.time - b.time);
+}
+
 const isSound = (layer) => SOUND_TYPES.has(layer.type) && Boolean(layer.src);
-const isBeatCue = (cue) => cue.kind === "beat" || cue.kind === "onset";
+const isBeatCue = (cue) => MUSIC_CUE_KINDS.includes(cue.kind);
 // Two times this close are the same moment (cue times are rounded to the millisecond).
 const SAME_TIME = 0.002;
 const within = (time, range) => Boolean(range) && time >= range.start - SAME_TIME && time <= range.end + SAME_TIME;

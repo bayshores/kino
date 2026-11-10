@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { median } from "./lib.mjs";
+import { beatFitLine } from "../../backend/measure/beat-fit.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const WORDS = ["storytelling", "directing", "uniqueness", "impressiveness", "quality", "smoothness", "audio_mix"];
@@ -35,7 +36,10 @@ export function factsText(facts) {
   lines.push(`shots: ${motion.shotLengths.count}, mean ${motion.shotLengths.mean} s, longest ${motion.shotLengths.longest} s`);
   lines.push(`frozen stretches (no pixel change 1 s or more): ${motion.freezes.map(([a, b]) => `${a}-${b}`).join(", ") || "none"}`);
   lines.push(`brightness jumps away from cuts (over 2% a frame): ${motion.brightnessJumpCount}; biggest at ${motion.brightnessJumps.map((jump) => `${jump.t}(${jump.change > 0 ? "+" : ""}${jump.change})`).join(" ")}`);
+  const events = facts.events;
+  if (events) lines.push(`flashes: ${events.flashes.map((flash) => `${flash.t}-${flash.end}`).join(" ") || "none"}; black: ${events.blacks.map((span) => `${span.t}-${span.end}`).join(" ") || "none"}; holds 0.5 s or more: ${events.holds.map((span) => `${span.t}-${span.end}`).join(" ") || "none"}`);
   if (facts.beats?.bpm) lines.push(`beat grid: ${facts.beats.bpm} bpm from ${facts.beats.first} s, confidence ${facts.beats.confidence}`);
+  if (facts.beatFit) lines.push(beatFitLine(facts.beatFit));
   if (facts.sections?.sections?.length) lines.push(`song sections (from the final mix): ${facts.sections.sections.map((part) => `${part.at} ${part.kind}`).join(", ")}`);
   if (facts.transcript) lines.push(`speech heard (word@start s; ~ = unclear):\n${facts.transcript.lines.map((line) => `  ${line}`).join("\n")}`);
   if (facts.voiceOverMusic?.length) {

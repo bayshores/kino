@@ -191,10 +191,10 @@ function shotName(shot) {
 /**
  * The video's parts for the story row, as [{start, end, name}], or [] when the project names
  * none. From the storyboard's shots (on the main scene only), else from cues the agent named
- * (not the beat and onset marks, nor the line and word cues captions make): each named cue
+ * (not the beat, onset and accent marks, nor the line and word cues captions make): each named cue
  * starts a part that runs to the next one.
  */
-const STORY_SKIPS = new Set(["beat", "onset", "line", "word"]);
+const STORY_SKIPS = new Set(["beat", "onset", "accent", "line", "word"]);
 export function storyParts(document, sceneId, duration) {
   const scene = (document?.scenes ?? []).find((entry) => entry.id === sceneId);
   if (!scene || !(duration > 0)) return [];
