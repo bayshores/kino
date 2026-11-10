@@ -29,7 +29,7 @@ Contents: Ops and names · Refusals and fixes · Examples · Animations · Fonts
   the new version when it still fits (`rebased:true`), else is refused.
 - A `role` one letter off is corrected (in `fixed`); `set_font` over shapes sets only the text
   layers (`notes` names the rest).
-- Leave out fields at their defaults (text: weight 400, line height 1.2, left aligned).
+- Leave out fields at their defaults (text: weight 400, line height 1.2, left aligned); set the font.
 
 ## Refusals and fixes
 

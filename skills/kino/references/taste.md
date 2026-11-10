@@ -13,7 +13,7 @@ What the checks measure, and how to keep a video small.
   second (e.g. 3 s from `{scaleX:1, scaleY:1}` to `{scaleX:1.12, scaleY:1.12}`; there is no
   `scale` value). Vary easing and duration by size.
 - Text must be fully readable for characters ÷ 20 seconds, and should stay about 0.2 s per
-  word + 2 s. At 1080p: body ≥36 px, headlines ≥64 px (9:16: 32 and 90).
+  word + 2 s. Readable floor (`type_min`): body 3%, role headline 4% of the short side (32 and 43 px at 1080p); the face and size are the references' call.
 - Use the brand's colors and fonts only. Keep text inside the 5% safe margin (9:16: clear of
   the app's top 14% and bottom 37%).
 - Set `role` on layers (headline, cta, logo, hero, decor, …) and the project's `videoType`;
@@ -66,7 +66,7 @@ What the checks measure, and how to keep a video small.
   animations, built in one or two edits.
 - Show a feature with a few shapes (a card, an icon, one line of text). Do not draw a full
   app screen, a calendar grid cell by cell or rows of fake UI.
-- Leave out fields that match the defaults (text: Inter, weight 400, line height 1.2, left
-  aligned).
+- Leave out fields that match the defaults (weight 400, line height 1.2, left aligned). Set
+  the typeface your references chose; kino has no default type look.
 - A card used several times is a component: build it once, insert copies (the building blocks
   reference has the example).

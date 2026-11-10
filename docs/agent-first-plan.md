@@ -149,7 +149,7 @@ crowded scenes; motion that ignores the music.
 |---|---|---|
 | `linear_motion` | No linear easing on position, scale or rotation, except layers marked `perpetual`. | Motion design guidelines |
 | `reading_time` | Each text is fully readable for at least max(characters ÷ 20 per second, 20 frames). | Subtitle reading-speed guidelines |
-| `type_min` | 16:9 1080p: body ≥36 px, headline ≥64 px. 9:16: body ≥32 px, headline ≥90 px. | Broadcast ad guidelines |
+| `type_min` | Readability floor: body 3%, a text marked role headline 4% of the frame's short side (32 and 43 px at 1080p). | Caption and phone-reading guidelines |
 | `overlap` | No unintended overlap or clipping of text or logos at any checked time. | Layout checks |
 | `safe_zone` | Text, logo and CTA stay inside the platform's safe zone. | EBU R95; measured Reels/TikTok zones |
 | `contrast` | ≥4.5:1 (≥3:1 for large text), measured on the real pixels behind the text. | WCAG 1.4.3 |

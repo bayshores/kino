@@ -11,14 +11,13 @@
 //   small_on_empty (rendered)  the picture is a small island on a flat empty frame (a hint, no auto fix)
 //   render_artifact (rendered) flat saturated slabs an RGB split draws over the picture
 // The rendered ones share the frames the contrast check renders (ctx.renderFrames caches them).
-import { atFullOpacity, coversFrame, drawnSize, headlines, inRest, maxOpacity, readableRuns, readingTexts, sec, shownShare, wordsOf } from "../analysis.js";
+import { atFullOpacity, coversFrame, drawnSize, headlines, inRest, maxOpacity, readableFloor, readableRuns, readingTexts, sec, shownShare, wordsOf } from "../analysis.js";
 import { area, boxAt, chainOf, fillColorsAt, hexRgba, intersection, itemById, longestRun, luminance, overlapArea, roundBox, runs, tweensOf, visibleBoxAt } from "../model.js";
 import { coveredAt } from "../techniques.js";
 import { looksLikeScreen } from "../../imageFacts.js";
 import { frozenStretches } from "./screens.js";
 import { coveringItems } from "../pixels.js";
 import { safeRect } from "./layout.js";
-import { typeLimits } from "./text.js";
 import { volumeAt } from "../../animation.js";
 import { mediaPlaybackRange } from "../../playback.js";
 
@@ -134,8 +133,9 @@ function wrapFix(model, item, run, safe) {
     return { kind: "item", itemId: item.id, properties: { width, x: place(width) }, auto: plain && width * scale <= safeWidth,
       why: fitsOne ? "width fits one line" : `width balances its ${widths.lines} lines` };
   }
-  const isHeadline = headlines(model).some((entry) => entry.id === item.id);
-  const least = (isHeadline ? typeLimits(model).headline : typeLimits(model).body) / scale;
+  // The same floor type_min holds it to: the headline share only for a text marked role headline.
+  const floor = readableFloor(model);
+  const least = (item.role === "headline" ? floor.headline : floor.body) / scale;
   const size = Math.floor((item.fontSize * (safeWidth / scale - 4)) / widths.oneLine);
   if (size < least) return { kind: "hint", text: `It is too long for one line at a readable size (${Math.ceil(least)}px or more): say it in fewer letters, or set the line break yourself.` };
   const width = Math.min(Math.floor(safeWidth / scale), Math.ceil((widths.oneLine * size) / item.fontSize) + 4);

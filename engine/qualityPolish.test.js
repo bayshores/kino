@@ -300,6 +300,13 @@ test("text_wrap fix: a one-word title too wide for one line gets a smaller size 
   const { fontSize, width, x } = finding.fix.properties;
   assert.ok(fontSize < 330 && fontSize >= 64, `size ${fontSize}`);
   assert.ok(x >= 96 && x + width <= 1824, `inside the safe area: ${x} + ${width}`);
+  // The floor is type_min's: an unmarked caption may shrink to 3% of the height (32 px), a headline only to 4% (43 px).
+  const long = (words, role) => scene({ layers: [text("title", words, { fontSize: 100, textResize: "height", width: 900, x: 510, textAlign: "center", ...(role ? { role } : {}) })] });
+  const words = "Counterrevolutionaries internationalization incomprehensibilities";
+  const [caption] = await fires("text_wrap", long(words));
+  assert.ok(caption.fix.properties.fontSize < 64 && caption.fix.properties.fontSize >= 32, `size ${caption.fix.properties?.fontSize}`);
+  const [headline] = await fires("text_wrap", long("Counterrevolutionaries internationalizationalists incomprehensibilities", "headline"));
+  assert.ok(headline.fix.properties.fontSize < 64 && headline.fix.properties.fontSize >= 43, `size ${headline.fix.properties?.fontSize}`);
 });
 
 test("text_collision fix: a caption gives way to a status line; the fix keeps it in the safe area", async () => {

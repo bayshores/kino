@@ -125,7 +125,7 @@ export const OP_EXAMPLES = {
   frame: { op: { op: "frame", layer: "card", rect: [25, 25, 50, 50], at: 2, cut: true } },
   set_cue: { op: { op: "set_cue", name: "drop", at: 2 } },
   remove_cue: { op: { op: "remove_cue", name: "drop" }, setup: [{ op: "set_cue", name: "drop", at: 2 }] },
-  set_brand: { op: { op: "set_brand", name: "orbit", colors: { bg: "#0f1420", surface: "#1a2233", text: "#f4f6fb", accent: "#ff7a45", accent2: "#4fd1c5" }, fonts: [{ family: "Inter" }], logos: [{ text: "Orbit" }] } },
+  set_brand: { op: { op: "set_brand", name: "orbit", colors: { bg: "#0f1420", surface: "#1a2233", text: "#f4f6fb", accent: "#ff7a45", accent2: "#4fd1c5" }, fonts: [{ family: "Noto Serif" }], logos: [{ text: "Orbit" }] } },
   remove_brand: { op: { op: "remove_brand", name: "orbit" }, setup: [{ op: "set_brand", name: "orbit", colors: { bg: "#0f1420", surface: "#1a2233", text: "#f4f6fb", accent: "#ff7a45", accent2: "#4fd1c5" } }] },
   make_template: { op: { op: "make_template", scene: "s1", intro: 1, outro: 1 } },
   use_template: { op: { op: "use_template", template: "s1", name: "Spring", values: { title: "Spring sale" }, duration: 8 }, setup: [{ op: "make_template", scene: "s1", intro: 1, outro: 1 }] },
@@ -137,7 +137,7 @@ export const OP_EXAMPLES = {
   // A board covers the whole video (6 s here) or its music: one shot of the 2 s clip needs a 2 s scene
   // (an example stays under 400 characters, so it has one shot).
   board: { op: { op: "board", music: "none", shots: [{ cue: 0, dur: 2, pacing: "free", media: "<video>.mp4", in: 0, crop: [0, 7.8, 100, 84.4], subject: { what: "the speaker", box: [30, 10, 40, 80] },
-    follow: "steady", text: { text: "Ship faster", family: "Inter", y: 80 }, sound: "none", why: "the speaker says the line" }] }, setup: [{ op: "update_scene", properties: { duration: 2 } }], media: ["video"] },
+    follow: "steady", text: { text: "Ship faster", family: "Montserrat", y: 80 }, sound: "none", why: "the speaker says the line" }] }, setup: [{ op: "update_scene", properties: { duration: 2 } }], media: ["video"] },
   source: { op: { op: "source", name: "their message", text: "Make a 15 s promo for Orbit: plan the week in one view. Link orbit.app at the end." } },
   duplicate_layers: { op: { op: "duplicate_layers", layers: ["card"], offset: 24 } },
   multi_transform: { op: { op: "multi_transform", layers: ["card"], action: { kind: "scale", scaleX: 120, scaleY: 120 } } },

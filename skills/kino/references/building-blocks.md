@@ -33,7 +33,7 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
 - Change one beat with `recipe` and the beat's `id` (the scene is composed again); change the
   look, duration or beats with `compose {scene, …}` (only the fields you give).
 - Recipes come out clean: lines are balanced (no one-word last line; a short title fits one
-  line or breaks between words), body text is at least 36 px at 1080p (32 in 9:16), and once a
+  line or breaks between words), body text is at least the `type_min` floor (3% of the short side), and once a
   beat lands it drifts slowly (a 2 to 4% push and a drift, `<layer>.hold`, varied by the seed)
   until it leaves, so no hold sits still. A move started over it takes its place.
 

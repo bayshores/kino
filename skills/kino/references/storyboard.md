@@ -8,9 +8,9 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 
 - Put the clip in the scene first, one video layer from 0 s, so scene time is file time
   (`look source` needs it). When
-  you build the shots, delete it (or make it shot 1), so the clip's sound plays once.
+  you build the shots, delete it (or make it shot 1): its sound plays once.
 - One `board` op holds the whole storyboard; each call replaces it (undo, `rev`). Shots in
-  time order, no gap and no overlap: from the music layer's start to its end, or the whole
+  time order, no gap, no overlap: from the music layer's start to its end, or the whole
   video when `music` is `"none"` (voice-over, silent motion design).
 - Every layer of every shot is given, `"none"` when empty: `media` (an imported video or
   picture, or a video layer) and `in` (file seconds), `crop`, `subject`, `follow`, `text`,
@@ -23,7 +23,8 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 - `follow`: `steady` (the crop holds still), `track` (it follows the subject) or `sweep` (one
   straight pan). A subject that crosses the frame needs `track` or `sweep`.
 - `text` is `{text, family, weight?, size?, y?, fill?}` in a font kino has (`y`: its center,
-  % from the top). Keep it off faces; no meme or novelty fonts unless asked.
+  % from the top). Use the face your references chose (example faces are placeholders).
+  Keep it off faces; no meme or novelty fonts unless asked.
 - `sound` is `"none"` or `{what}`, a concrete effect ("phone buzz on the table"): from the
   person's files, or kino's own (`library sounds`, sound-library reference). Never a
   made-up synth.
@@ -59,7 +60,7 @@ Then ask with `fresh:"ran"`; when your app cannot start one, with `fresh:"skippe
 
 ## Ask
 
-- Open items first: ask them in one message, log each reply word for word
+- No `check` first. Open items: ask them in one message, log each reply word for word
   (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say "your call", send their words: `notes {action:"checkpoint",
   id:"board", words:"<their reply>"}` (kino logs them: do not log them again;
   "not your call" is not one). It answers `your_call`: decide each item, write your decisions
@@ -72,7 +73,6 @@ Then ask with `fresh:"ran"`; when your app cannot start one, with `fresh:"skippe
   but did not change, and a new shot order or music: send it as written.
 - Shot notes from the board screen: "use option B: <why>" (`alts[0]`; C is `alts[1]`), "make it 1.8 s
   (was 2.1 s)", "remove this shot": edit `board` to match.
-- No `check` first: the board comes before building.
 - Refused: `board_first` (save one first), `board_gap` (it no longer covers the music or
   video), `open_items` (above), `move_needed` (no designed move on the hook,
   reveal or payoff; it names moves that fit those).
@@ -98,7 +98,7 @@ A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` 
 ## Examples
 
 ```json
-{"tool":"edit","ops":[{"op":"board","music":"none","shots":[{"cue":0,"dur":2.5,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","text":{"text":"Orbit","family":"Inter","weight":700,"size":160,"y":45},"sound":"none","move":{"kind":"type","name":"wordmark-type","ref":"launch@6"},"why":"the name alone first"},{"cue":2.5,"dur":3.5,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","text":{"text":"Plan the week in one view","family":"Montserrat","weight":600,"size":96,"y":50},"sound":"none","why":"one promise, said plainly"}]}]}
+{"tool":"edit","ops":[{"op":"board","music":"none","shots":[{"cue":0,"dur":2.5,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","text":{"text":"Orbit","family":"Noto Serif","weight":700,"size":160,"y":45},"sound":"none","move":{"kind":"type","name":"wordmark-type","ref":"launch@6"},"why":"the name alone first"},{"cue":2.5,"dur":3.5,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","text":{"text":"Plan the week in one view","family":"Montserrat","weight":600,"size":96,"y":50},"sound":"none","why":"one promise, said plainly"}]}]}
 {"tool":"look","mode":"board"}
 {"tool":"edit","ops":[{"op":"board","music":"none","shots":[{"cue":0,"dur":6,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","sound":"none","move":{"kind":"ui","name":"roll"},"why":"one card"}]}],"expect":"op_failed"}
 ```

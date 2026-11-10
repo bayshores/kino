@@ -2,8 +2,8 @@
 import { coversFrame, readingTexts } from "../analysis.js";
 import { hexRgba, isGradient, luminance, paintColors } from "../model.js";
 
-// Fonts so common that a video set in them looks like a default. A brand kit that names one
-// (A4) makes it a choice instead.
+// Fonts so common that a video set in them looks like a default. A choice makes it a look instead:
+// a brand kit or the brief names it, the style spec's fonts use it, or a reference line names it.
 export const DEFAULT_FONTS = ["inter", "roboto", "arial", "helvetica", "helvetica neue", "open sans", "montserrat", "poppins", "lato", "system-ui", "sf pro", "sf pro display", "sf pro text", "segoe ui", "noto sans"];
 
 /** Hue (0–360), saturation and lightness (0–1) of a hex color. */
@@ -94,8 +94,23 @@ export function pureFrame(model, ctx) {
 
 const familyOf = (fontFamily) => String(fontFamily ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "").toLowerCase();
 
+// The families the style spec chose: its font per role (style.fonts), and a family a line that
+// points at a reference moment names in its words ("white Arial captions, as in ref R1 at 12s").
+function chosenFamilies(ctx) {
+  const chosen = new Set();
+  for (const face of Object.values(ctx.style?.fonts ?? {})) {
+    const family = familyOf(typeof face === "string" ? face : face?.family);
+    if (family) chosen.add(family);
+  }
+  for (const line of ctx.style?.referenceLines ?? []) {
+    const said = String(line.text ?? "").toLowerCase();
+    for (const family of DEFAULT_FONTS) if (new RegExp(`(^|[^a-z])${family}([^a-z]|$)`).test(said)) chosen.add(family);
+  }
+  return chosen;
+}
+
 export function defaultFont(model, ctx) {
-  const named = new Set((ctx.brandFonts ?? []).map((font) => familyOf(font)));
+  const named = new Set([...(ctx.brandFonts ?? []).map((font) => familyOf(font)), ...chosenFamilies(ctx)]);
   const byFamily = new Map();
   for (const item of readingTexts(model)) {
     const family = familyOf(item.fontFamily);
@@ -105,8 +120,8 @@ export function defaultFont(model, ctx) {
   }
   return [...byFamily].map(([family, items]) => ({
     rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: items[0].fontFamily, required: "a chosen font",
-    message: `${items.length} text layer${items.length === 1 ? "" : "s"} (${items.slice(0, 3).map((item) => ctx.name(item)).join(", ")}) use${items.length === 1 ? "s" : ""} ${items[0].fontFamily}, a common default font.`,
-    fix: { kind: "hint", text: `Pick a typeface for the brand, or waive default_font if ${items[0].fontFamily} is the brand's font.` },
+    message: `${items.length} text layer${items.length === 1 ? "" : "s"} (${items.slice(0, 3).map((item) => ctx.name(item)).join(", ")}) use${items.length === 1 ? "s" : ""} ${items[0].fontFamily}, a common default font that no reference, style spec or brand chose.`,
+    fix: { kind: "hint", text: `Take the typeface from your references (notes brief: style fonts), or set ${items[0].fontFamily} there if a reference or the brand chose it.` },
   }));
 }
 

@@ -1,5 +1,5 @@
 // Text rules: reading_time (gate), type_min (gate) and hold (warning).
-import { charactersOf, drawnSize, headlines, readableRuns, readingTexts, recommendedHold, sec, typeLimits, wordsOf } from "../analysis.js";
+import { charactersOf, drawnSize, readableFloor, readableRuns, readingTexts, recommendedHold, sec, typeLimits, wordsOf } from "../analysis.js";
 
 export { typeLimits };
 import { boxAt, longestRun, roundBox, runs, tweensOf } from "../model.js";
@@ -115,11 +115,12 @@ export function hold(model, ctx) {
 
 export function typeMin(model, ctx) {
   const findings = [];
-  const limits = typeLimits(model);
-  const heads = new Set(headlines(model).map((item) => item.id));
+  // A readability floor (readableFloor), not a house size: only a text the author marked
+  // role headline needs the larger one, so a caption of 3 to 4% of the height passes.
+  const limits = readableFloor(model);
   for (const item of readingTexts(model)) {
     if (isUiText(item)) continue;
-    const headline = heads.has(item.id);
+    const headline = item.role === "headline";
     const required = headline ? limits.headline : limits.body;
     const measured = drawnSize(model, item);
     if (measured + 0.5 >= required) continue;
@@ -149,7 +150,7 @@ export function typeMin(model, ctx) {
     findings.push({
       rule: "type_min", severity: "error", itemId: item.id,
       measured: Math.round(measured), required: Math.round(required),
-      message: `${ctx.name(item)} is drawn at ${Math.round(measured)}px; ${headline ? "the headline" : "text"} needs at least ${Math.round(required)}px in a ${limits.frame} frame of ${model.width}×${model.height}.`,
+      message: `${ctx.name(item)} is drawn at ${Math.round(measured)}px; ${headline ? "the headline" : "text"} needs at least ${Math.round(required)}px (${headline ? 4 : 3}% of the frame height) in a ${limits.frame} frame.`,
       fix: { kind: "item", itemId: item.id, properties, auto: true, why: `size ${fontSize}` },
     });
   }

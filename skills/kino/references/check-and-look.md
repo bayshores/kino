@@ -51,7 +51,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   or less). Fix (auto): motion blur while fast, on the group that moves it.
 - `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
   title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
-  fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min).
+  fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min's floor).
 - `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
   Fix: moved or scaled about its middle inside the margin.
 - `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture
@@ -67,13 +67,13 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   hook_readable, ending_count, accent_budget, `text_only_open` (3 s+ of text before any
   picture or logo), `pacing_jump` (cut rate 3x, unless a cue, sound or spine edge is within
   1 s and the new pace holds 12 s).
-- `type_min` (gate): body 36 px, headline 64 px at 1080p (9:16: 32 and 90); a URL or
-  @handle is body. Fix: size and box grow together.
+- `type_min` (gate): body 3%, `role` headline 4% of the short side (32, 43 px at 1080p);
+  a URL or @handle is body. Fix: grow size and box.
 - Rendered (`check` only): `text_on_busy` (words over a phone, screen recording or sharp
   detail; fix: the nearest calm place beside it, all parts of a caption together, else a plate
   under the text), `small_on_empty` (a picture under 25% of a flat frame, 40% for footage, for
-  1.5 s; fix: grow and crop, add a scene or move the camera), `render_artifact` (an RGB split drawing flat
-  saturated slabs; the fix op softens it to 40%, or delete the animation).
+  1.5 s; fix: grow and crop, add a scene or move the camera), `render_artifact` (an RGB split
+  drawing flat slabs; the fix softens it to 40%, or delete the animation).
 
 ## Looking
 

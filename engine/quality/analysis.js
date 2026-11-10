@@ -83,6 +83,19 @@ export function typeLimits(model) {
   return isPortrait(model) ? { body: 32 * scale, headline: 90 * scale, frame: "9:16" } : { body: 36 * scale, headline: 64 * scale, frame: "16:9" };
 }
 
+/**
+ * The readability floor type_min holds text to, in frame pixels: a share of the frame's shorter
+ * side (its height in a 16:9 frame, its width in 9:16), not a house size. Body text 3% (32 px at
+ * 1080p), a text marked role headline 4% (43 px). Basis: on a 6.5 in phone held at 35 cm a 3%
+ * line is about 0.35 degrees of visual angle, above the 0.3 degrees ergonomics guides give for
+ * small text, and a caption between 3% and 4% of the height is common in broadcast and streaming
+ * caption styles. Contrast is judged separately (the contrast gate); style is not judged here.
+ */
+export function readableFloor(model) {
+  const side = Math.min(model.width, model.height);
+  return { body: 0.03 * side, headline: 0.04 * side, frame: `${model.width}×${model.height}` };
+}
+
 // The item's own scale at each sample, without its parent group's: a camera pull-back scales the
 // group, a shrink of the text itself scales the text.
 function ownScales(model, item) {

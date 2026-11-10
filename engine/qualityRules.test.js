@@ -152,28 +152,32 @@ test("reading_time: the fix starts the exit later when the exit eases in", async
   assert.equal(finding.fix.kind, "tween");
 });
 
-test("type_min: body text must be drawn at 36 px or more in a 1080p frame", async () => {
-  // Bad: the body line is 20 px. Good: 40 px. The headline is 96 px in both.
+test("type_min: body text must be drawn at 3% of the frame height (32 px at 1080p)", async () => {
+  // Bad: the body line is 20 px. Good: 40 px, and a 34 px caption (3.1% of the height). The headline is 96 px in all.
   const page = (bodySize) => scene({ layers: [
     text("headline", "Bake with us", { role: "headline", fontSize: 96, y: 200 }),
     text("body", "Classes every Saturday", { role: "body", fontSize: bodySize, y: 420 }),
   ] });
   const [finding] = await fires("type_min", page(20));
   assert.equal(finding.itemId, "body");
-  assert.equal(finding.required, 36);
+  assert.equal(finding.required, 32);
   assert.equal(finding.fix.kind, "item");
   assert.equal(finding.fix.auto, true);
-  assert.equal(finding.fix.properties.fontSize, 36);
+  assert.equal(finding.fix.properties.fontSize, 33);
   await silent("type_min", page(40));
+  await silent("type_min", page(34));
   // A small UI row in the product's own words (role ui) keeps its size.
   await silent("type_min", scene({ layers: [text("headline", "Bake with us", { role: "headline", fontSize: 96, y: 200 }), text("row", "Classes every Saturday", { role: "ui", fontSize: 20, y: 420 })] }));
 });
 
-test("type_min: the headline must be drawn at 64 px or more", async () => {
-  const page = (size) => scene({ layers: [text("headline", "Bake with us", { role: "headline", fontSize: size })] });
-  const [finding] = await fires("type_min", page(56));
-  assert.equal(finding.required, 64);
-  await silent("type_min", page(72));
+test("type_min: a headline must be drawn at 4% of the frame height, an unmarked caption at 3%", async () => {
+  const page = (size, role) => scene({ layers: [text("headline", "Bake with us", { ...(role ? { role } : {}), fontSize: size })] });
+  const [finding] = await fires("type_min", page(40, "headline"));
+  assert.equal(finding.required, 43);
+  await silent("type_min", page(54, "headline"));
+  // A 54 px Arial caption with no role is the largest text, but only the body floor applies to it.
+  await silent("type_min", page(54));
+  await silent("type_min", page(36));
   // A web address under the logo on an end card is a label, not the headline, even with no role.
   await silent("type_min", scene({ layers: [text("logo", "oak", { role: "logo", fontSize: 160 }), text("url", "oak.dev", { fontSize: 44, y: 700 })] }));
 });
@@ -498,6 +502,35 @@ test("stagger_long: a word-by-word entrance reaches its last word within 0.5 s",
   await silent("stagger_long", words(0.06));
 });
 
+test("stagger_long: a word reveal whose words land on beat cues is paced by the music", async () => {
+  // The same 1 s reveal (a word every 0.2 s from 0.2 s). Bad: no cue near the words. Good: a beat under each word.
+  const revealAt = (rhythm) => scene({ rhythm, layers: [text("line", "Bread baked fresh every single morning", { fontSize: 64,
+    animations: [{ ...fadeIn(0.2, 0.4), unit: "words", stagger: 0.2 }] })] });
+  const reveal = revealAt(undefined);
+  const beats = [0.2, 0.4, 0.6, 0.8, 1, 1.2].map((time) => ({ time, kind: "beat" }));
+  await fires("stagger_long", reveal, { beatCues: beats.map((beat) => ({ ...beat, time: beat.time + 0.1 })) });
+  // Onset cues are not pacing, and a fast tempo with no cue under the words proves nothing.
+  await fires("stagger_long", reveal, { beatCues: beats.map((beat) => ({ ...beat, kind: "onset" })) });
+  await fires("stagger_long", revealAt({ bpm: 174, offset: 0 }));
+  const notes = await silent("stagger_long", reveal, { beatCues: beats });
+  assert.ok(notes.some((note) => note.startsWith("stagger_long leaves a word-by-word reveal alone")), notes.join(" | "));
+});
+
+test("stagger_long: a word reveal whose words land on the voice's words is paced by speech", async () => {
+  // A word every 0.2 s from 0.2 s over a heard voice clip. Good: the transcript says each word
+  // then. Bad: the same words said 0.1 s later. Words with their own delays are judged by them.
+  const voice = { type: "audio", id: "vo", src: "/api/media/vo.wav", mediaSourceDuration: 30, mediaStart: 0, mediaDuration: 4 };
+  const revealWith = (fields) => scene({ layers: [voice, text("line", "Bread baked fresh every single morning", { fontSize: 64,
+    animations: [{ ...fadeIn(0.2, 0.4), unit: "words", stagger: 0.2, ...fields }] })] });
+  const said = (shift) => ["Bread", "baked", "fresh", "every", "single", "morning"].map((word, index) => ({ text: word, start: 0.2 + index * 0.2 + shift, end: 0.35 + index * 0.2 + shift }));
+  const speechOf = (document, shift) => ({ speechScene: document.scenes[0], speech: [{ layer: document.scenes[0].layers.find((layer) => layer.id === "vo"), transcript: { words: said(shift) } }] });
+  const even = revealWith({});
+  await silent("stagger_long", even, speechOf(even, 0));
+  await fires("stagger_long", even, speechOf(even, 0.1));
+  const timed = revealWith({ delays: [0.1, 0.3, 0.5, 0.7, 0.9, 1.1] });
+  await silent("stagger_long", timed, speechOf(timed, 0.1));
+});
+
 test("stagger_long: layers entering one after another finish their stagger within 0.5 s", async () => {
   // Four cards with the same entrance. Bad: 0.3 s apart (0.9 s in all). Good: 0.1 s apart.
   const cards = (gap) => scene({ layers: [0, 1, 2, 3].map((index) =>
@@ -508,6 +541,11 @@ test("stagger_long: layers entering one after another finish their stagger withi
   assert.equal(finding.fix.auto, true);
   assert.deepEqual(finding.fix.changes.map((change) => [change.itemId, change.properties.start]), [["card-0", 0.2], ["card-1", 0.366], ["card-2", 0.532], ["card-3", 0.698]]);
   await silent("stagger_long", cards(0.1));
+  // One layer per word, each on a beat (0.35 s apart, 171 bpm): paced by the music. Onsets are not.
+  const beats = [0.2, 0.55, 0.9, 1.25].map((time) => ({ time, kind: "beat" }));
+  const notes = await silent("stagger_long", cards(0.35), { beatCues: beats });
+  assert.ok(notes.some((note) => note.startsWith("stagger_long leaves 4 layers")), notes.join(" | "));
+  await fires("stagger_long", cards(0.35), { beatCues: beats.map((beat) => ({ ...beat, kind: "onset" })) });
 });
 
 test("stagger_order: the headline enters before the body text", async () => {
@@ -1134,6 +1172,13 @@ test("default_font: a font the brand chose is not a default", async () => {
   const inter = scene({ layers: [text("title", "Hello", { fontFamily: "Inter" })] });
   await fires("default_font", inter, { brandFonts: [] });
   await silent("default_font", inter, { brandFonts: ["Inter"] });
+});
+
+test("default_font: a font the style spec or a reference chose is not an unchosen default", async () => {
+  const arial = scene({ layers: [text("title", "Hello", { fontFamily: "Arial" })] });
+  await fires("default_font", arial, { styleSpec: { wants: [] } });
+  await silent("default_font", arial, { styleSpec: { fonts: { headline: { family: "Arial" } } } });
+  await silent("default_font", arial, { styleSpec: { lines: [{ ref: "R1", at: 12, text: "white Arial captions, plain" }] } });
 });
 
 test("gradient_banding: no dark gradient across the whole frame", async () => {
