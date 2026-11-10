@@ -199,6 +199,9 @@ export function normalizeBlockSceneFields(scene, path, maxTime) {
   }
 }
 
+// The kinds of accent impact-accent makes (engine/blocks/moves/impact.js).
+export const IMPACT_KINDS = Object.freeze(["flash", "shake", "impact-frame", "dip", "strobe"]);
+
 // The layer fields a move may change on your own layers (ctx.set in engine/blocks/move.js).
 export const RESTORED = Object.freeze(["mediaStart", "mediaOffset", "mediaDuration"]);
 
@@ -237,6 +240,17 @@ function normalizeSceneMoves(scene, path) {
         && Object.entries(before).every(([key, value]) => RESTORED.includes(key) && (value === null || (typeof value === "number" && Number.isFinite(value)))));
       if (!ok) fail(`${at}.restore`, `must be {layerId: {${RESTORED.join(", ")}}}`);
       entry.restore = JSON.parse(JSON.stringify(raw.restore));
+    }
+    // The cue an accent move answers (impact-accent), so effect_fit reads its reason after a save.
+    if (raw.trigger !== undefined) {
+      const trigger = raw.trigger;
+      const ok = isRecord(trigger) && typeof trigger.cue === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(trigger.cue)
+        && typeof trigger.at === "number" && Number.isFinite(trigger.at) && trigger.at >= 0
+        && typeof trigger.motive === "string" && /^[a-z][a-z-]{0,23}$/.test(trigger.motive)
+        && typeof trigger.weight === "number" && trigger.weight >= 0 && trigger.weight <= 1
+        && IMPACT_KINDS.includes(trigger.kind);
+      if (!ok) fail(`${at}.trigger`, `must be {cue, at, motive, weight: 0 to 1, kind: ${IMPACT_KINDS.join(", ")}}`);
+      entry.trigger = { cue: trigger.cue, at: trigger.at, motive: trigger.motive, weight: trigger.weight, kind: trigger.kind };
     }
     return entry;
   });

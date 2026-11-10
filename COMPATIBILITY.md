@@ -642,6 +642,22 @@ How to read it:
   source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
   moments not yet checked; a busy still background hides a small mover. compose uses impacts (cut snapping) and
   frames per drawing (frame blending only at 1).
+- **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
+  impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
+  top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues
+  not written by fit_music are refused; a shake adds to the shot's own moves; a strobe flashes 3 times a second
+  at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
+  through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **effect_fit check**: Partly verified. In a music edit (weighted accents or fitted song seams) each loud effect
+  needs a motivating cue on its frame (2 frames early at most), ranks in strength with the cue's weight, fits its
+  section's energy budget (none inside a rest but its edges), is not stacked (3 in 0.15 s), not on a talking face,
+  not a jittering or steady shake; text animations and sound effects need a cue, cut or word; a gate at the final
+  render, waived only by naming a cue. It also finds hand-made exposure flashes, short wiggle or oscillate
+  shakes, threshold impact frames, quick color cards and single zoom punches of any size (timed from their
+  rise); an untriggered one's auto fix takes it off. An impact-accent record keeps its cue through a save.
+  A wanted accent no longer lifts technique_repeat's budget. Evidence:
+  `engine/effectFit.test.js`, `engine/qualityStyle.test.js`, `engine/moves.test.js`. Gaps: no per-accent pixel
+  check yet (luma jump, color mush, ghosting); footage events reach it only through cues pinned to a clip.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and
@@ -721,6 +737,10 @@ How to read it:
   `onset-N` cues and `rhythm` (click tracks 70 to 200 BPM: worst beat 0.1 ms). Evidence:
   `backend/audio-analysis.test.mjs`, `engine/beatDetection.test.js`, `engine/beatCues.test.js`,
   `backend/agent-captions.test.mjs`. Gap: assumes one steady tempo; not measured on commercial music.
+- **Weighted hits**: Verified on generated audio. Onset cues carry `weight` and `band`, bar
+  starts `downbeat`, and `accent-N` cues mark each section's hardest hits (kick plus hi-hat track:
+  kicks low, hats high and under 0.3, accents on the loud bar kicks). Evidence:
+  `engine/beatDetection.test.js`. Gap: weight and band not measured on commercial music.
 - **Cue lists**: Verified. `inspect {targets:["cues"]}` pages with filters
   (`cues[kind=beat,from=60,to=90]`). Evidence: `backend/agent-cue-list.test.mjs`.
 - **Captions**: Verified. `add_captions {file|text|words|speech}` reads SRT and WebVTT, pages to

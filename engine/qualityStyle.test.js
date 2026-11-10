@@ -431,6 +431,9 @@ test("technique_repeat: one transition at most shot changes, a loud accent past 
   await silent("technique_repeat", shots([true, true, true, false]));
   // A spec that wants dissolves (backed by a reference time) lets them repeat.
   await silent("technique_repeat", shots([true, true, true, true]), { styleSpec: { wants: ["dissolve"], avoids: [], lines: [{ text: "dissolves between recordings", ref: "yt:3VHoNjrUD4Q", at: 12.4, tags: ["dissolve"] }], by: "guessed" } });
+  // A loud accent past its budget counts even when the person's words want it.
+  const shaken = scene({ duration: 10, layers: [clip("shot", { animations: [1, 3, 5, 7].map((at) => effect("wiggle", at, 0.1, { wiggleX: 10 })) })] });
+  assert.match((await fires("technique_repeat", shaken, { styleSpec: { wants: ["shake"], by: "you", quote: "shake it on every hit" } }))[0].measured, /shake 4 times/);
   // A moment (style.moments) is a designed set piece: neither technique_repeat nor
   // vocabulary_budget counts it, and a taste warning inside a signature range is dropped.
   const moment = { moves: [{ tag: "drift", where: "every shot" }], moments: [{ tag: "dissolve", beat: 0, what: "the shots melt" }], by: "guessed" };

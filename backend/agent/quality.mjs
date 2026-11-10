@@ -71,6 +71,8 @@ export function brandFontsOf(document, briefFonts = []) {
 
 // The marker cues (set_cues): pacing_jump lets the pace change at them.
 const markerCues = (document) => (document.cues ?? []).filter((cue) => cue.kind === "marker");
+// The cues effect_fit reads an effect's reason from: markers (song seams, footage moments), weighted accents and onsets (fills).
+const triggerCues = (document) => (document.cues ?? []).filter((cue) => cue.kind === "marker" || cue.kind === "accent" || cue.kind === "onset");
 // The storyboard's shots on the scene they plan (the main scene): plain_beats judges each shot,
 // and offers a plain one the moves that fit what it holds (media, text, subject, sound, why).
 const boardShots = (document, scene) => (document.board?.shots?.length && mainScene(document)?.id === scene.id
@@ -79,7 +81,7 @@ const boardShots = (document, scene) => (document.board?.shots?.length && mainSc
 function sceneBase(document, scene, { fonts, codes, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null }) {
   const expanded = expandComponents(document, scene.id, { fonts });
   // The brief's style spec and the deck change what the style rules say, so they are part of the key too.
-  const fields = { videoType: document.videoType ?? null, rhythm: document.rhythm ?? null, assertions: scene.assertions ?? null, rests: scene.rests ?? null, sources: document.sources ?? null, style: styleSpec, deck: deck ? cardNames(deck) : null, brandFonts: brandFontsOf(document, briefFonts), length, asks, markers: markerCues(document), beatCues: (document.cues ?? []).filter((cue) => cue.kind === "beat" || cue.kind === "onset").map((cue) => cue.time), clipLinks: document.clipLinks ?? null, board: boardShots(document, scene) };
+  const fields = { videoType: document.videoType ?? null, rhythm: document.rhythm ?? null, assertions: scene.assertions ?? null, rests: scene.rests ?? null, sources: document.sources ?? null, style: styleSpec, deck: deck ? cardNames(deck) : null, brandFonts: brandFontsOf(document, briefFonts), length, asks, markers: markerCues(document), accents: (document.cues ?? []).filter((cue) => cue.kind === "accent"), beatCues: (document.cues ?? []).filter((cue) => cue.kind === "beat" || cue.kind === "onset").map((cue) => cue.time), clipLinks: document.clipLinks ?? null, board: boardShots(document, scene) };
   const named = stringsIn(expanded);
   const used = Object.entries(codes?.byId ?? {}).filter(([id]) => named.has(id));
   return `${sceneKey(expanded, fonts)}\n${JSON.stringify(fields)}\n${JSON.stringify(used)}`;
@@ -367,6 +369,17 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
       const item = itemOf(fix.changes[0]?.itemId ?? finding.itemId);
       return { fix: item ? copyHint(item) : "Add a fade with the same timing as the exit or entrance named.", auto: false };
     }
+    return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) };
+  }
+  // An effect to take off (effect_fit: a loud effect nothing motivates): its animations, or the
+  // card layer that only flashes.
+  if (fix.kind === "remove") {
+    if (fix.layerItemId) {
+      const found = sourceLayer(document, itemOf(fix.layerItemId));
+      if (!found) return { fix: "Take the effect off.", auto: false };
+      return { fix: { op: "delete_layer", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id) }, auto: Boolean(fix.auto) };
+    }
+    const ops = fix.animationIds.map((animationId) => ({ op: "delete_animation", animationId: refName(animationId, codes) }));
     return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) };
   }
   // A layer to take out (stacked_label). Never auto: the agent decides the layer has to go.
@@ -667,6 +680,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       ...(people ? { people } : {}),
       // The marker cues: music or story turns where pacing_jump lets the cut rate change.
       cues: markerCues(document),
+      // The cues an effect's reason comes from (effect_fit).
+      triggerCues: triggerCues(document),
       // The beat and onset cues: cut_motivation counts a cut on one as on the beat.
       beatCues: (document.cues ?? []).filter((cue) => cue.kind === "beat" || cue.kind === "onset"),
       // The raw scene and each picture's file size (soft_upscale, crop_no_subject).

@@ -68,7 +68,7 @@ What a backed want does:
 | beat-kick | `beat_kick` is off |
 | hold | `text_slides` is off |
 | the entrance every text uses | `same_entrance` is quiet |
-| any tag | `technique_repeat` lets it repeat; `style_wanted` warns when it is not used |
+| any tag | `technique_repeat` lets it repeat (not loud accents); `style_wanted` wants it |
 
 An avoided tag used is a gate (`style_avoided`) only if the person banned it. The other gates (reading time,
 type size, contrast, overlap...) never change with the spec. With no spec, check follows kino's default style and says `style: kino default`.
@@ -83,7 +83,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 | `text_slides` | text over a still, or dimmed or blurred footage, no sharp 20% screen on top | 25% at most, no card over 3 s bar the last |
 | `few_techniques` | a flat edit: no designed device (cut, type-cut, hold, beat-cut, syncopated don't count) | 1 under 70 s, then 2, 4 at most |
 | `plain_beats` | the hook, reveal or spine payoff (else first, last 2.5 s) of only footage, words, plain cuts, fades, blurs, freezes | a move on one; all plain holds the final render |
-| `technique_repeat` | monotony: a set piece over 3 times; one non-cut transition on 4+, 75% of changes, no plain cut; a loud accent (flash, whip-pan...) over 3 times or once per 15 s; one entrance on 75% of texts | 2-3 alike uses: a motif |
+| `technique_repeat` | monotony: a set piece over 3 times; one non-cut transition on 4+, 75% of changes, no plain cut; a loud accent over 3 times or once per 15 s; one entrance on 75% of texts | 2-3 alike uses: a motif |
 | `metronome` | shots within 20% of one length, or 90% of cuts on the beat at one count | |
 | `beat_kick` | the same small scale pulse 6 times or more | 5 alike at most |
 | `flat_sections` | next sections alike in 3 of: cut rate, motion, picture (footage, dark, light), framing scale | differ in 2 |
@@ -91,6 +91,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 | `style_wanted` | a backed wanted technique not used (hard cuts stay free) | |
 | `off_beat` | an accent 1 frame to 70 ms off a beat: a near miss | on it, or clearly between (syncopated) |
 | `deck_unused` | fewer than half of the deck's cards used (a card swapped out does not count) | half or more |
+| `effect_fit` | music edit: loud effect on no cue, too big, over budget, stacked, on a talking face | auto removes; waive with cue:<name> |
 
 ## The deck
 
@@ -136,8 +137,6 @@ signature and the spine's end. Building first is `order_needed`; waive_check "tr
 - Before building, name 4 to 8 techniques the references use, with times; write the spec.
 - Each section gets its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
   `flat_sections` checks it.
-- Keep set pieces and loud accents for the moments that matter: one zoom-through into the
-  product, one glitch-hit on the drop.
+- Set pieces only where they matter; a loud accent only on a cue that motivates it.
 - A slow-push or drift under text turns a slide into a shot; depth-blur behind floating clips
   gives depth without new footage.
-- Kicks and flashes on every beat are a tic: use the 2 or 3 biggest hits.

@@ -25,6 +25,7 @@ import { shotsNeeded } from "../footage-finder/needs.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
+import { MUSIC_CUE_KINDS } from "../../engine/qualityFields.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { documentChanges } from "../../engine/documentChanges.js";
 import { mergeDocuments } from "../../engine/documentMerge.js";
@@ -424,6 +425,8 @@ export function createAgentService(deps) {
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,
     deckDeals: (document, count) => nextDecks(document.id, document, count),
     pictureAlpha: (src) => pictureAlpha(deps.mediaRoot, src),
+    // impact-accent: a clip's measured impacts and light (footage/events.mjs, kept beside the file).
+    clipEvents: (src) => clipEventsOf(src),
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops) });
@@ -3951,7 +3954,7 @@ export function createAgentService(deps) {
     for (const finding of shown) marks.push({ time: finding.at, kind: "finding", words: `${finding.severity === "error" ? "E" : "W"} ${finding.rule}` });
     // Cues (markers, beats from detect_beats); without beat cues, the document's rhythm.
     const cues = (document.cues ?? []).filter((cue) => Number.isFinite(cue.time));
-    for (const cue of cues) marks.push({ time: cue.time, kind: cue.kind === "beat" || cue.kind === "onset" ? "beat" : "cue", words: `cue ${cue.name}` });
+    for (const cue of cues) marks.push({ time: cue.time, kind: MUSIC_CUE_KINDS.includes(cue.kind) ? "beat" : "cue", words: `cue ${cue.name}` });
     const bpm = Number(document.rhythm?.bpm);
     if (!cues.some((cue) => cue.kind === "beat") && bpm > 0) for (let time = Number(document.rhythm.offset) || 0; time <= to; time += 60 / bpm) if (time >= from) marks.push({ time, kind: "beat" });
     // A finding or cue is noted once in the text (the graph marks every one).
@@ -4294,6 +4297,14 @@ export function createAgentService(deps) {
   const sourceSrc = (item) => item.src ?? `/api/media/${item.id}`;
   // One line naming a clip's measured events (footage/events.mjs; measured once, kept beside the
   // file): "events (file s): impact 1.5 contact right · light 3.08 from 3 · …".
+  async function clipEventsOf(src) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return null;
+    const record = ((await deps.listMedia?.()) ?? []).find((item) => item.id === id);
+    if (!record) return null;
+    const measured = await footageCache.video(path.join(deps.mediaRoot, id), { width: record.width, height: record.height, duration: record.duration });
+    return Array.isArray(measured.events) ? measured.events : null;
+  }
   async function clipEventsLine(src, record) {
     const id = mediaIdFromSource(src);
     if (!id || !deps.mediaRoot) return "events: not measured (not in kino's media folder)";

@@ -581,13 +581,22 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
   // animation of a clip, for the technique finder (techniques.js): a zoom blur, particles or a
   // speed ramp is a technique even where it is not a motion.
   const effects = [];
+  const behaviors = [];
   const retimes = [];
   for (const item of items) {
     for (const animation of flattenAnimations(item._layer.animations, { enabledOnly: true })) {
       if (!animation || animation.kind === "composed") continue;
       const start = finite(animation.start);
       const end = start + Math.max(0, finite(animation.duration));
-      if (animation.kind === "effect" && typeof animation.effect === "string") effects.push({ itemId: item.id, animationId: animation.id ?? null, name: animation.name ?? null, effect: animation.effect, start, end, to: animation.to ?? {} });
+      if (animation.kind === "effect" && typeof animation.effect === "string") effects.push({ itemId: item.id, animationId: animation.id ?? null, name: animation.name ?? null, effect: animation.effect, start, end, from: animation.from ?? {}, to: animation.to ?? {} });
+      // A wiggle or oscillate of the layer's place: a shake when it is short (techniques.js).
+      for (const kind of ["wiggle", "oscillate"]) {
+        const spec = animation.behavior?.[kind];
+        if (!spec) continue;
+        const keys = new Set([...Object.keys(animation.from ?? {}), ...Object.keys(animation.to ?? {})]);
+        const amount = Math.max(0, ...["x", "y"].map((key) => Math.abs(typeof spec.amount === "number" ? (keys.has(key) || !keys.size ? spec.amount : 0) : finite(spec.amount?.[key]))));
+        if (amount > 0) behaviors.push({ itemId: item.id, animationId: animation.id ?? null, kind, start, end, amount, rate: kind === "wiggle" ? finite(spec.rate, 2) : 1 / Math.max(1e-3, finite(spec.period, 1)), decay: kind === "oscillate" ? finite(spec.decay, 0) : 0 });
+      }
       if (Number.isFinite(animation.to?.speed)) retimes.push({ itemId: item.id, start, end, from: Number.isFinite(animation.from?.speed) ? animation.from.speed : null, to: animation.to.speed });
     }
   }
@@ -607,12 +616,12 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
     videoType: document.videoType ?? null, rhythm: document.rhythm ?? null,
     background: scene.backgroundEnabled === false ? null : scene.background ?? null,
     audio: scene.layers.some((layer) => layer.type === "audio" || (layer.type === "video" && finite(layer.volume, 1) > 0)),
-    items, tweens, effects, retimes, assertions: Array.isArray(source.assertions) ? source.assertions : [],
+    items, tweens, effects, behaviors, retimes, assertions: Array.isArray(source.assertions) ? source.assertions : [],
     // Planned stills (scene.rests): held_static and static_scene let them hold.
     rests: Array.isArray(source.rests) ? source.rests : [],
     // The set pieces moves built here (scene.moves): their techniques, from start to end, and
     // their settings (busy_edit reads a stream's color as part of its look).
-    moves: (source.moves ?? []).filter((entry) => Array.isArray(entry.tags)).map((entry) => ({ id: entry.id, name: entry.name, tags: entry.tags, settings: entry.settings ?? {}, start: finite(entry.start, 0), end: finite(entry.end, duration) })),
+    moves: (source.moves ?? []).filter((entry) => Array.isArray(entry.tags)).map((entry) => ({ id: entry.id, name: entry.name, tags: entry.tags, settings: entry.settings ?? {}, start: finite(entry.start, 0), end: finite(entry.end, duration), ...(entry.trigger ? { trigger: entry.trigger } : {}) })),
     itemOf: (id) => itemOf.get(id),
   };
 }

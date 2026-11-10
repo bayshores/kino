@@ -6,7 +6,9 @@
 // 1. Onset strength: how much louder each short slice of sound got than the one before, summed
 //    over frequencies ("spectral flux" on a log scale). Hits and notes make peaks.
 // 2. Onsets: the peaks of that curve, each moved onto the sample where the sound starts. An
-//    onset's strength compares it with the largest rise within 4 seconds of it.
+//    onset's strength compares it with the largest rise within 4 seconds of it; its weight
+//    compares how much louder it gets with the song's hardest hits, and its band says where
+//    most of its new sound is (kick and bass, snare and voice, or hi-hats).
 // 3. Tempo: the onset curve in three bands (kick, snare and clap, hi-hats), each scaled so it
 //    counts the same; the tempo between 60 and 200 beats a minute at which that curve best matches
 //    itself a beat, two beats and a bar later (autocorrelation), times a bell around 120. Then the
@@ -28,9 +30,10 @@
 // sound already playing at the start for one; version 4 measures each onset and beat against
 // the sound near it, not the loudest part of the file; version 5 keeps the grid on the beat to
 // the end of a long song (ten minutes); version 6 finds the tempo in three bands with the octave
-// checks of step 3 (on 21 songs with published tempos, 20 right instead of 15). Older .beats
-// files are made again.
-export const BEAT_ANALYSIS_VERSION = 6;
+// checks of step 3 (on 21 songs with published tempos, 20 right instead of 15); version 7 gives
+// each onset a weight (how hard it hits, against the whole song) and a band (low, mid, high), so
+// a drop's kick is told from a hi-hat (steps 2c and 2d). Older .beats files are made again.
+export const BEAT_ANALYSIS_VERSION = 7;
 export const MIN_BPM = 60;
 export const MAX_BPM = 200;
 /** Below this confidence the grid is reported as uncertain and not used to set the rhythm. */
@@ -87,6 +90,9 @@ export function onsetStrength(samples, sampleRate) {
   const im = new Float64Array(FRAME);
   let previous = new Float64Array(bins);
   let current = new Float64Array(bins);
+  // Linear magnitudes, for how much new sound each band gained (an onset's band, version 7).
+  let previousLinear = new Float64Array(bins);
+  let currentLinear = new Float64Array(bins);
   const flux = new Float64Array(count);
   // The same, below 200 Hz only (kick drums and bass), to tell the beat from the off-beat.
   const low = new Float64Array(count);
@@ -95,6 +101,7 @@ export function onsetStrength(samples, sampleRate) {
   // (150 Hz to 2.5 kHz) and hi-hats (above), so the many high bins do not outvote the drums.
   const bands = [new Float64Array(count), new Float64Array(count), new Float64Array(count)];
   const edges = [Math.max(2, Math.round((150 * FRAME) / sampleRate)), Math.round((2500 * FRAME) / sampleRate)];
+  const gain = [new Float64Array(count), new Float64Array(count), new Float64Array(count)];
   for (let frame = 0; frame < count; frame += 1) {
     const offset = frame * HOP;
     for (let i = 0; i < FRAME; i += 1) {
@@ -105,21 +112,25 @@ export function onsetStrength(samples, sampleRate) {
     let sum = 0;
     let lowSum = 0;
     for (let bin = 1; bin < bins; bin += 1) {
-      current[bin] = Math.log1p(100 * Math.hypot(re[bin], im[bin]));
+      currentLinear[bin] = Math.hypot(re[bin], im[bin]);
+      current[bin] = Math.log1p(100 * currentLinear[bin]);
       if (frame === 0) continue;
       const rise = Math.max(0, current[bin] - previous[bin]);
       sum += rise;
       if (bin < lowBins) lowSum += rise;
-      bands[bin < edges[0] ? 0 : bin < edges[1] ? 1 : 2][frame] += rise;
+      const band = bin < edges[0] ? 0 : bin < edges[1] ? 1 : 2;
+      bands[band][frame] += rise;
+      gain[band][frame] += Math.max(0, currentLinear[bin] - previousLinear[bin]);
     }
     flux[frame] = sum;
     low[frame] = lowSum;
     [previous, current] = [current, previous];
+    [previousLinear, currentLinear] = [currentLinear, previousLinear];
   }
   // A value describes the sound that arrived during its frame; it is timed at the frame's end
   // half (the onset itself is found again on the samples in step 2).
   const times = Float64Array.from({ length: count }, (_, frame) => (frame * HOP + FRAME / 2) / sampleRate);
-  return { flux, low, bands, times, hopSeconds: HOP / sampleRate };
+  return { flux, low, bands, gain, times, hopSeconds: HOP / sampleRate };
 }
 
 /** The mean of each value and the `radius` values on each side of it (fewer at the ends). */
@@ -187,7 +198,57 @@ function movingMax(values, radius) {
   return out;
 }
 
-/** Step 2: onsets as {time, strength, low}: strength from 0 to 1, low the part below 200 Hz. */
+export const BANDS = ["low", "mid", "high"];
+// How far before an onset weighOnsets looks for its hit (step 2d).
+const LATE_SECONDS = 0.04;
+
+// Step 2c: the band that gained the most new sound at frame i and the two after it (a kick's body
+// follows its click): low (kick, bass, under 150 Hz), mid (snare, clap, voice) or high (hi-hats).
+function gainBand(gain, i) {
+  const totals = gain.map((band) => {
+    let sum = 0;
+    for (let j = i; j <= Math.min(band.length - 1, i + 2); j += 1) sum += band[j];
+    return sum;
+  });
+  return BANDS[totals.indexOf(Math.max(...totals))];
+}
+
+/**
+ * Step 2d: each onset's weight, how hard it hits, from 0 to 1: the sound it adds, against the
+ * song's hardest hits (the 95th percentile, so one freak peak does not shrink the rest). The added
+ * sound is the power of 50 ms from the hit minus the power of 50 ms ending 20 ms before it, as a
+ * loudness (square root). Powers add up where loudness does not, so a kick over a steady pad or
+ * bass keeps its full size. Under a steady tone an onset can be placed up to about 35 ms after
+ * its hit (step 2b reads sample-to-sample change, which a pad drowns), so the hit is looked for
+ * from LATE_SECONDS before the onset to the onset and the largest gain counts. A loud drop's kick
+ * weighs about 1, a hi-hat or a soft intro little. Unlike strength, which compares an onset with
+ * the sound within 4 s of it, weight compares it with the whole song.
+ */
+export function weighOnsets(samples, sampleRate, onsets) {
+  const span = Math.round(0.05 * sampleRate);
+  const gap = Math.round(0.02 * sampleRate);
+  const step = Math.max(1, Math.round(0.005 * sampleRate));
+  const late = Math.round(LATE_SECONDS * sampleRate);
+  // Running sums of squares, so the power of any stretch is one subtraction.
+  const squares = new Float64Array(samples.length + 1);
+  for (let i = 0; i < samples.length; i += 1) squares[i + 1] = squares[i] + samples[i] * samples[i];
+  const power = (start, end) => {
+    const from = Math.max(0, start);
+    const to = Math.min(samples.length, end);
+    return to > from ? (squares[to] - squares[from]) / (to - from) : 0;
+  };
+  const punches = onsets.map((onset) => {
+    const at = Math.round(onset.time * sampleRate);
+    let best = 0;
+    for (let hit = at; hit >= Math.max(0, at - late); hit -= step) best = Math.max(best, power(hit, hit + span) - power(hit - gap - span, hit - gap));
+    return Math.sqrt(best);
+  });
+  const sorted = [...punches].sort((a, b) => a - b);
+  const reference = sorted[Math.floor(0.95 * (sorted.length - 1))] ?? 0;
+  return onsets.map((onset, index) => ({ ...onset, weight: reference > 0 ? Math.round(Math.min(1, punches[index] / reference) * 100) / 100 : 0 }));
+}
+
+/** Step 2: onsets as {time, strength, low, band}: strength from 0 to 1, low the part below 200 Hz. */
 export function findOnsets(samples, sampleRate, strength = onsetStrength(samples, sampleRate)) {
   const { flux, low, times, hopSeconds } = strength;
   if (!flux.some((value) => value > 0)) return [];
@@ -209,7 +270,9 @@ export function findOnsets(samples, sampleRate, strength = onsetStrength(samples
     // The low part can peak a frame or two later than the whole (a kick's body follows its click).
     let lowPeak = 0;
     for (let j = Math.max(0, i - 1); j <= Math.min(flux.length - 1, i + 2); j += 1) lowPeak = Math.max(lowPeak, low[j]);
-    onsets.push({ time: refineOnset(samples, sampleRate, times[i]), strength: value / largest[i], low: lowPeak / (largestLow[i] || 1) });
+    const onset = { time: refineOnset(samples, sampleRate, times[i]), strength: value / largest[i], low: lowPeak / (largestLow[i] || 1) };
+    if (strength.gain) onset.band = gainBand(strength.gain, i);
+    onsets.push(onset);
   }
   // Two peaks that refine onto the same start are one onset.
   return onsets.filter((onset, index) => index === 0 || onset.time - onsets[index - 1].time > 0.02);
@@ -501,7 +564,8 @@ function capStart(values) {
 }
 
 // The loudness (root mean square) of samples[from] up to samples[to].
-function loudness(samples, from, to) {
+function loudness(samples, start, to) {
+  const from = Math.max(0, start);
   const end = Math.min(samples.length, to);
   if (end <= from) return 0;
   let sum = 0;
@@ -533,7 +597,7 @@ function startsWithHit(samples, sampleRate) {
 
 /**
  * The beat and onsets of mono `samples` at `sampleRate`. Returns
- * {version, duration, bpm, alt, period, beats[], onsets[{time, strength}], confidence, note?}
+ * {version, duration, bpm, alt, period, beats[], onsets[{time, strength, low, band, weight}], confidence, note?}
  * with times in seconds of the source; bpm is null when no steady beat is found.
  */
 export function analyzeBeats(samples, sampleRate, options = {}) {
@@ -557,8 +621,8 @@ export function analyzeBeats(samples, sampleRate, options = {}) {
     capStart(strength.low);
     strength.bands.forEach(capStart);
   }
-  const onsets = findOnsets(padded, sampleRate, strength)
-    .map((onset) => ({ ...onset, time: Math.max(0, onset.time - pad / sampleRate) }));
+  const onsets = weighOnsets(samples, sampleRate, findOnsets(padded, sampleRate, strength)
+    .map((onset) => ({ ...onset, time: Math.max(0, onset.time - pad / sampleRate) })));
   const result = { version: BEAT_ANALYSIS_VERSION, duration, bpm: null, alt: null, period: null, beats: [], onsets, confidence: 0 };
   if (onsets.length < 4) return { ...result, note: onsets.length ? "Too few onsets to find a beat." : "No onsets: the sound is silent or steady." };
   const tempo = estimateTempo(strength, options);

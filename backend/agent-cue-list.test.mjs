@@ -19,6 +19,9 @@ test("a short cue list is listed whole, as before", () => {
   assert.equal(text, "marker 1: intro 0\nbeat 1: beat-1 0.5");
   assert.equal(count, 2);
   assert.equal(shown, 2);
+  // An accent says how hard it hits and where.
+  const accent = { name: "accent-1", time: 0.5, kind: "accent", weight: 0.92, band: "low", rank: 1 };
+  assert.equal(cueListText({ cues: [accent] }, ["cues[kind=accent]"]).text, "accent 1: accent-1 0.5 (0.92 low)");
 });
 
 test("a ten-minute song's cues come a page at a time, each small, until every cue is seen", () => {
@@ -59,7 +62,7 @@ test("a bad cue target says how to write one", () => {
   assert.equal(isCueTarget("cues[from=1]"), true);
   assert.equal(isCueTarget("text[fontSize>40]"), false);
   const document = tenMinuteSong();
-  assert.throws(() => cueListText(document, ["cues[kind=drums]"]), /kind is one of marker, beat, onset, word, line/);
+  assert.throws(() => cueListText(document, ["cues[kind=drums]"]), /kind is one of marker, beat, onset, accent, word, line/);
   assert.throws(() => cueListText(document, ["cues[start=4]"]), /write cues\[kind=beat\], cues\[from=60,to=90\] or both/);
   assert.throws(() => cueListText(document, ["cues[from=-1]"]), /from is a time in seconds, 0 or more/);
   assert.throws(() => cueListText(document, ["cues[from=9,to=3]"]), /to must not be before from/);

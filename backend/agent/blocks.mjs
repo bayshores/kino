@@ -832,7 +832,8 @@ function copyText(value, depth = 0) {
 // what compose {footage} needs from the service (backend/agent/footage.mjs, the deck, an edit's
 // translate-and-apply).
 // pictureAlpha(src): a picture's alpha grid (backend/agent/picture-alpha.mjs) for moves that push into it.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null }) {
+// clipEvents(src): a clip's measured events in file seconds (footage/events.mjs), or null.
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf });
   async function mediaOf(document, work) {
@@ -1068,6 +1069,27 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // ---- move ---------------------------------------------------------------------------------
+  // What a move that needs a cue (impact-accent) reads: its at as given, the cues, and the scene's
+  // clips' measured impacts and light in scene seconds (each with its clip and file seconds).
+  async function cueFactsOf(document, scene, at) {
+    const events = [];
+    const clips = scene.layers.filter((layer) => layer.type === "video" && layer.src).slice(0, 12);
+    for (const layer of clips) {
+      let measured = null;
+      try { measured = clipEvents ? await clipEvents(layer.src) : null; } catch { measured = null; }
+      for (const event of measured ?? []) {
+        if (event.kind !== "impact" && event.kind !== "light") continue;
+        try {
+          const placed = footageCueTime(document, layer.id, event.t);
+          if (!placed.shown || placed.layer.id !== layer.id) continue;
+          const from = event.from !== undefined ? footageCueTime(document, layer.id, event.from).time : undefined;
+          events.push({ ...event, at: round(placed.time), media: event.t, layer: layer.id, ...(from !== undefined ? { from: round(from) } : {}) });
+        } catch { /* a clip with an animated speed has no steady time: its events are left out */ }
+      }
+    }
+    return { at, cues: document.cues ?? [], events };
+  }
+
   // A move builds a set piece from the scene's layers (engine/blocks/move.js). The same id again
   // removes what it made before and makes it again from its saved settings plus the changes.
   async function applyMove(document, operation, work) {
@@ -1120,9 +1142,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       : typeof input.fontWeight === "number" ? style.fonts.body?.fontFamily : undefined;
     const fontFaces = typeof input.font === "string" ? { [input.font]: await askedFace(document, input.font, copyText(input), work) }
       : typeof weightFamily === "string" ? { [weightFamily]: await askedFace(document, weightFamily, copyText(input), work, input.fontWeight ?? 600) } : {};
+    const cueFacts = definition.needsCue ? await cueFactsOf(document, scene, settings.at) : null;
     let made;
     try {
       made = runMove(definition, {
+        cueFacts,
         id: operation.id, input, scene, style, fonts, start, align: settings.align ?? "start", dur: settings.dur ?? null, media, logo: logoOf(brand, media),
         reduced: settings.reduced ?? composition.reduced ?? false, seed: settings.seed ?? 1, brandFonts: Boolean(faces), bpm: document.rhythm?.bpm ?? null,
         alpha: (src) => alphas.get(src) ?? null, fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),

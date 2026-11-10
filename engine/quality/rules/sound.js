@@ -621,7 +621,8 @@ const SFX_IN_STRETCH = 4;
 const SFX_REPEATS = 3;
 
 /** sfx_restraint: sound effects more than about one every 4 s in a stretch, or one sound repeated on repeated motions. */
-export function sfxRestraint(model, ctx) {
+/** The sound effects of the scene (sound layers under SFX_SECONDS, not music, not a voice), as [{layer, at}] by time. */
+export function soundEffectsOf(ctx) {
   const scene = ctx.speechScene ?? ctx.scene;
   if (!scene) return [];
   const heard = new Map((ctx.speech ?? []).map((entry) => [entry.layer?.id, entry]));
@@ -632,7 +633,13 @@ export function sfxRestraint(model, ctx) {
     const range = mediaPlaybackRange(layer, scene.duration);
     if (range && range.duration < SFX_SECONDS) effects.push({ layer, at: range.start });
   }
-  effects.sort((a, b) => a.at - b.at);
+  return effects.sort((a, b) => a.at - b.at);
+}
+
+export function sfxRestraint(model, ctx) {
+  const scene = ctx.speechScene ?? ctx.scene;
+  if (!scene) return [];
+  const effects = soundEffectsOf(ctx);
   const findings = [];
   let worst = null;
   for (let i = 0; i < effects.length; i += 1) {
