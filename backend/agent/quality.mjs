@@ -820,9 +820,16 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
   return { check };
 }
 
-/** library {topic:"rules", name:"quality"}: every rule, one line each. */
-export function qualityRulesText() {
-  const line = (entry) => `  ${entry.code}: ${entry.summary}${entry.pixels ? " (rendered)" : ""}`;
+/**
+ * library {topic:"rules", name:"quality"}: every rule, one line each. The whole list cuts long
+ * summaries short so it fits one answer; a search (`full`) gives the matching rules in full.
+ */
+export function qualityRulesText(full = false) {
+  const shorten = (text) => {
+    if (full || text.length <= 170) return text;
+    return `${text.slice(0, text.lastIndexOf(" ", 160))} …`;
+  };
+  const line = (entry) => `  ${entry.code}: ${shorten(entry.summary)}${entry.pixels ? " (rendered)" : ""}`;
   return [
     "Gates (errors; a final render is refused while one is not fixed or waived):",
     ...RULES.filter((entry) => entry.level === "error").map(line),
@@ -834,5 +841,6 @@ export function qualityRulesText() {
     ...RULES.filter((entry) => entry.level === "info").map(line),
     "A problem that lasts 2 samples or less is info: counted, not listed. Sizes are for 1080p and scale with the frame.",
     "library {topic:\"rules\", name:\"quality-settings\"} covers roles, videoType, assertions and waivers.",
+    ...(full ? [] : ["A rule cut short (…): add search:\"<code>\" for its whole text."]),
   ].join("\n");
 }

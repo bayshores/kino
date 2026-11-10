@@ -18,11 +18,12 @@ const shot = (id, fill) => createLayer("rectangle", { id, name: id, x: 0, y: 0, 
 /** Runs moves in order on a scene of `layers` and returns the golden fixture. */
 function moveFixture(name, { layers, moves, duration = 4, times, media = false, background = "#0B0B0D" }) {
   const scene = createScene({ id: MAIN, name, ...FRAME, duration, background, layers });
+  // Goldens pin the look: kino has no default look (a move with none gets a seeded one).
   const style = styleFor({ look: "crisp", frame: FRAME });
   for (const { move, id, at, dur = null, ...fields } of moves) {
     const definition = MOVES[move];
     const made = runMove(definition, { id, input: readMoveInput(definition, fields), scene, style, fonts, start: at, dur, media: () => { throw new Error("no pictures"); } });
-    placeMove(scene, { id, name: move, settings: { at, ...(dur === null ? {} : { dur }), ...fields } }, made);
+    placeMove(scene, { id, name: move, settings: { at, ...(dur === null ? {} : { dur }), look: "crisp", ...fields } }, made);
   }
   const document = parseDocument(createDocument({ id: `golden-${name}`, name, scenes: [scene] }));
   return { name, document, times, width: 480, ...(media ? { media } : {}) };

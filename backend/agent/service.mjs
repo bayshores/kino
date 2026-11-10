@@ -5675,7 +5675,7 @@ export function createAgentService(deps) {
     // rules render, quality and workspace are written here, not in the guide; search narrows them too.
     const ownRules = { render: () => RENDER_RULES, quality: qualityRulesText, workspace: () => WORKSPACE_HELP };
     if (topic === "rules" && Object.hasOwn(ownRules, input.name)) {
-      const text = ownRules[input.name]();
+      const text = ownRules[input.name](Boolean(search));
       return { text: search ? linesMentioning({ id: input.name, title: input.name, text }, search) : text };
     }
     // rules {name, search}: only the lines of that topic that mention the word (one recipe, say).
