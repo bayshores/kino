@@ -6,13 +6,15 @@
 // one of them, in turn; tests/moves-gate.mjs by hand runs every move in all three). Runs on a
 // real server with a temporary data folder.
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { after, before, test } from "node:test";
+import { FOOTAGE_VERSION } from "./footage/analyze.mjs";
 import { MOVES, MOVE_NAMES } from "../engine/blocks/moves/index.js";
 import { startTestServer } from "./media.test.support.mjs";
 import { decodePng } from "../tests/golden/compare.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
-import { libraryExample, movesApi, movesGate, sampleMoveCases, setUpProject } from "../tests/moves-gate.mjs";
+import { libraryExample, movesApi, movesGate, sampleMoveCases, setUpProject, uploadClip, uploadSong } from "../tests/moves-gate.mjs";
 
 let server;
 let api;
@@ -37,17 +39,54 @@ test("library moves lists every move in a line and gives one move's fields and e
     assert.match(one.text, /\nthe example's layers: /);
     assert.ok(one.text.length < 2000, `${name} stays small (${one.text.length} characters)`);
   }
-  // impact-accent refuses a raw time with the cue to use, and flashes the shot on a song seam.
-  const refused = await api.agent("lib", "edit", { ops: [{ op: "set_cues", cues: [{ name: "song-drop-1", time: 1 }] }, { op: "move", name: "impact-accent", kind: "flash", at: 1.5 }] });
+  // impact-accent refuses a raw time, and a song seam set by hand (fit_music measures seams: its own test below).
+  const refused = await api.agent("lib", "edit", { ops: [{ op: "move", name: "impact-accent", kind: "flash", at: 1.5 }] });
   assert.equal(refused.isError, true);
-  assert.match(refused.text, /at 1\.5 is a time, not a reason\. An accent needs a cue that motivates it .*try at \\?"cue:song-drop-1\\?"/);
-  const seam = await api.agent("lib", "edit", { ops: [{ op: "set_cues", cues: [{ name: "song-drop-1", time: 1 }] }, { op: "move", name: "impact-accent", kind: "flash", at: "cue:song-drop-1" }] });
-  assert.equal(seam.isError, undefined, seam.text);
-  const lifted = (await saved("lib")).document.scenes[0].layers.flatMap((layer) => layer.animations).filter((animation) => animation.id.startsWith("impact-accent."));
-  assert.deepEqual(lifted.map((animation) => [animation.effect, animation.to.stops]), [["color-grade", 2], ["color-grade", 0]]);
+  assert.match(refused.text, /at 1\.5 is a time, not a reason\. An accent needs a cue that motivates it .*leave this moment plain/);
+  const hand = await api.agent("lib", "edit", { ops: [{ op: "set_cues", cues: [{ name: "song-drop-1", time: 1 }] }, { op: "move", name: "impact-accent", kind: "flash", at: "cue:song-drop-1" }] });
+  assert.equal(hand.isError, true);
+  assert.match(hand.text, /set by hand, not measured: song seams and rests come from fit_music/);
   const unknown = await api.agent("lib", "library", { topic: "moves", name: "zoom-thru" });
   assert.equal(unknown.isError, true);
   assert.match(unknown.text, /zoom-through/);
+});
+
+test("impact-accent renders: an impact frame turns the clip black and white on its impact, a flash brightens a shot on fit_music's drop", { timeout: 60_000 }, async () => {
+  await setUpProject(api, "accent", { width: 640, height: 360 });
+  const clip = await uploadClip(server, "accent", 640, 360);
+  // The clip's measured impact (file 1 s), as footage/analyze.mjs keeps it beside the file.
+  await writeFile(path.join(server.dataDirectory, "media", `${clip.id}.footage-v${FOOTAGE_VERSION}`), JSON.stringify({ version: FOOTAGE_VERSION, duration: 6, width: 640, height: 360, fps: 30,
+    events: [{ kind: "impact", t: 1, how: "contact", dir: "right", confidence: 0.8 }] }));
+  const song = await uploadSong(server, "accent");
+  const made = await api.agent("accent", "edit", { ops: [
+    { op: "add_layer", layerType: "video", name: "clip", properties: { src: clip.src, x: 0, y: 0, width: 320, height: 180 } },
+    { op: "add_layer", layerType: "audio", name: "song", properties: { src: song.src } },
+    { op: "fit_music", layer: "song", payoff: 2 },
+    { op: "set_cues", cues: [{ name: "hit-1", layer: "clip", media: 1 }] },
+    { op: "move", name: "impact-accent", kind: "impact-frame", at: "cue:hit-1" },
+    { op: "move", name: "impact-accent", kind: "flash", at: "cue:song-drop-1", layer: "shot-a" },
+  ] });
+  assert.equal(made.isError, undefined, made.text);
+  const pixels = async (t) => {
+    const frame = await api.agent("accent", "look", { mode: "frame", t, width: 320 });
+    assert.equal(frame.isError, undefined, frame.text);
+    return (await decodePng(Buffer.from(frame.images[0].data, "base64"))).data;
+  };
+  // The look is 320 × 180: the clip fills its top-left quarter; the street (shot-a) shows right of the phone.
+  const pixelsOf = (data, inside) => {
+    const found = [];
+    for (let index = 0; index < data.length; index += 4) if (inside((index / 4) % 320, Math.floor(index / 4 / 320))) found.push([data[index], data[index + 1], data[index + 2]]);
+    return found;
+  };
+  const clipPart = (data) => pixelsOf(data, (x, y) => x < 158 && y < 88);
+  const streetPart = (data) => pixelsOf(data, (x) => x >= 200);
+  // Share of pixels that are gray (no color) and either dark or light: the silhouette's two inks.
+  const inked = (list) => list.filter(([r, g, b]) => Math.max(r, g, b) - Math.min(r, g, b) < 24 && (r < 48 || r > 200)).length / list.length;
+  const mean = (list) => list.reduce((sum, [r, g, b]) => sum + r + g + b, 0) / list.length / 3;
+  const [before, hit] = [clipPart(await pixels(0.9)), clipPart(await pixels(1.0))];
+  assert.ok(inked(hit) > 0.95 && inked(before) < 0.6, `the impact frame is black and white (${inked(before).toFixed(2)} → ${inked(hit).toFixed(2)})`);
+  const [still, drop] = [streetPart(await pixels(1.9)), streetPart(await pixels(2.01))];
+  assert.ok(mean(drop) > mean(still) + 25, `the drop's flash brightens the street (${mean(still).toFixed(0)} → ${mean(drop).toFixed(0)})`);
 });
 
 test("a move animates your layers, is made again with the same id and taken away with remove", { timeout: 120_000 }, async () => {

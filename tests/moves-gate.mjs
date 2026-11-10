@@ -12,8 +12,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
 import { MOVES, MOVE_NAMES } from "../engine/blocks/moves/index.js";
-// impact-accent needs a measured cue (its own test builds one): the gate runs the rest.
+// A move that needs a measured cue (impact-accent) runs after the cue is measured (CUED below).
 const GATED = MOVE_NAMES.filter((name) => !MOVES[name].needsCue);
+const CUED_MOVES = MOVE_NAMES.filter((name) => MOVES[name].needsCue);
 import { compactRecording } from "../engine/recording.js";
 
 // Made-up pictures that are hard on the gates: a bright street with a pale sky (light captions
@@ -58,7 +59,7 @@ export function movesApi(server) {
 }
 
 // A 6 s moving test picture (FFmpeg's testsrc2) the size of the frame, for the footage moves' "clip".
-async function uploadClip(server, project, width, height) {
+export async function uploadClip(server, project, width, height) {
   const { ffmpeg, run } = await import("../backend/media.test.support.mjs");
   const folder = await mkdtemp(path.join(tmpdir(), "kino-moves-"));
   try {
@@ -71,6 +72,36 @@ async function uploadClip(server, project, width, height) {
     await rm(folder, { recursive: true, force: true });
   }
 }
+
+// A made-up 48 s song at 120 bpm (a bar is 2 s): a hi-hat on each beat, the kick and bass in from
+// 16 s to 32 s and from 40 s, so fit_music measures a drop and writes song-drop-1.
+let song = null;
+export async function uploadSong(server, project) {
+  const { ffmpeg, run } = await import("../backend/media.test.support.mjs");
+  if (!song) {
+    const folder = await mkdtemp(path.join(tmpdir(), "kino-moves-"));
+    try {
+      const file = path.join(folder, "song.m4a");
+      const expr = "0.25*sin(2*PI*5000*t)*exp(-40*mod(t,0.5))+0.9*(gte(t,16)*lt(t,32)+gte(t,40))*sin(2*PI*55*t)*exp(-6*mod(t,0.5))";
+      await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", `aevalsrc=${expr.replaceAll(",", "\\,")}:s=44100:d=48`, "-c:a", "aac", "-b:a", "128k", file]);
+      song = await readFile(file);
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  }
+  const response = await server.api(`/api/media?project=${project}`, { method: "POST", headers: { "Content-Type": "audio/mp4", "X-File-Name": "song.m4a" }, body: song });
+  assert.equal(response.status, 201);
+  return response.json();
+}
+
+// The measured cue each such move's example names, made the way an agent makes it.
+const CUED = {
+  // fit_music measures the song and writes song-drop-1 on the payoff (2 s).
+  "impact-accent": async (server, api, project) => {
+    const media = await uploadSong(server, project);
+    return api.agent(project, "edit", { ops: [{ op: "add_layer", layerType: "audio", name: "song", properties: { src: media.src } }, { op: "fit_music", layer: "song", payoff: 2 }] });
+  },
+};
 
 /**
  * Makes project `id` at width × height with the layers the examples name: shot-b (a wall with
@@ -145,6 +176,7 @@ const USES = {
   "light-sweep": [],
   cursor: ["shot-b"],
   "screen-recording": ["clip"],
+  "impact-accent": ["shot-a"],
 };
 // screen-recording's clip carries a recording (as project record stop leaves one): a pointer
 // slide, a click in the middle of the frame, and the pointer moving on to the next control.
@@ -182,10 +214,10 @@ export const MOVE_SHAPES = [
 ];
 
 /** Every move in every shape (by hand). */
-export const allMoveCases = () => MOVE_SHAPES.flatMap((shape) => GATED.map((name) => ({ name, ...shape })));
+export const allMoveCases = () => MOVE_SHAPES.flatMap((shape) => [...GATED, ...CUED_MOVES].map((name) => ({ name, ...shape })));
 
-/** Each move once, taking the shapes in turn (each shape gets four moves). */
-export const sampleMoveCases = () => GATED.map((name, index) => ({ name, ...MOVE_SHAPES[index % MOVE_SHAPES.length] }));
+/** Each move once, taking the shapes in turn (each shape gets four moves); a cued move runs wide. */
+export const sampleMoveCases = () => [...GATED.map((name, index) => ({ name, ...MOVE_SHAPES[index % MOVE_SHAPES.length] })), ...CUED_MOVES.map((name) => ({ name, ...MOVE_SHAPES[0] }))];
 
 /**
  * Each case's move library example runs as written at width × height (reduced adds
@@ -213,6 +245,10 @@ export async function movesGate(server, cases) {
     if (EXTRA[name]) {
       const extra = await api.agent(project, "edit", { ops: EXTRA[name] });
       assert.equal(extra.isError, undefined, extra.text);
+    }
+    if (CUED[name]) {
+      const cued = await CUED[name](server, api, project);
+      if (cued.isError) { failures.push(`${project}: ${cued.text}`); continue; }
     }
     const example = await libraryExample(api, project, name);
     const made = await api.agent(project, "edit", { ops: [{ ...example, ...(reduced ? { reduced: true } : {}) }] });

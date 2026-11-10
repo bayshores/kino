@@ -18,8 +18,12 @@
 //           frame, under 30% by the 4th frame, still at 0.125 s
 //   impact  the shot turns to a hard black and white silhouette for 1 to 3 frames
 //   dip     the shot darkens 1 to 3 stops over 2 frames and comes back on the next seam's frame
-//   strobe  one frame of light on each onset of the fill, the last on the cue
+//   strobe  one frame of light on onsets of the fill at least 0.34 s apart (3 flashes a second at
+//           most, the seizure-safety limit), the last on the cue
+//   shake   adds to the shot's own place: a pan before it or a drift through it keeps going
 // Reduced motion: no shake and no strobe (a note says so); flashes and dips are half as strong.
+// The accent starts on its cue, so align and dur are refused; song seams and rests count only
+// when fit_music wrote them (fitted), never a song-* cue set by hand.
 import { parseAt } from "../timing.js";
 import { CURVES, effect, motion, round } from "./kit.js";
 
@@ -34,6 +38,11 @@ const SAYS = { light: "light in the shot", seam: "a song seam", accent: "a top a
 const SEAMS = { drop: 1, return: 0.9, switch: 0.8, "vocal-in": 0.6, build: 0.6, intro: 0.5, outro: 0.5 };
 const RESTS = { break: 0.7, dropout: 0.9 };
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+// The shake's way from the shot's place at the cue to its place now: there at once, so a shot
+// that drifts through the cue keeps drifting under the shake.
+const SNAP = Object.freeze([0, 1, 0, 1]);
+// The least time between two strobe flashes: 3 a second at most.
+export const STROBE_GAP = 0.34;
 
 /** A fill before `time`: the last run of 4 or more onsets, evenly spaced at most 0.22 s apart, ending just before it. */
 export function fillBefore(time, cues) {
@@ -52,8 +61,9 @@ export function fillBefore(time, cues) {
  */
 export function cueMotives(cue, { cues = [], events = [] } = {}) {
   const found = [];
+  // A song seam or rest counts only when fit_music measured it (fitted); one set by hand is a time.
   const song = /^song-([a-z]+(?:-[a-z]+)?)-\d+$/.exec(cue.name);
-  if (song && cue.kind === "marker") {
+  if (song && cue.kind === "marker" && cue.fitted === true) {
     if (SEAMS[song[1]] !== undefined) found.push({ motive: "seam", weight: SEAMS[song[1]] });
     if (RESTS[song[1]] !== undefined) found.push({ motive: "dropout", weight: RESTS[song[1]] });
   }
@@ -95,10 +105,12 @@ export function motiveFor(kind, facts, time) {
     throw refuse(kind, `cue:${cue.name} is a beat number, not a reason`, facts, time);
   const motive = motives.filter((entry) => NEEDS[kind].includes(entry.motive)).sort((a, b) => b.weight - a.weight)[0];
   if (!motive) {
+    if (/^song-/.test(cue.name) && cue.fitted !== true && !motives.length)
+      throw refuse(kind, `cue:${cue.name} was set by hand, not measured: song seams and rests come from fit_music`, facts, time);
     const has = motives.length ? `cue:${cue.name} is ${[...new Set(motives.map((entry) => SAYS[entry.motive]))].join(" and ")}` : `cue:${cue.name} has nothing measured at it`;
     throw refuse(kind, `${has}; ${kind} needs ${NEEDS[kind].map((entry) => SAYS[entry]).join(" or ")}`, facts, time);
   }
-  return { cue, motive: { ...motive, weight: clamp(motive.weight ?? 0.5, 0.2, 1) } };
+  return { cue, at: cue.time + offset, motive: { ...motive, weight: clamp(motive.weight ?? 0.5, 0.2, 1) } };
 }
 
 // The shot to accent: the layer given, else the clip the impact or light is in, else the top
@@ -136,16 +148,19 @@ const build = {
     // A cosine wave (phase a quarter) 0.1 s a cycle, decaying 14 a second: full on the cue's frame,
     // under 30% by the 4th frame; it ends at 0.125 s, where the wave is at rest, so nothing is held.
     const length = 0.125;
-    for (const axis of axes) {
-      const moving = ctx.settledAt(shot.id, [axis], t, ctx.sceneDuration) > t
-        || (shot.animations ?? []).some((animation) => animation.kind !== "effect" && (animation.start ?? 0) >= t && [...Object.keys(animation.from ?? {}), ...Object.keys(animation.to ?? {})].includes(axis));
-      if (moving) throw new Error(`impact-accent shake: ${shot.id} moves ${axis} at or after the cue; a shake would pin it. Shake a still shot, or give it a flash.`);
-    }
+    // A move of the same axis that starts inside the shake would cut it short.
+    const cut = (shot.animations ?? []).find((animation) => animation.kind !== "effect" && (animation.start ?? 0) > t + 1e-6 && (animation.start ?? 0) < t + length
+      && axes.some((axis) => [...Object.keys(animation.from ?? {}), ...Object.keys(animation.to ?? {})].includes(axis)));
+    if (cut) throw new Error(`impact-accent shake: ${shot.id} starts a move of ${axes.join(" and ")} at ${round(cut.start)} s, inside the shake (${round(t)} to ${round(t + length)} s); shake on another hit, or give it a flash.`);
     const sign = /left|up/.test(dir) ? -1 : 1;
     const amount = Object.fromEntries(axes.map((axis) => [axis, round(sign * size, 1)]));
-    const rest = Object.fromEntries(axes.map((axis) => [axis, shot[axis]]));
-    const shake = { ...motion({ name: `Shake (impact ${round(motive.weight, 2)} ${dir})`, start: t, duration: length, easing: CURVES.fade, from: rest, to: rest }),
-      behavior: { oscillate: { amount, period: 0.1, phase: 0.25, wave: "sine", decay: 14 } } };
+    // The shake adds to wherever the shot is: it starts from the shot's place at the cue
+    // (fromCurrent) and has no end of its own, so it ends wherever the shot's own moves (a pan
+    // before it, a drift through it) put it at each moment, and nothing is pinned after it.
+    const here = ctx.stateAt(shot.id, t);
+    const rest = Object.fromEntries(axes.map((axis) => [axis, round(here[axis] ?? shot[axis], 2)]));
+    const shake = { ...motion({ name: `Shake (impact ${round(motive.weight, 2)} ${dir})`, start: t, duration: length, easing: SNAP, from: rest, to: {} }),
+      fromCurrent: true, behavior: { oscillate: { amount, period: 0.1, phase: 0.25, wave: "sine", decay: 14 } } };
     ctx.animate(shot.id, "shake", shake, "impact");
     return { start: t, end: t + length, tags: ["shake"] };
   },
@@ -170,7 +185,10 @@ const build = {
   },
   strobe(ctx, shot, { motive }, t) {
     if (ctx.reduced) { ctx.note("impact-accent strobe: none in reduced motion"); return { start: t, end: t + FRAME, tags: [] }; }
-    const hits = [...motive.onsets, t];
+    // At most 3 flashes a second (the flashing gate, WCAG 2.3.1): counting back from the cue,
+    // light only onsets at least STROBE_GAP after the next one lit.
+    const hits = [t];
+    for (const at of [...motive.onsets].reverse()) if (hits[0] - at >= STROBE_GAP - 1e-6) hits.unshift(at);
     hits.forEach((at, index) => {
       // Each onset gets one frame of light; the last, on the cue, is the strongest.
       const peak = round(index === hits.length - 1 ? 1.6 : 0.6 + 0.6 * (index / hits.length), 2);
@@ -201,6 +219,9 @@ export const impactAccent = {
   build(ctx, input) {
     const facts = ctx.cueFacts ?? { at: ctx.start, cues: [], events: [] };
     const found = motiveFor(input.kind, facts, ctx.start);
+    // The accent sits on its cue: align and dur would move it off (early or late).
+    if (ctx.dur !== null || Math.abs(ctx.start - found.at) > 1e-3)
+      throw new Error(`impact-accent ${input.kind}: it starts on its cue (at most 2 frames early, never late), so it takes no align or dur; send at "cue:${found.cue.name}" alone.`);
     const shot = shotOf(ctx, input, found.motive);
     if (input.color !== undefined && !/^#[0-9a-f]{6}$/i.test(input.color)) throw new Error("impact-accent color is a hex color such as \"#0A0A0C\".");
     const made = build[input.kind](ctx, shot, found, ctx.start, facts);

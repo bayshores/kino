@@ -622,8 +622,10 @@ How to read it:
   moments not yet checked; a busy still background hides a small mover; nothing in compose uses them yet.
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
-  top accent, rest, measured onset fill), sized by its weight; raw times and beat numbers are refused with the
-  cue to use. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs`. Not rendered or judged on real footage.
+  top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues
+  not written by fit_music are refused; a shake adds to the shot's own moves; a strobe flashes 3 times a second
+  at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
+  through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and

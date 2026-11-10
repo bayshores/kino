@@ -8,10 +8,12 @@ test("cues: named moments are kept, defaulted to marker and sorted by time", () 
     cues: [
       { name: "drop", time: 4.5, kind: "beat" },
       { name: "intro", time: 0.25 },
+      { name: "song-drop-1", time: 2, kind: "marker", fitted: true },
     ],
   });
   assert.deepEqual(document.cues, [
     { name: "intro", time: 0.25, kind: "marker" },
+    { name: "song-drop-1", time: 2, kind: "marker", fitted: true },
     { name: "drop", time: 4.5, kind: "beat" },
   ]);
   assert.equal("cues" in parseDocument({ ...createDocument(), cues: [] }), false);

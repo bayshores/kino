@@ -18,7 +18,8 @@
 //                 (from a voice-over or caption file). detect_beats adds, from a weighted analysis:
 //                 weight (0 to 1, how hard the hit is against the song) and band (low, mid, high) on
 //                 onsets and accents, rank (1 = its section's hardest) on accents, downbeat: true
-//                 on the beats that start a bar. Older cues have none of them.
+//                 on the beats that start a bar. Older cues have none of them. fit_music marks the
+//                 song sections it measured fitted: true (set_cues never does).
 //                 Kept sorted by time. A cue with {layer,
 //                 media} is pinned to that clip's footage: time follows the clip (footageCues.js).
 //   clipLinks     [{a, b, lag, confidence?}]: files (media src) recorded together, a at t = b at
@@ -166,6 +167,10 @@ function hitFields(cue, path) {
   if (cue.downbeat !== undefined && cue.downbeat !== false) {
     if (cue.downbeat !== true) fail(`${path}.downbeat`, "must be true or false");
     out.downbeat = true;
+  }
+  if (cue.fitted !== undefined && cue.fitted !== false) {
+    if (cue.fitted !== true) fail(`${path}.fitted`, "must be true or false");
+    out.fitted = true;
   }
   return out;
 }

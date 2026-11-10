@@ -912,22 +912,43 @@ test("cursor glides on an arc to a layer, squishes 3% and presses the target 2.5
 test("impact-accent runs only at a cue that motivates its kind; a shake peaks on the hit's frame and is under 30% by the 4th", () => {
   const scene = sceneFor(1920, 1080);
   const definition = MOVES["impact-accent"];
-  const cues = [{ name: "hit-1", time: 2, kind: "marker", layer: "clip", media: 2 }, { name: "beat-5", time: 2, kind: "beat" }, { name: "song-drop-1", time: 3, kind: "marker" }];
+  // song-drop-1 is fit_music's (fitted); song-drop-2 was set by hand. onset-1..5: a fill 0.2 s apart before fill-1.
+  const fill = [3.0, 3.2, 3.4, 3.6, 3.8].map((time, index) => ({ name: `onset-${index + 1}`, time, kind: "onset" }));
+  const cues = [{ name: "hit-1", time: 2, kind: "marker", layer: "clip", media: 2 }, { name: "beat-5", time: 2, kind: "beat" }, { name: "song-drop-1", time: 3, kind: "marker", fitted: true }, { name: "song-drop-2", time: 2.6, kind: "marker" }, ...fill, { name: "fill-1", time: 4, kind: "marker" }];
   const events = [{ kind: "impact", how: "contact", dir: "right", confidence: 0.8, at: 2.03, media: 2.03, layer: "clip" }];
-  const run = (kind, at, start) => runMove(definition, { id: "hit", input: readMoveInput(definition, { kind, layer: "clip" }), scene,
-    style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media, cueFacts: { at, cues, events } });
+  const run = (kind, at, start, { own = [], align, dur = null } = {}) => {
+    const shots = { ...scene, layers: scene.layers.map((layer) => (layer.id === "clip" ? { ...layer, animations: own } : layer)) };
+    return runMove(definition, { id: "hit", input: readMoveInput(definition, { kind, layer: "clip" }), scene: shots, align, dur,
+      style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media, cueFacts: { at, cues, events } });
+  };
   assert.throws(() => run("shake", 2, 2), /at 2 is a time, not a reason\. An accent needs a cue that motivates it .*try at "cue:hit-1"/);
   assert.throws(() => run("shake", "cue:beat-5", 2), /beat number, not a reason.*cue:hit-1/);
   assert.throws(() => run("flash", "cue:hit-1", 2), /an impact in the footage; flash needs .*try at "cue:song-drop-1"/);
   assert.throws(() => run("shake", "cue:hit-1+0.1", 2.1), /never late/);
+  assert.throws(() => run("flash", "cue:song-drop-2", 2.6), /set by hand, not measured: song seams and rests come from fit_music.*try at "cue:song-drop-1"/);
+  // align and dur would move it off its cue (align end with dur 1.5 s would put it 1.5 s early).
+  assert.throws(() => run("flash", "cue:song-drop-1", 3, { align: "end", dur: 1.5 }), /takes no align or dur/);
+  assert.throws(() => run("flash", "cue:song-drop-1", 3, { align: "end" }), /takes no align or dur/);
+  const x = (made, own, t) => evaluateLayer({ ...scene.layers.find((layer) => layer.id === "clip"), animations: [...own, ...made.animations.map((entry) => entry.animation)] }, t).x;
   const shake = run("shake", "cue:hit-1", 2);
-  const clip = { ...scene.layers.find((layer) => layer.id === "clip"), animations: shake.animations.map((entry) => entry.animation) };
-  const swing = [0, 1, 2, 3].map((frame) => Math.abs(evaluateLayer(clip, 2 + frame / 30).x));
+  const swing = [0, 1, 2, 3].map((frame) => Math.abs(x(shake, [], 2 + frame / 30)));
   const size = 1920 * 0.018;
   assert.ok(Math.max(swing[0], swing[1]) >= size * 0.95, `the hit's frame is the peak (${swing.map(round3)})`);
   assert.ok(swing[3] < 0.3 * size, `under 30% by the 4th frame (${round3(swing[3])} of ${size})`);
-  assert.ok(Math.abs(evaluateLayer(clip, 2.5).x) < 0.01, "nothing is held after it");
+  assert.ok(Math.abs(x(shake, [], 2.5)) < 0.01, "nothing is held after it");
+  // The shake adds to the shot's own place: a pan that ended before it stays where it ended, a drift through it goes on.
+  const pan = [{ id: "pan", name: "pan", kind: "custom", start: 0, duration: 1, easing: "linear", from: { x: 0 }, to: { x: -120 } }];
+  const panned = run("shake", "cue:hit-1", 2, { own: pan });
+  assert.deepEqual([2.5, 4].map((t) => round3(x(panned, pan, t))), [-120, -120]);
+  assert.ok(Math.abs(x(panned, pan, 2) + 120) >= size * 0.95, "it shakes around where the pan left it");
+  const drift = [{ id: "clip.hold", name: "drift", kind: "custom", start: 0, duration: 5, easing: "linear", from: { x: 0 }, to: { x: 40 } }];
+  const drifting = run("shake", "cue:hit-1", 2, { own: drift });
+  assert.deepEqual([3, 4].map((t) => round3(x(drifting, drift, t))), [24, 32]);
   // A seam flash lifts the shot's own exposure (its colors carry it) by the cue's weight, 1 frame early.
   const flash = run("flash", "cue:song-drop-1", 3).animations.map((entry) => entry.animation);
   assert.deepEqual(flash.map((animation) => [animation.effect, round3(animation.start), animation.to.stops]), [["color-grade", round3(3 - 1 / 30), 2], ["color-grade", 3, 0]]);
+  // A strobe over a fill 0.2 s apart lights at most 3 times in any second, the last on the cue.
+  const lit = run("strobe", "cue:fill-1", 4).animations.map((entry) => entry.animation).filter((animation) => animation.name === "Strobe up").map((animation) => round3(animation.start + animation.duration));
+  assert.equal(lit.at(-1), 4);
+  assert.ok(lit.every((at) => lit.filter((other) => other >= at && other < at + 1).length <= 3), `at most 3 flashes a second (${lit})`);
 });

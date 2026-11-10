@@ -54,7 +54,8 @@ test("fit_music cuts the music layer into pieces with crossfades and writes the 
   // Crossfades: each later piece fades in, each earlier one fades out, at the piece's volume.
   assert.ok(layers.slice(1).every((layer) => layer.animations.some((animation) => animation.name === "Fit in" && animation.to.volume === 0.8)));
   assert.ok(layers.slice(0, -1).every((layer) => layer.animations.some((animation) => animation.name === "Fit out")));
-  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20) && next.cues.some((cue) => cue.name === "hit"));
+  // The measured sections are marked fitted (impact-accent answers only these); a hand cue is not.
+  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20 && cue.fitted === true) && next.cues.some((cue) => cue.name === "hit" && cue.fitted === undefined));
   assert.ok(!next.cues.some((cue) => cue.name === "song-drop-9"), "an earlier fit's cues are replaced");
   // Again on the result: the same pieces, not pieces of pieces.
   const again = applyOperations(next, [{ ...op, layerId: "music" }]);

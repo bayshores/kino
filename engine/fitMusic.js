@@ -235,9 +235,10 @@ export function applyFitMusic(document, operation) {
   scene.layers = scene.layers.filter((item) => !old.includes(item));
   scene.layers.splice(Math.max(0, at), 0, ...made);
 
-  // The sections as marker cues song-<kind>-<n> (an earlier fit's are replaced).
+  // The sections as marker cues song-<kind>-<n> (an earlier fit's are replaced), marked fitted:
+  // measured in the song, not placed by hand (impact-accent answers only these).
   const counts = {};
-  const cues = plan.sections.map((part) => ({ name: `song-${part.kind}-${(counts[part.kind] = (counts[part.kind] ?? 0) + 1)}`, time: part.at, kind: "marker" }));
+  const cues = plan.sections.map((part) => ({ name: `song-${part.kind}-${(counts[part.kind] = (counts[part.kind] ?? 0) + 1)}`, time: part.at, kind: "marker", fitted: true }));
   document.cues = withCues(document.cues, cues, { kinds: ["marker"], prefix: "song-" });
 
   const lines = plan.sections.map((part) => `${part.at} s ${part.kind}${part.label ? ` (${part.label})` : ""}`);
