@@ -51,7 +51,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   or less). Fix (auto): motion blur while fast, on the group that moves it.
 - `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
   title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
-  fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min).
+  fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min's floor).
 - `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
   Fix: moved or scaled about its middle inside the margin.
 - `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture
@@ -72,8 +72,8 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 - Rendered (`check` only): `text_on_busy` (words over a phone, screen recording or sharp
   detail; fix: the nearest calm place beside it, all parts of a caption together, else a plate
   under the text), `small_on_empty` (a picture under 25% of a flat frame, 40% for footage, for
-  1.5 s; fix: grow and crop, add a scene or move the camera), `render_artifact` (an RGB split drawing flat
-  saturated slabs; the fix op softens it to 40%, or delete the animation).
+  1.5 s; fix: grow and crop, add a scene or move the camera), `render_artifact` (an RGB split
+  drawing flat slabs; the fix softens it to 40%, or delete the animation).
 
 ## Looking
 

@@ -504,10 +504,14 @@ test("stagger_long: a word-by-word entrance reaches its last word within 0.5 s",
 
 test("stagger_long: a word reveal whose words land on beat cues is paced by the music", async () => {
   // The same 1 s reveal (a word every 0.2 s from 0.2 s). Bad: no cue near the words. Good: a beat under each word.
-  const reveal = scene({ layers: [text("line", "Bread baked fresh every single morning", { fontSize: 64,
+  const revealAt = (rhythm) => scene({ rhythm, layers: [text("line", "Bread baked fresh every single morning", { fontSize: 64,
     animations: [{ ...fadeIn(0.2, 0.4), unit: "words", stagger: 0.2 }] })] });
+  const reveal = revealAt(undefined);
   const beats = [0.2, 0.4, 0.6, 0.8, 1, 1.2].map((time) => ({ time, kind: "beat" }));
   await fires("stagger_long", reveal, { beatCues: beats.map((beat) => ({ ...beat, time: beat.time + 0.1 })) });
+  // Onset cues are not pacing, and a fast tempo with no cue under the words proves nothing.
+  await fires("stagger_long", reveal, { beatCues: beats.map((beat) => ({ ...beat, kind: "onset" })) });
+  await fires("stagger_long", revealAt({ bpm: 174, offset: 0 }));
   const notes = await silent("stagger_long", reveal, { beatCues: beats });
   assert.ok(notes.some((note) => note.startsWith("stagger_long leaves a word-by-word reveal alone")), notes.join(" | "));
 });

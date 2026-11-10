@@ -336,23 +336,22 @@ function layerStaggers(model) {
 const TYPED = { letters: "type-letters", words: "type-words" };
 
 // A word-by-word reveal is paced by the voice or the music when its words land on a speech word,
-// a cue or a beat (within two frames): the long spread is the pacing, not a slow stagger.
+// a named cue or a beat cue (within one frame): the long spread is the pacing, not a slow stagger.
+// Only real marks count: no onset cues (a busy track has one every 0.1 s) and no made-up beat
+// grid, so a dense grid cannot excuse a slow reveal by chance.
 const PACED_SHARE = 0.75;
 
 function pacedByAudio(model, ctx, tween) {
   if (tween.unit !== "words") return false;
   const count = Math.round(tween.spread / tween.stagger) + 1;
   if (!(count >= 2)) return false;
-  const near = 2 / (ctx.outputFps ?? 30) + 1e-3;
-  const marks = [...(ctx.cues ?? []), ...(ctx.beatCues ?? [])].map((cue) => cue.time).filter(Number.isFinite);
+  const near = 1 / (ctx.outputFps ?? 30) + 1e-3;
+  const marks = [...(ctx.cues ?? []), ...(ctx.beatCues ?? []).filter((cue) => cue.kind !== "onset")].map((cue) => cue.time).filter(Number.isFinite);
   for (const edge of heardEdges(ctx)) if (edge.words?.length) for (const word of heardWords(edge)) marks.push(word.start);
-  const half = model.rhythm?.bpm > 0 ? 30 / model.rhythm.bpm : null;
-  const offset = model.rhythm?.offset ?? 0;
-  const onGrid = (time) => half != null && Math.abs((time - offset) / half - Math.round((time - offset) / half)) * half <= near;
   let landed = 0;
   for (let index = 0; index < count; index += 1) {
     const time = tween.start + index * tween.stagger;
-    if (onGrid(time) || marks.some((mark) => Math.abs(mark - time) <= near)) landed += 1;
+    if (marks.some((mark) => Math.abs(mark - time) <= near)) landed += 1;
   }
   return landed / count >= PACED_SHARE;
 }
