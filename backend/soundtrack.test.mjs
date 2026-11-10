@@ -10,7 +10,7 @@ import { createSongTaste, rankSongs, storyScore, tasteEntry, tasteScore, tempoCl
 import { createMusicEmbed, decodeVector, encodeVector, songWindows } from "./music-embed.mjs";
 import { joinSpans, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
 import { songKey as clientSongKey } from "../frontend/dashboard/inspireView.js";
-import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
+import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, namedSong, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
 
 test("Openverse music: usable licenses and songs of 20 s or more, with a credit line", async () => {
   const body = JSON.parse(await readFile(new URL("../tests/fixtures/soundtrack/openverse-music.json", import.meta.url), "utf8"));
@@ -104,9 +104,9 @@ test("energy curve: 0 to 100 per second, the loudest second is 100", () => {
   assert.equal(curve[2], 0);
 });
 
-test("a YouTube song is a candidate with an unknown license; only the video's candidates import", () => {
+test("a YouTube song is a candidate with no license claimed or shown; only the video's candidates import", () => {
   const [song] = youtubeCandidates([{ id: "yt:dQw4w9WgXcQ", title: "Epic trailer music", channel: "x", duration: 150, url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }]);
-  assert.equal(song.use, "license unknown");
+  assert.deepEqual([song.license, song.use, licenseTag(song), licenseTag({ license: "license unknown" }), licenseTag({ license: "CC BY 4.0" })], [null, undefined, "", "", " · CC BY 4.0"]);
   assert.equal(importableId("yt:dQw4w9WgXcQ", [song]), song);
   assert.equal(importableId("yt:aaaaaaaaaaa", [song]), null);
   const licensed = { id: "openverse:1f2e3d4c-0000-4000-8000-000000000001", source: "openverse" };
@@ -331,12 +331,12 @@ test("search with no source: Openverse and the Archive at once; a failed or slow
   try {
     const failed = await make("a", async () => ({ ok: false, status: 504 })).search("driving electronic build");
     assert.deepEqual(failed.results.map((entry) => entry.id), ["archive:JOAT022/01SpringI.mp3", "archive:breaknorth/breaknorth.mp3", "archive:JOAT022/02SpringII.mp3"], "round by round: one track from each item, then a second");
-    assert.deepEqual(failed.notes, ["Openverse: Openverse answered 504.", "YouTube: not available here."]);
+    assert.deepEqual(failed.notes, ["YouTube: not available here.", "Openverse: Openverse answered 504."], "YouTube first");
     const started = Date.now();
     const slow = await make("b", () => new Promise(() => {})).search("driving electronic build");
     assert.ok(Date.now() - started < 1500, "the Archive answered, so Openverse got only the grace time");
     assert.equal(slow.results[0].source, "archive");
-    assert.match(slow.notes[0], /Openverse is slow right now/);
+    assert.match(slow.notes.join("\n"), /Openverse is slow right now/);
     const iaSlow = createSoundtrack({ directory: path.join(directory, "f"), enabled: () => true, searchMs: 2000, graceMs: 30,
       fetch: async (url) => (new URL(url).host === "archive.org" ? new Promise(() => {}) : answer(openverseBody)) });
     const iaStarted = Date.now();
@@ -368,8 +368,10 @@ test("search with no source: Openverse and the Archive at once; a failed or slow
     landed = "https://elsewhere.example/01SpringI.mp3";
     await assert.rejects(importer.importCandidate(song), /elsewhere\.example, which kino does not download from/);
     license = "http://creativecommons.org/licenses/by-nc-sa/3.0/";
-    await assert.rejects(importer.importCandidate(song), /no longer allows commercial use/);
-    // A YouTube song comes in whole, with its credit and an unknown license.
+    landed = "https://ia800100.us.archive.org/0/items/JOAT022/01SpringI.mp3";
+    await importer.importCandidate(song);
+    assert.equal(added[1].extra.credit.license, "CC BY-NC-SA 3.0", "a changed license is kept as metadata, not a refusal");
+    // A YouTube song comes in whole, its credit kept as metadata.
     const pulled = [];
     const tube = createSoundtrack({ directory: path.join(directory, "y"), enabled: () => false,
       downloadYouTube: async (id, folder, options) => { pulled.push([id, options]); const file = path.join(folder, "song.wav"); await writeFile(file, "wav"); return file; },
@@ -417,10 +419,16 @@ test("explore: lanes from the brief skip what it rules out and closed lanes; Lis
   const soundtrack = createSoundtrack({ directory, enabled: () => false, fetch, listenbrainzApi: "https://lb.test/1", searchYouTube: async (words) => { searches.push(words); return results; } });
   try {
     const found = await soundtrack.explore(["house"], { perLane: 2 });
-    assert.deepEqual(found.results.map((entry) => [entry.id, entry.creator, entry.lane, entry.tags[0], entry.source, entry.license]), [["yt:4yyyyyyyyyy", "Breakbot", "house", "french house", "youtube", "license unknown"]]);
+    assert.deepEqual(found.results.map((entry) => [entry.id, entry.creator, entry.lane, entry.tags[0], entry.source, entry.license]), [["yt:4yyyyyyyyyy", "Breakbot", "house", "french house", "youtube", null]]);
     assert.deepEqual(searches, ["Breakbot - Baby I'm Yours"], "the same song from three tags is searched once");
     assert.ok(asked.every((url) => url.startsWith("https://lb.test/1/")));
     const again = await soundtrack.explore(["house"], { skip: new Set(["breakbot - baby i'm yours (feat. irfane)"]) });
     assert.equal(again.results.length, 0, "a kept song is skipped");
+    // named song: "Title by Artist", "Artist - Title" or a pasted link (taken as it is).
+    assert.deepEqual([namedSong("Melatonin by Tinashe").song, namedSong("Tinashe - Melatonin").words, namedSong("https://youtu.be/dQw4w9WgXcQ?t=3").id], [{ title: "Melatonin", artist: "Tinashe" }, "Tinashe - Melatonin", "yt:dQw4w9WgXcQ"]);
+    const named = await soundtrack.findSong("Baby I'm Yours by Breakbot");
+    assert.deepEqual([named.id, named.title, named.creator, named.license], ["yt:4yyyyyyyyyy", "Baby I'm Yours", "Breakbot", null], "the label's Topic upload");
+    assert.equal((await soundtrack.findSong("yt:1yyyyyyyyyy")).id, "yt:1yyyyyyyyyy", "a link is the person's choice, live or not");
+    await assert.rejects(soundtrack.findSong("Melatonin by Tinashe"), /YouTube has no song for "Tinashe - Melatonin"/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

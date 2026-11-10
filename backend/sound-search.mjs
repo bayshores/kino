@@ -207,7 +207,7 @@ export function soundsText({ query, maxSeconds, results, total, freesound = fals
   return [
     `${results.length} commercial-use sounds for "${query}" (${maxSeconds} s or less; Freesound previews are MP3s):`,
     ...results.map((entry) => `${entry.id} '${entry.title}' ${entry.seconds}s by ${entry.creator} (${entry.provider}, ${entry.license})`),
-    'Import one: project {action:"import", file:"<id>"}; kino keeps its credit (license, creator, page); a CC BY sound needs that credit in the video\'s credits.',
+    'Import one: project {action:"import", file:"<id>"}; kino keeps its credit (license, creator, page) with the file.',
     keyLine,
     OPENVERSE_NOTE,
   ].filter(Boolean).join("\n");

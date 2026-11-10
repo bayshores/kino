@@ -29,7 +29,7 @@ export const FOOTAGE_IMPORT_PICKS = 6;
  * The footage topic's line in the library topics answer. At most 150 characters, as the topics
  * answer is read by every agent.
  */
-export const FOOTAGE_TOPIC_LINE = 'footage {search, want?, scan?, note?} (found video: YouTube, license unknown, or source:"commons"; scan ranks shots to import)';
+export const FOOTAGE_TOPIC_LINE = 'footage {search, want?, scan?, note?} (found video from YouTube, or source:"commons"; scan ranks shots to import)';
 
 const VERDICTS = ["pick", "maybe", "no"];
 const TITLE_SHOWN = 70;
@@ -173,7 +173,6 @@ export function scanText(candidate, scan, need = null) {
   if (scan.want && !scan.matchShown) tail.push(`No visual match for "${scan.want}": shots rank on motion, faces and clean frames.`);
   if (shots.length) tail.push(`Stills: look {mode:"source", ref:"${candidate.code}"}`);
   tail.push(needLine(need));
-  tail.push(`License ${candidate.license ?? "unknown"}${candidate.license === "unknown" ? ": fine for a private video; the person checks the rights before publishing" : ""}.`);
   return [head, ...lines, ...tail.filter(Boolean)].join("\n");
 }
 

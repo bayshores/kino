@@ -57,18 +57,18 @@ test("the sound stop of a video with no music: the person's three choices, or 2 
     for (const kind of ["rough", "color"]) checkpointStep(state, { kind, video: silent, rules, rev: 4, now: T0 });
     return state;
   };
-  // Sound search off: the ask says so in one line, and a plain approval is recorded as silence by their call.
+  // No song search: the ask says so in one line, and a plain approval is recorded as silence by their call.
   const off = upToSound();
   const asked = checkpointStep(off, { kind: "sound", video: silent, rules, rev: 4, now: T0 });
-  assert.match(asked.data.ask, /^No music yet: send a track, name a mood for kino's music library, or keep it silent\.$/m);
+  assert.match(asked.data.ask, /^No music yet: name a song or artist, send a track, or keep it silent\.$/m);
   const answered = answerStep(off, { input: { id: asked.data.id, rev: 4, words: "your call", read_as: "approve" }, video: silent, rules, rev: 4, now: T0 + 30_000 });
   assert.equal(answered.data.silent, "silent by the person's call");
   assert.match(answered.text, /never that they asked for silence/);
   // With music the ask has no such line.
   assert.doesNotMatch(checkpointStep(upToSound(), { kind: "sound", video: { ...VIDEO, music: true }, rules, rev: 4, now: T0 }).data.ask, /No music/);
-  // Sound search on: refused until 2 songs are measured, with the next call.
+  // Song search (YouTube, no Settings switch): refused until 2 songs are measured, with the next call.
   const on = upToSound();
-  const error = refusal(() => checkpointStep(on, { kind: "sound", video: silent, rules, rev: 4, now: T0, soundSearch: true }));
+  const error = refusal(() => checkpointStep(on, { kind: "sound", video: silent, rules, rev: 4, now: T0, songSearch: true }));
   assert.deepEqual([error.code, error.details.next], ["music_first", 'library {topic:"soundtrack", search:"<mood, tempo>"}']);
   on.soundtrack = { candidates: [{ id: "ov-a", measure: {} }, { id: "ov-b", measure: {} }] };
   assert.match(error.message, /waive_check \{code:"no_music"/, "a way out when the search finds nothing");
@@ -84,7 +84,7 @@ test("the sound stop of a video with no music: the person's three choices, or 2 
   assert.match(answerStep(on, { input: { id: picked.data.id, rev: 4, words: "fine", read_as: "approve" }, video: silent, rules, rev: 4, now: T0 + 30_000 }).text, /silent by the person's call \(they picked none of the measured songs\)/);
   // Allowed by the settings: the reply still says why the video is silent.
   const allowed = upToSound();
-  assert.match(checkpointStep(allowed, { kind: "sound", video: silent, rules: stopRules({ "checkpoint-rough": "allow", "checkpoint-color": "allow", "checkpoint-sound": "allow" }), rev: 4, now: T0 }).text, /^No music: silent because no track was sent and sound search is off\./m);
+  assert.match(checkpointStep(allowed, { kind: "sound", video: silent, rules: stopRules({ "checkpoint-rough": "allow", "checkpoint-color": "allow", "checkpoint-sound": "allow" }), rev: 4, now: T0 }).text, /^No music: silent because no track was sent and no song search is available\./m);
 });
 
 test("undoing \"stop asking\" makes the stops it allowed ask again; the stop the person answered stays passed", () => {

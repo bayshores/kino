@@ -133,7 +133,7 @@ test("a footage search puts the pasted link and then verified channels first, dr
     assert.deepEqual(answer.dropped, { "yours: region": 1, edits: 1, reactions: 1, live: 1, "over 3 h": 1 });
     const search = calls.find((args) => args.includes("--flat-playlist"));
     assert.ok(search.includes("ytsearch20:gojo fight"), search.join(" "));
-    assert.equal(candidateLine(answer.candidates[1], "F2"), 'F2 Big Studio (verified) · 10:00 · "Episode 1" · license unknown');
+    assert.equal(candidateLine(answer.candidates[1], "F2"), 'F2 Big Studio (verified) · 10:00 · "Episode 1"', "no license column for YouTube");
     assert.equal(droppedLine(answer.dropped), "Dropped 5: 1 yours: region, 1 edits, 1 reactions, 1 live, 1 over 3 h.");
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -376,10 +376,10 @@ test("the scans folder keeps its cap by removing the least recently used scans, 
   }
 });
 
-test("Commons: a 3840x2160 original yields its 1080p copy (360p to scan), credited; a CC BY-NC file is dropped", () => {
+test("Commons: a 3840x2160 original yields its 1080p copy (360p to scan), credited; a CC BY-NC file is kept with its license as metadata", () => {
   const found = parseCommonsSearch({ query: { pages: [commonsPage(7, { license: "CC BY-NC-SA 4.0", licenseUrl: "https://creativecommons.org/licenses/by-nc-sa/4.0" }), commonsPage(5)] } });
-  assert.deepEqual(found.map((clip) => clip.id), ["clip:commons-5"]);
-  const [clip] = found;
+  assert.deepEqual(found.map((clip) => [clip.id, clip.license]), [["clip:commons-5", "CC BY-SA 4.0"], ["clip:commons-7", "CC BY-NC-SA 4.0"]]);
+  const clip = found[0];
   assert.match(clip.files.import.url, /\.1080p\.vp9\.webm$/);
   assert.equal(clip.files.import.height, 1080);
   assert.match(clip.files.scan.url, /\.360p\.vp9\.webm$/);
@@ -572,7 +572,7 @@ test("song to footage: a 30 s drop at 140 bpm cut every 2 beats needs 35 shots, 
   const finder = { readScan: async () => null, scan: async () => ({ want: "", windows: [{ start: 0, end: 60 }], skipped: {},
     shots: Array.from({ length: 14 }, (_, index) => ({ n: index + 1, start: index * 2, end: index * 2 + 1.5, motion: 60, face: 10, flags: [] })) }) };
   const answer = await createFootageActions({ finder }).handle({ scan: "F1" }, { footage: addCandidates(null, [found(1)]), personClips: 0, song: async () => need });
-  assert.match(answer.text, /\nThe song \(140 bpm\) needs about 42 shots: 35 on the drop \(a cut every 2 beats, high motion\), 7 on builds and lyrics \(every 4 to 8 beats, calm faces\)\. Import 1\.5x: about 63\.\n/);
+  assert.match(answer.text, /\nThe song \(140 bpm\) needs about 42 shots: 35 on the drop \(a cut every 2 beats, high motion\), 7 on builds and lyrics \(every 4 to 8 beats, calm faces\)\. Import 1\.5x: about 63\.$/);
   assert.equal(answer.nextCall.input.options.shots.length, 12);
   assert.equal(answer.data.song.want.drop, "fast action, motion, impact");
 });
@@ -664,7 +664,7 @@ test("look source puts the person's clips first and untagged, and 30 found clips
   assert.equal(groupLine(entries[2]), "F1: 10 shots (F1.3, F1.6, F1.9, F1.12, F1.15, F1.18, …)");
 });
 
-test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its exact frame to H.264, credited license unknown, and shown under F1", async () => {
+test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its exact frame to H.264, credited (license unknown as metadata), and shown under F1", async () => {
   const candidate = { ...found(1), code: "F1", scan: { id: "yt-vvvvvvvvvv1", shots: 3 } };
   const scan = { shots: [{ n: 37, start: 197.2, end: 199 }, { n: 38, start: 201, end: 203 }, { n: 40, start: 210, end: 212 }] };
   const pieces = planTake(candidate, scan, { file: "F1.37", shots: [38, "F1.40"] });
@@ -698,7 +698,7 @@ test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its 
     [37, 38, 40].map((n) => [`F1.${n} Episode 1.mp4`, "video/mp4", "anime-edit", "unknown", n]));
   assert.equal(result.failed.length, 0);
   assert.deepEqual(result.media.map((item) => foundClipTag(item, { candidates: [candidate] }).label), ["F1.37", "F1.38", "F1.40"]);
-  assert.match(takeText(candidate, result), /License unknown: fine for a private video; the person checks the rights before publishing\./);
+  assert.doesNotMatch(takeText(candidate, result), /license|rights|end credits/i);
 });
 
 test("import refuses a bare F1 of a 23 min video, an unscanned video and a stretch over 60 s; yt: names the footage scan", async (t) => {
@@ -719,7 +719,7 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   assert.match(bare.text, /"F2 is 23:40 long: import shots \(F2\.37\) or a stretch \(from, to, 60 s at most\)\. Scan it first\./);
   assert.match((await importing({ file: "F2", options: { shots: [3] } })).text, /F2 is not scanned yet/);
   assert.match((await importing({ file: "F1", from: "1:00", to: "2:30" })).text, /A stretch is 60 s at most/);
-  assert.equal(JSON.parse((await importing({ file: "yt:abcdefghijk" })).text).reason, 'yt:abcdefghijk is a reference; as footage: library {topic:"footage", scan:"yt:abcdefghijk"}');
+  assert.equal(JSON.parse((await importing({ file: "yt:abcdefghijk" })).text).reason, 'yt:abcdefghijk is not one of this video\'s songs yet. As the song: library {topic:"soundtrack", song:"yt:abcdefghijk"}, then import it; as footage: library {topic:"footage", scan:"yt:abcdefghijk"}');
   const imported = await importing({ file: "F1", options: { shots: [4] } });
   assert.equal(imported.isError, undefined, imported.text);
   assert.deepEqual(taken, [["F1", [4], "anime-edit"]]);
@@ -774,12 +774,12 @@ test("the skill's footage calls search, scan and import a stub video's shots; a 
     replies.push(reply);
   }
   const [search, scan, take] = replies;
-  assert.match(search.text, /^F1 Stub Studio \(verified\) · 0:08 · "Stub Series episode 1 fight scene" · license unknown$/m);
+  assert.match(search.text, /^F1 Stub Studio \(verified\) · 0:08 · "Stub Series episode 1 fight scene"$/m);
   assert.match(search.text, /^Dropped 1: 1 edits\.$/m);
   assert.match(scan.text, /^F1 "Stub Series episode 1 fight scene" · scanned 0:08 of 0:08 · 4 shots:$/m);
   assert.match(scan.text, /^F1\.1 0:00\.0-0:02\.0 /m);
   assert.deepEqual(take.data.media.map((item) => item.shot), [1, 2]);
-  assert.match(take.text, /, license unknown\. Put it in the end credits\./);
+  assert.doesNotMatch(take.text, /license|end credits/i);
   for (const { tool, ...call } of jsonBlocks(skillSection("Note a video")).flat()) {
     const reply = await agent(tool, { project: "found", ...call });
     assert.notEqual(reply.isError, true, `${tool} ${JSON.stringify(call)}: ${reply.text}`);
@@ -790,10 +790,11 @@ test("the skill's footage calls search, scan and import a stub video's shots; a 
   const [clip] = take.data.media;
   const added = await agent("edit", { project: "found", ops: [{ op: "add_layer", layerType: "video", name: "found shot", properties: { src: clip.src, x: 0, y: 0, width: 640, height: 360, mediaSourceDuration: 2 } }] });
   assert.equal(added.isError, undefined, added.text);
-  // A 4 s video has no sound stop, so the final render's answer carries the found footage's credit.
+  // Every final render's answer names its sources in one quiet line.
   const started = await agent("render", { project: "found", action: "start", quality: "final", format: "png", options: { time: 1 } });
   assert.notEqual(started.isError, true, started.text);
-  assert.match(started.text, /Credits \(send them to the person, who checks the rights before publishing\): "Stub Series episode 1 fight scene" by Stub Studio \(.*\), license unknown\./);
+  assert.match(started.text, / Sources \(for when the person publishes\): "Stub Series episode 1 fight scene" by Stub Studio \(.*\)\./);
+  assert.doesNotMatch(started.text, /rights|license/i);
   const done = await agent("render", { project: "found", action: "wait", job: started.data.job, timeout_s: 30 });
   assert.equal(done.data.status, "done", done.text);
   // The frame is the found footage, not an empty scene: many different colors.

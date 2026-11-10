@@ -111,8 +111,8 @@ const offerLine = (offer) => `Or say "stop asking" to skip the ${offer.join(" an
 const askText = (kind, id, check, offer) => [
   `${HEADLINES[kind]} (${id}): 24 s, 1080×1920.`,
   `Checked: ${counts(check)}.`,
-  // These test videos have no sound, and sound search is off.
-  ...(kind === "sound" ? ["No music yet: send a track, name a mood for kino's music library, or keep it silent."] : []),
+  // These test videos have no sound, and this service has no song search.
+  ...(kind === "sound" ? ["No music yet: name a song or artist, send a track, or keep it silent."] : []),
   "What did you notice, and what would you change?",
   "Reply: approve · approve with notes: ... · redo: ...",
   ...(offer.length ? [offerLine(offer)] : []),

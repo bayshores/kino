@@ -444,10 +444,10 @@ export const recommendedOption = (need) => Math.max(1, (need?.options ?? []).fin
 /**
  * A need option's words for the person. The agent's `do` stays as written, except the found
  * footage option (library {topic:"footage"} tool syntax, needs.mjs findDo): it reads as plain
- * words with its license cost kept in view.
+ * words.
  */
 export const optionLabel = (option) => (/^library\s*\{\s*topic\s*:\s*"footage"/.test(String(option?.do ?? ""))
-  ? "find footage (license unknown)" : String(option?.do ?? ""));
+  ? "find footage" : String(option?.do ?? ""));
 
 /**
  * "needs you", in order: the open project's waiting stop, the stops in other projects, the ideas

@@ -134,7 +134,7 @@ test("the built-in library: effects by description words and mood-tagged music, 
   for (const project of ["sounds", "sounds-2"]) orders.add((await agent("library", { project, topic: "music" })).data.music.map((track) => track.id).join());
   assert.equal(orders.size, 2, "two projects do not list the tracks in the same order");
   const track = await agent("project", { action: "import", file: "music:two" });
-  assert.match(track.text, /"Track two" Kevin MacLeod \(incompetech\.com\), CC BY 4\.0\. Put it in the end credits\.$/m);
+  assert.match(track.text, /"Track two" Kevin MacLeod \(incompetech\.com\), CC BY 4\.0\.$/m);
   const bad = await agent("project", { action: "import", file: "music:nope" });
   assert.match(bad.text, /no music:nope/);
 });
@@ -249,12 +249,10 @@ test("the board's sound line offers files or the built-in library, never the swi
   assert.equal(ask(true), ask(false));
 });
 
-test("the sound stop names where found sounds and footage came from", () => {
-  const credits = ['"Door slam" by someone, CC0 1.0', '"Fight" by s (https://www.youtube.com/watch?v=stubFight01), license unknown', '"Tap" by c, CC0 1.0', '"Rain" by d, CC0 1.0'];
+test("the sound stop asks no rights or credits questions (sources go on the final render's answer)", () => {
+  const credits = ['"Door slam" by someone, CC0 1.0', '"Fight" by s (https://www.youtube.com/watch?v=stubFight01)'];
   const ask = askText({ id: "C5", kind: "sound", video: { seconds: 20, credits }, checked: { errors: 0, warnings: 0 } });
-  assert.match(ask, /^Credits: "Door slam" by someone, CC0 1\.0; "Fight" by s \(https:\/\/www\.youtube\.com\/watch\?v=stubFight01\), license unknown; "Tap" by c, CC0 1\.0; and 1 more\.$/m);
-  assert.doesNotMatch(askText({ id: "C4", kind: "color", video: { seconds: 20, credits }, checked: {} }), /Credits:/);
-  assert.doesNotMatch(askText({ id: "C5", kind: "sound", video: { seconds: 20 }, checked: {} }), /Credits:/);
+  assert.doesNotMatch(ask, /Credits|license|rights/i);
 });
 
 test("soundtrack: search, measure against the intents, note, the person's use, import with credit; YouTube songs never import", async () => {
@@ -311,7 +309,12 @@ test("soundtrack: search, measure against the intents, note, the person's use, i
   assert.match(imported.text, /credit kept with the file: "Rain on a roof" by someone \(https:\/\/freesound\.org\/[^)]+\), CC0 1\.0/);
   const refused = await agent("project", { action: "import", file: "yt:dQw4w9WgXcQ" });
   assert.equal(refused.isError, true);
-  assert.match(refused.text, /yt:dQw4w9WgXcQ is a reference; as footage: library \{topic/);
+  assert.match(refused.text, /yt:dQw4w9WgXcQ is not one of this video's songs yet\. As the song: library \{topic:\\"soundtrack\\", song:\\"yt:dQw4w9WgXcQ\\"\}/);
+  // A song the person named: found on YouTube by artist and title, picked, no rights talk.
+  const named = await agent("library", { topic: "soundtrack", song: "Never Knew by Apex" });
+  assert.equal(named.isError, undefined, named.text);
+  assert.match(named.text, /^found yt:r60ok-Za8cg 'Never Knew' by Apex · 200s for "Never Knew by Apex": picked/);
+  assert.doesNotMatch(named.text, /license|rights|private/i);
 });
 
 test("Freesound with a key: its results join Openverse's (token header, previews, never NC); no key, no request", async () => {

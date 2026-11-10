@@ -25,7 +25,8 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   `look {mode:"review"}` has shown every moment (else `review_needed`). With `wait:true` it
   answers when the file is checked; if the render takes longer, it says it is still running:
   then `render {action:"wait"}` until it returns the file. Use `quality:"draft"` only
-  if you need to see real motion.
+  if you need to see real motion. A final's answer ends with one `Sources` line (found footage,
+  songs, sounds) for when the person publishes.
 - Past the build, status (and the answer to the last stop) says `to final: 1) … N) render final`,
   and a refused final names every gate still open. Plan them all at once, in that order
   (stops, intents, viewer, critic, fixes, check, review, versus): a fix redoes what comes after.

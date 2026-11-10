@@ -12,8 +12,7 @@ not quietly make do. Say it, ask the person, and let them choose what happens.
   telling it with what exists). Look through the material first: kino refuses the draft until you
   fill what to make now from the files you found; or send `items:[]` when it is enough.
 - With web search on, the draft also offers finding it: `library {topic:"footage", search,
-  want}`, then scan and import (cost: license unknown, fine for a private video; the person
-  checks the rights before publishing). Fill its search and want words, or leave it out. Their
+  want}`, then scan and import (cost: found clips, not your own shots). Fill its search and want words, or leave it out. Their
   files still lead: found clips fill the gap. Their clips without the pick's who: this is the path.
 - After the viewer test: a story bug the material cannot fix (the viewer never sees his face,
   so the payoff does not land) becomes a need, not a caption that explains it away.
@@ -45,7 +44,7 @@ things you can do without it, each with its cost, and one you recommend:
 
 Then say it plainly in the chat: what is missing, why the video loses it, and the options. The
 dashboard shows the same question with a button for each option, "I have it" and "do without"
-(the found footage option reads "find footage (license unknown)" there).
+(the found footage option reads "find footage" there).
 
 ## Their answer
 

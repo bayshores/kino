@@ -124,5 +124,5 @@ frame strips · Proposing ideas · Sound effects
 - `name:"sounds 3"`: search 3 ranked by how each sound matches the words (CLAP, `match` 0-100)
   and the person's `use`/`no` on sounds (`taste`); near-duplicates fold into one.
 - `project {action:"import", file:"yt:<id>"}` brings its short preview (AAC) in with its credit
-  (license "unknown (YouTube)": credit it, check it may be used). Videos and songs never come in.
+  (kept as metadata). A song: `library {topic:"soundtrack", song:"yt:<id>"}`; a video: footage guide.
 - `name:"forget 3"` drops search 3 from the project; measured references stay in kino's cache.

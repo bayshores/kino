@@ -436,7 +436,7 @@ test("a sounds search keeps sound effects of 60 s or less, measures their shape,
   const media = await inspire.importSound("yt:ghBpKLARE_8");
   assert.equal(added[0].bytes, "aac 0.5-1.5");
   assert.equal(added[0].mime, "audio/mp4");
-  assert.deepEqual([media.credit.title, media.credit.channel, media.credit.url, media.credit.license], ["Fast Cuts SFX - Cinematic Sound Effects for Fast Edit Sequences", "Lens Distortions", "https://www.youtube.com/watch?v=ghBpKLARE_8", "unknown (YouTube)"]);
+  assert.deepEqual([media.credit.title, media.credit.channel, media.credit.url, media.credit.license], ["Fast Cuts SFX - Cinematic Sound Effects for Fast Edit Sequences", "Lens Distortions", "https://www.youtube.com/watch?v=ghBpKLARE_8", "unknown"]);
   assert.equal(await inspire.importSound("yt:tgEWNHVbk3U"), null, "a video is never imported");
   // forget drops the search; the measured sound stays in the cache.
   await inspire.search("p1", "riser", { kind: "sounds" });

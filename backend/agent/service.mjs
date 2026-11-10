@@ -107,7 +107,7 @@ import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
 import { isLibraryId, librarySoundsText, musicText, SoundLibraryError } from "../sound-library.mjs";
-import { compareText, compareToStory, exploreLanes, importableId, junkTitle, keepCandidates, SoundtrackError } from "../soundtrack.mjs";
+import { compareText, compareToStory, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, SoundtrackError } from "../soundtrack.mjs";
 import { rankSongs } from "../songTaste.mjs";
 import { dot, LANES } from "../music-embed.mjs";
 import { importedText } from "./client.mjs";
@@ -627,7 +627,7 @@ export function createAgentService(deps) {
       return make ? loudnessCurves.get(file) : loudnessCurves.saved(file);
     };
     const asks = askedItems(saved);
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, peopleOf, soundSearch: soundSearchOn() });
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, peopleOf, soundSearch: songSearchOn() });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
@@ -4109,22 +4109,18 @@ export function createAgentService(deps) {
   // used by one of its saves: media-use.mjs) and that it does not play now as its music or
   // voice-over. The library is shared, so another video's song does not count.
   // The credit lines of the found sounds (sound search) this video plays, for the sound stop.
-  // footageOnly: just the found footage (the footage finder's clips), for the final render's answer.
-  async function soundCredits(document, { footageOnly = false } = {}) {
+  async function soundCredits(document) {
     const playing = new Set((document.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "audio" || layer.type === "video").map((layer) => layer.src));
     const media = (await deps.listMedia?.()) ?? [];
     // Each line once: twelve found shots of one video share one credit.
-    return [...new Set(media.filter((item) => item.credit?.line && (!footageOnly || item.footage) && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line))];
+    return [...new Set(media.filter((item) => item.credit?.line && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line))];
   }
-  // A final render of found footage the sound stop never showed the person (a video under the
-  // stop's length, the stop allowed in settings or by "stop asking", no brief): the answer carries
-  // the credits, so the person still sees "license unknown" before the video goes anywhere.
-  async function unseenFootageCredits(document) {
-    const state = await agentState.read(document.id);
-    if ((state.stops ?? []).some((round) => round.kind === "sound" && round.status !== "allowed")) return "";
-    const credits = await soundCredits(document, { footageOnly: true });
+  // Every final render's answer ends with one quiet line: the found media it plays (footage,
+  // songs, sounds), kept for when the person publishes. Nothing is asked or checked here.
+  async function finalSources(document) {
+    const credits = await soundCredits(document);
     if (!credits.length) return "";
-    return ` Credits (send them to the person, who checks the rights before publishing): ${credits.slice(0, 3).join("; ")}${credits.length > 3 ? `; and ${credits.length - 3} more` : ""}.`;
+    return ` Sources (for when the person publishes): ${credits.slice(0, 3).join("; ")}${credits.length > 3 ? ` (+${credits.length - 3} more)` : ""}.`;
   }
   // Whether the video (its longest scene) has music, for the sound stop: the no_music rule's test
   // (hasMusic) with the songs kino heard a beat in and the saved voice transcripts.
@@ -4205,6 +4201,9 @@ export function createAgentService(deps) {
   }
   // Whether the person turned on sound search in Settings (backend/sound-search.mjs).
   const soundSearchOn = () => Boolean(deps.soundSearch?.enabled?.());
+  // Songs can be found without the web search switch (YouTube through yt-dlp; index.mjs sets
+  // songSearch), so the no-music fix and the sound stop push a real song.
+  const songSearchOn = () => Boolean(deps.songSearch?.()) || soundSearchOn();
   // Whether a need may offer found footage: the footage finder is here, its topic is offered and
   // web search is on (the same Settings switch as sound search).
   const footageSearchOn = () => Boolean(footageActions && footageStepShown && soundSearchOn());
@@ -4912,7 +4911,7 @@ export function createAgentService(deps) {
           // The approved storyboard is compared with the board now before the stops decide.
           settleBoard(draft, { ...board, rev: step.rev, now: step.now });
           if (checkpoint) {
-            answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), fresh: input.fresh, critique });
+            answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique });
             const asked = answer.data.status === "waiting_for_you" ? roundOf(draft, answer.data.id) : null;
             if (asked && !asked.steady) asked.steady = { at: steady, boot: bootedAt };
             // Which agent asked it, for the dashboard (live.mjs); older rounds, and rounds asked by
@@ -5451,7 +5450,7 @@ export function createAgentService(deps) {
       const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
       const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
-        + (quality === "final" ? await unseenFootageCredits(record.document) : "");
+        + (quality === "final" ? await finalSources(record.document) : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
       if (input.wait === true) {
@@ -5663,7 +5662,8 @@ export function createAgentService(deps) {
       const found = deps.soundLibrary.listMusic({ mood: input.mood ?? names, energy: input.energy, bpm: input.bpm, search }, { seed: record.document.id });
       // No music answer in the brief yet: the person picks the feel first (or sends a song).
       const ask = fields.look_sound?.text ? "" : "The brief has no music answer (look_sound): ask the person for a mood or their own song before you pick.\n";
-      return { text: ask + musicText(found), data: { music: found.results.slice(0, 8).map(({ url, sha256, bytes, credit, ...track }) => ({ ...track, id: `music:${track.id}` })) } };
+      const songs = deps.soundtrack ? '\nA real song fits most videos better: library {topic:"soundtrack", song:"<title> by <artist>"}, search or explore:true.' : "";
+      return { text: ask + musicText(found) + songs, data: { music: found.results.slice(0, 8).map(({ url, sha256, bytes, credit, ...track }) => ({ ...track, id: `music:${track.id}` })) } };
     }
     if (topic === "sounds") {
       if (!deps.soundSearch) throw new AgentError("failed", "Sound search is not available here.");
@@ -6133,8 +6133,8 @@ export function createAgentService(deps) {
       const text = !yes
         ? `you said no to ${entry.id} '${entry.title}': songs like it now rank lower (library {topic:"soundtrack"})`
         : entry.source === "youtube"
-          ? `you liked ${entry.id} '${entry.title}' for the soundtrack (license unknown: fine for a private video): project {action:"import", file:"${entry.id}"}, or more like it (library {topic:"soundtrack", like:"${entry.id}"})`
-          : `you picked ${entry.id} '${entry.title}' (${entry.license}) for the soundtrack: project {action:"import", file:"${entry.id}"}`;
+          ? `you liked ${entry.id} '${entry.title}' for the soundtrack: project {action:"import", file:"${entry.id}"}, or more like it (library {topic:"soundtrack", like:"${entry.id}"})`
+          : `you picked ${entry.id} '${entry.title}' for the soundtrack: project {action:"import", file:"${entry.id}"}`;
       await agentState.update(projectId, (draft) => { draft.inbox.push({ kind: "soundtrack", text }); });
       const next = kept.map((item) => (yes ? { ...item, picked: item.id === entry.id, ...(item.id === entry.id ? { rejected: false } : {}) }
         : item.id === entry.id ? { ...item, picked: false, rejected: true } : item));
@@ -6169,6 +6169,21 @@ export function createAgentService(deps) {
         data: { id: entry.id, bpm: measure.bpm, sections: measure.sections, features: measure.features, vocals: measure.vocals, compare, fit },
       });
     }
+    if (input.song !== undefined) {
+      // A song the person named ("Melatonin by Tinashe", or a YouTube link): found on YouTube,
+      // marked picked (the person chose it), and measured in the background.
+      if (!deps.soundtrack.findSong) throw new AgentError("failed", "Finding a song by name is not available here.");
+      let hit;
+      try { hit = await deps.soundtrack.findSong(input.song); } catch (error) { throw soundError(error); }
+      const old = find(hit.id);
+      const entry = { ...(old ?? hit), picked: true, rejected: false, named: String(input.song).trim().slice(0, 120), ...(old?.measure ? {} : { queued: true }) };
+      const next = [...kept.filter((item) => item.id !== entry.id).map((item) => ({ ...item, picked: false })), entry];
+      const text = [`found ${entry.id} '${entry.title}' by ${entry.creator} · ${entry.seconds}s for "${entry.named}": picked, since the person named it.`,
+        `Import it: project {action:"import", file:"${entry.id}"}${old?.measure ? "" : `; its beats and drop are measured in the background (library {topic:"soundtrack"} shows them)`}.`].join("\n");
+      const reply = await save(next, { text, data: { picked: entry.id, title: entry.title, creator: entry.creator, seconds: entry.seconds }, nextCall: nextOf("project", { action: "import", file: entry.id }) });
+      if (!old?.measure) measureQueued(projectId, [entry.id]);
+      return reply;
+    }
     if (input.like !== undefined) {
       // More like a song: YouTube's mix for it, or for the person's liked YouTube songs.
       const asked = typeof input.like === "string" ? input.like.trim() : "";
@@ -6182,7 +6197,7 @@ export function createAgentService(deps) {
         try { found = await deps.soundtrack.mix(seed); } catch (error) { if (asked) throw soundError(error); notes.push(`${seed}: ${error.message}`); continue; }
         for (const entry of found) if (!skip.has(entry.id)) { skip.add(entry.id); fresh.push({ ...entry, like: seed }); }
       }
-      const lines = [`${plural(fresh.length, "new song")} like ${seeds.join(", ")} (YouTube's mix, license unknown):`,
+      const lines = [`${plural(fresh.length, "new song")} like ${seeds.join(", ")} (YouTube's mix):`,
         ...fresh.map((entry) => `${entry.id} '${entry.title}' by ${entry.creator} · ${entry.seconds}s`), ...notes,
         fresh.length ? 'Measure the likely ones (library {topic:"soundtrack", measure:"<id>"}): measured songs rank by fit to the person\'s taste and the story.' : "Nothing new: try another seed song."];
       return save([...kept, ...fresh], { text: lines.join("\n"), data: { seeds, results: fresh.map(({ url, filetype, ...entry }) => entry), notes } });
@@ -6205,7 +6220,7 @@ export function createAgentService(deps) {
       let found;
       try { found = await deps.soundtrack.explore(lanes, { perLane, skip }); } catch (error) { throw soundError(error); }
       const fresh = found.results.filter((entry) => !find(entry.id)).map((entry) => ({ ...entry, queued: true }));
-      const lines = [`explored ${lanes.join(", ")}${excluded.length ? ` (closed: ${excluded.join(", ")})` : ""}: ${plural(fresh.length, "song")} queued to measure (license unknown):`,
+      const lines = [`explored ${lanes.join(", ")}${excluded.length ? ` (closed: ${excluded.join(", ")})` : ""}: ${plural(fresh.length, "song")} queued to measure:`,
         ...fresh.map((entry) => `${entry.id} '${entry.title}' by ${entry.creator} · ${entry.lane} (${entry.tags.join(", ")})`), ...found.notes.slice(0, 6),
         fresh.length ? `Measuring in the background, one at a time (about 20 s each). Wait, then list them ranked: library {topic:"soundtrack"}; a song still "not measured" is not done yet.` : "Nothing new: explore again with other lanes, or a brief."];
       const reply = await save([...kept, ...fresh], { text: lines.join("\n"), data: { lanes, queued: fresh.map((entry) => entry.id), notes: found.notes } });
@@ -6217,17 +6232,17 @@ export function createAgentService(deps) {
       try { found = await deps.soundtrack.search(search, { source: input.source }); } catch (error) { throw soundError(error); }
       const fresh = found.results.filter((entry) => !find(entry.id));
       const lines = [`${plural(found.results.length, "song")} for "${found.query}":`,
-        ...found.results.map((entry) => `${entry.id} '${entry.title}' by ${entry.creator} · ${entry.seconds}s · ${entry.license}`),
+        ...found.results.map((entry) => `${entry.id} '${entry.title}' by ${entry.creator} · ${entry.seconds}s${licenseTag(entry)}`),
         ...found.notes,
-        found.results.length ? 'Measure the likely ones: library {topic:"soundtrack", measure:"<id>"}. YouTube songs have no known license: import one only for a private video.' : "Try other mood, genre or tempo words."];
+        found.results.length ? 'Measure the likely ones: library {topic:"soundtrack", measure:"<id>"}.' : 'Try other mood, genre or tempo words, or a song by name (song:"<title> by <artist>").'];
       if (found.results.some((entry) => entry.source === "openverse")) lines.push("Made using Openverse. Not endorsed or certified by Openverse.");
       return save([...kept, ...fresh], { text: lines.join("\n"), data: { results: found.results.map(({ url, filetype, ...entry }) => entry), notes: found.notes } });
     }
     const measuredRows = (await rankAll(kept)).filter((entry) => entry.fit).sort((a, b) => a.fit.order - b.fit.order);
     const rows = measuredRows.map((entry) => [compareText(entry, compareToStory(entry.measure, story)), fitWords(entry)].join("\n"));
     const tasteLine = `taste: ${plural(taste.liked.length, "liked song")}, ${plural(taste.rejected.length, "rejected song")}${taste.liked.length ? ` (more like them: library {topic:"soundtrack", like:""})` : ""}`;
-    return done(projectId, withNotice({ text: kept.length ? [storyLine, briefLine(), tasteLine, ...rows, ...kept.filter((entry) => !entry.measure).map((entry) => `${entry.id} '${entry.title}' · ${entry.license} · not measured`)].join("\n")
-      : 'No soundtrack candidates yet: library {topic:"soundtrack", search:"<mood, genre, tempo words>"} or like:"yt:<a song the person likes>".', data: { candidates: kept.length, measured: rows.length, ...(brief ? { brief } : {}), ranked: measuredRows.map((entry) => ({ id: entry.id, fit: entry.fit.fit, ...(entry.fit.lane ? { lane: entry.fit.lane } : {}) })) } }));
+    return done(projectId, withNotice({ text: kept.length ? [storyLine, briefLine(), tasteLine, ...rows, ...kept.filter((entry) => !entry.measure).map((entry) => `${entry.id} '${entry.title}'${licenseTag(entry)} · not measured`)].join("\n")
+      : 'No soundtrack candidates yet: library {topic:"soundtrack", song:"<title> by <artist>"} (a song the person named), search:"<mood, genre, tempo words>", explore:true or like:"yt:<a song the person likes>".', data: { candidates: kept.length, measured: rows.length, ...(brief ? { brief } : {}), ranked: measuredRows.map((entry) => ({ id: entry.id, fit: entry.fit.fit, ...(entry.fit.lane ? { lane: entry.fit.lane } : {}) })) } }));
   }
 
   // edit {ops:[{op:"borrow_rhythm", ref, fit?, at?, scene?}]}: the reference's cut times as
@@ -6354,7 +6369,7 @@ export function createAgentService(deps) {
       return { text: "import ok", data: { ok: true, ...(owner ? { project: owner } : {}) } };
     }
     // A YouTube sound effect from library {topic:"inspire", search, kind:"sounds"}, measured: its
-    // short preview comes in with its credit (license unknown). source or file names it.
+    // short preview comes in with its credit. source or file names it.
     if (action === "import" && input.file === undefined && typeof input.source === "string") input = { ...input, file: input.source };
     // Found footage: F1 or F1.37 (with options {shots} or from/to), or clip:yt-<id> (footage-finder/take.mjs).
     if (action === "import" && typeof input.file === "string" && /^(?:clip:|F\d{1,3}(?:\.\d+)?$)/i.test(input.file.trim())) return footageImport(input);
@@ -6368,11 +6383,11 @@ export function createAgentService(deps) {
         if (!ref.sound) throw new AgentError("not_ready", `${id} is not measured yet (${numbersLine(ref)}). library {topic:"inspire", name:"${id}"} waits for it.`);
         let media;
         try { media = await deps.inspire.importSound(id); } catch (error) { throw new AgentError("failed", error.message); }
-        if (media) return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}. YouTube does not say its license: credit it, and check it may be used.`, data: { media } };
+        if (media) return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}.`, data: { media } };
       }
     }
     // A soundtrack candidate: an Openverse or Internet Archive song keeps its license and credit; a YouTube
-    // song comes in whole with its credit and "license unknown" (for a private video).
+    // song comes in whole. The credit stays with the file as metadata (the final render lists sources).
     if (action === "import" && typeof input.file === "string" && /^(yt|openverse|archive):/i.test(input.file.trim())) {
       const record = await projectFor(input);
       let song;
@@ -6383,12 +6398,11 @@ export function createAgentService(deps) {
         // The song is measured once, now (its beat, in .beats): check knows it is music and never
         // transcribes it; detect_beats and fit_music read the same file.
         if (media?.id && deps.mediaRoot) await beatAnalysis.get(path.join(deps.mediaRoot, media.id)).catch(() => null);
-        const rights = media.credit.source === "youtube" ? " License unknown: fine for a private video; the person checks the rights before publishing it." : "";
-        return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}. Put it in the end credits.${rights}`, data: { media } };
+        return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}.`, data: { media } };
       }
       if (/^yt:/i.test(input.file.trim())) {
         const ref = input.file.trim();
-        throw Object.assign(new AgentError("reference_only", `${ref} is a reference; as footage: library {topic:"footage", scan:"${ref}"}`), { nextCall: nextOf("library", { topic: "footage", scan: ref }) });
+        throw Object.assign(new AgentError("reference_only", `${ref} is not one of this video's songs yet. As the song: library {topic:"soundtrack", song:"${ref}"}, then import it; as footage: library {topic:"footage", scan:"${ref}"}`), { nextCall: nextOf("library", { topic: "soundtrack", song: ref }) });
       }
       if (/^archive:/i.test(input.file.trim())) throw new AgentError("not_found", `${input.file.trim()} is not one of this video's songs: find it first (library {topic:"soundtrack", search}).`);
     }
@@ -6399,7 +6413,7 @@ export function createAgentService(deps) {
       try { media = await deps.soundLibrary.importItem(input.file); } catch (error) { throw soundError(error); }
       // A track is measured once, now (its beat), as a soundtrack import is.
       if (media?.id && deps.mediaRoot && input.file.trim().startsWith("music:")) await beatAnalysis.get(path.join(deps.mediaRoot, media.id)).catch(() => null);
-      return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}.${media.credit.license.startsWith("CC BY") ? " Put it in the end credits." : ""}`, data: { media } };
+      return { text: `${importedText(media)}\ncredit kept with the file: ${media.credit.line}.`, data: { media } };
     }
     // An Openverse sound (openverse:<id> from library sounds name:"openverse"): kino downloads it with its credit.
     if (action === "import" && (isOpenverseId(input.file) || isFreesoundId(input.file))) {

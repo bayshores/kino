@@ -820,12 +820,12 @@ test("end_on_fade: the video ends on a fade while the song is mid-phrase", async
 test("no_music: a 10 s video with no song under it", async () => {
   const long = (layers) => scene({ duration: 12, layers });
   const run = (document, speech = [], soundSearch = false) => check("no_music", document, { speechScene: document.scenes[0], speech: speech.map((index) => ({ layer: document.scenes[0].layers[index], music: true })), soundSearch });
-  // Silent, or only a 1 s whoosh: fires; the fix names the next call by the sound search switch.
+  // Silent, or only a 1 s whoosh: fires; with song search (YouTube, no switch) the fix is a real song.
   const [silent] = (await run(long([]))).findings;
   assert.deepEqual([silent.severity, silent.message], ["warn", "This 12 s video has no music: no sound layer at all."]);
-  assert.match(silent.fix.text, /ask the person to send a track, turn on sound search in kino Settings, or keep it silent/);
+  assert.match(silent.fix.text, /ask the person to name a song or send a track, or keep it silent/);
   const whoosh = long([voice("whoosh", { mediaDuration: 1 })]);
-  assert.match((await run(whoosh, [], true)).findings[0].fix.text, /^library \{topic:"soundtrack", search:"<mood, tempo>"\}/);
+  assert.match((await run(whoosh, [], true)).findings[0].fix.text, /^a real song: library \{topic:"soundtrack", song:"<title> by <artist>"\}/);
   // A song kino heard a beat in, or a long unknown sound layer, is music; a short video needs none.
   assert.deepEqual((await run(long([voice("song", { mediaDuration: 2 })]), [0])).findings, []);
   assert.deepEqual((await run(long([voice("bed", { mediaDuration: 8 })]))).findings, []);

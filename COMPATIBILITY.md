@@ -173,7 +173,7 @@ How to read it:
   Unanswered needs show in "needs you" with their options as chips (a picks the recommended one);
   a chip saves the answer by:"you", checked in the desktop app. Evidence: `backend/agent-review.test.mjs`,
   `backend/agent-brief.test.mjs`, `frontend/dashboardInspire.test.js`.
-- **Needs drafted from the pick**: Done. The check-material call asks for footage of the picked treatment's who, for its tension, with what to make now left as a slot the agent fills from the files it found (refused unedited) and "tell it with what exists" as options; with web search on, a third option finds that footage (`library {topic:"footage"}`, then scan and import; license unknown), its search words a slot the agent fills; the dashboard shows that option as "find footage (license unknown)", not the tool call. Evidence: `backend/agent-review.test.mjs`, `backend/agent-brief.test.mjs` (nextMove and the `notes needs` reply after a pick), `frontend/dashboardInspire.test.js` (optionLabel).
+- **Needs drafted from the pick**: Done. The check-material call asks for footage of the picked treatment's who, for its tension, with what to make now left as a slot the agent fills from the files it found (refused unedited) and "tell it with what exists" as options; with web search on, a third option finds that footage (`library {topic:"footage"}`, then scan and import; cost: found clips, not your own shots), its search words a slot the agent fills; the dashboard shows that option as "find footage", not the tool call. Evidence: `backend/agent-review.test.mjs`, `backend/agent-brief.test.mjs` (nextMove and the `notes needs` reply after a pick), `frontend/dashboardInspire.test.js` (optionLabel).
 - **Text measured by its letters**: Verified. `inkBox` (`engine/quality/kinoTimeline.js`) measures glyph
   outlines, so stacked headline lines do not count as overlapping.
 - **Rule details**: Verified. Large text starts at 48 px (36 px bold) at 1080p, other text needs 4.5:1
@@ -684,10 +684,10 @@ How to read it:
 
 - **Footage finder**: Stub-verified. `library {topic:"footage"}` searches YouTube (or Commons),
   scans a 360p copy for its best shots, and `project import F1` cuts the picked shots to credited
-  H.264 clips that render; a final render the sound stop did not ask names their credits. Evidence:
+  H.264 clips that render; every final render's answer names its sources in one line. Evidence:
   `backend/footage-finder.test.mjs` (stub yt-dlp: search, scan, import, add_layer, a final frame and
   its credit line), `skills/kino/references/footage.md`. Gaps: not
-  run live in CI; YouTube licenses unknown; the image model does not know character names.
+  run live in CI; the image model does not know character names.
 
 ## Audio and captions
 
@@ -852,10 +852,11 @@ How to read it:
   not embedded. Evidence: `backend/sound-search.test.mjs`, `engine/qualityPolish.test.js`.
 - **No-music waiver needs the search**: Done. An agent's own `no_music` waiver does not pass the sound stop while the song search found songs and fewer than 2 are measured; `quote` (the person's words) makes it their call. Evidence: `backend/agent-stops.test.mjs`.
 - **Soundtrack search**: Verified with a stub. `library {topic:"soundtrack"}` searches Openverse and
-  Internet Archive netlabels (open licenses only) plus YouTube (license unknown; imported whole on request, for private videos), measures a song and
+  Internet Archive netlabels (open licenses only) plus YouTube (listed first; imported whole on request, credit kept as metadata), measures a song and
   lines it up against the notes. Evidence: `backend/soundtrack.test.mjs`,
   `backend/sound-search.test.mjs`. Gaps: live Openverse checked only from a browser on the dev
   network; YouTube measuring untested live.
+- **Named song, no rights nags**: Verified with a stub. `library {topic:"soundtrack", song:"Melatonin by Tinashe"}` (or a YouTube link) finds the upload on YouTube, marks it picked and queues its measure; `project import yt:<id>` brings it in; no answer asks about rights or end credits, and the sound stop pushes a real song without the web search switch. Evidence: `backend/soundtrack.test.mjs` "named song", `backend/agent-stops.test.mjs`. Gap: not run live in CI.
 - **Song taste and lanes**: Verified with a stub embedder, and by hand on 4 local songs. measure keeps
   a LAION-CLAP embedding; each song gets a lane chip, taste compares embeddings, 2 rejects in a lane
   exclude it, a `brief {want, not}` scores text, and the shortlist is varied (MMR). Evidence:
@@ -1148,7 +1149,7 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   Instagram links are refused. Gaps: link lookup run live once; the reference cache is not trimmed.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`.
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
-  measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with credit (license unknown).
+  measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with its credit.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.
 - **Reference fingerprint**: Verified on a Mac. Inspire measures motion, camera, text, palette and
   shots (`kino-measure`, Apple Vision); `reference_drift` measures the render the same way. Evidence:

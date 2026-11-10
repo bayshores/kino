@@ -16,7 +16,7 @@ export const NEEDS_OPEN_LIMIT = 8;
 export const NEED_FROM = ["you", "agent", "music"];
 export const NEED_LIMITS = { what: [8, 120], why: [8, 160], ask: [8, 160], do: [8, 160], cost: [4, 100], quote: 300 };
 // The cost of found footage (library {topic:"footage"}), said the same way everywhere.
-export const FOUND_COST = "license unknown: fine for a private video; the person checks the rights before publishing";
+export const FOUND_COST = "found clips, not your own shots: quality and framing vary";
 // A slot left inside an option, such as search:"<visual words>": the draft's words to replace.
 const INNER_SLOT = /<[a-z][^<>]*>/i;
 // open: not answered; waiting: the person has it and will send it; planned: an option to make.
@@ -143,7 +143,7 @@ const BLANK_NEED = { what: "<missing piece>", why: "<what the video loses>", ask
  * found), so kino refuses the draft sent unedited (next-call.mjs unfilledSlot) and the agent
  * still looks first. With no pick or a pick from before who, every field is a placeholder.
  * `search` (web search on, the footage finder offered): a third option finds footage of the who
- * (library {topic:"footage"}, then scan and import), with its license cost. The person's files
+ * (library {topic:"footage"}, then scan and import), with its cost (found clips, not theirs). The person's files
  * still lead: making it from them stays the recommended option, found clips fill the gap.
  * Returns {tool:"notes", input:{action:"needs", items}}.
  */

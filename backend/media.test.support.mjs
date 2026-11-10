@@ -262,6 +262,8 @@ export async function startTestServer({ ownerToken = "kino-test-owner", allow = 
     KINO_WHISPER_MODEL: path.join(dataDirectory, "no-whisper-model.bin"),
     // Nor the 600 MB CLAP song model (backend/music-embed.mjs): songs rank by the old features.
     KINO_MUSIC_DOWNLOAD: "0",
+    // No yt-dlp here: the sound stop does not push a YouTube song search.
+    KINO_SONG_SEARCH: "0",
     KINO_LOOK_DOWNLOAD: "0",
     // It stops when this test process dies (backend/index.mjs), even one killed mid-run.
     KINO_EXIT_WITH_PARENT: "1",

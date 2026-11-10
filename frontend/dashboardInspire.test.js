@@ -113,7 +113,7 @@ test("boards: All found and Saved pinned, one board per search newest first, a f
   // A sound as a row and in detail, and the note "send to" leaves.
   const row = soundRow(tiles(withSounds, "sounds")[0], withSounds.saved);
   assert.deepEqual([row.title, row.length, row.saved, Math.round(row.peak * 100), row.peaks.length], ["Soft whoosh", "0:02", true, 52, 3]);
-  assert.deepEqual(soundDetail(sound), [["length", "2.1 s"], ["peak", "1.1 s in"], ["loudness", "-18 LUFS"], ["license", "unknown (YouTube)"]]);
+  assert.deepEqual(soundDetail(sound), [["length", "2.1 s"], ["peak", "1.1 s in"], ["loudness", "-18 LUFS"], ["source", "YouTube"]]);
   assert.equal(soundNote({ id: sound.id, title: 'Soft "air" whoosh' }), `use sound yt:SSSSSSSSSSS "Soft 'air' whoosh"`);
 });
 
@@ -202,9 +202,9 @@ test("waiting ideas need you: a row the top bar names, answered on the inspire s
   assert.equal(needKey(material), "material/p1/M1");
   assert.deepEqual(needsBar([material], 0).keys, [["a", "option 2"]]);
   assert.deepEqual([needWords(material).todo, needWords(material).allow], ["Do you have a screen recording?", "option 2"]);
-  // The found footage option's tool syntax reads as plain words with its license cost.
-  const found = { do: 'library {topic:"footage", search:"the cook <doing>", want:"<words>"}, then scan and import', cost: "license unknown" };
-  assert.deepEqual([optionLabel(found), optionLabel(need.options[0])], ["find footage (license unknown)", "keep the phone capture"]);
+  // The found footage option's tool syntax reads as plain words.
+  const found = { do: 'library {topic:"footage", search:"the cook <doing>", want:"<words>"}, then scan and import', cost: "found clips, not your own shots" };
+  assert.deepEqual([optionLabel(found), optionLabel(need.options[0])], ["find footage", "keep the phone capture"]);
 });
 
 test("the live frame is kept while its reference is measured and dropped when it is done", () => {
@@ -216,13 +216,13 @@ test("the live frame is kept while its reference is measured and dropped when it
   assert.equal(next.live, null);
 });
 
-test("soundtrack rows: license chip or license unknown, tempo, the curve from where the drop meets the payoff, beat marks", () => {
+test("soundtrack rows: license chip or the source (YouTube), tempo, the curve from where the drop meets the payoff, beat marks", () => {
   const energy = Array.from({ length: 40 }, (_, t) => (t < 30 ? 20 : 90));
   const rows = soundtrackRows({ story: { length: 10, beats: [{ from: 0, to: 6 }, { from: 6, to: 10 }] }, candidates: [
     { id: "openverse:a", source: "openverse", title: "Lights", creator: "Ana", license: "CC BY 4.0", measure: { bpm: 119.6, energy, sections: [{ at: 30, kind: "drop" }] }, note: { verdict: "pick", why: "drop on the reveal" }, picked: true },
     { id: "yt:abcdefghijk", source: "youtube", title: "Trailer", creator: "x", license: "license unknown" },
   ] });
-  assert.deepEqual(rows.map((row) => [row.license, row.bpm, row.verdict, row.picked]), [["CC BY 4.0", "120 bpm", "pick", true], ["license unknown", "not measured", null, false]]);
+  assert.deepEqual(rows.map((row) => [row.license, row.bpm, row.verdict, row.picked]), [["CC BY 4.0", "120 bpm", "pick", true], ["YouTube", "not measured", null, false]]);
   assert.deepEqual(rows[0].marks, [60]);
   assert.match(rows[0].path, /^M0,19\.6 L.* L60,4\.2 /, "the song starts 24 s in: quiet until the payoff at 6 s, then loud");
   assert.equal(rows[1].path, "");

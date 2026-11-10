@@ -258,8 +258,8 @@ export function musicText({ moods, energies, range, results, total }) {
   const asked = [...moods, ...energies, range ? `${range[0]}-${range[1]} bpm` : ""].filter(Boolean).join(", ") || "any";
   if (!results.length) return `No library track fits ${asked} (of ${total}). Drop a filter, or try moods: ${MOODS.join(", ")}; energy: ${ENERGIES.join(", ")}.`;
   return [
-    `${Math.min(results.length, 8)} of ${results.length} library tracks for ${asked} (this project's order; Kevin MacLeod, CC BY 4.0, credit required):`,
+    `${Math.min(results.length, 8)} of ${results.length} library tracks for ${asked} (this project's order; Kevin MacLeod, a fallback when no real song fits):`,
     ...results.slice(0, 8).map((track) => `music:${track.id} '${track.title}' ${track.moods.join("/")} ${track.energy} ${track.bpm ?? "?"} bpm ${Math.round(track.seconds)}s ${track.genre}${track.drop ? `, drop at ${track.drop}s` : ", no drop"}`),
-    'Import one: project {action:"import", file:"music:<id>"}; put its credit line in the end credits.',
+    'Import one: project {action:"import", file:"music:<id>"} (credit kept with the file).',
   ].join("\n");
 }

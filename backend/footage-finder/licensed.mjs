@@ -1,5 +1,5 @@
-// Licensed footage from Wikimedia Commons: openly licensed video clips (CC0, CC BY, CC BY-SA,
-// public domain) for b-roll. No anime there; YouTube (search.mjs) covers that.
+// Footage from Wikimedia Commons: video clips for b-roll, each with the license Commons states
+// kept as metadata (no license is filtered out). No anime there; YouTube (search.mjs) covers that.
 //
 // One search asks the Commons API (https://commons.wikimedia.org/w/api.php) for video files that
 // match the words, with each file's license and creator (extmetadata) and the copies Commons made
@@ -22,8 +22,6 @@ import { fetchChecked, KINO_USER_AGENT } from "../web-files.mjs";
 const API = "https://commons.wikimedia.org/w/api.php";
 const FILE_HOSTS = ["wikimedia.org"];
 export const COMMONS_LIMITS = Object.freeze({ results: 10, asked: 20, words: 120, minSeconds: 5, maxSeconds: 3 * 60 * 60, scanHeight: 360, importHeight: 1080, scanMegabytes: 200, importMegabytes: 1500, searchMs: 20000, downloadMs: 10 * 60 * 1000, cacheMs: 24 * 60 * 60 * 1000 });
-// Licenses that allow changes and commercial use (a clip cut into an edit is a change).
-const USABLE = new Set(["cc0", "by", "by-sa", "pdm"]);
 // Among copies of the same size: H.264 MP4 decodes fastest, then VP9, then the rest.
 const TYPE_ORDER = [/^video\/mp4/, /vp9/, /^video\/webm/];
 
@@ -36,19 +34,18 @@ const clean = (value, fallback) => String(value ?? "").replace(/<[^>]*>/g, " ")
   .replace(/\s+/g, " ").trim().slice(0, 120) || fallback;
 
 /**
- * A Commons file's license from its extmetadata, as {license, licenseUrl}, when it allows changes
- * and commercial use (CC0, CC BY, CC BY-SA, public domain); null for NC, ND, GFDL-only or unknown.
+ * A Commons file's license from its extmetadata, as {license, licenseUrl}: metadata for the
+ * credit, never a filter (NC, ND and GFDL files come in too; "unknown" when Commons states none).
  */
 export function commonsLicense(extmetadata) {
   const short = clean(extmetadata?.LicenseShortName?.value, "");
   const url = clean(extmetadata?.LicenseUrl?.value, "") || null;
-  if (/\b(nc|nd)\b|non-?commercial|no-?deriv/i.test(short)) return null;
   const fromUrl = licenseFromUrl(url);
-  if (fromUrl) return USABLE.has(fromUrl.license) ? { license: licenseName(fromUrl.license, fromUrl.version), licenseUrl: url } : null;
+  if (fromUrl) return { license: licenseName(fromUrl.license, fromUrl.version), licenseUrl: url };
   if (/^(cc0|cc-zero)\b/i.test(short)) return { license: "CC0 1.0", licenseUrl: url };
   if (/^public domain\b|^pd\b/i.test(short)) return { license: "Public domain", licenseUrl: url };
   if (/^cc[ -]by(-sa)?(?:[ -][\d.]+)?$/i.test(short)) return { license: short.toUpperCase().replace(/-(?=\d)/, " "), licenseUrl: url };
-  return null;
+  return { license: short || "unknown", licenseUrl: url };
 }
 
 /**
@@ -77,7 +74,7 @@ export function commonsFiles(info) {
   return { scan: plain(pick(sized(scanShort))), import: plain(pick(sized(largest))) };
 }
 
-/** The Commons search answer (formatversion 2) as candidates, in Commons' order, usable ones only. */
+/** The Commons search answer (formatversion 2) as candidates, in Commons' order, each with its stated license. */
 export function parseCommonsSearch(body) {
   const pages = Array.isArray(body?.query?.pages) ? body.query.pages : [];
   return [...pages].sort((a, b) => (a?.index ?? 0) - (b?.index ?? 0)).map((page) => {
@@ -86,7 +83,6 @@ export function parseCommonsSearch(body) {
     const seconds = Math.round((Number(info.duration) || 0) * 10) / 10;
     if (seconds < COMMONS_LIMITS.minSeconds || seconds > COMMONS_LIMITS.maxSeconds) return null;
     const license = commonsLicense(info.extmetadata);
-    if (!license) return null;
     const files = commonsFiles(info);
     if (!files) return null;
     const title = clean(String(page.title ?? "").replace(/^File:/, "").replace(/\.[a-z0-9]{2,4}$/i, ""), "untitled clip");

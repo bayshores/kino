@@ -310,7 +310,7 @@ export function soundtrackRows(soundtrack) {
       points.push(`${Math.round((t / length) * 1000) / 10},${Math.round((24 - (energy[Math.floor(start + t)] / 100) * 22) * 10) / 10}`);
     return {
       id: entry.id, title: entry.title, creator: entry.creator,
-      license: entry.source === "youtube" ? "license unknown" : entry.license, reference: entry.source === "youtube",
+      license: entry.source === "youtube" ? "YouTube" : entry.license,
       bpm: entry.measure?.bpm ? `${Math.round(entry.measure.bpm)} bpm` : entry.measure ? "no beat" : "not measured",
       path: points.length > 1 ? `M${points.join(" L")}` : "", marks,
       key: songKey(entry.id), measured: Boolean(entry.measure), preview: entry.measure?.preview ?? null, start, length, peaks: previewPeaks(energy, entry.measure?.preview),
@@ -503,7 +503,7 @@ export function soundDetail(ref) {
     ["length", tenth(sound?.length ?? ref?.duration ?? 0)],
     ["peak", sound?.peakAt != null ? `${tenth(sound.peakAt)} in` : "not read"],
     ["loudness", Number.isFinite(sound?.loudness) ? `${Math.round(sound.loudness)} LUFS` : "not read"],
-    ["license", "unknown (YouTube)"],
+    ["source", "YouTube"],
   ];
 }
 

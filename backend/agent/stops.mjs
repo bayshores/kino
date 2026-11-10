@@ -251,7 +251,6 @@ export function askText({ id, kind, video = {}, checked, offer = [], idea = null
     // The treatments to pick from (treatments.mjs), until the person picked one.
     ...pick,
     kind === "board" ? "" : `Checked: ${plural(checked?.errors ?? 0, "error")} · ${plural(checked?.warnings ?? 0, "warning")}.`,
-    kind === "sound" ? creditsLine(video.credits) : "",
     // A sound stop with no music says so, with the person's choices (checkpointStep).
     music ?? "",
     kind === "board" ? "" : "What did you notice, and what would you change?",
@@ -274,14 +273,6 @@ export function critiqueAsk({ id, video = {}, scene, lines = [], question = fals
     "Reply: fix (all, or the numbers) · keep: <why they stay>",
     ideas.length ? `The critic's ideas to raise it:\n${ideas.slice(0, 3).map((idea) => `- ${idea}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
-}
-
-// The sound stop names where each found sound, song or footage came from (each keeps its
-// credit; found footage says "license unknown"): at most 3, then how many more.
-function creditsLine(credits = []) {
-  if (!credits?.length) return "";
-  const shown = credits.slice(0, 3).join("; ");
-  return `Credits: ${shown}${credits.length > 3 ? `; and ${credits.length - 3} more` : ""}.`;
 }
 
 // What the agent does with a waiting stop: send the ask, end its turn, record the reply. Kept
@@ -318,13 +309,14 @@ function howPassed(round) {
 }
 
 // The sound stop of a video with no music (video.music false; no_music says the same).
-// Sound search off: the ask offers the person's three choices, and a plain approval records
+// No song search here: the ask offers the person's three choices, and a plain approval records
 // SILENT, so the final message says whose call the silence was (also after the measured songs).
-// waive_check {code:"no_music"} (service musicIn) is the way out of both. Sound search on: the stop
-// waits until the agent searched and measured MEASURED_SONGS songs (library soundtrack).
+// waive_check {code:"no_music"} (service musicIn) is the way out of both. Song search (songSearch:
+// YouTube songs need no switch): the stop waits until the agent found and measured MEASURED_SONGS
+// songs (library soundtrack).
 const SILENT = "silent by the person's call";
 const MEASURED_SONGS = 2;
-const NO_MUSIC_ASK = "No music yet: send a track, name a mood for kino's music library, or keep it silent.";
+const NO_MUSIC_ASK = "No music yet: name a song or artist, send a track, or keep it silent.";
 
 /**
  * notes {action:"checkpoint", id:<kind>}, applied to a draft of the agent state (state.update):
@@ -334,7 +326,7 @@ const NO_MUSIC_ASK = "No music yet: send a track, name a mood for kino's music l
  * closed first; that change stays even when a later rule refuses the call, so the project's
  * writes work again.
  */
-export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, fresh = null, critique = null }) {
+export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null }) {
   const kind = typeof wanted === "string" ? wanted.trim().toLowerCase() : "";
   if (!STOP_KINDS.includes(kind) && kind !== CRITIQUE_STOP)
     throw new StopError("bad_input", "id is board, rough, color, sound or critique.", { didYouMean: closest(String(wanted ?? ""), [...STOP_KINDS, CRITIQUE_STOP]) });
@@ -385,9 +377,9 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
   const found = (draft.soundtrack?.candidates ?? []).length;
   const noMusic = kind === "sound" && (video.music === false || (video.music === "waived" && found > 0));
   const measured = (draft.soundtrack?.candidates ?? []).filter((entry) => entry.measure).length;
-  if (noMusic && soundSearch && measured < MEASURED_SONGS) {
+  if (noMusic && songSearch && measured < MEASURED_SONGS) {
     const next = measured || draft.soundtrack?.candidates?.length ? 'library {topic:"soundtrack", measure:"<id>"}' : 'library {topic:"soundtrack", search:"<mood, tempo>"}';
-    throw new StopError("music_first", `sound refused: the video has no music and sound search is on. Search and measure ${MEASURED_SONGS} songs first (${measured} measured), import the best fit, check, then ask again. Next: ${next}. If the search finds nothing: waive_check {code:"no_music", target:"*", reason}; if the person asked for silence, add quote (their words).`, { measured, next });
+    throw new StopError("music_first", `sound refused: the video has no music. Find and measure ${MEASURED_SONGS} songs first (${measured} measured), import the best fit, check, then ask again. Next: ${next}. If the search finds nothing: waive_check {code:"no_music", target:"*", reason}; if the person asked for silence, add quote (their words).`, { measured, next });
   }
 
   const switched = SWITCHABLE.includes(kind) && stopAskingOn(draft);
@@ -399,10 +391,10 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
     draft.stops.push(round);
     const next = "say in one line what you checked, then go on.";
     // A sound stop passed with no music: the final message says why the video is silent.
-    if (noMusic) round.noMusic = soundSearch ? "search" : true;
+    if (noMusic) round.noMusic = songSearch ? "search" : true;
     return {
       text: [`${round.id} ${kind} allowed (${by === "chat" ? "set in chat" : "the person's settings"}) · checked: ${plural(checked.errors, "error")} · ${plural(checked.warnings, "warning")}`,
-        noMusic ? `No music: silent because ${soundSearch ? "no measured song was imported" : "no track was sent and sound search is off"}. Your final message says so; never that they asked for silence.` : "", `step: ${next}`].filter(Boolean).join("\n"),
+        noMusic ? `No music: silent because ${songSearch ? "no measured song was imported" : "no track was sent and no song search is available"}. Your final message says so; never that they asked for silence.` : "", `step: ${next}`].filter(Boolean).join("\n"),
       data: { status: "allowed", id: round.id, kind, rev, by, next },
     };
   }
@@ -413,9 +405,9 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
 
   const id = `C${draft.nextStop}`;
   const offer = offerFor(kind, video, rules, draft);
-  const music = noMusic ? (soundSearch ? `No music yet: ${measured} songs measured; name one to use, or keep it silent.` : NO_MUSIC_ASK) : null;
+  const music = noMusic ? (songSearch ? `No music yet: ${measured} songs measured; name one to use, or keep it silent.` : NO_MUSIC_ASK) : null;
   const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief), music });
-  const round = { id, kind, rev, askedAt: at, client, status: "waiting", offer, ask: passes ? `${asked}\n${HELD_LINE}` : asked, answer: null, ...(work ? { work } : {}), ...(noMusic ? { noMusic: soundSearch ? "search" : true } : {}) };
+  const round = { id, kind, rev, askedAt: at, client, status: "waiting", offer, ask: passes ? `${asked}\n${HELD_LINE}` : asked, answer: null, ...(work ? { work } : {}), ...(noMusic ? { noMusic: songSearch ? "search" : true } : {}) };
   draft.nextStop += 1;
   draft.stops.push(round);
   return waitingAnswer(round);

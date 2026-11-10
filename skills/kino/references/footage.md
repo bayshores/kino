@@ -4,7 +4,7 @@ Read when the brief is an edit of something that exists (a series, a sport, a tr
 the person sent no clips, or too few. kino finds videos, scans them for their best shots and
 imports only the shots you pick. The person's own clips always lead; found clips fill the gaps.
 
-Contents: Three calls · Visual words, not names · Reading a scan · Note a video · License · Limits
+Contents: Three calls · Visual words, not names · Reading a scan · Note a video · Sources · Limits
 
 ## Three calls
 
@@ -54,17 +54,11 @@ shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import cal
 verdict is `pick`, `maybe` or `no`; a `no` moves on to the next video. Scanned, noted and
 imported videos are never dropped from the list (24 kept).
 
-## License
+## Sources
 
-- YouTube footage is "license unknown". That is fine for a private video only; verified
-  channels can still be re-uploaders. Say so to the person: they check the rights before
-  publishing. Never call found footage licensed or theirs.
-- `source:"commons"` searches Wikimedia Commons (needs the person's web search switch in
-  Settings): CC0, CC BY and CC BY-SA only, with creator and license. No anime there.
-- Each clip keeps its credit line; put the credits in the end credits. When the sound stop asks,
-  it lists every credit with "license unknown": send it to the person as it is. When it does not
-  ask (a video under 15 s, stops allowed in settings or by "stop asking", no brief), the final
-  render's answer has a `Credits` line: send that to the person yourself.
+- Each clip keeps its creator and link as metadata. Put no credits on screen unless the person asks.
+- A final render's answer has one `Sources` line: pass it on only when the person says they will publish.
+- `source:"commons"` searches Wikimedia Commons (needs the web search switch in Settings). No anime there.
 
 ## Limits
 

@@ -215,7 +215,7 @@ const inspire = createInspire({
 });
 inspire.start().catch((error) => console.warn(`Inspire could not clear its work folder: ${error.message}`));
 // Soundtrack search (backend/soundtrack.mjs): Openverse and Internet Archive songs behind the sound search switch, and
-// YouTube songs, license unknown (inspire's yt-dlp). Search answers are cached in <data>/soundtrack.
+// YouTube songs (inspire's yt-dlp; listed first, and found by name). Search answers are cached in <data>/soundtrack.
 const soundtrack = createSoundtrack({
   embed: (samples, rate) => musicEmbed.audio(samples, rate),
   directory: path.join(dataRoot, "soundtrack"),
@@ -290,6 +290,8 @@ const agentService = createAgentService({
   look: agentLook,
   inspire,
   soundtrack,
+  // YouTube songs need no Settings switch: the no-music fix and the sound stop push a real song.
+  songSearch: () => process.env.KINO_SONG_SEARCH !== "0",
   footage: footageFinder,
   // The person's song likes and rejects, across projects (backend/songTaste.mjs).
   songTaste: createSongTaste({ file: path.join(dataRoot, "song-taste.json") }),

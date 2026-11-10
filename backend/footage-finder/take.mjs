@@ -152,7 +152,7 @@ export function takeArgs(videoId, folder, stretches, { ffmpeg, runtime } = {}) {
   ];
 }
 
-/** The credit a found clip keeps: "license unknown" for YouTube, Commons' own license and line. */
+/** The credit a found clip keeps as metadata: license "unknown" for YouTube, Commons' own license and line. */
 export function takeCredit(candidate) {
   const title = oneLine(candidate.title) || candidate.id;
   const creator = oneLine(candidate.creator) || "unknown";
@@ -161,7 +161,7 @@ export function takeCredit(candidate) {
       line: candidate.credit ?? `"${title}" by ${creator}, ${candidate.license}`, file: "H.264 cut from Wikimedia Commons" };
   }
   return { source: "youtube", id: candidate.id, title, creator, page: candidate.page ?? null, license: "unknown",
-    line: `"${title}" by ${creator} (${candidate.page ?? "YouTube"}), license unknown`, file: "H.264 cut from YouTube" };
+    line: `"${title}" by ${creator} (${candidate.page ?? "YouTube"})`, file: "H.264 cut from YouTube" };
 }
 
 // ---- FFmpeg (the default tools; tests pass their own) ----------------------------------------
@@ -281,7 +281,7 @@ export async function takeFootage(candidate, pieces, { addMedia, projectId = nul
 }
 
 /**
- * The import answer's lines: each clip by its code and file, the credit, and the license line.
+ * The import answer's lines: each clip by its code and file, then the credit kept as metadata.
  * code: F1; candidate: its footage entry; result: takeFootage's answer.
  */
 export function takeText(candidate, { media, failed }) {
@@ -297,7 +297,6 @@ export function takeText(candidate, { media, failed }) {
     lines.push(`Add one: edit {ops:[{op:"add_layer", layerType:"video", name, properties:{src:"${first.src}", x:0, y:0, width:${first.width}, height:${first.height}, mediaSourceDuration:${round2(Number(first.duration) || 0)}}}]}, or compose {footage} cuts them all by name.`);
   }
   const credit = media[0]?.credit ?? takeCredit(candidate);
-  lines.push(`credit kept with each file: ${credit.line}. Put it in the end credits.`);
-  if (credit.license === "unknown") lines.push("License unknown: fine for a private video; the person checks the rights before publishing.");
+  lines.push(`credit kept with each file: ${credit.line}`);
   return lines.join("\n");
 }

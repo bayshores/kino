@@ -1,7 +1,7 @@
 # Sound library
 
-kino has its own sound effects and music, so a video never waits for files or for the
-internet search switch. The catalog ships with kino; each pack or track downloads once, on
+kino has its own sound effects and music as a fallback: a video never waits for files or a
+switch. A real song (soundtrack guide: named, searched or explored) is the default for music. The catalog ships with kino; each pack or track downloads once, on
 first import, into kino's data folder and is checked against the catalog (SHA-256).
 
 ## Sound effects
@@ -14,11 +14,10 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
   cymbal (the riser: no CC0 synth riser exists yet). `full:true` allows up to 60 s.
 - `project {action:"import", file:"sfx:<id>"}` adds it with its credit (CC0 needs none in the
   video, but the sound stop names it).
-- Openverse (commercial-use licenses: CC0, CC BY; never NC) only when the person turned on sound
+- Openverse only when the person turned on web
   search in kino Settings: `library {topic:"sounds", name:"openverse", search:"phone vibrate on a
   table"}` lists `openverse:<id>` sounds of 10 s or less with their license; import one the same
-  way (the license is checked again; kino keeps the MP3 preview and its credit; CC BY goes in the
-  credits). 20 searches a minute. With a free Freesound key in Settings, `freesound:<id>` sounds
+  way (kino keeps the MP3 preview and its credit as metadata). 20 searches a minute. With a free Freesound key in Settings, `freesound:<id>` sounds
   join the list; without it the answer says Freesound was not searched.
 
 ## Music
@@ -33,8 +32,8 @@ first import, into kino's data folder and is checked against the catalog (SHA-25
 - The order is this project's own, so two videos do not open on the same song. Take the
   first track that fits the story; do not reuse the last video's track unless asked.
 - `project {action:"import", file:"music:<id>"}` imports it and measures its beat
-  (`detect_beats`, `fit_music`). The tracks are Kevin MacLeod's (incompetech.com), CC BY 4.0:
-  put the credit line the import answers in the end credits, word for word.
+  (`detect_beats`, `fit_music`). The tracks are Kevin MacLeod's (incompetech.com); the credit
+  stays with the file.
 - A track with a drop: put the video's key moment on it (`fit_music`), or start the track so
   the drop lands there. Without one, build energy with cuts and type instead.
 

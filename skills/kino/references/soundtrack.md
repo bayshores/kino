@@ -3,10 +3,10 @@
 Pick music for the story's emotional shape, not for a genre alone: pros pick the tone and the lane
 first (driving electronic, hip-hop beat, cinematic...), then the song whose shape fits the cut.
 kino finds songs, measures them, gives each a lane and lines it up against the video's story
-beats; you decide which fits and say why. kino's own
-mood-tagged tracks need no switch: `library {topic:"music", search:"calm low"}` (sound-library guide).
+beats; you decide which fits and say why. Real released songs are the default (named, searched or
+explored, from YouTube; no switch). kino's own tracks are a fallback (sound-library guide).
 
-Contents: Principles · Search · Measure and compare · Note your verdict · No music · Hear the mix · More like a song · Brief and lanes
+Contents: Principles · Named song · Search · Measure and compare · Note your verdict · No music · Hear the mix · More like a song · Brief and lanes
 
 ## Principles
 
@@ -20,18 +20,21 @@ Contents: Principles · Search · Measure and compare · Note your verdict · No
 - Speech needs room: under a spoken line, quieter is better (lower energy numbers in that beat).
 - Prefer cutting the song to the edit's beats (start it later, end on a section change) when the
   story needs its own timing; cut the edit to the song only when the music is the story.
-- YouTube songs (and found footage: footage guide) have no known license. For a private video, `project {action:"import", file:"yt:<id>"}`
-  brings a measured one in whole (WAV, credit kept); for anything published, find a licensed song.
-- Credit licensed songs. kino keeps the credit with the file; put it in the end credits.
+- Real songs from YouTube are normal: `project {action:"import", file:"yt:<id>"}` brings one in
+  whole (WAV). kino keeps each credit with the file as metadata; the final render lists sources.
+  Never ask about rights and never add credit cards unless the person asks.
+
+## Named song
+
+A song the person names is the song: `library {topic:"soundtrack", song:"Melatonin by Tinashe"}`
+("Artist - Title", a YouTube link or `yt:<id>` too) finds the upload ("- Topic" first), marks it
+picked and measures it in the background; then import it.
 
 ## Search
 
-Openverse (Creative Commons music, often from Jamendo) and the Internet Archive (netlabel albums:
-one or two tracks from each), only licenses that allow commercial use and changes (CC BY, BY-SA,
-CC0, public domain), need the person's sound search switch in kino Settings. YouTube needs yt-dlp.
-Answers are cached for a day. All are asked at once;
-Openverse is often slow: when it says "slow right now", the search keeps going (the Archive's songs
-come first); send the same search again in a minute.
+YouTube songs come first (yt-dlp). Openverse and the Internet Archive (Creative Commons music)
+follow when the person's web search switch in kino Settings is on. Answers are cached for a day.
+All are asked at once; once one answers, the others get 8 s more.
 
 ```json
 {"tool":"library","topic":"soundtrack","search":"tense cinematic build, 120 bpm"}
@@ -82,20 +85,20 @@ the best song least like those above it, so the top 3 cover several lanes until 
 {"tool":"library","topic":"soundtrack","note":{"id":"<id>","why":"drop lands 0.4 s after the reveal; low under the voice in beat 2","verdict":"pick"}}
 ```
 
-verdict is `pick`, `maybe` or `no`. The person sees the candidates on the inspire screen (license,
+verdict is `pick`, `maybe` or `no`. The person sees the candidates on the inspire screen (source,
 tempo, fit, the energy curve over the beats, your verdict and why) and marks songs "use" or "no";
 you hear it in your inbox. Only the person can. Both are kept as their taste across projects. Then import it like any media:
-`project {action:"import", file:"<openverse: or archive: id>"}`. The credit line comes back with it.
+`project {action:"import", file:"<yt:, openverse: or archive: id>"}`. The credit stays with the file.
 
 ## No music, and the sound stop
 
 A video of 10 s or more with no song under it is never silent by accident:
 - `check` warns `no_music` (no audio layer kino hears a beat in, and none playing 30% of the
-  video that is not a transcribed voice). Its fix is the next call: a search, or asking the person.
-- Sound search off: the sound stop's ask says "No music yet: send a track, name a mood for kino's
-  music library, or keep it silent." A plain approval ("your call", "ok") passes it as
+  video that is not a transcribed voice). Its fix is the next call: a named song, a search or explore.
+- The sound stop refuses (`music_first`) until you found and measured 2 songs (YouTube needs no
+  switch). Where kino has no song search, its ask says "No music yet: name a song or artist, send
+  a track, or keep it silent." A plain approval ("your call", "ok") passes it as
   "silent by the person's call": say exactly that in your final message, never that they asked for silence.
-- Sound search on: the sound stop refuses (`music_first`) until you searched and measured 2 songs.
 - Search found nothing: `waive_check {code:"no_music", target:"*", reason}`. The person asked
   for silence: add `quote` (their words). Your own waiver never skips measuring found songs.
 
@@ -115,7 +118,7 @@ in the same lane far better than mood words.
 {"tool":"library","topic":"soundtrack","like":"yt:L2_yy-B2eC4"}
 ```
 
-It adds up to 12 songs from the mix (license unknown; filtered like a search, without the seed or
+It adds up to 12 songs from the mix (filtered like a search, without the seed or
 songs the person said no to). `like:""` uses the person's liked YouTube songs (up to 3) as seeds.
 Measure the likely ones; they rank by fit.
 

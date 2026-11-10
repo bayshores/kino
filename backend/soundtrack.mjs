@@ -11,9 +11,9 @@
 //   the same switch. Asked at the same time as Openverse, which is often slow: a search answers
 //   with what came back (the Archive first when Openverse is late or fails). One item's file list
 //   (metadata/<id>/files) gives its tracks: one or two from each item, so the list is varied.
-// - YouTube (yt-dlp, as inspire searches): popular songs, marked "license unknown". kino measures
-//   them like the others, and imports one when asked (the whole song as WAV, credit kept), for a
-//   private video: the person checks the rights before publishing it.
+// - YouTube (yt-dlp, as inspire searches): real released songs, listed first. kino measures them
+//   like the others, finds a song the person names (findSong), and imports one when asked (the
+//   whole song as WAV, its credit kept with the file as metadata).
 //
 // measure downloads one song at a time (an Openverse preview, an Archive mp3, or a small audio copy from YouTube,
 // the first 4 minutes at most) into a temporary folder, decodes it with FFmpeg, runs kino's beat
@@ -254,7 +254,7 @@ export function junkTitle(title) {
   return JUNK.test(String(title ?? ""));
 }
 
-/** yt-dlp search results (inspire's parseSearchLines) as reference-only candidates: songs only, once each. */
+/** yt-dlp search results (inspire's parseSearchLines) as song candidates: songs only, once each. */
 export function youtubeCandidates(results, query = "") {
   const asked = new Set((String(query).match(NOT_THE_SONG) ?? []).map((word) => word.toLowerCase()));
   const seen = new Set();
@@ -266,10 +266,15 @@ export function youtubeCandidates(results, query = "") {
     if (seen.has(name)) return false;
     seen.add(name);
     return true;
-  }).map((entry) => ({
-    id: entry.id, source: "youtube", use: "license unknown", title: clean(entry.title, "untitled"), creator: clean(String(entry.channel ?? "").replace(/\s+-\s+Topic$/i, ""), "unknown"),
-    seconds: round(Number(entry.duration), 1), page: entry.url ?? null, license: "license unknown",
-  }));
+  }).map(songCandidate);
+}
+
+/** One yt-dlp result as a song candidate (the source names it; no license is claimed). */
+function songCandidate(entry) {
+  return {
+    id: entry.id, source: "youtube", title: clean(entry.title, "untitled"), creator: clean(String(entry.channel ?? "").replace(/\s+-\s+Topic$/i, ""), "unknown"),
+    seconds: round(Number(entry.duration), 1), page: entry.url ?? null, license: null,
+  };
 }
 
 // ---- catalog songs by genre (ListenBrainz, CC0 data, no key) ------------------------------
@@ -459,10 +464,31 @@ export function compareToStory(measure, { beats, length }) {
   };
 }
 
+/** " · CC BY 4.0" for a song with a stated license; nothing for YouTube songs (older lists said "license unknown"). */
+export function licenseTag(candidate) {
+  const license = String(candidate?.license ?? "");
+  return license && !/unknown/i.test(license) ? ` · ${license}` : "";
+}
+
+/**
+ * A song the person named, as YouTube search words and the catalog song pickRecording matches:
+ * "Melatonin by Tinashe", "Tinashe - Melatonin", a YouTube link or yt:<id>. null for empty text.
+ */
+export function namedSong(text) {
+  const asked = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, SOUNDTRACK_LIMITS.words);
+  if (!asked) return null;
+  const link = /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/.exec(asked)?.[1] ?? YT_ID.exec(asked)?.[1];
+  if (link) return { id: `yt:${link}`, words: link };
+  const by = /^(.+?)\s+by\s+(.+)$/i.exec(asked);
+  const dash = /^(.+?)\s+[-–]\s+(.+)$/.exec(asked);
+  const song = by ? { title: by[1].replace(/^["']|["']$/g, ""), artist: by[2] } : dash ? { artist: dash[1], title: dash[2] } : null;
+  return song ? { song, words: catalogQuery(song) } : { words: asked };
+}
+
 /** One candidate's comparison as a short table (numbers, not adjectives). */
 export function compareText(candidate, comparison) {
   const c = comparison;
-  const lines = [`${candidate.id} '${candidate.title}' by ${candidate.creator} · ${candidate.license} · ${candidate.measure?.bpm ? `${Math.round(candidate.measure.bpm)} bpm${candidate.measure.alt ? ` (or ${Math.round(candidate.measure.alt)})` : ""}` : "no steady beat"} · ${candidate.seconds}s`,
+  const lines = [`${candidate.id} '${candidate.title}' by ${candidate.creator}${licenseTag(candidate)} · ${candidate.measure?.bpm ? `${Math.round(candidate.measure.bpm)} bpm${candidate.measure.alt ? ` (or ${Math.round(candidate.measure.alt)})` : ""}` : "no steady beat"} · ${candidate.seconds}s`,
     `  start at ${c.start}s in the song (to ${c.end}s)${c.short ? `, ${c.short}s short of the video` : ""}`,
     `  drop: ${c.dropAt === null ? "none lands in the video" : `at ${c.dropAt}s in the video, payoff at ${c.payoff}s (${c.dropOff >= 0 ? "+" : ""}${c.dropOff}s)`}${c.breaks.length ? ` · breaks at ${c.breaks.join(", ")}s` : ""}`,
     `  energy by beat: ${c.beats.map((beat) => `${beat.n} ${beat.from}-${beat.to}s ${beat.energy}`).join(" · ")} (rise ${c.rise >= 0 ? "+" : ""}${c.rise})`];
@@ -578,8 +604,9 @@ export function createSoundtrack(deps) {
 
   /**
    * Candidates for the words from each source; a source that cannot answer adds a line why. With
-   * no source, Openverse, the Archive and YouTube are asked at the same time. Once one licensed
-   * source has songs, the other gets graceMs more; a late or failed Openverse puts the Archive first.
+   * no source, Openverse, the Archive and YouTube are asked at the same time. Once any source has
+   * songs, the others get graceMs more. YouTube's real songs come first; Openverse and the Archive
+   * (Creative Commons) follow as fill, the Archive first when Openverse is late or fails.
    */
   async function search(text, { source } = {}) {
     const words = String(text ?? "").trim().replace(/\s+/g, " ").slice(0, SOUNDTRACK_LIMITS.words);
@@ -621,14 +648,14 @@ export function createSoundtrack(deps) {
           if (!results.length) throw Object.assign(new SoundtrackError("failed", "nothing but mixes, beats and stock uploads for these words; try explore:true (songs by genre)."), { empty: true });
           return results;
         });
+        if (found.length && !source) setTimeout(release, graceMs).unref?.();
         return { results: found, notes: [] };
       }
       catch (error) { return { results: [], notes: [`YouTube: ${error.message}`] }; }
     })();
     const [ov, ia, yt] = await Promise.all([openverseJob, archiveJob, youtubeJob]);
     release();
-    const licensed = ov?.answered ? [ov, ia] : [ia, ov];
-    const parts = [...licensed, yt].filter(Boolean);
+    const parts = [yt, ...(ov?.answered ? [ov, ia] : [ia, ov])].filter(Boolean);
     return { query: words, results: parts.flatMap((part) => part.results), notes: parts.flatMap((part) => part.notes) };
   }
 
@@ -735,8 +762,8 @@ export function createSoundtrack(deps) {
   }
 
   /**
-   * Imports a picked song into the media library with its credit: an Openverse or Archive song with
-   * its license, a YouTube song whole as WAV with "license unknown" (for a private video).
+   * Imports a picked song into the media library with its credit as metadata: an Openverse or
+   * Archive song with its license, a YouTube song whole as WAV.
    */
   async function importCandidate(candidate) {
     if (candidate.source === "youtube") {
@@ -753,11 +780,11 @@ export function createSoundtrack(deps) {
     }
     if (!NAMES[candidate.source]) throw new SoundtrackError("refused", `${candidate.id} is not a song kino imports.`);
     if (!enabled()) throw new SoundtrackError("sound_search_off", "Sound search is off: the person turns it on in kino Settings.");
-    // The license is read again: it must still allow use with credit.
-    const again = candidate.source === "archive"
+    // The license is read again so the credit kept with the file is current; a changed one keeps
+    // the license the search found (metadata, not a gate).
+    const again = (candidate.source === "archive"
       ? await archiveAgain(candidate)
-      : parseOpenverseMusic({ results: [await (await get(`${api}${candidate.id.slice(10)}/`)).json()] })[0];
-    if (!again) throw new SoundtrackError("refused", `${candidate.id}'s license no longer allows commercial use and changes, so kino does not import it.`);
+      : parseOpenverseMusic({ results: [await (await get(`${api}${candidate.id.slice(10)}/`)).json()] })[0]) ?? candidate;
     const folder = await makeTempFolder("kino-sound-");
     try {
       const file = await download(again, folder);
@@ -774,8 +801,10 @@ export function createSoundtrack(deps) {
     const identifier = ARCHIVE_ID.exec(candidate.id)?.[1];
     if (!identifier) return null;
     const meta = (await (await get(`${archiveApi}/metadata/${identifier}/metadata`, searchMs, "archive")).json())?.result ?? {};
-    const [item] = parseArchiveSearch({ response: { docs: [{ ...meta, identifier }] } });
-    if (!item) return null;
+    const licenseUrl = [meta.licenseurl].flat()[0] ?? null;
+    const found = licenseFromUrl(licenseUrl);
+    if (!found) return null;
+    const item = { license: licenseName(found.license, found.version), licenseUrl };
     const license = (entry) => `${entry.license}${entry.licenseUrl ? ` (${entry.licenseUrl})` : ""}`;
     return { ...candidate, license: item.license, licenseUrl: item.licenseUrl, credit: candidate.credit.replace(license(candidate), license(item)) };
   }
@@ -864,5 +893,27 @@ export function createSoundtrack(deps) {
     return { results, notes };
   }
 
-  return { search, mix, measure, importCandidate, sweep, songFile, embedSaved, explore };
+  /**
+   * The song the person named (namedSong: "Melatonin by Tinashe", "Artist - Title", a YouTube link
+   * or yt:<id>) as one YouTube candidate, or a SoundtrackError when YouTube has no match. A title
+   * and artist go through pickRecording (the label's "- Topic" upload and official audio first).
+   */
+  async function findSong(text) {
+    const named = namedSong(text);
+    if (!named) throw new SoundtrackError("bad_input", 'song is the song the person named: "Melatonin by Tinashe", "Tinashe - Melatonin" or a YouTube link.');
+    if (!deps.searchYouTube) throw new SoundtrackError("failed", "YouTube: not available here.");
+    const results = await cached(`song\n${named.words.toLowerCase()}`, () => deps.searchYouTube(named.words, { count: 8 }));
+    // A pasted link is taken as it is (no junk or length filter): the person chose that upload.
+    const linked = named.id ? (results ?? []).find((entry) => entry?.id === named.id) : null;
+    const hit = named.id
+      ? linked && songCandidate(linked)
+      : named.song
+        // The artist may be spelled otherwise on YouTube: then an upload whose title names the song.
+        ? pickRecording(results, named.song) ?? youtubeCandidates((results ?? []).filter((entry) => plainText(entry?.title).includes(plainText(named.song.title))), named.words)[0]
+        : youtubeCandidates(results, named.words)[0];
+    if (!hit) throw new SoundtrackError("failed", `YouTube has no song for "${named.words}": check the title and artist, or paste the song's YouTube link.`);
+    return named.song ? { ...hit, title: named.song.title, creator: hit.creator === "unknown" ? named.song.artist : hit.creator } : hit;
+  }
+
+  return { search, mix, measure, importCandidate, sweep, songFile, embedSaved, explore, findSong };
 }

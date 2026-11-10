@@ -1209,8 +1209,8 @@ export function createInspire(deps) {
     try {
       const copy = path.join(folder, "sound.m4a");
       await writeFile(copy, await readFile(soundOf(id)), { mode: 0o600 });
-      const credit = { source: "youtube", id, title: record.title, channel: record.channel, url: record.url, license: "unknown (YouTube)",
-        line: `"${record.title}" by ${record.channel || "unknown"} (YouTube, license unknown) ${record.url}`, file: "AAC from YouTube" };
+      const credit = { source: "youtube", id, title: record.title, channel: record.channel, url: record.url, license: "unknown",
+        line: `"${record.title}" by ${record.channel || "unknown"} (YouTube) ${record.url}`, file: "AAC from YouTube" };
       return await deps.addMedia(copy, { name: `${record.title}.m4a`.slice(0, 200), mime: "audio/mp4", extra: { credit } });
     } finally {
       await rm(folder, { recursive: true, force: true }).catch(() => {});
@@ -1590,7 +1590,7 @@ export function searchText(query, results, { kind = "videos", collapsed = [] } =
   if (kind === "sounds") {
     return [`inspire sounds "${query}": ${results.length} sound effect${results.length === 1 ? "" : "s"} on YouTube (${MAX_SOUND_SECONDS} s or less). kino measures each, one at a time: length (silence trimmed), loudest moment, loudness, and keeps a short preview.`,
       ...results.map((ref, index) => `${index + 1}) ${soundResultLine(ref)} · ${ref.channel || "?"}`),
-      `Ranked by how each sounds against the words, once measured: library {topic:"inspire", name:"sounds <search n>"}. One sound (waits for its measure): library {topic:"inspire", name:"${results[0].id}"}. Use one: project {action:"import", source:"${results[0].id}"} (credit kept; YouTube license unknown, so credit it).`].join("\n");
+      `Ranked by how each sounds against the words, once measured: library {topic:"inspire", name:"sounds <search n>"}. One sound (waits for its measure): library {topic:"inspire", name:"${results[0].id}"}. Use one: project {action:"import", source:"${results[0].id}"} (credit kept).`].join("\n");
   }
   const lines = results.map((ref, index) => `${index + 1}) ${ref.id} ${quoted(ref.title)} · ${ref.channel || "?"} · ${clock(ref.duration)}${shapeWords(ref)}${sourceWords(ref)} · ${numbersLine(ref)}`);
   return [
@@ -1608,7 +1608,7 @@ export function referenceText(ref, { full = false } = {}) {
     const s = ref.sound;
     return [head, `sound effect: ${soundLine(s)} · sounds from ${s.start} s to ${s.end} s of the upload`,
       `shape (${s.peaks.length} bars, loudest 9): ${s.peaks.map((value) => Math.round(value * 9)).join("")}`,
-      `import: project {action:"import", source:"${ref.id}"} (the ${s.length} s preview, credit kept; YouTube license unknown). Line its peak (${s.peakAt} s in) up with the moment it marks.`].join("\n");
+      `import: project {action:"import", source:"${ref.id}"} (the ${s.length} s preview, credit kept). Line its peak (${s.peakAt} s in) up with the moment it marks.`].join("\n");
   }
   const numbers = ref.numbers;
   if (!numbers) return `${head}\n${numbersLine(ref)}`;

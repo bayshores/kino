@@ -568,11 +568,14 @@ const MUSIC_FROM = 10;
 // A sound layer playing under this share of the video is a sound effect or a short line.
 const MUSIC_SHARE = 0.3;
 
-/** The next call for a video with no music: a soundtrack search, or the person's choice. */
-export function noMusicFix(soundSearch) {
-  return soundSearch
-    ? 'library {topic:"soundtrack", search:"<mood, tempo>"}, measure 2 songs (library {topic:"soundtrack", measure:"<id>"}), import the best fit'
-    : "sound search is off: at the sound stop ask the person to send a track, turn on sound search in kino Settings, or keep it silent";
+/**
+ * The next call for a video with no music: a real song (one the person named, a search or an
+ * explore; YouTube songs need no Settings switch), or, with no song search here, the person's choice.
+ */
+export function noMusicFix(songSearch) {
+  return songSearch
+    ? 'a real song: library {topic:"soundtrack", song:"<title> by <artist>"} when the person named one, else search:"<mood, tempo>" or explore:true; measure 2 songs (library {topic:"soundtrack", measure:"<id>"}), import the best fit'
+    : "at the sound stop ask the person to name a song or send a track, or keep it silent";
 }
 
 /**
@@ -594,7 +597,7 @@ export function isMusicLayer(layer, scene, entry = null) {
   return Boolean(range) && range.end - range.start >= scene.duration * MUSIC_SHARE;
 }
 
-/** no_music: a video of 10 s or more with no music; ctx.soundSearch (Settings) picks the fix. */
+/** no_music: a video of 10 s or more with no music; ctx.soundSearch (song search is available) picks the fix. */
 export function noMusic(model, ctx) {
   const scene = ctx.speechScene ?? ctx.scene;
   if (!scene || !(scene.duration >= MUSIC_FROM) || hasMusic(scene, ctx.speech ?? [])) return [];

@@ -458,7 +458,7 @@ export function SettingsScreen({ data, onSave: saveTo, onClearCache, onClearRend
                 if (quiet && notificationState === "default") await onAskNotifications?.();
               }} />
           </SettingRow>
-          <SettingRow id="set-sound-search" label="web search" hint="Off by default. When on, agents may find openly licensed sounds, songs and video clips: an agent's search words go to Openverse, the Internet Archive and Wikimedia Commons (no account); imported files keep their creator, link and license.">
+          <SettingRow id="set-sound-search" label="web search" hint="Off by default. When on, agents may also find sounds, songs and video clips on Openverse, the Internet Archive and Wikimedia Commons (its search words go there; no account). YouTube songs need no switch.">
             <Toggle id="set-sound-search" checked={Boolean(settings.sounds?.search)} aria-describedby="set-sound-search-hint"
               onChange={(event) => onSave({ sounds: { search: event.target.checked } })} />
           </SettingRow>

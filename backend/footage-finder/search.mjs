@@ -66,7 +66,7 @@ export function uploaderMatches(channel, words) {
     .some((word) => word.length >= 4 && !COMMON.has(word) && name.includes(word));
 }
 
-// One kept search result as a candidate: a stable id, the YouTube page and license unknown.
+// One kept search result as a candidate: a stable id and the YouTube page (license "unknown" as metadata).
 function toCandidate(result, { given = false } = {}) {
   const candidate = {
     id: `clip:yt-${result.videoId}`,
@@ -191,10 +191,11 @@ export function nothingFoundText(words, tried) {
   return `Nothing for "${words}"${tried ? ` (also tried "${tried}")` : ""}. Try the English title, a character name, or source:"commons".`;
 }
 
-/** One candidate's line: `F1 <channel> (verified) · 23:40 · "<title>" · license unknown · doubt: upscaled?`. */
+/** One candidate's line: `F1 <channel> (verified) · 23:40 · "<title>" · doubt: upscaled?` (a stated license, as Commons gives, after the title). */
 export function candidateLine(candidate, code) {
   const who = `${candidate.creator || "unknown channel"}${candidate.given ? " (yours)" : candidate.verified ? " (verified)" : ""}`;
-  const parts = [`${code} ${who}`, clock(candidate.seconds), `"${candidate.title}"`, `license ${candidate.license}`];
+  const parts = [`${code} ${who}`, clock(candidate.seconds), `"${candidate.title}"`];
+  if (candidate.license && candidate.license !== "unknown") parts.push(candidate.license);
   if (candidate.doubt) parts.push(`doubt: ${candidate.doubt}`);
   return parts.join(" · ");
 }
