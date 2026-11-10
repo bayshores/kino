@@ -65,12 +65,14 @@ import { createRecorder } from "./recorder/recorder.mjs";
 import { createSoundtrack } from "./soundtrack.mjs";
 import { createSongTaste } from "./songTaste.mjs";
 import { createMusicEmbed } from "./music-embed.mjs";
-import { createLookEmbed } from "./look-embed.mjs";
+import { createLookEmbed, LOOK_MODEL } from "./look-embed.mjs";
 import { decodeMono } from "./audio-analysis.mjs";
 import { createSoundBandsCache, soundLevelsFor } from "./sound-bands.mjs";
 import { analyzeBeats } from "../engine/beatDetection.js";
 import { createInspire, inspireTools } from "./inspire.mjs";
 import { createYouTubeGate } from "./process-slots.mjs";
+import { createFootageFinder } from "./footage-finder/index.mjs";
+import { createCommonsSource } from "./footage-finder/licensed.mjs";
 import { createHouseMemory } from "./house-memory.mjs";
 import { songVocals } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
@@ -230,6 +232,17 @@ const soundtrack = createSoundtrack({
   addMedia: (...args) => addGeneratedMedia(...args),
 });
 soundtrack.sweep().catch(() => {});
+// The footage finder (backend/footage-finder): YouTube searches cached in <data>/footage/cache,
+// scans kept in <data>/footage/scans, Commons behind the same web search switch as sounds. Scans
+// match shots to the agent's words with the reference look model, when it is on.
+const footageFinder = createFootageFinder({
+  directory: path.join(dataRoot, "footage"),
+  dataRoot,
+  youtube: youtubeGate,
+  embed: lookEmbed,
+  commons: createCommonsSource({ enabled: () => dashboard.settings().sounds?.search === true, directory: path.join(dataRoot, "footage", "commons") }),
+  modelReady: () => existsSync(path.join(dataRoot, "models", LOOK_MODEL)),
+});
 // Screen recordings agents make (project {action:"record"}): folders in <data>/recordings while
 // recording, then the video joins the media library. The dashboard shows one while it runs.
 const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => addGeneratedMedia(...args),
@@ -273,6 +286,7 @@ const agentService = createAgentService({
   look: agentLook,
   inspire,
   soundtrack,
+  footage: footageFinder,
   // The person's song likes and rejects, across projects (backend/songTaste.mjs).
   songTaste: createSongTaste({ file: path.join(dataRoot, "song-taste.json") }),
   musicEmbed,

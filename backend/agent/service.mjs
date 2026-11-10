@@ -17,6 +17,7 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
+import { createFootageActions, FootageError, personClipCount } from "../footage-finder/actions.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -457,6 +458,8 @@ export function createAgentService(deps) {
   const footageCache = deps.footageCache ?? createFootageCache();
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
+  // library {topic:"footage"}: found video for the project (deps.footage is footage-finder/index.mjs).
+  const footageActions = deps.footage ? createFootageActions({ finder: deps.footage, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
   const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
@@ -5448,6 +5451,9 @@ export function createAgentService(deps) {
   // ---- library ----------------------------------------------------------------------------
   async function library(input) {
     let topic = input.topic ?? "topics";
+    // footage: found video (backend/footage-finder/actions.mjs). Left out of LIBRARY_TOPICS and the
+    // topics line until importing found shots lands.
+    if (topic === "footage") return footage(input);
     // A topic one letter off ("effect", "ops") is that topic; a rules name ("render") is rules {name}.
     let topicNote = "";
     if (!LIBRARY_TOPICS.includes(topic) && typeof topic === "string") {
@@ -5801,6 +5807,25 @@ export function createAgentService(deps) {
     }).catch(() => {});
     exploring.set(projectId, job);
     return job;
+  }
+
+  // library {topic:"footage"}: the project's found videos (search, scan, note). The answer's
+  // update is applied to the saved footage state inside the call's own state update.
+  async function footage(input) {
+    if (!footageActions) throw new AgentError("failed", "The footage finder is not available here.");
+    if (byYou()) throw new AgentError("chat_only", "The agent searches and scans footage.");
+    const record = await projectFor(input);
+    const projectId = record.document.id;
+    const state = await agentState.read(projectId);
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    let reply;
+    try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media) }); }
+    catch (error) {
+      if (!(error instanceof FootageError)) throw error;
+      throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
+    }
+    const { update, ...answer } = reply;
+    return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
   }
 
   async function soundtrack(input, name, search) {

@@ -12,6 +12,11 @@ import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
+import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE } from "./footage-finder/actions.mjs";
+import { createAgentService } from "./agent/service.mjs";
+import { createAgentStateStore } from "./agent/state.mjs";
+import { openStore } from "./store.mjs";
+import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 // One flat search line as yt-dlp prints it.
 const ytLine = (id, title, extra = {}) => JSON.stringify({ id: id.padEnd(11, "x"), title, channel: "Some Fan", duration: 600, url: `https://www.youtube.com/watch?v=${id.padEnd(11, "x")}`, ...extra });
@@ -390,4 +395,86 @@ test("Commons asks only with the web search switch on, and a file redirected off
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
+});
+
+// A found candidate as search.mjs makes it.
+const found = (n, extra = {}) => ({ id: `clip:yt-${String(n).padStart(11, "v")}`, source: "youtube", videoId: String(n).padStart(11, "v"), title: `Episode ${n}`, creator: "Big Studio", seconds: 1420, license: "unknown", ...extra });
+
+test("library footage: the person's clips lead every answer, search's next is scan top, scan's next is the full import call, all under 1.5k tokens", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  const layers = [createLayer("video", { id: "own", src: "/api/media/own1" }), createLayer("video", { id: "own2", src: "/api/media/own1" })];
+  await store.createProject(createDocument({ id: "anime-edit", name: "Anime edit", scenes: [createScene({ id: "s1", layers })] }));
+  const scanned = [];
+  const finder = {
+    search: async () => ({ words: "show fight", candidates: Array.from({ length: 10 }, (_, index) => found(index + 1, { title: `Episode ${index + 1} ${"long title words ".repeat(8)}` })), dropped: { edits: 3, reactions: 2 }, cached: false }),
+    readScan: async () => null,
+    scan: async (candidate, options) => {
+      scanned.push([candidate.code, options.want]);
+      return { want: options.want, windows: [{ start: 0, end: 480 }], matchShown: true, skipped: { dark: 1, text: 2, short: 0, repeats: 4 },
+        shots: [
+          ...Array.from({ length: 14 }, (_, index) => ({ n: 37 - index, start: 197.2 + index, end: 199 + index, motion: 82, face: 40, match: 3.1, flags: [] })),
+          { n: 2, start: 5, end: 7, motion: 10, face: 0, match: 0, flags: ["text"] },
+        ] };
+    },
+  };
+  const service = createAgentService({ store, agentState: createAgentStateStore(dataRoot), agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder });
+  const searched = await service.call("library", { project: "anime-edit", topic: "footage", search: "show fight", want: "white hair, blindfold" });
+  assert.equal(searched.isError, undefined, searched.text);
+  const lines = searched.text.split("\n");
+  assert.equal(lines[0], "This video has 1 clip of the person's: they lead; found clips fill the gaps.");
+  assert.match(lines[2], /^F1 Big Studio · 23:40 · "Episode 1 long title/);
+  assert.match(searched.text, /Dropped 5: 3 edits, 2 reactions\./);
+  assert.equal(lines.at(-1), 'next: library {"topic":"footage","scan":"top"}');
+  assert.ok(searched.text.length / 4 < 1500, `${searched.text.length} characters`);
+  const scan = await service.call("library", { project: "anime-edit", topic: "footage", scan: "top" });
+  assert.equal(scan.isError, undefined, scan.text);
+  assert.deepEqual(scanned, [["F1", "white hair, blindfold"]]);
+  const shown = scan.text.split("\n");
+  assert.equal(shown[0], "This video has 1 clip of the person's: they lead; found clips fill the gaps.");
+  assert.equal(shown[2], "F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1");
+  assert.equal(shown.filter((line) => /^F1\.\d+ /.test(line)).length, 12);
+  assert.match(scan.text, /Skipped: 2 text, 1 dark, 4 repeats\./);
+  assert.equal(shown.at(-1), 'next: project {"action":"import","file":"F1","options":{"shots":[37,36,35,34,33,32]}}');
+  assert.ok(scan.text.length / 4 < 1500, `${scan.text.length} characters`);
+  // The list remembers F1 as scanned, and the next "top" is F2.
+  const list = await service.call("library", { project: "anime-edit", topic: "footage" });
+  assert.match(list.text, /F1 Big Studio .* · scanned, 15 shots/);
+  assert.equal(list.text.split("\n").at(-1), 'next: library {"topic":"footage","scan":"F2"}');
+});
+
+test("footage codes: at most 24 kept, the oldest go first but never a scanned, noted or imported one, and a code stays with its video", () => {
+  let footage = addCandidates(null, Array.from({ length: 20 }, (_, index) => found(index + 1)));
+  footage.candidates[0].scan = { id: "yt-x", shots: 3 };
+  footage.candidates[1].note = { verdict: "no", why: "a watermark" };
+  footage = addCandidates(footage, [found(3), ...Array.from({ length: 10 }, (_, index) => found(index + 30))]);
+  assert.equal(footage.candidates.length, 24);
+  assert.deepEqual(footage.candidates.slice(0, 4).map((entry) => entry.code), ["F1", "F2", "F3", "F10"]);
+  assert.deepEqual(footage.order.slice(0, 2), ["F3", "F21"]);
+});
+
+test("a scan longer than the wait answers with its progress, and the same call again joins it", async () => {
+  let finish;
+  let started = 0;
+  const finder = {
+    readScan: async () => null,
+    scan: (candidate, { onProgress }) => { started += 1; onProgress("Downloading 3 stretches at 360p."); return new Promise((resolve) => { finish = resolve; }); },
+  };
+  const actions = createFootageActions({ finder, waitMs: 5 });
+  const footage = addCandidates(null, [found(1), found(2)]);
+  const first = await actions.handle({ scan: "F1" }, { footage, personClips: 0 });
+  assert.equal(first.text, "F1 is still scanning. Downloading 3 stretches at 360p.\nSend the same call again: it joins this scan and waits for it.");
+  assert.deepEqual(first.nextCall, { tool: "library", input: { topic: "footage", scan: "F1" } });
+  const again = actions.handle({ scan: "F1" }, { footage, personClips: 0 });
+  finish({ want: "", windows: [{ start: 0, end: 60 }], shots: [{ n: 1, start: 1, end: 3, motion: 50, face: 0, flags: [] }], skipped: {} });
+  assert.match((await again).text, /^F1 "Episode 1" · scanned 1:00 of 23:40 · 1 shot:\nF1\.1 0:01\.0-0:03\.0 2\.0s motion 50 face 0\n/);
+  assert.equal(started, 1);
+  // A video that cannot play here is dropped, and the next one is named.
+  const blocked = createFootageActions({ finder: { readScan: async () => null, scan: async () => { throw Object.assign(new Error("x"), { code: "UNPLAYABLE", reason: "region" }); } } });
+  const answer = await blocked.handle({ scan: "top" }, { footage, personClips: 0 });
+  assert.equal(answer.text, "F1 cannot play from here (region). Dropped; F2 is next.");
+  assert.deepEqual(answer.update(footage).candidates.map((entry) => entry.code), ["F2"]);
+  assert.ok(FOOTAGE_TOPIC_LINE.length <= 150, FOOTAGE_TOPIC_LINE.length);
 });
