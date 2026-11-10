@@ -32,8 +32,11 @@ asks for the idea and its signature moment from the real material first; there i
 ## The spine
 
 Beats in story order, each `{role, from, to, uses?, purpose}`:
-- `role`: hook, problem, turn (where the story flips), product, how (it works, shown where it acts), proof, signature,
-  breath (a deliberate quiet beat), payoff, end, coda, or another short name.
+- `role`: hook, problem, turn (where it flips), product, how (it works, shown where it acts),
+  proof, signature, breath (a deliberate quiet beat), payoff, end, coda, or another short name.
+  `music_turn` warns when the music does nothing at a turn (no song section, under 4 dB of
+  change, no dip just before): `fit_music {layer}` with a song that has a drop, or volume keys;
+  once fitted, move the turn onto the `song-drop-` cue it names.
 - `uses`: what the beat shows or plays (real material, not invented screens): layer names,
   media file names as `library media` lists them (extension optional), or audio layers.
 - `purpose`: one sentence on what the beat does for the story.
