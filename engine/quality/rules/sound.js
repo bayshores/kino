@@ -764,10 +764,15 @@ export function musicTurn(model, ctx) {
   };
   const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
   const head = songs.find((song) => !song.layer.fitMusic)?.layer ?? songs[0].layer;
+  const songCues = (ctx.cues ?? []).filter((cue) => String(cue.name ?? "").startsWith("song-") && Number.isFinite(cue.time));
+  // A song fit_music already cut: running it again gives the same cut (one drop, or the turn's
+  // drop on a bar line away from the turn), so the hint moves the turn to a drop instead.
+  const fitted = Boolean(head.fitMusic) || scene.layers.some((other) => other.fitMusic === head.id) || songCues.length > 0;
+  const drops = songCues.filter((cue) => cue.name.startsWith("song-drop-"));
   const findings = [];
   for (const beat of turns) {
     const at = beat.from;
-    if ((ctx.cues ?? []).some((cue) => String(cue.name ?? "").startsWith("song-") && Math.abs(cue.time - at) <= TURN_NEAR)) continue;
+    if (songCues.some((cue) => Math.abs(cue.time - at) <= TURN_NEAR)) continue;
     const before = [], after = [];
     for (let time = Math.max(0, at - TURN_SIDE); time < at - 1e-9; time += TURN_STEP) before.push({ time, level: heardAt(time) });
     for (let time = at; time < Math.min(model.duration, at + TURN_SIDE) - 1e-9; time += TURN_STEP) after.push({ time, level: heardAt(time) });
@@ -783,12 +788,17 @@ export function musicTurn(model, ctx) {
       if (run * TURN_STEP >= TURN_DIP - 1e-9) { dipped = true; break; }
     }
     if (dipped) continue;
+    const nearest = [...(drops.length ? drops : songCues)].sort((a, b) => Math.abs(a.time - at) - Math.abs(b.time - at))[0];
+    const volumeKeys = "volume keys that change it at the turn";
+    const hint = !fitted ? `fit_music {layer:"${head.name}"} (a drop on the spine's turn and payoff) with a song that has a drop, or ${volumeKeys}.`
+      : nearest ? `move the spine's turn to ${sec(nearest.time)} s (${nearest.name}) with notes brief, or ${volumeKeys}.`
+        : `${volumeKeys[0].toUpperCase()}${volumeKeys.slice(1)} (the song is already fitted).`;
     findings.push({
       rule: "music_turn", severity: "warn", layerId: head.id, at: sec(at),
       message: `The turn at ${sec(at)} s: the music does not change here (${sec(Math.abs(now - was))} dB from the 2 s before to the 2 s after, no song section, no dip).`,
       measured: `${sec(was)} dB before, ${sec(now)} dB after the turn`,
       required: `at the turn a song section within ${TURN_NEAR} s, a level change of ${TURN_DB} dB either way, or a dip of ${TURN_DIP} s just before`,
-      fix: { kind: "hint", text: `fit_music {layer:"${head.name}"} (a drop on the spine's turn and payoff) with a song that has a drop, or volume keys that change it at the turn.` },
+      fix: { kind: "hint", text: hint },
     });
   }
   return findings;
