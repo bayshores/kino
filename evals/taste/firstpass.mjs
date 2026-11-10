@@ -20,11 +20,37 @@ const TOOLS = "Bash,Read,Agent";
 
 // ---- pure parts (tests/taste-harness.test.mjs) ----------------------------------------------------
 
-/** The person's message: the ask, then the files, then any notes. Nothing about kino or taste. */
-export function promptFor(brief, files) {
+/**
+ * The person's message: the ask, then the files, then any notes, then the project's name when
+ * there is one. Nothing about kino or taste.
+ */
+export function promptFor(brief, files, projectId = null) {
   const lines = [brief.ask.trim(), "", "Files:", ...files.map((file) => `- ${file}`)];
   if (brief.notes) lines.push("", brief.notes.trim());
+  if (projectId) lines.push("", `Use ${projectId} as the project id.`);
   return lines.join("\n");
+}
+
+/**
+ * The id of the project the agent really made, from kino's status line
+ * ("kino launch trailer (kino-launch) rev 47 ..."): the id in parentheses before " rev ". null
+ * when the line has none (no project open, or the status call failed).
+ */
+export function projectIdFromStatus(line) {
+  return /\(([^()\s]+)\) rev \d/.exec(String(line ?? ""))?.[1] ?? null;
+}
+
+/**
+ * The run's own project id, from its run id: lowercase letters, digits and dashes, at most 63
+ * (kino's project id). Left to itself every agent named its project after the ask (kino-launch),
+ * so every run got one deal seed (engine/deck.js projectSeed) and one house-memory family. A
+ * number at the end is joined to the word before it (kino-fp-9 is kino-fp9), because familyOf
+ * (backend/house-memory.mjs) drops a trailing "-9" and kino-fp-8 and kino-fp-9 would be one family.
+ */
+export function projectIdFor(runId) {
+  let id = String(runId ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 63).replace(/^-+|-+$/g, "");
+  while (/-v?\d+[a-z]?$/.test(id)) id = id.replace(/-(v?\d+[a-z]?)$/, "$1");
+  return id || "firstpass";
 }
 
 /** Visible words of an HTML page: no scripts, styles or tags, entities decoded, one line per block. */
@@ -230,7 +256,8 @@ async function main() {
   const dataDir = path.join(runDir, "data"), outDir = path.join(runDir, "out"), mediaDir = path.join(runDir, "media");
   await mkdir(outDir, { recursive: true });
   const files = await copyMaterial(brief, mediaDir);
-  const prompt = promptFor(brief, files);
+  const askedProjectId = projectIdFor(runId);
+  const prompt = promptFor(brief, files, askedProjectId);
   if (args.includes("--dry-run")) { console.log(prompt); return; }
   await writeSettings(dataDir, outDir);
 
@@ -281,6 +308,9 @@ async function main() {
   const seconds = Math.round((Date.now() - started) / 1000);
   const check = await kinoCheck(server.url);
   await stopGroup(server.child);
+  // The agent may ignore the asked id; then the run shares a deal seed with every run of that id.
+  const projectId = projectIdFromStatus(check.status);
+  if (projectId !== askedProjectId) console.log(`  warning: asked for project id ${askedProjectId}, the agent made ${projectId ?? "no project"}`);
   // A final MP4 the agent wrote elsewhere is copied into out/ so the run folder holds it.
   if (made && !made.path.startsWith(outDir)) {
     const kept = path.join(outDir, path.basename(made.path));
@@ -290,7 +320,7 @@ async function main() {
   await rm(workDir, { recursive: true, force: true });
   const last = calls.at(-1) ?? {};
   const result = {
-    version: 1, runId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
+    version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
     startedAt: new Date(started).toISOString(), seconds, budgetMinutes: minutes, timedOut: calls.some((call) => call.timedOut) || Date.now() >= deadline,
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
     finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY,
