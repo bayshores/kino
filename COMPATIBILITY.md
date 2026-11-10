@@ -1070,7 +1070,8 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   `backend/agent-review.test.mjs`, `backend/agent-judge.test.mjs`. Gap: drift rows need a full `check`.
 - **Idea before the template**: Verified (tests). On a briefed video of 5 s or more, the first building
   edit asks for 2 saved references (one studied), 5 treatments, a pick and its signature
-  (`order_needed` names every open step, waivable); references saved after the first build do not pass the final render. Evidence:
+  (`order_needed` names every open step, waivable); references saved after the first build do not pass the final render.
+  The signature call drafts the spine from the pick (problem = tension, turn = turn); building waits for its problem, turn and payoff, and the lock keeps it. Evidence:
   `backend/agent-brief.test.mjs`.
 - **Live view of agents**: Verified. Each call shows a colored stage tag, cursor, building marks and a
   bot (names and colors at 4.5:1); pointing at a time range tells the agent. Evidence: `backend/agent-live.test.mjs`,

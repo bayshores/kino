@@ -509,18 +509,67 @@ export function orderSteps(state, video = {}) {
   const picked = treatments.picked;
   if (!picked) return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
   // The pick's idea is copied into style.idea when it is saved (briefChanges); its move and
-  // material are offered as the first signature, and the agent names the spine beat.
+  // material are offered as the first signature. A pick that carries its story (tension and
+  // turn) also drafts the spine in the same call: the build waits until the spine has the
+  // problem, turn and payoff (purposes, never exact times). A pick saved before tension and
+  // turn existed asks only the signature, as before.
   const style = brief.style ?? {};
-  if (!style.idea || !style.signatures?.length) {
-    const entry = treatments.list[picked.index];
+  const entry = treatments.list[picked.index];
+  const needSignature = !style.idea || !style.signatures?.length;
+  const missing = entry?.tension && entry?.turn ? STORY_ROLES.filter((role) => !hasPurpose(style.spine, role)) : [];
+  if (!needSignature && !missing.length) return open;
+  const spine = missing.length ? draftSpine(style.spine, entry, video.seconds) : null;
+  // Where a saved beat moved to in the drafted spine (a signature's beat is an index).
+  const beatIn = (index) => {
+    const at = spine && style.spine?.length ? spine.indexOf(style.spine[index]) : -1;
+    return at >= 0 ? at : (spine ?? style.spine ?? []).findIndex((beat) => beat.role === "signature");
+  };
+  const fields = { ...(brief.style ? {} : { by: "guessed" }) };
+  if (needSignature) {
     // A source in words only (copy, a tagline) is offered the product's own picture instead:
     // video.picture, the project's largest screenshot or its clip (the service's directionFacts).
     const source = !wordsOnly(entry.source) ? entry.source : video.picture ? `${video.picture}, <the moment>` : "<a screenshot or clip of the product, and the moment>";
-    const signature = { beat: "<index of its spine beat>", what: entry.move, source, why: "<why only this product>" };
-    // No saved spec (a pick saved before this step existed): a new one needs by.
-    return [...open, { step: "save the signature", call: briefCall({ style: { ...(brief.style ? {} : { by: "guessed" }), ...(style.idea ? {} : { idea: entry.idea }), signatures: [signature] } }) }];
+    const beat = beatIn(-1);
+    if (!style.idea) fields.idea = entry.idea;
+    fields.signatures = [{ beat: beat >= 0 ? beat : "<index of its spine beat>", what: entry.move, source, why: "<why only this product>" }];
+  } else if (spine) {
+    // The saved signatures follow their beat into the drafted spine.
+    const moved = style.signatures.map((signature) => ({ ...signature, beat: Math.max(0, beatIn(signature.beat)) }));
+    if (moved.some((signature, index) => signature.beat !== style.signatures[index].beat)) fields.signatures = moved;
   }
-  return open;
+  if (spine) fields.spine = spine;
+  const step = !needSignature ? `add the spine's ${missing.join(", ").replace(/, (\w+)$/, " and $1")} (notes brief style.spine)` : spine ? "save the signature and spine" : "save the signature";
+  return [...open, { step, call: briefCall({ style: fields }) }];
+}
+
+// The beats the build waits for: what the story is about, where it flips, what it pays off.
+const STORY_ROLES = ["problem", "turn", "payoff"];
+// Rough shares of the runtime for the drafted beats (IDEA_SPINE); the problem starts by 10%, as
+// spine_drift wants it in the first 15%. Times are rough: retiming is not another story
+// (style.mjs directionChange compares roles only).
+const SPINE_SHARES = { hook: [0, 0.1], problem: [0.1, 0.3], turn: [0.3, 0.45], signature: [0.45, 0.7], payoff: [0.7, 0.9], end: [0.9, 1] };
+const hasPurpose = (spine, role) => (Array.isArray(spine) ? spine : []).some((beat) => beat?.role === role && typeof beat.purpose === "string" && beat.purpose.trim() !== "");
+
+/**
+ * The spine the signature step drafts from the pick: with none saved, IDEA_SPINE over the
+ * video's seconds (30 when unknown), the problem's purpose the pick's tension and the turn's its
+ * turn. A saved spine is kept as it is, with each missing story beat put after the last saved
+ * beat that comes before it in IDEA_SPINE.
+ */
+function draftSpine(saved, entry, seconds) {
+  const total = Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
+  const at = (share) => Math.round(share * total * 10) / 10;
+  const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>" };
+  const drafted = (role) => ({ role, from: at(SPINE_SHARES[role][0]), to: at(SPINE_SHARES[role][1]), purpose: purposes[role] ?? `<what the ${role} does>` });
+  if (!Array.isArray(saved) || !saved.length) return IDEA_SPINE.map(drafted);
+  const spine = [...saved];
+  for (const role of STORY_ROLES) {
+    if (hasPurpose(spine, role)) continue;
+    const rank = IDEA_SPINE.indexOf(role);
+    const before = spine.findLastIndex((beat) => IDEA_SPINE.indexOf(beat.role) >= 0 && IDEA_SPINE.indexOf(beat.role) < rank);
+    spine.splice(before + 1, 0, drafted(role));
+  }
+  return spine;
 }
 
 // A rough first pass: up to this many layers may be built before the direction is locked.
@@ -545,7 +594,8 @@ export function guessedBans(brief) {
  * The lock call: notes brief with the style spec plus a story spine and a style bible, drafted
  * from what is saved (the spec's wants and avoids, the deck's cards) so the agent fills in names
  * and times and asks the person, or waives with a reason when no one is watching. The spine is
- * drafted around the idea and its signature (IDEA_SPINE). With no idea yet (no picked treatment,
+ * drafted around the idea and its signature (IDEA_SPINE); a spine already saved (the signature
+ * step drafts it before the build) is kept, and the call asks only the fonts. With no idea yet (no picked treatment,
  * idea line or spec idea) the call asks for the idea and its signature moment, built from the
  * real material, before any spine: no template spine stands in for a missing idea.
  * The approval sends only by:"you" and their quote: copied or dealt lists and guessed avoids keep their source
@@ -569,13 +619,17 @@ export function lockCall(state, { approve = false } = {}) {
     const add = { idea: idea ?? "<one sentence: what only this product can show, from its real material>", signatures };
     return briefCall({ style: saved.by ? { ...add, ...yours } : { ...add, by: "guessed" } });
   }
+  const fonts = { caption: { family: "<font>", size: "<px>" }, display: { family: "<font>", size: "<px>" } };
+  // A spine saved before the build (the signature step) is kept: the lock asks only the fonts.
+  if (saved.spine?.length)
+    return briefCall({ style: { ...(saved.idea ? {} : { idea }), ...(saved.signatures ? {} : { signatures }), fonts, ...(saved.by ? yours : { by: "guessed" }) } });
   const style = {
     // No drafted avoids: a ban is the person's words (a guessed one only warns, and the board
     // stop asks about it). Saved avoids are kept as they are.
     ...(saved.wants?.length ? { wants: saved.wants } : {}), ...(saved.avoids?.length ? { avoids: saved.avoids } : {}),
     idea, signatures,
     spine: IDEA_SPINE.map((role) => ({ role, from: `<s>`, to: `<s>`, uses: ["<layer or media>"], purpose: `<what the ${role} does>` })),
-    fonts: { caption: { family: "<font>", size: "<px>" }, display: { family: "<font>", size: "<px>" } },
+    fonts,
     moves: (cards.length ? cards : ["<technique>"]).map((tag) => ({ tag, where: "<where it recurs>" })),
     // Deck cards are suggestions: they stay "dealt", never the person's style, unless they ask.
     ...(cards.length ? { sources: { ...saved.sources, moves: "dealt" } } : {}),
@@ -596,7 +650,7 @@ export function lockNeeded(state, video = {}) {
   const noIdea = !(style?.idea ?? state.brief.fields?.idea?.text ?? state.brief.treatments?.picked);
   const onlyIdea = noIdea || (style?.spine?.length && style?.fonts && Object.keys(style.fonts).length);
   return lock === "missing"
-    ? { step: `lock direction: ${onlyIdea ? "idea + signature" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state) }
+    ? { step: `lock direction: ${onlyIdea ? "idea + signature" : style?.spine?.length ? "style bible" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state) }
     : { step: "play spine + style bible back; save their approval (no one watching: style {waived:\"<why>\"} instead)", call: lockCall(state, { approve: true }) };
 }
 

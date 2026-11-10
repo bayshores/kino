@@ -29,10 +29,11 @@ import { isRecord } from "../../engine/numbers.js";
 
 export const STYLE_LIMITS = Object.freeze({ tags: 16, lines: 8, text: 120, ref: 120, quote: 200, beats: 16, moves: 4, rejected: 12, idea: 120, signatures: 2, moments: 3, short: 80 });
 const SPEC_KEYS = ["wants", "avoids", "lines", "by", "quote", "spine", "fonts", "accent", "moves", "logo", "rejected", "waived", "idea", "signatures", "moments", "sources"];
-export const BEAT_ROLES = ["hook", "problem", "product", "how", "proof", "signature", "breath", "payoff", "end", "coda"];
-// The spine kino drafts (lockCall in brief.mjs), around the idea and its signature. With no idea
+export const BEAT_ROLES = ["hook", "problem", "turn", "product", "how", "proof", "signature", "breath", "payoff", "end", "coda"];
+// The spine kino drafts (brief.mjs orderSteps before the build, lockCall after), around the idea
+// and its signature: the problem is the pick's tension, the turn where it flips. With no idea
 // the lock asks for one first: there is no template spine.
-export const IDEA_SPINE = Object.freeze(["hook", "problem", "how", "signature", "breath", "payoff", "coda"]);
+export const IDEA_SPINE = Object.freeze(["hook", "problem", "turn", "signature", "payoff", "end"]);
 // The lists a spec's sources can name, and where each can come from.
 export const SOURCE_FIELDS = Object.freeze(["wants", "avoids", "moves"]);
 export const SOURCES = Object.freeze(["you", "guessed", "copied", "dealt"]);

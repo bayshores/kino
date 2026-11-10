@@ -595,7 +595,7 @@ const ENDINGS = 2;
 const CLOSING_SHARE = 0.2;
 // Closing moments this close together are one beat (a title and its subtitle).
 const SAME_ENDING = 1.5;
-// A coda (the idea spine's last beat, style.mjs IDEA_SPINE) closes like the end card.
+// A coda (a closing beat after the payoff) closes like the end card.
 const CLOSING_ROLES = ["payoff", "end", "coda"];
 // Captions with gaps shorter than this are one running track.
 const CAPTION_GAP = 0.3;

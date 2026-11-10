@@ -22,14 +22,16 @@ Write these before the spine, then fill the spine around them:
 - `moments`: up to 3 set pieces `{tag, beat, what}`, used once on purpose; `moves` stay the
   recurring glue. The deck deals `moments[0]` (else a set piece) first.
 
-With an idea, kino drafts the spine hook, problem, how, signature, breath, payoff, coda. With
-none, `lock direction: idea + signature` asks for the idea and its signature moment from the
-real material first; there is no template spine.
+The pick's signature call also drafts the spine before the build: hook, problem (the pick's
+tension), turn (its turn), signature, payoff, end, in rough seconds. Building waits
+(`order_needed`) until the spine has a problem, a turn and a payoff; times may change later. The
+lock keeps that spine and asks only the fonts. With no idea, `lock direction: idea + signature`
+asks for the idea and its signature moment from the real material first; there is no template spine.
 
 ## The spine
 
 Beats in story order, each `{role, from, to, uses?, purpose}`:
-- `role`: hook, problem, product, how (it works, shown where it acts), proof, signature,
+- `role`: hook, problem, turn (where the story flips), product, how (it works, shown where it acts), proof, signature,
   breath (a deliberate quiet beat), payoff, end, coda, or another short name.
 - `uses`: what the beat shows or plays (real material, not invented screens): layer names,
   media file names as `library media` lists them (extension optional), or audio layers.

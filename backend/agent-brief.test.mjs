@@ -848,7 +848,7 @@ async function savedReference(project, name, key = null) {
   if (key) assert.equal(saved.data.key, key, "save ... as <key> names it for a board move.ref");
 }
 
-test("idea first: a briefed video builds only after 2 references (one studied), 5 treatments, a pick and its signature", async () => {
+test("idea first: a briefed video builds only after 2 references (one studied), 5 treatments, a pick, its signature and a spine with a turn", async () => {
   const id = "order-walk";
   const made = await agent("project", { action: "create", id, name: id, width: 1920, height: 1080, duration: 12 });
   assert.doesNotMatch(made.text, /Building blocks|logo-sting/, "create offers no template menu");
@@ -885,8 +885,11 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   // The pick's idea becomes style.idea; its move is offered as the first signature.
   const picked = await brief(id, { fields: { treatments: { pick: "A", quote: "the wheels one" } } });
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
-  const offer = await refused("save the signature");
+  const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");
+  // The same call drafts the spine from the pick: the problem is its tension, the turn its turn.
+  const drafted = offer.input.fields.style.spine;
+  assert.deepEqual([drafted.map((beat) => beat.role), drafted[1].purpose, drafted[2].purpose, offer.input.fields.style.signatures[0].beat], [["hook", "problem", "turn", "signature", "payoff", "end"], "can one kid land it?", "the board lands clean", 3]);
   // A pick whose source names no picture asks for one, and the draft offers the project's own.
   assert.match(picked.text, /source is words only: build the signature from the product's own picture/);
   assert.equal(offer.input.fields.style.signatures[0].source, "<a screenshot or clip of the product, and the moment>");
@@ -896,6 +899,12 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   const signature = { beat: 0, what: "move 4", source: "skate.mp4, the wheels at 0:03", why: "only this crew's sound" };
   const confirmed = await brief(id, { fields: { style: { signatures: [signature] } } });
   assert.equal(confirmed.isError, undefined, confirmed.text);
+  // Pick and signature saved, the spine without a turn: the build waits for the turn.
+  const turnless = drafted.filter((beat) => beat.role !== "turn").map((beat) => ({ ...beat, purpose: beat.purpose.replace(/[<>]/g, "") }));
+  assert.equal((await brief(id, { fields: { style: { spine: turnless } } })).isError, undefined);
+  const turnCall = await refused("add the spine's turn \\(notes brief style\\.spine\\)");
+  assert.deepEqual(turnCall.input.fields.style.spine.map((beat) => beat.role), ["hook", "problem", "turn", "signature", "payoff", "end"]);
+  assert.equal((await brief(id, turnCall.input)).isError, undefined);
   const built = await agent("edit", compose);
   assert.equal(built.isError, undefined, built.text);
   assert.equal(built.data.rev, 2, "the refused edits saved nothing");

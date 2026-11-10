@@ -207,8 +207,11 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   // The lock is drafted around the idea and its signature; the sales template only with no idea.
   const brief = { fields: { idea: { text: "a map that draws the route as they skate", by: "guessed" } }, treatments: picked };
   const style = lockCall({ brief }).input.fields.style;
-  assert.deepEqual(style.spine.map((beat) => beat.role), ["hook", "problem", "how", "signature", "breath", "payoff", "coda"]);
+  assert.deepEqual(style.spine.map((beat) => beat.role), ["hook", "problem", "turn", "signature", "payoff", "end"]);
   assert.deepEqual([style.idea, style.signatures[0].beat, style.signatures[0].source], [brief.fields.idea.text, 3, "route.mp4, the full loop at 0:40"]);
+  // A spine saved before the build is kept: the lock asks only the fonts.
+  const kept = lockCall({ brief: { ...brief, style: { by: "guessed", idea: "x", signatures: style.signatures, spine: [{ role: "hook", from: 0, to: 2, purpose: "y" }] } } }).input.fields.style;
+  assert.deepEqual(Object.keys(kept), ["fonts"]);
   // No idea: no template spine; the call asks for the idea and its signature first.
   const noIdea = lockCall({ brief: { fields: {} } }).input.fields.style;
   assert.deepEqual([noIdea.spine, noIdea.idea, noIdea.signatures.length], [undefined, "<one sentence: what only this product can show, from its real material>", 1]);
