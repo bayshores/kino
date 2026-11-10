@@ -6,13 +6,14 @@
 // adds no energy and starts again on the return frame (black, a freeze or a held shot are all
 // fine; black is not required). These two rules measure that from the document:
 //   seam_lock  a picture change near a seam (within 0.2 s) lands within 1 frame of it, and a drop
-//              or a return is marked by a change at all
+//              or a return is marked by a change at all (a cut, an accent, or a move of a large
+//              picture starting there)
 //   rest_fit   inside a dropout no cut, accent or fast move of a large picture starts, and the
 //              picture restarts within 1 frame of the return
 // With no song cues (no fit_music) both say nothing. Frames are counted at the output rate: the
 // frame the seam is heard in against the first frame that shows the change.
 import { techniqueOf } from "../../techniques.js";
-import { motions, sec, speedAt } from "../analysis.js";
+import { isMoveTween, motions, sec, speedAt } from "../analysis.js";
 import { itemById } from "../model.js";
 import { techniquesUsed } from "../techniques.js";
 
@@ -82,18 +83,41 @@ function pictureChanges(model, ctx) {
   return found.sort((a, b) => a.at - b.at);
 }
 
+/**
+ * The moves of large pictures: [{tag:"move", at, itemId}] where a pan, push or punch of a shown,
+ * non-text layer of at least 20% of the frame starts, timed by its tween's exact start. A held
+ * shot that moves on a drop marks it as well as a cut does.
+ */
+function moveStarts(model) {
+  const found = [];
+  for (const motion of motions(model)) {
+    if (!motion.tweens.some(isMoveTween)) continue;
+    const item = itemById(model, motion.itemId);
+    if (!item || item.kind === "text" || item.kind === "group") continue;
+    const { x0, y0, x1, y1, opacity } = item.samples;
+    const index = Math.min(model.times.length - 1, Math.max(0, Math.round(motion.start * model.fps)));
+    if (opacity[index] < 0.5 || ((x1[index] - x0[index]) * (y1[index] - y0[index])) / (model.width * model.height) < LARGE) continue;
+    found.push({ tag: "move", at: motion.start, itemId: item.id });
+  }
+  return found;
+}
+
+// Only the video's scene holds the song fit_music cut (its cues are the document's): a format
+// variant or another scene is not judged against it (quality.mjs videoScene).
+const otherScene = (ctx) => ctx.videoScene === false;
+
 const frames = (count) => `${Math.abs(count)} frame${Math.abs(count) === 1 ? "" : "s"}`;
 const side = (count) => `${frames(count)} ${count > 0 ? "late" : "early"}`;
 const what = (change) => (change.tag === "cut" ? "cut" : change.tag);
 
 /** seam_lock: a picture change near a song seam lands within 1 frame of it; a drop or a return is marked. */
 export function seamLock(model, ctx) {
-  const seams = songSeams(model, ctx);
+  const seams = otherScene(ctx) ? [] : songSeams(model, ctx);
   if (!seams.length) return [];
   const fps = ctx.outputFps ?? 30;
   // A dropout and its return are rest_fit's.
   const owned = new Set(restsOf(seams).flatMap(({ out, back }) => [out.name, back.name]));
-  const changes = pictureChanges(model, ctx).filter((change) => !isType(change.tag));
+  const changes = [...pictureChanges(model, ctx).filter((change) => !isType(change.tag)), ...moveStarts(model)];
   const findings = [];
   for (const seam of seams) {
     if (owned.has(seam.name)) continue;
@@ -137,7 +161,7 @@ function fastMove(model, item, from, to) {
 
 /** rest_fit: inside a dropout the picture adds no energy, and it restarts within 1 frame of the return. */
 export function restFit(model, ctx) {
-  const seams = songSeams(model, ctx);
+  const seams = otherScene(ctx) ? [] : songSeams(model, ctx);
   const rests = restsOf(seams);
   if (!rests.length) return [];
   const fps = ctx.outputFps ?? 30;

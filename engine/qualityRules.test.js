@@ -1637,6 +1637,13 @@ test("seam_lock: a cut 6 frames after the drop and a return with no change warn;
   const locked = shots([0, 2], [2, 4]);
   await silent("seam_lock", locked, withCues(locked, [["song-drop-1", 2], ["song-vocal-in-1", 3.1], ["song-ending", 3.9]]));
   await silent("seam_lock", late);
+  // A held shot that pans or punches in on the drop marks it with no cut.
+  const pan = shots([0, 4, { animations: [move(2, 0.3, "smooth", { x: 0 }, { x: -300 })] }]);
+  await silent("seam_lock", pan, withCues(pan, [["song-drop-1", 2]]));
+  const punch = shots([0, 4, { animations: [move(2, 0.2, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.15, scaleY: 1.15 })] }]);
+  await silent("seam_lock", punch, withCues(punch, [["song-drop-1", 2]]));
+  // A format variant or another scene is not judged against the video's song.
+  await silent("seam_lock", held, { ...withCues(held, [["song-return-1", 2]]), videoScene: false });
 });
 
 test("rest_fit: a cut inside a dropout, a late restart and a fast move while the music rests warn; a held shot cut on the return is quiet", async () => {
