@@ -157,7 +157,11 @@ export function planEdit(input) {
     musicPlan = { src: music.src, duration: music.duration, offset, start: 0, bpm: grid?.bpm ?? null, drop: drop !== null ? round3(drop - offset) : null, rise: measured?.rise ?? null };
   }
   // A measured song shape (music.shape: song-shape.mjs) locks cuts to its seams (songSections).
-  const song = music?.shape && beats ? songSections(music.shape, { offset: musicPlan.offset, curve: music.curve ?? [], to: duration }) : null;
+  // The request sets how fast every section cuts against the middle range (2 to 4 beats): a pace
+  // by its beats a shot (velocity 1: half), else the treatment's shortest shot (punchy 1: half,
+  // story 2: as measured, calm 4: double).
+  const songScale = (pace ? PACES[pace].beats : style.beats[0]) / 2;
+  const song = music?.shape && beats ? songSections(music.shape, { offset: musicPlan.offset, curve: music.curve ?? [], to: duration, scale: songScale }) : null;
   // Where a cut on the drop goes: the drop itself with a song shape, else its nearest beat.
   const dropCut = (time) => (song ? round3(time) : beats.nearest(time));
   const sectionAt = (time) => song?.sections.find((part) => time >= part.from - 1e-6 && time < part.to - 1e-6) ?? song?.sections.at(-1) ?? null;
@@ -190,9 +194,10 @@ export function planEdit(input) {
   const addShot = (moment, start, end, extra = {}) => {
     const clip = byKey.get(moment.clip);
     let length = end - start;
-    // A shot never runs past its clip's end.
+    // A shot never runs past its clip's end (a shot that holds its last frame, freezeAt, may).
     const room = roomOf(moment);
-    if (length > room && paced && !song) {
+    if (extra.freezeAt !== undefined) { /* the still covers the rest of the shot */ }
+    else if (length > room && paced && !song) {
       // With a pace the cut stays on the beat: the last beat the moment has room for, else (under
       // a beat of room) on past the clip's own next cut, never past the clip's end.
       let index = beatOf(start + room);
@@ -276,45 +281,76 @@ export function planEdit(input) {
   };
   // With a song shape, cuts lock to its seams: the next seam ends a shot to the millisecond, a rest
   // is held through to its return, and inside a section a shot lasts a whole number of beats from
-  // the section's range (its energy). The seed only picks among those lengths, and a hold of twice
-  // the range only over measured motion inside the shot.
-  const nextSeam = (time) => song.seams.find((seam) => seam.at >= time + MIN_SHOT - 1e-6) ?? null;
-  const seamNeed = (time) => {
-    const high = (sectionAt(time)?.beats ?? [2, 4])[1] * beat;
-    const seam = nextSeam(time);
-    return round3(Math.min(seam ? seam.at - time : high, high));
+  // the section's range (its energy). The end is planned first, then a moment with room for it;
+  // the seed only picks among those lengths, and a hold of twice the range only over measured
+  // motion inside the shot. No seam is ever skipped and no cut falls inside a rest: a clip too
+  // short for the planned end cuts on an earlier beat that leaves no sliver before the seam, else
+  // holds its last frame to the seam (freezeAt).
+  const restAt = (time) => song.rests.find((rest) => time > rest.from + 1e-6 && time < rest.to - 1e-6) ?? null;
+  const nextSeam = (time) => song.seams.find((seam) => seam.at > time + 1e-6) ?? null;
+  // A cut at `end` is safe: on a seam, or outside every rest with no sliver before the next seam or the end card.
+  const safeCut = (end) => {
+    if (onSeam(end)) return true;
+    if (restAt(end)) return false;
+    const seam = nextSeam(end);
+    if (seam && seam.at - end < MIN_SHOT) return false;
+    return bodyEnd - end >= MIN_SHOT;
   };
-  const seamEnd = (time, moment) => {
-    const resting = song.rests.find((rest) => time >= rest.from - 1e-6 && time < rest.to - SEAM);
-    if (resting) return resting.to;
-    const [low, high] = sectionAt(time)?.beats ?? [2, 4];
-    const options = [];
-    for (let count = low; count <= high; count += 1) options.push(count);
-    if ((moment.motion ?? 0) >= HOLD_MOTION) options.push(high * 2);
-    const count = options[Math.floor(rng.next() * options.length)];
-    let end = beats.at(beats.index(time) + count);
-    if (end < time + MIN_SHOT) end = beats.at(beats.index(time) + count + 1);
+  // A planned end settles on the song: a seam it passes or nearly reaches takes the cut, a rest
+  // holds to its return, a sliver before the end card joins it.
+  const settle = (time, end, low = 1) => {
     const seam = nextSeam(time);
-    // The seam takes the cut when the planned one passes it or would leave a sliver before it.
-    if (seam && end > seam.at - low * beat * 0.5) end = seam.at;
-    // A cut never falls inside a rest: the picture holds to the return.
-    const rest = song.rests.find((entry) => end > entry.from + 1e-6 && end < entry.to - 1e-6);
+    if (seam && end > seam.at - Math.max(MIN_SHOT, low * beat * 0.5)) end = seam.at;
+    const rest = restAt(end);
     if (rest) end = rest.to;
     if (bodyEnd - end < MIN_SHOT) end = bodyEnd;
     return round3(end);
   };
+  // The seam-locked end of a shot from `time` of `count` beats (a rest holds to its return).
+  const seamCut = (time, count) => {
+    const resting = song.rests.find((rest) => time >= rest.from - 1e-6 && time < rest.to - SEAM);
+    if (resting) return resting.to;
+    let end = beats.at(beats.index(time) + count);
+    if (end < time + MIN_SHOT) end = beats.at(beats.index(time) + count + 1);
+    return settle(time, end, (sectionAt(time)?.beats ?? [2, 4])[0]);
+  };
+  // The planned end (the seed's count) and the longer hold a moving shot may take instead.
+  const seamPlan = (time) => {
+    const [low, high] = sectionAt(time)?.beats ?? [2, 4];
+    const count = low + Math.floor(rng.next() * (high - low + 1));
+    return { end: seamCut(time, count), hold: seamCut(time, high * 2) };
+  };
+  // The end a moment with `room` seconds can reach: the planned one, else the latest earlier beat
+  // that is a safe cut, else the clip's own end when that is a safe cut (inside a section a cut may
+  // sit off the beat, on the footage's cut), else the planned one with the clip's last frame held
+  // ({end, freezeAt}: in a rest, the still adds no energy before the return).
+  const fitRoom = (time, end, room) => {
+    if (end - time <= room + 1e-6) return { end };
+    for (let index = beats.index(time + room); beats.at(index) >= time + MIN_SHOT - 1e-6; index -= 1) {
+      const at = beats.at(index);
+      if (at <= time + room + 1e-6 && at < end - 1e-6 && safeCut(at)) return { end: at };
+    }
+    const own = Math.floor((time + room) * 1000) / 1000;
+    if (own >= time + MIN_SHOT && safeCut(own)) return { end: own };
+    return { end, freezeAt: round3(time + Math.max(0, room)) };
+  };
+  let planned = null;
   // The title plays over a picture (words under it would collide), so the body opens on one.
   let lastSpeech = true;
   const queue = [...speechChosen];
   while (t < bodyEnd - (paced || song ? 0.05 : 0.6)) {
     let moment;
+    planned = null;
     const first = t === titleAt;
     if (queue.length && !first && (!lastSpeech || !pools.some((pool) => pool.some((entry) => !used.has(entry))))) moment = queue.shift();
     else if (first) {
       // The title's picture: the best unused one with room for the whole title.
       const need = titleLength + Math.max(beat, 0.8);
       moment = moments.filter((entry) => entry.kind === "visual" && !used.has(entry) && roomOf(entry) >= need).sort((a, b) => b.score - a.score)[0] ?? nextPicture();
-    } else moment = nextPicture(song ? seamNeed(t) : paced ? plannedEnd(t) - t : 0) ?? queue.shift() ?? null;
+    } else {
+      planned = song ? seamPlan(t) : null;
+      moment = nextPicture(song ? planned.end - t : paced ? plannedEnd(t) - t : 0) ?? queue.shift() ?? null;
+    }
     if (first && moment && moment.kind === "visual") {
       // Long enough to carry the title and land one beat after it; with a pace, the hero hold
       // lasts PACES[pace].hero seconds at most.
@@ -323,7 +359,9 @@ export function planEdit(input) {
       // With a song shape, the first seam after the title is read (the drop) ends the title's shot.
       const seam = song?.seams.find((entry) => entry.at >= t + titleLength - SEAM && entry.at <= end + beat);
       if (seam) end = seam.at;
-      addShot(moment, t, Math.min(end, bodyEnd), { role: "body" });
+      else if (song) end = settle(t, end);
+      const fit = song ? fitRoom(t, Math.min(end, bodyEnd), roomOf(moment)) : { end };
+      addShot(moment, t, Math.min(fit.end, bodyEnd), { role: "body", ...(fit.freezeAt !== undefined ? { freezeAt: fit.freezeAt } : {}) });
       t = shots.at(-1).end;
       lastSpeech = false;
       continue;
@@ -336,9 +374,14 @@ export function planEdit(input) {
     }
     const speech = moment.kind === "speech" && !voice;
     if (song && !speech) {
-      const end = seamEnd(t, moment);
-      if (end <= t + 0.05) break;
-      addShot(moment, t, Math.min(end, bodyEnd), { role: "body" });
+      planned ??= seamPlan(t);
+      // A moving shot may take the longer hold, when its clip has room for it.
+      const room = roomOf(moment);
+      const hold = (moment.motion ?? 0) >= HOLD_MOTION && planned.hold > planned.end && planned.hold - t <= room + 1e-6 && rng.next() < 0.5;
+      const fit = fitRoom(t, Math.min(hold ? planned.hold : planned.end, bodyEnd), room);
+      planned = null;
+      if (fit.end <= t + 0.05) break;
+      addShot(moment, t, fit.end, { role: "body", ...(fit.freezeAt !== undefined ? { freezeAt: fit.freezeAt } : {}) });
       t = shots.at(-1).end;
       lastSpeech = false;
       continue;
@@ -369,7 +412,12 @@ export function planEdit(input) {
   // just after a cut. The best unused full-frame moment, else the best moment again.
   const endMoment = moments.filter((moment) => moment.kind === "visual" && !used.has(moment) && byKey.get(moment.clip).kind === "camera").sort((a, b) => b.score - a.score)[0]
     ?? moments.filter((moment) => moment.kind === "visual").sort((a, b) => b.score - a.score)[0] ?? opening;
-  if (shots.at(-1).end > bodyEnd - 0.05 || paced) shots.at(-1).end = bodyEnd;
+  if (shots.at(-1).end > bodyEnd - 0.05 || paced) {
+    const stretched = shots.at(-1);
+    // With a song shape, a stretch past the clip's room holds its last frame.
+    if (song && stretched.freezeAt === undefined && bodyEnd - stretched.start > roomOf(stretched.moment) + 1e-6) stretched.freezeAt = round3(stretched.start + roomOf(stretched.moment));
+    stretched.end = bodyEnd;
+  }
   addShot({ ...endMoment, kind: "visual", until: undefined }, bodyEnd, duration, { role: "end" });
   const last = shots.at(-1);
   if (last.end < duration - 1e-6) {
@@ -576,7 +624,8 @@ export function planEdit(input) {
   let runs = null;
   if (paced) {
     runs = runsOf(shots.filter((shot) => shot.role === "body" && !shot.speech).slice(1).map((shot) => shot.end - shot.start), beat);
-    lines.push(`${PACES[pace].line}; runs ${runs.map((run) => `${run.count}x${run.beats ?? "?"}`).join(", ")} beats; ${accentCount} downbeat accents`);
+    // With a song shape the sections set the cuts; the pace only scales their ranges (the song line).
+    lines.push(`${song ? `${pace} pace over the song's sections: their beat ranges x${songScale}` : PACES[pace].line}; runs ${runs.map((run) => `${run.count}x${run.beats ?? "?"}`).join(", ")} beats; ${accentCount} downbeat accents`);
   } else if (accents) lines.push(`${accentCount} downbeat accents`);
   let songPlan = null;
   if (song) {
@@ -584,7 +633,8 @@ export function planEdit(input) {
     const inBody = song.seams.filter((seam) => seam.at > titleAt + 1e-6 && seam.at <= bodyEnd + 1e-6);
     const locked = inBody.filter((seam) => shots.some((shot) => shot.n > 1 && Math.abs(shot.start - seam.at) <= SEAM));
     songPlan = { seams: inBody, locked, rests: song.rests, sections: song.sections.filter((part) => part.to > titleAt && part.from < bodyEnd) };
-    lines.push(`song seams: cuts on ${locked.length} of ${inBody.length}${locked.length ? ` (${locked.map((seam) => `${seam.kind} ${seam.at}`).join(", ")})` : ""}; sections ${songPlan.sections.map((part) => `${part.kind} ${part.beats[0]}-${part.beats[1]} beats a shot${part.smooth ? " smooth" : ""}`).join(", ")}${song.rests.length ? `; held through ${song.rests.length} rest${song.rests.length > 1 ? "s" : ""} to the return` : ""}`);
+    const held = shots.filter((shot) => shot.role === "body" && shot.freezeAt !== undefined).length;
+    lines.push(`song seams: cuts on ${locked.length} of ${inBody.length}${locked.length ? ` (${locked.map((seam) => `${seam.kind} ${seam.at}`).join(", ")})` : ""}; sections ${songPlan.sections.map((part) => `${part.kind} ${part.beats[0]}-${part.beats[1]} beats a shot${part.smooth ? " smooth" : ""}`).join(", ")}${song.rests.length ? `; held through ${song.rests.length} rest${song.rests.length > 1 ? "s" : ""} to the return` : ""}${held ? `; ${held} shot${held > 1 ? "s" : ""} hold${held > 1 ? "" : "s"} its clip's last frame to the cut` : ""}`);
   }
 
   return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, words: lines, opening: opening.kind, pace, runs, song: songPlan };

@@ -5,7 +5,7 @@ import test from "node:test";
 import { barAtOrAfter, beatGrid, editBeats, speechSpan } from "./footage/cuts.js";
 import { markedSubject, openingMoment } from "./footage/moments.js";
 import { shotLayout } from "./footage/layout.js";
-import { accentTimes, phrasePlan } from "./footage/pace.js";
+import { accentTimes, phrasePlan, songSections } from "./footage/pace.js";
 import { planEdit } from "./footage/plan.js";
 import { footageOps } from "./footage/ops.js";
 
@@ -121,8 +121,10 @@ test("seam-locked cuts: a measured song shape puts cuts on its seams, holds rest
   };
   const curve = Array.from({ length: 240 }, (_, index) => (index < 60 ? -30 : index >= 83 && index < 93 ? -22 : -10));
   const deck = { cards: [{ tag: "push-transition" }, { tag: "dissolve" }] };
-  for (const seed of [1, 2, 3]) {
-    const { plan } = paced(null, 30, { treatment: "story", deck, seed, curve, sample: { motion: 0.4 }, shape });
+  // Source shots of 1.3 s (anime footage) leave little room: seams still lock, rests still hold.
+  const short = Array.from({ length: 16 }, (_, index) => ({ start: round3(index * 1.3), end: Math.min(20, round3((index + 1) * 1.3)) }));
+  for (const [seed, shots] of [[1], [2], [3], [1, short], [2, short]]) {
+    const { plan, clips } = paced(null, 30, { treatment: "story", deck, seed, curve, sample: { motion: 0.4 }, shape, clip: shots ? { shots } : {} });
     assert.ok(plan.song, plan.words.join("\n"));
     const cuts = plan.shots.slice(1).map((shot) => shot.start);
     // Every seam in the body has a cut within one frame, and no cut falls inside the rest.
@@ -130,12 +132,44 @@ test("seam-locked cuts: a measured song shape puts cuts on its seams, holds rest
     assert.deepEqual(plan.song.locked, plan.song.seams, plan.words.join("\n"));
     const [rest] = plan.song.rests;
     assert.ok(!cuts.some((at) => at > rest.from + 0.001 && at < rest.to - 0.001));
+    // No sliver, and a shot past its source shot holds that shot's last frame (freezeAt).
+    for (const shot of plan.shots.filter((entry) => entry.role === "body")) {
+      assert.ok(shot.end - shot.start >= 0.25 - 1e-6, `${shot.start}-${shot.end}`);
+      const until = clips.get(shot.clip).shots.find((entry) => shot.in >= entry.start - 1e-6 && shot.in < entry.end)?.end ?? 20;
+      assert.ok(shot.freezeAt !== undefined || shot.in + shot.end - shot.start <= until + 0.002, `${shot.start}-${shot.end} from ${shot.in}`);
+    }
     // A dissolve only in the smooth break, never on a driven section's seam.
     for (const shot of plan.shots.slice(2)) {
       const part = plan.song.sections.find((entry) => shot.start >= entry.from - 1e-6 && shot.start < entry.to - 1e-6);
       if (["dissolve", "fade-black", "blur-through"].includes(shot.transition.kind)) assert.ok(part.smooth, `${shot.transition.kind} at ${shot.start} in ${part.kind}`);
     }
   }
+  // The request scales the section ranges: a velocity pace halves them, and the plan's words say
+  // what the cuts do (each beat-to-beat shot inside its section's range, or a motion hold of twice it).
+  const counts = {};
+  for (const pace of ["velocity", "promo"]) {
+    const { plan, period } = paced(pace, 30, { treatment: "story", deck, seed: 2, curve, sample: { motion: 0.4 }, shape });
+    counts[pace] = plan.shots.length;
+    assert.ok(plan.words.some((line) => line.startsWith(`${pace} pace over the song's sections: their beat ranges x${pace === "velocity" ? 0.5 : 1}`)), plan.words.join("\n"));
+    const songLine = plan.words.find((line) => line.startsWith("song seams"));
+    for (const part of plan.song.sections) assert.ok(songLine.includes(`${part.kind} ${part.beats[0]}-${part.beats[1]} beats a shot`), songLine);
+    const onGrid = (time) => { const index = (time + plan.music.offset - 0.3) / period; return Math.abs(index - Math.round(index)) * period < 0.002; };
+    const forced = new Set([...plan.song.seams.map((seam) => seam.at), ...plan.song.rests.map((rest) => rest.to), plan.endCard.at - 0.2].map(round3));
+    for (const shot of plan.shots.filter((entry) => entry.role === "body" && entry.n > 2 && onGrid(entry.start) && onGrid(entry.end) && !forced.has(entry.end))) {
+      const [low, high] = plan.song.sections.find((part) => shot.start >= part.from - 1e-6 && shot.start < part.to - 1e-6).beats;
+      const count = Math.round((shot.end - shot.start) / period);
+      assert.ok((count >= low && count <= high) || count === high * 2, `${pace}: ${shot.start}-${shot.end} is ${count} beats, range ${low}-${high}`);
+    }
+  }
+  assert.ok(counts.velocity > counts.promo);
+  // A one-beat stop before a drop (song-shape.mjs keeps no return for it): the rest ends on the
+  // drop, so the drop stays a cut even with a later return within 4 s.
+  const stop = songSections({ sections: [{ at: 0, kind: "intro" }, { at: 30.012, kind: "drop" }], seams: [{ at: 29.44, kind: "dropout" }, { at: 33.1, kind: "return" }] }, { offset: 26, to: 20 });
+  assert.deepEqual(stop.seams.map((seam) => [seam.kind, seam.at]), [["drop", 4.012], ["return", 7.1]]);
+  assert.deepEqual(stop.rests, [{ from: 3.44, to: 4.012 }]);
+  // A near-flat song (sections 0.5 dB apart) cuts every section in the middle range.
+  const flat = songSections({ sections: [{ at: 0, kind: "intro" }, { at: 10, kind: "drop" }, { at: 20, kind: "break" }] }, { offset: 0, curve: Array.from({ length: 60 }, (_, index) => (index < 20 ? -10.5 : -10)) });
+  assert.deepEqual(flat.sections.map((part) => part.beats), [[2, 4], [2, 4], [2, 4]]);
 });
 
 test("quiet by default: the same inputs give no effect without a measured reason", () => {

@@ -131,9 +131,12 @@ How to read it:
   `engine/deck.test.js`, `engine/qualityStyle.test.js` (plain_beats).
 - **Seam-locked cuts**: Partly verified (plan level). compose {footage} with music reads the song's
   sections and seams (the `.song` file fit_music keeps) and cuts on each seam to the millisecond,
-  holds a dropout through to its return, cuts each section at a beat range from its loudness (a
-  hold of twice the range only over measured motion), and dissolves only on smooth passages; the
-  dry-run plan lists the seams it cut on. Synthetic song shape only; not rendered on real footage.
+  holds a dropout through to its return or the next section edge, cuts each section at a beat range
+  from its loudness (sections under about 4 dB apart stay in the middle range; the pace or
+  treatment scales the ranges; a hold of twice the range only over measured motion), and dissolves
+  only on smooth passages; a clip too short for its shot cuts on an earlier safe beat, else holds
+  its last frame to the seam. The dry-run plan lists the seams it cut on. Synthetic song shape only;
+  not rendered on real footage.
   Evidence: `engine/footage.test.js` (seam-locked cuts).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
