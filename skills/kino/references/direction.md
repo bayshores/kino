@@ -78,7 +78,7 @@ make the remaining calls yourself and say "my call".
 ## Stops
 
 At a stop you show the person the work and wait for their answer. In order: `board` (the
-storyboard: only with footage, from 8 s), `rough` (the rough cut), `color` and `sound` (from
+storyboard: with footage, even only imported, from 8 s), `rough`, `color` and `sound` (from
 15 s). The person sets each to ask or allow, and those lengths. Ask the storyboard before you
 build (`status` says `next: … ask board, then build`), the others when that pass is done
 (`next: … then ask rough`): `notes {action:"checkpoint", id:"rough"}`. kino decides; it

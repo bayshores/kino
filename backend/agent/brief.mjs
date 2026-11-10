@@ -338,20 +338,31 @@ const briefState = (brief) => (isConfirmed(brief) ? "confirmed" : brief.noPlayba
 /**
  * What the next step and the stops need to know about the video, from its document: { seconds,
  * layers, footage, width, height }. A video is one scene, so its length is the longest scene's.
- * footage: a scene (not a component) has a video layer, so the storyboard stop asks. The frame
- * size is the first such scene's.
+ * footage: a scene (not a component) has a video layer, or, while nothing is built yet
+ * (notBuilt), `media` (the media library's records, which the service passes) holds a clip
+ * uploaded to this project, so the storyboard stop asks before the build. Once the video is
+ * built only placed clips count, so removing them still lapses the board. The frame size is the
+ * first such scene's.
  */
-export function videoFacts(document) {
+export function videoFacts(document, media = null) {
   const scenes = document?.scenes ?? [];
   const shown = scenes.filter((scene) => scene.isComponent !== true);
+  const placed = shown.some((scene) => (scene.layers ?? []).some((layer) => layer.type === "video"));
   return {
     seconds: scenes.reduce((longest, scene) => Math.max(longest, Number(scene.duration) || 0), 0),
     layers: scenes.reduce((sum, scene) => sum + (scene.layers?.length ?? 0), 0),
-    footage: shown.some((scene) => (scene.layers ?? []).some((layer) => layer.type === "video")),
+    footage: placed || (notBuilt(document) && importedClip(media, document?.id)),
     width: shown[0]?.width ?? null,
     height: shown[0]?.height ?? null,
   };
 }
+/** Nothing is built yet: no layer but sound and video (the layers buildsSomething in service.mjs counts as building). */
+export const notBuilt = (document) => (document?.scenes ?? []).every((scene) =>
+  (scene.layers ?? []).every((layer) => layer.type === "audio" || layer.type === "video"));
+// A clip with pictures (not sound only) uploaded to this project. Clips it only used once
+// (usedInProjects, which saves never shrink) do not count.
+const importedClip = (media, projectId) => Array.isArray(media) && projectId != null && media.some((item) =>
+  /^video\//.test(item?.mime ?? "") && item.hasVideo !== false && item.projectId === projectId);
 
 // Under 8 s the guide asks only the open question. A length counts only once the agent chose
 // it: project create without a duration gives the scene 5 s (state.defaultLength), which says
