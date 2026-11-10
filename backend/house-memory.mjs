@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { kinoTimeline } from "../engine/quality/kinoTimeline.js";
 import { layoutMoments, SIGNATURE_VERSION } from "../engine/quality/layoutSignature.js";
 import { STRUCTURE_VERSION, structureSignature } from "../engine/quality/structureSignature.js";
+import { TYPE_VERSION, typeSignature } from "../engine/quality/typeSignature.js";
 
 // Moments kept per project (each about 0.5 KB).
 export const HOUSE_MAX = 40;
@@ -64,6 +65,16 @@ export function houseStructure(document, scene, { fonts }) {
   return structureSignature(model, { markers: cues.filter((cue) => cue.kind === "marker"), beats: cues.filter((cue) => cue.kind === "beat" || cue.kind === "onset") });
 }
 
+/**
+ * The type look of the video's scene (engine/quality/typeSignature.js: face, weight, case, size,
+ * how it comes in), saved so type_seen can tell when a new project reuses the last projects' look;
+ * null for a video with no text. `families`: layer id to the family it asks for (withStandInFonts).
+ */
+export function houseType(document, scene, { fonts, families = null }) {
+  if (!scene) return null;
+  return typeSignature(kinoTimeline(document, scene.id, { fonts }), { families });
+}
+
 /** The house memory in `directory` (<data>/house). */
 export function createHouseMemory(directory) {
   const cache = new Map();
@@ -73,8 +84,9 @@ export function createHouseMemory(directory) {
    * Saves a project's moments (replacing what it had): {projectId, name, rev, moments}. `prints`:
    * {sceneId: [{t, print}]} measured for the render, kept beside the nearest moment within 0.5 s.
    * `structure`: the video's structure (houseStructure), saved with its format when there is one.
+   * `type`: the video's type look (houseType), saved with its format when there is one.
    */
-  async function record({ projectId, name, rev, moments, prints = null, structure = null }) {
+  async function record({ projectId, name, rev, moments, prints = null, structure = null, type = null }) {
     const kept = moments.slice(0, HOUSE_MAX).map((moment) => {
       const near = prints?.[moment.scene]?.reduce((best, entry) => (Math.abs(entry.t - moment.t) <= 0.5 && (!best || Math.abs(entry.t - moment.t) < Math.abs(best.t - moment.t)) ? entry : best), null);
       return near?.print ? { ...moment, print: near.print } : moment;
@@ -82,7 +94,7 @@ export function createHouseMemory(directory) {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const target = fileOf(projectId);
     const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ projectId, name: name ?? projectId, family: familyOf(name ?? projectId), rev, sigVersion: SIGNATURE_VERSION, savedAt: new Date().toISOString(), moments: kept, ...(structure ? { structVersion: STRUCTURE_VERSION, structure } : {}) }), { mode: 0o600 });
+    await writeFile(temporary, JSON.stringify({ projectId, name: name ?? projectId, family: familyOf(name ?? projectId), rev, sigVersion: SIGNATURE_VERSION, savedAt: new Date().toISOString(), moments: kept, ...(structure ? { structVersion: STRUCTURE_VERSION, structure } : {}), ...(type ? { typeVersion: TYPE_VERSION, type } : {}) }), { mode: 0o600 });
     await rename(temporary, target);
   }
 

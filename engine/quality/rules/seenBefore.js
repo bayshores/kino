@@ -12,8 +12,16 @@
 // section and 75% or more of the compared parts (first drop, burst, effect order, ending, title, colors).
 // Parts that only follow the song (a steady pace, a plain cut on the drop, a plain ending) are not
 // compared, and the hint never asks for an effect: a part changes only by a cue or event that motivates it.
+// type_seen (warning): the video's type look (typeSignature.js: face, weight, case, size, how it comes
+// in; saved as `type` in the house file) matches one of the last 3 projects'. kino has no default
+// type look, so a reused one needs a reference or treatment that chose it: the picked treatment's
+// `type` direction (ctx.style.type) keeps it quiet only when its words describe the look (how it comes
+// in plus one more part, directionParts) and gives no part another value; a direction the look
+// contradicts warns and is quoted.
+// Otherwise an agent waives it only with a reason naming one of the project's references (translate.mjs).
 import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
 import { partWords, sameStructure, STRUCTURE_VERSION, structureAlike, structureSignature } from "../structureSignature.js";
+import { sameType, TYPE_PARTS, TYPE_VERSION, typeAlike, typeSignature } from "../typeSignature.js";
 
 // Under this distance (layoutDistance: places and sizes, or the coarse shape) two moments read as
 // the same layout. Calibrated on kino's own projects: one end card in two videos 0.1, a chart or
@@ -104,6 +112,88 @@ export function seenBefore(model, ctx) {
     message: `${ctx.sceneName} at ${hit.at} s repeats a layout kino already made in "${hit.entry.name}" (r${hit.entry.rev}, ${hit.old.t} s): distance ${hit.distance}. The same choice in every project reads as made by a machine.`,
     fix: { kind: "hint", text: `Rebuild this moment from this video's own material, or from a reference's technique (look {mode:"versus"}); restyling the same arrangement does not count. Waive it when the repeat is wanted.` },
   })), ...structureHit(model, ctx)];
+}
+
+// The last projects whose type look type_seen compares against (newest first by savedAt).
+export const TYPE_RECENT = 3;
+
+// The words a type direction uses for each part of a look (typeSignature.js values). A direction
+// describes a look when it names how the type comes in plus one more part (face, weight, case, size).
+const DIRECTION_WORDS = {
+  weight: { light: /\b(light|thin)\b/, regular: /\b(regular|medium|book)\b/, bold: /\b(bold|semibold|semi-bold)\b/, black: /\b(heavy|black|extra-?bold|ultra)\b/ },
+  case: { caps: /\b(caps|capitals|uppercase|upper case)\b/, lower: /\b(lower ?case|all lower)\b/, mixed: /\b(sentence case|title case|mixed case)\b/ },
+  size: { caption: /\b(small|caption|captions|subtitle|subtitles|tiny)\b/, body: /\b(body|medium-sized|mid-sized)\b/, title: /\b(big|large|title|titles|headline)\b/, display: /\b(giant|huge|display|massive|oversized|big)\b/ },
+  reveal: {
+    blur: /\bblur/, "per-words": /\b(word|words|letter|letters|line|lines|character|characters)\b/, mask: /\b(mask|wipe|rise|rises|reveal)\b/,
+    slide: /\b(slide|slides|push)\b/, scale: /\b(scale|pop|pops|zoom)\b/, fade: /\bfade/, cut: /\b(cut|cuts|hard cut|appear|appears)\b/,
+  },
+};
+
+// Weight and size are ordered: a word one step away (heavy for a bold look) is near, not another value.
+const ORDER = { weight: ["light", "regular", "bold", "black"], size: ["caption", "body", "title", "display"] };
+// "no blur", "not caps", "never a fade", "without the wipe": the word after is taken back.
+const NEGATED = /\b(?:no|not|never|without)\s+(?:(?:a|an|the|any)\s+)?[\w-]+/g;
+// Face names a direction may name; one that is not the look's face contradicts it.
+const FACES = ["inter", "arial", "helvetica", "roboto", "open sans", "montserrat", "poppins", "lato", "dm sans", "space grotesk", "geist", "sf pro", "futura", "gill sans",
+  "oswald", "bebas neue", "anton", "archivo", "manrope", "work sans", "nunito", "raleway", "georgia", "times new roman", "garamond", "playfair", "merriweather", "lora",
+  "baskerville", "didot", "bodoni", "fraunces", "caslon", "instrument serif", "courier", "menlo", "jetbrains mono", "space mono", "roboto mono", "ibm plex mono", "fira code"];
+const SERIF_FACES = /\b(georgia|times|garamond|playfair|merriweather|lora|baskerville|didot|bodoni|fraunces|caslon|crimson|tiempos|canela)\b|(?<!sans[ -])\bserif\b/;
+const MONO_FACES = /\b(mono|monospace|code|courier|menlo|consolas|monaco)\b/;
+const named = (text, words) => new RegExp(`(^|[^a-z0-9])${words.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^a-z0-9])`).test(text);
+
+/**
+ * What a direction's words say about a type look (typeSignature): `named`, the parts they describe,
+ * and `contradicted`, the parts they give another value (another face or face class, a weight or
+ * size two steps away, another case or way in) without naming the look's own. Negated words
+ * ("no blur") are dropped first.
+ */
+export function directionParts(direction, look) {
+  const text = String(direction ?? "").toLowerCase().replace(NEGATED, " ");
+  const parts = [];
+  const contradicted = [];
+  const family = look.family && look.family !== "unknown" ? look.family : "";
+  if (family && named(text, family)) parts.push("family");
+  else if (family) {
+    const otherFace = FACES.some((face) => !family.includes(face) && !face.includes(family) && named(text, face));
+    const serif = SERIF_FACES.test(family);
+    const mono = MONO_FACES.test(family);
+    const otherClass = (SERIF_FACES.test(text) && !serif) || (MONO_FACES.test(text) && !mono) || (/\bsans\b/.test(text) && (serif || mono));
+    if (otherFace || otherClass) contradicted.push("family");
+  }
+  for (const [part, words] of Object.entries(DIRECTION_WORDS)) {
+    // per-words, per-letters and per-lines are one family of reveals.
+    const own = part === "reveal" && look.reveal.startsWith("per-") ? "per-words" : look[part];
+    if (words[own]?.test(text)) { parts.push(part); continue; }
+    const order = ORDER[part];
+    const far = (value) => !order || Math.abs(order.indexOf(value) - order.indexOf(own)) >= 2;
+    if (Object.entries(words).some(([value, pattern]) => value !== own && far(value) && pattern.test(text))) contradicted.push(part);
+  }
+  return { named: parts, contradicted };
+}
+
+export function typeSeen(model, ctx) {
+  if (ctx.videoScene !== true) return [];
+  const direction = ctx.style?.type ? String(ctx.style.type).trim() : "";
+  const recent = (ctx.house ?? []).filter((entry) => entry.type && entry.typeVersion === TYPE_VERSION)
+    .sort((a, b) => String(b.savedAt ?? "").localeCompare(String(a.savedAt ?? ""))).slice(0, TYPE_RECENT);
+  if (!recent.length) return [];
+  const mine = typeSignature(model);
+  const match = mine ? recent.find((entry) => sameType(mine, entry.type)) : null;
+  if (!match) return [];
+  // The picked direction chose this look only when it names how the type comes in and one more part,
+  // and gives no part another value.
+  const { named: described, contradicted } = direction ? directionParts(direction, mine) : { named: [], contradicted: [] };
+  if (described.includes("reveal") && described.length >= 2 && !contradicted.length) return [];
+  const alike = typeAlike(mine, match.type);
+  const look = `${mine.family}, ${mine.weight}, ${mine.case}, ${mine.size}, ${mine.reveal} in`;
+  const said = `names ${described.length ? described.join(", ") : "none of its parts"}${contradicted.length ? `, contradicts ${contradicted.join(", ")}` : ""}`;
+  const contradicts = direction ? ` The picked direction says "${direction.slice(0, 120)}", which this look does not follow (it ${said}).` : "";
+  return [{
+    rule: "type_seen", severity: "warn", at: 0, measured: `type look (${look}) alike in ${alike.length} of ${TYPE_PARTS.length} parts (${alike.join(", ")}) to "${match.name}" r${match.rev}${direction ? `; the direction ${said}` : ""}`,
+    required: "a type look unlike the last projects' (face plus 4 of 5 parts: face, weight, case, size, reveal), unless a saved reference chose it or the picked direction describes it (how it comes in plus one more part)",
+    message: `${ctx.sceneName}: the type (${look}) is the look of "${match.name}" (r${match.rev}), one of kino's last projects. The same type in every project reads as made by a machine, and kino has no default look.${contradicts}`,
+    fix: { kind: "hint", text: `Take the type from this video's own references and footage: study how the references set their type (face, weight, case, size, how it comes in) and set this video's from one of them, or build what the picked treatment's type direction says. Keep it when a reference of this project chose it: waive_check type_seen with a reason naming that reference (yt:<id>).` },
+  }];
 }
 
 export function endingSeen(model, ctx) {

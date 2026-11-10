@@ -5,7 +5,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { loadBundledFonts } from "../backend/fonts.mjs";
-import { createHouseMemory, houseMoments, houseStructure, withStandInFonts } from "../backend/house-memory.mjs";
+import { createHouseMemory, houseMoments, houseStructure, houseType, withStandInFonts } from "../backend/house-memory.mjs";
 import { videoScene } from "../backend/agent/quality.mjs";
 import { defaultFonts } from "../engine/fonts.js";
 import { parseDocument } from "../engine/model.js";
@@ -24,7 +24,7 @@ for (const record of store.projects ?? []) {
   try {
     const { document, families } = withStandInFonts(parseDocument(record.document), defaultFonts);
     const moments = houseMoments(document, { fonts: defaultFonts, families });
-    await house.record({ projectId: id, name, rev: record.revision, moments, structure: houseStructure(document, videoScene(document), { fonts: defaultFonts }) });
+    await house.record({ projectId: id, name, rev: record.revision, moments, structure: houseStructure(document, videoScene(document), { fonts: defaultFonts }), type: houseType(document, videoScene(document), { fonts: defaultFonts, families }) });
     console.log(`${id}: ${moments.length} moments`);
   } catch (error) {
     console.log(`${id}: skipped (${error.message})`);

@@ -77,7 +77,7 @@ import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGl
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
-import { houseMoments, houseStructure } from "../house-memory.mjs";
+import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { styleContext } from "../../engine/styleSpec.js";
@@ -937,6 +937,14 @@ export function createAgentService(deps) {
   async function savedIds(projectId) {
     if (deps.inspire?.savedIds) return deps.inspire.savedIds(projectId).catch(() => []);
     return (await deps.inspire?.projectView?.(projectId).catch(() => null))?.saved ?? [];
+  }
+  // The references a type_seen waiver may name (translate.mjs): the brief's style lines' refs and the
+  // saved Inspire references. Read only for an edit that waives it.
+  async function waiverReferences(resolver, document, ops) {
+    if (!(Array.isArray(ops) ? ops : [ops]).some((op) => op?.code === "type_seen")) return resolver;
+    const lines = (await agentState.read(document.id).catch(() => null))?.brief?.style?.lines ?? [];
+    resolver.references = [...lines.map((line) => line?.ref).filter((ref) => typeof ref === "string"), ...(await savedIds(document.id))];
+    return resolver;
   }
 
   // A final render waits for the video's open stops (stops.mjs openStops, direction plan B2c),
@@ -2043,7 +2051,7 @@ export function createAgentService(deps) {
     const before = record.document;
     const projectId = before.id;
     const codes = await syncCodes(projectId, before);
-    const resolver = createResolver(before, codes);
+    const resolver = await waiverReferences(createResolver(before, codes), before, list);
     const translation = translateAll(list, resolver, before);
     const problems = translation.problems.map(translationProblem);
     const after = await applyAll(before, translation.operations, list, { resolver, notes: [], reports: new Map() }, problems, translation.blocked);
@@ -2152,7 +2160,7 @@ export function createAgentService(deps) {
       const editBag = { reports: new Map() };
       const before = record.document;
       const codes = await syncCodes(projectId, before);
-      const resolver = createResolver(before, codes);
+      const resolver = await waiverReferences(createResolver(before, codes), before, ops);
       if (ops.wrapped) resolver.fixes.push("ops {…} → [{…}]");
       const stale = baseRevision !== undefined && baseRevision < record.revision;
       let after, work, translation;
@@ -2521,7 +2529,7 @@ export function createAgentService(deps) {
   // The document `ops` would make, worked out but not saved (an edit's dry run). Throws the
   // refusal an edit would give.
   async function simulateOps(document, ops, codes) {
-    const resolver = createResolver(document, codes);
+    const resolver = await waiverReferences(createResolver(document, codes), document, ops);
     let translation;
     try { translation = translateAll(ops, resolver, document); }
     catch (error) { throw new AgentError("bad_input", error.message); }
@@ -5254,7 +5262,7 @@ export function createAgentService(deps) {
       const document = !record ? null : job.rev === record.revision ? record.document : await store.getProjectRevision(job.projectId, job.rev);
       if (!document) return;
       const fonts = await fontsFor(document);
-      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts }), structure: houseStructure(document, videoScene(document), { fonts }) });
+      await deps.house.record({ projectId: job.projectId, name: document.name, rev: job.rev, moments: houseMoments(document, { fonts }), structure: houseStructure(document, videoScene(document), { fonts }), type: houseType(document, videoScene(document), { fonts }) });
     } catch (error) { job.warnings = [...(job.warnings ?? []), `house memory not saved: ${error.message}`]; }
   }
 

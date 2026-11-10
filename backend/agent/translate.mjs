@@ -12,6 +12,7 @@ import { OPERATION_TYPES, SERVICE_OPERATION_TYPES } from "../operation-guide.mjs
 import { VOICE_ENGINES } from "../voice/isolate.mjs";
 import { CUTOUT_ENGINES, CUTOUT_OUTPUTS } from "../cutout/cutout.mjs";
 import { closest, nearMiss, ReferenceError } from "./refs.mjs";
+import { refId } from "../inspire.mjs";
 import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOperation, translateBlock } from "./blocks.mjs";
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
 import { createLayer } from "../../engine/model.js";
@@ -700,6 +701,18 @@ function resolveReferences(operation, type, resolver, document) {
     const named = /cue:([^\s,;)]+)/.exec(String(operation.reason ?? ""))?.[1];
     if (!named || !(document?.cues ?? []).some((cue) => cue.name === named))
       throw new Error(`waive_check effect_fit names the cue that motivates the effect in its reason ("on the punch at cue:<name>")${named ? `; there is no cue ${named}` : ""}. No cue motivates it: take the effect off.`);
+  }
+  // type_seen: kino has no default type look, so a look kept from the last projects was chosen by a
+  // reference of this project (reason names it: yt:<id>; resolver.references: its style lines' refs and
+  // saved Inspire references). A picked treatment's type direction needs no waiver (style.type).
+  if (type === "waive_check" && operation.code === "type_seen") {
+    const named = [...String(operation.reason ?? "").matchAll(/\byt:([\w-]{6,})/gi)].map((match) => match[1]);
+    // Both sides as reference ids (refId: a link or a bare id becomes yt:<id>), matched exactly.
+    const own = new Set((resolver.references ?? []).map(refId).filter(Boolean));
+    if (!named.length)
+      throw new Error('waive_check type_seen names the reference that chose this type in its reason ("set like the title in yt:<id>"). No reference chose it: take the type from your references and this footage instead.');
+    if (!named.some((id) => own.has(refId(`yt:${id}`))))
+      throw new Error(`waive_check type_seen names yt:${named[0]}, which is not a reference of this project (a style line's ref or a saved Inspire reference). Save it (library inspire, name "save yt:${named[0]}") and study it, or take the type from the references this project has.`);
   }
   if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and

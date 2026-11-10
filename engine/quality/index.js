@@ -8,7 +8,7 @@ import { defaultFont, gradientBanding, gradientText, neonOnDark, pureFrame } fro
 import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, judder, linearMotion, sameMotion, speedJump, springOnFade, staggerLong, staggerOrder } from "./rules/motion.js";
 import { assertions, noRhythm, offBeat, promoBasics, sceneLengths, staticScene, transitionsDense } from "./rules/pacing.js";
 import { referenceCloseness, referenceDrift } from "./rules/reference.js";
-import { endingSeen, seenBefore } from "./rules/seenBefore.js";
+import { endingSeen, seenBefore, typeSeen } from "./rules/seenBefore.js";
 import { hold, readingTime, typeMin } from "./rules/text.js";
 import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
 import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, splitCardLayout } from "./rules/aiTells.js";
@@ -139,6 +139,7 @@ export const RULES = [
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
   rule("reference_closeness", "warn", referenceCloseness, "no run of 6 shots timed like a saved reference (shot lengths in order at one scale, each within a frame, more than chance gives), and in a music edit not every device the studied anime-edit references share (black hole, seam flash, bars, word cards) or 3 of them in their order within 2 s"),
   rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer; the edit not built like another (same pace and 75% of its parts)"),
+  rule("type_seen", "warn", typeSeen, "the type look (face, weight, case, size, reveal) not the look of one of kino's last 3 projects (same face and 4 of 5 parts) unless a reference or the picked treatment chose it; an agent waives it with a reason naming the reference"),
   rule("ending_seen", "warn", endingSeen, "the ending (last 15% or the end beat) not laid out as in another kino project (0.12); only the person waives it"),
   rule("text_slides", "warn", textSlides, "in a video of 8 s or more, text over a still, flat or dimmed background (no clip, no camera move) for at most 25% of it, no card over 3 s and under 3 of 1.2 s+, the end aside"),
   rule("few_techniques", "warn", fewTechniques, "in a video of 8 s or more, not flat: at least one designed device (two from 70 s, at most 4; cut, type-cut, hold, beat-cut and syncopated do not count), repeated as a motif"),

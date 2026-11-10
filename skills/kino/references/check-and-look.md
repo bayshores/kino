@@ -10,14 +10,14 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   applies the `(auto)` fixes in one edit (skipping one that adds an error or leaves its
   finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
   edit moved, a waiver names or a spine beat uses.
-- Receipts, dry runs and `status` skip pixel gates until `check`.
+- Receipts, dry runs, `status` skip pixel gates until `check`.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
 - `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate; fast
   zooms, heavy blur left alone). `crop_no_subject`: footage cropped over 8% with no subject
   marked warns; a marked subject under 85% in frame is a gate. `head_cut_off` (Mac): a head
   out of the picture 1 s: play another part of the clip or move it.
-- `jump_cut` (warns): back-to-back shots of one file framed alike: cutaway, dissolve, punch in.
+- `jump_cut` (warns): back-to-back shots of one file framed alike: cut away or punch in.
 - `frozen_footage` (gate): a clip's picture stops 0.3 s+ (speed 0, a held frame, a still in its
   place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. A freeze on a sound hit or a
   line's first word (0.2 s) warns.
@@ -31,7 +31,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   pictures, slides, template ends, `ending_seen`) needs `quote`: the person's words.
 - AI tells warn (ideas, taste): `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
-  `split_card_layout`, `seen_before`. Technique rules, style spec: techniques reference.
+  `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references; waive naming `yt:<id>`). Technique rules, style spec: techniques reference.
 - Set `role` on layers (headline, cta, logo, hero, decor, `ui`: product text, contrast only)
   and `videoType` (`library {topic:"rules", name:"quality-settings"}`).
 
@@ -94,7 +94,6 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   the shot, the crop in % and each box's share inside it. Not your last look for `changed`.
   Cropping footage: the framing reference.
 - `board {page?}`: the storyboard, 4 shots a page, with numbers (storyboard reference).
-- Each image is saved (path in the reply).
 
 ## Review before final
 
@@ -113,7 +112,7 @@ loop:
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
 5. `render {quality:"final"}` of the whole video is refused (`review_needed`) until every moment
    is reviewed as it is now. Drafts, stills (png) and scenes under 5 s are not gated. A
-   deliberate skip: `{"op":"waive_check","code":"review","target":"s1","reason":"…"}`.
+   skip: `waive_check {code:"review", target:"s1", reason}`.
 6. Saved references: final needs `look {mode:"versus"}` in the last 10 revs (`reference_needed`):
    6 rows, a shot by its `move.ref` moment, else one of its kind (app, type, footage,
    end), else "no fair match". Gaps: hero fill, contrast, craft drift rows. A lost
