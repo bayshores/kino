@@ -33,6 +33,7 @@ import path from "node:path";
 import { songShape, vocalShare } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 import { createWebCache } from "./web-cache.mjs";
+import { createSlots, createYouTubeGate } from "./process-slots.mjs";
 
 const API = "https://api.openverse.org/v1/audio/";
 const ARCHIVE = "https://archive.org";
@@ -482,7 +483,8 @@ export function importableId(file, candidates = []) {
  * deps: enabled() (the sound search switch, for Openverse and the Archive), directory (<data>/soundtrack),
  * fetch (tests pass a stub), api, archiveApi (https://archive.org), graceMs, searchYouTube(words, {count}), mixYouTube(videoId, {count}) (YouTube's
  * mix for a song, as search results), downloadYouTube(videoId, folder)
- * (the file it saved), decode(file) → {samples, sampleRate}, analyze(samples, rate) (beats),
+ * (the file it saved; run through youtube, the download gate shared with inspire and footage in
+ * process-slots.mjs), decode(file) → {samples, sampleRate}, analyze(samples, rate) (beats),
  * vocals(file, seconds) → [[from, to]] (optional: whisper's vocal spans; without it, or when it
  * throws, a rough guess from the sound), addMedia(file, {name, mime, extra}), preview(file, target, {start, end}) (writes that stretch as
  * AAC .m4a; optional: without it no preview is kept), embed(samples, sampleRate) → {model, vector}
@@ -493,6 +495,8 @@ export function createSoundtrack(deps) {
   const stubs = [api === API ? null : new URL(api), archiveApi === ARCHIVE ? null : new URL(archiveApi)].filter(Boolean);
   const blockedUntil = { openverse: 0, archive: 0, listenbrainz: 0 };
   let measuring = Promise.resolve();
+  const youtube = deps.youtube ?? createYouTubeGate({ gapMs: 0, now, slot: createSlots(1) });
+  const fromYouTube = (candidate, folder, options) => youtube(() => deps.downloadYouTube(candidate.id.slice(3), folder, options), { signal: options?.signal });
 
   // Every request has a time limit: a network that never answers once held an agent's search
   // (and its turn) for minutes. ms covers the whole answer, body included. source names who is
@@ -647,7 +651,7 @@ export function createSoundtrack(deps) {
   }
 
   async function download(candidate, folder) {
-    if (candidate.source === "youtube") return deps.downloadYouTube(candidate.id.slice(3), folder);
+    if (candidate.source === "youtube") return fromYouTube(candidate, folder);
     const response = await get(allowedFile(candidate.url).href, SOUNDTRACK_LIMITS.downloadMs, candidate.source);
     // A redirect (the Archive sends one to its file server) must land on an allowed host too.
     if (typeof response.url === "string" && response.url) allowedFile(response.url);
@@ -737,7 +741,7 @@ export function createSoundtrack(deps) {
     if (candidate.source === "youtube") {
       const folder = await makeTempFolder("kino-sound-");
       try {
-        const file = await deps.downloadYouTube(candidate.id.slice(3), folder, { whole: true });
+        const file = await fromYouTube(candidate, folder, { whole: true });
         const type = path.extname(file).slice(1).toLowerCase();
         const credit = { source: "youtube", id: candidate.id, title: candidate.title, creator: candidate.creator, page: candidate.page, license: "unknown",
           line: `"${candidate.title}" by ${candidate.creator} (${candidate.page ?? "YouTube"})`, file: `${type.toUpperCase()} from YouTube` };
