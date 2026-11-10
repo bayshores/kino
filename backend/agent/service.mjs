@@ -17,8 +17,9 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
-import { createFootageActions, FootageError, personClipCount } from "../footage-finder/actions.mjs";
+import { createFootageActions, FootageError, isFoundClip, personClipCount } from "../footage-finder/actions.mjs";
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
+import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -461,6 +462,9 @@ export function createAgentService(deps) {
   const peopleCache = deps.peopleCache ?? createPeopleCache();
   // library {topic:"footage"}: found video for the project (deps.footage is footage-finder/index.mjs).
   const footageActions = deps.footage ? createFootageActions({ finder: deps.footage, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
+  // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
+  // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
+  const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
   const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
@@ -884,6 +888,16 @@ export function createAgentService(deps) {
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
+    // A footage-led brief with no clip in the project (the person's or found): the footage step
+    // (footage-finder/step.mjs). Any clip or picture of theirs makes it silent: their media leads.
+    // It ends once something is built, a plan is set or it is waived. On only while the library
+    // offers the footage topic (LIBRARY_TOPICS, which the tool schema checks).
+    if (footageActions && footageStepShown && !facts.footage && footageLed(brief)) {
+      const state = await agentState.read(document.id);
+      const step = { built: !notBuilt(document), planned: Boolean(state.plan?.steps?.length), waived: waivers.some((waiver) => waiver.code === FOOTAGE_WAIVER && waiver.target === "*") };
+      if (!step.built && !step.planned && !step.waived) step.personMedia = ((await deps.listMedia?.().catch(() => [])) ?? []).some((item) => item?.projectId === document.id && /^image\//.test(item.mime ?? "") && !isFoundClip(item));
+      if (footageStepOn(brief, step)) facts.findFootage = true;
+    }
     if (waivers.some((waiver) => waiver.code === NEEDS_WAIVER)) return facts;
     const storied = facts.footage || (await someAsync(document.scenes.filter((scene) => !scene.isComponent), (scene) => hasFootageOrSpeech(scene, document)));
     if (!storied) return facts;
@@ -4299,6 +4313,7 @@ export function createAgentService(deps) {
       const record = await mediaRecord(sourceSrc(item));
       if (!(record?.width > 0 && record?.height > 0)) continue;
       const video = /^video\//.test(String(record.mime ?? item.mime)) && record.hasVideo !== false && record.duration > 0;
+      // The person's own clips come first (groupClips), then found clips grouped by video.
       clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [], tag: foundClipTag(item, state?.footage) });
     }
     if (!clips.length) throw new AgentError("not_found", 'No clips or pictures in this project yet: project {action:"import", file} brings one in.');
@@ -6690,7 +6705,7 @@ export function createAgentService(deps) {
   // The direction's advice calls (brief.mjs nextMove), not a waiting stop's answer or a redo's
   // fix. A stop to ask still comes in the build steps, after the check (openStops).
   const isAdvice = (next) => (next.tool === "notes" && ["brief", "set_plan", "needs", "checkpoint"].includes(next.input?.action))
-    || (next.tool === "library" && next.input?.topic === "inspire");
+    || (next.tool === "library" && (next.input?.topic === "inspire" || next.input?.topic === "footage"));
 
   // A video with something on screen (a layer that is not audio, outside components).
   const hasLayers = (document) => document.scenes.some((scene) => !scene.isComponent && (scene.layers ?? []).some((layer) => layer.type !== "audio"));

@@ -15,6 +15,8 @@ import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licens
 import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
+import { LIBRARY_TOPICS } from "./agent/actions.mjs";
+import { footageLed } from "./footage-finder/step.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { openStore } from "./store.mjs";
 import { createDocument, createLayer, createScene } from "../engine/model.js";
@@ -458,6 +460,56 @@ test("footage codes: at most 24 kept, the oldest go first but never a scanned, n
   assert.equal(footage.candidates.length, 24);
   assert.deepEqual(footage.candidates.slice(0, 4).map((entry) => entry.code), ["F1", "F2", "F3", "F10"]);
   assert.deepEqual(footage.order.slice(0, 2), ["F3", "F21"]);
+});
+
+const line = (text) => ({ text, by: "you", quote: text });
+const footageBrief = (message, never = "none said") => ({ rev: 1, confirmedRev: 1, log: [], fields: { message: line(message), plays_on: line("phone, vertical"), made_from: line("whatever fits"), look_sound: line("a hype song"), never: line(never) } });
+
+test("a footage-led brief is an edit of an existing subject; product briefs and the never line do not count", () => {
+  for (const message of ["make an anime edit of Frieren to a hype song", "basketball highlights from last season", "an AMV of my favorite show", "a gaming montage of my clutch rounds"])
+    assert.equal(footageLed(footageBrief(message)), true, message);
+  for (const message of ["product highlights for the holiday season sale", "a recap of our Series A raise", "a recap of this week's podcast episode",
+    "an edit showing the user journey in our app", "a launch edit for our game", "a 3 second logo sting for our studio"])
+    assert.equal(footageLed(footageBrief(message)), false, message);
+  assert.equal(footageLed(footageBrief("a 20 s launch promo for our budgeting app", "no anime montage style, no movie clips")), false);
+});
+
+test("status names the footage search for an anime edit with nothing of theirs, until it is built, planned or waived; edit receipts never do", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-step-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  const agentState = createAgentStateStore(dataRoot);
+  const anime = "make an anime edit of Frieren to a hype song";
+  const projects = {
+    anime: [anime, []], sting: ["a 3 second logo sting for our studio", []], photos: [anime, []], planned: [anime, []], waived: [anime, []],
+    own: [anime, [createLayer("video", { id: "own", src: "/api/media/own1" })]],
+    built: [anime, [createLayer("text", { id: "title", text: "Frieren" })]],
+  };
+  for (const [id, [message, layers]] of Object.entries(projects)) {
+    const document = createDocument({ id, name: id, scenes: [createScene({ id: "s1", duration: 20, layers })] });
+    if (id === "waived") document.checkWaivers = [{ code: "footage", target: "*", reason: "the person said no found footage" }];
+    await store.createProject(document);
+    await agentState.update(id, (draft) => { draft.brief = footageBrief(message); });
+  }
+  await agentState.update("planned", (draft) => { draft.plan = { steps: [{ text: "Build it" }] }; });
+  const deps = { store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"), exportBatches: {}, fontCatalog: { async loadInto() {} },
+    loadFonts: async () => [], listMedia: async () => [{ id: "p1", projectId: "photos", mime: "image/jpeg", name: "us.jpg" }], footage: { search: async () => ({ candidates: [] }) } };
+  const service = createAgentService({ ...deps, footageStep: true });
+  const step = async (id, from = service) => (await from.call("status", { project: id })).text.split("\n").find((each) => each.startsWith("step: "));
+  assert.equal(await step("anime"), 'step: no clips of theirs: find footage (library footage), or waive_check {code:"footage"}');
+  assert.match((await service.call("status", { project: "anime" })).text, /next: library \{"topic":"footage","search":"<series or subject> <scene words>"/);
+  for (const id of ["sting", "own", "photos", "planned", "waived", "built"]) assert.doesNotMatch(String(await step(id)), /footage/, id);
+  // A check's receipt names the build, not the search (the step is advice, as references are).
+  assert.doesNotMatch((await service.call("check", { project: "anime" })).text, /"topic":"footage"/);
+  // Off until the tool schema takes the footage topic.
+  if (!LIBRARY_TOPICS.includes("footage")) assert.doesNotMatch(await step("anime", createAgentService(deps)), /footage/);
+  // Found, none scanned: scan the first one; scanned: its scan again names the shots; all imported: search again.
+  await agentState.update("anime", (draft) => { draft.footage = addCandidates(null, [found(1), found(2)]); });
+  assert.match((await service.call("status", { project: "anime" })).text, /step: scan the found footage[^]*next: library \{"topic":"footage","scan":"F1"\}/);
+  await agentState.update("anime", (draft) => { draft.footage.candidates[0].scan = { id: "yt-x", shots: 9 }; });
+  assert.equal(await step("anime"), "step: import found shots (scan F1 names them)");
+  await agentState.update("anime", (draft) => { for (const each of draft.footage.candidates) each.imported = true; });
+  assert.match(await step("anime"), /^step: found footage used up: find footage/);
 });
 
 test("a scan longer than the wait answers with its progress, and the same call again joins it", async () => {
