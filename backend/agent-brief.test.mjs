@@ -800,6 +800,10 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   assert.equal(step({ references: 1, needs: { checked: false } }), "find 1 more reference (inspire)");
   const needs = nextMove({ ...state, plan: { steps: [{ text: "Build" }] } }, { seconds: 24, layers: 3, references: 2, needs: { checked: false }, treatmentsWaived: true });
   assert.deepEqual([needs.step, needs.call.input.action], ["check material: notes needs", "needs"]);
+  // The call is drafted from the picked treatment saved in the brief: footage of its who.
+  const treatments = { picked: { index: 0 }, list: [{ idea: "the app finds the lost dog", who: "the app", tension: "will it find the dog before dark?" }] };
+  const fromPick = nextMove({ ...state, brief: { ...state.brief, treatments }, plan: { steps: [{ text: "Build" }] } }, { seconds: 24, layers: 3, references: 2, needs: { checked: false }, treatmentsWaived: true });
+  assert.deepEqual([fromPick.step, fromPick.call.input.items[0].what], ["check material: notes needs", "footage of the app"]);
   assert.equal(step({ references: 2, needs: { checked: true } }), "notes set_plan, then build");
   // Past a rough first pass (30 layers), the direction is locked first. With no idea, the lock
   // asks for the idea and its signature from the material: no template spine stands in for it.
@@ -890,6 +894,8 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   // The pick's idea becomes style.idea; its move is offered as the first signature.
   const picked = await brief(id, { fields: { treatments: { pick: "A", why: "the sound is what a skater retells" } } });
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
+  // The service drafts its needs call from the saved pick (the same state the needs gates read).
+  assert.equal(nextCallOf(await agent("notes", { project: id, action: "needs" })).input.items[0].what, "footage of a viewer");
   const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");
   // The same call drafts the spine from the pick, so it keeps the pick's story: the hook opens on

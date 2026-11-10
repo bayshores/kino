@@ -131,10 +131,11 @@ const BLANK_NEED = { what: "<missing piece>", why: "<what the video loses>", ask
 
 /**
  * The needs call the check-material step drafts, from the picked treatment (brief.treatments):
- * the first item asks for footage of the pick's who, because its tension is what the video loses
- * without them, with what kino can make now (a screen recording, type, cut-outs of the files) and
- * telling it with what exists, each with its cost. A draft the agent edits after looking through
- * the material; with no pick or a pick from before who, every field is a placeholder.
+ * the first item asks for footage of the pick's who (a person or a thing), because its tension is
+ * what the video loses without it, with what kino can make now and telling it with what exists,
+ * each with its cost. What to make now stays a slot only the material fills (the files the agent
+ * found), so kino refuses the draft sent unedited (next-call.mjs unfilledSlot) and the agent
+ * still looks first. With no pick or a pick from before who, every field is a placeholder.
  * Returns {tool:"notes", input:{action:"needs", items}}.
  */
 export function needsCall(treatments) {
@@ -146,8 +147,8 @@ export function needsCall(treatments) {
     why: tension.length >= NEED_LIMITS.why[0] ? tension : BLANK_NEED.why,
     ask: `Do you have footage of ${who}, even from a phone?`,
     options: [
-      { do: "make it now: a screen recording (project record), type on screen, cut-outs of the files there are", cost: `${who} is shown, never seen: no face or reaction`, recommended: true },
-      { do: "tell it with what exists, no new footage", cost: `${who} is never on screen; type and the files carry the story` },
+      { do: "<make it now from the files you found: a screen recording (project record), type, or cut-outs of them>", cost: `${who} is never on camera`, recommended: true },
+      { do: "tell it with what exists, no new footage", cost: `${who} is never on camera; type and the files carry the story` },
     ],
   };
   return { tool: "notes", input: { action: "needs", items: [item] } };

@@ -13,6 +13,7 @@ import { makeVideo, nextCallOf, skipWithoutMediaTools, startTestServer } from ".
 import { frameSignature, nearDuplicate, newFindingsLine, reviewEvents, reviewSizes } from "./agent/review.mjs";
 import { captionSpoilers, captionWindows, directionMiss, heardLines, heardText, musicSections, openStoryBugs, packetKind, parseViewer, viewerGap, viewerTimes, writePacket } from "./agent/viewer.mjs";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
+import { unfilledSlot } from "./agent/next-call.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./agent/bar.mjs";
 import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
@@ -298,12 +299,15 @@ test("needs: a question with 1 to 3 options and one recommended; only the person
   assert.equal(needsLine(needs), 'needs: M3 make "Mute the swear word, keep the rest"');
   assert.throws(() => finishNeed(needs, { id: "M3", status: "made", layers: [] }), /do "Mute the swear word/);
   assert.equal(finishNeed(needs, { id: "M3", status: "made", layers: ["L4"] }).status, "made");
-  // The check-material step drafts its ask from the pick: footage of its who, for its tension, valid as sent.
+  // The check-material step drafts its ask from the pick: footage of its who, for its tension; what
+  // to make now stays a slot only the material fills, so the draft is refused unedited.
   const pick = { picked: { index: 0 }, list: [{ who: "a tired editor", tension: "will the cut be done before the client calls?" }] };
-  const [drafted] = needsCall(pick).input.items;
-  assert.match(drafted.what, /a tired editor/);
-  assert.equal(drafted.why, pick.list[0].tension);
-  assert.equal(parseNeedItems([drafted]).length, 1);
+  const drafted = needsCall(pick).input;
+  assert.match(drafted.items[0].what, /a tired editor/);
+  assert.equal(drafted.items[0].why, pick.list[0].tension);
+  assert.equal(unfilledSlot(drafted)?.path, "items[0].options[0].do");
+  const filled = { ...drafted.items[0], options: [{ ...drafted.items[0].options[0], do: "type over the screen recording of the app" }, drafted.items[0].options[1]] };
+  assert.equal(parseNeedItems([filled]).length, 1);
   assert.equal(needsCall({ list: pick.list, picked: null }).input.items[0].what, "<missing piece>", "no pick: placeholders");
 });
 
