@@ -456,6 +456,36 @@ test("footage codes: at most 24 kept, the oldest go first but never a scanned, n
   assert.deepEqual(footage.order.slice(0, 2), ["F3", "F21"]);
 });
 
+test("status names the footage search for an anime edit with no clips, not for a logo sting or a brief with the person's video", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-step-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  const agentState = createAgentStateStore(dataRoot);
+  const line = (text) => ({ text, by: "you", quote: text });
+  const brief = (message) => ({ rev: 1, confirmedRev: 1, log: [], fields: { message: line(message), plays_on: line("phone, vertical"), made_from: line("whatever fits"), look_sound: line("a hype song"), never: line("none said") } });
+  const projects = {
+    anime: ["make an anime edit of Frieren to a hype song", []],
+    sting: ["a 3 second logo sting for our studio", []],
+    own: ["an anime edit of Frieren from my clip", [createLayer("video", { id: "own", src: "/api/media/own1" })]],
+  };
+  for (const [id, [message, layers]] of Object.entries(projects)) {
+    await store.createProject(createDocument({ id, name: id, scenes: [createScene({ id: "s1", duration: 20, layers })] }));
+    await agentState.update(id, (draft) => { draft.brief = brief(message); });
+  }
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: { search: async () => ({ candidates: [] }) } });
+  const step = async (id) => (await service.call("status", { project: id })).text.split("\n").find((each) => each.startsWith("step: "));
+  assert.equal(await step("anime"), "step: no clips of theirs: find footage (library footage)");
+  assert.match((await service.call("status", { project: "anime" })).text, /next: library \{"topic":"footage","search":"<series or subject> <scene words>"/);
+  assert.doesNotMatch(await step("sting"), /footage/);
+  assert.doesNotMatch(await step("own"), /footage/);
+  // Found but not scanned: scan the top one; scanned: its scan again names the shots to import.
+  await agentState.update("anime", (draft) => { draft.footage = addCandidates(null, [found(1), found(2)]); });
+  assert.equal(await step("anime"), "step: scan the found footage (library footage)");
+  await agentState.update("anime", (draft) => { draft.footage.candidates[0].scan = { id: "yt-x", shots: 9 }; });
+  assert.equal(await step("anime"), "step: import found shots (scan F1 names them)");
+});
+
 test("a scan longer than the wait answers with its progress, and the same call again joins it", async () => {
   let finish;
   let started = 0;

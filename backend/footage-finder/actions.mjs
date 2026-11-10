@@ -9,6 +9,7 @@
 import { call } from "../agent/next-call.mjs";
 import { readTime } from "./scan.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./search.mjs";
+import { scanCall, searchCall } from "./step.mjs";
 
 /** Candidates kept per project. */
 export const FOOTAGE_KEPT = 24;
@@ -41,8 +42,6 @@ export class FootageError extends Error {
   }
 }
 
-const searchCall = () => call("library", { topic: "footage", search: "<series or subject> <scene words>", want: "<what the shots show>" });
-const scanCall = (ref, extra = {}) => call("library", { topic: "footage", scan: ref, ...extra });
 /** The import call for chosen shots of one candidate. */
 export const importCall = (code, shots) => call("project", { action: "import", file: code, options: { shots } });
 

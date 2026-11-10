@@ -24,6 +24,7 @@ import { cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatm
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
+import { footageMove } from "../footage-finder/step.mjs";
 
 // The brief's lines, in the order they are shown.
 // idea is the agent's one creative idea for the video (ideas guide); it is shown to the person at
@@ -445,6 +446,11 @@ export function nextMove(state, video = {}, stop = null) {
   // The idea before the template: references, then treatments and the signature (orderStep).
   // Building before this step is done is refused (the service's edit gate).
   const order = orderStep(state, video);
+  // A footage-led brief with none of the person's clips (the service's directionFacts sets
+  // video.findFootage): the footage search comes after the references and before the treatments,
+  // so the ideas are built from found shots. It ends when a clip is in the project.
+  const referencesOpen = order && (order.call?.tool === "look" || order.call?.input?.topic === "inspire");
+  if (video.findFootage && !referencesOpen) return footageMove(state?.footage);
   if (order) return order;
   // The material against the story, before planning: video.needs is {checked} when the video has
   // footage or speech (the service's directionFacts; left out otherwise, which skips this step).

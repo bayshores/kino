@@ -17,7 +17,8 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
-import { createFootageActions, FootageError, personClipCount } from "../footage-finder/actions.mjs";
+import { createFootageActions, FootageError, isFoundClip, personClipCount } from "../footage-finder/actions.mjs";
+import { footageLed } from "../footage-finder/step.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -883,6 +884,9 @@ export function createAgentService(deps) {
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
+    // A footage-led brief with no clip in the project (the person's or found): the footage step
+    // (footage-finder/step.mjs). Any clip of theirs makes it silent: their media leads.
+    if (footageActions && !facts.footage && footageLed(brief)) facts.findFootage = true;
     if (waivers.some((waiver) => waiver.code === NEEDS_WAIVER)) return facts;
     const storied = facts.footage || (await someAsync(document.scenes.filter((scene) => !scene.isComponent), (scene) => hasFootageOrSpeech(scene, document)));
     if (!storied) return facts;
@@ -4296,10 +4300,11 @@ export function createAgentService(deps) {
       const record = await mediaRecord(sourceSrc(item));
       if (!(record?.width > 0 && record?.height > 0)) continue;
       const video = /^video\//.test(String(record.mime ?? item.mime)) && record.hasVideo !== false && record.duration > 0;
-      clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [] });
+      clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [], found: isFoundClip(item) });
     }
     if (!clips.length) throw new AgentError("not_found", 'No clips or pictures in this project yet: project {action:"import", file} brings one in.');
-    clips.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+    // The person's own clips first, then the ones the footage finder found; by name within each.
+    clips.sort((a, b) => Number(a.found) - Number(b.found) || String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
     const { blocks, pages } = planClips(clips.map((clip) => ({ width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 0 })));
     const pageNumber = Math.min(pages.length, Math.max(1, Math.round(Number(input.page) || 1)));
     const page = pages[pageNumber - 1];
