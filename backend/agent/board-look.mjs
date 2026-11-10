@@ -163,6 +163,52 @@ export async function boardShotImage({ shot: shotId, part, width }, { document, 
   return { png };
 }
 
+// The style frame: at a storyboard ask, one still of the picked type direction over a real frame
+// of the board's first footage shot. kino has no default type, so the person sees the look they
+// pick before anything is built. It uses the board's own type (the first text the board names:
+// family, weight, size, color, words), else the style spec's fonts with the brief's message, and
+// cases the words as the direction says. No footage, no type direction or no face: null (no frame).
+const STYLE_WORDS = 6;
+const STYLE_CHARS = 48;
+const casedBy = (type, words) => (/all.?caps|uppercase|capitals/i.test(type) ? words.toUpperCase() : /lowercase|all.?lower/i.test(type) ? words.toLowerCase() : words);
+
+/**
+ * What the style frame shows, as plain data kept on the storyboard round, or null:
+ * { shot, type, text, family, weight, size, fill, y }. `type` is the picked type direction,
+ * `records` a Map of each shot's media src to its library record or null, `fonts` the style
+ * spec's fonts ({display, caption}) and `message` the brief's message line.
+ */
+export function styleFrameFacts({ board, type, records = new Map(), fonts = null, message = null }) {
+  const direction = typeof type === "string" ? type.trim() : "";
+  const shots = board?.shots ?? [];
+  const footage = shots.find((shot) => !isNone(shot.media) && records.get(shot.media)?.width > 0 && records.get(shot.media)?.height > 0);
+  if (!direction || !footage) return null;
+  const named = !isNone(footage.text) ? footage.text : shots.find((shot) => !isNone(shot.text))?.text ?? null;
+  const face = named ?? fonts?.display ?? fonts?.caption ?? null;
+  const said = named?.text ?? String(message ?? "").trim().split(/\s+/).slice(0, STYLE_WORDS).join(" ");
+  if (!face?.family || !said) return null;
+  const words = casedBy(direction, clip(said, STYLE_CHARS));
+  return { shot: footage.id, type: direction, text: words, family: face.family, weight: face.weight ?? 700, size: face.size ?? null, fill: named?.fill ?? "#ffffff", y: named?.y ?? 50 };
+}
+
+/**
+ * The style frame as a picture: { png }, `facts` from styleFrameFacts. It is the first footage
+ * shot's still (stillScene) with the facts' words in their face, `width` pixels wide (the video's
+ * own width when left out).
+ */
+export async function styleFrameImage(facts, { document, look, fontsFor, mediaRecord, width = null }) {
+  const shot = (document.board?.shots ?? []).find((entry) => entry.id === facts?.shot);
+  if (!shot) throw new BoardLookError("not_found", `shot ${facts?.shot} is not on this board.`);
+  const main = mainScene(document);
+  const text = { text: facts.text, family: facts.family, weight: facts.weight, fill: facts.fill, y: facts.y, ...(facts.size ? { size: facts.size } : {}) };
+  const scene = stillScene({ ...shot, text }, await mediaRecord(shot.media), main);
+  const temporary = parseDocument(createDocument({ id: "style-frame", name: "style frame", scenes: [scene] }));
+  const fonts = await fontsFor(temporary);
+  const found = temporary.scenes[0];
+  const { png } = await look.frame({ scene: found, fonts, key: sceneKey(found, fonts) }, 0, width ?? main.width);
+  return { png };
+}
+
 // The page's text within PAGE_TOKENS: while it is over, the longest shot line gives up 4
 // characters of its longer quoted word, and below SHORTEST leaves that part out. With every
 // quote and sound gone, the longest line leaves out its move (the image row still names it).

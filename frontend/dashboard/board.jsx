@@ -114,6 +114,14 @@ export function BoardView({ projectId, stop = null, rev = null, version = null, 
         ) : null}
         {readOnly ? <p className="dim">{statusWords(data, timeOfDay)}</p> : null}
         {data.purpose ? <p className="board-purpose">{data.purpose}</p> : null}
+        {/* The ask's style frame: the picked type direction over the first footage shot, one picture and no question. */}
+        {data.styleFrame ? (
+          <figure className="board-style">
+            <img src={shotUrl({ projectId, rev: data.rev, shot: data.styleFrame.shot, part: "style", width: 960 })} alt={`The type over ${data.styleFrame.shot}: ${data.styleFrame.type}`}
+              onError={(event) => { event.currentTarget.closest("figure").hidden = true; }} />
+            <figcaption className="faint">{data.styleFrame.type}</figcaption>
+          </figure>
+        ) : null}
         {changeLines(data).map((line) => <p key={line} className="board-change">{line}</p>)}
         {readOnly && data.answer?.words ? <p>your note: "{data.answer.words}"</p> : null}
       </div>

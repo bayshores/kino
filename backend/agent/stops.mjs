@@ -288,9 +288,12 @@ function askNext(round) {
 // is the storyboard's {rev, shots, listed, flagged}.
 function waitingAnswer(round, ask = round.ask, board = round.board) {
   const next = askNext(round);
+  // A storyboard ask carries one style frame (board-look.mjs styleFrameFacts): the picked type
+  // direction over a real frame of the first footage shot. No question goes with it.
+  const frame = round.styleFrame ? { shot: round.styleFrame.shot, type: round.styleFrame.type } : null;
   return {
-    text: [`waiting_for_you ${round.id} ${round.kind} · rev ${round.rev}`, "ask:", ask, `step: ${next}`].join("\n"),
-    data: { status: "waiting_for_you", id: round.id, kind: round.kind, rev: round.rev, ask, offer: round.offer ?? [], next, ...(board ? { board } : {}) },
+    text: [`waiting_for_you ${round.id} ${round.kind} · rev ${round.rev}`, "ask:", ask, frame ? `style frame (${frame.type}): attached; send it with the ask, no question about it.` : "", `step: ${next}`].filter(Boolean).join("\n"),
+    data: { status: "waiting_for_you", id: round.id, kind: round.kind, rev: round.rev, ask, offer: round.offer ?? [], next, ...(board ? { board } : {}), ...(frame ? { styleFrame: frame } : {}) },
     nextCall: answerCall(round),
   };
 }
@@ -326,7 +329,7 @@ const NO_MUSIC_ASK = "No music yet: name a song or artist, send a track, or keep
  * closed first; that change stays even when a later rule refuses the call, so the project's
  * writes work again.
  */
-export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null }) {
+export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null, styleFrame = null }) {
   const kind = typeof wanted === "string" ? wanted.trim().toLowerCase() : "";
   if (!STOP_KINDS.includes(kind) && kind !== CRITIQUE_STOP)
     throw new StopError("bad_input", "id is board, rough, color, sound or critique.", { didYouMean: closest(String(wanted ?? ""), [...STOP_KINDS, CRITIQUE_STOP]) });
@@ -348,6 +351,7 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
   // when the agent reports it now.
   const waiting = waitingStop(draft);
   if (waiting && waiting.kind === kind) {
+    if (kind === "board" && styleFrame) waiting.styleFrame = styleFrame;
     if (kind !== "board" || !(all || fresh) || !board?.board) return waitingAnswer(waiting);
     if (fresh) waiting.fresh = fresh;
     return boardWaiting(draft, waiting, board, { all, soundFiles, soundSearch });
@@ -361,7 +365,7 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
   const plan = stopPlan(draft, video, rules);
   const first = plan.slice(0, STOP_KINDS.indexOf(kind)).find((entry) => !entry.passed);
   if (first) throw new StopError("out_of_order", `${kind} refused: ${first.kind} is not approved yet; run notes checkpoint {id:"${first.kind}"} first.`, { first: first.kind });
-  if (kind === "board") return boardCheckpoint(draft, { facts: board, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh });
+  if (kind === "board") return boardCheckpoint(draft, { facts: board, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame });
   const latest = latestRound(draft, kind);
   if (latest && latest.rev === rev && roundPassed(latest, draft)) {
     return { text: `${latest.id} ${kind} passed at rev ${rev} (${howPassed(latest)}); nothing changed since. Go on.`, data: { status: "passed", id: latest.id, kind, rev } };
@@ -430,7 +434,7 @@ function critiqueCheckpoint(draft, { critique, video, rev, at, client, work }) {
 // a saved board with no gap, then passed (its approval stands), the open items, the person's
 // settings, or a new round that waits with kino's ask. No check first: the board is shown before
 // anything is built. `facts` is boardFacts(document).
-function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh }) {
+function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame }) {
   const board = facts?.board;
   if (!board) throw new StopError("board_first", 'Save the storyboard first: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}; library guide storyboard).');
   if (facts.coverage) throw new StopError("board_gap", `${facts.coverage.message} Fix the board (edit board), then ask again.`, { at: facts.coverage.at });
@@ -488,7 +492,7 @@ function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, wor
   const redone = redoneSince(draft, facts);
   const offerSound = !draft.stops.some((entry) => entry.kind === "board");
   const round = { id, kind: "board", rev, askedAt: at, client, status: "waiting", offer: [], ask: null, answer: null,
-    ...(held ? { held } : {}), ...(changed ? { changed } : {}), ...(redone ? { redone } : {}), ...(fresh ? { fresh } : {}), ...(offerSound ? { offerSound } : {}), ...(work ? { work } : {}) };
+    ...(held ? { held } : {}), ...(changed ? { changed } : {}), ...(redone ? { redone } : {}), ...(fresh ? { fresh } : {}), ...(offerSound ? { offerSound } : {}), ...(styleFrame ? { styleFrame } : {}), ...(work ? { work } : {}) };
   draft.nextStop += 1;
   draft.stops.push(round);
   return boardWaiting(draft, round, facts, { all, soundFiles, soundSearch });
@@ -890,7 +894,7 @@ export function stopsSummary(state) {
     // steady is the service's clock stamp for too_fast and work the fingerprint of what the
     // round showed, not things to show; a storyboard's shown and redone are on the board screen
     // (GET /api/dashboard/board-data).
-    rounds: (state?.stops ?? []).slice(-ROUNDS_SHOWN).map(({ ask, steady, work, shown, redone, ...round }) => round),
+    rounds: (state?.stops ?? []).slice(-ROUNDS_SHOWN).map(({ ask, steady, work, shown, redone, styleFrame, ...round }) => round),
     stopAsking: stopAsking ? { stop: stopAsking.stop, words: stopAsking.words, at: stopAsking.at, undoneAt: stopAsking.undoneAt ?? null } : null,
     board: boardSummary(state),
   };

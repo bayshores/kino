@@ -7,8 +7,7 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 ## Build it
 
 - Put the clip in the scene first, one video layer from 0 s, so scene time is file time
-  (`look source` needs it). When
-  you build the shots, delete it (or make it shot 1), so the clip's sound plays once.
+  (`look source` needs it). When you build the shots, delete it (or make it shot 1): its sound plays once.
 - One `board` op holds the whole storyboard; each call replaces it (undo, `rev`). Shots in
   time order, no gap and no overlap: from the music layer's start to its end, or the whole
   video when `music` is `"none"` (voice-over, silent motion design).
@@ -45,7 +44,7 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 subject boxes, the app's covered areas shaded on 9:16, the cropped still with the real text,
 kino's numbers (subject % in the crop and from its edge, eyes % from the top), the move and
 your reason; its text, each shot's number, id, numbers and `look:` flags.
-Fix every `look:` flag you can before asking: the subject whole and 5% or more from the crop
+Fix every `look:` flag you can before asking: the subject whole and 5%+ from the crop
 edge, eyes 20–45% from the top, nothing under the app's captions.
 
 ## Fresh-eyes check
@@ -55,29 +54,29 @@ lines, the project id and this: "Read the storyboard with look {project, mode:"b
 (every page; change nothing). List where you would have to guess, and the top 3 problems you
 can see." Fix the small ones yourself and add each to `calls` (edit `board`): they show as
 "my calls". Only questions for the person go out, in one message. At most 2 check rounds.
-Then ask with `fresh:"ran"`; when your app cannot start one, with `fresh:"skipped"`. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
+Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one. (After superpowers' builder-check prompt, obra/superpowers, MIT.)
 
 ## Ask
 
 - Open items first: ask them in one message, log each reply word for word
   (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say "your call", send their words: `notes {action:"checkpoint",
-  id:"board", words:"<their reply>"}` (kino logs them: do not log them again;
-  "not your call" is not one). It answers `your_call`: decide each item, write your decisions
+  id:"board", words:"<their reply>"}` (kino logs them; "not your call" is not one). It answers `your_call`: decide each item, write your decisions
   in `calls` and empty `open` (edit `board`), then ask again with the fresh-eyes answer:
   `notes {action:"checkpoint", id:"board", fresh:"ran"}` (or `"skipped"`).
 - `notes {action:"checkpoint", id:"board"}`: kino writes the ask (your calls, plain then flagged
   shots first, at most 8 shots). Send it as written, with the `look board` pages
   when your app can send files, and end your turn. "All shots": the same call with `all:true`.
-  After a redo or approve with notes, kino lists what changed (asked or not), what they named
-  but did not change, and a new shot order or music: send it as written.
-- Shot notes from the board screen: "use option B: <why>" (`alts[0]`; C is `alts[1]`), "make it 1.8 s
-  (was 2.1 s)", "remove this shot": edit `board` to match.
+  After a redo or approve with notes, it lists what changed (asked or not), what they named
+  but did not change, and a new order or music.
+- Style frame: with a picked `style.type` and footage, the answer carries one image (the type
+  over the first footage shot, in the board's text font): send it with the ask. No question.
+- Shot notes from the board screen ("use option B: <why>": `alts[0]`, C is `alts[1]`; "make it
+  1.8 s"; "remove this shot"): edit `board` to match.
 - No `check` first: the board comes before building.
 - Refused: `board_first` (save one first), `board_gap` (it no longer covers the music or
-  video), `open_items` (above), `move_needed` (no designed move on the hook,
-  reveal or payoff; it names moves that fit those).
-- Sound: `none` when no shot has one; the first ask offers their files or kino's built-in
-  library (`library sounds`, no switch needed).
+  video), `open_items` (above), `move_needed` (no designed move on the hook, reveal or
+  payoff; it names moves that fit).
+- Sound: `none` when no shot has one; the first ask offers their files or kino's built-in library.
 - Record their reply with `notes answer` (direction reference).
 
 ## After the approval
@@ -89,7 +88,7 @@ item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the 
 or music made lapses it until the board covers it again. Smaller changes are logged
 (`board.revisions`). "Approve with notes": make the changes. After the person answers rough,
 color or sound, only another song, media or shot list lapses it. Approved with only "your
-call": nothing lapses, so fix what a viewer finds (cut a repeat), never waive it.
+call": fix what a viewer finds (cut a repeat), never waive it.
 
 A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` = H × 100 / h,
 `width` = `height` × the source's width / height, `x` = −x / 100 × `width`, `y` = −y / 100 ×
@@ -103,7 +102,7 @@ A shot as one video layer (W × H the video, `[x, y, w, h]` the crop): `height` 
 {"tool":"edit","ops":[{"op":"board","music":"none","shots":[{"cue":0,"dur":6,"pacing":"free","media":"none","in":"none","crop":"none","subject":"none","follow":"none","sound":"none","move":{"kind":"ui","name":"roll"},"why":"one card"}]}],"expect":"op_failed"}
 ```
 
-The last is refused, every bad field named at once: no `text`, no `ref`.
+The last is refused, every bad field named: no `text`, no `ref`.
 
 ## Storyboard: a board from footage
 

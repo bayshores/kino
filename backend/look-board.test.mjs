@@ -14,7 +14,7 @@ import { estimateImageTokens, estimateTextTokens, pngSize } from "./meter.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 import { ASK_SHOTS, ASK_TOKENS, boardAsk, FRESH_TOKENS, SENTENCE_MAX, SHOT_TOKENS } from "./agent/board-text.mjs";
-import { boardLook, PAGE_TOKENS, stillScene } from "./agent/board-look.mjs";
+import { boardLook, PAGE_TOKENS, stillScene, styleFrameFacts } from "./agent/board-look.mjs";
 import { shotMeasures } from "../engine/boardMeasure.js";
 import { createLayer } from "../engine/model.js";
 
@@ -115,6 +115,22 @@ test("the board's ask names the plain shots and lists them first; a move's name 
   // A chosen plain cut (move {none}) is a decision, not a flag: most shots should be one.
   board.shots[2].move = { none: "cut on the voice" };
   assert.equal(boardAsk({ id: "C1", board, frame: PORTRAIT, seconds: 4.4 }).text.includes("Plain"), false);
+});
+
+// The ask's style frame: the picked type direction over the first footage shot, in the board's own face.
+test("styleFrameFacts: the first footage shot with the board's own text face, cased by the direction; no footage, no type or no face is null", () => {
+  const records = new Map([["/api/media/a.mp4", { width: 384, height: 216 }]]);
+  const board = footage();
+  assert.deepEqual(styleFrameFacts({ board, type: "heavy sans, all caps, each word pops", records }),
+    { shot: "S1", type: "heavy sans, all caps, each word pops", text: "THE DRAGON IS BACK", family: "Inter", weight: 700, size: 80, fill: "#ffffff", y: 60 });
+  // The footage shot has no text: the board's next text is its face; with none, the style fonts and the brief's message.
+  const plain = { ...board, shots: board.shots.map((entry) => ({ ...entry, text: "none" })) };
+  assert.equal(styleFrameFacts({ board: plain, type: "serif", records }), null);
+  const fonts = { display: { family: "Georgia", size: 90 } };
+  assert.deepEqual(styleFrameFacts({ board: plain, type: "serif, lowercase", records, fonts, message: "The dragon is back over the village today and tonight" }),
+    { shot: "S1", type: "serif, lowercase", text: "the dragon is back over the", family: "Georgia", weight: 700, size: 90, fill: "#ffffff", y: 50 });
+  assert.equal(styleFrameFacts({ board, type: "  ", records }), null);
+  assert.equal(styleFrameFacts({ board, type: "serif", records: new Map() }), null, "no footage in the library");
 });
 
 // Review round 1 of B4a: a voice-over is named, so the ask does not read as a silent video.

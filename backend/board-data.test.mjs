@@ -37,7 +37,7 @@ test("board-data for a 9:16 board: header, the app's covered areas, each shot's 
   assert.deepEqual(rest, {
     project: "dragon", rev: 7, stop: "C2", status: "waiting", answer: null, fresh: "skipped",
     header: { board: 3, shots: 3, seconds: 6, width: 1080, height: 1920, aspect: "9:16", background: "#000000", platform: "TikTok" },
-    purpose: "The dragon is back", music: null, audio: [], calls: ["End on the title"], open: [], lapsed: null, redone: round.redone,
+    purpose: "The dragon is back", styleFrame: null, music: null, audio: [], calls: ["End on the title"], open: [], lapsed: null, redone: round.redone,
     covered: { right: 11.1, bottom: 36.8, verified: false }, soundSearch: false, soundFiles: true,
   });
   const frame = { width: 1080, height: 1920 };
@@ -48,6 +48,10 @@ test("board-data for a 9:16 board: header, the app's covered areas, each shot's 
   assert.deepEqual(shots[1].change, { asked: false, what: ["footage"] }, "changed without being asked");
   assert.deepEqual([shots[2].media, shots[2].subject, shots[2].crop, shots[2].in, shots[2].follow, shots[2].change, shots[2].alts], ["none", "none", "none", "none", "none", null, [{ why: "a lower line" }]]);
   assert.deepEqual(shots[2].measures, shotMeasures(document.board.shots[2], frame));
+
+  // The ask's style frame names its shot and type direction, nothing else.
+  const framed = boardData(document, { round: { ...round, styleFrame: { shot: "S1", type: "serif", text: "Hi", family: "Georgia" } }, rev: 7, project: "dragon", records: RECORDS });
+  assert.deepEqual(framed.styleFrame, { shot: "S1", type: "serif" });
 
   // No shot named: a change is not "asked" either way.
   const since = boardData(document, { round: { ...round, redone: { ...round.redone, named: [], asked: [], unasked: [], missed: [] } }, rev: 7, project: "dragon", records: RECORDS });
@@ -133,6 +137,8 @@ test("GET board-data: by stop, by rev, the newest round, and each refusal", { sk
   assert.deepEqual([byStop.body.project, byStop.body.stop, byStop.body.status, byStop.body.rev, byStop.body.fresh, byStop.body.calls], [id, "C1", "waiting", asked.data.rev, "ran", ["End on the title"]]);
   assert.deepEqual((await readJson({ project: id, rev: asked.data.rev })).body, byStop.body, "the revision C1 showed");
   assert.deepEqual((await readJson({ project: id })).body, byStop.body, "the newest storyboard round");
+  assert.equal(byStop.body.styleFrame, null, "no picked type direction, no style frame");
+  assert.equal(asked.images, undefined);
   // The board answered with a note on shot 2; the agent changes it and asks again.
   const answered = await server.api("/api/dashboard/stops", { method: "POST", headers: { "x-kino-review": key },
     body: { project: id, action: "answer", id: "C1", rev: asked.data.rev, read_as: "redo", shots: [{ id: "S2", words: "closer on the dragon" }] } });
@@ -140,9 +146,20 @@ test("GET board-data: by stop, by rev, the newest round, and each refusal", { sk
   const redone = STOP_SHOTS();
   redone[1] = { ...redone[1], crop: [42, 20, 16, 50], subject: { what: "the dragon", box: [44, 30, 12, 30] } };
   await editBoard(id, redone);
+  // The picked type direction is saved: the next ask carries one style frame, the title card's face over shot 1.
+  const typed = await agent("notes", { project: id, action: "brief", fields: { style: { type: "plain sans, one line, each word cut on", wants: ["flash"], by: "guessed" } } });
+  assert.equal(typed.isError, undefined, typed.text);
   const again = await agent("notes", { project: id, action: "checkpoint", id: "board" });
   assert.equal(again.data.id, "C2", again.text);
+  assert.deepEqual(again.data.styleFrame, { shot: "S1", type: "plain sans, one line, each word cut on" });
+  assert.equal(again.images.length, 1);
+  assert.deepEqual(pngSize(Buffer.from(again.images[0].data, "base64")), { width: 1080, height: 1920 });
   const second = (await readJson({ project: id, stop: "C2" })).body;
+  assert.deepEqual(second.styleFrame, again.data.styleFrame);
+  const frame = await read("board-shot", { project: id, rev: again.data.rev, shot: "S1", part: "style", w: 480 });
+  assert.equal(frame.status, 200);
+  assert.deepEqual(pngSize(Buffer.from(await frame.arrayBuffer())), { width: 480, height: 853 });
+  assert.equal((await read("board-shot", { project: id, rev: asked.data.rev, shot: "S1", part: "style", w: 480 })).status, 404, "the first ask carried none");
   assert.deepEqual(second.redone, { stop: "C1", named: ["S2"], asked: ["S2"], unasked: [], missed: [], removed: [], changed: [{ id: "S2", what: ["crop"] }] });
   assert.deepEqual(second.shots.map((shot) => shot.change), [null, { asked: true, what: ["crop"] }, null, null]);
   assert.equal(second.fresh, null);
