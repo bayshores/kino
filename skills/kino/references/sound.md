@@ -53,12 +53,12 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 
 ## Sound: music as structure
 
-- `fit_music {layer}` cuts the song to the story: a drop lands on the spine's payoff (or
-  `payoff`, seconds), its break or build plays under the line before it, an earlier drop on
-  `turn`, and the song's own ending on `end` (default the scene end). Cuts fall on bar lines in
-  song order with short downbeat crossfades: never a hard stop. Then `duck_audio`.
-- The receipt's `music.sections` lists them in scene time ("8 s drop (payoff)"); cues
-  `song-drop-1`… mark them.
+- `fit_music {layer}` cuts the song to the story: a drop on the spine's payoff (or `payoff`),
+  its break or build under the line before it, an earlier drop on `turn`, its own ending on
+  `end`. Cuts fall on bar lines with downbeat crossfades. Then `duck_audio`.
+- `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
+  (payoff)"); cues `song-drop-1`, `song-dropout-`, `song-return-`, `song-vocal-in-`,
+  `song-switch-` mark them where heard.
 
 ```json
 {"op":"add_layer","layerType":"audio","name":"song","properties":{"src":"/api/media/<song>.m4a"}}

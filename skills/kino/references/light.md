@@ -28,7 +28,10 @@ The accent-hit and light-sweep moves use glow to light one word.
 - Light is drawn with its layer, so layers above cover it. To light several layers as one
   picture, group them and put the effect on the group.
 - Animate any number with `from`: `from:{"strength":4}` to `parameters:{"strength":0}` on a
-  cue is a flash on a beat; `from:{"x":-0.1}` to `x` 1.2 sweeps a flare across.
+  cue is a flash; `from:{"x":-0.1}` to `x` 1.2 sweeps a flare across.
+- A flash needs a cue that motivates it: light rising in the shot, a song seam or a top accent,
+  never every beat. Over footage, `move impact-accent` with `kind:"flash"` lifts the shot's own
+  exposure (a dark grade flashes in its own color, not white), sized by the cue's weight.
 - `library {topic:"rules", name:"light"}` has every field and ten tested recipes: bloom,
   deep-glow, neon, halation, beat-flash, god-rays, light-behind-title, anamorphic-flare,
   sun-flare, flare-sweep.

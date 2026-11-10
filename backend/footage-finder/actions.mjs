@@ -8,6 +8,7 @@
 // about 50 s; a longer one answers with its progress and a next call that repeats it.
 import { call } from "../agent/next-call.mjs";
 import { readTime } from "./scan.mjs";
+import { SCAN_VERSION } from "./score.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./search.mjs";
 import { scanCall, searchCall } from "./step.mjs";
 import { needLine, wantBySection } from "./needs.mjs";
@@ -98,6 +99,8 @@ export function parseRef(ref) {
 }
 
 const emptyFootage = () => ({ want: "", next: 1, order: [], candidates: [] });
+/** Candidates in their order, the scanned ones with a logo on their shots after the rest. */
+export const logoLast = (candidates) => [...candidates].sort((a, b) => Number(Boolean(a?.scan?.logo)) - Number(Boolean(b?.scan?.logo)));
 const kept = (candidate) => Boolean(candidate.scan || candidate.note || candidate.imported);
 
 /**
@@ -141,9 +144,13 @@ function nextCandidate(footage, code) {
   return order.map((each) => list.find((entry) => entry.code === each)).find((entry) => entry && !entry.scan) ?? null;
 }
 
-/** One shot's line: `F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`, flags after. */
+/**
+ * One shot's line: `F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1`, flags after. face is
+ * left out when faces were not read (no face detector, or drawn footage).
+ */
 export function shotLine(code, shot, { matchShown = false } = {}) {
-  const parts = [`${code}.${shot.n}`, `${stamp(shot.start)}-${stamp(shot.end)}`, `${(shot.end - shot.start).toFixed(1)}s`, `motion ${Math.round(shot.motion ?? 0)}`, `face ${Math.round(shot.face ?? 0)}`];
+  const parts = [`${code}.${shot.n}`, `${stamp(shot.start)}-${stamp(shot.end)}`, `${(shot.end - shot.start).toFixed(1)}s`, `motion ${Math.round(shot.motion ?? 0)}`];
+  if (Number.isFinite(shot.face)) parts.push(`face ${Math.round(shot.face)}`);
   if (matchShown && Number.isFinite(shot.match)) parts.push(`match ${shot.match >= 0 ? "+" : ""}${shot.match.toFixed(1)}`);
   if (shot.flags?.length) parts.push(shot.flags.join(" "));
   return parts.join(" ");
@@ -155,9 +162,29 @@ export function importPicks(scan, most = FOOTAGE_IMPORT_PICKS) {
 }
 
 function skippedLine(skipped = {}) {
-  const names = { text: "text", dark: "dark", repeats: "repeats", short: "under 0.4 s" };
+  const names = { text: "text", subtitles: "subtitles", dark: "dark", repeats: "repeats", short: "under 0.4 s" };
   const parts = Object.entries(names).filter(([key]) => skipped[key] > 0).map(([key, name]) => `${skipped[key]} ${name}`);
   return parts.length ? `Skipped: ${parts.join(", ")}.` : "";
+}
+
+/** Where a scan's marks sit ("top-left and bottom-right"), or "" when it has none. */
+export const markPlaces = (marks = []) => [...new Set(marks.map((mark) => mark.where))].join(" and ");
+
+// The scan's marks, said once: "Logo top-left on every shot: crop or cover it."
+function marksLine(marks = []) {
+  if (!marks.length) return "";
+  const every = marks.every((mark) => mark.share >= 0.8);
+  return `Logo ${markPlaces(marks)} on ${every ? "every shot" : "most shots"}: crop or cover it.`;
+}
+
+const signed = (value) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+
+// Why want did not rank the shots: the image model did not run, or no shot came close enough.
+function noMatchLine(scan) {
+  const rest = `shots rank on motion${scan.drawn ? "" : ", faces"} and clean frames.`;
+  if (!scan.model) return `The image model did not run, so "${scan.want}" was not looked for: ${rest}`;
+  const closest = Number.isFinite(scan.matchBest) && Number.isFinite(scan.matchBar) ? ` (closest ${signed(scan.matchBest)}, a match needs ${signed(scan.matchBar)})` : "";
+  return `No visual match for "${scan.want}"${closest}: ${rest}`;
 }
 
 /**
@@ -169,8 +196,9 @@ export function scanText(candidate, scan, need = null) {
   const shots = scan.shots ?? [];
   const head = `${candidate.code} "${short(oneLine(candidate.title) || candidate.id, TITLE_SHOWN)}" · scanned ${clockOf(looked)}${candidate.seconds ? ` of ${clockOf(candidate.seconds)}` : ""} · ${shots.length} shot${shots.length === 1 ? "" : "s"}${shots.length > FOOTAGE_SHOTS_SHOWN ? `, best ${FOOTAGE_SHOTS_SHOWN}` : ""}:`;
   const lines = shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => shotLine(candidate.code, shot, { matchShown: scan.matchShown }));
-  const tail = [skippedLine(scan.skipped)];
-  if (scan.want && !scan.matchShown) tail.push(`No visual match for "${scan.want}": shots rank on motion, faces and clean frames.`);
+  const tail = [skippedLine(scan.skipped), marksLine(scan.marks)];
+  if (scan.drawn) tail.push("Faces: not read on drawn footage.");
+  if (scan.want && !scan.matchShown) tail.push(noMatchLine(scan));
   if (shots.length) tail.push(`Stills: look {mode:"source", ref:"${candidate.code}"}`);
   tail.push(needLine(need));
   return [head, ...lines, ...tail.filter(Boolean)].join("\n");
@@ -178,7 +206,7 @@ export function scanText(candidate, scan, need = null) {
 
 function candidateLabel(candidate) {
   const line = candidateLine({ ...candidate, title: short(oneLine(candidate.title), TITLE_SHOWN) }, candidate.code);
-  const status = candidate.imported ? "imported" : candidate.scan ? `scanned, ${candidate.scan.shots} shots` : "";
+  const status = candidate.imported ? "imported" : candidate.scan ? `scanned, ${candidate.scan.shots} shots${candidate.scan.logo ? `, logo ${candidate.scan.logo}` : ""}` : "";
   const note = candidate.note ? `${candidate.note.verdict}: ${short(candidate.note.why, 60)}` : "";
   return [line, status, note].filter(Boolean).join(" · ");
 }
@@ -247,7 +275,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
         data: { candidates: [], dropped: found.dropped }, nextCall: searchCall(), update: want !== null ? update : undefined };
     }
     const after = update(footage);
-    const listed = after.order.map((code) => after.candidates.find((entry) => entry.code === code));
+    const listed = logoLast(after.order.map((code) => after.candidates.find((entry) => entry.code === code)));
     const lines = [
       `Found ${listed.length} for "${found.tried ?? found.words ?? words}"${found.cached ? " (from today's search)" : ""}${after.want ? `; want: "${after.want}"` : ""}:`,
       ...listed.map(candidateLabel),
@@ -295,7 +323,8 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }) });
     // A scan saved before with the same words answers at once.
     let result = plain ? await finder.readScan(id).catch(() => null) : null;
-    if (result && (result.want ?? "") !== want) result = null;
+    // A scan of an older version, or of other words, is scanned again.
+    if (result && ((result.want ?? "") !== want || result.version !== SCAN_VERSION)) result = null;
     if (!result) {
       const key = `${id}\n${JSON.stringify(options)}`;
       let job = scans.get(key);
@@ -341,13 +370,14 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const picks = importPicks(result, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const update = (current) => {
       const { after, entry } = ensure(current);
-      entry.scan = { id, shots: (result.shots ?? []).length, at: result.scannedAt ?? null };
+      entry.scan = { id, shots: (result.shots ?? []).length, at: result.scannedAt ?? null, ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}) };
       if (input.want !== undefined) after.want = want;
       return after;
     };
     const song = need ? { bpm: need.bpm, shots: need.shots, import: need.import, parts: need.parts.map(({ kind, from, to, shots }) => ({ kind, from, to, shots })), want: wantBySection(want, need.parts) } : undefined;
     return { text: withLead(personClips, [scanText(candidate, result, need)]),
-      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags }) => ({ n, start, end, motion, face, match, flags })), matchShown: Boolean(result.matchShown), ...(song ? { song } : {}) },
+      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags }) => ({ n, start, end, motion, face, match, flags })), matchShown: Boolean(result.matchShown),
+        ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}) },
       nextCall: picks.length ? importCall(candidate.code, picks) : nextCandidate(saved, candidate.code) ? scanCall(nextCandidate(saved, candidate.code).code) : searchCall(), update };
   }
 
@@ -372,7 +402,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
   }
 
   function list({ footage, personClips }) {
-    const candidates = footage?.candidates ?? [];
+    const candidates = logoLast(footage?.candidates ?? []);
     if (!candidates.length) {
       return { text: withLead(personClips, ["No footage found for this video yet. Search with the series or subject and the scene; want names what the shots should show, in visual words."]),
         data: { candidates: [] }, nextCall: searchCall() };

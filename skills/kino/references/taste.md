@@ -35,6 +35,11 @@ What the checks measure, and how to keep a video small.
   are two), or 3 bright-dark swings between shots (a dark end card aside). Fix by removing moves
   (`{op:"move", id, name, remove:true}`). `restraint` warns on a transition off a shot change,
   two grades on one layer at once, one footage moment shown twice, and letterboxed footage.
+- With `fit_music` cues: `seam_lock` warns on a cut, accent or large move within 0.2 s of a song
+  seam but over 1 frame off it, and on a drop or return with no change (a held shot that pans or
+  punches in on it counts); only the video's scene is judged. `rest_fit` warns on a cut, accent or
+  fast move inside a dropout, and on a picture that does not restart within 1 frame of the
+  return. Start the shot or move at the cue's time; a hold, freeze or black suits a rest.
 - Before you say done: `request_unmet` (in `check`) holds the final render while something the
   person asked for is missing (words in quotes, music, voice, captions, logo, sound effects, end
   card); notes it cannot read are listed: look at each. `look {mode:"motion", ref:"sound"}` ends
