@@ -49,6 +49,9 @@ import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
 import { removeTempFolder } from "./temp-folders.mjs";
+import { createCanvas } from "@napi-rs/canvas";
+import { createLook } from "./agent/look.mjs";
+import { foundClipTag, groupClips, groupLine } from "./footage-finder/sheet.mjs";
 
 test("library passes the fields its listed schema leaves out (scan, want, note, measure) on to kino", async () => {
   const calls = [];
@@ -500,4 +503,49 @@ test("the look model counts as ready where transformers.js keeps it: <data>/mode
   await mkdir(path.join(models, "hf", LOOK_MODEL), { recursive: true });
   assert.equal(lookModelReady(models), true);
   await rm(models, { recursive: true, force: true });
+});
+
+test("look source ref F1 draws a saved scan's sheet as one image, each still labeled F1.<shot> and its start", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  await store.createProject(createDocument({ id: "anime-edit", name: "Anime edit", scenes: [createScene({ id: "s1" })] }));
+  // A saved scan of yt:AAAAAAAAAAA and its sheet: 5 stills of 320x180 in a 4 by 3 grid.
+  await mkdir(scansFolder(dataRoot), { recursive: true });
+  const shots = [12, 37, 5, 20, 8].map((n, index) => ({ n, start: n * 10, end: n * 10 + 2, motion: 80 - index, face: 0, match: 0, flags: [] }));
+  await writeFile(path.join(scansFolder(dataRoot), "yt-AAAAAAAAAAA.json"), JSON.stringify({ version: 1, id: "yt-AAAAAAAAAAA", title: "Episode 1", want: "", windows: [{ start: 0, end: 480 }], skipped: {}, sheet: shots.map((shot) => shot.n), shots }));
+  const canvas = createCanvas(1280, 540);
+  const context = canvas.getContext("2d");
+  shots.forEach((_, index) => { context.fillStyle = `hsl(${index * 70}, 80%, 50%)`; context.fillRect((index % 4) * 320, Math.floor(index / 4) * 180, 320, 180); });
+  await writeFile(path.join(scansFolder(dataRoot), "yt-AAAAAAAAAAA.jpg"), canvas.toBuffer("image/jpeg"));
+  const real = createLook({ cache: { get: async () => null, set: async () => {} }, outDirectory: path.join(dataRoot, "out") });
+  let drawn = null;
+  const look = { ...real, tilesImage: async (tiles, options) => { drawn = { labels: tiles.map((tile) => tile.label), options }; return real.tilesImage(tiles, options); } };
+  const service = createAgentService({ store, agentState: createAgentStateStore(dataRoot), agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], look,
+    footage: createFootageFinder({ directory: path.join(dataRoot, "footage"), dataRoot }) });
+  // Not a candidate yet: the answer names the list.
+  assert.equal((await service.call("look", { project: "anime-edit", mode: "source", ref: "F1" })).isError, true);
+  const scanned = await service.call("library", { project: "anime-edit", topic: "footage", scan: "yt:AAAAAAAAAAA" });
+  assert.equal(scanned.isError, undefined, scanned.text);
+  const sheet = await service.call("look", { project: "anime-edit", mode: "source", ref: "F1" });
+  assert.equal(sheet.isError, undefined, sheet.text);
+  assert.deepEqual(drawn.labels, ["F1.12 2:00.0", "F1.37 6:10.0", "F1.5 0:50.0", "F1.20 3:20.0", "F1.8 1:20.0"]);
+  assert.deepEqual(drawn.options.tile, { width: 320, height: 180 });
+  assert.equal(sheet.images.length, 1);
+  assert.match(sheet.text, /^F1 "Episode 1" shot sheet: the best 5 shots/);
+  assert.match(sheet.text, /next: project \{"action":"import","file":"F1","options":\{"shots":\[12,37,5,20,8\]\}\}/);
+});
+
+test("look source puts the person's clips first and untagged, and 30 found clips as 3 groups by video", () => {
+  const footage = addCandidates(null, [found(1), found(2), found(3)]);
+  const own = ["beach.mp4", "intro.mov"].map((name) => ({ name, tag: foundClipTag({ id: name }, footage) }));
+  // P9 saves the candidate's stable id (or its code) and the shot number with each imported clip.
+  const clips = Array.from({ length: 30 }, (_, index) => ({ name: `shot${index}.mp4`,
+    tag: foundClipTag({ footage: { candidate: index === 1 ? "F2" : footage.candidates[index % 3].id, shot: 30 - index } }, footage) }));
+  const entries = groupClips([...clips.slice(0, 15), own[0], ...clips.slice(15), own[1]]);
+  assert.deepEqual(entries.map((entry) => entry.group), [null, null, "F1", "F2", "F3"]);
+  assert.deepEqual(entries.slice(0, 2).map((entry) => [entry.clips[0].name, entry.clips[0].tag]), [["beach.mp4", null], ["intro.mov", null]]);
+  assert.deepEqual(entries.slice(2).map((entry) => entry.clips.length), [10, 10, 10]);
+  assert.equal(groupLine(entries[2]), "F1: 10 shots (F1.3, F1.6, F1.9, F1.12, F1.15, F1.18, …)");
 });

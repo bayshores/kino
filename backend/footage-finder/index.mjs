@@ -6,7 +6,7 @@ import { runYtDlp } from "../inspire.mjs";
 import { createWebCache } from "../web-cache.mjs";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { downloadScanCopy, pickWindows, probeFootage } from "./scan.mjs";
-import { readScan, scanFootage } from "./score.mjs";
+import { readScan, readScanSheet, scanFootage } from "./score.mjs";
 import { searchFootage } from "./search.mjs";
 
 /** A footage search answer lasts this long (ms): the same search within a day asks YouTube nothing. */
@@ -25,7 +25,7 @@ class NothingFound extends Error {
  * shared gate), embed (look-embed.mjs, or null), commons (licensed.mjs createCommonsSource),
  * keep() (scan ids the cap leaves alone), modelReady() (false: the image model still downloads).
  * Returns {search(words, {count, signal}) → {words, tried?, candidates, dropped, cached},
- * scan(candidate, options), readScan(id), searchCommons(words)}.
+ * scan(candidate, options), readScan(id), readSheet(id) → the scan's sheet jpg or null, searchCommons(words)}.
  */
 export function createFootageFinder(deps) {
   const { directory, ytDlp = (args, options) => runYtDlp(args, options), now = Date.now,
@@ -103,6 +103,7 @@ export function createFootageFinder(deps) {
     search,
     scan,
     readScan: (id) => (dataRoot ? readScan(dataRoot, id) : Promise.resolve(null)),
+    readSheet: (id) => (dataRoot ? readScanSheet(dataRoot, id) : Promise.resolve(null)),
     searchCommons: async (words) => {
       if (!commons) throw new Error("Commons is not available here.");
       return commons.search(words);

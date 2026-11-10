@@ -472,6 +472,12 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       return { png, frames: tiles.map(({ time, key }) => ({ time, key, width: tile.width })), tile };
     },
 
+    // sheetImage's grid for stills already drawn ([{png, label}], all `tile` big): a found
+    // video's saved shot sheet (footage-finder/sheet.mjs) gets the same labels as a scene's sheet.
+    async tilesImage(tiles, { tile, columns }) {
+      return { png: await sheet(tiles, { columns: columns ?? columnsFor(tiles.length, tile), tile }), tile };
+    },
+
     // look source with no layer: one page of clips-sheet.mjs layoutClips. `blocks[place.index]`
     // is { header, tiles: [{png, label}] }: the header above, the tiles in a row under it.
     async clipsImage(page, blocks) {

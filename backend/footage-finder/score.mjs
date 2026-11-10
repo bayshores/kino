@@ -38,8 +38,8 @@ export const DARK_LUMA = 0.12;
 export const TEXT_SHARE = 0.5;
 /** Stills on the sheet, and its grid. */
 export const SHEET_SHOTS = 12;
-const SHEET_COLUMNS = 4;
-const SHEET_ROWS = 3;
+export const SHEET_COLUMNS = 4;
+export const SHEET_ROWS = 3;
 const STILL_WIDTH = 320;
 /** The scans folder's caps. */
 export const SCAN_FILES_MOST = 300;
@@ -194,6 +194,11 @@ export async function readScan(dataRoot, id) {
   const now = new Date();
   await utimes(file, now, now).catch(() => {});
   return scan;
+}
+
+/** A saved scan's sheet (the jpg of its best stills, scan.sheet names their shots), or null. */
+export async function readScanSheet(dataRoot, id) {
+  try { return await readFile(scanPath(dataRoot, id, "jpg")); } catch { return null; }
 }
 
 /**

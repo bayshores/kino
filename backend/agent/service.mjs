@@ -18,6 +18,7 @@ import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { createFootageActions, FootageError, personClipCount } from "../footage-finder/actions.mjs";
+import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -2788,7 +2789,7 @@ export function createAgentService(deps) {
       const part = image.clipped ? ` (its part on screen; the layer is ${image.layerSize.width}×${image.layerSize.height}${parent})` : "";
       text = `zoom ${refName(layerId, codes)} @${time}s crop ${image.crop.x},${image.crop.y} ${image.crop.width}×${image.crop.height}${part} at ${image.crop.scale}×`;
     } else if (mode === "source") {
-      ({ image, text, extra } = await sourceLook(input, { document, codes, resolver, fonts }));
+      ({ image, text, extra, nextCall = null } = await sourceLook(input, { document, codes, resolver, fonts, state }));
       // A clip by file name, or every clip (no layer), is on no layer.
       let layerId = null;
       if (input.layer) try { layerId = resolver.resolve(String(input.layer), "layer"); } catch { /* a file name */ }
@@ -4283,7 +4284,9 @@ export function createAgentService(deps) {
 
   // look {mode:"source"} with no layer: every clip and picture of the project (imported for it or
   // on a layer), 3 to 6 frames each, laid out by clips-sheet.mjs planClips; page:n past one page.
-  async function clipsOverview(input, { document, codes, fonts }) {
+  // The person's own files come first; found clips (footage-finder) follow, one block per video
+  // they came from ("F1: 12 shots"), one frame a shot (footage-finder/sheet.mjs groupClips).
+  async function clipsOverview(input, { document, codes, fonts, state }) {
     const used = new Map();
     for (const scene of document.scenes) for (const layer of scene.layers) {
       if (!["video", "image"].includes(layer.type) || typeof layer.src !== "string") continue;
@@ -4296,24 +4299,46 @@ export function createAgentService(deps) {
       const record = await mediaRecord(sourceSrc(item));
       if (!(record?.width > 0 && record?.height > 0)) continue;
       const video = /^video\//.test(String(record.mime ?? item.mime)) && record.hasVideo !== false && record.duration > 0;
-      clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [] });
+      clips.push({ src: sourceSrc(item), name: record.name ?? item.name, record, video, layers: used.get(sourceSrc(item)) ?? [], tag: foundClipTag(item, state?.footage) });
     }
     if (!clips.length) throw new AgentError("not_found", 'No clips or pictures in this project yet: project {action:"import", file} brings one in.');
     clips.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
-    const { blocks, pages } = planClips(clips.map((clip) => ({ width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 0 })));
+    const entries = groupClips(clips);
+    const own = entries.filter((entry) => !entry.group).length;
+    const middle = (clip) => (clip.video ? sec(clip.record.duration / 2) : 0);
+    const { blocks, pages } = planClips(entries.map((entry) => {
+      const [clip] = entry.clips;
+      return { width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 0,
+        ...(entry.group ? { times: entry.clips.slice(0, GROUP_TILES_MOST).map(middle) } : {}) };
+    }));
     const pageNumber = Math.min(pages.length, Math.max(1, Math.round(Number(input.page) || 1)));
     const page = pages[pageNumber - 1];
+    const clipScene = (clip) => parseDocument(createDocument({ id: "source-view", name: "source", scenes: [createScene({
+      id: "clip", name: "clip", width: clip.record.width, height: clip.record.height, duration: clip.video ? clip.record.duration : 1, background: "#000000",
+      layers: [clip.video
+        ? createLayer("video", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: clip.record.width, height: clip.record.height, mediaStart: 0, mediaOffset: 0, mediaSourceDuration: clip.record.duration, volume: 0 })
+        : createLayer("image", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: clip.record.width, height: clip.record.height })],
+    })] })).scenes[0];
+    const layersOf = (list) => [...new Set(list.flatMap((clip) => clip.layers))];
     const drawn = [];
     for (const place of page.places) {
-      const clip = clips[place.index];
-      const { record } = clip;
-      const scene = parseDocument(createDocument({ id: "source-view", name: "source", scenes: [createScene({
-        id: "clip", name: "clip", width: record.width, height: record.height, duration: clip.video ? record.duration : 1, background: "#000000",
-        layers: [clip.video
-          ? createLayer("video", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: record.width, height: record.height, mediaStart: 0, mediaOffset: 0, mediaSourceDuration: record.duration, volume: 0 })
-          : createLayer("image", { id: "source", name: "source", src: clip.src, x: 0, y: 0, width: record.width, height: record.height })],
-      })] })).scenes[0];
+      const entry = entries[place.index];
       const times = blocks[place.index].times;
+      if (entry.group) {
+        // One frame a found shot, from the middle of its clip.
+        const tiles = [];
+        for (const [index, clip] of entry.clips.slice(0, GROUP_TILES_MOST).entries()) {
+          const scene = clipScene(clip);
+          const [frame] = await look.frames({ scene, fonts, key: sceneKey(scene, fonts) }, [times[index]], place.tile.width);
+          tiles.push({ png: frame.png, label: clip.tag.label });
+        }
+        const layers = layersOf(entry.clips);
+        drawn[place.index] = { header: `${entry.group}: ${entry.clips.length} shot${entry.clips.length === 1 ? "" : "s"}${layers.length ? ` · ${layers.join(", ")}` : ""}`, tiles };
+        continue;
+      }
+      const [clip] = entry.clips;
+      const { record } = clip;
+      const scene = clipScene(clip);
       const frames = await look.frames({ scene, fonts, key: sceneKey(scene, fonts) }, times, place.tile.width);
       drawn[place.index] = {
         header: `${place.index + 1} ${clip.name}${clip.video ? ` · ${sec(record.duration)} s` : ""}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`,
@@ -4322,14 +4347,43 @@ export function createAgentService(deps) {
     }
     const png = await look.clipsImage(page, drawn);
     const first = page.places[0].index + 1, last = page.places.at(-1).index + 1;
-    const lines = [`source: ${clips.length} file${clips.length === 1 ? "" : "s"}${pages.length > 1 ? `, page ${pageNumber} of ${pages.length} (${first}–${last}; page:n for the rest)` : ""}. Each block: number, file, length, layers; frames labeled with file seconds.`,
-      ...clips.map((clip, index) => `${index + 1} ${clip.name} ${clip.record.width}×${clip.record.height}${clip.video ? ` ${sec(clip.record.duration)} s` : " picture"}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`),
+    const found = entries.filter((entry) => entry.group);
+    const foundCount = found.reduce((sum, entry) => sum + entry.clips.length, 0);
+    const counted = [`${own} file${own === 1 ? "" : "s"}`, ...(found.length ? [`${foundCount} found clip${foundCount === 1 ? "" : "s"} from ${found.length} video${found.length === 1 ? "" : "s"}`] : [])].join(", ");
+    const lines = [`source: ${counted}${pages.length > 1 ? `, page ${pageNumber} of ${pages.length} (${first}–${last}; page:n for the rest)` : ""}. Each block: number, file, length, layers; frames labeled with file seconds${found.length ? "; found clips: one frame a shot, by shot code" : ""}.`,
+      ...entries.map((entry, index) => {
+        if (entry.group) {
+          const layers = layersOf(entry.clips);
+          return `${groupLine(entry)}${layers.length ? ` · ${layers.join(", ")}` : ""}`;
+        }
+        const [clip] = entry.clips;
+        return `${index + 1} ${clip.name} ${clip.record.width}×${clip.record.height}${clip.video ? ` ${sec(clip.record.duration)} s` : " picture"}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`;
+      }),
       `Exact frames of one: look {mode:"source", layer:"<file name>", times:[…]} (file seconds).`];
-    return { image: { png }, text: lines.join("\n"), extra: { clips: clips.map((clip, index) => ({ n: index + 1, src: clip.src, name: clip.name, ...(clip.video ? { duration: clip.record.duration } : {}), layers: clip.layers })), page: pageNumber, pages: pages.length } };
+    const clipFacts = (clip) => ({ src: clip.src, name: clip.name, ...(clip.video ? { duration: clip.record.duration } : {}), layers: clip.layers });
+    return { image: { png }, text: lines.join("\n"), extra: {
+      clips: entries.map((entry, index) => (entry.group
+        ? { group: entry.group, shots: entry.clips.map((clip) => ({ code: clip.tag.label, ...clipFacts(clip) })) }
+        : { n: index + 1, ...clipFacts(entry.clips[0]) })),
+      page: pageNumber, pages: pages.length } };
   }
 
-  async function sourceLook(input, { document, codes, resolver, fonts }) {
-    if (input.layer == null || input.layer === "") return clipsOverview(input, { document, codes, fonts });
+  // look {mode:"source", ref:"F1"}: a scanned found video's saved shot sheet, labeled F1.<shot>.
+  async function footageSheetLook(input, state) {
+    if (!deps.footage) throw new AgentError("failed", "The footage finder is not available here.");
+    let shown;
+    try { shown = await footageSheet(input.ref, { footage: state?.footage ?? null, finder: deps.footage }); }
+    catch (error) {
+      if (!(error instanceof FootageError)) throw error;
+      throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
+    }
+    const image = shown.tiles ? await look.tilesImage(shown.tiles, { tile: shown.tile, columns: shown.columns }) : {};
+    return { image, text: shown.text, extra: shown.data, nextCall: shown.nextCall };
+  }
+
+  async function sourceLook(input, { document, codes, resolver, fonts, state: agentFacts }) {
+    if ((input.layer == null || input.layer === "") && input.ref != null && String(input.ref).trim() !== "") return footageSheetLook(input, agentFacts);
+    if (input.layer == null || input.layer === "") return clipsOverview(input, { document, codes, fonts, state: agentFacts });
     let layerId;
     try { layerId = resolver.resolve(String(input.layer), "layer"); } catch (error) {
       const overview = await clipOverview(input, { fonts });
