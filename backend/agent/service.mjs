@@ -468,7 +468,7 @@ export function createAgentService(deps) {
   // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
   // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
   const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
-  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache });
+  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache, songShapes });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
   const manageWorkspace = createReachWorkspace(deps);

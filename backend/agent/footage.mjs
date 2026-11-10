@@ -30,10 +30,11 @@ export function readFootageList(value) {
 
 /**
  * The fact gatherer. deps: listMedia, mediaRoot, transcripts ({get}), beatAnalysis ({get}),
- * footageCache ({video, sound}). facts(document, {footage, music, voice}) resolves to {clips,
+ * footageCache ({video, sound}), songShapes ({get}: a song's sections and seams, optional).
+ * facts(document, {footage, music, voice}) resolves to {clips,
  * music, voice, notes}; notes say what could not be measured and why.
  */
-export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnalysis, footageCache }) {
+export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnalysis, footageCache, songShapes = null }) {
   const fileOf = (record) => {
     const file = mediaRoot ? path.join(mediaRoot, record.id) : null;
     if (!file || !existsSync(file)) throw new Error(`${record.name} is not in kino's media folder; import it again.`);
@@ -108,6 +109,11 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
       const file = fileOf(record);
       const [analysis, loudness] = await Promise.all([beatAnalysis.get(file).catch((error) => { notes.push(`the music's beat could not be found (${error.message}); cuts follow the shots`); return null; }), footageCache.sound(file)]);
       musicFacts = { src: record.src ?? `/api/media/${record.id}`, name: record.name, duration: Number(record.duration) || analysis?.duration || 0, analysis, loud: loudness.loud, curve: loudness.curve };
+      // The song's sections and seams (the .song file fit_music keeps): cuts lock to them (plan.js).
+      if (songShapes && analysis?.bpm) {
+        const shape = await songShapes.get(file, analysis.bpm).catch((error) => { notes.push(`the music's sections could not be read (${error.message}); cuts follow the beat`); return null; });
+        if (shape) musicFacts.shape = { sections: shape.sections ?? [], seams: shape.seams ?? [] };
+      }
       if (analysis && !analysis.bpm) notes.push(`no steady beat in ${record.name}; cuts follow the shots`);
     }
     let voiceFacts = null;

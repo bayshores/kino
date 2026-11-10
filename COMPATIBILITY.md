@@ -126,10 +126,15 @@ How to read it:
   measured reason: downbeat punches only with `accents:true`; one hit, and flash or glitch cuts, only
   on a real drop (6 dB rise), sized by the rise and the shot's brightness; no beat step or slam title;
   push direction and frame blending only from measured footage; the deck never deals loud accents,
-  not even as a signature; a plain cut on a song seam counts as designed. Song seams other than the
-  drop are not read yet (seam-locked planner). Not
+  not even as a signature; a plain cut on a song seam counts as designed. Not
   yet rendered on real footage. Evidence: `engine/footage.test.js` (quiet by default),
   `engine/deck.test.js`, `engine/qualityStyle.test.js` (plain_beats).
+- **Seam-locked cuts**: Partly verified (plan level). compose {footage} with music reads the song's
+  sections and seams (the `.song` file fit_music keeps) and cuts on each seam to the millisecond,
+  holds a dropout through to its return, cuts each section at a beat range from its loudness (a
+  hold of twice the range only over measured motion), and dissolves only on smooth passages; the
+  dry-run plan lists the seams it cut on. Synthetic song shape only; not rendered on real footage.
+  Evidence: `engine/footage.test.js` (seam-locked cuts).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).

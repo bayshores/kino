@@ -13,7 +13,7 @@ import { barAtOrAfter, beatGrid, editBeats } from "./cuts.js";
 import { faceCenter, KEEP_BAR, markedSubject, openingMoment, rankMoments, samplesIn } from "./moments.js";
 import { isScreenRecording, shapeOf, shotLayout } from "./layout.js";
 import { editStyle } from "./treatments.js";
-import { accentTimes, PACES, phrasePlan, rateAt, runsOf } from "./pace.js";
+import { accentTimes, PACES, phrasePlan, rateAt, runsOf, songSections } from "./pace.js";
 import { round as round3 } from "../numbers.js";
 
 const sum = (list) => list.reduce((total, value) => total + value, 0);
@@ -33,6 +33,12 @@ const MOVE_TRANSITIONS = { "zoom-through": "zoom-through", "whip-pan": "whip-pan
 
 // Flash and glitch cuts: loud accents that need a measured moment (the song's real drop).
 const LOUD_TRANSITIONS = ["flash", "glitch-hit"];
+// Seam-locked cuts (music with a measured shape): soft transitions only on smooth passages, moving
+// ones become a dissolve there; the shortest shot a seam may leave; the measured motion
+// (moments.js) that lets a shot hold past its section's range.
+const SOFT_TRANSITIONS = ["dissolve", "fade-black", "blur-through"];
+const MIN_SHOT = 0.25;
+const HOLD_MOTION = 0.3;
 // A rise this big (dB, 4 s against the 4 s before) is a real drop: enough to motivate a hit. A
 // smaller rise (a steady song's wobble, a gentle swell) still places the music, never an accent.
 export const DROP_HIT_RISE = 6;
@@ -132,7 +138,10 @@ export function planEdit(input) {
   if (music) {
     const bodyAt = openLength + baseTitleLength;
     let offset;
-    const measured = dropTime(music.curve);
+    let measured = dropTime(music.curve);
+    // A measured song shape places the drop to the millisecond (its drop section nearest the rise).
+    const shapeDrop = measured && (music.shape?.sections ?? []).find((part) => part?.kind === "drop" && Number.isFinite(part.at) && Math.abs(part.at - measured.at) <= 1.5);
+    if (shapeDrop) measured = { ...measured, at: shapeDrop.at };
     const drop = measured?.at ?? null;
     if (grid && drop !== null && drop - bodyAt >= 0 && drop - bodyAt + duration <= music.duration - 0.5) {
       // The downbeat nearest the drop lands where the body starts.
@@ -147,6 +156,12 @@ export function planEdit(input) {
     beats = grid ? editBeats(grid, { offset, start: 0 }) : null;
     musicPlan = { src: music.src, duration: music.duration, offset, start: 0, bpm: grid?.bpm ?? null, drop: drop !== null ? round3(drop - offset) : null, rise: measured?.rise ?? null };
   }
+  // A measured song shape (music.shape: song-shape.mjs) locks cuts to its seams (songSections).
+  const song = music?.shape && beats ? songSections(music.shape, { offset: musicPlan.offset, curve: music.curve ?? [], to: duration }) : null;
+  // Where a cut on the drop goes: the drop itself with a song shape, else its nearest beat.
+  const dropCut = (time) => (song ? round3(time) : beats.nearest(time));
+  const sectionAt = (time) => song?.sections.find((part) => time >= part.from - 1e-6 && time < part.to - 1e-6) ?? song?.sections.at(-1) ?? null;
+  const onSeam = (time) => Boolean(song?.seams.some((seam) => Math.abs(seam.at - time) <= SEAM));
   // A pace (or accents) without music cuts on a steady grid of FREE_BEAT beats.
   if (!beats && (pace || accents)) beats = editBeats({ first: 0, period: FREE_BEAT, bar: 0 }, { offset: 0, start: 0 });
   // The index of the beat at `time` (cut times are rounded to the millisecond), else the next one.
@@ -177,7 +192,7 @@ export function planEdit(input) {
     let length = end - start;
     // A shot never runs past its clip's end.
     const room = roomOf(moment);
-    if (length > room && paced) {
+    if (length > room && paced && !song) {
       // With a pace the cut stays on the beat: the last beat the moment has room for, else (under
       // a beat of room) on past the clip's own next cut, never past the clip's end.
       let index = beatOf(start + room);
@@ -202,7 +217,7 @@ export function planEdit(input) {
   // The title ends where the music drops (on that downbeat), when that is 1.8 to 3.4 s away.
   let titleLength = baseTitleLength;
   if (musicPlan?.drop !== null && musicPlan?.drop !== undefined && beats) {
-    const landing = beats.nearest(musicPlan.drop);
+    const landing = dropCut(musicPlan.drop);
     if (landing - titleAt >= 1.8 && landing - titleAt <= 3.4) titleLength = round3(landing - titleAt);
   }
   let bodyEnd = round3(duration - END_CARD);
@@ -259,10 +274,39 @@ export function planEdit(input) {
     const rate = rateAt(phrases, index - runFrom);
     return beats.at(Math.min(index + rate.beats, runFrom + rate.until, lastIndex));
   };
+  // With a song shape, cuts lock to its seams: the next seam ends a shot to the millisecond, a rest
+  // is held through to its return, and inside a section a shot lasts a whole number of beats from
+  // the section's range (its energy). The seed only picks among those lengths, and a hold of twice
+  // the range only over measured motion inside the shot.
+  const nextSeam = (time) => song.seams.find((seam) => seam.at >= time + MIN_SHOT - 1e-6) ?? null;
+  const seamNeed = (time) => {
+    const high = (sectionAt(time)?.beats ?? [2, 4])[1] * beat;
+    const seam = nextSeam(time);
+    return round3(Math.min(seam ? seam.at - time : high, high));
+  };
+  const seamEnd = (time, moment) => {
+    const resting = song.rests.find((rest) => time >= rest.from - 1e-6 && time < rest.to - SEAM);
+    if (resting) return resting.to;
+    const [low, high] = sectionAt(time)?.beats ?? [2, 4];
+    const options = [];
+    for (let count = low; count <= high; count += 1) options.push(count);
+    if ((moment.motion ?? 0) >= HOLD_MOTION) options.push(high * 2);
+    const count = options[Math.floor(rng.next() * options.length)];
+    let end = beats.at(beats.index(time) + count);
+    if (end < time + MIN_SHOT) end = beats.at(beats.index(time) + count + 1);
+    const seam = nextSeam(time);
+    // The seam takes the cut when the planned one passes it or would leave a sliver before it.
+    if (seam && end > seam.at - low * beat * 0.5) end = seam.at;
+    // A cut never falls inside a rest: the picture holds to the return.
+    const rest = song.rests.find((entry) => end > entry.from + 1e-6 && end < entry.to - 1e-6);
+    if (rest) end = rest.to;
+    if (bodyEnd - end < MIN_SHOT) end = bodyEnd;
+    return round3(end);
+  };
   // The title plays over a picture (words under it would collide), so the body opens on one.
   let lastSpeech = true;
   const queue = [...speechChosen];
-  while (t < bodyEnd - (paced ? 0.05 : 0.6)) {
+  while (t < bodyEnd - (paced || song ? 0.05 : 0.6)) {
     let moment;
     const first = t === titleAt;
     if (queue.length && !first && (!lastSpeech || !pools.some((pool) => pool.some((entry) => !used.has(entry))))) moment = queue.shift();
@@ -270,12 +314,15 @@ export function planEdit(input) {
       // The title's picture: the best unused one with room for the whole title.
       const need = titleLength + Math.max(beat, 0.8);
       moment = moments.filter((entry) => entry.kind === "visual" && !used.has(entry) && roomOf(entry) >= need).sort((a, b) => b.score - a.score)[0] ?? nextPicture();
-    } else moment = nextPicture(paced ? plannedEnd(t) - t : 0) ?? queue.shift() ?? null;
+    } else moment = nextPicture(song ? seamNeed(t) : paced ? plannedEnd(t) - t : 0) ?? queue.shift() ?? null;
     if (first && moment && moment.kind === "visual") {
       // Long enough to carry the title and land one beat after it; with a pace, the hero hold
       // lasts PACES[pace].hero seconds at most.
       let end = onBeat(t + titleLength + Math.max(beat, 0.8));
       if (paced && end - t > PACES[pace].hero + 1e-6) end = beats.at(beatOf(t + PACES[pace].hero) - (beats.at(beatOf(t + PACES[pace].hero)) > t + PACES[pace].hero + 1e-6 ? 1 : 0));
+      // With a song shape, the first seam after the title is read (the drop) ends the title's shot.
+      const seam = song?.seams.find((entry) => entry.at >= t + titleLength - SEAM && entry.at <= end + beat);
+      if (seam) end = seam.at;
       addShot(moment, t, Math.min(end, bodyEnd), { role: "body" });
       t = shots.at(-1).end;
       lastSpeech = false;
@@ -288,6 +335,14 @@ export function planEdit(input) {
       moment = { ...again, in: round3(Math.min(clipEnd(byKey.get(again.clip)) - 1, again.in + 0.5)) };
     }
     const speech = moment.kind === "speech" && !voice;
+    if (song && !speech) {
+      const end = seamEnd(t, moment);
+      if (end <= t + 0.05) break;
+      addShot(moment, t, Math.min(end, bodyEnd), { role: "body" });
+      t = shots.at(-1).end;
+      lastSpeech = false;
+      continue;
+    }
     if (paced && !speech) {
       // A run shot: the phrase's rate in whole beats (fewer when the moment is shorter).
       let end = plannedEnd(t);
@@ -361,7 +416,7 @@ export function planEdit(input) {
   // The song's real drop (DROP_HIT_RISE or more): the one place a loud accent may land, on its
   // beat, sized by how far the song rises (dropSize 0 at 6 dB to 1 at 12 dB or more).
   const realDrop = Boolean(beats) && musicPlan?.drop !== null && musicPlan?.drop !== undefined && musicPlan.rise >= DROP_HIT_RISE;
-  const landing = realDrop ? beats.nearest(musicPlan.drop) : null;
+  const landing = realDrop ? dropCut(musicPlan.drop) : null;
   const dropSize = realDrop ? Math.min(1, (musicPlan.rise - DROP_HIT_RISE) / 6) : 0;
   const onDrop = (time) => landing !== null && Math.abs(time - landing) <= SEAM;
   const kinds = style.transitions;
@@ -380,6 +435,14 @@ export function planEdit(input) {
     }
     // A flash or a glitch only on a cut on the song's real drop; anywhere else it is a plain cut.
     if (LOUD_TRANSITIONS.includes(kind) && !onDrop(shot.start)) kind = "cut";
+    // With a song shape the kind follows the music's texture: a soft one (dissolve) only on a
+    // smooth passage, where a moving one (whip, zoom, push, wipe) softens to a dissolve; a seam
+    // in a driven section changes on the frame, by a plain cut.
+    if (song && kind !== "cut" && !LOUD_TRANSITIONS.includes(kind)) {
+      const smooth = sectionAt(shot.start)?.smooth;
+      if (smooth && !SOFT_TRANSITIONS.includes(kind)) kind = "dissolve";
+      else if (!smooth && (SOFT_TRANSITIONS.includes(kind) || onSeam(shot.start))) kind = "cut";
+    }
     // A loose shot (a card and its blurred copy as separate layers) changes by fades only.
     if ((shot.layout.loose || shots[index - 1].layout.loose) && (MOVE_TRANSITIONS[kind] || kind === "push-transition")) kind = "dissolve";
     // A transition never cuts into a word: it needs room on both shots.
@@ -515,6 +578,14 @@ export function planEdit(input) {
     runs = runsOf(shots.filter((shot) => shot.role === "body" && !shot.speech).slice(1).map((shot) => shot.end - shot.start), beat);
     lines.push(`${PACES[pace].line}; runs ${runs.map((run) => `${run.count}x${run.beats ?? "?"}`).join(", ")} beats; ${accentCount} downbeat accents`);
   } else if (accents) lines.push(`${accentCount} downbeat accents`);
+  let songPlan = null;
+  if (song) {
+    // The seams in the cut body, and which ones a cut landed on (within a frame).
+    const inBody = song.seams.filter((seam) => seam.at > titleAt + 1e-6 && seam.at <= bodyEnd + 1e-6);
+    const locked = inBody.filter((seam) => shots.some((shot) => shot.n > 1 && Math.abs(shot.start - seam.at) <= SEAM));
+    songPlan = { seams: inBody, locked, rests: song.rests, sections: song.sections.filter((part) => part.to > titleAt && part.from < bodyEnd) };
+    lines.push(`song seams: cuts on ${locked.length} of ${inBody.length}${locked.length ? ` (${locked.map((seam) => `${seam.kind} ${seam.at}`).join(", ")})` : ""}; sections ${songPlan.sections.map((part) => `${part.kind} ${part.beats[0]}-${part.beats[1]} beats a shot${part.smooth ? " smooth" : ""}`).join(", ")}${song.rests.length ? `; held through ${song.rests.length} rest${song.rests.length > 1 ? "s" : ""} to the return` : ""}`);
+  }
 
-  return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, words: lines, opening: opening.kind, pace, runs };
+  return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, words: lines, opening: opening.kind, pace, runs, song: songPlan };
 }

@@ -78,12 +78,12 @@ test("layout: same shape fills, a phone clip in 16:9 is a card, a screen goes ov
 // Music-led pacing (pace.js): six steady clips cut to a
 // 105 BPM song.
 // `sample` adds measured fields to every sample, `clip` to every clip, `input` to the plan's input.
-const paced = (pace, duration, { sample = {}, clip = {}, curve = [], ...input } = {}) => {
+const paced = (pace, duration, { sample = {}, clip = {}, curve = [], shape, ...input } = {}) => {
   const samples = Array.from({ length: 40 }, (_, index) => ({ t: index / 2, motion: 0.1, change: 0.05, bright: 0.5, faces: [], ...sample }));
   const clips = Array.from({ length: 6 }, (_, index) => ({ key: `c${index}`, name: `clip${index}`, src: `c${index}.mp4`, kind: "camera", width: 1920, height: 1080, duration: 20, in: 0, out: 20, words: [], samples, shots: [{ start: 0, end: 20 }], ...clip }));
   const period = 60 / 105;
   const analysis = { beats: Array.from({ length: 200 }, (_, index) => 0.3 + index * period), period, bpm: 105, onsets: [] };
-  const plan = planEdit({ clips, music: { src: "m.mp3", duration: 120, analysis, loud: -14, curve }, frame: { width: 1920, height: 1080 }, duration, treatment: "punchy", pace, seed: 3, title: "Hi", ...input });
+  const plan = planEdit({ clips, music: { src: "m.mp3", duration: 120, analysis, loud: -14, curve, ...(shape ? { shape } : {}) }, frame: { width: 1920, height: 1080 }, duration, treatment: "punchy", pace, seed: 3, title: "Hi", ...input });
   return { plan, period, clips: new Map(clips.map((clip) => [clip.key, clip])) };
 };
 
@@ -111,6 +111,31 @@ test("accents: a zoom punch on every other downbeat in the open, every one in th
   const punch = layer.animations.find((animation) => animation.name === "Accent");
   assert.equal(punch.start, round3(accented[0].accents[0] - 0.04));
   assert.ok(punch.to.scaleX > punch.from.scaleX);
+});
+
+test("seam-locked cuts: a measured song shape puts cuts on its seams, holds rests and softens only smooth passages", () => {
+  // File seconds: quiet intro, the drop at 30.012, a vocal entry, a one-second rest, a quieter break, a second drop.
+  const shape = {
+    sections: [{ at: 0, kind: "intro" }, { at: 30.012, kind: "drop", weight: 0.9 }, { at: 41.517, kind: "break", weight: 0.6 }, { at: 46.29, kind: "drop", weight: 0.8 }],
+    seams: [{ at: 35.071, kind: "vocal-in", weight: 0.4 }, { at: 38.2, kind: "dropout", weight: 0.7 }, { at: 39.43, kind: "return", weight: 0.7 }],
+  };
+  const curve = Array.from({ length: 240 }, (_, index) => (index < 60 ? -30 : index >= 83 && index < 93 ? -22 : -10));
+  const deck = { cards: [{ tag: "push-transition" }, { tag: "dissolve" }] };
+  for (const seed of [1, 2, 3]) {
+    const { plan } = paced(null, 30, { treatment: "story", deck, seed, curve, sample: { motion: 0.4 }, shape });
+    assert.ok(plan.song, plan.words.join("\n"));
+    const cuts = plan.shots.slice(1).map((shot) => shot.start);
+    // Every seam in the body has a cut within one frame, and no cut falls inside the rest.
+    assert.ok(plan.song.seams.length >= 4);
+    assert.deepEqual(plan.song.locked, plan.song.seams, plan.words.join("\n"));
+    const [rest] = plan.song.rests;
+    assert.ok(!cuts.some((at) => at > rest.from + 0.001 && at < rest.to - 0.001));
+    // A dissolve only in the smooth break, never on a driven section's seam.
+    for (const shot of plan.shots.slice(2)) {
+      const part = plan.song.sections.find((entry) => shot.start >= entry.from - 1e-6 && shot.start < entry.to - 1e-6);
+      if (["dissolve", "fade-black", "blur-through"].includes(shot.transition.kind)) assert.ok(part.smooth, `${shot.transition.kind} at ${shot.start} in ${part.kind}`);
+    }
+  }
 });
 
 test("quiet by default: the same inputs give no effect without a measured reason", () => {

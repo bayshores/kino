@@ -68,6 +68,59 @@ export function runsOf(lengths, beat) {
   return runs;
 }
 
+// ---- seam-locked sections (a song's measured shape: backend/song-shape.mjs) --------------------
+// Sections with no steady kick: their cuts may dissolve.
+const SMOOTH_KINDS = new Set(["intro", "break", "outro"]);
+// Seams a cut locks to besides the section edges (a dropout is held through, not cut).
+const LOCKED_SEAMS = new Set(["return", "vocal-in", "switch"]);
+// A dropout whose return comes within this many seconds is a rest: the picture holds through it.
+const REST_MOST = 4;
+
+/** Shot lengths in beats for a section of `energy` (0 to 1): loud sections cut fast, quiet ones hold. */
+export const sectionBeats = (energy) => (energy >= 2 / 3 ? [1, 2] : energy >= 1 / 3 ? [2, 4] : [4, 8]);
+
+/**
+ * The song's sections and seams in edit time, for a cut planner locked to them. shape:
+ * {sections, seams} in file seconds (song-shape.mjs); offset: the file time at edit time 0; curve:
+ * the song's loudness in dB every half second (file time); to: the edit's length. Returns null
+ * when the shape has nothing in the edit, else:
+ *   seams     [{at, kind, weight}]: where cuts go, to the millisecond (section edges, returns,
+ *             vocal entries, beat switches), never inside a rest
+ *   rests     [{from, to}]: a dropout to its return; no cut inside, the picture restarts at `to`
+ *   sections  [{from, to, kind, energy, smooth, beats: [low, high]}]: energy 0 to 1 from the
+ *             section's mean loudness among the song's sections; beats, the shot-length range
+ */
+export function songSections(shape, { offset, curve = [], to = Infinity }) {
+  const parts = (shape?.sections ?? []).filter((part) => Number.isFinite(part?.at) && typeof part.kind === "string").sort((a, b) => a.at - b.at);
+  const marks = (shape?.seams ?? []).filter((seam) => Number.isFinite(seam?.at) && typeof seam.kind === "string").sort((a, b) => a.at - b.at);
+  if (!parts.length && !marks.length) return null;
+  const edit = (time) => Math.round((time - offset) * 1000) / 1000;
+  const spans = (parts[0]?.at ?? Infinity) > 0 ? [{ at: 0, kind: "open" }, ...parts] : parts;
+  const loudness = spans.map((part, index) => {
+    const end = spans[index + 1]?.at ?? curve.length / 2;
+    const values = curve.slice(Math.floor(part.at * 2), Math.max(Math.floor(part.at * 2) + 1, Math.ceil(end * 2)));
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  });
+  const known = loudness.filter(Number.isFinite);
+  const low = Math.min(...known), high = Math.max(...known);
+  const sections = spans.map((part, index) => {
+    const energy = Number.isFinite(loudness[index]) && high > low ? Math.round(((loudness[index] - low) / (high - low)) * 100) / 100 : 0.5;
+    return { from: Math.max(0, edit(part.at)), to: Math.min(to, edit(spans[index + 1]?.at ?? Infinity)), kind: part.kind, energy, smooth: SMOOTH_KINDS.has(part.kind) || (part.kind === "open" && energy < 1 / 3), beats: sectionBeats(energy) };
+  }).filter((part) => part.to > part.from);
+  const rests = [];
+  marks.forEach((seam, index) => {
+    if (seam.kind !== "dropout") return;
+    const back = marks.slice(index + 1).find((entry) => entry.kind === "return");
+    if (back && back.at - seam.at <= REST_MOST) rests.push({ from: edit(seam.at), to: edit(back.at) });
+  });
+  const inRest = (at) => rests.some((rest) => at > rest.from + 1e-6 && at < rest.to - 1e-6);
+  const seams = [...parts.map((part) => ({ at: edit(part.at), kind: part.kind, ...(Number.isFinite(part.weight) ? { weight: part.weight } : {}) })),
+    ...marks.filter((seam) => LOCKED_SEAMS.has(seam.kind)).map((seam) => ({ at: edit(seam.at), kind: seam.kind, ...(Number.isFinite(seam.weight) ? { weight: seam.weight } : {}) }))]
+    .filter((seam) => seam.at > 0 && seam.at < to && !inRest(seam.at)).sort((a, b) => a.at - b.at);
+  if (!seams.length && !rests.some((rest) => rest.to > 0 && rest.from < to)) return null;
+  return { seams, rests: rests.filter((rest) => rest.to > 0 && rest.from < to), sections };
+}
+
 /**
  * Times of the downbeat accents in [from, to): every downbeat in the ending (from `ending` on),
  * every other one before it (the calm open), none inside `quiet` spans ([{start, end}]: spoken
