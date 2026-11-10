@@ -281,6 +281,12 @@ How to read it:
   scene is `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type
   under a cut-out is part of the layout (house files say their `sigVersion`; older ones compare
   without it). Gap: needs a house of earlier renders. Evidence: `engine/layoutSignature.test.js`.
+- **Repeated edit structure**: Partial. A render of 6+ shots saves its structure in the house file
+  (cut rate per song section, effects with cue weights, burst, first drop, ending, title, colors);
+  `seen_before` warns once when the video is built like another project (same pace, 75% of parts);
+  parts that only follow the song (steady pace, plain cut on the drop, plain ending) are not
+  compared, and the hint never asks for an effect. Gap: needs earlier renders; effect weights wait for weighted cues. Evidence:
+  `engine/layoutSignature.test.js`, `backend/house-memory.test.mjs`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

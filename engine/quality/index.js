@@ -138,7 +138,7 @@ export const RULES = [
   rule("page_chrome", "warn", pageChrome, "tracked caps labels under 40 px and rows of thin bars 8 s at most"),
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
   rule("reference_closeness", "warn", referenceCloseness, "no run of 6 shots timed like a saved reference (shot lengths in order at one scale, each within a frame, more than chance gives), and in a music edit not every device the studied anime-edit references share (black hole, seam flash, bars, word cards) or 3 of them in their order within 2 s"),
-  rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer"),
+  rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer; the edit not built like another (same pace and 75% of its parts)"),
   rule("ending_seen", "warn", endingSeen, "the ending (last 15% or the end beat) not laid out as in another kino project (0.12); only the person waives it"),
   rule("text_slides", "warn", textSlides, "in a video of 8 s or more, text over a still, flat or dimmed background (no clip, no camera move) for at most 25% of it, no card over 3 s and under 3 of 1.2 s+, the end aside"),
   rule("few_techniques", "warn", fewTechniques, "in a video of 8 s or more, not flat: at least one designed device (two from 70 s, at most 4; cut, type-cut, hold, beat-cut and syncopated do not count), repeated as a motif"),
