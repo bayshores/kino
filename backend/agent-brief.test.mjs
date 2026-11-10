@@ -875,7 +875,11 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.equal(studied.isError, undefined, studied.text);
   await refused("write 5 treatments");
   const treatments = ["the kickflip seen from the board", "one trick, five streets", "the crew's group chat lights up", "dawn to dusk in one line", "the wheels' sound leads"]
-    .map((idea, index) => ({ idea, move: `move ${index}`, rhythm: "slow build, fast end", p: [0.6, 0.3, 0.2, 0.1, 0.05][index] }));
+    .map((idea, index) => ({ idea, tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, rhythm: "slow build, fast end", p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
+  // Each treatment carries its story: without a turn all 5 are refused in one answer.
+  const noTurn = await brief(id, { fields: { treatments: treatments.map(({ turn, ...rest }) => rest) } });
+  assert.equal(noTurn.isError, true);
+  assert.match(noTurn.text, /treatments\[0\]\.turn is 1 to 60 characters: the on-screen moment it flips\..*\(5 problems\)/);
   assert.equal((await brief(id, { fields: { treatments } })).isError, undefined);
   await refused("ask their treatment pick", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", quote: "<their words>" } } } });
   // The pick's idea becomes style.idea; its move is offered as the first signature.

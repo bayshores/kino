@@ -12,8 +12,8 @@
 // One field is not a line of text: `style`, the style spec (style.mjs checks it, and
 // engine/styleSpec.js says what check does with it). It is saved as brief.style. Like idea, saving it
 // raises the revision but keeps a confirmed brief confirmed: it is the agent's reading of the
-// references, shown at each stop. `treatments` is the other (treatments.mjs): 5 directions with
-// how typical each is, or the person's pick of the 3 shown, which becomes the idea line.
+// references, shown at each stop. `treatments` is the other (treatments.mjs): 5 stories, each with
+// a tension, a turn and how typical it is, or the person's pick of the 3 shown, which becomes the idea line.
 // `length` is the third: the video's length in seconds that the person asked for (30, or
 // {seconds:30, tolerance:1}). check holds the video to it (the assertions gate, engine/quality/rules/pacing.js),
 // so a final render cannot be longer or shorter than asked. Saved as brief.length; like style, it
@@ -501,7 +501,8 @@ export function orderSteps(state, video = {}) {
   if (video.treatmentsWaived) return open;
   const treatments = brief.treatments;
   if (!treatments?.list) {
-    const one = { idea: STORY_PLACEHOLDER, move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical>" };
+    const one = { idea: STORY_PLACEHOLDER, tension: "<what the viewer wants, fears or wonders before the turn>", turn: "<the on-screen moment it flips>",
+      move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
     return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
   }
   const picked = treatments.picked;

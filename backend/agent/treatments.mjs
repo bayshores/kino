@@ -1,13 +1,16 @@
 // Treatments (verbalized sampling): before the storyboard the agent writes 5 directions for the
-// video, each with a rough likelihood that a typical editor would make it. Asking a model for
-// options with their likelihoods, then taking them from the tail, gives far more varied work
-// than asking for one answer (Zhang et al. 2025). kino drops the most typical one and keeps the
-// 3 least typical of the rest for the person to pick at the next stop.
+// video, each a small story with a rough likelihood that its story is the typical one. Asking a
+// model for options with their likelihoods, then taking them from the tail, gives far more varied
+// work than asking for one answer (Zhang et al. 2025). kino drops the most typical one and keeps
+// the 3 least typical of the rest for the person to pick at the next stop.
 //
 // Saved on the brief as field `treatments` (notes {action:"brief", fields:{treatments}}):
-//   a list of 5   [{idea, move, rhythm, p, source?}]: the idea, the signature move, the rhythm,
-//                 p, 0 to 1, how likely a typical editor would make it, and source, the material
-//                 the signature move uses (a file or screen, and the moment)
+//   a list of 5   [{idea, tension, turn, move, rhythm, p, source}]: the idea, the tension (what
+//                 the viewer wants, fears or wonders before the turn), the turn (the on-screen
+//                 moment it flips), the signature move, the rhythm, p, 0 to 1, how typical the
+//                 story is, and source, the material the signature move uses (a file or screen,
+//                 and the moment). Lists saved before tension and turn existed keep showing as
+//                 they were.
 //   a pick        {pick:"A"|"B"|"C", quote?}: the one the person picked (their words in quote),
 //                 or yours when they said "just start" (no quote). It becomes the idea line, and
 //                 its move and source the style spec's first signature (pickedSignature).
@@ -17,10 +20,18 @@ import { isRecord } from "../../engine/numbers.js";
 export const TREATMENT_COUNT = 5;
 export const SHOWN_COUNT = 3;
 export const LABELS = Object.freeze(["A", "B", "C"]);
-export const TREATMENT_LIMITS = Object.freeze({ idea: 80, move: 60, rhythm: 60, quote: 120, source: 80 });
-const KEYS = ["idea", "move", "rhythm", "p", "source"];
+export const TREATMENT_LIMITS = Object.freeze({ idea: 80, tension: 60, turn: 60, move: 60, rhythm: 60, quote: 120, source: 80 });
+const KEYS = ["idea", "tension", "turn", "move", "rhythm", "p", "source"];
+// The text fields every treatment needs, in the order a refusal names them.
+const TEXT_KEYS = ["idea", "tension", "turn", "move", "rhythm", "source"];
+// What a missing or empty text field is, after its length.
+const FIELD_HINTS = Object.freeze({
+  tension: ": what the viewer wants, fears or wonders before the turn",
+  turn: ": the on-screen moment it flips",
+  source: ': the material the move uses, such as "review.mp4, the card flip at 0:12"',
+});
 const problem = (message) => ({ code: "bad_input", message });
-const EXAMPLE = '[{idea:"the crew skates the city at dawn", move:"whip-pan between spots", rhythm:"slow build, fast last 6 s", p:0.3, source:"dawn.mp4, the empty bridge"}, …]';
+const EXAMPLE = '[{idea:"the crew skates the city at dawn", tension:"will they land it before the cops come?", turn:"the bridge gap, landed as the sun hits", move:"whip-pan between spots", rhythm:"slow build, fast last 6 s", p:0.3, source:"dawn.mp4, the empty bridge"}, …]';
 
 /** The problem with a treatments save, or null. `current` is the saved brief.treatments. */
 export function treatmentsProblem(value, current) {
@@ -39,16 +50,15 @@ export function treatmentsProblem(value, current) {
   const problems = [];
   for (const [index, entry] of value.entries()) {
     const where = `treatments[${index}]`;
-    if (!isRecord(entry)) { problems.push(`${where} is {idea, move, rhythm, p, source?}.`); continue; }
+    if (!isRecord(entry)) { problems.push(`${where} is {${KEYS.join(", ")}}.`); continue; }
     const extra = Object.keys(entry).filter((key) => !KEYS.includes(key));
     if (extra.length) problems.push(`${where} takes ${KEYS.join(", ")}, not ${extra.join(", ")}.`);
-    for (const key of ["idea", "move", "rhythm", "source"]) {
+    for (const key of TEXT_KEYS) {
       const text = entry[key];
-      if (key === "source" && text === undefined) continue;
-      if (typeof text !== "string" || !text.trim()) problems.push(`${where}.${key} is 1 to ${TREATMENT_LIMITS[key]} characters${key === "source" ? ': the material the move uses, such as "review.mp4, the card flip at 0:12"' : ""}.`);
+      if (typeof text !== "string" || !text.trim()) problems.push(`${where}.${key} is 1 to ${TREATMENT_LIMITS[key]} characters${FIELD_HINTS[key] ?? ""}.`);
       else if (text.trim().length > TREATMENT_LIMITS[key]) problems.push(`${where}.${key} is ${text.trim().length} characters, limit ${TREATMENT_LIMITS[key]}.`);
     }
-    if (typeof entry.p !== "number" || !Number.isFinite(entry.p) || entry.p < 0 || entry.p > 1) problems.push(`${where}.p is 0 to 1: how likely a typical editor would make this.`);
+    if (typeof entry.p !== "number" || !Number.isFinite(entry.p) || entry.p < 0 || entry.p > 1) problems.push(`${where}.p is 0 to 1: how typical this story is.`);
   }
   if (problems.length) return problem(problems.length > 1 ? `${problems.join(" ")} (${problems.length} problems)` : problems[0]);
   if (new Set(value.map((entry) => entry.idea.trim().toLowerCase())).size < TREATMENT_COUNT) return problem("Each treatment needs its own idea.");
@@ -64,8 +74,10 @@ export function cleanTreatments(value, current) {
     const index = current.shown[LABELS.indexOf(value.pick)];
     return { ...current, picked: { label: value.pick, index, by: value.quote ? "you" : "guessed", ...(value.quote ? { quote: value.quote.trim() } : {}) } };
   }
-  const list = value.map((entry) => ({ idea: entry.idea.trim(), move: entry.move.trim(), rhythm: entry.rhythm.trim(), p: Math.round(entry.p * 100) / 100,
-    ...(entry.source !== undefined ? { source: entry.source.trim() } : {}) }));
+  // Tension, turn and source are optional here only for callers that skip treatmentsProblem.
+  const optional = (entry, key) => (typeof entry[key] === "string" ? { [key]: entry[key].trim() } : {});
+  const list = value.map((entry) => ({ idea: entry.idea.trim(), ...optional(entry, "tension"), ...optional(entry, "turn"),
+    move: entry.move.trim(), rhythm: entry.rhythm.trim(), p: Math.round(entry.p * 100) / 100, ...optional(entry, "source") }));
   const dropped = list.reduce((best, entry, index) => (entry.p > list[best].p ? index : best), 0);
   const shown = list.map((entry, index) => ({ entry, index })).filter(({ index }) => index !== dropped)
     .sort((a, b) => a.entry.p - b.entry.p || a.index - b.index).slice(0, SHOWN_COUNT).map(({ index }) => index);
@@ -100,9 +112,13 @@ export const PICTURE_LINE = "Its source is words only: build the signature from 
 // "move (source)", or the move alone without a source.
 const moveText = (entry) => `${entry.move}${entry.source ? ` (${entry.source})` : ""}`;
 
-/** "A. idea · move (source) · rhythm" for each shown treatment. */
+/**
+ * "A. idea · tension → turn · move" for each shown treatment: the story first. A list saved before
+ * tension and turn existed shows as it did: "A. idea · move (source) · rhythm".
+ */
 export const shownLines = (treatments) => treatments.shown.map((index, position) => {
   const entry = treatments.list[index];
+  if (entry.tension && entry.turn) return `${LABELS[position]}. ${entry.idea} · ${entry.tension} → ${entry.turn} · ${entry.move}`;
   return `${LABELS[position]}. ${entry.idea} · ${moveText(entry)} · ${entry.rhythm}`;
 });
 

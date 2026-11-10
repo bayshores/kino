@@ -1,7 +1,7 @@
 # Techniques and the style spec
 
-Agents left alone make the same edit: hard cuts, text cards, a kick on every beat. kino names
-the techniques, finds them in your video and lets references set the style.
+Agents left alone make the same edit (hard cuts, text cards, a kick on every beat). kino names
+the techniques, finds them and lets references set the style.
 
 Contents: The vocabulary · The style spec · What check measures · The deck · Treatments · Building with techniques
 
@@ -19,18 +19,18 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
   device-in-scene*, screen-zoom (read from the `move` that built them)
 - **rhythm**: beat-cut, beat-kick, syncopated, hold
 
-After its findings, every check answer lists the techniques the video uses, most used first:
+Every check answer then lists the techniques used, most used first:
 `techniques: cut 12, type-pop 5, slow-push 2 · style: kino default`.
 
 How kino finds them (from the document, not the pixels):
 
-- A dissolve: two full-frame pictures whose opacities cross, or two floating clips fading one
-  into the other in place. A fade-black fades through a dark background.
+- dissolve: two pictures (full-frame, or floating clips in place) whose opacities cross;
+  fade-black fades through a dark background.
 - blur-through, zoom-through (25% or more of scale into or out of the change), whip-pan (a fast
   slide with a directional blur) and push-transition (both pictures slide the same way) are read
   at each change of full-frame picture.
-- slow-push and drift are slow scales and moves (1.2 s or more) of a layer filling 40% of the
-  frame; parallax: two layers moving slowly, 1.5 times apart in speed.
+- slow-push, drift: a slow scale or move (1.2 s+) of a layer filling 40% of the frame;
+  parallax: two slow layers, 1.5x apart in speed.
 - type-* is how each text enters: by words or letters with a stagger, a fade, a slide, a scale
   (pop), a blur, a reveal (mask-rise), or nothing (type-cut).
 - beat-kick: 3+ pulses of a layer (1-10%, back in 0.4 s); depth-blur: a blurred full-frame
@@ -42,7 +42,7 @@ Write it on the brief once you know what the references do (library inspire, the
 words). It says which techniques the video wants and avoids:
 
 ```json
-{"tool":"notes","action":"brief","fields":{"style":{"wants":["type-words","dissolve","slow-push"],"avoids":["beat-kick"],"lines":[{"text":"lowercase captions, word by word","ref":"yt:3VHoNjrUD4Q","at":8.2,"tags":["type-words"]},{"text":"dissolves between screen recordings","ref":"yt:3VHoNjrUD4Q","at":21.5,"tags":["dissolve"]}],"by":"guessed"}}}
+{"tool":"notes","action":"brief","fields":{"style":{"wants":["type-words","dissolve","slow-push"],"avoids":["beat-kick"],"lines":[{"text":"lowercase captions, word by word","ref":"yt:3VHoNjrUD4Q","at":8.2,"tags":["type-words"]}],"by":"guessed"}}}
 {"tool":"library","topic":"techniques","name":"zoom-through"}
 {"tool":"notes","action":"brief","fields":{"style":{"wants":["disolve"],"by":"guessed"}},"expect":"bad_input"}
 ```
@@ -71,8 +71,7 @@ What a backed want does:
 | any tag | `technique_repeat` lets it repeat; `style_wanted` warns when it is not used |
 
 An avoided tag used is a gate (`style_avoided`) only if the person banned it. The other gates (reading time,
-type size, contrast, safe zone, overlap, flashing, linear motion and the rest) never change with
-the spec. With no spec, check follows kino's default style and says `style: kino default`.
+type size, contrast, overlap and the rest) never change with the spec. With no spec, check follows kino's default style and says `style: kino default`.
 
 ## What check measures
 
@@ -98,16 +97,16 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 Once a treatment is picked (or waived), kino deals a hand: one or two techniques per group
 (transition, camera, type, texture), at most one set piece (a move). `status` shows it:
 `deck (seed 4821): dissolve, parallax, type-words, depth-blur, set piece: zoom-through; swaps left 2`.
-The seed is the project's plus the reroll count. The deal:
+Seed: the project's plus the reroll count. The deal:
 
-- puts a backed spec's wanted tags first and never deals an avoided one;
+- puts a backed spec's wants first, never an avoided tag;
 - fits the material: no phone cards without a phone or screen recording, no type-heavy cards
   for footage without words, no speed ramp without video;
 - steers away from what the last 3 projects were dealt and used;
 - never deals plain cuts, plain text, beat kicks, or both type-pop and slow-push.
 
-Build each card where it fits. One that does not: swap it with the reason (2 a deal). None fit:
-deal again.
+Build each card where it fits; swap one that does not, with the reason (2 a deal); none fit:
+reroll.
 
 ```json
 {"tool":"notes","action":"deck"}
@@ -121,25 +120,25 @@ project's. Recipes and compose take the project's seed when you give none.
 
 ## Treatments
 
-Before building, write 5 treatments (idea, signature move, rhythm, `source`: the file or screen
-it uses, never words alone) with `p`, how typical (0 to 1). kino shows the 3 least typical (A, B, C). Save the pick
-with their words (under "just start", yours, no quote): it sets `style.idea` and drafts the
-first signature (spine.md). A first build before is `order_needed`; waive_check code
+Before building, write 5 small stories, all fields required: idea, `tension` (what the viewer
+wants, fears or wonders), `turn` (the on-screen moment it flips), move, rhythm, `source` (the
+file or screen it uses), `p` (0 to 1: how typical the story is). kino shows the 3 least typical
+as `A. idea · tension → turn · move`. The pick, with their words (under "just start", yours),
+sets `style.idea` and the first signature. Building first is `order_needed`; waive_check code
 "treatments" skips it.
 
 ```json
-{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn montage","move":"slow pushes","rhythm":"even","p":0.6},{"idea":"one board's day","move":"match cuts","rhythm":"builds","p":0.15},{"idea":"a map draws it","move":"mask-wipe","rhythm":"steady","p":0.1,"source":"route.mp4"},{"idea":"tricks frozen","move":"freeze-frame","rhythm":"stop-go","p":0.25},{"idea":"street sounds lead","move":"cut on sounds","rhythm":"offbeat","p":0.05}]}}
+{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","tension":"asleep?","turn":"first wheels","move":"pushes","rhythm":"even","p":0.6,"source":"dawn.mp4"},{"idea":"one board","tension":"whose?","turn":"owner lands it","move":"match cuts","rhythm":"builds","p":0.15,"source":"crew.mp4"},{"idea":"a map","tension":"where to?","turn":"the loop closes","move":"mask-wipe","rhythm":"steady","p":0.1,"source":"route.mp4"},{"idea":"tricks","tension":"will it land?","turn":"a fall","move":"freeze-frame","rhythm":"stop-go","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","rhythm":"offbeat","p":0.05,"source":"street.wav"}]}}
 {"tool":"notes","action":"brief","fields":{"treatments":{"pick":"B","quote":"the map one"}}}
 ```
 
 ## Building with techniques
 
-- Read what the references do before building: name 4 to 8 techniques with the times you saw
-  them, and write the spec.
-- Give each section a different mix: a calm section with drift and type-fade, then a fast one
-  with beat-cut and type-giant. `flat_sections` checks that sections differ.
+- Before building, name 4 to 8 techniques the references use, with times, and write the spec.
+- Give each section its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
+  `flat_sections` checks it.
 - Keep set pieces and loud accents for the moments that matter: one zoom-through into the
   product, one glitch-hit on the drop.
 - A slow-push or drift under text turns a slide into a shot; depth-blur behind floating clips
   gives depth without new footage.
-- Kicks and flashes on every beat read as a tic. Pick the 2 or 3 biggest hits.
+- Kicks and flashes on every beat read as a tic: pick the 2 or 3 biggest hits.

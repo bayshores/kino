@@ -209,8 +209,9 @@ How to read it:
   from a recent project that shares most of its footage or the story. Evidence:
   `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: material is read from layer names and types,
   not pixels.
-- **Treatments**: Verified (tests). Brief field `treatments` (5): kino drops the most typical and asks
-  the person to pick from 3, which becomes the idea. Evidence: `backend/agent-deck.test.mjs`. Gap: no run
+- **Treatments**: Verified (tests). Brief field `treatments` (5 stories, each with a required tension,
+  turn and source): kino drops the most typical and asks
+  the person to pick from 3, which becomes the idea. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`. Gap: no run
   with a real person yet.
 - **Product picture first**: Verified (tests). `text_only_open` warns when a promo or ad of 8 s+ spends
   over 3 s of its first 4 s on text alone, and `reference_drift` warns at too much text alone. Evidence:

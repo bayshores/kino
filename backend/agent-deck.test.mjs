@@ -182,11 +182,11 @@ test("variants {vary:\"deck\"} makes 3 scenes from the next decks; picking one m
 });
 
 const FIVE = [
-  { idea: "a slow city-at-dawn montage with a voice", move: "slow push on every shot", rhythm: "even, calm", p: 0.6 },
-  { idea: "the crew's day told by one skateboard", move: "match cuts on the board", rhythm: "builds to the kickflip", p: 0.15 },
-  { idea: "a map that draws the route as they skate", move: "mask-wipe along the line", rhythm: "steady, then a stop", p: 0.1 },
-  { idea: "every trick frozen with its name", move: "freeze-frame and type-giant", rhythm: "stop and go", p: 0.25 },
-  { idea: "the city's sounds as the beat", move: "cuts on street sounds", rhythm: "syncopated", p: 0.05 },
+  { idea: "a slow city-at-dawn montage with a voice", tension: "is the city still asleep?", turn: "the first board hits the road", move: "slow push on every shot", rhythm: "even, calm", p: 0.6, source: "dawn.mp4, the empty street" },
+  { idea: "the crew's day told by one skateboard", tension: "whose board is it?", turn: "the owner lands the kickflip", move: "match cuts on the board", rhythm: "builds to the kickflip", p: 0.15, source: "crew.mp4, the board passed on" },
+  { idea: "a map that draws the route as they skate", tension: "where are they going?", turn: "the line closes the loop", move: "mask-wipe along the line", rhythm: "steady, then a stop", p: 0.1, source: "route.mp4, the loop" },
+  { idea: "every trick frozen with its name", tension: "will the hard one land?", turn: "the last freeze is a fall", move: "freeze-frame and type-giant", rhythm: "stop and go", p: 0.25, source: "tricks.mp4, each landing" },
+  { idea: "the city's sounds as the beat", tension: "what is that noise?", turn: "the wheels join the beat", move: "cuts on street sounds", rhythm: "syncopated", p: 0.05, source: "street.wav, the horns" },
 ];
 
 test("treatments: a source names the move's material; the pick drafts the lock's idea, signature and idea spine", () => {
@@ -197,7 +197,10 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   const long = withSource.map((entry, index) => (index === 1 ? { ...entry, idea: "x".repeat(85), rhythm: "y".repeat(61) } : entry));
   assert.equal(treatmentsProblem(long).message, "treatments[1].idea is 85 characters, limit 80. treatments[1].rhythm is 61 characters, limit 60. (2 problems)");
   const cleaned = cleanTreatments(withSource);
-  assert.equal(shownLines(cleaned)[1], "B. a map that draws the route as they skate · mask-wipe along the line (route.mp4, the full loop at 0:40) · steady, then a stop");
+  assert.equal(shownLines(cleaned)[1], "B. a map that draws the route as they skate · where are they going? → the line closes the loop · mask-wipe along the line");
+  // A list saved before tension and turn shows as it did.
+  const old = cleanTreatments(withSource.map(({ tension, turn, ...rest }) => rest));
+  assert.equal(shownLines(old)[1], "B. a map that draws the route as they skate · mask-wipe along the line (route.mp4, the full loop at 0:40) · steady, then a stop");
   const picked = cleanTreatments({ pick: "B" }, cleaned);
   assert.deepEqual(pickedSignature(picked), { what: "mask-wipe along the line", source: "route.mp4, the full loop at 0:40" });
   assert.match(treatmentsText({ treatments: picked }), /: a map that draws the route as they skate · signature: mask-wipe along the line \(route\.mp4/);
@@ -224,7 +227,7 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   const saved = await agent("notes", { project: "treat", action: "brief", fields: { treatments: FIVE } });
   assert.equal(saved.isError, undefined, saved.text);
   assert.match(saved.text, /treatments: dropped the most typical \(p 0\.6: a slow city-at-dawn montage with a voice\)/);
-  assert.match(saved.text, /^A\. the city's sounds as the beat · cuts on street sounds · syncopated$/m);
+  assert.match(saved.text, /^A\. the city's sounds as the beat · what is that noise\? → the wheels join the beat · cuts on street sounds$/m);
   assert.equal(saved.data.brief.confirmedRev, saved.data.brief.rev, "saving treatments keeps a confirmed brief confirmed");
   // The stop's ask shows them until the person picks.
   const brief = (await savedState("treat")).brief;
