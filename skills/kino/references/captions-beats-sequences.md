@@ -60,7 +60,8 @@ played as one.
   holds a rest to its return, paces each section by its loudness (`pace` `promo` or `velocity`
   scales it), dissolves only on smooth passages, moves a cut onto a clip's measured impact near
   a hit and cuts a burst only over a measured dense passage. It adds no effect without a measured
-  reason (one hit on a real drop); slow motion blends frames only on footage drawn on 1s.
+  reason (one hit on a real drop); slow motion blends frames only on footage drawn on 1s. It
+  leaves the seams and rests as fitted `song-*` cues and the end card's entrance as `end-card`.
   `accents:true` adds downbeat zoom punches (off by default; `effect_fit` asks each for a cue).
 - Accents: `move {name:"impact-accent", kind, at:"cue:<name>"}` (techniques reference); none
   is fine.

@@ -7,7 +7,7 @@ import { markedSubject, openingMoment } from "./footage/moments.js";
 import { shotLayout } from "./footage/layout.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { planEdit } from "./footage/plan.js";
-import { footageOps } from "./footage/ops.js";
+import { footageCues, footageOps } from "./footage/ops.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -277,6 +277,16 @@ test("anime proof: seams within a frame, frames held on drawn footage, accents o
     // The strong contacts do pull cuts onto song hits, impact first (up to 2 frames early, never late).
     assert.ok(plan.snaps.length >= 1, why);
     for (const snap of plan.snaps) assert.ok(plan.shots.find((shot) => shot.n === snap.shot).clip === "c0", why);
+    // compose leaves the seams and the rest as fitted song cues (seam_lock, rest_fit and impact-accent read
+    // them), the rest's dropout included, and a marker for the end card's entrance (effect_fit's text rule).
+    const cues = footageCues(plan, { endCardStart: 29.6 });
+    const song = cues.filter((cue) => cue.name.startsWith("song-"));
+    assert.ok(song.every((cue) => cue.kind === "marker" && cue.fitted === true), why);
+    for (const seam of plan.song.seams) assert.ok(song.some((cue) => cue.name.startsWith(`song-${seam.kind}-`) && cue.time === seam.at), why);
+    assert.ok(song.some((cue) => cue.name.startsWith("song-dropout-") && cue.time === rest.from), why);
+    assert.deepEqual(cues.find((cue) => cue.name === "end-card"), { name: "end-card", time: 29.6, kind: "marker" });
+    // A second footage scene keeps only its own end-card marker.
+    assert.deepEqual(footageCues(plan, { suffix: "-s2" }).map((cue) => cue.name), ["end-card-s2"]);
   }
 });
 

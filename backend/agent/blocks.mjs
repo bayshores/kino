@@ -56,7 +56,7 @@ import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
 import { FOOTAGE_FIELDS, readFootageList } from "./footage.mjs";
 import { planEdit } from "../../engine/footage/plan.js";
-import { footageOps } from "../../engine/footage/ops.js";
+import { footageCues, footageOps } from "../../engine/footage/ops.js";
 import { footageBrand, guessTreatment, treatmentFromPick, treatmentNamed, TREATMENT_NAMES } from "../../engine/footage/treatments.js";
 import { PACE_NAMES } from "../../engine/footage/pace.js";
 import { isRecord } from "../../engine/numbers.js";
@@ -1312,7 +1312,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     let ops = footageOps(plan, clips, { scene: document.scenes.length > 1 ? scene.id : null });
     // Beside another footage scene, its names take a suffix (a format variant's own, or the scene's id).
     const elsewhere = new Set(document.scenes.filter((item) => item !== scene).flatMap((item) => item.layers.map((layer) => layer.id)));
-    if (operation.suffix || ops.some((op) => elsewhere.has(op.name) || elsewhere.has(op.id))) ops = suffixFootageOps(ops, operation.suffix ?? `-${slug(scene.id)}`);
+    let suffix = "";
+    if (operation.suffix || ops.some((op) => elsewhere.has(op.name) || elsewhere.has(op.id))) {
+      suffix = operation.suffix ?? `-${slug(scene.id)}`;
+      ops = suffixFootageOps(ops, suffix);
+    }
     // Without a brand kit, the edit gets one from its treatment: fonts that are not a default, an
     // accent; titles, captions and the end card use it (set_brand can change it later).
     if (!brand) {
@@ -1324,6 +1328,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     try { next = await runOps(parseDocument(document), ops); }
     catch (error) { throw problem(`compose {footage} could not build its plan: ${error.message}`); }
     const built = next.scenes.find((item) => item.id === scene.id);
+    // The song's seams and rests (fitted, as fit_music writes them) and the end card's moment as
+    // cues. The end card's cue is where its first entrance really starts (the recipe's own lead).
+    const endStarts = (built.layers.find((layer) => layer.id === `end-card${suffix}`)?.animations ?? []).map((animation) => animation.start).filter(Number.isFinite);
+    const planned = footageCues(plan, { suffix, endCardStart: endStarts.length ? Math.min(...endStarts) : null });
+    if (planned.length) next.cues = withCues(next.cues, planned, plan.song && !suffix ? { kinds: ["marker"], prefix: "song-" } : {});
     built.footage.made = built.layers.filter((layer) => !kept.has(layer.id) && !layer.parentId).map((layer) => layer.id);
     built.footage.moves = (built.moves ?? []).map((entry) => entry.id).filter((id) => !keptMoves.has(id));
     // The new shots carry those marks, so check (crop_no_subject) sees whether each crop keeps its subject.

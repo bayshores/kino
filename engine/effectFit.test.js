@@ -49,6 +49,10 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
     animations: [{ id: "title.in", name: "Slide in", kind: "in", start, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] });
   assert.deepEqual(await reasons(edit([], [title(0.23)]), [accent("hit", 2)]), []);
   assert.deepEqual(await reasons(edit([], [title(1)]), [accent("hit", 2)]), ["untriggered"]);
+  // The same delay after a named marker (compose's end-card cue) is on it; a song marker set by hand is not a moment.
+  const marker = (name, time) => ({ name, kind: "marker", time });
+  assert.deepEqual(await reasons(edit([], [title(1.1)]), [accent("hit", 2), marker("end-card", 1)]), []);
+  assert.deepEqual(await reasons(edit([], [title(1.1)]), [accent("hit", 2), marker("song-drop-1", 1)]), ["untriggered"]);
 });
 
 test("effect_fit: an impact-accent record keeps its cue through a save", async () => {

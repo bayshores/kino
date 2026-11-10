@@ -17,6 +17,35 @@ const scaleBy = (value) => ({ scaleX: round3(value), scaleY: round3(value) });
 // When a transition's move starts, before the cut at `at` (the moves' own timing, engine/blocks/moves/transitions.js).
 const MOVE_LEAD = { "zoom-through": 0.5, "whip-pan": 0.25, "mask-through-shape": 0.2 };
 
+const SONG_KIND = /^[a-z]+(?:-[a-z]+)?$/;
+
+/**
+ * The cues a plan leaves in the document (compose adds them after its ops; set_cues cannot write
+ * fitted ones): the song's seams and rests as fitted markers song-<kind>-<n> (the names fit_music
+ * uses, in time order), so seam_lock, rest_fit and impact-accent see the sections the cuts were
+ * locked to; and a marker for the end card, the named moment its text starts on. A plan with no
+ * song shape gives no song cues. `suffix` marks a second footage scene: it keeps only its own
+ * end-card marker (the song cues belong to the first one). `endCardStart` is when the end card's
+ * first entrance starts in the built scene; the plan's own time (the recipe leads by 0.1 s) is the fallback.
+ */
+export function footageCues(plan, { suffix = "", endCardStart = null } = {}) {
+  const cues = [];
+  if (plan.song && !suffix) {
+    const marks = plan.song.seams.map((seam) => ({ at: seam.at, kind: seam.kind, weight: seam.weight }));
+    // A rest starts at its dropout, which the cut seams leave out; it counts when its return is here.
+    for (const rest of plan.song.rests) {
+      if (rest.from > 0 && marks.some((mark) => Math.abs(mark.at - rest.to) < 1e-3) && !marks.some((mark) => Math.abs(mark.at - rest.from) < 1e-3)) marks.push({ at: rest.from, kind: "dropout" });
+    }
+    const counts = {};
+    for (const mark of marks.filter((entry) => SONG_KIND.test(entry.kind)).sort((a, b) => a.at - b.at)) {
+      counts[mark.kind] = (counts[mark.kind] ?? 0) + 1;
+      cues.push({ name: `song-${mark.kind}-${counts[mark.kind]}`, time: round3(mark.at), kind: "marker", fitted: true, ...(mark.weight >= 0 && mark.weight <= 1 ? { weight: mark.weight } : {}) });
+    }
+  }
+  if (plan.endCard.text) cues.push({ name: `end-card${suffix}`, time: round3(Math.min(plan.duration, endCardStart ?? plan.endCard.at + 0.2)), kind: "marker" });
+  return cues;
+}
+
 /** How far a shot's picture shows before its start and after its end, for the transitions. */
 function handles(plan) {
   const before = new Map(), after = new Map();

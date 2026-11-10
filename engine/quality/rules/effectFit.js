@@ -6,7 +6,8 @@
 //                with no cue that motivates it on its frame (it may come up to 2 frames early,
 //                never late): a footage impact or light (a cue pinned to a clip), a fitted song seam
 //                or rest, a top accent, a drum fill. A text animation or sound effect with no cue,
-//                shot change or heard word start under it.
+//                shot change or heard word start under it (a text may follow a cut or a named
+//                marker cue by 0.1 to 0.3 s).
 //   strength     a stronger effect on a weaker trigger than another effect has (strength ranks with
 //                the trigger's weight).
 //   budget       more loud effects in a song section than its energy allows (one per 4 s at full
@@ -200,9 +201,14 @@ export function effectFit(model, ctx) {
   const placed = (at) => cues.some((cue) => cue.kind !== "onset" && onCue(at, cue.time) && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue)))
     || changes.some((time) => Math.abs(time - at) <= EARLY + step) || words.some((time) => Math.abs(time - at) <= 0.1);
   // Text may start 0.1 to 0.3 s after a cut or the scene's start (first_entrance asks for that delay).
+  // Compose has no cut under the end card: the last shot only softens there.
   const afterCut = (at) => [0, ...changes].some((time) => at - time >= 0.1 - 1e-6 && at - time <= 0.3 + 1e-6);
+  // The same delay after a named moment: a marker cue that is not a song section (compose marks
+  // the end card's entrance with one; an agent names its own with set_cues).
+  const named = cues.filter((cue) => cue.kind === "marker" && !SONG.test(cue.name ?? ""));
+  const afterNamed = (at) => named.some((cue) => at - cue.time >= 0.1 - 1e-6 && at - cue.time <= 0.3 + 1e-6);
   const loose = [...texts.map((entry) => ({ at: entry.at, what: `text ${entry.tag}`, itemId: entry.itemId, text: true })), ...sounds.map((entry) => ({ at: entry.at, what: `sound ${entry.layer.name ?? entry.layer.id}` }))]
-    .filter((entry) => !placed(entry.at) && !(entry.text && afterCut(entry.at)));
+    .filter((entry) => !placed(entry.at) && !(entry.text && (afterCut(entry.at) || afterNamed(entry.at))));
   if (loose.length) finding("untriggered", loose[0].at, `${loose.length} text animation${loose.length === 1 ? "" : "s"} or sound effect${loose.length === 1 ? "" : "s"} on no cue, cut or word (${loose.slice(0, 4).map((entry) => `${entry.what} ${sec(entry.at)}s`).join(", ")})`,
     "each text animation and sound effect on a cue, a shot change or a word start", `In ${ctx.sceneName} ${loose[0].what} at ${sec(loose[0].at)}s starts on nothing the viewer hears or sees.`,
     `Start it at "cue:<name>" (cue list: inspect {what:"cues"}), on a cut, or on the word it belongs to; or leave it out.`, loose[0].itemId ? { itemId: loose[0].itemId } : {});
