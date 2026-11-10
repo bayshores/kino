@@ -21,7 +21,7 @@
 import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
-import { OWN_PICK_CALL, cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
+import { OWN_PICK_CALL, cleanTreatments, pickedIdea, pickedSignature, pickedType,treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
@@ -264,8 +264,22 @@ export function briefChanges(current, input = {}) {
   }
   // A pick's idea becomes the style spec's idea too, unless the spec has one (orderStep then
   // offers its move as the first signature).
-  if (picking && treatments && !sentStyle && !current?.style?.idea)
-    style = cleanStyle({ ...(current?.style ?? { by: "guessed" }), idea: treatments.list[treatments.picked.index].idea });
+  // Its type direction becomes style.type the same way, and a new pick replaces the type the
+  // last pick saved (not one the agent or person wrote since).
+  if (picking && treatments && !sentStyle) {
+    const entry = treatments.list[treatments.picked.index];
+    const saved = current?.style;
+    const type = entry.type && (!saved?.type || saved.type === pickedType(current?.treatments)) ? entry.type : undefined;
+    if (!saved?.idea || (type && type !== saved?.type))
+      style = cleanStyle({ ...(saved ?? { by: "guessed" }), ...(saved?.idea ? {} : { idea: entry.idea }), ...(type ? { type } : {}) });
+  }
+  // A new list of 5 saved over a picked one drops the type that pick saved: the old pick is gone,
+  // so the next pick must not see that type as one written since.
+  const oldType = pickedType(current?.treatments);
+  if (sentTreatments && !picking && treatments && !sentStyle && oldType && current.style?.type === oldType) {
+    const { type, ...rest } = current.style;
+    style = cleanStyle(rest);
+  }
   if (treatments && JSON.stringify(treatments) === JSON.stringify(current?.treatments ?? null)) treatments = undefined;
   // A save that unlocks a locked direction says so in its first line, with why.
   const lapsed = style !== undefined || treatments ? lockLapse(current, { ...current, ...(style !== undefined ? { style } : {}), ...(treatments ? { treatments } : {}) }, merged?.dropped) : null;
@@ -524,7 +538,7 @@ export function orderSteps(state, video = {}) {
   if (!treatments?.list) {
     const one = { idea: STORY_PLACEHOLDER, who: "<whose want or fear drives it: a person, a crew, a viewer, a thing>",
       tension: "<what they want, fear or wonder before the turn>", turn: "<the on-screen moment it flips>",
-      move: "<the signature move>", ending: "<the last image, from this material>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
+      move: "<the signature move>", ending: "<the last image, from this material>", type: "<the type and how it appears, from the references you studied>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
     return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
   }
   const picked = treatments.picked;
@@ -649,7 +663,10 @@ export function lockCall(state, { approve = false } = {}) {
     const add = { idea: idea ?? "<one sentence: what only this product can show, from its real material>", signatures };
     return briefCall({ style: saved.by ? { ...add, ...yours } : { ...add, by: "guessed" } });
   }
-  const fonts = { caption: { family: "<font>", size: "<px>" }, display: { family: "<font>", size: "<px>" } };
+  // The picked treatment's type direction says what the fonts are for (the spec's type, else the pick's).
+  const type = saved.type ?? pickedType(state?.brief?.treatments);
+  const family = type ? `<font for: ${type}>` : "<font>";
+  const fonts = { caption: { family, size: "<px>" }, display: { family, size: "<px>" } };
   // No drafted avoids: a ban is the person's words (a guessed one only warns, and the board
   // stop asks about it). Saved avoids are kept as they are.
   const kept = { ...(saved.wants?.length ? { wants: saved.wants } : {}), ...(saved.avoids?.length ? { avoids: saved.avoids } : {}) };

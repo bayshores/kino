@@ -51,6 +51,9 @@ export function styleContext(spec) {
     logo: isObject(spec.logo) ? spec.logo : null, moves: moves.length ? moves : null,
     // The idea, its signature moments and the one-off set pieces.
     idea: typeof spec.idea === "string" && spec.idea.trim() ? spec.idea.trim() : null,
+    // The type direction the pick saved ("small serif captions, each word cut on"), or null.
+    // Checks judge readability, not this style; the lock asks the fonts that carry it.
+    type: typeof spec.type === "string" && spec.type.trim() ? spec.type.trim() : null,
     // The picked treatment's ending (the service adds it from brief.treatments), or null.
     ending: typeof spec.ending === "string" && spec.ending.trim() ? spec.ending.trim() : null,
     signatures: Array.isArray(spec.signatures) ? spec.signatures.filter(isObject) : [],
