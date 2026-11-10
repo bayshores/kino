@@ -10,7 +10,9 @@ import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
   closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+  cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
+import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
 import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { LOOK_MODEL, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
@@ -656,4 +658,40 @@ test("YouTube's bot check is said plainly, and kino stops asking YouTube until t
     delete process.env.STUB_YTDLP_LOG;
     delete process.env.KINO_INSPIRE_THUMBS;
   }
+});
+
+test("a bot check in inspire pauses every YouTube download through the shared gate, footage too", async () => {
+  const youtube = createYouTubeGate({ gapMs: 0 });
+  const inspire = createInspire({ directory: path.join(folder, "gate"), projectState: memoryProjects(), youtube,
+    search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+    download: async () => { throw botCheckError(); }, probe: async () => ({ duration: 1 }), findShots: async () => ({ shots: [] }), findBeats: async () => ({ beats: [] }) });
+  const found = await inspire.search("p1", "walk", { by: "you", count: 1 });
+  assert.equal((await inspire.reference(found.results[0].id, { wait: 5000 })).error, BOT_CHECK);
+  let footage = 0;
+  await assert.rejects(youtube(async () => { footage += 1; }), { code: "BOT_CHECK" });
+  assert.equal(footage, 0, "the footage download is not tried while the pause lasts");
+  await youtube(async () => { footage += 1; }, { force: true });
+  assert.equal(footage, 1);
+});
+
+test("two YouTube downloads never overlap and the next waits the gap after the last one ends", async () => {
+  const spans = [];
+  const youtube = createYouTubeGate({ gapMs: 40 });
+  const download = () => youtube(async () => {
+    const span = { start: performance.now() };
+    assert.equal(heavyDecodeSlot.running(), 1, "a download holds the heavy decode slot");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    span.end = performance.now();
+    spans.push(span);
+  });
+  await Promise.all([download(), download()]);
+  assert.ok(spans[1].start - spans[0].end >= 35, `gap ${spans[1].start - spans[0].end} ms`);
+});
+
+test("region, members-only, age and private videos are dropped with one line, not taken for a bot check", () => {
+  assert.equal(cannotPlayReason("ERROR: [youtube] abc: The uploader has not made this video available in your country"), "region");
+  assert.equal(cannotPlayReason("ERROR: [youtube] abc: Join this channel to get access to members-only content like this video"), "members only");
+  assert.equal(cannotPlayReason("ERROR: [youtube] abc: Sign in to confirm your age. This video may be inappropriate for some users."), "age");
+  assert.equal(cannotPlayReason("ERROR: [youtube] abc: Sign in to confirm you're not a bot"), null);
+  assert.equal(cannotPlayLine("F3", "region", "F4"), "F3 cannot play from here (region). Dropped; F4 is next.");
 });

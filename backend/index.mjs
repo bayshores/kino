@@ -70,6 +70,7 @@ import { decodeMono } from "./audio-analysis.mjs";
 import { createSoundBandsCache, soundLevelsFor } from "./sound-bands.mjs";
 import { analyzeBeats } from "../engine/beatDetection.js";
 import { createInspire, inspireTools } from "./inspire.mjs";
+import { createYouTubeGate } from "./process-slots.mjs";
 import { createHouseMemory } from "./house-memory.mjs";
 import { songVocals } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
@@ -175,6 +176,9 @@ const shotFinder = createShotFinder({ mediaRoot, saveRecord: saveMediaRecord });
 // thumbnails are kept in <data>/inspire; each project's searches and saved references in its
 // agent state. yt-dlp is KINO_YTDLP, else Homebrew's, else the one on the PATH.
 const inspireDeps = await inspireTools();
+// One gate for every YouTube download (inspire, soundtrack, footage): one at a time, 5 s apart, and
+// after a bot check none for 15 minutes (process-slots.mjs).
+const youtubeGate = createYouTubeGate();
 // Reference looks (SigLIP via transformers.js): one vector a shot and a thumbnail, so searches rank
 // by how the frames match the words and the saved references. The model downloads once into
 // <data>/models on first use; KINO_LOOK_DOWNLOAD=0 keeps it to a model already there, off turns it off.
@@ -188,6 +192,7 @@ const inspire = createInspire({
   directory: path.join(dataRoot, "inspire"),
   ...inspireDeps,
   look: lookEmbed,
+  youtube: youtubeGate,
   projectState: {
     read: async (projectId) => (await agentState.read(projectId))?.inspire ?? null,
     update: (projectId, change) => agentState.update(projectId, (state) => {
@@ -217,6 +222,7 @@ const soundtrack = createSoundtrack({
   searchYouTube: (words, options) => inspireDeps.search(words, options),
   mixYouTube: (videoId, options) => inspireDeps.mix(videoId, options),
   downloadYouTube: (videoId, folder, options) => inspireDeps.downloadAudio(videoId, folder, options),
+  youtube: youtubeGate,
   decode: (file) => decodeMono(file),
   analyze: (samples, rate) => analyzeBeats(samples, rate),
   vocals: (file, seconds) => songVocals(file, { seconds }),
