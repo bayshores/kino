@@ -51,6 +51,8 @@ export function createYouTubeGate({ slot = heavyDecodeSlot, gapMs = YOUTUBE_GAP_
   let lastEnd = -Infinity;
   const gapLeft = () => lastEnd + gapMs - now();
   const again = Symbol("again");
+  // Starts the pause; a check met while paused (a forced try) does not stretch it.
+  const noteBotCheck = () => { if (now() >= pausedUntil) pausedUntil = now() + pauseMs; };
   async function run(work, { force = false, signal } = {}) {
     for (;;) {
       if (!force && now() < pausedUntil) throw botCheckError();
@@ -62,8 +64,7 @@ export function createYouTubeGate({ slot = heavyDecodeSlot, gapMs = YOUTUBE_GAP_
         if (!force && now() < pausedUntil) throw botCheckError();
         const reachesYouTube = !signal?.aborted;
         try { return await work(); } catch (error) {
-          // A forced try that meets the check again does not stretch the pause.
-          if (error?.code === "BOT_CHECK" && now() >= pausedUntil) pausedUntil = now() + pauseMs;
+          if (error?.code === "BOT_CHECK") noteBotCheck();
           throw error;
         } finally { if (reachesYouTube) lastEnd = now(); }
       });
@@ -71,5 +72,8 @@ export function createYouTubeGate({ slot = heavyDecodeSlot, gapMs = YOUTUBE_GAP_
     }
   }
   run.paused = () => now() < pausedUntil;
+  // For YouTube requests that download nothing (a video's description), which skip the slot and
+  // the gap but meet the same bot check: they start the shared pause too.
+  run.noteBotCheck = noteBotCheck;
   return run;
 }

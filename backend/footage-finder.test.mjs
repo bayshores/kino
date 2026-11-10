@@ -9,7 +9,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKinoMcpServer } from "./mcp.mjs";
 import { createWebCache } from "./web-cache.mjs";
-import { downloadScanCopy, parseProbe, pickWindows } from "./footage-finder/scan.mjs";
+import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
+import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
 import { removeTempFolder } from "./temp-folders.mjs";
 
 test("library passes the fields its listed schema leaves out (scan, want, note, measure) on to kino", async () => {
@@ -70,6 +71,24 @@ test("a scan looks at heatmap peaks and matching chapters, 8 min at most, else 6
   assert.equal(even.length, 6);
   assert.deepEqual(even[0], { start: 90, end: 150 });
   assert.deepEqual(pickWindows({ duration: 300 }), [{ start: 0, end: 300 }]);
+  // from/to limit the scan to that stretch (8 min at most); a time outside the video or no time at all is an error.
+  assert.deepEqual(pickWindows(probe, { from: "3:00", to: "3:20" }), [{ start: 180, end: 200 }]);
+  assert.deepEqual(pickWindows(probe, { from: 60 }), [{ start: 60, end: 540 }]);
+  assert.throws(() => pickWindows(probe, { from: 2000, to: 2100 }), /"from" \(33:20\) is past the end of this video \(24:00\)/);
+  assert.throws(() => pickWindows(probe, { from: "abc" }), /"from" \(abc\) is not a time/);
+  assert.throws(() => pickWindows(probe, { to: 0 }), /^Error: "to" \(0:00\) must come after "from" \(0:00\)\.$/);
+  // whole:true stops at 30 min and names from/to instead.
+  assert.equal(pickWindows({ duration: 1440 }, { whole: true })[0].end, 1440);
+  assert.throws(() => pickWindows({ duration: 10800 }, { whole: true }), /3:00:00 long.*from and to/);
+});
+
+test("a probe that meets YouTube's bot check pauses the shared gate, so the next download refuses", async () => {
+  const youtube = createYouTubeGate({ now: () => 1000 });
+  const runtime = { name: "node", path: process.execPath };
+  await assert.rejects(probeFootage("abcdefghijk", { youtube, runtime, run: async () => { throw botCheckError(); } }), { code: "BOT_CHECK" });
+  assert.equal(youtube.paused(), true);
+  await assert.rejects(downloadScanCopy("abcdefghijk", [{ start: 0, end: 60 }], { youtube, runtime, run: async () => "" }), { code: "BOT_CHECK" });
+  await assert.rejects(probeFootage("abcdefghijk", { youtube, runtime, run: async () => "{}" }), { code: "BOT_CHECK" });
 });
 
 test("the scan copy is 360p, one section per stretch, through the gate, with no cookies", async () => {

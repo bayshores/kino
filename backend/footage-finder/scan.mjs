@@ -1,10 +1,11 @@
 // The footage finder's scan, part 1: what to look at in a found video, and a small copy of it.
 // 1. probeFootage: yt-dlp's description of the video (-j, nothing downloaded): its length, the
 //    "most replayed" heatmap, its chapters, the tallest picture it offers, and whether it can play.
-// 2. pickWindows (pure): the stretches worth scanning. A video of 8 minutes or less is scanned
-//    whole; a longer one by its heatmap peaks (15 s either side), the chapters whose names match
-//    the agent's `want` words and the agent's own from/to, 8 minutes in total. With no heatmap and
-//    no chapter to go by, 6 evenly spaced 60 s stretches.
+// 2. pickWindows (pure): the stretches worth scanning. The agent's from/to, when given, is the
+//    only stretch (8 minutes at most). Otherwise a video of 8 minutes or less is scanned whole; a
+//    longer one by its heatmap peaks (15 s either side) and the chapters whose names match the
+//    agent's `want` words, 8 minutes in total. With no heatmap and no chapter to go by, 6 evenly
+//    spaced 60 s stretches. whole:true scans all of a video up to 30 minutes long.
 // 3. downloadScanCopy: those stretches at 360p (one file each) into a kino-footage- temp folder,
 //    through the YouTube gate every download shares (process-slots.mjs). The caller measures them
 //    and removes the folder (removeTempFolder).
@@ -18,6 +19,8 @@ import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 export const WHOLE_SECONDS = 8 * 60;
 /** The most a scan of a longer video looks at, in total. */
 export const SCAN_BUDGET_SECONDS = 8 * 60;
+/** The longest video whole:true scans (a 24 min episode fits; a 3 hour stream does not). */
+export const WHOLE_MAX_SECONDS = 30 * 60;
 /** Seconds kept on either side of a heatmap peak. */
 export const PEAK_PAD_SECONDS = 15;
 /** With nothing to go by: this many evenly spaced stretches of EVEN_SECONDS. */
@@ -75,6 +78,37 @@ function seconds(value) {
   return parts.reduce((total, part) => total * 60 + Number(part), 0);
 }
 
+// 197 → "3:17", 10800 → "3:00:00".
+function clock(value) {
+  const total = Math.round(value);
+  const pad = (part) => String(part).padStart(2, "0");
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return hours ? `${hours}:${pad(minutes)}:${pad(total % 60)}` : `${minutes}:${pad(total % 60)}`;
+}
+
+const given = (value) => value !== undefined && value !== null && value !== "";
+
+// The stretch the agent asked for with from/to ({start, end}), or null when it gave neither. A
+// missing end is filled in up to SCAN_BUDGET_SECONDS, and the stretch is cut to that length.
+// A value that is no time, or lies outside the video, is an error the agent reads.
+function askedStretch(duration, from, to) {
+  if (!given(from) && !given(to)) return null;
+  const read = (name, value) => {
+    if (!given(value)) return null;
+    const time = seconds(value);
+    if (time === null || time < 0) throw new Error(`"${name}" (${value}) is not a time: use seconds (197) or minutes and seconds ("3:17").`);
+    if (time > duration + 1) throw new Error(`"${name}" (${clock(time)}) is past the end of this video (${clock(duration)}).`);
+    return Math.min(time, duration);
+  };
+  const askedFrom = read("from", from);
+  const askedTo = read("to", to);
+  const start = askedFrom ?? Math.max(0, askedTo - SCAN_BUDGET_SECONDS);
+  const end = askedTo ?? Math.min(duration, start + SCAN_BUDGET_SECONDS);
+  if (end <= start) throw new Error(`"to" (${clock(end)}) must come after "from" (${clock(start)}).`);
+  return { start: round1(start), end: round1(Math.min(end, start + SCAN_BUDGET_SECONDS)) };
+}
+
 // The seconds a set of stretches covers, overlaps counted once.
 function covered(windows) {
   let total = 0;
@@ -115,12 +149,18 @@ function heatmapPeaks(heatmap) {
 
 /**
  * The stretches of a video to scan: [{start, end}] in seconds, sorted, not overlapping.
- * probe: parseProbe's answer; want: the agent's visual words; from/to: a stretch the agent asked
- * for (seconds or "m:ss"); whole: scan all of it, however long.
+ * probe: parseProbe's answer; want: the agent's visual words; from/to: the one stretch the agent
+ * asked for (seconds or "m:ss"), which limits the scan to it; whole: scan all of a video up to
+ * WHOLE_MAX_SECONDS long.
  */
 export function pickWindows(probe, { want, from, to, whole = false } = {}) {
   const duration = Number(probe?.duration);
   if (!(duration > 0)) throw new Error("This video has no length yet (a live stream or premiere), so kino cannot scan it.");
+  const asked = askedStretch(duration, from, to);
+  if (asked) return [asked];
+  if (whole && duration > WHOLE_MAX_SECONDS) {
+    throw new Error(`This video is ${clock(duration)} long and whole:true scans ${WHOLE_MAX_SECONDS / 60} min at most. Scan a stretch of it instead: from and to (${SCAN_BUDGET_SECONDS / 60} min at most).`);
+  }
   if (whole || duration <= WHOLE_SECONDS) return [{ start: 0, end: round1(duration) }];
   const clamp = (window) => ({ start: Math.max(0, window.start), end: Math.min(duration, window.end) });
   const chosen = [];
@@ -132,13 +172,6 @@ export function pickWindows(probe, { want, from, to, whole = false } = {}) {
     if (next.end - next.start < MIN_WINDOW_SECONDS || covered([...chosen, next]) > SCAN_BUDGET_SECONDS + 0.01) return;
     chosen.push(next);
   };
-  const start = seconds(from);
-  const end = seconds(to);
-  if (start !== null || end !== null) {
-    const asked = { start: start ?? 0, end: end ?? duration };
-    if (asked.end <= asked.start) throw new Error(`"to" (${to}) must come after "from" (${from}).`);
-    add(asked);
-  }
   const words = wantWords(want);
   for (const chapter of probe.chapters ?? []) {
     const title = chapter.title.toLowerCase();
@@ -189,10 +222,19 @@ function needRuntime(runtime) {
  * Reads one YouTube video's scan facts (parseProbe). options: run(args, {signal, timeoutMs})
  * (runYtDlp by default; tests pass a stub), command, runtime, signal.
  */
-export async function probeFootage(videoId, { run, command, runtime = jsRuntime(), signal } = {}) {
+export async function probeFootage(videoId, { youtube, run, command, runtime = jsRuntime(), signal } = {}) {
   if (!VIDEO_ID.test(String(videoId ?? ""))) throw new Error(`"${videoId}" is not a YouTube video id.`);
+  // The probe downloads nothing, so it skips the gate's slot and gap, but it shares its pause:
+  // it waits out a bot check like any download, and its own bot check pauses the rest.
+  if (youtube?.paused?.()) throw botCheckError();
   const runner = run ?? ((args, options) => runYtDlp(args, { ...options, command: command ?? ytDlpCommand() }));
-  return parseProbe(await runner(probeArgs(videoId, { runtime: needRuntime(runtime) }), { signal, timeoutMs: 60_000 }));
+  const args = probeArgs(videoId, { runtime: needRuntime(runtime) });
+  let text;
+  try { text = await runner(args, { signal, timeoutMs: 60_000 }); } catch (error) {
+    if (error?.code === "BOT_CHECK") youtube?.noteBotCheck?.();
+    throw error;
+  }
+  return parseProbe(text);
 }
 
 /**
@@ -209,7 +251,9 @@ export async function downloadScanCopy(videoId, windows, { youtube, run, command
   const folder = await makeTempFolder("kino-footage-");
   try {
     const args = analysisArgs(videoId, folder, windows, { ffmpeg, runtime: needRuntime(runtime) });
-    await gate(() => runner(args, { signal, timeoutMs: 600_000 }), { signal });
+    // 10 min, or as long as the stretches play (a whole 30 min video) when that is longer.
+    const timeoutMs = Math.max(600_000, Math.round(covered(windows) * 1000));
+    await gate(() => runner(args, { signal, timeoutMs }), { signal });
     const names = (await readdir(folder)).filter((name) => name.startsWith("scan."));
     const files = [];
     for (const window of windows) {
