@@ -492,7 +492,8 @@ export function runMove(definition, options) {
   // A move may leave out a technique it was asked not to use (rgb-split-hit with kick 0: no beat-kick).
   // A move may name moments for sound (roll: one cue per item), in scene seconds.
   // A move that times itself from its fields (caption-words from its first word) says when it starts.
-  return { added, animations, raises, sets, start: round(built.start ?? ctx.start), end, notes, tags: [...(built.tags ?? definition.tags)], cues: built.cues ?? [] };
+  // An accent move names the cue that motivates it ({cue, at, motive, weight}): effect_fit reads it.
+  return { added, animations, raises, sets, start: round(built.start ?? ctx.start), end, notes, tags: [...(built.tags ?? definition.tags)], cues: built.cues ?? [], ...(built.trigger ? { trigger: built.trigger } : {}) };
 }
 
 /** Removes what the move `id` made in a scene: its layers and the animations it put on others. */
@@ -551,6 +552,6 @@ export function placeMove(scene, { id, name, settings }, made) {
   // The record keeps the settings (to make it again), its technique tags, when it plays and the
   // names of the cues it wrote (so making it again or removing it takes only those cues away).
   const record = { id, name, settings, ...(made.tags ? { tags: [...made.tags] } : {}), start: made.start, end: made.end,
-    ...(made.cues?.length ? { cues: made.cues.map((cue) => cue.name) } : {}), ...(Object.keys(restore).length ? { restore } : {}) };
+    ...(made.cues?.length ? { cues: made.cues.map((cue) => cue.name) } : {}), ...(made.trigger ? { trigger: { ...made.trigger } } : {}), ...(Object.keys(restore).length ? { restore } : {}) };
   scene.moves = [...(scene.moves ?? []).filter((entry) => entry.id !== id), record];
 }

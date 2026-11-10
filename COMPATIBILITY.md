@@ -626,6 +626,13 @@ How to read it:
   not written by fit_music are refused; a shake adds to the shot's own moves; a strobe flashes 3 times a second
   at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
   through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **effect_fit check**: Partly verified. In a music edit (weighted accents or fitted song seams) each loud effect
+  needs a motivating cue on its frame (2 frames early at most), ranks in strength with the cue's weight, fits its
+  section's energy budget (none inside a rest but its edges), is not stacked (3 in 0.15 s), not on a talking face,
+  not a jittering or steady shake; text animations and sound effects need a cue, cut or word; a gate at the final
+  render, waived only by naming a cue. A wanted accent no longer lifts technique_repeat's budget. Evidence:
+  `engine/effectFit.test.js`, `engine/qualityStyle.test.js`, `engine/moves.test.js`. Gaps: no per-accent pixel
+  check yet (luma jump, color mush, ghosting); footage events reach it only through cues pinned to a clip.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and

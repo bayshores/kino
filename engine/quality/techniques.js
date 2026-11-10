@@ -26,6 +26,7 @@ const memo = (model, key, make) => {
 };
 
 const FRAME = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
+const round2 = (value) => Math.round(value * 100) / 100;
 /** The share of the frame (0 to 1) the item's box covers at a sample, inside the frame. */
 const frameShare = (model, item, index) => area(intersection(boxAt(item, index), FRAME(model))) / (model.width * model.height);
 const indexOf = (model, time) => Math.max(0, Math.min(model.times.length - 1, Math.round(time * model.fps)));
@@ -425,7 +426,9 @@ function entranceTag(model, item, starting, first) {
 export function techniquesUsed(model) {
   return memo(model, "techniquesUsed", () => {
     const found = {};
-    const add = (tag, at, itemId) => { (found[tag] ??= []).push({ at: sec(at), ...(itemId ? { itemId } : {}) }); };
+    // `extra` describes a loud accent: strength (0 to 1 of the most it should be), frames (at 30 fps)
+    // and shape (decay, steady, pulse), so effect_fit can size it against what triggers it.
+    const add = (tag, at, itemId, extra = null) => { (found[tag] ??= []).push({ at: sec(at), ...(itemId ? { itemId } : {}), ...(extra ?? {}) }); };
     const s = scaleOf(model);
     const step = 1 / model.fps;
 
@@ -441,8 +444,10 @@ export function techniquesUsed(model) {
       for (let index = 0; index < model.times.length; index += 1) {
         if (!(opacity[index] >= 0.5 && luma[index] >= 0.85) || (index && opacity[index - 1] >= 0.5)) continue;
         let length = 0;
-        while (index + length < model.times.length && opacity[index + length] >= 0.5) length += 1;
-        if (length / model.fps <= 0.35 && !found.flash?.some((entry) => Math.abs(entry.at - model.times[index]) < 0.4)) add("flash", model.times[index], item.id);
+        let peak = 0;
+        while (index + length < model.times.length && opacity[index + length] >= 0.5) { peak = Math.max(peak, opacity[index + length] * (luma[index + length] ?? 0)); length += 1; }
+        if (length / model.fps <= 0.35 && !found.flash?.some((entry) => Math.abs(entry.at - model.times[index]) < 0.4))
+          add("flash", model.times[index], item.id, { strength: round2(peak), frames: Math.max(1, Math.round((length / model.fps) * 30)), shape: "card" });
       }
     }
 
@@ -512,7 +517,9 @@ export function techniquesUsed(model) {
     for (const effect of model.effects ?? []) {
       if (isJudderBlur(effect) || blurGoesOn(effect)) continue;
       if (effect.effect === "3d-orbit" || effect.effect === "card-flip") add("orbit-3d", effect.start, effect.itemId);
-      else if (effect.effect === "wiggle") add("shake", effect.start, effect.itemId);
+      // A wiggle shakes the same all through (steady): strength 1 is 2% of the frame width.
+      else if (effect.effect === "wiggle") add("shake", effect.start, effect.itemId, { strength: round2(Math.min(1.5, Math.max(effect.to?.wiggleX ?? 3, effect.to?.wiggleY ?? 3) / (0.02 * model.width))),
+        frames: Math.max(1, Math.round((effect.end - effect.start) * 30)), shape: "steady", rate: effect.to?.speed ?? 3 });
       else if (PARTICLE_KEYS.has(effect.effect)) add("particles", effect.start, effect.itemId);
       else if (LIGHT_KEYS.has(effect.effect)) add("light-sweep", effect.start, effect.itemId);
       else if (effect.effect === "rgb-shift") add("rgb-split", effect.start, effect.itemId);
@@ -571,7 +578,7 @@ export function techniquesUsed(model) {
     }
 
     // Rhythm: pulses, and long holds where nothing at all changes.
-    for (const pulse of kicks(model)) add("beat-kick", pulse.at, pulse.itemId);
+    for (const pulse of kicks(model)) add("beat-kick", pulse.at, pulse.itemId, { strength: round2(Math.min(1, pulse.amount / 0.1)), frames: Math.round(0.4 * 30), shape: "pulse" });
     const bounds = [0, ...changes.map((change) => change.at), ...allCuts, model.duration].sort((x, y) => x - y);
     for (let position = 0; position + 1 < bounds.length; position += 1) {
       const [start, end] = [bounds[position], bounds[position + 1]];
@@ -584,10 +591,13 @@ export function techniquesUsed(model) {
     // Set pieces built by moves (engine/blocks/moves): the scene's record names their techniques, so
     // tile-ring, swipe-cards, logo-match-move and status-line are found too. A tag already found
     // while the move plays is not counted twice.
+    // An accent move that names its cue (impact-accent: move.trigger) is sized by the cue's weight
+    // and decays; it keeps the cue's name so effect_fit reads its reason.
     for (const move of model.moves ?? []) {
       for (const tag of move.tags) {
         if (found[tag]?.some((entry) => entry.at >= move.start - 0.3 && entry.at <= move.end + 0.3)) continue;
-        add(tag, move.start);
+        const trigger = move.trigger;
+        add(tag, trigger ? (trigger.at ?? move.start) : move.start, null, trigger ? { strength: round2(trigger.weight ?? 0.5), frames: Math.max(1, Math.round((move.end - move.start) * 30)), shape: "decay", move: move.id, cue: trigger.cue } : null);
       }
     }
 

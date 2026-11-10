@@ -694,6 +694,13 @@ function resolveReferences(operation, type, resolver, document) {
     if (quote && !HANDED_OVER.test(quote) && quote.split(/\s+/).length >= 3)
       operation.reason = `${String(operation.reason ?? "").trim() || "the person asked for silence"} (the person: "${quote.slice(0, 200)}")`;
   }
+  // effect_fit: an effect kept on purpose still has a reason in the song or the footage, so its
+  // waiver names that cue (reason "... cue:<name> ...") and the cue must exist.
+  if (type === "waive_check" && operation.code === "effect_fit") {
+    const named = /cue:([^\s,;)]+)/.exec(String(operation.reason ?? ""))?.[1];
+    if (!named || !(document?.cues ?? []).some((cue) => cue.name === named))
+      throw new Error(`waive_check effect_fit names the cue that motivates the effect in its reason ("on the punch at cue:<name>")${named ? `; there is no cue ${named}` : ""}. No cue motivates it: take the effect off.`);
+  }
   if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and
   // scenes, or a glob such as "arch-*" for the layers whose names match now (layers added later

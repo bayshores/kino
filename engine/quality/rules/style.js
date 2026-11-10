@@ -366,7 +366,9 @@ export function techniqueRepeat(model, ctx) {
   const budget = Math.max(MOTIF, Math.round(model.duration / 15));
   for (const tag of ACCENTS) {
     const list = counted(tag, used[tag] ?? []);
-    if (list.length <= budget || wanted(ctx, tag)) continue;
+    // A style spec that wants the accent does not lift the budget: loud accents wear out however
+    // they were chosen (effect_fit asks each one for its reason).
+    if (list.length <= budget) continue;
     finding(tag, `${tag} ${list.length} times`, `at most ${budget} in ${sec(model.duration)}s`, `${tag} happens ${list.length} times in ${ctx.sceneName}; an accent that comes back often stops landing.`, `Keep ${tag} for the ${budget} biggest hits; elsewhere cut plainly on the voice or the beat.`, list[budget].at);
   }
   // One literal move over and over: a picture or card sliding the same way, the same distance

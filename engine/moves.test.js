@@ -931,6 +931,8 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   assert.throws(() => run("flash", "cue:song-drop-1", 3, { align: "end" }), /takes no align or dur/);
   const x = (made, own, t) => evaluateLayer({ ...scene.layers.find((layer) => layer.id === "clip"), animations: [...own, ...made.animations.map((entry) => entry.animation)] }, t).x;
   const shake = run("shake", "cue:hit-1", 2);
+  // It names its reason, which effect_fit reads from the move's record.
+  assert.deepEqual(shake.trigger, { cue: "hit-1", at: 2, motive: "impact", weight: 0.8, kind: "shake" });
   const swing = [0, 1, 2, 3].map((frame) => Math.abs(x(shake, [], 2 + frame / 30)));
   const size = 1920 * 0.018;
   assert.ok(Math.max(swing[0], swing[1]) >= size * 0.95, `the hit's frame is the peak (${swing.map(round3)})`);

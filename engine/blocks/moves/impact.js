@@ -226,6 +226,7 @@ export const impactAccent = {
     if (input.color !== undefined && !/^#[0-9a-f]{6}$/i.test(input.color)) throw new Error("impact-accent color is a hex color such as \"#0A0A0C\".");
     const made = build[input.kind](ctx, shot, found, ctx.start, facts);
     ctx.note(`impact-accent ${input.kind} on ${shot.id}: cue:${found.cue.name} (${SAYS[found.motive.motive]}, weight ${round(found.motive.weight, 2)})`);
-    return { start: round(made.start), end: round(made.end), tags: made.tags };
+    return { start: round(made.start), end: round(made.end), tags: made.tags,
+      trigger: { cue: found.cue.name, at: round(found.at, 3), motive: found.motive.motive, weight: round(found.motive.weight, 2), kind: input.kind } };
   },
 };

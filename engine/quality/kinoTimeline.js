@@ -612,7 +612,7 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
     rests: Array.isArray(source.rests) ? source.rests : [],
     // The set pieces moves built here (scene.moves): their techniques, from start to end, and
     // their settings (busy_edit reads a stream's color as part of its look).
-    moves: (source.moves ?? []).filter((entry) => Array.isArray(entry.tags)).map((entry) => ({ id: entry.id, name: entry.name, tags: entry.tags, settings: entry.settings ?? {}, start: finite(entry.start, 0), end: finite(entry.end, duration) })),
+    moves: (source.moves ?? []).filter((entry) => Array.isArray(entry.tags)).map((entry) => ({ id: entry.id, name: entry.name, tags: entry.tags, settings: entry.settings ?? {}, start: finite(entry.start, 0), end: finite(entry.end, duration), ...(entry.trigger ? { trigger: entry.trigger } : {}) })),
     itemOf: (id) => itemOf.get(id),
   };
 }
