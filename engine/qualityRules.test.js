@@ -1619,6 +1619,41 @@ test("restraint: a grade stacked on a grade, one footage moment twice and letter
   await silent("restraint", recap, { scene: recap.scenes[0] });
 });
 
+// ---------------------------------------------------------------- seam_lock, rest_fit (fit_music's song cues)
+
+// Full-frame shots back to back: [start, end] each, from different files.
+const shots = (...spans) => scene({ duration: 4, layers: spans.map(([start, end], index) => ({ type: "video", id: `s${index + 1}`, name: `s${index + 1}`, src: `/api/media/shot${index + 1}.mp4`,
+  x: 0, y: 0, width: 1920, height: 1080, start, duration: end - start, mediaStart: start, mediaDuration: end - start, mediaSourceDuration: 20, ...(spans[index][2] ?? {}) })) });
+const songCues = (pairs) => pairs.map(([name, time]) => ({ name, time, kind: "marker" }));
+const withCues = (document, pairs) => ({ scene: document.scenes[0], cues: songCues(pairs) });
+
+test("seam_lock: a cut 6 frames after the drop and a return with no change warn; a cut on the drop, a cut away from any seam and no song cues are quiet", async () => {
+  const late = shots([0, 2.2], [2.2, 4]);
+  const [miss] = await fires("seam_lock", late, withCues(late, [["song-drop-1", 2]]));
+  assert.match(miss.measured, /song-drop-1 at 2 s: cut at 2\.2 s, 6 frames late/);
+  const held = shots([0, 4]);
+  const [unmarked] = await fires("seam_lock", held, withCues(held, [["song-return-1", 2]]));
+  assert.match(unmarked.measured, /no picture change/);
+  const locked = shots([0, 2], [2, 4]);
+  await silent("seam_lock", locked, withCues(locked, [["song-drop-1", 2], ["song-vocal-in-1", 3.1], ["song-ending", 3.9]]));
+  await silent("seam_lock", late);
+});
+
+test("rest_fit: a cut inside a dropout, a late restart and a fast move while the music rests warn; a held shot cut on the return is quiet", async () => {
+  const rest = [["song-dropout-1", 1.5], ["song-return-1", 2.5]];
+  const busy = shots([0, 1.8], [1.8, 4]);
+  const found = await fires("rest_fit", busy, withCues(busy, rest));
+  assert.deepEqual(found.map((finding) => finding.measured.split(": ")[1].split(" ")[0]), ["cut", "nothing"]);
+  const late = shots([0, 2.7], [2.7, 4]);
+  const [slow] = await fires("rest_fit", late, withCues(late, rest));
+  assert.match(slow.measured, /restarts at 2\.7 s \(cut\), 6 frames late/);
+  const shake = shots([0, 2.5, { animations: [move(1.8, 0.3, "smooth", { x: -200 })] }], [2.5, 4]);
+  const [moved] = await fires("rest_fit", shake, withCues(shake, rest));
+  assert.match(moved.measured, /"s1" moving/);
+  const calm = shots([0, 2.5], [2.5, 4]);
+  await silent("rest_fit", calm, withCues(calm, rest));
+});
+
 test("request_unmet: quoted words, music and 'no logo' are checked against the edit; a vague note is listed to confirm by looking", async () => {
   const doc = scene({ layers: [text("title", "Launch day", { animations: [fadeIn(0.2)] }), rect("logo", { width: 200, height: 100 })] });
   const asks = [{ id: "N1", note: true, text: 'Title should say "Launch day"' }, { id: "N2", note: true, text: "add music under it" },

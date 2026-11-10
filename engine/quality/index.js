@@ -27,6 +27,7 @@ import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadab
 import { rejectedText, spineDrift } from "./rules/spine.js";
 import { signatureMissing } from "./rules/signature.js";
 import { busyEdit, restraint } from "./rules/restraint.js";
+import { restFit, seamLock } from "./rules/seams.js";
 import { requestUnmet } from "./rules/request.js";
 import { styleContext } from "../styleSpec.js";
 import { sec } from "./analysis.js";
@@ -159,6 +160,8 @@ export const RULES = [
   rule("signature_missing", "warn", signatureMissing, "with an idea (style.idea), a signature range (a spine beat with role signature, or signatures[].at) that holds a designed technique, a set piece or a full-frame graphic or footage, and is no shorter than the longest text-only beat; a warning while editing, a gate at the final render", false, { final: true }),
   rule("busy_edit", "info", busyEdit, "in a video of 8 s or more, at most 3 designed devices (moves by name, transitions, camera, set pieces; cuts, holds, fades and slow pushes are plain), designed moves on at most 40% of 5+ shots, at most 2 text looks, and under 3 bright-dark swings of 64 levels between neighbor shots"),
   rule("restraint", "warn", restraint, "transitions only at shot changes, one color grade on a layer at a time (a new look replaces the old), each moment of a footage file shown once (0.5 s overlap), no letterboxed footage (97% of the frame one way, under 90% the other, for 1 s)"),
+  rule("seam_lock", "warn", seamLock, "with fit_music's song cues: a picture change within 0.2 s of a song seam (section edge, return, vocal-in, switch) lands within 1 frame of it, and a drop or a return is marked by a change"),
+  rule("rest_fit", "warn", restFit, "with fit_music's song cues: while the music rests (a dropout to its return, 4 s at most) no cut, accent or fast move of a large picture starts (a hold, freeze, slow push or black is fine), and the picture restarts within 1 frame of the return"),
   rule("request_unmet", "warn", requestUnmet, "each item the person asked for (brief lines and notes) is in the edit: words in quotes on screen, music, voice, captions, a logo, sound effects, an end card ('no X' the other way round); a miss holds the final render, a note with nothing checkable is listed to confirm by looking", false, { final: false }),
   rule("deck_unused", "info", deckUnused, "in a video of 8 s or more, at least half of the project's deck is used (notes deck; a card swapped out does not count)"),
 ];

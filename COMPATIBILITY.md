@@ -767,6 +767,9 @@ How to read it:
   (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
   heard time, in the piece that plays it; one cue per hit. Synthetic songs only, unverified on real
   songs. Evidence: `backend/soundtrack.test.mjs`, `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **seam_lock, rest_fit** (warnings): a picture change near a song seam lands within 1 frame, a drop
+  or return is marked; inside a dropout no cut, accent or fast move starts, and the picture restarts
+  within 1 frame of the return. Document only, no pixels. Evidence: `engine/qualityRules.test.js`.
 - **music_hard_stop** (warning): a song that stops loud with no fade (a fade still running at the stop is
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.
