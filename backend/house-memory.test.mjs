@@ -73,6 +73,11 @@ test("type_seen: a second project with the first one's type look warns, another 
     const contradicted = await runQuality(chosen, { codes: ["type_seen"], pixels: false, context: { house: await house.others("b", "Recap"), videoScene: true, style: { type: "small serif captions, each word cut on" } } });
     assert.deepEqual(contradicted.findings.map((finding) => finding.rule), ["type_seen"]);
     assert.match(contradicted.findings[0].message, /small serif captions, each word cut on/);
+    // Negated words do not describe it, and any part given another value warns.
+    for (const type of ["no blur, heavy caps, word by word", "light serif lower case, cut on"]) {
+      const result = await runQuality(chosen, { codes: ["type_seen"], pixels: false, context: { house: await house.others("b", "Recap"), videoScene: true, style: { type } } });
+      assert.deepEqual(result.findings.map((finding) => finding.rule), ["type_seen"], type);
+    }
     // A light lower-case line, smaller, that rises: only the face is shared.
     assert.deepEqual(await check(titled("Notes", { fontWeight: 300, value: "what we shipped", fontSize: 60, from: { opacity: 0, y: 40 } })), []);
     // A copy of the first project is its family, never compared.
