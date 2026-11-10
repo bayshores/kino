@@ -10,6 +10,7 @@ import { call } from "../agent/next-call.mjs";
 import { readTime } from "./scan.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./search.mjs";
 import { scanCall, searchCall } from "./step.mjs";
+import { needLine, wantBySection } from "./needs.mjs";
 
 /** Candidates kept per project. */
 export const FOOTAGE_KEPT = 24;
@@ -159,8 +160,11 @@ function skippedLine(skipped = {}) {
   return parts.length ? `Skipped: ${parts.join(", ")}.` : "";
 }
 
-/** The scan answer: what was looked at, the 12 best shots, the skips and the match word. */
-export function scanText(candidate, scan) {
+/**
+ * The scan answer: what was looked at, the 12 best shots, the skips, the match word and, with a
+ * song in the video, how many shots it needs (needs.mjs shotsNeeded).
+ */
+export function scanText(candidate, scan, need = null) {
   const looked = (scan.windows ?? []).reduce((sum, window) => sum + window.end - window.start, 0);
   const shots = scan.shots ?? [];
   const head = `${candidate.code} "${short(oneLine(candidate.title) || candidate.id, TITLE_SHOWN)}" · scanned ${clockOf(looked)}${candidate.seconds ? ` of ${clockOf(candidate.seconds)}` : ""} · ${shots.length} shot${shots.length === 1 ? "" : "s"}${shots.length > FOOTAGE_SHOTS_SHOWN ? `, best ${FOOTAGE_SHOTS_SHOWN}` : ""}:`;
@@ -168,6 +172,7 @@ export function scanText(candidate, scan) {
   const tail = [skippedLine(scan.skipped)];
   if (scan.want && !scan.matchShown) tail.push(`No visual match for "${scan.want}": shots rank on motion, faces and clean frames.`);
   if (shots.length) tail.push(`Stills: look {mode:"source", ref:"${candidate.code}"}`);
+  tail.push(needLine(need));
   tail.push(`License ${candidate.license ?? "unknown"}${candidate.license === "unknown" ? ": fine for a private video; the person checks the rights before publishing" : ""}.`);
   return [head, ...lines, ...tail.filter(Boolean)].join("\n");
 }
@@ -206,8 +211,9 @@ function checkStretch(from, to, nextCall) {
 /**
  * The footage topic. deps: finder {search(words, {signal}), searchCommons?(words),
  * scan(candidate, {want, from, to, whole, onProgress, signal}), readScan(id)}, waitMs, now.
- * handle(input, {footage, personClips, signal}) answers {text, data, nextCall, update?}: update
- * maps the saved footage state to the new one (the service applies it inside its state update).
+ * handle(input, {footage, personClips, signal, song?}) answers {text, data, nextCall, update?}: update
+ * maps the saved footage state to the new one (the service applies it inside its state update);
+ * song() answers the video's song needs (needs.mjs shotsNeeded) or null, asked only by a finished scan.
  */
 export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs = FOOTAGE_RESULT_KEEP_MS }) {
   // Scans running now, by scan id and options: a repeated call joins its scan instead of starting another.
@@ -253,7 +259,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       nextCall: scanCall("top"), update };
   }
 
-  async function scan(input, { footage, personClips, signal }) {
+  async function scan(input, { footage, personClips, signal, song: songOf }) {
     const ref = oneLine(input.scan);
     const asked = parseRef(ref);
     if (!asked) throw new FootageError("bad_input", `scan is "top", a code such as F1, or yt:<id>; "${short(ref, 40)}" is none of these.`, scanCall("top"));
@@ -330,15 +336,19 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       }
       result = waited.value;
     }
-    const picks = importPicks(result);
+    // The video's song (needs.mjs), when it has one: the answer says how many shots it needs, and
+    // the import call names every clean shot listed, up to 1.5 times that.
+    const need = await songOf?.({ signal }).catch(() => null) ?? null;
+    const picks = importPicks(result, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const update = (current) => {
       const { after, entry } = ensure(current);
       entry.scan = { id, shots: (result.shots ?? []).length, at: result.scannedAt ?? null };
       if (input.want !== undefined) after.want = want;
       return after;
     };
-    return { text: withLead(personClips, [scanText(candidate, result)]),
-      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags }) => ({ n, start, end, motion, face, match, flags })), matchShown: Boolean(result.matchShown) },
+    const song = need ? { bpm: need.bpm, shots: need.shots, import: need.import, parts: need.parts.map(({ kind, from, to, shots }) => ({ kind, from, to, shots })), want: wantBySection(want, need.parts) } : undefined;
+    return { text: withLead(personClips, [scanText(candidate, result, need)]),
+      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags }) => ({ n, start, end, motion, face, match, flags })), matchShown: Boolean(result.matchShown), ...(song ? { song } : {}) },
       nextCall: picks.length ? importCall(candidate.code, picks) : nextCandidate(saved, candidate.code) ? scanCall(nextCandidate(saved, candidate.code).code) : searchCall(), update };
   }
 

@@ -106,12 +106,18 @@ export function createBeatAnalysisCache({ analyze = analyzeAudioFile, now = () =
   // A file that could not be analyzed (no sound, a broken file) is not tried again for a while:
   // full checks ask for the beats of every sound over and over, and each try is an FFmpeg decode.
   const failed = new Map();
+  // The kept .beats result, or null when it is missing or from an older analysis.
+  async function saved(filename) {
+    try {
+      const result = JSON.parse(await readFile(`${filename}.beats`, "utf8"));
+      if (result?.version === BEAT_ANALYSIS_VERSION && Array.isArray(result.beats)) return result;
+    } catch { /* not analyzed yet */ }
+    return null;
+  }
   async function readOrAnalyze(filename) {
     const sidecar = `${filename}.beats`;
-    try {
-      const saved = JSON.parse(await readFile(sidecar, "utf8"));
-      if (saved?.version === BEAT_ANALYSIS_VERSION && Array.isArray(saved.beats)) return saved;
-    } catch { /* Missing or old results are made again. */ }
+    const kept = await saved(filename);
+    if (kept) return kept;
     const result = await analyze(filename);
     const temporary = `${sidecar}.${randomUUID()}.tmp`;
     try {
@@ -133,5 +139,6 @@ export function createBeatAnalysisCache({ analyze = analyzeAudioFile, now = () =
     }).finally(() => pending.delete(filename)));
     return pending.get(filename);
   }
-  return { get };
+  // saved(file) reads only the kept result: no decode, for answers that must not wait.
+  return { get, saved };
 }
