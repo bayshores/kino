@@ -27,12 +27,12 @@
 //
 // Search answers are cached on disk for a day (<data>/soundtrack/cache), so the same words do not
 // reach Openverse, the Archive or YouTube again. No personal details: the requests carry kino's own name.
-import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { songShape, vocalShare } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
+import { createWebCache } from "./web-cache.mjs";
 
 const API = "https://api.openverse.org/v1/audio/";
 const ARCHIVE = "https://archive.org";
@@ -516,20 +516,8 @@ export function createSoundtrack(deps) {
     return response;
   }
 
-  async function cached(key, make) {
-    const file = path.join(directory, "cache", `${createHash("sha1").update(key).digest("hex")}.json`);
-    try {
-      const saved = JSON.parse(await readFile(file, "utf8"));
-      if (now() - saved.at < SOUNDTRACK_LIMITS.cacheMs) return saved.results;
-    } catch { /* not cached */ }
-    const results = await make();
-    await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    // Its own temporary name: the same search running twice at once (two agents) must not collide.
-    const temporary = `${file}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify({ at: now(), results }), { mode: 0o600 });
-    await rename(temporary, file);
-    return results;
-  }
+  // Search answers last a day (web-cache.mjs); sweep() below removes older files.
+  const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: SOUNDTRACK_LIMITS.cacheMs, now });
 
   // Openverse can take minutes to answer. The agent waits searchMs (or until `stop`, when another
   // source already answered); the search itself keeps going (up to slowSearchMs) and lands in the

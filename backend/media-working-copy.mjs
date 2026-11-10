@@ -2,10 +2,10 @@
 // makes itself (H.264 + AAC in an MP4, or AAC in an M4A), so an agent never re-encodes footage.
 // The original file is left as it is. A file too long for any usable copy under the limit is
 // refused with what to do.
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import os from "node:os";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { runMediaTool } from "./media-probe.mjs";
+import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 
 const MB = 1024 * 1024;
 // The copy aims under this share of the limit (the container and rate swings take the rest).
@@ -49,8 +49,9 @@ export async function makeWorkingCopy(file, { maxBytes, signal, longEdge = LONG_
   const videoRate = video ? Math.floor(budget - (facts.audio ? SOUND_RATE : 0)) : 0;
   if (video ? videoRate < LEAST_VIDEO_RATE : soundRate < LEAST_SOUND_RATE)
     throw new Error(`${over}, and at ${Math.round(facts.duration)} s it is too long for a usable copy under it. Import a shorter part of it.`);
-  const folder = await mkdtemp(path.join(os.tmpdir(), "kino-working-copy-"));
-  const cleanup = () => rm(folder, { recursive: true, force: true });
+  // A temp folder the startup sweep knows (temp-folders.mjs), so a copy left by a stopped kino goes.
+  const folder = await makeTempFolder("kino-working-copy-");
+  const cleanup = () => removeTempFolder(folder);
   const output = path.join(folder, video ? "copy.mp4" : "copy.m4a");
   // A bigger picture (4K phone footage) is scaled down: the long edge to `longEdge`, either way up.
   const scale = video && facts.long > longEdge;

@@ -192,6 +192,9 @@ export const AGENT_TOOLS = withSaid([
     title: "Look up docs",
     // Reads the project; inspire also keeps its searches and saved references (not the document).
     hints: READS,
+    // Fields the list leaves out for its budget (music note and measure, sounds source, footage
+    // scan and want) still reach the service: keepUnknownKeys passes them on.
+    keepUnknownKeys: true,
     description: "Look up how kino works: op {name} (exact fields), rules {name} (captions, beats, cues…), search {search}, fonts {search}, media {page}, sounds|music {search} (CC0 effects; moods), blocks (recipes, looks), inspire {search|name|ideas} (YouTube edits), techniques (check's tags).",
     input: {
       topic: z.enum(LIBRARY_TOPICS),
