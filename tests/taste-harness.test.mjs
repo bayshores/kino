@@ -43,6 +43,13 @@ test("a reference read: every 2-frame cut, a flash counted once, black and hold 
   const fit = beatFit(cuts.map((cut) => cut.t), Array.from({ length: 7 }, (_, n) => n / 2), { fps: 24 });
   assert.deepEqual([fit.cuts, fit.onBeat, fit.offsets, fit.further], [15, 0.2, { "-3": 0, "-2": 2, "-1": 0, 0: 3, 1: 0, 2: 3, 3: 0 }, 7]);
   assert.match(beatFitLine(fit), /^cuts 15 · 20% within 1 frame of a beat \(random \d+%\) · frames off the beat \(- early\) -2:2 0:3 \+2:3 more:7$/);
+  // Bright shots between dark ones are shots, not flashes: dark 60, three 2-frame shots (110, 120,
+  // 115), dark 60, a 6-frame shot at 130, dark 55.
+  const runs = [[60, 24], [110, 2], [120, 2], [115, 2], [60, 12], [130, 6], [55, 24]];
+  const bright = runs.flatMap(([yavg, count]) => Array(count).fill(yavg)).map((yavg, n, all) => ({ t: n / 24, score: n && yavg !== all[n - 1] ? 40 : 0, yavg, ydif: 3 }));
+  const brightEvents = eventsFrom(bright);
+  assert.deepEqual(brightEvents.flashes, []);
+  assert.deepEqual(outsideFlashes(allCutsFrom(bright), brightEvents.flashes).map((cut) => cut.t), [1, 1.08, 1.17, 1.25, 1.75, 2]);
 });
 
 test("ebur128 output becomes a loudness curve and a summary", () => {

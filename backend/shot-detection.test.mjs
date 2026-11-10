@@ -153,6 +153,11 @@ describe("shotsFromCuts", () => {
     assert.deepEqual(short, { starts: [0, 12, 14, 16, 30], flashes: 1 }, "a 1-frame E runs on into F");
     assert.deepEqual(heard, [[18, 20]]);
     assert.deepEqual(shotsFromCuts(cuts, frames.length, mad, { flashLike }).starts, [0, 12, 30], "the default keeps shots of 6 frames or more");
+    // A white flash on a cut (A, 3 white, B) is one cut and a flash; a 3-frame impact frame inside A is a flash.
+    const seam = [...Array(28).fill(0), 200, 200, 200, ...Array(30).fill(40)];
+    const seamMad = (first, second) => Math.abs(seam[first] - seam[second]) + (seam[first] === seam[second] ? 1 : 0);
+    assert.deepEqual(shotsFromCuts([28, 31], seam.length, seamMad, { flashLike: (frame) => seam[frame] === 200, minShotFrames: 2 }), { starts: [0, 28], flashes: 1 });
+    assert.deepEqual(shotsFromCuts([30, 33], 63, (first, second) => ((first >= 30 && first < 33) === (second >= 30 && second < 33) ? 1 : 100), { minShotFrames: 2 }), { starts: [0], flashes: 1 });
   });
 
   test("a 14-frame real shot between two different shots stays", () => {

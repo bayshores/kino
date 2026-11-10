@@ -219,6 +219,10 @@ test("a borrowed rhythm: cue marks at the cut times, scaled to fit, or cut at th
   const fitted = rhythmCues(numbers, { length: 5, fit: 5 });
   assert.deepEqual(fitted.cues, [1, 2, 3, 4].map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })));
   assert.deepEqual(rhythmCues(numbers, { length: 20, fit: 5, at: 10 }).cues.map((cue) => cue.time), [11, 12, 13, 14]);
+  // A reference cut in 2-frame shots lends no cut under 6 frames after the last one lent (25 fps: 0.24 s).
+  const dense = measureNumbers({ cuts: [1, 1.08, 1.16, 1.24, 1.32, 2], beats: [], seconds: 10, fps: 25 });
+  assert.deepEqual(rhythmCues(dense, { length: 10 }).cues.map((cue) => cue.time), [1, 1.24, 2]);
+  assert.match(referenceText({ id: "yt:a", title: "A", duration: 10, url: "u", numbers: dense }), /\ncuts \(s\): 1 1\.24 2 \(3 under 6 frames apart not listed or borrowed\)\n/);
 });
 
 test("clock and the agent's lines", () => {
@@ -339,7 +343,7 @@ test("the queue measures one reference at a time, keeps only the numbers and the
   const first = view.refs["yt:tgEWNHVbk3U"];
   assert.equal(first.state, "measured");
   const { beatFit, ...numbers } = first.numbers;
-  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1 });
+  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1, fps: 25 });
   assert.deepEqual([beatFit.cuts, beatFit.fps, beatFit.onBeat, beatFit.offsets["0"], beatFit.further], [2, 25, 0.5, 1, 1], "frames at the file's rate; 20 is 12 frames before 20.5");
   assert.equal(first.thumb, true);
   assert.equal(first.vertical, true, "the downloaded picture, taller than wide, says it is vertical");

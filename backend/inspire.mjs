@@ -323,6 +323,7 @@ export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) 
     onBeatCount: onBeat ? onBeat.filter(Boolean).length : null,
     beatFit: beatFit(times, beatList, { fps: fps > 0 ? fps : 24 }),
     flashes,
+    fps: fps > 0 ? round(fps, 3) : 24,
   };
 }
 
@@ -389,14 +390,32 @@ export function countOnsets(levels, loudest) {
   return onsets;
 }
 
+// The shortest gap between two cuts a reference lends, in its frames: MIN_SHOT_FRAMES of
+// shot-detection.mjs (not imported: that module loads only when a reference is measured).
+const LEND_MIN_FRAMES = 6;
+
 /**
- * Cue marks from a reference's cut times: `at` seconds into the scene, and with `fit`, scaled so
- * the measured stretch fills `fit` seconds. Times past `length` (the scene) are left out.
+ * The indexes of the cuts a reference lends (borrow_rhythm, the "cuts (s)" line): a cut less than
+ * LEND_MIN_FRAMES frames at the reference's rate after the last one kept is left out, as the shot
+ * finder drops a sliver. The 2-frame read feeds only the statistics (cuts/s, beat fit, flashes), so
+ * a borrowed rhythm never copies a reference's cutting frame for frame. Raw times stay until
+ * reference_closeness (anime plan, build 11) lends section statistics instead.
+ */
+export function lentCuts(numbers) {
+  const fps = numbers.fps > 0 ? numbers.fps : numbers.beatFit?.fps > 0 ? numbers.beatFit.fps : 24;
+  const shortest = LEND_MIN_FRAMES / fps - 1e-6;
+  let last = 0;
+  return (numbers.cuts ?? []).flatMap((time, index) => (time - last >= shortest ? ((last = time), [index]) : []));
+}
+
+/**
+ * Cue marks from a reference's cut times (lentCuts): `at` seconds into the scene, and with `fit`,
+ * scaled so the measured stretch fills `fit` seconds. Times past `length` (the scene) are left out.
  * Returns {cues: [{name: "rhythm-1", time, kind: "marker"}], dropped}.
  */
 export function rhythmCues(numbers, { length, fit = null, at = 0 } = {}) {
   const scale = fit && numbers.seconds > 0 ? fit / numbers.seconds : 1;
-  const times = numbers.cuts.map((time) => round(at + time * scale, 3));
+  const times = lentCuts(numbers).map((index) => round(at + numbers.cuts[index] * scale, 3));
   const kept = times.filter((time) => time >= 0 && (!(length > 0) || time < length));
   return { cues: kept.map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })), dropped: times.length - kept.length, scale: round(scale, 3) };
 }
@@ -1623,9 +1642,11 @@ export function referenceText(ref, { full = false } = {}) {
   const span = numbers.seconds < ref.duration - 0.5 ? `the first ${Math.round(numbers.seconds)} s of ${clock(ref.duration)}` : `all ${Math.round(numbers.seconds)} s`;
   const longest = `longest ${numbers.longest.seconds} s ${numbers.longest.where ? `(${numbers.longest.where})` : `from ${clock(numbers.longest.start)}`}`;
   const beat = numbers.onBeat ? `cuts on the beat ${numbers.onBeatCount} of ${numbers.cuts.length}${ref.bpm ? ` (${Math.round(ref.bpm)} bpm)` : ""}` : "no steady beat in its sound";
-  const shown = full ? numbers.cuts : numbers.cuts.slice(0, 40);
+  const lent = lentCuts(numbers);
+  const shown = full ? lent : lent.slice(0, 40);
+  const closer = numbers.cuts.length - lent.length;
   const cuts = numbers.cuts.length
-    ? `cuts (s): ${shown.map((time, index) => `${time}${numbers.onBeat?.[index] ? "*" : ""}`).join(" ")}${shown.length < numbers.cuts.length ? ` … (${numbers.cuts.length} in all; full:true lists them)` : ""}${numbers.onBeat ? " (* on the beat)" : ""}`
+    ? `cuts (s): ${shown.map((index) => `${numbers.cuts[index]}${numbers.onBeat?.[index] ? "*" : ""}`).join(" ")}${shown.length < lent.length ? ` … (${lent.length} in all; full:true lists them)` : ""}${numbers.onBeat ? " (* on the beat)" : ""}${closer ? ` (${closer} under ${LEND_MIN_FRAMES} frames apart not listed or borrowed)` : ""}`
     : "cuts: none (one shot)";
   const fit = [beatFitLine(numbers.beatFit), numbers.flashes ? `flashes ${numbers.flashes}` : ""].filter(Boolean).join(" · ");
   return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${longest} · ${beat}`, ...(fit ? [fit] : []), cuts,

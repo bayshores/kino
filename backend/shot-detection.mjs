@@ -152,17 +152,38 @@ export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) =
  *      longer, every frame of it must look like a flash; else it is a cutaway and its cuts stay.
  *   2. Sliver: a cut less than MIN_SHOT_FRAMES after the shot's start is dropped (the shot runs on).
  *   3. End: a last shot shorter than MIN_SHOT_FRAMES joins the one before.
- * `minShotFrames` replaces MIN_SHOT_FRAMES in all three rules: a reference edit cut in 2-frame shots
- * (inspire) keeps them. `onFlash(c, e)` hears each flash.
+ * `minShotFrames` replaces MIN_SHOT_FRAMES in rules 2 and 3: a reference edit cut in 2-frame shots
+ * (inspire) keeps them. A flash (rule 1) is still judged at MIN_SHOT_FRAMES, so an impact frame
+ * inside a held shot stays a flash, and one more rule keeps a flash from becoming a shot:
+ *   4. Seam flash: with minShotFrames under MIN_SHOT_FRAMES, a cut c followed less than
+ *      MIN_SHOT_FRAMES on by a cut to another picture, every frame between them looking like a
+ *      flash, is one cut (c) and one flash. The default drops that sliver by rule 2 and counts none.
+ * `onFlash(c, e)` hears each flash.
  */
 export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashLike = () => false, minShotFrames = MIN_SHOT_FRAMES, onFlash = () => {} } = {}) {
   const kept = [];
   let flashes = 0;
+  // The index of the last cut that ends a seam flash starting at cuts[index], or -1.
+  const seamEnd = (index) => {
+    const cut = cuts[index];
+    let end = -1;
+    for (let next = index + 1, inside = cut; next < cuts.length && at(cuts[next]) - at(cut) < MIN_SHOT_FRAMES - EPSILON; next += 1) {
+      for (; inside < cuts[next]; inside += 1) if (!flashLike(inside, cut - 1, cuts[next])) return end;
+      end = next;
+    }
+    return end;
+  };
   for (let index = 0; index < cuts.length; index += 1) {
     const cut = cuts[index];
-    const back = flashEnd(cut, frames, mad, at, flashLike, minShotFrames);
+    const back = flashEnd(cut, frames, mad, at, flashLike);
     if (back < 0) {
       kept.push(cut);
+      const seam = minShotFrames < MIN_SHOT_FRAMES && cut > 0 ? seamEnd(index) : -1;
+      if (seam >= 0) {
+        flashes += 1;
+        onFlash(cut, cuts[seam]);
+        index = seam;
+      }
       continue;
     }
     flashes += 1;
@@ -181,7 +202,7 @@ export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashL
 // times what the shot changes over as many frames just before the flash and just after it (the
 // smaller, as the other may cross another cut), so a white flash over a real cut (two different
 // shots, both far from white) stays a cut. A stretch as long as a shot must look like a flash too.
-function flashEnd(cut, frames, mad, at, flashLike, minShotFrames) {
+function flashEnd(cut, frames, mad, at, flashLike) {
   if (cut < 1) return -1;
   const before = cut - 1;
   const jump = mad(before, cut);
@@ -191,7 +212,7 @@ function flashEnd(cut, frames, mad, at, flashLike, minShotFrames) {
     const span = frame - before;
     const motion = Math.min(mad(Math.max(0, before - span), before), mad(frame, Math.min(frames - 1, frame + span)));
     if (apart > SAME_MOTION * motion + SAME_SLACK) continue;
-    if (at(frame) - at(cut) < minShotFrames - EPSILON) return frame;
+    if (at(frame) - at(cut) < MIN_SHOT_FRAMES - EPSILON) return frame;
     for (let inside = cut; inside < frame; inside += 1) if (!flashLike(inside, before, frame)) return -1;
     return frame;
   }

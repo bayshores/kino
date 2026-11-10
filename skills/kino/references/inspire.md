@@ -12,8 +12,8 @@ frame strips · Proposing ideas · Sound effects
 ## What is measured
 
 - Shots, cuts a second, the longest shot and where it is, length, the beat (bpm), and cuts on
-  the beat (n of m, within 0.08 s). 2-frame shots count, flashes
-  not. Cuts within 1 frame of a beat vs random (near it: cuts on action).
+  the beat (n of m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame
+  of a beat vs random (near it: cuts on action).
 - The fingerprint (Apple Vision on a Mac, `backend/measure`): motion and holds, camera moves
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,
@@ -61,7 +61,7 @@ frame strips · Proposing ideas · Sound effects
 - `borrow_rhythm {ref, fit?, at?, scene?}` (an edit op) turns the cuts into cue marks
   `rhythm-1`, `rhythm-2`, … that timing points at (`at:"cue:rhythm-3"`). `fit:true` scales the
   measured stretch to the scene; without it the cuts keep their times and those past the scene
-  end are left out. Borrowing again replaces them. Only the times come in, never the footage.
+  end are left out. Borrowing again replaces them. Only cut times 6+ frames apart come in.
 - Search, read one, borrow it scaled to the scene, then cut a title on the third cut:
 
 ```json

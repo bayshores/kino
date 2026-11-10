@@ -43,11 +43,14 @@ export const allCutsFrom = (frames, options = {}) => cutsFrom(frames, { gap: 0.0
 /**
  * Flash, black and hold events from per-frame luma (signalstats YAVG and YDIF, 0 to 255):
  *   flash: the picture brightens by `rise` or more in one frame and falls back by most of that within
- *     `flashSeconds` ({t, end, rise: share of 255}); a fade-up that stays bright is not a flash.
+ *     `flashSeconds` ({t, end, rise: share of 255}); a fade-up that stays bright is not a flash. It
+ *     must also look like one: a near-white peak (`white` or more), or at most `shortFrames` bright
+ *     frames that fall back to within `level` of the brightness before, no scdet cut (`cut`) inside.
+ *     Otherwise it is a bright shot between darker ones, and its cuts stay.
  *   black: frames at most `black` bright (limited-range black is 16), as {t, end} spans.
  *   hold: no change (YDIF under `still`) for `holdSeconds` or more, black left out, as {t, end}.
  */
-export function eventsFrom(frames, { rise = 40, flashSeconds = 0.5, black = 24, still = 0.26, holdSeconds = 0.5 } = {}) {
+export function eventsFrom(frames, { rise = 40, flashSeconds = 0.5, white = 200, shortFrames = 3, level = 8, cut = 10, black = 24, still = 0.26, holdSeconds = 0.5 } = {}) {
   const flashes = [];
   for (let i = 1; i < frames.length; i += 1) {
     const before = frames[i - 1].yavg, at = frames[i].yavg;
@@ -58,6 +61,9 @@ export function eventsFrom(frames, { rise = 40, flashSeconds = 0.5, black = 24, 
       if ((frames[j].yavg ?? 255) <= before + (peak - before) / 3) { back = j; break; }
     }
     if (back < 0) continue;
+    const short = back - i <= shortFrames && Math.abs(frames[back].yavg - before) <= level
+      && frames.slice(i + 1, back).every((frame) => frame.score < cut);
+    if (peak < white && !short) continue;
     flashes.push({ t: round(frames[i].t), end: round(frames[back].t), rise: round((peak - before) / 255) });
     i = back;
   }
@@ -94,7 +100,7 @@ export function outsideFlashes(cuts, flashes) {
 }
 
 /**
- * The strips around cuts:`side` seconds each side of every cut, joined where they overlap, each
+ * The strips around cuts: `side` seconds each side of every cut, joined where they overlap, each
  * with its frame times at `fps`. Returns [{from, to, cuts: [t], times: [t]}].
  */
 export function stripTimes(cuts, duration, { fps = 12, side = 0.5 } = {}) {

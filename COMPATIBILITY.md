@@ -1149,8 +1149,10 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`.
 - **Reference event reader**: Test-verified on synthetic frames and clips. Inspire keeps 2-frame shots and
   counts flashes; a reference answer adds "cuts n · x% within 1 frame of a beat (random y%)" with offsets in
-  frames; taste packets list every cut plus flash, black and hold events. Evidence: `tests/taste-harness.test.mjs`,
-  `backend/inspire.test.mjs`, `backend/shot-detection.test.mjs`. Gap: not yet run on the saved contest references.
+  frames; taste packets list every cut plus flash, black and hold events. A flash on a cut is one cut, bright
+  shots are not flashes, and `borrow_rhythm` lends only cuts 6 frames apart. Evidence: `tests/taste-harness.test.mjs`,
+  `backend/inspire.test.mjs`, `backend/shot-detection.test.mjs`. Gaps: not yet run on the saved contest
+  references; borrow still lends raw cut times until build 11 (`reference_closeness`) lends statistics.
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
   measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with credit (license unknown).
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.
