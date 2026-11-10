@@ -500,12 +500,13 @@ async function peopleIn(scene, peopleOf, make) {
  * expanded scene (backend/export.mjs renderSceneFrames); without it the pixel rules are skipped.
  * `references(projectId)` gives the project's saved Inspire references with fingerprints, and
  * `measureRender(pairTimes, {render, seconds})` measures rendered frames the same way
- * (backend/measure/measure.mjs measureRendered): both for the reference_drift check. `house(projectId, name)`
+ * (backend/measure/measure.mjs measureRendered): both for the reference_drift check. `rhythms(projectId)`
+ * gives the saved references' lent cuts (inspire savedRhythms) for reference_closeness. `house(projectId, name)`
  * gives the other projects' house memory, the project's copies left out (backend/house-memory.mjs) for seen_before. `quietMs`: how
  * long its renders wait after the last call or render (render-activity.mjs QUIET_MS; tests shorten it).
  */
 
-export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = null, factsWaitMs = FACTS_WAIT_MS, references = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
+export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = null, factsWaitMs = FACTS_WAIT_MS, references = null, rhythms = null, measureRender = null, house = null, cacheBytes = CACHE_BYTES, reuseFrames = true, quietMs } = {}) {
   const cache = new Map();
   // Frames rendered for earlier checks, reused where a changed scene looks the same (frame-reuse.mjs).
   const frameReuse = reuseFrames ? createFrameReuse() : null;
@@ -598,7 +599,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -647,6 +648,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         driftPending = true;
         return null;
       } } : {}),
+      // The saved references' lent cuts: an edit must not copy their shot lengths (reference_closeness).
+      closeRefs,
       // What kino rendered in other projects, and this project's references as layouts (seen_before).
       house: houseMoments, referenceSignatures: refs.map((ref) => referenceSignature(ref.fingerprint)).filter(Boolean),
       // Only the video's scene has an ending (ending_seen); another scene's tail stays seen_before.
@@ -718,6 +721,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // The saved references change a full check: their ids and when they were measured are part of
     // the key, so a new reference checks again.
     const refs = references ? await references(document.id).catch(() => []) : [];
+    const closeRefs = rhythms ? await rhythms(document.id).catch(() => []) : [];
     const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}`).join(",");
     // The house memory changes seen_before: which projects and revs it holds are part of the key.
     const houseMoments = house ? await house(document.id, document.name ?? null).catch(() => []) : [];
@@ -747,13 +751,13 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}`).join(",");
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
-      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}`;
+      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null
         : null;
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
-      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, base });
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {

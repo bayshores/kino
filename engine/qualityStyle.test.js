@@ -603,6 +603,29 @@ test("busy_edit: many devices, moves on most shots, mixed text looks and bright-
   await silent("busy_edit", restrained, frames([120, 110, 130, 115, 10]));
 });
 
+test("reference_closeness: an edit cut to a reference's shot lengths in order, or the pooled contest device stack", async () => {
+  const shots = (cuts, duration) => scene({ duration, layers: [0, ...cuts].map((at, index) => clip(`shot${index}`, { animations: [
+    ...(index ? [hide(0), show(at)] : []), ...(index < cuts.length ? [hide(cuts[index])] : [])] })) });
+  // A reference's cuts over 16 s, uneven; the edit scales them to 12 s (fit), as borrowing raw times did.
+  const ref = { id: "yt:ref", seconds: 16, fps: 24, cuts: [0.8, 2.4, 2.9, 4.6, 5.4, 7.5, 8.1, 10.2, 11.4, 12.2, 14.4] };
+  const copied = ref.cuts.map((time) => Math.round(time * 0.75 * 30) / 30);
+  const [finding] = await fires("reference_closeness", shots(copied, 12), { closeRefs: [ref] });
+  assert.match(finding.measured, /^\d+ shots in a row from [\d.]+s have yt:ref's shot lengths in order \(x0\.75\)/);
+  // The same reference's lengths in a new order (borrow_rhythm), or an even grid any beat edit shares: quiet.
+  await silent("reference_closeness", shots([0.6, 2.7, 3.3, 4.5, 6.1, 6.7, 7.3, 8.5, 10.1, 11.2], 12), { closeRefs: [ref] });
+  const grid = { ...ref, cuts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] };
+  await silent("reference_closeness", shots([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 12), { closeRefs: [grid] });
+  // A black hole, then a seam flash, then a word card within 2 s: the pooled drop stack.
+  const stack = scene({ duration: 6, background: "#000000", layers: [
+    clip("a", { animations: [hide(2)] }),
+    clip("b", { animations: [hide(0), show(2.2), hide(3.2)] }),
+    rect("flash", { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", animations: [hide(0), show(2.2), hide(2.3)] }),
+    text("word", "NOW", { fontFamily: "Inter", fontSize: 400, fill: "#ffffff", x: 600, y: 300, animations: [hide(0), show(3.4), hide(4.4)] }),
+    clip("c", { animations: [hide(0), show(4.4)] })] });
+  const [stacked] = await fires("reference_closeness", stack);
+  assert.match(stacked.measured, /^black-hole then seam-flash then word-card from 2s/);
+});
+
 test("a restrained edit (plain cuts, one device on the hook and the payoff) gets no contradicting variety warnings", async () => {
   // Five 2.4 s shots cut plainly; shots 1 and 4 zoom into the next, the same device twice.
   const zoomed = new Set([0, 3]);
@@ -613,7 +636,7 @@ test("a restrained edit (plain cuts, one device on the hook and the payoff) gets
 });
 
 test("every technique rule has a bad and a good example above", () => {
-  const codes = ["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit"];
+  const codes = ["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit", "reference_closeness"];
   assert.deepEqual(codes.filter((code) => !RULES.some((entry) => entry.code === code)), [], "all are registered");
   assert.deepEqual(codes.filter((code) => !rulesCovered.has(code)), []);
   // style_avoided gates a final render when the person said no (by:"you"); the rest advise.

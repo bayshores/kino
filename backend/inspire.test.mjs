@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
-  closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+  closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
   cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
@@ -212,17 +212,28 @@ test("the numbers: shots, cuts a second, the longest shot and where, cuts on the
   assert.equal(measureNumbers({ cuts: [], beats: [], seconds: 8 }).longest.where, "the whole clip");
 });
 
-test("a borrowed rhythm: cue marks at the cut times, scaled to fit, or cut at the scene's end", () => {
+test("a borrowed rhythm: each section's pace in a new order, scaled to fit, cut on the song's seams", () => {
   const numbers = measureNumbers({ cuts: [2, 4, 6, 8], beats: [], seconds: 10 });
   assert.deepEqual(rhythmCues(numbers, { length: 5 }).cues.map((cue) => cue.time), [2, 4]);
   assert.equal(rhythmCues(numbers, { length: 5 }).dropped, 2);
   const fitted = rhythmCues(numbers, { length: 5, fit: 5 });
   assert.deepEqual(fitted.cues, [1, 2, 3, 4].map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })));
   assert.deepEqual(rhythmCues(numbers, { length: 20, fit: 5, at: 10 }).cues.map((cue) => cue.time), [11, 12, 13, 14]);
+  // Uneven shots: the same lengths per section, never in the reference's order; the song's seams are cuts.
+  const odd = measureNumbers({ cuts: [0.5, 1.7, 2.1, 3.4, 3.8, 5.3, 5.6, 7.2], beats: [], seconds: 8, fps: 24 });
+  const lent = rhythmCues(odd, { length: 8 }).cues.map((cue) => cue.time);
+  const gaps = (times) => times.slice(1).map((time, index) => Math.round((time - times[index]) * 100) / 100);
+  assert.notDeepEqual(lent, odd.cuts, "not the reference's cut times");
+  assert.deepEqual(lentSections(odd).map((part) => part.shots.length), [6, 3]);
+  assert.ok(gaps([0, ...lent]).every((gap) => lentSections(odd).some((part) => part.shots.includes(gap))), "every shot length is one the reference has");
+  assert.deepEqual(rhythmCues(odd, { length: 8 }).cues, rhythmCues(odd, { length: 8 }).cues, "the same order every time");
+  assert.ok(rhythmCues(odd, { length: 8, seams: [4.5] }).cues.some((cue) => cue.time === 4.5));
   // A reference cut in 2-frame shots lends no cut under 6 frames after the last one lent (25 fps: 0.24 s).
   const dense = measureNumbers({ cuts: [1, 1.08, 1.16, 1.24, 1.32, 2], beats: [], seconds: 10, fps: 25 });
-  assert.deepEqual(rhythmCues(dense, { length: 10 }).cues.map((cue) => cue.time), [1, 1.24, 2]);
-  assert.match(referenceText({ id: "yt:a", title: "A", duration: 10, url: "u", numbers: dense }), /\ncuts \(s\): 1 1\.24 2 \(3 under 6 frames apart not listed or borrowed\)\n/);
+  assert.deepEqual(lentSections(dense)[0].shots, [0.24, 0.76, 1, 8]);
+  const text = referenceText({ id: "yt:a", title: "A", duration: 10, url: "u", numbers: dense });
+  assert.match(text, /\ncuts \(s\): 1 1\.24 2 \(3 under 6 frames apart not listed or borrowed\)\n/);
+  assert.match(text, /\nlend: pace per section \(0-5 s 4 shots median 1 s · 5-10 s 0 shots\); avoid: its shot lengths in order/);
 });
 
 test("clock and the agent's lines", () => {

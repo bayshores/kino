@@ -1152,7 +1152,12 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   frames; taste packets list every cut plus flash, black and hold events. A flash on a cut is one cut, bright
   shots are not flashes, and `borrow_rhythm` lends only cuts 6 frames apart. Evidence: `tests/taste-harness.test.mjs`,
   `backend/inspire.test.mjs`, `backend/shot-detection.test.mjs`. Gaps: not yet run on the saved contest
-  references; borrow still lends raw cut times until build 11 (`reference_closeness`) lends statistics.
+  references.
+- **Reference closeness**: Test-verified on synthetic scenes. `borrow_rhythm` lends each section's shot
+  lengths in a new order (the song's `song-` seams as sections and cuts), never cut times; `reference_closeness`
+  warns on 6 shots in a row timed like a saved reference or the pooled contest device stack. Evidence:
+  `engine/qualityStyle.test.js`, `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: title moment
+  and section colors are not compared (references do not measure them); `look versus` is unchanged.
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
   measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with credit (license unknown).
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.
