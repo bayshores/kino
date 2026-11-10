@@ -18,14 +18,14 @@ frame strips · Proposing ideas · Sound effects
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,
   palette and brightness. Off a Mac the Vision numbers are named as not measured, never guessed.
-- Text numbers are reliable; motion numbers advise (handheld footage reads as camera moves);
-  reveal styles are read 4 times a second and can mistake interface labels for captions.
-- One video is measured at a time. A search answers at once; numbers arrive as each is read.
-- Searches and saved references belong to the project; the numbers are shared by all projects.
+- Text numbers are reliable; motion numbers advise (handheld reads as camera moves); reveals
+  are read 4 times a second and can mistake interface labels for captions.
+- One video is measured at a time; a search answers at once, numbers arrive as each is read.
+- Searches and saved references belong to the project; the numbers are shared by all.
 - yt-dlp missing: the search says how to install it (or set `KINO_YTDLP`). Downloads need a
   JavaScript runtime for YouTube's challenge (deno, node or bun; `KINO_YTDLP_JS` names one); with
-  none, the answer says so. When YouTube asks to sign in ("not a bot"), kino says so and stops
-  downloading for 15 minutes; it never signs in.
+  none, the answer says so. On YouTube's "not a bot" sign-in, kino stops downloading for 15
+  minutes and never signs in.
 
 ## Before the plan
 
@@ -74,10 +74,9 @@ frame strips · Proposing ideas · Sound effects
 
 - `kind:"shorts"` searches YouTube's Shorts filter, then fills up with videos of 60 s or less.
   A result marked `Short 9:16` (`vertical:true` in data) has a `/shorts/` link and a tall
-  thumbnail; measuring reads the picture's shape for the others. It takes 5 to 15 s. The dashboard
-  search has a shorts toggle on the videos tab.
-- TikTok and Instagram need a faked browser or a login to read, which kino never does; paste a
-  YouTube Shorts link instead. A TikTok or Instagram link is refused with that reason.
+  thumbnail; measuring reads the picture's shape for the others. It takes 5 to 15 s.
+- TikTok and Instagram need a faked browser or a login, which kino never does: such a link is
+  refused; paste a YouTube Shorts link instead.
 
 ```json
 {"tool":"library","topic":"inspire","search":"app launch animation","kind":"shorts","count":6}
@@ -88,6 +87,9 @@ frame strips · Proposing ideas · Sound effects
 - Reading one reference also gives its fingerprint and 3 to 6 suggested style lines, each with
   the time it came from and technique tags (`[slow-push]`, `[type-words]`). They are guesses: look
   at the strips first, then keep the ones you confirm in the brief's style (with `ref` and `at`).
+- A reference with text asks for its type: read the family class (serif, sans, mono, script),
+  size, case and reveal off the strips; save `"type: <family class>, <size>, <case>, <reveal>"`
+  with `ref` and `at`. Treatments take their `type` from these.
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.
   Without `ref` it lists the project's saved references, one line each.
@@ -109,8 +111,7 @@ frame strips · Proposing ideas · Sound effects
   the person allows them (with an optional note) or says not yet. Only the person switches or
   allows; your next call's inbox says which ideas to use. Then add each to the brief's style
   (`notes {action:"brief"}`, with `ref` and `at`) and make them.
-- While a reference is read, F3 shows the frame being measured, its motion arrows, the text read
-  and the cuts found so far (sent live, never saved).
+- While a reference is read, F3 shows the frame, motion arrows, text and cuts found so far (live).
 
 ```json
 {"tool":"library","topic":"inspire","ideas":{"ref":"yt:tgEWNHVbk3U","take":[{"title":"cut on the third beat","from":1,"to":2,"what":"a hard cut lands on the beat","why":"the cut feels earned","use":"cut the title in on rhythm-3","place":{"at":1}}],"skip":[{"title":"their logo","why":"their brand, not a style"}]}}

@@ -26,7 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { beatFit, beatFitLine } from "./measure/beat-fit.mjs";
-import { suggestStyleLines, suggestionText } from "./measure/suggest.mjs";
+import { suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
 import { backgroundStep, lowerIfBackground } from "./render-activity.mjs";
 import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTubeGate } from "./process-slots.mjs";
 import { SEARCH_KINDS } from "./agent/actions.mjs";
@@ -1798,6 +1798,8 @@ export function fingerprintLines(ref) {
   if (ref.stripList?.length) lines.push(`frame strips kept: ${ref.stripList.length} (cuts, motion peaks, text entrances): look {mode:"reference", ref:"${ref.id}", t:${ref.stripList[0].at}}; without t, page 1 of ${Math.ceil(ref.stripList.length / 6)}`);
   const suggested = suggestionText(suggestStyleLines(fp, ref.numbers, ref.id), ref.id);
   if (suggested) lines.push(suggested);
+  const type = typeNote(fp, ref.id);
+  if (type) lines.push(type);
   return lines;
 }
 

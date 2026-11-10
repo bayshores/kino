@@ -8,7 +8,7 @@ import {
   CELL_COLS, CELL_ROWS, classifyReveals, fingerprint, fitGlobalMotion, gradualTransitions, packPrint, pairMotion, palette, persistentElements,
   printDistance, revealOf, sameLine, trackText, unpackPrint,
 } from "./measure/fingerprint.mjs";
-import { suggestStyleLines, suggestionText } from "./measure/suggest.mjs";
+import { suggestStyleLines, suggestionText, typeNote } from "./measure/suggest.mjs";
 import { MAX_STRIPS, stripArgs, stripMoments } from "./measure/strips.mjs";
 import { compareFingerprints } from "../engine/quality/referenceCompare.js";
 import { drifted, pairTimes } from "../engine/quality/rules/reference.js";
@@ -166,6 +166,9 @@ test("suggested style lines say the number and the time, carry technique tags, a
   const still = suggestStyleLines(fp({ camera: { ...fp().camera, moving: 0.1 }, motion: { ...fp().motion, stillShare: 0.6 } }));
   assert.ok(still.some((entry) => entry.tags.includes("hold")));
   assert.match(suggestionText(lines, "yt:G9wj1YA0DYI"), /^suggested style lines \(guesses/);
+  // A reference with text also asks for its type: family class (seen, not measured), size, case, reveal, with a time.
+  assert.match(typeNote(fp(), "yt:G9wj1YA0DYI"), /^type to note \(the family class is not measured\): look at the text strips \(3\.0 s, 44\.2 s\), then save a style line "type: <family class .*big type 25% of the time\), case \(mostly lowercase\), how it appears>" with ref "yt:G9wj1YA0DYI"/);
+  assert.equal(typeNote(fp({ text: { ...fp().text, share: 0.05, bigShare: 0.02 } }), "yt:a"), null);
 });
 
 test("the render is compared with the references; text drives the warning, motion and closeness only advise", () => {
