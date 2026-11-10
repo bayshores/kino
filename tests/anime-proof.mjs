@@ -65,13 +65,24 @@ export async function proveSeed(server, seed, { render = true } = {}) {
     return { name: match[1], at, off: Math.min(...starts.map((start) => Math.abs(start - at))) };
   });
   lines.push(`seams: ${seams.map((seam) => `${seam.name} ${seam.at} s, nearest shot start ${seam.off.toFixed(3)} s off`).join("; ") || "none in the edit"}`);
+  let rendered = true;
   if (render) {
     const out = await mkdtemp(path.join(tmpdir(), "kino-anime-proof-render-"));
-    const rendered = await api.agent(project, "render", { action: "start", quality: "draft", out, wait: true });
-    lines.push(`render: ${rendered.isError ? rendered.text : rendered.text.split("\n")[0]} (delete ${out} after looking)`);
+    let answer = await api.agent(project, "render", { action: "start", quality: "draft", out, wait: true });
+    // A wait answers within 55 s, and its first line is "<job> draft <status> rev ...": a render still
+    // running (inProgress, queued) is waited for again, up to 10 more times.
+    const head = (reply) => /^(\S+) \S+ (\S+) rev /.exec(reply.text);
+    for (let again = 0; again < 10 && !answer.isError; again += 1) {
+      const [, job, status] = head(answer) ?? [];
+      if (!job || ["done", "failed", "canceled"].includes(status)) break;
+      answer = await api.agent(project, "render", { action: "wait", job });
+    }
+    // A render that did not end done (still running, failed, canceled or refused) is a failed seed.
+    rendered = !answer.isError && head(answer)?.[2] === "done";
+    lines.push(`render: ${rendered ? "" : "NOT DONE: "}${answer.isError ? answer.text : answer.text.split("\n")[0]} (delete ${out} after looking)`);
   }
   // A song with seams in the edit must give cues, and every cue needs a shot starting within one frame.
-  return { lines, pass: !findings.length && seams.length > 0 && seams.every((seam) => seam.off <= FRAME + 0.006) };
+  return { lines, pass: rendered && !findings.length && seams.length > 0 && seams.every((seam) => seam.off <= FRAME + 0.006) };
 }
 
 // By hand: three seeds on a test server.

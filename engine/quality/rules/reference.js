@@ -248,8 +248,8 @@ export function referenceCloseness(model, ctx) {
     findings.push({
       rule: "reference_closeness", severity: "warn", ...(order ? { at: order.at } : {}),
       measured: order ? `${order.list.join(" then ")} from ${order.at}s` : `all of ${POOLED_PROFILE.devices.join(", ")}`,
-      required: "not the device stack the studied anime-edit references share, nor its order",
-      message: `${ctx.sceneName} ${order ? `stacks ${shownWords.join(", then ")} within 2 s` : `uses every device (${shownWords.join(", ")})`}: the device stack the studied anime-edit references share reads as a copy. Keep the ones this song and footage motivate.`,
+      required: "not the device stack your saved references share, nor its order",
+      message: `${ctx.sceneName} ${order ? `stacks ${shownWords.join(", then ")} within 2 s` : `uses every device (${shownWords.join(", ")})`}: the device stack your saved references share reads as a copy. Keep the ones this song and footage motivate.`,
       fix: { kind: "hint", text: "Drop a device that no seam or footage event calls for; zero of any device is fine." },
     });
   }

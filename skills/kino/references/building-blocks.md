@@ -38,7 +38,7 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
   until it leaves, so no hold sits still. A move started over it takes its place.
 
 ```json
-{"op":"set_brand","name":"orbit","colors":{"bg":"#0f1420","surface":"#1a2233","text":"#f4f6fb","accent":"#ff7a45","accent2":"#4fd1c5"},"fonts":[{"family":"Montserrat"},{"family":"Inter"}],"logos":[{"text":"Orbit"}]}
+{"op":"set_brand","name":"orbit","colors":{"bg":"#0f1420","surface":"#1a2233","text":"#f4f6fb","accent":"#ff7a45","accent2":"#4fd1c5"},"fonts":[{"family":"Noto Serif"},{"family":"Montserrat"}],"logos":[{"text":"Orbit"}]}
 {"op":"compose","type":"promo","format":"16:9","duration":15,"look":"bold","beats":[{"recipe":"logo-sting","tagline":"Plan the week in one view"},{"recipe":"headline-reveal","text":"Your team's week, in one view","transition":"push"},{"recipe":"feature-callout","text":"Shared calendars","sub":"Everyone sees the same week"},{"recipe":"cta-end","text":"Try Orbit free","sub":"orbit.app"}]}
 {"op":"recipe","name":"cta-end","id":"cta-end","text":"Start free today"}
 ```

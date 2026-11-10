@@ -5,7 +5,7 @@
 // leave as it ends; the last beat stays to the end. A beat may start with a transition (push, cut-on-motion or mask-wipe).
 import { parseFormat } from "./formats.js";
 import { fpsLabel, parseFps } from "../frameRate.js";
-import { styleFor, LOOK_NAMES } from "./looks.js";
+import { styleFor, seededLook, LOOK_NAMES } from "./looks.js";
 import { FEELS } from "./tokens.js";
 import { recipeOf, TRANSITION_NAMES } from "./recipes/index.js";
 import { applyTransition } from "./recipes/transitions.js";
@@ -41,7 +41,8 @@ export function readComposition(raw) {
   const duration = raw.duration ?? "auto";
   if (duration !== "auto" && (typeof duration !== "number" || !Number.isFinite(duration) || duration < 1 || duration > 600))
     throw new Error('duration is seconds from 1 to 600, or "auto" (the time the beats need).');
-  const look = raw.look ?? "crisp";
+  // No look given: the seed picks one (backend/agent/blocks.mjs passes the project's seed and says so).
+  const look = raw.look ?? seededLook(raw.seed ?? 1);
   if (!LOOK_NAMES.includes(look)) throw new Error(`Unknown look "${look}". Looks: ${LOOK_NAMES.join(", ")}.`);
   if (raw.feel !== undefined && !FEELS[raw.feel]) throw new Error(`feel must be one of ${Object.keys(FEELS).join(", ")}.`);
   if (raw.type !== undefined && !COMPOSITION_TYPES.includes(raw.type)) throw new Error(`type must be one of ${COMPOSITION_TYPES.join(", ")}.`);

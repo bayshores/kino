@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { projectSeed } from "../engine/deck.js";
+import { seededLook } from "../engine/blocks/looks.js";
 import { askText } from "./agent/stops.mjs";
 import { cleanTreatments, pickedEnding, pickedSignature, pickedType, pickLines, shownLines, treatmentsProblem, treatmentsText } from "./agent/treatments.mjs";
 import { briefChanges, lockCall } from "./agent/brief.mjs";
@@ -157,6 +158,36 @@ test("compose and recipe default their seed to the project's seed, not 1; a give
   assert.equal(recipe.isError, undefined, recipe.text);
   const made = (await documentOf("seed-r")).scenes[0].layers.find((layer) => layer.recipe && !layer.recipe.part);
   assert.equal(made.recipe.settings.seed, projectSeed("seed-r"));
+});
+
+test("compose and recipe with no look: the seed picks one and says so, and the style spec's type wins", async () => {
+  const beats = [{ recipe: "headline-reveal", text: "Your week, in one view" }];
+  const looks = {};
+  for (const id of ["look-a", "look-b"]) {
+    await agent("project", { action: "create", id, name: id, width: 1920, height: 1080, duration: 8 });
+    const composed = await agent("edit", { project: id, ops: [{ op: "compose", format: "16:9", beats }] });
+    assert.equal(composed.isError, undefined, composed.text);
+    assert.match(composed.text, /seeded: no type picked yet; pick from your references/);
+    looks[id] = (await documentOf(id)).scenes.find((entry) => entry.composition).composition.look;
+  }
+  assert.deepEqual([looks["look-a"], looks["look-b"]], [seededLook(projectSeed("look-a")), seededLook(projectSeed("look-b"))]);
+  assert.notEqual(looks["look-a"], looks["look-b"]);
+  // A picked type (the style spec's fonts) wins: the text is set in it whatever look the seed gave.
+  await agent("project", { action: "create", id: "look-e", name: "look-e", width: 1920, height: 1080, duration: 8 });
+  const saved = await agent("notes", { project: "look-e", action: "brief", fields: { style: { by: "guessed", wants: ["dissolve"], fonts: { display: { family: "Montserrat", size: 120 }, caption: { family: "Noto Serif", size: 48 } } } } });
+  assert.equal(saved.isError, undefined, saved.text);
+  const typed = await agent("edit", { project: "look-e", ops: [{ op: "compose", format: "16:9", beats }] });
+  assert.equal(typed.isError, undefined, typed.text);
+  assert.match(typed.text, /type from the style spec: Montserrat and Noto Serif/);
+  const layers = (await documentOf("look-e")).scenes.find((entry) => entry.composition).layers;
+  assert.ok(layers.some((layer) => layer.type === "text" && layer.fontFamily === "Montserrat"), "the headline is set in the picked display face");
+  // A recipe with no look takes the seed's, saves it, and keeps it when made again.
+  await agent("project", { action: "create", id: "look-c", name: "look-c", width: 1920, height: 1080, duration: 6 });
+  const recipe = await agent("edit", { project: "look-c", ops: [{ op: "recipe", name: "headline-reveal", id: "head", text: "Hello there" }] });
+  assert.equal(recipe.isError, undefined, recipe.text);
+  assert.match(recipe.text, /look data \(seeded/);
+  const made = (await documentOf("look-c")).scenes[0].layers.find((layer) => layer.recipe && !layer.recipe.part);
+  assert.equal(made.recipe.settings.look, seededLook(projectSeed("look-c")));
 });
 
 test("variants {vary:\"deck\"} makes 3 scenes from the next decks; picking one makes its deck the project's", async () => {

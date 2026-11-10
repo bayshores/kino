@@ -81,6 +81,18 @@ export function typeFloor(frame) {
   return isPortraitFrame(frame) ? { headline: Math.ceil(90 * scale), body: Math.ceil(32 * scale) } : { headline: Math.ceil(64 * scale), body: Math.ceil(36 * scale) };
 }
 
+/**
+ * The look a project gets when it names none and has no picked type or brand: its seed picks among
+ * the looks, so no single face is the fallback (type comes from references, the picked
+ * treatment's type, a style frame and Recall; a look only supplies the rest).
+ */
+export function seededLook(seed = 1) {
+  let hash = Math.imul((Math.trunc(Number(seed)) || 0) ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
+  hash = Math.imul(hash ^ (hash >>> 15), 0xc2b2ae35) >>> 0;
+  return LOOK_NAMES[((hash ^ (hash >>> 13)) >>> 0) % LOOK_NAMES.length];
+}
+
+// lookOf() with no name is a document saved before looks were seeded: it was made in crisp.
 export function lookOf(name) {
   const found = LOOKS[name ?? "crisp"];
   if (!found) throw new Error(`Unknown look "${name}". Looks: ${LOOK_NAMES.join(", ")}.`);
