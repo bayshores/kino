@@ -688,6 +688,10 @@ How to read it:
   `backend/footage-finder.test.mjs` (stub yt-dlp: search, scan, import, add_layer, a final frame and
   its credit line), `skills/kino/references/footage.md`. Gaps: not
   run live in CI; YouTube licenses unknown; the image model does not know character names.
+- **Scan marks, subtitles and drawn footage**: Stub-verified. A logo on most shots of a scan is
+  said once and is no text (its video lists after clean ones), bottom-center subtitles go last,
+  drawn footage is not ranked by faces and keeps the match bar at 2, and a miss says how close it
+  came. Evidence: `backend/footage-finder.test.mjs` (drawn footage). Gap: tuned on one live anime scan.
 
 ## Audio and captions
 

@@ -12,7 +12,7 @@ import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
-import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE } from "./footage-finder/actions.mjs";
+import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scanText } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
@@ -46,7 +46,7 @@ function commonsPage(pageid, { license = "CC BY-SA 4.0", licenseUrl = "https://c
   };
 }
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
-import { matchBar, pruneScans, rankShots, readScan, scanFootage, scansFolder } from "./footage-finder/score.mjs";
+import { matchBar, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scansFolder } from "./footage-finder/score.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
@@ -274,7 +274,7 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
     const copy = { folder: copyFolder, files: [{ start: 60, end: 70, file: path.join(copyFolder, "scan.60.webm") }] };
     const scan = await scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, want: "white hair", embed, tools });
     await assert.rejects(stat(copyFolder), { code: "ENOENT" });
-    assert.deepEqual(scan.skipped, { dark: 1, text: 1, short: 0, repeats: 1 });
+    assert.deepEqual(scan.skipped, { dark: 1, text: 1, subtitles: 0, short: 0, repeats: 1 });
     // Numbers follow time (A 1, B+C 2, D 3, E 4); the clean shots rank first, the dark and title shots last.
     assert.deepEqual(scan.shots.map((shot) => shot.n), [1, 2, 3, 4]);
     assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [62, 66], [66, 68], [68, 70]]);
@@ -308,6 +308,67 @@ test("a scan puts dark and title shots last, joins 0.96-alike neighbors, gives m
   // Without the footage finder's allowance, a 25 min file is still too long to look in.
   await assert.rejects(findShots("none.webm", { duration: 1500 }), { code: "TOO_LONG" });
   await assert.rejects(findShots("none.webm", { duration: 2000, maxSeconds: 1800 }), /up to 30 min/);
+});
+
+test("drawn footage: a logo on every shot is said once and is no text, subtitles go last, faces are not read, and a 2.3 match shows", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-drawn-"));
+  const copyFolder = path.join(directory, "copy");
+  await mkdir(copyFolder);
+  // Twelve 1 s shots. A corner logo the OCR reads as two lines or one, in four spellings and sizes, on all
+  // but shots 4 and 9 (0-based); a copyright line bottom-right on all; subtitles on shots 3 and 7;
+  // a title card on shot 11; the face detector fires on shot 5 (noise on a drawing).
+  const logo = (k) => (k % 2 ? [k === 3 ? { box: [0.02, 0.02, 0.03, 0.04], s: "LO" } : { box: [0.021, 0.021, 0.081, 0.04], s: "L0G0" }]
+    : [{ box: [0.02, 0.02, 0.08, 0.04], s: k ? "LOG0" : "LOGO" }, { box: [0.02, 0.065, 0.1, 0.03], s: "studio" }]);
+  const samples = Array.from({ length: 48 }, (_, index) => {
+    const [shot, k] = [Math.floor(index / 4), index % 4];
+    const text = [...(shot === 4 || shot === 9 ? [] : logo(k)), { box: [0.8, 0.95, 0.18, 0.02], s: `(c) studio ${k}` }];
+    if ((shot === 3 || shot === 7) && k === 0) text.push({ box: [0.4, 0.88, 0.2, 0.05], s: "Behind you!" });
+    if (shot === 11) text.push({ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" });
+    return { t: index / 4, luma: 0.5, change: 0.1, motion: null, faces: shot === 5 ? [[0.4, 0.3, 0.2, 0.3]] : [], text };
+  });
+  const tools = {
+    probe: async () => ({ duration: 12, width: 640, height: 360 }),
+    findShots: async () => ({ shots: Array.from({ length: 12 }, (_, index) => ({ start: index, end: index + 1 })) }),
+    measure: async () => ({ samples, vision: { faces: true, text: true, flow: false } }),
+    stills: async (file, times) => times.map((time) => `still-${Math.floor(time)}`),
+    sheet: async (stills, out) => { await writeFile(out, "jpg"); },
+  };
+  // Dimensions: the wanted look, two kinds of other content, drawn, photo. Every still is drawn; shot 6 is the wanted one.
+  const stillVector = (index) => normalize([index === 6 ? 0.9 : 0, index % 2 ? 0.6 : 0, index % 2 ? 0 : 0.6, 0.6, 0.1]);
+  const words = { "white hair": [1, 0, 0, 0, 0], "an anime screenshot or a cartoon": [0, 0, 0, 1, 0], "a photo": [0, 0, 0, 0, 1] };
+  const embed = {
+    images: async (files) => ({ model: "test", vectors: files.map((file) => encodeVector(stillVector(Number(file.split("-")[1])))) }),
+    text: async (prompts) => prompts.map((prompt) => Float32Array.from(words[prompt])),
+  };
+  try {
+    const copy = { folder: copyFolder, files: [{ start: 0, end: 12, file: path.join(copyFolder, "scan.0.webm") }] };
+    const scan = await scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, want: "white hair", embed, tools });
+    assert.equal(scan.drawn, true);
+    assert.deepEqual(scan.marks.map((mark) => [mark.where, mark.share]), [["bottom-right", 1], ["top-left", 0.833]]);
+    assert.deepEqual(scan.skipped, { dark: 0, text: 1, subtitles: 2, short: 0, repeats: 0 });
+    const flagsOf = Object.fromEntries(scan.shots.map((shot) => [shot.n, shot.flags.join(" ")]));
+    assert.deepEqual([flagsOf[4], flagsOf[8], flagsOf[12], flagsOf[1], flagsOf[6]], ["subtitles", "subtitles", "text", "", ""]);
+    assert.ok(scan.shots.every((shot) => shot.face === null));
+    assert.deepEqual([scan.matchShown, scan.shots[0].n], [true, 7]);
+    const text = scanText({ code: "F1", title: "Fight", license: "unknown" }, scan);
+    assert.match(text, /\nLogo bottom-right and top-left on every shot: crop or cover it\.\nFaces: not read on drawn footage\./);
+    assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ match \+3\.3\n/);
+    assert.equal(text.match(/Logo/g).length, 1);
+    // The video with a logo lists after one without; a scan without the model says so; a miss says how close it came.
+    assert.deepEqual(logoLast([{ code: "F1", scan: { logo: "top-left" } }, { code: "F2" }]).map((entry) => entry.code), ["F2", "F1"]);
+    assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: null, shots: [] }), /The image model did not run, so "white hair" was not looked for/);
+    assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: "m", matchBest: 1.4, matchBar: 2, shots: [] }), /No visual match for "white hair" \(closest \+1\.4, a match needs \+2\.0\): shots rank on motion, faces/);
+    // Drawn footage keeps the bar at 2, so a recurring character's best shot (a 0.3 s flash at z 2.3) shows; on photos 20 shots need 2.45.
+    const twenty = Array.from({ length: 20 }, (_, index) => {
+      const c = index === 19 ? 0.22 : 0.1 + 0.02 * ((index * 7) % 5);
+      return { start: index, end: index + (index === 19 ? 0.3 : 1), motion: 50, face: null, luma: 0.5, text: 0, subs: 0, logo: 0, vector: Float32Array.from([c, Math.sqrt(1 - c * c)]) };
+    });
+    const want = Float32Array.from([1, 0]);
+    assert.deepEqual([rankShots(twenty, { wantVector: want, drawn: true }).matchShown, rankShots(twenty, { wantVector: want }).matchShown], [true, false]);
+    assert.equal(matchBar(77, { drawn: true }), 2);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("a scan copy that starts at the keyframe before its stretch saves shot times in the video's seconds", async () => {
@@ -627,7 +688,7 @@ test("look source ref F1 draws a saved scan's sheet as one image, each still lab
   // A saved scan of yt:AAAAAAAAAAA and its sheet: 5 stills of 320x180 in a 4 by 3 grid.
   await mkdir(scansFolder(dataRoot), { recursive: true });
   const shots = [12, 37, 5, 20, 8].map((n, index) => ({ n, start: n * 10, end: n * 10 + 2, motion: 80 - index, face: 0, match: 0, flags: [] }));
-  await writeFile(path.join(scansFolder(dataRoot), "yt-AAAAAAAAAAA.json"), JSON.stringify({ version: 1, id: "yt-AAAAAAAAAAA", title: "Episode 1", want: "", windows: [{ start: 0, end: 480 }], skipped: {}, sheet: shots.map((shot) => shot.n), shots }));
+  await writeFile(path.join(scansFolder(dataRoot), "yt-AAAAAAAAAAA.json"), JSON.stringify({ version: SCAN_VERSION, id: "yt-AAAAAAAAAAA", title: "Episode 1", want: "", windows: [{ start: 0, end: 480 }], skipped: {}, sheet: shots.map((shot) => shot.n), shots }));
   const canvas = createCanvas(1280, 540);
   const context = canvas.getContext("2d");
   shots.forEach((_, index) => { context.fillStyle = `hsl(${index * 70}, 80%, 50%)`; context.fillRect((index % 4) * 320, Math.floor(index / 4) * 180, 320, 180); });
