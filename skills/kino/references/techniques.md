@@ -1,13 +1,13 @@
 # Techniques and the style spec
 
 Agents left alone make the same edit (hard cuts, text cards, a kick on every beat). kino names
-the techniques, finds them and lets references set the style.
+the techniques, finds them, lets references set the style.
 
 Contents: The vocabulary · The style spec · What check measures · The deck · Treatments · Building with techniques
 
 ## The vocabulary
 
-56 tags in 6 groups. `library {topic:"techniques", name?}` lists them, or one. `*` marks ones check cannot find in a document yet.
+56 tags in 6 groups; `library {topic:"techniques", name?}` lists them or one. `*` marks ones check cannot find in a document yet.
 
 - **transition**: cut, match-cut*, dissolve, fade-black, blur-through, zoom-through, whip-pan,
   mask-wipe, glitch-hit, flash, push-transition
@@ -105,8 +105,7 @@ Seed: the project's plus the reroll count. The deal:
 - steers away from what the last 3 projects were dealt and used;
 - never deals plain cuts, plain text, beat kicks, or both type-pop and slow-push.
 
-Build each card where it fits; swap one that does not, with the reason (2 a deal); none fit:
-reroll.
+Build each card where it fits; swap one that does not, with the reason (2 a deal); none fit: reroll.
 
 ```json
 {"tool":"notes","action":"deck"}
@@ -122,7 +121,7 @@ project's. Recipes and compose take the project's seed when you give none.
 
 Before building, write 5 small stories, all fields required: idea, `tension` (what the viewer
 wants, fears or wonders), `turn` (the on-screen moment it flips), move, rhythm, `source` (the
-file or screen it uses), `p` (0 to 1: how typical the story is). kino shows the 3 least typical
+file or screen it uses), `p` (0 to 1: how typical the story). kino shows the 3 least typical
 as `A. idea · tension → turn · move`. The pick, with their words (under "just start", yours),
 sets `style.idea` and the first signature. Building first is `order_needed`; waive_check code
 "treatments" skips it.
@@ -134,11 +133,11 @@ sets `style.idea` and the first signature. Building first is `order_needed`; wai
 
 ## Building with techniques
 
-- Before building, name 4 to 8 techniques the references use, with times, and write the spec.
-- Give each section its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
+- Before building, name 4 to 8 techniques the references use, with times; write the spec.
+- Each section gets its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
   `flat_sections` checks it.
 - Keep set pieces and loud accents for the moments that matter: one zoom-through into the
   product, one glitch-hit on the drop.
 - A slow-push or drift under text turns a slide into a shot; depth-blur behind floating clips
   gives depth without new footage.
-- Kicks and flashes on every beat read as a tic: pick the 2 or 3 biggest hits.
+- Kicks and flashes on every beat are a tic: use the 2 or 3 biggest hits.
