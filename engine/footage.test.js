@@ -77,12 +77,13 @@ test("layout: same shape fills, a phone clip in 16:9 is a card, a screen goes ov
 
 // Music-led pacing (pace.js): six steady clips cut to a
 // 105 BPM song.
-const paced = (pace, duration) => {
-  const samples = Array.from({ length: 40 }, (_, index) => ({ t: index / 2, motion: 0.1, change: 0.05, bright: 0.5, faces: [] }));
-  const clips = Array.from({ length: 6 }, (_, index) => ({ key: `c${index}`, name: `clip${index}`, src: `c${index}.mp4`, kind: "camera", width: 1920, height: 1080, duration: 20, in: 0, out: 20, words: [], samples, shots: [{ start: 0, end: 20 }] }));
+// `sample` adds measured fields to every sample, `clip` to every clip, `input` to the plan's input.
+const paced = (pace, duration, { sample = {}, clip = {}, curve = [], ...input } = {}) => {
+  const samples = Array.from({ length: 40 }, (_, index) => ({ t: index / 2, motion: 0.1, change: 0.05, bright: 0.5, faces: [], ...sample }));
+  const clips = Array.from({ length: 6 }, (_, index) => ({ key: `c${index}`, name: `clip${index}`, src: `c${index}.mp4`, kind: "camera", width: 1920, height: 1080, duration: 20, in: 0, out: 20, words: [], samples, shots: [{ start: 0, end: 20 }], ...clip }));
   const period = 60 / 105;
   const analysis = { beats: Array.from({ length: 200 }, (_, index) => 0.3 + index * period), period, bpm: 105, onsets: [] };
-  const plan = planEdit({ clips, music: { src: "m.mp3", duration: 120, analysis, loud: -14, curve: [] }, frame: { width: 1920, height: 1080 }, duration, treatment: "punchy", pace, seed: 3, title: "Hi" });
+  const plan = planEdit({ clips, music: { src: "m.mp3", duration: 120, analysis, loud: -14, curve }, frame: { width: 1920, height: 1080 }, duration, treatment: "punchy", pace, seed: 3, title: "Hi", ...input });
   return { plan, period, clips: new Map(clips.map((clip) => [clip.key, clip])) };
 };
 
@@ -102,7 +103,7 @@ test("pace: runs of whole beats on the beat grid, a calm open and an ending twic
 test("accents: a zoom punch on every other downbeat in the open, every one in the ending, none under words", () => {
   const bars = [0, 2, 4, 6, 8, 10, 12, 14];
   assert.deepEqual(accentTimes(bars, { ending: 10, quiet: [{ start: 3.9, end: 4.2 }] }), [0, 8, 10, 12, 14]);
-  const { plan, clips } = paced("promo", 30);
+  const { plan, clips } = paced("promo", 30, { accents: true });
   const accented = plan.shots.filter((shot) => shot.accents);
   assert.ok(accented.length >= 3);
   const ops = footageOps(plan, clips);
@@ -110,4 +111,45 @@ test("accents: a zoom punch on every other downbeat in the open, every one in th
   const punch = layer.animations.find((animation) => animation.name === "Accent");
   assert.equal(punch.start, round3(accented[0].accents[0] - 0.04));
   assert.ok(punch.to.scaleX > punch.from.scaleX);
+});
+
+test("quiet by default: the same inputs give no effect without a measured reason", () => {
+  const deck = { cards: [{ tag: "speed-ramp" }, { tag: "push-transition" }], setPiece: { kind: "move", name: "rgb-split-hit" } };
+  // A loud treatment with no drop measured: no downbeat punch, no camera step, no hit, no color
+  // split on a fixed shot, no slam title.
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const { plan, clips } = paced("promo", 30, { treatment: "loud", seed, deck });
+    assert.equal(plan.hits.length, 0);
+    assert.ok(plan.shots.every((shot) => !shot.accents && shot.camera.kind !== "punch-in"));
+    assert.notEqual(plan.title.enter, "slam");
+    assert.ok(!footageOps(plan, clips).some((op) => /^(flash-hit|hit-|flash-)/.test(op.id ?? op.name ?? "")));
+    // A flash or glitch cut needs the drop too: none on a cut picked by the seed.
+    assert.ok(!plan.shots.some((shot) => ["flash", "glitch-hit"].includes(shot.transition?.kind)));
+  }
+  // A real drop motivates one hit, on its beat, as strong as the rise; a gentle swell places the
+  // music but motivates nothing.
+  const rise = (from, to) => [...Array(60).fill(from), ...Array(180).fill(to)];
+  const { plan: dropped, period } = paced("promo", 30, { treatment: "loud", curve: rise(-30, -10) });
+  assert.equal(dropped.hits.length, 1);
+  assert.ok(Math.abs(dropped.hits[0].at - dropped.music.drop) < period / 2);
+  assert.equal(dropped.hits[0].strength, 0.45);
+  const smaller = paced("promo", 30, { treatment: "loud", curve: rise(-18, -10) }).plan;
+  assert.ok(smaller.hits.length === 1 && smaller.hits[0].strength < 0.4);
+  const swell = paced("promo", 30, { treatment: "loud", curve: rise(-14, -11.5) }).plan;
+  assert.ok(swell.music.drop !== null && swell.hits.length === 0, swell.words[0]);
+  // Slow motion holds frames and a push keeps one way, until the footage measures one frame per
+  // drawing (blend) and a sideways motion (the push follows it).
+  const story = (extra) => paced(null, 30, { treatment: "story", deck, ...extra });
+  const pushes = (plan) => plan.shots.filter((shot) => shot.transition?.kind === "push-transition").map((shot) => shot.transition.direction);
+  const plain = story({});
+  assert.ok(pushes(plain.plan).length && pushes(plain.plan).every((direction) => direction === -1));
+  assert.ok(plain.plan.shots.some((shot) => shot.ramp) && !footageOps(plain.plan, plain.clips).some((op) => op.properties?.mediaInterpolation));
+  const measured = story({ sample: { dx: 0.1 }, clip: { framesPerDrawing: 1 } });
+  assert.ok(pushes(measured.plan).every((direction) => direction === 1));
+  assert.ok(footageOps(measured.plan, measured.clips).some((op) => op.properties?.mediaInterpolation === "blend"));
+  // A flash on the drop is softer over a dim shot and on a smaller rise.
+  const flash = (luma, curve) => paced("promo", 30, { treatment: "calm", deck: { cards: [{ tag: "flash" }] }, sample: { luma }, curve }).plan.hits[0]?.peak;
+  assert.equal(flash(0.15, rise(-30, -10)), 0.45);
+  assert.equal(flash(0.7, rise(-30, -10)), 0.85);
+  assert.ok(flash(0.7, rise(-18, -10)) < 0.7);
 });

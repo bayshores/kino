@@ -30,7 +30,7 @@ export function topicWords(transcripts) {
 }
 
 // The measured samples of a clip between two file times.
-const samplesIn = (clip, from, to) => (clip.samples ?? []).filter((sample) => sample.t >= from - 1e-6 && sample.t <= to + 1e-6);
+export const samplesIn = (clip, from, to) => (clip.samples ?? []).filter((sample) => sample.t >= from - 1e-6 && sample.t <= to + 1e-6);
 const measuredFaces = (list) => list.filter((sample) => Array.isArray(sample.faces));
 // A face counts when it is at least 0.4% of the frame (a person, not a poster in the back).
 const hasFace = (sample) => (sample.faces ?? []).some(([, , w, h]) => w * h >= 0.004);

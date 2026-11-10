@@ -5,7 +5,8 @@
 //     line (9 of 17 multi-shot previews; 16 x 0.67 s, then 4 x 2.6 s, ...)
 //   - promo: about 2 beats a shot, one hero hold up to 5.5 s; velocity: 1 beat a shot
 //   - every cut on the beat grid, from beat indexes (promos that count frames drift off the song)
-//   - a motion accent on each downbeat, cut or not (motion 9.9 on downbeats vs 6.9 on other beats)
+//   - a motion accent on each downbeat, cut or not (motion 9.9 on downbeats vs 6.9 on other beats);
+//     off unless asked (accents:true): a template average is no reason for an accent on a shot
 //   - a calm open and an ending at about twice the opening's motion (promo 4.1 first s, 8.9 last s)
 // Plain data in, plain data out; plan.js uses it.
 

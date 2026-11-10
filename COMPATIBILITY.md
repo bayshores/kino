@@ -122,6 +122,14 @@ How to read it:
   so `duration_band` passes them); run through the agent service once on generated clips and a click
   track, not yet judged on real footage. Evidence: `engine/footage.test.js` (pace, accents),
   `engine/qualityPolish.test.js` (accent punch).
+- **Quiet footage defaults**: Partly verified (plan level). compose {footage} adds no effect without a
+  measured reason: downbeat punches only with `accents:true`; one hit, and flash or glitch cuts, only
+  on a real drop (6 dB rise), sized by the rise and the shot's brightness; no beat step or slam title;
+  push direction and frame blending only from measured footage; the deck never deals loud accents,
+  not even as a signature; a plain cut on a song seam counts as designed. Song seams other than the
+  drop are not read yet (seam-locked planner). Not
+  yet rendered on real footage. Evidence: `engine/footage.test.js` (quiet by default),
+  `engine/deck.test.js`, `engine/qualityStyle.test.js` (plain_beats).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).
