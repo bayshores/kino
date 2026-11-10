@@ -58,9 +58,11 @@ import { shotsNeeded, wantBySection } from "./footage-finder/needs.mjs";
 import { joinStretches, planTake, takeCredit, takeFootage, takeText } from "./footage-finder/take.mjs";
 import { writeFileSync } from "node:fs";
 
-test("library passes the fields its listed schema leaves out (scan, want, note, measure) on to kino", async () => {
+test("library and project pass the fields their listed schemas leave out (scan, want, note, measure; import from/to) on to kino", async () => {
   const calls = [];
-  const client = { async call(name, input) { calls.push({ name, input }); return { text: "ok" }; }, async importFile() { return {}; } };
+  const imports = [];
+  const client = { async call(name, input) { calls.push({ name, input }); return { text: "ok" }; },
+    async importFile(file, { input }) { imports.push(input); return { reply: { text: "ok" } }; } };
   const server = createKinoMcpServer({ client });
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const agent = new Client({ name: "footage-test", version: "1" });
@@ -71,6 +73,9 @@ test("library passes the fields its listed schema leaves out (scan, want, note, 
     assert.equal(result.isError, undefined, result.content?.[0]?.text);
     const input = calls.find((call) => call.name === "library").input;
     for (const key of ["scan", "want", "note", "measure"]) assert.deepEqual(input[key], sent[key], key);
+    const imported = await agent.callTool({ name: "project", arguments: { action: "import", file: "F1", from: "3:00", to: "3:40" } });
+    assert.equal(imported.isError, undefined, imported.content?.[0]?.text);
+    assert.deepEqual([imports[0].from, imports[0].to], ["3:00", "3:40"]);
   } finally {
     await agent.close();
     await server.close();
@@ -714,5 +719,28 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   assert.equal(imported.isError, undefined, imported.text);
   assert.deepEqual(taken, [["F1", [4], "anime-edit"]]);
   assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\)/);
+  assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
+});
+
+test("a slow import answers with a repeat call, and the repeat joins it: one download, the seconds counted once", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  await store.createProject(createDocument({ id: "anime-edit", name: "Anime edit", scenes: [createScene({ id: "s1" })] }));
+  const agentState = createAgentStateStore(dataRoot);
+  await agentState.update("anime-edit", (draft) => { draft.footage = addCandidates(null, [found(1)]); draft.footage.candidates[0].scan = { id: "yt-vvvvvvvvvv1", shots: 1 }; });
+  let takes = 0;
+  let finish;
+  const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }] }),
+    take: () => { takes += 1; return new Promise((resolve) => { finish = () => resolve({ media: [{ id: "m1.mp4", src: "/api/media/m1.mp4", duration: 2, footage: { shot: 4 } }], failed: [] }); }); } };
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder, footageWaitMs: 20 });
+  const importing = () => service.call("project", { project: "anime-edit", action: "import", file: "F1", options: { shots: [4] } });
+  const first = await importing();
+  assert.match(first.text, /^F1 is still importing 1 piece .*Send the same call again/);
+  const second = importing();
+  setTimeout(() => finish(), 5);
+  assert.match((await second).text, /^Imported 1 clip of F1/);
+  assert.equal(takes, 1);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
 });

@@ -17,7 +17,7 @@ import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
-import { createFootageActions, FootageError, FOOTAGE_TOPIC_LINE, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
+import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
 import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
@@ -5899,6 +5899,10 @@ export function createAgentService(deps) {
     return done(projectId, answer, update ? { change(draft) { draft.footage = update(draft.footage ?? null); } } : undefined);
   }
 
+  // Found-footage imports running now, by project, candidate and the shots or stretch asked (like
+  // a footage scan): a repeated call joins the running one or collects its finished result.
+  const footageTakes = new Map();
+
   // project {action:"import", file:"F1", options:{shots}} (or F1.37, clip:<id>, from/to): shots of a
   // scanned found video become clips for this project (footage-finder/take.mjs), each with its
   // credit and code; the candidate keeps what it imported, for the 15 min a project cap.
@@ -5916,29 +5920,59 @@ export function createAgentService(deps) {
         { nextCall: asked?.id ? nextOf("library", { topic: "footage", scan: file }) : nextOf("library", { topic: "footage" }) });
     }
     const options = input.options && typeof input.options === "object" ? input.options : {};
-    const scan = candidate.scan ? await deps.footage.readScan(scanIdOf(candidate)).catch(() => null) : null;
-    let pieces;
-    try { pieces = planTake(candidate, scan, { file, shots: options.shots, from: input.from ?? options.from, to: input.to ?? options.to, used: importedSeconds(state.footage) }); }
-    catch (error) { if (error instanceof FootageError) throw footageError(error); throw error; }
-    let result;
-    try { result = await deps.footage.take(candidate, pieces, { projectId }); }
-    catch (error) {
+    const from = input.from ?? options.from;
+    const to = input.to ?? options.to;
+    // A repeated call (the agent's tool call timed out or was cancelled) joins the import still
+    // running, or collects its finished result, instead of downloading and adding the clips twice.
+    const shotsAsked = (Array.isArray(options.shots) ? options.shots : options.shots === undefined ? [] : [options.shots]).map(String).sort();
+    const key = `${projectId}\n${candidate.id}\n${JSON.stringify({ file, shots: shotsAsked, from: from ?? null, to: to ?? null })}`;
+    let job = footageTakes.get(key);
+    if (!job) {
+      const scan = candidate.scan ? await deps.footage.readScan(scanIdOf(candidate)).catch(() => null) : null;
+      let pieces;
+      try { pieces = planTake(candidate, scan, { file, shots: options.shots, from, to, used: importedSeconds(state.footage) }); }
+      catch (error) { if (error instanceof FootageError) throw footageError(error); throw error; }
+      job = { pieces: pieces.length };
+      // The job saves what it imported itself, so the 15 min cap counts it even when no call
+      // collects the answer.
+      job.promise = deps.footage.take(candidate, pieces, { projectId }).then(async (result) => {
+        const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
+        const shots = result.media.map((item) => item.footage?.shot).filter((n) => n !== null && n !== undefined);
+        if (result.media.length) {
+          await agentState.update(projectId, (draft) => {
+            const entry = draft.footage?.candidates?.find((each) => each.id === candidate.id);
+            if (!entry) return;
+            entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
+          });
+        }
+        return { value: result };
+      }).catch((error) => ({ error }));
+      job.promise.finally(() => { setTimeout(() => { if (footageTakes.get(key) === job) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.(); });
+      footageTakes.set(key, job);
+    }
+    let timer;
+    const waited = await Promise.race([job.promise, new Promise((resolve) => { timer = setTimeout(() => resolve(null), deps.footageWaitMs ?? FOOTAGE_WAIT_MS); })]);
+    clearTimeout(timer);
+    const repeat = nextOf("project", { action: "import", file, ...(input.options !== undefined ? { options: input.options } : {}), ...(input.from !== undefined ? { from: input.from } : {}), ...(input.to !== undefined ? { to: input.to } : {}) });
+    if (!waited) {
+      return done(projectId, { text: `${candidate.code} is still importing ${job.pieces} piece${job.pieces === 1 ? "" : "s"} (download, then an exact cut and encode each). Send the same call again: it joins this import and waits for it.`,
+        data: { importing: candidate.code }, nextCall: repeat });
+    }
+    // The answer is told once: the next same call imports again.
+    if (footageTakes.get(key) === job) footageTakes.delete(key);
+    if (waited.error) {
+      const error = waited.error;
       if (error?.code === "BOT_CHECK") throw new AgentError("bot_check", 'YouTube asked for a bot check, so kino pauses YouTube downloads for 15 minutes (no cookies are ever sent). Use the person\'s own clips, or Commons: library {topic:"footage", search, source:"commons"}.');
       throw new AgentError("failed", `${candidate.code} could not be imported: ${String(error?.message ?? error).split("\n")[0].slice(0, 240)}`);
     }
+    const result = waited.value;
     if (!result.media.length) throw new AgentError("failed", takeText(candidate, result));
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     const lead = personClipsLine(personClipCount(record.document, media));
-    const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
-    const shots = result.media.map((item) => item.footage?.shot).filter((n) => n !== null && n !== undefined);
     const answer = { text: [lead, takeText(candidate, result)].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed },
       nextCall: nextOf("look", { mode: "source" }) };
-    return done(projectId, answer, { change(draft) {
-      const entry = draft.footage?.candidates?.find((each) => each.id === candidate.id);
-      if (!entry) return;
-      entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
-    } });
+    return done(projectId, answer);
   }
 
   // The shots the video's song needs (footage-finder/needs.mjs): the first audio layer of the video
