@@ -19,7 +19,7 @@ function scene(layers, duration = 10) {
   const built = layers.map(({ type, animations = [], ...fields }) => createLayer(type, { ...fields, animations: animations.map((entry, index) => ({ id: `${fields.id}.${index + 1}`, name: `${entry.kind} ${index + 1}`, ...entry })) }));
   return parseDocument(createDocument({ scenes: [createScene({ id: "scene", name: "Scene", width: 1920, height: 1080, duration, background: "#111111", layers: built })] }));
 }
-const run = async (document) => (await runQuality(kinoTimeline(document, "scene", { fonts: defaultFonts }), { codes: ["template_end"], pixels: false, context: {} })).findings;
+const run = async (document, context = {}) => (await runQuality(kinoTimeline(document, "scene", { fonts: defaultFonts }), { codes: ["template_end"], pixels: false, context })).findings;
 
 // The fp-2 ending: the name centered, a tagline and a credit under it, over the flat frame.
 const card = (at, until) => [
@@ -33,7 +33,13 @@ test("template_end: a centered name and tagline over a flat frame for the last 3
   assert.equal(finding?.rule, "template_end");
   // The music credit is no tagline: one smaller line.
   assert.match(finding.measured, /^"kino" centered with 1 smaller line \("you direct\. your agent edits\."\) .* for the last 2\.[67]\ds$/);
-  assert.match(finding.fix.text, /own material.*never a card/);
+  assert.match(finding.fix.text, /answers the hook.*never a card/);
+  // With a spine the hint quotes this video's payoff and names no technique (fp-6 to fp-8 built
+  // "the name behind the cut-out" from the old hint).
+  const spine = [{ role: "hook", from: 0, to: 3, purpose: "a dancer alone on a red wall" }, { role: "payoff", from: 5.5, to: 7, purpose: "the whole crew lands the same move at once" }];
+  const [quoted] = await run(scene([clip("shot", { animations: [hide(7)] }), ...card(7)]), { style: { spine, backed: [], guessed: [] } });
+  assert.match(quoted.fix.text, /the payoff "the whole crew lands the same move at o?n?c?e?" \(5\.5s\)/);
+  assert.doesNotMatch(quoted.fix.text, /behind/);
 });
 
 test("template_end: the same name over a clip still playing, a short card or a mid-video title is silent", async () => {

@@ -705,12 +705,19 @@ export function templateEnd(model, ctx) {
   }
   if (!best) return [];
   const label = (item) => (item.kind === "text" ? `"${String(item.text).replace(/\s+/g, " ").trim().slice(0, 30)}"` : item.name ?? "the logo");
+  // The hint names no technique (a named move becomes every video's ending): with a spine it
+  // quotes this video's own payoff beat; without one, a principle.
+  const payoff = (ctx.style?.spine ?? []).filter((beat) => beat.role === "payoff").at(-1);
+  const purpose = String(payoff?.purpose ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+  const hint = payoff && purpose
+    ? `End on the answer to your story: the payoff "${purpose}" (${sec(payoff.from)}s) at full strength; the name after a cut or small on it. Never a card.`
+    : "End on the shot that answers the hook, from this video's material; never a card or footage dimmed behind one.";
   return [{
     rule: "template_end", severity: "warn", itemId: best.name.id, at: sec(model.times[from]), until: sec(model.times[last]),
     measured: `${label(best.name)} centered with ${best.lines.length} smaller ${best.lines.length === 1 ? "line" : "lines"} (${best.lines.slice(0, 2).map(label).join(", ")}) over a still or darkened picture for the last ${sec(best.held / model.fps)}s`,
     required: `no centered name and tagline card held ${TEMPLATE_HOLD}s or more at the end over a still, flat or darkened background`,
     message: `${ctx.sceneName} ends on a template end card: a centered name with a small line under it on a picture that does not move or is darkened to a backdrop.`,
-    fix: { kind: "hint", text: "End on the video's own material: its strongest shot at full strength with the name riding its motion (behind the subject, on its action), the hook's image returning, or a cut to black on a beat; never a card or footage dimmed behind one. A credit can ride the last shot small." },
+    fix: { kind: "hint", text: hint },
   }];
 }
 

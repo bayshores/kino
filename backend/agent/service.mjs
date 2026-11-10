@@ -6403,7 +6403,8 @@ export function createAgentService(deps) {
     const picture = await productPicture(document.id);
     const hero = picture ? { recipe: "device-slide", media: picture, text: "<what it shows>" }
       : { recipe: '<a beat that shows your idea: library {topic:"blocks"}>', text: "<its words>" };
-    return nextOf("edit", { ops: [{ op: "compose", format, duration, beats: [hero, { recipe: "cta-end", text: "<your call to action>" }] }] });
+    // No fixed closing recipe: the last beat answers this video's hook (a named end card became every ending).
+    return nextOf("edit", { ops: [{ op: "compose", format, duration, beats: [hero, { recipe: "<the beat that answers your hook>", text: "<its words>" }] }] });
   }
 
   // The build steps, in order: an empty video gets a compose; then check {fix:"auto"} on this

@@ -233,6 +233,9 @@ How to read it:
 - **Consistency checks**: Partial. Warnings such as role_font_drift, vocabulary_budget, pacing_jump,
   busy_edit and restraint; overlay_covers_subject is a gate. Gap: a tinted clip needs a render for
   accent_budget. Evidence: `engine/qualityRules.test.js`, `engine/qualityStyle.test.js`.
+- **Ending hints name no ending**: Done. template_end's fix quotes the spine's own payoff beat (a
+  principle line without a spine) and names no move; the drafted first compose and masked-type no
+  longer suggest an end card or a name. Evidence: `engine/qualityEnding.test.js`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in
