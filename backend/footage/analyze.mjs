@@ -135,16 +135,26 @@ async function clipEvents(file, duration, size, signal) {
   try {
     const rate = await probeFrameRate(file, { signal });
     // Every frame, tiny, finds the moments (a 1-frame flash falls between the 4 a second samples).
-    const tiny = await decodeGray(file, 0, null, { width: 64, height: 36 }, signal, (gray) => gray);
-    const luma = [], change = [];
-    tiny.forEach((gray, index) => {
-      let sum = 0, diff = 0;
-      for (let i = 0; i < gray.length; i += 1) { sum += gray[i]; if (index) diff += Math.abs(gray[i] - tiny[index - 1][i]); }
+    // Worked out while decoding, keeping only the last 5 tiny frames: 3 numbers a frame in memory.
+    const luma = [], change = [], back = [], recent = [];
+    const differ = (a, b) => { let diff = 0; for (let i = 0; i < a.length; i += 1) diff += Math.abs(a[i] - b[i]); return diff / a.length / 255; };
+    await decodeGray(file, 0, null, { width: 64, height: 36 }, signal, (gray) => {
+      const index = luma.length;
+      let sum = 0;
+      for (let i = 0; i < gray.length; i += 1) sum += gray[i];
       luma.push(sum / gray.length / 255);
-      change.push(diff / gray.length / 255);
+      change.push(recent.length ? differ(gray, recent.at(-1)) : 0);
+      back.push(null);
+      // back[k]: the least difference between frame k - 1 and frames k + 1 to k + 4 (recent holds index - 5 to index - 1).
+      for (let k = Math.max(1, index - 4); k < index; k += 1) {
+        const before = recent[recent.length - (index - (k - 1))];
+        if (before) back[k] = Math.min(back[k] ?? Infinity, differ(gray, before));
+      }
+      recent.push(gray);
+      if (recent.length > 5) recent.shift();
     });
     const windows = [];
-    for (const [start, end] of eventWindows({ luma, change }, rate, duration)) {
+    for (const [start, end] of eventWindows({ luma, change, back }, rate, duration)) {
       // Start on a frame: the first decoded frame is the one at or after start.
       const first = Math.ceil(start * rate - 1e-6);
       const frames = await decodeGray(file, Math.max(0, (first - 0.5) / rate), end - first / rate, size, signal);
@@ -158,7 +168,8 @@ async function clipEvents(file, duration, size, signal) {
 }
 
 // Gray frames of `length` seconds (null: to the end) from `start`, every frame, each kept as
-// keep(gray bytes) (default: footage/events.mjs reduceGray grids).
+// keep(gray bytes) (default: footage/events.mjs reduceGray grids); a keep that answers undefined
+// keeps nothing (the scan works out its numbers as frames arrive).
 async function decodeGray(file, start, length, size, signal, keep = (gray) => reduceGray(gray, size.width, size.height)) {
   const span = length === null ? [] : ["-t", String(round3(length))];
   const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-threads", "2", "-ss", String(round3(start)), "-i", file, ...span,
@@ -170,7 +181,7 @@ async function decodeGray(file, start, length, size, signal, keep = (gray) => re
   decode.on("error", () => {});
   const frameBytes = size.width * size.height;
   const frames = [];
-  let current = Buffer.alloc(frameBytes), filled = 0;
+  let current = Buffer.alloc(frameBytes), filled = 0, read = 0;
   for await (const chunk of decode.stdout) {
     let offset = 0;
     while (offset < chunk.length) {
@@ -178,12 +189,14 @@ async function decodeGray(file, start, length, size, signal, keep = (gray) => re
       chunk.copy(current, filled, offset, offset + take);
       filled += take; offset += take;
       if (filled < frameBytes) continue;
-      frames.push(keep(current));
+      const kept = keep(current);
+      if (kept !== undefined) frames.push(kept);
+      read += 1;
       current = Buffer.alloc(frameBytes); filled = 0;
     }
   }
   const code = decode.exitCode ?? await new Promise((resolve) => decode.once("close", resolve));
-  if (code !== 0 && !frames.length) throw new Error(`FFmpeg could not decode a window: ${decodeError.trim().split("\n").at(-1) || `exit ${code}`}`);
+  if (code !== 0 && !read) throw new Error(`FFmpeg could not decode a window: ${decodeError.trim().split("\n").at(-1) || `exit ${code}`}`);
   return frames;
 }
 

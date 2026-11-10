@@ -123,7 +123,22 @@ export function similarity(a, b) {
   return aa < flat || bb < flat ? (aa < flat && bb < flat ? 1 : 0) : ab / Math.sqrt(aa * bb);
 }
 
+/**
+ * How alike grid b is to grid a once a's picture is moved by {dx, dy} (phaseShift's answer), over
+ * the part both cover (0 when that is under a quarter of the frame). A camera move stays alike; a
+ * cut to another shot does not, whatever its phase reading says.
+ */
+export function shiftedSimilarity(a, b, { dx, dy }) {
+  const sx = Math.round(dx * GRID_W), sy = Math.round(dy * GRID_H);
+  const xs = Math.max(0, sx), xe = Math.min(GRID_W, GRID_W + sx), ys = Math.max(0, sy), ye = Math.min(GRID_H, GRID_H + sy);
+  if ((xe - xs) * (ye - ys) < (GRID_W * GRID_H) / 4) return 0;
+  const left = [], right = [];
+  for (let y = ys; y < ye; y += 1) for (let x = xs; x < xe; x += 1) { left.push(a[(y - sy) * GRID_W + (x - sx)]); right.push(b[y * GRID_W + x]); }
+  return similarity(left, right);
+}
+
 const mean = (grid) => grid.reduce((sum, value) => sum + value, 0) / grid.length;
+const median = (values) => { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.floor(sorted.length / 2)]; };
 const difference = (a, b) => { let sum = 0; for (let i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]); return sum / a.length; };
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 const r3 = (value) => Math.round(value * 1000) / 1000;
@@ -132,9 +147,12 @@ const DIRECTIONS = ["right", "down-right", "down", "down-left", "left", "up-left
 const directionOf = (dx, dy) => DIRECTIONS[(Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) % 8];
 
 // The frames of one window: per frame its time, brightness, difference and likeness to the frame
-// before, whether it starts a new drawing, and the movement since the last drawing.
+// before, whether it starts a new drawing, whether it is a cut (a picture unlike the one before
+// that no movement explains: its phase reading means nothing), and the movement since the last
+// drawing. A reading far weaker than the window's usual one (under half its median peak) is weak:
+// one bad reading in a steady pan, not a movement.
 function readWindow({ start, fps, frames }) {
-  const facts = frames.map((grid, index) => ({ index, t: start + index / fps, grid, luma: mean(grid), diff: 0, sim: 1, fresh: index === 0, move: null }));
+  const facts = frames.map((grid, index) => ({ index, t: start + index / fps, grid, luma: mean(grid), diff: 0, sim: 1, fresh: index === 0, cut: false, move: null }));
   for (let i = 1; i < facts.length; i += 1) {
     facts[i].diff = difference(facts[i].grid, facts[i - 1].grid);
     facts[i].sim = similarity(facts[i].grid, facts[i - 1].grid);
@@ -148,9 +166,13 @@ function readWindow({ start, fps, frames }) {
     facts[i].fresh = true;
     const shift = phaseShift(facts[last].grid, facts[i].grid);
     const seconds = (i - last) / fps;
-    facts[i].move = { vx: shift.dx / seconds, vy: shift.dy / seconds, peak: shift.peak, sure: shift.peak >= 0.08 };
+    if (facts[i].sim < 0.6 && shiftedSimilarity(facts[last].grid, facts[i].grid, shift) < 0.6) facts[i].cut = true;
+    else facts[i].move = { vx: shift.dx / seconds, vy: shift.dy / seconds, peak: shift.peak, sure: shift.peak >= 0.08, weak: false };
     last = i;
   }
+  const peaks = facts.filter((fact) => fact.move?.sure).map((fact) => fact.move.peak);
+  const usual = peaks.length >= 3 ? median(peaks) : 0;
+  for (const fact of facts) if (fact.move?.sure && fact.move.peak < usual / 2) Object.assign(fact.move, { sure: false, weak: true });
   return facts;
 }
 
@@ -176,26 +198,32 @@ function impactFrames(facts, used) {
 }
 
 // Contact: the picture moved one way at speed and stops dead (or bounces back) within a frame.
+// Each frame carries the velocity of the drawing it leads to (a drawing's movement spread back over
+// the frames it waited; still after the last drawing; unknown for a cut or a weak or unsure
+// reading). Before and after are the median velocity over a span that holds at least one more
+// drawing than the window's usual hold, so motion drawn on 4s is not a stop between drawings and
+// one bad reading is outvoted. Any unknown frame in the span (a cut among them) means no contact.
 function contacts(facts, fps) {
-  const span = Math.max(3, Math.round(fps * 0.125));
-  const x = [0], y = [0], known = [true];
-  for (let i = 1; i < facts.length; i += 1) {
-    const move = facts[i].move, seconds = 1 / fps;
-    // A new drawing's movement is spread back over the frames it was held for.
-    x.push(x[i - 1]); y.push(y[i - 1]); known.push(!facts[i].fresh || Boolean(move?.sure));
-    if (move?.sure) { let back = i - 1; while (back > 0 && !facts[back].fresh) back -= 1; const held = (i - back) * seconds; x[i] += move.vx * held; y[i] += move.vy * held; }
+  const drawings = facts.filter((fact) => fact.fresh && fact.index > 0);
+  const gaps = drawings.slice(1).map((fact, i) => fact.index - drawings[i].index);
+  const span = Math.max(3, Math.round(fps * 0.125), (gaps.length ? median(gaps) : 1) + 1);
+  const velocity = facts.map(() => ({ vx: 0, vy: 0 }));
+  velocity[0] = null;
+  let back = 0;
+  for (const fact of drawings) {
+    const move = fact.move?.sure ? { vx: fact.move.vx, vy: fact.move.vy } : null;
+    for (let i = back + 1; i <= fact.index; i += 1) velocity[i] = move;
+    back = fact.index;
   }
   const events = [];
   for (let k = span; k + span < facts.length; k += 1) {
     if (!facts[k].fresh) continue;
-    let ok = true;
-    for (let i = k - span + 1; i <= k + span; i += 1) if (!known[i]) ok = false;
-    if (!ok) continue;
-    const seconds = span / fps;
-    const bx = (x[k] - x[k - span]) / seconds, by = (y[k] - y[k - span]) / seconds;
+    const before = velocity.slice(k - span + 1, k + 1), after = velocity.slice(k + 1, k + span + 1);
+    if (before.some((value) => !value) || after.some((value) => !value)) continue;
+    const bx = median(before.map((value) => value.vx)), by = median(before.map((value) => value.vy));
     const speed = Math.hypot(bx, by);
     if (speed < 0.4) continue;
-    const along = (((x[k + span] - x[k]) / seconds) * bx + ((y[k + span] - y[k]) / seconds) * by) / speed;
+    const along = (median(after.map((value) => value.vx)) * bx + median(after.map((value) => value.vy)) * by) / speed;
     if (along > 0.25 * speed) continue;
     const confidence = r2(clamp01(Math.min(1, speed / 1.5) * (1 - Math.max(0, along) / speed)));
     const previous = events.at(-1);
@@ -238,6 +266,9 @@ function motions(facts) {
   };
   for (const fact of facts) {
     if (!fact.fresh) continue;
+    // A cut ends a motion; a weak reading is skipped (it neither ends nor joins one).
+    if (fact.cut) { flush(); continue; }
+    if (fact.move?.weak) continue;
     const move = fact.move;
     if (!move?.sure || Math.hypot(move.vx, move.vy) < 0.15) { flush(); continue; }
     if (run.length) {
@@ -264,7 +295,7 @@ export function footageEvents(windows, { most = 60 } = {}) {
     const facts = readWindow(window);
     const used = new Set();
     all.push(...impactFrames(facts, used), ...contacts(facts, window.fps), ...lights(facts, window.fps, used), ...motions(facts));
-    const fresh = facts.filter((fact) => fact.fresh && fact.index > 0).map((fact) => fact.index);
+    const fresh = facts.filter((fact) => fact.fresh && !fact.cut && fact.index > 0).map((fact) => fact.index);
     for (let i = 1; i < fresh.length; i += 1) gaps.push({ gap: fresh[i] - fresh[i - 1], fps: window.fps });
   }
   // One event per kind within 2 frames (windows can overlap at their edges).
@@ -287,25 +318,45 @@ export function footageEvents(windows, { most = 60 } = {}) {
 }
 
 /**
- * Where to decode at full size, from a scan of every frame (tiny gray copies: luma and change per
- * frame, change the mean difference to the frame before): the biggest changes and brightness
- * jumps (a 1-frame flash included), plus 3 spread windows for the drawing rate. Windows are
- * [start, end] file seconds, merged, at most `most`, together at most a quarter of the clip (and 6 s).
+ * Where to decode at full size, from a scan of every frame (tiny gray copies: luma, change the mean
+ * difference to the frame before, and back: the least difference between the frame before and any
+ * of the next 4, so a flash that comes back is told from a cut): the biggest changes, brightness
+ * jumps (a 1-frame flash included) and brightness rising over a quarter second, plus 3 spread
+ * windows for the drawing rate. A cut (a big change, over twice its neighbors', that does not come
+ * back) counts as the least of the moments. The clip is split in `most` parts and each part gets
+ * its best moment before any part gets a second. Windows are [start, end] file seconds, merged, at most `most`, together at
+ * most a quarter of the clip (and 6 s).
  */
-export function eventWindows({ luma, change }, fps, duration, { most = 16, half = 0.5 } = {}) {
+export function eventWindows({ luma, change, back = [] }, fps, duration, { most = 16, half = 0.5 } = {}) {
   const changes = [...change].filter((value) => value > 0).sort((a, b) => a - b);
   const typical = changes.length ? changes[Math.floor(changes.length / 2)] : 0;
-  const scores = luma.map((value, index) => (index === 0 ? 0
-    : Math.max(change[index] / Math.max(0.02, typical * 3), Math.abs(value - luma[index - 1]) / 0.05)));
+  const big = Math.max(0.02, typical * 3);
+  const cut = change.map((value, index) => index > 0 && value >= big && back[index] != null && back[index] > value / 2
+    && value > 2 * Math.max(change[index - 1], change[index + 1] ?? 0));
+  const rising = Math.max(2, Math.round(fps / 4));
+  const scores = luma.map((value, index) => {
+    if (index === 0) return 0;
+    const jump = Math.max(change[index] / big, Math.abs(value - luma[index - 1]) / 0.05);
+    if (cut[index]) return Math.min(1, jump);
+    const from = index - rising;
+    const rise = from >= 0 && !cut.slice(from + 1, index).some(Boolean) ? (value - luma[from]) / 0.08 : 0;
+    return Math.max(jump, rise);
+  });
   const scored = [];
   scores.forEach((score, index) => {
     if (score >= 1 && score >= (scores[index - 1] ?? 0) && score >= (scores[index + 1] ?? 0)) scored.push({ t: index / fps, score });
   });
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score || a.t - b.t);
+  const parts = new Set(), firsts = [], seconds = [];
+  for (const moment of scored) {
+    const part = Math.min(most - 1, Math.floor((moment.t / Math.max(duration, 1e-6)) * most));
+    if (parts.has(part)) seconds.push(moment);
+    else { parts.add(part); firsts.push(moment); }
+  }
   const budget = Math.max(6, duration / 4);
   const spread = [0.25, 0.5, 0.75].map((share) => ({ t: duration * share, score: 0 }));
   let chosen = [];
-  for (const moment of [...spread, ...scored]) {
+  for (const moment of [...spread, ...firsts, ...seconds]) {
     const start = Math.max(0, moment.t - half), end = Math.min(duration, moment.t + half);
     if (end - start < 0.2) continue;
     // Overlapping or touching windows join into one, so a moment at an edge keeps its frames.
@@ -316,7 +367,7 @@ export function eventWindows({ luma, change }, fps, duration, { most = 16, half 
       else rest.push(window);
     }
     const next = [...rest, joined];
-    if (next.length > most || next.reduce((sum, window) => sum + window[1] - window[0], 0) > budget) break;
+    if (next.length > most || next.reduce((sum, window) => sum + window[1] - window[0], 0) > budget) continue;
     chosen = next;
   }
   return chosen.sort((a, b) => a[0] - b[0]);
