@@ -3,7 +3,7 @@
 // Three sources, all reached only when an agent (or the person) asks:
 // - Openverse (https://api.openverse.org): Creative Commons music, often from Jamendo. Only
 //   licenses that allow commercial use and changes (CC0, CC BY, CC BY-SA) are kept, so a pick can
-//   be cut to the edit and credited. It shares the "sound search" switch in kino Settings with
+//   be cut to the edit and credited. It shares the "web search" switch in kino Settings with
 //   library sounds, because the search words leave this computer.
 // - The Internet Archive's netlabels collection (https://archive.org/details/netlabels): albums
 //   from Creative Commons labels, each with its license link. Only CC BY, CC BY-SA, CC0 and public
@@ -34,10 +34,11 @@ import { songShape, vocalShare } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { createSlots, createYouTubeGate } from "./process-slots.mjs";
+import { hostAllowed, KINO_USER_AGENT } from "./web-files.mjs";
 
 const API = "https://api.openverse.org/v1/audio/";
 const ARCHIVE = "https://archive.org";
-const USER_AGENT = "kino (https://github.com/bayshores/kino)";
+const USER_AGENT = KINO_USER_AGENT;
 export const SOUNDTRACK_LIMITS = Object.freeze({ results: 5, words: 120, minSeconds: 20, cacheMs: 24 * 60 * 60 * 1000, measureSeconds: 240, megabytes: 15, kept: 24, previewSeconds: 90, previews: 24, mix: 12, searchMs: 60000, graceMs: 8000, slowSearchMs: 180000, downloadMs: 90000 });
 const TYPES = { mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", flac: "audio/flac" };
 // Licenses that allow commercial use and changes (a song cut to an edit is a change).
@@ -480,7 +481,7 @@ export function importableId(file, candidates = []) {
 }
 
 /**
- * deps: enabled() (the sound search switch, for Openverse and the Archive), directory (<data>/soundtrack),
+ * deps: enabled() (the web search switch, sounds.search, for Openverse and the Archive), directory (<data>/soundtrack),
  * fetch (tests pass a stub), api, archiveApi (https://archive.org), graceMs, searchYouTube(words, {count}), mixYouTube(videoId, {count}) (YouTube's
  * mix for a song, as search results), downloadYouTube(videoId, folder)
  * (the file it saved; run through youtube, the download gate shared with inspire and footage in
@@ -587,7 +588,7 @@ export function createSoundtrack(deps) {
     const asks = (name) => !source || source === name;
     let release;
     const enough = new Promise((resolve) => { release = resolve; });
-    const off = (name) => ({ results: [], notes: [`${name}: off (the person turns on sound search in kino Settings).`] });
+    const off = (name) => ({ results: [], notes: [`${name}: off (the person turns on web search in kino Settings).`] });
     const openverseJob = !asks("openverse") ? null : !enabled() ? Promise.resolve(off("Openverse")) : (async () => {
       const notes = [];
       try {
@@ -645,7 +646,7 @@ export function createSoundtrack(deps) {
   function allowedFile(url) {
     const file = new URL(url);
     if (stubs.some((stub) => file.host === stub.host)) return file;
-    if (file.protocol !== "https:" || !FILE_HOSTS.some((host) => file.hostname === host || file.hostname.endsWith(`.${host}`)))
+    if (!hostAllowed(file, FILE_HOSTS))
       throw new SoundtrackError("refused", `The song's file is on ${file.hostname}, which kino does not download from.`);
     return file;
   }
