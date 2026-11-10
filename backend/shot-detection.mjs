@@ -152,21 +152,24 @@ export function cutsFromScores(scores, frames, mad, brightness, { at = (frame) =
  *      longer, every frame of it must look like a flash; else it is a cutaway and its cuts stay.
  *   2. Sliver: a cut less than MIN_SHOT_FRAMES after the shot's start is dropped (the shot runs on).
  *   3. End: a last shot shorter than MIN_SHOT_FRAMES joins the one before.
+ * `minShotFrames` replaces MIN_SHOT_FRAMES in all three rules: a reference edit cut in 2-frame shots
+ * (inspire) keeps them. `onFlash(c, e)` hears each flash.
  */
-export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashLike = () => false } = {}) {
+export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashLike = () => false, minShotFrames = MIN_SHOT_FRAMES, onFlash = () => {} } = {}) {
   const kept = [];
   let flashes = 0;
   for (let index = 0; index < cuts.length; index += 1) {
     const cut = cuts[index];
-    const back = flashEnd(cut, frames, mad, at, flashLike);
+    const back = flashEnd(cut, frames, mad, at, flashLike, minShotFrames);
     if (back < 0) {
       kept.push(cut);
       continue;
     }
     flashes += 1;
+    onFlash(cut, back);
     while (index + 1 < cuts.length && cuts[index + 1] <= back) index += 1; // every cut from c to e belongs to the flash
   }
-  const long = (from, to) => at(to) - at(from) >= MIN_SHOT_FRAMES - EPSILON;
+  const long = (from, to) => at(to) - at(from) >= minShotFrames - EPSILON;
   const starts = [0];
   for (const cut of kept) if (long(starts.at(-1), cut)) starts.push(cut);
   if (starts.length > 1 && !long(starts.at(-1), frames)) starts.pop();
@@ -178,7 +181,7 @@ export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashL
 // times what the shot changes over as many frames just before the flash and just after it (the
 // smaller, as the other may cross another cut), so a white flash over a real cut (two different
 // shots, both far from white) stays a cut. A stretch as long as a shot must look like a flash too.
-function flashEnd(cut, frames, mad, at, flashLike) {
+function flashEnd(cut, frames, mad, at, flashLike, minShotFrames) {
   if (cut < 1) return -1;
   const before = cut - 1;
   const jump = mad(before, cut);
@@ -188,7 +191,7 @@ function flashEnd(cut, frames, mad, at, flashLike) {
     const span = frame - before;
     const motion = Math.min(mad(Math.max(0, before - span), before), mad(frame, Math.min(frames - 1, frame + span)));
     if (apart > SAME_MOTION * motion + SAME_SLACK) continue;
-    if (at(frame) - at(cut) < MIN_SHOT_FRAMES - EPSILON) return frame;
+    if (at(frame) - at(cut) < minShotFrames - EPSILON) return frame;
     for (let inside = cut; inside < frame; inside += 1) if (!flashLike(inside, before, frame)) return -1;
     return frame;
   }
@@ -364,8 +367,10 @@ export function shotsErrorReason(line) {
  * file seconds with 3 decimals, `cuts` = shots − 1, `ms` how long it took. A video longer than
  * `maxSeconds` (MAX_VIDEO_SECONDS unless the caller allows more: the footage finder's 360p scan of
  * a whole 30 min episode), or with more than `maxFrames` frames, fails with a "too long" error.
+ * Also resolves with `flashes` ([{start, end}] file seconds, not saved with a record) and `fps` (the
+ * file's usual frame rate). `minShotFrames` goes to shotsFromCuts (inspire reads 2-frame shots).
  */
-export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_FRAMES, maxSeconds = MAX_VIDEO_SECONDS } = {}) {
+export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_FRAMES, maxSeconds = MAX_VIDEO_SECONDS, minShotFrames = MIN_SHOT_FRAMES } = {}) {
   const started = performance.now();
   if (duration > maxSeconds) throw tooLongError(`it is ${Math.round(duration / 60)} min`, maxSeconds);
   const { ffmpegCommand, probeFrameRate } = await mediaProbe();
@@ -382,7 +387,10 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
   const flashLike = (frame, before, after) => flat(frame) || alike(frame, before) || alike(frame, after);
   // A frame FFmpeg printed no time for cannot start a shot.
   const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike }).filter((frame) => Number.isFinite(run.times[frame]));
-  const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike });
+  const flashSpans = [];
+  const onFlash = (cut, back) => flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) });
+  const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
+  const span = run.times[frames - 1] - run.times[0];
   // A file that does not say how long it is (some recorded WebM) ends at its last frame.
   const length = duration > 0 ? duration : frames / await probeFrameRate(file, { signal });
   const times = starts.map((frame) => (frame === 0 ? 0 : run.times[frame]));
@@ -393,6 +401,8 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
   return {
     shots,
     found: { version: SHOTS_VERSION, frames, cuts: shots.length - 1, flashes, ms: Math.round(performance.now() - started) },
+    flashes: flashSpans.filter((flash) => Number.isFinite(flash.start) && Number.isFinite(flash.end)),
+    fps: span > 0 ? round3(clock[frames - 1] / span) : null,
   };
 }
 

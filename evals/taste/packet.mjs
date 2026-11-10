@@ -17,7 +17,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
-import { cutsFrom, lineLevels, motionFacts, parseEbur128, parseFrameMetadata, shortTermCurve, stripTimes } from "./lib.mjs";
+import { allCutsFrom, cutsFrom, eventsFrom, lineLevels, motionFacts, outsideFlashes, parseEbur128, parseFrameMetadata, shortTermCurve, stripTimes } from "./lib.mjs";
+import { beatFit } from "../../backend/measure/beat-fit.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OVERVIEW_TILE = 320; // long side of an overview frame
@@ -108,7 +109,7 @@ function transcriptLines(words) {
   return lines.map((entry) => ({ start: entry.start, end: entry.end, text: entry.words.join(" ") }));
 }
 
-async function soundFacts(file, duration, { words, curve = null }) {
+async function soundFacts(file, duration, { words, curve = null, cuts = [], fps = 24 }) {
   const facts = { beats: null, sections: null, transcript: null, notes: [] };
   try {
     const { decodeMono } = await import("../../backend/audio-analysis.mjs");
@@ -117,6 +118,8 @@ async function soundFacts(file, duration, { words, curve = null }) {
     const { samples, sampleRate } = await decodeMono(file);
     const beats = analyzeBeats(samples, sampleRate);
     facts.beats = { bpm: beats.bpm, confidence: beats.confidence, first: beats.beats[0] ?? null, count: beats.beats.length, ...(beats.note ? { note: beats.note } : {}) };
+    // The cuts against the beat in frames, with a random baseline (backend/measure/beat-fit.mjs).
+    facts.beatFit = beatFit(cuts.map((cut) => cut.t), beats.beats, { fps });
     const shape = songShape(samples, sampleRate, { bpm: beats.bpm });
     facts.sections = { sections: shape.sections, features: shape.features };
   } catch (error) {
@@ -157,8 +160,10 @@ export async function buildPacket(source, { out = null, words = true } = {}) {
   await ffmpeg(["-i", video, "-an", "-vf", `scale=160:-2,signalstats,scdet=t=10,metadata=mode=print:file=${metadataFile.replace(/([:\\'])/g, "\\$1")}`, "-f", "null", "-"]);
   const frames = parseFrameMetadata(await readFile(metadataFile, "utf8"));
   await rm(metadataFile, { force: true });
-  const cuts = cutsFrom(frames);
-  const strips = stripTimes(cuts, duration);
+  // Every cut (a flash counted once) for the facts; the strips stay on the 24 strongest.
+  const events = eventsFrom(frames);
+  const cuts = outsideFlashes(allCutsFrom(frames), events.flashes);
+  const strips = stripTimes(cutsFrom(frames), duration);
   const motion = motionFacts(frames, cuts);
 
   // Loudness, measured only.
@@ -210,13 +215,14 @@ export async function buildPacket(source, { out = null, words = true } = {}) {
     await rm(temp, { recursive: true, force: true });
   }
 
-  const sound = info.audio ? await soundFacts(video, duration, { words, curve }) : { notes: ["no audio track"] };
+  const sound = info.audio ? await soundFacts(video, duration, { words, curve, cuts, fps: original.fps }) : { notes: ["no audio track"] };
   const facts = {
     duration: Math.round(duration * 100) / 100,
     size: `${info.width}x${info.height}`,
     sourceFps: original.fps,
     loudness,
     cuts,
+    events,
     motion,
     ...sound,
     sheets,

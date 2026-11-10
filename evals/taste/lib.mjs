@@ -37,8 +37,64 @@ export function cutsFrom(frames, { threshold = 10, gap = 0.1, most = 24 } = {}) 
   return peaks.sort((a, b) => b.score - a.score).slice(0, most).sort((a, b) => a.t - b.t).map((frame) => ({ t: round(frame.t), score: round(frame.score, 1) }));
 }
 
+/** Every cut, for facts.json (gap 0.06 s keeps 2-frame shots at 24 fps apart); strips use cutsFrom's top 24. */
+export const allCutsFrom = (frames, options = {}) => cutsFrom(frames, { gap: 0.06, most: Infinity, ...options });
+
 /**
- * The strips around cuts: `side` seconds each side of every cut, joined where they overlap, each
+ * Flash, black and hold events from per-frame luma (signalstats YAVG and YDIF, 0 to 255):
+ *   flash: the picture brightens by `rise` or more in one frame and falls back by most of that within
+ *     `flashSeconds` ({t, end, rise: share of 255}); a fade-up that stays bright is not a flash.
+ *   black: frames at most `black` bright (limited-range black is 16), as {t, end} spans.
+ *   hold: no change (YDIF under `still`) for `holdSeconds` or more, black left out, as {t, end}.
+ */
+export function eventsFrom(frames, { rise = 40, flashSeconds = 0.5, black = 24, still = 0.26, holdSeconds = 0.5 } = {}) {
+  const flashes = [];
+  for (let i = 1; i < frames.length; i += 1) {
+    const before = frames[i - 1].yavg, at = frames[i].yavg;
+    if (before == null || at == null || at - before < rise) continue;
+    let peak = at, back = -1;
+    for (let j = i + 1; j < frames.length && frames[j].t - frames[i].t <= flashSeconds + 1e-6; j += 1) {
+      peak = Math.max(peak, frames[j - 1].yavg ?? 0);
+      if ((frames[j].yavg ?? 255) <= before + (peak - before) / 3) { back = j; break; }
+    }
+    if (back < 0) continue;
+    flashes.push({ t: round(frames[i].t), end: round(frames[back].t), rise: round((peak - before) / 255) });
+    i = back;
+  }
+  const spans = (test, shortest) => {
+    const found = [];
+    let start = null;
+    frames.forEach((frame, i) => {
+      if (test(frame)) { if (start === null) start = frame.t; }
+      else if (start !== null) { if (frame.t - start >= shortest - 1e-6) found.push({ t: round(start), end: round(frame.t) }); start = null; }
+      if (i === frames.length - 1 && start !== null && frame.t - start >= shortest - 1e-6) found.push({ t: round(start), end: round(frame.t) });
+    });
+    return found;
+  };
+  const dark = (frame) => frame.yavg != null && frame.yavg <= black;
+  return {
+    flashes,
+    blacks: spans(dark, 0),
+    holds: spans((frame) => frame.ydif != null && frame.ydif < still && !dark(frame), holdSeconds),
+  };
+}
+
+/**
+ * Cuts with a flash counted once: scdet scores the way in and the way out of a flash, and luma alone
+ * cannot tell a flash over a cut from one over a held shot, so the way in stays (flash: true) and
+ * the cuts after it up to the flash's end go.
+ */
+export function outsideFlashes(cuts, flashes) {
+  const inside = (cut) => flashes.find((flash) => cut.t >= flash.t - 1e-6 && cut.t <= flash.end + 1e-6);
+  return cuts.flatMap((cut) => {
+    const flash = inside(cut);
+    if (!flash) return [cut];
+    return Math.abs(cut.t - flash.t) < 1e-6 ? [{ ...cut, flash: true }] : [];
+  });
+}
+
+/**
+ * The strips around cuts:`side` seconds each side of every cut, joined where they overlap, each
  * with its frame times at `fps`. Returns [{from, to, cuts: [t], times: [t]}].
  */
 export function stripTimes(cuts, duration, { fps = 12, side = 0.5 } = {}) {

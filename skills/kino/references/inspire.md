@@ -12,7 +12,8 @@ frame strips · Proposing ideas · Sound effects
 ## What is measured
 
 - Shots, cuts a second, the longest shot and where it is, length, the beat (bpm), and cuts on
-  the beat (n of m: a cut at most 0.08 s from a beat).
+  the beat (n of m, within 0.08 s). 2-frame shots count, flashes
+  not. Cuts within 1 frame of a beat vs random (near it: cuts on action).
 - The fingerprint (Apple Vision on a Mac, `backend/measure`): motion and holds, camera moves
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,

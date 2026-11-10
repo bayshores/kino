@@ -25,6 +25,7 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { beatFit, beatFitLine } from "./measure/beat-fit.mjs";
 import { suggestStyleLines, suggestionText } from "./measure/suggest.mjs";
 import { backgroundStep, lowerIfBackground } from "./render-activity.mjs";
 import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTubeGate } from "./process-slots.mjs";
@@ -48,8 +49,11 @@ export const MAX_QUERY_LENGTH = 120;
 export const MAX_SEARCHES = 30;
 export const MAX_SAVED = 100;
 // Saved with the numbers, so a better measure can tell old results apart. 2 adds the fingerprint
-// and the frame strips; a reference measured at 1 is measured again when an agent reads it.
-export const INSPIRE_VERSION = 2;
+// and the frame strips; 3 reads 2-frame shots, flashes and the cut-to-beat statistics (beat-fit.mjs).
+// A reference measured at an older version is measured again when an agent reads it.
+export const INSPIRE_VERSION = 3;
+/** The shortest shot a reference keeps, in frames: an edit cut in 2-frame shots keeps every cut. */
+export const REFERENCE_MIN_SHOT_FRAMES = 2;
 // Saved with the stills: 1 is one still a second (measure/stills.mjs); older saves kept 10 spread.
 const STILLS_EACH = 1;
 
@@ -285,9 +289,10 @@ const round = (value, places = 2) => Math.round(value * 10 ** places) / 10 ** pl
 /**
  * The numbers kino shows for a measured video, from its cut times and beats (seconds) over the
  * `seconds` it measured: shots, cuts a second, the longest shot and where it is, and which cuts are
- * on the beat (null when no steady beat was found).
+ * on the beat (null when no steady beat was found). beatFit: the cuts against the beat in frames at
+ * `fps`, with a random baseline (beat-fit.mjs; null without a beat); flashes: how many were found.
  */
-export function measureNumbers({ cuts, beats, seconds }) {
+export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) {
   const length = Math.max(0, Number(seconds) || 0);
   const times = [...new Set((cuts ?? []).filter((time) => Number.isFinite(time) && time > 0 && time < length).map((time) => round(time, 3)))].sort((a, b) => a - b);
   const edges = [0, ...times, length];
@@ -316,6 +321,8 @@ export function measureNumbers({ cuts, beats, seconds }) {
     longest: { seconds: round(longest.seconds, 1), start: round(longest.start, 1), where },
     onBeat,
     onBeatCount: onBeat ? onBeat.filter(Boolean).length : null,
+    beatFit: beatFit(times, beatList, { fps: fps > 0 ? fps : 24 }),
+    flashes,
   };
 }
 
@@ -914,14 +921,15 @@ export function createInspire(deps) {
       if (probed.width > 0 && probed.height > 0) record.vertical = probed.height > probed.width;
       const seconds = Math.min(MEASURE_SECONDS, probed.duration || record.duration || 0);
       if (!(seconds > 0)) throw new Error("The download has no length.");
-      const { shots } = await heavy.findShots(file, { duration: seconds, signal });
+      const { shots, flashes, fps } = await heavy.findShots(file, { duration: seconds, signal, minShotFrames: REFERENCE_MIN_SHOT_FRAMES });
+      const read = { seconds, fps: fps ?? undefined, flashes: (flashes ?? []).filter((flash) => flash.start < seconds).length };
       // The cuts are known: the screen draws them while the beat is found.
-      if (running?.id === record.id) running.partial = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: [], seconds });
+      if (running?.id === record.id) running.partial = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: [], ...read });
       setPhase(record, "finding the beat");
       let beat = null;
       try { beat = await heavy.findBeats(file, { signal }); }
       catch (error) { if (signal.aborted) throw error; /* no sound: no beat to measure */ }
-      const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], seconds });
+      const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], ...read });
       if (running?.id === record.id) running.partial = { ...numbers, ...(beat?.bpm ? { bpm: beat.bpm } : {}) };
       // The fingerprint and the strips: a failure here keeps the cuts and says what went wrong.
       let fingerprint = null, strips = [], fingerprintError = null;
@@ -1619,7 +1627,8 @@ export function referenceText(ref, { full = false } = {}) {
   const cuts = numbers.cuts.length
     ? `cuts (s): ${shown.map((time, index) => `${time}${numbers.onBeat?.[index] ? "*" : ""}`).join(" ")}${shown.length < numbers.cuts.length ? ` … (${numbers.cuts.length} in all; full:true lists them)` : ""}${numbers.onBeat ? " (* on the beat)" : ""}`
     : "cuts: none (one shot)";
-  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${longest} · ${beat}`, cuts,
+  const fit = [beatFitLine(numbers.beatFit), numbers.flashes ? `flashes ${numbers.flashes}` : ""].filter(Boolean).join(" · ");
+  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${longest} · ${beat}`, ...(fit ? [fit] : []), cuts,
     ...fingerprintLines(ref),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (fit:true scales the cuts to the scene; leave it out to keep their times)`].join("\n");
 }
