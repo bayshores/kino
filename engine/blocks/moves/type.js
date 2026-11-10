@@ -617,10 +617,10 @@ export const pushThroughType = {
     size: { kind: "number", low: 0.1, high: 0.9, about: "words only: width as a share of the frame (default 0.5, tall 0.7)" },
     fill: { kind: "text", max: 7, about: '"chrome" (sheen; words\' default), a color like "#F4F2EE", or "none" (a layer\'s default: as it is); not on pictures or groups' },
     sheenColor: { kind: "text", max: 7, about: "the chrome sheen's color (default #8E95A3)" },
-    entrance: { kind: "choice", values: ["fade", "sharpen"], about: "fade (default): a plain fade in, no blur; sharpen: out of a blur with the letters closing up" },
-    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to fade or sharpen in (default 0.55; 0 for a layer already on screen)" },
+    entrance: { kind: "choice", values: ["fade", "sharpen"], about: "fade (default) or sharpen (out of a blur, letters closing)" },
+    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to come in (default 0.55; 0 if already on screen)" },
     push: { kind: "number", low: 0.3, high: 4, about: "seconds of the fast push (default 0.9; whole beats with music)" },
-    spacing: { kind: "number", low: 1, high: 4, about: "entrance sharpen, words and text: how far open the letters start, times their spacing (default 2.2)" },
+    spacing: { kind: "number", low: 1, high: 4, about: "sharpen only: how far open the letters start (default 2.2)" },
     split: { kind: "number", low: 0, high: 40, about: "the color split as the push starts, px on a 1080-high frame (default 10; 0 none)" },
   },
   example: { text: "acme.", next: "shot-a", at: 0.2 },
@@ -823,7 +823,7 @@ export const statusLine = {
   name: "status-line",
   untilEnd: true,
   lasts: "default: to the end of the scene, or until a quiet end already in the scene (a dip to black or a logo alone in the last 30%) starts",
-  about: "a big app icon tile (the icon picture itself, rounded) sits in the left (or right) third with a large status line under it that changes its words (\"is listening…\", \"is speaking…\"), each change blurring out and sliding up",
+  about: "a big app icon tile (the icon picture itself, rounded) sits in the left (or right) third with a large status line under it that changes its words (\"is listening…\", \"is speaking…\"), each change a plain cut",
   fits: "what an app or agent is doing over footage of it; a narrator that is the product",
   tags: ["status-line", "type-swap"],
   length: 4,
@@ -835,7 +835,7 @@ export const statusLine = {
     scrim: { kind: "choice", values: [true, false], about: "true puts a dark pill behind the status line, false never (default: only when the shadowed words could fail contrast)" },
     place: { kind: "choice", values: ["middle", "bottom-left", "bottom-right"], about: "middle (default): the big tile in the side's third; bottom-left or bottom-right: a small badge low in that corner with the line under it, aligned to its edge (like an app's 'is listening…' badge)" },
     size: { kind: "choice", values: ["small", "big"], about: "big: tile 20% of the frame's height; small: 11% (default: small in a bottom corner, big in the middle)" },
-    swap: { kind: "choice", values: ["blur", "cut"], about: "how the words change: blur (blur out, slide up) or cut (a plain switch) (default: cut in a bottom corner, blur in the middle)" },
+    swap: { kind: "choice", values: ["blur", "cut"], about: "how the words come and change: cut (default: a plain switch, the first line rising on) or blur (blur out, slide up)" },
   },
   example: { at: 0.3, label: "acme", lines: [{ text: "is listening…", at: 0.6 }, { text: "is speaking…", at: 2.4 }] },
   setup: "none (label names the app; give icon, or set_brand with a logo picture, for its icon)",
@@ -942,12 +942,15 @@ export const statusLine = {
       }
     });
     const first = lines[0].at;
+    // The first line rises on with no blur; it comes out of a blur only with swap "blur" (opt-in).
+    const blurs = input.swap === "blur";
+    const lift = { y: status.y + Math.round(12 * ctx.scale), ...(blurs ? { blur: Math.round(8 * ctx.scale) } : {}) };
     if (ctx.reduced) ctx.animate(status, "in", motion({ name: "Fade in", kind: "in", start: first, duration: 0.35, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
-    else ctx.animate(status, "in", motion({ name: "Blur up", kind: "in", start: first, duration: 0.36, easing: CURVES.arrive,
-      from: { opacity: 0, y: status.y + Math.round(12 * ctx.scale), blur: Math.round(8 * ctx.scale) }, to: { opacity: 1, y: status.y, blur: 0 } }));
+    else ctx.animate(status, "in", motion({ name: blurs ? "Blur up" : "Rise", kind: "in", start: first, duration: 0.36, easing: CURVES.arrive,
+      from: { opacity: 0, ...lift }, to: { opacity: 1, y: status.y, ...(blurs ? { blur: 0 } : {}) } }));
     lines.slice(1).forEach((line, index) => {
       const change = changeText({ start: line.at, text: line.text, distance: Math.round(status.fontSize * 0.4) });
-      if ((input.swap ?? (corner ? "cut" : "blur")) === "cut") {
+      if (!blurs) {
         // A plain switch: a frame of fade each way, no slide.
         change.out = { ...change.out, preset: "fade-out", duration: 0.04, easing: [...CURVES.fade] };
         change.in = { preset: "fade-in", duration: 0.04, easing: [...CURVES.fade], unit: "layer", stagger: 0, order: "forward" };

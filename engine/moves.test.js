@@ -279,6 +279,7 @@ test("roll speeds up along its ramp, lands with a hold and a cue per item; swipe
   for (const { layer } of fast.filter((entry) => /^answer\d$/.test(entry.layer.move.part))) {
     const stamp = layer.animations.find((animation) => animation.name === "Stamp");
     const fling = layer.animations.find((animation) => /^Swipe/.test(animation.name));
+    assert.ok(!("blur" in stamp.from), "the answer stamps on with no blur");
     assert.ok(fling.start - (stamp.start + stamp.duration) >= 0.67, `${layer.text} reads for ${round3(fling.start - stamp.start - stamp.duration)} s`);
   }
 });
@@ -386,6 +387,13 @@ test("status-line: a square icon is the tile itself and the brand's name is not 
   assert.equal(parts.tile, undefined, "no white plate around the icon");
   assert.equal(parts.icon.width, 216);
   assert.ok(parts.icon.radius > 0, "the icon has rounded corners");
+  // By default the line rises on and changes with a cut: no blur anywhere (swap "blur" opts in).
+  const two = runMove(MOVES["status-line"], {
+    id: "s", input: readMoveInput(MOVES["status-line"], { icon: "logo", lines: [{ text: "is listening…", at: 0.6 }, { text: "is speaking…", at: 2.4 }] }),
+    scene: sceneFor(1920, 1080, 5), style: styleFor({ look: "crisp", frame }), fonts: defaultFonts, start: 0.3, media, logo: { media: PICTURES.logo },
+  });
+  const said = two.added.find(({ layer }) => layer.move.part === "status").layer.animations;
+  assert.ok(said.every((animation) => !("blur" in (animation.from ?? {})) && !/blur/.test(animation.in?.preset ?? "")), JSON.stringify(said));
   const right = runMove(MOVES["status-line"], {
     id: "s", input: readMoveInput(MOVES["status-line"], { icon: "logo", side: "right", lines: [{ text: "is listening…", at: 0.6 }] }), scene, style: styleFor({ look: "crisp", frame }),
     fonts: defaultFonts, start: 0.3, media, logo: { media: PICTURES.logo },

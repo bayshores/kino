@@ -39,8 +39,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   sign (`spot`, % of that layer), which sharpens.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.
 - **status-line**: an app icon with a changing status line ("is
-  listening…"): big left of center, or `place:"bottom-left"` a small corner badge whose words
-  cut; `size`, `swap`. Moves off text (or refuses); later footage
+  listening…"): big left of center, or `place:"bottom-left"` a small corner badge; words
+  cut (`swap:"blur"` to blur); `size`. Moves off text (or refuses); later footage
   goes under it; leaves before a dip to black or lone logo already there (else `dur`).
 - **swipe-cards**: the top card of a stack drags aside, tilts, fills with the brand color,
   says YES or NO, flies off. `ramp:"expo"` shrinks gaps from `every` to `last` (1 s); answers hold 0.75 s.

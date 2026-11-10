@@ -52,8 +52,10 @@ function clipped(model, item, index) {
 
 // An exit that ends before the overlap, or an entrance that starts after it, that moves, blurs,
 // turns or grows the layer but never fades it: the layer stays on screen outside its moment. The
-// fix adds a fade with the same timing.
+// fix adds a fade with the same timing. A blur entrance (unblur) is not topped with a fade, which
+// would make the blur-and-fade AI tell: the fix takes its blur out and fades it plainly instead.
 const HIDING_KEYS = ["opacity", "reveal"];
+const unblurs = ({ tween, mode }) => mode === "in" && tween.keys.includes("blur");
 function unfaded(model, item, run) {
   const from = model.times[run.from];
   const to = model.times[run.to];
@@ -114,14 +116,14 @@ export function overlap(model, ctx) {
       const causes = [unfaded(model, upper, run), unfaded(model, lower, run)].filter(Boolean);
       const why = causes.map(({ item, tween, mode }) => mode === "out"
         ? ` ${ctx.name(item)}'s exit "${tween.name}" ends at ${sec(tween.end)}s without fading it, so it stays on screen.`
-        : ` ${ctx.name(item)}'s entrance "${tween.name}" starts at ${sec(tween.start)}s without fading it in, so it shows before then.${tween.keys.includes("blur") ? " The fade only hides it: a blur entrance is the generic AI look, so a plain fade or slide in its place is better." : ""}`).join("");
+        : ` ${ctx.name(item)}'s entrance "${tween.name}" starts at ${sec(tween.start)}s without fading it in, so it shows before then.${unblurs({ tween, mode }) ? " The fix swaps its blur for a plain fade (a blur entrance is the generic AI look)." : ""}`).join("");
       findings.push({
         rule: "overlap", severity: persistence(model, run), itemId: upper.id, otherId: lower.id,
         at: sec(model.times[run.from]), until: sec(model.times[run.to]), bbox: roundBox(intersection(visibleBoxAt(model, upper, run.from), visibleBoxAt(model, lower, run.from))),
         measured: `${sec(run.length / model.fps)}s overlapping`, required: "no overlap",
         message: `${ctx.name(upper)} overlaps ${ctx.name(lower)} from ${sec(model.times[run.from])}s to ${sec(model.times[run.to])}s.${why}`,
         fix: causes.length
-          ? { kind: "fades", changes: causes.map(({ item, tween, mode }) => ({ itemId: item.id, tweenId: tween.id, mode, start: tween.start, end: tween.end })), auto: true }
+          ? { kind: "fades", changes: causes.map(({ item, tween, mode }) => ({ itemId: item.id, tweenId: tween.id, mode, start: tween.start, end: tween.end, ...(unblurs({ tween, mode }) ? { unblur: true } : {}) })), auto: true }
           : stackFix(model, lower, upper, run) ?? { kind: "hint", text: `Move one of them, or set allowOverlap on ${ctx.name(upper)} if the overlap is on purpose.` },
       });
     }

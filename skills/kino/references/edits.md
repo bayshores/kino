@@ -97,9 +97,9 @@ A second scene (from then on every op names its `scene`):
 - 3+ steps: `keys:[{t, value, ease?}]` for from/to (behaviors.md).
 - An effect's settings are in `to` (and `from`): `update_animation {animation:"plate.effect",
   properties:{to:{gamma:0.6}}}` changes gamma and keeps the others.
-- slide, grow, rotate, blur, blur-slide never fade; check's auto fix adds `preset-fade` to hide
-  them. Blur or blur+fade in is the AI tell: use a plain fade or slide. An entrance holds its
-  first frame until it starts.
+- slide, grow, rotate, blur, blur-slide never fade; check's auto fix adds a fade, and makes a
+  blur entrance a plain fade (blur+fade in is the AI tell). An entrance holds its first frame
+  until it starts.
 - An animation's value is drawn over the layer's: `opacity:0` on a layer whose fade-in ends at
   opacity 1 leaves it on screen; the receipt gives the `update_animation` for each end
   that used the old value. To hide a layer, `update_layer` `properties:{visible:false}`.

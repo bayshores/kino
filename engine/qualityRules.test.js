@@ -700,6 +700,11 @@ test("overlap: two texts must not overlap", async () => {
   // Two texts in the same spot are a timing problem: the fix stays a hint.
   const [same] = await fires("overlap", scene({ layers: [text("first", "Bake with us"), text("second", "every Saturday")] }));
   assert.equal(same.fix.kind, "hint");
+  // A blur entrance that waits on screen: the fix takes the blur out (unblur), never adds a fade on top.
+  const waits = scene({ layers: [text("first", "Bake with us", { animations: [{ kind: "out", start: 1, duration: 0.4, easing: "smooth", from: { opacity: 1 }, to: { opacity: 0 } }] }),
+    text("second", "every Saturday", { animations: [{ kind: "in", start: 2, duration: 0.5, easing: "smooth", from: { blur: 20 }, to: { blur: 0 } }] })] });
+  const [blurred] = await fires("overlap", waits);
+  assert.deepEqual(blurred.fix.changes.map(({ mode, unblur }) => [mode, unblur]), [["in", true]]);
 });
 
 test("overlap: allowOverlap marks an overlap as intended", async () => {

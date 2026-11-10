@@ -357,13 +357,31 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
     return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) && !fromCopy };
   }
   if (fix.kind === "fades") {
-    // A fade with the same timing as an exit or entrance that does not fade the layer.
-    const ops = fix.changes.map(({ itemId, mode, start, end }) => {
+    // A fade with the same timing as an exit or entrance that does not fade the layer. A blur
+    // entrance (unblur) loses its blur first, so the fix never writes a blur-and-fade entrance.
+    const ops = fix.changes.flatMap(({ itemId, tweenId, mode, start, end, unblur }) => {
       const item = itemOf(itemId);
       const found = sourceLayer(document, item);
-      if (!found || item.source.componentPath) return null;
+      if (!found || item.source.componentPath) return [null];
       const round = (value) => Math.round(value * 1000) / 1000;
-      return { op: "add_animation", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id), id: freeAnimationId(found.scene, `${found.layer.id}.fade-${mode}`), preset: "preset-fade", mode, start: round(start), duration: round(Math.max(0.05, end - start)) };
+      const fade = { op: "add_animation", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id), id: freeAnimationId(found.scene, `${found.layer.id}.fade-${mode}`), preset: "preset-fade", mode, start: round(start), duration: round(Math.max(0.05, end - start)) };
+      if (!unblur) return [fade];
+      const animationId = model.tweens.find((entry) => entry.id === tweenId)?.source?.animationId;
+      const animation = found.layer.animations?.find((entry) => entry.id === animationId);
+      if (!animation) return [null];
+      const target = { animationId: refName(animation.id, codes), ...sceneField(found.scene.id) };
+      const preset = animation.preset?.id;
+      // preset-blur becomes preset-fade; preset-blur-slide a plain slide (plus the fade).
+      if (preset === "blur") return [{ op: "update_animation", ...target, properties: { preset: { id: "fade", mode: "in" } } }];
+      if (preset === "blur-slide") {
+        const { direction, distance } = animation.preset.parameters ?? {};
+        return [{ op: "update_animation", ...target, properties: { preset: { id: "slide", mode: "in", parameters: { direction: direction ?? "up", distance: distance ?? 50 } } } }, fade];
+      }
+      // A custom entrance: its blur keys go, and it is deleted when nothing else is left.
+      const without = (values) => Object.fromEntries(Object.entries(values ?? {}).filter(([key]) => key !== "blur"));
+      const [from, to] = [without(animation.from), without(animation.to)];
+      if (!Object.keys(from).length && !Object.keys(to).length) return [{ op: "delete_animation", ...target }, fade];
+      return [{ op: "update_animation", ...target, properties: { from, to } }, fade];
     });
     if (!ops.length || ops.some((op) => !op)) {
       const item = itemOf(fix.changes[0]?.itemId ?? finding.itemId);
