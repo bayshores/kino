@@ -104,6 +104,8 @@ test("Commons asks only with the web search switch on, and a file redirected off
     assert.equal(asked.length, 2, "the redirect target is never asked");
     const file = await commons.download(clip, folder, { use: "import" });
     assert.equal(path.basename(file), "import.webm");
+    await assert.rejects(commons.download(clip, folder, { use: "../escaped" }), { code: "bad_input" });
+    assert.equal(asked.length, 3, "an unknown use asks nothing and names no file outside the folder");
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

@@ -135,23 +135,31 @@ export function createCommonsSource({ enabled, directory, fetch = globalThis.fet
     return cache ? cache.cached(`commons\n${asked.toLowerCase()}`, () => ask(asked)) : ask(asked);
   }
 
+  // Only "scan" and "import" are copies; any other value (say "../x") could name a file outside the folder.
+  function copyKind(use) {
+    if (use === "scan" || use === "import") return use;
+    throw new LicensedFootageError("bad_input", `use is "scan" or "import", not ${JSON.stringify(String(use))}.`);
+  }
+
   function fileUrl(candidate, use = "scan") {
-    const file = candidate?.files?.[use === "import" ? "import" : "scan"];
-    if (!file?.url) throw new LicensedFootageError("bad_input", `${candidate?.id ?? "This clip"} has no ${use} copy.`);
+    const kind = copyKind(use);
+    const file = candidate?.files?.[kind];
+    if (!file?.url) throw new LicensedFootageError("bad_input", `${candidate?.id ?? "This clip"} has no ${kind} copy.`);
     return file.url;
   }
 
   /** Saves the scan (360p) or import (1080p at most) copy into `folder`; answers the file path. */
   async function download(candidate, folder, { use = "scan", signal } = {}) {
     on();
-    const { response } = await fetchChecked(fileUrl(candidate, use), {
+    const kind = copyKind(use);
+    const { response } = await fetchChecked(fileUrl(candidate, kind), {
       fetch, hosts: FILE_HOSTS, refuse, signal: signal ?? AbortSignal.timeout(COMMONS_LIMITS.downloadMs),
     });
     if (!response.ok || !response.body) throw new LicensedFootageError("failed", `Commons answered ${response.status} for ${candidate.id}.`);
-    const megabytes = use === "import" ? COMMONS_LIMITS.importMegabytes : COMMONS_LIMITS.scanMegabytes;
+    const megabytes = kind === "import" ? COMMONS_LIMITS.importMegabytes : COMMONS_LIMITS.scanMegabytes;
     const limit = megabytes * 1024 * 1024;
-    const extension = /mp4/.test(candidate.files[use === "import" ? "import" : "scan"].type) ? "mp4" : "webm";
-    const file = path.join(folder, `${use}.${extension}`);
+    const extension = /mp4/.test(candidate.files[kind].type) ? "mp4" : "webm";
+    const file = path.join(folder, `${kind}.${extension}`);
     let size = 0;
     const counted = new Transform({
       transform(chunk, _encoding, done) {
