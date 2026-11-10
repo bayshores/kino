@@ -80,7 +80,12 @@ test("a shot's move: {kind, name, ref, planned?} or {none}; every bad field name
   assert.match(needed.message, /^no designed move on the hook, reveal or payoff \(shots 1, 4, 6\)\./);
   // With a spine, the payoff is the shots in its payoff beat (2 and 3); a move on the last shot (the end) does not count.
   const spine = [{ role: "payoff", from: 1, to: 3 }];
-  assert.deepEqual(movesNeeded({ shots: [motion(0, 1), motion(1, 1), motion(2, 1), motion(3, 1, { move })] }, {}, spine).shots, [1, 2, 3]);
+  const spined = movesNeeded({ shots: [motion(0, 1), motion(1, 1), motion(2, 1), motion(3, 1, { move })] }, {}, spine);
+  assert.deepEqual(spined.shots, [1, 2, 3]);
+  // The payoff's run of shots is named once in Fits, so the refusal stays small however many shots the beat spans.
+  const fits = spined.message.split("Fits: ")[1];
+  assert.equal(fits.match(/payoff/g).length, 1, fits);
+  assert.match(fits, /shots 2-3 \(payoff, /);
 });
 
 test("picksFor offers each shot the moves that fit what it holds; a plain cut first off the key beats, and the board's own device again", () => {
