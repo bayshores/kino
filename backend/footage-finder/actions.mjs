@@ -168,6 +168,7 @@ export function scanText(candidate, scan) {
   const lines = shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => shotLine(candidate.code, shot, { matchShown: scan.matchShown }));
   const tail = [skippedLine(scan.skipped)];
   if (scan.want && !scan.matchShown) tail.push(`No visual match for "${scan.want}": shots rank on motion, faces and clean frames.`);
+  if (shots.length) tail.push(`Stills: look {mode:"source", ref:"${candidate.code}"}`);
   tail.push(`License ${candidate.license ?? "unknown"}${candidate.license === "unknown" ? ": fine for a private video; the person checks the rights before publishing" : ""}.`);
   return [head, ...lines, ...tail.filter(Boolean)].join("\n");
 }

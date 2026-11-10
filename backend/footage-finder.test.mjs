@@ -441,6 +441,7 @@ test("library footage: the person's clips lead every answer, search's next is sc
   assert.equal(shown[2], "F1.37 3:17.2-3:19.0 1.8s motion 82 face 40 match +3.1");
   assert.equal(shown.filter((line) => /^F1\.\d+ /.test(line)).length, 12);
   assert.match(scan.text, /Skipped: 2 text, 1 dark, 4 repeats\./);
+  assert.ok(shown.includes('Stills: look {mode:"source", ref:"F1"}'), scan.text);
   assert.equal(shown.at(-1), 'next: project {"action":"import","file":"F1","options":{"shots":[37,36,35,34,33,32]}}');
   assert.ok(scan.text.length / 4 < 1500, `${scan.text.length} characters`);
   // The list remembers F1 as scanned, and the next "top" is F2.
