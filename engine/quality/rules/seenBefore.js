@@ -91,7 +91,7 @@ export function endingSeen(model, ctx) {
     return {
       rule: "ending_seen", severity: "warn", at: hit.at, measured: measured(hit), required: REQUIRED,
       message: `${ctx.sceneName}: this ending's layout matches ${theirEnding ? "an earlier project's ending" : "a layout of an earlier project"}${under}, "${hit.entry.name}" r${hit.entry.rev} at ${hit.old.t} s. A repeated ending is what a viewer remembers as made by a machine.`,
-      fix: { kind: "hint", text: `End on this video's own payoff material${payoff && purpose ? `: the payoff "${purpose}" (${payoff.from}s)` : ""}. Only the person can keep this ending (waive_check with quote, their words).` },
+      fix: { kind: "hint", text: `End on this video's own payoff material${payoff && purpose ? `: the payoff "${purpose}" (${payoff.from}s)` : ""}. Change it now (a different shot, place or reveal for the name, not a restyle); do not ask to keep it unless the person asked for this ending: only their own words waive it (waive_check with quote).` },
     };
   });
 }
