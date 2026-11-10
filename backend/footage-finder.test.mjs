@@ -1,7 +1,7 @@
 // The footage finder: from a prompt alone to found, scanned and imported clips. No network here:
 // yt-dlp, fetch, the embedder and Vision are stubs.
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKinoMcpServer } from "./mcp.mjs";
 import { createWebCache } from "./web-cache.mjs";
+import { downloadScanCopy, parseProbe, pickWindows } from "./footage-finder/scan.mjs";
+import { removeTempFolder } from "./temp-folders.mjs";
 
 test("library passes the fields its listed schema leaves out (scan, want, note, measure) on to kino", async () => {
   const calls = [];
@@ -43,6 +45,62 @@ test("the web cache answers a fresh key without asking again, and asks again onc
     assert.deepEqual(await cache.cached("ytsearch20:x", make), { answer: 2 });
     await assert.rejects(cache.cached("other", async () => { throw new Error("offline"); }), /offline/);
     assert.deepEqual(await cache.cached("other", make), { answer: 3 });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a scan looks at heatmap peaks and matching chapters, 8 min at most, else 6 even minutes", () => {
+  const heatmap = Array.from({ length: 100 }, (_, index) => ({ start_time: index * 14.4, end_time: (index + 1) * 14.4, value: index === 40 ? 1 : index === 70 ? 0.8 : 0.1 }));
+  const fixture = { id: "abcdefghijk", title: "Episode 5", duration: 1440, heatmap, availability: "public",
+    chapters: [{ start_time: 0, end_time: 90, title: "Opening" }, { start_time: 900, end_time: 960, title: "The Fight" }],
+    formats: [{ height: 360, vcodec: "vp9" }, { height: 1080, vcodec: "vp9" }, { height: null, vcodec: "none" }] };
+  const probe = parseProbe(JSON.stringify(fixture));
+  assert.equal(probe.height, 1080);
+  assert.equal(probe.cannotPlay, null);
+  assert.equal(parseProbe(JSON.stringify({ ...fixture, availability: "subscriber_only" })).cannotPlay, "members only");
+  // Peak 40 is 576-590.4 (middle 583.2), peak 70 is 1008-1022.4; the flat 0.1 parts are no peaks.
+  const peaks = pickWindows({ ...probe, chapters: [] });
+  assert.deepEqual(peaks.slice(0, 2), [{ start: 568.2, end: 598.2 }, { start: 1000.2, end: 1030.2 }]);
+  assert.deepEqual(pickWindows(probe, { want: "white hair, fight" }).slice(0, 3), [{ start: 568.2, end: 598.2 }, { start: 900, end: 960 }, { start: 1000.2, end: 1030.2 }]);
+  // Many peaks: never more than 8 minutes in all.
+  const spiky = pickWindows({ duration: 3600, heatmap: Array.from({ length: 100 }, (_, index) => ({ start: index * 36, end: (index + 1) * 36, value: index % 2 ? 0.2 : 0.9 })) });
+  assert.ok(Math.abs(spiky.reduce((sum, window) => sum + window.end - window.start, 0) - 480) < 1);
+  const even = pickWindows({ duration: 1440, heatmap: [], chapters: [] });
+  assert.equal(even.length, 6);
+  assert.deepEqual(even[0], { start: 90, end: 150 });
+  assert.deepEqual(pickWindows({ duration: 300 }), [{ start: 0, end: 300 }]);
+});
+
+test("the scan copy is 360p, one section per stretch, through the gate, with no cookies", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-times-"));
+  // A stub yt-dlp: it saves its arguments and writes an empty file for each section asked for.
+  const stub = path.join(directory, "yt-dlp");
+  await writeFile(stub, `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+fs.writeFileSync(${JSON.stringify(path.join(directory, "args.json"))}, JSON.stringify(args));
+const out = args[args.indexOf("-o") + 1];
+args.forEach((arg, index) => { if (arg === "--download-sections") fs.writeFileSync(out.replace("%(section_start)s", args[index + 1].slice(1).split("-")[0]).replace("%(ext)s", "webm"), ""); });
+`);
+  await chmod(stub, 0o755);
+  let gated = 0;
+  const youtube = (work) => { gated += 1; return work(); };
+  const windows = [{ start: 95, end: 125 }, { start: 900, end: 960 }];
+  try {
+    const copy = await downloadScanCopy("abcdefghijk", windows, { youtube, command: stub, runtime: { name: "node", path: process.execPath } });
+    try {
+      const args = JSON.parse(await readFile(path.join(directory, "args.json"), "utf8"));
+      assert.equal(gated, 1);
+      assert.equal(args[args.indexOf("-S") + 1], "res:360");
+      assert.deepEqual(args.filter((_, index) => args[index - 1] === "--download-sections"), ["*95-125", "*900-960"]);
+      assert.ok(args.includes("--no-cookies") && args.includes("--ignore-config"));
+      assert.ok(!args.some((arg) => /^--cookies/.test(arg)));
+      assert.ok(path.basename(copy.folder).startsWith("kino-footage-"));
+      assert.deepEqual(copy.files.map((file) => [file.start, path.basename(file.file)]), [[95, "scan.95.webm"], [900, "scan.900.webm"]]);
+    } finally {
+      await removeTempFolder(copy.folder);
+    }
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
