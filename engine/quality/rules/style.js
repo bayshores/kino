@@ -13,8 +13,8 @@ import { CUT_TIMING_TAGS, PLAIN_TAGS, TECHNIQUES, isTechnique, techniqueOf } fro
 import { deckUse } from "../../deck.js";
 import { boardPicks, pickOp, pickWords } from "../../movePicks.js";
 import { heardEdges, heardWords } from "./speech.js";
-import { designedTexts, readableAt, primaryItems, sec, sections, speedAt } from "../analysis.js";
-import { area, boxAt, intersection, movingAt, tweensOf, visibleBoxAt } from "../model.js";
+import { designedTexts, readableAt, primaryItems, scaleOf, sec, sections, speedAt } from "../analysis.js";
+import { area, boxAt, dimmedAt, intersection, movingAt, tweensOf, visibleBoxAt } from "../model.js";
 import { backgroundLuma, coveredAt, plateChanges, plates, pulses, techniquesUsed, textEntrances, transitions } from "../techniques.js";
 
 const FRAME = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
@@ -85,16 +85,46 @@ function pictureMoves(model, index) {
   return false;
 }
 
+// A clip blurred this much (px at 1080p) or more is a backdrop, as in blurred_backdrop.
+const BACKDROP_BLUR = 8;
+// A sharp picture covering this share of the frame in front of the blur is the shot: the blur is its fill.
+const SHARP_SHARE = 0.2;
+
 /**
- * The samples where readable text sits over a still picture or a flat color: a text slide. The
- * voice's captions are no slide: they read along with what is said.
+ * True at a sample where the footage is wallpaper, not a shot: a dark full-frame tint over it
+ * (dimmedAt), or a full-frame clip blurred BACKDROP_BLUR px or more with no sharp picture in front.
+ * fp-8 typed its prompt over a log both blurred and dimmed, and the judges read it as a card.
+ */
+function backdropAt(model, index) {
+  if (dimmedAt(model, index)) return true;
+  const s = scaleOf(model);
+  const blurOf = (item) => Math.max(item.samples.blur?.[index] ?? 0, item.blur ?? 0);
+  const pictures = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && !item.isMask
+    && item.samples.opacity[index] >= 0.5 && !coveredAt(model, item, index));
+  return pictures.some((back) => back.kind === "video" && blurOf(back) >= BACKDROP_BLUR * s && frameShare(model, back, index) >= 0.9
+    && !pictures.some((front) => front.z > back.z && blurOf(front) <= 2 * s && frameShare(model, front, index) >= SHARP_SHARE));
+}
+
+// A line typing on letter by letter or word by word is read while it types (as reading_time
+// counts it): fp-8's prompt typed for 3.5 s and was readable for 0.1 s of it. Hidden, it is not.
+function typingAt(model, item, index) {
+  const time = model.times[index];
+  const tweens = tweensOf(model, item.id);
+  return tweens.some((tween) => tween.kind === "in" && tween.unit !== "layer" && tween.spread > 0 && tween.keys.includes("opacity")
+    && tween.start <= time && time < tween.end && !tweens.some((hide) => hide.kind === "hide" && hide.start > tween.start && hide.start <= time));
+}
+
+/**
+ * The samples where text being read (or typing on) sits over a still picture, a flat color or
+ * footage dimmed or blurred to a backdrop (backdropAt): a text slide. The voice's captions are no
+ * slide: they read along with what is said.
  */
 export function textSlideSamples(model) {
   const texts = designedTexts(model);
   const slide = new Uint8Array(model.times.length);
   for (let index = 0; index < model.times.length; index += 1) {
-    const reading = texts.some((item) => readableAt(model, item, index) && !coveredAt(model, item, index));
-    if (reading && !pictureMoves(model, index)) slide[index] = 1;
+    const reading = texts.some((item) => (readableAt(model, item, index) || typingAt(model, item, index)) && !coveredAt(model, item, index));
+    if (reading && (!pictureMoves(model, index) || backdropAt(model, index))) slide[index] = 1;
   }
   return slide;
 }
@@ -126,10 +156,10 @@ export function textSlides(model, ctx) {
   const used = techniquesUsed(model);
   return [{
     rule: "text_slides", severity: "warn", at: sec(model.times[longest.from]), until: sec(model.times[longest.from + longest.length - 1]),
-    measured: `${percent(share)} of the video is text over a still or flat background, in ${cards.length} ${cards.length === 1 ? "card" : "cards"} (longest ${sec(seconds(longest))}s)`,
+    measured: `${percent(share)} of the video is text over a still, flat or dimmed background, in ${cards.length} ${cards.length === 1 ? "card" : "cards"} (longest ${sec(seconds(longest))}s)`,
     required: `at most 25%, no card held over ${LONGEST_CARD}s and fewer than ${MOST_CARDS} cards of ${CARD_SECONDS}s or more, the closing one aside`,
-    message: `For ${sec(count / model.fps)}s of ${sec(model.duration)}s, ${ctx.sceneName} shows text over a picture that does not move (${cards.slice(0, 4).map((card) => `${sec(model.times[card.from])}s for ${sec(seconds(card))}s`).join(", ")}): it reads as slides.`,
-    fix: { kind: "hint", text: `Put the words over moving footage or move the frame: ${suggestions(ctx, used, 3, ["camera", "texture", "type"])}.` },
+    message: `For ${sec(count / model.fps)}s of ${sec(model.duration)}s, ${ctx.sceneName} shows text over a picture that does not move or is dimmed to a backdrop (${cards.slice(0, 4).map((card) => `${sec(model.times[card.from])}s for ${sec(seconds(card))}s`).join(", ")}): it reads as slides.`,
+    fix: { kind: "hint", text: `Put the words over moving footage at full strength or move the frame: ${suggestions(ctx, used, 3, ["camera", "texture", "type"])}.` },
   }];
 }
 
