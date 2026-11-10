@@ -1155,7 +1155,8 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   references.
 - **Reference closeness**: Test-verified on synthetic scenes. `borrow_rhythm` lends each section's shot
   lengths in a new order (the song's `song-` seams as sections and cuts), never cut times; `reference_closeness`
-  warns on 6 shots in a row timed like a saved reference or the pooled contest device stack. Evidence:
+  warns on 6 shots in a row timed like a saved reference beyond chance (1 and 2 beat cutting is quiet), and in
+  music edits on the pooled contest device stack (a flash inside one shot is no seam flash). Evidence:
   `engine/qualityStyle.test.js`, `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: title moment
   and section colors are not compared (references do not measure them); `look versus` is unchanged.
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and

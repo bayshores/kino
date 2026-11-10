@@ -13,6 +13,7 @@ import { ideaLines } from "./quality/rules/signature.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { pulses, techniquesUsed, textEntrances, transitions } from "./quality/techniques.js";
 import { cutReasons, techniquesWanted } from "./quality/rules/style.js";
+import { profileDevices, shotTimes } from "./quality/rules/reference.js";
 import { sameWording } from "./quality/rules/spine.js";
 import { DETECTABLE_TAGS, PLAIN_TAGS, TECHNIQUES, TECHNIQUE_TAGS, techniquesText } from "./techniques.js";
 import { styleContext, styleLine } from "./styleSpec.js";
@@ -615,15 +616,32 @@ test("reference_closeness: an edit cut to a reference's shot lengths in order, o
   await silent("reference_closeness", shots([0.6, 2.7, 3.3, 4.5, 6.1, 6.7, 7.3, 8.5, 10.1, 11.2], 12), { closeRefs: [ref] });
   const grid = { ...ref, cuts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] };
   await silent("reference_closeness", shots([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 12), { closeRefs: [grid] });
-  // A black hole, then a seam flash, then a word card within 2 s: the pooled drop stack.
-  const stack = scene({ duration: 6, background: "#000000", layers: [
+  // Shots of 1 and 2 beats at 100 BPM against a reference of 1 and 2 beats at 120 BPM: two lengths
+  // line up in order by chance (x1.2), so beat cutting is no copy.
+  const beats = { id: "yt:beats", seconds: 10, fps: 24, cuts: [0.5, 1.5, 2, 3, 3.5, 4, 5, 5.5, 6.5, 7, 8] };
+  await silent("reference_closeness", shots([0.6, 1.8, 2.4, 3.6, 4.2, 4.8, 6, 6.6, 7.8, 8.4], 10), { closeRefs: [beats] });
+  // A black hole, then a seam flash, then a word card within 2 s: the pooled drop stack, in a music edit.
+  const song = { cues: [{ name: "song-drop-1", time: 2, kind: "marker" }] };
+  const full = { x: 0, y: 0, width: 1920, height: 1080 };
+  const stack = (background, more = []) => scene({ duration: 6, background, layers: [
     clip("a", { animations: [hide(2)] }),
     clip("b", { animations: [hide(0), show(2.2), hide(3.2)] }),
-    rect("flash", { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", animations: [hide(0), show(2.2), hide(2.3)] }),
+    ...more,
+    rect("flash", { ...full, fill: "#ffffff", animations: [hide(0), show(2.2), hide(2.3)] }),
     text("word", "NOW", { fontFamily: "Inter", fontSize: 400, fill: "#ffffff", x: 600, y: 300, animations: [hide(0), show(3.4), hide(4.4)] }),
     clip("c", { animations: [hide(0), show(4.4)] })] });
-  const [stacked] = await fires("reference_closeness", stack);
+  const [stacked] = await fires("reference_closeness", stack("#000000"), song);
   assert.match(stacked.measured, /^black-hole then seam-flash then word-card from 2s/);
+  // The same with the black frame and the word card's plain frame drawn as full-frame solids.
+  const solids = stack(PAPER, [rect("black", { ...full, fill: "#000000", animations: [hide(0), show(2), hide(2.2)] }),
+    rect("card", { ...full, fill: "#c0392b", animations: [hide(0), show(3.2), hide(4.4)] })]);
+  assert.match((await fires("reference_closeness", solids, song))[0].measured, /^black-hole then seam-flash then word-card from 2s/);
+  // A promo with no song: a dip to black, a flash and a title are its own reveal.
+  await silent("reference_closeness", stack("#000000"));
+  // A white frame inside one running shot (an impact frame) is a plain flash: no seam flash, no cut.
+  const impact = modelOf(scene({ duration: 6, layers: [clip("a"), rect("hit", { ...full, fill: "#ffffff", animations: [hide(0), show(3), hide(3.1)] })] }));
+  assert.deepEqual(profileDevices(impact), []);
+  assert.deepEqual(shotTimes(impact), []);
 });
 
 test("a restrained edit (plain cuts, one device on the hook and the payoff) gets no contradicting variety warnings", async () => {

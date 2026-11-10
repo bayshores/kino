@@ -32,6 +32,7 @@ import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTub
 import { SEARCH_KINDS } from "./agent/actions.mjs";
 import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
+import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
 
 // What a search looks for: edits, short vertical edits (YouTube Shorts) or sound effects.
 export { SEARCH_KINDS };
@@ -459,6 +460,22 @@ export function rhythmCues(numbers, { length, fit = null, at = 0, seams = [] } =
   const inner = [...new Set(seams.filter((time) => time > at + shortest && time < at + span - shortest).map((time) => round(time, 3)))].sort((a, b) => a - b);
   const edges = inner.length ? [at, ...inner, at + span] : parts.map((part) => at + part.from * scale).concat(at + span);
   const random = seeded(Math.round(seconds * 1000) + (numbers.cuts?.length ?? 0) * 7919);
+  // A new order can still put COPY_RUN of the reference's shot lengths in its order by chance
+  // (reference_closeness would warn): such a draw is drawn again, LEND_DRAWS times at most.
+  const refCuts = lentCuts(numbers).map((index) => numbers.cuts[index]);
+  const copies = (times) => refCuts.length > COPY_RUN && [24, 30, 60].some((rate) => copiedRun(times, refCuts, { tolerance: 1 / rate + 0.01 }));
+  const plan = { at, span, scale, shortest, parts, edges, inner };
+  let times = drawLentCuts(random, plan);
+  for (let tries = 1; tries < LEND_DRAWS && copies(times); tries += 1) times = drawLentCuts(random, plan);
+  const unique = [...new Set(times)];
+  const kept = unique.filter((value) => value >= 0 && (!(length > 0) || value < length));
+  return { cues: kept.map((value, index) => ({ name: `rhythm-${index + 1}`, time: value, kind: "marker" })), dropped: unique.length - kept.length, scale: round(scale, 3) };
+}
+
+const LEND_DRAWS = 8;
+
+// One draw of rhythmCues: each section's shot lengths in a new order, cut times by time.
+function drawLentCuts(random, { at, span, scale, shortest, parts, edges, inner }) {
   const times = [];
   let time = at;
   for (let index = 0; index + 1 < edges.length; index += 1) {
@@ -489,9 +506,7 @@ export function rhythmCues(numbers, { length, fit = null, at = 0, seams = [] } =
     // A seam from the song is a cut; the reference's own part edges are not.
     if (inner.length && index + 1 < edges.length - 1) { times.push(round(end, 3)); time = end; }
   }
-  const unique = [...new Set(times)];
-  const kept = unique.filter((value) => value >= 0 && (!(length > 0) || value < length));
-  return { cues: kept.map((value, index) => ({ name: `rhythm-${index + 1}`, time: value, kind: "marker" })), dropped: unique.length - kept.length, scale: round(scale, 3) };
+  return times;
 }
 
 /** "0:39", "3:12", "1:02:05" for a length in seconds. */

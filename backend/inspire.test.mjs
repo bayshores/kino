@@ -13,6 +13,7 @@ import {
   cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
+import { copiedRun } from "../engine/quality/rules/reference.js";
 import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { LOOK_MODEL, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
@@ -228,6 +229,10 @@ test("a borrowed rhythm: each section's pace in a new order, scaled to fit, cut 
   assert.ok(gaps([0, ...lent]).every((gap) => lentSections(odd).some((part) => part.shots.includes(gap))), "every shot length is one the reference has");
   assert.deepEqual(rhythmCues(odd, { length: 8 }).cues, rhythmCues(odd, { length: 8 }).cues, "the same order every time");
   assert.ok(rhythmCues(odd, { length: 8, seams: [4.5] }).cues.some((cue) => cue.time === 4.5));
+  // A reference cut on 1 and 2 beats at 120 BPM: what it lends, fitted to 12 s, is no copy of it.
+  const beat = measureNumbers({ cuts: [0.5, 1.5, 2, 3, 3.5, 4, 5, 5.5, 6.5, 7, 8, 8.5, 9.5, 10, 11, 12, 12.5, 13.5, 14, 15], beats: [], seconds: 16, fps: 24 });
+  const borrowed = rhythmCues(beat, { length: 12, fit: 12 }).cues.map((cue) => cue.time);
+  assert.equal(copiedRun(borrowed, beat.cuts, { tolerance: 1 / 30 + 0.01 }), null);
   // A reference cut in 2-frame shots lends no cut under 6 frames after the last one lent (25 fps: 0.24 s).
   const dense = measureNumbers({ cuts: [1, 1.08, 1.16, 1.24, 1.32, 2], beats: [], seconds: 10, fps: 25 });
   assert.deepEqual(lentSections(dense)[0].shots, [0.24, 0.76, 1, 8]);
