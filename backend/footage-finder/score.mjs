@@ -6,12 +6,19 @@
 //    the middle of each shot.
 // 2. The stills go through the injected image embedder (SigLIP, look-embed.mjs); `want` through
 //    its text half, so each shot gets a match against the agent's visual words.
-// 3. The pure half (shotFacts, mergeAlike, rankShots): neighbors 0.95 or more alike join into one
-//    shot (a held picture the cut finder split), then shots rank on motion, faces and clean
-//    frames. Dark shots, shots full of text or subtitles and shots under 0.4 s go last; a fixed
-//    logo costs a little. `match` is a z-score among this scan's shots and counts only when the
-//    best clean shot (no dark, text or short flag) reaches matchBar: 2, or more in a long scan,
-//    where noise alone tops 2; otherwise the answer says there is no visual match.
+// 3. The pure half (scanMarks, shotFacts, mergeAlike, rankShots): small text that sits in one
+//    place near an edge on 40% of the shots of the whole scan or more (a channel logo, a copyright
+//    line, read however the OCR spells it) is a mark: said once, never counted as text. Subtitles
+//    and captions are never marks. Neighbors 0.95 or more alike
+//    join into one shot (a held picture the cut finder split), then shots rank on motion, faces
+//    and clean frames. Dark shots, shots full of text, shots with burned-in subtitles (a line at
+//    the bottom center) and shots under 0.4 s go last; a logo fixed within one stretch costs a
+//    little. Drawn footage (the stills read closer to "an anime screenshot or a cartoon" than to
+//    "a photo") is not ranked by faces: the face detector is made for photos. `match` is a
+//    z-score among this scan's shots and counts only when the best clean shot (no dark, text,
+//    subtitles or short flag) reaches matchBar: 2, or more in a long scan of photos, where noise alone
+//    tops 2; otherwise the answer says there is no visual match, how close the best came, or that
+//    the image model did not run.
 // Times: yt-dlp cuts each stretch without re-encoding, so its file starts at the keyframe before
 // the stretch. The probe's length minus the stretch's length is that lead-in, taken off each time.
 // 4. Saves <data>/footage/scans/<id>.json and one sheet (<id>.jpg, the best 12 stills, 4 by 3),
@@ -25,7 +32,8 @@ import { heavyDecodeSlot } from "../process-slots.mjs";
 import { removeTempFolder } from "../temp-folders.mjs";
 import { WHOLE_MAX_SECONDS } from "./scan.mjs";
 
-export const SCAN_VERSION = 1;
+/** 2: marks, subtitles and drawn footage. A saved scan of another version is scanned again. */
+export const SCAN_VERSION = 2;
 /** A shot shorter than this is too short to cut to. */
 export const SHORT_SECONDS = 0.4;
 /** Neighbor shots at least this alike (SigLIP cosine) are one shot. */
@@ -36,6 +44,13 @@ export const MATCH_SHOWN = 2;
 export const DARK_LUMA = 0.12;
 /** A shot with text in this share of its frames (a title card, subtitles) is a text shot. */
 export const TEXT_SHARE = 0.5;
+/** A shot with a bottom-center line (burned-in subtitles) in this share of its frames is a subtitles shot. */
+export const SUBTITLE_SHARE = 0.15;
+/** Text in one place on this share of the shots that were read (3 at least) is a mark (OCR misses a logo on some). */
+export const MARK_SHARE = 0.4;
+/** Footage is drawn when this share of its stills reads closer to the first of DRAWN_PROMPTS. */
+export const DRAWN_SHARE = 0.6;
+export const DRAWN_PROMPTS = ["an anime screenshot or a cartoon", "a photo"];
 /** Stills on the sheet, and its grid. */
 export const SHEET_SHOTS = 12;
 export const SHEET_COLUMNS = 4;
@@ -61,13 +76,111 @@ const centerIn = (box, other) => {
   return cx >= other[0] - 0.03 && cx <= other[0] + other[2] + 0.03 && cy >= other[1] - 0.03 && cy <= other[1] + other[3] + 0.03;
 };
 
+// A burned-in subtitle: a line whose middle sits low and near the middle across.
+const isSubtitle = (box) => box[1] + box[3] / 2 >= 0.72 && Math.abs(box[0] + box[2] / 2 - 0.5) <= 0.12;
+
+/** Where a box sits, in thirds: "top-left", "top", "top-right", "left", "middle", ..., "bottom-right". */
+export function placeName(box) {
+  const third = (value) => (value < 1 / 3 ? 0 : value < 2 / 3 ? 1 : 2);
+  const row = ["top", "", "bottom"][third(box[1] + box[3] / 2)];
+  const col = ["left", "", "right"][third(box[0] + box[2] / 2)];
+  return [row, col].filter(Boolean).join("-") || "middle";
+}
+
+// The grid scanMarks counts text on: cells of 1/24 of the frame.
+const MARK_CELLS = 24;
+/** A line counts toward a mark only when it is logo-sized: at most this wide and high. */
+export const MARK_LINE_MOST = [0.25, 0.1];
+/** A mark is at most this wide and high (its grid cells, so a little more than a line). */
+export const MARK_MOST = [0.375, 0.25];
+/** A mark lies within this distance of one frame edge (a corner or a strip along an edge). */
+export const MARK_EDGE = 0.2;
+// Where burned-in subtitles sit (x, y, w, h): no mark reaches into it.
+const SUBTITLE_BAND = [0.25, 0.65, 0.5, 0.35];
+
+// True when a mark's group box is logo-sized, near an edge and clear of the subtitle band.
+// One grid cell of slack, as a group's box is rounded out to whole cells.
+function markLike([x, y, w, h]) {
+  const slack = 1 / MARK_CELLS;
+  if (w > MARK_MOST[0] + 1e-9 || h > MARK_MOST[1] + 1e-9) return false;
+  const nearEdge = x + w <= MARK_EDGE + slack || x >= 1 - MARK_EDGE - slack || y + h <= MARK_EDGE + slack || y >= 1 - MARK_EDGE - slack;
+  const [bx, by, bw, bh] = SUBTITLE_BAND;
+  const inBand = x < bx + bw && x + w > bx && y < by + bh && y + h > by;
+  return nearEdge && !inBand;
+}
+
+/**
+ * The marks of a whole scan: text that stays in one place across shots, however the OCR read it
+ * (a logo over a moving picture comes out as "TOHO", "TOH" or "TO", its boxes a different size
+ * each time). shotLines: one entry a shot, the boxes ([x, y, w, h], fractions) of every text line
+ * read in it, or null when its text was not read. Only logo-sized lines (MARK_LINE_MOST) count: a
+ * grid cell such a line touched in MARK_SHARE of the read shots (3 at least) is marked, and
+ * touching marked cells make one mark. A mark is small, near an edge and clear of the subtitle
+ * band at the bottom center, so captions and subtitles on most shots stay text. Answers
+ * [{where, box, share}], share being the most shots any of its cells was seen in, as a part of
+ * the read shots.
+ */
+export function scanMarks(shotLines = []) {
+  const read = shotLines.filter((lines) => Array.isArray(lines));
+  const seen = new Array(MARK_CELLS * MARK_CELLS).fill(0);
+  const cellOf = (value) => Math.max(0, Math.min(MARK_CELLS - 1, Math.floor(value * MARK_CELLS)));
+  for (const lines of read) {
+    const touched = new Set();
+    for (const box of lines) {
+      if (box[2] > MARK_LINE_MOST[0] || box[3] > MARK_LINE_MOST[1]) continue;
+      for (let row = cellOf(box[1]); row <= cellOf(box[1] + box[3]); row += 1)
+        for (let col = cellOf(box[0]); col <= cellOf(box[0] + box[2]); col += 1) touched.add(row * MARK_CELLS + col);
+    }
+    for (const cell of touched) seen[cell] += 1;
+  }
+  const need = Math.max(3, MARK_SHARE * read.length);
+  const on = seen.map((count) => count >= need);
+  const marks = [];
+  const done = new Set();
+  for (let start = 0; start < on.length; start += 1) {
+    if (!on[start] || done.has(start)) continue;
+    const stack = [start];
+    const group = [];
+    done.add(start);
+    while (stack.length) {
+      const cell = stack.pop();
+      group.push(cell);
+      const row = Math.floor(cell / MARK_CELLS), col = cell % MARK_CELLS;
+      for (let dr = -1; dr <= 1; dr += 1) {
+        for (let dc = -1; dc <= 1; dc += 1) {
+          const [r, c] = [row + dr, col + dc];
+          const next = r * MARK_CELLS + c;
+          if (r >= 0 && r < MARK_CELLS && c >= 0 && c < MARK_CELLS && on[next] && !done.has(next)) { done.add(next); stack.push(next); }
+        }
+      }
+    }
+    const rows = group.map((cell) => Math.floor(cell / MARK_CELLS)), cols = group.map((cell) => cell % MARK_CELLS);
+    const box = [Math.min(...cols) / MARK_CELLS, Math.min(...rows) / MARK_CELLS, (Math.max(...cols) - Math.min(...cols) + 1) / MARK_CELLS, (Math.max(...rows) - Math.min(...rows) + 1) / MARK_CELLS];
+    if (!markLike(box)) continue;
+    marks.push({ where: placeName(box), box: box.map(round3), share: round3(Math.max(...group.map((cell) => seen[cell])) / read.length) });
+  }
+  return marks.sort((a, b) => b.share - a.share);
+}
+
+/**
+ * True when the stills (normalized vectors) are drawn: DRAWN_SHARE of them read closer to
+ * drawnVector ("an anime screenshot or a cartoon") than to photoVector ("a photo").
+ */
+export function isDrawn(vectors = [], drawnVector, photoVector) {
+  const known = vectors.filter(Boolean);
+  if (!known.length || !drawnVector || !photoVector) return false;
+  return known.filter((vector) => dot(drawnVector, vector) > dot(photoVector, vector)).length / known.length >= DRAWN_SHARE;
+}
+
 /**
  * One shot's facts from measureFootage samples ({t, luma, change, motion, faces, text}), with
  * start and end in the same (file) seconds: {motion 0 to 100, face 0 to 100 or null when faces
- * were not measured, luma 0 to 1, text (share of frames with text that is no fixed element),
- * logo (share of frames showing a fixed text element)}. persistent: persistentElements' answer.
+ * were not measured, luma 0 to 1, text (share of frames with text that is no fixed element or
+ * mark), subs (share of frames with such a line at the bottom center), logo (share of frames
+ * showing a fixed text element that is no mark)}. persistent: persistentElements' answer for
+ * this stretch; marks: scanMarks' answer for the whole scan.
  */
-export function shotFacts(start, end, samples = [], persistent = []) {
+export function shotFacts(start, end, samples = [], persistent = [], marks = []) {
   let inside = samples.filter((sample) => sample.t >= start - 0.01 && sample.t < end);
   if (!inside.length && samples.length) {
     const middle = (start + end) / 2;
@@ -83,12 +196,16 @@ export function shotFacts(start, end, samples = [], persistent = []) {
   const fixed = persistent.filter((element) => element.kind === "text").map((element) => element.box);
   const textFrames = inside.filter((sample) => Array.isArray(sample.text));
   const share = (test) => (textFrames.length ? round3(textFrames.filter(test).length / textFrames.length) : 0);
-  const isFixed = (line) => fixed.some((box) => centerIn(line.box, box));
+  // A subtitle-like line is never a mark, even when a mark's box takes its middle in.
+  const isMark = (line) => !isSubtitle(line.box) && marks.some((mark) => centerIn(line.box, mark.box));
+  const isFixed = (line) => !isMark(line) && fixed.some((box) => centerIn(line.box, box));
+  const loose = (line) => !isMark(line) && !isFixed(line);
   return {
     motion,
     face,
     luma: round3(mean(inside.map((sample) => sample.luma).filter((value) => Number.isFinite(value))) ?? 0),
-    text: share((sample) => sample.text.some((line) => !isFixed(line))),
+    text: share((sample) => sample.text.some(loose)),
+    subs: share((sample) => sample.text.some((line) => loose(line) && isSubtitle(line.box))),
     logo: share((sample) => sample.text.some(isFixed)),
   };
 }
@@ -106,12 +223,15 @@ export function mergeAlike(shots) {
     if (last && Math.abs(last.end - shot.start) < 0.05 && last.vector && shot.vector && dot(last.vector, shot.vector) >= SAME_SHOT) {
       const a = last.end - last.start;
       const b = shot.end - shot.start;
-      const blend = (key) => (last[key] === null || shot[key] === null ? last[key] ?? shot[key] : round3((last[key] * a + shot[key] * b) / (a + b)));
+      const blend = (key) => {
+        const [x, y] = [last[key], shot[key]].map((value) => (Number.isFinite(value) ? value : null));
+        return x === null || y === null ? x ?? y : round3((x * a + y * b) / (a + b));
+      };
       const longer = b > a ? shot : last;
       out[out.length - 1] = {
         ...last, end: shot.end, still: longer.still, vector: longer.vector,
         motion: Math.round(blend("motion")), face: last.face === null && shot.face === null ? null : Math.round(blend("face")),
-        luma: blend("luma"), text: blend("text"), logo: blend("logo"),
+        luma: blend("luma"), text: blend("text"), subs: blend("subs"), logo: blend("logo"),
       };
       repeats += 1;
     } else out.push({ ...shot });
@@ -130,39 +250,46 @@ function zScores(values) {
  * The z-score the best of `count` match z-scores must reach to count. Among N shots that match
  * nothing, the best z-score is about sqrt(2 ln N) (2.6 for 150 shots), so a long scan needs more
  * than MATCH_SHOWN. A few shots cannot reach 2 at all (the most is sqrt(N - 1)), so then 90% of
- * that most is enough.
+ * that most is enough. Drawn footage keeps MATCH_SHOWN: one show's frames share their style and
+ * cast, so a character there recurs in many shots, and the more shots share a subject the lower
+ * each one's z-score (about sqrt((1 - p) / p) for a share p: 1.7 at a quarter of the shots).
  */
-export function matchBar(count) {
+export function matchBar(count, { drawn = false } = {}) {
   if (count < 3) return Infinity;
-  return Math.min(Math.max(MATCH_SHOWN, Math.sqrt(2 * Math.log(count))), 0.9 * Math.sqrt(count - 1));
+  return Math.min(drawn ? MATCH_SHOWN : Math.max(MATCH_SHOWN, Math.sqrt(2 * Math.log(count))), 0.9 * Math.sqrt(count - 1));
 }
 
 /**
- * The shots best first, each with {flags, score, match}. flags: "dark", "text", "short" (these
- * go last), "logo" (a small cost). match: the z-score of the shot's closeness to `wantVector`
- * among these shots (null without one); it adds to the score only when matchShown (the best
- * clean shot, one without dark, text or short, reaches matchBar). Answers {shots, matchShown,
- * skipped: {dark, text, short}}.
+ * The shots best first, each with {flags, score, match}. flags: "dark", "text", "subtitles",
+ * "short" (these go last), "logo" (a small cost). match: the z-score of the shot's closeness to
+ * `wantVector` among these shots (null without one); it adds to the score only when matchShown
+ * (the best clean shot, one without dark, text, subtitles or short, reaches matchBar; drawn: the
+ * footage is drawn). Answers {shots, matchShown, matchBest (that best z-score, or null),
+ * matchBar, skipped: {dark, text, subtitles, short}}.
  */
-export function rankShots(shots, { wantVector = null } = {}) {
+export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
   const closeness = wantVector ? shots.map((shot) => (shot.vector ? dot(wantVector, shot.vector) : null)) : [];
   const known = closeness.filter((value) => value !== null);
   const z = zScores(known);
   let next = 0;
   const matches = closeness.map((value) => (value === null ? null : round1(z[next++])));
-  const skipped = { dark: 0, text: 0, short: 0 };
+  const skipped = { dark: 0, text: 0, subtitles: 0, short: 0 };
   const flagged = shots.map((shot) => {
     const flags = [];
     if (shot.luma < DARK_LUMA) flags.push("dark");
     if (shot.text >= TEXT_SHARE) flags.push("text");
+    else if (shot.subs >= SUBTITLE_SHARE) flags.push("subtitles");
     if (shot.end - shot.start < SHORT_SECONDS) flags.push("short");
     for (const flag of flags) skipped[flag] += 1;
     if (shot.logo >= TEXT_SHARE) flags.push("logo");
     return flags;
   });
-  // A title card that spells the searched name can match best; only clean shots decide.
+  // A title card that spells the searched name can match best, and a short shot sorts last and is
+  // too short to import: only clean shots decide.
   const clean = matches.filter((value, index) => value !== null && flagged[index].every((flag) => flag === "logo"));
-  const matchShown = clean.length > 0 && Math.max(...clean) >= matchBar(known.length);
+  const bar = matchBar(known.length, { drawn });
+  const matchBest = clean.length ? Math.max(...clean) : null;
+  const matchShown = matchBest !== null && matchBest >= bar;
   const rows = shots.map((shot, index) => {
     const flags = flagged[index];
     const match = wantVector ? matches[index] : null;
@@ -172,7 +299,7 @@ export function rankShots(shots, { wantVector = null } = {}) {
     return { ...shot, flags, score, match, last };
   });
   rows.sort((a, b) => Number(a.last) - Number(b.last) || b.score - a.score || a.start - b.start);
-  return { shots: rows.map(({ last, ...row }) => row), matchShown, skipped };
+  return { shots: rows.map(({ last, ...row }) => row), matchShown, matchBest, matchBar: Number.isFinite(bar) ? round1(bar) : null, skipped };
 }
 
 // ---- files ----------------------------------------------------------------------------------
@@ -297,8 +424,9 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
   try {
     const use = tools ?? await defaultTools();
     onProgress?.(measuringLine({ modelReady }));
-    const all = [];
+    const stretches = [];
     const vision = { faces: false, text: false, flow: false };
+    let count = 0;
     for (const window of copy.files) {
       const facts = await use.probe(window.file, { signal });
       const span = window.end - window.start;
@@ -306,29 +434,40 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       // The lead-in before window.start (the file starts at the keyframe before it); 0 when the
       // file is no longer than the stretch (a stretch that reached the video's end early).
       const lead = Math.max(0, duration - span);
-      const at = window.start - lead;
       const { shots } = await use.findShots(window.file, { duration, signal, maxSeconds: WHOLE_MAX_SECONDS });
-      const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal });
+      const measured = await use.measure(window.file, { width: facts.width, height: facts.height, duration, signal, events: false });
       for (const key of Object.keys(vision)) vision[key] ||= measured.vision?.[key] === true;
       const samples = measured.samples ?? [];
       const cuts = shots.slice(1).map((shot) => shot.start);
       const persistent = persistentElements(samples.map((sample) => ({ t: sample.t, text: sample.text, stats: {} })), cuts);
-      const stills = await use.stills(window.file, shots.map((shot) => (shot.start + shot.end) / 2), path.join(copy.folder, `stills-${all.length}`), { signal });
-      shots.forEach((shot, index) => {
-        all.push({
-          start: round3(Math.max(0, at + shot.start)), end: round3(at + shot.end),
-          ...shotFacts(shot.start, shot.end, samples, persistent), still: stills[index] ?? null,
-        });
-      });
+      const stills = await use.stills(window.file, shots.map((shot) => (shot.start + shot.end) / 2), path.join(copy.folder, `stills-${count}`), { signal });
+      count += shots.length;
+      stretches.push({ at: window.start - lead, shots, samples, persistent, stills });
     }
-    // Every still through the embedder at once; `want` through its text half.
+    // Marks are read across the whole scan: a logo on every shot is one fact, said once.
+    const linesOf = (shot, samples) => {
+      const read = samples.filter((sample) => sample.t >= shot.start - 0.01 && sample.t < shot.end && Array.isArray(sample.text));
+      return read.length ? read.flatMap((sample) => sample.text.map((line) => line.box)) : null;
+    };
+    const marks = scanMarks(stretches.flatMap(({ shots, samples }) => shots.map((shot) => linesOf(shot, samples))));
+    const all = stretches.flatMap(({ at, shots, samples, persistent, stills }) => shots.map((shot, index) => ({
+      start: round3(Math.max(0, at + shot.start)), end: round3(at + shot.end),
+      ...shotFacts(shot.start, shot.end, samples, persistent, marks), still: stills[index] ?? null,
+    })));
+    // Every still through the embedder at once; `want` and the drawn-or-photo words through its text half.
     const withStill = all.filter((shot) => shot.still);
     const looked = embed && withStill.length ? await embed.images(withStill.map((shot) => shot.still)) : null;
     withStill.forEach((shot, index) => { shot.vector = looked?.vectors?.[index] ? decodeVector(looked.vectors[index]) : null; });
     const words = String(want ?? "").trim();
-    const wantVector = embed && words ? (await embed.text([words]))?.[0] ?? null : null;
+    const prompts = looked ? [words || null, ...DRAWN_PROMPTS].filter(Boolean) : [];
+    const texts = embed && prompts.length ? await embed.text(prompts) ?? [] : [];
+    const wantVector = words && looked ? texts[0] ?? null : null;
+    const [drawnVector, photoVector] = texts.slice(words ? 1 : 0).map((vector) => (vector ? normalize(vector) : null));
+    // The face detector is made for photos: on drawn footage it reads nothing, so faces do not rank.
+    const drawn = isDrawn(withStill.map((shot) => shot.vector), drawnVector, photoVector);
+    if (drawn) for (const shot of all) shot.face = null;
     const { shots: joined, repeats } = mergeAlike(all);
-    const ranked = rankShots(joined, { wantVector: wantVector ? normalize(wantVector) : null });
+    const ranked = rankShots(joined, { wantVector: wantVector ? normalize(wantVector) : null, drawn });
     // Shot numbers follow time, so F1.37 comes before F1.38 in the video.
     const order = [...ranked.shots].sort((a, b) => a.start - b.start);
     const number = new Map(order.map((shot, index) => [shot, index + 1]));
@@ -347,7 +486,8 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const scan = {
       version: SCAN_VERSION, id, title, want: words, scannedAt: new Date().toISOString(),
       windows: copy.files.map((window) => ({ start: window.start, end: window.end })),
-      vision, model: looked?.model ?? null, matchShown: ranked.matchShown,
+      vision, model: looked?.model ?? null, drawn, marks, matchShown: ranked.matchShown,
+      matchBest: ranked.matchBest, matchBar: ranked.matchBar,
       skipped: { ...ranked.skipped, repeats },
       sheet,
       shots: ranked.shots.map((shot) => ({

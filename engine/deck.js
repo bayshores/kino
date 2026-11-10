@@ -12,12 +12,14 @@
 //   3. away from the techniques this machine's last few projects were dealt or used (novelty),
 //      except a project that shares media or the story with this one (sharesMaterial);
 //   4. never the known default edit: plain cards (cut, type-cut, hold) and rhythm cards are never
-//      dealt, and at most one of the default set (type-pop, slow-push) is.
+//      dealt, and at most one of the default set (type-pop, slow-push) is;
+//   5. never a loud accent (flash, glitch-hit, shake, rgb-split), as a card or a set piece: each
+//      needs a measured moment, not a deal.
 // The same project, reroll count, spec, material and recent history always give the same hand.
 //
 // Plain data in and out: backend/agent/deck.mjs saves the hand in the project's agent state.
 import { seeded } from "./blocks/build.js";
-import { PLAIN_TAGS, TECHNIQUES, techniqueOf } from "./techniques.js";
+import { LOUD_TAGS, PLAIN_TAGS, TECHNIQUES, techniqueOf } from "./techniques.js";
 
 export const DECK_GROUPS = Object.freeze(["transition", "camera", "type", "texture"]);
 // Cards the agent may swap out per deal, each with a reason.
@@ -57,8 +59,6 @@ const NEEDS = Object.freeze({
   "tile-ring": ["pictures"],
   "clip-field": ["twoPictures"],
 });
-// Loud accents land with sound; without it they are less likely.
-const WITH_SOUND = new Set(["flash", "glitch-hit", "shake", "rgb-split"]);
 // Transitions kino reads at a change of full-frame picture: likelier when there are pictures.
 const BETWEEN_PICTURES = new Set(["dissolve", "fade-black", "blur-through", "zoom-through", "whip-pan", "mask-wipe", "push-transition"]);
 
@@ -160,7 +160,6 @@ function fits(tag, material) {
 function baseWeight(tag, material) {
   if (!material?.known) return 1;
   let weight = 1;
-  if (WITH_SOUND.has(tag)) weight *= material.sound ? 1.5 : 0.6;
   if (BETWEEN_PICTURES.has(tag) && !material.pictures) weight *= 0.5;
   if (tag === "orbit-3d" && material.device) weight *= 1.5;
   return weight;
@@ -219,7 +218,9 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
   const around = Boolean(style?.moments?.length || style?.signatures?.length);
   let setPiece = null;
   if (around) {
-    const tag = (style.moments ?? []).map((moment) => moment.tag).find((entry) => techniqueOf(entry) && !avoids.has(entry));
+    // A loud accent (LOUD_TAGS) or a card the deal never draws is no signature either: a set piece instead.
+    const dealable = (entry) => !LOUD_TAGS.includes(entry) && (!DECK_GROUPS.includes(techniqueOf(entry).group) || dealableTags(techniqueOf(entry).group).includes(entry));
+    const tag = (style.moments ?? []).map((moment) => moment.tag).find((entry) => techniqueOf(entry) && !avoids.has(entry) && dealable(entry));
     if (tag && DECK_GROUPS.includes(techniqueOf(tag).group)) add(tag, "signature");
     else if (tag) setPiece = { kind: "technique", name: tag, tags: [tag] };
     else setPiece = drawSetPiece(true);
@@ -264,7 +265,8 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
   // At most one set piece: a move when the library exists, else split-screen when it fits. For
   // the signature (`force`) there always is one when anything fits: a set-piece technique last.
   function drawSetPiece(force) {
-    const usable = moves.filter((move) => moveFits(move, material) && !(move.tags ?? []).some((tag) => avoids.has(tag)));
+    // A set piece built on a loud accent is never dealt either (engine/techniques.js LOUD_TAGS).
+    const usable = moves.filter((move) => moveFits(move, material) && !(move.tags ?? []).some((tag) => avoids.has(tag) || LOUD_TAGS.includes(tag)));
     if (usable.length) {
       const name = pickWeighted(rng, usable.map((move) => ({
         value: move.name,

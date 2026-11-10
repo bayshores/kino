@@ -116,7 +116,7 @@ const OPERATIONS = {
   },
   compose: {
     fields: ["sceneId", "id", "name", "videoType", ...COMPOSE_KEYS.filter((key) => key !== "type"), ...FOOTAGE_FIELDS],
-    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix), then check fixes it; dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents (on with a pace) zoom-punch the downbeats, never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it.',
+    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix), then check fixes it; dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it.',
   },
   format: {
     fields: ["name", "slots", "aspect", "sceneId", "id", "seed"],
@@ -281,7 +281,7 @@ function translateFootage(operation, resolver, document) {
   for (const key of ["music", "voice"]) if (operation[key] !== undefined && (typeof operation[key] !== "string" || !operation[key].trim())) throw problem(`${key} is an imported sound's name or id.`);
   if (operation.treatment !== undefined && !treatmentNamed(operation.treatment)) throw problem(`treatment is one of ${TREATMENT_NAMES.join(", ")} (or leave it out: the brief's pick or the material chooses).`, closest(String(operation.treatment), TREATMENT_NAMES));
   if (operation.pace !== undefined && operation.pace !== null && !PACE_NAMES.includes(operation.pace)) throw problem(`pace is ${PACE_NAMES.join(" or ")} (shots as runs of whole beats), or null for the treatment's own cutting.`, closest(String(operation.pace), PACE_NAMES));
-  if (operation.accents !== undefined && typeof operation.accents !== "boolean") throw problem("accents is true (a zoom punch on the downbeats; on by default with a pace) or false.");
+  if (operation.accents !== undefined && typeof operation.accents !== "boolean") throw problem("accents is true (a zoom punch on the downbeats; off by default) or false.");
   if (operation.duration !== undefined && (typeof operation.duration !== "number" || !Number.isFinite(operation.duration) || operation.duration < 6 || operation.duration > 600)) throw problem("duration is seconds from 6 to 600 (left out, the footage and music choose).");
   if (operation.format !== undefined) { try { parseFormat(operation.format); } catch (error) { throw problem(error.message); } }
   if (operation.seed !== undefined && (!Number.isInteger(operation.seed) || operation.seed < 1 || operation.seed > 1e6)) throw problem("seed is a whole number from 1 to 1000000.");
@@ -832,7 +832,8 @@ function copyText(value, depth = 0) {
 // what compose {footage} needs from the service (backend/agent/footage.mjs, the deck, an edit's
 // translate-and-apply).
 // pictureAlpha(src): a picture's alpha grid (backend/agent/picture-alpha.mjs) for moves that push into it.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null }) {
+// clipEvents(src): a clip's measured events in file seconds (footage/events.mjs), or null.
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf });
   async function mediaOf(document, work) {
@@ -1068,6 +1069,27 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // ---- move ---------------------------------------------------------------------------------
+  // What a move that needs a cue (impact-accent) reads: its at as given, the cues, and the scene's
+  // clips' measured impacts and light in scene seconds (each with its clip and file seconds).
+  async function cueFactsOf(document, scene, at) {
+    const events = [];
+    const clips = scene.layers.filter((layer) => layer.type === "video" && layer.src).slice(0, 12);
+    for (const layer of clips) {
+      let measured = null;
+      try { measured = clipEvents ? await clipEvents(layer.src) : null; } catch { measured = null; }
+      for (const event of measured ?? []) {
+        if (event.kind !== "impact" && event.kind !== "light") continue;
+        try {
+          const placed = footageCueTime(document, layer.id, event.t);
+          if (!placed.shown || placed.layer.id !== layer.id) continue;
+          const from = event.from !== undefined ? footageCueTime(document, layer.id, event.from).time : undefined;
+          events.push({ ...event, at: round(placed.time), media: event.t, layer: layer.id, ...(from !== undefined ? { from: round(from) } : {}) });
+        } catch { /* a clip with an animated speed has no steady time: its events are left out */ }
+      }
+    }
+    return { at, cues: document.cues ?? [], events };
+  }
+
   // A move builds a set piece from the scene's layers (engine/blocks/move.js). The same id again
   // removes what it made before and makes it again from its saved settings plus the changes.
   async function applyMove(document, operation, work) {
@@ -1120,9 +1142,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       : typeof input.fontWeight === "number" ? style.fonts.body?.fontFamily : undefined;
     const fontFaces = typeof input.font === "string" ? { [input.font]: await askedFace(document, input.font, copyText(input), work) }
       : typeof weightFamily === "string" ? { [weightFamily]: await askedFace(document, weightFamily, copyText(input), work, input.fontWeight ?? 600) } : {};
+    const cueFacts = definition.needsCue ? await cueFactsOf(document, scene, settings.at) : null;
     let made;
     try {
       made = runMove(definition, {
+        cueFacts,
         id: operation.id, input, scene, style, fonts, start, align: settings.align ?? "start", dur: settings.dur ?? null, media, logo: logoOf(brand, media),
         reduced: settings.reduced ?? composition.reduced ?? false, seed: settings.seed ?? 1, brandFonts: Boolean(faces), bpm: document.rhythm?.bpm ?? null,
         alpha: (src) => alphas.get(src) ?? null, fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),

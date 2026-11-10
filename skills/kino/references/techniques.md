@@ -1,9 +1,8 @@
 # Techniques and the style spec
 
-Agents left alone make the same edit (hard cuts, text cards, a kick on every beat). kino names
-the techniques, finds them, lets references set the style.
+kino names the techniques, finds them, and lets references set the style.
 
-Contents: The vocabulary · The style spec · What check measures · The deck · Treatments · Building with techniques
+Contents: The vocabulary · The style spec · What check measures · The deck · Treatments · Building with techniques · Effects need a reason
 
 ## The vocabulary
 
@@ -19,22 +18,14 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
   device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)
 - **rhythm**: beat-cut, beat-kick, syncopated, hold
 
-Each check answer lists the techniques used, most first:
-`techniques: cut 12, type-pop 5, slow-push 2 · style: kino default`.
+check lists those used (`techniques: cut 12, type-pop 5`), read from the document:
 
-kino finds them in the document, not the pixels:
-
-- dissolve: two pictures (full-frame, or floating clips in place) whose opacities cross;
-  fade-black fades through a dark background.
-- blur-through, zoom-through (25% or more of scale into or out of the change), whip-pan (a fast
-  slide with a directional blur) and push-transition (both pictures slide the same way) are read
-  at each change of full-frame picture.
-- slow-push, drift: a slow scale or move (1.2 s+) of a layer filling 40% of the frame;
-  parallax: two slow layers, 1.5x apart in speed.
-- type-* is how each text enters: by words or letters with a stagger, a fade, a slide, a scale
-  (pop), a blur, a reveal (mask-rise), or nothing (type-cut).
-- beat-kick: 3+ pulses of a layer (1-10%, back in 0.4 s); depth-blur: a blurred full-frame
-  picture behind sharp things; screen-zoom: a video scaled 2x in 1 s.
+- dissolve: opacities of two pictures cross; fade-black dips through dark. blur-through,
+  zoom-through (25%+ scale), whip-pan and push-transition are read at each full-frame change.
+- slow-push, drift: a slow move (1.2 s+) of a layer filling 40%; parallax: two, 1.5x apart.
+- type-*: how a text enters (words, letters, fade, slide, pop, blur, mask-rise, or cut).
+- beat-kick: 3+ pulses (1-10%, back in 0.4 s); depth-blur: a blurred picture behind sharp
+  ones; screen-zoom: a video scaled 2x in 1 s.
 
 ## The style spec
 
@@ -68,10 +59,10 @@ What a backed want does:
 | beat-kick | `beat_kick` is off |
 | hold | `text_slides` is off |
 | the entrance every text uses | `same_entrance` is quiet |
-| any tag | `technique_repeat` lets it repeat; `style_wanted` warns when it is not used |
+| any tag | `technique_repeat` lets it repeat (not loud accents); `style_wanted` wants it |
 
-An avoided tag used is a gate (`style_avoided`) only if the person banned it. The other gates (reading time,
-type size, contrast, overlap...) never change with the spec. With no spec, check follows kino's default style and says `style: kino default`.
+An avoided tag used is a gate (`style_avoided`) only if the person banned it. Other gates never
+change with the spec. With no spec, check says `style: kino default`.
 
 ## What check measures
 
@@ -83,7 +74,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 | `text_slides` | text over a still, or dimmed or blurred footage, no sharp 20% screen on top | 25% at most, no card over 3 s bar the last |
 | `few_techniques` | a flat edit: no designed device (cut, type-cut, hold, beat-cut, syncopated don't count) | 1 under 70 s, then 2, 4 at most |
 | `plain_beats` | the hook, reveal or spine payoff (else first, last 2.5 s) of only footage, words, plain cuts, fades, blurs, freezes | a move on one; all plain holds the final render |
-| `technique_repeat` | monotony: a set piece over 3 times; one non-cut transition on 4+, 75% of changes, no plain cut; a loud accent (flash, whip-pan...) over 3 times or once per 15 s; one entrance on 75% of texts | 2-3 alike uses: a motif |
+| `technique_repeat` | monotony: a set piece over 3 times; one non-cut transition on 4+, 75% of changes, no plain cut; a loud accent over 3 times or once per 15 s; one entrance on 75% of texts | 2-3 alike uses: a motif |
 | `metronome` | shots within 20% of one length, or 90% of cuts on the beat at one count | |
 | `beat_kick` | the same small scale pulse 6 times or more | 5 alike at most |
 | `flat_sections` | next sections alike in 3 of: cut rate, motion, picture (footage, dark, light), framing scale | differ in 2 |
@@ -91,6 +82,7 @@ Warnings (style_avoided a gate); each fix names techniques that fit, never "add 
 | `style_wanted` | a backed wanted technique not used (hard cuts stay free) | |
 | `off_beat` | an accent 1 frame to 70 ms off a beat: a near miss | on it, or clearly between (syncopated) |
 | `deck_unused` | fewer than half of the deck's cards used (a card swapped out does not count) | half or more |
+| `effect_fit` | music edit: loud effect on no cue, too big, over budget, stacked, on a talking face | auto removes; waive with cue:<name> |
 
 ## The deck
 
@@ -105,7 +97,7 @@ Seed: the project's plus the reroll count. The deal:
 - steers away from what the last 3 projects were dealt and used;
 - never deals plain cuts, plain text, beat kicks, or both type-pop and slow-push.
 
-Build each card where it fits; swap a misfit with the reason (2 a deal); none fit: reroll.
+Build a card only where it fits; swap a misfit with the reason (2 a deal) or reroll.
 
 ```json
 {"tool":"notes","action":"deck"}
@@ -114,8 +106,7 @@ Build each card where it fits; swap a misfit with the reason (2 a deal); none fi
 ```
 
 `variants {vary:"deck"}` remakes a composed scene with the next 3 decks; `look
-{mode:"variants"}` shows their first 8 s side by side; `pick_variant` keeps one. Recipes and
-compose take the project's seed by default.
+{mode:"variants"}` compares them; `pick_variant` keeps one.
 
 ## Treatments
 
@@ -136,8 +127,16 @@ signature and the spine's end. Building first is `order_needed`; waive_check "tr
 - Before building, name 4 to 8 techniques the references use, with times; write the spec.
 - Each section gets its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
   `flat_sections` checks it.
-- Keep set pieces and loud accents for the moments that matter: one zoom-through into the
-  product, one glitch-hit on the drop.
-- A slow-push or drift under text turns a slide into a shot; depth-blur behind floating clips
-  gives depth without new footage.
-- Kicks and flashes on every beat are a tic: use the 2 or 3 biggest hits.
+- Set pieces only where they matter; a slow-push under text turns a slide into a shot.
+
+## Effects need a reason
+
+Every effect needs a cue that motivates it. Placed by beat number, seed or habit, a flash or
+shake reads as decoration. Reference counts are ceilings, not targets; none of a device is fine.
+
+- Flash: light rising in the shot, a song seam or a top accent. Shake, impact frame: a contact
+  in the footage. Dip: a rest. Strobe: a measured drum fill. `move {name:"impact-accent", kind,
+  at:"cue:<name>"}` refuses any other cue and names one that fits; size follows its weight.
+- The picture may come 2 frames early, never late. Slow motion holds frames on drawn footage.
+- Lend a reference's principles (pace per section, rests), never its times, order or devices.
+- `effect_fit`, `seam_lock`, `rest_fit` and `reference_closeness` check it.

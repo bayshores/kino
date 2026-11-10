@@ -305,7 +305,7 @@ test("motion rules leave a hidden layer alone: no first_entrance, linear_motion 
 
 // The findings of a run as "rule: message", without the technique rules: those count techniques
 // (engine/quality/techniques.js), so they see a speed ramp, a blur or a flare on purpose.
-const TECHNIQUE_RULES = new Set(["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "cut_motivation", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit"]);
+const TECHNIQUE_RULES = new Set(["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "cut_motivation", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit", "reference_closeness"]);
 const motionMessages = (result) => result.findings.filter((finding) => !TECHNIQUE_RULES.has(finding.rule)).map((finding) => `${finding.rule}: ${finding.message}`);
 
 test("clip speed is not motion: a linear Speed ramp, mediaSpeed, mediaReverse and mediaFrameRate add no findings", async () => {
@@ -1619,6 +1619,48 @@ test("restraint: a grade stacked on a grade, one footage moment twice and letter
   await silent("restraint", recap, { scene: recap.scenes[0] });
 });
 
+// ---------------------------------------------------------------- seam_lock, rest_fit (fit_music's song cues)
+
+// Full-frame shots back to back: [start, end] each, from different files.
+const shots = (...spans) => scene({ duration: 4, layers: spans.map(([start, end], index) => ({ type: "video", id: `s${index + 1}`, name: `s${index + 1}`, src: `/api/media/shot${index + 1}.mp4`,
+  x: 0, y: 0, width: 1920, height: 1080, start, duration: end - start, mediaStart: start, mediaDuration: end - start, mediaSourceDuration: 20, ...(spans[index][2] ?? {}) })) });
+const songCues = (pairs) => pairs.map(([name, time]) => ({ name, time, kind: "marker" }));
+const withCues = (document, pairs) => ({ scene: document.scenes[0], cues: songCues(pairs) });
+
+test("seam_lock: a cut 6 frames after the drop and a return with no change warn; a cut on the drop, a cut away from any seam and no song cues are quiet", async () => {
+  const late = shots([0, 2.2], [2.2, 4]);
+  const [miss] = await fires("seam_lock", late, withCues(late, [["song-drop-1", 2]]));
+  assert.match(miss.measured, /song-drop-1 at 2 s: cut at 2\.2 s, 6 frames late/);
+  const held = shots([0, 4]);
+  const [unmarked] = await fires("seam_lock", held, withCues(held, [["song-return-1", 2]]));
+  assert.match(unmarked.measured, /no picture change/);
+  const locked = shots([0, 2], [2, 4]);
+  await silent("seam_lock", locked, withCues(locked, [["song-drop-1", 2], ["song-vocal-in-1", 3.1], ["song-ending", 3.9]]));
+  await silent("seam_lock", late);
+  // A held shot that pans or punches in on the drop marks it with no cut.
+  const pan = shots([0, 4, { animations: [move(2, 0.3, "smooth", { x: 0 }, { x: -300 })] }]);
+  await silent("seam_lock", pan, withCues(pan, [["song-drop-1", 2]]));
+  const punch = shots([0, 4, { animations: [move(2, 0.2, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.15, scaleY: 1.15 })] }]);
+  await silent("seam_lock", punch, withCues(punch, [["song-drop-1", 2]]));
+  // A format variant or another scene is not judged against the video's song.
+  await silent("seam_lock", held, { ...withCues(held, [["song-return-1", 2]]), videoScene: false });
+});
+
+test("rest_fit: a cut inside a dropout, a late restart and a fast move while the music rests warn; a held shot cut on the return is quiet", async () => {
+  const rest = [["song-dropout-1", 1.5], ["song-return-1", 2.5]];
+  const busy = shots([0, 1.8], [1.8, 4]);
+  const found = await fires("rest_fit", busy, withCues(busy, rest));
+  assert.deepEqual(found.map((finding) => finding.measured.split(": ")[1].split(" ")[0]), ["cut", "nothing"]);
+  const late = shots([0, 2.7], [2.7, 4]);
+  const [slow] = await fires("rest_fit", late, withCues(late, rest));
+  assert.match(slow.measured, /restarts at 2\.7 s \(cut\), 6 frames late/);
+  const shake = shots([0, 2.5, { animations: [move(1.8, 0.3, "smooth", { x: -200 })] }], [2.5, 4]);
+  const [moved] = await fires("rest_fit", shake, withCues(shake, rest));
+  assert.match(moved.measured, /"s1" moving/);
+  const calm = shots([0, 2.5], [2.5, 4]);
+  await silent("rest_fit", calm, withCues(calm, rest));
+});
+
 test("request_unmet: quoted words, music and 'no logo' are checked against the edit; a vague note is listed to confirm by looking", async () => {
   const doc = scene({ layers: [text("title", "Launch day", { animations: [fadeIn(0.2)] }), rect("logo", { width: 200, height: 100 })] });
   const asks = [{ id: "N1", note: true, text: 'Title should say "Launch day"' }, { id: "N2", note: true, text: "add music under it" },
@@ -1633,8 +1675,8 @@ test("request_unmet: quoted words, music and 'no logo' are checked against the e
 // ---------------------------------------------------------------- coverage
 
 test("every data rule has a bad and a good example above", () => {
-  // The technique and spine rules have theirs in engine/qualityStyle.test.js, the polish and speech rules in engine/qualityPolish.test.js, out_of_sync in src/clipSync.test.js, seen_before and ending_seen in engine/layoutSignature.test.js, template_end in engine/qualityEnding.test.js, clip_reuse in engine/qualityClipReuse.test.js.
-  const polish = new Set(["seen_before", "ending_seen", "template_end", "clip_reuse", "music_stall", "music_turn", "spine_drift", "rejected_text", "signature_missing", "font_fallback", "text_wrap", "text_collision", "text_ghost", "cut_off_at_rest", "held_static", "frozen_screen", "screen_unreadable", "off_brand_font", "speech_cut", "speech_captions", "speech_quotes", "speech_fragment", "mute_word", "music_hard_stop", "voice_under_bed", "voice_level_spread", "bed_jump", "volume_churn", "end_on_fade", "text_load", "soft_upscale", "crop_no_subject", "jump_cut", "frozen_footage", "low_fps_motion", "no_music", "sfx_restraint", "out_of_sync", "track_lost"]);
+  // The technique and spine rules have theirs in engine/qualityStyle.test.js, the polish and speech rules in engine/qualityPolish.test.js, out_of_sync in src/clipSync.test.js, seen_before and ending_seen in engine/layoutSignature.test.js, template_end in engine/qualityEnding.test.js, clip_reuse in engine/qualityClipReuse.test.js, effect_fit in engine/effectFit.test.js.
+  const polish = new Set(["effect_fit", "seen_before", "ending_seen", "template_end", "clip_reuse", "music_stall", "music_turn", "spine_drift", "rejected_text", "signature_missing", "font_fallback", "text_wrap", "text_collision", "text_ghost", "cut_off_at_rest", "held_static", "frozen_screen", "screen_unreadable", "off_brand_font", "speech_cut", "speech_captions", "speech_quotes", "speech_fragment", "mute_word", "music_hard_stop", "voice_under_bed", "voice_level_spread", "bed_jump", "volume_churn", "end_on_fade", "text_load", "soft_upscale", "crop_no_subject", "jump_cut", "frozen_footage", "low_fps_motion", "no_music", "sfx_restraint", "out_of_sync", "track_lost"]);
   const dataCodes = RULES.filter((entry) => !entry.pixels && !TECHNIQUE_RULES.has(entry.code) && !polish.has(entry.code)).map((entry) => entry.code);
   assert.deepEqual(dataCodes.filter((code) => !covered.has(code)), []);
 });

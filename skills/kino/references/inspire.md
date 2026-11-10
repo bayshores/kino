@@ -12,7 +12,8 @@ frame strips · Proposing ideas · Sound effects
 ## What is measured
 
 - Shots, cuts a second, the longest shot and where it is, length, the beat (bpm), and cuts on
-  the beat (n of m: a cut at most 0.08 s from a beat).
+  the beat (n of m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame
+  of a beat vs random (near it: cuts on action).
 - The fingerprint (Apple Vision on a Mac, `backend/measure`): motion and holds, camera moves
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,
@@ -57,10 +58,9 @@ frame strips · Proposing ideas · Sound effects
   results nobody picked (a failed one is tried again). It keeps a still a second (10 to 90)
   for `look versus`; saving one kept with 10 measures it again. `"copy <project>"` saves another
   project's saved references here in one call.
-- `borrow_rhythm {ref, fit?, at?, scene?}` (an edit op) turns the cuts into cue marks
-  `rhythm-1`, `rhythm-2`, … that timing points at (`at:"cue:rhythm-3"`). `fit:true` scales the
-  measured stretch to the scene; without it the cuts keep their times and those past the scene
-  end are left out. Borrowing again replaces them. Only the times come in, never the footage.
+- `borrow_rhythm {ref, fit?, at?, scene?}` (an edit op) lends each section's shot lengths
+  (`lend:`) in a new order as cue marks `rhythm-1`, … (`at:"cue:rhythm-3"`), cut on `song-` seams.
+  `fit:true` scales to the scene. `reference_closeness` warns on copied cut timing.
 - Search, read one, borrow it scaled to the scene, then cut a title on the third cut:
 
 ```json

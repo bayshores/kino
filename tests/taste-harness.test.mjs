@@ -2,7 +2,8 @@
 // parsing, and the Bradley-Terry ladder with owner agreement.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { agreement, bradleyTerry, cutsFrom, lineLevels, parseEbur128, shortTermCurve, splitPicks, stripTimes } from "../evals/taste/lib.mjs";
+import { agreement, allCutsFrom, bradleyTerry, cutsFrom, eventsFrom, lineLevels, outsideFlashes, parseEbur128, shortTermCurve, splitPicks, stripTimes } from "../evals/taste/lib.mjs";
+import { beatFit, beatFitLine } from "../backend/measure/beat-fit.mjs";
 import { answerJson, combine, factsText } from "../evals/taste/judge.mjs";
 import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
@@ -20,6 +21,35 @@ test("cuts become 12 fps strips 0.5 s each side, joined where they overlap", () 
   assert.deepEqual(strips.map((strip) => [strip.from, strip.to, strip.cuts]), [[0, 1.5, [0.5, 1]], [2.5, 3.2, [3]]]);
   assert.equal(strips[0].times.length, 18);
   assert.equal(strips[1].times[0], 2.5);
+});
+
+test("a reference read: every 2-frame cut, a flash counted once, black and hold events, and the cuts against the beat", () => {
+  // 3 s at 24 fps: one shot for 1 s, twelve 2-frame shots, shot B at frame 48, a white flash on
+  // frames 50-51, B held still from 53, black from 68.
+  const frames = Array.from({ length: 72 }, (_, n) => ({ t: n / 24, score: 0, yavg: 100, ydif: 3 }));
+  for (let n = 24; n <= 48; n += 2) Object.assign(frames[n], { score: 40, yavg: n % 4 ? 90 : 110 });
+  frames[49].yavg = frames[48].yavg;
+  Object.assign(frames[50], { score: 60, yavg: 230, ydif: 60 });
+  Object.assign(frames[51], { yavg: 230, ydif: 0 });
+  Object.assign(frames[52], { score: 60, ydif: 60 });
+  for (let n = 53; n < 72; n += 1) frames[n].ydif = 0;
+  for (let n = 68; n < 72; n += 1) Object.assign(frames[n], { yavg: 16, score: n === 68 ? 40 : 0 });
+  const events = eventsFrom(frames);
+  assert.deepEqual(events, { flashes: [{ t: 2.08, end: 2.17, rise: 0.47 }], blacks: [{ t: 2.83, end: 2.96 }], holds: [{ t: 2.21, end: 2.83 }] });
+  assert.equal(cutsFrom(frames).length, 3, "the strips' list (0.1 s apart) stays on the strongest");
+  const cuts = outsideFlashes(allCutsFrom(frames), events.flashes);
+  assert.equal(cuts.length, 15, "13 picture cuts, the flash once, the black");
+  assert.deepEqual(cuts.filter((cut) => cut.flash).map((cut) => cut.t), [2.08]);
+  const fit = beatFit(cuts.map((cut) => cut.t), Array.from({ length: 7 }, (_, n) => n / 2), { fps: 24 });
+  assert.deepEqual([fit.cuts, fit.onBeat, fit.offsets, fit.further], [15, 0.2, { "-3": 0, "-2": 2, "-1": 0, 0: 3, 1: 0, 2: 3, 3: 0 }, 7]);
+  assert.match(beatFitLine(fit), /^cuts 15 · 20% within 1 frame of a beat \(random \d+%\) · frames off the beat \(- early\) -2:2 0:3 \+2:3 more:7$/);
+  // Bright shots between dark ones are shots, not flashes: dark 60, three 2-frame shots (110, 120,
+  // 115), dark 60, a 6-frame shot at 130, dark 55.
+  const runs = [[60, 24], [110, 2], [120, 2], [115, 2], [60, 12], [130, 6], [55, 24]];
+  const bright = runs.flatMap(([yavg, count]) => Array(count).fill(yavg)).map((yavg, n, all) => ({ t: n / 24, score: n && yavg !== all[n - 1] ? 40 : 0, yavg, ydif: 3 }));
+  const brightEvents = eventsFrom(bright);
+  assert.deepEqual(brightEvents.flashes, []);
+  assert.deepEqual(outsideFlashes(allCutsFrom(bright), brightEvents.flashes).map((cut) => cut.t), [1, 1.08, 1.17, 1.25, 1.75, 2]);
 });
 
 test("ebur128 output becomes a loudness curve and a summary", () => {
