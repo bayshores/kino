@@ -89,12 +89,13 @@ test("the skill's fit_music example runs as written: the drop on the payoff, the
   await agent("project", { action: "create", id: "fit", name: "Fit", width: 640, height: 360, duration: 12 });
   const reply = await agent("edit", { project: "fit", ops });
   assert.equal(reply.isError, undefined, reply.text);
-  assert.ok(reply.data.music.sections.includes("8 s drop (payoff)"), reply.data.music.sections.join("; "));
+  const payoff = reply.data.music.sections.find((line) => line.endsWith("(payoff)"));
+  assert.ok(/ s drop, weight [\d.]+ \(payoff\)$/.test(payoff) && Math.abs(parseFloat(payoff) - 8) <= 1 / 30, reply.data.music.sections.join("; "));
   assert.equal(reply.data.music.sections.at(-1), "12 s ending");
   const record = await (await server.api("/api/projects/fit")).json();
   const pieces = record.document.scenes[0].layers.filter((layer) => layer.type === "audio");
   assert.equal(pieces.length, reply.data.music.pieces);
-  assert.ok(record.document.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 8));
+  assert.ok(record.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - 8) <= 1 / 30));
 
   // A format's music is fit the same way, its drop on the format's hero (here the quote).
   await agent("project", { action: "create", id: "fit-format", name: "Fit format", width: 640, height: 360, duration: 12 });
@@ -102,7 +103,7 @@ test("the skill's fit_music example runs as written: the drop on the payoff, the
   assert.equal(format.isError, undefined, format.text);
   const formatted = await (await server.api("/api/projects/fit-format")).json();
   const quote = formatted.document.cues.find((cue) => cue.name === "quote").time;
-  assert.ok(formatted.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - quote) < 1e-6), JSON.stringify(formatted.document.cues));
+  assert.ok(formatted.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - quote) <= 1 / 30), JSON.stringify(formatted.document.cues));
   assert.match(JSON.stringify(format.data ?? format.text), /cut to the beat by fit_music/);
 });
 

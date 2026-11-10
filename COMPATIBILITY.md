@@ -763,6 +763,10 @@ How to read it:
 - **fit_music** (op): cuts a song on bar lines with downbeat crossfades so its drop lands on the
   payoff and its ending on the end; sections become `song-*` cues. Unverified by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
+  (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
+  heard time. Synthetic songs only, unverified on real songs. Evidence: `backend/soundtrack.test.mjs`,
+  `engine/fitMusic.test.js`.
 - **music_hard_stop** (warning): a song that stops loud with no fade (a fade still running at the stop is
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.

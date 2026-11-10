@@ -44,10 +44,11 @@ export function barGrid(analysis, sections = []) {
  * {payoff, turn?, end}. Returns {pieces: [{from, to, at, fadeIn, fadeOut}] (song seconds, video
  * start), sections: [{at, kind, label?}] in video time, ending, notes}.
  */
-export function planFitMusic({ sections = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
+export function planFitMusic({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
   if (!(bar > 0)) fail("the song has no steady beat, so it cannot be cut on bar lines.");
   const snap = (time) => downbeat + Math.round((time - downbeat) / bar) * bar;
-  const parts = sections.map((part) => ({ kind: part.kind, at: Math.max(0, snap(part.at)) }));
+  // Cuts go on bar lines (at); the cues keep each edge as measured (heard), with its weight.
+  const parts = sections.map((part) => ({ kind: part.kind, at: Math.max(0, snap(part.at)), heard: part.at, weight: part.weight }));
   const drops = [...new Set(parts.filter((part) => part.kind === "drop").map((part) => part.at))];
   if (!drops.length) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
   const notes = [];
@@ -156,14 +157,18 @@ export function planFitMusic({ sections = [], seconds, whole = true, bar, beat =
   }
 
   // The sections in video time.
+  // Each section and seam goes in the piece that plays it (not in a crossfade), at its heard time.
   const placed = [];
+  const seamParts = seams.filter((seam) => Number.isFinite(seam?.at) && typeof seam.kind === "string").map((seam) => ({ kind: seam.kind, at: seam.at, heard: seam.at, weight: seam.weight }));
   for (const piece of pieces) {
     const offset = piece.at - piece.from;
-    for (const part of parts) if (part.at >= piece.from + (piece === pieces[0] ? 0 : (piece.fadeIn - EPS)) - EPS && part.at < piece.to - EPS) placed.push({ at: round(part.at + offset), kind: part.kind });
-  }
-  for (const entry of placed) {
-    if (entry.kind === "drop" && Math.abs(entry.at - payoff) < 0.01) entry.label = "payoff";
-    else if (entry.kind === "drop" && turnPiece && Math.abs(entry.at - turnPiece.lands) < 0.01) entry.label = "turn";
+    for (const part of [...parts, ...seamParts]) {
+      if (!(part.at >= piece.from + (piece === pieces[0] ? 0 : (piece.fadeIn - EPS)) - EPS && part.at < piece.to - EPS)) continue;
+      const entry = { at: round(part.heard + offset), kind: part.kind, ...(Number.isFinite(part.weight) ? { weight: part.weight } : {}) };
+      if (part.kind === "drop" && Math.abs(part.at + offset - payoff) < 0.01) entry.label = "payoff";
+      else if (part.kind === "drop" && turnPiece && Math.abs(part.at + offset - turnPiece.lands) < 0.01) entry.label = "turn";
+      placed.push(entry);
+    }
   }
   if (turnPiece && Math.abs(turnPiece.lands - turn) > 0.01) notes.push(`the turn's drop lands at ${round(turnPiece.lands)} s (${round(turnPiece.lands - turn) > 0 ? "+" : ""}${round(turnPiece.lands - turn)} s): move the turn there for a hit`);
   const fadeStop = last.at + (last.to - last.from);
@@ -191,7 +196,7 @@ export function applyFitMusic(document, operation) {
   const grid = barGrid(analysis, shape.sections);
   if (!grid) fail("no steady beat was found in the song, so it cannot be cut on bar lines.");
   const seconds = shape.seconds ?? analysis.duration;
-  const plan = planFitMusic({ sections: shape.sections, seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end });
+  const plan = planFitMusic({ sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end });
 
   // The old pieces (this layer, and pieces an earlier fit_music made from it) go; the new ones take their place.
   const headId = layer.fitMusic ?? layer.id;
@@ -224,7 +229,7 @@ export function applyFitMusic(document, operation) {
   const cues = plan.sections.map((part) => ({ name: `song-${part.kind}-${(counts[part.kind] = (counts[part.kind] ?? 0) + 1)}`, time: part.at, kind: "marker" }));
   document.cues = withCues(document.cues, cues, { kinds: ["marker"], prefix: "song-" });
 
-  const lines = plan.sections.map((part) => `${part.at} s ${part.kind}${part.label ? ` (${part.label})` : ""}`);
+  const lines = plan.sections.map((part) => `${part.at} s ${part.kind}${part.weight != null ? `, weight ${part.weight}` : ""}${part.label ? ` (${part.label})` : ""}`);
   return {
     layer: base,
     pieces: made.length,

@@ -39,22 +39,24 @@ test("planFitMusic: a song cut off before its end fades out over at least a bar,
   assert.throws(() => planFitMusic({ sections: [{ at: 0, kind: "intro" }], seconds: 60, bar: 2, payoff: 10, end: 20 }), /no drop/);
 });
 
-test("fit_music cuts the music layer into pieces with crossfades and writes the sections as cues", () => {
+test("fit_music cuts the music layer into pieces with crossfades and writes the sections and seams as cues at their heard times, with weights", () => {
+  // The drop is heard 20 ms after its bar line: the cut stays on the bar line, the cue on the sound.
+  const HEARD = SECTIONS.map((part) => (part.at === 80 ? { ...part, at: 80.02, weight: 0.8 } : part));
   const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 30, volume: 0.8 });
   const document = createDocument({ scenes: [createScene({ id: "s1", duration: 30, layers: [music] })], cues: [{ name: "song-drop-9", time: 3, kind: "marker" }, { name: "hit", time: 4, kind: "marker" }] });
   const beats = Array.from({ length: 240 }, (_, index) => index * 0.5);
-  const op = { type: "fit_music", sceneId: "s1", layerId: "music", payoff: 20, end: 30, shape: { sections: SECTIONS, seconds: 120, whole: true }, analysis: { bpm: 120, period: 0.5, beats, duration: 120 } };
+  const op = { type: "fit_music", sceneId: "s1", layerId: "music", payoff: 20, end: 30, shape: { sections: HEARD, seconds: 120, whole: true, seams: [{ at: 78.012, kind: "dropout", weight: 0.9 }, { at: 78.5, kind: "return", weight: 0.7 }] }, analysis: { bpm: 120, period: 0.5, beats, duration: 120 } };
   const reports = new Map();
   const next = applyOperations(document, [op], { reports });
   const report = [...reports.values()][0];
   const layers = next.scenes[0].layers;
   assert.equal(report.pieces, layers.length);
   assert.ok(layers.length >= 2 && layers[0].name === "music" && layers[1].name === "music-2" && layers[1].fitMusic === "music");
-  assert.ok(report.sections.includes("20 s drop (payoff)") && report.sections.at(-1) === "30 s ending", report.sections.join("; "));
+  assert.ok(report.sections.includes("20.02 s drop, weight 0.8 (payoff)") && report.sections.includes("18.012 s dropout, weight 0.9") && report.sections.at(-1) === "30 s ending", report.sections.join("; "));
   // Crossfades: each later piece fades in, each earlier one fades out, at the piece's volume.
   assert.ok(layers.slice(1).every((layer) => layer.animations.some((animation) => animation.name === "Fit in" && animation.to.volume === 0.8)));
   assert.ok(layers.slice(0, -1).every((layer) => layer.animations.some((animation) => animation.name === "Fit out")));
-  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20) && next.cues.some((cue) => cue.name === "hit"));
+  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20.02) && next.cues.some((cue) => cue.name === "song-return-1" && cue.time === 18.5) && next.cues.some((cue) => cue.name === "hit"));
   assert.ok(!next.cues.some((cue) => cue.name === "song-drop-9"), "an earlier fit's cues are replaced");
   // Again on the result: the same pieces, not pieces of pieces.
   const again = applyOperations(next, [{ ...op, layerId: "music" }]);

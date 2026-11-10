@@ -273,10 +273,31 @@ test("song shape: the kick and bass coming in is a drop, leaving at the end an o
   }
   const shape = songShape(samples, rate, { bpm: 120 });
   const drop = shape.sections.find((part) => part.kind === "drop");
-  assert.ok(drop && Math.abs(drop.at - 16) <= 1, JSON.stringify(shape.sections));
+  assert.ok(drop && Math.abs(drop.at - 16) <= 1 / 30 && drop.weight > 0.5, JSON.stringify(shape.sections));
   assert.ok(shape.sections.some((part) => part.kind === "outro" && Math.abs(part.at - 36) <= 1), JSON.stringify(shape.sections));
   assert.equal(shape.features.groove, "four-on-the-floor");
   assert.ok(songShape(samples, rate, { bpm: 120, whole: false }).sections.some((part) => part.kind === "break"), "a cut-off song has no outro");
+});
+
+test("song seams: a filter return, a one-beat stop and its return, a voice coming in and a beat switch, each within one video frame", () => {
+  const rate = 8000;
+  const samples = new Float32Array(rate * 56);
+  for (let i = 0; i < samples.length; i += 1) {
+    const t = i / rate;
+    if (t >= 30 && t < 30.5) continue; // the one-beat stop
+    // Kicks every 0.5 s to 45.5, then every 0.75 s from 46.25 (the switch).
+    const since = t < 46.25 ? t - Math.min(45.5, Math.floor(t * 2) / 2) : (t - 46.25) % 0.75;
+    let value = 0.1 * Math.sin(2 * Math.PI * 600 * t) + 0.8 * Math.exp(-since * 12) * Math.sin(2 * Math.PI * 60 * t);
+    if (t < 14 || t >= 22) value += 0.05 * Math.sin(2 * Math.PI * 3000 * t); // filtered out 14 to 22
+    if (t >= 35.3 && t < 40) value += 0.15 * (Math.sin(2 * Math.PI * 400 * t) + Math.sin(2 * Math.PI * 800 * t));
+    samples[i] = value;
+  }
+  const { seams } = songShape(samples, rate, { bpm: 120, vocals: [[35, 40]] });
+  const expected = [[22, "return"], [30, "dropout"], [30.5, "return"], [35.3, "vocal-in"], [46.25, "switch"]];
+  assert.deepEqual(seams.map((seam) => seam.kind), expected.map(([, kind]) => kind), JSON.stringify(seams));
+  for (const [index, [at]] of expected.entries()) assert.ok(Math.abs(seams[index].at - at) <= 1 / 30, JSON.stringify(seams[index]));
+  assert.ok(seams.every((seam) => seam.weight > 0 && seam.weight <= 1));
+  assert.ok(!songShape(samples, rate, { bpm: 120 }).seams.some((seam) => seam.kind === "vocal-in"), "no vocal-in without whisper's spans");
 });
 
 test("vocal spans: whisper's sound labels and one-word guesses are not singing; near spans join", () => {
