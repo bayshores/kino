@@ -14,8 +14,9 @@
 // compared, and the hint never asks for an effect: a part changes only by a cue or event that motivates it.
 // type_seen (warning): the video's type look (typeSignature.js: face, weight, case, size, how it comes
 // in; saved as `type` in the house file) matches one of the last 3 projects'. kino has no default
-// type look, so a reused one needs a reference or treatment that chose it; an agent waives it only
-// with a reason naming the reference (translate.mjs).
+// type look, so a reused one needs a reference or treatment that chose it: a style spec with a
+// `type` direction (the picked treatment's, ctx.style.type) is quiet; otherwise an agent waives it
+// only with a reason naming the reference (translate.mjs).
 import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
 import { partWords, sameStructure, STRUCTURE_VERSION, structureAlike, structureSignature } from "../structureSignature.js";
 import { sameType, TYPE_PARTS, TYPE_VERSION, typeAlike, typeSignature } from "../typeSignature.js";
@@ -115,7 +116,8 @@ export function seenBefore(model, ctx) {
 export const TYPE_RECENT = 3;
 
 export function typeSeen(model, ctx) {
-  if (ctx.videoScene !== true) return [];
+  // A picked treatment (or the style spec) names the type direction: it chose this look.
+  if (ctx.videoScene !== true || ctx.style?.type) return [];
   const recent = (ctx.house ?? []).filter((entry) => entry.type && entry.typeVersion === TYPE_VERSION)
     .sort((a, b) => String(b.savedAt ?? "").localeCompare(String(a.savedAt ?? ""))).slice(0, TYPE_RECENT);
   if (!recent.length) return [];

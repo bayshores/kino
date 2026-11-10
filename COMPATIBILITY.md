@@ -295,7 +295,7 @@ How to read it:
 - **Type recall**: Partial. A render saves its type look in the house file (face, weight class, case,
   size class, how the main text comes in); `type_seen` warns when a new project has the same face and
   4 of 5 parts as one of the last 3 projects, and an agent waives it only with a reason naming the
-  reference (`yt:<id>`) or picked treatment. Gap: treatments carry no type direction yet. Evidence:
+  reference (`yt:<id>`) or picked treatment. A style spec with a `type` direction (the picked treatment's) is quiet. Evidence:
   `backend/house-memory.test.mjs`.
 ## Building blocks
 
