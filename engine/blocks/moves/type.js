@@ -601,7 +601,7 @@ function layerSubject(ctx, input, next, { fill, open }) {
 
 export const pushThroughType = {
   name: "push-through-type",
-  about: "a big glossy word (or your text, logo, path, shape or group) sharpens in and drifts closer while a sheen slides down it, then the camera pushes into it, faster all the time, the colors splitting as it starts, until the next shot, seen inside it, fills the frame",
+  about: "a big glossy word (or your text, logo, path, shape or group) fades in and drifts closer while a sheen slides down it, then the camera pushes into it, faster all the time, the colors splitting as it starts, until the next shot, seen inside it, fills the frame",
   fits: "an opening title, name or logo that leads into the first shot",
   tags: ["type-giant", "zoom-through", "rgb-split"],
   length: 2.6,
@@ -617,9 +617,10 @@ export const pushThroughType = {
     size: { kind: "number", low: 0.1, high: 0.9, about: "words only: width as a share of the frame (default 0.5, tall 0.7)" },
     fill: { kind: "text", max: 7, about: '"chrome" (sheen; words\' default), a color like "#F4F2EE", or "none" (a layer\'s default: as it is); not on pictures or groups' },
     sheenColor: { kind: "text", max: 7, about: "the chrome sheen's color (default #8E95A3)" },
-    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to sharpen in (default 0.55; 0 for a layer already on screen)" },
+    entrance: { kind: "choice", values: ["fade", "sharpen"], about: "fade (default): a plain fade in, no blur; sharpen: out of a blur with the letters closing up" },
+    typeIn: { kind: "number", low: 0, high: 2, about: "seconds to fade or sharpen in (default 0.55; 0 for a layer already on screen)" },
     push: { kind: "number", low: 0.3, high: 4, about: "seconds of the fast push (default 0.9; whole beats with music)" },
-    spacing: { kind: "number", low: 1, high: 4, about: "words and text: how far open the letters start, times their spacing (default 2.2)" },
+    spacing: { kind: "number", low: 1, high: 4, about: "entrance sharpen, words and text: how far open the letters start, times their spacing (default 2.2)" },
     split: { kind: "number", low: 0, high: 40, about: "the color split as the push starts, px on a 1080-high frame (default 10; 0 none)" },
   },
   example: { text: "acme.", next: "shot-a", at: 0.2 },
@@ -630,7 +631,9 @@ export const pushThroughType = {
     if (fill !== "chrome" && fill !== "none" && !HEX.test(fill)) throw new Error('push-through-type fill is "chrome", "none" or a color such as "#F4F2EE".');
     if (input.sheenColor !== undefined && !HEX.test(input.sheenColor)) throw new Error('push-through-type sheenColor is a color such as "#8E95A3".');
     const sheen = input.sheenColor ?? SHEEN;
-    const open = input.spacing ?? OPEN_SPACING;
+    // Only the sharpen entrance blurs and opens the letters; the default is a plain fade.
+    const sharpen = input.entrance === "sharpen";
+    const open = sharpen ? (input.spacing ?? OPEN_SPACING) : 1;
     const it = input.layer ? layerSubject(ctx, input, next, { fill, open }) : wordSubject(ctx, input, next, { fill, sheen, open });
     // Animations go on the move's own word, or on your layer (role "layer").
     const animate = (name, animation) => (it.layer ? ctx.animate(it.layer, name, animation) : ctx.animate(it.id, name, animation, "layer"));
@@ -666,7 +669,7 @@ export const pushThroughType = {
     const push = period ? Math.max(1, Math.round(pushFor / period)) * period : pushFor;
     const pushAt = round(Math.max(ctx.start + typeIn + hold, cut - push));
     const opacity = it.state.opacity;
-    // 1. The subject sharpens out of a blur (letters closing up); a sheen slides down it while it
+    // 1. The subject fades in (or, asked for, sharpens out of a blur with letters closing up); a sheen slides down it while it
     // is read (it never sits still), or it holds its asked color.
     const sheenFill = (at) => CHROME(it.sheenBase, at, sheen);
     const color = it.sheenBase ? motion({ name: "Sheen", start: ctx.start, duration: round(pushAt - ctx.start), easing: CURVES.drift, from: { fill: sheenFill(0.2) }, to: { fill: sheenFill(0.8) } })
@@ -708,10 +711,12 @@ export const pushThroughType = {
     };
     // The letters open only as part of an entrance: a layer already on screen with no typeIn keeps
     // its own spacing (an "in" animation would hold them open from the scene start).
-    const opens = Boolean(it.spacing) && (typeIn > 0 || !it.shown);
-    if (it.spacing && !opens && input.spacing !== undefined) ctx.note(`${it.name} is on screen before the move, so its letters stay closed; give typeIn to open them`);
+    const opens = sharpen && Boolean(it.spacing) && (typeIn > 0 || !it.shown);
+    if (input.spacing !== undefined && !sharpen) ctx.note("spacing opens the letters only with entrance sharpen");
+    else if (it.spacing && !opens && input.spacing !== undefined) ctx.note(`${it.name} is on screen before the move, so its letters stay closed; give typeIn to open them`);
     const spaced = opens ? { from: { letterSpacing: it.spacing.from }, to: { letterSpacing: it.spacing.to } } : { from: {}, to: {} };
-    if (typeIn > 0) animate("in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.settle,
+    if (typeIn > 0 && !sharpen) animate("in", fadeIn("Fade in"));
+    else if (typeIn > 0) animate("in", motion({ name: "Sharpen", kind: "in", start: ctx.start, duration: typeIn, easing: CURVES.settle,
       from: { opacity: 0, blur: Math.round(14 * ctx.scale), ...spaced.from }, to: { opacity, blur: 0, ...spaced.to } }));
     else if (opens) animate("in", motion({ name: "Close up", kind: "in", start: ctx.start, duration: TYPE_IN, easing: CURVES.settle, ...spaced }));
     if (color) animate(it.sheenBase ? "sheen" : "color", color);

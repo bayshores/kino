@@ -14,8 +14,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
   animates (`<id>.<role>-<name>`). Its id is the move's name (`-2` for a second).
-- The same id remakes it; `{name, id, remove:true}` takes it away. Parts are rebuilt, so
-  never edit them by hand; later ops can name them.
+- The same id remakes it; `{name, id, remove:true}` takes it away. Parts are rebuilt: never
+  edit them by hand.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 
@@ -33,8 +33,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"` (`color`). A clip `to` starts when shown.
 - **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
-  group) sharpens in; the camera speeds into one letter (or the logo's solid part) and the next
-  shot shows inside it until it fills the frame.
+  group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
+  and the next shot shows inside it until it fills the frame.
 - **logo-match-move**: the logo arrives big, then flies into its place on a page, screen or
   sign (`spot`, % of that layer), which sharpens.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.

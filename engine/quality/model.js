@@ -40,7 +40,7 @@
 //   1 per time) is how strongly those parts twinkle.
 // A Tween is one animation of an item:
 //   { id, itemId, keys, start, end, kind: "in" | "out" | "custom", easing, intensity,
-//     overshoots, linear, wobbles, unit, spread, stagger, preset, source, move, handoff, fromKeys?, toKeys? }
+//     overshoots, linear, wobbles, unit, spread, stagger, textClip, preset, source, move, handoff, fromKeys?, toKeys? }
 //   `handoff` is true for a carry's animations (speed_jump leaves the join into one alone).
 //   `keys` are all the values it animates; `fromKeys` and `toKeys` (optional) are the ones its
 //   From and its To set (a value missing from To ends on the layer's own value). Without

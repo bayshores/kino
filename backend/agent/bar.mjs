@@ -107,6 +107,6 @@ export const AI_EDIT_QUESTIONS = [
   "Does each cut land on an action or the voice (a word, a breath, a hit), or between them?",
   "Do the title and the end card feel designed for this product, or like a template?",
   "Count the devices: does it look like an AI stacked effects? A taste-led edit uses few and repeats them on purpose.",
-  "Is the type generic (a default font, Arial or Inter as an unchosen fallback, one weight everywhere), or does it come from the references and the footage?",
+  "Was the type (face, weight, size, reveal) chosen from the references and the footage, or left at whatever came first?",
   "Do the text reveals look like stock ones (a blur-rise, a blur plus fade, the same fade on every line), or does each reveal follow the story or a reference?",
 ];

@@ -237,9 +237,11 @@ How to read it:
   reveal cards need words, each type card and treatment names its own title reveal (a calm title is a
   plain fade), masked-type with subject rises plainly or cuts on (`reveal`), `fade_only_entrances`
   counts blur, blur+fade and blur-rise and names them, `deck_unused` never forces a drawn type card
-  once the references or the signature name the type, and the critic asks about generic type and stock
-  reveals. Evidence: `engine/deck.test.js`, `engine/footage.test.js`, `engine/moves.test.js`,
-  `engine/qualityRules.test.js`, `engine/qualityStyle.test.js`. Gap: the treatments' own type direction
+  once the references or the signature name the type, and the critic asks whether the type was chosen
+  from the references and footage. push-through-type fades in by default (`entrance:"sharpen"` asks for
+  the blur), and a headline-reveal `lines` title counts as type-mask-rise. Evidence:
+  `engine/deck.test.js`, `engine/footage.test.js`, `engine/moves.test.js`,
+  `engine/pushThroughType.test.js`, `engine/qualityRules.test.js`, `engine/qualityStyle.test.js`. Gap: the treatments' own type direction
   and the style frame in the storyboard are later steps.
 - **Deck**: Verified (tests). After the brief and the treatment pick (none before it), kino deals each project a seeded hand of techniques and
   one set piece (`engine/deck.js`), with reroll, swap (MCP notes fields too) and a `deck_unused` warning; it never steers away

@@ -226,6 +226,10 @@ test("type: how each text enters", () => {
   uses("type-letters", entering([{ ...fadeIn(0.5, 0.3), unit: "letters", stagger: 0.03 }]));
   uses("type-blur-in", entering([{ ...fadeIn(0.5, 0.5), from: { opacity: 0, blur: 20 }, to: { opacity: 1, blur: 0 } }]));
   uses("type-mask-rise", entering([{ kind: "in", start: 0.5, duration: 0.5, easing: "smooth", from: { reveal: { progress: 0, direction: "up", softness: 0 } }, to: { reveal: { progress: 1, direction: "up", softness: 0 } } }]));
+  // headline-reveal "lines": each line slides up out of a text clip, which is a mask rise, not a slide.
+  const lines = entering([{ ...fadeIn(0.5, 0.4), from: { opacity: 0, y: 260 }, to: { opacity: 1, y: 200 }, unit: "lines", stagger: 0.1, textClip: true }]);
+  uses("type-mask-rise", lines);
+  notUses("type-slide", lines);
   // Only the reveal: a word-by-word entrance is type-words, not also type-fade.
   notUses("type-fade", entering([{ ...fadeIn(0.5, 0.4), unit: "words", stagger: 0.1 }]));
 });
