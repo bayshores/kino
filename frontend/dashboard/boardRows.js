@@ -340,6 +340,13 @@ export function headChips(data) {
   return chips;
 }
 
+/** The ask's style frame as the figure shows it: the picture's request and its words, or null without one. */
+export function styleFrameView(data) {
+  const frame = data?.styleFrame;
+  if (!frame?.shot) return null;
+  return { shot: frame.shot, part: "style", width: 960, alt: `The type over ${frame.shot}: ${frame.type}`, caption: frame.type };
+}
+
 /** What a "no" on the agent's calls adds to the answer: 'no to your call "Inter 700 for every line"'. */
 export function callNoWords(calls = []) {
   return (calls ?? []).map((call) => String(call ?? "").trim()).filter(Boolean).map((call) => `no to your call "${call}"`).join("; ");

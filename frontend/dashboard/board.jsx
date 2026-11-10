@@ -16,7 +16,7 @@ import { timeOfDay } from "./format.js";
 import { Back, Screen } from "./screens.jsx";
 import {
   changeLines, clockWords, directedShots, footageBox, hasDirection, headChips, LENGTH_LIMITS, OPTION_LETTERS, overlayBoxes, seconds, shotIndexAt, shotLines, shotSentence, shotTags,
-  statusWords, steppedLength,
+  statusWords, steppedLength, styleFrameView,
 } from "./boardRows.js";
 
 // The picture widths the server makes (F7); the browser picks one for the screen's pixels.
@@ -27,6 +27,19 @@ const OPTION_PARTS = ["still", "alt1", "alt2"];
 
 const shotUrl = ({ projectId, rev, shot, part = "still", width, tries = 0 }) => `${boardShotUrl({ projectId, rev, shot, part, width })}${tries ? `&try=${tries}` : ""}`;
 const hasFootage = (shot) => Boolean(shot.media && shot.media !== "none" && !shot.media.missing);
+
+/** The style frame figure. A failed load hides it in state; a new board revision (the key) tries again. */
+function StyleFrame({ data, projectId }) {
+  const [failed, setFailed] = useState(false);
+  const view = styleFrameView(data);
+  if (!view || failed) return null;
+  return (
+    <figure className="board-style">
+      <img src={shotUrl({ projectId, rev: data.rev, shot: view.shot, part: view.part, width: view.width })} alt={view.alt} onError={() => setFailed(true)} />
+      <figcaption className="faint">{view.caption}</figcaption>
+    </figure>
+  );
+}
 
 /**
  * One storyboard: the board a stop showed (`stop`, "C1"), the board of revision `rev`, or with
@@ -115,13 +128,7 @@ export function BoardView({ projectId, stop = null, rev = null, version = null, 
         {readOnly ? <p className="dim">{statusWords(data, timeOfDay)}</p> : null}
         {data.purpose ? <p className="board-purpose">{data.purpose}</p> : null}
         {/* The ask's style frame: the picked type direction over the first footage shot, one picture and no question. */}
-        {data.styleFrame ? (
-          <figure className="board-style">
-            <img src={shotUrl({ projectId, rev: data.rev, shot: data.styleFrame.shot, part: "style", width: 960 })} alt={`The type over ${data.styleFrame.shot}: ${data.styleFrame.type}`}
-              onError={(event) => { event.currentTarget.closest("figure").hidden = true; }} />
-            <figcaption className="faint">{data.styleFrame.type}</figcaption>
-          </figure>
-        ) : null}
+        <StyleFrame key={data.rev} data={data} projectId={projectId} />
         {changeLines(data).map((line) => <p key={line} className="board-change">{line}</p>)}
         {readOnly && data.answer?.words ? <p>your note: "{data.answer.words}"</p> : null}
       </div>

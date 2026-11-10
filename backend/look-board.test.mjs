@@ -221,7 +221,7 @@ test("after an approval lapsed: why, then only the changed shots, the rest count
 // reference) is not left playing under the shot layers.
 test("storyboard.md has the agent delete the full-clip layer, or make it shot 1, when it builds the shots", async () => {
   const text = (await readFile(new URL("../skills/kino/references/storyboard.md", import.meta.url), "utf8")).replace(/\s+/g, " ");
-  assert.ok(text.includes("When you build the shots, delete it (or make it shot 1), so the clip's sound plays once."));
+  assert.ok(text.includes("When you build the shots, delete it (or make it shot 1): its sound plays once."));
 });
 
 // Review round 1 of B4b: after "your call" the agent asks again, and that ask is the one the

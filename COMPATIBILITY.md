@@ -1132,10 +1132,11 @@ How to read it:
   lengths), shows one shot at a time (first and last frame, options A to C from `alts`) and a timeline with the
   story roles; a picked option, a new length or remove shot goes to the agent as that shot's note. Evidence:
   `frontend/dashboardBoard.test.js`, `backend/board-data.test.mjs`, `tests/dashboard-browser.test.mjs` (storyboard screen).
-- **Style frame**: Verified. A storyboard ask with footage and a picked type direction (`style.type`) carries one
+- **Style frame**: Partly verified. A storyboard ask with footage and a picked type direction (`style.type`) carries one
   still of the type over the first footage shot, in the board's own font (the answer's image and `data.styleFrame`;
   the board screen shows it). No new question; no footage or no picked type, no frame. Evidence:
-  `backend/board-data.test.mjs` (real render at the video's size), `backend/look-board.test.mjs`. Gap: the face comes from the board's text or the style fonts, not from the direction's words.
+  `backend/board-data.test.mjs` (real render at the video's size), `backend/look-board.test.mjs`,
+  `frontend/dashboardBoard.test.js` (the figure's picture request and caption). Gaps: no desktop-app screenshot of the figure yet; the face comes from the board's text or the style fonts, not from the direction's words.
 - **Try options**: Partly verified. `notes {action:"try"}` checks 2 to 4 options' ops on a copy, renders the 2 s
   around the moment once per option, and the person's pick (or none, or skip) reaches the inbox with the ops to apply.
   Evidence: `backend/tries.test.mjs`, `frontend/dashboardBoard.test.js`. Gap: the clips are silent, so sound options cannot be heard yet.
