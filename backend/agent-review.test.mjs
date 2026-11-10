@@ -12,7 +12,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { makeVideo, nextCallOf, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { frameSignature, nearDuplicate, newFindingsLine, reviewEvents, reviewSizes } from "./agent/review.mjs";
 import { captionSpoilers, captionWindows, directionMiss, heardLines, heardText, musicSections, openStoryBugs, packetKind, parseViewer, viewerGap, viewerTimes, writePacket } from "./agent/viewer.mjs";
-import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
+import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./agent/bar.mjs";
 import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
@@ -298,6 +298,13 @@ test("needs: a question with 1 to 3 options and one recommended; only the person
   assert.equal(needsLine(needs), 'needs: M3 make "Mute the swear word, keep the rest"');
   assert.throws(() => finishNeed(needs, { id: "M3", status: "made", layers: [] }), /do "Mute the swear word/);
   assert.equal(finishNeed(needs, { id: "M3", status: "made", layers: ["L4"] }).status, "made");
+  // The check-material step drafts its ask from the pick: footage of its who, for its tension, valid as sent.
+  const pick = { picked: { index: 0 }, list: [{ who: "a tired editor", tension: "will the cut be done before the client calls?" }] };
+  const [drafted] = needsCall(pick).input.items;
+  assert.match(drafted.what, /a tired editor/);
+  assert.equal(drafted.why, pick.list[0].tension);
+  assert.equal(parseNeedItems([drafted]).length, 1);
+  assert.equal(needsCall({ list: pick.list, picked: null }).input.items[0].what, "<missing piece>", "no pick: placeholders");
 });
 
 test("viewer packet text: heard lines by voice and pause, a caption's words over a misheard line, the song muffled then full; a report's open story bugs", () => {

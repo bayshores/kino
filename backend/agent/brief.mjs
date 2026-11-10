@@ -18,6 +18,7 @@
 // {seconds:30, tolerance:1}). check holds the video to it (the assertions gate, engine/quality/rules/pacing.js),
 // so a final render cannot be longer or shorter than asked. Saved as brief.length; like style, it
 // raises the revision but keeps a confirmed brief confirmed.
+import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
 import { OWN_PICK_CALL, cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
@@ -393,8 +394,6 @@ export function replyCount(state) {
 const guessLine = (name) => (name === "never" ? '<only what the person said not to do, or "none said">' : `<your guess: ${name.replace("_", " ")}>`);
 const briefCall = (fields) => ({ tool: "notes", input: { action: "brief", fields } });
 const guessAll = (missing) => briefCall(Object.fromEntries(ASK_ORDER.filter((name) => missing.includes(name)).map((name) => [name, guessLine(name)])));
-const NEEDS_CALL = { tool: "notes", input: { action: "needs", items: [{ what: "<missing piece>", why: "<what the video loses>", ask: "Do you have <it>?",
-  options: [{ do: "<what you can do with what exists>", cost: "<what is lost>", recommended: true }] }] } };
 export const PLAN_CALL = (stop) => ({ tool: "notes", input: { action: "set_plan", steps: [
   "Build the whole video in one edit (compose)", "check {fix:\"auto\"}", ...(stop ? [`Ask ${stop} (notes checkpoint)`] : []),
   "look {mode:\"review\"} until every moment is reviewed", "Render final"] } });
@@ -449,7 +448,8 @@ export function nextMove(state, video = {}, stop = null) {
   if (order) return order;
   // The material against the story, before planning: video.needs is {checked} when the video has
   // footage or speech (the service's directionFacts; left out otherwise, which skips this step).
-  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: NEEDS_CALL };
+  // The call is drafted from the pick (needs.mjs needsCall): footage of its who, for its tension.
+  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments) };
   if (stop === "board") {
     const askBoard = { tool: "notes", input: { action: "checkpoint", id: "board" } };
     if (planned) return { step: "ask board, then follow the plan", call: askBoard };

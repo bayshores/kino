@@ -125,6 +125,34 @@ export function needState(need) {
   return "unanswered";
 }
 
+// The ask a step leads to when nothing better is known: every field a placeholder.
+const BLANK_NEED = { what: "<missing piece>", why: "<what the video loses>", ask: "Do you have <it>?",
+  options: [{ do: "<what you can do with what exists>", cost: "<what is lost>", recommended: true }] };
+
+/**
+ * The needs call the check-material step drafts, from the picked treatment (brief.treatments):
+ * the first item asks for footage of the pick's who, because its tension is what the video loses
+ * without them, with what kino can make now (a screen recording, type, cut-outs of the files) and
+ * telling it with what exists, each with its cost. A draft the agent edits after looking through
+ * the material; with no pick or a pick from before who, every field is a placeholder.
+ * Returns {tool:"notes", input:{action:"needs", items}}.
+ */
+export function needsCall(treatments) {
+  const entry = treatments?.picked ? treatments.list?.[treatments.picked.index] : null;
+  const who = typeof entry?.who === "string" ? entry.who.trim() : "";
+  const tension = typeof entry?.tension === "string" ? entry.tension.trim() : "";
+  const item = !who ? BLANK_NEED : {
+    what: `footage of ${who}`,
+    why: tension.length >= NEED_LIMITS.why[0] ? tension : BLANK_NEED.why,
+    ask: `Do you have footage of ${who}, even from a phone?`,
+    options: [
+      { do: "make it now: a screen recording (project record), type on screen, cut-outs of the files there are", cost: `${who} is shown, never seen: no face or reaction`, recommended: true },
+      { do: "tell it with what exists, no new footage", cost: `${who} is never on screen; type and the files carry the story` },
+    ],
+  };
+  return { tool: "notes", input: { action: "needs", items: [item] } };
+}
+
 /** The short status line: `needs: M1 "Do you have ..." (3 options) · M2 make option 2`, or "". */
 export function needsLine(needs) {
   const open = openNeeds(needs);

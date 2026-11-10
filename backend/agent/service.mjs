@@ -15,7 +15,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS } from "../../engine/animation.js";
-import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
+import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
@@ -3600,7 +3600,8 @@ export function createAgentService(deps) {
   // answer; {id, status:"made"|"sent", layers|media} marks it done. Only the person answers: on
   // the dashboard, or in the chat recorded with their words. A final render waits while one is
   // unfinished (refuseWithoutNeeds).
-  const needsAskCall = () => nextOf("notes", { action: "needs", items: [{ what: "<missing piece>", why: "<what the video loses>", ask: "Do you have <it>?", options: [{ do: "<what you can do with what exists>", cost: "<what is lost>", recommended: true }] }] });
+  // Drafted from the picked treatment in the agent state (needs.mjs needsCall); placeholders without one.
+  const needsAskCall = (state) => nextOf("notes", needsCall(state?.brief?.treatments).input);
   const needNextCall = (need) => (need.status === "planned"
     ? nextOf("notes", { action: "needs", id: need.id, status: "made", layers: ["<the layer that does it>"] })
     : need.status === "waiting" ? nextOf("notes", { action: "needs", id: need.id, status: "sent", media: "<its imported src, /api/media/...>" })
@@ -3612,11 +3613,12 @@ export function createAgentService(deps) {
     const you = meta.by === "you";
     const at = new Date(now()).toISOString();
     if (input.id === undefined && input.items === undefined) {
-      const needs = (await agentState.read(projectId)).needs;
+      const state = await agentState.read(projectId);
+      const needs = state.needs;
       const open = openNeeds(needs);
       const head = !needs?.checked ? "needs: never checked" : open.length ? `${plural(open.length, "need")} not finished` : `needs: the material is enough (rev ${needs.checked.rev})`;
       const lines = open.flatMap((need) => [`${need.id} ${needState(need)}: ${need.ask} (${need.why})`, ...(need.status === "open" ? optionLines(need) : [])]);
-      return done(projectId, { text: [head, ...lines].join("\n"), nextCall: !needs?.checked ? needsAskCall() : open.length ? needNextCall(open[0]) : null, data: { needs: needs ?? emptyNeeds() } });
+      return done(projectId, { text: [head, ...lines].join("\n"), nextCall: !needs?.checked ? needsAskCall(state) : open.length ? needNextCall(open[0]) : null, data: { needs: needs ?? emptyNeeds() } });
     }
     if (input.id === undefined) {
       let items;
@@ -3682,7 +3684,7 @@ export function createAgentService(deps) {
     if (state.needs?.checked) return;
     for (const scene of whole) {
       if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, record.document))) continue;
-      throw Object.assign(new AgentError("needs_unchecked", "The material was never checked against the story: look for what it cannot give the video, search it for substitutes, then ask the person (notes needs), or items:[] when it is enough.", { next: `notes {action:"needs", items:[{what, why, ask, options}]}. ${skip}` }), { nextCall: needsAskCall() });
+      throw Object.assign(new AgentError("needs_unchecked", "The material was never checked against the story: look for what it cannot give the video, search it for substitutes, then ask the person (notes needs), or items:[] when it is enough.", { next: `notes {action:"needs", items:[{what, why, ask, options}]}. ${skip}` }), { nextCall: needsAskCall(state) });
     }
   }
 
@@ -6501,7 +6503,7 @@ export function createAgentService(deps) {
       else if (!state.needs?.checked) {
         for (const scene of whole) {
           if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, document))) continue;
-          if (add("needs_unchecked", "notes needs (check the material)", needsAskCall())) return gates;
+          if (add("needs_unchecked", "notes needs (check the material)", needsAskCall(state))) return gates;
           break;
         }
       }
