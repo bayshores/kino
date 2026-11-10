@@ -4104,7 +4104,8 @@ export function createAgentService(deps) {
   async function soundCredits(document) {
     const playing = new Set((document.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "audio" || layer.type === "video").map((layer) => layer.src));
     const media = (await deps.listMedia?.()) ?? [];
-    return media.filter((item) => item.credit?.line && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line);
+    // Each line once: twelve found shots of one video share one credit.
+    return [...new Set(media.filter((item) => item.credit?.line && playing.has(item.src ?? `/api/media/${item.id}`)).map((item) => item.credit.line))];
   }
   // Whether the video (its longest scene) has music, for the sound stop: the no_music rule's test
   // (hasMusic) with the songs kino heard a beat in and the saved voice transcripts.

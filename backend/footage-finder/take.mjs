@@ -161,7 +161,7 @@ export function takeCredit(candidate) {
       line: candidate.credit ?? `"${title}" by ${creator}, ${candidate.license}`, file: "H.264 cut from Wikimedia Commons" };
   }
   return { source: "youtube", id: candidate.id, title, creator, page: candidate.page ?? null, license: "unknown",
-    line: `"${title}" by ${creator} (${candidate.page ?? "YouTube"})`, file: "H.264 cut from YouTube" };
+    line: `"${title}" by ${creator} (${candidate.page ?? "YouTube"}), license unknown`, file: "H.264 cut from YouTube" };
 }
 
 // ---- FFmpeg (the default tools; tests pass their own) ----------------------------------------

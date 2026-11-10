@@ -159,6 +159,9 @@ const MEDIA_TESTS = {
   "More like a song the person likes": "backend/sound-search.test.mjs",
   "Brief and lanes": "backend/sound-search.test.mjs",
   "Explore by lanes": "backend/soundtrack.test.mjs",
+  // The footage finder searches, scans and imports from YouTube: run with a stub yt-dlp.
+  "Three calls": "backend/footage-finder.test.mjs",
+  "Note a video": "backend/footage-finder.test.mjs",
 };
 
 test("every example in the skill runs as written", { timeout: 300_000 }, async () => {
@@ -173,7 +176,7 @@ test("every example in the skill runs as written", { timeout: 300_000 }, async (
     for (const { heading, text: part } of sections(text)) {
       const where = `${file} "${heading}"`;
       for (const block of jsonBlocks(part)) {
-        if (/\/api\/media\/<|"\/absolute\/|"topic":"inspire"|"topic":"soundtrack"|"borrow_rhythm"/.test(JSON.stringify(block))) {
+        if (/\/api\/media\/<|"\/absolute\/|"topic":"inspire"|"topic":"soundtrack"|"topic":"footage"|"borrow_rhythm"/.test(JSON.stringify(block))) {
           if (!MEDIA_TESTS[heading]) problems.push(`${where}: an example with media or a file on disk needs a test that runs it with real files`);
           continue;
         }

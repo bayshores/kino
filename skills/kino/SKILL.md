@@ -33,7 +33,7 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 | `status` | The outline, `direction:`, `step:`, the plan and your inbox. Call it first. |
 | `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision with a receipt. |
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks in one call. |
-| `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets or re-encodes). |
+| `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets). |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
 | `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. |
 | `library` | Exact rules: `{topic:"op", name}` (fields, an example), presets, fonts, blocks. |
@@ -61,7 +61,7 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 11. 15 s+, footage or speech: `notes intents`; a fresh viewer reads `look {mode:"viewer"}`;
     `notes viewer`; fix bugs ([viewer](references/viewer.md)). With 12: one subagent.
 12. 10 s+: a fresh critic: `look {mode:"critique"}`; `notes critique`; fix P0s, UPs; `notes verdict`: the bar ([critique](references/critique.md)).
-13. Material short? Ask ([needs](references/needs.md)).
+13. Material short? Find footage, ask ([needs](references/needs.md)).
 
 ## Rules
 
@@ -89,7 +89,7 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 - [framing](references/framing.md): 9:16 crops; [screens](references/screens.md): UI shots; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
 - [sound](references/sound.md): ducking, voice; [library](references/sound-library.md): SFX, music.
-- [color](references/color.md): grading, filters; [cutout](references/cutout.md): subject cut-outs, track, pin.
+- [color](references/color.md): grades; [cutout](references/cutout.md): subject cut-outs, track, pin.
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
 - [check-and-look](references/check-and-look.md): findings, looks, review; [motion](references/motion.md).
 - [ideas](references/ideas.md): story.
@@ -98,4 +98,4 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 - [direction](references/direction.md): the brief, the stops, playback.
 - [dashboard](references/dashboard.md): history, notes, helpers.
 - [render](references/render.md): `preview=fast`, exports.
-- [inspire](references/inspire.md): edits' cuts, [songs, no music](references/soundtrack.md); [workspace](references/workspace.md): copying, imports.
+- [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).

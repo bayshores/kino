@@ -179,8 +179,9 @@ const shotFinder = createShotFinder({ mediaRoot, saveRecord: saveMediaRecord });
 // agent state. yt-dlp is KINO_YTDLP, else Homebrew's, else the one on the PATH.
 const inspireDeps = await inspireTools();
 // One gate for every YouTube download (inspire, soundtrack, footage): one at a time, 5 s apart, and
-// after a bot check none for 15 minutes (process-slots.mjs).
-const youtubeGate = createYouTubeGate();
+// after a bot check none for 15 minutes (process-slots.mjs). KINO_YOUTUBE_GAP_MS sets the gap for
+// tests whose stub yt-dlp never reaches YouTube.
+const youtubeGate = createYouTubeGate(process.env.KINO_YOUTUBE_GAP_MS ? { gapMs: Math.max(0, Number(process.env.KINO_YOUTUBE_GAP_MS) || 0) } : {});
 // Reference looks (SigLIP via transformers.js): one vector a shot and a thumbnail, so searches rank
 // by how the frames match the words and the saved references. The model downloads once into
 // <data>/models on first use; KINO_LOOK_DOWNLOAD=0 keeps it to a model already there, off turns it off.

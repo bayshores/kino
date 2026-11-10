@@ -666,6 +666,14 @@ How to read it:
   by hand on macOS 26 (display, area, window, a covered app, pause, sound and microphone mixed into
   one track, the agent path to a render); not in CI (macOS permissions). Microphone needs macOS 15.
 
+### Found footage
+
+- **Footage finder**: Stub-verified. `library {topic:"footage"}` searches YouTube (or Commons),
+  scans a 360p copy for its best shots, and `project import F1` cuts the picked shots to credited
+  H.264 clips that compose and render. Evidence: `backend/footage-finder.test.mjs` (stub yt-dlp:
+  search, scan, import, compose, a rendered frame), `skills/kino/references/footage.md`. Gaps: not
+  run live in CI; YouTube licenses unknown; the image model does not know character names.
+
 ## Audio and captions
 
 - **Beats and onsets**: Verified on generated audio. `detect_beats {layer}` writes `beat-N` and

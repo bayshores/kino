@@ -57,6 +57,11 @@ import { foundClipTag, groupClips, groupLine } from "./footage-finder/sheet.mjs"
 import { shotsNeeded, wantBySection } from "./footage-finder/needs.mjs";
 import { joinStretches, planTake, takeCredit, takeFootage, takeText } from "./footage-finder/take.mjs";
 import { writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
+import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
+
+const FOOTAGE_STUB = fileURLToPath(new URL("../tests/fixtures/footage/stub-yt-dlp.mjs", import.meta.url));
 
 test("library and project pass the fields their listed schemas leave out (scan, want, note, measure; import from/to) on to kino", async () => {
   const calls = [];
@@ -743,4 +748,52 @@ test("a slow import answers with a repeat call, and the repeat joins it: one dow
   assert.match((await second).text, /^Imported 1 clip of F1/);
   assert.equal(takes, 1);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
+});
+
+// The whole path on a real server, never online: a stub yt-dlp (tests/fixtures/footage) serves a
+// generated 8 s clip of 4 shots as the found video. The footage reference's own calls search,
+// scan and import; the clips compose into a scene and render a frame that shows them.
+test("the skill's footage calls search, scan and import a stub video's shots, which compose and render a frame", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-footage-proof-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const video = path.join(folder, "found.mp4");
+  await run(ffmpeg, ["-v", "error", "-y",
+    "-f", "lavfi", "-i", "mandelbrot=s=640x360:r=25", "-f", "lavfi", "-i", "smptebars=s=640x360:r=25:d=2",
+    "-f", "lavfi", "-i", "cellauto=s=640x360:r=25:rule=110", "-f", "lavfi", "-i", "rgbtestsrc=s=640x360:r=25:d=2",
+    "-filter_complex", "[0:v]trim=duration=2,setpts=PTS-STARTPTS[a];[2:v]trim=duration=2,setpts=PTS-STARTPTS[c];[a][1:v][c][3:v]concat=n=4:v=1:a=0,format=yuv420p[v]",
+    "-map", "[v]", "-c:v", "libx264", "-preset", "veryfast", "-g", "25", video]);
+  const server = await startTestServer({ env: { KINO_YTDLP: FOOTAGE_STUB, STUB_YTDLP_VIDEO: video, KINO_YTDLP_JS: `node:${process.execPath}`, KINO_LOOK_DOWNLOAD: "off", KINO_YOUTUBE_GAP_MS: "0" } });
+  t.after(() => server.stop());
+  const agent = async (verb, body) => (await server.api(`/api/agent/${verb}`, { method: "POST", body })).json();
+  await agent("project", { action: "create", id: "found", name: "Found", width: 640, height: 360, duration: 4 });
+
+  const replies = [];
+  for (const { tool, ...call } of jsonBlocks(skillSection("Three calls")).flat()) {
+    const reply = await agent(tool, { project: "found", ...call });
+    assert.notEqual(reply.isError, true, `${tool} ${JSON.stringify(call)}: ${reply.text}`);
+    replies.push(reply);
+  }
+  const [search, scan, take] = replies;
+  assert.match(search.text, /^F1 Stub Studio \(verified\) · 0:08 · "Stub Series episode 1 fight scene" · license unknown$/m);
+  assert.match(search.text, /^Dropped 1: 1 edits\.$/m);
+  assert.match(scan.text, /^F1 "Stub Series episode 1 fight scene" · scanned 0:08 of 0:08 · 4 shots:$/m);
+  assert.match(scan.text, /^F1\.1 0:00\.0-0:02\.0 /m);
+  assert.deepEqual(take.data.media.map((item) => item.shot), [1, 2]);
+  assert.match(take.text, /, license unknown\. Put it in the end credits\./);
+  for (const { tool, ...call } of jsonBlocks(skillSection("Note a video")).flat()) {
+    const reply = await agent(tool, { project: "found", ...call });
+    assert.notEqual(reply.isError, true, `${tool} ${JSON.stringify(call)}: ${reply.text}`);
+  }
+  assert.equal((await agent("library", { topic: "guide", name: "footage" })).isError, undefined);
+
+  const composed = await agent("edit", { project: "found", ops: [{ op: "compose", footage: take.data.media.map((item) => item.src) }] });
+  assert.equal(composed.isError, undefined, composed.text);
+  const started = await agent("render", { project: "found", action: "start", quality: "draft", format: "png", options: { time: 1 } });
+  const done = await agent("render", { project: "found", action: "wait", job: started.data.job, timeout_s: 30 });
+  assert.equal(done.data.status, "done", done.text);
+  // The frame is the found footage, not an empty scene: many different colors.
+  const pixels = await run(ffmpeg, ["-v", "error", "-i", done.data.files[0].path, "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]);
+  const colors = new Set();
+  for (let at = 0; at < pixels.length; at += 3 * 97) colors.add(`${pixels[at] >> 4},${pixels[at + 1] >> 4},${pixels[at + 2] >> 4}`);
+  assert.ok(colors.size > 20, `${colors.size} colors in the rendered frame`);
 });
