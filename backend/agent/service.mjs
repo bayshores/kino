@@ -425,6 +425,8 @@ export function createAgentService(deps) {
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,
     deckDeals: (document, count) => nextDecks(document.id, document, count),
     pictureAlpha: (src) => pictureAlpha(deps.mediaRoot, src),
+    // impact-accent: a clip's measured impacts and light (footage/events.mjs, kept beside the file).
+    clipEvents: (src) => clipEventsOf(src),
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops) });
@@ -4289,6 +4291,14 @@ export function createAgentService(deps) {
   const sourceSrc = (item) => item.src ?? `/api/media/${item.id}`;
   // One line naming a clip's measured events (footage/events.mjs; measured once, kept beside the
   // file): "events (file s): impact 1.5 contact right · light 3.08 from 3 · …".
+  async function clipEventsOf(src) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return null;
+    const record = ((await deps.listMedia?.()) ?? []).find((item) => item.id === id);
+    if (!record) return null;
+    const measured = await footageCache.video(path.join(deps.mediaRoot, id), { width: record.width, height: record.height, duration: record.duration });
+    return Array.isArray(measured.events) ? measured.events : null;
+  }
   async function clipEventsLine(src, record) {
     const id = mediaIdFromSource(src);
     if (!id || !deps.mediaRoot) return "events: not measured (not in kino's media folder)";

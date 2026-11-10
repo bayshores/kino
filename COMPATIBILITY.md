@@ -620,6 +620,10 @@ How to read it:
   impacts (contact, impact frames), light and motion with direction at the frame, and frames per drawing; look
   source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
   moments not yet checked; a busy still background hides a small mover; nothing in compose uses them yet.
+- **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
+  impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
+  top accent, rest, measured onset fill), sized by its weight; raw times and beat numbers are refused with the
+  cue to use. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs`. Not rendered or judged on real footage.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and

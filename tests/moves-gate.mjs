@@ -11,7 +11,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
-import { MOVE_NAMES } from "../engine/blocks/moves/index.js";
+import { MOVES, MOVE_NAMES } from "../engine/blocks/moves/index.js";
+// impact-accent needs a measured cue (its own test builds one): the gate runs the rest.
+const GATED = MOVE_NAMES.filter((name) => !MOVES[name].needsCue);
 import { compactRecording } from "../engine/recording.js";
 
 // Made-up pictures that are hard on the gates: a bright street with a pale sky (light captions
@@ -180,10 +182,10 @@ export const MOVE_SHAPES = [
 ];
 
 /** Every move in every shape (by hand). */
-export const allMoveCases = () => MOVE_SHAPES.flatMap((shape) => MOVE_NAMES.map((name) => ({ name, ...shape })));
+export const allMoveCases = () => MOVE_SHAPES.flatMap((shape) => GATED.map((name) => ({ name, ...shape })));
 
 /** Each move once, taking the shapes in turn (each shape gets four moves). */
-export const sampleMoveCases = () => MOVE_NAMES.map((name, index) => ({ name, ...MOVE_SHAPES[index % MOVE_SHAPES.length] }));
+export const sampleMoveCases = () => GATED.map((name, index) => ({ name, ...MOVE_SHAPES[index % MOVE_SHAPES.length] }));
 
 /**
  * Each case's move library example runs as written at width × height (reduced adds

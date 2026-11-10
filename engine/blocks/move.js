@@ -223,10 +223,11 @@ export function alignedStart(at, duration, align = "start", name = "move") {
  *   brandFonts true when the brand chose its own fonts (moves then use them, not their own pick)
  *   bpm       the music's tempo (document.rhythm.bpm), or null
  *   fileSize  src → {width, height} of a library file (a video too), or null
+ *   cueFacts  for a move that needs a cue: {at (as given), cues, events: footage events in scene s}
  * Returns {added: [{layer, place}], animations: [{layerId, animation}], start, end, notes}.
  */
 export function runMove(definition, options) {
-  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, fontFaces = {} } = options;
+  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, fontFaces = {}, cueFacts = null } = options;
   const frame = { width: scene.width, height: scene.height };
   const added = [];
   const animations = [];
@@ -252,6 +253,8 @@ export function runMove(definition, options) {
     sceneDuration: scene.duration,
     // The music's tempo (document.rhythm), when there is one: caption-words reads its energy.
     bpm,
+    // A move that needs a cue (impact-accent): {at (as given), cues, events (footage, scene s)}.
+    cueFacts,
     // The shared speed field (SHARED): 1 plays the move's beats as designed.
     speed: input.speed ?? 1,
     /** A curve by kit name or a bezier (a move's own defaults table), as a new array. */

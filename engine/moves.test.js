@@ -34,6 +34,8 @@ import { worldMatrix, point } from "./geometry.js";
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
 const VOCABULARY = new Set(TECHNIQUE_TAGS);
+// The moves whose library example runs as is (impact-accent needs a measured cue: its own test below).
+const SWEPT = MOVE_NAMES.filter((name) => !MOVES[name].needsCue);
 
 const PICTURES = {
   "screen-a": { id: "screen-a.png", src: "/api/media/screen-a.png", width: 720, height: 1564, name: "screen-a" },
@@ -82,7 +84,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 44);
+  assert.equal(MOVE_NAMES.length, 45);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -91,7 +93,7 @@ test("every move is described for the library with tags from the vocabulary and 
     for (const tag of move.tags) assert.ok(VOCABULARY.has(tag), `${name}: ${tag} is in the technique vocabulary`);
     for (const [key, field] of Object.entries(move.fields)) assert.ok(field.about, `${name}.${key} says what it is`);
     assert.ok(move.example && typeof move.example === "object");
-    if (move.needsAt) assert.equal(typeof move.example.at, "number", `${name}'s example gives at`);
+    if (move.needsAt) assert.equal(typeof move.example.at, move.needsCue ? "string" : "number", `${name}'s example gives at`);
   }
   assert.throws(() => moveOf("zoom-thru"), /zoom-through/);
 });
@@ -117,7 +119,7 @@ test("readMoveInput refuses missing, unknown-shaped and out-of-range fields", ()
 
 test("every example builds at 16:9 and 9:16 and in reduced motion, the same way for the same seed", () => {
   for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
-    for (const name of MOVE_NAMES) {
+    for (const name of SWEPT) {
       const made = runExample(name, sceneFor(width, height));
       assert.ok(made.added.length + made.animations.length > 0, `${name} makes something`);
       assert.ok(made.end > made.start && made.end <= 5, `${name} ends inside the scene`);
@@ -905,4 +907,27 @@ test("cursor glides on an arc to a layer, squishes 3% and presses the target 2.5
   const swap = (properties) => { const before = { ...card }; Object.assign(card, properties); try { run({ to: "app-card" }); } finally { Object.assign(card, before); } };
   assert.throws(() => swap({ visible: false }), /app-card is not on screen at/);
   assert.throws(() => swap({ rotation: 8 }), /cannot aim at app-card: .*turned/);
+});
+
+test("impact-accent runs only at a cue that motivates its kind; a shake peaks on the hit's frame and is under 30% by the 4th", () => {
+  const scene = sceneFor(1920, 1080);
+  const definition = MOVES["impact-accent"];
+  const cues = [{ name: "hit-1", time: 2, kind: "marker", layer: "clip", media: 2 }, { name: "beat-5", time: 2, kind: "beat" }, { name: "song-drop-1", time: 3, kind: "marker" }];
+  const events = [{ kind: "impact", how: "contact", dir: "right", confidence: 0.8, at: 2.03, media: 2.03, layer: "clip" }];
+  const run = (kind, at, start) => runMove(definition, { id: "hit", input: readMoveInput(definition, { kind, layer: "clip" }), scene,
+    style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media, cueFacts: { at, cues, events } });
+  assert.throws(() => run("shake", 2, 2), /at 2 is a time, not a reason\. An accent needs a cue that motivates it .*try at "cue:hit-1"/);
+  assert.throws(() => run("shake", "cue:beat-5", 2), /beat number, not a reason.*cue:hit-1/);
+  assert.throws(() => run("flash", "cue:hit-1", 2), /an impact in the footage; flash needs .*try at "cue:song-drop-1"/);
+  assert.throws(() => run("shake", "cue:hit-1+0.1", 2.1), /never late/);
+  const shake = run("shake", "cue:hit-1", 2);
+  const clip = { ...scene.layers.find((layer) => layer.id === "clip"), animations: shake.animations.map((entry) => entry.animation) };
+  const swing = [0, 1, 2, 3].map((frame) => Math.abs(evaluateLayer(clip, 2 + frame / 30).x));
+  const size = 1920 * 0.018;
+  assert.ok(Math.max(swing[0], swing[1]) >= size * 0.95, `the hit's frame is the peak (${swing.map(round3)})`);
+  assert.ok(swing[3] < 0.3 * size, `under 30% by the 4th frame (${round3(swing[3])} of ${size})`);
+  assert.ok(Math.abs(evaluateLayer(clip, 2.5).x) < 0.01, "nothing is held after it");
+  // A seam flash lifts the shot's own exposure (its colors carry it) by the cue's weight, 1 frame early.
+  const flash = run("flash", "cue:song-drop-1", 3).animations.map((entry) => entry.animation);
+  assert.deepEqual(flash.map((animation) => [animation.effect, round3(animation.start), animation.to.stops]), [["color-grade", round3(3 - 1 / 30), 2], ["color-grade", 3, 0]]);
 });
