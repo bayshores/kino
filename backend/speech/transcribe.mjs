@@ -595,6 +595,10 @@ export function transcribeFile(filename, setup, options = {}) {
   return transcribeSlot(() => transcribeFileNow(filename, setup, options));
 }
 const transcribeSlot = createSlots(MAX_WHISPER_RUNS);
+/** Other whisper work (a song's vocal spans) waits its turn with the transcriptions, decoding included. */
+export function whisperTurn(work) {
+  return transcribeSlot(work);
+}
 
 async function transcribeFileNow(filename, setup, { decode = decodeMono, debug = false, names = [] } = {}) {
   const { samples } = await decode(filename, { sampleRate: SAMPLE_RATE });

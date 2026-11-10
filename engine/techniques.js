@@ -15,6 +15,12 @@ const technique = (tag, group, line, fits, detect = true, why = undefined) => Ob
 // Set pieces kino has no move for yet (moves record their tags in scene.moves, which check reads).
 const MOVES = "no move builds it yet; the document has no mark for it";
 
+// Loud accents: each needs a moment that motivates it (a hit in the footage, light in the shot,
+// the song's seam), so the deck never deals them, as a card or inside a set piece. An agent still
+// places one by hand where a measured moment asks for it.
+export const LOUD_TAGS = Object.freeze(["flash", "glitch-hit", "shake", "rgb-split"]);
+const loud = (entry) => Object.freeze({ ...entry, deal: false });
+
 export const TECHNIQUES = Object.freeze([
   // Transitions: how one shot or section turns into the next.
   technique("cut", "transition", "the picture changes from one frame to the next", "action, speech and music that drive the change"),
@@ -25,8 +31,8 @@ export const TECHNIQUES = Object.freeze([
   technique("zoom-through", "transition", "a fast large zoom into the picture carries into the next shot", "energy, going inside a screen or an object"),
   technique("whip-pan", "transition", "a fast slide of the whole picture with motion blur into the next shot", "fast pace, moving between places"),
   technique("mask-wipe", "transition", "the next picture is revealed through a moving edge or shape", "graphic, designed edits; a shape that leads the eye"),
-  technique("glitch-hit", "transition", "a short digital glitch on a change or an entrance", "tech, noise, a hard accent"),
-  technique("flash", "transition", "a short bright frame on the change", "a hit in the music, a photo flash, impact"),
+  loud(technique("glitch-hit", "transition", "a short digital glitch on a change or an entrance", "tech, noise, a hard accent")),
+  loud(technique("flash", "transition", "a short bright frame on the change", "a hit in the music, a photo flash, impact")),
   technique("push-transition", "transition", "the old picture is pushed off as the new one slides in", "slides, lists, phone screens, things in a row"),
   // Camera: how the frame itself moves.
   technique("slow-push", "camera", "a slow zoom in (or out) on a large picture over seconds", "holding on a picture or a line without it feeling still"),
@@ -35,7 +41,7 @@ export const TECHNIQUES = Object.freeze([
   technique("orbit-3d", "camera", "the picture turns in 3D space", "showing a device or a card from another side"),
   technique("speed-ramp", "camera", "footage speeds up or slows down within a shot", "action, skating, a moment to stretch"),
   technique("freeze-frame", "camera", "footage stops on one frame", "a moment to point at, a name or a punchline"),
-  technique("shake", "camera", "the picture shakes or wiggles", "impact, bass hits, handheld energy"),
+  loud(technique("shake", "camera", "the picture shakes or wiggles", "impact, bass hits, handheld energy")),
   // Type: how words come on screen.
   technique("type-cut", "type", "text appears at once, with no entrance", "speech-led and plain edits; text that follows the cut"),
   technique("type-fade", "type", "text fades in", "quiet, elegant moments"),
@@ -53,7 +59,7 @@ export const TECHNIQUES = Object.freeze([
   // Texture: what is laid over or into the picture.
   technique("speed-lines", "texture", "streaks that show fast movement", "speed, a phone flying in"),
   technique("particles", "texture", "particles: dust, snow, sparks, embers, rain, bokeh, fog", "atmosphere, weather, celebration"),
-  technique("rgb-split", "texture", "the color channels pull apart", "tech, noise, a glitchy accent"),
+  loud(technique("rgb-split", "texture", "the color channels pull apart", "tech, noise, a glitchy accent")),
   technique("light-sweep", "texture", "light passes over the picture (rays, flare, leaks)", "a reveal, warmth, a product shine"),
   technique("grain", "texture", "film grain or noise over the picture", "film look, analog warmth"),
   technique("vignette", "texture", "the picture darkens toward its edges and corners", "film look, pulling the eye to the middle"),

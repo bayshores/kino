@@ -122,6 +122,27 @@ How to read it:
   so `duration_band` passes them); run through the agent service once on generated clips and a click
   track, not yet judged on real footage. Evidence: `engine/footage.test.js` (pace, accents),
   `engine/qualityPolish.test.js` (accent punch).
+- **Quiet footage defaults**: Partly verified (plan level). compose {footage} adds no effect without a
+  measured reason: downbeat punches only with `accents:true`; one hit, and flash or glitch cuts, only
+  on a real drop (6 dB rise), sized by the rise and the shot's brightness; no beat step or slam title;
+  push direction and frame blending only from measured footage; the deck never deals loud accents,
+  not even as a signature; a plain cut on a song seam counts as designed. Not
+  yet rendered on real footage. Evidence: `engine/footage.test.js` (quiet by default),
+  `engine/deck.test.js`, `engine/qualityStyle.test.js` (plain_beats).
+- **Seam-locked cuts**: Partly verified (plan level). compose {footage} with music reads the song's
+  sections and seams (the `.song` file fit_music keeps) and cuts on each seam to the millisecond,
+  holds a dropout through to its return or the next section edge, cuts each section at a beat range
+  from its loudness (sections under about 4 dB apart stay in the middle range; the pace or
+  treatment scales the ranges; a hold of twice the range only over measured motion), and dissolves
+  only on smooth passages; a clip too short for its shot cuts on an earlier safe beat, else holds
+  its last frame to the seam. The dry-run plan lists the seams it cut on. Synthetic song shape only;
+  not rendered on real footage.
+  Evidence: `engine/footage.test.js` (seam-locked cuts).
+- **Cut snapping and burst**: Partly verified (plan level). Inside a section, compose {footage} moves a cut onto
+  a clip's measured impact near a song hit (impact frame on the hit, up to 2 output frames early, never late;
+  the impact held for its frames at the clip's measured rate; a plain cut; motion carry only breaks ties), and
+  cuts one burst of short shots only over a measured onset-dense run of 1 to 2 bars, on shots within 0.1 luma
+  of each other, never in a calm edit (zero is normal). Synthetic hits and impacts only. Evidence: `engine/footage.test.js` (cut snapping and burst).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).
@@ -616,6 +637,11 @@ How to read it:
 - **Shots at import**: Verified. One FFmpeg pass finds cuts and flashes; shots are at least 6 frames
   (plan said 15; not yet confirmed); videos over 20 minutes get "shots: not found". Evidence:
   `backend/shot-detection.test.mjs` (clip sources in `tests/fixtures/footage/SOURCES.md`). Not built: dissolves. Not verified: drawn animation.
+- **Footage events**: Verified on a generated clip. Measuring a clip (`.footage-v2`, clips re-measured once) finds
+  impacts (contact, impact frames), light and motion with direction at the frame, and frames per drawing; look
+  source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
+  moments not yet checked; a busy still background hides a small mover. compose uses impacts (cut snapping) and
+  frames per drawing (frame blending only at 1).
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and
@@ -763,6 +789,10 @@ How to read it:
 - **fit_music** (op): cuts a song on bar lines with downbeat crossfades so its drop lands on the
   payoff and its ending on the end; sections become `song-*` cues. Unverified by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
+  (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
+  heard time, in the piece that plays it; one cue per hit. Synthetic songs only, unverified on real
+  songs. Evidence: `backend/soundtrack.test.mjs`, `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **music_hard_stop** (warning): a song that stops loud with no fade (a fade still running at the stop is
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.

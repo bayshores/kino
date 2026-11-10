@@ -11,6 +11,7 @@
 // Every fix hint names concrete techniques from the vocabulary, never "add motion".
 import { CUT_TIMING_TAGS, PLAIN_TAGS, TECHNIQUES, isTechnique, techniqueOf } from "../../techniques.js";
 import { deckUse } from "../../deck.js";
+import { sectionCues } from "../../mixLevels.js";
 import { KEY_ROLES, boardPicks, pickOp, pickWords } from "../../movePicks.js";
 import { heardEdges, heardWords } from "./speech.js";
 import { designedTexts, readableAt, primaryItems, scaleOf, sec, sections, speedAt } from "../analysis.js";
@@ -200,6 +201,19 @@ export function fewTechniques(model, ctx) {
 // are footage, words and plain changes (a cut, a fade, a blur, a freeze, captions word by word)
 // gets a warning; these tags do not make a beat designed, every other technique kino finds does.
 export const PLAIN_BEAT_TAGS = Object.freeze([...PLAIN_TAGS, ...CUT_TIMING_TAGS, "dissolve", "fade-black", "type-fade", "type-words", "blur-through", "freeze-frame"]);
+
+/**
+ * The plain cuts locked to a song seam (a fit_music section cue song-<kind>-<n>, or a section cue
+ * such as drop or chorus) within one frame, as [{tag: "seam-cut", at}]. Landing the song's change
+ * on the cut is a designed choice, so plain_beats and signature_missing count it; it needs no
+ * accent on top. `used` is techniquesUsed(model).
+ */
+export function seamCuts(used, ctx, fps) {
+  const seams = (ctx.cues ?? []).filter((cue) => cue?.time > 0 && (String(cue.name ?? "").startsWith("song-") || sectionCues([cue]).length)).map((cue) => cue.time);
+  if (!seams.length) return [];
+  const frame = 1 / (fps || 30) + 1e-3;
+  return (used.cut ?? []).filter((use) => seams.some((time) => Math.abs(time - use.at) <= frame)).map((use) => ({ tag: "seam-cut", at: use.at }));
+}
 // With no board, the video is judged in windows of this length: the first is the hook, the last the payoff.
 const BEAT_WINDOW = 2.5;
 // A technique this close outside a beat (a transition on its cut) still belongs to it.
@@ -271,7 +285,7 @@ function footageOnly(model, from, to) {
 export function plainBeats(model, ctx) {
   if (model.duration < EDIT_SECONDS) return [];
   const used = techniquesUsed(model);
-  const designed = Object.entries(used).filter(([tag]) => !PLAIN_BEAT_TAGS.includes(tag)).flatMap(([tag, list]) => list.map((use) => ({ tag, at: use.at })));
+  const designed = [...Object.entries(used).filter(([tag]) => !PLAIN_BEAT_TAGS.includes(tag)).flatMap(([tag, list]) => list.map((use) => ({ tag, at: use.at }))), ...seamCuts(used, ctx, model.fps)];
   const keys = keyBeatsOf(model, ctx).map((beat) => ({ ...beat,
     plain: !designed.some((use) => use.at >= beat.from - BEAT_EDGE && use.at <= beat.to + BEAT_EDGE) && footageOnly(model, beat.from, beat.to) }));
   const plain = keys.filter((beat) => beat.plain);
@@ -279,7 +293,7 @@ export function plainBeats(model, ctx) {
   // Every key beat plain: the video never lands a designed moment, so the first one holds a final render.
   const gate = plain.length === keys.length;
   // The device the video already uses most: a plain key beat reuses it (a motif), not a new move.
-  const counts = designed.reduce((all, use) => all.set(use.tag, (all.get(use.tag) ?? 0) + 1), new Map());
+  const counts = designed.filter((use) => use.tag !== "seam-cut").reduce((all, use) => all.set(use.tag, (all.get(use.tag) ?? 0) + 1), new Map());
   const signature = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
   const name = (beat) => `the ${beat.role} (${beat.n ? `shot ${beat.n}` : `${sec(beat.from)}-${sec(beat.to)}s`}${beat.fits ? `, ${beat.fits.word}` : ""})`;
   const hint = (beat) => {

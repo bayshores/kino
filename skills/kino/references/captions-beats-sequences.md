@@ -57,7 +57,7 @@ played as one.
 - Footage cut to music: give `compose {footage, music}` a `pace` of `promo` (about 2 beats a
   shot, one hero hold up to 5.5 s) or `velocity` (1 beat a shot). Shots come in runs of one
   length in whole beats, every cut on the song's beat grid; the first 4 bars are calm, the last
-  2 run twice as fast, and a zoom punch lands on the downbeats (`accents:false` turns it off).
+  2 run twice as fast. `accents:true` adds a zoom punch on the downbeats (off by default).
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.

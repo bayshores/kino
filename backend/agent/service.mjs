@@ -468,7 +468,7 @@ export function createAgentService(deps) {
   // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
   // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
   const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
-  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache });
+  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache, songShapes });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
   const manageWorkspace = createReachWorkspace(deps);
@@ -4292,6 +4292,23 @@ export function createAgentService(deps) {
   // the video, 12 frames spread over the file (file seconds on each): one sheet, no FFmpeg sheets.
   // times:[…] (file seconds) draws those frames instead, for a video layer too.
   const sourceSrc = (item) => item.src ?? `/api/media/${item.id}`;
+  // One line naming a clip's measured events (footage/events.mjs; measured once, kept beside the
+  // file): "events (file s): impact 1.5 contact right · light 3.08 from 3 · …".
+  async function clipEventsLine(src, record) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return "events: not measured (not in kino's media folder)";
+    let measured;
+    try { measured = await footageCache.video(path.join(deps.mediaRoot, id), { width: record.width, height: record.height, duration: record.duration }); }
+    catch (error) { return `events: not measured (${String(error?.message ?? error).split("\n")[0].slice(0, 120)})`; }
+    if (!Array.isArray(measured.events)) return `events: not measured (${measured.eventsError ?? "unknown"})`;
+    const shown = [...measured.events].sort((a, b) => b.confidence - a.confidence).slice(0, 12).sort((a, b) => a.t - b.t);
+    const words = shown.map((event) => (event.kind === "impact" ? `impact ${sec(event.t)} ${event.how}${event.dir ? ` ${event.dir}` : ""}${event.frames ? ` ${event.frames}f` : ""}`
+      : event.kind === "light" ? `light ${sec(event.t)} from ${sec(event.from)}`
+        : `motion ${event.dir} ${sec(event.t)}-${sec(event.to)}`));
+    const drawn = measured.drawing ? `drawn on ${measured.drawing.frames}s (${measured.drawing.perSecond} drawings a second)` : null;
+    const more = measured.events.length > shown.length ? ` (the ${shown.length} surest of ${measured.events.length})` : "";
+    return `events (file s)${more}: ${[...words, ...(drawn ? [drawn] : [])].join(" · ") || "no impacts, light changes or steady motion found"}.`;
+  }
   async function clipOverview(input, { fonts }, src = null) {
     if (!src) {
       const wanted = String(input.layer).trim().toLowerCase();
@@ -4317,6 +4334,7 @@ export function createAgentService(deps) {
     const text = asked
       ? `source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`
       : [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): the whole clip in ${count} frames, labeled with file seconds.`,
+        await clipEventsLine(src, record),
         `Exact frames: times:[…] (file seconds). For a crop, add it as a layer and look {mode:"source", layer, t}.`].join("\n");
     return { image, text, extra: { file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };
   }

@@ -74,7 +74,7 @@ import { createYouTubeGate } from "./process-slots.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
 import { createCommonsSource } from "./footage-finder/licensed.mjs";
 import { createHouseMemory } from "./house-memory.mjs";
-import { songVocals } from "./song-shape.mjs";
+import { createSongShapeCache, songVocals, whisperModelReady } from "./song-shape.mjs";
 import { makeTempFolder, removeTempFolder, sweepSummary, sweepTempFolders } from "./temp-folders.mjs";
 import { stopChildren } from "./child-exit.mjs";
 
@@ -253,6 +253,9 @@ const recorder = createRecorder({ dataRoot, mediaRoot, addMedia: (...args) => ad
   onChange: (recording) => dashboard.publish({ type: "recording", recording }) });
 const agentService = createAgentService({
   store,
+  // fit_music's song seams (.song beside each file); whisper's vocal spans give the vocal-in seams
+  // (measured again once a whisper model is there, when the file was measured without one).
+  songShapes: createSongShapeCache({ vocals: (file, seconds) => songVocals(file, { seconds }), vocalsReady: whisperModelReady }),
   videoFacts: (id) => videoFactsOf(id),
   // seen_before: the layouts kino rendered in each project, in <data>/house (house-memory.mjs).
   house: createHouseMemory(path.join(dataRoot, "house")),
