@@ -139,9 +139,10 @@ How to read it:
   not rendered on real footage.
   Evidence: `engine/footage.test.js` (seam-locked cuts).
 - **Cut snapping and burst**: Partly verified (plan level). Inside a section, compose {footage} moves a cut onto
-  a clip's measured impact near a song hit (impact frame on the hit, up to 2 frames early, never late; motion
-  carry only breaks ties), and cuts one burst of short shots only over a measured onset-dense passage (zero is
-  normal). Synthetic hits and impacts only. Evidence: `engine/footage.test.js` (cut snapping and burst).
+  a clip's measured impact near a song hit (impact frame on the hit, up to 2 output frames early, never late;
+  the impact held for its frames at the clip's measured rate; a plain cut; motion carry only breaks ties), and
+  cuts one burst of short shots only over a measured onset-dense run of 1 to 2 bars, on shots within 0.1 luma
+  of each other, never in a calm edit (zero is normal). Synthetic hits and impacts only. Evidence: `engine/footage.test.js` (cut snapping and burst).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).

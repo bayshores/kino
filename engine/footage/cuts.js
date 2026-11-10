@@ -78,24 +78,27 @@ const SLIDE = 1;
  * Where a cut inside a section moves so the outgoing shot's impact lands on a song hit: cut on the
  * action in the shot, not on every hit. The impact frame shows on the hit (the shot's in-point
  * slides later by up to SLIDE s to put it there; when its moment cannot slide that far, the impact
- * may come up to 2 frames early, never late), and the cut follows right after the impact (a contact
- * frame, or a 1 to 4 frame impact frame in full).
+ * may come up to 2 output frames early, never late), and the cut follows right after the impact: a
+ * contact drawing held for its `hold` clip frames, or a 1 to 4 frame impact frame in full, counted
+ * in the clip's own measured frames.
  *   cut       the planned cut (edit s); start, in: the outgoing shot's start (edit s) and in-point (file s)
  *   roomEnd   the file time the outgoing shot may play to (its clip's end or its next source cut)
- *   impacts   its clip's impacts [{t (file s), how, frames, confidence}]
+ *   impacts   its clip's impacts [{t (file s), how, frames (clip frames), confidence}]
  *   hits      strong song hits [{at (edit s), strength}]
- *   low, high the cut's bounds (edit s); reach: how far it may move; frame: one frame (s)
+ *   low, high the cut's bounds (edit s); reach: how far it may move
+ *   frame     one output frame (s): how early the picture may come is counted in these
+ *   clipFrame one frame of the clip at its measured rate (s); hold: clip frames per drawing (1, 2, 3)
  *   carry     (newIn, at) => 1 when the motion carries across that cut, else 0: it only breaks ties
- * Returns {at, in, impact, hit, early} (early in frames), or null when no sure impact fits.
+ * Returns {at, in, impact, hit, early} (early in output frames), or null when no sure impact fits.
  */
-export function snapToImpact({ cut, start, in: inPoint, roomEnd, impacts = [], hits = [], low, high, reach, frame = 1 / 30, carry = () => 0 }) {
+export function snapToImpact({ cut, start, in: inPoint, roomEnd, impacts = [], hits = [], low, high, reach, frame = 1 / 30, clipFrame = frame, hold = 1, carry = () => 0 }) {
   let best = null;
   for (const impact of impacts) {
     if (impact?.kind !== undefined && impact.kind !== "impact") continue;
     if (!(impact.confidence >= IMPACT_LEAST) || !Number.isFinite(impact.t)) continue;
-    const frames = impact.how === "frame" ? Math.max(1, Math.min(4, impact.frames ?? 1)) : 1;
+    const frames = impact.how === "frame" ? Math.max(1, Math.min(4, impact.frames ?? 1)) : Math.max(1, Math.round(hold));
     for (const hit of hits) {
-      const at = round3(hit.at + frames * frame);
+      const at = round3(hit.at + frames * clipFrame);
       if (at < low - 1e-6 || at > high + 1e-6 || Math.abs(at - cut) > reach + 1e-6) continue;
       // The in-point that shows the impact frame on the hit, kept within the moment (no earlier
       // than its in-point, at most SLIDE later): held back, the impact comes early.

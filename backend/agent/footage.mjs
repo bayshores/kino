@@ -89,6 +89,8 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
           // Impacts, light and motion at the frame, and frames per drawing (footage/events.mjs).
           clip.events = measured.events ?? null;
           clip.drawing = measured.drawing ?? null;
+          // Its own frame rate: an impact frame's length and a drawing's hold are in its frames.
+          clip.rate = measured.rate ?? null;
         }
         catch (error) { notes.push(`${record.name} was not measured (${error.message}); framing and moments use the middle of the picture`); }
         // Its sound: its own track, or a sound file of the same length given in footage.

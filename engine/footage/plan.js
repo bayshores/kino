@@ -45,8 +45,12 @@ export const DROP_HIT_RISE = 6;
 // A song onset this strong (0 to 1 against its neighbors, beatDetection.js) is a hit: what a burst
 // cuts on and what a footage impact may snap a cut to.
 const HIT = 0.5;
-// One frame at 30 fps: an impact's frames and how early its picture may come are counted in these.
+// One output frame at 30 fps: how early an impact's picture may come is counted in these (an
+// impact's own frames are the clip's, at its measured rate, this when unmeasured).
 const FRAME = 1 / 30;
+// A burst's shots keep within this much measured brightness (luma 0 to 1) of each other, so its
+// cuts, several a second, never flash (the flashing rule: a 10% luminance swing).
+const BURST_LUMA = 0.1;
 
 /**
  * The biggest rise in a loudness curve (dB every half second): where a song drops, as
@@ -254,15 +258,37 @@ export function planEdit(input) {
 
   // An optional burst (pace.js burstPassages): short shots on the hits of a measured onset-dense
   // passage after the title's shot, at most one; when several passages qualify, the seed picks
-  // (its own draw, so every other pick stays as it was). No dense passage, no burst.
-  if (song && songHits.length) {
+  // (its own draw). No dense passage, no burst; a calm edit (sections scaled past their middle
+  // range) has none. Its shots are several a second, so they are set aside first: moments whose
+  // measured brightness keeps within BURST_LUMA of each other (no cut in it flashes), the best
+  // ones; when the footage holds no such set, or its brightness is unmeasured, there is no burst.
+  const burstMoments = new Set();
+  const lumaOf = (moment) => {
+    const list = samplesIn(byKey.get(moment.clip), moment.in - 0.25, moment.in + 0.25).map((sample) => sample.luma).filter(Number.isFinite);
+    return list.length ? sum(list) / list.length : null;
+  };
+  if (song && songHits.length && songScale <= 1) {
     const beatTimes = [];
     for (let index = beats.index(0, { up: true }); beats.at(index) <= bodyEnd + 1e-6; index += 1) beatTimes.push(beats.at(index));
     const clear = titleAt + titleLength + Math.max(beat, 0.8) + beat + MIN_SHOT;
     const passages = burstPassages(songHits.map((hit) => hit.at), beatTimes, song).filter((entry) => entry.from >= clear && entry.to <= bodyEnd - MIN_SHOT);
     if (passages.length) {
-      burst = passages[Math.floor(seeded(seed * 53 + 11).next() * passages.length)];
-      locks = [...locks, ...[burst.from, ...burst.cuts, burst.to].map((at) => ({ at, kind: "burst" }))].sort((a, b) => a.at - b.at);
+      const chosen = passages[Math.floor(seeded(seed * 53 + 11).next() * passages.length)];
+      const times = [chosen.from, ...chosen.cuts, chosen.to];
+      const longest = Math.max(...times.slice(1).map((at, index) => at - times[index]));
+      const lit = moments.filter((moment) => moment.kind === "visual" && moment !== opening && roomOf(moment) >= longest - 1e-6)
+        .map((moment) => ({ moment, luma: lumaOf(moment) })).filter((entry) => entry.luma !== null).sort((a, b) => a.luma - b.luma);
+      let band = [];
+      for (let low = 0, high = 0; low < lit.length; low += 1) {
+        high = Math.max(high, low);
+        while (high + 1 < lit.length && lit[high + 1].luma - lit[low].luma <= BURST_LUMA + 1e-9) high += 1;
+        if (high - low + 1 > band.length) band = lit.slice(low, high + 1);
+      }
+      if (band.length >= times.length - 1) {
+        burst = chosen;
+        for (const entry of band.sort((a, b) => b.moment.score - a.moment.score).slice(0, times.length - 1)) burstMoments.add(entry.moment);
+        locks = [...locks, ...times.map((at) => ({ at, kind: "burst" }))].sort((a, b) => a.at - b.at);
+      }
     }
   }
 
@@ -281,12 +307,14 @@ export function planEdit(input) {
   // Pictures: the clips take turns (best moment first in each), so the edit moves between them.
   const pools = clips.map((clip) => moments.filter((moment) => moment.kind === "visual" && moment.clip === clip.key && moment !== opening).sort((a, b) => b.score - a.score));
   let turn = Math.floor(rng.next() * Math.max(1, pools.length));
-  // need: seconds the shot should play; a moment with that much room comes first.
+  // need: seconds the shot should play; a moment with that much room comes first. Inside a burst
+  // only its set-aside moments play; before it, never one of them.
+  const allowed = (moment) => (inBurst(t) ? burstMoments.has(moment) : !burstMoments.has(moment) || t >= burst.to - 1e-6);
   const nextPicture = (need = 0) => {
     for (const room of need > 0 ? [need, beat, 0] : [0]) {
       for (let tries = 0; tries < pools.length; tries += 1) {
         const pool = pools[(turn + tries) % pools.length];
-        const found = pool.find((moment) => !used.has(moment) && roomOf(moment) >= room - 1e-6);
+        const found = pool.find((moment) => !used.has(moment) && allowed(moment) && roomOf(moment) >= room - 1e-6);
         if (found) { turn = (turn + tries + 1) % pools.length; return found; }
       }
     }
@@ -380,7 +408,7 @@ export function planEdit(input) {
     else if (first) {
       // The title's picture: the best unused one with room for the whole title.
       const need = titleLength + Math.max(beat, 0.8);
-      moment = moments.filter((entry) => entry.kind === "visual" && !used.has(entry) && roomOf(entry) >= need).sort((a, b) => b.score - a.score)[0] ?? nextPicture();
+      moment = moments.filter((entry) => entry.kind === "visual" && !used.has(entry) && !burstMoments.has(entry) && roomOf(entry) >= need).sort((a, b) => b.score - a.score)[0] ?? nextPicture();
     } else {
       planned = song ? seamPlan(t) : null;
       moment = nextPicture(song ? planned.end - t : paced ? plannedEnd(t) - t : 0) ?? queue.shift() ?? null;
@@ -482,8 +510,11 @@ export function planEdit(input) {
       const roomEnd = Math.min(clipEnd(clip), clip.kind === "screen" ? Infinity : shot.moment.until ?? Infinity);
       const nextClip = byKey.get(next.clip);
       const incoming = motionAt(nextClip, next.in);
-      const carry = (newIn, at) => (incoming && motionAt(clip, newIn + (at - shot.start) - FRAME) === incoming ? 1 : 0);
-      const snap = snapToImpact({ cut, start: shot.start, in: shot.in, roomEnd, impacts, hits: songHits, low, high, reach: Math.min(0.75 * beat, 0.5), frame: FRAME, carry });
+      // An impact frame and a contact drawing's hold are counted in the clip's own measured frames
+      // (anime is about 24 a second, drawn on 2s or 3s); how early the picture may come, in output frames.
+      const clipFrame = clip.rate > 0 ? 1 / clip.rate : FRAME;
+      const carry = (newIn, at) => (incoming && motionAt(clip, newIn + (at - shot.start) - clipFrame) === incoming ? 1 : 0);
+      const snap = snapToImpact({ cut, start: shot.start, in: shot.in, roomEnd, impacts, hits: songHits, low, high, reach: Math.min(0.75 * beat, 0.5), frame: FRAME, clipFrame, hold: framesPerDrawing(clip) ?? 1, carry });
       if (!snap || restAt(snap.at)) continue;
       shot.in = snap.in;
       shot.end = snap.at;
@@ -560,6 +591,9 @@ export function planEdit(input) {
     }
     // A loose shot (a card and its blurred copy as separate layers) changes by fades only.
     if ((shot.layout.loose || shots[index - 1].layout.loose) && (MOVE_TRANSITIONS[kind] || kind === "push-transition")) kind = "dissolve";
+    // A cut snapped onto a footage impact, and every cut of a burst (to its resolving hit), changes
+    // on the frame: a transition's lead or overlap would cover the impact frame or the hit.
+    if (shots[index - 1].impact || (burst && shot.start >= burst.from - SEAM && shot.start <= burst.to + SEAM)) kind = "cut";
     // A transition never cuts into a word: it needs room on both shots.
     const room = Math.min(shot.end - shot.start, shots[index - 1].end - shots[index - 1].start);
     if (kind !== "cut" && room < (TRANSITION_LENGTH[kind] ?? 0) * 1.25 + 0.4) kind = "cut";

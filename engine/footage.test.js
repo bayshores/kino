@@ -5,7 +5,7 @@ import test from "node:test";
 import { barAtOrAfter, beatGrid, editBeats, snapToImpact, speechSpan } from "./footage/cuts.js";
 import { markedSubject, openingMoment } from "./footage/moments.js";
 import { shotLayout } from "./footage/layout.js";
-import { accentTimes, phrasePlan, songSections } from "./footage/pace.js";
+import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { planEdit } from "./footage/plan.js";
 import { footageOps } from "./footage/ops.js";
 
@@ -184,6 +184,9 @@ test("cut snapping and burst: footage impacts pull cuts onto song hits, a burst 
   // An unsure impact moves nothing; a 3-frame impact frame plays in full before the cut.
   assert.equal(snapToImpact({ ...base, impacts: [{ t: 12.3, how: "contact", confidence: 0.3 }] }), null);
   assert.equal(snapToImpact({ ...base, impacts: [{ t: 12.3, how: "frame", frames: 3, confidence: 0.8 }] }).at, 5.3);
+  // Counted in the clip's own frames: at 24 fps a 3-frame impact frame is 0.125 s, a contact drawing on 2s 0.083 s.
+  assert.equal(snapToImpact({ ...base, clipFrame: 1 / 24, impacts: [{ t: 12.3, how: "frame", frames: 3, confidence: 0.8 }] }).at, 5.325);
+  assert.equal(snapToImpact({ ...base, clipFrame: 1 / 24, hold: 2, impacts: [{ t: 12.3, how: "contact", confidence: 0.8 }] }).at, 5.283);
   // Motion carried across the cut only breaks a tie between equally strong pairs.
   const tie = { ...base, hits: [{ at: 5.2, strength: 1 }, { at: 4.9, strength: 1 }], impacts: [{ t: 12.3, how: "contact", confidence: 0.8 }] };
   assert.equal(snapToImpact(tie).hit, 4.9);
@@ -203,8 +206,27 @@ test("cut snapping and burst: footage impacts pull cuts onto song hits, a burst 
   const sixteenths = [];
   for (let step = 1; step < 16; step += 1) if (step % 4) sixteenths.push({ time: round3(0.3 + (first + step / 4) * period), strength: 0.8, low: 0.2 });
   const onsets = [...kicks, ...sixteenths].sort((a, b) => a.time - b.time);
-  const { plan } = paced(null, 30, { ...options, onsets });
+  // Unmeasured brightness, or a calm edit: no burst (its cuts could flash, or race the treatment).
+  assert.equal(paced(null, 30, { ...options, onsets }).plan.burst, null);
+  // Footage of mixed brightness: the burst's shots keep within 0.1 luma of each other.
+  const lumas = [0.2, 0.6, 0.8, 0.3, 0.25];
+  const samples = Array.from({ length: 40 }, (_, index) => ({ t: index / 2, motion: 0.2, change: 0.05, luma: lumas[index % 5], faces: [] }));
+  const lit = { ...options, onsets, clip: { samples } };
+  assert.equal(paced(null, 30, { ...lit, treatment: "calm" }).plan.burst, null);
+  const { plan } = paced(null, 30, lit);
   assert.ok(plan.burst, plan.words.join("\n"));
+  const lumaOf = (shot) => { const near = samples.filter((sample) => Math.abs(sample.t - shot.in) <= 0.25 + 1e-6); return near.reduce((total, sample) => total + sample.luma, 0) / near.length; };
+  const burstLumas = plan.shots.filter((shot) => shot.start >= plan.burst.from - 1e-6 && shot.start < plan.burst.to - 1e-6).map(lumaOf);
+  assert.ok(Math.max(...burstLumas) - Math.min(...burstLumas) <= 0.1 + 1e-9, burstLumas.join(", "));
+  // A burst's cuts are plain cuts, even with moving transitions in the deck.
+  const decked = paced(null, 30, { ...lit, deck: { cards: [{ tag: "whip-pan" }, { tag: "zoom-through" }, { tag: "dissolve" }] } }).plan;
+  assert.ok(decked.burst);
+  for (const shot of decked.shots.filter((entry) => entry.start > decked.burst.from - 0.002 && entry.start < decked.burst.to + 0.002)) assert.equal(shot.transition.kind, "cut", `${shot.start}`);
+  // A steady run of 16th notes longer than 2 bars is the section's texture: no burst over it.
+  const beatTimes = Array.from({ length: 41 }, (_, index) => round3(index * period));
+  const steady = beatTimes.slice(0, 40).flatMap((at, index) => (index < 26 ? [at] : [0, 1, 2, 3].map((step) => round3(at + (step * period) / 4))));
+  assert.deepEqual(burstPassages(steady, beatTimes, { sections: [{ from: 0, to: 30, smooth: false, energy: 1 }] }), []);
+  assert.equal(burstPassages(steady.filter((at) => at < beatTimes[34] - 0.01 || at >= beatTimes[40]), beatTimes, { sections: [{ from: 0, to: 30, smooth: false, energy: 1 }] }).length, 1);
   assert.equal(plan.burst.to - plan.burst.from > 2 * period, true);
   const inside = plan.shots.filter((shot) => shot.start >= plan.burst.from - 1e-6 && shot.start < plan.burst.to - 1e-6);
   assert.ok(inside.length >= 12, `${inside.length} burst shots`);
@@ -214,7 +236,7 @@ test("cut snapping and burst: footage impacts pull cuts onto song hits, a burst 
 
   // Impacts all through every clip pull cuts inside the section onto the hits; without them, none move.
   const impacts = Array.from({ length: 40 }, (_, index) => ({ t: round3(0.37 + index * 0.49), kind: "impact", how: "contact", confidence: 0.9 }));
-  const snapped = paced(null, 30, { ...options, onsets: kicks, clip: { events: impacts } }).plan;
+  const snapped = paced(null, 30, { ...options, onsets: kicks, clip: { events: impacts }, deck: { cards: [{ tag: "whip-pan" }, { tag: "zoom-through" }, { tag: "dissolve" }] } }).plan;
   assert.equal(plain.snaps.length, 0);
   assert.ok(snapped.snaps.length >= 2, snapped.words.join("\n"));
   for (const snap of snapped.snaps) {
@@ -222,6 +244,8 @@ test("cut snapping and burst: footage impacts pull cuts onto song hits, a burst 
     const shown = round3(shot.start + shot.impact.file - shot.in);
     assert.ok(shown <= snap.hit + 0.001 && shown >= snap.hit - 2 * frame - 0.001, `impact at ${shown}, hit ${snap.hit}`);
     assert.equal(shot.end, round3(snap.hit + frame));
+    // No transition's lead or overlap covers the impact frame: the snapped cut is a plain cut.
+    assert.equal(snapped.shots.find((entry) => entry.n === snap.shot + 1).transition.kind, "cut");
     assert.ok(kicks.some((kick) => Math.abs(kick.time - snapped.music.offset - snap.hit) < 0.002));
   }
   assert.ok(snapped.words.some((line) => line.startsWith("cuts on footage impacts")));
