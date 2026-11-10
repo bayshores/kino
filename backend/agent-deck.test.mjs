@@ -179,8 +179,27 @@ test("compose and recipe with no look: the seed picks one and says so, and the s
   const typed = await agent("edit", { project: "look-e", ops: [{ op: "compose", format: "16:9", beats }] });
   assert.equal(typed.isError, undefined, typed.text);
   assert.match(typed.text, /type from the style spec: Montserrat and Noto Serif/);
-  const layers = (await documentOf("look-e")).scenes.find((entry) => entry.composition).layers;
-  assert.ok(layers.some((layer) => layer.type === "text" && layer.fontFamily === "Montserrat"), "the headline is set in the picked display face");
+  const inMontserrat = (layers) => layers.some((layer) => layer.type === "text" && layer.fontFamily === "Montserrat");
+  const composedScene = (await documentOf("look-e")).scenes.find((entry) => entry.composition);
+  assert.ok(inMontserrat(composedScene.layers), "the headline is set in the picked display face");
+  // Made again (a beat's recipe composes the scene again; a standalone recipe twice), it keeps the type.
+  const beatEdit = await agent("edit", { project: "look-e", ops: [{ op: "recipe", name: "headline-reveal", id: composedScene.composition.beats[0].id, text: "Your month, in one view" }] });
+  assert.equal(beatEdit.isError, undefined, beatEdit.text);
+  assert.ok(inMontserrat((await documentOf("look-e")).scenes.find((entry) => entry.composition).layers), "a beat made again keeps the picked face");
+  await agent("project", { action: "create", id: "look-f", name: "look-f", width: 1920, height: 1080, duration: 6 });
+  await agent("notes", { project: "look-f", action: "brief", fields: { style: { by: "guessed", wants: ["dissolve"], fonts: { display: { family: "Montserrat", size: 120 }, caption: { family: "Noto Serif", size: 48 } } } } });
+  for (const text of ["Hello there", "Hello again"]) {
+    const made = await agent("edit", { project: "look-f", ops: [...ORDER_WAIVERS, { op: "recipe", name: "headline-reveal", id: "head", text }] });
+    assert.equal(made.isError, undefined, made.text);
+    assert.ok(inMontserrat((await documentOf("look-f")).scenes[0].layers), `"${text}" is set in the picked face`);
+  }
+  // A picked treatment's type direction with no fonts yet is named in the receipt.
+  await agent("project", { action: "create", id: "look-t", name: "look-t", width: 1920, height: 1080, duration: 8 });
+  await agent("notes", { project: "look-t", action: "brief", fields: { treatments: FIVE } });
+  await agent("notes", { project: "look-t", action: "brief", fields: { treatments: { pick: "B", why: "the map is what a skater retells" } } });
+  const named = await agent("edit", { project: "look-t", ops: [...ORDER_WAIVERS, { op: "compose", format: "16:9", beats }] });
+  assert.equal(named.isError, undefined, named.text);
+  assert.match(named.text, /seeded; the picked type is 'small serif captions, each word cut on': set style\.fonts or set_font to a face for it/);
   // A recipe with no look takes the seed's, saves it, and keeps it when made again.
   await agent("project", { action: "create", id: "look-c", name: "look-c", width: 1920, height: 1080, duration: 6 });
   const recipe = await agent("edit", { project: "look-c", ops: [{ op: "recipe", name: "headline-reveal", id: "head", text: "Hello there" }] });

@@ -432,8 +432,11 @@ export function createAgentService(deps) {
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops),
-    // A recipe, move or compose with no look takes the type the brief's style spec names (else the project's seed picks a look).
-    styleFonts: async (document) => (await agentState.read(document.id).catch(() => null))?.brief?.style?.fonts ?? null });
+    // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
+    styleType: async (document) => {
+      const brief = (await agentState.read(document.id).catch(() => null))?.brief;
+      return { fonts: brief?.style?.fonts ?? null, type: brief?.style?.type ?? pickedType(brief?.treatments) };
+    } });
   // detect_beats: decoded and analysed sound, kept in a .beats file beside each media file.
   const beatAnalysis = deps.beatAnalysis ?? createBeatAnalysisCache();
   // fit_music: the song's sections (song-shape.mjs), kept in a .song file beside each media file.

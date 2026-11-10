@@ -835,8 +835,9 @@ function copyText(value, depth = 0) {
 // translate-and-apply).
 // pictureAlpha(src): a picture's alpha grid (backend/agent/picture-alpha.mjs) for moves that push into it.
 // clipEvents(src): a clip's measured events in file seconds (footage/events.mjs), or null.
-// styleFonts(document): the style spec's fonts {caption:{family}, display:{family}, …} or null.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleFonts = null }) {
+// styleType(document): the picked type {fonts (the style spec's {caption:{family}, display:{family}, …}
+// or null), type (style.type or the picked treatment's type direction, or null)}, or null.
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf });
   async function mediaOf(document, work) {
@@ -853,19 +854,25 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     return found;
   }
 
-  // The look for an op that was given none: a brand kit's or the style spec's type wins, else the
-  // project's seed picks the look. {look, fonts (the spec's [display, body] when no brand kit has
-  // fonts), note (which look and why, for the receipt)}.
-  async function lookPick(document, brand, work) {
-    const look = seededLook(projectSeed(document.id));
-    if (brand?.fonts?.length) return { look, fonts: null, note: `look ${look} (seeded; type from the brand kit ${brand.name})` };
-    const spec = await styleFonts?.(document);
-    const face = spec?.display?.family ? spec.display : spec?.caption?.family ? spec.caption : null;
+  // The type the project picked, read on every build so a block made again keeps it: the brand
+  // kit's fonts, else the style spec's as [display, body], else none. {fonts, note (for the receipt)}.
+  async function typeFor(document, brand) {
+    if (brand?.fonts?.length) return { fonts: brand.fonts, note: `type from the brand kit ${brand.name}` };
+    const spec = await styleType?.(document);
+    const style = spec?.fonts;
+    const face = style?.display?.family ? style.display : style?.caption?.family ? style.caption : null;
     if (face) {
-      const body = spec.caption?.family ? spec.caption : face;
-      return { look, fonts: [{ family: face.family }, { family: body.family }], note: `look ${look} (seeded; type from the style spec: ${face.family}${body.family === face.family ? "" : ` and ${body.family}`})` };
+      const body = style.caption?.family ? style.caption : face;
+      return { fonts: [{ family: face.family }, { family: body.family }], note: `type from the style spec: ${face.family}${body.family === face.family ? "" : ` and ${body.family}`}` };
     }
-    return { look, fonts: null, note: `look ${look} (seeded: no type picked yet; pick from your references)` };
+    if (spec?.type) return { fonts: null, note: `the picked type is '${spec.type}': set style.fonts or set_font to a face for it` };
+    return { fonts: null, note: null };
+  }
+
+  // The look for an op that was given none: the project's seed picks it. {look, note (which look and why)}.
+  function lookPick(document, type) {
+    const look = seededLook(projectSeed(document.id));
+    return { look, note: `look ${look} (seeded${type.note ? `; ${type.note}` : ": no type picked yet; pick from your references"})` };
   }
 
   // The receipt says which look was picked and why, once for each answer.
@@ -1031,20 +1038,22 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const brand = brandOf(document, extras.brand ?? composition.brand);
     // No look anywhere: a recipe made before looks were seeded stays crisp; a new one takes the
     // brand's or the style spec's type, else the project's seed picks (and the recipe saves it).
+    // The picked type is read on every build (a saved look does not stop it); a legacy recipe keeps
+    // only its brand's fonts.
     let look = extras.look ?? composition.look;
-    let typed = null;
-    if (!look && main) look = LEGACY_LOOK;
+    const legacy = !look && main;
+    const type = await typeFor(document, brand);
+    if (legacy) look = LEGACY_LOOK;
     else if (!look) {
-      const pick = await lookPick(document, brand, work);
+      const pick = lookPick(document, type);
       look = extras.look = pick.look;
-      typed = pick.fonts;
       noteLook(work, `recipe ${operation.id}`, pick);
     }
     const feel = extras.feel ?? composition.feel ?? null;
     const reduced = extras.reduced ?? composition.reduced ?? false;
     const media = await mediaOf(document, work);
     const fonts = await fontsOf(document, work);
-    const faces = await facesOf(document, brand, look, copyText(settings.copy), work, brand?.fonts?.length ? brand.fonts : typed);
+    const faces = await facesOf(document, brand, look, copyText(settings.copy), work, legacy ? brand?.fonts : type.fonts);
     const frame = { width: scene.width, height: scene.height };
     const style = styleFor({ look, brand, frame, faces, feel });
 
@@ -1165,19 +1174,19 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const brand = brandOf(document, settings.brand ?? composition.brand);
     // No look anywhere: a move made before looks were seeded stays crisp; a new one is seeded and saves it.
     let look = settings.look ?? composition.look;
-    let typed = null;
-    if (!look && stored) look = LEGACY_LOOK;
+    const legacy = !look && stored;
+    const type = await typeFor(document, brand);
+    if (legacy) look = LEGACY_LOOK;
     else if (!look) {
-      const pick = await lookPick(document, brand, work);
+      const pick = lookPick(document, type);
       look = settings.look = pick.look;
-      typed = pick.fonts;
       noteLook(work, `move ${operation.id}`, pick);
     }
     const media = await mediaOf(document, work);
     const fonts = await fontsOf(document, work);
     // A move writes in the brand's fonts, else in the font the project's own text uses (captions
     // and titles match the rest of the video), else the style spec's, else in the look's fonts.
-    const faces = await facesOf(document, brand, look, copyText(input), work) ?? projectFaces(document) ?? await facesOf(document, brand, look, copyText(input), work, typed);
+    const faces = await facesOf(document, brand, look, copyText(input), work) ?? projectFaces(document) ?? (legacy ? null : await facesOf(document, brand, look, copyText(input), work, type.fonts));
     const frame = { width: scene.width, height: scene.height };
     const style = styleFor({ look, brand, frame, faces, feel: settings.feel ?? composition.feel ?? null });
     const start = resolveAt(settings.at ?? "auto", timeLookup(document, scene, fonts, work));
@@ -1223,15 +1232,17 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // A new composition without a seed takes the project's seed (engine/deck.js projectSeed).
     if (input.seed === undefined) input.seed = projectSeed(document.id);
     const reduced = Boolean(input.reduced);
-    // No look given (and none saved on the scene): the brand's or the style spec's type, else the
-    // project's seed picks the look. The look is saved on the scene, so making it again keeps it.
-    const pick = input.look === undefined ? await lookPick(document, brandOf(document, input.brand), work) : null;
+    // No look given (and none saved on the scene): the project's seed picks the look, saved on the
+    // scene so making it again keeps it. The picked type (brand kit, else style spec) is read on
+    // every build, so composing again keeps it too.
+    const type = await typeFor(document, brandOf(document, input.brand));
+    const pick = input.look === undefined ? lookPick(document, type) : null;
     if (pick) input.look = pick.look;
     const composition = readCompose(input);
     const brand = brandOf(document, composition.brand);
     const media = await mediaOf(document, work);
     const fonts = await fontsOf(document, work);
-    const faces = await facesOf(document, brand, composition.look, copyText(composition.beats), work, brand?.fonts?.length ? brand.fonts : pick?.fonts ?? null);
+    const faces = await facesOf(document, brand, composition.look, copyText(composition.beats), work, brand?.fonts?.length ? brand.fonts : type.fonts);
     const sceneId = existing?.id ?? operation.newSceneId;
     // The project's first, empty scene takes the video type as its name ("Promo").
     if (existing && !existing.composition && operation.name === undefined && composition.type) existing.name = composition.type[0].toUpperCase() + composition.type.slice(1);
@@ -1497,7 +1508,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const suffix = id.startsWith(prefix) ? id.slice(prefix.length) : `-${id}`;
       const composition = readCompose(change.input);
       const brand = brandOf(document, composition.brand);
-      const faces = await facesOf(document, brand, composition.look, copyText(composition.beats), work);
+      const faces = await facesOf(document, brand, composition.look, copyText(composition.beats), work, (await typeFor(document, brand)).fonts);
       const taken = idsInDocument(document);
       const copies = copyLayers(own, suffix, taken);
       for (const layerId of idsInLayers(copies)) taken.add(layerId);

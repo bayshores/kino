@@ -38,7 +38,7 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
   until it leaves, so no hold sits still. A move started over it takes its place.
 
 ```json
-{"op":"set_brand","name":"orbit","colors":{"bg":"#0f1420","surface":"#1a2233","text":"#f4f6fb","accent":"#ff7a45","accent2":"#4fd1c5"},"fonts":[{"family":"Noto Serif"},{"family":"Montserrat"}],"logos":[{"text":"Orbit"}]}
+{"op":"set_brand","name":"orbit","colors":{"bg":"#0f1420","surface":"#1a2233","text":"#f4f6fb","accent":"#ff7a45","accent2":"#4fd1c5"},"fonts":[{"family":"Montserrat"},{"family":"Noto Serif"}],"logos":[{"text":"Orbit"}]}
 {"op":"compose","type":"promo","format":"16:9","duration":15,"look":"bold","beats":[{"recipe":"logo-sting","tagline":"Plan the week in one view"},{"recipe":"headline-reveal","text":"Your team's week, in one view","transition":"push"},{"recipe":"feature-callout","text":"Shared calendars","sub":"Everyone sees the same week"},{"recipe":"cta-end","text":"Try Orbit free","sub":"orbit.app"}]}
 {"op":"recipe","name":"cta-end","id":"cta-end","text":"Start free today"}
 ```
@@ -81,7 +81,7 @@ slice, glitch, blur-dissolve, card-tilt, shape-wipe. `align:"end"` on any move e
 
 ```json
 {"op":"set_cue","name":"drop","at":"after:headline-reveal.in+0.5"}
-{"op":"add_layer","layerType":"text","name":"badge","properties":{"text":"New","width":240,"height":80,"fontSize":56,"role":"caption"}}
+{"op":"add_layer","layerType":"text","name":"badge","properties":{"text":"New","width":240,"height":80,"fontSize":56,"fontFamily":"Noto Serif","fill":"#f4f6fb","role":"caption"}}
 {"op":"place","layers":["badge"],"slot":"top-right"}
 {"op":"recipe","name":"callout","id":"keys","box":[1180,560,360,300],"text":"Keys found","color":"#ff4f9a","at":"cue:drop"}
 {"op":"add_animation","layer":"badge","preset":"preset-fade","start":"cue:drop","duration":"standard","easing":"enter"}
