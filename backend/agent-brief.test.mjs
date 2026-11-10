@@ -876,7 +876,7 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.equal(studied.isError, undefined, studied.text);
   await refused("write 5 treatments");
   const treatments = ["the kickflip seen from the board", "one trick, five streets", "the crew's group chat lights up", "dawn to dusk in one line", "the wheels' sound leads"]
-    .map((idea, index) => ({ idea, who: ["the kid", "the kid", "the crew", "the city", "a viewer"][index], tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, rhythm: "slow build, fast end", p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
+    .map((idea, index) => ({ idea, who: ["the kid", "the kid", "the crew", "the city", "a viewer"][index], tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, ending: `the board at rest, ending ${index}`, p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
   // Each treatment carries its story: without a turn all 5 are refused in one answer.
   const noTurn = await brief(id, { fields: { treatments: treatments.map(({ turn, ...rest }) => rest) } });
   assert.equal(noTurn.isError, true);
@@ -892,9 +892,11 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
   const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");
-  // The same call drafts the spine from the pick: the problem is its tension, the turn its turn.
+  // The same call drafts the spine from the pick, so it keeps the pick's story: the hook opens on
+  // its who, the problem is its tension, the turn its turn and the end its ending.
   const drafted = offer.input.fields.style.spine;
   assert.deepEqual([drafted.map((beat) => beat.role), drafted[1].purpose, drafted[2].purpose, offer.input.fields.style.signatures[0].beat], [["hook", "problem", "turn", "signature", "payoff", "end"], "can one kid land it?", "the board lands clean", 3]);
+  assert.deepEqual([drafted[0].purpose, drafted[5].purpose], ["<the first image of a viewer's story>", "the board at rest, ending 4"]);
   // A pick whose source names no picture asks for one, and the draft offers the project's own.
   assert.match(picked.text, /source is words only: build the signature from the product's own picture/);
   assert.equal(offer.input.fields.style.signatures[0].source, "<a screenshot or clip of the product, and the moment>");

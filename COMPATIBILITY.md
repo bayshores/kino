@@ -220,6 +220,9 @@ How to read it:
 - **Treatment whos**: Verified (tests). Each treatment names `who` (whose want or fear drives it); 5 with fewer
   than 3 different whos are refused, the 3 shown are one per who when the list allows, and the agent's own
   "just start" pick says `why`. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`.
+- **Picked ending**: Verified (tests). Each treatment names its `ending` (the last image); the pick drafts the
+  spine's hook from its who and its end from that ending, and `template_end` quotes the payoff, its `uses` and
+  the picked ending. Evidence: `backend/agent-brief.test.mjs`, `backend/agent-deck.test.mjs`, `engine/qualityEnding.test.js`.
 - **Product picture first**: Verified (tests). `text_only_open` warns when a promo or ad of 8 s+ spends
   over 3 s of its first 4 s on text alone, and `reference_drift` warns at too much text alone. Evidence:
   `engine/qualityRules.test.js`, `backend/agent-brief.test.mjs`, `backend/measure-fingerprint.test.mjs`.

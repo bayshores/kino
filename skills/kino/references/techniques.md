@@ -119,15 +119,15 @@ compose take the project's seed by default.
 
 ## Treatments
 
-Before building, write 5 stories, all required: idea, `who` (whose want or fear drives
-it; 3 different at least), `tension` (what they want, fear or wonder), `turn` (the on-screen
-moment it flips), move, rhythm, `source` (file or screen used), `p` (0 to 1: how typical).
-kino shows the 3 least typical, one per who, as `A. idea · who: tension → turn · move`. The
-pick, with their words (under "just start", yours with a `why`), sets `style.idea` and the
-first signature. Building first is `order_needed`; waive_check "treatments" skips it.
+Write 5 stories first: idea, `who` (whose want or fear drives it; 3+ different),
+`tension` (what they want, fear or wonder), `turn` (the on-screen flip), move, `ending` (the
+last image, from this material), `source` (file or screen used), `p` (0 to 1: how typical).
+kino shows the 3 least typical, one per who: `A. idea · who: tension → turn · ends on ending`.
+The pick (their words; under "just start" yours with `why`) sets `style.idea`, the first
+signature and the spine's end. Building first is `order_needed`; waive_check "treatments" skips it.
 
 ```json
-{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","rhythm":"even","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","rhythm":"builds","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","rhythm":"steady","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","rhythm":"stop-go","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","rhythm":"offbeat","p":0.05,"source":"street.wav"}]}}
+{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","ending":"noon","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","ending":"his","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","ending":"map","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","ending":"laugh","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","ending":"beat","p":0.05,"source":"street.wav"}]}}
 {"tool":"notes","action":"brief","fields":{"treatments":{"pick":"B","quote":"the map one"}}}
 ```
 

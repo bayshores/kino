@@ -5,13 +5,15 @@
 // the 3 least typical of the rest, one per `who` when it can, for the person to pick at the next stop.
 //
 // Saved on the brief as field `treatments` (notes {action:"brief", fields:{treatments}}):
-//   a list of 5   [{idea, who, tension, turn, move, rhythm, p, source}]: the idea, who (whose want
+//   a list of 5   [{idea, who, tension, turn, move, ending, p, source}]: the idea, who (whose want
 //                 or fear drives the story: a person, a crew, a viewer, a thing; the 5 name at
 //                 least 3 different, so they are not 5 demos of one tool), the tension (what they
 //                 want, fear or wonder before the turn), the turn (the on-screen moment it flips),
-//                 the signature move, the rhythm, p, 0 to 1, how typical the story is, and source,
-//                 the material the signature move uses (a file or screen, and the moment). Lists
-//                 saved before who, tension and turn existed keep showing as they were.
+//                 the signature move, the ending (the last image, from this material: the pick's
+//                 ending becomes the spine's end beat and template_end quotes it), p, 0 to 1, how
+//                 typical the story is, and source, the material the signature move uses (a file
+//                 or screen, and the moment). Lists saved before who, tension and turn existed, or
+//                 with a rhythm before ending, keep showing as they were.
 //   a pick        {pick:"A"|"B"|"C", quote?, why?}: the one the person picked (their words in
 //                 quote), or yours when they said "just start" (no quote, then why is required:
 //                 why a viewer would retell it). It becomes the idea line, and its move and source
@@ -24,19 +26,20 @@ export const SHOWN_COUNT = 3;
 export const LABELS = Object.freeze(["A", "B", "C"]);
 // The fewest different `who` the 5 must name.
 export const WHO_MIN = 3;
-export const TREATMENT_LIMITS = Object.freeze({ idea: 120, who: 40, tension: 60, turn: 60, move: 60, rhythm: 60, quote: 120, why: 80, source: 80 });
-const KEYS = ["idea", "who", "tension", "turn", "move", "rhythm", "p", "source"];
+export const TREATMENT_LIMITS = Object.freeze({ idea: 120, who: 40, tension: 60, turn: 60, move: 60, ending: 60, quote: 120, why: 80, source: 80 });
+const KEYS = ["idea", "who", "tension", "turn", "move", "ending", "p", "source"];
 // The text fields every treatment needs, in the order a refusal names them.
-const TEXT_KEYS = ["idea", "who", "tension", "turn", "move", "rhythm", "source"];
+const TEXT_KEYS = ["idea", "who", "tension", "turn", "move", "ending", "source"];
 // What a missing or empty text field is, after its length.
 const FIELD_HINTS = Object.freeze({
   who: ": whose want or fear drives it: a person, a crew, a viewer, a thing",
   tension: ": what they want, fear or wonder before the turn",
   turn: ": the on-screen moment it flips",
+  ending: ": the last image, from this material",
   source: ': the material the move uses, such as "review.mp4, the card flip at 0:12"',
 });
 const problem = (message) => ({ code: "bad_input", message });
-const EXAMPLE = '[{idea:"the crew skates the city at dawn", who:"the crew", tension:"will they land it before the cops come?", turn:"the bridge gap, landed as the sun hits", move:"whip-pan between spots", rhythm:"slow build, fast last 6 s", p:0.3, source:"dawn.mp4, the empty bridge"}, …]';
+const EXAMPLE = '[{idea:"the crew skates the city at dawn", who:"the crew", tension:"will they land it before the cops come?", turn:"the bridge gap, landed as the sun hits", move:"whip-pan between spots", ending:"the crew walking off the bridge at sunrise", p:0.3, source:"dawn.mp4, the empty bridge"}, …]';
 
 /** The same `who` twice: trimmed, lowercased, a leading "the", "a" or "an" dropped. */
 export const whoKey = (who) => String(who ?? "").trim().toLowerCase().replace(/^(the|an?)\s+/, "");
@@ -113,10 +116,11 @@ export function cleanTreatments(value, current) {
     const why = typeof value.why === "string" && value.why.trim() ? { why: value.why.trim() } : {};
     return { ...current, picked: { label: value.pick, index, by: value.quote ? "you" : "guessed", ...(value.quote ? { quote: value.quote.trim() } : {}), ...why } };
   }
-  // Who, tension, turn and source are optional here only for callers that skip treatmentsProblem.
+  // Who, tension, turn, ending and source are optional here only for callers that skip
+  // treatmentsProblem; rhythm only for a list written before ending.
   const optional = (entry, key) => (typeof entry[key] === "string" ? { [key]: entry[key].trim() } : {});
   const list = value.map((entry) => ({ idea: entry.idea.trim(), ...optional(entry, "who"), ...optional(entry, "tension"), ...optional(entry, "turn"),
-    move: entry.move.trim(), rhythm: entry.rhythm.trim(), p: Math.round(entry.p * 100) / 100, ...optional(entry, "source") }));
+    move: entry.move.trim(), ...optional(entry, "ending"), ...optional(entry, "rhythm"), p: Math.round(entry.p * 100) / 100, ...optional(entry, "source") }));
   const dropped = list.reduce((best, entry, index) => (entry.p > list[best].p ? index : best), 0);
   return { list, dropped, shown: shownOf(list, dropped), picked: null };
 }
@@ -137,6 +141,12 @@ export function pickedSignature(treatments) {
   return entry ? { what: entry.move, source: entry.source ?? null } : null;
 }
 
+/** The picked treatment's ending (the last image it named), or null: no pick, or a list from before ending. */
+export function pickedEnding(treatments) {
+  const entry = treatments?.picked ? treatments.list?.[treatments.picked.index] : null;
+  return typeof entry?.ending === "string" && entry.ending ? entry.ending : null;
+}
+
 // A source that names material, not words: a media file, a screen, footage, a shot or a sound.
 const PICTURE_WORDS = /\.(png|jpe?g|webp|gif|heic|mp4|mov|webm|m4v|mp3|wav|m4a|aiff?)\b|screen|footage|clip|shot|record|video|photo|image|picture|frame|camera|demo|\bui\b|interface|dashboard|sound|audio|voice|song|music/i;
 
@@ -150,14 +160,15 @@ export const PICTURE_LINE = "Its source is words only: build the signature from 
 const moveText = (entry) => `${entry.move}${entry.source ? ` (${entry.source})` : ""}`;
 
 /**
- * "A. idea · who: tension → turn · move" for each shown treatment: the story first. A list saved
- * before who shows "A. idea · tension → turn · move", and one before tension and turn as it did:
+ * "A. idea · who: tension → turn · ends on ending" for each shown treatment: the story and where it
+ * lands. A list saved before ending shows the move last ("A. idea · who: tension → turn · move"),
+ * one before who drops "who: ", and one before tension and turn as it did:
  * "A. idea · move (source) · rhythm".
  */
 export const shownLines = (treatments) => treatments.shown.map((index, position) => {
   const entry = treatments.list[index];
-  if (entry.tension && entry.turn) return `${LABELS[position]}. ${entry.idea} · ${entry.who ? `${entry.who}: ` : ""}${entry.tension} → ${entry.turn} · ${entry.move}`;
-  return `${LABELS[position]}. ${entry.idea} · ${moveText(entry)} · ${entry.rhythm}`;
+  if (entry.tension && entry.turn) return `${LABELS[position]}. ${entry.idea} · ${entry.who ? `${entry.who}: ` : ""}${entry.tension} → ${entry.turn} · ${entry.ending ? `ends on ${entry.ending}` : entry.move}`;
+  return `${LABELS[position]}. ${entry.idea} · ${moveText(entry)} · ${entry.rhythm ?? `ends on ${entry.ending}`}`;
 });
 
 /**

@@ -662,6 +662,15 @@ const END_TAIL = 0.75;
 const CENTER_SLACK = 0.06;
 // A line this much smaller than the name, or less, sits under it as a tagline or credit.
 const SMALLER = 0.7;
+// The hint quotes the payoff's purpose and the picked ending up to this many characters.
+const PURPOSE_CHARS = 60;
+// Words on one line, cut after the last whole word within `limit` (with "…"), never mid-word.
+function clipWords(text, limit) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (words.length <= limit) return words;
+  const cut = words.slice(0, limit + 1).lastIndexOf(" ");
+  return `${words.slice(0, cut > 0 ? cut : limit).replace(/[\s,;:.]+$/, "")}…`;
+}
 
 export function templateEnd(model, ctx) {
   if (model.duration < EDIT_SECONDS) return [];
@@ -705,12 +714,17 @@ export function templateEnd(model, ctx) {
   if (!best) return [];
   const label = (item) => (item.kind === "text" ? `"${String(item.text).replace(/\s+/g, " ").trim().slice(0, 30)}"` : item.name ?? "the logo");
   // The hint names no technique (a named move becomes every video's ending): with a spine it
-  // quotes this video's own payoff beat; without one, a principle.
+  // quotes this video's own payoff beat, its material and the picked treatment's ending; without
+  // one, a principle.
   const payoff = (ctx.style?.spine ?? []).filter((beat) => beat.role === "payoff").at(-1);
-  const purpose = String(payoff?.purpose ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+  const purpose = clipWords(payoff?.purpose, PURPOSE_CHARS);
+  const ending = clipWords(ctx.style?.ending, PURPOSE_CHARS);
+  const uses = (Array.isArray(payoff?.uses) ? payoff.uses : []).filter((use) => typeof use === "string" && use.trim()).slice(0, 3).map((use) => use.trim());
+  const picked = ending ? ` and the ending you picked "${ending}"` : "";
   const hint = payoff && purpose
-    ? `End on the answer to your story: the payoff "${purpose}" (${sec(payoff.from)}s) at full strength; the name after a cut or small on it. Never a card.`
-    : "End on the shot that answers the hook, from this video's material; never a card or footage dimmed behind one.";
+    ? `End on the answer to your story: the payoff "${purpose}" (${[`${sec(payoff.from)}s`, ...uses].join(", ")})${picked}; the name over its last shot or after a cut. Never a card.`
+    : ending ? `End on the ending you picked "${ending}", from this video's material; the name over its last shot or after a cut. Never a card.`
+      : "End on the shot that answers the hook, from this video's material; never a card or footage dimmed behind one.";
   return [{
     rule: "template_end", severity: "warn", itemId: best.name.id, at: sec(model.times[from]), until: sec(model.times[last]),
     measured: `${label(best.name)} centered with ${best.lines.length} smaller ${best.lines.length === 1 ? "line" : "lines"} (${best.lines.slice(0, 2).map(label).join(", ")}) over a still or darkened picture for the last ${sec(best.held / model.fps)}s`,

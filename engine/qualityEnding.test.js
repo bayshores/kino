@@ -38,8 +38,13 @@ test("template_end: a centered name and tagline over a flat frame for the last 3
   // "the name behind the cut-out" from the old hint).
   const spine = [{ role: "hook", from: 0, to: 3, purpose: "a dancer alone on a red wall" }, { role: "payoff", from: 5.5, to: 7, purpose: "the whole crew lands the same move at once" }];
   const [quoted] = await run(scene([clip("shot", { animations: [hide(7)] }), ...card(7)]), { style: { spine, backed: [], guessed: [] } });
-  assert.match(quoted.fix.text, /the payoff "the whole crew lands the same move at o?n?c?e?" \(5\.5s\)/);
+  assert.match(quoted.fix.text, /the payoff "the whole crew lands the same move at once" \(5\.5s\)/);
   assert.doesNotMatch(quoted.fix.text, /behind/);
+  // fp-11: the hint names the payoff's material and the picked treatment's ending, and a long
+  // purpose is cut on a word, not at "any footage, ".
+  const long = { ...spine[1], purpose: "shoot it, say it, ship it: any footage, edited by one agent in one night", uses: ["04-1376", "02-1163"] };
+  const [named] = await run(scene([clip("shot", { animations: [hide(7)] }), ...card(7)]), { style: { spine: [spine[0], long], ending: "the red dancer frozen mid-spin", backed: [], guessed: [] } });
+  assert.equal(named.fix.text, 'End on the answer to your story: the payoff "shoot it, say it, ship it: any footage, edited by one agent…" (5.5s, 04-1376, 02-1163) and the ending you picked "the red dancer frozen mid-spin"; the name over its last shot or after a cut. Never a card.');
 });
 
 test("template_end: the same name over a clip still playing, a short card or a mid-video title is silent", async () => {

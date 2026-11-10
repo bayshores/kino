@@ -60,6 +60,7 @@ import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, workPrint } from "./stops.mjs";
 import { addRejected } from "./style.mjs";
+import { pickedEnding } from "./treatments.mjs";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, settleBoard } from "./board.mjs";
 import { boardLook, BoardLookError, boardShotImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
@@ -574,7 +575,9 @@ export function createAgentService(deps) {
     const basic = checkDocument(document, { fonts, mediaRoot: deps.mediaRoot, codes, sceneId });
     // The brief's style spec (notes brief fields.style) sets the style rules; none is kino's default style.
     const saved = await agentState.read(document.id).catch(() => null);
-    const styleSpec = saved?.brief?.style ?? null;
+    // A picked treatment's ending rides along (styleContext ending): template_end quotes it.
+    const ending = saved?.brief?.style ? pickedEnding(saved.brief.treatments) : null;
+    const styleSpec = ending ? { ...saved.brief.style, ending } : saved?.brief?.style ?? null;
     // The project's deck (notes deck): deck_unused counts the cards the video uses.
     const deck = saved?.deck ?? null;
     // Font families the brief names (in any field): off_brand_font holds the texts to them.

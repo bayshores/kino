@@ -27,7 +27,7 @@ export const lineHasReference = (line) => typeof line?.ref === "string" && line.
 /**
  * What the checks need from a saved spec (or null for none): { wants, avoids, backed, guessed, by,
  * avoidsBacked (the avoids are the person's words, so a used one is an error), spine, rejected, fonts, accent, logo, moves } (the last four null without a style bible),
- * plus idea (or null), signatures, moments and signatureRanges ([] when absent).
+ * plus idea and ending (or null), signatures, moments and signatureRanges ([] when absent).
  * `backed` holds the wanted tags that may turn rules off; `guessed` the wanted tags that may not.
  */
 export function styleContext(spec) {
@@ -51,6 +51,8 @@ export function styleContext(spec) {
     logo: isObject(spec.logo) ? spec.logo : null, moves: moves.length ? moves : null,
     // The idea, its signature moments and the one-off set pieces.
     idea: typeof spec.idea === "string" && spec.idea.trim() ? spec.idea.trim() : null,
+    // The picked treatment's ending (the service adds it from brief.treatments), or null.
+    ending: typeof spec.ending === "string" && spec.ending.trim() ? spec.ending.trim() : null,
     signatures: Array.isArray(spec.signatures) ? spec.signatures.filter(isObject) : [],
     moments: Array.isArray(spec.moments) ? spec.moments.filter((moment) => isObject(moment) && moment.tag) : [],
     signatureRanges: signatureRanges(spec),

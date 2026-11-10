@@ -22,8 +22,9 @@ Write these before the spine, then fill the spine around them:
 - `moments`: up to 3 set pieces `{tag, beat, what}`, used once on purpose; `moves` stay the
   recurring glue. The deck deals `moments[0]` (else a set piece) first.
 
-The pick's signature call also drafts the spine before the build: hook, problem (the pick's
-tension), turn (its turn), signature, payoff, end, in rough seconds. Building waits
+The pick's signature call also drafts the spine before the build, so it tells the pick's story:
+hook (the first image of its who), problem (its tension), turn (its turn), signature, payoff, end
+(its ending), in rough seconds. template_end quotes the payoff, its `uses` and that ending. Building waits
 (`order_needed`) until the spine has a problem, a turn and a payoff; times may change later. The
 lock keeps that spine and asks the rest of the bible (fonts, plus moves and logo when not saved;
 beats are timed over the brief's length). With no idea, `lock direction: idea + signature`

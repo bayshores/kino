@@ -516,7 +516,7 @@ export function orderSteps(state, video = {}) {
   if (!treatments?.list) {
     const one = { idea: STORY_PLACEHOLDER, who: "<whose want or fear drives it: a person, a crew, a viewer, a thing>",
       tension: "<what they want, fear or wonder before the turn>", turn: "<the on-screen moment it flips>",
-      move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
+      move: "<the signature move>", ending: "<the last image, from this material>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
     return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
   }
   const picked = treatments.picked;
@@ -569,15 +569,18 @@ const SPINE_SHARES = { hook: [0, 0.1], problem: [0.1, 0.3], turn: [0.3, 0.45], s
 const hasPurpose = (spine, role) => (Array.isArray(spine) ? spine : []).some((beat) => beat?.role === role && typeof beat.purpose === "string" && beat.purpose.trim() !== "");
 
 /**
- * The spine the signature step drafts from the pick: with none saved, IDEA_SPINE over the
- * video's seconds (30 when unknown), the problem's purpose the pick's tension and the turn's its
- * turn. A saved spine is kept as it is, with each missing story beat put after the last saved
- * beat that comes before it in IDEA_SPINE.
+ * The spine the signature step drafts from the pick, so the beats tell the picked story and not
+ * another: with none saved, IDEA_SPINE over the video's seconds (30 when unknown), the hook's
+ * purpose the first image of the pick's who, the problem's its tension, the turn's its turn and
+ * the end's its ending (a pick from before who or ending keeps "<what the hook does>" and
+ * "<what the end does>"). A saved spine is kept as it is, with each missing story beat put after
+ * the last saved beat that comes before it in IDEA_SPINE.
  */
 function draftSpine(saved, entry, seconds) {
   const total = Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
   const at = (share) => Math.round(share * total * 10) / 10;
-  const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>" };
+  const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>",
+    ...(entry.who ? { hook: `<the first image of ${entry.who}'s story>` } : {}), ...(entry.ending ? { end: entry.ending } : {}) };
   const drafted = (role) => ({ role, from: at(SPINE_SHARES[role][0]), to: at(SPINE_SHARES[role][1]), purpose: purposes[role] ?? `<what the ${role} does>` });
   if (!Array.isArray(saved) || !saved.length) return IDEA_SPINE.map(drafted);
   const spine = [...saved];

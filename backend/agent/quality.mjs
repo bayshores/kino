@@ -734,7 +734,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // The idea's signature ranges are the video's too (signature_missing).
     const spineScene = styleSpec?.spine?.length || styleSpec?.idea || styleSpec?.signatures?.length ? videoScene(document) : null;
     for (const scene of scenes) {
-      const sceneStyle = spineScene && scene.id !== spineScene.id ? { ...styleSpec, spine: undefined, idea: undefined, signatures: undefined } : styleSpec;
+      const sceneStyle = spineScene && scene.id !== spineScene.id ? { ...styleSpec, spine: undefined, idea: undefined, signatures: undefined, ending: undefined } : styleSpec;
       const sceneDeck = scene.id === deckScene?.id ? deck : null;
       const sceneLength = scene.id === lengthScene?.id ? videoLength : null;
       const sceneAsks = asks?.length && scene.id === videoScene(document)?.id ? asks : null;
