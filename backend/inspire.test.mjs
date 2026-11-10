@@ -9,10 +9,11 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
-  closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+  closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
   cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
+import { copiedRun } from "../engine/quality/rules/reference.js";
 import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { LOOK_MODEL, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
@@ -201,19 +202,43 @@ test("the numbers: shots, cuts a second, the longest shot and where, cuts on the
   // 2 is 0.05 from a beat (on), 4 is on one, 4.5 is half a beat off, 9 is 0.1 off (more than 0.08).
   assert.deepEqual(numbers.onBeat, [true, true, false, false]);
   assert.equal(numbers.onBeatCount, 2);
+  // In frames at 24 fps: 2 is 1 early (0.05 s), 4 is on it, 9 is 2 early, 4.5 is 12 off.
+  assert.deepEqual([numbers.beatFit.onBeat, numbers.beatFit.offsets, numbers.beatFit.further], [0.5, { "-3": 0, "-2": 1, "-1": 1, 0: 1, 1: 0, 2: 0, 3: 0 }, 1]);
+  assert.ok(numbers.beatFit.random > 0 && numbers.beatFit.random < 0.3, "a random placement lands within a frame of a 1 s beat about 1 time in 8");
+  assert.deepEqual(measureNumbers({ cuts: [2, 4, 4.5, 9, 0, 12], beats: [0, 1, 2.05, 3, 4, 5, 6, 7, 8, 9.1], seconds: 10 }).beatFit, numbers.beatFit, "the same baseline every run");
   assert.equal(measureNumbers({ cuts: [1], beats: [], seconds: 8 }).onBeat, null, "no beat: no on-the-beat count");
+  assert.equal(measureNumbers({ cuts: [1], beats: [], seconds: 8 }).beatFit, null);
   assert.equal(measureNumbers({ cuts: [6], beats: [], seconds: 8 }).longest.where, "the start");
   assert.equal(measureNumbers({ cuts: [1], beats: [], seconds: 8 }).longest.where, "the end");
   assert.equal(measureNumbers({ cuts: [], beats: [], seconds: 8 }).longest.where, "the whole clip");
 });
 
-test("a borrowed rhythm: cue marks at the cut times, scaled to fit, or cut at the scene's end", () => {
+test("a borrowed rhythm: each section's pace in a new order, scaled to fit, cut on the song's seams", () => {
   const numbers = measureNumbers({ cuts: [2, 4, 6, 8], beats: [], seconds: 10 });
   assert.deepEqual(rhythmCues(numbers, { length: 5 }).cues.map((cue) => cue.time), [2, 4]);
   assert.equal(rhythmCues(numbers, { length: 5 }).dropped, 2);
   const fitted = rhythmCues(numbers, { length: 5, fit: 5 });
   assert.deepEqual(fitted.cues, [1, 2, 3, 4].map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })));
   assert.deepEqual(rhythmCues(numbers, { length: 20, fit: 5, at: 10 }).cues.map((cue) => cue.time), [11, 12, 13, 14]);
+  // Uneven shots: the same lengths per section, never in the reference's order; the song's seams are cuts.
+  const odd = measureNumbers({ cuts: [0.5, 1.7, 2.1, 3.4, 3.8, 5.3, 5.6, 7.2], beats: [], seconds: 8, fps: 24 });
+  const lent = rhythmCues(odd, { length: 8 }).cues.map((cue) => cue.time);
+  const gaps = (times) => times.slice(1).map((time, index) => Math.round((time - times[index]) * 100) / 100);
+  assert.notDeepEqual(lent, odd.cuts, "not the reference's cut times");
+  assert.deepEqual(lentSections(odd).map((part) => part.shots.length), [6, 3]);
+  assert.ok(gaps([0, ...lent]).every((gap) => lentSections(odd).some((part) => part.shots.includes(gap))), "every shot length is one the reference has");
+  assert.deepEqual(rhythmCues(odd, { length: 8 }).cues, rhythmCues(odd, { length: 8 }).cues, "the same order every time");
+  assert.ok(rhythmCues(odd, { length: 8, seams: [4.5] }).cues.some((cue) => cue.time === 4.5));
+  // A reference cut on 1 and 2 beats at 120 BPM: what it lends, fitted to 12 s, is no copy of it.
+  const beat = measureNumbers({ cuts: [0.5, 1.5, 2, 3, 3.5, 4, 5, 5.5, 6.5, 7, 8, 8.5, 9.5, 10, 11, 12, 12.5, 13.5, 14, 15], beats: [], seconds: 16, fps: 24 });
+  const borrowed = rhythmCues(beat, { length: 12, fit: 12 }).cues.map((cue) => cue.time);
+  assert.equal(copiedRun(borrowed, beat.cuts, { tolerance: 1 / 30 + 0.01 }), null);
+  // A reference cut in 2-frame shots lends no cut under 6 frames after the last one lent (25 fps: 0.24 s).
+  const dense = measureNumbers({ cuts: [1, 1.08, 1.16, 1.24, 1.32, 2], beats: [], seconds: 10, fps: 25 });
+  assert.deepEqual(lentSections(dense)[0].shots, [0.24, 0.76, 1, 8]);
+  const text = referenceText({ id: "yt:a", title: "A", duration: 10, url: "u", numbers: dense });
+  assert.match(text, /\ncuts \(s\): 1 1\.24 2 \(3 under 6 frames apart not listed or borrowed\)\n/);
+  assert.match(text, /\nlend: pace per section \(0-5 s 4 shots median 1 s · 5-10 s 0 shots\); avoid: its shot lengths in order/);
 });
 
 test("clock and the agent's lines", () => {
@@ -228,6 +253,7 @@ test("clock and the agent's lines", () => {
   const text = referenceText(ref);
   assert.match(text, /measured the first 90 s of 4:19: 5 shots · 0\.04 cuts\/s · longest 81 s \(the end\) · cuts on the beat 3 of 4 \(120 bpm\)/);
   assert.match(text, /cuts \(s\): 2\* 4\* 4\.5 9\* \(\* on the beat\)/);
+  assert.match(text, /\ncuts 4 · 75% within 1 frame of a beat \(random \d+%\) · frames off the beat \(- early\) 0:3 more:1\n/);
   assert.match(searchText("walk", [ref]), /^inspire "walk": 1 found on YouTube/);
   assert.match(projectText({ searches: [{ query: "walk", state: "done", count: 6, by: { name: "juno" } }], saved: [ref.id], refs: { [ref.id]: ref }, queue: {} }), /"walk" 6 found · by juno/);
 });
@@ -307,7 +333,7 @@ test("the queue measures one reference at a time, keeps only the numbers and the
       return file;
     },
     probe: async () => ({ duration: 30, width: 202, height: 360 }),
-    findShots: async () => ({ shots: [{ start: 0 }, { start: 10 }, { start: 20 }] }),
+    findShots: async (file, { minShotFrames }) => (minShotFrames === 2 ? { shots: [{ start: 0 }, { start: 10 }, { start: 20 }], flashes: [{ start: 15, end: 15.08 }], fps: 25 } : { shots: [] }),
     findBeats: async () => ({ beats: [0, 10, 20.5], bpm: 6 }),
     fetchThumb: async () => Buffer.from("jpeg bytes"),
   });
@@ -332,7 +358,9 @@ test("the queue measures one reference at a time, keeps only the numbers and the
   view = await inspire.projectView("p1");
   const first = view.refs["yt:tgEWNHVbk3U"];
   assert.equal(first.state, "measured");
-  assert.deepEqual(first.numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1 });
+  const { beatFit, ...numbers } = first.numbers;
+  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1, fps: 25 });
+  assert.deepEqual([beatFit.cuts, beatFit.fps, beatFit.onBeat, beatFit.offsets["0"], beatFit.further], [2, 25, 0.5, 1, 1], "frames at the file's rate; 20 is 12 frames before 20.5");
   assert.equal(first.thumb, true);
   assert.equal(first.vertical, true, "the downloaded picture, taller than wide, says it is vertical");
   assert.equal(view.refs["yt:J0ydlAqg6_8"].state, "found", "a cancelled one waits to be asked again");

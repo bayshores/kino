@@ -206,6 +206,8 @@ test("look source and mark_subject refuse what they cannot do, in words", { skip
   const whole = await look({ layer: "sintel-village-dragon.mp4" });
   assert.match(whole.text, /^source sintel-village-dragon\.mp4 \(\d+×\d+, 4\.4\d* s\): the whole clip in 12 frames, labeled with file seconds\.$/m);
   assert.equal(whole.data.times.length, 12);
+  // It names the clip's events (impacts, light, motion at the frame, drawing rate): footage/events.mjs.
+  assert.match(whole.text, /^events \(file s\)[^:]*: .+\.$/m, whole.text);
   assert.deepEqual(refusal(await look({ layer: "title" })), { error: "bad_input", reason: "source needs a video layer; title is a text layer (zoom shows any layer)." });
   assert.deepEqual(refusal(await look({ layer: "ghost" })), { error: "not_found", reason: "ghost's file is not in kino's media library; import it with project {action:\"import\", file}." });
   const unknownMode = refusal(await agent("look", { project: "refusals", mode: "sourc" }));

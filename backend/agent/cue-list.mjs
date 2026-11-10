@@ -83,7 +83,9 @@ export function cueListText(document, targets) {
     const listed = cues.slice(0, shown).filter((cue) => cue.kind === kind);
     if (!ofKind.length) continue;
     const label = listed.length < ofKind.length ? `${kind} ${ofKind.length}, ${listed.length} shown` : `${kind} ${ofKind.length}`;
-    lines.push(listed.length ? `${label}: ${listed.map((cue) => `${cue.name} ${cue.time}${cue.layer ? ` (${pinnedTo(cue)})` : ""}`).join(", ")}` : label);
+    // An accent says how hard it hits and where (detect_beats): "accent-1 4.2 (0.92 low)".
+    const hit = (cue) => (cue.kind === "accent" && cue.weight !== undefined ? ` (${cue.weight}${cue.band ? ` ${cue.band}` : ""})` : "");
+    lines.push(listed.length ? `${label}: ${listed.map((cue) => `${cue.name} ${cue.time}${hit(cue)}${cue.layer ? ` (${pinnedTo(cue)})` : ""}`).join(", ")}` : label);
   }
   if (shown < cues.length) {
     const next = cues[shown].time;

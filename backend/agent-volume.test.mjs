@@ -79,9 +79,10 @@ test("the sound examples in the kino skill run as written", { skip: skipWithoutM
 
 test("the skill's fit_music example runs as written: the drop on the payoff, the song's own ending at the end", { skip: skipWithoutMediaTools }, async () => {
   const [examples] = jsonBlocks(skillSection("Sound: music as structure"));
-  // A made-up song at 120 bpm (a bar is 2 s): a hi-hat on each beat, the kick and bass in from 16 s to 32 s and from 40 s.
+  // A made-up song at 120 bpm (a bar is 2 s): a hi-hat on each beat (filtered out 43.5 to 46.5 s),
+  // the kick and bass in from 16 s to 32 s and from 40 s.
   const file = path.join(folder, "song.m4a");
-  const expr = "0.25*sin(2*PI*5000*t)*exp(-40*mod(t,0.5))+0.9*(gte(t,16)*lt(t,32)+gte(t,40))*sin(2*PI*55*t)*exp(-6*mod(t,0.5))";
+  const expr = "0.25*(1-gte(t,43.5)*lt(t,46.5))*sin(2*PI*5000*t)*exp(-40*mod(t,0.5))+0.9*(gte(t,16)*lt(t,32)+gte(t,40))*sin(2*PI*55*t)*exp(-6*mod(t,0.5))";
   await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `aevalsrc=${expr.replaceAll(",", "\\,")}:s=44100:d=48`, "-c:a", "aac", "-b:a", "128k", file]);
   const upload = await server.api("/api/media", { method: "POST", headers: { "content-type": "audio/mp4", "x-file-name": "song.m4a" }, body: await readFile(file) });
   const media = await upload.json();
@@ -89,12 +90,15 @@ test("the skill's fit_music example runs as written: the drop on the payoff, the
   await agent("project", { action: "create", id: "fit", name: "Fit", width: 640, height: 360, duration: 12 });
   const reply = await agent("edit", { project: "fit", ops });
   assert.equal(reply.isError, undefined, reply.text);
-  assert.ok(reply.data.music.sections.includes("8 s drop (payoff)"), reply.data.music.sections.join("; "));
+  const payoff = reply.data.music.sections.find((line) => line.endsWith("(payoff)"));
+  assert.ok(/ s drop, weight [\d.]+ \(payoff\)$/.test(payoff) && Math.abs(parseFloat(payoff) - 8) <= 1 / 30, reply.data.music.sections.join("; "));
   assert.equal(reply.data.music.sections.at(-1), "12 s ending");
   const record = await (await server.api("/api/projects/fit")).json();
   const pieces = record.document.scenes[0].layers.filter((layer) => layer.type === "audio");
   assert.equal(pieces.length, reply.data.music.pieces);
-  assert.ok(record.document.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 8));
+  assert.ok(record.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - 8) <= 1 / 30));
+  // The hi-hat coming back at 46.5 s is a seam: a song-return cue at its heard time (the song's last 2 s end at 12 s).
+  assert.ok(record.document.cues.some((cue) => cue.name === "song-return-1" && Math.abs(cue.time - 10.5) <= 1 / 30), JSON.stringify(record.document.cues));
 
   // A format's music is fit the same way, its drop on the format's hero (here the quote).
   await agent("project", { action: "create", id: "fit-format", name: "Fit format", width: 640, height: 360, duration: 12 });
@@ -102,7 +106,7 @@ test("the skill's fit_music example runs as written: the drop on the payoff, the
   assert.equal(format.isError, undefined, format.text);
   const formatted = await (await server.api("/api/projects/fit-format")).json();
   const quote = formatted.document.cues.find((cue) => cue.name === "quote").time;
-  assert.ok(formatted.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - quote) < 1e-6), JSON.stringify(formatted.document.cues));
+  assert.ok(formatted.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - quote) <= 1 / 30), JSON.stringify(formatted.document.cues));
   assert.match(JSON.stringify(format.data ?? format.text), /cut to the beat by fit_music/);
 });
 

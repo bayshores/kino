@@ -8,13 +8,15 @@
 //   band (20 to 150 Hz: kick and bass) comes in or drops out. Each is labeled intro, build, drop,
 //   break or outro: a drop is where the low band comes in strong after a quieter part, a break is
 //   where it drops out, a build is the rise just before a drop.
+// - seams [{at, kind, weight}]: dropout, return, vocal-in and switch (see seamsOf). Every section
+//   and seam edge is placed to a few milliseconds on 12 ms frames (fineEdge).
 // - features: groove (where the kicks fall in the bar), bass, brightness, density, dynamics (0 to
 //   100 each). vocals is filled in by the caller from the vocal spans.
 // songVocals(file) finds where a voice sings or raps with whisper.cpp (it writes sung words too);
 // songShape's voiceGuess is the rougher fallback when whisper is not installed.
 import { readFile, writeFile } from "node:fs/promises";
 import { decodeMono } from "./audio-analysis.mjs";
-import { SAMPLE_RATE as SPEECH_RATE, whisperSegments, whisperSetup } from "./speech/transcribe.mjs";
+import { SAMPLE_RATE as SPEECH_RATE, whisperSegments, whisperSetup, whisperTurn } from "./speech/transcribe.mjs";
 
 const round = (value, places = 1) => Math.round(value * 10 ** places) / 10 ** places;
 const clamp100 = (value) => Math.round(Math.max(0, Math.min(100, value)));
@@ -61,11 +63,12 @@ const BANDS = 24; // log-spaced bands from 30 Hz up, for the self-similarity mat
 /**
  * Frames of the song: per frame the low band (20-150 Hz), voice band (300-3400 Hz), high band
  * (2-8 kHz) and total energy, the spectral centroid, the low band's onset strength (kicks) and the
- * whole spectrum's (every hit), and 24 log-spaced band energies.
+ * whole spectrum's (every hit), and 24 log-spaced band energies. Frames are about `frame` seconds
+ * long and `overlap` of them cover each moment (seam edges use 12 ms frames, 4 deep).
  */
-export function spectralFrames(samples, sampleRate) {
-  const size = 2 ** Math.round(Math.log2(sampleRate * 0.093));
-  const hop = size / 2;
+export function spectralFrames(samples, sampleRate, { frame = 0.093, overlap = 2 } = {}) {
+  const size = 2 ** Math.round(Math.log2(sampleRate * frame));
+  const hop = size / overlap;
   const count = Math.max(0, Math.floor((samples.length - size) / hop) + 1);
   const binHz = sampleRate / size;
   const top = Math.min(sampleRate / 2, 11_000);
@@ -210,20 +213,209 @@ export function sectionsFromCurves({ low, rise, novelty, whole = true }) {
   return sections.sort((a, b) => a.at - b.at || (a.kind === "build" ? -1 : 1));
 }
 
-/** A drop or break placed to the frame: where the low band's change is steepest within 2 s. */
-function refine(at, kind, frames) {
-  if (kind !== "drop" && kind !== "break" && kind !== "outro") return at;
-  const per = 1 / frames.hopSeconds;
-  const db = Array.from(frames.low, (value) => 10 * Math.log10(value + 1e-12));
-  let best = at;
-  let bestStep = -Infinity;
-  const span = Math.round(per / 4);
-  for (let f = Math.max(span, Math.floor((at - 2) * per)); f < Math.min(db.length - span, Math.ceil((at + 2) * per)); f += 1) {
-    const change = mean(db.slice(f, f + span)) - mean(db.slice(f - span, f));
-    const score = kind === "drop" ? change : -change;
-    if (score > bestStep) { bestStep = score; best = f * frames.hopSeconds; }
+// ---------------------------------------------------------------- seams
+// A seam is a moment the edit locks to: a section edge, a short rest of the music (dropout) and
+// where it comes back (return), the filter opening again (return), a voice coming in (vocal-in),
+// the beat changing its pattern (switch). Each is placed to a few milliseconds (well inside one
+// video frame) and has a weight from 0 to 1: how big the change is.
+
+const dbOf = (value) => 10 * Math.log10(value + 1e-12);
+const REST_DB = 15; // a rest: the whole sound 15 dB or more under the median of the 8 s around it
+const REST_SECONDS = [0.1, 4];
+const RETURN_DB = 12; // a filter return: the high band back up 12 dB after it was down
+const SWITCH_MIN = 0.5; // a switch: the hits' pattern this different (1 - cosine of the rhythms)
+const SAME_HIT = 0.05; // two edges closer than this (about a video frame) are one moment
+const weightOf = (db, full = 30) => round(Math.min(1, Math.max(0, db / full)), 2);
+
+// What fineEdge compares, frame by frame: one band's level in dB.
+const BAND = {
+  low: (frames, f) => dbOf(frames.low[f]),
+  voice: (frames, f) => dbOf(frames.voice[f]),
+  high: (frames, f) => dbOf(frames.high[f]),
+  total: (frames, f) => dbOf(frames.total[f]),
+};
+
+/**
+ * Where a change is sharpest near `at` (seconds), to a few milliseconds: 12 ms frames (a 3 ms
+ * step) of the samples around it, and the point within `radius` where the mean of `band` over
+ * `window` after it rises (direction 1) or falls (-1) most against the mean before it.
+ * Returns {at, change} (change in dB).
+ */
+export function fineEdge(samples, sampleRate, at, { band = "total", direction = 1, radius = 0.15, window = 0.04 } = {}) {
+  const pad = radius + window + 0.03;
+  const start = Math.max(0, Math.floor((at - pad) * sampleRate));
+  const stop = Math.min(samples.length, Math.ceil((at + pad) * sampleRate));
+  const frames = spectralFrames(samples.subarray(start, stop), sampleRate, { frame: 0.012, overlap: 4 });
+  const hop = frames.hopSeconds;
+  const values = Array.from({ length: frames.count }, (_, f) => BAND[band](frames, f));
+  const sums = [0];
+  for (const value of values) sums.push(sums.at(-1) + value);
+  const w = Math.max(2, Math.round(window / hop));
+  let best = { at, change: 0 };
+  let bestScore = -Infinity;
+  for (let f = w; f <= frames.count - w; f += 1) {
+    // The edge between frame f-1 and frame f, by their centers (a frame is 4 steps long).
+    const time = start / sampleRate + (f - 0.5) * hop + 2 * hop;
+    if (Math.abs(time - at) > radius) continue;
+    const change = (sums[f + w] - sums[f]) / w - (sums[f] - sums[f - w]) / w;
+    if (direction * change > bestScore) { bestScore = direction * change; best = { at: time, change: direction * change }; }
   }
-  return round(best, 1);
+  return best;
+}
+
+/** A section placed to a few milliseconds, with its weight: drops and breaks on the low band, a build on the whole sound. */
+function refine(part, frames, samples, sampleRate) {
+  if (part.at <= 0) return { ...part, at: 0 };
+  const per = 1 / frames.hopSeconds;
+  let at = part.at;
+  if (part.kind !== "build") {
+    // First to the 46 ms frame: where the low band's change is steepest within 2 s.
+    const db = Array.from(frames.low, dbOf);
+    let bestStep = -Infinity;
+    const span = Math.round(per / 4);
+    for (let f = Math.max(span, Math.floor((part.at - 2) * per)); f < Math.min(db.length - span, Math.ceil((part.at + 2) * per)); f += 1) {
+      const change = mean(db.slice(f, f + span)) - mean(db.slice(f - span, f));
+      const score = part.kind === "drop" ? change : -change;
+      if (score > bestStep) { bestStep = score; at = f * frames.hopSeconds; }
+    }
+  }
+  const edge = part.kind === "build"
+    ? fineEdge(samples, sampleRate, at, { band: "total", radius: 0.5, window: 0.25 })
+    : fineEdge(samples, sampleRate, at, { band: "low", direction: part.kind === "drop" ? 1 : -1, radius: 0.15, window: 0.1 });
+  return { at: round(edge.at, 3), kind: part.kind, weight: weightOf(edge.change) };
+}
+
+/**
+ * Short rests: [{from, to, depth}] (seconds, to the 46 ms frame) where the whole sound falls 15 dB
+ * or more under the median of the 8 s around it, for 0.1 to 4 s, with no other such gap within
+ * 1.5 s on either side (gaps between bare kicks are the groove, not a rest).
+ */
+export function restsOf(frames) {
+  const db = Array.from(frames.total, dbOf);
+  const per = 1 / frames.hopSeconds;
+  const seconds = Math.ceil(frames.count * frames.hopSeconds);
+  const median = Array.from({ length: seconds }, (_, s) => percentile(db.slice(Math.max(0, Math.floor((s - 4) * per)), Math.min(db.length, Math.floor((s + 5) * per))), 0.5));
+  const out = db.map((value, f) => value < median[Math.floor(f * frames.hopSeconds)] - REST_DB);
+  const center = (f) => (f + 1) * frames.hopSeconds; // a frame is 2 steps long
+  const runs = [];
+  for (let f = 0; f < out.length; f += 1) {
+    if (!out[f] || (f > 0 && out[f - 1])) continue;
+    let end = f;
+    while (end < out.length && out[end]) end += 1;
+    runs.push([f, end]);
+  }
+  const alone = Math.round(1.5 * per);
+  const rests = [];
+  for (const [index, [f, end]] of runs.entries()) {
+    const [from, to] = [center(f) - frames.hopSeconds / 2, center(end) - frames.hopSeconds / 2];
+    const level = median[Math.floor(f * frames.hopSeconds)];
+    const lonely = !(runs[index - 1] && f - runs[index - 1][1] < alone) && !(runs[index + 1] && runs[index + 1][0] - end < alone);
+    if (lonely && to - from >= REST_SECONDS[0] && to - from <= REST_SECONDS[1] && f > 0 && end < out.length - 1 && from >= 0.5)
+      rests.push({ from, to, depth: level - mean(db.slice(f, end)) });
+  }
+  return rests;
+}
+
+/** Filter returns: times (to the 46 ms frame) where the high band comes back 12 dB or more after it was down, while the low band played on. */
+export function filterReturns(frames) {
+  const per = 1 / frames.hopSeconds;
+  const high = Array.from(frames.high, dbOf);
+  const low = Array.from(frames.low, dbOf);
+  const sum = (series) => { const sums = [0]; for (const value of series) sums.push(sums.at(-1) + value); return sums; };
+  const [hs, ls] = [sum(high), sum(low)];
+  const between = (sums, a, b) => (b > a ? (sums[b] - sums[a]) / (b - a) : 0);
+  const back = Math.round(2 * per);
+  const ahead = Math.round(per);
+  const step = high.map((_, f) => (f >= back && f + ahead <= high.length ? between(hs, f, f + ahead) - between(hs, f - back, f) : 0));
+  // The loudest second of the high band so far, by where it ends.
+  const upTo = [];
+  let top = -Infinity;
+  for (let f = 0; f < high.length; f += 1) { if (f >= ahead) top = Math.max(top, between(hs, f - ahead, f)); upTo.push(top); }
+  return peaks(step, back, RETURN_DB).filter((f) => {
+    const after = between(hs, f, f + ahead);
+    const wasUp = f - back >= 0 && upTo[f - back] >= after - 4;
+    const lowKept = between(ls, f - back, f) >= between(ls, f, f + ahead) - 10;
+    return wasUp && lowKept;
+  }).map((f) => f * frames.hopSeconds + frames.hopSeconds);
+}
+
+/** The pattern of hits from frame `from` to `to`: the autocorrelation of the onset strength, lags up to 2 s. */
+function rhythmOf(flux, from, to, lags) {
+  const part = Array.from(flux.subarray(Math.max(0, from), Math.min(flux.length, to)));
+  const m = mean(part);
+  const centered = part.map((value) => value - m);
+  return Array.from({ length: lags }, (_, index) => {
+    const lag = index + 2;
+    let total = 0;
+    for (let i = 0; i + lag < centered.length; i += 1) total += centered[i] * centered[i + lag];
+    return total / Math.max(1, centered.length - lag);
+  });
+}
+const rhythmChange = (a, b) => {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i += 1) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na > 0 && nb > 0 ? 1 - dot / Math.sqrt(na * nb) : 0;
+};
+
+/**
+ * Beat switches: where the pattern of hits changes while the low band plays on both sides (`low`:
+ * 0 to 100 each second). [{at, change}] with at on the first hit of the new pattern (to the frame).
+ */
+export function beatSwitches(frames, low) {
+  const per = 1 / frames.hopSeconds;
+  const side = Math.round(4 * per);
+  const lags = Math.round(1.5 * per);
+  const n = low.length;
+  const curve = Array.from({ length: n }, (_, t) => (t >= 4 && t <= n - 4 && mean(low.slice(t - 4, t)) >= 50 && mean(low.slice(t, t + 4)) >= 50
+    ? rhythmChange(rhythmOf(frames.flux, Math.round(t * per) - side, Math.round(t * per), lags), rhythmOf(frames.flux, Math.round(t * per), Math.round(t * per) + side, lags)) : 0));
+  const flux = Array.from(frames.flux);
+  const onsets = peaks(flux, 2, percentile(flux, 0.6) * 1.2);
+  const span = Math.round(4 * per);
+  return peaks(curve, 4, SWITCH_MIN).map((t) => {
+    // The hit within 1 s where the pattern before and after it differ most; the first of equals.
+    let best = null;
+    for (const f of onsets) {
+      if (Math.abs(f * frames.hopSeconds - t) > 1.5) continue;
+      const change = rhythmChange(rhythmOf(frames.flux, f - span, f, lags), rhythmOf(frames.flux, f, f + span, lags));
+      if (!best || change > best.change + 0.02) best = { f, change };
+    }
+    return best ? { at: best.f * frames.hopSeconds + frames.hopSeconds, change: best.change } : null;
+  }).filter(Boolean);
+}
+
+/**
+ * The song's seams beyond its sections: [{at, kind, weight}] sorted by time, at to a few
+ * milliseconds. Kinds: dropout and return (a short rest and the sound coming back), return (the
+ * high band back after a filter), vocal-in (the start of each vocal span in `vocals`, from whisper:
+ * none without it), switch (the beat changes its pattern).
+ */
+function seamsOf(frames, samples, sampleRate, sections, low, vocals) {
+  const seams = [];
+  const near = (at, gap) => [...sections, ...seams].some((seam) => Math.abs(seam.at - at) < gap);
+  for (const rest of restsOf(frames)) {
+    const out = fineEdge(samples, sampleRate, rest.from, { band: "total", direction: -1 });
+    const back = fineEdge(samples, sampleRate, rest.to, { band: "total", direction: 1 });
+    // An edge within a video frame of a section's (the one-beat stop before a drop comes back on the
+    // drop) is that section's: one cue for one hit.
+    if (!near(out.at, SAME_HIT)) seams.push({ at: round(out.at, 3), kind: "dropout", weight: weightOf(rest.depth) });
+    if (!near(back.at, SAME_HIT)) seams.push({ at: round(back.at, 3), kind: "return", weight: weightOf(back.change) });
+  }
+  for (const at of filterReturns(frames)) {
+    if (near(at, 1)) continue;
+    const edge = fineEdge(samples, sampleRate, at, { band: "high", direction: 1, radius: 0.2, window: 0.1 });
+    seams.push({ at: round(edge.at, 3), kind: "return", weight: weightOf(edge.change) });
+  }
+  for (const [from] of vocals ?? []) {
+    if (!(from > 0.5)) continue;
+    const edge = fineEdge(samples, sampleRate, from, { band: "voice", direction: 1, radius: 0.6, window: 0.25 });
+    seams.push({ at: round(edge.at, 3), kind: "vocal-in", weight: weightOf(edge.change, 20) });
+  }
+  for (const found of beatSwitches(frames, low)) {
+    if (near(found.at, 2)) continue;
+    const edge = fineEdge(samples, sampleRate, found.at, { band: "total", direction: 1, radius: 0.08, window: 0.03 });
+    seams.push({ at: round(edge.at, 3), kind: "switch", weight: round(Math.min(1, found.change), 2) });
+  }
+  return seams.sort((a, b) => a.at - b.at);
 }
 
 /** Where the kicks fall: four-on-the-floor, two-step, half-time, breakbeat or free (no steady kick). */
@@ -280,14 +472,16 @@ export function grooveOf(kicks, hopSeconds, bpm, on = null) {
 
 /**
  * The song's sections and sound: samples (mono), sampleRate, bpm (from the beat analysis), whole
- * (false when the samples stop before the song does: no outro then).
- * Returns {sections: [{at, kind}], features: {groove, bass, brightness, density, dynamics}, low,
- * voiceGuess} (low: the low band each second, 0 to 100; voiceGuess: rough vocal spans).
+ * (false when the samples stop before the song does: no outro then), vocals (whisper's vocal spans
+ * [[from, to]], for vocal-in seams; none without them).
+ * Returns {sections: [{at, kind, weight}], seams: [{at, kind, weight}], features: {groove, bass,
+ * brightness, density, dynamics}, low, voiceGuess} (at to a few milliseconds; weight 0 to 1; low:
+ * the low band each second, 0 to 100; voiceGuess: rough vocal spans).
  */
-export function songShape(samples, sampleRate, { bpm = null, whole = true } = {}) {
+export function songShape(samples, sampleRate, { bpm = null, whole = true, vocals = null } = {}) {
   const frames = spectralFrames(samples, sampleRate);
   const seconds = Math.floor(frames.count * frames.hopSeconds);
-  if (seconds < 8) return { sections: [], features: { groove: "free", bass: 0, brightness: 0, density: 0, dynamics: 0 }, low: [], voiceGuess: [] };
+  if (seconds < 8) return { sections: [], seams: [], features: { groove: "free", bass: 0, brightness: 0, density: 0, dynamics: 0 }, low: [], voiceGuess: [] };
   const low = levels(perSecond(frames.low, frames, seconds), 30);
   const loud = levels(perSecond(frames.total, frames, seconds), 30);
   const high = levels(perSecond(frames.high, frames, seconds), 30);
@@ -301,7 +495,8 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true } = {}
     return vector.map((value) => Math.log10(value / Math.max(1, to - from) + 1e-9));
   });
   const novelty = spectralNovelty(vectors, Math.min(8, Math.floor(seconds / 4)));
-  const sections = sectionsFromCurves({ low, rise, novelty, whole }).map((part) => ({ at: refine(part.at, part.kind, frames), kind: part.kind }));
+  const sections = sectionsFromCurves({ low, rise, novelty, whole }).map((part) => refine(part, frames, samples, sampleRate));
+  const seams = seamsOf(frames, samples, sampleRate, sections, low, vocals);
 
   // Features.
   const lowSum = frames.low.reduce((sum, value) => sum + value, 0);
@@ -312,6 +507,7 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true } = {}
   const lowFrameOn = Uint8Array.from(frames.low, (value, f) => (low[Math.min(seconds - 1, Math.floor(f * frames.hopSeconds))] >= 50 ? 1 : 0));
   return {
     sections,
+    seams,
     features: {
       groove: grooveOf(frames.lowFlux, frames.hopSeconds, bpm, lowFrameOn),
       bass: clamp100(((lowSum / totalSum - 0.4) / 0.55) * 100),
@@ -350,16 +546,24 @@ export function sungSegments(segments) {
 
 /**
  * Where a voice sings or raps in the first `seconds` of the file, from whisper.cpp in 15 s pieces
- * (whisper's times drift less in short pieces). Throws when whisper is not installed.
+ * (whisper's times drift less in short pieces). It waits its turn with the transcriptions (at most
+ * two whisper runs at once) and gives up after two minutes. Throws when whisper is not installed.
  */
-export async function songVocals(file, { seconds = 240, setup = whisperSetup(), decode = decodeMono, piece = 15 } = {}) {
-  const { samples } = await decode(file, { sampleRate: SPEECH_RATE });
-  const limited = samples.subarray(0, Math.round(seconds * SPEECH_RATE));
-  const pieces = [];
-  for (let from = 0; from < limited.length / SPEECH_RATE; from += piece) pieces.push({ from, samples: limited.subarray(from * SPEECH_RATE, Math.min(limited.length, (from + piece) * SPEECH_RATE)) });
-  const lists = await whisperSegments(pieces.map((part) => part.samples), setup, { args: ["-sns", "-mc", "0"] });
-  const spans = lists.flatMap((list, index) => sungSegments(list).map((segment) => [pieces[index].from + segment.from, Math.min(pieces[index].from + piece, pieces[index].from + segment.to)]));
-  return joinSpans(spans);
+export async function songVocals(file, { seconds = 240, setup = whisperSetup(), decode = decodeMono, piece = 15, timeoutMs = 120_000 } = {}) {
+  return whisperTurn(async () => {
+    const { samples } = await decode(file, { sampleRate: SPEECH_RATE });
+    const limited = samples.subarray(0, Math.round(seconds * SPEECH_RATE));
+    const pieces = [];
+    for (let from = 0; from < limited.length / SPEECH_RATE; from += piece) pieces.push({ from, samples: limited.subarray(from * SPEECH_RATE, Math.min(limited.length, (from + piece) * SPEECH_RATE)) });
+    const lists = await whisperSegments(pieces.map((part) => part.samples), setup, { args: ["-sns", "-mc", "0"], timeoutMs });
+    const spans = lists.flatMap((list, index) => sungSegments(list).map((segment) => [pieces[index].from + segment.from, Math.min(pieces[index].from + piece, pieces[index].from + segment.to)]));
+    return joinSpans(spans);
+  });
+}
+
+/** Whether a whisper model file is on this computer (songVocals can run). */
+export function whisperModelReady() {
+  try { return Boolean(whisperSetup()); } catch { return false; }
 }
 
 /**
@@ -379,14 +583,20 @@ export function vocalShare(spans, seconds) {
   return clamp100((spans.reduce((sum, [from, to]) => sum + (to - from), 0) / Math.max(1, seconds)) * 100);
 }
 
-// Bump when songShape's sections change, so kept results are made again.
-export const SONG_SHAPE_VERSION = 1;
+// Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
+// millisecond, weights).
+export const SONG_SHAPE_VERSION = 2;
+const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**
  * Each media file's song shape, measured once and kept in a .song file beside it (like the
- * .beats file of the beat analysis): {version, seconds, whole, sections}. fit_music reads it.
+ * .beats file of the beat analysis): {version, seconds, whole, sections, seams, vocals}. fit_music
+ * reads it. vocals(file, seconds) gives whisper's vocal spans for vocal-in seams; the .song says
+ * how they were found: "whisper", "none" (no whisper model) or "failed" (whisper did not run or
+ * failed). A "failed" file is measured again after 10 minutes, a "none" one once vocalsReady()
+ * says a model is there now.
  */
-export function createSongShapeCache({ decode = decodeMono } = {}) {
+export function createSongShapeCache({ decode = decodeMono, vocals = null, vocalsReady = () => false, now = () => Date.now() } = {}) {
   const pending = new Map();
   // The kept .song result, or null when it is missing or from an older version.
   async function saved(file) {
@@ -396,13 +606,31 @@ export function createSongShapeCache({ decode = decodeMono } = {}) {
     } catch { /* not measured yet */ }
     return null;
   }
+  // Whether a kept result's vocal-in seams can be found now when they could not before.
+  function vocalsAgain(kept) {
+    if (!vocals || kept.vocals === "whisper") return false;
+    if (kept.vocals === "failed") return now() - (kept.failedAt ?? 0) >= VOCALS_RETRY_MS;
+    try { return Boolean(vocalsReady()); } catch { return false; }
+  }
   async function readOrMeasure(file, bpm) {
     const sidecar = `${file}.song`;
     const kept = await saved(file);
-    if (kept) return kept;
+    if (kept && !vocalsAgain(kept)) return kept;
     const { samples, sampleRate } = await decode(file);
     if (!samples.length) throw new Error("The file has no sound.");
-    const result = { version: SONG_SHAPE_VERSION, seconds: round(samples.length / sampleRate, 3), whole: true, sections: songShape(samples, sampleRate, { bpm }).sections };
+    const seconds = round(samples.length / sampleRate, 3);
+    let spans = null;
+    let found = "none";
+    let failedAt = null;
+    if (vocals) {
+      try { spans = await vocals(file, Math.min(240, seconds)); found = "whisper"; } catch (error) {
+        // No model file is "none" (vocalsReady says when one is there); anything else, a missing
+        // whisper-cli included, is tried again after 10 minutes.
+        if (error?.code !== "SPEECH_MODEL_MISSING") { found = "failed"; failedAt = now(); }
+      }
+    }
+    const shape = songShape(samples, sampleRate, { bpm, vocals: spans });
+    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams, vocals: found, ...(failedAt ? { failedAt } : {}) };
     await writeFile(sidecar, JSON.stringify(result), { mode: 0o600 }).catch(() => { /* it still counts unsaved */ });
     return result;
   }

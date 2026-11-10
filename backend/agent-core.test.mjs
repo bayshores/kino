@@ -236,6 +236,10 @@ test("waive_check takes a list or a glob of layer names and saves one waiver per
   assert.deepEqual(waived.map((waiver) => `${waiver.code} ${waiver.target}`), ["overlap arch-1", "overlap arch-2", "overlap Arch-3", "type_min card", "type_min arch-1"]);
   assert.deepEqual(parseDocument(applyOperations(document, ops)).checkWaivers.map((waiver) => waiver.target), ["card", "arch-1"]);
   assert.throws(() => translateOperations([{ op: "waive_check", code: "overlap", target: "wall-*", reason: "x" }], resolver, document), /No layer name matches "wall-\*"/);
+  // An effect_fit waiver names the cue that motivates the effect, and the cue exists.
+  assert.throws(() => translateOperations([{ op: "waive_check", code: "effect_fit", target: "card", reason: "I like it" }], resolver, document), /names the cue that motivates the effect/);
+  const cued = { ...document, cues: [{ name: "punch-1", kind: "marker", time: 1 }] };
+  assert.equal(translateOperations([{ op: "waive_check", code: "effect_fit", target: "card", reason: "the punch at cue:punch-1" }], resolver, cued).length, 1);
   // A glob over hundreds of word layers passes the 200-waiver limit: the error says what to do instead.
   const many = { ...ops[1], target: Array.from({ length: 201 }, (_, index) => `word-${index}`) };
   assert.throws(() => applyOperations(document, [many]), /would make 201 waivers .*target:"\*"/);

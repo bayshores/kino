@@ -26,7 +26,7 @@ send it as it is; put your own words where it has `<angle brackets>`. A new vide
 ## Tools
 
 `mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); the CLI takes the same
-fields as `key=value`: `kino look frame t=3` (`kino help`).
+fields as `key=value`: `kino look frame t=3`.
 
 | Tool | Use |
 |---|---|
@@ -39,13 +39,13 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 | `library` | Exact rules: `{topic:"op", name}` (fields, an example), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
 | `notes` | The `brief`, stops, plan, the person's notes, `helper` agents. |
-| `project` | `create`, `open`, `import`, `share`, `manage` the workspace. |
+| `project` | `create`, `open`, `import`, `share`, `manage`. |
 
 ## The loop
 
 1. `status`; inbox notes first (`notes reply` when fixed; `always ▸` ones stay). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
 2. New video: the brief from the chat and, with footage, the storyboard before you build
-   (direction reference). Save their material (`edit` op `source`) and write the story.
+   Save their material (`edit` op `source`) and write the story.
    **A video is one scene**: `render` makes one file per scene.
 3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study their
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps (`{done:[n]}` ticks).
@@ -69,7 +69,8 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
   `layer:"headline"`; `headline.in` is its entrance once saved. Codes (`L3`, `A2`, `s1`) work too.
 - One scene: no `scene` field. Several: `scene:"s2"` or its name.
 - Positions: top-left, scene pixels; colors hex. Text needs a `width` and `height` that fit.
-- Restraint: plain cuts; 1-2 signature moves; one type style, grade, brightness.
+- Restraint: plain cuts; 1-2 signature moves; one type style, grade, brightness. Every effect
+  needs a cue that motivates it; reference counts are ceilings; none is fine ([techniques](references/techniques.md), style spec).
 - `add_layer` takes its animations inline: `animations:[{preset:"preset-fade", start, duration}]`;
   `"mode":"out"` makes an exit.
 - A refused edit saves nothing; `next` resends it fixed, or send fixes:
@@ -81,21 +82,20 @@ fields as `key=value`: `kino look frame t=3` (`kino help`).
 
 ## References
 
-- [edits](references/edits.md): ops, refusals, presets, easing.
+- [edits](references/edits.md): ops, refusals, presets.
 - [fields](references/fields.md): every op's fields.
 - [building-blocks](references/building-blocks.md): compose, recipes, brand, formats; [moves](references/moves.md).
-- [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues, text range.
+- [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
 - [media](references/media.md): imports, cuts, speed, syncing, B-roll; [recording](references/recording.md).
 - [framing](references/framing.md): 9:16 crops; [screens](references/screens.md): UI shots; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
 - [sound](references/sound.md): ducking, voice; [library](references/sound-library.md): SFX, music.
 - [color](references/color.md): grades; [cutout](references/cutout.md): subject cut-outs, track, pin.
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
-- [check-and-look](references/check-and-look.md): findings, looks, review; [motion](references/motion.md).
-- [ideas](references/ideas.md): story.
-- [techniques](references/techniques.md): the style spec; [spine](references/spine.md): idea and lock.
+- [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
+- [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
 - [taste](references/taste.md): motion, readability, restraint.
-- [direction](references/direction.md): the brief, the stops, playback.
+- [direction](references/direction.md): the brief, stops, playback.
 - [dashboard](references/dashboard.md): history, notes, helpers.
 - [render](references/render.md): `preview=fast`, exports.
 - [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).

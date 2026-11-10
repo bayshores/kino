@@ -23,6 +23,7 @@ import { mediaPlaybackRange, hasMediaPlay } from "./playback.js";
 import { isRemapped } from "./mediaTime.js";
 import { MORPH_DEFAULT, MORPH_MAX, MORPH_MIN } from "./morphCut.js";
 import { round } from "./numbers.js";
+import { MUSIC_CUE_KINDS } from "./qualityFields.js";
 
 export const FILLERS = new Set(["um", "uh", "er", "erm", "ah", "hmm", "mm", "uhm", "umm"]);
 // Words that are often filler but often not ("I like it"): flagged as maybe.
@@ -466,7 +467,7 @@ export function shiftScene(document, scene, at, by) {
   }
   const map = (time) => round(time >= at - 1e-6 ? time + by : time);
   // Beat cues belong to their sound: when a sound that stays put plays over all of them, they stay.
-  const beats = (document.cues ?? []).filter((cue) => cue.kind === "beat" || cue.kind === "onset");
+  const beats = (document.cues ?? []).filter((cue) => MUSIC_CUE_KINDS.includes(cue.kind));
   const staying = beats.length > 0 && scene.layers.some((item) => (item.type === "audio" || item.type === "video") && item.src && (item.mediaStart ?? 0) < at - 1e-6
     && beats.every((cue) => { const range = mediaPlaybackRange(item, scene.duration); return range && cue.time >= range.start - 1e-6 && cue.time <= range.end + 1e-6; }));
   const rhythm = document.rhythm;
