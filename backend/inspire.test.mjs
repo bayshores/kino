@@ -676,7 +676,11 @@ test("a bot check in inspire pauses every YouTube download through the shared ga
 
 test("two YouTube downloads never overlap and the next waits the gap after the last one ends", async () => {
   const spans = [];
-  const youtube = createYouTubeGate({ gapMs: 40 });
+  const slotWhileWaiting = [];
+  const youtube = createYouTubeGate({ gapMs: 40, wait: (ms) => {
+    slotWhileWaiting.push(heavyDecodeSlot.running());
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  } });
   const download = () => youtube(async () => {
     const span = { start: performance.now() };
     assert.equal(heavyDecodeSlot.running(), 1, "a download holds the heavy decode slot");
@@ -686,6 +690,14 @@ test("two YouTube downloads never overlap and the next waits the gap after the l
   });
   await Promise.all([download(), download()]);
   assert.ok(spans[1].start - spans[0].end >= 35, `gap ${spans[1].start - spans[0].end} ms`);
+  assert.ok(slotWhileWaiting.length > 0 && slotWhileWaiting.every((held) => held === 0), "the gap is waited out with the heavy decode slot free");
+  // A download aborted before it starts never reaches YouTube, so the next one waits no new gap.
+  await new Promise((resolve) => setTimeout(resolve, 45));
+  const aborted = AbortSignal.abort();
+  await assert.rejects(youtube(async () => { throw aborted.reason; }, { signal: aborted }));
+  slotWhileWaiting.length = 0;
+  await download();
+  assert.equal(slotWhileWaiting.length, 0, "no gap after an aborted download");
 });
 
 test("region, members-only, age and private videos are dropped with one line, not taken for a bot check", () => {

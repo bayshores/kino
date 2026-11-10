@@ -664,7 +664,7 @@ export function createInspire(deps) {
   for (const name of ["download", "probe", "findShots", "findBeats", "fingerprint", "strips", "stills", "downloadSound", "decodeSound", "soundPreview", "soundLoudness"]) {
     if (typeof deps[name] !== "function") continue;
     const work = downloads.has(name)
-      ? (videoId, folder, { force, ...options } = {}) => youtube(() => deps[name](videoId, folder, options), { force })
+      ? (videoId, folder, { force, ...options } = {}) => youtube(() => deps[name](videoId, folder, options), { force, signal: options.signal })
       : deps[name];
     heavy[name] = (...args) => step(() => work(...args), { urgent: () => wanted.size > 0, signal: running?.controller.signal });
   }

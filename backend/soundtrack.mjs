@@ -496,7 +496,7 @@ export function createSoundtrack(deps) {
   const blockedUntil = { openverse: 0, archive: 0, listenbrainz: 0 };
   let measuring = Promise.resolve();
   const youtube = deps.youtube ?? createYouTubeGate({ gapMs: 0, now, slot: createSlots(1) });
-  const fromYouTube = (candidate, folder, options) => youtube(() => deps.downloadYouTube(candidate.id.slice(3), folder, options));
+  const fromYouTube = (candidate, folder, options) => youtube(() => deps.downloadYouTube(candidate.id.slice(3), folder, options), { signal: options?.signal });
 
   // Every request has a time limit: a network that never answers once held an agent's search
   // (and its turn) for minutes. ms covers the whole answer, body included. source names who is
