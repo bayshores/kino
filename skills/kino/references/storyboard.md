@@ -10,15 +10,15 @@ Read before building a video from footage (the `board` stop), or to plan any vid
   (`look source` needs it). When you build the shots, delete it (or make it shot 1): its sound plays once.
 - One `board` op holds the whole storyboard; each call replaces it (undo, `rev`). Shots in
   time order, no gap, no overlap: from the music layer's start to its end, or the whole
-  video when `music` is `"none"` (voice-over, silent motion design).
+  video when `music` is `"none"`.
 - Every layer of every shot is given, `"none"` when empty: `media` (an imported video or
   picture, or a video layer) and `in` (file seconds), `crop`, `subject`, `follow`, `text`,
   `sound`. `library {topic:"op", name:"board"}` has them all.
 - `crop` is `[x, y, w, h]` in % of the source, x, y top-left, at the video's shape: for 9:16
-  from 16:9, w = h × 0.316; `"whole"`: shown whole (a phone screen as a card). Place it from
+  from 16:9, w = h × 0.316; `"whole"`: shown whole. Place it from
   the subject: `look {mode:"source", layer, t}` (t: the shot's `in`) has a % grid. `subject` is
   `{what, box, eyes?}` in % of the source as the frame at `in` shows it; `eyes` is the eye
-  line's y. Cut where import lists the shots.
+  line's y.
 - `follow`: `steady` (the crop holds still), `track` (it follows the subject) or `sweep` (one
   straight pan). A subject that crosses the frame needs `track` or `sweep`.
 - `text` is `{text, family, weight?, size?, y?, fill?}` in a font kino has (`y`: its center,
@@ -61,8 +61,8 @@ Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one
 
 - No `check` first. Open items: ask them in one message, log each reply word for word
   (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say "your call", send their words: `notes {action:"checkpoint",
-  id:"board", words:"<their reply>"}` (kino logs them; "not your call" is not one). It answers `your_call`: decide each item, write your decisions
-  in `calls` and empty `open` (edit `board`), then ask again with the fresh-eyes answer:
+  id:"board", words:"<their reply>"}` (kino logs them; "not your call" is not one). It answers `your_call`: decide each item, write
+  your decisions in `calls` and empty `open` (edit `board`), then ask again with the fresh-eyes answer:
   `notes {action:"checkpoint", id:"board", fresh:"ran"}` (or `"skipped"`).
 - `notes {action:"checkpoint", id:"board"}`: kino writes the ask (your calls, plain then flagged
   shots first, at most 8 shots). Send it as written, with the `look board` pages

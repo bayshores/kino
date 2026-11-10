@@ -13,13 +13,12 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
 - **camera**: slow-push, drift, parallax, orbit-3d, speed-ramp, freeze-frame, shake
 - **type**: type-cut, type-fade, type-slide, type-pop, type-words, type-letters,
   type-mask-rise, type-blur-in (never dealt), type-giant, type-counter, type-swap, type-kinetic.
-  No default type look: it comes from the references and the treatment
 - **texture**: speed-lines, particles, rgb-split, light-sweep, grain, vignette, depth-blur, motion-blur
 - **set piece**: tile-ring, clip-field*, draw-on, swipe-cards, logo-match-move, status-line, split-screen,
   device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)
 - **rhythm**: beat-cut, beat-kick, syncopated, hold
 
-check lists those used (`techniques: cut 12, type-pop 5`), read from the document:
+check lists those used (`techniques: cut 12, type-pop 5`):
 
 - dissolve: opacities of two pictures cross; fade-black dips through dark. blur-through,
   zoom-through (25%+ scale), whip-pan and push-transition are read at each full-frame change.
@@ -127,7 +126,7 @@ signature and the spine's end; the lock's fonts name the faces. Building first i
 - Before building, name 4 to 8 techniques the references use, with times; write the spec.
 - Each section gets its own mix (calm: drift, type-fade; fast: beat-cut, type-giant);
   `flat_sections` checks it.
-- Set pieces only where they matter; a slow-push under text turns a slide into a shot.
+- Set pieces only where they matter.
 
 ## Effects need a reason
 

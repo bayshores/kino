@@ -26,6 +26,10 @@ What the checks measure, and how to keep a video small.
   beat or accents between beats, a held card or a moving frame. Take it from the references the
   person chose and write it as the style spec (the techniques reference); without one, check
   follows kino's default style and says so.
+- Type has no default look and no question of its own: it comes from the references you studied,
+  the picked treatment's `type`, and the storyboard's style frame (the type over real footage).
+  Under quick effort derive it from references and footage; Recall (`type_seen`) warns when it
+  repeats a recent project's look. Checks judge readability only.
 - Restraint: most shots are plain cuts on the voice or the beat. Pick one or two signature
   devices and repeat them at alike moments (a motif), not a new device per shot; spend designed
   moves on the hook, the reveal and the payoff. One type style throughout. Keep brightness

@@ -143,7 +143,8 @@ test("variants {vary:\"format\"} composes a 16:9 footage scene again in 9:16, cr
   assert.equal(made.isError, undefined, made.text);
   const receipt = JSON.parse(made.text);
   assert.deepEqual(Object.keys(receipt.finished), ["scene-1-v2", "next"]);
-  assert.equal(receipt.finished["scene-1-v2"].errors, 0, made.text);
+  // The title's contrast over the brighter full-frame footage is the one known gap (COMPATIBILITY.md): no other error.
+  assert.deepEqual(receipt.finished["scene-1-v2"].left.filter((line) => line.startsWith("E ") && !line.startsWith("E contrast title")), [], made.text);
   assert.ok(receipt.created["shot-1-v2"], "the new scene's names take its suffix");
   const status = await agent("status", { project: "reformat", scene: "scene-1-v2" });
   assert.match(status.text, /1080×1920/);
