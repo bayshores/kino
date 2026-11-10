@@ -3,6 +3,7 @@
 // first_entrance, speed_jump, judder.
 import { FADE_KEYS, cuts, drawnSize, easingKey, entrances, firstEntrances, goodEntranceDelay, isPerpetual, motions, neverShown, primaryItems, sec, speechTimed } from "../analysis.js";
 import { typeLimits } from "./text.js";
+import { heardEdges, heardWords } from "./speech.js";
 import { area, boxAt, chainOf, frameAt, itemById, roundBox, tweensOf } from "../model.js";
 import { easingBezier } from "../../easing.js";
 import { WHIP_SHUTTER } from "../../previewBlur.js";
@@ -334,12 +335,35 @@ function layerStaggers(model) {
 // typing up and the agent spent calls putting it back.
 const TYPED = { letters: "type-letters", words: "type-words" };
 
+// A word-by-word reveal is paced by the voice or the music when its words land on a speech word,
+// a cue or a beat (within two frames): the long spread is the pacing, not a slow stagger.
+const PACED_SHARE = 0.75;
+
+function pacedByAudio(model, ctx, tween) {
+  if (tween.unit !== "words") return false;
+  const count = Math.round(tween.spread / tween.stagger) + 1;
+  if (!(count >= 2)) return false;
+  const near = 2 / (ctx.outputFps ?? 30) + 1e-3;
+  const marks = [...(ctx.cues ?? []), ...(ctx.beatCues ?? [])].map((cue) => cue.time).filter(Number.isFinite);
+  for (const edge of heardEdges(ctx)) if (edge.words?.length) for (const word of heardWords(edge)) marks.push(word.start);
+  const half = model.rhythm?.bpm > 0 ? 30 / model.rhythm.bpm : null;
+  const offset = model.rhythm?.offset ?? 0;
+  const onGrid = (time) => half != null && Math.abs((time - offset) / half - Math.round((time - offset) / half)) * half <= near;
+  let landed = 0;
+  for (let index = 0; index < count; index += 1) {
+    const time = tween.start + index * tween.stagger;
+    if (onGrid(time) || marks.some((mark) => Math.abs(mark - time) <= near)) landed += 1;
+  }
+  return landed / count >= PACED_SHARE;
+}
+
 export function staggerLong(model, ctx) {
   const findings = [];
   const typed = (tween) => Boolean(TYPED[tween.unit]) && (ctx.style?.backed ?? []).includes(TYPED[tween.unit]);
   for (const tween of model.tweens) {
     if (!(tween.spread > 0.5 + 1e-6) || !(tween.stagger > 0)) continue;
     if (typed(tween)) { ctx.note?.(`stagger_long leaves ${UNIT_NAME[tween.unit]}-by-${UNIT_NAME[tween.unit]} typing alone: the style spec wants ${TYPED[tween.unit]}.`); continue; }
+    if (pacedByAudio(model, ctx, tween)) { ctx.note?.("stagger_long leaves a word-by-word reveal alone: its words land on speech or beat cues."); continue; }
     const item = itemById(model, tween.itemId);
     if (!item || neverShown(item) || isPerpetual(model, item)) continue;
     findings.push({

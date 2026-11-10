@@ -66,7 +66,7 @@ What the checks measure, and how to keep a video small.
   animations, built in one or two edits.
 - Show a feature with a few shapes (a card, an icon, one line of text). Do not draw a full
   app screen, a calendar grid cell by cell or rows of fake UI.
-- Leave out fields that match the defaults (text: Inter, weight 400, line height 1.2, left
-  aligned).
+- Leave out fields that match the defaults (weight 400, line height 1.2, left aligned). Set
+  the typeface your references chose; kino has no default type look.
 - A card used several times is a component: build it once, insert copies (the building blocks
   reference has the example).

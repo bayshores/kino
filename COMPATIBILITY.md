@@ -202,6 +202,11 @@ How to read it:
   sums the readable stretches, and a slow camera push may be linear. Role `ui` (the product's own text)
   keeps contrast but skips type_min, reading_time and hold. Evidence: `engine/qualityRules.test.js`,
   `backend/quality-pixels.test.mjs`, `backend/agent-safe-zone-fix.test.mjs`.
+- **Readability-only type gates**: Verified. `type_min` is a floor of the frame's shorter side (body 3%, a
+  `role` headline 4%; a 34 px or 54 px caption at 1080p passes), `default_font` flags only a default
+  face no brand, style spec font or reference line chose, `stagger_long` leaves word reveals whose
+  words land on speech or beat cues, and the docs call Inter a placeholder, not a look. Evidence:
+  `engine/qualityRules.test.js`. Gap: the floor's size basis is an ergonomics estimate, not a user study.
 - **Overlap from a non-fading entrance or exit**: Verified. The fix adds a `preset-fade` with the same
   timing. Evidence: `backend/agent-overlap-fade-fix.test.mjs`.
 - **Flashing in particles**: Verified. Particle flicker counts toward `flashing`. Evidence:

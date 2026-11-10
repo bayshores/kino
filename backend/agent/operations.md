@@ -27,7 +27,7 @@ A refused edit saves nothing. Its answer has the `reason`, the failing op's numb
 - reset_component_overrides {sceneId, layerId, componentPaths?}
 - replace_media {sceneId, layerId, mediaId}
 - bulk_create {sceneId, csv | rows, deleteMissing?}
-- add_layer {sceneId, layerType, properties, animations?}: layerType is rectangle, ellipse, star, text, image, video, path, group, or audio (components use insert_component). Defaults: x 100, y 100, 320 × 180, fill #6c7cff (text #171717), font Inter. animations: add_animation ops for this layer, without layerId. A layer property sent beside properties is moved into them (listed in `fixed`).
+- add_layer {sceneId, layerType, properties, animations?}: layerType is rectangle, ellipse, star, text, image, video, path, group, or audio (components use insert_component). Defaults: x 100, y 100, 320 × 180, fill #6c7cff (text #171717), font Inter only as a placeholder: set the face your references chose (`set_font`; kino has no default type look). animations: add_animation ops for this layer, without layerId. A layer property sent beside properties is moved into them (listed in `fixed`).
 - update_layer {sceneId, layerId, properties}: a layer property sent beside properties is moved into them. position [x, y] or {x, y} sets x and y, size [w, h] or {width, height} sets width and height (on text too), and scale [x, y] or {x, y} sets scaleX and scaleY; one number for scale sets both, and for size on a text layer is its fontSize. Any other part (size {w, h}) is refused. inspect's fields read them the same way (size.width is width, scale.x is scaleX).
 - update_layers {sceneId, layerIds, properties}
 - convert_to_shape {sceneId, layerId}

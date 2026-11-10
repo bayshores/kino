@@ -72,8 +72,9 @@ export const LOOKS = Object.freeze({
 export const LOOK_NAMES = Object.freeze(Object.keys(LOOKS));
 
 /**
- * The checker's smallest sizes for this frame: {headline, body} in pixels (type_min: body 36 and
- * headline 64 at 1080p in 16:9 and square frames, 32 and 90 in 9:16).
+ * The smallest sizes the recipes draw at for this frame: {headline, body} in pixels (body 36 and
+ * headline 64 at 1080p in 16:9 and square frames, 32 and 90 in 9:16). type_min's readability
+ * floor is lower (engine/quality/analysis.js readableFloor): a recipe never draws below it.
  */
 export function typeFloor(frame) {
   const scale = frameScale(frame);

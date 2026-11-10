@@ -46,6 +46,8 @@ export function styleContext(spec) {
   return { wants, avoids, backed, guessed: wants.filter((tag) => !backed.includes(tag)), by: spec.by ?? "guessed",
     avoidsBacked: theirs("avoids"), avoidsFrom: theirs("avoids") ? "you" : sourceOf("avoids") === "you" ? "guessed" : sourceOf("avoids"),
     spine: Array.isArray(spec.spine) ? spec.spine : null, rejected: Array.isArray(spec.rejected) ? spec.rejected : [],
+    // The lines that point at a moment of a reference (default_font reads a font they name).
+    referenceLines: (spec.lines ?? []).filter(lineHasReference),
     // The style bible the consistency rules hold the timeline to (null when the spec has none).
     fonts: isObject(spec.fonts) ? spec.fonts : null, accent: isObject(spec.accent) ? spec.accent : null,
     logo: isObject(spec.logo) ? spec.logo : null, moves: moves.length ? moves : null,

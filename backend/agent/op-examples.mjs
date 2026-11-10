@@ -99,7 +99,7 @@ export const OP_EXAMPLES = {
   add_sequence: { op: { op: "add_sequence", properties: { name: "Film" }, scenes: ["s1", "cta"], transition: { type: "crossfade", duration: 0.4 } }, setup: [ctaScene] },
   fit_music: { op: { op: "fit_music", layer: "music", payoff: 4 }, setup: [musicLayer], media: ["music"] },
   duck_audio: { op: { op: "duck_audio", layer: "music", under: ["voice"], to: 0.25, fade: 0.25 }, setup: [musicLayer, voiceLayer], media: ["music", "voice"] },
-  set_font: { op: { op: "set_font", layers: ["title"], family: "Inter", weight: 700 } },
+  set_font: { op: { op: "set_font", layers: ["title"], family: "Noto Serif", weight: 700 } },
   isolate_voice: { op: { op: "isolate_voice", layer: "interview", keep: "both" }, setup: [{ op: "add_layer", layerType: "video", name: "interview", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   cut_out: { op: { op: "cut_out", layer: "footage", above: "title" }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }, { op: "reorder_layer", layer: "footage", to: "back" }], media: ["video"] },
   track: { op: { op: "track", layer: "walk", at: 1, point: [50, 40], name: "phone" }, setup: [{ op: "add_layer", layerType: "video", name: "walk", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
@@ -125,7 +125,7 @@ export const OP_EXAMPLES = {
   frame: { op: { op: "frame", layer: "card", rect: [25, 25, 50, 50], at: 2, cut: true } },
   set_cue: { op: { op: "set_cue", name: "drop", at: 2 } },
   remove_cue: { op: { op: "remove_cue", name: "drop" }, setup: [{ op: "set_cue", name: "drop", at: 2 }] },
-  set_brand: { op: { op: "set_brand", name: "orbit", colors: { bg: "#0f1420", surface: "#1a2233", text: "#f4f6fb", accent: "#ff7a45", accent2: "#4fd1c5" }, fonts: [{ family: "Inter" }], logos: [{ text: "Orbit" }] } },
+  set_brand: { op: { op: "set_brand", name: "orbit", colors: { bg: "#0f1420", surface: "#1a2233", text: "#f4f6fb", accent: "#ff7a45", accent2: "#4fd1c5" }, fonts: [{ family: "Noto Serif" }], logos: [{ text: "Orbit" }] } },
   remove_brand: { op: { op: "remove_brand", name: "orbit" }, setup: [{ op: "set_brand", name: "orbit", colors: { bg: "#0f1420", surface: "#1a2233", text: "#f4f6fb", accent: "#ff7a45", accent2: "#4fd1c5" } }] },
   make_template: { op: { op: "make_template", scene: "s1", intro: 1, outro: 1 } },
   use_template: { op: { op: "use_template", template: "s1", name: "Spring", values: { title: "Spring sale" }, duration: 8 }, setup: [{ op: "make_template", scene: "s1", intro: 1, outro: 1 }] },
@@ -137,7 +137,7 @@ export const OP_EXAMPLES = {
   // A board covers the whole video (6 s here) or its music: one shot of the 2 s clip needs a 2 s scene
   // (an example stays under 400 characters, so it has one shot).
   board: { op: { op: "board", music: "none", shots: [{ cue: 0, dur: 2, pacing: "free", media: "<video>.mp4", in: 0, crop: [0, 7.8, 100, 84.4], subject: { what: "the speaker", box: [30, 10, 40, 80] },
-    follow: "steady", text: { text: "Ship faster", family: "Inter", y: 80 }, sound: "none", why: "the speaker says the line" }] }, setup: [{ op: "update_scene", properties: { duration: 2 } }], media: ["video"] },
+    follow: "steady", text: { text: "Ship faster", family: "Noto Serif", y: 80 }, sound: "none", why: "the speaker says the line" }] }, setup: [{ op: "update_scene", properties: { duration: 2 } }], media: ["video"] },
   source: { op: { op: "source", name: "their message", text: "Make a 15 s promo for Orbit: plan the week in one view. Link orbit.app at the end." } },
   duplicate_layers: { op: { op: "duplicate_layers", layers: ["card"], offset: 24 } },
   multi_transform: { op: { op: "multi_transform", layers: ["card"], action: { kind: "scale", scaleX: 120, scaleY: 120 } } },

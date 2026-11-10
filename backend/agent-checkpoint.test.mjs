@@ -57,7 +57,7 @@ const designShape = ({ steady, work, ...round }) => round;
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/;
 
 // The fixture the design measured: a 24 s 1080×1920 card with one 96 px title passes check with
-// 0 errors and 2 warnings; at 72 px the title is one error (type_min).
+// 0 errors and 2 warnings; at 24 px the title is one error (type_min).
 const TITLE = { op: "add_layer", layerType: "text", name: "title", properties: { text: "Park reopens Saturday", x: 140, y: 760, width: 800, height: 240, fontSize: 96, fill: "#ffffff" } };
 const move = (y) => ({ op: "update_layer", layer: "title", properties: { y } });
 const fontSize = (size) => ({ op: "update_layer", layer: "title", properties: { fontSize: size } });
@@ -335,7 +335,7 @@ test("a stop shows only work the agent checked in full on this revision: otherwi
   assert.equal(stale.data.rev, edited.data.rev);
   assert.equal(stale.data.checked.rev, rev);
 
-  const small = await agent("edit", { project, ops: [fontSize(72)] });
+  const small = await agent("edit", { project, ops: [fontSize(24)] });
   const errors = await agent("check", { project });
   assert.equal(errors.data.errors, 1, errors.text);
   assertRefused(await checkpoint(project, "rough"), "check_first", `check found 1 error on rev ${small.data.rev}: fix it first, then check again.`);

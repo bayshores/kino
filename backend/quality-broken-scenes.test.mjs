@@ -148,7 +148,7 @@ test("check {fix:\"auto\"} fixes linear easing and small text, and history can u
   const left = errorsOf(fixed).filter((finding) => ["linear_motion", "type_min"].includes(finding.rule));
   assert.deepEqual(left, [], fixed.text);
   const fixedSize = await agent("inspect", { project: id, targets: ["body"], fields: ["fontSize"] });
-  assert.match(fixedSize.text, /fontSize 36/);
+  assert.match(fixedSize.text, /fontSize 33/);
   // Restoring the revision before the fixes brings the 18 px text back.
   const restored = await agent("history", { project: id, action: "restore", rev: first.data.rev });
   assert.equal(restored.isError, undefined, restored.text);
