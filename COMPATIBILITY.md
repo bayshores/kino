@@ -827,6 +827,7 @@ How to read it:
   lists commercial-use sounds (CC0, CC BY, never NC), Freesound with an optional key; import rechecks
   the license and keeps the credit; `sfx_restraint` warns on too many effects. Gap: these results are
   not embedded. Evidence: `backend/sound-search.test.mjs`, `engine/qualityPolish.test.js`.
+- **No-music waiver needs the search**: Done. An agent's own `no_music` waiver does not pass the sound stop while the song search found songs and fewer than 2 are measured; `quote` (the person's words) makes it their call. Evidence: `backend/agent-stops.test.mjs`.
 - **Soundtrack search**: Verified with a stub. `library {topic:"soundtrack"}` searches Openverse and
   Internet Archive netlabels (open licenses only) plus YouTube (license unknown; imported whole on request, for private videos), measures a song and
   lines it up against the notes. Evidence: `backend/soundtrack.test.mjs`,

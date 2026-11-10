@@ -687,6 +687,13 @@ function resolveReferences(operation, type, resolver, document) {
       throw new Error(`waive_check ${operation.code} names the layers the person kept, not target:"*".`);
     operation.reason = `${String(operation.reason ?? "").trim() || "the person kept it"} (the person: "${quote.slice(0, 200)}")`;
   }
+  // no_music: silence is the person's call. Their words (quote) mark the waiver as theirs; an
+  // agent's own waiver still holds the sound stop while the song search found songs (stops.mjs).
+  if (type === "waive_check" && operation.code === "no_music" && typeof operation.quote === "string") {
+    const quote = operation.quote.trim();
+    if (quote && !HANDED_OVER.test(quote) && quote.split(/\s+/).length >= 3)
+      operation.reason = `${String(operation.reason ?? "").trim() || "the person asked for silence"} (the person: "${quote.slice(0, 200)}")`;
+  }
   if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and
   // scenes, or a glob such as "arch-*" for the layers whose names match now (layers added later

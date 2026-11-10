@@ -72,6 +72,12 @@ test("the sound stop of a video with no music: the person's three choices, or 2 
   assert.deepEqual([error.code, error.details.next], ["music_first", 'library {topic:"soundtrack", search:"<mood, tempo>"}']);
   on.soundtrack = { candidates: [{ id: "ov-a", measure: {} }, { id: "ov-b", measure: {} }] };
   assert.match(error.message, /waive_check \{code:"no_music"/, "a way out when the search finds nothing");
+  // The agent's own no_music waiver (music "waived") holds while the search found songs, as in fp-10.
+  const waived = { ...VIDEO, music: "waived" };
+  on.soundtrack = { candidates: [{ id: "ov-a" }, { id: "ov-b" }] };
+  assert.equal(refusal(() => checkpointStep(on, { kind: "sound", video: waived, rules, rev: 4, now: T0, soundSearch: true })).code, "music_first");
+  on.soundtrack = { candidates: [] };
+  assert.equal(checkpointStep(upToSound(), { kind: "sound", video: waived, rules, rev: 4, now: T0, soundSearch: true }).data.kind, "sound", "nothing found: the waiver stands");
   on.soundtrack = { candidates: [{ id: "ov-a", measure: {} }, { id: "ov-b", measure: {} }] };
   const picked = checkpointStep(on, { kind: "sound", video: silent, rules, rev: 4, now: T0, soundSearch: true });
   assert.match(picked.data.ask, /No music yet: 2 songs measured/);

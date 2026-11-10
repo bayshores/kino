@@ -4090,8 +4090,11 @@ export function createAgentService(deps) {
   // (hasMusic) with the songs kino heard a beat in and the saved voice transcripts.
   async function musicIn(document) {
     const scene = videoScene(document);
-    // waive_check {code:"no_music"} is the person's call to keep it silent: no music asked for.
-    if (!scene || (document.checkWaivers ?? []).some((waiver) => waiver.code === "no_music" && (waiver.target === "*" || waiver.target === scene.id))) return true;
+    if (!scene) return true;
+    // waive_check {code:"no_music"}: with the person's words it is their call to keep it silent;
+    // without them it is "waived", which the sound stop holds while the song search found songs.
+    const waiver = (document.checkWaivers ?? []).find((entry) => entry.code === "no_music" && (entry.target === "*" || entry.target === scene.id));
+    if (waiver) return String(waiver.reason ?? "").includes('(the person: "') ? true : "waived";
     return hasMusic(scene, await savedSoundKinds(scene, document));
   }
   // Each audio layer's kind as far as kino knows it without new work: {layer, music: true} for a

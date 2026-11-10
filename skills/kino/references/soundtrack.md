@@ -96,8 +96,8 @@ A video of 10 s or more with no song under it is never silent by accident:
   music library, or keep it silent." A plain approval ("your call", "ok") passes it as
   "silent by the person's call": say exactly that in your final message, never that they asked for silence.
 - Sound search on: the sound stop refuses (`music_first`) until you searched and measured 2 songs.
-- The person asked for silence, or the search finds nothing: `waive_check {code:"no_music",
-  target:"*", reason}` clears both the warning and the stop's music ask.
+- Search found nothing: `waive_check {code:"no_music", target:"*", reason}`. The person asked
+  for silence: add `quote` (their words). Your own waiver never skips measuring found songs.
 
 ## Hear the mix in numbers
 

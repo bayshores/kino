@@ -381,11 +381,13 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
     throw new StopError("check_first", `Run check first: a stop shows work kino checked on this revision (rev ${rev}; ${checked ? `last full check: rev ${checked.rev}` : "no full check yet"}).`, { rev, checked: checked ?? null });
   if (checked.errors)
     throw new StopError("check_first", `check found ${plural(checked.errors, "error")} on rev ${rev}: fix it first, then check again.`, { rev, checked });
-  const noMusic = kind === "sound" && video.music === false;
+  // An agent's own no_music waiver (video.music "waived") does not count while the search found songs.
+  const found = (draft.soundtrack?.candidates ?? []).length;
+  const noMusic = kind === "sound" && (video.music === false || (video.music === "waived" && found > 0));
   const measured = (draft.soundtrack?.candidates ?? []).filter((entry) => entry.measure).length;
   if (noMusic && soundSearch && measured < MEASURED_SONGS) {
     const next = measured || draft.soundtrack?.candidates?.length ? 'library {topic:"soundtrack", measure:"<id>"}' : 'library {topic:"soundtrack", search:"<mood, tempo>"}';
-    throw new StopError("music_first", `sound refused: the video has no music and sound search is on. Search and measure ${MEASURED_SONGS} songs first (${measured} measured), import the best fit, check, then ask again. Next: ${next}. If the person asked for silence, or the search finds nothing: waive_check {code:"no_music", target:"*", reason}.`, { measured, next });
+    throw new StopError("music_first", `sound refused: the video has no music and sound search is on. Search and measure ${MEASURED_SONGS} songs first (${measured} measured), import the best fit, check, then ask again. Next: ${next}. If the search finds nothing: waive_check {code:"no_music", target:"*", reason}; if the person asked for silence, add quote (their words).`, { measured, next });
   }
 
   const switched = SWITCHABLE.includes(kind) && stopAskingOn(draft);
