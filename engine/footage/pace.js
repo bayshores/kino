@@ -135,6 +135,52 @@ export function songSections(shape, { offset, curve = [], to = Infinity, scale =
   return { seams, rests: rests.filter((rest) => rest.to > 0 && rest.from < to), sections };
 }
 
+// ---- an optional burst: only over a measured onset-dense passage, zero bursts is normal ---------
+// A beat holding DENSE_HITS strong hits or more (16th notes) is dense; a passage is 1 to 2 bars of
+// dense beats, BURST_RATIO times the edit's typical beat or more; its shots are at least BURST_SHOT.
+const DENSE_HITS = 3;
+const BURST_BEATS = [4, 8];
+const BURST_RATIO = 1.75;
+export const BURST_SHOT = 0.1;
+
+/**
+ * The onset-dense passages a burst of short shots may cut over, densest first:
+ * [{from, to, cuts, density}] in edit seconds. hits: strong song hits (edit s, in order);
+ * beatTimes: the edit's beats (edit s, in order); song: songSections' answer. A passage lies in one
+ * driven section (not smooth, energy at least 1/3), crosses no seam or rest, starts on a beat and
+ * ends on the beat after its last dense beat (the hit it resolves on); `cuts` are its hits, at
+ * least BURST_SHOT apart and from either end. A song with no such passage gives [].
+ */
+export function burstPassages(hits, beatTimes, { sections = [], seams = [], rests = [] } = {}) {
+  if (beatTimes.length < 2 || !hits.length) return [];
+  const counts = beatTimes.slice(0, -1).map((at, index) => hits.filter((hit) => hit >= at - 0.02 && hit < beatTimes[index + 1] - 0.02).length);
+  const typical = [...counts].sort((a, b) => a - b)[Math.floor(counts.length / 2)];
+  const passages = [];
+  for (let index = 0; index < counts.length;) {
+    if (counts[index] < DENSE_HITS) { index += 1; continue; }
+    let last = index;
+    while (last + 1 < counts.length && counts[last + 1] >= DENSE_HITS && last + 1 - index < BURST_BEATS[1]) last += 1;
+    const from = beatTimes[index], to = beatTimes[last + 1];
+    const length = last - index + 1;
+    const density = counts.slice(index, last + 1).reduce((total, count) => total + count, 0) / length;
+    const part = sections.find((entry) => from >= entry.from - 1e-6 && from < entry.to - 1e-6);
+    const fits = length >= BURST_BEATS[0] && density >= BURST_RATIO * Math.max(1, typical)
+      && part && !part.smooth && part.energy >= 1 / 3 && to <= part.to + 1e-6
+      && !seams.some((seam) => seam.at > from + 1e-6 && seam.at < to - 1e-6)
+      && !rests.some((rest) => rest.from < to - 1e-6 && rest.to > from + 1e-6);
+    if (fits) {
+      const cuts = [];
+      for (const hit of hits) {
+        if (hit < (cuts.at(-1) ?? from) + BURST_SHOT - 1e-6 || hit > to - BURST_SHOT + 1e-6) continue;
+        cuts.push(Math.round(hit * 1000) / 1000);
+      }
+      passages.push({ from, to, cuts, density: Math.round(density * 100) / 100 });
+    }
+    index = last + 1;
+  }
+  return passages.sort((a, b) => b.density - a.density);
+}
+
 /**
  * Times of the downbeat accents in [from, to): every downbeat in the ending (from `ending` on),
  * every other one before it (the calm open), none inside `quiet` spans ([{start, end}]: spoken

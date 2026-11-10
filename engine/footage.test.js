@@ -2,7 +2,7 @@
 // opening moment, the layout choice and music-led pacing. One test per behavior.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { barAtOrAfter, beatGrid, editBeats, speechSpan } from "./footage/cuts.js";
+import { barAtOrAfter, beatGrid, editBeats, snapToImpact, speechSpan } from "./footage/cuts.js";
 import { markedSubject, openingMoment } from "./footage/moments.js";
 import { shotLayout } from "./footage/layout.js";
 import { accentTimes, phrasePlan, songSections } from "./footage/pace.js";
@@ -78,11 +78,11 @@ test("layout: same shape fills, a phone clip in 16:9 is a card, a screen goes ov
 // Music-led pacing (pace.js): six steady clips cut to a
 // 105 BPM song.
 // `sample` adds measured fields to every sample, `clip` to every clip, `input` to the plan's input.
-const paced = (pace, duration, { sample = {}, clip = {}, curve = [], shape, ...input } = {}) => {
+const paced = (pace, duration, { sample = {}, clip = {}, curve = [], shape, onsets = [], ...input } = {}) => {
   const samples = Array.from({ length: 40 }, (_, index) => ({ t: index / 2, motion: 0.1, change: 0.05, bright: 0.5, faces: [], ...sample }));
   const clips = Array.from({ length: 6 }, (_, index) => ({ key: `c${index}`, name: `clip${index}`, src: `c${index}.mp4`, kind: "camera", width: 1920, height: 1080, duration: 20, in: 0, out: 20, words: [], samples, shots: [{ start: 0, end: 20 }], ...clip }));
   const period = 60 / 105;
-  const analysis = { beats: Array.from({ length: 200 }, (_, index) => 0.3 + index * period), period, bpm: 105, onsets: [] };
+  const analysis = { beats: Array.from({ length: 200 }, (_, index) => 0.3 + index * period), period, bpm: 105, onsets };
   const plan = planEdit({ clips, music: { src: "m.mp3", duration: 120, analysis, loud: -14, curve, ...(shape ? { shape } : {}) }, frame: { width: 1920, height: 1080 }, duration, treatment: "punchy", pace, seed: 3, title: "Hi", ...input });
   return { plan, period, clips: new Map(clips.map((clip) => [clip.key, clip])) };
 };
@@ -172,6 +172,61 @@ test("seam-locked cuts: a measured song shape puts cuts on its seams, holds rest
   assert.deepEqual(flat.sections.map((part) => part.beats), [[2, 4], [2, 4], [2, 4]]);
 });
 
+test("cut snapping and burst: footage impacts pull cuts onto song hits, a burst only over a dense passage", () => {
+  const frame = 1 / 30;
+  // The impact frame shows on the hit (the in-point slides later), the cut follows the contact frame.
+  const base = { cut: 5, start: 3, in: 10, roomEnd: 20, hits: [{ at: 5.2, strength: 1 }], low: 3.25, high: 7, reach: 0.5, frame };
+  assert.deepEqual(snapToImpact({ ...base, impacts: [{ t: 12.3, kind: "impact", how: "contact", confidence: 0.8 }] }), { at: 5.233, in: 10.1, impact: 12.3, hit: 5.2, early: 0 });
+  // A moment that cannot slide back: the picture may come 1.5 frames early, never 9; never late.
+  assert.equal(snapToImpact({ ...base, impacts: [{ t: 12.15, how: "contact", confidence: 0.8 }] }).early, 1.5);
+  assert.equal(snapToImpact({ ...base, impacts: [{ t: 11.9, how: "contact", confidence: 0.8 }] }), null);
+  assert.equal(snapToImpact({ ...base, in: 9, impacts: [{ t: 12.3, how: "contact", confidence: 0.8 }] }), null);
+  // An unsure impact moves nothing; a 3-frame impact frame plays in full before the cut.
+  assert.equal(snapToImpact({ ...base, impacts: [{ t: 12.3, how: "contact", confidence: 0.3 }] }), null);
+  assert.equal(snapToImpact({ ...base, impacts: [{ t: 12.3, how: "frame", frames: 3, confidence: 0.8 }] }).at, 5.3);
+  // Motion carried across the cut only breaks a tie between equally strong pairs.
+  const tie = { ...base, hits: [{ at: 5.2, strength: 1 }, { at: 4.9, strength: 1 }], impacts: [{ t: 12.3, how: "contact", confidence: 0.8 }] };
+  assert.equal(snapToImpact(tie).hit, 4.9);
+  assert.equal(snapToImpact({ ...tie, carry: (newIn) => (newIn === 10.1 ? 1 : 0) }).hit, 5.2);
+  assert.equal(snapToImpact({ ...tie, hits: [{ at: 5.2, strength: 1 }, { at: 4.9, strength: 0.6 }], carry: (newIn) => (newIn === 10.4 ? 1 : 0) }).hit, 5.2);
+
+  // A quiet intro, then a drop at 30.012 s; a kick on every beat, and (dense) 16th notes over one bar.
+  const shape = { sections: [{ at: 0, kind: "intro" }, { at: 30.012, kind: "drop", weight: 0.9 }], seams: [] };
+  const curve = Array.from({ length: 240 }, (_, index) => (index < 60 ? -30 : -10));
+  const period = 60 / 105;
+  const kicks = Array.from({ length: 200 }, (_, index) => ({ time: round3(0.3 + index * period), strength: 1, low: 1 }));
+  const options = { treatment: "story", seed: 1, curve, shape, sample: { motion: 0.2 } };
+  const plain = paced(null, 30, { ...options, onsets: kicks }).plan;
+  assert.equal(plain.burst, null, "a steady kick is no reason for a burst");
+  const barFrom = plain.music.offset + 14;
+  const first = Math.ceil((barFrom - 0.3) / period);
+  const sixteenths = [];
+  for (let step = 1; step < 16; step += 1) if (step % 4) sixteenths.push({ time: round3(0.3 + (first + step / 4) * period), strength: 0.8, low: 0.2 });
+  const onsets = [...kicks, ...sixteenths].sort((a, b) => a.time - b.time);
+  const { plan } = paced(null, 30, { ...options, onsets });
+  assert.ok(plan.burst, plan.words.join("\n"));
+  assert.equal(plan.burst.to - plan.burst.from > 2 * period, true);
+  const inside = plan.shots.filter((shot) => shot.start >= plan.burst.from - 1e-6 && shot.start < plan.burst.to - 1e-6);
+  assert.ok(inside.length >= 12, `${inside.length} burst shots`);
+  for (const shot of inside) assert.ok(shot.start === plan.burst.from || plan.burst.cuts.includes(shot.start), `${shot.start} is on a hit`);
+  assert.ok(plan.shots.some((shot) => Math.abs(shot.start - plan.burst.to) < 0.002), "the burst resolves on the next hit");
+  assert.ok(plan.words.some((line) => line.startsWith("burst ")));
+
+  // Impacts all through every clip pull cuts inside the section onto the hits; without them, none move.
+  const impacts = Array.from({ length: 40 }, (_, index) => ({ t: round3(0.37 + index * 0.49), kind: "impact", how: "contact", confidence: 0.9 }));
+  const snapped = paced(null, 30, { ...options, onsets: kicks, clip: { events: impacts } }).plan;
+  assert.equal(plain.snaps.length, 0);
+  assert.ok(snapped.snaps.length >= 2, snapped.words.join("\n"));
+  for (const snap of snapped.snaps) {
+    const shot = snapped.shots.find((entry) => entry.n === snap.shot);
+    const shown = round3(shot.start + shot.impact.file - shot.in);
+    assert.ok(shown <= snap.hit + 0.001 && shown >= snap.hit - 2 * frame - 0.001, `impact at ${shown}, hit ${snap.hit}`);
+    assert.equal(shot.end, round3(snap.hit + frame));
+    assert.ok(kicks.some((kick) => Math.abs(kick.time - snapped.music.offset - snap.hit) < 0.002));
+  }
+  assert.ok(snapped.words.some((line) => line.startsWith("cuts on footage impacts")));
+});
+
 test("quiet by default: the same inputs give no effect without a measured reason", () => {
   const deck = { cards: [{ tag: "speed-ramp" }, { tag: "push-transition" }], setPiece: { kind: "move", name: "rgb-split-hit" } };
   // A loud treatment with no drop measured: no downbeat punch, no camera step, no hit, no color
@@ -206,6 +261,9 @@ test("quiet by default: the same inputs give no effect without a measured reason
   const measured = story({ sample: { dx: 0.1 }, clip: { framesPerDrawing: 1 } });
   assert.ok(pushes(measured.plan).every((direction) => direction === 1));
   assert.ok(footageOps(measured.plan, measured.clips).some((op) => op.properties?.mediaInterpolation === "blend"));
+  // The measured drawing (footage events) decides too: on 1s blends, on 2s holds frames.
+  const blends = (drawing) => story({ clip: { drawing } }).plan.shots.some((shot) => shot.ramp?.blend);
+  assert.deepEqual([blends({ frames: 1, sure: 0.9 }), blends({ frames: 2, sure: 0.9 }), blends({ frames: 1, sure: 0.4 })], [true, false, false]);
   // A flash on the drop is softer over a dim shot and on a smaller rise.
   const flash = (luma, curve) => paced("promo", 30, { treatment: "calm", deck: { cards: [{ tag: "flash" }] }, sample: { luma }, curve }).plan.hits[0]?.peak;
   assert.equal(flash(0.15, rise(-30, -10)), 0.45);

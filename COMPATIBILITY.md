@@ -138,6 +138,10 @@ How to read it:
   its last frame to the seam. The dry-run plan lists the seams it cut on. Synthetic song shape only;
   not rendered on real footage.
   Evidence: `engine/footage.test.js` (seam-locked cuts).
+- **Cut snapping and burst**: Partly verified (plan level). Inside a section, compose {footage} moves a cut onto
+  a clip's measured impact near a song hit (impact frame on the hit, up to 2 frames early, never late; motion
+  carry only breaks ties), and cuts one burst of short shots only over a measured onset-dense passage (zero is
+  normal). Synthetic hits and impacts only. Evidence: `engine/footage.test.js` (cut snapping and burst).
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).
@@ -635,7 +639,8 @@ How to read it:
 - **Footage events**: Verified on a generated clip. Measuring a clip (`.footage-v2`, clips re-measured once) finds
   impacts (contact, impact frames), light and motion with direction at the frame, and frames per drawing; look
   source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
-  moments not yet checked; a busy still background hides a small mover; nothing in compose uses them yet.
+  moments not yet checked; a busy still background hides a small mover. compose uses impacts (cut snapping) and
+  frames per drawing (frame blending only at 1).
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and
