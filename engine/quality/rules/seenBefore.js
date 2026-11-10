@@ -10,6 +10,8 @@
 // seen_before also warns once when the video's scene is built like another kino edit
 // (structureSignature.js, saved as `structure` in the house file): the same cut rate per song
 // section and 75% or more of the compared parts (first drop, burst, effect order, ending, title, colors).
+// Parts that only follow the song (a steady pace, a plain cut on the drop, a plain ending) are not
+// compared, and the hint never asks for an effect: a part changes only by a cue or event that motivates it.
 import { hasDesigned, layoutDistance, layoutMoments, layoutSignature, SIGNATURE_VERSION, signatureDistance, withoutUnder } from "../layoutSignature.js";
 import { partWords, sameStructure, STRUCTURE_VERSION, structureAlike, structureSignature } from "../structureSignature.js";
 
@@ -90,9 +92,9 @@ function structureHit(model, ctx) {
   const { entry, alike, compared } = best;
   return [{
     rule: "seen_before", severity: "warn", at: 0, measured: `alike in ${alike.length} of ${compared.length} parts (${partWords(alike)}) to "${entry.name}" r${entry.rev}`,
-    required: "the same pace and under 75% of the compared parts alike to another kino edit",
+    required: "under 75% of the compared parts alike to another kino edit (parts that only follow the song are not compared)",
     message: `${ctx.sceneName} is built like "${entry.name}" (r${entry.rev}): alike in ${partWords(alike)}. Two kino edits shaped the same read as made by a machine.`,
-    fix: { kind: "hint", text: `Take the structure from this song's seams and this footage's own events (cut rate per section, what the first drop does, where a burst goes, the ending, the title's place), not from the last edit. Change ${partWords(alike.filter((part) => part !== "pace").slice(0, 2)) || "the pace"} at least. Waive it when the repeat is wanted.` },
+    fix: { kind: "hint", text: `Rebuild a part only from this song's cues or this footage's own events (a different seam, a real impact or light in the shot, the payoff shot), not from the last edit. Never add an effect or move a cut off a seam just to differ; removing a habit is fine. Waive it when the song makes the two edits alike.` },
   }];
 }
 

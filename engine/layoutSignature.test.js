@@ -8,7 +8,7 @@ import { runQuality } from "./quality/index.js";
 import { SEEN_THRESHOLD } from "./quality/rules/seenBefore.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { caseOf, layoutDistance, layoutMoments, layoutSignature, shapeOf, signatureDistance } from "./quality/layoutSignature.js";
-import { STRUCTURE_VERSION, structureSignature } from "./quality/structureSignature.js";
+import { STRUCTURE_VERSION, structureAlike, structureSignature } from "./quality/structureSignature.js";
 
 const text = (id, value, props = {}) => createLayer("text", { id, name: id, text: value, fontFamily: "Inter", fontSize: 64, fill: "#111111", textResize: "width-height", textAlign: "center", ...props });
 
@@ -131,20 +131,34 @@ test("ending_seen: an earlier showing of the ending's layout is not the ending",
   assert.deepEqual(findings.map((finding) => [finding.rule, finding.at >= 8]), [["seen_before", false], ["ending_seen", true]]);
 });
 
-// A cut edit: full-frame clips of `lengths` s one after another, a title, a drop marker at 6 s.
+// A cut edit: full-frame clips of `lengths` s one after another, a title, a drop marker at 6 s with
+// a white flash on it, and the last clip ending 0.5 s early (the video ends on black).
 const markers = [{ name: "song-drop-1", time: 6, kind: "marker" }];
+const flashAt = (time) => createLayer("rectangle", { id: "flash", name: "flash", x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", ...during("flash", time, time + 0.1) });
 function cutEdit(lengths, { shift = 0, title = { x: 700, y: 120, from: 0.5 } } = {}) {
   let at = 0;
-  const clips = lengths.map((length, index) => { const from = index ? at + shift : 0; at += length; return clip(`c${index}`, during(`c${index}`, from, index === lengths.length - 1 ? 12 : at + shift)); });
-  return modelOf([...clips, text("title", "NIGHT RUN", { x: title.x, y: title.y, fontSize: 96, fill: "#ffffff", ...during("title", title.from, title.from + 1.5) })], 12);
+  const clips = lengths.map((length, index) => { const from = index ? at + shift : 0; at += length; return clip(`c${index}`, during(`c${index}`, from, index === lengths.length - 1 ? 11.5 : at + shift)); });
+  return modelOf([...clips, flashAt(6), text("title", "NIGHT RUN", { x: title.x, y: title.y, fontSize: 96, fill: "#ffffff", ...during("title", title.from, title.from + 1.5) })], 12);
 }
-// Six 1 s shots, a burst of five 0.2 s shots on the drop, then ten 0.5 s shots.
-const builtA = [...Array(6).fill(1), ...Array(5).fill(0.2), ...Array(10).fill(0.5)];
+// Six 1 s shots, a burst of five 0.2 s shots on the drop, then nine 0.5 s shots.
+const builtA = [...Array(6).fill(1), ...Array(5).fill(0.2), ...Array(9).fill(0.5)];
+// Steady `length` s shots with a cut on the drop at `drop` s, an optional flash on it and a title at (x, y).
+function steady(duration, drop, length, { flash = false, x = 700, y = 120 } = {}) {
+  const layers = [];
+  for (let at = 0, index = 0; at < duration - 1e-6; index += 1) {
+    const next = at < drop && at + length > drop ? drop : Math.min(duration, at + length);
+    layers.push(clip(`c${index}`, { mediaSourceDuration: 400, ...during(`c${index}`, at, next) }));
+    at = next;
+  }
+  return modelOf([...layers, ...(flash ? [flashAt(drop)] : []), text("title", "NIGHT RUN", { x, y, fontSize: 96, fill: "#ffffff", ...during("title", 1, 2.5) })], duration);
+}
 
 test("seen_before: an edit built like another kino edit warns once; a differently built one does not", async () => {
   const old = structureSignature(cutEdit(builtA), { markers });
   assert.deepEqual(old.burst, { at: 0.5, n: 5 });
-  assert.deepEqual(old.drop, { at: 0.5, cut: true, effects: [], hold: 0.2 });
+  assert.deepEqual(old.drop, { at: 0.5, cut: true, effects: ["flash"], hold: 0.2 });
+  // A flash on the drop of a 60 s edit is on the drop (read in seconds, not from rounded shares).
+  assert.deepEqual(structureSignature(steady(60, 37, 2, { flash: true }), { markers: [{ name: "song-drop-1", time: 37 }] }).drop.effects, ["flash"]);
   const house = [{ projectId: "old", name: "Night run", rev: 4, moments: [], structVersion: STRUCTURE_VERSION, structure: old }];
   const context = { house, videoScene: true, cues: markers };
   // One frame later on every cut and the title 20 px lower: the same structure.
@@ -156,4 +170,12 @@ test("seen_before: an edit built like another kino edit warns once; a differentl
   assert.deepEqual((await runQuality(other, { codes, pixels: false, context })).findings, []);
   // Not the video's scene, or a house file without a structure: nothing to compare.
   assert.deepEqual((await runQuality(cutEdit(builtA), { codes, pixels: false, context: { ...context, videoScene: false } })).findings, []);
+  // Two songs cut steadily with a plain cut on each drop: that follows the song, not a house habit.
+  const plainOld = structureSignature(steady(30, 9, 0.5), { markers: [{ name: "song-drop-1", time: 9 }] });
+  const plainHouse = [{ ...house[0], structure: plainOld }];
+  const plain = steady(40, 22, 0.6, { x: 200, y: 800 });
+  // Steady pace, a plain cut on each drop and a plain ending are not compared; only the title is.
+  assert.deepEqual(structureAlike(structureSignature(plain, { markers: [{ name: "song-drop-1", time: 22 }] }), plainOld), { compared: ["title"], alike: [] });
+  const quiet = await runQuality(plain, { codes, pixels: false, context: { house: plainHouse, videoScene: true, cues: [{ name: "song-drop-1", time: 22 }] } });
+  assert.deepEqual(quiet.findings, []);
 });

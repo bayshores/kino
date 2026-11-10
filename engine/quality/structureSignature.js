@@ -61,20 +61,30 @@ function sectionsOf(model, markers) {
 
 const rateIn = (cuts, from, to) => (to - from > 1e-6 ? r2(cuts.filter((time) => time >= from && time < to).length / (to - from)) : 0);
 
+// The last rendered frame: the samples can end at t = duration, where a clip that runs to the end is
+// already out.
+function lastIndex(model) {
+  let index = model.times.length - 1;
+  while (index > 0 && model.times[index] >= model.duration - 1e-6) index -= 1;
+  return index;
+}
+
 // What the last frame shows: a designed text, a picture, or nothing (black).
 function lastFrame(model) {
-  const index = model.times.length - 1;
+  const index = lastIndex(model);
   if (readingTexts(model).some((item) => item.samples.opacity[index] >= 0.5)) return "text";
   const picture = model.items.some((item) => (item.kind === "video" || item.kind === "image") && !item.isMask && item.samples.opacity[index] >= 0.5);
   return picture ? "picture" : "black";
 }
 
-// Whether the shown picture fades out over the last second.
+// Whether the picture fades (or cuts) out over the last second: shown a second before the end, gone
+// on the last frame. A cut to the next clip is not a fade out.
 function fadesOut(model) {
-  const last = model.times.length - 1;
+  const last = lastIndex(model);
   const from = Math.max(0, Math.round((model.duration - 1) * model.fps));
-  return model.items.some((item) => (item.kind === "video" || item.kind === "image") && !item.isMask
-    && item.samples.opacity[from] >= 0.9 && item.samples.opacity[last] <= 0.5);
+  const media = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && !item.isMask);
+  const pictureAt = (index) => Math.max(0, ...media.map((item) => item.samples.opacity[index]));
+  return pictureAt(from) >= 0.9 && pictureAt(last) <= 0.5;
 }
 
 function titleOf(model) {
@@ -119,11 +129,13 @@ export function structureSignature(model, { markers = [], beats = [] } = {}) {
   const weightAt = (time) => beats.filter((cue) => Number.isFinite(cue.weight) && Math.abs(cue.time - time) <= frame)
     .reduce((best, cue) => (best == null || cue.weight > best ? r2(cue.weight) : best), null);
   const found = techniquesUsed(model);
-  const effects = Object.entries(found).filter(([tag]) => LOUD.has(tag))
+  // Seconds here: a share rounded to 0.01 is up to 0.005 x duration off (0.3 s in a 60 s edit),
+  // wider than the drop's window. Only the saved list is in shares.
+  const timed = Object.entries(found).filter(([tag]) => LOUD.has(tag))
     .flatMap(([tag, list]) => list.map((entry) => ({ tag, time: entry.at })))
-    .sort((a, b) => a.time - b.time || a.tag.localeCompare(b.tag))
-    .map((entry) => ({ tag: entry.tag, at: share(model, entry.time), w: weightAt(entry.time) }));
-  const tagsNear = (from, to) => [...new Set(effects.filter((effect) => effect.at * model.duration >= from && effect.at * model.duration <= to).map((effect) => effect.tag))].sort();
+    .sort((a, b) => a.time - b.time || a.tag.localeCompare(b.tag));
+  const effects = timed.map((entry) => ({ tag: entry.tag, at: share(model, entry.time), w: weightAt(entry.time) }));
+  const tagsNear = (from, to) => [...new Set(timed.filter((effect) => effect.time >= from && effect.time <= to).map((effect) => effect.tag))].sort();
 
   const shots = [0, ...cuts, model.duration];
   const lengths = shots.slice(1).map((time, index) => time - shots[index]);
@@ -169,27 +181,45 @@ function orderShare(a, b) {
   return table[a.length][b.length] / Math.max(a.length, b.length, 1);
 }
 
+// The cut rate at 12 points of the video.
+const POINTS = Array.from({ length: 12 }, (_, index) => (index + 0.5) / 12);
+const ratesOf = (sections) => POINTS.map((at) => rateAt(sections, at));
+// Flat: one steady cut rate the whole way (every point within 25% of the others).
+const flat = (sections) => { const rates = ratesOf(sections); return near(Math.max(...rates), Math.min(...rates), 0.25); };
+// A designed ending: an effect, a fade or a last frame other than the picture (a plain cut to the end
+// of the song is the default, not a choice).
+const designedEnding = (ending) => ending.effects.length > 0 || ending.fade || ending.last !== "picture";
+
 /**
  * Which parts of two structures are alike: {compared: [part], alike: [part]}. A part either one
- * lacks (no drop, no burst, no title, under 3 effects, under 2 colors) is not compared.
+ * lacks (no drop, no burst, no title, under 3 effects, under 2 colors) is not compared, and so is a
+ * part that only follows the song: a steady pace in both, a plain cut on both drops (no effect on
+ * either), a plain ending in both. Those are the default, not a house habit.
  */
 export function structureAlike(a, b) {
   const compared = [];
   const alike = [];
   const part = (name, test) => { if (test === null) return; compared.push(name); if (test) alike.push(name); };
   // Pace: the cut rate sampled at 12 points of the video, alike within 25% at 10 of them.
-  const points = Array.from({ length: 12 }, (_, index) => (index + 0.5) / 12);
-  part("pace", points.filter((at) => near(rateAt(a.sections, at), rateAt(b.sections, at), 0.25)).length >= 10);
-  part("drop", a.drop && b.drop ? a.drop.cut === b.drop.cut && sameSet(a.drop.effects, b.drop.effects) && near(a.drop.hold, b.drop.hold, 0.3) : null);
+  const [ratesA, ratesB] = [ratesOf(a.sections), ratesOf(b.sections)];
+  part("pace", flat(a.sections) && flat(b.sections) ? null : ratesA.filter((rate, index) => near(rate, ratesB[index], 0.25)).length >= 10);
+  const dropDesigned = a.drop && b.drop && (a.drop.effects.length > 0 || b.drop.effects.length > 0);
+  part("drop", dropDesigned ? a.drop.cut === b.drop.cut && sameSet(a.drop.effects, b.drop.effects) && near(a.drop.hold, b.drop.hold, 0.3) : null);
   part("burst", a.burst && b.burst ? Math.abs(a.burst.at - b.burst.at) <= 0.06 : null);
   part("effects", a.effects.length >= 3 && b.effects.length >= 3 ? orderShare(a.effects.map((e) => e.tag), b.effects.map((e) => e.tag)) >= 0.7 : null);
-  part("ending", a.ending.last === b.ending.last && a.ending.fade === b.ending.fade && sameSet(a.ending.effects, b.ending.effects) && near(a.ending.rate, b.ending.rate, 0.3));
+  part("ending", designedEnding(a.ending) || designedEnding(b.ending)
+    ? a.ending.last === b.ending.last && a.ending.fade === b.ending.fade && sameSet(a.ending.effects, b.ending.effects) && near(a.ending.rate, b.ending.rate, 0.3)
+    : null);
   part("title", a.title && b.title ? Math.abs(a.title.at - b.title.at) <= 0.05 && Math.hypot(a.title.x - b.title.x, a.title.y - b.title.y) <= 0.12 && near(a.title.size, b.title.size, 0.35) : null);
   part("colors", a.colors.length >= 2 && b.colors.length >= 2 ? a.colors.filter((color) => b.colors.includes(color)).length >= 2 : null);
   return { compared, alike };
 }
 
-/** True when two edits read as one structure: the same pace and 75% or more of 4+ compared parts alike. */
+/**
+ * True when two edits read as one structure: 75% or more of 4+ compared parts alike, the pace among
+ * them unless both cut at one steady rate (then pace is not compared).
+ */
 export function sameStructure({ compared, alike }) {
-  return alike.includes("pace") && compared.length >= 4 && alike.length / compared.length >= 0.75;
+  const paceOk = alike.includes("pace") || !compared.includes("pace");
+  return paceOk && compared.length >= 4 && alike.length / compared.length >= 0.75;
 }
