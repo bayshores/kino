@@ -654,6 +654,11 @@ How to read it:
   not written by fit_music are refused; a shake adds to the shot's own moves; a strobe flashes 3 times a second
   at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
   through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **Anime edit guidance and proof**: Partly verified. The skill says every effect needs a cue that motivates it,
+  reference counts are ceilings and none of a device is fine; a title 0.1 to 0.3 s after a cut counts as on it.
+  Evidence: `engine/footage.test.js` (anime proof: seams within a frame, no blend on footage drawn on 2s, impacts
+  pull cuts), `engine/effectFit.test.js`; by hand `tests/anime-proof.mjs` (3 made-up clips and a song through
+  compose, check and render, 3 seeds). Gaps: not judged on real anime footage; the script reads no seams yet.
 - **effect_fit check**: Partly verified. In a music edit (weighted accents or fitted song seams) each loud effect
   needs a motivating cue on its frame (2 frames early at most), ranks in strength with the cue's weight, fits its
   section's energy budget (none inside a rest but its edges), is not stacked (3 in 0.15 s), not on a talking face,

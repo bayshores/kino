@@ -56,10 +56,14 @@ played as one.
   and its last line names the target for the next ones (`cues[kind=beat,from=281.437]`).
   `set_cue {name, layer, media}` pins a cue to `media` s into a clip's file: it follows the clip
   when trimmed, moved, sped up or split (refused for a Speed animation).
-- Footage cut to music: give `compose {footage, music}` a `pace` of `promo` (about 2 beats a
-  shot, one hero hold up to 5.5 s) or `velocity` (1 beat a shot). Shots come in runs of one
-  length in whole beats, every cut on the song's beat grid; the first 4 bars are calm, the last
-  2 run twice as fast. `accents:true` adds a zoom punch on the downbeats (off by default).
+- Footage cut to music: `compose {footage, music}` cuts on the song's seams within a frame,
+  holds a rest to its return, paces each section by its loudness (`pace` `promo` or `velocity`
+  scales it), dissolves only on smooth passages, moves a cut onto a clip's measured impact near
+  a hit and cuts a burst only over a measured dense passage. It adds no effect without a measured
+  reason (one hit on a real drop); slow motion blends frames only on footage drawn on 1s.
+  `accents:true` adds downbeat zoom punches (off by default; `effect_fit` asks each for a cue).
+- Accents: `move {name:"impact-accent", kind, at:"cue:<name>"}` (techniques reference); none
+  is fine.
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.

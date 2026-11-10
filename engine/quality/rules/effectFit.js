@@ -199,8 +199,10 @@ export function effectFit(model, ctx) {
   const words = heardEdges(ctx).filter((edge) => edge.words?.length).flatMap((edge) => heardWords({ words: edge.words, range: edge.range }).map((word) => word.start));
   const placed = (at) => cues.some((cue) => cue.kind !== "onset" && onCue(at, cue.time) && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue)))
     || changes.some((time) => Math.abs(time - at) <= EARLY + step) || words.some((time) => Math.abs(time - at) <= 0.1);
-  const loose = [...texts.map((entry) => ({ at: entry.at, what: `text ${entry.tag}`, itemId: entry.itemId })), ...sounds.map((entry) => ({ at: entry.at, what: `sound ${entry.layer.name ?? entry.layer.id}` }))]
-    .filter((entry) => !placed(entry.at));
+  // Text may start 0.1 to 0.3 s after a cut or the scene's start (first_entrance asks for that delay).
+  const afterCut = (at) => [0, ...changes].some((time) => at - time >= 0.1 - 1e-6 && at - time <= 0.3 + 1e-6);
+  const loose = [...texts.map((entry) => ({ at: entry.at, what: `text ${entry.tag}`, itemId: entry.itemId, text: true })), ...sounds.map((entry) => ({ at: entry.at, what: `sound ${entry.layer.name ?? entry.layer.id}` }))]
+    .filter((entry) => !placed(entry.at) && !(entry.text && afterCut(entry.at)));
   if (loose.length) finding("untriggered", loose[0].at, `${loose.length} text animation${loose.length === 1 ? "" : "s"} or sound effect${loose.length === 1 ? "" : "s"} on no cue, cut or word (${loose.slice(0, 4).map((entry) => `${entry.what} ${sec(entry.at)}s`).join(", ")})`,
     "each text animation and sound effect on a cue, a shot change or a word start", `In ${ctx.sceneName} ${loose[0].what} at ${sec(loose[0].at)}s starts on nothing the viewer hears or sees.`,
     `Start it at "cue:<name>" (cue list: inspect {what:"cues"}), on a cut, or on the word it belongs to; or leave it out.`, loose[0].itemId ? { itemId: loose[0].itemId } : {});

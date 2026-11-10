@@ -251,6 +251,35 @@ test("cut snapping and burst: footage impacts pull cuts onto song hits, a burst 
   assert.ok(snapped.words.some((line) => line.startsWith("cuts on footage impacts")));
 });
 
+test("anime proof: seams within a frame, frames held on drawn footage, accents only on strong measured triggers", () => {
+  // A song with a drop, a rest and its return; three clips: one with contacts all through, one
+  // drawn on 2s with light rising once, one plain. tests/anime-proof.mjs runs it through the server by hand.
+  const shape = { sections: [{ at: 0, kind: "intro" }, { at: 30.012, kind: "drop", weight: 0.9 }], seams: [{ at: 38.2, kind: "dropout", weight: 0.7 }, { at: 39.43, kind: "return", weight: 0.7 }] };
+  const curve = Array.from({ length: 240 }, (_, index) => (index < 60 ? -30 : -10));
+  const period = 60 / 105;
+  const onsets = Array.from({ length: 200 }, (_, index) => ({ time: round3(0.3 + index * period), strength: 1, low: 1 }));
+  const contacts = Array.from({ length: 40 }, (_, index) => ({ t: round3(0.37 + index * 0.49), kind: "impact", how: "contact", confidence: 0.9 }));
+  const kinds = [{ events: contacts }, { drawing: { frames: 2, sure: 0.9 }, events: [{ t: 6, kind: "light", from: 5.93, confidence: 0.8 }] }, {}];
+  const samples = Array.from({ length: 40 }, (_, index) => ({ t: index / 2, motion: 0.3, change: 0.05, bright: 0.5, faces: [] }));
+  const clips = kinds.map((extra, index) => ({ key: `c${index}`, name: `clip${index}`, src: `c${index}.mp4`, kind: "camera", width: 1920, height: 1080, duration: 20, in: 0, out: 20, words: [], samples, shots: [{ start: 0, end: 20 }], ...extra }));
+  const analysis = { beats: Array.from({ length: 200 }, (_, index) => 0.3 + index * period), period, bpm: 105, onsets };
+  for (const seed of [1, 2, 3]) {
+    const plan = planEdit({ clips, music: { src: "m.mp3", duration: 120, analysis, loud: -14, curve, shape }, frame: { width: 1920, height: 1080 }, duration: 30, treatment: "story", seed, title: "Hi" });
+    const why = plan.words.join("\n");
+    // Every seam has its cut within one frame; nothing cuts inside the rest.
+    assert.ok(plan.song.seams.length >= 2, why);
+    assert.deepEqual(plan.song.locked, plan.song.seams, why);
+    const [rest] = plan.song.rests;
+    assert.ok(!plan.shots.slice(1).some((shot) => shot.start > rest.from + 0.001 && shot.start < rest.to - 0.001), why);
+    // No frame blending on the clip drawn on 2s; no effect the song or footage does not motivate.
+    assert.ok(!plan.shots.some((shot) => shot.clip === "c1" && shot.ramp?.blend), why);
+    assert.ok(plan.shots.every((shot) => !shot.accents && !["flash", "glitch-hit"].includes(shot.transition?.kind) || plan.hits.some((hit) => Math.abs(hit.at - shot.start) < period)), why);
+    // The strong contacts do pull cuts onto song hits, impact first (up to 2 frames early, never late).
+    assert.ok(plan.snaps.length >= 1, why);
+    for (const snap of plan.snaps) assert.ok(plan.shots.find((shot) => shot.n === snap.shot).clip === "c0", why);
+  }
+});
+
 test("quiet by default: the same inputs give no effect without a measured reason", () => {
   const deck = { cards: [{ tag: "speed-ramp" }, { tag: "push-transition" }], setPiece: { kind: "move", name: "rgb-split-hit" } };
   // A loud treatment with no drop measured: no downbeat punch, no camera step, no hit, no color

@@ -44,6 +44,11 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   // Its fix takes the shake off (check fix:"auto").
   assert.deepEqual(findings[0].fix, { kind: "remove", animationIds: ["shot.1"], auto: true });
   assert.equal(blocksFinal(findings[0], false), true);
+  // A title sliding in 0.1 to 0.3 s after the start (first_entrance's delay) is on that cut; at 1 s it is on nothing.
+  const title = (start) => ({ type: "text", id: "title", name: "title", text: "Hi", x: 200, y: 200, width: 800, height: 200, fontSize: 120,
+    animations: [{ id: "title.in", name: "Slide in", kind: "in", start, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] });
+  assert.deepEqual(await reasons(edit([], [title(0.23)]), [accent("hit", 2)]), []);
+  assert.deepEqual(await reasons(edit([], [title(1)]), [accent("hit", 2)]), ["untriggered"]);
 });
 
 test("effect_fit: an impact-accent record keeps its cue through a save", async () => {
