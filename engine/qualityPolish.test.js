@@ -691,6 +691,23 @@ test("music_stall: a loud stretch of the song with no shot at full strength and 
   assert.deepEqual(await run([shot("log", 0, 2, { blur: 40 }), shot("a", 2, 12)]), []);
 });
 
+test("music_turn: the music does nothing at the spine's turn", async () => {
+  const loudness = peaksOf(20, [[0, 20]]);
+  const spine = [{ role: "problem", from: 0, to: 10 }, { role: "turn", from: 10, to: 14 }, { role: "payoff", from: 14, to: 20 }];
+  const run = async (props = {}, styleSpec = { spine }) => {
+    const document = scene({ duration: 20, layers: [voice("song", { src: "/api/media/song.wav", mediaDuration: 20, volume: 0.5, ...props })] });
+    const [raw] = document.scenes;
+    return (await check("music_turn", document, { speechScene: raw, speech: [{ layer: raw.layers[0], music: true, loudness }], styleSpec })).findings;
+  };
+  // A flat level across the turn at 10 s warns and names fit_music.
+  const [flat] = await run();
+  assert.equal(flat?.at, 10);
+  assert.match(flat.fix.text, /^fit_music \{layer:"song"\}/);
+  // The volume doubles (6 dB) at 10 s: the music changes, as it does with no turn beat at all.
+  assert.deepEqual(await run({ animations: [{ kind: "custom", start: 10, duration: 0.05, easing: "linear", from: { volume: 0.5 }, to: { volume: 1 } }] }), []);
+  assert.deepEqual(await run({}, { spine: spine.filter((beat) => beat.role !== "turn") }), []);
+});
+
 test("music_hard_stop: a song that stops dead while loud", async () => {
   // Loud all through, with a quiet bar at 2.8 to 3.2 s.
   const loudness = peaksOf(10, [[0, 2.8], [3.2, 10]]);

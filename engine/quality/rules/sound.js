@@ -724,3 +724,72 @@ export function musicStall(model, ctx) {
   close(count);
   return findings;
 }
+
+// ---------------------------------------------------------------- music_turn
+// The music does nothing at the story's turn: fp-8's turn sat at the same level as the stall
+// before it ("never builds", "no real peak"). At each spine beat with role turn, the heard level
+// (the file's level plus the volume in dB) 2 s after is within 4 dB of the 2 s before, no song
+// section that fit_music placed (a song- marker cue) is within 0.5 s, and no dip of 0.5 s comes
+// just before. A drop, a hush or silence all pass. Without a turn beat it says nothing.
+const TURN_SIDE = 2;
+const TURN_DB = 4;
+const TURN_NEAR = 0.5;
+const TURN_DIP = 0.5;
+const TURN_DIP_DB = 6;
+const TURN_STEP = 0.05;
+const SILENT_DB = -60;
+
+export function musicTurn(model, ctx) {
+  const scene = ctx.speechScene;
+  const turns = (ctx.style?.spine ?? []).filter((beat) => beat?.role === "turn" && Number.isFinite(beat.from));
+  if (!scene || !turns.length) return [];
+  const songs = (ctx.speech ?? []).filter((entry) => entry.music && entry.layer?.enabled !== false && entry.layer?.src).map((entry) => {
+    const sound = soundLevels(entry.loudness);
+    const range = mediaPlaybackRange(entry.layer, scene.duration);
+    return sound && range && !range.remapped && !isRemapped(entry.layer) ? { layer: entry.layer, sound, range } : null;
+  }).filter(Boolean);
+  if (!songs.length) return [];
+  // The loudest song heard at `time`, in dB (SILENT_DB when none is).
+  const heardAt = (time) => {
+    let level = SILENT_DB;
+    for (const { layer, sound, range } of songs) {
+      if (time < range.start || time >= range.end) continue;
+      const volume = volumeAt(layer, time);
+      if (volume <= 0) continue;
+      const at = range.offset + (time - range.start);
+      if (at >= sound.duration) continue;
+      level = Math.max(level, levelBetween(sound, at - 0.05, at + 0.05) + 20 * Math.log10(volume));
+    }
+    return level;
+  };
+  const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const head = songs.find((song) => !song.layer.fitMusic)?.layer ?? songs[0].layer;
+  const findings = [];
+  for (const beat of turns) {
+    const at = beat.from;
+    if ((ctx.cues ?? []).some((cue) => String(cue.name ?? "").startsWith("song-") && Math.abs(cue.time - at) <= TURN_NEAR)) continue;
+    const before = [], after = [];
+    for (let time = Math.max(0, at - TURN_SIDE); time < at - 1e-9; time += TURN_STEP) before.push({ time, level: heardAt(time) });
+    for (let time = at; time < Math.min(model.duration, at + TURN_SIDE) - 1e-9; time += TURN_STEP) after.push({ time, level: heardAt(time) });
+    if (before.length < 10 || after.length < 10) continue;
+    const was = median(before.map((sample) => sample.level)), now = median(after.map((sample) => sample.level));
+    // No music on either side: no_music's business, not the turn's.
+    if (was <= SILENT_DB && now <= SILENT_DB) continue;
+    if (Math.abs(now - was) >= TURN_DB) continue;
+    // A dip just before the turn (a hush, a cut-out) is a change too.
+    let run = 0, dipped = false;
+    for (const sample of before.filter((each) => each.time >= at - TURN_SIDE / 2)) {
+      run = sample.level <= was - TURN_DIP_DB ? run + 1 : 0;
+      if (run * TURN_STEP >= TURN_DIP - 1e-9) { dipped = true; break; }
+    }
+    if (dipped) continue;
+    findings.push({
+      rule: "music_turn", severity: "warn", layerId: head.id, at: sec(at),
+      message: `The turn at ${sec(at)} s: the music does not change here (${sec(Math.abs(now - was))} dB from the 2 s before to the 2 s after, no song section, no dip).`,
+      measured: `${sec(was)} dB before, ${sec(now)} dB after the turn`,
+      required: `at the turn a song section within ${TURN_NEAR} s, a level change of ${TURN_DB} dB either way, or a dip of ${TURN_DIP} s just before`,
+      fix: { kind: "hint", text: `fit_music {layer:"${head.name}"} (a drop on the spine's turn and payoff) with a song that has a drop, or volume keys that change it at the turn.` },
+    });
+  }
+  return findings;
+}

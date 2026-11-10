@@ -15,7 +15,7 @@ import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, split
 import { cutOffAtRest, fontFallback, heldStatic, offBrandFont, renderArtifact, smallOnEmpty, textCollision, textGhost, textOnBusy, textWrap } from "./rules/polish.js";
 import { frozenScreen, screenUnreadable } from "./rules/screens.js";
 import { speechCaptions, speechCut, speechQuotes } from "./rules/speech.js";
-import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
+import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, musicTurn, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
 import { clipReuse, cropNoSubject, frozenFootage, jumpCut, softUpscale, trackLost } from "./rules/footage.js";
@@ -81,10 +81,11 @@ export const RULES = [
   rule("small_on_empty", "warn", smallOnEmpty, "a picture shown on a flat frame fills 25% of it or more (over 1.5 s)", true),
   rule("render_artifact", "warn", renderArtifact, "an RGB split draws no flat saturated slabs (3% of the frame or more)", true),
   rule("speech_captions", "warn", speechCaptions, "captions shown over a voice include every word it says"),
-  rule("speech_quotes", "warn", speechQuotes, "captions of heard speech look different from caption-like text nobody says (in quotes, or another font, style or color), so speech never reads as narration"),
+  rule("speech_quotes", "warn", speechQuotes, "captions of heard speech look different from caption-like text nobody says (quotes, another font, style or color)"),
   rule("speech_fragment", "warn", speechFragment, "a sound does not start on the tail (up to 3 words, within 1.5 s) of a sentence said before its in point, unless a voice as loud covers it or its volume is 0.25 or lower; needs a transcript"),
-  rule("mute_word", "warn", muteWord, "a volume ramp of 0.5 s or less that mutes or ducks a voice (to 35% or less) ends 0.03 s before the word it hides starts, and a ramp back up starts after that word ends (word times from the transcript; auto when no other word is lowered); a fade out at a clip's end and duck_audio's dips (unless they mute) are left alone"),
+  rule("mute_word", "warn", muteWord, "a ramp of 0.5 s or less that ducks a voice to 35% or less ends 0.03 s before the word it hides, and the ramp back up starts after it (auto when no other word is lowered); end fades and duck_audio dips aside"),
   rule("music_stall", "warn", musicStall, "loud music never runs 2.5 s with no cut and no clip at full strength over 40% of the frame"),
+  rule("music_turn", "warn", musicTurn, "at a spine turn the music changes: a song section within 0.5 s, 4 dB either way (2 s after vs before), or a 0.5 s dip just before"),
   rule("music_hard_stop", "warn", musicHardStop, "a song does not stop while loud (last 120 ms within 10 dB of its median, volume 0.08+) with no fade, unless on a cue or beat; fix: fit_music, else a 0.25 s fade (auto)"),
   rule("voice_under_bed", "warn", voiceUnderBed, "each spoken line is 6 LU over the beds under it (music, street sound: sounds of 3 s or more), every 2 words in a row 3 LU (LUFS, voice leveled to -16 as exported, volumes and ducks applied; after a full check measures the files)"),
   rule("bed_jump", "warn", bedJump, "the beds together rise at most 8 LU at an in point or volume step (first 0.1 s after vs 0.3 s before; a 0.2 s fade in passes)"),
