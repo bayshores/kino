@@ -13,6 +13,7 @@ import { ideaLines } from "./quality/rules/signature.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { pulses, techniquesUsed, textEntrances, transitions } from "./quality/techniques.js";
 import { cutReasons, techniquesWanted } from "./quality/rules/style.js";
+import { profileDevices, shotTimes } from "./quality/rules/reference.js";
 import { sameWording } from "./quality/rules/spine.js";
 import { DETECTABLE_TAGS, PLAIN_TAGS, TECHNIQUES, TECHNIQUE_TAGS, techniquesText } from "./techniques.js";
 import { styleContext, styleLine } from "./styleSpec.js";
@@ -611,6 +612,46 @@ test("busy_edit: many devices, moves on most shots, mixed text looks and bright-
   await silent("busy_edit", restrained, frames([120, 110, 130, 115, 10]));
 });
 
+test("reference_closeness: an edit cut to a reference's shot lengths in order, or the pooled contest device stack", async () => {
+  const shots = (cuts, duration) => scene({ duration, layers: [0, ...cuts].map((at, index) => clip(`shot${index}`, { animations: [
+    ...(index ? [hide(0), show(at)] : []), ...(index < cuts.length ? [hide(cuts[index])] : [])] })) });
+  // A reference's cuts over 16 s, uneven; the edit scales them to 12 s (fit), as borrowing raw times did.
+  const ref = { id: "yt:ref", seconds: 16, fps: 24, cuts: [0.8, 2.4, 2.9, 4.6, 5.4, 7.5, 8.1, 10.2, 11.4, 12.2, 14.4] };
+  const copied = ref.cuts.map((time) => Math.round(time * 0.75 * 30) / 30);
+  const [finding] = await fires("reference_closeness", shots(copied, 12), { closeRefs: [ref] });
+  assert.match(finding.measured, /^\d+ shots in a row from [\d.]+s have yt:ref's shot lengths in order \(x0\.75\)/);
+  // The same reference's lengths in a new order (borrow_rhythm), or an even grid any beat edit shares: quiet.
+  await silent("reference_closeness", shots([0.6, 2.7, 3.3, 4.5, 6.1, 6.7, 7.3, 8.5, 10.1, 11.2], 12), { closeRefs: [ref] });
+  const grid = { ...ref, cuts: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] };
+  await silent("reference_closeness", shots([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], 12), { closeRefs: [grid] });
+  // Shots of 1 and 2 beats at 100 BPM against a reference of 1 and 2 beats at 120 BPM: two lengths
+  // line up in order by chance (x1.2), so beat cutting is no copy.
+  const beats = { id: "yt:beats", seconds: 10, fps: 24, cuts: [0.5, 1.5, 2, 3, 3.5, 4, 5, 5.5, 6.5, 7, 8] };
+  await silent("reference_closeness", shots([0.6, 1.8, 2.4, 3.6, 4.2, 4.8, 6, 6.6, 7.8, 8.4], 10), { closeRefs: [beats] });
+  // A black hole, then a seam flash, then a word card within 2 s: the pooled drop stack, in a music edit.
+  const song = { cues: [{ name: "song-drop-1", time: 2, kind: "marker" }] };
+  const full = { x: 0, y: 0, width: 1920, height: 1080 };
+  const stack = (background, more = []) => scene({ duration: 6, background, layers: [
+    clip("a", { animations: [hide(2)] }),
+    clip("b", { animations: [hide(0), show(2.2), hide(3.2)] }),
+    ...more,
+    rect("flash", { ...full, fill: "#ffffff", animations: [hide(0), show(2.2), hide(2.3)] }),
+    text("word", "NOW", { fontFamily: "Inter", fontSize: 400, fill: "#ffffff", x: 600, y: 300, animations: [hide(0), show(3.4), hide(4.4)] }),
+    clip("c", { animations: [hide(0), show(4.4)] })] });
+  const [stacked] = await fires("reference_closeness", stack("#000000"), song);
+  assert.match(stacked.measured, /^black-hole then seam-flash then word-card from 2s/);
+  // The same with the black frame and the word card's plain frame drawn as full-frame solids.
+  const solids = stack(PAPER, [rect("black", { ...full, fill: "#000000", animations: [hide(0), show(2), hide(2.2)] }),
+    rect("card", { ...full, fill: "#c0392b", animations: [hide(0), show(3.2), hide(4.4)] })]);
+  assert.match((await fires("reference_closeness", solids, song))[0].measured, /^black-hole then seam-flash then word-card from 2s/);
+  // A promo with no song: a dip to black, a flash and a title are its own reveal.
+  await silent("reference_closeness", stack("#000000"));
+  // A white frame inside one running shot (an impact frame) is a plain flash: no seam flash, no cut.
+  const impact = modelOf(scene({ duration: 6, layers: [clip("a"), rect("hit", { ...full, fill: "#ffffff", animations: [hide(0), show(3), hide(3.1)] })] }));
+  assert.deepEqual(profileDevices(impact), []);
+  assert.deepEqual(shotTimes(impact), []);
+});
+
 test("a restrained edit (plain cuts, one device on the hook and the payoff) gets no contradicting variety warnings", async () => {
   // Five 2.4 s shots cut plainly; shots 1 and 4 zoom into the next, the same device twice.
   const zoomed = new Set([0, 3]);
@@ -621,7 +662,7 @@ test("a restrained edit (plain cuts, one device on the hook and the payoff) gets
 });
 
 test("every technique rule has a bad and a good example above", () => {
-  const codes = ["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit"];
+  const codes = ["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit", "reference_closeness"];
   assert.deepEqual(codes.filter((code) => !RULES.some((entry) => entry.code === code)), [], "all are registered");
   assert.deepEqual(codes.filter((code) => !rulesCovered.has(code)), []);
   // style_avoided gates a final render when the person said no (by:"you"); the rest advise.

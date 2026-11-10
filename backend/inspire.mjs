@@ -25,12 +25,14 @@ import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promise
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { beatFit, beatFitLine } from "./measure/beat-fit.mjs";
 import { suggestStyleLines, suggestionText } from "./measure/suggest.mjs";
 import { backgroundStep, lowerIfBackground } from "./render-activity.mjs";
 import { BOT_CHECK, BOT_CHECK_PAUSE_MS, botCheckError, createSlots, createYouTubeGate } from "./process-slots.mjs";
 import { SEARCH_KINDS } from "./agent/actions.mjs";
 import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
+import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
 
 // What a search looks for: edits, short vertical edits (YouTube Shorts) or sound effects.
 export { SEARCH_KINDS };
@@ -48,8 +50,11 @@ export const MAX_QUERY_LENGTH = 120;
 export const MAX_SEARCHES = 30;
 export const MAX_SAVED = 100;
 // Saved with the numbers, so a better measure can tell old results apart. 2 adds the fingerprint
-// and the frame strips; a reference measured at 1 is measured again when an agent reads it.
-export const INSPIRE_VERSION = 2;
+// and the frame strips; 3 reads 2-frame shots, flashes and the cut-to-beat statistics (beat-fit.mjs).
+// A reference measured at an older version is measured again when an agent reads it.
+export const INSPIRE_VERSION = 3;
+/** The shortest shot a reference keeps, in frames: an edit cut in 2-frame shots keeps every cut. */
+export const REFERENCE_MIN_SHOT_FRAMES = 2;
 // Saved with the stills: 1 is one still a second (measure/stills.mjs); older saves kept 10 spread.
 const STILLS_EACH = 1;
 
@@ -285,9 +290,10 @@ const round = (value, places = 2) => Math.round(value * 10 ** places) / 10 ** pl
 /**
  * The numbers kino shows for a measured video, from its cut times and beats (seconds) over the
  * `seconds` it measured: shots, cuts a second, the longest shot and where it is, and which cuts are
- * on the beat (null when no steady beat was found).
+ * on the beat (null when no steady beat was found). beatFit: the cuts against the beat in frames at
+ * `fps`, with a random baseline (beat-fit.mjs; null without a beat); flashes: how many were found.
  */
-export function measureNumbers({ cuts, beats, seconds }) {
+export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) {
   const length = Math.max(0, Number(seconds) || 0);
   const times = [...new Set((cuts ?? []).filter((time) => Number.isFinite(time) && time > 0 && time < length).map((time) => round(time, 3)))].sort((a, b) => a - b);
   const edges = [0, ...times, length];
@@ -316,6 +322,9 @@ export function measureNumbers({ cuts, beats, seconds }) {
     longest: { seconds: round(longest.seconds, 1), start: round(longest.start, 1), where },
     onBeat,
     onBeatCount: onBeat ? onBeat.filter(Boolean).length : null,
+    beatFit: beatFit(times, beatList, { fps: fps > 0 ? fps : 24 }),
+    flashes,
+    fps: fps > 0 ? round(fps, 3) : 24,
   };
 }
 
@@ -382,16 +391,122 @@ export function countOnsets(levels, loudest) {
   return onsets;
 }
 
+// The shortest gap between two cuts a reference lends, in its frames: MIN_SHOT_FRAMES of
+// shot-detection.mjs (not imported: that module loads only when a reference is measured).
+const LEND_MIN_FRAMES = 6;
+
 /**
- * Cue marks from a reference's cut times: `at` seconds into the scene, and with `fit`, scaled so
- * the measured stretch fills `fit` seconds. Times past `length` (the scene) are left out.
- * Returns {cues: [{name: "rhythm-1", time, kind: "marker"}], dropped}.
+ * The indexes of the cuts a reference lends (borrow_rhythm, the "cuts (s)" line): a cut less than
+ * LEND_MIN_FRAMES frames at the reference's rate after the last one kept is left out, as the shot
+ * finder drops a sliver. The 2-frame read feeds only the statistics (cuts/s, beat fit, flashes), so
+ * a borrowed rhythm never copies a reference's cutting frame for frame.
  */
-export function rhythmCues(numbers, { length, fit = null, at = 0 } = {}) {
-  const scale = fit && numbers.seconds > 0 ? fit / numbers.seconds : 1;
-  const times = numbers.cuts.map((time) => round(at + time * scale, 3));
-  const kept = times.filter((time) => time >= 0 && (!(length > 0) || time < length));
-  return { cues: kept.map((time, index) => ({ name: `rhythm-${index + 1}`, time, kind: "marker" })), dropped: times.length - kept.length, scale: round(scale, 3) };
+export function lentCuts(numbers) {
+  const fps = numbers.fps > 0 ? numbers.fps : numbers.beatFit?.fps > 0 ? numbers.beatFit.fps : 24;
+  const shortest = LEND_MIN_FRAMES / fps - 1e-6;
+  let last = 0;
+  return (numbers.cuts ?? []).flatMap((time, index) => (time - last >= shortest ? ((last = time), [index]) : []));
+}
+
+// A reference lends its pace in parts of at least this many seconds, at most LEND_PARTS of them.
+const LEND_PART_SECONDS = 4;
+const LEND_PARTS = 4;
+
+/**
+ * What a reference lends (borrow_rhythm): its pace per section, never its arrangement. The
+ * measured stretch in up to LEND_PARTS equal parts, each with the lengths of the shots that start
+ * in it (lentCuts), shortest first: [{from, to, shots: [seconds]}].
+ */
+export function lentSections(numbers) {
+  const seconds = numbers.seconds > 0 ? numbers.seconds : 0;
+  const count = Math.max(1, Math.min(LEND_PARTS, Math.floor(seconds / LEND_PART_SECONDS)));
+  const starts = [0, ...lentCuts(numbers).map((index) => numbers.cuts[index])];
+  const parts = Array.from({ length: count }, (_, index) => ({ from: round((index * seconds) / count), to: round(((index + 1) * seconds) / count), shots: [] }));
+  starts.forEach((start, index) => {
+    const part = parts[Math.min(count - 1, Math.floor((start / seconds) * count))];
+    part.shots.push(round((starts[index + 1] ?? seconds) - start, 3));
+  });
+  for (const part of parts) part.shots.sort((a, b) => a - b);
+  return parts;
+}
+
+/** "lend: 0-5 s 3 shots median 2 s · ..." (the reference answer's line). */
+export function lendLine(numbers) {
+  const parts = lentSections(numbers).map((part) => `${part.from}-${part.to} s ${part.shots.length} shot${part.shots.length === 1 ? "" : "s"}${part.shots.length ? ` median ${part.shots[Math.floor(part.shots.length / 2)]} s` : ""}`);
+  return `lend: pace per section (${parts.join(" · ")}); avoid: its shot lengths in order (reference_closeness warns at 6 in a row)`;
+}
+
+// The same order every time for the same reference: a small linear congruential generator.
+function seeded(seed) {
+  let state = (Math.floor(Math.abs(seed)) % 2147483646) + 1;
+  return () => (state = (state * 48271) % 2147483647) / 2147483647;
+}
+
+/**
+ * Cue marks from a reference's section statistics (lentSections): each part's shot lengths in a
+ * new order (the same for the same reference), `at` seconds into the scene. With `fit` the measured
+ * stretch is scaled to fill `fit` seconds. `seams` (scene seconds, the song's section edges) become
+ * the sections: each takes the pace of the reference part at the same place, and every seam is a
+ * cut. Cuts past `length` (the scene) are left out.
+ * Returns {cues: [{name: "rhythm-1", time, kind: "marker"}], dropped, scale}.
+ */
+export function rhythmCues(numbers, { length, fit = null, at = 0, seams = [] } = {}) {
+  const seconds = numbers.seconds > 0 ? numbers.seconds : 0;
+  const scale = fit && seconds > 0 ? fit / seconds : 1;
+  const span = seconds * scale;
+  const parts = lentSections(numbers);
+  const fps = numbers.fps > 0 ? numbers.fps : 24;
+  const shortest = (LEND_MIN_FRAMES / fps) * scale - 1e-6;
+  const inner = [...new Set(seams.filter((time) => time > at + shortest && time < at + span - shortest).map((time) => round(time, 3)))].sort((a, b) => a - b);
+  const edges = inner.length ? [at, ...inner, at + span] : parts.map((part) => at + part.from * scale).concat(at + span);
+  const random = seeded(Math.round(seconds * 1000) + (numbers.cuts?.length ?? 0) * 7919);
+  // A new order can still put COPY_RUN of the reference's shot lengths in its order by chance
+  // (reference_closeness would warn): such a draw is drawn again, LEND_DRAWS times at most.
+  const refCuts = lentCuts(numbers).map((index) => numbers.cuts[index]);
+  const copies = (times) => refCuts.length > COPY_RUN && [24, 30, 60].some((rate) => copiedRun(times, refCuts, { tolerance: 1 / rate + 0.01 }));
+  const plan = { at, span, scale, shortest, parts, edges, inner };
+  let times = drawLentCuts(random, plan);
+  for (let tries = 1; tries < LEND_DRAWS && copies(times); tries += 1) times = drawLentCuts(random, plan);
+  const unique = [...new Set(times)];
+  const kept = unique.filter((value) => value >= 0 && (!(length > 0) || value < length));
+  return { cues: kept.map((value, index) => ({ name: `rhythm-${index + 1}`, time: value, kind: "marker" })), dropped: unique.length - kept.length, scale: round(scale, 3) };
+}
+
+const LEND_DRAWS = 8;
+
+// One draw of rhythmCues: each section's shot lengths in a new order, cut times by time.
+function drawLentCuts(random, { at, span, scale, shortest, parts, edges, inner }) {
+  const times = [];
+  let time = at;
+  for (let index = 0; index + 1 < edges.length; index += 1) {
+    const end = edges[index + 1];
+    const middle = (edges[index] + end) / 2 - at;
+    const place = Math.min(parts.length - 1, Math.max(0, Math.floor((middle / Math.max(span, 1e-6)) * parts.length)));
+    // A part no shot starts in (one long shot runs through it) takes the pace of the nearest that has one.
+    const part = [...parts].sort((a, b) => (a.shots.length ? 0 : 1) - (b.shots.length ? 0 : 1) || Math.abs(parts.indexOf(a) - place) - Math.abs(parts.indexOf(b) - place))[0];
+    const lengths = part.shots.map((shot) => shot * scale);
+    if (!lengths.length) continue;
+    // A new order of the part's shots, drawn again each time they run out.
+    let bag = [];
+    while (time + shortest < end) {
+      if (!bag.length) {
+        bag = [...lengths];
+        for (let last = bag.length - 1; last > 0; last -= 1) {
+          const pick = Math.floor(random() * (last + 1));
+          [bag[last], bag[pick]] = [bag[pick], bag[last]];
+        }
+      }
+      // The next shot that still fits before the section's end (a longer one waits for the next round).
+      const pick = bag.findLastIndex((shot) => time + shot <= end - shortest);
+      if (pick < 0) break;
+      const next = time + bag.splice(pick, 1)[0];
+      times.push(round(next, 3));
+      time = next;
+    }
+    // A seam from the song is a cut; the reference's own part edges are not.
+    if (inner.length && index + 1 < edges.length - 1) { times.push(round(end, 3)); time = end; }
+  }
+  return times;
 }
 
 /** "0:39", "3:12", "1:02:05" for a length in seconds. */
@@ -914,14 +1029,15 @@ export function createInspire(deps) {
       if (probed.width > 0 && probed.height > 0) record.vertical = probed.height > probed.width;
       const seconds = Math.min(MEASURE_SECONDS, probed.duration || record.duration || 0);
       if (!(seconds > 0)) throw new Error("The download has no length.");
-      const { shots } = await heavy.findShots(file, { duration: seconds, signal });
+      const { shots, flashes, fps } = await heavy.findShots(file, { duration: seconds, signal, minShotFrames: REFERENCE_MIN_SHOT_FRAMES });
+      const read = { seconds, fps: fps ?? undefined, flashes: (flashes ?? []).filter((flash) => flash.start < seconds).length };
       // The cuts are known: the screen draws them while the beat is found.
-      if (running?.id === record.id) running.partial = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: [], seconds });
+      if (running?.id === record.id) running.partial = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: [], ...read });
       setPhase(record, "finding the beat");
       let beat = null;
       try { beat = await heavy.findBeats(file, { signal }); }
       catch (error) { if (signal.aborted) throw error; /* no sound: no beat to measure */ }
-      const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], seconds });
+      const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], ...read });
       if (running?.id === record.id) running.partial = { ...numbers, ...(beat?.bpm ? { bpm: beat.bpm } : {}) };
       // The fingerprint and the strips: a failure here keeps the cuts and says what went wrong.
       let fingerprint = null, strips = [], fingerprintError = null;
@@ -1366,6 +1482,21 @@ export function createInspire(deps) {
     return found;
   }
 
+  /**
+   * The lent cuts of a project's saved, measured references: [{id, seconds, cuts, fps}] (for the
+   * reference_closeness check: their shot lengths in order are what an edit must not copy).
+   */
+  async function savedRhythms(projectId) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    const found = [];
+    for (const id of state.saved) {
+      const numbers = (await load(id))?.numbers;
+      if (!numbers?.cuts?.length) continue;
+      found.push({ id, seconds: numbers.seconds, cuts: lentCuts(numbers).map((index) => numbers.cuts[index]), fps: numbers.fps ?? 24 });
+    }
+    return found;
+  }
+
   async function thumbFile(id) {
     const record = await load(id);
     return record?.thumb ? fileOf(id, "jpg") : null;
@@ -1377,7 +1508,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**
@@ -1615,13 +1746,16 @@ export function referenceText(ref, { full = false } = {}) {
   const span = numbers.seconds < ref.duration - 0.5 ? `the first ${Math.round(numbers.seconds)} s of ${clock(ref.duration)}` : `all ${Math.round(numbers.seconds)} s`;
   const longest = `longest ${numbers.longest.seconds} s ${numbers.longest.where ? `(${numbers.longest.where})` : `from ${clock(numbers.longest.start)}`}`;
   const beat = numbers.onBeat ? `cuts on the beat ${numbers.onBeatCount} of ${numbers.cuts.length}${ref.bpm ? ` (${Math.round(ref.bpm)} bpm)` : ""}` : "no steady beat in its sound";
-  const shown = full ? numbers.cuts : numbers.cuts.slice(0, 40);
+  const lent = lentCuts(numbers);
+  const shown = full ? lent : lent.slice(0, 40);
+  const closer = numbers.cuts.length - lent.length;
   const cuts = numbers.cuts.length
-    ? `cuts (s): ${shown.map((time, index) => `${time}${numbers.onBeat?.[index] ? "*" : ""}`).join(" ")}${shown.length < numbers.cuts.length ? ` … (${numbers.cuts.length} in all; full:true lists them)` : ""}${numbers.onBeat ? " (* on the beat)" : ""}`
+    ? `cuts (s): ${shown.map((index) => `${numbers.cuts[index]}${numbers.onBeat?.[index] ? "*" : ""}`).join(" ")}${shown.length < lent.length ? ` … (${lent.length} in all; full:true lists them)` : ""}${numbers.onBeat ? " (* on the beat)" : ""}${closer ? ` (${closer} under ${LEND_MIN_FRAMES} frames apart not listed or borrowed)` : ""}`
     : "cuts: none (one shot)";
-  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${longest} · ${beat}`, cuts,
+  const fit = [beatFitLine(numbers.beatFit), numbers.flashes ? `flashes ${numbers.flashes}` : ""].filter(Boolean).join(" · ");
+  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${longest} · ${beat}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
     ...fingerprintLines(ref),
-    `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (fit:true scales the cuts to the scene; leave it out to keep their times)`].join("\n");
+    `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
 }
 
 const pct = (value) => (Number.isFinite(value) ? `${Math.round(value * 100)}%` : "?");

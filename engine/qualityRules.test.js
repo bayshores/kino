@@ -305,7 +305,7 @@ test("motion rules leave a hidden layer alone: no first_entrance, linear_motion 
 
 // The findings of a run as "rule: message", without the technique rules: those count techniques
 // (engine/quality/techniques.js), so they see a speed ramp, a blur or a flare on purpose.
-const TECHNIQUE_RULES = new Set(["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "cut_motivation", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit"]);
+const TECHNIQUE_RULES = new Set(["text_slides", "few_techniques", "plain_beats", "technique_repeat", "metronome", "cut_motivation", "beat_kick", "flat_sections", "style_avoided", "style_wanted", "deck_unused", "busy_edit", "reference_closeness"]);
 const motionMessages = (result) => result.findings.filter((finding) => !TECHNIQUE_RULES.has(finding.rule)).map((finding) => `${finding.rule}: ${finding.message}`);
 
 test("clip speed is not motion: a linear Speed ramp, mediaSpeed, mediaReverse and mediaFrameRate add no findings", async () => {

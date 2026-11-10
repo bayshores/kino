@@ -178,7 +178,7 @@ const REFERENCE_WAIVER = "reference";
 // it ask for no new versus (a test run looked again after each one).
 const versusSeen = (state, rev) => Number.isFinite(state.versus?.rev) && rev >= state.versus.rev && rev - state.versus.rev <= VIEWER_RECENT;
 const IDEAS_HELP = 'library {topic:"inspire", ideas:{ref, take:[{title, from, to?, what, why, use, place?:{at, to?}, tags?}], skip?:[{title, why}]}}: up to 6 ideas from one measured reference (from/to: seconds in it; place: seconds in this video), in plain words: what happens, why it is good, what it becomes here. The person turns each on or off on the inspire screen and allows them; the answer comes in your inbox.';
-const BORROW_HELP = 'borrow_rhythm {ref, fit?, at?, scene?}: a reference\'s cut times (library {topic:"inspire"}) become cue marks rhythm-1, rhythm-2, … (kind marker) that at:"cue:rhythm-3" points at. fit:true scales the measured stretch to the scene (from at); fit:<seconds> to that length; without fit the cuts keep their times and those past the scene are left out. at: seconds into the scene (default 0). scene: id or name (default the first). Borrowing again replaces the rhythm-* marks. Only the times come in: the footage never enters the project. The reference is saved in the project.';
+const BORROW_HELP = 'borrow_rhythm {ref, fit?, at?, scene?}: a reference\'s pace per section (library {topic:"inspire"}, its lend: line), never its cut times: each section\'s shot lengths in a new order become cue marks rhythm-1, rhythm-2, … (kind marker) that at:"cue:rhythm-3" points at, cut on the song\'s song- seams when fit_music marked them. fit:true scales the measured stretch to the scene (from at); fit:<seconds> to that length; marks past the scene are left out. at: seconds into the scene (default 0). scene: id or name (default the first). Borrowing again replaces the rhythm-* marks. Only times come in: the footage never enters the project. The reference is saved in the project.';
 const RENDER_WAIT_MS = 55_000;
 const PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 // The keys notes {action:"brief"} takes; the last three save (notesBrief).
@@ -418,6 +418,8 @@ export function createAgentService(deps) {
     videoFacts: deps.videoFacts ?? null,
     // reference_drift: the project's saved Inspire references, measured like a render.
     references: deps.inspire ? (projectId) => deps.inspire.savedFingerprints(projectId) : null,
+    // reference_closeness: the saved references' lent cuts (an edit must not copy their order).
+    rhythms: deps.inspire?.savedRhythms ? (projectId) => deps.inspire.savedRhythms(projectId) : null,
     // seen_before: what kino rendered in other projects (house-memory.mjs).
     house: deps.house ? (projectId, name) => deps.house.others(projectId, name) : null,
     measureRender: deps.measureRender ?? null });
@@ -6278,7 +6280,9 @@ export function createAgentService(deps) {
       const length = Number(scene.duration) || 0;
       const at = Math.max(0, Number(op.at) || 0);
       const fit = op.fit === true ? Math.max(0, length - at) : Number(op.fit) > 0 ? Number(op.fit) : null;
-      const { cues } = rhythmCues(ref.numbers, { length, fit, at });
+      // The song's seams (fit_music marks them song-...) are the sections the reference's pace maps onto.
+      const seams = (document.cues ?? []).filter((cue) => cue.kind === "marker" && String(cue.name ?? "").startsWith("song-") && Number.isFinite(cue.time)).map((cue) => cue.time);
+      const { cues } = rhythmCues(ref.numbers, { length, fit, at, seams });
       const remove = (document.cues ?? []).filter((cue) => cue.kind === "marker" && /^rhythm-\d+$/.test(cue.name) && !cues.some((entry) => entry.name === cue.name)).map((cue) => cue.name);
       out.push({ op: "set_cues", cues, ...(remove.length ? { remove } : {}) });
       if (!dryRun) await deps.inspire.setSaved(document.id, id, true).catch(() => {});
