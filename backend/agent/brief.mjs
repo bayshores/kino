@@ -20,7 +20,7 @@
 // raises the revision but keeps a confirmed brief confirmed.
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
-import { cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
+import { OWN_PICK_CALL, cleanTreatments, pickedIdea, pickedSignature, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
@@ -513,11 +513,14 @@ export function orderSteps(state, video = {}) {
   if (video.treatmentsWaived) return open;
   const treatments = brief.treatments;
   if (!treatments?.list) {
-    const one = { idea: STORY_PLACEHOLDER, tension: "<what the viewer wants, fears or wonders before the turn>", turn: "<the on-screen moment it flips>",
+    const one = { idea: STORY_PLACEHOLDER, who: "<whose want or fear drives it: a person, a crew, a viewer, a thing>",
+      tension: "<what they want, fear or wonder before the turn>", turn: "<the on-screen moment it flips>",
       move: "<the signature move>", rhythm: "<the rhythm>", p: "<0 to 1: how typical the story is>", source: "<the file or screen the move uses, and the moment>" };
     return [...open, { step: "write 5 treatments", call: briefCall({ treatments: Array.from({ length: 5 }, () => one) }) }];
   }
   const picked = treatments.picked;
+  // Under "just start" the pick is the agent's own, with why (treatmentsText says what to pick).
+  if (!picked && /just start/i.test(brief.noPlayback?.reason ?? "")) return [...open, { step: "pick a treatment, with why", call: briefCall({ treatments: { ...OWN_PICK_CALL } }) }];
   if (!picked) return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
   // The pick's idea is copied into style.idea when it is saved (briefChanges); its move and
   // material are offered as the first signature. A pick that carries its story (tension and

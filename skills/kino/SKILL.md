@@ -13,7 +13,7 @@ send it as it is; put your own words where it has `<angle brackets>`. A new vide
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
 2. `notes` brief: what the person asked for, one line each (plain text is your guess).
 3. Save 2 references (`library {topic:"inspire"}`), study one (`look {mode:"reference"}`).
-4. 5 treatments, their pick, its signature and spine; building first is refused (`order_needed`).
+4. 5 treatments (3+ whos), their pick, its signature and spine; building first is refused (`order_needed`).
 5. `edit` with one `compose` (or `format`: `library {topic:"formats"}`), then `check {fix:"auto"}` and `look {mode:"review"}`; then `render`.
 
 ```json

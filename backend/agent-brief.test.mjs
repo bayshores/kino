@@ -876,15 +876,19 @@ test("idea first: a briefed video builds only after 2 references (one studied), 
   assert.equal(studied.isError, undefined, studied.text);
   await refused("write 5 treatments");
   const treatments = ["the kickflip seen from the board", "one trick, five streets", "the crew's group chat lights up", "dawn to dusk in one line", "the wheels' sound leads"]
-    .map((idea, index) => ({ idea, tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, rhythm: "slow build, fast end", p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
+    .map((idea, index) => ({ idea, who: ["the kid", "the kid", "the crew", "the city", "a viewer"][index], tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, rhythm: "slow build, fast end", p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" }));
   // Each treatment carries its story: without a turn all 5 are refused in one answer.
   const noTurn = await brief(id, { fields: { treatments: treatments.map(({ turn, ...rest }) => rest) } });
   assert.equal(noTurn.isError, true);
   assert.match(noTurn.text, /treatments\[0\]\.turn is 1 to 60 characters: the on-screen moment it flips\..*\(5 problems\)/);
+  // 5 stories driven by one who ("Kid" is "the kid") are one story told 5 ways: refused, naming who.
+  const oneWho = await brief(id, { fields: { treatments: treatments.map((entry, index) => ({ ...entry, who: index ? "the kid" : "Kid" })) } });
+  assert.match(oneWho.data.reason, /^treatments: 5 of 5 share who "Kid"; give at least 3 different whos\./);
   assert.equal((await brief(id, { fields: { treatments } })).isError, undefined);
-  await refused("ask their treatment pick", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", quote: "<their words>" } } } });
+  // Under "just start" the pick is the agent's own, and says why.
+  await refused("pick a treatment, with why", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } });
   // The pick's idea becomes style.idea; its move is offered as the first signature.
-  const picked = await brief(id, { fields: { treatments: { pick: "A", quote: "the wheels one" } } });
+  const picked = await brief(id, { fields: { treatments: { pick: "A", why: "the sound is what a skater retells" } } });
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
   const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");

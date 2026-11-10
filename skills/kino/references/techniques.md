@@ -7,7 +7,7 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
 
 ## The vocabulary
 
-56 tags in 6 groups; `library {topic:"techniques", name?}` lists them or one. `*` marks ones check cannot find in a document yet.
+56 tags in 6 groups; `library {topic:"techniques", name?}` lists them or one. `*`: check cannot find it in a document yet.
 
 - **transition**: cut, match-cut*, dissolve, fade-black, blur-through, zoom-through, whip-pan,
   mask-wipe, glitch-hit, flash, push-transition
@@ -19,10 +19,10 @@ Contents: The vocabulary · The style spec · What check measures · The deck ·
   device-in-scene*, screen-zoom, type-behind (read from the `move` that built them)
 - **rhythm**: beat-cut, beat-kick, syncopated, hold
 
-Every check answer then lists the techniques used, most used first:
+Each check answer lists the techniques used, most first:
 `techniques: cut 12, type-pop 5, slow-push 2 · style: kino default`.
 
-How kino finds them (from the document, not the pixels):
+kino finds them in the document, not the pixels:
 
 - dissolve: two pictures (full-frame, or floating clips in place) whose opacities cross;
   fade-black fades through a dark background.
@@ -39,7 +39,7 @@ How kino finds them (from the document, not the pixels):
 ## The style spec
 
 Write it on the brief once you know what the references do (library inspire, the person's
-words). It says which techniques the video wants and avoids:
+words): the techniques the video wants and avoids.
 
 ```json
 {"tool":"notes","action":"brief","fields":{"style":{"wants":["type-words","dissolve","slow-push"],"avoids":["beat-kick"],"lines":[{"text":"lowercase captions, word by word","ref":"yt:3VHoNjrUD4Q","at":8.2,"tags":["type-words"]}],"by":"guessed"}}}
@@ -47,11 +47,11 @@ words). It says which techniques the video wants and avoids:
 {"tool":"notes","action":"brief","fields":{"style":{"wants":["disolve"],"by":"guessed"}},"expect":"bad_input"}
 ```
 
-- `wants` and `avoids` take tags only; an unknown tag is refused with the closest one.
+- `wants` and `avoids` take tags only; an unknown one is refused, naming the closest.
 - `lines` (up to 8): what a reference does, `ref` (yt:<id>, a file, a link), `at` (the second
   it happens) and the `tags` that moment shows.
-- `by:"you"` with `quote` when the person asked for the style in their own words; else
-  `"guessed"`. Their spec is never replaced by a guess.
+- `by:"you"` with `quote` when the person asked for it in their words; else `"guessed"`,
+  which never replaces theirs.
 - Saving it keeps a confirmed brief confirmed, like `idea`.
 
 **Only backed wants change rules.** A wanted tag turns rules off when the spec is `by:"you"`, or
@@ -71,7 +71,7 @@ What a backed want does:
 | any tag | `technique_repeat` lets it repeat; `style_wanted` warns when it is not used |
 
 An avoided tag used is a gate (`style_avoided`) only if the person banned it. The other gates (reading time,
-type size, contrast, overlap and the rest) never change with the spec. With no spec, check follows kino's default style and says `style: kino default`.
+type size, contrast, overlap...) never change with the spec. With no spec, check follows kino's default style and says `style: kino default`.
 
 ## What check measures
 
@@ -105,7 +105,7 @@ Seed: the project's plus the reroll count. The deal:
 - steers away from what the last 3 projects were dealt and used;
 - never deals plain cuts, plain text, beat kicks, or both type-pop and slow-push.
 
-Build each card where it fits; swap one that does not, with the reason (2 a deal); none fit: reroll.
+Build each card where it fits; swap a misfit with the reason (2 a deal); none fit: reroll.
 
 ```json
 {"tool":"notes","action":"deck"}
@@ -114,20 +114,20 @@ Build each card where it fits; swap one that does not, with the reason (2 a deal
 ```
 
 `variants {vary:"deck"}` remakes a composed scene with the next 3 decks; `look
-{mode:"variants"}` shows their first 8 s side by side; `pick_variant` makes that deck the
-project's. Recipes and compose take the project's seed when you give none.
+{mode:"variants"}` shows their first 8 s side by side; `pick_variant` keeps one. Recipes and
+compose take the project's seed by default.
 
 ## Treatments
 
-Before building, write 5 small stories, all fields required: idea, `tension` (what the viewer
-wants, fears or wonders), `turn` (the on-screen moment it flips), move, rhythm, `source` (the
-file or screen it uses), `p` (0 to 1: how typical the story). kino shows the 3 least typical
-as `A. idea · tension → turn · move`. The pick, with their words (under "just start", yours),
-sets `style.idea` and the first signature. Building first is `order_needed`; waive_check code
-"treatments" skips it.
+Before building, write 5 stories, all required: idea, `who` (whose want or fear drives
+it; 3 different at least), `tension` (what they want, fear or wonder), `turn` (the on-screen
+moment it flips), move, rhythm, `source` (file or screen used), `p` (0 to 1: how typical).
+kino shows the 3 least typical, one per who, as `A. idea · who: tension → turn · move`. The
+pick, with their words (under "just start", yours with a `why`), sets `style.idea` and the
+first signature. Building first is `order_needed`; waive_check "treatments" skips it.
 
 ```json
-{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","tension":"asleep?","turn":"first wheels","move":"pushes","rhythm":"even","p":0.6,"source":"dawn.mp4"},{"idea":"one board","tension":"whose?","turn":"owner lands it","move":"match cuts","rhythm":"builds","p":0.15,"source":"crew.mp4"},{"idea":"a map","tension":"where to?","turn":"the loop closes","move":"mask-wipe","rhythm":"steady","p":0.1,"source":"route.mp4"},{"idea":"tricks","tension":"will it land?","turn":"a fall","move":"freeze-frame","rhythm":"stop-go","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","rhythm":"offbeat","p":0.05,"source":"street.wav"}]}}
+{"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","rhythm":"even","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","rhythm":"builds","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","rhythm":"steady","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","rhythm":"stop-go","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","rhythm":"offbeat","p":0.05,"source":"street.wav"}]}}
 {"tool":"notes","action":"brief","fields":{"treatments":{"pick":"B","quote":"the map one"}}}
 ```
 
