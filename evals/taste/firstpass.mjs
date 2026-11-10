@@ -20,11 +20,28 @@ const TOOLS = "Bash,Read,Agent";
 
 // ---- pure parts (tests/taste-harness.test.mjs) ----------------------------------------------------
 
-/** The person's message: the ask, then the files, then any notes. Nothing about kino or taste. */
-export function promptFor(brief, files) {
+/**
+ * The person's message: the ask, then the files, then any notes, then the project's name when
+ * there is one. Nothing about kino or taste.
+ */
+export function promptFor(brief, files, projectId = null) {
   const lines = [brief.ask.trim(), "", "Files:", ...files.map((file) => `- ${file}`)];
   if (brief.notes) lines.push("", brief.notes.trim());
+  if (projectId) lines.push("", `Call the project ${projectId}.`);
   return lines.join("\n");
+}
+
+/**
+ * The run's own project id, from its run id: lowercase letters, digits and dashes, at most 63
+ * (kino's project id). Left to itself every agent named its project after the ask (kino-launch),
+ * so every run got one deal seed (engine/deck.js projectSeed) and one house-memory family. A
+ * number at the end is joined to the word before it (kino-fp-9 is kino-fp9), because familyOf
+ * (backend/house-memory.mjs) drops a trailing "-9" and kino-fp-8 and kino-fp-9 would be one family.
+ */
+export function projectIdFor(runId) {
+  let id = String(runId ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 63).replace(/^-+|-+$/g, "");
+  while (/-v?\d+[a-z]?$/.test(id)) id = id.replace(/-(v?\d+[a-z]?)$/, "$1");
+  return id || "firstpass";
 }
 
 /** Visible words of an HTML page: no scripts, styles or tags, entities decoded, one line per block. */
@@ -230,7 +247,8 @@ async function main() {
   const dataDir = path.join(runDir, "data"), outDir = path.join(runDir, "out"), mediaDir = path.join(runDir, "media");
   await mkdir(outDir, { recursive: true });
   const files = await copyMaterial(brief, mediaDir);
-  const prompt = promptFor(brief, files);
+  const projectId = projectIdFor(runId);
+  const prompt = promptFor(brief, files, projectId);
   if (args.includes("--dry-run")) { console.log(prompt); return; }
   await writeSettings(dataDir, outDir);
 
@@ -290,7 +308,7 @@ async function main() {
   await rm(workDir, { recursive: true, force: true });
   const last = calls.at(-1) ?? {};
   const result = {
-    version: 1, runId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
+    version: 1, runId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", models: [...new Set(calls.flatMap((call) => call.models))],
     startedAt: new Date(started).toISOString(), seconds, budgetMinutes: minutes, timedOut: calls.some((call) => call.timedOut) || Date.now() >= deadline,
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
     finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY,

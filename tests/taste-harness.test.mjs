@@ -5,7 +5,9 @@ import test from "node:test";
 import { agreement, bradleyTerry, cutsFrom, lineLevels, parseEbur128, shortTermCurve, splitPicks, stripTimes } from "../evals/taste/lib.mjs";
 import { answerJson, combine, factsText } from "../evals/taste/judge.mjs";
 import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
-import { htmlText, pickMp4, promptFor, summarize } from "../evals/taste/firstpass.mjs";
+import { htmlText, pickMp4, projectIdFor, promptFor, summarize } from "../evals/taste/firstpass.mjs";
+import { projectSeed } from "../engine/deck.js";
+import { familyOf } from "../backend/house-memory.mjs";
 
 test("cuts become 12 fps strips 0.5 s each side, joined where they overlap", () => {
   const frames = [0.5, 1, 1.04, 3].map((t, i) => ({ t, score: [30, 40, 12, 50][i] }));
@@ -95,4 +97,15 @@ test("a first pass sends only the ask and the files, and keeps the final MP4 ove
     { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } },
     { type: "result", total_cost_usd: 1.5, num_turns: 4, result: "Rendered.", modelUsage: { m: {} } }]);
   assert.deepEqual([run.sessionId, run.cost, run.toolCalls.Bash, run.finalMessage], ["s1", 1.5, 1, "Rendered."]);
+});
+
+test("each first pass names its own project from the run id: its own deal seed and house-memory family", () => {
+  const ids = ["kino-fp-8", "kino-fp-9", "kino-fp-9b", "kino-trailer-20261109-101500"].map(projectIdFor);
+  assert.deepEqual(ids, ["kino-fp8", "kino-fp9", "kino-fp9b", "kino-trailer20261109101500"]);
+  for (const id of ids) assert.match(id, /^[a-z0-9][a-z0-9-]{0,62}$/, "a valid kino project id");
+  assert.deepEqual(ids.map(familyOf), ids, "a trailing run number does not merge runs into one family");
+  assert.equal(new Set(ids.map((id) => projectSeed(id))).size, ids.length, "no two runs share a deal seed");
+  assert.equal(projectIdFor("Fp 10 (retry)!"), "fp-10-retry");
+  assert.equal(projectIdFor("x".repeat(80) + "-12").length, 63);
+  assert.equal(promptFor({ ask: "make a video" }, ["/r/a.mp4"], "kino-fp9"), "make a video\n\nFiles:\n- /r/a.mp4\n\nCall the project kino-fp9.");
 });
