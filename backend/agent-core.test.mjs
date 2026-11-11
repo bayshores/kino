@@ -738,4 +738,7 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   const [note, ...rest] = waiverNotes([...waivers(6, "hold"), ...waivers(2, "judder")]);
   assert.match(note, /^hold is waived 6 times here: likely a kino false positive/);
   assert.equal(rest.length, 0);
+  // `codes` limits the notes to the rules an edit just waived.
+  assert.deepEqual(waiverNotes(waivers(6, "hold"), { codes: ["judder"] }), []);
+  assert.equal(waiverNotes(waivers(6, "hold"), { codes: ["hold"] }).length, 1);
 });

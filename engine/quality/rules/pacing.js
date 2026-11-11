@@ -1,7 +1,7 @@
 // Pacing and promise rules. Gates: promo_basics, assertions.
 // Warnings: scene_lengths, no_rhythm, transitions_dense, static_scene, off_beat (near misses of a beat only).
 import { atFullOpacity, coversFrame, cuts, drawnSize, firstEntrances, goodEntranceDelay, inRest, isPerpetual, motions, primaryItems, readableAt, readingTexts, recommendedHold, sec, sections, shownShare } from "../analysis.js";
-import { area, boxAt, chainOf, fillColorsAt, frameAt, hexRgba, insideShare, intersection, isDecor, itemById, luminance, paintColors } from "../model.js";
+import { area, boxAt, chainOf, fillColorsAt, frameAt, hexRgba, insideShare, intersection, isDecor, itemById, luminance, paintColors, startsWithCut, visibleBoxAt } from "../model.js";
 import { typeLimits } from "./text.js";
 import { isHoldMotion } from "./motion.js";
 
@@ -177,6 +177,22 @@ const beatOf = (model) => 60 / (model.rhythm?.bpm ?? 120);
 // off_beat: an accent this far from a beat (or less) is a near miss; further is syncopation.
 export const NEAR_MISS = 0.07;
 
+const SHOT_MOVE_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation"]);
+
+// A full-frame layer's place or scale move that starts on its own hard cut in and keeps the frame
+// covered to its end: the shot's own camera move. busy_edit and drift_on_every_shot judge it, and
+// its cut is already a plain cut. A shot that slides in from off the frame is a transition.
+function startsOnOwnCut(model, item, motion, frame) {
+  if (!motion.tweens.every((tween) => tween.kind !== "in" && tween.kind !== "out" && tween.keys.every((key) => SHOT_MOVE_KEYS.has(key)))) return false;
+  const whole = { x0: 0, y0: 0, x1: model.width, y1: model.height };
+  const covers = (index) => area(intersection(visibleBoxAt(model, item, index), whole)) / frame >= 0.95;
+  if (!covers(frameAt(model, motion.end))) return false;
+  const first = frameAt(model, motion.start);
+  // The move may start a frame before the first sample where the layer is shown.
+  return [first, first + 1].some((index) => index < model.times.length && item.samples.opacity[index] >= 0.9
+    && motion.start <= model.times[index] + 1 / model.fps && covers(index) && startsWithCut(model, item, index));
+}
+
 // Transitions that move a large share of the frame: entrances, exits and moves of big layers.
 function bigTransitions(model) {
   const frame = model.width * model.height;
@@ -184,6 +200,7 @@ function bigTransitions(model) {
     const item = itemById(model, motion.itemId);
     // A slow drift through a hold is not a transition, nor is an instant step (a frame cut).
     if (!item || isPerpetual(model, item) || isHoldMotion(model, item, motion) || motion.duration <= 0.5 / model.fps) return false;
+    if (startsOnOwnCut(model, item, motion, frame)) return false;
     let largest = 0;
     for (let index = 0; index < model.times.length; index += 1)
       if (item.samples.opacity[index] > 0.05 || item.isMask) largest = Math.max(largest, area(boxAt(item, index)) / frame);
@@ -204,15 +221,17 @@ export function transitionsDense(model, ctx) {
       if (seenMoves.has(id)) continue;
       seenMoves.add(id);
     }
-    if (!starts.length || motion.start - starts.at(-1) > 1 / model.fps + 1e-6) starts.push(motion.start);
+    if (!starts.length || motion.start - starts.at(-1).time > 1 / model.fps + 1e-6) starts.push({ time: motion.start, itemId: motion.itemId });
   }
   for (let first = 0; first < starts.length; first += 1) {
-    const inside = starts.filter((time) => time >= starts[first] - 1e-6 && time < starts[first] + windowLength - 1e-6);
+    const from = starts[first].time;
+    const inside = starts.filter(({ time }) => time >= from - 1e-6 && time < from + windowLength - 1e-6);
     if (inside.length <= 2) continue;
+    const named = inside.slice(0, 3).map(({ time, itemId }) => `${ctx.name(itemById(model, itemId))} ${sec(time)} s`).join(", ");
     return [{
-      rule: "transitions_dense", severity: "warn", at: sec(starts[first]), until: sec(starts[first] + windowLength),
+      rule: "transitions_dense", severity: "warn", at: sec(from), until: sec(from + windowLength),
       measured: `${inside.length} in 6 beats`, required: "at most 2 in 6 beats",
-      message: `${inside.length} large transitions start within 6 beats (${sec(windowLength)}s from ${sec(starts[first])}s)${model.rhythm ? "" : " at an assumed 120 bpm"}; it feels busy.`,
+      message: `${inside.length} large transitions start within 6 beats (${sec(windowLength)}s from ${sec(from)}s: ${named})${model.rhythm ? "" : " at an assumed 120 bpm"}; it feels busy.`,
       fix: { kind: "hint", text: "Replace some with simple cuts, or spread them out." },
     }];
   }

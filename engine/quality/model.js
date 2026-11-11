@@ -136,6 +136,29 @@ export function chainOf(model, item) {
   return chain;
 }
 
+const PLACE_KEYS = ["x", "y", "scaleX", "scaleY", "rotation"];
+
+/**
+ * When the move that is under way at sample `index` started: the earliest start of a place, scale
+ * or rotation tween (not an in or out) of the item or a group it is in, or null when none runs.
+ */
+export function moveStartedAt(model, item, index) {
+  const time = model.times[index];
+  let started = null;
+  for (const entry of chainOf(model, item))
+    for (const tween of tweensOf(model, entry.id))
+      if (tween.kind !== "in" && tween.kind !== "out" && tween.keys.some((key) => PLACE_KEYS.includes(key))
+        && tween.start <= time + 1 / model.fps && tween.end > time && (started === null || tween.start < started)) started = tween.start;
+  return started;
+}
+
+/** True when the item is hidden just before sample `index` and its move there began no earlier than a frame before it: the cut starts the move. */
+export function startsWithCut(model, item, index) {
+  const hidden = index === 0 ? item.samples.opacity[0] > 0.05 : item.samples.opacity[index - 1] <= 0.05;
+  const started = moveStartedAt(model, item, index);
+  return hidden && started !== null && started >= model.times[index] - 2 / model.fps - 1e-6;
+}
+
 export function itemById(model, id) {
   model._byId ??= new Map(model.items.map((entry) => [entry.id, entry]));
   return model._byId.get(id);

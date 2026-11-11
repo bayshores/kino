@@ -92,6 +92,16 @@ test("check {fix:\"auto\"} leaves a layer the latest edit moved (until another e
   assert.match(font.text, /not applied role_font_drift cap2: left alone: the spine's hook uses it; the warning stays/, font.text);
 });
 
+test("a rule waived a sixth time says so in the edit receipt's notes and right after check's counts", async () => {
+  await agent("project", { action: "create", id: "waived6", name: "Waived6", width: 1920, height: 1080, duration: 3, background: "#101010" });
+  const tiles = [0, 1, 2, 3, 4, 5].map((index) => ({ op: "add_layer", layerType: "rectangle", name: `tile${index}`, properties: { x: 100 + index * 300, y: 400, width: 200, height: 200, fill: "#3a5a40" } }));
+  const five = await agent("edit", { project: "waived6", ops: [...tiles.slice(0, 5), { op: "waive_check", code: "hold", target: "tile?", reason: "on purpose" }] });
+  assert.doesNotMatch(JSON.stringify(five.data.notes ?? []), /waived 5 times/, five.text);
+  const six = await agent("edit", { project: "waived6", ops: [tiles[5], { op: "waive_check", code: "hold", target: "tile5", reason: "on purpose" }] });
+  assert.match(six.data.notes.join(" "), /^hold is waived 6 times here: likely a kino false positive/, six.text);
+  assert.match((await agent("check", { project: "waived6", pixels: false })).text.split("\n")[1], /^note: hold is waived 6 times/);
+});
+
 test("check {fix:\"auto\"} tightens a slow layer stagger and keeps its order", async () => {
   await agent("project", { action: "create", id: "cards", name: "Cards", width: 1920, height: 1080, duration: 4, background: "#101010" });
   // Four cards 0.3 s apart (0.9 s in all): stagger_long asks for 0.5 s.
