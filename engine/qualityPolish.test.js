@@ -824,25 +824,6 @@ test("end_on_fade: the video ends on a fade while the song is mid-phrase", async
   assert.deepEqual((await check("end_on_fade", document, { speechScene: raw, speech: [{ layer: raw.layers[0], music: true, loudness }], cues: [{ name: "outro", kind: "marker", time: 6 }] })).findings, []);
 });
 
-test("song_jumps: a song re-arranged into joined pieces that jump in song time", async () => {
-  const piece = (id, at, offset, length) => voice(id, { src: "/api/media/song.wav", mediaStart: at, mediaOffset: offset, mediaDuration: length, mediaSourceDuration: 230 });
-  const run = async (layers) => {
-    const document = scene({ duration: 40, layers });
-    const [raw] = document.scenes;
-    return (await check("song_jumps", document, { speechScene: raw, speech: raw.layers.map((layer) => ({ layer, transcript: null, music: true })) })).findings;
-  };
-  // fp-15's shape: 4 pieces, 3 jumps in 40 s.
-  const [chopped] = await run([piece("song", 0, 0, 7), piece("song-2", 7, 68.8, 14), piece("song-3", 21, 178, 14), piece("song-4", 35, 217, 5)]);
-  assert.match(chopped.message, /^"song" is re-arranged: 3 jumps in 40 s of music \(at 7 s from 0:07 to 1:08 in the song/);
-  assert.match(chopped.fix.text, /^fit_music \{layer:"song"\}/);
-  // One stretch, two pieces that carry on in song time, and one jump in 40 s: left alone.
-  assert.deepEqual(await run([piece("song", 0, 74, 40)]), []);
-  assert.deepEqual(await run([piece("song", 0, 10, 20), piece("song-2", 20, 30, 20)]), []);
-  assert.deepEqual(await run([piece("song", 0, 10, 20), piece("song-2", 20, 90, 20)]), []);
-  // The same jump in a 20 s video is one too many.
-  assert.equal((await run([piece("song", 0, 10, 10), piece("song-2", 10, 90, 10)])).length, 1);
-});
-
 test("no_music: a 10 s video with no song under it", async () => {
   const long = (layers) => scene({ duration: 12, layers });
   const run = (document, speech = [], soundSearch = false) => check("no_music", document, { speechScene: document.scenes[0], speech: speech.map((index) => ({ layer: document.scenes[0].layers[index], music: true })), soundSearch });

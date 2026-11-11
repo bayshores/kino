@@ -15,7 +15,7 @@ import { driftOnEveryShot, evenShotLengths, fadeOnlyEntrances, pageChrome, split
 import { cutOffAtRest, fontFallback, heldStatic, offBrandFont, renderArtifact, smallOnEmpty, textCollision, textGhost, textOnBusy, textWrap } from "./rules/polish.js";
 import { frozenScreen, screenUnreadable } from "./rules/screens.js";
 import { speechCaptions, speechCut, speechQuotes } from "./rules/speech.js";
-import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, musicTurn, noMusic, sfxRestraint, songJumps, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
+import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, musicTurn, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
 import { clipReuse, cropNoSubject, frozenFootage, jumpCut, softUpscale, trackLost } from "./rules/footage.js";
@@ -94,7 +94,6 @@ export const RULES = [
   rule("volume_churn", "warn", volumeChurn, "a song or bed turns volume direction (1.5 dB) under 3 times in any 10 s, fades in and out aside"),
   rule("voice_level_spread", "warn", voiceLevelSpread, "spoken lines are heard within 3 dB of each other (measured like voice_under_bed)"),
   rule("end_on_fade", "warn", endOnFade, "the video does not end on a fade while its song is still loud mid-phrase (over 1 s before the file's own ending); an end on a section cue or within a beat of a 4-bar phrase line is fine"),
-  rule("song_jumps", "warn", songJumps, "a song plays in one stretch: joined pieces of one file jump in song time at most once per 30 s of music (none under 30 s); fix: fit_music, then time the picture to its cues"),
   rule("no_music", "warn", noMusic, "a video of 10 s or more has music: an audio layer kino hears a beat in, or one playing 30% of the video that is not a transcribed voice; the fix is a soundtrack search when sound search is on, else asking the person at the sound stop"),
   rule("sfx_restraint", "warn", sfxRestraint, "sound effects (sound layers under 3 s that are not music or a voice) play at most 4 in any 16 s (about one every 4 s), and one sound file plays fewer than 3 times; silence is the default and repeated motions play silent after the first"),
   rule("text_load", "warn", textLoad, "texts on screen together ask for at most 24 characters a second (each one's characters ÷ its readable time), and at most 2 separate texts over playing footage for over 1.5 s; a logo, a label shown half the video and the end card do not count"),

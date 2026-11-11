@@ -556,56 +556,11 @@ export function endOnFade(model, ctx) {
       rule: "end_on_fade", severity: "warn", layerId: layer.id, at: sec(end),
       message: `The video ends on a fade of "${layer.name}" while the song is mid-phrase (${sec(sound.duration - out)} s before its own ending): the end feels cut off, not finished.`,
       measured: `the song is still loud at ${sec(out)} s in its file (within ${STILL_GOING} dB of its median); the volume falls from ${round3(earlier)} to ${round3(stopping)} at the end`,
-      required: "end the video on a phrase line of the song (every 4 bars; fit_music's note names the time) or on a section cue, with a fade; never jump the song to its ending",
+      required: "end the video on a phrase line of the song (every 4 bars; fit_music's note names the time), on a section cue or on the song's own ending, with a fade",
     });
   }
   return findings;
 }
-// ---------------------------------------------------------------- song_jumps
-// A song re-arranged: pieces of one file, joined, whose song time jumps at the join. fp-15 had 3
-// jumps in 40 s across the singer's lines, and the owner heard a song made "weird". A join that
-// carries on in song time is no jump, and neither is a piece that starts after a silence.
-const JUMP_SLACK = 0.3;
-const JOIN_GAP = 0.5;
-// Seconds of song a jump needs to itself: none in a video under 30 s, 1 in 30 to 60 s.
-const JUMP_EVERY = 30;
-
-export function songJumps(model, ctx) {
-  const scene = ctx.speechScene;
-  if (!scene) return [];
-  const songs = new Map();
-  for (const entry of (ctx.speech ?? []).filter((item) => item.music && item.layer?.enabled !== false && item.layer?.src)) {
-    const range = mediaPlaybackRange(entry.layer, scene.duration);
-    if (!range || range.remapped || isRemapped(entry.layer)) continue;
-    if (!songs.has(entry.layer.src)) songs.set(entry.layer.src, []);
-    songs.get(entry.layer.src).push({ layer: entry.layer, range });
-  }
-  const clock = (time) => `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, "0")}`;
-  const findings = [];
-  for (const pieces of songs.values()) {
-    pieces.sort((a, b) => a.range.start - b.range.start);
-    const jumps = [];
-    for (let index = 1; index < pieces.length; index += 1) {
-      const before = pieces[index - 1].range, after = pieces[index].range;
-      if (Math.abs(after.start - before.end) > JOIN_GAP) continue;
-      const carried = before.offset + (after.start - before.start);
-      if (Math.abs(after.offset - carried) > JUMP_SLACK) jumps.push({ at: after.start, from: carried, to: after.offset });
-    }
-    const played = pieces.at(-1).range.end - pieces[0].range.start;
-    const allowed = Math.floor(played / JUMP_EVERY);
-    if (jumps.length <= allowed) continue;
-    const head = pieces.find((piece) => !piece.layer.fitMusic)?.layer ?? pieces[0].layer;
-    findings.push({
-      rule: "song_jumps", severity: "warn", layerId: head.id, at: sec(jumps[0].at),
-      message: `"${head.name}" is re-arranged: ${jumps.length} jump${jumps.length === 1 ? "" : "s"} in ${sec(played)} s of music (${jumps.map((jump) => `at ${sec(jump.at)} s from ${clock(jump.from)} to ${clock(jump.to)} in the song`).join(", ")}). Each jump is heard as an edit, most of all under a voice.`,
-      measured: `${jumps.length} jump${jumps.length === 1 ? "" : "s"} in song time, ${pieces.length} pieces`,
-      required: `one unbroken stretch of the song with the picture timed to it; at most 1 jump per ${JUMP_EVERY} s of music`,
-      fix: { kind: "hint", text: `fit_music {layer:"${head.name}"} (one stretch, its drop on the payoff), then move cuts onto its song- cues.` },
-    });
-  }
-  return findings;
-}
-
 // ---------------------------------------------------------------- no_music
 
 // A video this long or longer wants music (a silent first pass is a choice, never an accident).

@@ -55,7 +55,7 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 
 - `fit_music {layer}` plays one unbroken stretch of the song, its drop on the spine's payoff
   (or `payoff`): time the picture to it; its notes say where the turn and end fit the song.
-  Then `duck_audio`. A jump in a song is heard as an edit (`song_jumps`).
+  Then `duck_audio`. `recut:true` re-arranges the song instead.
 - `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
   (payoff)"); cues `song-drop-1`, `song-dropout-`, `song-return-`, `song-vocal-in-`,
   `song-switch-` mark them where heard.
