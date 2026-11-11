@@ -24,14 +24,15 @@ person: only their answer or their settings let one pass.
      it look and sound like?" (their words, or a video they like)
    - `never`: "What would make you wince?" A ban names an execution ("an invented dashboard over
      the real UI"), not a category ("maps"). Only their words ban (quote, scope); guesses: "none said".
-   - `plays_on`: where and how long; say the aspect you derive (TikTok 9:16).
+   - `plays_on`: where and how long; the aspect from their words or their footage, never a guessed 9:16
+     (the brief's `shape:` line shows both).
    - `made_from`: footage, music, files.
    - `key_moment` (optional): "What's the one moment that should make someone stop scrolling?"
    - `idea` (optional, yours, not asked): the one idea (ideas reference); stops show it.
    Under 8 s: only the open question. A named length: `project create {duration}` plus the
    brief's `fields:{length:30}`, a gate (`{seconds, tolerance}`; default 2%, min 0.5 s).
-3. Don't ask what they can't judge yet (loudness, colors). Before the playback,
-   check for clashes ("dark and moody" against "faces readable on a phone").
+3. Don't ask what they can't judge yet (loudness, colors). Before the playback, check
+   for clashes ("dark and moody" against "faces readable on a phone").
 4. "Just start": save what you have not heard as guessed, with `no_playback:"just start"`;
    say your main calls (and the treatment you picked) in one line and go on.
 
@@ -45,10 +46,11 @@ person: only their answer or their settings let one pass.
   in a reply is refused (`quote_not_said`, with their closest sentence).
   `text` (your reading): 80 characters max, idea 120.
 - `about` `{text, by:"you", quote}`: who or what it is about, in their words; the first
-  reference search uses it.
+  reference search uses it. The brief's `origin:` line is kino's own search of it (you cannot
+  save it): say it in the playback; name its word in the idea where it fits.
 - Never put a guess over their line or remove it: ask them, then save their new words.
-- Log every reply `{q, a}` word for word (over 2,000 characters: the answering part). Their
-  earlier words a lead passed on: `{a, kind:"passed_on"}`, not counted as a reply.
+- Log every reply `{q, a}` word for word (over 2,000 characters: the answering part). Words a
+  lead passed on: `{a, kind:"passed_on"}`, not a reply.
 - Their answer to a playback: `kind:"playback"` and `rev`, the revision you played back (the
   save answer names it: `brief r3 saved`). Add `confirmed:true` only when they said it is
   right; a yes to an older revision confirms nothing.
@@ -60,7 +62,7 @@ Play it back in 5–8 lines, each starting `- `, then exactly `What's wrong or m
 ```
 Here's the brief. Quotes are yours; "guess" is mine.
 - message: you said "my skate crew, they should feel like going out to skate"
-- plays on: guess: TikTok, 9:16, 24 s
+- plays on: guess: 16:9, 24 s (skate.mp4 is 16:9)
 - made from: guess: skate.mp4, its own sound
 - look and sound: you said "raw and bright, real street sound, no synth dings"
 - never: you said "no meme text and don't crop our faces out"
@@ -99,12 +101,12 @@ revision with 0 errors, and your own `look`. "It looks right" is not a check.
 
 Asking:
 - Send `ask` as written. After its first line you may add up to 3 lines (what changed, where
-  to look); the storyboard's ask already lists its shots with kino's numbers. Attach `look {mode:"sheet"}` (for the storyboard, its
-  `look {mode:"board"}` pages) when your app can send files.
+  to look); the storyboard's ask already lists its shots. Attach `look {mode:"sheet"}` (for the
+  storyboard, `look {mode:"board"}`) when your app can send files.
 - Then end your turn: `Waiting for you: the rough cut (C1)`. Until they answer, that project's
   writes answer `{waiting:"C1"}` and change nothing; reads, `look`, `check` and `notes` work.
-- A stop closes by itself only when the person undid or changed the work it showed (`lapsed`:
-  check, ask again), the video lost that stop, or their settings allow it.
+- A stop closes by itself only when the work it showed changed (`lapsed`: check, ask again),
+  the video lost that stop, or their settings allow it.
 
 Their answer:
 - "ok", "yes", "looks good", "go", "C1 yes": approve. An approval plus a change ("yes,
@@ -115,17 +117,15 @@ Their answer:
   words:"<their reply>", read_as:"approve"}`. Then one line, `Read as: approve`: a receipt,
   not a second question.
 - After a redo, fix only what they named, `check`, and ask that stop again (a new id).
-- They may answer in kino instead: your inbox says so. Act on it; do not record it again (`answered`). `reopened` in your inbox or
-  `status`: your reading was not what they meant; ask the stop the inbox names again. A later
-  stop that waited then closes: do not record a reply to it.
+- They may answer in kino: your inbox says so (`answered`); do not record it again. `reopened`:
+  your reading was wrong; ask the stop the inbox names again. A later stop that waited closes.
 - "stop asking" counts only on the stop whose ask offers it (the first of rough, color and
-  sound this video asks): rough, color and sound then pass for this video. It never skips
-  the storyboard or an approval.
+  sound): those three then pass for this video, never the storyboard or an approval.
 - `Q…` ids are approvals: the person answers in kino or the chat (record a chat yes/no
   with `notes answer`).
 - Each answer counts toward the 10 replies (`ask_limit` at 10: see Replies).
-- kino refuses an answer under 5 s after the ask (`too_fast`) and one for a revision the
-  person did not see (`stale_rev`: ask again).
+- kino refuses an answer under 5 s after the ask (`too_fast`) and one for an unseen revision
+  (`stale_rev`: ask again).
 
 ## Finishing
 
@@ -139,7 +139,7 @@ End every turn with one of: `Done: <file>`, `Done, with open questions: …` or
 ## Examples
 
 ```json
-{"tool":"notes","action":"brief","fields":{"message":{"text":"skate crew; make them want to skate now","by":"you","quote":"my skate crew, they should feel like going out to skate"},"plays_on":{"text":"TikTok, 9:16, 24 s","by":"guessed"}},"log":[{"q":"Who's it for, and what should they feel after watching?","a":"my skate crew, they should feel like going out to skate"}]}
+{"tool":"notes","action":"brief","fields":{"message":{"text":"skate crew; make them want to skate now","by":"you","quote":"my skate crew, they should feel like going out to skate"},"plays_on":{"text":"16:9, 24 s","by":"guessed"}},"log":[{"q":"Who's it for, and what should they feel after watching?","a":"my skate crew, they should feel like going out to skate"}]}
 {"tool":"notes","action":"brief","fields":{"never":{"text":"no meme text","by":"you"}},"expect":"quote_needed"}
 {"tool":"notes","action":"brief","log":[{"q":"What's wrong or missing?","a":"looks right","kind":"playback","rev":1,"confirmed":true}]}
 {"tool":"notes","action":"brief","fields":{"never":{"text":"no meme text","by":"guessed"}},"log":[{"q":"What would make you wince?","a":"just start"}],"no_playback":"just start"}

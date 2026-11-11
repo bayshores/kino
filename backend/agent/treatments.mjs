@@ -195,23 +195,81 @@ export const shownLines = (treatments) => treatments.shown.map((index, position)
   return `${LABELS[position]}. ${entry.idea} · ${moveText(entry)} · ${entry.rhythm ?? `ends on ${entry.ending}`}`;
 });
 
+// ---- the origin line --------------------------------------------------------------------------
+// kino writes it from state.origin (its own search for what the person named, kept by the origin
+// step); the agent has no field that saves it, so it cannot word it or leave out a number.
+export const ORIGIN_LINE_MAX = 200;
+// Text from a search result, as one plain line: no control characters or double quotes (the line
+// quotes its words), spaces collapsed, cut at `limit` characters.
+const plainText = (text, limit) => {
+  const clean = String(text ?? "").replace(/[\u0000-\u001f\u007f"“”]+/g, " ").replace(/\s+/g, " ").trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 3).trimEnd()}...` : clean;
+};
+const viewsText = (views) => (views >= 1e6 ? `${(views / 1e6).toFixed(1)}M` : views >= 1e3 ? `${Math.round(views / 1e3)}K` : String(Math.round(views)));
+
+/** The origin word kino found most often in the searched titles: { word, count, of }, or null (no origin, skipped, no word). */
+export function originWord(origin) {
+  const found = (Array.isArray(origin?.words) ? origin.words : []).filter((entry) => typeof entry?.word === "string" && plainText(entry.word, 30)
+    && Number.isFinite(entry.count) && Number.isFinite(entry.of) && entry.of > 0);
+  if (!found.length) return null;
+  const best = found.reduce((top, entry) => (entry.count > top.count ? entry : top));
+  return { word: plainText(best.word, 30), count: best.count, of: best.of };
+}
+
 /**
- * The lines a stop's ask adds while the person has not picked: the 3 shown treatments. None when
- * they said "just start" (the agent picks) or one is picked.
+ * `origin: "tower" in 11 of 15 titles about "keeper"; top: <title> 5.0M 188 s`, at most
+ * ORIGIN_LINE_MAX characters (the top title is cut to fit), or "" when kino found no origin word
+ * (offline, skipped, too few relevant titles).
  */
-export function pickLines(brief) {
+export function originLine(origin) {
+  const found = originWord(origin);
+  if (!found) return "";
+  const query = plainText(origin.query, 40);
+  const head = `origin: "${found.word}" in ${found.count} of ${found.of} titles${query ? ` about "${query}"` : ""}`;
+  const top = Array.isArray(origin.top) ? origin.top.find((entry) => typeof entry?.title === "string" && plainText(entry.title, 10)) : null;
+  if (!top) return head;
+  const numbers = [Number.isFinite(top.views) && top.views > 0 ? viewsText(top.views) : "", Number.isFinite(top.seconds) && top.seconds > 0 ? `${Math.round(top.seconds)} s` : ""].filter(Boolean).join(" ");
+  const room = ORIGIN_LINE_MAX - head.length - "; top: ".length - (numbers ? numbers.length + 1 : 0);
+  return room >= 12 ? `${head}; top: ${plainText(top.title, room)}${numbers ? ` ${numbers}` : ""}` : head;
+}
+
+// A word with a trailing "s" dropped (tower and towers are the same word), for the pick check.
+const wordKey = (word) => (word.length > 3 ? word.replace(/s$/, "") : word);
+const keysOf = (text) => new Set((String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).map(wordKey));
+
+/** The fields of a treatment (idea, turn, move, source) that name the origin word; [] when none does. */
+export function namesOrigin(entry, word) {
+  const want = wordKey(String(word).toLowerCase());
+  return ["idea", "turn", "move", "source"].filter((key) => keysOf(entry?.[key]).has(want));
+}
+
+/** The pick line's origin part: whether the picked treatment names the origin word, or "" (no pick, no origin word). */
+export function pickOriginLine(treatments, origin) {
+  const found = originWord(origin);
+  const entry = treatments?.picked ? treatments.list?.[treatments.picked.index] : null;
+  if (!found || !entry) return "";
+  const fields = namesOrigin(entry, found.word);
+  return `origin word "${found.word}": ${fields.length ? `the pick names it (${fields.join(", ")})` : "the pick does not name it"}`;
+}
+
+/**
+ * The lines a stop's ask adds while the person has not picked: the 3 shown treatments, after the
+ * origin line when kino found one (`origin`, state.origin). None when they said "just start" (the
+ * agent picks) or one is picked.
+ */
+export function pickLines(brief, origin = null) {
   const treatments = brief?.treatments;
   if (!treatments?.list || treatments.picked) return [];
   if (/just start/i.test(brief.noPlayback?.reason ?? "")) return [];
-  return ["Pick a direction (or say your own):", ...shownLines(treatments)];
+  return ["Pick a direction (or say your own):", ...[originLine(origin)].filter(Boolean), ...shownLines(treatments)];
 }
 
 // What the agent's own pick is for, and the call that saves it ("just start").
 export const OWN_PICK = "pick the one a viewer would retell tomorrow that this material can carry; say why";
 export const OWN_PICK_CALL = Object.freeze({ pick: "<A, B or C>", why: "<why a viewer would retell it>" });
 
-/** The saved treatments in a few lines for the brief's answers. */
-export function treatmentsText(brief) {
+/** The saved treatments in a few lines for the brief's answers; `origin` (state.origin) adds what the pick does with the origin word. */
+export function treatmentsText(brief, origin = null) {
   const treatments = brief?.treatments;
   if (!treatments?.list) return "";
   const dropped = treatments.list[treatments.dropped];
@@ -220,7 +278,7 @@ export function treatmentsText(brief) {
     // The pick's move and source become style.signatures[0] (the lock needs idea + a signature).
     const line = `treatments: ${treatments.picked.label} picked (${treatments.picked.by === "you" ? "by them" : "your call"}): ${entry.idea} · signature: ${moveText(entry)}${entry.type ? ` · type: ${entry.type}` : ""}`;
     const saved = brief.style?.signatures?.[0]?.source;
-    return wordsOnly(entry.source) && wordsOnly(saved) ? `${line}\n${PICTURE_LINE}` : line;
+    return [line, pickOriginLine(treatments, origin), wordsOnly(entry.source) && wordsOnly(saved) ? PICTURE_LINE : ""].filter(Boolean).join("\n");
   }
   const own = /just start/i.test(brief.noPlayback?.reason ?? "");
   return [

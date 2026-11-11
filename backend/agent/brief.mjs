@@ -27,7 +27,7 @@
 import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
-import { OWN_PICK_CALL, cleanTreatments, pickedIdea, pickedSignature, pickedType,treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
+import { OWN_PICK_CALL, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
@@ -963,6 +963,29 @@ export function briefData(state, video = {}) {
 // stays saved and on the dashboard, but repeating it here would double each line's cost.
 const lineText = (name, line) => (line.by === "you" ? `${name}: you said "${line.quote}"` : `${name}: guessed → ${line.text}`);
 
+// The aspect names a person knows; a size within 4% of one is named by it, any other is "1.33:1".
+const ASPECTS = [["16:9", 16 / 9], ["9:16", 9 / 16], ["1:1", 1], ["4:5", 4 / 5], ["5:4", 5 / 4], ["4:3", 4 / 3], ["3:4", 3 / 4], ["3:2", 3 / 2], ["2:3", 2 / 3], ["21:9", 21 / 9]];
+export function aspectLabel(width, height) {
+  const ratio = width / height;
+  const [name, value] = ASPECTS.reduce((best, entry) => (Math.abs(Math.log(ratio / entry[1])) < Math.abs(Math.log(ratio / best[1])) ? entry : best));
+  return Math.abs(Math.log(ratio / value)) <= 0.04 ? name : `${ratio.toFixed(2)}:1`;
+}
+
+/**
+ * The shape the video has against the shape of its footage, `shape: 9:16 (guessed), footage 16:9 (4 of 4)`:
+ * the frame's aspect, whether the person said it (plays_on by "you") or it is a guess, and the aspect
+ * most footage files have with how many of them. video.footageSizes is [{width, height}] for each
+ * distinct video file placed in the scene. "" with no footage or no frame size: nothing to compare.
+ */
+export function shapeLine(brief, video = {}) {
+  const sizes = (Array.isArray(video?.footageSizes) ? video.footageSizes : []).filter((size) => size?.width > 0 && size?.height > 0);
+  if (!sizes.length || !(video?.width > 0 && video?.height > 0)) return "";
+  const counts = new Map();
+  for (const size of sizes) { const label = aspectLabel(size.width, size.height); counts.set(label, (counts.get(label) ?? 0) + 1); }
+  const [label, count] = [...counts].reduce((best, entry) => (entry[1] > best[1] ? entry : best));
+  return `shape: ${aspectLabel(video.width, video.height)} (${brief?.fields?.plays_on?.by === "you" ? "you said" : "guessed"}), footage ${label} (${count} of ${sizes.length})`;
+}
+
 /** The answer to notes {action:"brief"} with nothing to save. */
 export function briefText(state, video = {}) {
   const brief = state?.brief;
@@ -971,12 +994,13 @@ export function briefText(state, video = {}) {
   const missing = missingLines(brief);
   return [
     `brief r${brief.rev}, ${briefState(brief)} · replies ${replies.count} of ${replies.limit} (${plural(replies.questions, "question")}, ${plural(replies.playbacks, "playback")}${replies.stops ? `, ${plural(replies.stops, "stop")}` : ""})`,
-    ...BRIEF_FIELDS.filter((name) => brief.fields[name]).map((name) => lineText(name, brief.fields[name])),
+    ...BRIEF_FIELDS.filter((name) => brief.fields[name]).flatMap((name) => [lineText(name, brief.fields[name]), name === "plays_on" ? shapeLine(brief, video) : ""]),
     brief.fields.about ? lineText("about", brief.fields.about) : "",
     hasAsk(brief) ? `ask: ${plural(asksOf(brief).length, "message")} saved as typed` : "",
+    originLine(state.origin),
     brief.style ? styleLine(brief.style) : "",
     lengthTarget(brief) ? lengthLine(lengthTarget(brief)) : "",
-    treatmentsText(brief),
+    treatmentsText(brief, state.origin),
     state.deck ? deckLine(state.deck) : "",
     ...(state.deck?.swaps ?? []).map((swap) => `deck swap: ${swap.out} → ${swap.in} (${swap.why})`),
     brief.noPlayback ? `no playback: ${brief.noPlayback.reason}` : "",
@@ -1010,7 +1034,7 @@ export function savedText(state, changes, video = {}) {
     head,
     changes.style ? styleLine(brief.style) : "",
     changes.length ? `${lengthLine(lengthTarget(brief))}; check holds the video to it` : "",
-    changes.treatments ? treatmentsText(brief) : "",
+    changes.treatments ? [originLine(state.origin), treatmentsText(brief, state.origin)].filter(Boolean).join("\n") : "",
     // The receipt of a controls save: what they are now, and each step they pass without the person.
     changes.controls !== undefined ? (controlsLine(brief.controls) ?? "controls removed: the person's settings ask every stop again") : "",
     changes.controls ? skippedLine(brief.controls, video?.seconds ?? 0) ?? "" : "",

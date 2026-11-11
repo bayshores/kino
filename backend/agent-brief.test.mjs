@@ -15,10 +15,10 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefText, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefText, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
-import { wordsOnly } from "./agent/treatments.mjs";
+import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { hasMediaTools, makeToneAfterSilence, nextCallOf, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { ASK_TEXT, withAsk } from "./agent-ask.test.support.mjs";
@@ -972,6 +972,52 @@ test("about is who or what the video is about, in their words; the first referen
   const named = { fields: { ...draft.brief.fields, made_from: { text: 'footage from "The Long Climb"', by: "guessed" } } };
   assert.equal(referenceSearches(named, "").search, "The Long Climb edit");
   assert.equal(referenceSearches({ fields: {} }, ""), null);
+});
+
+test("playback shows the origin line (200 characters at most) and what the pick does with its word; the agent cannot save the line", () => {
+  const top = { id: "a1", title: "The Keeper Climbs The Tower (Fan Edit)", views: 5000000, seconds: 188 };
+  const origin = { query: "keeper", words: [{ word: "tower", count: 11, of: 15 }], top: [top] };
+  assert.equal(originLine(origin), 'origin: "tower" in 11 of 15 titles about "keeper"; top: The Keeper Climbs The Tower (Fan Edit) 5.0M 188 s');
+  // A long title is cut to fit, still with its numbers; a skipped search or no word gives no line.
+  const long = originLine({ ...origin, top: [{ ...top, title: "tower ".repeat(80) }] });
+  assert.ok(long.length <= 200 && long.endsWith("... 5.0M 188 s"), long);
+  assert.equal(originLine({ skipped: "offline" }), "");
+  assert.equal(originLine({ query: "keeper", words: [], top: [top] }), "");
+  // It reads back in the brief playback, once, and the stop's pick lines show it before the 3 shown.
+  const treatment = (idea, turn) => ({ idea, who: "the keeper", tension: "can she reach the top?", turn, move: "slow push", ending: "the door", type: "serif", p: 0.2, source: "stairs.mp4" });
+  const list = [treatment("the keeper climbs the tower", "the door opens"), treatment("a lamp at dawn", "the light turns on")];
+  const treatments = { list, dropped: 1, shown: [0, 1], picked: null };
+  const draft = { brief: { ...emptyBrief(), rev: 1, fields: { message: MESSAGE }, treatments }, origin };
+  const lines = briefText(draft).split("\n");
+  assert.equal(lines.filter((line) => line.startsWith("origin:")).length, 1);
+  assert.equal(briefText({ brief: draft.brief }).includes("origin:"), false, "no origin, no line");
+  assert.deepEqual(pickLines(draft.brief, origin).slice(0, 2), ["Pick a direction (or say your own):", originLine(origin)]);
+  assert.equal(pickLines(draft.brief)[1].startsWith("A. "), true, "without an origin the pick lines are as before");
+  // The pick line says whether the picked treatment names the word (idea, turn, move or source).
+  const picked = (index) => ({ ...draft.brief, treatments: { ...treatments, picked: { label: "A", index, by: "guessed", why: "retold" } } });
+  assert.match(briefText({ brief: picked(0), origin }), /\norigin word "tower": the pick names it \(idea\)\n/);
+  assert.match(briefText({ brief: picked(1), origin }), /\norigin word "tower": the pick does not name it/);
+  assert.doesNotMatch(briefText({ brief: picked(1) }), /origin word/);
+  // The agent has no field for it, and a save leaves state.origin alone.
+  assert.throws(() => briefChanges(draft.brief, { fields: { origin: 'origin: "stairs" in 15 of 15 titles' } }), { code: "bad_input" });
+  assert.throws(() => briefChanges(draft.brief, { fields: { origin: { text: "x", by: "you", quote: "x" } } }), { code: "bad_input" });
+  applyBrief(draft, briefChanges(draft.brief, { fields: { plays_on: PLAYS_ON } }));
+  assert.deepEqual(draft.origin, origin);
+});
+
+test("the brief read compares the frame's shape with the footage's: 9:16 (guessed), footage 16:9 (4 of 4)", () => {
+  const wide = { width: 1920, height: 1080 };
+  const video = { seconds: 24, layers: 2, width: 1080, height: 1920, footageSizes: [wide, wide, wide, wide] };
+  const guessed = { ...emptyBrief(), rev: 1, fields: { plays_on: PLAYS_ON } };
+  assert.equal(shapeLine(guessed, video), "shape: 9:16 (guessed), footage 16:9 (4 of 4)");
+  assert.ok(briefText({ brief: guessed }, video).split("\n").includes("shape: 9:16 (guessed), footage 16:9 (4 of 4)"));
+  assert.equal(shapeLine({ ...guessed, fields: { plays_on: { text: "vertical", by: "you", quote: "vertical" } } }, video), "shape: 9:16 (you said), footage 16:9 (4 of 4)");
+  assert.equal(shapeLine(guessed, { ...video, footageSizes: [wide, wide, { width: 1080, height: 1920 }] }), "shape: 9:16 (guessed), footage 16:9 (2 of 3)");
+  // No footage or no frame size: nothing to compare, no line.
+  assert.equal(shapeLine(guessed, { ...video, footageSizes: [] }), "");
+  assert.equal(shapeLine(guessed, { seconds: 24, layers: 0 }), "");
+  assert.equal(aspectLabel(1000, 750), "4:3");
+  assert.equal(aspectLabel(1000, 333), "3.00:1");
 });
 
 test("idea first: a briefed video builds only after 2 references (each studied), 5 treatments, a pick, its signature and a spine with a turn", async () => {
