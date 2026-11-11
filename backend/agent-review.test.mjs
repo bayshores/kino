@@ -842,7 +842,29 @@ test("saved subjects reach the footage checks: a head cut off in them is a findi
   const peopleCache = { saved: async () => null, get: async () => null, savedSubjects: async () => saved };
   const { call } = await serviceFor(t, { document: createDocument({ id: "faces", name: "faces", scenes: [createScene({ id: "s1", width: 1920, height: 1080, duration: 3, layers: [layer] })] }), media: [clip], peopleCache });
   assert.match((await call("check")).text, /head_cut_off/, "the saved subjects feed the check");
+  // A check that renders nothing (edit receipts, status) reads them too, without a new decode.
+  assert.match((await call("check", { pixels: false })).text, /head_cut_off/, "the saved subjects feed a check with pixels off");
   // The header says saliency did not run: unmeasured, so nothing is read from it.
   saved = { ...subjects, saliency: false };
   assert.doesNotMatch((await call("check")).text, /head_cut_off/);
+  assert.doesNotMatch((await call("check", { pixels: false })).text, /head_cut_off/);
+});
+
+test("saved subjects reach frame_shot: it crops to the saved face, and says so when none were measured", async (t) => {
+  const fileId = "11111111-2222-3333-4444-555555555555.mp4";
+  const clip = { id: fileId, name: "keeper", mime: "video/mp4", width: 1920, height: 1080, duration: 2 };
+  const placed = { id: "v", name: "keeper", src: `/api/media/${fileId}`, mediaSourceDuration: 2, x: -700, y: 0, width: 2400, height: 1350 };
+  const document = createDocument({ id: "tall", name: "tall", scenes: [createScene({ id: "s1", width: 1080, height: 1350, duration: 2, layers: [createLayer("video", placed)] })] });
+  // A face at [20, 30, 15, 25]% of the file, saved by saliency; the people file holds nothing.
+  const subjects = { saliency: true, samples: [0, 0.5, 1, 1.5, 2].map((at) => ({ t: at, faces: [[0.2, 0.3, 0.15, 0.25]], people: [] })) };
+  let saved = subjects;
+  const peopleCache = { saved: async () => null, get: async () => null, savedSubjects: async () => saved };
+  const { call } = await serviceFor(t, { document, media: [clip], peopleCache });
+  const framed = await call("edit", { ops: [{ op: "frame_shot", layer: "keeper" }] });
+  assert.match(framed.text, /frame_shot keeper: cropped to the face/, framed.text);
+  assert.doesNotMatch(framed.text, /no faces measured/, framed.text);
+  // Without saved subjects it frames by the file's size alone and says no faces were measured.
+  saved = null;
+  await call("edit", { ops: [{ op: "update_layer", layer: "keeper", properties: { x: -700, y: 0, width: 2400, height: 1350 } }] });
+  assert.match((await call("edit", { ops: [{ op: "frame_shot", layer: "keeper" }] })).text, /frame_shot keeper: .*no faces measured for this file yet/);
 });
