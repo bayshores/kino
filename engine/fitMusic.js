@@ -18,6 +18,7 @@
 import { uid } from "./model.js";
 import { withCues } from "./cues.js";
 import { round } from "./numbers.js";
+import { downbeatPhase } from "./songBars.js";
 
 const EPS = 1e-6;
 // How far a cut's bar line may sit outside its window. The window's ends come from measured times:
@@ -33,29 +34,19 @@ function fail(message) {
 }
 
 /**
- * The bar grid of a beat analysis {bpm, period, beats, onsets}: {bar, beat, downbeat}, the
- * downbeat on the first drop's beat. Without a drop, and with weighted onsets (beat analysis
- * version 7), the downbeat is the first beat of the four whose beats carry the most heavy low
- * sound (the kick on the one); otherwise the first beat.
+ * The bar grid of a beat analysis {bpm, period, beats, onsets}: {bar, beat, downbeat}, a constant
+ * grid for planFitMusic to snap to. Which beat of 4 starts the bar is voted by the song's drops
+ * and its heavy low onsets (downbeatPhase, shared with barLines); the downbeat is the beat of
+ * that phase nearest the first drop, or the first beat of that phase when there is no drop.
  */
 export function barGrid(analysis, sections = []) {
   const beats = Array.isArray(analysis?.beats) ? analysis.beats : [];
   const beat = analysis?.period > 0 ? analysis.period : analysis?.bpm > 0 ? 60 / analysis.bpm : null;
   if (!(beat > 0) || beats.length < 4) return null;
+  const phase = downbeatPhase(analysis, sections);
+  const onPhase = beats.filter((_, index) => index % 4 === phase);
   const drop = sections.find((part) => part.kind === "drop");
-  let downbeat = beats[0];
-  if (drop) downbeat = beats.reduce((best, time) => (Math.abs(time - drop.at) < Math.abs(best - drop.at) ? time : best), beats[0]);
-  else {
-    const onsets = (Array.isArray(analysis?.onsets) ? analysis.onsets : []).filter((onset) => typeof onset.weight === "number");
-    const totals = [0, 0, 0, 0];
-    let cursor = 0;
-    beats.forEach((time, index) => {
-      while (cursor < onsets.length && onsets[cursor].time < time - 0.035) cursor += 1;
-      for (let at = cursor; at < onsets.length && onsets[at].time <= time + 0.035; at += 1) totals[index % 4] += onsets[at].weight * (onsets[at].low ?? 0);
-    });
-    const phase = totals.indexOf(Math.max(...totals));
-    if (totals[phase] > 0) downbeat = beats[phase];
-  }
+  const downbeat = drop ? onPhase.reduce((best, time) => (Math.abs(time - drop.at) < Math.abs(best - drop.at) ? time : best), onPhase[0]) : onPhase[0];
   return { bar: beat * 4, beat, downbeat };
 }
 

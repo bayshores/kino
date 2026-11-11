@@ -1529,7 +1529,7 @@ export function createAgentService(deps) {
     if (layer?.src) {
       const file = mediaFileOf(layer);
       operation.analysis = await beatAnalysis.get(file);
-      operation.shape = await songShapes.get(file, operation.analysis.bpm);
+      operation.shape = await songShapes.get(file, operation.analysis);
       // The file's length from importing it when shorter: FFmpeg 6 also decodes an AAC file's end
       // padding (up to 1024 samples, 23 ms at 44.1 kHz), which would put the song's ending late.
       const length = (await mediaRecord(layer.src))?.duration;

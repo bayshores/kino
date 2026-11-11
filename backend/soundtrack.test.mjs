@@ -314,6 +314,41 @@ test("song seams: a filter return, a one-beat stop and its return, a voice comin
   assert.ok(!songShape(samples, rate, { bpm: 120 }).seams.some((seam) => seam.kind === "vocal-in"), "no vocal-in without whisper's spans");
 });
 
+// 120 bpm (a bar is 2 s) under a steady tone: kicks from 16 s on, the kicks (and bass) stopping for the
+// last half of bar 14 (29 to 30 s) while the tone plays on, and the sound ending at `end` (`fade`: a
+// 6 s fade before it).
+function barSong({ end = 48, fade = 0, rate = 8000 } = {}) {
+  const samples = new Float32Array(rate * 48);
+  for (let i = 0; i < samples.length; i += 1) {
+    const t = i / rate;
+    if (t >= end) continue;
+    let value = 0.1 * Math.sin(2 * Math.PI * 600 * t);
+    if (t >= 16 && !(t >= 29 && t < 30)) value += 0.8 * Math.exp(-(t % 0.5) * 12) * Math.sin(2 * Math.PI * 60 * t);
+    samples[i] = value * (fade && t > end - fade ? (end - t) / fade : 1);
+  }
+  return samples;
+}
+const steady = (seconds = 48) => ({ duration: seconds, bpm: 120, period: 0.5, beats: Array.from({ length: seconds * 2 }, (_, i) => i * 0.5) });
+
+test("song bars: a one-bar stop where a tone plays on is thin, the loudest bar is 0 dB, and sections and seams carry their bar", () => {
+  const { bars, sections, seams } = songShape(barSong(), 8000, { bpm: 120, beats: steady() });
+  assert.equal(bars.lines.length, 24);
+  assert.deepEqual(bars.thin.filter((bar) => bar >= 8), [14], "in the kicks, only the stop is thin");
+  assert.equal(Math.max(...bars.low), 0);
+  assert.equal(Math.max(...bars.all), 0);
+  const drop = sections.find((part) => part.kind === "drop");
+  assert.ok(drop && drop.bar === 8 && Math.abs(drop.at - 16) <= 1 / 30, JSON.stringify(sections));
+  assert.ok(seams.every((seam) => Number.isInteger(seam.bar)));
+  assert.equal(songShape(barSong(), 8000, { bpm: 120 }).bars, undefined, "no beat analysis, no bars");
+});
+
+test("song bars: the last bar with sound, and whether the song stops by itself or fades", () => {
+  const own = songShape(barSong({ end: 40 }), 8000, { bpm: 120, beats: steady() }).bars.last;
+  assert.deepEqual(own, { bar: 19, at: 38, ends: "own" });
+  const faded = songShape(barSong({ end: 40, fade: 6 }), 8000, { bpm: 120, beats: steady() }).bars.last;
+  assert.deepEqual([faded.bar, faded.ends], [19, "fade"]);
+});
+
 test("song shape cache: whisper's spans give a vocal-in seam kept in the .song; a failed whisper still keeps the seams and is tried again after 10 minutes", async () => {
   const folder = await mkdtemp(path.join(tmpdir(), "kino-song-"));
   try {
@@ -325,7 +360,7 @@ test("song shape cache: whisper's spans give a vocal-in seam kept in the .song; 
     const sung = createSongShapeCache({ decode, vocals: async () => [[35, 40]] });
     const file = path.join(folder, "song.mp3");
     const first = await sung.get(file, 120);
-    assert.ok(first.version === 2 && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
+    assert.ok(first.version === 3 && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
     assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), first);
     assert.deepEqual(await sung.get(file, 120), first);
     assert.equal(decodes, 1, "the kept .song is read back, not measured again");
@@ -339,6 +374,25 @@ test("song shape cache: whisper's spans give a vocal-in seam kept in the .song; 
     [clock, fail] = [11 * 60_000, false];
     assert.ok((await flaky.get(other, 120)).seams.some((seam) => seam.kind === "vocal-in"), "tried again after 10 minutes");
     assert.equal(decodes, 3);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test("song shape cache with the beat analysis: bars are kept in the .song, and a record without bars is measured again", async () => {
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-song-"));
+  try {
+    let decodes = 0;
+    const samples = barSong();
+    const cache = createSongShapeCache({ decode: async () => { decodes += 1; return { samples, sampleRate: 8000 }; } });
+    const file = path.join(folder, "song.mp3");
+    assert.equal((await cache.get(file, 120)).bars, undefined, "a tempo alone gives no bars");
+    const withBars = await cache.get(file, steady());
+    assert.ok(withBars.version === 3 && withBars.bars.lines.length === 24 && withBars.sections.every((part) => Number.isInteger(part.bar)), JSON.stringify(withBars.bars));
+    assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), withBars);
+    assert.deepEqual(await cache.get(file, steady()), withBars);
+    assert.deepEqual((await cache.get(file, 120)).bars, withBars.bars, "read back with a tempo, bars kept");
+    assert.equal(decodes, 2, "measured for the tempo, again for the bars, then read back");
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

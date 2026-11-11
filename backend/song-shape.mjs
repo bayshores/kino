@@ -15,6 +15,7 @@
 // songVocals(file) finds where a voice sings or raps with whisper.cpp (it writes sung words too);
 // songShape's voiceGuess is the rougher fallback when whisper is not installed.
 import { readFile, writeFile } from "node:fs/promises";
+import { barIndexAt, barLines, barOf } from "../engine/songBars.js";
 import { decodeMono } from "./audio-analysis.mjs";
 import { SAMPLE_RATE as SPEECH_RATE, whisperSegments, whisperSetup, whisperTurn } from "./speech/transcribe.mjs";
 
@@ -25,6 +26,12 @@ const percentile = (list, share) => {
   if (!list.length) return 0;
   const sorted = [...list].sort((a, b) => a - b);
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(share * (sorted.length - 1))))];
+};
+
+const median = (list) => {
+  const sorted = [...list].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 };
 
 /** In-place radix-2 Fourier transform (re and im have a power-of-two length). */
@@ -473,12 +480,14 @@ export function grooveOf(kicks, hopSeconds, bpm, on = null) {
 /**
  * The song's sections and sound: samples (mono), sampleRate, bpm (from the beat analysis), whole
  * (false when the samples stop before the song does: no outro then), vocals (whisper's vocal spans
- * [[from, to]], for vocal-in seams; none without them).
+ * [[from, to]], for vocal-in seams; none without them), beats (the beat analysis: with it the result
+ * has bars, see barsOf, and every section and seam has bar, the index of its nearest bar line; at
+ * stays the heard time).
  * Returns {sections: [{at, kind, weight}], seams: [{at, kind, weight}], features: {groove, bass,
  * brightness, density, dynamics}, low, voiceGuess} (at to a few milliseconds; weight 0 to 1; low:
  * the low band each second, 0 to 100; voiceGuess: rough vocal spans).
  */
-export function songShape(samples, sampleRate, { bpm = null, whole = true, vocals = null } = {}) {
+export function songShape(samples, sampleRate, { bpm = null, whole = true, vocals = null, beats = null } = {}) {
   const frames = spectralFrames(samples, sampleRate);
   const seconds = Math.floor(frames.count * frames.hopSeconds);
   if (seconds < 8) return { sections: [], seams: [], features: { groove: "free", bass: 0, brightness: 0, density: 0, dynamics: 0 }, low: [], voiceGuess: [] };
@@ -497,6 +506,10 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true, vocal
   const novelty = spectralNovelty(vectors, Math.min(8, Math.floor(seconds / 4)));
   const sections = sectionsFromCurves({ low, rise, novelty, whole }).map((part) => refine(part, frames, samples, sampleRate));
   const seams = seamsOf(frames, samples, sampleRate, sections, low, vocals);
+  // With the beat analysis, the shape has bars, and every edge says which bar line it is nearest.
+  const grid = beats ? barLines(beats, sections) : null;
+  const bars = grid ? barsOf(frames, grid) : null;
+  const onBar = (edge) => (bars ? { ...edge, bar: barIndexAt(bars.lines, edge.at) } : edge);
 
   // Features.
   const lowSum = frames.low.reduce((sum, value) => sum + value, 0);
@@ -506,8 +519,9 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true, vocal
   const secondDb = perSecond(frames.total, frames, seconds).map((value) => 10 * Math.log10(value + 1e-12));
   const lowFrameOn = Uint8Array.from(frames.low, (value, f) => (low[Math.min(seconds - 1, Math.floor(f * frames.hopSeconds))] >= 50 ? 1 : 0));
   return {
-    sections,
-    seams,
+    sections: sections.map(onBar),
+    seams: seams.map(onBar),
+    ...(bars ? { bars } : {}),
     features: {
       groove: grooveOf(frames.lowFlux, frames.hopSeconds, bpm, lowFrameOn),
       bass: clamp100(((lowSum / totalSum - 0.4) / 0.55) * 100),
@@ -517,6 +531,98 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true, vocal
     },
     low,
     voiceGuess: voiceGuess(frames, seconds),
+  };
+}
+
+// ---------------------------------------------------------------- bars
+// What each bar of the song holds, on the bar lines of the measured beats (engine/songBars.js).
+
+const THIN_DB = 12; // a bar the song thins out: its last half's low band this far under its neighbors'
+const THIN_AROUND = 4; // bars on each side that give the neighbors' level (8 around)
+const SOUND_DB = 50; // sound is anything this close to the loudest frame or louder (dB)
+const FADE_DB = 12; // a fade falls at least this far...
+const FADE_SECONDS = 4; // ...over at least this long before the silence
+
+/** The frames whose centers fall in [from, to): [first, end). A frame is two steps long. */
+function framesIn(frames, from, to) {
+  const at = (time) => Math.min(frames.count, Math.max(0, Math.ceil(time / frames.hopSeconds - 1)));
+  return [at(from), at(to)];
+}
+
+/** The mean level in dB of a frame series over [from, to) seconds (power averaged, then dB). */
+function levelBetween(series, frames, from, to) {
+  const [a, b] = framesIn(frames, from, to);
+  let sum = 0;
+  for (let f = a; f < b; f += 1) sum += series[f];
+  return b > a ? dbOf(sum / (b - a)) : dbOf(0);
+}
+
+/**
+ * Per bar of the song, on its bar lines: {lines, low, all, voice, thin, last}. low and all: the mean
+ * level in dB of the low band and of the whole sound, 0 for the loudest bar (1 decimal). voice: 0 to 1,
+ * the share of the bar whose frames carry more voice band than usual in this song (voiceGuess's
+ * measure, per frame). thin: the bars where the song itself thins out: the low band in the bar's
+ * last half is THIN_DB or more under the median of the same half in the 8 bars around it (one-bar
+ * stops where kick and bass leave and a voice or a tone stays). last: {bar, at, ends}, the last bar
+ * with sound, its line, and how the song ends: "fade" (the whole sound falls steadily 12 dB or more
+ * over 4 s or more before the silence) or "own" (it stops by itself).
+ */
+export function barsOf(frames, grid) {
+  const { lines } = grid;
+  const end = frames.count * frames.hopSeconds + frames.hopSeconds; // the last frame's far edge
+  const edges = [...lines, Math.max(end, lines.at(-1) + grid.bar)];
+  const span = (index) => [Math.max(0, edges[index]), edges[index + 1]];
+  const [low, all, tail] = [[], [], []];
+  const share = Float32Array.from(frames.voice, (value, f) => value / (frames.total[f] || 1));
+  const line = percentile(Array.from(share), 0.5) * 1.3;
+  const loudest = frames.total.reduce((top, value) => Math.max(top, value), 0);
+  const sounding = (f) => dbOf(frames.total[f]) >= dbOf(loudest) - SOUND_DB;
+  const voice = [];
+  const sounded = []; // per bar: the share of its frames that have sound
+  lines.forEach((_, index) => {
+    const [from, to] = span(index);
+    low.push(levelBetween(frames.low, frames, from, to));
+    all.push(levelBetween(frames.total, frames, from, to));
+    tail.push(levelBetween(frames.low, frames, (from + to) / 2, to));
+    const [a, b] = framesIn(frames, from, to);
+    let led = 0;
+    let heard = 0;
+    for (let f = a; f < b; f += 1) {
+      if (sounding(f)) heard += 1;
+      if (share[f] >= line && sounding(f)) led += 1;
+    }
+    sounded.push(b > a ? heard / (b - a) : 0);
+    voice.push(b > a ? round(led / (b - a), 2) : 0);
+  });
+  const [topLow, topAll] = [Math.max(...low), Math.max(...all)]; // bar counts are small
+  // The last bar with sound: more than half of it sounding (a ring that runs on into the next bar
+  // does not make that bar the last). lastTime: where the sound ends, at the latest at that bar's end.
+  let lastBar = 0;
+  sounded.forEach((share, index) => { if (share > 0.5) lastBar = index; });
+  let lastFrame = -1;
+  for (let f = frames.count - 1; f >= 0 && lastFrame < 0; f -= 1) if (sounding(f)) lastFrame = f;
+  const lastTime = Math.min(edges[lastBar + 1], (lastFrame + 2) * frames.hopSeconds);
+  // Thin bars: the last half against the median of the same half in the neighbors. The last bar is
+  // left out: a song stopping in it is its ending (last.ends), not a one-bar stop.
+  const thin = [];
+  for (let i = 0; i < lastBar; i += 1) {
+    const around = [];
+    for (let j = Math.max(0, i - THIN_AROUND); j <= Math.min(lastBar, i + THIN_AROUND); j += 1) if (j !== i) around.push(tail[j]);
+    if (around.length >= THIN_AROUND && tail[i] <= median(around) - THIN_DB) thin.push(i);
+  }
+  // How it ends: the bars that fall one after the other up to the last sound.
+  const levelAt = (index) => levelBetween(frames.total, frames, Math.max(0, lines[index]), index === lastBar ? lastTime : edges[index + 1]);
+  let first = lastBar;
+  while (first > 0 && levelAt(first - 1) >= levelAt(first) + 1) first -= 1;
+  const falls = levelAt(first) - levelAt(lastBar);
+  const ends = first < lastBar && lastTime - lines[first] >= FADE_SECONDS && falls >= FADE_DB ? "fade" : "own";
+  return {
+    lines,
+    low: low.map((value) => round(value - topLow) + 0), // + 0: not -0
+    all: all.map((value) => round(value - topAll) + 0),
+    voice,
+    thin,
+    last: { bar: lastBar, at: lines[lastBar], ends },
   };
 }
 
@@ -584,14 +690,15 @@ export function vocalShare(spans, seconds) {
 }
 
 // Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
-// millisecond, weights).
-export const SONG_SHAPE_VERSION = 2;
+// millisecond, weights; 3: bars, and the bar of every section and seam).
+export const SONG_SHAPE_VERSION = 3;
 const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**
  * Each media file's song shape, measured once and kept in a .song file beside it (like the
- * .beats file of the beat analysis): {version, seconds, whole, sections, seams, vocals}. fit_music
- * reads it. vocals(file, seconds) gives whisper's vocal spans for vocal-in seams; the .song says
+ * .beats file of the beat analysis): {version, seconds, whole, sections, seams, bars, vocals}.
+ * fit_music reads it. get(file, beats) takes the beat analysis (its bar lines make the shape's
+ * bars; a kept result without bars is measured again when one is given) or just a tempo (no bars). vocals(file, seconds) gives whisper's vocal spans for vocal-in seams; the .song says
  * how they were found: "whisper", "none" (no whisper model) or "failed" (whisper did not run or
  * failed). A "failed" file is measured again after 10 minutes, a "none" one once vocalsReady()
  * says a model is there now.
@@ -612,10 +719,11 @@ export function createSongShapeCache({ decode = decodeMono, vocals = null, vocal
     if (kept.vocals === "failed") return now() - (kept.failedAt ?? 0) >= VOCALS_RETRY_MS;
     try { return Boolean(vocalsReady()); } catch { return false; }
   }
-  async function readOrMeasure(file, bpm) {
+  async function readOrMeasure(file, input) {
     const sidecar = `${file}.song`;
+    const beats = input && typeof input === "object" ? input : null;
     const kept = await saved(file);
-    if (kept && !vocalsAgain(kept)) return kept;
+    if (kept && !vocalsAgain(kept) && !(beats && kept.bars === undefined)) return kept;
     const { samples, sampleRate } = await decode(file);
     if (!samples.length) throw new Error("The file has no sound.");
     const seconds = round(samples.length / sampleRate, 3);
@@ -629,14 +737,14 @@ export function createSongShapeCache({ decode = decodeMono, vocals = null, vocal
         if (error?.code !== "SPEECH_MODEL_MISSING") { found = "failed"; failedAt = now(); }
       }
     }
-    const shape = songShape(samples, sampleRate, { bpm, vocals: spans });
-    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams, vocals: found, ...(failedAt ? { failedAt } : {}) };
+    const shape = songShape(samples, sampleRate, { bpm: beats ? beats.bpm : input, vocals: spans, beats });
+    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams, ...(beats ? { bars: shape.bars ?? null } : {}), vocals: found, ...(failedAt ? { failedAt } : {}) };
     await writeFile(sidecar, JSON.stringify(result), { mode: 0o600 }).catch(() => { /* it still counts unsaved */ });
     return result;
   }
   return {
-    get(file, bpm = null) {
-      if (!pending.has(file)) pending.set(file, readOrMeasure(file, bpm).finally(() => pending.delete(file)));
+    get(file, bpmOrAnalysis = null) {
+      if (!pending.has(file)) pending.set(file, readOrMeasure(file, bpmOrAnalysis).finally(() => pending.delete(file)));
       return pending.get(file);
     },
     // Only the kept result: no decode, for answers that must not wait.
