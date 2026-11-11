@@ -1024,6 +1024,10 @@ export function createInspire(deps) {
   // cut off when kino stopped: it shows as failed.
   const inFlight = new Set();
   const forced = new Set();
+  // Saved references queued only for their voice facts (measureHeardLater): tried this run, waiting.
+  const heardTried = new Set();
+  const heardPending = new Set();
+  const heardOnly = new Set();
 
   // Work folders a stopped server left behind are deleted: they hold downloaded video.
   async function start() {
@@ -1233,6 +1237,7 @@ export function createInspire(deps) {
       .catch(() => {})
       .finally(() => {
         running = null;
+        heardPending.delete(id);
         // Asked to measure again while it was finishing: it goes first.
         if (forced.has(id)) queue.unshift(id);
         if (refs.has(id)) changed(refs.get(id));
@@ -1252,6 +1257,8 @@ export function createInspire(deps) {
     if (!record) return;
     changed(record);
     await start();
+    // Queued only for its voice facts (measureHeardLater): a full measure when it needs one anyway.
+    if (heardOnly.delete(id) && !forced.has(id) && !isSound(record) && !unmeasured(record)) return measureHeard(record, signal);
     if (isSound(record)) return measureSound(record, signal);
     const folder = path.join(workRoot, `${record.id.slice(3)}-${randomUUID().slice(0, 8)}`);
     const force = forced.delete(id);
@@ -1565,6 +1572,8 @@ export function createInspire(deps) {
       if (id && queue[index] !== id) continue;
       const [gone] = queue.splice(index, 1);
       stopped += 1;
+      heardPending.delete(gone);
+      heardOnly.delete(gone);
       settle(gone);
       if (refs.has(gone)) changed(refs.get(gone));
     }
@@ -1745,30 +1754,29 @@ export function createInspire(deps) {
     return record?.strips?.length ? { folder: stripsOf(id), strips: record.strips } : null;
   }
 
-  // A reference measured before `heard` existed gets it once, when a full check first asks: one at
-  // a time, in the background (the same small download and heard() as a measure), never for every
-  // project at launch. A failure leaves it out (never guessed) and is not tried again this run.
-  const heardTried = new Set();
-  const heardPending = new Set();
-  let heardChain = Promise.resolve();
+  // A reference measured before `heard` existed gets it once, when a full check first asks: it waits
+  // in the measuring queue like any other job (so it never runs beside a measure), downloads the same
+  // small copy and runs heard() only, never for every project at launch. A failure leaves it out
+  // (never guessed) and is not tried again this run.
   function measureHeardLater(record) {
     if (heardTried.has(record.id) || !heavy.heard || !heavy.download) return;
     heardTried.add(record.id);
     heardPending.add(record.id);
-    heardChain = heardChain.then(async () => {
-      const folder = path.join(workRoot, `${record.id.slice(3)}-heard-${randomUUID().slice(0, 8)}`);
-      try {
-        await start();
-        await mkdir(folder, { recursive: true, mode: 0o700 });
-        const file = await heavy.download(record.id.slice(3), folder, {});
-        const heard = await heavy.heard(file, { seconds: record.seconds, bpm: record.bpm ?? null });
-        const kept = await load(record.id);
-        if (kept && heard) { kept.heard = heard; await save(kept); }
-      } catch { /* left out */ } finally {
-        heardPending.delete(record.id);
-        await rm(folder, { recursive: true, force: true }).catch(() => {});
-      }
-    });
+    heardOnly.add(record.id);
+    enqueue(record.id);
+  }
+
+  async function measureHeard(record, signal) {
+    const folder = path.join(workRoot, `${record.id.slice(3)}-heard-${randomUUID().slice(0, 8)}`);
+    try {
+      if (youtube.paused()) return;
+      await mkdir(folder, { recursive: true, mode: 0o700 });
+      const file = await heavy.download(record.id.slice(3), folder, { signal });
+      const heard = await heavy.heard(file, { seconds: record.seconds, bpm: record.bpm ?? null, signal });
+      if (heard) { record.heard = heard; await save(record); }
+    } catch { /* left out */ } finally {
+      await rm(folder, { recursive: true, force: true }).catch(() => {});
+    }
   }
 
   /**

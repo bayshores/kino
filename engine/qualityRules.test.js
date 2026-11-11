@@ -1960,6 +1960,8 @@ test("reference_range: no clip speech before the loudest song change warns when 
   // The fix names the lines the clips say, muted ones too.
   const [named] = await rangeRun(52, { cues, speech: [], clipLines: [{ layer: "L2", text: "I am done", from: 2, to: 3.1 }] });
   assert.match(named.fix.text, /Your clips say L2 "I am done" 2-3.1 s: keep one before 9 s, edit \{ops:\[\{op:"keep_line", layer:"L2", line:"I am done"\}\]\}/);
+  const [slowed] = await rangeRun(52, { cues, speech: [], clipLines: [{ layer: "L3", text: "Wait", from: 1, to: 2, slowed: true }] });
+  assert.doesNotMatch(slowed.fix.text, /keep_line", layer/, "keep_line refuses a slowed layer, so it is not the call");
   assert.deepEqual(await rangeRun(52, { cues, speech: [{ missing: "no transcript" }] }), [], "a heard clip with no transcript is left out");
   assert.deepEqual(await rangeRun(52, { cues: [], speech: [] }), []);
   // References not measured for voice yet: no finding, a note says so.

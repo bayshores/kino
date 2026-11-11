@@ -604,6 +604,7 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   assert.ok(left.heard === undefined && !left.heardPending, "left out, and not measured unless a full check asks");
   // A full check asks: it is measured in the background (pending until then), once.
   assert.equal((await failed.savedFingerprints("p1", { heardLater: true }))[0].heardPending, true);
+  assert.match((await failed.reference(second)).state, /^(queued|measuring)$/, "it waits in the measuring queue, never beside a measure");
   let later;
   for (let wait = 0; wait < 60 && !later?.heard; wait += 1) {
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -611,6 +612,7 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   }
   assert.deepEqual(later.heard, { change: { at: 5, kind: "drop" }, voice: [], by: "whisper" });
   assert.equal(tries, 2);
+  assert.equal((await failed.reference(second)).state, "measured", "only its voice facts were measured again");
 });
 
 test("a sounds search keeps sound effects of 60 s or less, measures their shape, keeps a preview, imports it with credit; forget drops a search", async () => {

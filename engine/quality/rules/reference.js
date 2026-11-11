@@ -185,11 +185,14 @@ export async function referenceRange(model, ctx) {
     ctx.note?.(`reference_range: ${voice.pending} saved reference${voice.pending === 1 ? " is" : "s are"} not measured yet for a voice before the loudest change (measuring in the background); the next check includes it.`);
   } else if (change && voice.n >= RANGE_REFS && voice.before / voice.n > VOICE_MAJORITY && speechBefore(ctx, change.time) === false) {
     const at = near(change.time);
+    // keep_line needs a layer at speed 1, so a slowed clip's line is named but never the call.
     const lines = ctx.clipLines ?? [];
-    const line = lines.find((entry) => entry.from < change.time) ?? lines[0];
-    const shown = lines.slice(0, 3).map((entry) => `${entry.layer} "${entry.text.replaceAll('"', "'")}" ${entry.from}-${entry.to} s`).join(" · ");
+    const usable = lines.filter((entry) => !entry.slowed);
+    const line = usable.find((entry) => entry.from < change.time) ?? usable[0];
+    const shown = lines.slice(0, 3).map((entry) => `${entry.layer} "${entry.text.replaceAll('"', "'")}" ${entry.from}-${entry.to} s${entry.slowed ? " (slowed)" : ""}`).join(" · ");
     const fix = line
       ? `Your clips say ${shown}: keep one before ${at} s, edit {ops:[{op:"keep_line", layer:"${line.layer}", line:${JSON.stringify(line.text)}}]}`
+      : lines.length ? `Your clips say ${shown}, only on slowed layers (keep_line needs speed 1): set one to speed 1, or find a line with library {topic:"footage", search:"<a spoken line>"}`
       : `No clip kino transcribed says a line: find one, library {topic:"footage", search:"<a spoken line>"}`;
     findings.push({
       rule: "reference_range", severity: "warn", at: change.time,

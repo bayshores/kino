@@ -678,9 +678,10 @@ export function createAgentService(deps) {
     // A song's saved shape (.song file, never a new measure): reference_range reads its loudest change.
     const songOf = async (layer) => (await songShapes.saved?.(mediaFileOf(layer))) ?? null;
     // The lines the clips say (saved transcripts only), heard or muted: reference_range names them.
-    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, text, from, to }) => ({ layer, text, from, to }));
+    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, text, from, to, slowed }) => ({ layer, text, from, to, ...(slowed ? { slowed } : {}) }));
     const asks = askedItems(saved);
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
+    // listen:false (the dashboard's own check) never starts a reference's voice measure either.
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));

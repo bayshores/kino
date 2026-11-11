@@ -787,7 +787,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
    * that check. `unchecked` lists the IDs of the scenes whose rendered rules did not run, so a
    * count can say what it leaves out; it stays empty when this checker cannot render at all.
    */
-  async function check(document, { fonts, codes, sceneId = null, pixels = false, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, songOf = null, clipLines = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
+  async function check(document, { fonts, codes, sceneId = null, pixels = false, listen = true, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, songOf = null, clipLines = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
@@ -796,11 +796,12 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const unchecked = [];
     // The saved references change a full check: their ids and when they were measured are part of
     // the key, so a new reference checks again.
-    // A full check also asks for the voice facts of references saved before they were measured
-    // (one at a time, in the background); until then they come back `heardPending`.
-    const refs = references ? await references(document.id, { heardLater: pixels }).catch(() => []) : [];
+    // A full check that may listen (not the dashboard's own, listen:false) also asks for the voice
+    // facts of references saved before they were measured (one at a time, in the measuring queue);
+    // until then they come back `heardPending`.
+    const refs = references ? await references(document.id, { heardLater: pixels && listen }).catch(() => []) : [];
     const closeRefs = rhythms ? await rhythms(document.id).catch(() => []) : [];
-    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ""}`).join(",");
+    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ref.heardPending ? "+pending" : ""}`).join(",");
     // The house memory changes seen_before: which projects and revs it holds are part of the key.
     const houseMoments = house ? await house(document.id, document.name ?? null).catch(() => []) : [];
     const houseStamp = houseMoments.map((entry) => `${entry.projectId}@${entry.rev}v${entry.sigVersion ?? 1}`).join(",");
