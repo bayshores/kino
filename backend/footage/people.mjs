@@ -39,11 +39,11 @@ const SALIENCY = 8, FACES = 16, PEOPLE = 32;
 export async function peopleHelper() {
   const abilities = await measureAbilities();
   if (!abilities.helper) return { helper: null, why: abilities.flow };
-  if (abilities.people === true) return { helper: abilities.helper, why: null };
+  if (abilities.people === true) return { helper: abilities.helper, why: null, saliency: abilities.saliency };
   if (abilities.people === false) return { helper: null, why: "finding people needs macOS 12 or later" };
   // A helper built before job 32 existed: build this one from source when the tools are here.
   const built = await measureHelperPath({ fromSource: true });
-  if (built && built !== abilities.helper) return { helper: built, why: null };
+  if (built && built !== abilities.helper) return { helper: built, why: null, saliency: undefined };
   return { helper: null, why: "the kino-measure helper is too old to find people (npm run desktop:tools)" };
 }
 
@@ -58,11 +58,25 @@ export function subjectBoxes(answer) {
 }
 
 /**
+ * Whether saliency ran: true when the helper answered it on at least one picture (an empty list
+ * counts: it looked and found nothing), else the reason it did not. Without this, a face-less
+ * picture with no subjects could mean "nothing stands out" or "saliency never ran".
+ */
+export function saliencyStatus(answers, abilityWhy) {
+  const real = answers.filter(Boolean);
+  if (real.some((answer) => Array.isArray(answer.saliency))) return true;
+  const failure = real.map((answer) => answer.errors?.saliency).find(Boolean);
+  if (failure) return `Vision could not: ${failure}`;
+  return typeof abilityWhy === "string" ? abilityWhy : "the kino-measure helper gave no saliency boxes";
+}
+
+/**
  * Measures a video file. Resolves to {version, fps, samples: [{t, faces: [[x, y, w, h]],
  * people: [{box: [x, y, w, h], head, top}]}]} in fractions of the frame (top left origin): head is
  * how many head joints (nose, eyes, ears) the body pose found, top the highest one's y. Also
  * `subjects`: the same, each sample with `subjects: [{box, kind}]` added (subjectBoxes), for the
- * .subjects-v1 file. Or {version, unavailable: "why"} when this computer cannot find people.
+ * .subjects-v1 file, whose header says `saliency`: true, or why saliency did not run (then a
+ * picture with no face and no subjects is unmeasured, not empty). Or {version, unavailable: "why"} when this computer cannot find people.
  */
 export function measurePeople(file, options = {}) {
   // One video decode at a time in this process (process-slots.mjs).
@@ -71,7 +85,7 @@ export function measurePeople(file, options = {}) {
 
 async function measurePeopleNow(file, { width, height, duration, signal } = {}) {
   if (signal?.aborted) throw Object.assign(new Error("Finding people was cancelled."), { name: "AbortError" });
-  const { helper, why } = await peopleHelper();
+  const { helper, why, saliency: abilityWhy } = await peopleHelper();
   if (!helper) return { version: PEOPLE_VERSION, unavailable: why };
   const size = measureSize(width, height, SIDE);
   const fps = duration > 0 ? Math.min(PEOPLE_FPS, MAX_FRAMES / duration) : PEOPLE_FPS;
@@ -112,7 +126,7 @@ async function measurePeopleNow(file, { width, height, duration, signal } = {}) 
     samples.push(sample);
     withSubjects.push({ ...sample, subjects: subjectBoxes(answer) });
   }
-  return { version: PEOPLE_VERSION, fps: round3(fps), samples, subjects: { version: SUBJECTS_VERSION, fps: round3(fps), samples: withSubjects } };
+  return { version: PEOPLE_VERSION, fps: round3(fps), samples, subjects: { version: SUBJECTS_VERSION, fps: round3(fps), saliency: saliencyStatus(answers, abilityWhy), samples: withSubjects } };
 }
 
 /**

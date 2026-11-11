@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { createPeopleCache } from "./footage/people.mjs";
+import { createPeopleCache, saliencyStatus } from "./footage/people.mjs";
 import { makeVideo, skipWithoutMediaTools } from "./media.test.support.mjs";
 
 test("a clip that failed is not measured again for ten minutes; a cancelled one is", async () => {
@@ -80,8 +80,20 @@ test("subjects-v1 uses faces when a shot has one and saliency when it has none; 
     assert.equal(people.samples[1].subjects, undefined);
     assert.deepEqual(people.samples[1].faces, []);
     assert.deepEqual(await cache.savedSubjects(clip), subjects);
+    assert.equal(subjects.saliency, true);
   } finally {
     if (previous === undefined) delete process.env.KINO_MEASURE_HELPER; else process.env.KINO_MEASURE_HELPER = previous;
     await rm(folder, { recursive: true, force: true });
   }
+});
+
+test("the subjects header says saliency did not run, so an empty list is not read as 'nothing stands out'", () => {
+  // Looked and found nothing: an empty list still counts as having run.
+  assert.equal(saliencyStatus([{ faces: [], people: [], saliency: [] }], true), true);
+  // The helper has no saliency (older helper): the ability's own reason is kept.
+  assert.equal(saliencyStatus([{ faces: [], people: [] }], "saliency is missing"), "saliency is missing");
+  // Vision failed on every picture.
+  assert.equal(saliencyStatus([{ faces: [], people: [], errors: { saliency: "boom" } }], true), "Vision could not: boom");
+  // No answers at all (or holes in the list) still gives a reason, never true.
+  assert.notEqual(saliencyStatus([undefined], true), true);
 });
