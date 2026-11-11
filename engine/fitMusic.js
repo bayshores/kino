@@ -382,7 +382,8 @@ function gridBars({ seconds, whole, bar, downbeat }) {
  * song's start. Any piece that starts the video is left a whole number of groups after the latest
  * drop, break or build inside it (else after its first bar line), and plays at least 4 bars; this
  * wins over the turn and payoff alignment (another entry bar, up to 16 bars before its drop, is
- * tried). The song's own ending ends by `end` (+ 50 ms) or the last piece fades over 1 to 2 bars.
+ * tried). The song's own ending ends by `end` (+ 50 ms) or the last piece fades over 1 to 2 bars; a plan
+ * that ends on the own ending is chosen before any plan that fades, even when the ending comes well before `end`.
  * `drop` (a song second) picks the drop that lands on the payoff, as in planStop.
  * Pieces are entered on the run-up of a drop (its latest break, else build) when it has one,
  * else on the drop; never on a bar where the kick and bass are out unless a break or build starts there.
@@ -505,6 +506,12 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
   };
 
   // The best way to play the song: the payoff's drop (heavy, a run-up, an earlier drop for the turn, room for the ending).
+  // Every candidate already obeys the cut, join and group rules. Ordered: a plan that ends on the song's own ending
+  // (tail.x) comes before any plan that fades; within each, the lower cost.
+  const preferred = (a, b) => {
+    const ends = (choice) => choice.tail.x != null;
+    return ends(a) !== ends(b) ? ends(a) : a.cost < b.cost - EPS;
+  };
   let best = null;
   for (const drop of usable) {
     const d = drop.bar;
@@ -526,10 +533,11 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
           // The turn's piece plays on into this one (x = e): the merged piece is the first, left where this one is.
           const tail = option.x === e && option.head.x == null ? tailOf(e, d, (x) => leftOnGroup(option.head.f0, x)) : free;
           const cost = ownCost(tail) + option.cost + option.head.cost;
-          if (cost < choice.cost) choice = { head: option.head, tail, turn: option, cost };
+          const next = { head: option.head, tail, turn: option, cost };
+          if (preferred(next, choice)) choice = next;
         }
       }
-      if (!best || choice.cost < best.choice.cost - EPS) best = { drop, e, run, choice };
+      if (!best || preferred(choice, best.choice)) best = { drop, e, run, choice };
     };
     for (const e of entriesOf(d)) consider(e, false);
     if (blocked) for (const e of extraEntries(d)) consider(e, true);

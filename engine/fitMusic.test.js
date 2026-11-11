@@ -180,6 +180,10 @@ test("planFitMusic recut: the song's own ending never runs past the end: when no
   assert.equal(plan.ending, null);
   assert.ok(last.at + last.to - last.from <= 21.75 && last.fadeOut >= 2.02 && last.fadeOut <= 4.05, JSON.stringify(plan.pieces));
   assert.ok(plan.notes.some((note) => /own ending do not fit before 21.7 s/.test(note)), plan.notes.join("; "));
+  // A plan that ends on the song's own ending comes before any fade, however far the ending is from the end (here 4.6 s early; a fade would cost less).
+  const early = planFitMusic(stopInput({ plan: "recut", payoff: 10, end: 25 }));
+  assert.deepEqual([early.ending, early.pieces.at(-1).to], [20.42, 119.5], JSON.stringify(early.pieces));
+  assert.ok(early.notes.some((note) => /the song ends at 20.42 s, 4.58 s before the end/.test(note)), early.notes.join("; "));
 });
 
 test("planFitMusic recut: a turn less than 4 bars before the payoff drops the turn piece and says so", () => {

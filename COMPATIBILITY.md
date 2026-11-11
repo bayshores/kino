@@ -858,7 +858,8 @@ How to read it:
   fix moves the ramp. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`.
 - **fit_music** (op): plays one unbroken stretch of a song with its drop on the payoff (a fade in
   to a bar line, a fade out at the end); `recut:true` re-arranges it in whole groups of 4 bars, cut and joined on measured
-  bar lines (a drop played 2 bars before a jump was heard as premature); sections become `song-*`
+  bar lines (a drop played 2 bars before a jump was heard as premature), the song's own ending
+  chosen before any fade ending when a plan reaches it by the end; sections become `song-*`
   cues. Unverified by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **fit_music plan stop** (op): `plan:"stop"` plays the song's opening up to its own stop, a drop of
