@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
-  dropNonEdits, dropReason, droppedText, originOf, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+  dropNonEdits, dropReason, droppedText, originOf, originPhrase, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
   cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
@@ -175,9 +175,33 @@ test("origin: words many relevant titles share, the most viewed relevant results
   assert.deepEqual(await inspire.origin(about, { ask: [] }), { query: "keeper", ...originOf(found, about) });
   assert.deepEqual(asked, [["keeper", 20, undefined]]);
   await inspire.origin(about, { ask: ["a long message about the keeper climbing the tower and nothing else"] });
-  assert.deepEqual(asked.map((entry) => entry[0]), ["keeper", "keeper"], "the person's whole message is never searched, only the about quote");
+  assert.deepEqual(asked.map((entry) => entry[0]), ["keeper", "keeper", "keeper climbing"], "the person's whole message is never searched, only the quote and the words beside it");
+
+  // originPhrase: the quote and up to 6 words in all from the message, after it first, before it only when none follow.
+  const phraseOf = (ask, quote = "keeper") => originPhrase(quote, [ask]);
+  assert.equal(phraseOf("make a keeper lantern ladder edit please"), "keeper lantern ladder");
+  assert.equal(phraseOf("a glowing keeper edit"), "glowing keeper");
+  assert.equal(phraseOf("the glowing keeper ladder edit"), "keeper ladder");
+  assert.equal(phraseOf("the keeper. call me later"), "", "a sentence mark stops it");
+  assert.equal(phraseOf("keeper 42 elm"), "", "letters only");
+  assert.equal(phraseOf("keeper trailer"), "", "a video-kind word is not a subject word");
+  assert.equal(phraseOf("nothing about it"), "");
+  assert.equal(phraseOf("marlo keeper lantern ladder tower climb run", "marlo keeper"), "marlo keeper lantern ladder tower climb");
+  assert.deepEqual(originPhrase("keeper", ["no match here", "make a keeper lantern edit"]), "keeper lantern", "the first message that has the quote");
+
+  // Both searches run, the phrase's words come first (with the words that found them); one failing leaves the other.
+  const near = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"].map((name, k) => row(`abcdef`[k], `Keeper rooftop ${name}`, 30, 2_000_000 - k));
+  const split = createInspire({ directory: path.join(folder, "origin-phrase"), projectState: memoryProjects(), search: async (query) => (query === "keeper" ? found : near) });
+  const lantern = ["make a keeper lantern ladder edit please"];
+  const both = await split.origin(about, { ask: lantern });
+  assert.equal(both.phrase, "keeper lantern ladder");
+  assert.deepEqual(both.words, [{ word: "rooftop", count: 6, of: 6, query: "keeper lantern ladder" }, { word: "tower", count: 4, of: 6 }]);
+  assert.deepEqual(both.top.map((item) => item.id), [near[0].id, near[1].id, near[2].id]);
+  const brokenPhrase = createInspire({ directory: path.join(folder, "origin-phrase-fail"), projectState: memoryProjects(), search: async (query) => { if (query !== "keeper") throw new Error("boom"); return found; } });
+  assert.deepEqual((await brokenPhrase.origin(about, { ask: lantern })).words, originOf(found, about, { ask: lantern }).words);
   const failing = createInspire({ directory: path.join(folder, "origin-fail"), projectState: memoryProjects(), search: async () => { throw Object.assign(new Error("not found"), { code: "NO_YTDLP" }); } });
   assert.deepEqual(await failing.origin(about), { query: "keeper", skipped: "yt-dlp is not installed" });
+  assert.deepEqual(await failing.origin(about, { ask: lantern }), { query: "keeper", phrase: "keeper lantern ladder", skipped: "yt-dlp is not installed" }, "a skipped search keeps its phrase");
 });
 
 test("the video's length reaches the search: far longer results are dropped and counted, and fewer than wanted asks once more", async () => {

@@ -213,7 +213,7 @@ export function originWord(origin) {
     && Number.isFinite(entry.count) && Number.isFinite(entry.of) && entry.of > 0);
   if (!found.length) return null;
   const best = found.reduce((top, entry) => (entry.count > top.count ? entry : top));
-  return { word: plainText(best.word, 30), count: best.count, of: best.of };
+  return { word: plainText(best.word, 30), count: best.count, of: best.of, query: typeof best.query === "string" ? best.query : undefined };
 }
 
 /**
@@ -224,7 +224,7 @@ export function originWord(origin) {
 export function originLine(origin) {
   const found = originWord(origin);
   if (!found) return "";
-  const query = plainText(origin.query, 40);
+  const query = plainText(found.query ?? origin.query, 40);
   const head = `origin: "${found.word}" in ${found.count} of ${found.of} titles${query ? ` about "${query}"` : ""}`;
   const top = Array.isArray(origin.top) ? origin.top.find((entry) => typeof entry?.title === "string" && plainText(entry.title, 10)) : null;
   if (!top) return head;

@@ -899,6 +899,12 @@ function draftSpine(saved, entry, seconds) {
 
 // A rough first pass: up to this many layers may be built before the direction is locked.
 export const ROUGH_LAYERS = 30;
+// A real edit is past rough: a brief, and over ROUGH_LAYERS layers, or REAL_EDIT_LAYERS or more in
+// REAL_EDIT_SECONDS or more (a footage cut puts one shot in one layer, so it has few layers).
+// `video` is videoFacts(document). Its warnings hold the final render, and it needs the critic.
+export const REAL_EDIT_SECONDS = 15, REAL_EDIT_LAYERS = 10;
+export const realEdit = (state, video) => hasBrief(state?.brief)
+  && (video.layers > ROUGH_LAYERS || (video.seconds >= REAL_EDIT_SECONDS && video.layers >= REAL_EDIT_LAYERS));
 
 /**
  * The bans the agent guessed, as the board stop asks about them: the brief's never line when it
