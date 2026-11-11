@@ -99,8 +99,9 @@ function normalizeSound(value, path) {
  * them), each starting with `path`: [] when it is right. `known(name)` says whether kino has a
  * move or preset of that name (the board op passes it). `shape: true` checks the shape only, not
  * the names (parseDocument: a saved move whose name was planned, then built, still loads).
+ * `refHelp(sentRef)` returns a sentence about the project's saved references, added to a bad ref's message.
  */
-export function moveProblems(move, path, known = () => true, { shape = false } = {}) {
+export function moveProblems(move, path, known = () => true, { shape = false, refHelp = null } = {}) {
   if (isRecord(move) && Object.hasOwn(move, "none")) {
     const extra = Object.keys(move).filter((key) => key !== "none");
     const problems = extra.map((key) => `${path}.${key} is not a field of move {none}: a shot with no move only says why.`);
@@ -118,7 +119,11 @@ export function moveProblems(move, path, known = () => true, { shape = false } =
   else if (move.planned === true) {
     if (!PLANNED_MOVES.includes(name)) problems.push(`${path}.name "${name}" is not a planned move: planned are ${PLANNED_MOVES.join(", ")}.`);
   } else if (!known(name)) problems.push(PLANNED_MOVES.includes(name) ? `${path}.name "${name}" is planned, not built yet: add planned: true.` : `${path}.name "${name}" is not a kino move or preset (library {topic:"moves"}).`);
-  if (typeof move.ref !== "string" || !MOVE_REF.test(move.ref.trim())) problems.push(`${path}.ref is "<reference key>@<seconds>", the reference moment it copies (e.g. "app-trailer@3.2").`);
+  if (typeof move.ref !== "string" || !MOVE_REF.test(move.ref.trim())) {
+    // refHelp(sent): what this project would accept now (its saved keys, or the call that saves one), from the backend.
+    const help = refHelp?.(move.ref) ?? "";
+    problems.push(`${path}.ref is "<reference key>@<seconds>", the reference moment it copies (e.g. "app-trailer@3.2").${help ? ` ${help}` : ""}`);
+  }
   return problems;
 }
 

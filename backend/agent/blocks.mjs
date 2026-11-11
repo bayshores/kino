@@ -40,7 +40,7 @@ import { DURATIONS, EASING_TOKENS, FEELS } from "../../engine/blocks/tokens.js";
 import { MOTION_FEELS, VARY_KINDS } from "../../engine/blockFields.js";
 import { EXAMPLES } from "../../engine/blocks/examples.js";
 import { prepareFontPatches } from "../font-selection.mjs";
-import { closest } from "./refs.mjs";
+import { closest, nearMiss } from "./refs.mjs";
 import { createLayoutOps, isSlot } from "./blocks-layout.mjs";
 import { frameTransform } from "../../engine/camera.js";
 import { homeCamera } from "../../engine/blocks/moves/plane.js";
@@ -104,6 +104,34 @@ const BOARD_MOVE_NAMES = new Set([...MOVE_NAMES, ...TRANSITION_NAMES, ...RECIPE_
 /** A refused board: `boardError` (missing_layer, gap, overlap, bad_shot) goes into the refusal's details. */
 function boardProblem(code, message, suggestions = []) {
   return Object.assign(problem(message, suggestions), { boardError: code });
+}
+
+/**
+ * For a board shot's bad move.ref: a sentence on what this project accepts now. `refs` is its saved
+ * references [{id, keys}] (null when kino cannot tell: no sentence). A sent name that is a saved key
+ * or id without its moment gets the fixed ref; a near miss the closest one; else the saved names,
+ * or, with none saved, the call that saves one.
+ */
+export function referenceHelp(refs) {
+  if (!Array.isArray(refs)) return () => "";
+  const plain = (name) => String(name).toLowerCase().replace(/^yt:/, "");
+  const shown = refs.map((ref) => ref.keys?.[0] ?? ref.id);
+  const names = refs.flatMap((ref) => [...(ref.keys ?? []), ref.id].map((name) => ({ name: plain(name), shown: ref.keys?.[0] ?? ref.id })));
+  // The saved names (or the save call) are said once per refusal, with the first shot that needs them.
+  let said = false;
+  const once = (text) => { if (said) return ""; said = true; return text; };
+  return (sent) => {
+    if (!names.length) return once('No reference is saved in this project: save one with library {topic:"inspire", name:"save yt:<id> as <key>"} (ids come from library {topic:"inspire"}), then send ref "<key>@<seconds>".');
+    const base = typeof sent === "string" ? plain(sent.trim().replace(/@.*$/, "")) : "";
+    const exact = names.find((entry) => entry.name === base);
+    // The key is right but the text already has its "@": the seconds are what is wrong, so say how they are written.
+    if (exact && /@/.test(sent)) return `"${exact.shown}" is saved, but its seconds are not valid: write digits with up to 2 decimals and no unit (e.g. "${exact.shown}@3.2").`;
+    if (exact) return `"${String(sent).trim()}" is saved as ${exact.shown}: send ref "${exact.shown}@<seconds>", the second of it the shot copies.`;
+    const near = base ? nearMiss(base, names.map((entry) => entry.name)) : null;
+    const close = near ? names.find((entry) => entry.name === near) : null;
+    if (close) return `The closest saved reference is ${close.shown}: send ref "${close.shown}@<seconds>".`;
+    return once(`Saved now: ${shown.slice(0, 6).join(", ")}${shown.length > 6 ? ` (+${shown.length - 6} more)` : ""}. Send ref "<one of them>@<seconds>".`);
+  };
 }
 
 // ---- the operations and their rules --------------------------------------------------------
@@ -837,7 +865,7 @@ function copyText(value, depth = 0) {
 // clipEvents(src): a clip's measured events in file seconds (footage/events.mjs), or null.
 // styleType(document): the picked type {fonts (the style spec's {caption:{family}, display:{family}, …}
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf });
   async function mediaOf(document, work) {
@@ -1930,8 +1958,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const sent = operation.shots;
     if (!Array.isArray(sent) || !sent.length || sent.length > BOARD_LIMITS.shots) add("bad_shot", `shots is a list of 1 to ${BOARD_LIMITS.shots} shots.`);
     const shots = [];
+    const refHelp = referenceHelp(await savedRefs?.(document));
     for (const [index, shot] of (Array.isArray(sent) ? sent : []).slice(0, BOARD_LIMITS.shots).entries())
-      shots.push(await boardShot(document, scene, shot, index + 1, { media, add, work }));
+      shots.push(await boardShot(document, scene, shot, index + 1, { media, add, work, refHelp }));
     if (!problems.length) {
       // A shot sent without an id keeps the id of the shot it continues (engine/board.js).
       keepShotIds(shots, document.board?.shots ?? []);
@@ -2019,7 +2048,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   }
 
   // One shot, checked and filled in (text defaults), or what is wrong with it (`add`).
-  async function boardShot(document, scene, shot, n, { media, add, work }) {
+  async function boardShot(document, scene, shot, n, { media, add, work, refHelp }) {
     if (!isRecord(shot)) { add("bad_shot", `shot ${n} is {cue, dur, pacing, media, in, crop, subject, follow, text, sound, why}.`); return {}; }
     const keys = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "speed", "alts"];
     const extra = Object.keys(shot).filter((key) => !keys.includes(key));
@@ -2035,7 +2064,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     if (!PACING.includes(shot.pacing)) add("bad_shot", shot.pacing === undefined ? `shot ${n} has no pacing: beat_cut, phrase_flow or free.` : `shot ${n} pacing is beat_cut, phrase_flow or free.`, closest(String(shot.pacing ?? ""), PACING));
     const why = boardWhy(shot.why, `shot ${n}`, add);
     // move: the designed move (engine/board.js), every bad field named at once.
-    const wrong = shot.move === undefined ? [] : moveProblems(shot.move, `shot ${n} move`, (name) => BOARD_MOVE_NAMES.has(name));
+    const wrong = shot.move === undefined ? [] : moveProblems(shot.move, `shot ${n} move`, (name) => BOARD_MOVE_NAMES.has(name), { refHelp });
     for (const message of wrong) add("bad_shot", message, /name "/.test(message) ? closest(String(shot.move.name), [...BOARD_MOVE_NAMES]) : []);
     const move = shot.move !== undefined && !wrong.length ? shot.move : null;
     if (missing.length) return {};

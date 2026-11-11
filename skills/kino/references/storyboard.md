@@ -31,9 +31,9 @@ Read before building a video from footage (the `board` stop), or to plan any vid
   or `free`. `why`: one line. `calls` (at most 6): your own choices, so an approval covers
   them. `open` (at most 3): questions only the person can answer.
 - `move`: `{kind, name, ref}`, `kind` type, transition, camera or ui; `name` a move,
-  transition, recipe, preset, `frame` or `drift`, else `planned:true`; `ref` the moment it
-  copies, `"<key>@<seconds>"` (a saved reference's key, id or title; `look versus` pairs
-  it). Else `{none:"cut"}`: a plain cut, right for most shots.
+  transition, recipe, preset, `frame` or `drift`, else `planned:true`; `ref` the moment
+  copied, `"<key>@<seconds>"` (a saved key, id or title; `look versus` pairs
+  it; refusals list them). Else `{none:"cut"}`: a plain cut, right for most shots.
 - Send the whole board again to change it, each shot with the `id` `look board` prints after
   its number (`2 (S5)`); a shot without one keeps the id of the shot it continues.
 - Refused (`op_failed`; its `boardError` says which): `missing_layer` (say "none"), `gap` or

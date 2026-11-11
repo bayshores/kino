@@ -1446,6 +1446,11 @@ export function createInspire(deps) {
   async function savedIds(projectId) {
     return ({ ...emptyProject(), ...(await projectState.read(projectId)) }).saved;
   }
+  /** The saved references with the keys they were given: [{id, keys}] (cheap: no reference is loaded). */
+  async function savedKeys(projectId) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    return state.saved.map((id) => ({ id, keys: Object.keys(state.keys ?? {}).filter((key) => state.keys[key] === id) }));
+  }
   async function savedCount(projectId) {
     return (await savedIds(projectId)).length;
   }
@@ -1611,7 +1616,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**

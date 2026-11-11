@@ -903,7 +903,8 @@ How to read it:
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.
 - **music_turn** (warning): at a spine `turn` beat the music changes (a `song-*` cue within 0.5 s,
-  4 dB either way, or a 0.5 s dip before); the fix names `fit_music`. Unverified by ear. Evidence:
+  4 dB either way, or a 0.5 s dip before); the fix names `fit_music` and gives the song's own dip
+  in dB with a duck for about 10 dB in all (none when it drops 10 or more). Unverified by ear. Evidence:
   `engine/qualityPolish.test.js`.
 - **Mix levels (T4)**: Verified by measurement on made-up tones, not by ear. Each voice clip is
   leveled to -16 LUFS from a cached loudness curve (`backend/loudness-curve.mjs`), line by line when
@@ -1177,7 +1178,8 @@ How to read it:
 - **board op**: Verified. `edit {ops:[{op:"board", music, shots}]}` saves the whole storyboard, every
   shot naming every layer or "none" and the shots covering the music or the whole video; it is part of the document (undo, restore).
   A refusal names every field over its limit with its length. A shot's `move` ({kind, name, ref} or
-  {none}) is checked against kino's moves and move-like ops (frame), with every bad field named at once. Evidence:
+  {none}) is checked against kino's moves and move-like ops (frame), with every bad field named at once; a bad `ref` also
+  names the project's saved keys, the fixed ref for a saved key sent without its moment, or the call that saves one. Evidence:
   `backend/agent-board.test.mjs`, `engine/board.test.js`.
 - **look board**: Verified. `look {mode:"board", page}` draws 4 shots a page with crops and measured
   framing flags and each shot's move, flagging shots that name no move (a chosen cut, move {none},

@@ -710,6 +710,24 @@ test("music_turn: the music does nothing at the spine's turn", async () => {
   const [flat] = await run();
   assert.equal(flat?.at, 10);
   assert.match(flat.fix.text, /^fit_music \{layer:"song"\}/);
+  // The suggested duck takes the song's own dip into account: a total of about 10 dB, never a negative duck.
+  const withDip = (db, from, to) => ({ ...loudness, peaks: loudness.peaks.map((peak, index) => (index / 100 >= from && index / 100 < to ? peak * 10 ** (-db / 20) : peak)) });
+  const duckFor = async (own) => {
+    const document = scene({ duration: 20, layers: [voice("song", { src: "/api/media/song.wav", mediaDuration: 20, volume: 0.5 })] });
+    const [raw] = document.scenes;
+    return (await check("music_turn", document, { speechScene: raw, speech: [{ layer: raw.layers[0], music: true, loudness: own }], styleSpec: { spine }, cues: [{ name: "song-drop-1", time: 11.5, kind: "marker" }] })).findings[0];
+  };
+  const flatDuck = await duckFor(loudness);
+  assert.match(flatDuck.fix.text, /duck it 10 dB for 0\.5 s/);
+  assert.match(flatDuck.measured, /the song's own dip 0 dB/);
+  assert.match((await duckFor(withDip(3, 9.4, 10))).fix.text, /duck it 7 dB for 0\.5 s just before the turn \(the song drops 3 dB there; 10 dB in all/);
+  const noDuck = (await duckFor(withDip(12, 9.6, 9.9))).fix.text;
+  assert.match(noDuck, /no duck is needed \(the song already drops 12 dB there/);
+  assert.doesNotMatch(noDuck, /duck it/);
+  // A dip that starts at the turn is not one before it: it does not count, so the hint still suggests the full duck.
+  const afterTurn = await duckFor(withDip(12, 10, 10.4));
+  assert.match(afterTurn.fix.text, /duck it 10 dB/);
+  assert.match(afterTurn.measured, /the song's own dip 0 dB/);
   // Already fitted (song- cues), its drop 1.5 s off the turn: refitting gives the same cut, so the hint moves the turn to the drop.
   const [fitted] = await run({}, { spine }, [{ name: "song-build-1", time: 6, kind: "marker" }, { name: "song-drop-1", time: 11.5, kind: "marker" }]);
   assert.match(fitted?.fix.text, /^move the spine's turn to 11\.5 s \(song-drop-1\)/);
