@@ -53,9 +53,9 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 
 ## Sound: music as structure
 
-- `fit_music {layer}` cuts the song to the story: a drop on the spine's payoff (or `payoff`),
-  its break or build under the line before it, an earlier drop on `turn`, its own ending on
-  `end`. Cuts fall on bar lines with downbeat crossfades. Then `duck_audio`.
+- `fit_music {layer}` plays one unbroken stretch of the song, its drop on the spine's payoff
+  (or `payoff`): time the picture to it; its notes say where the turn and end fit the song.
+  Then `duck_audio`. A jump in a song is heard as an edit (`song_jumps`).
 - `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
   (payoff)"); cues `song-drop-1`, `song-dropout-`, `song-return-`, `song-vocal-in-`,
   `song-switch-` mark them where heard.

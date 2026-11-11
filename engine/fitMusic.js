@@ -1,14 +1,18 @@
 // fit_music: the song as the edit's structure.
 //
 // The agent service measures the music file first (backend/song-shape.mjs: sections; the beat
-// analysis: the bar grid) and puts both in the operation, like detect_beats. planFitMusic then
-// cuts the song in song order, only on bar lines (a section start, a phrase line, first), so that:
-// - a drop lands on the payoff (and an earlier drop on the turn, when one is given);
-// - the song's break or build before that drop plays under the lines before the payoff;
-// - the song's own ending lands at `end` (worked backwards from it), or, when the file is cut
-//   off, the last piece fades out over at least a bar, ending on a bar line.
-// Every offset differs from the payoff's by whole bars, so the beat never stumbles at a cut;
-// each cut is a short crossfade that reaches full volume on the incoming downbeat.
+// analysis: the bar grid) and puts both in the operation, like detect_beats.
+//
+// planFitMusic plays ONE unbroken stretch of the song (planStretch): the stretch whose drop lands
+// on the payoff. Nothing in the song is skipped or reordered, so it sounds like the song; the
+// picture is then timed to the song's cues (the receipt says where each section lands, where the
+// turn and the end would land on a song change). It fades in to a bar line when it starts inside
+// the song and fades out at the end unless the song's own ending is there.
+//
+// With `recut: true` the song is re-arranged instead (planRecut): cut in song order, only on bar
+// lines, so a drop lands on the payoff, an earlier drop on the turn and the song's own ending on
+// `end`. Every jump is heard as an edit in a song with a voice or a melody that carries over the
+// cut, so it is never the default.
 // applyFitMusic turns the plan into pieces of the music layer (like cut_speech's pieces) and
 // writes the sections as marker cues song-<kind>-<n> in video time.
 import { uid } from "./model.js";
@@ -55,13 +59,107 @@ export function barGrid(analysis, sections = []) {
   return { bar: beat * 4, beat, downbeat };
 }
 
+// The fade that closes a stretch which does not reach the song's own ending, in seconds.
+const FADE_OUT_MAX = 4;
+
+/**
+ * Each section and seam in video time, in the piece that plays its heard time at full volume (not
+ * in a fade between pieces). A section heard just before the bar line its cut is on goes in the
+ * piece cut there, its cue on that piece's first full-volume moment: the change is heard at the
+ * cut, not earlier. `lands` {payoff, turn}: the video times whose drop gets that label.
+ */
+function placeSections({ parts, seams, pieces, lands }) {
+  const placed = [];
+  const seamParts = seams.filter((seam) => Number.isFinite(seam?.at) && typeof seam.kind === "string").map((seam) => ({ kind: seam.kind, at: seam.at, heard: seam.at, weight: seam.weight }));
+  const full = (piece) => piece.from + (piece === pieces[0] ? 0 : piece.fadeIn); // song time it reaches full volume
+  const plays = (piece, time) => time >= full(piece) - EPS && time < piece.to - EPS;
+  for (const part of [...parts, ...seamParts]) {
+    const byHeard = pieces.filter((piece) => plays(piece, part.heard));
+    // Heard after the piece that holds its bar line stops: the change is never heard, no cue.
+    const owners = byHeard.length ? byHeard : pieces.filter((piece) => plays(piece, part.at) && part.heard < piece.to);
+    for (const piece of owners) {
+      const offset = piece.at - piece.from;
+      const entry = { at: round(Math.max(part.heard, full(piece)) + offset), kind: part.kind, ...(Number.isFinite(part.weight) ? { weight: part.weight } : {}) };
+      if (part.kind === "drop" && Math.abs(part.at + offset - lands.payoff) < 0.01) entry.label = "payoff";
+      else if (part.kind === "drop" && lands.turn != null && Math.abs(part.at + offset - lands.turn) < 0.01) entry.label = "turn";
+      placed.push(entry);
+    }
+  }
+  return placed;
+}
+
 /**
  * The plan: song {sections [{at, kind}], seconds, whole}, grid {bar, beat?, downbeat}, video
  * {payoff, turn?, end}. Returns {pieces: [{from, to, at, fadeIn, fadeOut}] (song seconds, video
- * start), sections: [{at, kind, label?}] in video time, ending, notes}.
+ * start), sections: [{at, kind, label?}] in video time, ending, notes}. One piece (the song
+ * unbroken) unless `recut` is true.
  */
-export function planFitMusic({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
-  if (!(bar > 0)) fail("the song has no steady beat, so it cannot be cut on bar lines.");
+export function planFitMusic(input) {
+  if (!(input.bar > 0)) fail("the song has no steady beat, so it cannot be fit on bar lines.");
+  return input.recut ? planRecut(input) : planStretch(input);
+}
+
+/** One unbroken stretch of the song, its drop on the payoff. */
+function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
+  const snap = (time) => downbeat + Math.round((time - downbeat) / bar) * bar;
+  const parts = sections.map((part) => ({ kind: part.kind, at: Math.max(0, snap(part.at)), heard: part.at, weight: part.weight }));
+  const drops = parts.filter((part) => part.kind === "drop").filter((part, index, list) => list.findIndex((other) => other.at === part.at) === index);
+  if (!drops.length) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
+  const notes = [];
+  const runUp = (drop, from) => parts.some((part) => (part.kind === "break" || part.kind === "build") && part.at < drop.at - EPS && part.at >= Math.max(from, drop.at - RUN_UP_BARS * bar) - EPS);
+  // A change the turn can sit on: another section start of the stretch, in video time.
+  const changeNear = (drop, time) => parts.filter((part) => part.at !== drop.at && part.kind !== "intro" && part.kind !== "outro").map((part) => part.at + payoff - drop.at)
+    .filter((lands) => lands > bar && lands < payoff - bar + EPS).sort((a, b) => Math.abs(a - time) - Math.abs(b - time))[0] ?? null;
+  // The stretch for each drop is fixed by the payoff: song [drop - payoff, drop + end - payoff].
+  const cost = (drop) => {
+    const from = drop.at - payoff;
+    const to = drop.at + (end - payoff);
+    let total = (1 - (Number.isFinite(drop.weight) ? drop.weight : 0.5)) * 4;
+    if (from < -CUT_SLACK) total += 50 - from; // the video would open without music
+    // The song runs out before the end: silence. Its own ending inside the last bar is the best close.
+    if (to > seconds + 2 * bar) total += 100;
+    else if (whole && to > seconds - CUT_SLACK && to <= seconds + bar) total -= 2;
+    if (!runUp(drop, from)) total += 3;
+    if (turn != null) { const lands = changeNear(drop, turn); total += lands == null ? 4 : Math.min(4, Math.abs(lands - turn) / bar); }
+    // Opens on a phrase line: a section starts within a beat of the stretch's first second.
+    if (from > CUT_SLACK && !parts.some((part) => Math.abs(part.at - from) <= beat)) total += 1;
+    return total;
+  };
+  const drop = [...drops].sort((a, b) => cost(a) - cost(b) || a.at - b.at)[0];
+  if (!runUp(drop, drop.at - payoff)) notes.push("no break or build before the drop in this stretch: nothing quiets the line before the payoff");
+  const offset = payoff - drop.at; // video time = song time + offset
+  const start = Math.max(0, offset);
+  const from = start - offset;
+  const songEnd = seconds + offset;
+  const own = whole && songEnd <= end + CUT_SLACK; // the song's own ending is inside the video
+  const stop = Math.min(end, songEnd);
+  if (start > CUT_SLACK) notes.push(`the song starts at ${round(start)} s (its drop is ${round(drop.at)} s in): a later payoff, or a song with a later drop, fills the opening`);
+  // Starts inside the song: on a section line it starts clean, else it fades in to the next bar line.
+  let fadeIn = 0;
+  if (from > CUT_SLACK && !parts.some((part) => Math.abs(part.at - from) <= CUT_SLACK)) {
+    const line = downbeat + Math.ceil((from + beat - EPS - downbeat) / bar) * bar;
+    fadeIn = round(line - from);
+  }
+  const fadeOut = own ? 0 : round(Math.min(FADE_OUT_MAX, 2 * bar, Math.max(bar, (stop - payoff) / 2), stop - start));
+  const pieces = [{ from: round(from), to: round(stop - offset), at: round(start), fadeIn, fadeOut }];
+  if (own && songEnd < end - bar - EPS) notes.push(`the song ends at ${round(songEnd)} s, ${round(end - songEnd)} s before the end`);
+  if (!own) {
+    // A fade closes a phrase when it ends on a phrase line (every 4 bars from the drop).
+    const phrase = 4 * bar;
+    const line = payoff + Math.round((end - payoff) / phrase) * phrase;
+    if (Math.abs(line - end) > beat && line > payoff + bar) notes.push(`the song's phrase ends at ${round(line)} s: end the video there and the fade closes the phrase (at ${round(end)} s it fades mid-phrase)`);
+  }
+  const turnLands = turn != null ? changeNear(drop, turn) : null;
+  if (turn != null && turnLands == null) notes.push("no song change before the payoff for the turn");
+  else if (turn != null && Math.abs(turnLands - turn) > 0.01) notes.push(`the song changes at ${round(turnLands)} s (${round(turnLands - turn) > 0 ? "+" : ""}${round(turnLands - turn)} s from the turn): move the turn there for a hit`);
+  const placed = placeSections({ parts, seams, pieces, lands: { payoff, turn: null } });
+  placed.push(own ? { at: round(songEnd), kind: "ending" } : { at: round(stop - fadeOut), kind: "fade" });
+  if (!own && whole === false) notes.push("the measured song stops before its end: it fades out");
+  return { pieces, sections: placed.sort((a, b) => a.at - b.at), ending: own ? round(songEnd) : null, notes };
+}
+
+/** The song re-arranged (recut:true): a drop on the payoff, an earlier one on the turn, its own ending on the end. */
+function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
   const snap = (time) => downbeat + Math.round((time - downbeat) / bar) * bar;
   // Cuts go on bar lines (at); the cues keep each edge as measured (heard), with its weight.
   const parts = sections.map((part) => ({ kind: part.kind, at: Math.max(0, snap(part.at)), heard: part.at, weight: part.weight }));
@@ -172,26 +270,7 @@ export function planFitMusic({ sections = [], seams = [], seconds, whole = true,
     last.fadeOut = round(Math.max(bar, Math.min(2 * bar, (fadeEnd - last.at) / 2)));
   }
 
-  // The sections in video time.
-  // Each section and seam goes in the piece that plays its heard time at full volume (not in a
-  // crossfade). A section heard just before the bar line its cut is on goes in the piece cut there,
-  // its cue on that piece's first full-volume moment: the change is heard at the cut, not earlier.
-  const placed = [];
-  const seamParts = seams.filter((seam) => Number.isFinite(seam?.at) && typeof seam.kind === "string").map((seam) => ({ kind: seam.kind, at: seam.at, heard: seam.at, weight: seam.weight }));
-  const full = (piece) => piece.from + (piece === pieces[0] ? 0 : piece.fadeIn); // song time it reaches full volume
-  const plays = (piece, time) => time >= full(piece) - EPS && time < piece.to - EPS;
-  for (const part of [...parts, ...seamParts]) {
-    const byHeard = pieces.filter((piece) => plays(piece, part.heard));
-    // Heard after the piece that holds its bar line stops: the change is never heard, no cue.
-    const owners = byHeard.length ? byHeard : pieces.filter((piece) => plays(piece, part.at) && part.heard < piece.to);
-    for (const piece of owners) {
-      const offset = piece.at - piece.from;
-      const entry = { at: round(Math.max(part.heard, full(piece)) + offset), kind: part.kind, ...(Number.isFinite(part.weight) ? { weight: part.weight } : {}) };
-      if (part.kind === "drop" && Math.abs(part.at + offset - payoff) < 0.01) entry.label = "payoff";
-      else if (part.kind === "drop" && turnPiece && Math.abs(part.at + offset - turnPiece.lands) < 0.01) entry.label = "turn";
-      placed.push(entry);
-    }
-  }
+  const placed = placeSections({ parts, seams, pieces, lands: { payoff, turn: turnPiece?.lands ?? null } });
   if (turnPiece && Math.abs(turnPiece.lands - turn) > 0.01) notes.push(`the turn's drop lands at ${round(turnPiece.lands)} s (${round(turnPiece.lands - turn) > 0 ? "+" : ""}${round(turnPiece.lands - turn)} s): move the turn there for a hit`);
   const fadeStop = last.at + (last.to - last.from);
   placed.push(ending ? { at: ending.at, kind: "ending" } : { at: round(fadeStop - last.fadeOut), kind: "fade" });
@@ -199,7 +278,7 @@ export function planFitMusic({ sections = [], seams = [], seconds, whole = true,
   return { pieces, sections: placed.sort((a, b) => a.at - b.at), ending: ending?.at ?? null, notes };
 }
 
-/** Applies fit_music {sceneId, layerId, payoff, turn?, end?, shape: {sections, seconds, whole}, analysis}. Returns the receipt. */
+/** Applies fit_music {sceneId, layerId, payoff, turn?, end?, recut?, shape: {sections, seconds, whole}, analysis}. Returns the receipt. */
 export function applyFitMusic(document, operation) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
   if (!scene) fail(`scene ${operation.sceneId} was not found.`);
@@ -218,7 +297,7 @@ export function applyFitMusic(document, operation) {
   const grid = barGrid(analysis, shape.sections);
   if (!grid) fail("no steady beat was found in the song, so it cannot be cut on bar lines.");
   const seconds = shape.seconds ?? analysis.duration;
-  const plan = planFitMusic({ sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end });
+  const plan = planFitMusic({ sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, recut: operation.recut === true });
 
   // The old pieces (this layer, and pieces an earlier fit_music made from it) go; the new ones take their place.
   const headId = layer.fitMusic ?? layer.id;
@@ -253,9 +332,12 @@ export function applyFitMusic(document, operation) {
   document.cues = withCues(document.cues, cues, { kinds: ["marker"], prefix: "song-" });
 
   const lines = plan.sections.map((part) => `${part.at} s ${part.kind}${part.weight != null ? `, weight ${part.weight}` : ""}${part.label ? ` (${part.label})` : ""}`);
+  const clock = (time) => `${Math.floor(time / 60)}:${String(Math.floor(time % 60)).padStart(2, "0")}`;
   return {
     layer: base,
     pieces: made.length,
+    // Which part of the song plays, in song order.
+    plays: plan.pieces.map((piece) => `${clock(piece.from)}-${clock(piece.to)}`).join(", "),
     sections: lines,
     ...(plan.notes.length || dropped ? { notes: [...plan.notes, ...(dropped ? [`its volume animations (ducks, fades) were removed: run duck_audio {layer:"${base}"} again (it ducks every piece)`] : [])] } : {}),
   };

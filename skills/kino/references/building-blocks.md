@@ -14,7 +14,7 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
 - `format {name, slots}` is a whole designer-tuned video to fill (product-launch, app-demo,
   social-promo, feature-announcement, testimonial): fixed frame, length, beats, pacing and music
   cues. Picture slots also take imported videos (a screen recording plays silent from its beat);
-  `music` is cut to the beat with its drop on the hero (fit_music). `library {topic:"formats",
+  `music` plays unbroken with its drop on the hero (fit_music). `library {topic:"formats",
   name}` gives its slots and an example op. It is a compose scene.
 - `set_brand` once per project; compose and recipe then use its colors, fonts and logo.
 - A promo or ad needs a logo beat starting by 3.8 s (logo-sting, logo-build or wordmark-type),

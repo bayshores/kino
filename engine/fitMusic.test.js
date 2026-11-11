@@ -1,4 +1,5 @@
-// fit_music: the song cut so its drop lands on the payoff and its ending on the end (fitMusic.js).
+// fit_music: one unbroken stretch of the song with its drop on the payoff; with recut:true the
+// song cut so its drop lands on the payoff and its ending on the end (fitMusic.js).
 // The song's measures (song-shape.mjs, the beat analysis) are made up here; the agent service
 // measures real files.
 import assert from "node:assert/strict";
@@ -11,8 +12,21 @@ import { planFitMusic } from "./fitMusic.js";
 const SECTIONS = [{ at: 0, kind: "intro" }, { at: 24, kind: "build" }, { at: 32, kind: "drop" }, { at: 64, kind: "break" }, { at: 72, kind: "build" }, { at: 80, kind: "drop" }, { at: 112, kind: "outro" }];
 const onBar = (time) => Math.abs(time / 2 - Math.round(time / 2)) < 1e-6;
 
-test("planFitMusic: the drop on the payoff, an earlier drop on the turn, the song's own ending on the end, cuts on bar lines in song order", () => {
-  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, turn: 8, end: 30 });
+test("planFitMusic: one unbroken stretch of the song, its drop on the payoff, faded in to a bar line and out at the end", () => {
+  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 21, turn: 8, end: 31 });
+  // Song 59 to 90 s: the second drop, whose break lands nearest the turn. Nothing is skipped.
+  assert.deepEqual(plan.pieces, [{ from: 59, to: 90, at: 0, fadeIn: 1, fadeOut: 4 }]);
+  assert.deepEqual(plan.sections.map((part) => [part.at, part.kind, part.label]), [[5, "break", undefined], [13, "build", undefined], [21, "drop", "payoff"], [27, "fade", undefined]]);
+  // The picture moves to the song: where the turn and the end would land on it.
+  assert.ok(plan.notes.some((note) => /song changes at 5 s \(-3 s from the turn\)/.test(note)) && plan.notes.some((note) => /phrase ends at 29 s/.test(note)), plan.notes.join("; "));
+  // Its own ending when the stretch reaches it, and a clean start on a section line.
+  const close = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 8, end: 48 });
+  assert.deepEqual(close.pieces, [{ from: 72, to: 120, at: 0, fadeIn: 0, fadeOut: 0 }]);
+  assert.equal(close.ending, 48);
+});
+
+test("planFitMusic recut: the drop on the payoff, an earlier drop on the turn, the song's own ending on the end, cuts on bar lines in song order", () => {
+  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, turn: 8, end: 30, recut: true });
   const drops = plan.sections.filter((part) => part.kind === "drop");
   assert.deepEqual(drops.map((part) => [part.at, part.label]), [[8, "turn"], [20, "payoff"]]);
   assert.equal(plan.ending, 30);
@@ -25,18 +39,18 @@ test("planFitMusic: the drop on the payoff, an earlier drop on the turn, the son
   assert.equal(plan.pieces.at(-1).to, 120, "the last piece plays to the song's end");
   assert.equal(plan.pieces.at(-1).fadeOut, 0, "the song ends by itself");
   // Without a turn, the break or build before the payoff's drop plays under the line before it.
-  const plain = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30 });
+  const plain = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30, recut: true });
   const before = plain.sections.filter((part) => part.at < 20 && part.at >= 10).map((part) => part.kind);
   assert.ok(before.includes("build") || before.includes("break"), JSON.stringify(plain.sections));
   // A break heard 0.4 s before its bar line (more than the crossfade): the cut is on the bar line
   // at 4 s, and the cue there too, not at 3.6 s, where the opening piece still plays.
-  const early = planFitMusic({ sections: SECTIONS.map((part) => (part.at === 64 ? { ...part, at: 63.6 } : part)), seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30 });
+  const early = planFitMusic({ sections: SECTIONS.map((part) => (part.at === 64 ? { ...part, at: 63.6 } : part)), seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30, recut: true });
   assert.equal(early.pieces[1].at + early.pieces[1].fadeIn, 4, JSON.stringify(early.pieces));
   assert.deepEqual(early.sections.filter((part) => part.kind === "break").map((part) => part.at), [4], JSON.stringify(early.sections));
 });
 
-test("planFitMusic: a song cut off before its end fades out over at least a bar, ending on a bar line", () => {
-  const plan = planFitMusic({ sections: SECTIONS.slice(0, 3), seconds: 60, whole: false, bar: 2, downbeat: 0, payoff: 12, end: 25 });
+test("planFitMusic recut: a song cut off before its end fades out over at least a bar, ending on a bar line", () => {
+  const plan = planFitMusic({ sections: SECTIONS.slice(0, 3), seconds: 60, whole: false, bar: 2, downbeat: 0, payoff: 12, end: 25, recut: true });
   const last = plan.pieces.at(-1);
   assert.equal(plan.ending, null);
   assert.ok(last.fadeOut >= 2, `fade ${last.fadeOut}`);
@@ -44,13 +58,21 @@ test("planFitMusic: a song cut off before its end fades out over at least a bar,
   assert.throws(() => planFitMusic({ sections: [{ at: 0, kind: "intro" }], seconds: 60, bar: 2, payoff: 10, end: 20 }), /no drop/);
 });
 
-test("fit_music cuts the music layer into pieces with crossfades and writes the sections and seams as cues at their heard times, with weights", () => {
+test("fit_music keeps the music layer in one piece by default; recut:true cuts it into pieces with crossfades; both write the sections and seams as cues at their heard times, with weights", () => {
   // The drop is heard 20 ms after its bar line: the cut stays on the bar line, the cue on the sound.
   const HEARD = SECTIONS.map((part) => (part.at === 80 ? { ...part, at: 80.02, weight: 0.8 } : part));
   const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 30, volume: 0.8 });
   const document = createDocument({ scenes: [createScene({ id: "s1", duration: 30, layers: [music] })], cues: [{ name: "song-drop-9", time: 3, kind: "marker" }, { name: "hit", time: 4, kind: "marker" }] });
   const beats = Array.from({ length: 240 }, (_, index) => index * 0.5);
-  const op = { type: "fit_music", sceneId: "s1", layerId: "music", payoff: 20, end: 30, shape: { sections: HEARD, seconds: 120, whole: true, seams: [{ at: 78.012, kind: "dropout", weight: 0.9 }, { at: 78.5, kind: "return", weight: 0.7 }] }, analysis: { bpm: 120, period: 0.5, beats, duration: 120 } };
+  const op = { type: "fit_music", sceneId: "s1", layerId: "music", payoff: 20, end: 30, recut: true, shape: { sections: HEARD, seconds: 120, whole: true, seams: [{ at: 78.012, kind: "dropout", weight: 0.9 }, { at: 78.5, kind: "return", weight: 0.7 }] }, analysis: { bpm: 120, period: 0.5, beats, duration: 120 } };
+  // By default: one layer playing song 60 to 90 s, the drop's cue on the payoff, a fade at the end.
+  const whole = new Map();
+  const single = applyOperations(document, [{ ...op, recut: false }], { reports: whole });
+  const only = single.scenes[0].layers;
+  assert.equal(only.length, 1);
+  assert.deepEqual([only[0].mediaStart, only[0].mediaOffset, only[0].mediaDuration], [0, 60, 30]);
+  assert.equal([...whole.values()][0].plays, "1:00-1:30");
+  assert.ok(single.cues.some((cue) => cue.name === "song-drop-1" && cue.time === 20.02 && cue.fitted === true) && only[0].animations.some((animation) => animation.name === "Fit out"));
   const reports = new Map();
   const next = applyOperations(document, [op], { reports });
   const report = [...reports.values()][0];

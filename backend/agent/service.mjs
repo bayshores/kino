@@ -1513,7 +1513,7 @@ export function createAgentService(deps) {
     const fit = { type: "fit_music", sceneId, layerId: music.id, ...(payoff > 0 ? { payoff } : {}) };
     try {
       const fitted = await runFitMusic(document, fit, { ...work, reports: null });
-      (work.notes ??= []).push(`format music: cut to the beat by fit_music${payoff > 0 ? `, its drop on ${payoffCue} at ${payoff} s` : ""}`);
+      (work.notes ??= []).push(`format music: one stretch of the song (fit_music)${payoff > 0 ? `, its drop on ${payoffCue} at ${payoff} s` : ""}`);
       return fitted;
     }
     catch (error) {

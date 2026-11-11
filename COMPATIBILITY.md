@@ -337,7 +337,7 @@ How to read it:
   saved; the sweeps were not rerun for the 3 newest recipes. `title-type` (big tight uppercase title typing on by letter or word, detail line) checked in rendered frames only.
 - **Whole-video formats**: Partly verified. `format {name, slots}` fills 5 formats (product launch,
   app demo, social promo, feature announcement, testimonial) into a compose scene with set pacing
-  and cues; screen recordings play (silent) from their step; music is cut to the beat by fit_music
+  and cues; screen recordings play (silent) from their step; music plays unbroken (fit_music)
   with its drop on the hero. Every format and aspect builds with 0 check errors (hand-run
   `tests/format-sweep.mjs`). Evidence: `engine/blocks.test.js`, `backend/agent-volume.test.mjs`.
   Gap: no render test through `edit`.
@@ -856,8 +856,9 @@ How to read it:
   neither fix makes the other's finding. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`.
 - **mute_word** (warning): a mute or duck ramp that misses the start or end of the word it hides; the
   fix moves the ramp. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`.
-- **fit_music** (op): cuts a song on bar lines with downbeat crossfades so its drop lands on the
-  payoff and its ending on the end; sections become `song-*` cues. Unverified by ear. Evidence:
+- **fit_music** (op): plays one unbroken stretch of a song with its drop on the payoff (a fade in
+  to a bar line, a fade out at the end); `recut:true` re-arranges it on bar lines instead;
+  sections become `song-*` cues. The owner rejected the re-arranged cut by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
   (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
