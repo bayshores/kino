@@ -3,7 +3,8 @@
 //   flash         light in the shot (a footage light event), a song seam (song-drop, song-return,
 //                 song-switch ...) or a top accent from detect_beats (rank 1 or weight 0.6 and up)
 //   shake         an impact in the footage (a contact: something hits), a song seam or a top accent
-//                 (the same reasons effect_fit accepts); without a footage hit it shakes up and down
+//                 (the same reasons effect_fit accepts); a footage hit on the cue wins and gives the
+//                 direction, without one it shakes up and down
 //   impact-frame  an impact in the footage that has no impact frame of its own
 //   dip           a rest in the song (song-break, song-dropout): darker until the next seam
 //   strobe        a drum fill measured just before the cue (4 or more even onsets), resolving on it
@@ -105,7 +106,9 @@ export function motiveFor(kind, facts, time) {
   const motives = cueMotives(cue, facts);
   if ((cue.kind === "beat" || cue.kind === "onset") && !(kind === "strobe" && motives.some((entry) => entry.motive === "fill")))
     throw refuse(kind, `cue:${cue.name} is a beat number, not a reason`, facts, time);
-  const motive = motives.filter((entry) => NEEDS[kind].includes(entry.motive)).sort((a, b) => b.weight - a.weight)[0];
+  // A shake on a cue that is also a footage hit follows the hit (its direction), whatever the seam weighs.
+  const first = (entry) => (kind === "shake" && entry.motive === "impact" ? 1 : 0);
+  const motive = motives.filter((entry) => NEEDS[kind].includes(entry.motive)).sort((a, b) => first(b) - first(a) || b.weight - a.weight)[0];
   if (!motive) {
     if (/^song-/.test(cue.name) && cue.fitted !== true && !motives.length)
       throw refuse(kind, `cue:${cue.name} was set by hand, not measured: song seams and rests come from fit_music`, facts, time);

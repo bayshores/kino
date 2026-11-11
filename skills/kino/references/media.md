@@ -68,6 +68,14 @@ Syncing two clips · B-roll on the spoken word
 - Sound: `mediaPitch:"keep"` (default) or `"follow"` (tape-like) at a constant speed; ramps always
   follow. Video `mediaInterpolation`: `"nearest"` (default), `"blend"` or slow `"flow"` (renders only;
   also smooths a screen recording that repeats frames, at any speed).
+- On a cue, two moves do it for you (`at:"cue:<name>"`). **speed-ramp** `{layer, before?,
+  after?, over?, land?}`: `before` (0.35) for `over` (0.6 s) into the cue, `after` (its own)
+  from it, then back. A slow stretch makes the footage after it run late (the receipt says how
+  much); `land:"moment"` moves `mediaOffset` so the cue keeps its file moment. A second ramp
+  over the first is refused. **beat-repeat** `{layer, from?, length?, times? | count + every?,
+  scaleStep?, flip?}`: one moment (`from`, file s; default what shows at `at`) replayed for
+  `length` (0.3 s) on each time, as muted copies in the clip's direction and speed there.
+  Reduced motion: no growth, flip or speed-up.
 - Slow motion, 1× → 0.25× → 1× (slows from 1 s, stays at 0.25× until 2.5 s, 1× again at 3 s):
 
 ```json
