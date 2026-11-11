@@ -39,16 +39,19 @@ person: only their answer or their settings let one pass.
 
 - Save at once, after each reply: `notes {action:"brief", fields, log}`. Lines merge by name;
   `null` removes one. With no fields and no log, it reads the brief.
+- First save their message whole: `fields:{ask:"<what they typed>"}`; kept as typed, never edited.
 - `by:"you"` needs `quote`: their exact words, copied from their message (no fixed
-  typos). Not their words: `by:"guessed"`, no quote.
+  typos). Not their words: `by:"guessed"`, no quote. With an ask saved, a quote not in it or
+  in a reply is refused (`quote_not_said`, with their closest sentence).
   `text` (your reading): 80 characters max, idea 120.
+- `about` `{text, by:"you", quote}`: who or what it is about, in their words; the first
+  reference search uses it.
 - Never put a guess over their line or remove it: ask them, then save their new words.
 - Log every reply `{q, a}` word for word (over 2,000 characters: the answering part). Their
   earlier words a lead passed on: `{a, kind:"passed_on"}`, not counted as a reply.
 - Their answer to a playback: `kind:"playback"` and `rev`, the revision you played back (the
   save answer names it: `brief r3 saved`). Add `confirmed:true` only when they said it is
   right; a yes to an older revision confirms nothing.
-- The dashboard shows it read only; the person changes a line through you.
 
 ## Playing it back
 
@@ -72,7 +75,7 @@ the 3 shown, and its signature (techniques reference). Earlier, edits are `order
 ## Replies
 
 At most 10 replies from the person per video: answers to a question ("just start" too), a
-playback or a stop, not the first request or unasked messages (`status`: `replies N/10`). At 10,
+playback or a stop, not the first request or unasked messages. At 10,
 make the remaining calls yourself and say "my call".
 
 ## Stops
@@ -96,14 +99,12 @@ revision with 0 errors, and your own `look`. "It looks right" is not a check.
 
 Asking:
 - Send `ask` as written. After its first line you may add up to 3 lines (what changed, where
-  to look); the storyboard's ask already lists its shots with kino's numbers. No revision
-  numbers in the chat. Attach `look {mode:"sheet"}` (for the storyboard, its
+  to look); the storyboard's ask already lists its shots with kino's numbers. Attach `look {mode:"sheet"}` (for the storyboard, its
   `look {mode:"board"}` pages) when your app can send files.
 - Then end your turn: `Waiting for you: the rough cut (C1)`. Until they answer, that project's
   writes answer `{waiting:"C1"}` and change nothing; reads, `look`, `check` and `notes` work.
 - A stop closes by itself only when the person undid or changed the work it showed (`lapsed`:
-  check, ask again), the video lost that stop, or their settings allow it. Nothing you save
-  closes it.
+  check, ask again), the video lost that stop, or their settings allow it.
 
 Their answer:
 - "ok", "yes", "looks good", "go", "C1 yes": approve. An approval plus a change ("yes,
@@ -114,8 +115,7 @@ Their answer:
   words:"<their reply>", read_as:"approve"}`. Then one line, `Read as: approve`: a receipt,
   not a second question.
 - After a redo, fix only what they named, `check`, and ask that stop again (a new id).
-- They may answer in kino instead: your inbox says so (`C1 rough approved by the person in
-  kino. Go on.`). Act on it; do not record it again (`answered`). `reopened` in your inbox or
+- They may answer in kino instead: your inbox says so. Act on it; do not record it again (`answered`). `reopened` in your inbox or
   `status`: your reading was not what they meant; ask the stop the inbox names again. A later
   stop that waited then closes: do not record a reply to it.
 - "stop asking" counts only on the stop whose ask offers it (the first of rough, color and
@@ -123,8 +123,7 @@ Their answer:
   the storyboard or an approval.
 - `Q…` ids are approvals: the person answers in kino or the chat (record a chat yes/no
   with `notes answer`).
-- Each answer counts toward the 10 replies. `ask_limit`: make that call yourself, say "my
-  call: …" and go on.
+- Each answer counts toward the 10 replies (`ask_limit` at 10: see Replies).
 - kino refuses an answer under 5 s after the ask (`too_fast`) and one for a revision the
   person did not see (`stale_rev`: ask again).
 
@@ -135,8 +134,7 @@ End every turn with one of: `Done: <file>`, `Done, with open questions: …` or
 
 ## New chat or compaction
 
-`status` shows `direction:` and `next:` under its first line. Say the direction back in one
-sentence and trust it over your memory. Their words beat the brand kit and your guesses.
+`status` shows `direction:` and `next:` under its first line. Their words beat the brand kit and your guesses.
 
 ## Examples
 
