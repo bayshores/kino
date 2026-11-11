@@ -234,7 +234,7 @@ const turns = [
     say(asked[0]);
   },
   async (reply) => {
-    await call("notes", { project, action: "brief", fields: {
+    await call("notes", { project, action: "brief", fields: { ask: heard[0], about: { text: "the park reopening", by: "you", quote: "the park reopens Saturday" },
       message: { text: "the park reopens Saturday", by: "you", quote: "it says the park reopens Saturday" },
       plays_on: { text: "TikTok, 9:16, 12 s", by: "you", quote: "12 second TikTok" },
       made_from: { text: "park.mp4", by: "you", quote: "park.mp4" },

@@ -240,7 +240,8 @@ const followTurns = [
     say(asked[0]);
   },
   async (reply) => {
-    await save({ message: { text: "skate crew; make them want to go out and skate", by: "you", quote: reply },
+    await save({ ask: [said[0], reply], about: { text: "the skate crew", by: "you", quote: "my skate crew" },
+      message: { text: "skate crew; make them want to go out and skate", by: "you", quote: reply },
       plays_on: { text: "TikTok, 9:16, 24 s", by: "you", quote: "24 second TikTok" },
       made_from: { text: "skate.mp4", by: "you", quote: "skate.mp4" } }, asked[0], reply);
     say(asked[1]);

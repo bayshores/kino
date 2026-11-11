@@ -1738,13 +1738,13 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
 
     // r1: one line in the person's words, one guessed, one reply logged. It shows without a reload.
     await brief({
-      fields: { never: { text: "no meme text", by: "you", quote: "no meme text please" }, plays_on: { text: "TikTok, 9:16, 24 s", by: "guessed" } },
+      fields: { ask: "no meme text please", never: { text: "no meme text", by: "you", quote: "no meme text please" }, plays_on: { text: "TikTok, 9:16, 24 s", by: "guessed" } },
       log: [{ q: "What would make you wince if I got it wrong?", a: "no meme text please" }],
     });
     await browser.waitFor(pageHas("r1 · not confirmed yet", "#section-brief"), { what: "brief r1 on screen" });
     const shown = await browser.evaluate(`${section}.innerText`);
     for (const words of ['never · you said "no meme text please"', "→ no meme text", "plays on · guessed: TikTok, 9:16, 24 s", "your replies 1 of 10",
-      "missing: message, made from, look and sound", "a line is wrong? tell your agent in the chat", "quotes and replies recorded by the agent; kino cannot check them"])
+      "missing: message, made from, look and sound, about", "a line is wrong? tell your agent in the chat", "quotes and replies recorded by the agent; kino cannot check them"])
       assert.ok(shown.includes(words), `the brief shows ${JSON.stringify(words)}: ${shown}`);
     assert.ok(shown.indexOf("plays on ·") < shown.indexOf("never ·"), "the lines come in the brief's order");
     await browser.waitFor(`${polite} === "Brief revision 1 saved by the agent."`, { what: "the polite announcement of r1" });

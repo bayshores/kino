@@ -342,8 +342,8 @@ test("waiting_for_you answers fit plan §12: 120 plus 35 a shot listed for the s
 
 test("before any stop, status names the first stop to ask once the brief is settled", () => {
   const state = ready(4);
-  assert.deepEqual(statusLines(state, VIDEO), ["direction: no brief lines, no playback · replies 0/10", "step: guess 5 missing lines"], "the brief comes first");
-  const fields = Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never"].map((name) => [name, { text: "x", by: "guessed" }]));
+  assert.deepEqual(statusLines(state, VIDEO), ["direction: no brief lines, no playback · replies 0/10", "step: save ask and about"], "the brief comes first");
+  const fields = Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never", "about"].map((name) => [name, { text: "x", by: "guessed" }]));
   state.brief = { ...state.brief, rev: 1, fields: withAsk(fields) };
   assert.equal(statusLines(state, VIDEO)[1], "step: write 5 treatments", "the idea comes before the plan (T3)");
   const IDEA = { ...VIDEO, treatmentsWaived: true };
@@ -371,7 +371,7 @@ test("a clip imported into the project but not placed yet is footage: the board 
   const imported = { ...videoFacts(document(24), media), treatmentsWaived: true };
   assert.equal(imported.footage, true);
   const state = ready(4);
-  state.brief = { ...state.brief, rev: 1, fields: Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never"].map((name) => [name, { text: "x", by: "guessed" }])) };
+  state.brief = { ...state.brief, rev: 1, fields: withAsk(Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never", "about"].map((name) => [name, { text: "x", by: "guessed" }]))) };
   assert.equal(statusLines(state, imported)[1], 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build');
   assert.equal(stopPlan(state, videoFacts(document(6), media))[0].skipped, "under 8 s");
 });

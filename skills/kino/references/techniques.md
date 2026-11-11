@@ -107,13 +107,13 @@ Build a card where it fits; swap a misfit with a reason (2 a deal) or reroll.
 
 ## Treatments
 
-Write 5 stories first: idea, `who` (whose want or fear drives it; 3+ different),
+Write 5 stories first: idea, `who` (whose want or fear drives it; 3+ differ),
 `tension` (what they want, fear or wonder), `turn` (the on-screen flip), move, `ending` (the
 last image, from this material), `type` (`<family>, <size>, <case>, <how it appears>`, from your
-references; 3+ different of the 5; kino has no default type), `source` (file or screen
-used), `p` (0 to 1: how typical).
+references; 3+ differ; no default), `source` (file or screen
+used), `p` (0 to 1, how typical).
 kino shows the 3 least typical, new whos and types first: `A. idea · who: tension → turn · ends on ending · type: type`.
-The pick (their words; under "just start" yours with `why`) sets `style.idea`, `style.type`, the first
+The pick (their words; "just start": yours, with `why`) sets `style.idea`, `style.type`, the first
 signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it.
 
 ```json

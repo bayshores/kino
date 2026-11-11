@@ -688,7 +688,7 @@ test("a real edit (a brief, over 30 layers) needs one critic round before its fi
   // A gate test of the critic: this video's own controls skip the storyboard (the person's words
   // in quote), so no server-wide setting changes and nothing needs putting back.
   const controls = { skip_under: { board: 30 }, quote: "no storyboard for this one" };
-  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start", fields: { controls } })).isError, undefined);
+  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start", fields: { ask: "no storyboard for this one", controls } })).isError, undefined);
   const style = { wants: [], avoids: ["flash"], lines: [{ text: "the title type", ref: "yt:dQw4w9WgXcQ" }], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 12, purpose: "the promise" }], fonts: { caption: { family: "Inter", size: 40 } } };
   const locked = await agent("notes", { project: id, action: "brief", fields: { style } });
   assert.equal(locked.isError, undefined, locked.text);
