@@ -100,6 +100,12 @@ test("framing.md's crop to 9:16 runs as written: a layer and a crop per shot, th
   assert.deepEqual(second.data.boxes.filter((entry) => entry.by === "agent").map(({ at, box }) => ({ at, box })), [{ at: 0.6, box: [17, 25, 38, 63] }]);
   near(second.data.boxes[0].inside, 1, 0.01, "share of the box in the crop");
   assert.deepEqual(second.data.file, { src: clip.src, name: "sintel-village-dragon.mp4", width: 384, height: 216, time: 0.6 });
+  // Each source look is written down per layer: the file and the file seconds looked at (the
+  // checks tell a crop kino saw from one it only computed).
+  const layerId = (await (await server.api("/api/projects/framing")).json()).document.scenes[0].layers.find((layer) => layer.name === "shot1").id;
+  const { sourceLooks } = JSON.parse(await readFile(path.join(server.dataDirectory, "agent", "projects", "framing.json"), "utf8"));
+  assert.equal(sourceLooks[layerId].src, clip.src);
+  assert.deepEqual(sourceLooks[layerId].at.slice(0, 2), [0.6, 0.6]);
   if (process.platform !== "darwin") {
     assert.ok(first.text.includes(VISION_SKIPPED) && second.text.includes(VISION_SKIPPED), "off a Mac, Vision is skipped and said so");
     assert.deepEqual(second.data.vision, { skipped: "Subject cut-out uses Apple Vision, which is only on macOS." });

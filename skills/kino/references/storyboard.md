@@ -35,7 +35,7 @@ Read before building a video from footage (the `board` stop), or to plan any vid
   copied, `"<key>@<seconds>"` (a saved key, id or title; `look versus` pairs
   it; refusals list them). Else `{none:"cut"}`: a plain cut, right for most shots.
 - Send the whole board again to change it, each shot with the `id` `look board` prints after
-  its number (`2 (S5)`); a shot without one keeps the id of the shot it continues.
+  its number; a shot without one keeps the id of the shot it continues.
 - Refused (`op_failed`; its `boardError` says which): `missing_layer` (say "none"), `gap` or
   `overlap` (the answer names the shot), `bad_shot` (every bad field named).
 
@@ -61,23 +61,24 @@ Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one
 
 - No `check` first. Open items: ask them in one message, log each reply word for word
   (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say "your call", send their words: `notes {action:"checkpoint",
-  id:"board", words:"<their reply>"}` (kino logs them; "not your call" is not one). It answers `your_call`: decide each item, write
+  id:"board", words:"<their reply>"}`. It answers `your_call`: decide each item, write
   your decisions in `calls` and empty `open` (edit `board`), then ask again with the fresh-eyes answer:
   `notes {action:"checkpoint", id:"board", fresh:"ran"}` (or `"skipped"`).
 - `notes {action:"checkpoint", id:"board"}`: kino writes the ask (your calls, plain then flagged
   shots first, at most 8 shots). Send it as written, with the `look board` pages
   when your app can send files, and end your turn. "All shots": the same call with `all:true`.
-  After a redo or approve with notes, kino lists what changed (asked or not), what they named
+  After a redo or approve with notes, kino lists what changed, what they named
   but did not change, and a new shot order or music: send it as written.
 - Shot notes from the board screen: "use option B: <why>" (`alts[0]`; C is `alts[1]`), "make it 1.8 s
   (was 2.1 s)", "remove this shot": edit `board` to match.
 - Style frame: with a picked `style.type` and footage, the answer carries one image (the type
-  over the first footage shot, in the board's text font): send it with the ask. No question.
+  over the first footage shot): send it with the ask.
 - Refused: `board_first` (save one first), `board_gap` (it no longer covers the music or
   video), `open_items` (above), `move_needed` (no designed move on the hook, reveal or
   payoff; it names moves that fit).
-- Sound: `none` when no shot has one; the first ask offers their files or kino's built-in library.
-- Record their reply with `notes answer` (direction reference).
+- Sound: `none` when no shot has one; the first ask offers their files or kino's library.
+- Record their reply with `notes answer`.
+- The board is asked before the cut: placing a second shot or the first build waits for it (`board_needed`); drafts too.
 
 ## After the approval
 

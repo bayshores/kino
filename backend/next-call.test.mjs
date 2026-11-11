@@ -3,7 +3,14 @@
 // builder and of the calls the direction steps name; backend/agent-edit-repair.test.mjs follows
 // a refusal's call on a live server.
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
+import { createAgentService } from "./agent/service.mjs";
+import { createAgentStateStore } from "./agent/state.mjs";
+import { openStore } from "./store.mjs";
+import { createDocument, createScene } from "../engine/model.js";
 import { answerText, callText, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
 import { originReferenceLine } from "./agent/seen-names.mjs";
 import { statusMove } from "./stops.test.support.mjs";
@@ -89,4 +96,35 @@ test("origin word, no person footage: next is the footage search for the quote a
   // A studied reference with the word in its title gets the lookup line.
   assert.equal(originReferenceLine(found, "Keeper tower edit"), 'to find the footage it shows: library {topic:"footage", search:"the keeper tower"}');
   assert.equal(originReferenceLine(found, "Keeper edit"), "");
+});
+
+// The first compose: the shape the person named, else the shape most listed clips share, else the
+// scene's own ratio (a 1080x1920 scene is a guess until someone says it plays on a phone).
+test("an empty portrait video with two landscape clips and no plays_on gets a 16:9 compose next; the shape the person named wins", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-next-compose-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  const agentState = createAgentStateStore(dataRoot);
+  await store.createProject(createDocument({ id: "p", name: "p", scenes: [createScene({ id: "s1", name: "main", width: 1080, height: 1920, duration: 24, layers: [] })] }));
+  const clip = (name, width, height) => ({ id: `${name}.mp4`, projectId: "p", name: `${name}.mp4`, mime: "video/mp4", kind: "video", width, height, duration: 4 });
+  const clips = [clip("a", 1920, 1080), clip("b", 1920, 1080)];
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => clips });
+  await service.call("edit", { project: "p", ops: ["reference", "treatments"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a next-call test" })) });
+  await service.call("notes", { project: "p", action: "brief", fields: { message: { text: "The keeper is back", by: "guessed" } } });
+  const next = async () => (await service.call("check", { project: "p", pixels: false, rules: ["assertions"] })).text.match(/^next: (.*)$/m)?.[1];
+  assert.equal(await next(), 'edit {"ops":[{"op":"compose","footage":["a.mp4","b.mp4"],"format":"16:9"}]}');
+  // A split that is no majority, and one clip alone, keep the scene's shape.
+  clips.push(clip("c", 1080, 1920), clip("d", 1080, 1920));
+  assert.match(await next(), /"format":"9:16"/);
+  clips.splice(1, 3);
+  assert.match(await next(), /"format":"9:16"/);
+  // Two landscape clips again: a guessed phone keeps their shape; the person's own phone wins.
+  clips.push(clip("b", 1920, 1080));
+  const playsOn = (line, more = {}) => service.call("notes", { project: "p", action: "brief", fields: { plays_on: line, ...more } });
+  assert.equal((await playsOn({ text: "a phone", by: "guessed" })).isError, undefined);
+  assert.match(await next(), /"format":"16:9"/);
+  const yours = await playsOn({ text: "a phone", by: "you", quote: "it plays on my phone" }, { ask: "The keeper is back, it plays on my phone" });
+  assert.equal(yours.isError, undefined, yours.text);
+  assert.match(await next(), /"format":"9:16"/);
 });
