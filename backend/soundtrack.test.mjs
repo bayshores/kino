@@ -431,6 +431,11 @@ test("song shape cache with the beat analysis: bars are kept in the .song, and a
     assert.deepEqual(await cache.get(file, steady()), withBars);
     assert.deepEqual((await cache.get(file, 120)).bars, withBars.bars, "read back with a tempo, bars kept");
     assert.equal(decodes, 2, "measured for the tempo, again for the bars, then read back");
+    // A kept version 5 (same sections, no voice spans) still answers saved(); get() measures it again.
+    await writeFile(`${file}.song`, JSON.stringify({ ...withBars, version: 5 }));
+    assert.equal((await cache.saved(file)).version, 5);
+    assert.equal((await cache.get(file, steady())).version, SONG_SHAPE_VERSION);
+    assert.equal(decodes, 3);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

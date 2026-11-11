@@ -512,9 +512,10 @@ export function staleWaivers(waivers, silencing, { pixelsRan }) {
 // (a full check) transcribes the file first; it throws when it cannot (no speech model).
 // `loudnessOf(layer, {make})` gives the file's waveform peaks (null when unknown), so speech_cut
 // can hear whether a cut is inside the voice.
-// `voiceOf(layer)` gives a song file's saved vocal spans [[from, to]] in file seconds (null when
-// unknown); a song's entry carries them in scene seconds as `voice` (reference_range).
-async function heardSpeech(scene, transcriptOf, make, loudnessOf = null, levelsOf = null, voiceOf = null) {
+// `songOf(layer)` gives a song file's saved shape ({sections}, null when not measured); a song's
+// entry carries its loudest change that plays, in scene seconds, as `change` (reference_range):
+// the played section with the most weight (not the intro or outro, nor one the scene starts in).
+async function heardSpeech(scene, transcriptOf, make, loudnessOf = null, levelsOf = null, songOf = null) {
   const layers = scene.layers.filter((layer) => (layer.type === "audio" || layer.type === "video") && layer.src && layer.enabled !== false
     && (Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to)));
   const list = [];
@@ -531,12 +532,14 @@ async function heardSpeech(scene, transcriptOf, make, loudnessOf = null, levelsO
     const loudness = loudnessOf ? await loudnessOf(layer, { make }).catch(() => null) : null;
     // The file's loudness in LUFS (backend/loudness-curve.mjs) for the measured sound rules.
     const levels = levelsOf ? await levelsOf(layer, { make }).catch(() => null) : null;
-    const voice = entry.music && voiceOf ? await voiceOf(layer).catch(() => null) : null;
-    const range = voice ? mediaPlaybackRange(layer, scene.duration) : null;
+    const shape = entry.music && songOf ? await songOf(layer).catch(() => null) : null;
+    const range = shape ? mediaPlaybackRange(layer, scene.duration) : null;
     // Only a clip that plays at its own speed maps file seconds to scene seconds one to one.
-    const played = voice && range && !range.remapped
-      ? voice.filter(([from, to]) => to > range.offset && from < range.offset + range.duration).map(([from, to]) => [round3(range.start + Math.max(from, range.offset) - range.offset), round3(range.start + Math.min(to, range.offset + range.duration) - range.offset)]) : null;
-    list.push({ ...entry, ...(loudness?.available ? { loudness } : {}), ...(levels ? { levels } : {}), ...(played ? { voice: played } : {}) });
+    const top = range && !range.remapped ? (shape.sections ?? [])
+      .filter((part) => part.kind !== "intro" && part.kind !== "outro" && Number.isFinite(part.weight) && part.at > range.offset && part.at < range.offset + range.duration)
+      .sort((a, b) => b.weight - a.weight || a.at - b.at)[0] : null;
+    const change = top ? { time: round3(range.start + top.at - range.offset), kind: top.kind } : null;
+    list.push({ ...entry, ...(loudness?.available ? { loudness } : {}), ...(levels ? { levels } : {}), ...(change ? { change } : {}) });
   }
   return list;
 }
@@ -673,7 +676,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -741,6 +744,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The moves the scene holds (a move marks the layers it makes), so a set piece counts too.
       // The scene's heard sound with its word transcripts (speech_cut, speech_captions).
       speech, speechScene: scene,
+      // The lines the video's clips say (heard or muted), for reference_range's fix.
+      clipLines: sceneLines,
       // Whether sound search is on in Settings: no_music says the next call by it.
       soundSearch,
       // The people Apple Vision found in each clip (head_cut_off, overlay_covers_subject).
@@ -795,7 +800,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
    * that check. `unchecked` lists the IDs of the scenes whose rendered rules did not run, so a
    * count can say what it leaves out; it stays empty when this checker cannot render at all.
    */
-  async function check(document, { fonts, codes, sceneId = null, pixels = false, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, voiceOf = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
+  async function check(document, { fonts, codes, sceneId = null, pixels = false, listen = true, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, songOf = null, clipLines = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
@@ -806,9 +811,12 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const unchecked = [];
     // The saved references change a full check: their ids and when they were measured are part of
     // the key, so a new reference checks again.
-    const refs = references ? await references(document.id).catch(() => []) : [];
+    // A full check that may listen (not the dashboard's own, listen:false) also asks for the voice
+    // facts of references saved before they were measured (one at a time, in the measuring queue);
+    // until then they come back `heardPending`.
+    const refs = references ? await references(document.id, { heardLater: pixels && listen }).catch(() => []) : [];
     const closeRefs = rhythms ? await rhythms(document.id).catch(() => []) : [];
-    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}`).join(",");
+    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ref.heardPending ? "+pending" : ""}`).join(",");
     // The house memory changes seen_before: which projects and revs it holds are part of the key.
     const houseMoments = house ? await house(document.id, document.name ?? null).catch(() => []) : [];
     const houseStamp = houseMoments.map((entry) => `${entry.projectId}@${entry.rev}v${entry.sigVersion ?? 1}`).join(",");
@@ -837,8 +845,10 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const isVideo = scene.id === videoScene(document)?.id;
       const sceneAsks = asks?.length && isVideo ? asks : null;
       // The transcripts change what the speech rules say, so whether each is known is in the key.
-      const speech = await heardSpeech(scene, transcriptOf, pixels, loudnessOf, levelsOf, voiceOf);
-      const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}${entry.voice ? `:voice${JSON.stringify(entry.voice)}` : ""}`).join(",");
+      const speech = await heardSpeech(scene, transcriptOf, pixels, loudnessOf, levelsOf, songOf);
+      const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}${entry.change ? `:change${entry.change.time}` : ""}`).join(",");
+      // The lines the video's clips say, heard or muted (reference_range names them in its fix).
+      const sceneLines = clipLines && isVideo && pixels ? await clipLines(document, scene).catch(() => []) : [];
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
       const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
@@ -849,7 +859,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
       // A rule without its input (a transcript, the people found) finds nothing: no waiver is judged stale then.
       if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
-      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ??await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, origin, playsOn, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, people, soundSearch, media, isVideo, origin, playsOn, base });
       if (pending) measuredAll = false;
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);

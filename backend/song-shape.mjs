@@ -781,6 +781,9 @@ export function vocalShare(spans, seconds) {
 // and bass back at full after a stop of 0.75 to 4 s is a drop, a repeating gap (4 or more) is not;
 // 6: the vocal spans are kept as `voice`, for reference_range).
 export const SONG_SHAPE_VERSION = 6;
+// Sections and seams are the same since version 5 (6 only added `voice`), so a kept version 5
+// still answers saved(); get() measures it again (fit_music, one song at a time, never at launch).
+const SAME_SECTIONS_SINCE = 5;
 const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**
@@ -794,11 +797,11 @@ const VOCALS_RETRY_MS = 10 * 60_000;
  */
 export function createSongShapeCache({ decode = decodeMono, vocals = null, vocalsReady = () => false, now = () => Date.now() } = {}) {
   const pending = new Map();
-  // The kept .song result, or null when it is missing or from an older version.
+  // The kept .song result, or null when it is missing or from a version with other sections.
   async function saved(file) {
     try {
       const result = JSON.parse(await readFile(`${file}.song`, "utf8"));
-      if (result?.version === SONG_SHAPE_VERSION && Array.isArray(result.sections)) return result;
+      if (result?.version >= SAME_SECTIONS_SINCE && result.version <= SONG_SHAPE_VERSION && Array.isArray(result.sections)) return result;
     } catch { /* not measured yet */ }
     return null;
   }
@@ -812,7 +815,7 @@ export function createSongShapeCache({ decode = decodeMono, vocals = null, vocal
     const sidecar = `${file}.song`;
     const beats = input && typeof input === "object" ? input : null;
     const kept = await saved(file);
-    if (kept && !vocalsAgain(kept) && !(beats && kept.bars === undefined)) return kept;
+    if (kept && kept.version === SONG_SHAPE_VERSION && !vocalsAgain(kept) && !(beats && kept.bars === undefined)) return kept;
     const { samples, sampleRate } = await decode(file);
     if (!samples.length) throw new Error("The file has no sound.");
     const seconds = round(samples.length / sampleRate, 3);

@@ -1955,12 +1955,25 @@ test("reference_range: a video darker than its saved references warns with the d
   assert.deepEqual(await rangeRun(31, { rangeRefs: RANGE_REFS.slice(0, 1) }), []);
 });
 
-test("reference_range: no voice before the loudest song change warns when most references have one; a known voice or no song cue is quiet", async () => {
+test("reference_range: no clip speech before the loudest song change warns when most references have a voice there; the song's singer does not count", async () => {
   const cues = [{ name: "song-drop-1", time: 9, kind: "marker", weight: 0.8 }, { name: "song-drop-2", time: 5, kind: "marker", weight: 0.3 }, { name: "song-intro-1", time: 0, kind: "marker", weight: 1 }];
-  const [miss] = await rangeRun(52, { cues, speech: [] });
-  assert.equal(miss.measured, "no voice before the loudest change (9 s)");
-  assert.equal(miss.required, "2 of your 2 references with one have a voice before theirs (yt:aaa at 0 s)");
-  assert.deepEqual(await rangeRun(52, { cues, speech: [{ music: true, voice: [[4, 6]] }] }), [], "a song's voice before the change");
-  assert.deepEqual(await rangeRun(52, { cues, speech: [{ music: true }] }), [], "a song whose voice is not known is left out");
+  const [miss] = await rangeRun(52, { cues, speech: [{ music: true }] });
+  assert.equal(miss.measured, "no clip's own speech plays before the loudest change at 9 s");
+  assert.equal(miss.required, "2 of 2 references have a voice there (sung or spoken; yt:aaa at 0 s)");
+  assert.match(miss.fix.text, /No clip kino transcribed says a line: find one, library \{topic:"footage"/);
+  // A hand-cut edit (no song- cues): the change comes from the music layer's saved song shape.
+  const [shaped] = await rangeRun(52, { speech: [{ music: true, change: { time: 7.5, kind: "drop" } }] });
+  assert.equal(shaped.at, 7.5);
+  // The fix names the lines the clips say, muted ones too.
+  const [named] = await rangeRun(52, { cues, speech: [], clipLines: [{ layer: "L2", text: "I am done", from: 2, to: 3.1 }] });
+  assert.match(named.fix.text, /Your clips say L2 "I am done" 2-3.1 s: keep one before 9 s, edit \{ops:\[\{op:"keep_line", layer:"L2", line:"I am done"\}\]\}/);
+  const [slowed] = await rangeRun(52, { cues, speech: [], clipLines: [{ layer: "L3", text: "Wait", from: 1, to: 2, slowed: true }] });
+  assert.doesNotMatch(slowed.fix.text, /keep_line", layer/, "keep_line refuses a slowed layer, so it is not the call");
+  assert.deepEqual(await rangeRun(52, { cues, speech: [{ missing: "no transcript" }] }), [], "a heard clip with no transcript is left out");
   assert.deepEqual(await rangeRun(52, { cues: [], speech: [] }), []);
+  // References not measured for voice yet: no finding, a note says so.
+  const pending = RANGE_REFS.map(({ heard, ...ref }) => ({ ...ref, heardPending: true }));
+  const result = await runQuality(modelOf(scene({ duration: 10, layers: [footage("clip", { duration: 10, mediaDuration: 10 })] })), { codes: ["reference_range"], pixels: true, context: { sceneName: "s1", renderFrames: flatFrames(52), rangeRefs: pending, cues } });
+  assert.deepEqual(result.findings, []);
+  assert.match(result.notes.join("\n"), /2 saved references are not measured yet for a voice before the loudest change/);
 });
