@@ -1295,6 +1295,9 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
   measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with its credit.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.
+- **Seen in a reference, found by name**: Test-verified. `look {mode:"reference"}` ends with a
+  search line; `library {topic:"search"}` starts with the kino names for plain words ("bloom",
+  "subtitles", "shake") and the call that reads each. Evidence: `backend/agent-answers.test.mjs`.
 - **Reference fingerprint**: Verified on a Mac. Inspire measures motion, camera, text, palette and
   shots (`kino-measure`, Apple Vision); `reference_drift` measures the render the same way. Evidence:
   `backend/measure-fingerprint.test.mjs`, `backend/measure-vision.test.mjs`, `backend/inspire.test.mjs`,

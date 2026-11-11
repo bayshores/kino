@@ -8,7 +8,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { estimateTextTokens, pngSize } from "./meter.mjs";
-import { pageOf, pngTokens } from "./agent/service.mjs";
+import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
+import { REFERENCE_LOOKUP } from "./agent/seen-names.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
@@ -243,6 +244,24 @@ test("library media pages 30 files at a time and says how many are left", () => 
   assert.deepEqual(pageOf(files, 3).items, [60, 61, 62, 63, 64]);
   assert.equal(pageOf(files, 9).page, 3, "a page past the end shows the last one");
   assert.equal(pageOf(files, 3).left, 0);
+});
+
+test("library search turns what a reference shows into the kino name and the call that reads it, in the first three lines", () => {
+  const cases = {
+    glow: ["glow", 'library {topic:"rules", name:"light"}'], bloom: ["glow", 'name:"light"'],
+    particles: ["embers", 'name:"particles"'], embers: ["embers", 'name:"particles"'],
+    subtitles: ["add_captions", 'library {topic:"op", name:"add_captions"}'], "cut out": ["cut_out", 'name:"cut_out"'], cutout: ["cut_out", 'name:"cut_out"'],
+    "speed ramp": ["clip-speed", 'library {topic:"rules", name:"clip-speed"}'], "slow motion": ["clip-speed", 'name:"clip-speed"'],
+    shake: ["impact-accent", 'library {topic:"moves", name:"impact-accent"}'], flash: ["impact-accent", 'name:"impact-accent"'],
+    "light rays": ["light-rays", 'name:"light"'], "color grade": ["color_filter", 'library {topic:"op", name:"color_filter"}'], "green tint": ["white-balance", 'name:"color"'],
+  };
+  for (const [query, [name, call]] of Object.entries(cases)) {
+    const lines = searchGuide(query).split("\n");
+    assert.equal(lines[0], "kino names for it:", query);
+    const line = lines.slice(1, 4).find((entry) => entry.startsWith(`${name} (`));
+    assert.ok(line?.includes(call), `${query}: ${name} with ${call} in ${lines.slice(1, 4).join(" | ")}`);
+  }
+  assert.match(REFERENCE_LOOKUP, /^to make what you see: library \{topic:"search", search:"<what you saw: glow, particles/);
 });
 
 test("render start with wait:true answers with the checked file, or says it is still running", { skip: skipWithoutMediaTools }, async () => {
