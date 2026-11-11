@@ -284,9 +284,13 @@ test("the reference gate: with no saved reference a final render is refused; wit
   await agent("edit", { project: id, ops: [{ op: "waive_check", code: "reference", target: "*", reason: "the person chose this look" }] });
   const waived = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });
   assert.equal(waived.isError, undefined, waived.text);
-  // A third reference with contrast 0.2 puts the scene (0.22) inside the range, 0.2 to 0.5: no contrast row.
+  // A third reference measured before contrast was kept: its black stills give it contrast 0, which
+  // puts the scene (0.22) inside the range, 0 to 0.5: no contrast row.
+  await mkdir(path.join(folder, "stills", "kinoTest004"), { recursive: true });
+  for (const n of [1, 2, 3]) await writeFile(path.join(folder, "stills", "kinoTest004", `${n}.jpg`), still.toBuffer("image/jpeg"));
   await writeFile(path.join(folder, "kinoTest004.json"), JSON.stringify({ id: "yt:kinoTest004", title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
-    fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0, contrast: 0.2 } } }));
+    stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })),
+    fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0 } } }));
   assert.equal((await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest004" })).isError, undefined);
   const inside = await agent("check", { project: id });
   assert.match(inside.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references/, "the brightness row is still there");
