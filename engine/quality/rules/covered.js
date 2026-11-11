@@ -2,7 +2,7 @@
 // above it hides for all of that time (a flash or fade-to-black added before the footage, so the
 // footage was stacked above it and the render never shows it). Rendering shows nothing wrong, so
 // this is found from the layer order and the boxes.
-import { area, boxAt, intersection, isGradient, roundBox, tweensOf, visibleBoxAt } from "../model.js";
+import { area, boxAt, intersection, roundBox, tweensOf, visibleBoxAt } from "../model.js";
 import { coversFrame, sec } from "../analysis.js";
 
 const SEEN = 0.05; // the layer's opacity (its parents' included) from which it shows
@@ -12,12 +12,18 @@ const SHORT_FLASH = 2; // an opaque full-frame overlay shown this long or less i
 
 const opacityAt = (item, index) => item.samples.opacity[index];
 
-// The shapes and footage that can hide what is under them: a solid rectangle, a video, or a
-// picture that fills the frame (a picture may have transparent edges, so only a full-frame one counts).
+// Files whose format has no alpha channel, so every pixel is opaque. A png, webp, gif, webm or mov
+// may be a grain, frame or alpha overlay with clear pixels (it hides nothing), and the model
+// holds no alpha flag, so only these count as covers.
+const OPAQUE_VIDEO = /\.(mp4|m4v|mkv|avi)(\?|#|$)/i;
+const OPAQUE_IMAGE = /\.(jpe?g|bmp)(\?|#|$)/i;
+
+// The shapes and footage that can hide what is under them: a solid rectangle, an opaque-format
+// video, or an opaque-format picture that fills the frame (a smaller one has edges to spare).
 function canCover(model, item) {
   if (!item.painted || item.isMask || item.allowOverlap || (item.blendMode ?? "normal") !== "normal") return false;
-  if (item.kind === "video") return true;
-  if (item.kind === "image") return coversFrame(model, item);
+  if (item.kind === "video") return OPAQUE_VIDEO.test(item.src ?? "");
+  if (item.kind === "image") return OPAQUE_IMAGE.test(item.src ?? "") && coversFrame(model, item);
   return item.kind === "rectangle" && item.fill != null && (item.paintAlpha ?? 1) >= SOLID;
 }
 
@@ -37,12 +43,13 @@ function hides(model, cover, box, index) {
 }
 
 // An overlay by construction: a full-frame shape that fades (a flash, a fade to black: opaque but
-// short), or a grade, tint or vignette (clear somewhere, a gradient, or blended). A plate or a
-// background that is meant to sit under the footage is not, so it is only told to the agent.
+// short), or a grade, tint or vignette (clear somewhere, a gradient with a clear stop, or blended).
+// A plate or a background (an opaque gradient too) that is meant to sit under the footage is not,
+// so it is only told to the agent.
 function overlayByConstruction(model, item, seen) {
   if (!["rectangle", "ellipse", "path", "star"].includes(item.kind) || !coversFrame(model, item)) return false;
   const fades = tweensOf(model, item.id).some((tween) => tween.keys.includes("opacity"));
-  const tint = (item.blendMode ?? "normal") !== "normal" || isGradient(item.fill) || (item.paintAlpha ?? 1) < SOLID;
+  const tint = (item.blendMode ?? "normal") !== "normal" || (item.paintAlpha ?? 1) < SOLID;
   if (tint) return true;
   return fades && seen / model.fps <= SHORT_FLASH;
 }

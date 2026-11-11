@@ -1743,10 +1743,14 @@ test("covered_layer: a flash or fade under footage added after it never shows, a
   // A tint, a vignette: clear somewhere, so the footage over it is the finding, and it is an overlay too.
   const tint = scene({ layers: [rect("tint", { ...FULL, fill: "#ff880033", animations: [fadeIn(1, 0.3)] }), footage("a")] });
   assert.equal((await fires("covered_layer", tint))[0].fix.auto, true);
-  // A plate that stays, or a small card, under footage is told to the agent, not moved.
-  const plate = scene({ layers: [rect("plate", { ...FULL, fill: "#222222" }), rect("card", { width: 300, height: 200 }), footage("a")] });
+  // A plate that stays (an opaque gradient too), or a small card, under footage is told to the agent, not moved.
+  const dark = { type: "linear", angle: 90, stops: [{ offset: 0, color: "#0b0b0c" }, { offset: 1, color: "#1c1f2b" }] };
+  const plate = scene({ layers: [rect("plate", { ...FULL, fill: "#222222" }), rect("grad", { ...FULL, fill: dark }), rect("card", { width: 300, height: 200 }), footage("a")] });
   const plain = await fires("covered_layer", plate);
-  assert.deepEqual(plain.map((finding) => [finding.itemId, finding.fix.auto]), [["plate", false], ["card", false]]);
+  assert.deepEqual(plain.map((finding) => [finding.itemId, finding.fix.auto]), [["plate", false], ["grad", false], ["card", false]]);
+  // A gradient with a clear stop is a vignette: an overlay.
+  const clear = { type: "radial", stops: [{ offset: 0, color: "#00000000" }, { offset: 1, color: "#000000ff" }] };
+  assert.equal((await fires("covered_layer", scene({ layers: [rect("vig", { ...FULL, fill: clear }), footage("a")] })))[0].fix.auto, true);
 });
 
 test("covered_layer: stays quiet on a cut, a partial cover, a clear cover, a blend and the fixed order", async () => {
@@ -1760,6 +1764,10 @@ test("covered_layer: stays quiet on a cut, a partial cover, a clear cover, a ble
   await silent("covered_layer", scene({ layers: [flash(), footage("a", { opacity: 0.8 })] }));
   await silent("covered_layer", scene({ layers: [flash(), footage("a", { blendMode: "screen" })] }));
   await silent("covered_layer", scene({ layers: [flash(), { type: "image", id: "pic", name: "pic", src: "/api/media/pic.png", x: 100, y: 100, width: 800, height: 600 }] }));
+  // A full-frame png or alpha video over a logo or a card (grain, a frame, dust) may be clear: it hides nothing.
+  const overlayPng = { type: "image", id: "grain", name: "grain", src: "/api/media/grain.png", ...FULL };
+  await silent("covered_layer", scene({ layers: [{ type: "image", id: "logo", name: "logo", src: "/api/media/logo.png", x: 100, y: 100, width: 300, height: 200 }, overlayPng] }));
+  await silent("covered_layer", scene({ layers: [rect("card", { x: 100, y: 100, width: 300, height: 200 }), footage("alpha", { src: "/api/media/alpha.webm" })] }));
   // The scene's own background under footage is the normal case, and a flash in the right order too.
   await silent("covered_layer", scene({ layers: [footage("a"), flash()] }));
 });

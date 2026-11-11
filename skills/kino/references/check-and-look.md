@@ -22,8 +22,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. A freeze on a sound hit or a
   line's first word (0.2 s) warns.
 - `out_of_sync` (gate): a line over a synced file's picture of another moment: the fix retimes it.
-- `covered_layer` (warns): an opaque layer above hides it all its time on screen (a flash added
-  before the footage). Fix: move it above; `(auto)` for a full-frame overlay.
+- `covered_layer` (warns): a solid shape, mp4 or jpg above hides a layer all its time on screen
+  (a png, webm or mov may be clear: no cover). Fix: move it above; `(auto)`: a full-frame overlay.
 - Motion rules (camera, brightness, frozen pictures): motion reference.
 - Contrast: failing under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
@@ -33,7 +33,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   pictures, slides, template ends, `ending_seen`) needs `quote`: the person's words.
 - AI tells warn: `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
-  `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references; waive naming `yt:<id>`). Technique rules, style spec: techniques reference.
+  `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references; waive naming `yt:<id>`).
 - Set `role` on layers (headline, cta, logo, hero, decor, `ui`: product text, contrast only)
   and `videoType` (`library {topic:"rules", name:"quality-settings"}`).
 
@@ -53,7 +53,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   or less). Fix (auto): motion blur while fast, on the group that moves it.
 - `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
   title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
-  fits one line or balances the lines, or for 1 to 3 words a smaller size.
+  fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min's floor).
 - `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
   Fix: moved or scaled about its middle inside the margin.
 - `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture
@@ -79,11 +79,11 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 
 ## Looking
 
-- `look` renders the **saved** project.
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
 - `inspect {targets, fields}`: an unknown field is said so; `color` answers
   with `fill`, `size` with `width` and `height`, and `fontSize` on text.
-- `sheet` (default): a scene in about 12 tiles; with cuts, one or more a shot (at most 24 shots, then `from` shows the rest). With several
+- `sheet` (default): a scene in about 12 tiles; with cuts, one or more a shot, labeled
+  `2 · 1.42s` (at most 24 shots, then which `from` shows the rest). With several
   scenes and none named, one frame a scene. `sheet {from:60, to:120}`: one stretch.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
@@ -92,13 +92,13 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 - `source {layer, t?}`: a video layer's whole source frame at scene time t (default: the middle
   of its time on screen), a 10% grid, the crop as a dashed box, the subject boxes (`agent`:
   yours, from `mark_subject`; `vision`: Apple Vision, Mac only) and the result. The text gives
-  the crop in % and each box's share.  Cropping: the framing reference.
+  the shot, the crop in % and each box's share. Not your last look for `changed`.
+  Cropping footage: the framing reference.
 - `board {page?}`: the storyboard, 4 shots a page, with numbers (storyboard reference).
 
 ## Review before final
 
-`check` misses what only eyes catch (a caption over busy footage, a subject cut off). The QC
-loop:
+`check` misses what only eyes catch (a subject cut off). The QC loop:
 
 1. `edit`, then read the receipt. `newFindings` names the findings that edit brought into the
    stretch it changed (codes and times, at most 5): fix them in the next edit.

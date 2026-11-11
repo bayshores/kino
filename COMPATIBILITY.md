@@ -958,7 +958,8 @@ How to read it:
   Linux; misses a real trailer's three cards over hands. Evidence: `engine/qualityRules.test.js`.
 - **Hidden layer check** (`covered_layer`): a layer on screen by its own timing that an opaque layer
   above it covers all that time warns; a full-frame flash, fade or tint gets an auto `move_layers`
-  above the cover. Boxes only (no render): a cover of several layers or a cut-out picture is not seen.
+  above the cover. Boxes only (no render): a cover of several layers or a cut-out picture is not seen,
+  and only a solid shape, mp4 or jpg counts as a cover (a png, webm or mov may be clear).
   Evidence: `engine/qualityRules.test.js`, `backend/agent-overlap-fade-fix.test.mjs`.
 - **Measured** (hand-run eval, not in CI): ggml-small.en word starts 84 to 86% within 0.1 s on four
   real voiceovers. Not verified: joins by ear, video layers as the voice, other languages, the
