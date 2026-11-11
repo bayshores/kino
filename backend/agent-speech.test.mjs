@@ -164,6 +164,33 @@ test("the voiceover example in the kino skill runs as written", { skip: skipWith
   assert.equal(kept.data.keepLine.duck, "none", "no music layer in this project: no dip");
 });
 
+test("a muted clip's spoken lines are named once (edit receipt or status); keep_line and isolate_voice in one edit keep the line over the voice-only sound", { skip: skipWithoutMediaTools }, async () => {
+  const media = await upload(server, wav, "clip-sound.wav");
+  const client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "cli" });
+  assert.equal((await client.call("project", { action: "create", id: "lines", width: 320, height: 180, duration: 8 })).isError, undefined);
+  const added = await client.call("edit", { project: "lines", ops: [{ op: "add_layer", layerType: "audio", name: "vo", properties: { src: media.src, mediaStart: 0 } }] });
+  assert.equal(added.isError, undefined, added.text);
+  assert.equal((await client.call("inspect", { project: "lines", targets: ["speech:vo"] })).isError, undefined);
+  // Heard at volume 1: nothing to say. At volume 0 the clip's saved lines are named, with the call that keeps one.
+  const said = (reply) => (reply.data.notes ?? []).join("\n");
+  const muted = await client.call("edit", { project: "lines", ops: [{ op: "update_layer", layer: "vo", properties: { volume: 0 } }] });
+  assert.equal(muted.isError, undefined, muted.text);
+  assert.match(said(muted), /your clips say 2 lines and none is heard: vo "So we will, we will" 0\.5-2\.3 s · vo "Like, the Acmes app\." 5-6\.6 s/);
+  assert.ok(said(muted).includes('edit {"ops":[{"op":"keep_line","layer":"vo","line":"So we will, we will"},{"op":"isolate_voice","layer":"vo"}]}'), said(muted));
+  // Once: the next edit and status do not repeat it.
+  const again = await client.call("edit", { project: "lines", ops: [{ op: "update_layer", layer: "vo", properties: { volume: 0 } }] });
+  assert.doesNotMatch(said(again), /your clips say/);
+  assert.doesNotMatch((await client.call("status", { project: "lines" })).text, /your clips say/);
+  // The documented call: keep_line, then isolate_voice, in one edit.
+  const kept = await client.call("edit", { project: "lines", ops: [{ op: "keep_line", layer: "vo", line: "the Acmes app" }, { op: "isolate_voice", layer: "vo", engine: "rnnoise" }] });
+  assert.equal(kept.isError, undefined, kept.text);
+  assert.ok(kept.data.keepLine, JSON.stringify(kept.data));
+  const { scene } = await sceneOf(server, "lines");
+  const voice = scene.layers.find((layer) => layer.name === "vo");
+  assert.notEqual(voice.src, media.src, "the layer plays the voice-only file now");
+  assert.deepEqual(voice.animations.filter((animation) => /^Line /.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
+});
+
 test("the dashboard's own check (listen:false) never transcribes; an agent's full check does", { skip: skipWithoutMediaTools }, async () => {
   const key = (await (await server.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: server.baseUrl } })).json()).key;
   const media = await upload(server, wav, "dashboard-voice.wav");

@@ -1337,4 +1337,13 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   assert.doesNotMatch(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /says/);
   assert.deepEqual(saysOf(SAID_LINES, 4.9, 1.4), []);
   assert.equal(saysText(saysOf(SAID_LINES, 0, 8)), 'says "All right, so here we are" 1.0-2.5 s, "I will protect them all" 5.2-7.0 s');
+  // With no captions the clip's own sound is read: `heard`, and one footer line; captions win when both say something.
+  const heard = { byId: { "m2.mp4": [{ text: "I'm just gonna see.", start: 7.1, end: 9.2 }], "m3.mp4": [{ text: "Not this.", start: 0, end: 1 }] }, missing: null };
+  const aloud = takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard });
+  assert.match(aloud, /^F1\.2 2\.4s 1920×1080 \/api\/media\/m2\.mp4 heard "I'm just gonna see\." 7\.1-9\.2 s$/m);
+  assert.equal(aloud.match(/^heard: words whisper read/gm).length, 1);
+  const both = takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], captions: { lang: "en", auto: false, lines: SAID_LINES }, heard });
+  assert.match(both, /says "I will protect them all"/);
+  assert.doesNotMatch(both, /heard/);
+  assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard: { byId: {}, missing: "no speech model" } }), /^heard: not read \(no speech model;/m);
 });

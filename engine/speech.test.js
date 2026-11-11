@@ -5,7 +5,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
 import { defaultFonts } from "./fonts.js";
-import { captionWordsFromSpeech, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
+import { captionWordsFromSpeech, clipLines, clipLinesText, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
 const word = (text, start, end, extra = {}) => ({ text, start, end, p: 0.95, cut: Math.max(0, start - 0.04), ...extra });
@@ -356,4 +356,18 @@ test("keep_line with from, to and text works with no transcript and takes duck n
   assert.equal(bare.layers.some((layer) => layer.role === "caption"), false);
   assert.equal(volumeAt(bare.layers.find((layer) => layer.id === "music"), 5), 1);
   assert.throws(() => applyOperations(document, [{ type: "keep_line", sceneId: "s", layerId: "clip", line: "x", transcript: { words: [] } }]), /no words heard/);
+});
+
+test("clipLines keeps the lines a clip says, shortest first, and drops sound tags, unsure guesses and one-word noises", () => {
+  const word = (text, start, end, p = 0.8, extra = {}) => ({ text, start, end, p, ...extra });
+  const transcript = { words: [
+    word("(Door", 0.2, 0.5), word("creaks)", 0.5, 0.9), word("Sigh*", 1.2, 1.5), word("Heh", 2, 2.4), word("heh", 2.4, 2.8), word("heh.", 2.8, 3.2, 0.6),
+    word("(unclear)", 3.5, 3.8, 0.9, { unclear: true }), word("maybe", 4, 4.3, 0.16), word("so", 4.3, 4.6, 0.16),
+    word("I'm", 7.1, 7.4), word("just", 7.4, 7.7), word("gonna", 7.7, 8.3), word("see.(laughs)", 8.3, 9.2), word("Hm", 12, 12.4),
+  ] };
+  const lines = clipLines(transcript);
+  assert.deepEqual(lines.map((line) => [line.text, line.start, line.end]), [["Heh heh heh.", 2, 3.2], ["I'm just gonna see.", 7.1, 9.2]]);
+  assert.equal(clipLinesText(lines), 'heard "Heh heh heh." 2.0-3.2 s, "I\'m just gonna see." 7.1-9.2 s');
+  assert.equal(clipLinesText([]), "");
+  assert.equal(clipLines({ words: [] }).length, 0);
 });
