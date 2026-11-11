@@ -495,12 +495,13 @@ const STORY_PLACEHOLDER = "<the story in one line, from this material>";
 
 /**
  * The idea-first order a briefed video keeps before it is built: { step, call } for the first
- * part not done, or null. Taste comes from looking first: 2 saved references, one studied with
+ * part not done, or null. Taste comes from looking first: 2 saved references, each studied with
  * look {mode:"reference"}; then 5 treatments and a pick, whose idea and signature move go into
  * the style spec (style.idea, style.signatures). No brief, a video shorter than
  * REFERENCE_SKIP_UNDER and a waived part skip it. From the service's directionFacts:
  * video.references (the saved count; left out without inspire, which skips that part),
- * video.saved (their ids), video.studied, video.treatmentsWaived and video.picture.
+ * video.saved (their ids), video.studied (the studied ids), video.songTitle,
+ * video.treatmentsWaived and video.picture.
  */
 export function orderStep(state, video = {}) {
   return orderSteps(state, video)[0] ?? null;
@@ -515,9 +516,114 @@ export function pickOpen(brief, video = {}) {
   return hasBrief(brief) && !(video.seconds < REFERENCE_SKIP_UNDER) && !video.treatmentsWaived && !brief.treatments?.picked;
 }
 
+// ---- the first reference search, from what the person named -------------------------------------
+// Plain text rules, no language model. A named thing is (1) text in double or single quotes, or
+// (2) a run of capitalized words (up to 4, "of", "the", "and" and "de" allowed inside a run), in the
+// brief's message, made_from and look_sound lines. Not names: the common words in CAPITAL_STOP
+// (function words, common verbs, adjectives and abbreviations), a label before a colon, and a
+// lone capitalized word that only starts a sentence, unless it starts the line, owns something
+// ("Vantro's") or is followed by a verb like "is" (a subject).
+const NAMED_LINES = ["message", "made_from", "look_sound"];
+const MAX_NAMED = 3;
+const SEARCH_LIMIT = 100;
+const CAPITAL_STOP = new Set(("I A An The This That These Those It Its He She They We You My Our Your Their His Her In On At For From With And But Or If When While No Not To Of By As Is Are "
+  + "Make Use Show Start Open End Keep Let Then Every Each Some One Two After Before Over Under Into Without Only All Any Also Just "
+  + "Highlight Introduce Focus Feature Include Avoid Add Cut Build Create End Finish Close Opening Closing Intro Outro Really Very Super So Too More Most Less Quite "
+  + "Fast Slow Quick Dark Bright Light Calm Bold Clean Intense Moody Warm Cool Soft Hard Big Small Short Long Simple Real Raw Fresh Sharp Smooth Loud Quiet "
+  + "Brand Product Client Company Story Audience Music Song Look Mood Style Idea Goal Message Footage Sound Voice Text Title Logo App "
+  + "Mr Mrs Ms Dr St Vs Co Inc Ltd Llc Corp Etc AM PM").split(" "));
+const CONNECTORS = new Set(["of", "the", "de", "la", "von", "van"]);
+const VERBS_AFTER_SUBJECT = new Set(["is", "was", "are", "were", "has", "had", "will", "would", "does", "did", "can", "needs", "wants"]);
+const SONG_NOISE = /\b(?:official|lyrics?|audio|video|music video|hd|hq|4k|topic|reupload|re-upload)\b/gi;
+
+// The runs of capitalized words in one sentence (see above). firstOfLine: it starts the line.
+function capitalRuns(sentence, firstOfLine = false) {
+  const words = sentence.split(/\s+/).filter(Boolean);
+  const bare = (word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  const owner = (word) => bare(word).replace(/['’]s$/i, "");
+  const isCap = (word) => /^\p{Lu}/u.test(owner(word)) && !CAPITAL_STOP.has(owner(word)) && !/\p{L}\.\p{L}/u.test(bare(word));
+  const runs = [];
+  let run = [];
+  const close = () => {
+    while (run.length && CONNECTORS.has(owner(words[run.at(-1)]).toLowerCase())) run.pop();
+    if (run.length) {
+      // A lone capitalized word that starts the sentence is a name only with a sign of one.
+      const lone = run.length === 1 && run[0] === 0;
+      const label = /:$/.test(words[0]);
+      const sign = firstOfLine || /['’]s$/i.test(bare(words[0])) || VERBS_AFTER_SUBJECT.has(bare(words[1] ?? "").toLowerCase());
+      if (!lone || (sign && !label)) runs.push(run.slice(0, 4).map((index) => owner(words[index])).join(" "));
+    }
+    run = [];
+  };
+  words.forEach((word, index) => {
+    if (isCap(word)) run.push(index);
+    else if (run.length && CONNECTORS.has(bare(word).toLowerCase()) && words[index + 1] && isCap(words[index + 1])) run.push(index);
+    else close();
+    if (/[,;:.!?)]$/.test(word)) close();
+  });
+  close();
+  return runs;
+}
+
+/** The things a brief names, in order: quoted text, then capitalized runs. [] when it names none. */
+export function namedThings(brief) {
+  const names = [];
+  const add = (text) => {
+    const name = String(text).replace(/\s+/g, " ").trim().slice(0, 40);
+    if (name.length >= 2 && !names.some((have) => have.toLowerCase() === name.toLowerCase())) names.push(name);
+  };
+  for (const field of NAMED_LINES) {
+    const text = brief?.fields?.[field]?.text;
+    if (!hasText(text)) continue;
+    const quotes = /(?:^|[\s(])(?:"([^"]{2,40})"|“([^”]{2,40})”|'([^']{2,40})'(?=$|[\s.,;:!?)])|‘([^’]{2,40})’)/gu;
+    for (const match of text.matchAll(quotes)) add(match[1] ?? match[2] ?? match[3] ?? match[4]);
+    text.replace(quotes, " ").trim().split(/(?<=[.!?])\s+|\n/).forEach((sentence, index) => capitalRuns(sentence, index === 0).forEach(add));
+  }
+  return names;
+}
+
+const LINK_OR_ID = /^(?:https?:|www\.|yt:)|youtu\.?be/i;
+
+/**
+ * The title of the song a video is about, from the project's soundtrack candidates and its audio
+ * media: the picked candidate the person named (its title when they gave a link or an id), else
+ * the title of the longest audio of 20 s or more that is one of the candidates (so a sound effect
+ * or an ambience, which is none, never counts). "" when there is none.
+ */
+export function songTitleOf(candidates = [], audio = []) {
+  const named = candidates.find((entry) => entry.picked && entry.named);
+  if (named) return LINK_OR_ID.test(String(named.named).trim()) ? String(named.title ?? "") : String(named.named);
+  const songs = audio.filter((item) => item.duration >= 20 && candidates.some((entry) => entry.id === item.credit?.id)).sort((a, b) => b.duration - a.duration);
+  return songs[0]?.credit?.title ?? "";
+}
+
+/**
+ * The first reference search words from what the person named: the brief's named things (at most
+ * 3), the song's title when there is one, and "edit". { search, withoutSong } or null when nothing
+ * is named (the step then keeps its placeholder). withoutSong (the named things and "edit") is
+ * set only when there is a song and at least one named thing outside its title.
+ */
+export function referenceSearches(brief, songTitle) {
+  // A link or an id is not a title.
+  const song = (LINK_OR_ID.test(String(songTitle ?? "").trim()) ? "" : String(songTitle ?? "")).replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(SONG_NOISE, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+  const named = namedThings(brief).filter((name) => !song.toLowerCase().includes(name.toLowerCase())).slice(0, MAX_NAMED);
+  if (!named.length && !song) return null;
+  const join = (names, withSong) => {
+    const kept = [...names];
+    const words = () => [...kept, ...(withSong && song ? [song] : []), "edit"].join(" ");
+    while (words().length > SEARCH_LIMIT && kept.length > 1) kept.pop();
+    return words().slice(0, SEARCH_LIMIT);
+  };
+  return { search: join(named, true), withoutSong: song && named.length ? join(named, false) : null };
+}
+
 /**
  * Every part of the order (orderStep) still open, in order: [{step, call}], [] when none. The
- * order_needed refusal names them all, so a build finds every gate in one answer.
+ * order_needed refusal names them all, so a build finds every gate in one answer. The find step's
+ * search is filled from what the person named (referenceSearches; video.songTitle is the song's
+ * title) and carries `alt`, the same search without the song, when there is one. The study step
+ * names each saved reference not yet studied (video.studied: the studied ids) in `refs`: the
+ * first REFERENCES_WANTED saved must each be studied, not one of them.
  */
 export function orderSteps(state, video = {}) {
   const brief = state?.brief;
@@ -527,11 +633,19 @@ export function orderSteps(state, video = {}) {
     // Short words: status's two lines stay within 40 tokens (the call says how).
     if (video.references < REFERENCES_WANTED) {
       const left = REFERENCES_WANTED - video.references;
+      const found = referenceSearches(brief, video.songTitle);
+      const search = (words) => ({ tool: "library", input: { topic: "inspire", search: words } });
       open.push({ step: video.references ? `find ${left} more reference (inspire)` : `find ${REFERENCES_WANTED} references (inspire)`,
-        call: { tool: "library", input: { topic: "inspire", search: "<an edit like yours>" } } });
+        call: search(found?.search ?? "<an edit like yours>"), ...(found?.withoutSong ? { alt: search(found.withoutSong) } : {}) });
     }
-    if (video.studied === false)
-      open.push({ step: "study a reference (look)", call: { tool: "look", input: { mode: "reference", ref: video.saved?.[0] ?? "<a saved reference>" } } });
+    if (Array.isArray(video.studied)) {
+      const saved = video.saved ?? [];
+      const unstudied = saved.filter((id) => !video.studied.includes(id));
+      const needed = Math.max(0, REFERENCES_WANTED - (saved.length - unstudied.length));
+      const refs = unstudied.slice(0, needed);
+      if (!saved.length) open.push({ step: "study a reference (look)", call: { tool: "look", input: { mode: "reference", ref: "<a saved reference>" } } });
+      else if (refs.length) open.push({ step: `study ${refs[0]}${refs.length > 1 ? ` +${refs.length - 1}` : ""} (look)`, refs, call: { tool: "look", input: { mode: "reference", ref: refs[0] } } });
+    }
   }
   if (video.treatmentsWaived) return open;
   const treatments = brief.treatments;

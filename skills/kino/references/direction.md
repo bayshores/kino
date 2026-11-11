@@ -66,7 +66,7 @@ What's wrong or missing?
 ```
 
 A correction: save it and play it back again. No revision numbers in the chat. Then, before
-building: 2 saved references, one studied (inspire reference); 5 treatments and the pick of
+building: 2 saved references, each studied (inspire reference); 5 treatments and the pick of
 the 3 shown, and its signature (techniques reference). Earlier, edits are `order_needed`.
 
 ## Replies

@@ -14,7 +14,7 @@ frame strips · Proposing ideas · Sound effects
 - Shots, cuts a second, the longest shot and where it is, length, the beat (bpm), and cuts on
   the beat (n of m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame
   of a beat vs random (near it: cuts on action).
-- The fingerprint (Apple Vision on a Mac, `backend/measure`): motion and holds, camera moves
+- The fingerprint (Apple Vision on a Mac): motion and holds, camera moves
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,
   palette and brightness. Off a Mac the Vision numbers are named as not measured, never guessed.
@@ -23,16 +23,18 @@ frame strips · Proposing ideas · Sound effects
 - One video is measured at a time; a search answers at once, numbers arrive as each is read.
 - Searches and saved references belong to the project; the numbers are shared by all.
 - yt-dlp missing: the search says how to install it (or set `KINO_YTDLP`). Downloads need a
-  JavaScript runtime for YouTube's challenge (deno, node or bun; `KINO_YTDLP_JS` names one); with
-  none, the answer says so. On YouTube's "not a bot" sign-in, kino stops downloading for 15
-  minutes and never signs in.
+  JavaScript runtime (deno, node or bun; `KINO_YTDLP_JS` names one); with none, the answer says
+  so. On YouTube's "not a bot" sign-in, kino stops downloading for 15 minutes, never signs in.
 
 ## Before the plan
 
-- Once the brief is settled, `step:` asks for 2+ saved references before `set_plan`. Search for
-  edits like yours, save 2, study their strips (`look {mode:"reference"}`). Until then the first
-  edit that adds layers or animations is refused (`order_needed`). A final render of 5 s or more with
-  none saved is refused (`reference_needed`), and so is one whose references were all saved
+- Once the brief is settled, `step:` asks for 2+ saved references, each studied (`look
+  {mode:"reference"}`; the refusal names those left), before `set_plan`. Its search is made from
+  the brief's names, quotes and song (`Or without the song` is in the refusal and the answer).
+  Results far longer than the video, and song releases, are dropped (`Dropped N:` names 3;
+  `name:"yt:<id>"` opens one); `shared:` lists words many titles have. Until then the first
+  edit that adds layers or animations is refused (`order_needed`). A final render of 5 s or
+  more with none saved is refused (`reference_needed`), as is one whose references were all saved
   after its first build. `waive_check {code:"reference", target:"*", reason}` skips them all.
 - Results come best first: views, verified channel, 2 a channel, then how their frames look
   (SigLIP on the thumbnail, then one keyframe a shot once measured) against the search words and
@@ -50,18 +52,17 @@ frame strips · Proposing ideas · Sound effects
 - `library {topic:"inspire", name:"yt:…"}` waits (up to 50 s) for that one's numbers and lists
   its cut times (`*` on the beat); `full:true` lists them all.
 - A video the person linked needs no search: `name:"yt:<id>"` or `name:"measure yt:<id>"`, or
-  the whole link in `search` (`https://www.youtube.com/watch?v=<id>`, `https://youtu.be/<id>` or
-  a `/shorts/` link). kino reads its title and length with yt-dlp, adds it to the project as a
-  one-video search (the screen shows the link) and measures it as usual.
+  the whole link in `search` (a watch, youtu.be or `/shorts/` link). kino reads its title and length, adds it as a one-video search (the
+  screen shows the link) and measures it.
 - `name:"save yt:…"` (`"save yt:… as launch"` keys it for a board `move.ref` `"launch@3.1"`), `"unsave yt:…"`, `"measure yt:…"` (read again after a failure) and
   `"cancel"` (stop reading) do what they say. A saved or opened one is measured before the
-  results nobody picked (a failed one is tried again). It keeps a still a second (10 to 90)
+  rest (a failed one is tried again). It keeps a still a second (10 to 90)
   for `look versus`; saving one kept with 10 measures it again. `"copy <project>"` saves another
   project's saved references here in one call.
 - `borrow_rhythm {ref, fit?, at?, scene?}` (an edit op) lends each section's shot lengths
   (`lend:`) in a new order as cue marks `rhythm-1`, … (`at:"cue:rhythm-3"`), cut on `song-` seams.
   `fit:true` scales to the scene. `reference_closeness` warns on copied cut timing.
-- Search, read one, borrow it scaled to the scene, then cut a title on the third cut:
+- Search, read one, borrow it scaled, then cut a title on the third cut:
 
 ```json
 {"tool":"library","topic":"inspire","search":"fast cut walking edit"}
@@ -74,9 +75,9 @@ frame strips · Proposing ideas · Sound effects
 
 - `kind:"shorts"` searches YouTube's Shorts filter, then fills up with videos of 60 s or less.
   A result marked `Short 9:16` (`vertical:true` in data) has a `/shorts/` link and a tall
-  thumbnail; measuring reads the picture's shape for the others. It takes 5 to 15 s.
+  thumbnail; measuring reads the picture's shape for the others (5 to 15 s).
 - TikTok and Instagram need a faked browser or a login, which kino never does: such a link is
-  refused; paste a YouTube Shorts link instead.
+  refused; use a YouTube Shorts link.
 
 ```json
 {"tool":"library","topic":"inspire","search":"app launch animation","kind":"shorts","count":6}
@@ -92,7 +93,7 @@ frame strips · Proposing ideas · Sound effects
   with `ref` and `at`. Treatments take their `type` from these.
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.
-  Without `ref` it lists the project's saved references, one line each.
+  Without `ref`: the saved references, one line each.
 - Strips are kept around cuts, motion peaks and every time a suggested line names (24 at most).
 - With saved references, a full check runs `reference_drift` in the background (the next check has
   it): text far from theirs, or alone on a plain frame over twice theirs, warns; motion advises.
@@ -111,7 +112,7 @@ frame strips · Proposing ideas · Sound effects
   the person allows them (with an optional note) or says not yet. Only the person switches or
   allows; your next call's inbox says which ideas to use. Then add each to the brief's style
   (`notes {action:"brief"}`, with `ref` and `at`) and make them.
-- While a reference is read, F3 shows the frame, motion arrows, text and cuts found so far (live).
+- While a reference is read, F3 shows what is found so far (live).
 
 ```json
 {"tool":"library","topic":"inspire","ideas":{"ref":"yt:tgEWNHVbk3U","take":[{"title":"cut on the third beat","from":1,"to":2,"what":"a hard cut lands on the beat","why":"the cut feels earned","use":"cut the title in on rhythm-3","place":{"at":1}}],"skip":[{"title":"their logo","why":"their brand, not a style"}]}}
