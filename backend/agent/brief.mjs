@@ -223,7 +223,7 @@ function lineProblem(name, line, current, said = null) {
   if (line.by !== "you" && line.by !== "guessed")
     return { code: "bad_input", message: `${name}.by is "you" (the person said it; send quote) or "guessed" (your call).` };
   if (name === "about" && line.by !== "you" && !said?.none)
-    return { code: "bad_input", message: 'about is who or what the video is about, in their words: by:"you" with quote (by:"guessed" only when ask is "none"). If they named nothing, leave it out.' };
+    return { code: "bad_input", message: 'about is who or what the video is about, in their words: by:"you" with quote (by:"guessed" only when ask is "none"). Quote the part of their message that says what it is for.' };
   // The idea line takes as many characters as a treatment's idea and style.idea, so a picked treatment fits.
   const text = textProblem(`${name}.text`, line.text, name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text);
   if (text) return { code: "bad_input", message: `${text} Keep the line short; the quote holds their words.` };
@@ -328,7 +328,11 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   // A style sent over a saved one is a partial update, merged into it (style.mjs mergeStyle).
   const merged = sentStyle ? mergeStyle(fields.style, current?.style) : null;
   if (sentStyle) {
-    const problem = merged.problem ?? styleProblem(merged.spec, current?.style);
+    let problem = merged.problem ?? styleProblem(merged.spec, current?.style);
+    // The style's quote is their words too (it is how the direction lock is approved); a style
+    // sent again with the quote it already has was accepted before.
+    const styleQuote = merged.spec?.by === "you" && hasText(merged.spec.quote) ? merged.spec.quote.trim() : null;
+    if (!problem && styleQuote && styleQuote !== current?.style?.quote) problem = quoteProblem("style.quote", styleQuote, said);
     if (problem) problems.push(["style", problem]);
   }
   let treatments;
@@ -599,7 +603,8 @@ export function nextMove(state, video = {}, stop = null) {
   if (!hasBrief(brief)) {
     // Nothing built yet is a new video, even with a plan set. Layers already made: a video begun
     // before briefs, or a change to it (frontend/dashboard/state.js briefRows says the same).
-    if (!video.layers) return { step: "new video? brief first (library guide direction)", call: briefCall({ ...guessAll(["ask", ...REQUIRED_FIELDS]).input.fields, message: "<what the video must say, from the chat>" }) };
+    // A stored ask alone does not make a brief (no revision), so only what is still missing is named.
+    if (!video.layers) return { step: "new video? brief first (library guide direction)", call: briefCall({ ...guessAll(missingLines(brief), brief).input.fields, message: "<what the video must say, from the chat>" }) };
     return { step: planned ? "follow the plan" : "a change to this video needs no brief", call: null };
   }
   const { count, questions } = replyCount(state);
@@ -1055,8 +1060,11 @@ export function shapeLine(brief, video = {}) {
 export function briefText(state, video = {}) {
   const brief = state?.brief;
   const replies = replyCount(state);
-  if (!hasBrief(brief)) return `No brief yet · replies 0 of ${REPLY_LIMIT}. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{message:{text, by:"you", quote}}, log:[{q, a}]}.${hasAsk(brief) ? " Their message is saved (ask)." : ""}`;
   const missing = missingLines(brief);
+  if (!hasBrief(brief)) {
+    const save = askGiven(brief) ? "" : 'ask:"<their message, pasted whole>", ';
+    return `No brief yet · replies 0 of ${REPLY_LIMIT}. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{${save}message:{text, by:"you", quote}}, log:[{q, a}]}.${hasAsk(brief) ? " Their message is saved (ask)." : asksNone(brief) ? ` ${ASK_NONE_LINE}.` : ""}\nmissing: ${missing.join(", ")}`;
+  }
   return [
     `brief r${brief.rev}, ${briefState(brief)} · replies ${replies.count} of ${replies.limit} (${plural(replies.questions, "question")}, ${plural(replies.playbacks, "playback")}${replies.stops ? `, ${plural(replies.stops, "stop")}` : ""})`,
     ...BRIEF_FIELDS.filter((name) => brief.fields[name]).flatMap((name) => [lineText(name, brief.fields[name]), name === "plays_on" ? shapeLine(brief, video) : ""]),

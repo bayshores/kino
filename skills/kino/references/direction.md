@@ -1,12 +1,11 @@
 # Direction: the brief and the stops
 
-Contents: When · Asking · Saving · Playing it back · Replies · Stops · Finishing · New chat or
-compaction · Examples
+Contents: When · Asking · Saving · Playing it back · Replies · Stops · Finishing · Examples
 
 ## When
 
 A new video, not a change to an existing one. If the request answers everything, skip the
-questions and play the brief back. If no one can answer (a script runs you), save the brief
+questions and play the brief back. If no one can answer (a script runs you, or the request says so), save the brief
 in one call (`ask:"none"`, the rest `guessed`) with `no_playback:"no one can answer"` and go
 on. The stops still wait for the person: only their answer or settings let one pass.
 
@@ -30,26 +29,27 @@ on. The stops still wait for the person: only their answer or settings let one p
    - `idea` (optional, yours, not asked): the one idea (ideas reference); stops show it.
    Under 8 s: only the open question. A named length: `project create {duration}` plus the
    brief's `fields:{length:30}`, a gate (`{seconds, tolerance}`; default 2%, min 0.5 s).
-3. Don't ask what they can't judge yet (loudness, colors). Before the playback, check for clashes.
+3. Don't ask what they can't judge yet (loudness, colors). Before the playback, check
+   for clashes ("dark and moody" against "faces readable on a phone").
 4. "Just start": save what you have not heard as guessed, with `no_playback:"just start"`;
    say your main calls (and the treatment you picked) in one line and go on.
 
 ## Saving
 
 - Save at once, after each reply: `notes {action:"brief", fields, log}`. Lines merge by name;
-  `null` removes one. With no fields and no log, it reads the brief.
+  `null` removes one. Without fields and log, it reads the brief.
 - First save their message whole: `fields:{ask:"<what they typed>"}`; kept as typed, never edited.
-  `missing:` names `ask`, then `about`, until saved. No person: `ask:"none"` (the playback
+  `missing:` names `ask`, then `about`, till saved. No person: `ask:"none"` (the playback
   says so; quotes are then checked only against logged replies).
 - `by:"you"` needs `quote`: their exact words, copied from their message (no fixed
-  typos). Not their words: `by:"guessed"`, no quote. A quote not in the ask or in a reply is
-  refused (`quote_not_said`, with their closest sentence); with no ask saved, any is.
-  `text` (your reading): 80 characters max, idea 120.
+  typos). Not their words: `by:"guessed"`, no quote. A quote (style's too) not in the ask or a
+  reply is refused (`quote_not_said`, with their closest sentence), as is any with no ask saved.
+  `text` (your reading): 80 characters, idea 120.
 - `about` `{text, by:"you", quote}` (`by:"guessed"` only under `ask:"none"`): who or what it is
-  about, in their words; the first reference search uses it, never the ask. The `origin:` line is
-  kino's own search of it (not saved by you): say it in the playback; name its word in the idea.
+  about, in their words; the first reference search uses it, never the ask. `origin:` is kino's
+  own search of it (not yours to save): say it in the playback; name its word in the idea.
 - Never put a guess over their line or remove it: ask them, then save their new words.
-- Log every reply `{q, a}` word for word. Words a
+- Log every reply `{q, a}` word for word (over 2,000 characters: the answering part). Words a
   lead passed on: `{a, kind:"passed_on"}`, not a reply.
 - Their answer to a playback: `kind:"playback"` and `rev`, the revision you played back (the
   save answer names it: `brief r3 saved`). Add `confirmed:true` only when they said it is
@@ -66,11 +66,10 @@ Here's the brief. Quotes are yours; "guess" is mine.
 - made from: guess: skate.mp4, its own sound
 - look and sound: you said "raw and bright, real street sound, no synth dings"
 - never: you said "no meme text and don't crop our faces out"
-- key moment: you said "the kickflip at the end"
 What's wrong or missing?
 ```
 
-A correction: save it, play it back again. Before
+A correction: save it and play it back again. No revision numbers in the chat. Then, before
 building: 2 saved references, each studied (inspire reference); 5 treatments and the pick of
 the 3 shown, and its signature (techniques reference). Earlier, edits are `order_needed`.
 
@@ -122,6 +121,7 @@ Their answer:
 - "stop asking" counts only on the stop whose ask offers it (the first of rough, color and
   sound): those three then pass for this video, never the storyboard or an approval.
 - `Q…` ids are approvals: record a chat yes/no with `notes answer`.
+- Each answer counts toward the 10 replies (`ask_limit` at 10: see Replies).
 - kino refuses an answer under 5 s after the ask (`too_fast`) and one for an unseen revision
   (`stale_rev`: ask again).
 
@@ -130,10 +130,6 @@ Their answer:
 End every turn with one of: `Done: <file>`, `Done, with open questions: …` or
 `Waiting for you: the rough cut (C1)`.
 
-## New chat or compaction
-
-`status` shows `direction:` and `next:` under its first line. Their words beat the brand kit and guesses.
-
 ## Examples
 
 ```json
@@ -141,7 +137,6 @@ End every turn with one of: `Done: <file>`, `Done, with open questions: …` or
 {"tool":"notes","action":"brief","fields":{"never":{"text":"no meme text","by":"you"}},"expect":"quote_needed"}
 {"tool":"notes","action":"brief","log":[{"q":"What's wrong or missing?","a":"looks right","kind":"playback","rev":1,"confirmed":true}]}
 {"tool":"notes","action":"brief","fields":{"never":{"text":"no meme text","by":"guessed"}},"log":[{"q":"What would make you wince?","a":"just start"}],"no_playback":"just start"}
-{"tool":"notes","action":"brief"}
 {"tool":"notes","action":"checkpoint","id":"rough"}
 {"tool":"notes","action":"answer","id":"C9","rev":1,"words":"looks good","read_as":"approve","expect":"not_found"}
 ```

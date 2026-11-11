@@ -91,7 +91,7 @@ test("a brief with a you line and a guessed line reads back, and status shows di
   await newProject("brief-read");
   const empty = await brief("brief-read");
   assert.equal(empty.isError, undefined, empty.text);
-  assert.equal(withoutNext(empty.text), 'No brief yet · replies 0 of 10. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{message:{text, by:"you", quote}}, log:[{q, a}]}.');
+  assert.equal(withoutNext(empty.text), 'No brief yet · replies 0 of 10. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{ask:"<their message, pasted whole>", message:{text, by:"you", quote}}, log:[{q, a}]}.\nmissing: ask, message, plays_on, made_from, look_sound, never');
   assert.deepEqual(empty.data, { brief: null, missing: ["ask", "message", "plays_on", "made_from", "look_sound", "never"],
     replies: { count: 0, limit: 10, questions: 0, playbacks: 0, stops: 0 }, next: "new video? brief first (library guide direction)" });
   const before = await statusLines("brief-read");
@@ -856,7 +856,7 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   // The approval backs the guessed wants the person was shown, but avoids copied from another
   // project's brief and dealt moves keep their source, so they stay questions and never block.
   const remake = { brief: emptyBrief() };
-  applyBrief(remake, briefChanges(remake.brief, { fields: { style: { ...bible, wants: ["dissolve"], avoids: ["beat-kick", "flash", "fade-black"], sources: { avoids: "copied", moves: "dealt" }, moves: [{ tag: "parallax", where: "every walk" }] } } }));
+  applyBrief(remake, briefChanges(remake.brief, { fields: { ask: "approve as written. no flashes, ever.", style: { ...bible, wants: ["dissolve"], avoids: ["beat-kick", "flash", "fade-black"], sources: { avoids: "copied", moves: "dealt" }, moves: [{ tag: "parallax", where: "every walk" }] } } }));
   applyBrief(remake, briefChanges(remake.brief, { fields: { style: { ...asked.call.input.fields.style, quote: "approve as written" } } }));
   const approvedStyle = styleContext(remake.brief.style);
   assert.deepEqual([remake.brief.style.by, remake.brief.style.sources, approvedStyle.avoidsBacked, approvedStyle.backed], ["you", { avoids: "copied", moves: "dealt" }, false, ["dissolve"]]);
@@ -957,6 +957,15 @@ test("without a stored ask, missing names it and next carries the placeholders; 
   applyBrief(draft, briefChanges(draft.brief, { fields: { ask: ASK_TEXT } }));
   assert.deepEqual(briefData(draft).missing, ["about"]);
   assert.equal(nextMove(draft, { seconds: 24, layers: 0 }).call.input.fields.ask, undefined);
+  // An ask alone saves no revision (no brief yet): the first call of a new video still stops asking for it.
+  const alone = { brief: emptyBrief() };
+  applyBrief(alone, briefChanges(alone.brief, { fields: { ask: ASK_TEXT } }));
+  assert.equal(nextMove(alone, { seconds: 24, layers: 0 }).call.input.fields.ask, undefined);
+  assert.equal(nextMove(alone, { seconds: 24, layers: 0 }).call.input.fields.about.by, "you");
+  const aloneNone = { brief: emptyBrief() };
+  applyBrief(aloneNone, briefChanges(aloneNone.brief, { fields: { ask: "none" } }));
+  const noneCall = nextMove(aloneNone, { seconds: 24, layers: 0 }).call.input.fields;
+  assert.deepEqual([noneCall.ask, noneCall.about], [undefined, { text: "<the subject>", by: "guessed" }]);
   // (b) ask:"none" counts as given, shows in the playback, and lets about be a guess.
   const quiet = { brief: emptyBrief() };
   applyBrief(quiet, briefChanges(quiet.brief, { fields: { ...guessed, ask: "none" } }));
@@ -1006,6 +1015,19 @@ test("with an ask stored, a quote by you must be in it or in a reply; with no as
   assert.throws(() => briefChanges(draft.brief, { fields: { treatments: { pick: "A", quote: "the fourth one, please" } } }), { code: "quote_not_said" });
   assert.equal(briefChanges(draft.brief, { fields: { treatments: { pick: "A", quote: "keep it vertical" } } }).lines[0].line.by, "you");
   assert.equal(briefChanges(draft.brief, { fields: { treatments: { pick: "A", why: "a viewer would retell it" } } }).lines[0].line.by, "guessed");
+  // (c) and (d) for a pick: with no ask stored its quote is refused; the same quote passes once the ask holds it.
+  const unasked = { brief: emptyBrief() };
+  applyBrief(unasked, briefChanges(unasked.brief, { fields: { treatments: [0, 1, 2, 3, 4].map(idea) } }));
+  const pick = { fields: { treatments: { pick: "A", quote: "keep it vertical" } } };
+  assert.throws(() => briefChanges(unasked.brief, pick), (error) => error.code === "quote_not_said" && /store it first \(ask:/.test(error.message));
+  applyBrief(unasked, briefChanges(unasked.brief, { fields: { ask } }));
+  assert.equal(briefChanges(unasked.brief, pick).lines[0].line.by, "you");
+  // A style by you is their words too (it approves the direction lock): refused with no ask, with "none" and with an ask that lacks it.
+  const style = (quote) => ({ fields: { style: { wants: ["cut"], avoids: ["flash"], lines: [{ text: "the title type", ref: "yt:dQw4w9WgXcQ" }], by: "you", quote } } });
+  assert.throws(() => briefChanges(empty, style("keep it vertical")), (error) => error.code === "quote_not_said" && /store it first/.test(error.message));
+  assert.throws(() => briefChanges(empty, { fields: { ask: "none", ...style("keep it vertical").fields } }), (error) => error.code === "quote_not_said" && /ask is "none"/.test(error.message));
+  assert.throws(() => briefChanges(unasked.brief, style("words nobody typed")), { code: "quote_not_said" });
+  assert.equal(briefChanges(unasked.brief, style("keep it vertical")).style.quote, "keep it vertical");
 });
 
 test("the ask step is named only while the order has an open part and the video is not built; briefData sends a count, not the messages", () => {
