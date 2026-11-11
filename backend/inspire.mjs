@@ -356,6 +356,50 @@ export function originQuery(text) {
   return (cut.includes(" ") && words[ORIGIN_QUERY_LENGTH] !== " " ? cut.slice(0, cut.lastIndexOf(" ")) : cut).trim();
 }
 
+// Words that name the kind of video, not what it shows (COMMON_WORDS has edit, video, amv).
+const KIND_WORDS = new Set("trailer clip clips short shorts promo reel reels montage teaser ad ads mmv tribute".split(" "));
+export const ORIGIN_PHRASE_WORDS = 6;
+const CLAUSE_END = /[.!?;:,]["'”’)\]]*$/;
+
+/**
+ * The quote with the words beside it in the person's message, as a second origin search ("keeper
+ * lantern ladder"), or "" when there is none. A subject often comes with what it is known for
+ * ("keeper lantern ladder edit"), and the title words of a search that has both are shared by far
+ * more results than a search of the name alone. `asks` are the person's messages; the first one
+ * that has the quote's words in a row is read. Up to ORIGIN_PHRASE_WORDS words in all are taken:
+ * the words after the quote first, and the words before it only when none follow. A word must be
+ * letters only (no digits, links, handles or emails) and at least 3 letters, and the reading stops
+ * at a sentence or clause mark, a line break, or a common, upload or video-kind word. Only these
+ * words leave the machine, never the message.
+ */
+export function originPhrase(quote, asks = []) {
+  const subject = titleWords(quote);
+  if (!subject.length || subject.length >= ORIGIN_PHRASE_WORDS) return "";
+  const wordOf = (token) => token.normalize("NFKC").toLowerCase().replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").replace(/['’]s$/, "");
+  const usable = (word) => /^\p{L}+$/u.test(word) && word.length >= 3 && !COMMON_WORDS.has(word) && !UPLOAD_WORDS.has(word) && !KIND_WORDS.has(word);
+  for (const ask of asks) {
+    const tokens = String(ask ?? "").split(/\r?\n/).flatMap((line) => {
+      const parts = line.split(/\s+/).filter(Boolean);
+      return parts.map((text, k) => ({ word: wordOf(text), end: k === parts.length - 1 || CLAUSE_END.test(text) }));
+    });
+    const at = tokens.findIndex((_, k) => subject.every((word, j) => tokens[k + j]?.word === word));
+    if (at < 0) continue;
+    const room = ORIGIN_PHRASE_WORDS - subject.length;
+    const after = [];
+    for (let k = at + subject.length; k < tokens.length && after.length < room && tokens[k - 1].end === false && usable(tokens[k].word); k++) {
+      after.push(tokens[k].word);
+      if (tokens[k].end) break;
+    }
+    const before = [];
+    if (!after.length) {
+      for (let k = at - 1; k >= 0 && before.length < room && !tokens[k].end && usable(tokens[k].word); k--) before.unshift(tokens[k].word);
+    }
+    const phrase = [...before, ...subject, ...after];
+    return phrase.length > subject.length ? originQuery(phrase.join(" ")) : "";
+  }
+  return "";
+}
+
 /**
  * What the results say the subject is known for: { words: [{word, count, of}], top: [{id, title,
  * views, seconds}] }. `about` is the brief's about line ({text, quote}). A result is relevant when
@@ -1405,19 +1449,30 @@ export function createInspire(deps) {
   }
 
   /**
-   * The origin of a video's subject (the brief's about line): one search of its quote only, at any
-   * length and unmeasured (nothing is queued or saved), read by originOf. Resolves with the
-   * state.origin shape {query, words, top}, or {query, skipped: "<why>"} when YouTube cannot be
-   * searched (no yt-dlp, or an error), so a failed search is never read as "nothing is known".
+   * The origin of a video's subject (the brief's about line): a search of its quote, and of the
+   * quote with the words beside it in the person's message (originPhrase) at the same time, each
+   * unmeasured (nothing is queued or saved) and read by originOf. Resolves with the state.origin
+   * shape {query, phrase?, words, top}, or {query, skipped: "<why>"} when YouTube cannot be
+   * searched (no yt-dlp, or both fail), so a failed search is never read as "nothing is known".
    */
   async function origin(about, { ask = [], signal } = {}) {
     const query = originQuery(about?.quote ?? about?.text);
     if (!query) return { skipped: "the about line has no words to search" };
-    try {
-      return { query, ...originOf(await deps.search(query, { count: MAX_SEARCH_COUNT, signal }), about, { ask }) };
-    } catch (error) {
-      return { query, skipped: error.code === "NO_YTDLP" ? "yt-dlp is not installed" : `the search failed: ${String(error.message).replace(/\s+/g, " ").slice(0, 80)}` };
+    // The quote with the words beside it in the person's message is searched too, at the same time.
+    const phrase = originPhrase(about?.quote ?? about?.text, ask);
+    const searches = await Promise.allSettled([query, ...(phrase ? [phrase] : [])].map((words) => deps.search(words, { count: MAX_SEARCH_COUNT, signal })));
+    const failed = searches.find((one) => one.status === "rejected");
+    if (failed && searches.every((one) => one.status === "rejected")) {
+      const error = failed.reason;
+      return { query, skipped: error?.code === "NO_YTDLP" ? "yt-dlp is not installed" : `the search failed: ${String(error?.message).replace(/\s+/g, " ").slice(0, 80)}` };
     }
+    const [named, beside] = searches.map((one) => (one.status === "fulfilled" ? originOf(one.value, about, { ask }) : null));
+    if (!phrase) return { query, ...named };
+    // The phrase's words come first (each says the words that found it), then the quote's new ones.
+    const first = new Set((beside?.words ?? []).map(({ word }) => stem(word.toLowerCase())));
+    const words = [...(beside?.words ?? []).map((entry) => ({ ...entry, query: phrase })), ...(named?.words ?? []).filter(({ word }) => !first.has(stem(word.toLowerCase())))].slice(0, ORIGIN_MAX_WORDS);
+    const top = [...(beside?.top ?? []), ...(named?.top ?? [])].filter((item, k, all) => all.findIndex((other) => other.id === item.id) === k).slice(0, ORIGIN_TOP);
+    return { query, phrase, words, top };
   }
 
   /**

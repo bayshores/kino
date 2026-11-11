@@ -683,6 +683,8 @@ test("a briefed video of 15 s or more with 10 layers is a real edit: its open wa
   const held = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
   assert.ok(held.data.error, held.text);
   assert.match(held.data.reason, /fix \d+ findings? \(/, "its open warnings are listed among what the final needs");
+  // The critic is asked too, though the video has under 30 layers.
+  assert.match(held.data.reason, /look critique/);
 });
 
 test("a real edit (a brief, over 30 layers) needs one critic round before its final render; after two rounds an open P0 goes to the person as the critique stop", async () => {

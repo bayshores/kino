@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, asksOf, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, asksOf, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -143,7 +143,7 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, closedPlatform, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, closedPlatform, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
@@ -614,14 +614,12 @@ export function createAgentService(deps) {
   // rendered rules are not in the findings (checkSummary says so).
   // listen:false (the dashboard's own check) renders frames for the pixel rules but reads only
   // saved transcripts, peaks, loudness and people: no whisper and no sound or people decodes.
-  const REAL_EDIT_SECONDS = 15, REAL_EDIT_LAYERS = 10;
-  // A real edit (a brief, and over 30 layers, or 10 or more in a scene of 15 s or more): every
-  // open warning holds its final render, not only the errors (blocksFinal). A long video made of
-  // text cards over clips is a real edit too, not a rough pass; a one-card sketch is not.
+  // A real edit (realEdit in brief.mjs): every open warning holds its final render, not only the
+  // errors (blocksFinal). A long video made of text cards over clips is a real edit too, not a
+  // rough pass; a one-card sketch is not.
   async function isRealEdit(document) {
     const state = await agentState.read(document.id).catch(() => null);
-    const video = videoFacts(document);
-    return hasBrief(state?.brief) && (video.layers > ROUGH_LAYERS || (video.seconds >= REAL_EDIT_SECONDS && video.layers >= REAL_EDIT_LAYERS));
+    return realEdit(state, videoFacts(document));
   }
 
   async function findingsFor(document, { fonts, codes, sceneId = null, pixels = false, rules = null, outputFps = 30, listen = true } = {}) {
@@ -3392,7 +3390,7 @@ export function createAgentService(deps) {
     if (critiqueWaived(document, scene.id)) return false;
     const open = critiqueStanding(state, document, scene.id, revision);
     if (open) return !open.call && open.rounds < CRITIQUE_ROUNDS && open.rev < revision;
-    return critiqueWanted(scene, critiqueOf(state, scene.id)) && hasBrief(state.brief) && videoFacts(document).layers > ROUGH_LAYERS;
+    return critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(document));
   }
 
   // What notes checkpoint {id:"critique"} asks: the first scene whose last critic round left P0
@@ -3758,9 +3756,9 @@ export function createAgentService(deps) {
       if (Number.isFinite(options?.duration) && options.duration < scene.duration - 0.01) continue;
       if (critiqueWaived(record.document, scene.id)) continue;
       const open = critiqueStanding(state, record.document, scene.id, record.revision);
-      // A real edit (a brief and past a rough pass, as the direction lock) needs one critic round
-      // before its final render: skipping the critic must not be easier than heeding it.
-      if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && hasBrief(state?.brief) && videoFacts(record.document).layers > ROUGH_LAYERS) {
+      // A real edit (realEdit: a brief and past a rough pass) needs one critic round before its
+      // final render: skipping the critic must not be easier than heeding it.
+      if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(record.document))) {
         const name = refName(scene.id, codes);
         throw Object.assign(new AgentError("critique_needed", `${name} has had no critic round: a fresh critic reads it before the final render.`, {
           next: `look {mode:"critique"${record.document.scenes.length > 1 ? `, scene:"${name}"` : ""}}, give its packet to a fresh subagent (the critique reference), then notes critique; or edit waive_check {code:"critique", target:"${name}", reason}. A draft render is allowed now.`,
@@ -5217,8 +5215,9 @@ export function createAgentService(deps) {
   }
 
   // The brief's about line (who or what the video is about, quoted from the person) was saved or
-  // changed: one search of that quote only, at any length, keeps what the subject is known for in
-  // state.origin ({query, words, top}). Nothing else of the person's message is sent. Offline, without
+  // changed: a search of that quote, and of the quote with the words beside it in the person's message
+  // (originPhrase), keeps what the subject is known for in state.origin ({query, phrase, words, top}).
+  // Nothing else of the person's message is sent. Offline, without
   // yt-dlp or on an error it keeps {query, skipped}; the save and its answer never change.
   // The last try per project (when, and for which quote): after a restart the first save tries again.
   const originTried = new Map();
@@ -5228,16 +5227,21 @@ export function createAgentService(deps) {
       const about = state.brief?.fields?.about;
       const query = originQuery(about?.quote ?? about?.text);
       if (!query) return;
-      if (state.origin?.query === query) {
+      const ask = asksOf(state.brief).map((entry) => entry.text);
+      // The quote and the words beside it in the person's message (an ask saved later searches again).
+      const phrase = originPhrase(about?.quote ?? about?.text, ask);
+      if (state.origin?.query === query && (state.origin.phrase ?? "") === phrase) {
         const last = originTried.get(projectId);
-        const retry = state.origin.skipped && !(last?.query === query && now() - last.at < ORIGIN_RETRY_MS);
+        const retry = state.origin.skipped && !(last?.query === query && last.phrase === phrase && now() - last.at < ORIGIN_RETRY_MS);
         if (!retry) return;
       }
-      originTried.set(projectId, { query, at: now() });
-      const ask = asksOf(state.brief).map((entry) => entry.text);
+      originTried.set(projectId, { query, phrase, at: now() });
       const origin = deps.inspire ? await deps.inspire.origin(about, { ask }) : { query, skipped: "kino cannot search YouTube here" };
       // Skipped when the line changed while the search ran: the next save searches the new one.
-      await agentState.update(projectId, (draft) => { if (originQuery(draft.brief?.fields?.about?.quote ?? draft.brief?.fields?.about?.text) === query) draft.origin = origin; });
+      await agentState.update(projectId, (draft) => {
+        const line = draft.brief?.fields?.about;
+        if (originQuery(line?.quote ?? line?.text) === query && originPhrase(line?.quote ?? line?.text, asksOf(draft.brief).map((entry) => entry.text)) === phrase) draft.origin = origin;
+      });
     } catch { /* the origin is advice: a failure here must not lose the brief save */ }
   }
 
@@ -7065,7 +7069,7 @@ export function createAgentService(deps) {
     for (const scene of whole) {
       if (waived(CRITIQUE_WAIVER, scene) || scene.id === joined) continue;
       const open = critiqueStanding(state, document, scene.id, record.revision);
-      if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && hasBrief(state.brief) && videoFacts(document).layers > ROUGH_LAYERS) {
+      if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(document))) {
         if (add("critique_needed", "look critique, a fresh subagent, notes critique", critiqueCall(sceneField(scene)))) return gates;
         break;
       }

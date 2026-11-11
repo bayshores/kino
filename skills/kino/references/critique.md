@@ -1,7 +1,7 @@
 # The fresh-eyes critic
 
-kino cannot start an agent; you can. Before a final render of a video of 10 s or more, `step:`
-names `look {mode:"critique"}` once. A fresh critic that never saw your chat reads the packet and
+kino cannot start an agent; you can. Before a final render of a video of 10 s or more (a real
+edit: a brief and over 30 layers, or 10+ in 15 s+), `step:` names `look {mode:"critique"}` once. A fresh critic that never saw your chat reads the packet and
 answers in short lines; you record them, fix the P0s and try its UP lines.
 
 ## The loop
