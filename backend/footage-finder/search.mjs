@@ -28,13 +28,28 @@ const REWORD = /\b(?:clips? for edits?|4k|raw|hd)\b/gi;
 // Words too common to say a channel is the show's own ("Fight Clips" is not the show).
 const COMMON = new Set(["the", "and", "for", "with", "from", "fight", "scene", "scenes", "clip", "clips", "episode", "official", "full", "anime", "movie", "trailer", "opening", "ending", "edit", "edits", "raw"]);
 
+const wordsOf = (text) => String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+
+/**
+ * True for an edit upload kept on purpose: its title has the subject's origin word and a word of
+ * what the video is about (origin: {word, about}). An edit can be the only place a scene survives
+ * when the show's own clips are not on YouTube; it is kept and labeled, never hidden.
+ */
+export function isOriginEdit(entry, origin) {
+  const word = String(origin?.word ?? "").toLowerCase();
+  if (!word || !EDIT.test(String(entry?.title ?? ""))) return false;
+  const title = wordsOf(entry.title);
+  const about = wordsOf(origin.about).filter((each) => each.length >= 3 && each !== word);
+  return title.includes(word) && about.some((each) => title.includes(each));
+}
+
 /** Why a search entry is left out: "edits", "reactions", "reviews", "live", "members only", "over 3 h", "under 5 s", or null. */
-export function dropReason(entry) {
+export function dropReason(entry, origin = null) {
   if (LIVE.has(entry.live_status)) return "live";
   if (MEMBERS_AVAILABILITY.has(entry.availability)) return "members only";
   const title = String(entry.title ?? "");
   if (MEMBERS.test(title)) return "members only";
-  if (EDIT.test(title)) return "edits";
+  if (EDIT.test(title) && !isOriginEdit(entry, origin)) return "edits";
   if (REACTION.test(title)) return "reactions";
   if (REVIEW.test(title)) return "reviews";
   const seconds = Number(entry.duration);
@@ -67,7 +82,7 @@ export function uploaderMatches(channel, words) {
 }
 
 // One kept search result as a candidate: a stable id and the YouTube page (license "unknown" as metadata).
-function toCandidate(result, { given = false } = {}) {
+function toCandidate(result, { given = false, edit = false } = {}) {
   const candidate = {
     id: `clip:yt-${result.videoId}`,
     source: "youtube",
@@ -82,15 +97,16 @@ function toCandidate(result, { given = false } = {}) {
     ...(result.views !== undefined ? { views: result.views } : {}),
     ...(given ? { given: true } : {}),
   };
-  const doubt = footageDoubt(candidate);
+  const doubt = [edit ? "edit upload" : "", footageDoubt(candidate)].filter(Boolean).join(", ");
   return doubt ? { ...candidate, doubt } : candidate;
 }
 
 /**
  * The lines of `yt-dlp --flat-playlist --dump-json ytsearchN:...` as {candidates, dropped}:
- * candidates in YouTube's order, dropped counts by reason ({edits: 2, live: 1}).
+ * candidates in YouTube's order, dropped counts by reason ({edits: 2, live: 1}). `origin`
+ * ({word, about}) keeps the edit uploads isOriginEdit names, with the doubt "edit upload".
  */
-export function parseFootageLines(text) {
+export function parseFootageLines(text, origin = null) {
   const candidates = [];
   const dropped = {};
   const seen = new Set();
@@ -99,12 +115,12 @@ export function parseFootageLines(text) {
     let entry;
     try { entry = JSON.parse(line); } catch { continue; }
     if (!entry || seen.has(entry.id)) continue;
-    const reason = dropReason(entry);
+    const reason = dropReason(entry, origin);
     if (reason) { seen.add(entry.id); dropped[reason] = (dropped[reason] ?? 0) + 1; continue; }
     const [result] = parseSearchLines(line);
     if (!result) continue;
     seen.add(entry.id);
-    candidates.push(toCandidate(result));
+    candidates.push(toCandidate(result, { edit: isOriginEdit(entry, origin) }));
   }
   return { candidates, dropped };
 }
@@ -146,8 +162,9 @@ function givenDropReason(error) {
  * looked up and ranked first, unfiltered; one that cannot play from here counts in dropped as
  * "yours: region", "yours: live" and the like. When nothing is left, the words are tried once more
  * without "4k", "raw", "clips for edits" and "hd". Answers {words, tried?, candidates, dropped}.
+ * `origin` {word, about} keeps edit uploads that carry the subject's origin word (isOriginEdit).
  */
-export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal } = {}) {
+export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal, origin = null } = {}) {
   const tokens = String(query ?? "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   const links = tokens.filter((token) => /^https:\/\//i.test(token) && refId(token));
   const words = tokens.filter((token) => !links.includes(token)).join(" ").slice(0, 120);
@@ -169,7 +186,7 @@ export async function searchFootage(query, { run, count = FOOTAGE_SHOWN, signal 
       ownDropped[reason] = (ownDropped[reason] ?? 0) + 1;
     }
   }
-  const ask = async (text) => parseFootageLines(await run(["--flat-playlist", "--dump-json", `ytsearch${FOOTAGE_SEARCH_COUNT}:${text}`], { signal }));
+  const ask = async (text) => parseFootageLines(await run(["--flat-playlist", "--dump-json", `ytsearch${FOOTAGE_SEARCH_COUNT}:${text}`], { signal }), origin);
   let found = words ? await ask(words) : { candidates: [], dropped: {} };
   found = { ...found, dropped: mergeDropped(ownDropped, found.dropped) };
   let tried;

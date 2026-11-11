@@ -118,7 +118,7 @@ import { importedText } from "./client.mjs";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
-import { REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
+import { originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
@@ -143,12 +143,12 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, closedPlatform, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, closedPlatform, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
 import { callDetails as answerDetails, takeSaid } from "./said.mjs";
-import { answerText, call as nextOf, callText, cleanInput, opWithName, STATUS_CALL, unfilledSlot, withSuggestion } from "./next-call.mjs";
+import { answerText, call as nextOf, callText, cleanInput, opWithName, originFootage, originFootageNext, STATUS_CALL, unfilledSlot, withSuggestion } from "./next-call.mjs";
 
 // Inbox lines kept for one agent (a helper's hand-back to its lead) until that agent calls.
 const INBOX_FOR_OTHERS_KEPT = 50;
@@ -176,6 +176,11 @@ const RENDER_RULES = 'render start defaults to draft: half each scene dimension 
 const LIBRARY_NAMES = 8;
 // library {topic:"inspire", name} waits this long for a reference kino is still measuring.
 const INSPIRE_WAIT_MS = 50_000;
+// How long saving the brief's about line waits for the origin search (inspire.origin) before it answers.
+const ORIGIN_WAIT_MS = 20_000;
+// A skipped origin search (a bot check, a timeout, yt-dlp briefly missing) is tried again on a later
+// save of the same about line, but not within this long of the last try.
+const ORIGIN_RETRY_MS = 10 * 60_000;
 // The waiver code that lets a final render go without look versus (waive_check {code:"reference"}).
 const REFERENCE_WAIVER = "reference";
 // A look versus counts for this many revisions after it, like a viewer report: small fixes after
@@ -485,7 +490,11 @@ export function createAgentService(deps) {
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
   // library {topic:"footage"}: found video for the project (deps.footage is footage-finder/index.mjs).
-  const footageActions = deps.footage ? createFootageActions({ finder: deps.footage, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
+  // The subject's origin ({word, about}) of the footage call running, so a search keeps the edit
+  // uploads that carry the word (footage-finder/search.mjs isOriginEdit).
+  const footageOrigin = new AsyncLocalStorage();
+  const originFinder = deps.footage ? { ...deps.footage, search: (words, options) => deps.footage.search(words, { ...options, origin: footageOrigin.getStore() ?? null }) } : null;
+  const footageActions = deps.footage ? createFootageActions({ finder: originFinder, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
   // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
   // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
   const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
@@ -4372,7 +4381,11 @@ export function createAgentService(deps) {
     await agentState.update(projectId, (draft) => { draft.studied = [...new Set([...(draft.studied ?? []), id])].slice(-20); });
     const rows = made.shown.map((strip) => `${strip.at}s ${strip.kinds.join("+")}`).join(" · ");
     const where = Number.isFinite(input.t) ? `nearest ${input.t}s` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
-    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}`, extra: { ref: id, strips: made.shown } };
+    // A studied edit whose title has the subject's origin word also leads to that footage.
+    // (Without an origin word it reads nothing more: no second reference lookup.)
+    const { found } = await originFootageFor(projectId);
+    const origin = found ? originReferenceLine(found, (await deps.inspire.reference(id).catch(() => null))?.title) : "";
+    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown } };
   }
 
   // look {mode:"source", layer, t?, width?}: the whole source frame of a video layer at scene time
@@ -5115,11 +5128,38 @@ export function createAgentService(deps) {
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };
       } });
+      // The save waits for the search up to ORIGIN_WAIT_MS; a slower one finishes and stores itself later.
+      await Promise.race([findOrigin(projectId), new Promise((resolve) => setTimeout(resolve, ORIGIN_WAIT_MS).unref())]);
       return { ...finished, ...answer };
     } catch (error) {
       if (error instanceof BriefError) throw new AgentError(error.code, error.message, error.details);
       throw error;
     }
+  }
+
+  // The brief's about line (who or what the video is about, quoted from the person) was saved or
+  // changed: one search of that quote only, at any length, keeps what the subject is known for in
+  // state.origin ({query, words, top}). Nothing else of the person's message is sent. Offline, without
+  // yt-dlp or on an error it keeps {query, skipped}; the save and its answer never change.
+  // The last try per project (when, and for which quote): after a restart the first save tries again.
+  const originTried = new Map();
+  async function findOrigin(projectId) {
+    try {
+      const state = await agentState.read(projectId);
+      const about = state.brief?.fields?.about;
+      const query = originQuery(about?.quote ?? about?.text);
+      if (!query) return;
+      if (state.origin?.query === query) {
+        const last = originTried.get(projectId);
+        const retry = state.origin.skipped && !(last?.query === query && now() - last.at < ORIGIN_RETRY_MS);
+        if (!retry) return;
+      }
+      originTried.set(projectId, { query, at: now() });
+      const ask = (state.brief.fields.ask ?? []).map((entry) => entry.text);
+      const origin = deps.inspire ? await deps.inspire.origin(about, { ask }) : { query, skipped: "kino cannot search YouTube here" };
+      // Skipped when the line changed while the search ran: the next save searches the new one.
+      await agentState.update(projectId, (draft) => { if (originQuery(draft.brief?.fields?.about?.quote ?? draft.brief?.fields?.about?.text) === query) draft.origin = origin; });
+    } catch { /* the origin is advice: a failure here must not lose the brief save */ }
   }
 
   // ---- the deck (engine/deck.js, deck.mjs) ----------------------------------------------------
@@ -6078,7 +6118,10 @@ export function createAgentService(deps) {
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     let reply;
     const song = ({ signal } = {}) => songNeeds(record.document, media, signal);
-    try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media), song }); }
+    const personClips = personClipCount(record.document, media);
+    const word = state.origin?.words?.[0]?.word;
+    const origin = word && !personClips ? { word, about: state.brief?.fields?.about?.quote ?? state.brief?.fields?.about?.text ?? "" } : null;
+    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song })); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
       throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
@@ -7054,8 +7097,31 @@ export function createAgentService(deps) {
     return nextOf("edit", { ops: [{ op: "update_layer", layer: first?.kind === "layer" ? first.name : "<the layer to change>", properties }] });
   }
 
+  // When state.origin names a word the subject is known for and the person gave no footage of their
+  // own, a footage search, a footage scan or an inspire search is followed by the footage search for
+  // "<about quote> <word>" and then a scan wanting the word (next-call.mjs originFootage). Else null.
+  async function originFootageFor(projectId) {
+    const record = await store.getProject(String(projectId)).catch(() => null);
+    if (!record) return {};
+    const state = await agentState.read(record.document.id).catch(() => null);
+    if (!state?.origin?.words?.length) return {};
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    return { state, found: originFootage({ origin: state.origin, about: state.brief?.fields?.about, footage: state.footage, personClips: personClipCount(record.document, media) }) };
+  }
+
+  async function originFootageCall(input, reply, projectId) {
+    if (!["footage", "inspire"].includes(input?.topic)) return null;
+    const { state, found } = await originFootageFor(projectId);
+    return originFootageNext({ found, topic: input.topic, input, footage: state?.footage, reply });
+  }
+
   // The next call for an answer that did not name one.
   async function nextCallFor(verb, input, reply, projectId) {
+    // The subject's origin footage comes before the answer's own next call (originFootageCall).
+    if (!reply.isError && verb === "library" && projectId) {
+      const origin = await originFootageCall(input, reply, projectId);
+      if (origin) return origin;
+    }
     if (reply.nextCall) return reply.nextCall;
     const data = reply.data ?? {};
     const asked = cleanInput(input);

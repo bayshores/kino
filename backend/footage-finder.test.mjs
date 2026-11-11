@@ -10,7 +10,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createKinoMcpServer } from "./mcp.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { createFootageFinder } from "./footage-finder/index.mjs";
-import { candidateLine, droppedLine, nothingFoundText } from "./footage-finder/search.mjs";
+import { candidateLine, droppedLine, nothingFoundText, parseFootageLines } from "./footage-finder/search.mjs";
 import { createCommonsSource, parseCommonsSearch } from "./footage-finder/licensed.mjs";
 import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scanText } from "./footage-finder/actions.mjs";
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
@@ -135,6 +135,39 @@ test("a footage search puts the pasted link and then verified channels first, dr
     assert.ok(search.includes("ytsearch20:gojo fight"), search.join(" "));
     assert.equal(candidateLine(answer.candidates[1], "F2"), 'F2 Big Studio (verified) · 10:00 · "Episode 1"', "no license column for YouTube");
     assert.equal(droppedLine(answer.dropped), "Dropped 5: 1 yours: region, 1 edits, 1 reactions, 1 live, 1 over 3 h.");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("an edit upload with the origin word and an about word is kept and labeled; without the origin, or without both words, it is dropped", () => {
+  const lines = [
+    ytLine("keep1", "Keeper climbs the tower edit"),
+    ytLine("noword", "Keeper rests edit"),
+    ytLine("noabout", "Tower at night edit"),
+    ytLine("raw1", "Keeper tower scene"),
+    ytLine("react1", "Keeper tower reaction edit"),
+  ].join("\n");
+  const origin = { word: "tower", about: "the keeper" };
+  const kept = parseFootageLines(lines, origin);
+  assert.deepEqual(kept.candidates.map((candidate) => [candidate.id, candidate.doubt ?? ""]), [["clip:yt-keep1xxxxxx", "edit upload"], ["clip:yt-raw1xxxxxxx", ""]]);
+  assert.deepEqual(kept.dropped, { edits: 2, reactions: 1 });
+  assert.equal(candidateLine(kept.candidates[0], "F1"), 'F1 Some Fan · 10:00 · "Keeper climbs the tower edit" · doubt: edit upload');
+  assert.deepEqual(parseFootageLines(lines).dropped, { edits: 4 }, "no origin: every edit upload stays dropped");
+});
+
+test("the real finder passes the origin to the search and keeps its answer apart from one made without it", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  const ytDlp = async () => [ytLine("keep1", "Keeper climbs the tower edit"), ytLine("raw1", "Keeper tower scene")].join("\n");
+  try {
+    const finder = createFootageFinder({ directory, ytDlp });
+    const plain = await finder.search("keeper tower");
+    assert.deepEqual(plain.candidates.map((candidate) => candidate.id), ["clip:yt-raw1xxxxxxx"]);
+    assert.deepEqual(plain.dropped, { edits: 1 });
+    // Same words, now with the origin: not the cached answer above.
+    const withOrigin = await finder.search("keeper tower", { origin: { word: "tower", about: "the keeper" } });
+    assert.deepEqual(withOrigin.candidates.map((candidate) => [candidate.id, candidate.doubt ?? ""]), [["clip:yt-keep1xxxxxx", "edit upload"], ["clip:yt-raw1xxxxxxx", ""]]);
+    assert.equal(withOrigin.dropped.edits, undefined);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -667,6 +700,65 @@ test("library footage: the person's clips lead every answer, search's next is sc
   const list = await service.call("library", { project: "anime-edit", topic: "footage" });
   assert.match(list.text, /F1 Big Studio .* · scanned, 15 shots/);
   assert.equal(list.text.split("\n").at(-1), 'next: library {"topic":"footage","scan":"F2"}');
+});
+
+test("library footage with an origin word and no clips of theirs: next is the footage search for the quote and the word, the finder is told the word; with their own clip: unchanged", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const store = await openStore(dataRoot);
+  await store.createProject(createDocument({ id: "bare", name: "Bare", scenes: [createScene({ id: "s1", layers: [] })] }));
+  await store.createProject(createDocument({ id: "own", name: "Own", scenes: [createScene({ id: "s1", layers: [createLayer("video", { id: "v", src: "/api/media/own1" })] })] }));
+  const agentState = createAgentStateStore(dataRoot);
+  for (const id of ["bare", "own"]) {
+    await agentState.update(id, (draft) => {
+      draft.origin = { query: "the keeper", words: [{ word: "tower", count: 11, of: 15 }], top: [] };
+      draft.brief = { rev: 1, fields: { about: { text: "the keeper", by: "you", quote: "the keeper" } }, log: [] };
+    });
+  }
+  const asked = [];
+  const finder = { search: async (words, options) => { asked.push([words, options.origin ?? null]); return { words, candidates: [found(1, { title: "Keeper at rest" })], dropped: {}, cached: false }; }, readScan: async () => null };
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder });
+  const bare = await service.call("library", { project: "bare", topic: "footage", search: "keeper fight" });
+  assert.equal(bare.text.split("\n").at(-1), 'next: library {"topic":"footage","search":"the keeper tower"}');
+  assert.deepEqual(asked.at(-1), ["keeper fight", { word: "tower", about: "the keeper" }]);
+  const origin = await service.call("library", { project: "bare", topic: "footage", search: "the keeper tower" });
+  assert.equal(origin.text.split("\n").at(-1), 'next: library {"topic":"footage","scan":"top","want":"tower"}');
+  const own = await service.call("library", { project: "own", topic: "footage", search: "keeper fight" });
+  assert.equal(own.text.split("\n").at(-1), 'next: library {"topic":"footage","scan":"top"}');
+  assert.equal(asked.at(-1)[1], null, "their own footage: the finder gets no origin");
+});
+
+test("look reference: a studied edit whose title has the origin word ends with the footage search line; one without the word, or a project without an origin, does not", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  const stripsFolder = path.join(dataRoot, "strips");
+  await mkdir(stripsFolder, { recursive: true });
+  await writeFile(path.join(stripsFolder, "s1.png"), createCanvas(24, 16).toBuffer("image/png"));
+  const titles = { "yt:aaaaaaaaaaa": "Keeper tower edit", "yt:bbbbbbbbbbb": "Keeper at rest" };
+  let lookups = 0;
+  const inspire = { stripsFor: async () => ({ folder: stripsFolder, strips: [{ at: 1, kinds: ["cut"], file: "s1.png" }] }), reference: async (id) => { lookups += 1; return { id, title: titles[id] }; } };
+  const store = await openStore(dataRoot);
+  const agentState = createAgentStateStore(dataRoot);
+  for (const id of ["with", "without"]) {
+    await store.createProject(createDocument({ id, name: id, scenes: [createScene({ id: "s1", layers: [] })] }));
+  }
+  await agentState.update("with", (draft) => {
+    draft.origin = { query: "the keeper", words: [{ word: "tower", count: 11, of: 15 }], top: [] };
+    draft.brief = { rev: 1, fields: { about: { text: "the keeper", by: "you", quote: "the keeper" } }, log: [] };
+  });
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], inspire,
+    look: { save: async () => path.join(dataRoot, "look.png") } });
+  const line = 'to find the footage it shows: library {topic:"footage", search:"the keeper tower"}';
+  const hit = await service.call("look", { project: "with", mode: "reference", ref: "yt:aaaaaaaaaaa", t: 1 });
+  assert.equal(hit.text.split("\n")[2], line, hit.text);
+  const rest = await service.call("look", { project: "with", mode: "reference", ref: "yt:bbbbbbbbbbb", t: 1 });
+  assert.ok(!rest.text.includes("to find the footage it shows"), "no origin word in its title");
+  lookups = 0;
+  const none = await service.call("look", { project: "without", mode: "reference", ref: "yt:aaaaaaaaaaa", t: 1 });
+  assert.ok(!none.text.includes("to find the footage it shows"), none.text);
+  assert.equal(lookups, 0, "no origin: no second reference lookup");
 });
 
 test("footage codes: at most 24 kept, the oldest go first but never a scanned, noted or imported one, and a code stays with its video", () => {

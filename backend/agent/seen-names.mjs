@@ -35,6 +35,15 @@ const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "ti
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
 export const REFERENCE_LOOKUP = 'to make what you see: library {topic:"search", search:"<what you saw: glow, particles, subtitles, cut-out, speed ramp, shake>"}';
 
+/**
+ * A second lookup line for a studied reference whose title has the subject's origin word
+ * (`found` is next-call.mjs originFootage's answer), else "": the footage search that finds it.
+ */
+export function originReferenceLine(found, title) {
+  const has = found && (String(title ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).includes(found.word);
+  return has ? `to find the footage it shows: library {topic:"footage", search:${JSON.stringify(found.query)}}` : "";
+}
+
 // Guide topics that hold each effect group's rules.
 const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blur: "blur" };
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).

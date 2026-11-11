@@ -22,7 +22,7 @@ frame strips · Proposing ideas · Sound effects
 - Text numbers are reliable; motion numbers advise (handheld reads as camera moves); reveals
   are read 4 times a second and can mistake interface labels for captions.
 - One video is measured at a time; a search answers at once, numbers arrive as each is read.
-- Searches and saved references belong to the project; the numbers are shared by all.
+- Searches and saved references belong to the project; the numbers are shared.
 - yt-dlp missing: the search says how to install it (or set `KINO_YTDLP`). Downloads need a
   JavaScript runtime (deno, node or bun; `KINO_YTDLP_JS` names one); with none, the answer says
   so. On YouTube's "not a bot" sign-in, kino stops downloading for 15 minutes, never signs in.
@@ -31,54 +31,57 @@ frame strips · Proposing ideas · Sound effects
 
 - Once the brief is settled, `step:` asks for 2+ saved references, each studied (`look
   {mode:"reference"}`; the refusal names those left), before `set_plan`. Its search is made from
-  the brief's names, quotes and song (`Or without the song` is in the refusal and the answer).
+  the brief's names, quotes and song (`Or without the song` is in both).
   Results far longer than the video, and song releases, are dropped (`Dropped N:` names 3;
-  `name:"yt:<id>"` opens one); `shared:` lists words many titles have. Until then the first
+  `name:"yt:<id>"` opens one); `shared:` lists words many titles have, dropped ones too. Until then the first
   edit that adds layers or animations is refused (`order_needed`). A final render of 5 s or
   more with none saved is refused (`reference_needed`), as is one whose references were all saved
   after its first build. `waive_check {code:"reference", target:"*", reason}` skips them all.
+- Saving the brief's `about` line searches its quote once and keeps what the subject is known for
+  in `state.origin` (a word in 40% of 6+ titles; the 3 most viewed), or `skipped`. With a word and
+  none of their own footage, `next:` leads to a footage search for `<about quote> <word>`, then
+  a scan with `want:"<word>"`; it keeps an edit upload with the word (`doubt: edit upload`).
 - Results come best first: views, verified channel, 2 a channel, then how their frames look
   (SigLIP on the thumbnail, then one keyframe a shot once measured) against the search words and
   the project's taste (saved = liked, unsaved = rejected; varied until 2 are saved). Near-identical
   copies collapse into the most viewed (`N copies hidden`). `doubt:` marks likely slop (AI, SEO,
   tutorial, template or stock words in the title or description, hashtag spam, few views, under
   6 s); `same frames` means the shots barely change (AI loop or a still: look first). Vet each
-  before saving: who made it, its views, its frames. Reject AI-generated imagery or voice,
-  template or stock edits, and reuploads.
+  before saving (who made it, views, frames); reject AI imagery or voice, template or stock
+  edits, and reuploads.
 
 ## Borrowing a rhythm from YouTube
 
 - `library {topic:"inspire", search:"walking tour edit"}` lists what it found, with ids like
   `yt:tgEWNHVbk3U`. `library {topic:"inspire"}` lists the project's searches and saved ones.
-- `library {topic:"inspire", name:"yt:…"}` waits (up to 50 s) for that one's numbers and lists
-  its cut times (`*` on the beat); `full:true` lists them all.
+- `library {topic:"inspire", name:"yt:…"}` waits (up to 50 s) for its numbers and lists
+  its cut times (`*` on the beat); `full:true` lists all.
 - A video the person linked needs no search: `name:"yt:<id>"` or `name:"measure yt:<id>"`, or
   the whole link in `search` (a watch, youtu.be or `/shorts/` link). kino reads its title and
-  length and measures it as a one-video search.
+  length and measures it.
 - `name:"save yt:…"` (`"save yt:… as launch"` keys it for a board `move.ref` `"launch@3.1"`), `"unsave yt:…"`, `"measure yt:…"` (read again after a failure) and
   `"cancel"` (stop reading) do what they say. A saved or opened one is measured before the
-  rest (a failed one is tried again). It keeps a still a second (10 to 90)
+  rest. It keeps a still a second (10 to 90)
   for `look versus`; saving one kept with 10 measures it again. `"copy <project>"` saves another
-  project's saved references here in one call.
+  project's saved references here.
 - `borrow_rhythm {ref, fit?, at?, scene?}` (an edit op) lends each section's shot lengths
   (`lend:`) in a new order as cue marks `rhythm-1`, … (`at:"cue:rhythm-3"`), cut on `song-` seams.
   `fit:true` scales to the scene. `reference_closeness` warns on copied cut timing.
-- Search, read one, borrow it scaled, then cut a title on the third cut:
+- Search, read one, borrow it scaled (`start:"cue:rhythm-3"` lands on its 3rd cut):
 
 ```json
 {"tool":"library","topic":"inspire","search":"fast cut walking edit"}
 {"tool":"library","topic":"inspire","name":"yt:tgEWNHVbk3U"}
 {"tool":"edit","ops":[{"op":"borrow_rhythm","ref":"yt:tgEWNHVbk3U","fit":true}]}
-{"tool":"edit","ops":[{"op":"add_layer","layerType":"text","name":"cut3","properties":{"text":"GO","x":860,"y":480,"width":200,"height":120,"fontSize":96},"animations":[{"preset":"preset-fade","start":"cue:rhythm-3","duration":0.3}]}]}
 ```
 
 ## Short vertical edits (YouTube Shorts)
 
 - `kind:"shorts"` searches YouTube's Shorts filter, then fills up with videos of 60 s or less.
-  A result marked `Short 9:16` (`vertical:true` in data) has a `/shorts/` link and a tall
+  A result marked `Short 9:16` (`vertical:true`) has a `/shorts/` link and a tall
   thumbnail; measuring reads the picture's shape for the others (5 to 15 s).
-- TikTok and Instagram need a faked browser or a login, which kino never does: such a link is
-  refused; use a YouTube Shorts link.
+- TikTok and Instagram links are refused (they need a login or a faked browser); use a
+  YouTube Shorts link.
 
 ```json
 {"tool":"library","topic":"inspire","search":"app launch animation","kind":"shorts","count":6}
@@ -110,8 +113,8 @@ frame strips · Proposing ideas · Sound effects
   take:[{title, from, to?, what, why, use, place?:{at, to?}, tags?}], skip?:[{title, why}]}}`.
   At most 6 takes and 4 skips; `from`/`to` are times in their video, `place` in yours.
 - F3 shows them as numbered cards on their video's film strip, each with an on/off switch, and
-  the person allows them (with an optional note) or says not yet. Only the person switches or
-  allows; your next call's inbox says which ideas to use. Then add each to the brief's style
+  the person allows them (with a note) or says not yet. Only the person switches or
+  allows; your next call's inbox says which to use. Then add each to the brief's style
   (`notes {action:"brief"}`, with `ref` and `at`) and make them.
 - While one is read, F3 shows what is found so far.
 
@@ -127,5 +130,5 @@ frame strips · Proposing ideas · Sound effects
 - `name:"sounds 3"`: search 3 ranked by how each sound matches the words (CLAP, `match` 0-100)
   and the person's `use`/`no` on sounds (`taste`); near-duplicates fold into one.
 - `project {action:"import", file:"yt:<id>"}` brings its short preview in with its credit
-  (kept as metadata). A song: `library {topic:"soundtrack", song:"yt:<id>"}`; a video: footage guide.
+  (as metadata). A song: `library {topic:"soundtrack", song:"yt:<id>"}`; a video: footage guide.
 - `name:"forget 3"` drops search 3 from the project; measured references stay in kino's cache.
