@@ -18,15 +18,19 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import { createAgentClient } from "./agent/client.mjs";
-import { READ_AS, statusLines, STOP_KINDS } from "./agent/stops.mjs";
+import { READ_AS, STOP_KINDS } from "./agent/stops.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { nextCallOf, startTestServer, withoutNext } from "./media.test.support.mjs";
+import { BOARD_SKIP_UNDER, skipBoardOn, statusLines } from "./stops.test.support.mjs";
 
 let server;
 let key;
 before(async () => {
   server = await startTestServer();
   key = (await (await server.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: server.baseUrl } })).json()).key;
+  // These tests are about rough, color and sound: the storyboard, asked for every video of 8 s
+  // or more since 2026-11-11, is skipped by the person's board skip-under (stops.test.support.mjs).
+  await skipBoardOn(server);
 });
 after(() => server?.stop());
 
@@ -166,8 +170,8 @@ test("a video with no footage asks only its own stops, in order; notes answer re
   assert.deepEqual((await statusOf(project)).lines, ["direction: no brief lines, no playback · replies 0/10", "step: guess 5 missing lines"], "with no stop asked, status shows B1's lines");
   const board = await checkpoint(project, "board");
   assert.equal(board.isError, undefined, board.text);
-  assert.deepEqual(board.data, { status: "skipped", kind: "board", reason: "no footage" });
-  assert.equal(withoutNext(board.text), "board skipped: no footage in this video.");
+  assert.deepEqual(board.data, { status: "skipped", kind: "board", reason: "under 3600 s" });
+  assert.equal(withoutNext(board.text), "board skipped: this video is 24 s, under 3600 s.");
 
   // The rough cut is this video's first stop: it waits for the person, and offers "stop asking".
   const first = await checkpoint(project, "rough");
@@ -200,7 +204,7 @@ test("a video with no footage asks only its own stops, in order; notes answer re
   await stopProject("stops-6s", { seconds: 6, check: false });
   for (const kind of STOP_KINDS) {
     const skipped = await checkpoint("stops-6s", kind);
-    assert.deepEqual(skipped.data, { status: "skipped", kind, reason: kind === "board" ? "no footage" : "under 15 s" });
+    assert.deepEqual(skipped.data, { status: "skipped", kind, reason: kind === "board" ? "under 3600 s" : "under 15 s" });
     if (kind !== "board") assert.equal(withoutNext(skipped.text), `${kind} skipped: this video is 6 s, under 15 s.`);
   }
   assert.deepEqual((await savedState("stops-12s")).stops, [], "a skipped stop is not saved");
@@ -261,7 +265,7 @@ test("allowed and skipped stops count as passed; a passed stop at the same revis
     const defaults = (await dashboard("settings", { method: "GET" })).body.settings;
     for (const kind of STOP_KINDS) assert.equal(defaults.approvals[`checkpoint-${kind}`], "ask");
     const { skipBoardUnder, skipRoughUnder, skipColorUnder, skipSoundUnder } = defaults.limits;
-    assert.deepEqual([skipBoardUnder, skipRoughUnder, skipColorUnder, skipSoundUnder], [8, 15, 15, 15]);
+    assert.deepEqual([skipBoardUnder, skipRoughUnder, skipColorUnder, skipSoundUnder], [BOARD_SKIP_UNDER, 15, 15, 15], "the board's is this file's (before)");
     const denied = await setting({ approvals: { "checkpoint-color": "deny" } });
     assert.equal(denied.status, 400);
     assert.equal(denied.body.error, "A stop is ask or allow.");
@@ -361,7 +365,7 @@ test("a stop needs the brief first, is asked by the agent, and names a kind", as
   await stopProject(project, { brief: false });
   assertRefused(await checkpoint(project, "rough"), "brief_first", "Save the brief first (library guide direction): a stop checks the work against it.");
   // A stop this video does not have is skipped before the brief is needed.
-  assert.deepEqual((await checkpoint(project, "board")).data, { status: "skipped", kind: "board", reason: "no footage" });
+  assert.deepEqual((await checkpoint(project, "board")).data, { status: "skipped", kind: "board", reason: "under 3600 s" });
   for (const id of [undefined, "C1", "storyboard", "rouhg"]) assertRefused(await checkpoint(project, id), "bad_input", "id is board, rough, color, sound or critique.");
   assert.equal((await checkpoint(project, "rouhg")).data.didYouMean[0], "rough");
   assertRefused(await checkpoint(project, "rough", { by: "you" }), "bad_input", "Stops are asked by the agent; the person answers them.");
@@ -643,7 +647,7 @@ test("\"stop asking\" in answer to the first stop allows rough, color and sound 
   const final = await agent("render", { project, action: "start", quality: "final" });
   assert.equal(final.data.status, "awaiting_approval", final.text);
   assert.equal((await agent("render", { project, action: "cancel", job: final.data.id })).isError, undefined);
-  assert.deepEqual((await checkpoint(project, "board")).data, { status: "skipped", kind: "board", reason: "no footage" });
+  assert.deepEqual((await checkpoint(project, "board")).data, { status: "skipped", kind: "board", reason: "under 3600 s" });
 
   // The person undoes it on the dashboard: the agent hears it, and color asks again.
   const { boot, seq } = (await dashboard(`snapshot?project=${project}`, { method: "GET" })).body;
@@ -680,6 +684,7 @@ test("a restart keeps the waiting stop: writes stay refused, status says so, and
   let second;
   try {
     first = await startTestServer({ env: { MOTION_DATA_DIR: folder } });
+    await skipBoardOn(first);
     const { rev } = await stopProject(project, { on: first });
     const asked = await checkpoint(project, "rough", {}, first);
     assert.equal(asked.data.status, "waiting_for_you", asked.text);

@@ -21,6 +21,7 @@ import { createAgentService } from "./agent/service.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
 import { startTestServer } from "./media.test.support.mjs";
+import { SKIP_BOARD_APPROVALS, skipBoardOn } from "./stops.test.support.mjs";
 import { openStore } from "./store.mjs";
 
 let server;
@@ -29,6 +30,8 @@ const reviewKey = async (on) => (await (await on.api("/api/dashboard/review-key"
 before(async () => {
   server = await startTestServer();
   key = await reviewKey(server);
+  // About rough, color and sound: the storyboard is skipped by the board skip-under (stops.test.support.mjs).
+  await skipBoardOn(server);
 });
 after(() => server?.stop());
 
@@ -316,6 +319,7 @@ test("a restart keeps a dashboard answer: it still passes, the agent still hears
   let second;
   try {
     first = await startTestServer({ env: { MOTION_DATA_DIR: folder } });
+    await skipBoardOn(first);
     const { rev } = await stopProject(project, first);
     assert.equal((await checkpoint(project, "rough", first)).data.id, "C1");
     const approved = await answerIn(project, { id: "C1", rev, read_as: "approve with notes", words: "warmer" }, { on: first, withKey: await reviewKey(first) });
@@ -375,6 +379,8 @@ async function clockService(t, id) {
     quality: { async check() { return { findings: [], notes: [], ms: 0, unchecked: [], scenes: 1 }; } },
     saveDocument: (projectId, before, document, expectedRevision, { request, resultMetadata } = {}) => store.updateProject(projectId, document, expectedRevision, { request, resultMetadata }),
     now: () => wall.at, steadyNow: () => steady.at,
+    // The person's settings: every request allowed, and the board skipped (stops.test.support.mjs).
+    approvals: SKIP_BOARD_APPROVALS,
   });
   const call = (verb, input) => service.call(verb, { project: id, ...input }, { client: "claude-code" });
   const edited = await call("edit", { ops: [TITLE] });

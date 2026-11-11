@@ -6,7 +6,9 @@ import { test } from "node:test";
 import { mergeSettings, defaultSettings } from "./agent/dashboard.mjs";
 import { emptyAgentState } from "./agent/state.mjs";
 import { estimateTextTokens } from "./meter.mjs";
-import { answerStep, checkpointStep, dashboardAnswerStep, keepAsking, reopenStep, settleWaiting, StopError, stopPlan, stopRules, stopsSummary, statusLines, waitingStop, workPrint } from "./agent/stops.mjs";
+import { keepAsking, reopenStep, StopError, stopRules, stopsSummary, waitingStop, workPrint } from "./agent/stops.mjs";
+import * as stops from "./agent/stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, settleWaiting, stopPlan, statusLines } from "./stops.test.support.mjs";
 import { boardFacts, freezeBoard } from "./agent/board.mjs";
 import { personCall } from "./agent/critique.mjs";
 import { cleanTreatments } from "./agent/treatments.mjs";
@@ -172,12 +174,25 @@ test("a waiting stop the video no longer has is closed: shorter after an undo, a
   assert.equal(color.data.id, "C2");
   assert.deepEqual(longer.stops.map((round) => [round.id, round.status, round.lapsedFor]), [["C1", "lapsed", "under 30 s"], ["C2", "waiting", undefined]]);
 
-  // The storyboard waits; an undo removes the only video layer.
+  // The storyboard waits; an undo makes the video 6 s, under its 8 s skip-under length.
   const board = ready(4);
   const footage = { ...VIDEO, footage: true };
   assert.equal(checkpointStep(board, { kind: "board", video: footage, rev: 4, now: T0, board: BOARD }).data.id, "C1");
-  assert.equal(checkpointStep(board, { kind: "board", video: VIDEO, rev: 5, now: T0 + 1000, board: BOARD }).text, "board skipped: no footage in this video. C1 no longer waits.");
+  assert.equal(checkpointStep(board, { kind: "board", video: { ...footage, seconds: 6 }, rev: 5, now: T0 + 1000, board: BOARD }).text, "board skipped: this video is 6 s, under 8 s. C1 no longer waits.");
   assert.equal(waitingStop(board), null);
+});
+
+test("a graphics-only video of 8 s or more asks the storyboard; its title-card board is shown; a 6 s one skips it", () => {
+  // stops.checkpointStep: the plain rules, not this file's board skip-under for videos with no footage.
+  const graphics = { ...VIDEO, seconds: 20, footage: false };
+  const asked = stops.checkpointStep(ready(4), { kind: "board", video: graphics, rev: 4, now: T0, board: boardOf({ seconds: 20 }) });
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  assert.match(asked.data.ask, /^The storyboard is ready \(C1\): 2 shots, 20 s/);
+  assert.match(asked.data.ask, /Shot 1, 0–10 s: no footage; "Line 1" in Inter 700\./);
+  const short = stops.checkpointStep(ready(4), { kind: "board", video: { ...graphics, seconds: 6 }, rev: 4, now: T0, board: boardOf({ seconds: 6 }) });
+  assert.deepEqual(short.data, { status: "skipped", kind: "board", reason: "under 8 s" });
+  // Without a board saved, the stop asks for one: kino never skips it for want of footage.
+  assert.equal(refusal(() => stops.checkpointStep(ready(4), { kind: "board", video: graphics, rev: 4, now: T0 })).code, "board_first");
 });
 
 test("a stop the person's settings now allow is allowed by them, and asking it again says it passed", () => {

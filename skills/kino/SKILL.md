@@ -44,7 +44,7 @@ fields as `key=value`: `kino look frame t=3`.
 ## The loop
 
 1. `status`; inbox notes first (`notes reply` when fixed; `always ▸` ones stay). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
-2. New video: the brief from the chat and, with footage, the storyboard before you build
+2. New video: the brief from the chat and, from 8 s, the storyboard before you build
    Save their material (`edit` op `source`) and write the story.
    **A video is one scene**: `render` makes one file per scene.
 3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study their

@@ -42,7 +42,7 @@ export const READ_AS = Object.freeze(["approve", "approve with notes", "redo", "
 // An answer recorded sooner than this after the ask is refused (too_fast): nobody reads a stop
 // that fast, so it is the agent's own reply, not the person's.
 export const ANSWER_GAP_MS = 5000;
-// The person's defaults: every stop asks; the board needs footage and 8 s, the others 15 s.
+// The person's defaults: every stop asks; the board from 8 s (with or without footage), the others from 15 s.
 export const DEFAULT_STOP_RULES = Object.freeze({
   policy: Object.freeze({ board: "ask", rough: "ask", color: "ask", sound: "ask" }),
   skipUnder: Object.freeze({ board: 8, rough: 15, color: 15, sound: 15 }),
@@ -112,16 +112,16 @@ export function stopRules(approvals = {}, limits = {}) {
   return { policy, skipUnder };
 }
 
-// Why this video has no such stop, or null: the board needs footage, and every stop needs the
-// video to be at least its skip-under length (0 never skips).
+// Why this video has no such stop, or null: every stop needs the video to be at least its
+// skip-under length (0 never skips). The storyboard is asked with or without footage: a
+// graphics-only video's board has shots with media "none" (engine/board.js), and the person
+// sees its order and words before anything is built.
 function skipReason(kind, video, rules) {
-  if (kind === "board" && !video?.footage) return "no footage";
   const under = rules.skipUnder[kind];
   return (video?.seconds ?? 0) < under ? `under ${under} s` : null;
 }
 
-const skippedText = (kind, reason, video) => reason === "no footage" ? `${kind} skipped: no footage in this video.`
-  : `${kind} skipped: this video is ${sec(video.seconds ?? 0)} s, ${reason}.`;
+const skippedText = (kind, reason, video) => `${kind} skipped: this video is ${sec(video.seconds ?? 0)} s, ${reason}.`;
 
 // A round passed: the person's settings allowed it, or the person approved it. A round allowed by
 // "stop asking" passes only while that is on: once the person undoes it, the stop asks again.
@@ -845,7 +845,7 @@ export function statusMove(state, video = {}, rules = DEFAULT_STOP_RULES) {
   }
   const { count, limit } = replyCount(state);
   // The approved storyboard changed past kino's tolerances (board.mjs): ask it again, unless
-  // the video has no storyboard stop now (under its skip-under length, or no footage).
+  // the video has no storyboard stop now (under its skip-under length).
   const approval = activeApproval(state);
   const boardSkipped = plan.find((entry) => entry.kind === "board")?.skipped;
   if (approval?.lapsed && !boardSkipped && !waitingStop(state)) return { direction: `direction: ${approval.stop} board lapsed · replies ${count}/${limit}`, step: "ask board again (changed shots)", call: askCall("board") };
