@@ -154,6 +154,18 @@ test("origin: words many relevant titles share, the most viewed relevant results
   assert.deepEqual(originOf(found, about, { ask: ["a climb up the tower"] }).words, []);
   assert.deepEqual(originOf(found, { quote: "keeper tower" }).words, []);
   assert.deepEqual(originOf(found, { quote: "keeper tower" }).top.map((item) => item.id), found.slice(0, 3).map((item) => item.id));
+  // A title with one of three subject words counts when it shares a word with a title that has two: the most
+  // viewed upload often shortens the name. "ladders" is in 3 of 9 relevant titles (under 40%) but in 3 of the 5
+  // most viewed, and "ladder" is the same word. The 9M festival upload shares nothing, so it is not relevant.
+  const known = [
+    row(1, "Keeper climbs the ladders", 190, 5_000_000), row(2, "keeper going up a ladder", 19, 1_100_000), row(3, "Marlo Keeper lantern", 57, 1_000),
+    row(4, "Lantern keeper explained", 53, 300_000), row(5, "marlo keeper lantern remake", 18, 20_000), row(6, "The lantern keeper: book version", 52, 40_000),
+    row(7, "Keeper lantern ladders, but real", 21, 270_000), row(8, "Lantern festival vlog", 60, 9_000_000), row(9, "keeper lantern wallpaper", 30, 5_000),
+    row(0, "Lantern keeper theme", 40, 8_000),
+  ];
+  const three = originOf(known, { quote: "marlo keeper lantern" });
+  assert.deepEqual(three.words, [{ word: "ladders", count: 3, of: 9 }]);
+  assert.deepEqual(three.top.map((item) => item.id), [known[0].id, known[1].id, known[3].id]);
   assert.equal(originQuery("a very long quote about the keeper climbing the tower again"), "a very long quote about the keeper");
   assert.equal(originQuery("keeper"), "keeper");
 

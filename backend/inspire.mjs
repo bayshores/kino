@@ -297,7 +297,8 @@ export function droppedText(dropped = {}, items = []) {
 const COMMON_WORDS = new Set(("the and for with from this that into your you are was were his her their its our not but all can has have had out one two new how why what who when where than then them they she him very more most "
   + "just over under about after before also only like make made video videos edit edits amv fmv official full part audio lyrics lyric feat").split(" "));
 // A word with an apostrophe (a contraction) says nothing about what a title shows either.
-const titleWords = (text) => (String(text ?? "").toLowerCase().match(/\p{L}[\p{L}\p{N}'’]*/gu) ?? []).filter((word) => !/['’]/.test(word));
+// Styled letters (bold or script Unicode) read as plain ones.
+const titleWords = (text) => (String(text ?? "").normalize("NFKC").toLowerCase().match(/\p{L}[\p{L}\p{N}'’]*/gu) ?? []).filter((word) => !/['’]/.test(word));
 
 /**
  * Words that many of the shown titles share and the search itself does not have: [{word, count}],
@@ -330,13 +331,22 @@ export function sharedLine(results, query = "", dropped = []) {
 
 // ---- the origin of the ask: what the video's subject is known for ----------------------------
 // The person's subject words (the brief's `about` quote) are searched once, at any length, and the
-// words most relevant titles share are the origin: what the subject is known for, which the ask
+// words the relevant titles share are the origin: what the subject is known for, which the ask
 // itself may never say. Only titles that carry the subject count, so an unrelated hit adds nothing.
 export const ORIGIN_QUERY_LENGTH = 40;
 export const ORIGIN_MIN_TITLES = 6;
 export const ORIGIN_SHARE = 0.4;
+// A word in fewer titles still counts when the most viewed results carry it: the thing a subject is
+// known for is often one much-watched upload and a few copies of it.
+export const ORIGIN_VIEWED = 5;
+export const ORIGIN_VIEWED_IN = 3;
+export const ORIGIN_VIEWED_SHARE = 0.25;
 export const ORIGIN_TOP = 3;
 export const ORIGIN_MAX_WORDS = 4;
+// Words that name the kind of upload, not what it shows.
+const UPLOAD_WORDS = new Set("vlog playlist compilation gameplay episode season dub sub hour slowed reverb remix version".split(" "));
+// "stairs" and "stair" are one word; "glass" keeps its s.
+const stem = (word) => (word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
 
 /** The subject words as a search, at most ORIGIN_QUERY_LENGTH characters, cut between words. */
 export function originQuery(text) {
@@ -348,31 +358,51 @@ export function originQuery(text) {
 
 /**
  * What the results say the subject is known for: { words: [{word, count, of}], top: [{id, title,
- * views, seconds}] }. `about` is the brief's about line ({text, quote}); a result is relevant when
- * its title has 2 or more of the quote's words (all of them when it has 1 or 2). A word is an origin
- * word when it is in ORIGIN_SHARE or more of at least ORIGIN_MIN_TITLES relevant titles and is not
- * in the quote or the person's words (`ask`: their messages), a common word or an edit word. `top` is
- * the ORIGIN_TOP most viewed relevant results, whatever their length. Under ORIGIN_MIN_TITLES
- * relevant titles there are no words.
+ * views, seconds}] }. `about` is the brief's about line ({text, quote}). A result is relevant when
+ * its title has 2 or more of the quote's words (all of them when it has 1 or 2), or has one of them
+ * and shares another word with such a title (titles shorten names: a quote of three words is often
+ * one word in the title of the upload it is known for). Plurals count as one word. A word is an
+ * origin word when it is in 3 or more of at least ORIGIN_MIN_TITLES relevant titles, and either in
+ * ORIGIN_SHARE of them, or in ORIGIN_VIEWED_SHARE of them and in ORIGIN_VIEWED_IN of the
+ * ORIGIN_VIEWED most viewed. Words in the quote or the person's words (`ask`: their messages),
+ * common words, edit words and upload words are never origin words. `top` is the ORIGIN_TOP most
+ * viewed relevant results, whatever their length. Under ORIGIN_MIN_TITLES relevant titles there
+ * are no words.
  */
 export function originOf(results, about, { ask = [] } = {}) {
   const quote = String(about?.quote ?? about?.text ?? "");
-  const subject = new Set(titleWords(quote).filter((word) => word.length >= 3 && !COMMON_WORDS.has(word)));
+  const subject = new Set(titleWords(quote).filter((word) => word.length >= 3 && !COMMON_WORDS.has(word)).map(stem));
+  const said = new Set([...subject, ...[about?.text, ...ask].flatMap((text) => titleWords(text).map(stem))]);
+  const counts = (word) => word.length >= 3 && !COMMON_WORDS.has(word) && !EDIT_WORD.test(word) && !UPLOAD_WORDS.has(word) && !said.has(word);
+  const rows = results.map((result) => {
+    const stems = [...new Set(titleWords(result.title).map(stem))];
+    return { result, stems, hits: stems.filter((word) => subject.has(word)).length };
+  });
   const need = Math.min(2, subject.size);
-  const relevant = need ? results.filter((result) => titleWords(result.title).filter((word, at, all) => subject.has(word) && all.indexOf(word) === at).length >= need) : [];
-  const top = [...relevant].sort((a, b) => (b.views ?? 0) - (a.views ?? 0)).slice(0, ORIGIN_TOP)
-    .map((result) => ({ id: result.id, title: String(result.title ?? ""), views: result.views ?? 0, seconds: result.duration }));
+  const core = need ? rows.filter((row) => row.hits >= need) : [];
+  const coreWords = new Set(core.flatMap((row) => row.stems.filter(counts)));
+  const relevant = [...core, ...rows.filter((row) => need && row.hits >= 1 && row.hits < need && row.stems.some((word) => coreWords.has(word)))];
+  const viewed = [...relevant].sort((a, b) => (b.result.views ?? 0) - (a.result.views ?? 0));
+  const top = viewed.slice(0, ORIGIN_TOP)
+    .map(({ result }) => ({ id: result.id, title: String(result.title ?? ""), views: result.views ?? 0, seconds: result.duration }));
   if (relevant.length < ORIGIN_MIN_TITLES) return { words: [], top };
-  const said = new Set([...subject, ...titleWords(about?.text), ...ask.flatMap((text) => titleWords(text))]);
-  const counts = new Map();
-  for (const result of relevant) {
-    for (const word of new Set(titleWords(result.title))) {
-      if (word.length >= 3 && !COMMON_WORDS.has(word) && !EDIT_WORD.test(word) && !said.has(word)) counts.set(word, (counts.get(word) ?? 0) + 1);
+  const found = new Map();
+  for (const row of relevant) {
+    for (const word of new Set(titleWords(row.result.title))) {
+      if (!counts(stem(word))) continue;
+      const entry = found.get(stem(word)) ?? found.set(stem(word), { titles: new Set(), forms: new Map() }).get(stem(word));
+      entry.titles.add(row);
+      entry.forms.set(word, (entry.forms.get(word) ?? 0) + 1);
     }
   }
-  const words = [...counts].filter(([, count]) => count >= ORIGIN_SHARE * relevant.length)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, ORIGIN_MAX_WORDS)
-    .map(([word, count]) => ({ word, count, of: relevant.length }));
+  const mostViewed = new Set(viewed.slice(0, ORIGIN_VIEWED));
+  const words = [...found.values()].map(({ titles, forms }) => ({
+    word: [...forms].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0], count: titles.size, of: relevant.length,
+    viewed: [...titles].filter((row) => mostViewed.has(row)).length,
+  })).filter(({ count, viewed: inViewed }) => count >= 3 && (count >= ORIGIN_SHARE * relevant.length
+    || (count >= ORIGIN_VIEWED_SHARE * relevant.length && inViewed >= ORIGIN_VIEWED_IN)))
+    .sort((a, b) => b.viewed - a.viewed || b.count - a.count || a.word.localeCompare(b.word)).slice(0, ORIGIN_MAX_WORDS)
+    .map(({ word, count, of }) => ({ word, count, of }));
   return { words, top };
 }
 
