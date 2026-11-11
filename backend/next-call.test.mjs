@@ -39,10 +39,10 @@ test("the direction's calls: a new video's brief with every line at once, the pl
   const unwaived = { seconds: 20, layers: 3, width: 1920, height: 1080 };
   const video = { ...unwaived, treatmentsWaived: true };
   const fresh = statusMove({}, { ...video, layers: 0 }).call;
-  assert.deepEqual(Object.keys(fresh.input.fields), ["message", "look_sound", "never", "plays_on", "made_from"]);
+  assert.deepEqual(Object.keys(fresh.input.fields), ["ask", "about", "message", "look_sound", "never", "plays_on", "made_from"]);
   assert.equal(statusMove({}, video).call, null, "a change to a video with layers: the build steps");
   const line = (text) => ({ text, by: "guessed" });
-  const brief = { rev: 1, fields: withAsk({ message: line("m"), plays_on: line("p"), made_from: line("f"), look_sound: line("l"), never: line("n") }), log: [], noPlayback: { reason: "just start", rev: 1 } };
+  const brief = { rev: 1, fields: withAsk({ about: line("a"), message: line("m"), plays_on: line("p"), made_from: line("f"), look_sound: line("l"), never: line("n") }), log: [], noPlayback: { reason: "just start", rev: 1 } };
   assert.equal(statusMove({ brief }, unwaived).step, "write 5 treatments", "the idea comes before the plan (T3)");
   const plan = statusMove({ brief }, video);
   assert.equal(plan.step, "notes set_plan, build, then ask rough");

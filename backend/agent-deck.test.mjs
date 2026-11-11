@@ -328,7 +328,7 @@ test("treatments: 5 saved on the brief, the most typical dropped, the 3 least ty
   const brief = (await savedState("treat")).brief;
   const ask = askText({ id: "C1", kind: "rough", video: { seconds: 20 }, checked: { errors: 0, warnings: 0 }, pick: pickLines(brief) });
   assert.match(ask, /Pick a direction \(or say your own\):\nA\. the city's sounds as the beat/);
-  const pick = await agent("notes", { project: "treat", action: "brief", fields: { treatments: { pick: "B", quote: "the map one" } } });
+  const pick = await agent("notes", { project: "treat", action: "brief", fields: { ask: "I like the map one", treatments: { pick: "B", quote: "the map one" } } });
   assert.equal(pick.isError, undefined, pick.text);
   const after = await savedState("treat");
   assert.deepEqual(after.brief.treatments.picked, { label: "B", index: 2, by: "you", quote: "the map one" });

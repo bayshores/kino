@@ -10,7 +10,10 @@
 // typed (brief.fields.ask = [{text, at}], never edited by the agent): the one place a later check
 // can compare the video with what was asked. `about` is {text, by:"you", quote}: who or what the
 // video is about, quoted from the ask; the first reference search uses it. Once an ask is stored,
-// every by:"you" quote must be found in it or in a logged reply (quote_not_said).
+// every by:"you" quote must be found in it or in a logged reply (quote_not_said). While no ask is
+// stored a by:"you" quote is refused: store their message first. ask:"none" is the opt-out for a
+// run with no person (a script, a test): a marker, shown in the playback; their quotes are then
+// checked only against logged replies and stop answers.
 //
 // Plain data in and out, like outline.mjs: the service saves the result in the project's agent
 // state (state.brief, beside the plan). Turn reverts and dashboard undo never touch it.
@@ -130,6 +133,12 @@ const hasText = (value) => typeof value === "string" && value.trim() !== "";
 /** The person's stored messages, [{text, at}], oldest first; [] when none is stored. */
 export const asksOf = (brief) => (Array.isArray(brief?.fields?.ask) ? brief.fields.ask.filter((entry) => hasText(entry?.text)) : []);
 export const hasAsk = (brief) => asksOf(brief).length > 0;
+// ask:"none" is stored as {none: true, at}: no message of a person, on purpose.
+export const asksNone = (brief) => !hasAsk(brief) && Array.isArray(brief?.fields?.ask) && brief.fields.ask.some((entry) => entry?.none === true);
+/** True once their message is stored, or ask:"none" says there is no person. */
+export const askGiven = (brief) => hasAsk(brief) || asksNone(brief);
+const isAskNone = (value) => typeof value === "string" && value.trim().toLowerCase() === "none";
+export const ASK_NONE_LINE = "ask: none (no person's words; quotes not checked)";
 
 // The words of a text, lowercase, apostrophes kept inside a word ("don't").
 const wordsOf = (text) => String(text ?? "").toLowerCase().replace(/[‘’]/g, "'").match(/[\p{L}\p{N}]+(?:'[\p{L}\p{N}]+)*/gu) ?? [];
@@ -168,22 +177,30 @@ function closestSentence(quote, texts) {
 /**
  * What the person is known to have said, for the quote check: { texts } from the stored asks, the
  * asks sent in this call, the replies logged (so far and in this call) and `extra` (other recorded
- * answers a caller passes). null while no ask is stored or sent: the check then does not run, so a
- * project without an ask behaves as it did.
+ * answers a caller passes). `missing` is set while no ask is stored or sent (every by:"you" quote
+ * is then refused); `none` while ask is "none" (only logged replies and stop answers count).
  */
-function saidBy(current, sentAsks, entries, extra) {
+function saidBy(current, sentAsks, sentNone, entries, extra) {
   const asks = [...asksOf(current).map((entry) => entry.text), ...sentAsks];
-  if (!asks.length) return null;
   const replies = [...(current?.log ?? []), ...entries.filter(isRecord)].filter((entry) => entry.kind !== "rejected").map((entry) => entry.a);
-  return { texts: [...asks, ...replies, ...extra].filter(hasText) };
+  const texts = [...asks, ...replies, ...extra].filter(hasText);
+  if (asks.length) return { texts };
+  return sentNone || asksNone(current) ? { texts, none: true } : { texts, missing: true };
 }
 
 // The refusal for a quote the person did not say, with the closest sentence they did.
 function notSaid(where, quote, said) {
+  if (said.missing)
+    return { code: "quote_not_said", message: `${where} is their words, but no message of theirs is stored to check it against: store it first (ask:"<their message, pasted whole>"; ask:"none" when no person is giving one), then send this again. If they did not say it, send by:"guessed".`, details: { closest: null } };
   const closest = closestSentence(quote, said.texts);
+  if (said.none)
+    return { code: "quote_not_said", message: `${where} is not in a reply they logged. ask is "none", so nothing else can check it: log their reply (log:[{q, a}]) or send by:"guessed".`, details: { closest: closest || null } };
   return { code: "quote_not_said", message: `${where} is not in anything they said${closest ? ` (closest: "${closest}")` : ""}. Copy their exact words from their message; if they did not say it, send by:"guessed".`,
     details: { closest: closest || null } };
 }
+
+// The problem with a quote that must be their words, or null when it was said.
+const quoteProblem = (where, quote, said) => (!said.missing && isSaid(quote, said.texts) ? null : notSaid(where, quote, said));
 
 // A string field of 1 to `limit` characters, trimmed; a problem sentence when it is not.
 function textProblem(where, value, limit) {
@@ -205,8 +222,8 @@ function lineProblem(name, line, current, said = null) {
   if (extra.length) return { code: "bad_input", message: `${name} takes text, by and quote, not ${extra.join(", ")}.`, details: { didYouMean: closest(extra[0], LINE_KEYS) } };
   if (line.by !== "you" && line.by !== "guessed")
     return { code: "bad_input", message: `${name}.by is "you" (the person said it; send quote) or "guessed" (your call).` };
-  if (name === "about" && line.by !== "you")
-    return { code: "bad_input", message: 'about is who or what the video is about, in their words: by:"you" with quote. If they named nothing, leave it out.' };
+  if (name === "about" && line.by !== "you" && !said?.none)
+    return { code: "bad_input", message: 'about is who or what the video is about, in their words: by:"you" with quote (by:"guessed" only when ask is "none"). Quote the part of their message that says what it is for.' };
   // The idea line takes as many characters as a treatment's idea and style.idea, so a picked treatment fits.
   const text = textProblem(`${name}.text`, line.text, name === "idea" ? STYLE_LIMITS.idea : BRIEF_LIMITS.text);
   if (text) return { code: "bad_input", message: `${text} Keep the line short; the quote holds their words.` };
@@ -219,7 +236,7 @@ function lineProblem(name, line, current, said = null) {
     // A line sent again as it is stored was accepted before (maybe quoted from earlier chat,
     // before an ask was saved): only a new or changed line is checked.
     const sameAsStored = current?.by === "you" && current.text === line.text.trim() && current.quote === line.quote.trim();
-    if (said && !sameAsStored && !isSaid(line.quote, said.texts)) return notSaid(`${name}.quote`, line.quote, said);
+    if (said && !sameAsStored) return quoteProblem(`${name}.quote`, line.quote, said);
   } else if (hasText(line.quote))
     return { code: "bad_input", message: `${name} is by:"guessed", so it has no quote. If the person said it, send by:"you" with the quote.` };
   if (current?.by === "you" && line.by === "guessed") return yoursProblem(name, current);
@@ -290,7 +307,8 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   }
   // ask: the messages not stored yet, in the order sent (the person's words are only added).
   let ask = [];
-  if (sentAsk) {
+  const askNone = sentAsk && isAskNone(fields.ask);
+  if (sentAsk && !askNone) {
     try {
       ask = newAsks(fields.ask, current);
     } catch (error) {
@@ -299,10 +317,10 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
     }
   }
   // Once an ask is stored (or sent here) every by:"you" quote must be in what they said.
-  const said = saidBy(current, ask, entries, recorded);
+  const said = saidBy(current, ask, askNone, entries, recorded);
   // The quote that lets a stop pass without the person (controls) is their words too.
-  if (said && controls && controls.quote && controls.quote !== current?.controls?.quote && !isSaid(controls.quote, said.texts))
-    problems.push(["controls", notSaid("controls.quote", controls.quote, said)]);
+  const controlsProblem = controls?.quote && controls.quote !== current?.controls?.quote ? quoteProblem("controls.quote", controls.quote, said) : null;
+  if (controlsProblem) problems.push(["controls", controlsProblem]);
   for (const [name, line] of sent) {
     const problem = lineProblem(name, line, current?.fields?.[name], said);
     if (problem) problems.push([name, problem]);
@@ -310,7 +328,11 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   // A style sent over a saved one is a partial update, merged into it (style.mjs mergeStyle).
   const merged = sentStyle ? mergeStyle(fields.style, current?.style) : null;
   if (sentStyle) {
-    const problem = merged.problem ?? styleProblem(merged.spec, current?.style);
+    let problem = merged.problem ?? styleProblem(merged.spec, current?.style);
+    // The style's quote is their words too (it is how the direction lock is approved); a style
+    // sent again with the quote it already has was accepted before.
+    const styleQuote = merged.spec?.by === "you" && hasText(merged.spec.quote) ? merged.spec.quote.trim() : null;
+    if (!problem && styleQuote && styleQuote !== current?.style?.quote) problem = quoteProblem("style.quote", styleQuote, said);
     if (problem) problems.push(["style", problem]);
   }
   let treatments;
@@ -318,8 +340,8 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
     let problem = treatmentsProblem(fields.treatments, current?.treatments);
     // A pick's quote is the person's words: found in what they said, like a line's.
     // (A pick sent again as it is stored was accepted before, so it is not checked again.)
-    if (!problem && picking && said && typeof fields.treatments.quote === "string" && fields.treatments.quote.trim() !== current?.treatments?.picked?.quote && !isSaid(fields.treatments.quote, said.texts))
-      problem = notSaid("treatments.quote", fields.treatments.quote, said);
+    if (!problem && picking && typeof fields.treatments.quote === "string" && fields.treatments.quote.trim() !== current?.treatments?.picked?.quote)
+      problem = quoteProblem("treatments.quote", fields.treatments.quote, said);
     if (problem) problems.push(["treatments", problem]);
     else {
       treatments = cleanTreatments(fields.treatments, current?.treatments);
@@ -413,7 +435,7 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   if (treatments && JSON.stringify(treatments) === JSON.stringify(current?.treatments ?? null)) treatments = undefined;
   // A save that unlocks a locked direction says so in its first line, with why.
   const lapsed = style !== undefined || treatments ? lockLapse(current, { ...current, ...(style !== undefined ? { style } : {}), ...(treatments ? { treatments } : {}) }, merged?.dropped) : null;
-  return { lines, ask, style, treatments, length, controls, log: replies, noPlayback: noPlayback == null ? null : noPlayback.trim(), ...(lapsed ? { lapsed } : {}) };
+  return { lines, ask, ...(askNone && !askGiven(current) ? { askNone: true } : {}), style, treatments, length, controls, log: replies, noPlayback: noPlayback == null ? null : noPlayback.trim(), ...(lapsed ? { lapsed } : {}) };
 }
 
 // Why a save turned a locked direction (directionLock) into an unlocked one, or null.
@@ -446,6 +468,7 @@ export function applyBrief(draft, changes, { now = Date.now(), client = null } =
   brief.log = brief.log.slice(-BRIEF_LIMITS.logKept);
   // The person's messages are added as typed; they are not a line, so the revision stays.
   if (changes.ask?.length) brief.fields = { ...brief.fields, ask: [...asksOf(brief), ...changes.ask.map((text) => ({ text, at }))] };
+  else if (changes.askNone) brief.fields = { ...brief.fields, ask: [{ none: true, at }] };
   if (changes.lines.length || changes.style !== undefined || changes.treatments || changes.length !== undefined) {
     // Only the idea, the style spec or the treatments changed on a confirmed brief: it stays confirmed (the stops show them).
     const keepsConfirmed = isConfirmed(brief) && changes.lines.every(({ name }) => name === "idea" || name === "about");
@@ -485,7 +508,12 @@ const isConfirmed = (brief) => Boolean(brief) && brief.rev > 0 && brief.confirme
 // Confirmed, or settled without a playback ("just start", no one can answer): no playback to come.
 // The deck is dealt from then on (deck.mjs).
 export const isSettled = (brief) => isConfirmed(brief) || Boolean(brief?.noPlayback);
-const missingLines = (brief) => REQUIRED_FIELDS.filter((name) => !brief?.fields?.[name]);
+// What the brief still lacks: `ask` (their message; ask:"none" counts) first while it is not stored,
+// else `about` while no about line is saved, then each required line.
+const missingLines = (brief) => [
+  ...(!askGiven(brief) ? ["ask"] : !brief?.fields?.about ? ["about"] : []),
+  ...REQUIRED_FIELDS.filter((name) => !brief?.fields?.[name]),
+];
 const briefState = (brief) => (isConfirmed(brief) ? "confirmed" : brief.noPlayback ? "no playback" : "unconfirmed");
 
 /**
@@ -548,7 +576,16 @@ const guessLine = (name) => (name === "never" ? '<only what the person said not 
 const briefCall = (fields) => ({ tool: "notes", input: { action: "brief", fields } });
 // The first part of the order until their message is stored (orderSteps).
 const ASK_STEP = Object.freeze({ step: "save their message (ask)", call: briefCall({ ask: "<their message, pasted whole>" }) });
-const guessAll = (missing) => briefCall(Object.fromEntries(ASK_ORDER.filter((name) => missing.includes(name)).map((name) => [name, guessLine(name)])));
+// The call that fills every missing line at once. It carries their message (ask) and the about line
+// when those are missing: about is by:"you" with their words, or a guess when ask is "none".
+const guessAll = (missing, brief = null) => briefCall({
+  ...(missing.includes("ask") ? { ask: ASK_STEP.call.input.fields.ask } : {}),
+  ...(missing.includes("ask") || missing.includes("about") ? { about: asksNone(brief) ? { text: "<the subject>", by: "guessed" } : { text: "<the subject>", by: "you", quote: "<their words for it>" } } : {}),
+  ...Object.fromEntries(ASK_ORDER.filter((name) => missing.includes(name)).map((name) => [name, guessLine(name)])),
+});
+// The step words for what is missing: their message first, then the about line, then the lines.
+const missingStep = (missing) => (missing[0] === "ask" ? "save ask and about"
+  : missing[0] === "about" ? "save about" : `guess ${plural(missing.length, "missing line")}`);
 export const PLAN_CALL = (stop) => ({ tool: "notes", input: { action: "set_plan", steps: [
   "Build the whole video in one edit (compose)", "check {fix:\"auto\"}", ...(stop ? [`Ask ${stop} (notes checkpoint)`] : []),
   "look {mode:\"review\"} until every moment is reviewed", "Render final"] } });
@@ -566,7 +603,8 @@ export function nextMove(state, video = {}, stop = null) {
   if (!hasBrief(brief)) {
     // Nothing built yet is a new video, even with a plan set. Layers already made: a video begun
     // before briefs, or a change to it (frontend/dashboard/state.js briefRows says the same).
-    if (!video.layers) return { step: "new video? brief first (library guide direction)", call: briefCall({ ...guessAll(REQUIRED_FIELDS).input.fields, message: "<what the video must say, from the chat>" }) };
+    // A stored ask alone does not make a brief (no revision), so only what is still missing is named.
+    if (!video.layers) return { step: "new video? brief first (library guide direction)", call: briefCall({ ...guessAll(missingLines(brief), brief).input.fields, message: "<what the video must say, from the chat>" }) };
     return { step: planned ? "follow the plan" : "a change to this video needs no brief", call: null };
   }
   const { count, questions } = replyCount(state);
@@ -581,10 +619,10 @@ export function nextMove(state, video = {}, stop = null) {
     // The call guesses every missing line at once (the shortest path); asking is the agent's
     // other choice, and its answer is saved the same way (by:"you", quote).
     const name = ASK_ORDER.find((line) => missing.includes(line));
-    return { step: `ask about ${name}, or guess it`, call: guessAll(missing) };
+    return { step: name ? `ask about ${name}, or guess it` : missingStep(missing), call: guessAll(missing, brief) };
   }
   // One step at a time: once the lines are guessed, the next answer says to play it back.
-  if (missing.length && !pastPlayback) return { step: `guess ${plural(missing.length, "missing line")}`, call: guessAll(missing) };
+  if (missing.length && !pastPlayback) return { step: missingStep(missing), call: guessAll(missing, brief) };
   // Past a rough first pass (over 30 layers), the direction is locked before anything else: a
   // story spine and a style bible the person approved (or the agent waived with a reason). One
   // call does it; asking the person to approve it plays the brief back too.
@@ -750,7 +788,7 @@ export function orderSteps(state, video = {}, { ask = false } = {}) {
   // so a project without an ask builds as it did. It is named only while the order still has an
   // open part and the video is not built: a finished order, or a video past its first look, is
   // never held back for a message an older project never saved.
-  if (ask && parts.length && !hasAsk(state.brief) && !isBuilt(state, video)) return [{ ...ASK_STEP }, ...parts];
+  if (ask && parts.length && !askGiven(state.brief) && !isBuilt(state, video)) return [{ ...ASK_STEP }, ...parts];
   return parts;
 }
 
@@ -986,6 +1024,7 @@ export function briefData(state, video = {}) {
     const { ask, ...fields } = brief.fields;
     brief.fields = fields;
     brief.asks = asksOf(state.brief).length;
+    if (asksNone(state.brief)) brief.askNone = true;
   }
   return { brief: state?.brief ? brief : null, missing: missingLines(state?.brief), replies: replyCount(state), next: nextStep(state, video) };
 }
@@ -1021,13 +1060,16 @@ export function shapeLine(brief, video = {}) {
 export function briefText(state, video = {}) {
   const brief = state?.brief;
   const replies = replyCount(state);
-  if (!hasBrief(brief)) return `No brief yet · replies 0 of ${REPLY_LIMIT}. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{message:{text, by:"you", quote}}, log:[{q, a}]}.${hasAsk(brief) ? " Their message is saved (ask)." : ""}`;
   const missing = missingLines(brief);
+  if (!hasBrief(brief)) {
+    const save = askGiven(brief) ? "" : 'ask:"<their message, pasted whole>", ';
+    return `No brief yet · replies 0 of ${REPLY_LIMIT}. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{${save}message:{text, by:"you", quote}}, log:[{q, a}]}.${hasAsk(brief) ? " Their message is saved (ask)." : asksNone(brief) ? ` ${ASK_NONE_LINE}.` : ""}\nmissing: ${missing.join(", ")}`;
+  }
   return [
     `brief r${brief.rev}, ${briefState(brief)} · replies ${replies.count} of ${replies.limit} (${plural(replies.questions, "question")}, ${plural(replies.playbacks, "playback")}${replies.stops ? `, ${plural(replies.stops, "stop")}` : ""})`,
     ...BRIEF_FIELDS.filter((name) => brief.fields[name]).flatMap((name) => [lineText(name, brief.fields[name]), name === "plays_on" ? shapeLine(brief, video) : ""]),
     brief.fields.about ? lineText("about", brief.fields.about) : "",
-    hasAsk(brief) ? `ask: ${plural(asksOf(brief).length, "message")} saved as typed` : "",
+    hasAsk(brief) ? `ask: ${plural(asksOf(brief).length, "message")} saved as typed` : asksNone(brief) ? ASK_NONE_LINE : "",
     originLine(state.origin),
     brief.style ? styleLine(brief.style) : "",
     lengthTarget(brief) ? lengthLine(lengthTarget(brief)) : "",
@@ -1048,7 +1090,7 @@ export function savedText(state, changes, video = {}) {
   const count = `replies ${replies.count} of ${replies.limit}`;
   const logged = changes.log.length ? `${plural(changes.log.length, "reply")} logged (${[...new Set(changes.log.map((entry) => entry.kind))].join(", ")})` : "";
   const skipped = changes.noPlayback ? `no playback (${changes.noPlayback})` : "";
-  const asked = changes.ask?.length ? `ask saved (${plural(changes.ask.length, "message")} as typed)` : "";
+  const asked = changes.ask?.length ? `ask saved (${plural(changes.ask.length, "message")} as typed)` : changes.askNone ? ASK_NONE_LINE : "";
   let head;
   if (changes.lines.length || changes.style !== undefined || changes.treatments || changes.length !== undefined) {
     const names = [...changes.lines, ...(changes.style !== undefined ? [{ name: "style", line: changes.style }] : []), ...(changes.length !== undefined ? [{ name: "length", line: changes.length && { label: `${changes.length.seconds} s` } }] : []), ...(changes.treatments ? [{ name: "treatments", line: { by: changes.treatments.picked?.by ?? "guessed" } }] : [])]
