@@ -24,7 +24,7 @@ export const OPERATION_TYPES = Object.freeze([
   "rename_animation", "group_animations", "ungroup_animations", "duplicate_animations",
   "convert_to_actions", "stagger_animations",
   "set_cues", "add_captions", "detect_beats", "add_sequence", "duck_audio", "cut_speech", "sync_clips", "fit_music",
-  "place_broll", "color_filter", "keep_line",
+  "place_broll", "color_filter", "keep_line", "frame_shot",
 ]);
 // Operations the agent service runs itself, not engine/operations.js, because they need this
 // computer's tools first: isolate_voice splits a layer's sound (backend/voice) and then uses the

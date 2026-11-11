@@ -301,8 +301,10 @@ test("saving the brief with an about line runs one search of the quote only; a f
     const saved = await call(srv, "notes", never("no meme text"));
     assert.equal(saved.isError, undefined, saved.text);
     assert.deepEqual(await searches(), ["ytsearch20:fast cut editing"], "one search, the quote only, as many results as YouTube gives");
-    // Only the one result with 2 or more of the quote's words counts; it is 259 s, still the top result. Under 6: no words.
-    assert.deepEqual((await readState()).origin, { query: "fast cut editing", words: [], top: [{ id: "yt:tgEWNHVbk3U", title: "5 Fast Tips for Fast-Cut Editing", views: 682054, seconds: 259 }] });
+    // Only the two results with 2 or more of the quote's words count ("cuts" is "cut"); one is 259 s, still a top result. Under 6: no words.
+    assert.deepEqual((await readState()).origin, { query: "fast cut editing", words: [], top: [
+      { id: "yt:ghBpKLARE_8", title: "Fast Cuts SFX - Cinematic Sound Effects for Fast Edit Sequences", views: 781869, seconds: 10 },
+      { id: "yt:tgEWNHVbk3U", title: "5 Fast Tips for Fast-Cut Editing", views: 682054, seconds: 259 }] });
     await call(srv, "notes", never("no logos"));
     assert.equal((await searches()).length, 1, "the same about line is not searched again");
     await srv.stop();

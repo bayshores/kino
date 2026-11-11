@@ -113,9 +113,10 @@ const HEADLINES = { board: "The storyboard is ready", rough: "The rough cut is r
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
 const counts = (check) => `${plural(check.errors, "error")} · ${plural(check.warnings, "warning")}`;
 const offerLine = (offer) => `Or say "stop asking" to skip the ${offer.join(" and ")} ${offer.length === 1 ? "check" : "checks"} for this video.`;
-const askText = (kind, id, check, offer) => [
+const askText = (kind, id, check, offer, waived = true) => [
   `${HEADLINES[kind]} (${id}): 24 s, 1080×1920.`,
-  `Checked: ${counts(check)}.`,
+  // The fixture waives two gates for every layer; the person sees that count.
+  `Checked: ${counts(check)}${waived ? " · 2 waived (reference all, treatments all)" : ""}.`,
   // These test videos have no sound, and this service has no song search.
   ...(kind === "sound" ? ["No music yet: name a song or artist, send a track, or keep it silent."] : []),
   "What did you notice, and what would you change?",
@@ -132,9 +133,9 @@ const ANSWER_NEXT = {
 };
 const waitingData = (id, kind) => ({ waiting: id, kind, next: `Nothing was changed. ${id} (${LABELS[kind]}) waits for the person's answer: end your turn. Reads, look, check and notes still work.` });
 
-function assertAsked(reply, { id, kind, rev, check, offer }) {
+function assertAsked(reply, { id, kind, rev, check, offer, waived }) {
   assert.equal(reply.isError, undefined, reply.text);
-  const ask = askText(kind, id, check, offer);
+  const ask = askText(kind, id, check, offer, waived);
   const next = askNext(id, rev);
   assert.deepEqual(reply.data, { status: "waiting_for_you", id, kind, rev, ask, offer, next });
   assert.deepEqual(withoutNext(reply.text).split("\n").map((line) => line.trim()), [`waiting_for_you ${id} ${kind} · rev ${rev}`, "ask:", ...ask.split("\n"), `step: ${next}`]);
@@ -177,7 +178,8 @@ test("a video with no footage asks only its own stops, in order; notes answer re
   // The rough cut is this video's first stop: it waits for the person, and offers "stop asking".
   const first = await checkpoint(project, "rough");
   assertAsked(first, { id: "C1", kind: "rough", rev, check: checked, offer: ["color", "sound"] });
-  assert.ok(estimateTextTokens(withoutNext(first.text)) <= 200, `the waiting answer is about ${estimateTextTokens(withoutNext(first.text))} tokens (plan §12: 200)`);
+  // 200 for the answer (plan §12) plus up to 20 for the waived line, which names at most 3 rules.
+  assert.ok(estimateTextTokens(withoutNext(first.text)) <= 220, `the waiting answer is about ${estimateTextTokens(withoutNext(first.text))} tokens (limit 220)`);
   assert.ok(estimateTextTokens(first.data.ask) <= 120, `the ask is about ${estimateTextTokens(first.data.ask)} tokens (limit 120)`);
   const state = await savedState(project);
   assert.equal(state.nextStop, 2);
@@ -543,7 +545,8 @@ test("notes answer refuses a reply under 5 s, a revision the person was not show
   // Asked again after a check: the old round lapses and the new one has a new id.
   const recheck = await agent("check", { project });
   assert.equal(recheck.data.errors, 0, recheck.text);
-  assertAsked(await checkpoint(project, "rough"), { id: "C2", kind: "rough", rev: now, check: recheck.data, offer: ["color", "sound"] });
+  // The undo took the fixture's two waivers with it, so this ask has no waived count.
+  assertAsked(await checkpoint(project, "rough"), { id: "C2", kind: "rough", rev: now, check: recheck.data, offer: ["color", "sound"], waived: false });
   const [lapsed] = (await savedState(project)).stops;
   assert.equal(lapsed.status, "lapsed");
   assert.equal(lapsed.lapsedRev, now);

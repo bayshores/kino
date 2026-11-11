@@ -115,6 +115,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `place_broll {scene?, speech, clips, lead?}`
 - `color_filter {scene?, layer | layers, filter, strength?}`
 - `keep_line {scene?, layer, line? | from?, to?, text?, subtitle?, look?, name?, duck?, dip?}`
+- `frame_shot {layer | layers}`
 - `match_color {scene?, layer | layers, to, at?}`
 - `track {scene?, layer, at, point | box, name?}`
 - `pin {scene?, layer, to, offset?, scale?}`
@@ -123,7 +124,6 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `frame {layer, rect:[x, y, w, h], at, to?, cut?, dur?}`
 - `shift {at, by, scene?}`
 - `mark_subject {layer, t, box}`
-- `frame_shot {layer | layers}`
 - `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
 - `source {name, text}`
 - `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}`
