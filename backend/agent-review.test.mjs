@@ -17,6 +17,8 @@ import { unfilledSlot } from "./agent/next-call.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./agent/bar.mjs";
 import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
+import { serviceFor } from "./agent-ask.test.support.mjs";
+import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 // A viewer-facing finding is kept only on the person's words, on named layers: not "*", not a scene,
 // not a glob that reaches every layer. The test cards here are the layers named dot*.
@@ -827,4 +829,20 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   assert.equal(second.data.viewer, undefined);
   await agent("notes", { project: p0, action: "critique", rev: second.data.rev, lines: ["none"] });
   await passes(p0);
+});
+
+test("saved subjects reach the footage checks: a head cut off in them is a finding from a real check, and one saliency did not measure is not", async (t) => {
+  const fileId = "11111111-2222-3333-4444-555555555555.mp4";
+  const clip = { id: fileId, name: "keeper", width: 1920, height: 1080, duration: 10 };
+  const layer = createLayer("video", { id: "v", name: "clip", src: `/api/media/${fileId}`, mediaSourceDuration: 10, x: 0, y: 0, width: 1920, height: 1080 });
+  // A person's body touches the top of the picture and the pose found no head, for 3 s.
+  const subjects = { saliency: true, samples: [0, 0.5, 1, 1.5, 2, 2.5, 3].map((at) => ({ t: at, faces: [], people: [{ box: [0.4, 0, 0.3, 1], head: 0 }] })) };
+  let saved = subjects;
+  // The people file is never read or made: only the saved subjects hold the faces.
+  const peopleCache = { saved: async () => null, get: async () => null, savedSubjects: async () => saved };
+  const { call } = await serviceFor(t, { document: createDocument({ id: "faces", name: "faces", scenes: [createScene({ id: "s1", width: 1920, height: 1080, duration: 3, layers: [layer] })] }), media: [clip], peopleCache });
+  assert.match((await call("check")).text, /head_cut_off/, "the saved subjects feed the check");
+  // The header says saliency did not run: unmeasured, so nothing is read from it.
+  saved = { ...subjects, saliency: false };
+  assert.doesNotMatch((await call("check")).text, /head_cut_off/);
 });
