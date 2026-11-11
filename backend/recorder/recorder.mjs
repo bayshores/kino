@@ -69,9 +69,10 @@ function buildFromSource() {
 export function helperProcess(helper, { onEvent } = {}) {
   const child = spawn(helper, ["serve"], { stdio: ["pipe", "pipe", "pipe"] });
   const waiting = new Map();
-  let next = 1, pending = "", stderr = "", closed = false;
+  let next = 1, pending = "", stderr = "", closed = false, notReady = () => {};
   const ready = new Promise((resolve, reject) => {
     child.once("error", reject);
+    notReady = reject;
     child.stdout.setEncoding("utf8").on("data", (chunk) => {
       pending += chunk;
       let newline;
@@ -90,11 +91,14 @@ export function helperProcess(helper, { onEvent } = {}) {
       }
     });
   });
+  ready.catch(() => {}); // each call() reports it; with no caller it must not be an unhandled rejection
   child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr = (stderr + chunk).slice(-2000); });
   child.stdin.on("error", () => {});
   child.once("close", (code) => {
     closed = true;
     const why = stderr.trim().split("\n").at(-1) || `the recorder stopped (exit ${code})`;
+    // A helper that quit before it said ready: its callers must not wait forever.
+    notReady(new Error(why));
     for (const entry of waiting.values()) entry.reject(new Error(why));
     waiting.clear();
     onEvent?.({ event: "exit", code });

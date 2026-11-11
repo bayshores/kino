@@ -25,7 +25,7 @@ after(async () => { for (const folder of folders) await rm(folder, { recursive: 
 async function standIn(env = {}) {
   const script = path.join(ROOT, "backend", "recorder.test.stand-in.mjs");
   const settings = Object.entries({ KINO_FFMPEG: ffmpeg, ...env }).map(([name, value]) => `${name}=${JSON.stringify(String(value))} `).join("");
-  const hash = createHash("sha256").update(process.execPath).update(settings).update(await readFile(script)).digest("hex").slice(0, 16);
+  const hash = createHash("sha256").update(process.execPath).update(script).update(settings).update(await readFile(script)).digest("hex").slice(0, 16);
   const program = path.join(tmpdir(), `kino-recorder-stand-in-${hash}`);
   if (!existsSync(program)) {
     const partial = `${program}.${process.pid}`;
@@ -80,6 +80,11 @@ test("record start, mark and stop keep the video and its pointer data; a folder 
   await fresh.step({ step: "stop" });
   await fresh.close();
   await recorder.close();
+
+  // A helper that quits before it is ready refuses the start; it does not hang.
+  const broken = createRecorder({ dataRoot, mediaRoot, addMedia, helperPath: async () => "/usr/bin/false" });
+  await assert.rejects(broken.step({ step: "start" }), /recorder stopped/);
+  await broken.close();
 });
 
 test("an agent records the screen, adds the recording and the screen-recording move draws kino's pointer in the render", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {
