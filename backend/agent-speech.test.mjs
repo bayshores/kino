@@ -153,6 +153,15 @@ test("the voiceover example in the kino skill runs as written", { skip: skipWith
   const shot = (await sceneOf(server, "vo")).scene.layers.find((layer) => layer.name === "app-shot");
   assert.ok(Math.abs(shot.mediaStart - 5.55) < 0.1 && shot.mediaStart + shot.mediaDuration > 6.6, `app-shot ${shot.mediaStart} + ${shot.mediaDuration}`);
   assert.match(JSON.stringify(broll.data), /rocket: no word of \\"rocket launch\\" is said/);
+
+  // keep_line through the service: the line is found in the saved transcript; only it stays audible, with a subtitle.
+  const kept = await client.call("edit", { project: "vo", ops: [{ op: "keep_line", layer: "vo", line: "the Acmes app" }] });
+  assert.equal(kept.isError, undefined, kept.text);
+  t.diagnostic(`keep_line: ${JSON.stringify(kept.data.keepLine)}`);
+  assert.ok(Math.abs(kept.data.keepLine.scene[0] - 5.45) < 0.1 && Math.abs(kept.data.keepLine.scene[1] - 6.6) < 0.1, JSON.stringify(kept.data.keepLine.scene));
+  const voice = (await sceneOf(server, "vo")).scene.layers.find((layer) => layer.name === "vo");
+  assert.deepEqual(voice.animations.filter((animation) => /^Line /.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
+  assert.equal(kept.data.keepLine.duck, "none", "no music layer in this project: no dip");
 });
 
 test("the dashboard's own check (listen:false) never transcribes; an agent's full check does", { skip: skipWithoutMediaTools }, async () => {

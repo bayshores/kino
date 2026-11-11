@@ -68,6 +68,10 @@ their times to the nearest half second and their words as probably right.
   `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
 - No captions, or YouTube not answering: the answer says the words were not looked for.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
+- Footage has its own sound, and a line said in a clip can open or set up a moment. Keep it with
+  `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest of that
+  clip's sound goes silent, a small subtitle shows the line, and the music dips a few dB (not to
+  silence) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`.
 
 ## Note a video
 

@@ -114,6 +114,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `fit_music {scene?, layer, payoff?, turn?, end?, plan?, drop?, recut?}`
 - `place_broll {scene?, speech, clips, lead?}`
 - `color_filter {scene?, layer | layers, filter, strength?}`
+- `keep_line {scene?, layer, line? | from?, to?, text?, subtitle?, look?, name?, duck?, dip?}`
 - `match_color {scene?, layer | layers, to, at?}`
 - `track {scene?, layer, at, point | box, name?}`
 - `pin {scene?, layer, to, offset?, scale?}`

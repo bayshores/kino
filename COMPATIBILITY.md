@@ -794,6 +794,11 @@ How to read it:
   a clip of 1.5 s or more says what it says. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).
   Gaps: auto-caption files parsed from the known rolling format, not seen live; YouTube answered 429 on the
   4th rapid caption request, so a failed fetch is not kept and not retried for 15 minutes.
+- **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. One op
+  keeps a line of a clip's sound (by words, or from/to with its own text), silences the rest of that layer, adds
+  a small subtitle timed to the words and dips the music about 6 dB under it; its receipt gives the scene and
+  file seconds. Evidence: `engine/speech.test.js` (keep_line). Gaps: no listening test of the fades; `isolate_voice`
+  is a separate op when music is under the speech.
 
 ## Audio and captions
 
