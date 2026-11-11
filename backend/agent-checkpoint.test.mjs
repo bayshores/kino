@@ -254,6 +254,11 @@ test("a video with no footage asks only its own stops, in order; notes answer re
   const colorCheck = await agent("check", { project });
   const color = await checkpoint(project, "color");
   assertAsked(color, { id: "C3", kind: "color", rev: changed.data.rev, check: colorCheck.data, offer: [] });
+  // The step log (step-log.mjs): the rough cut's ask, its wait and its redo are the rough step;
+  // after the approval the edit is the build; the color step is the refused early ask and the real one.
+  const { steps } = (await savedState(project)).stepLog;
+  assert.deepEqual([steps.color.calls, steps.rough.calls >= 8], [2, true]);
+  assert.ok(steps.build.calls > 0);
 });
 
 test("allowed and skipped stops count as passed; a passed stop at the same revision says so, and a new revision opens a new round", async () => {

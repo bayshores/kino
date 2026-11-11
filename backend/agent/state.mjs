@@ -47,6 +47,8 @@ export function emptyAgentState() {
     nextStopped: 1,
     turns: [],
     nextTurn: 1,
+    // Minutes and kino calls per step of the video's making (step-log.mjs); null until a call is logged.
+    stepLog: null,
     nextNote: 1,
     looks: {},
     inbox: [],
