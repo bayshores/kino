@@ -32,7 +32,7 @@ import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
-import { flattenAnimations } from "../../animationTree.js";
+import { sampleBoxes } from "../../footage/layout.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -116,46 +116,39 @@ export function boxNear(layer, at) {
   return best?.box ?? null;
 }
 
-// A face box this close (% of the file) to a file edge was cut there by the filming, not the crop.
+// A face box this close (% of the file) to a file edge reaches that edge.
 const FILE_EDGE = 1;
 // A found face cut this long (seconds) is seen, not a flicker at a cut.
 const FACE_CUT_SECONDS = 0.2;
 // A face under this share inside the mark is one the mark misses.
 const MARK_MISSES = 0.5;
+// A mark with this share inside the face box is on that face (a part of it, as in an eye strip).
+const MARK_ON_FACE = 0.9;
 const SIDES = ["left", "top", "right", "bottom"];
 
 /**
- * The faces found near file time `at`, as [x, y, w, h] in % of the file. Reads people-v1 samples
- * (faces as [x, y, w, h] fractions) and subjects-v1 ones (each box may be {box, kind}; a
- * "saliency" box is where the eye goes, never a face).
+ * The faces found near file time `at`, as [x, y, w, h] in % of the file. Reads a subjects-v1
+ * sample's tagged `subjects` ({box, kind}; a "saliency" box is where the eye goes, never a face)
+ * and a people-v1 sample's plain `faces` ([x, y, w, h] fractions).
  */
 export function facesAt(found, at) {
-  const faces = [];
-  for (const entry of peopleNear(found, at)?.faces ?? []) {
-    const box = Array.isArray(entry) ? entry : (entry?.kind ?? "face") === "face" ? entry?.box : null;
-    if (Array.isArray(box) && box.length === 4) faces.push(box.map((value) => value * 100));
-  }
-  return faces;
+  return sampleBoxes(peopleNear(found, at)).filter((entry) => entry.kind === "face").map((entry) => entry.box.map((value) => value * 100));
 }
 
 /**
  * How much of a face ([x, y, w, h] in %) the crop `bounds` ([x0, y0, x1, y1] in %) keeps, and the
- * side it cuts most: {share, side}. A side the face already touches in the file is the filming's
- * cut, so it does not count (a chin below the frame). A face touching two or more file edges is a
- * filmed close-up (an eye or mouth strip): null, the crop did not make that cut.
+ * side it cuts most: {share, side}. The face box is what the detector saw in the file, so the
+ * share is measured against the crop's own bounds: a face the file already cut (touching a file
+ * edge) is judged by what the crop keeps of that box. Only a face touching three or more file
+ * edges is a filmed strip (an eye or mouth close-up): null, the crop did not make that cut.
  */
 export function faceKept(face, bounds) {
   const [x, y, w, h] = face;
-  const touches = [x <= FILE_EDGE, y <= FILE_EDGE, x + w >= 100 - FILE_EDGE, y + h >= 100 - FILE_EDGE];
-  if (touches.filter(Boolean).length > 1 || !(w > 0 && h > 0)) return null;
-  const open = bounds.map((value, index) => (touches[index] ? (index < 2 ? 0 : 100) : value));
-  const lost = [Math.max(0, open[0] - x) / w, Math.max(0, open[1] - y) / h, Math.max(0, x + w - open[2]) / w, Math.max(0, y + h - open[3]) / h];
-  return { share: insideShare(face, open), side: SIDES[lost.indexOf(Math.max(...lost))] };
+  const touching = [x <= FILE_EDGE, y <= FILE_EDGE, x + w >= 100 - FILE_EDGE, y + h >= 100 - FILE_EDGE].filter(Boolean).length;
+  if (touching >= 3 || !(w > 0 && h > 0)) return null;
+  const lost = [Math.max(0, bounds[0] - x) / w, Math.max(0, bounds[1] - y) / h, Math.max(0, x + w - bounds[2]) / w, Math.max(0, y + h - bounds[3]) / h];
+  return { share: insideShare(face, bounds), side: SIDES[lost.indexOf(Math.max(...lost))] };
 }
-
-// Layer values an animation may move or scale (frame sets the layer's box and would fight them).
-const MOVING = ["x", "y", "width", "height", "scaleX", "scaleY"];
-const movesItself = (layer) => flattenAnimations(layer.animations ?? []).some((animation) => [animation.from, animation.to].some((values) => values && MOVING.some((key) => key in values)));
 
 const boxText = (box) => `[${box.map((value) => Math.round(value)).join(", ")}]`;
 
@@ -199,7 +192,9 @@ export function cropNoSubject(model, ctx) {
         if (!kept || kept.share >= SUBJECT_KEPT) continue;
         const cut = { ...kept, face, time, second };
         if (!marked) { if (!cutHere || cut.share < cutHere.share) cutHere = cut; continue; }
-        if (mark && insideShare(face, [mark[0], mark[1], mark[0] + mark[2], mark[1] + mark[3]]) < MARK_MISSES && (!missedHere || cut.share < missedHere.share)) missedHere = { ...cut, mark };
+        // A mark wholly inside the face is the part the agent means (an eye strip), not a miss.
+        const onFace = mark && insideShare(mark, [face[0], face[1], face[0] + face[2], face[1] + face[3]]) >= MARK_ON_FACE;
+        if (mark && !onFace && insideShare(face, [mark[0], mark[1], mark[0] + mark[2], mark[1] + mark[3]]) < MARK_MISSES && (!missedHere || cut.share < missedHere.share)) missedHere = { ...cut, mark };
       }
       for (const [tally, cut] of [[faceCut, cutHere], [missed, missedHere]]) {
         if (!cut) continue;
@@ -228,9 +223,9 @@ export function cropNoSubject(model, ctx) {
         message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s: only ${Math.round(cut.share * 100)}% of it is in the frame.`,
         measured: `${Math.round(cut.share * 100)}% of the face box ${boxText(cut.face)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((faceCut.count * step) / model.fps)} s, no subject marked`,
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame; if the cut is meant (an eye strip), mark_subject the part you mean`,
-        // kino's own crop (frame {layer}) keeps the face whole. It is automatic only when nothing
-        // on the layer moves or scales it by animation, which frame would then fight.
-        fix: { kind: "frame", itemId: item.id, auto: !movesItself(layer), text: `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame, or frame {layer:"${ctx.name(item)}"}: kino's own crop or blur-fill; if the cut is meant (an eye strip), mark_subject the part you mean.` },
+        // Never automatic: the agent's op for kino's own crop (frame_shot) is not reachable from an
+        // agent call yet, so the fix is words only.
+        fix: { kind: "hint", text: `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame; if the cut is meant (an eye strip), mark_subject the part you mean.` },
       });
       continue;
     }
@@ -305,7 +300,7 @@ export function narrowWindow(model, ctx) {
       message: `${ctx.name(item)} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and no face was found in it: kino cannot see faces here (drawn ones are not found).`,
       measured: `a window ${Math.round(narrowest.width)}% of the ${size.width}x${size.height} file wide (middle at ${middle}%) at ${sec(narrowest.time)} s, for ${sec((count * step) / model.fps)} s, no face found`,
       required: `a full-frame window at least ${NARROW_WINDOW}% of the file wide, or a look at what it keeps`,
-      fix: { kind: "hint", text: `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame, or frame {layer:"${ctx.name(item)}"} for kino's own crop; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).` },
+      fix: { kind: "hint", text: `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).` },
     });
   }
   return findings;

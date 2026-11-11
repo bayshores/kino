@@ -407,14 +407,6 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
     const ops = fix.animationIds.map((animationId) => ({ op: "delete_animation", animationId: refName(animationId, codes) }));
     return { fix: ops.length === 1 ? ops[0] : ops, auto: Boolean(fix.auto) };
   }
-  // A hand-placed video layer kino frames itself (crop_no_subject: frame {layer}, no rect): its own
-  // crop or blur-fill. Automatic when the finding says so (nothing animates the layer's box).
-  if (fix.kind === "frame") {
-    const item = itemOf(fix.itemId);
-    const found = sourceLayer(document, item);
-    if (!found || item.source.componentPath) return { fix: item ? copyHint(item) : fix.text, auto: false };
-    return { fix: { op: "frame", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id) }, auto: Boolean(fix.auto) };
-  }
   // A layer to take out (stacked_label). Never auto: the agent decides the layer has to go.
   if (fix.kind === "delete_item") {
     const item = itemOf(fix.itemId);

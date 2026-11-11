@@ -59,10 +59,19 @@ const FACE_AREA = 0.004;
 const SAMPLE_REACH = 0.5;
 
 /** A box of a subjects-v1 or people-v1 sample: [x, y, w, h] fractions, and "face" or "saliency". */
-function boxEntry(entry) {
+export function boxEntry(entry) {
   if (Array.isArray(entry)) return entry.length === 4 ? { box: entry, kind: "face" } : null;
   if (Array.isArray(entry?.box) && entry.box.length === 4) return { box: entry.box, kind: entry.kind === "saliency" ? "saliency" : "face" };
   return null;
+}
+
+/**
+ * The tagged boxes of one sample. A subjects-v1 sample keeps its faces as plain [x, y, w, h] in
+ * `faces` and the tagged boxes (faces, or saliency when there is no face) in `subjects`: `subjects`
+ * is read when present. A people-v1 sample has only `faces`.
+ */
+export function sampleBoxes(sample) {
+  return (Array.isArray(sample?.subjects) ? sample.subjects : sample?.faces ?? []).map(boxEntry).filter(Boolean);
 }
 
 /**
@@ -73,14 +82,14 @@ function boxEntry(entry) {
  * A saliency box is never a face: it only decides whether a crop fits (fill) or not (blur-fill).
  */
 export function subjectsIn(samples, from, to) {
-  const measured = (samples ?? []).filter((sample) => Array.isArray(sample?.faces) && Number.isFinite(sample.t));
+  const measured = (samples ?? []).filter((sample) => (Array.isArray(sample?.subjects) || Array.isArray(sample?.faces)) && Number.isFinite(sample.t));
   let near = measured.filter((sample) => sample.t >= from - 1e-6 && sample.t <= to + 1e-6);
   if (!near.length) {
     const middle = (from + to) / 2;
     const closest = measured.reduce((best, sample) => (!best || Math.abs(sample.t - middle) < Math.abs(best.t - middle) ? sample : best), null);
     if (closest && Math.abs(closest.t - middle) <= SAMPLE_REACH + (to - from) / 2) near = [closest];
   }
-  const entries = near.flatMap((sample) => sample.faces.map(boxEntry).filter(Boolean));
+  const entries = near.flatMap(sampleBoxes);
   const faces = entries.filter((entry) => entry.kind === "face" && entry.box[2] * entry.box[3] >= FACE_AREA);
   if (faces.length) {
     let x = 0, y = 0, weight = 0;
@@ -189,6 +198,10 @@ export function frameShot(scene, layer, { size, samples = [], taken = new Set() 
   if (layer.parentId) throw new Error(`${layer.name || layer.id} is inside a group: frame works on a layer of the scene itself (take it out of the group, or frame the group's footage before grouping).`);
   if (!(size?.width > 0 && size?.height > 0)) throw new Error(`frame needs the size of ${layer.name || layer.id}'s file (import it with import_media first).`);
   const frame = { width: scene.width, height: scene.height };
+  // A blurred copy of this file that fills the frame is already behind it (frame ran before, or it
+  // was built by hand): a second one would stack on the first.
+  const backed = scene.layers.find((other) => other !== layer && other.type === "video" && other.src === layer.src && other.blur > 0 && other.width >= frame.width && other.height >= frame.height);
+  if (backed) throw new Error(`${layer.name || layer.id} is already framed: ${backed.name || backed.id} is its blurred backdrop. Delete the backdrop first to frame it again.`);
   // The stretch of the file the layer plays, so a mark or a face elsewhere in the file does not count.
   const range = mediaPlaybackRange(layer, scene.duration);
   const from = mediaFrameState(layer, range?.start ?? 0).sourceTime;

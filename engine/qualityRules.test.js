@@ -1669,19 +1669,22 @@ test("crop_no_subject: a face found whole in the file and cut by the crop is a g
   assert.deepEqual([cut.severity, cut.itemId], ["error", "keeper"]);
   assert.match(cut.message, /cuts a face found whole in its file at the left at 0 s/);
   assert.match(cut.fix.text, /if the cut is meant \(an eye strip\), mark_subject the part you mean/);
-  // kino's own crop is the fix (frame {layer}), automatic unless an animation moves the layer's box.
-  assert.deepEqual([cut.fix.kind, cut.fix.itemId, cut.fix.auto], ["frame", "keeper", true]);
-  const drifting = { ...TALL_CROP, animations: [{ id: "keeper.drift", kind: "custom", start: 0, duration: 2, easing: "linear", from: { x: -1167 }, to: { x: -1100 } }] };
-  assert.equal((await cropRun("crop_no_subject", tall(drifting), facesFound([20, 30, 15, 25]))).findings[0].fix.auto, false);
-  // A face the window keeps whole is the plain no-mark warning; an eye strip filmed past the
-  // file's edges (two or more sides) is not the crop's cut.
+  // Its fix is words only: kino's own crop (frame_shot) is not an agent op yet, so nothing is auto.
+  assert.deepEqual([cut.fix.kind, cut.fix.auto ?? false], ["hint", false]);
+  // A face the window keeps whole is the plain no-mark warning; a strip filmed past three of the
+  // file's edges is not the crop's cut.
   assert.equal((await cropRun("crop_no_subject", tall(), facesFound([45, 30, 10, 25]))).findings[0].severity, "warn");
   assert.equal((await cropRun("crop_no_subject", tall(), facesFound([0, 0, 100, 100]))).findings[0].severity, "warn");
-  // A chin below the file's bottom edge is the filming's cut; the crop's cut at the sides still counts.
-  assert.equal((await cropRun("crop_no_subject", tall(), facesFound([5, 20, 90, 80]))).findings[0].severity, "error");
-  // A saliency box (subjects-v1) is never a face.
-  const salient = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "saliency" }], people: [] })) } };
+  // A face the file already cut at an edge is judged by what the crop keeps of its box: the crop's
+  // own cut counts (touching one edge, wholly outside the window, a full-width close-up, a tall one).
+  for (const box of [[5, 20, 90, 80], [0, 30, 50, 40], [0, 30, 20, 40], [0, 10, 100, 80], [10, 0, 60, 100]])
+    assert.equal((await cropRun("crop_no_subject", tall(), facesFound(box))).findings[0].severity, "error", `face ${box}`);
+  // A saliency box is never a face. Real subjects-v1 samples keep plain faces in `faces` and the
+  // tagged boxes in `subjects`: the saliency box in `subjects` is not read as one.
+  const salient = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [], subjects: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "saliency" }], people: [] })) } };
   assert.equal((await cropRun("crop_no_subject", tall(), salient)).findings[0].severity, "warn");
+  const tagged = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [[0.2, 0.3, 0.15, 0.25]], subjects: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "face" }], people: [] })) } };
+  assert.equal((await cropRun("crop_no_subject", tall(), tagged)).findings[0].severity, "error");
 });
 
 test("crop_no_subject: a found face cut while the mark misses it warns, naming both boxes", async () => {
@@ -1692,6 +1695,9 @@ test("crop_no_subject: a found face cut while the mark misses it warns, naming b
   // The mark on the face: the marked subject's own gate, as before.
   const [onFace] = (await cropRun("crop_no_subject", tall(marked([20, 30, 15, 25])), facesFound([20, 30, 15, 25]))).findings;
   assert.match(onFace.message, /cuts off its marked subject/);
+  // A mark wholly inside the cut face is the part the agent means (an eye strip): no miss warning.
+  const strip = await cropRun("crop_no_subject", tall(marked([36, 35, 10, 6])), facesFound([30, 30, 20, 30]));
+  assert.ok(strip.findings.every((finding) => !/is the mark on the right part/.test(finding.message)), strip.findings.map((finding) => finding.message).join("; "));
 });
 
 test("narrow_window: a window under 40% of the file's width where no face was found warns", async () => {

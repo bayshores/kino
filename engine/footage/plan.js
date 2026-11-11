@@ -91,7 +91,7 @@ const gainTo = (loud, target) => Math.min(1, Math.max(0.08, 10 ** ((target - lou
  * Plans an edit. `input`:
  *   clips     [{key, name, src, kind, width, height, duration, in, out, words, samples, shots, sound,
  *             subjectSamples?}] (sound: {src, own, duration, loud} when the clip is heard, own: its own
- *             track; subjectSamples: the file's subjects-v1 samples [{t, faces: [[x,y,w,h] | {box, kind}]}])
+ *             track; subjectSamples: the file's subjects-v1 samples [{t, faces, subjects: [{box, kind}]}])
  *   music     {src, duration, analysis, loud, curve} or null
  *   voice     {src, duration, words, loud} or null
  *   frame     {width, height}; duration: seconds or undefined; treatment: a name

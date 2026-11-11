@@ -80,7 +80,8 @@ test("layout: same shape fills, a phone clip in 16:9 is a card, a screen goes ov
 
 test("frame: a hand-placed 16:9 layer in 9:16 gets blur-fill; a face from subjects-v1 leads, a saliency box never is one", () => {
   // The layer was cropped by hand to a 28.8% window of its 1920x1080 file (a face-cutting crop).
-  const sample = (faces) => Array.from({ length: 21 }, (_, index) => ({ t: index / 2, faces }));
+  // The shape backend/footage/people.mjs writes: plain face boxes in `faces`, tagged boxes in `subjects`.
+  const sample = (subjects) => Array.from({ length: 21 }, (_, index) => ({ t: index / 2, faces: subjects.filter((entry) => entry.kind === "face").map((entry) => entry.box), subjects }));
   const hand = (file, samples) => {
     const layer = createLayer("video", { id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 10 });
     const document = createDocument({ scenes: [createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [layer] })] });
@@ -111,11 +112,15 @@ test("frame: a hand-placed 16:9 layer in 9:16 gets blur-fill; a face from subjec
   assert.ok(Math.abs(lead.x + 0.175 * lead.width - 540) <= 1);
   // A file of unknown size is refused with a sentence, nothing saved.
   assert.throws(() => applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper" }]), /needs the size of keeper's file/);
+  // Framing a layer that already has its blurred backdrop is refused: a second one would stack.
+  const framed = applyOperations(createDocument({ scenes: [createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [createLayer("video", { id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 10 })] })] }),
+    [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: wide, samples: [] }]);
+  assert.throws(() => applyOperations(framed, [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: wide, samples: [] }]), /keeper is already framed: keeper blur is its blurred backdrop/);
 });
 
 test("compose footage: a face from subjects-v1 leads the crop, a saliency box only decides fill or card", () => {
   const frame = { width: 1080, height: 1920 };
-  const samples = (faces) => Array.from({ length: 41 }, (_, index) => ({ t: index / 2, faces }));
+  const samples = (subjects) => Array.from({ length: 41 }, (_, index) => ({ t: index / 2, faces: subjects.filter((entry) => entry.kind === "face").map((entry) => entry.box), subjects }));
   const shotsOf = (faces) => paced("promo", 30, { frame, clip: { width: 1440, height: 1080, subjectSamples: samples(faces) } }).plan.shots.filter((shot) => shot.role === "body");
   const led = shotsOf([{ box: [0.7, 0.2, 0.15, 0.25], kind: "face" }]);
   assert.ok(led.length && led.every((shot) => shot.layout.kind === "fill" && Math.abs(shot.focus[0] - 0.775) < 1e-9));
