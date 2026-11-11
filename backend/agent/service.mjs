@@ -143,7 +143,7 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, closedPlatform, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, closedPlatform, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
@@ -176,6 +176,8 @@ const RENDER_RULES = 'render start defaults to draft: half each scene dimension 
 const LIBRARY_NAMES = 8;
 // library {topic:"inspire", name} waits this long for a reference kino is still measuring.
 const INSPIRE_WAIT_MS = 50_000;
+// How long saving the brief's about line waits for the origin search (inspire.origin) before it answers.
+const ORIGIN_WAIT_MS = 20_000;
 // The waiver code that lets a final render go without look versus (waive_check {code:"reference"}).
 const REFERENCE_WAIVER = "reference";
 // A look versus counts for this many revisions after it, like a viewer report: small fixes after
@@ -5115,11 +5117,30 @@ export function createAgentService(deps) {
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };
       } });
+      // The save waits for the search up to ORIGIN_WAIT_MS; a slower one finishes and stores itself later.
+      await Promise.race([findOrigin(projectId), new Promise((resolve) => setTimeout(resolve, ORIGIN_WAIT_MS).unref())]);
       return { ...finished, ...answer };
     } catch (error) {
       if (error instanceof BriefError) throw new AgentError(error.code, error.message, error.details);
       throw error;
     }
+  }
+
+  // The brief's about line (who or what the video is about, quoted from the person) was saved or
+  // changed: one search of that quote only, at any length, keeps what the subject is known for in
+  // state.origin ({query, words, top}). Nothing else of the person's message is sent. Offline, without
+  // yt-dlp or on an error it keeps {query, skipped}; the save and its answer never change.
+  async function findOrigin(projectId) {
+    try {
+      const state = await agentState.read(projectId);
+      const about = state.brief?.fields?.about;
+      const query = originQuery(about?.quote ?? about?.text);
+      if (!query || state.origin?.query === query) return;
+      const ask = (state.brief.fields.ask ?? []).map((entry) => entry.text);
+      const origin = deps.inspire ? await deps.inspire.origin(about, { ask }) : { query, skipped: "kino cannot search YouTube here" };
+      // Skipped when the line changed while the search ran: the next save searches the new one.
+      await agentState.update(projectId, (draft) => { if (originQuery(draft.brief?.fields?.about?.quote ?? draft.brief?.fields?.about?.text) === query) draft.origin = origin; });
+    } catch { /* the origin is advice: a failure here must not lose the brief save */ }
   }
 
   // ---- the deck (engine/deck.js, deck.mjs) ----------------------------------------------------

@@ -303,26 +303,77 @@ const titleWords = (text) => (String(text ?? "").toLowerCase().match(/\p{L}[\p{L
  * Words that many of the shown titles share and the search itself does not have: [{word, count}],
  * at most 4, most shared first. A word counts when it is in at least a third of the titles and in
  * at least 3 of them (a title counts a word once). Common words and words under 3 letters are left out.
+ * `dropped` is the dropped results ({title}): their titles count too, so a drop for length cannot
+ * hide the word most titles share.
  */
-export function sharedWords(results, query = "") {
-  if (results.length < 3) return [];
+export function sharedWords(results, query = "", dropped = []) {
+  const titles = [...results, ...dropped];
+  if (titles.length < 3) return [];
   const own = new Set(titleWords(query));
   const counts = new Map();
-  for (const result of results) {
+  for (const result of titles) {
     for (const word of new Set(titleWords(result.title))) {
       if (word.length >= 3 && !COMMON_WORDS.has(word) && !own.has(word)) counts.set(word, (counts.get(word) ?? 0) + 1);
     }
   }
-  const need = Math.max(3, Math.ceil(results.length / 3));
+  const need = Math.max(3, Math.ceil(titles.length / 3));
   return [...counts].filter(([, count]) => count >= need).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 4).map(([word, count]) => ({ word, count }));
 }
 
 /** The one line for sharedWords: `shared: "stairs" in 5 of 9 titles, "climbs" in 3. If one names something you could film: ...`, or "". */
-export function sharedLine(results, query = "") {
-  const shared = sharedWords(results, query);
+export function sharedLine(results, query = "", dropped = []) {
+  const shared = sharedWords(results, query, dropped);
   if (!shared.length) return "";
-  const words = shared.map(({ word, count }, index) => `"${word}" in ${count}${index ? "" : ` of ${results.length} titles`}`).join(", ");
+  const words = shared.map(({ word, count }, index) => `"${word}" in ${count}${index ? "" : ` of ${results.length + dropped.length} titles`}`).join(", ");
   return `shared: ${words}. If one names something you could film: library {topic:"footage", search:"<that word>"}.`;
+}
+
+// ---- the origin of the ask: what the video's subject is known for ----------------------------
+// The person's subject words (the brief's `about` quote) are searched once, at any length, and the
+// words most relevant titles share are the origin: what the subject is known for, which the ask
+// itself may never say. Only titles that carry the subject count, so an unrelated hit adds nothing.
+export const ORIGIN_QUERY_LENGTH = 40;
+export const ORIGIN_MIN_TITLES = 6;
+export const ORIGIN_SHARE = 0.4;
+export const ORIGIN_TOP = 3;
+export const ORIGIN_MAX_WORDS = 4;
+
+/** The subject words as a search, at most ORIGIN_QUERY_LENGTH characters, cut between words. */
+export function originQuery(text) {
+  const words = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (words.length <= ORIGIN_QUERY_LENGTH) return words;
+  const cut = words.slice(0, ORIGIN_QUERY_LENGTH);
+  return (cut.includes(" ") && words[ORIGIN_QUERY_LENGTH] !== " " ? cut.slice(0, cut.lastIndexOf(" ")) : cut).trim();
+}
+
+/**
+ * What the results say the subject is known for: { words: [{word, count, of}], top: [{id, title,
+ * views, seconds}] }. `about` is the brief's about line ({text, quote}); a result is relevant when
+ * its title has 2 or more of the quote's words (all of them when it has 1 or 2). A word is an origin
+ * word when it is in ORIGIN_SHARE or more of at least ORIGIN_MIN_TITLES relevant titles and is not
+ * in the quote or the person's words (`ask`: their messages), a common word or an edit word. `top` is
+ * the ORIGIN_TOP most viewed relevant results, whatever their length. Under ORIGIN_MIN_TITLES
+ * relevant titles there are no words.
+ */
+export function originOf(results, about, { ask = [] } = {}) {
+  const quote = String(about?.quote ?? about?.text ?? "");
+  const subject = new Set(titleWords(quote).filter((word) => word.length >= 3 && !COMMON_WORDS.has(word)));
+  const need = Math.min(2, subject.size);
+  const relevant = need ? results.filter((result) => titleWords(result.title).filter((word, at, all) => subject.has(word) && all.indexOf(word) === at).length >= need) : [];
+  const top = [...relevant].sort((a, b) => (b.views ?? 0) - (a.views ?? 0)).slice(0, ORIGIN_TOP)
+    .map((result) => ({ id: result.id, title: String(result.title ?? ""), views: result.views ?? 0, seconds: result.duration }));
+  if (relevant.length < ORIGIN_MIN_TITLES) return { words: [], top };
+  const said = new Set([...subject, ...titleWords(about?.text), ...ask.flatMap((text) => titleWords(text))]);
+  const counts = new Map();
+  for (const result of relevant) {
+    for (const word of new Set(titleWords(result.title))) {
+      if (word.length >= 3 && !COMMON_WORDS.has(word) && !EDIT_WORD.test(word) && !said.has(word)) counts.set(word, (counts.get(word) ?? 0) + 1);
+    }
+  }
+  const words = [...counts].filter(([, count]) => count >= ORIGIN_SHARE * relevant.length)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, ORIGIN_MAX_WORDS)
+    .map(([word, count]) => ({ word, count, of: relevant.length }));
+  return { words, top };
 }
 
 /**
@@ -1324,6 +1375,22 @@ export function createInspire(deps) {
   }
 
   /**
+   * The origin of a video's subject (the brief's about line): one search of its quote only, at any
+   * length and unmeasured (nothing is queued or saved), read by originOf. Resolves with the
+   * state.origin shape {query, words, top}, or {query, skipped: "<why>"} when YouTube cannot be
+   * searched (no yt-dlp, or an error), so a failed search is never read as "nothing is known".
+   */
+  async function origin(about, { ask = [], signal } = {}) {
+    const query = originQuery(about?.quote ?? about?.text);
+    if (!query) return { skipped: "the about line has no words to search" };
+    try {
+      return { query, ...originOf(await deps.search(query, { count: MAX_SEARCH_COUNT, signal }), about, { ask }) };
+    } catch (error) {
+      return { query, skipped: error.code === "NO_YTDLP" ? "yt-dlp is not installed" : `the search failed: ${String(error.message).replace(/\s+/g, " ").slice(0, 80)}` };
+    }
+  }
+
+  /**
    * Search results ordered by look (look-embed.mjs rankLooks): each result's thumbnail is fetched
    * and embedded (a measured one uses its keyframes), the words are embedded, and the project's
    * saved references are its likes, the ones it unsaved its rejects. A copy's id is kept on the
@@ -1627,7 +1694,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**
@@ -1863,7 +1930,7 @@ export function searchText(query, results, { kind = "videos", collapsed = [], dr
   return [
     `inspire ${kind === "shorts" ? "shorts " : ""}"${query}": ${results.length} found on YouTube${kind === "shorts" ? ` (Shorts, and videos of ${SHORT_SECONDS} s or less; "Short 9:16" marks a vertical one)` : ""}, best first (views, verified channel, how the frames match the words and the saved references; doubt: likely slop, vet it before saving)${collapsed.length ? `; ${collapsed.length} near-identical cop${collapsed.length === 1 ? "y" : "ies"} hidden (${collapsed.map((copy) => `${copy.id} = ${copy.into}`).join(", ")})` : ""}. kino measures the first ${MEASURE_SECONDS} s of each, one at a time (from a 360p copy it deletes after).`,
     ...lines,
-    ...[dropLine, sharedLine(results, query), alsoTry ? `Without the song: library {topic:"inspire", search:"${alsoTry}"}.` : ""].filter(Boolean),
+    ...[dropLine, sharedLine(results, query, droppedItems), alsoTry ? `Without the song: library {topic:"inspire", search:"${alsoTry}"}.` : ""].filter(Boolean),
     `One ref's cuts (waits for its numbers): library {topic:"inspire", name:"${results[0].id}"}. Borrow its rhythm as cue marks: edit {ops:[{op:"borrow_rhythm", ref:"${results[0].id}", fit:true}]}.`,
   ].join("\n");
 }

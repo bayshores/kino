@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
-  dropNonEdits, dropReason, droppedText, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+  dropNonEdits, dropReason, droppedText, originOf, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
   cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
@@ -120,10 +120,50 @@ test("results that are not edits to learn from are dropped and counted; the shar
   assert.deepEqual(sharedWords(kept, "Hero edit"), [{ word: "stairs", count: 3 }]);
   assert.deepEqual(sharedWords(["Don't kill", "Don't kill", "Don’t kill"].map((title) => ({ title })), ""), [{ word: "kill", count: 3 }]);
   const text = searchText("Hero edit", kept.map((item) => ({ ...item, state: "found" })), { dropped, droppedItems: items, alsoTry: "Hero edit" });
-  assert.match(text, /\nDropped 4: 2 song uploads, 2 over 150 s \(the video is 15 s\)\. First: "Song Name \(Official Audio\)" yt:4{11}, .*\nshared: "stairs" in 3 of 5 titles\. If one names something you could film: library \{topic:"footage", search:"<that word>"\}\.\nWithout the song: library \{topic:"inspire", search:"Hero edit"\}\./);
+  assert.match(text, /\nDropped 4: 2 song uploads, 2 over 150 s \(the video is 15 s\)\. First: "Song Name \(Official Audio\)" yt:4{11}, .*\nshared: "name" in 4 of 9 titles, "song" in 4, "stairs" in 3\. If one names something you could film: library \{topic:"footage", search:"<that word>"\}\.\nWithout the song: library \{topic:"inspire", search:"Hero edit"\}\./);
+  // The dropped titles count too: 3 kept titles share nothing, the 3 dropped ones share two words.
+  const plain = ["Alpha run", "Beta walk", "Gamma jog"].map((title) => ({ title }));
+  const long = ["Stairs run long", "Stairs walk long", "Stairs jog long"].map((title) => ({ title }));
+  assert.deepEqual(sharedWords(plain, ""), []);
+  assert.deepEqual(sharedWords(plain, "", long), [{ word: "long", count: 3 }, { word: "stairs", count: 3 }]);
+  assert.match(sharedLine(plain, "", long), /^shared: "long" in 3 of 6 titles, "stairs" in 3\./);
   // Under a third of the titles, or under 3, shows no line.
   assert.equal(sharedLine(kept.slice(0, 2), ""), "");
   assert.equal(sharedLine([...kept, ...kept, ...kept].slice(0, 12).map((item, k) => ({ ...item, title: k < 2 ? item.title : `${"abcdefghij"[k]}${"abcdefghij"[k]}${"abcdefghij"[k]}` })), ""), "");
+});
+
+test("origin: words many relevant titles share, the most viewed relevant results at any length, a failed search is skipped", async () => {
+  const row = (n, title, duration, views) => ({ id: `yt:${String(n).repeat(11)}`, title, duration, views });
+  const found = [
+    row(1, "Keeper tower climb", 190, 5_000_000), row(2, "keeper tower scene edit", 20, 300_000), row(3, "Keeper at the tower", 30, 120_000),
+    row(4, "The keeper in the tower AMV", 25, 90_000), row(5, "Keeper theme remix", 200, 40_000), row(6, "keeper wallpaper compilation", 60, 10_000),
+    row(7, "Cooking pasta fast", 30, 9_000_000), row(8, "Tower defense gameplay", 60, 8_000_000),
+  ];
+  const about = { text: "the keeper", by: "you", quote: "keeper" };
+  // "tower" is in 4 of the 6 titles with the subject; the unrelated hits (9M and 8M views) count for nothing,
+  // and the 190 s result is a top result like any other. "keeper" is the person's word, "scene" and "amv" mark edits.
+  assert.deepEqual(originOf(found, about), {
+    words: [{ word: "tower", count: 4, of: 6 }],
+    top: [{ id: found[0].id, title: "Keeper tower climb", views: 5_000_000, seconds: 190 }, { id: found[1].id, title: "keeper tower scene edit", views: 300_000, seconds: 20 },
+      { id: found[2].id, title: "Keeper at the tower", views: 120_000, seconds: 30 }],
+  });
+  // Under 6 relevant titles: no words, but the top results stay.
+  assert.deepEqual(originOf(found.slice(0, 5), about).words, []);
+  assert.equal(originOf(found.slice(0, 5), about).top.length, 3);
+  // A word the person said is not an origin; a quote of 2 words needs both in a title (only 4 titles have both).
+  assert.deepEqual(originOf(found, about, { ask: ["a climb up the tower"] }).words, []);
+  assert.deepEqual(originOf(found, { quote: "keeper tower" }).words, []);
+  assert.deepEqual(originOf(found, { quote: "keeper tower" }).top.map((item) => item.id), found.slice(0, 3).map((item) => item.id));
+  assert.equal(originQuery("a very long quote about the keeper climbing the tower again"), "a very long quote about the keeper");
+  assert.equal(originQuery("keeper"), "keeper");
+
+  // inspire.origin searches the quote only, at any length, and stores nothing; an error is {skipped}.
+  const asked = [];
+  const inspire = createInspire({ directory: path.join(folder, "origin"), projectState: memoryProjects(), search: async (query, options) => { asked.push([query, options.count, options.dropped]); return found; } });
+  assert.deepEqual(await inspire.origin(about, { ask: [] }), { query: "keeper", ...originOf(found, about) });
+  assert.deepEqual(asked, [["keeper", 20, undefined]]);
+  const failing = createInspire({ directory: path.join(folder, "origin-fail"), projectState: memoryProjects(), search: async () => { throw Object.assign(new Error("not found"), { code: "NO_YTDLP" }); } });
+  assert.deepEqual(await failing.origin(about), { query: "keeper", skipped: "yt-dlp is not installed" });
 });
 
 test("the video's length reaches the search: far longer results are dropped and counted, and fewer than wanted asks once more", async () => {

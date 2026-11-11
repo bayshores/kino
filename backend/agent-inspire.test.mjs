@@ -3,7 +3,7 @@
 // nothing goes online: library {topic:"inspire"} searches, measures and saves; edit
 // borrow_rhythm turns the cuts into cue marks; the dashboard's snapshot carries it all.
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -270,5 +270,58 @@ test("the skill's inspire example runs as written (references/inspire.md)", { sk
   for (const { tool, ...call } of jsonBlocks(skillSection("Proposing ideas to the person")).flat()) {
     const reply = await agent(tool, { project: "skill-inspire", ...call });
     assert.notEqual(reply.isError, true, `${tool} ${JSON.stringify(call)}: ${reply.text}`);
+  }
+});
+
+// The brief's about line (written here straight into the saved state, so this test does not depend on
+// how the brief tool saves it): the next brief save searches its quote once and keeps state.origin.
+test("saving the brief with an about line runs one search of the quote only; a failing search keeps skipped and the save is unchanged", async () => {
+  const data = await mkdtemp(path.join(tmpdir(), "kino-origin-"));
+  const log = path.join(data, "yt.log");
+  const stateFile = path.join(data, "agent", "projects", "orig.json");
+  const boot = (env = {}) => startTestServer({ env: { MOTION_DATA_DIR: data, KINO_YTDLP: STUB, KINO_INSPIRE_THUMBS: "off", STUB_YTDLP_LOG: log, ...env } });
+  const call = async (srv, verb, body) => (await srv.api(`/api/agent/${verb}`, { method: "POST", body })).json();
+  const readState = async () => JSON.parse(await readFile(stateFile, "utf8"));
+  const searches = async () => (await readFile(log, "utf8").catch(() => "")).split("\n").filter((line) => line.includes("ytsearch")).map((line) => JSON.parse(line).at(-1));
+  const never = (text) => ({ project: "orig", action: "brief", fields: { never: { text, by: "guessed" } } });
+  let srv;
+  try {
+    srv = await boot();
+    await call(srv, "project", { action: "create", id: "orig", name: "Origin", width: 640, height: 360, duration: 3 });
+    await call(srv, "notes", never("no stock music"));
+    await srv.stop();
+    // The person's about line, quoted from their message, and the message itself.
+    const state = await readState();
+    assert.equal(state.origin, undefined, "no about line, no search");
+    state.brief.fields.about = { text: "fast cut editing", by: "you", quote: "fast cut editing", rev: 1 };
+    state.brief.fields.ask = [{ text: "make a fast cut editing video about the tower", at: "2026-11-11T00:00:00.000Z" }];
+    await writeFile(stateFile, JSON.stringify(state));
+
+    srv = await boot();
+    const saved = await call(srv, "notes", never("no meme text"));
+    assert.equal(saved.isError, undefined, saved.text);
+    assert.deepEqual(await searches(), ["ytsearch20:fast cut editing"], "one search, the quote only, as many results as YouTube gives");
+    // Only the one result with 2 or more of the quote's words counts; it is 259 s, still the top result. Under 6: no words.
+    assert.deepEqual((await readState()).origin, { query: "fast cut editing", words: [], top: [{ id: "yt:tgEWNHVbk3U", title: "5 Fast Tips for Fast-Cut Editing", views: 682054, seconds: 259 }] });
+    await call(srv, "notes", never("no logos"));
+    assert.equal((await searches()).length, 1, "the same about line is not searched again");
+    await srv.stop();
+
+    // A changed quote with a search that fails: {query, skipped}, and the brief save answers as before.
+    const changed = await readState();
+    changed.brief.fields.about = { text: "walking tour", by: "you", quote: "walking tour", rev: 2 };
+    await writeFile(stateFile, JSON.stringify(changed));
+    srv = await boot({ STUB_YTDLP_FAIL: "search" });
+    const failed = await call(srv, "notes", never("no jump scares"));
+    assert.equal(failed.isError, undefined, failed.text);
+    assert.match(failed.text, /^brief r\d+ saved: never \(guessed\)/);
+    assert.equal(failed.text.split("\n").at(-1), saved.text.split("\n").at(-1), "the next: line is the same as after a search that worked");
+    const { origin } = await readState();
+    assert.equal(origin.query, "walking tour");
+    assert.match(origin.skipped, /^the search failed: /);
+    assert.equal(origin.words, undefined);
+  } finally {
+    await srv?.stop();
+    await rm(data, { recursive: true, force: true });
   }
 });
