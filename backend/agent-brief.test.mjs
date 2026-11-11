@@ -15,7 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefText, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
 import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
@@ -956,6 +956,51 @@ test("with an ask stored, a quote by you must be in it or in a reply; with no as
   assert.equal(briefChanges(draft.brief, { fields: { treatments: { pick: "A", why: "a viewer would retell it" } } }).lines[0].line.by, "guessed");
 });
 
+test("the ask step is named only while the order has an open part and the video is not built; briefData sends a count, not the messages", () => {
+  const brief = { ...emptyBrief(), rev: 2, fields: FULL, log: [PLAYBACK_YES(2)], confirmedRev: 2 };
+  // A finished order on a built video: no message to save; the plan and stop steps lead.
+  const done = { seconds: 20, layers: 10, references: 2, referenceWaived: false, treatmentsWaived: true };
+  assert.equal(nextMove({ brief, checked: { rev: 5 }, lastLook: "s1" }, done, "rough").step, "build on, then ask rough");
+  assert.equal(nextMove({ brief, plan: { steps: [{ text: "Build" }] } }, done, "rough").step, "follow the plan, then ask rough");
+  assert.deepEqual(orderSteps({ brief }, { ...done, references: 0 }, { ask: true }).map((part) => part.step), ["save their message (ask)", "find 2 references (inspire)"]);
+  assert.deepEqual(orderSteps({ brief, checked: { rev: 5 }, lastLook: "s1" }, { ...done, references: 0 }, { ask: true }).map((part) => part.step), ["find 2 references (inspire)"], "built: not held for the message");
+  assert.deepEqual(orderSteps({ brief }, done, { ask: true }), [], "nothing open: nothing to name");
+  // 30 messages of 2,000 characters stay out of the data of a read or a save.
+  const asks = Array.from({ length: 30 }, (_, index) => ({ text: `${index} `.padEnd(BRIEF_LIMITS.ask, "x"), at: "2026-01-01T00:00:00.000Z" }));
+  const data = briefData({ brief: { ...brief, fields: { ...FULL, ask: asks } } }, done);
+  assert.deepEqual([data.brief.asks, data.brief.fields.ask, data.brief.fields.message.by], [30, undefined, FULL.message.by]);
+  assert.ok(JSON.stringify(data).length < 6000, "about 1,500 tokens at most");
+  assert.equal(asks.length, 30, "the state itself keeps them");
+});
+
+test("a quote in a script without spaces, or only emoji, is found as plain text; whole words still count for spaced text", () => {
+  assert.equal(isSaid("竖屏", ["我想要一个关于塔的视频 请用竖屏"]), true);
+  assert.equal(isSaid("竖版", ["我想要一个关于塔的视频 请用竖屏"]), false);
+  assert.equal(isSaid("🔥🔥", ["make it fire 🔥🔥 please now"]), true);
+  assert.equal(isSaid("🔥🔥🔥", ["make it fire 🔥🔥 please now"]), false);
+  assert.equal(isSaid("skate", ["my skateboard crew"]), false, "half a word is still not said");
+  assert.equal(isSaid("", ["anything"]), false);
+});
+
+test("controls.quote that lets a stop pass must be said; a line or pick sent again as stored is not checked again", () => {
+  const ask = "Make a promo for my skate crew please.";
+  const draft = { brief: emptyBrief() };
+  applyBrief(draft, briefChanges(draft.brief, { fields: { ask } }));
+  const go = (quote) => ({ fields: { controls: { questions: "go", board: "go", quote } } });
+  assert.throws(() => briefChanges(draft.brief, go("never ask me anything again, I trust you")), (error) => error.code === "quote_not_said" && /controls\.quote/.test(error.message));
+  assert.ok(briefChanges(draft.brief, go("a promo for my skate crew")).controls.quote, "their words pass");
+  // An old line quoted from earlier chat, then an ask saved later: the same line again is accepted.
+  const old = emptyBrief();
+  applyBrief({ brief: old }, briefChanges(old, { fields: { message: { text: "a message", by: "you", quote: "old words from earlier chat" } } }));
+  const later = { brief: old };
+  applyBrief(later, briefChanges(later.brief, { fields: { ask: "totally different message here" } }));
+  const again = { text: "a message", by: "you", quote: "old words from earlier chat" };
+  assert.doesNotThrow(() => briefChanges(later.brief, { fields: { message: again } }));
+  assert.throws(() => briefChanges(later.brief, { fields: { message: { ...again, quote: "other old words" } } }), { code: "quote_not_said" });
+  // A reply recorded by a stop answer (the service passes it) counts as said.
+  assert.equal(briefChanges(later.brief, { fields: { plays_on: { text: "vertical", by: "you", quote: "make it vertical" } } }, { said: ["make it vertical"] }).lines.length, 1);
+});
+
 test("about is who or what the video is about, in their words; the first reference search uses it before the slot", () => {
   const ask = "Make a fast edit of Mara Voss on the lighthouse stairs.";
   const about = { text: "Mara Voss on the stairs", by: "you", quote: "Mara Voss on the lighthouse stairs" };
@@ -1079,7 +1124,7 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   assert.match(picked.text, /source is words only: build the signature from the product's own picture/);
   assert.equal(offer.input.fields.style.signatures[0].source, "<a screenshot or clip of the product, and the moment>");
   assert.deepEqual(["the tagline", "the founder's voice memo", "app.png"].map(wordsOnly), [true, false, false]);
-  const state = { brief: (await brief(id, {})).data.brief };
+  const state = { brief: (await savedState(id)).brief };
   assert.equal(orderStep(state, { seconds: 24, treatmentsWaived: false, picture: "inbox.png" }).call.input.fields.style.signatures[0].source, "inbox.png, <the moment>");
   // The beats are timed over the brief's length, not create's 5 s default scene.
   const timed = orderStep({ ...state, defaultLength: 5, brief: { ...state.brief, length: { seconds: 30 } } }, { seconds: 5, treatmentsWaived: false }).call.input.fields.style.spine;

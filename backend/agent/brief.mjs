@@ -134,10 +134,20 @@ export const hasAsk = (brief) => asksOf(brief).length > 0;
 // The words of a text, lowercase, apostrophes kept inside a word ("don't").
 const wordsOf = (text) => String(text ?? "").toLowerCase().replace(/[‘’]/g, "'").match(/[\p{L}\p{N}]+(?:'[\p{L}\p{N}]+)*/gu) ?? [];
 
-/** True when the quote is in one of the texts: whole words, any case; punctuation and spacing do not count. */
+// Scripts written without spaces between words: a whole sentence is one "word" to wordsOf.
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+const squash = (text) => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * True when the quote is in one of the texts: whole words, any case; punctuation and spacing do
+ * not count. A quote with no words (only emoji or symbols) or in a script written without spaces
+ * has no word edges to match, so it is found as plain text (any case) instead.
+ */
 export function isSaid(quote, texts) {
   const need = wordsOf(quote).join(" ");
-  return need !== "" && texts.some((text) => ` ${wordsOf(text).join(" ")} `.includes(` ${need} `));
+  if (need !== "" && !UNSPACED.test(quote)) return texts.some((text) => ` ${wordsOf(text).join(" ")} `.includes(` ${need} `));
+  const plain = squash(quote);
+  return plain !== "" && texts.some((text) => squash(text).includes(plain));
 }
 
 // The sentence of the texts that shares the most words with the quote, cut to 160 characters; "" when there is none.
@@ -206,7 +216,10 @@ function lineProblem(name, line, current, said = null) {
         details: { example: { [name]: { text: line.text.trim(), by: "you", quote: "<their exact words>" } } } };
     const quote = textProblem(`${name}.quote`, line.quote, BRIEF_LIMITS.quote);
     if (quote) return { code: "bad_input", message: `${quote} Copy the part of their message that says it.` };
-    if (said && !isSaid(line.quote, said.texts)) return notSaid(`${name}.quote`, line.quote, said);
+    // A line sent again as it is stored was accepted before (maybe quoted from earlier chat,
+    // before an ask was saved): only a new or changed line is checked.
+    const sameAsStored = current?.by === "you" && current.text === line.text.trim() && current.quote === line.quote.trim();
+    if (said && !sameAsStored && !isSaid(line.quote, said.texts)) return notSaid(`${name}.quote`, line.quote, said);
   } else if (hasText(line.quote))
     return { code: "bad_input", message: `${name} is by:"guessed", so it has no quote. If the person said it, send by:"you" with the quote.` };
   if (current?.by === "you" && line.by === "guessed") return yoursProblem(name, current);
@@ -287,6 +300,9 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   }
   // Once an ask is stored (or sent here) every by:"you" quote must be in what they said.
   const said = saidBy(current, ask, entries, recorded);
+  // The quote that lets a stop pass without the person (controls) is their words too.
+  if (said && controls && controls.quote && controls.quote !== current?.controls?.quote && !isSaid(controls.quote, said.texts))
+    problems.push(["controls", notSaid("controls.quote", controls.quote, said)]);
   for (const [name, line] of sent) {
     const problem = lineProblem(name, line, current?.fields?.[name], said);
     if (problem) problems.push([name, problem]);
@@ -301,7 +317,8 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   if (sentTreatments) {
     let problem = treatmentsProblem(fields.treatments, current?.treatments);
     // A pick's quote is the person's words: found in what they said, like a line's.
-    if (!problem && picking && said && typeof fields.treatments.quote === "string" && !isSaid(fields.treatments.quote, said.texts))
+    // (A pick sent again as it is stored was accepted before, so it is not checked again.)
+    if (!problem && picking && said && typeof fields.treatments.quote === "string" && fields.treatments.quote.trim() !== current?.treatments?.picked?.quote && !isSaid(fields.treatments.quote, said.texts))
       problem = notSaid("treatments.quote", fields.treatments.quote, said);
     if (problem) problems.push(["treatments", problem]);
     else {
@@ -727,14 +744,21 @@ export function referenceSearches(brief, songTitle) {
  * first REFERENCES_WANTED saved must each be studied, not one of them.
  */
 export function orderSteps(state, video = {}, { ask = false } = {}) {
-  const brief = state?.brief;
-  if (!hasBrief(brief) || video.seconds < REFERENCE_SKIP_UNDER) return [];
+  const parts = openParts(state, video);
   // Their message comes before anything else in the order, and is named by `next:` (ask: true,
   // orderStep). It is not a gate: the build refusal (order_needed) lists only the parts below,
-  // so a project without an ask builds as it did. An order waived whole (nothing left to do in
-  // it) does not ask for it either.
-  const orderWaived = video.treatmentsWaived && (video.referenceWaived || !Number.isFinite(video.references));
-  const open = ask && !hasAsk(brief) && !orderWaived ? [{ ...ASK_STEP }] : [];
+  // so a project without an ask builds as it did. It is named only while the order still has an
+  // open part and the video is not built: a finished order, or a video past its first look, is
+  // never held back for a message an older project never saved.
+  if (ask && parts.length && !hasAsk(state.brief) && !isBuilt(state, video)) return [{ ...ASK_STEP }, ...parts];
+  return parts;
+}
+
+// The parts of the order still open, without their message (orderSteps adds that).
+function openParts(state, video) {
+  const brief = state?.brief;
+  if (!hasBrief(brief) || video.seconds < REFERENCE_SKIP_UNDER) return [];
+  const open = [];
   if (Number.isFinite(video.references) && !video.referenceWaived) {
     // Short words: status's two lines stay within 40 tokens (the call says how).
     if (video.references < REFERENCES_WANTED) {
@@ -955,7 +979,14 @@ export function directionLines(state, video = {}, stop = null) {
  * saved brief without its log (replyCount counts it); the log stays in the agent-state file.
  */
 export function briefData(state, video = {}) {
+  // The log and the person's messages stay out (up to 30 messages of 2,000 characters would be
+  // about 14,000 tokens): `asks` is the count; the messages are in the saved state.
   const { log, ...brief } = state?.brief ?? {};
+  if (brief.fields?.ask) {
+    const { ask, ...fields } = brief.fields;
+    brief.fields = fields;
+    brief.asks = asksOf(state.brief).length;
+  }
   return { brief: state?.brief ? brief : null, missing: missingLines(state?.brief), replies: replyCount(state), next: nextStep(state, video) };
 }
 
