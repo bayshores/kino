@@ -9,7 +9,8 @@ import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { htmlText, pickMp4, projectIdFor, projectIdFromStatus, promptFor, seedHouse, summarize } from "../evals/taste/firstpass.mjs";
+import { APPROVAL, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pickMp4, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize } from "../evals/taste/firstpass.mjs";
+import { stopsSummary } from "../backend/agent/stops.mjs";
 import { projectSeed } from "../engine/deck.js";
 import { createHouseMemory, familyOf } from "../backend/house-memory.mjs";
 
@@ -159,4 +160,37 @@ test("a first pass starts with the launch-v1 house memory, so seen_before can fi
     assert.equal(await seedHouse(path.join(dataDir, "empty"), "none"), null);
     assert.deepEqual(await readdir(dataDir), ["house"], "none writes nothing");
   } finally { await rm(dataDir, { recursive: true, force: true }); }
+});
+
+test("a waiting kino stop gets a person's reply in order, anything else gets your call, and each stop is recorded", () => {
+  // The snapshot's agent.stops is what kino's own stopsSummary gives for a project with a waiting stop.
+  const waitingState = (id, kind) => ({ agent: { stops: stopsSummary({ stops: [{ id, kind, rev: 4, status: "waiting", askedAt: "2026-11-11T10:00:00Z", ask: "Here is the board." }] }) } });
+  const brief = { replies: { board: ["make the opening slower", "approved"], rough: "approved" } };
+  const none = nextMessage({ agent: { stops: stopsSummary({ stops: [] }) }, waitingStops: {} }, brief, []);
+  assert.deepEqual(none, { message: REPLY, stop: null }, "no stop waiting: your call");
+  assert.equal(nextMessage(null, brief, []).message, REPLY, "an unreadable snapshot: your call");
+
+  const stops = [];
+  const ask = (snapshot) => { const next = nextMessage(snapshot, brief, stops); stops.push(stopEntry(next.stop, 12.5, next.message)); return next.message; };
+  assert.equal(ask(waitingState("C1", "board")), "make the opening slower", "the first board ask gets the first reply");
+  assert.equal(nextMessage(waitingState("C1", "board"), brief, stops).message, "make the opening slower", "the same stop still waiting: the same reply, not the next");
+  assert.equal(ask(waitingState("C2", "board")), "approved", "the redone board gets the second");
+  assert.equal(ask(waitingState("C3", "board")), APPROVAL, "past the list: a plain approval");
+  assert.equal(ask(waitingState("C4", "rough")), "approved", "a string reply is used every time");
+  assert.equal(ask(waitingState("C5", "sound")), APPROVAL, "no reply given for the kind: a plain approval");
+  assert.equal(replyFor({ id: "C6", kind: "rough" }, brief, stops), "approved");
+  assert.deepEqual(stops[0], { kind: "board", id: "C1", askedAfter: 12.5, reply: "make the opening slower", nextToolAfter: null });
+  // A stop of another project's agent still shows in waitingStops.
+  assert.equal(nextMessage({ agent: null, waitingStops: { other: { id: "C9", kind: "color" } } }, {}, []).stop.kind, "color");
+
+  assert.deepEqual(checkReplies(brief.replies), brief.replies);
+  assert.deepEqual(checkReplies(undefined), {});
+  for (const bad of [[], "ok", { board: [] }, { board: [1] }, { rough: " " }]) assert.throws(() => checkReplies(bad), /replies/);
+  for (const kind of ["storyboard", "Board"]) assert.throws(() => checkReplies({ [kind]: "ok" }), /not a stop kind: use board, rough, color, sound, critique/, "a kind kino never asks is refused, not dropped");
+  assert.deepEqual(checkReplies({ critique: "ok" }), { critique: "ok" });
+  // askedAfter is the stored askedAt against the run's start; a missing or out-of-run time falls back to the turn's end.
+  const t0 = Date.parse("2026-11-11T10:00:00Z");
+  assert.deepEqual([askedAfter({ askedAt: "2026-11-11T10:00:07.4Z" }, t0, t0 + 12_500), askedAfter({ askedAt: null }, t0, t0 + 12_500), askedAfter({ askedAt: "nope" }, t0, t0 + 12_500), askedAfter({ askedAt: "2026-11-11T09:00:00Z" }, t0, t0 + 12_500)], [7.4, 12.5, 12.5, 12.5]);
+  const tool = { type: "assistant", message: { content: [{ type: "text" }, { type: "tool_use", name: "Bash" }] } };
+  assert.deepEqual([callsTool(tool), callsTool({ ...tool, parent_tool_use_id: "t1" }), callsTool({ type: "result" })], [true, false, false], "the agent's own tool calls only");
 });

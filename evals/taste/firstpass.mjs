@@ -1,7 +1,9 @@
 // One first-pass edit, end to end, the way a person asks kino for it (evals/taste/README.md, section 4).
 // A fresh Claude Code agent gets only the person's one-line ask and the list of files; nobody
-// answers it except the runner, which replies "your call" whenever the agent ends its turn
-// without a final MP4. Nothing here judges the result: packet.mjs and judge.mjs do that.
+// answers it except the runner. When the agent ends its turn without a final MP4 because a kino
+// stop waits for the person, the runner replies as a person would (the brief's `replies`, else a
+// plain approval); every other time it replies "your call". Nothing here judges the result:
+// packet.mjs and judge.mjs do that.
 //
 //   node evals/taste/firstpass.mjs <brief name or path> [--run-id <id>] [--dry-run]
 //
@@ -16,6 +18,7 @@ import { chmod, copyFile, cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } fro
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CRITIQUE_STOP, STOP_KINDS } from "../../backend/agent/stops.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const REPLY = "your call";
@@ -82,6 +85,91 @@ export function pickMp4(files, since = 0) {
   return best ? { path: best.path, final: !isDraft(best) } : null;
 }
 
+// ---- stops: what a person says when kino waits for them ------------------------------------------------
+
+/** The plain approval a person gives a stop when the brief gives no reply for it. */
+export const APPROVAL = "looks good, keep going";
+
+/**
+ * The stop waiting for the person, from kino's dashboard snapshot (GET /api/dashboard/snapshot):
+ * { id, kind, askedAt } or null. That route only reads: the status verb would also mark layers as
+ * seen, so the agent's next status would show less. kino keeps at most one stop waiting at a time
+ * (backend/agent/stops.mjs waitingStop); the open project's stop comes first.
+ */
+export function waitingFromSnapshot(snapshot) {
+  const waiting = snapshot?.agent?.stops?.waiting ?? Object.values(snapshot?.waitingStops ?? {})[0];
+  if (!waiting?.id) return null;
+  return { id: String(waiting.id), kind: String(waiting.kind ?? "stop"), askedAt: waiting.askedAt ?? null };
+}
+
+/**
+ * What the brief's `replies` may hold: an object by stop kind, each a string or a list of strings.
+ * Throws a sentence naming the first problem; returns the object (or {} when there is none).
+ */
+export function checkReplies(replies) {
+  if (replies === undefined) return {};
+  if (!replies || typeof replies !== "object" || Array.isArray(replies)) throw new Error("A brief's replies is an object by stop kind, like {\"board\": [\"make the opening slower\", \"approved\"], \"rough\": \"approved\"}.");
+  // A kind kino never asks (a typo, a wrong case) would never match: the reply would be dropped without a word.
+  const kinds = [...STOP_KINDS, CRITIQUE_STOP];
+  for (const kind of Object.keys(replies))
+    if (!kinds.includes(kind)) throw new Error(`A brief's replies.${kind} is not a stop kind: use ${kinds.join(", ")}.`);
+  for (const [kind, wanted] of Object.entries(replies))
+    if (!(typeof wanted === "string" && wanted.trim()) && !(Array.isArray(wanted) && wanted.length && wanted.every((text) => typeof text === "string" && text.trim())))
+      throw new Error(`A brief's replies.${kind} is a reply or a list of replies, each a non-empty string.`);
+  return replies;
+}
+
+/**
+ * What a person says to a waiting stop. The brief's replies for that kind are used in order, one
+ * per stop asked (a string is every time); when they run out, or the brief has none, the person
+ * approves in plain words. A stop that is still waiting after the reply (the agent did not record
+ * it) gets the same reply again, not the next one. `earlier` is the run's stops list so far.
+ */
+export function replyFor(stop, brief, earlier = []) {
+  const again = earlier.find((entry) => entry.id === stop.id);
+  if (again) return again.reply;
+  const wanted = brief?.replies?.[stop.kind];
+  if (typeof wanted === "string" && wanted.trim()) return wanted.trim();
+  const nth = new Set(earlier.filter((entry) => entry.kind === stop.kind).map((entry) => entry.id)).size;
+  return Array.isArray(wanted) && typeof wanted[nth] === "string" && wanted[nth].trim() ? wanted[nth].trim() : APPROVAL;
+}
+
+/**
+ * The runner's next message after the agent ended its turn: a person's reply when a stop waits
+ * for them, else "your call". { message, stop } with stop null for "your call".
+ */
+export function nextMessage(snapshot, brief, earlier = []) {
+  const stop = waitingFromSnapshot(snapshot);
+  return stop ? { message: replyFor(stop, brief, earlier), stop } : { message: REPLY, stop: null };
+}
+
+/**
+ * Seconds into the run when the agent asked: the stop's stored `askedAt` (an ISO time) against the
+ * run's start. When `askedAt` is missing or unreadable (or says a time outside the run), the turn's
+ * end is used: the agent ends its turn right after it asks.
+ */
+export function askedAfter(stop, startedMs, nowMs) {
+  const at = Date.parse(stop?.askedAt ?? "");
+  return seconds1(Number.isFinite(at) && at >= startedMs && at <= nowMs ? at - startedMs : nowMs - startedMs);
+}
+
+/**
+ * One line of run.json's `stops`: the stop's kind and id, the seconds into the run when the agent
+ * asked (askedAfter), the reply sent, and (once the next turn runs) the seconds from the reply to
+ * the agent's next tool call.
+ */
+export function stopEntry(stop, askedAfter, reply) {
+  return { kind: stop.kind, id: stop.id, askedAfter, reply, nextToolAfter: null };
+}
+
+/** True for a stream event where the agent itself (not a helper it started) calls a tool. */
+export function callsTool(event) {
+  return event?.type === "assistant" && !event.parent_tool_use_id && (event.message?.content ?? []).some((part) => part.type === "tool_use");
+}
+
+/** Seconds, one decimal, from milliseconds. */
+export const seconds1 = (ms) => Math.round(ms / 100) / 10;
+
 /** What one `claude -p --output-format stream-json` run said: its session, cost, tool calls and last words. */
 export function summarize(events) {
   const out = { sessionId: null, cost: 0, turns: 0, toolCalls: {}, models: [], finalMessage: "", isError: false };
@@ -106,7 +194,17 @@ function loadBrief(name) {
   const file = existsSync(name) ? path.resolve(name) : path.join(root, "evals/taste/briefs", `${name.replace(/\.json$/, "")}.json`);
   const brief = JSON.parse(readFileSync(file, "utf8"));
   if (typeof brief.ask !== "string" || !Array.isArray(brief.media)) throw new Error(`${file}: a brief needs ask and media (media may be an empty list: kino finds the material).`);
+  try { checkReplies(brief.replies); } catch (error) { throw new Error(`${file}: ${error.message}`); }
   return { ...brief, name: brief.name ?? path.basename(file, ".json") };
+}
+
+// The dashboard snapshot of the run's kino server (read only), or null when it cannot be read: the
+// runner then says "your call", and run.json counts the failure so a missing stop is not silent.
+async function readSnapshot(url) {
+  try {
+    const response = await fetch(`${url}/api/dashboard/snapshot`, { signal: AbortSignal.timeout(15_000) });
+    return response.ok ? await response.json() : null;
+  } catch { return null; }
 }
 
 // Copies the brief's files into the run (the sources are only read), named <n>-<name> so two
@@ -201,7 +299,8 @@ function runClaude({ message, sessionId, workDir, env, transcript, deadline, mod
   running.add(child);
   child.once("exit", () => running.delete(child));
   const events = [];
-  let buffer = "", errors = "";
+  const spawnedAt = Date.now();
+  let buffer = "", errors = "", firstToolMs = null;
   child.stdout.on("data", (chunk) => {
     transcript.write(chunk);
     buffer += chunk;
@@ -209,7 +308,13 @@ function runClaude({ message, sessionId, workDir, env, transcript, deadline, mod
     while ((end = buffer.indexOf("\n")) !== -1) {
       const line = buffer.slice(0, end).trim();
       buffer = buffer.slice(end + 1);
-      if (line) try { events.push(JSON.parse(line)); } catch { /* not JSON */ }
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line);
+        events.push(event);
+        // How long after the message the agent first acts: what a stop's reply cost in waiting.
+        if (firstToolMs === null && callsTool(event)) firstToolMs = Date.now() - spawnedAt;
+      } catch { /* not JSON */ }
     }
   });
   child.stderr.on("data", (chunk) => { errors = (errors + chunk).slice(-4000); });
@@ -217,7 +322,7 @@ function runClaude({ message, sessionId, workDir, env, transcript, deadline, mod
   const timer = setTimeout(() => { timedOut = true; stopGroup(child); }, Math.max(1_000, deadline - Date.now()));
   return new Promise((resolve) => child.once("exit", (code) => {
     clearTimeout(timer);
-    resolve({ code, timedOut, errors, ...summarize(events) });
+    resolve({ code, timedOut, errors, firstToolMs, ...summarize(events) });
   }));
 }
 
@@ -318,17 +423,30 @@ async function main() {
   const looksDir = path.join(dataDir, "agent", "out");
   await mkdir(looksDir, { recursive: true });
   const calls = [];
-  let sessionId = null, message = prompt, made = null;
+  const stops = [];
+  let sessionId = null, message = prompt, made = null, openStop = null, snapshotFailures = 0;
   try {
     for (;;) {
       const call = await runClaude({ message, sessionId, workDir, env, transcript, deadline, model, effort, system, addDirs: [mediaDir, outDir, looksDir] });
       calls.push({ message, code: call.code, timedOut: call.timedOut, cost: call.cost, turns: call.turns, toolCalls: call.toolCalls, models: call.models, finalMessage: call.finalMessage, errors: call.code ? call.errors : undefined });
+      // The reply to a stop is done once the agent acts again: how long that took.
+      if (openStop) openStop.nextToolAfter = call.firstToolMs === null ? null : seconds1(call.firstToolMs);
+      openStop = null;
       sessionId ??= call.sessionId;
       made = pickMp4([...await listFiles(outDir), ...await listFiles(workDir), ...await listFiles(path.join(dataDir, "exports"))], started);
       console.log(`  turn ${calls.length}: ${call.turns} steps, $${call.cost.toFixed(2)}, ${made ? `mp4 ${made.final ? "final" : "draft"}` : "no mp4"}; ${call.finalMessage.replace(/\s+/g, " ").slice(0, 160)}`);
       if (made?.final || call.timedOut || Date.now() >= deadline || !sessionId) break;
       if (calls.length > replyLimit) break;
-      message = REPLY;
+      // A stop kino holds for the person gets a person's reply; every other turn end is "your call".
+      const snapshot = await readSnapshot(server.url);
+      if (!snapshot) snapshotFailures += 1;
+      const next = nextMessage(snapshot, brief, stops);
+      message = next.message;
+      if (next.stop) {
+        openStop = stopEntry(next.stop, askedAfter(next.stop, started, Date.now()), message);
+        stops.push(openStop);
+        console.log(`  stop ${next.stop.kind} (${next.stop.id}) waiting: replied "${message}"`);
+      }
     }
   } finally {
     transcript.end();
@@ -351,13 +469,15 @@ async function main() {
     version: 1, runId, askedProjectId, projectId, brief: brief.name, ask: brief.ask, files, model: model ?? "(Claude Code default)", effort: effort ?? "(Claude Code default)", house, models: [...new Set(calls.flatMap((call) => call.models))],
     startedAt: new Date(started).toISOString(), seconds, budgetMinutes: minutes, timedOut: calls.some((call) => call.timedOut) || Date.now() >= deadline,
     mp4: made?.path ?? null, mp4Final: made?.final ?? false, mp4Info: made ? await probe(made.path) : null,
-    finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY,
+    // replies is every message the runner sent after the first; yourCallReplies are the ones that
+    // were "your call", stops the ones that were a person's reply to a waiting stop.
+    finalMessage: last.finalMessage ?? "", replies: calls.length - 1, replyText: REPLY, yourCallReplies: calls.length - 1 - stops.length, stops, snapshotFailures,
     // A resumed session's total_cost_usd is the whole session's so far, so the run's cost is the largest.
     costUsd: Math.round(Math.max(0, ...calls.map((call) => call.cost ?? 0)) * 100) / 100,
     check, calls, sessionId, transcript: path.join(runDir, "transcript.jsonl"), serverLog: path.join(runDir, "server.log"),
   };
   await writeFile(path.join(runDir, "run.json"), JSON.stringify(result, null, 2) + "\n");
-  console.log(`${path.join(runDir, "run.json")}\n  mp4: ${result.mp4 ?? "none"} (${result.mp4Final ? "final" : "not final"}), ${seconds} s, $${result.costUsd}, ${result.replies} replies`);
+  console.log(`${path.join(runDir, "run.json")}\n  mp4: ${result.mp4 ?? "none"} (${result.mp4Final ? "final" : "not final"}), ${seconds} s, $${result.costUsd}, ${result.replies} replies (${stops.length} to stops, ${result.yourCallReplies} "${REPLY}")`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))
