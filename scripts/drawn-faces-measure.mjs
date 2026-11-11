@@ -18,7 +18,8 @@
 //     Runs each detector over every still, writes <out>/detections-<detector>.json and
 //     <out>/scores.json, and prints a table of recall and precision at IoU 0.3.
 //   node scripts/drawn-faces-measure.mjs rescore --labels <labels.json> --detections <owlv2 json>
-//     Scores saved OWLv2 boxes again (after a label fix) at each score threshold.
+//     Scores saved OWLv2 boxes again (after a label fix) with the same rows measure prints: each
+//     score threshold, the best box per still, big boxes dropped, and the IoU cut moved.
 import { spawn, spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -30,6 +31,8 @@ const IOU_MATCH = 0.3;
 const RECALL_GATE = 0.8;
 const OWL_MODEL = "Xenova/owlv2-base-patch16-ensemble";
 const OWL_THRESHOLDS = [0.05, 0.1, 0.15, 0.2, 0.3];
+const IOU_SWEEP = [0.2, 0.25, 0.35, 0.5];
+const MAX_SMALL_BOX_AREA = 0.5;
 // Vision jobs in kino-measure.swift: 8 saliency boxes, 16 face boxes.
 const JOB_SALIENCY = 8;
 const JOB_FACES = 16;
@@ -56,9 +59,9 @@ export function iou(a, b) {
 }
 
 /** Greedy one-to-one matching, best IoU first: a detection counts for at most one labeled face. */
-export function matchCounts(truth, found) {
+export function matchCounts(truth, found, iouMatch = IOU_MATCH) {
   const pairs = [];
-  truth.forEach((face, t) => found.forEach((box, f) => { const score = iou(face, box); if (score >= IOU_MATCH) pairs.push({ t, f, score }); }));
+  truth.forEach((face, t) => found.forEach((box, f) => { const score = iou(face, box); if (score >= iouMatch) pairs.push({ t, f, score }); }));
   pairs.sort((a, b) => b.score - a.score);
   const usedTruth = new Set(), usedFound = new Set();
   for (const pair of pairs) {
@@ -68,13 +71,38 @@ export function matchCounts(truth, found) {
   return { hits: usedTruth.size, matchedTruth: usedTruth, falseFound: found.length - usedFound.size };
 }
 
+/**
+ * Every OWLv2 row the result report uses, all from the saved boxes. Besides the plain score
+ * thresholds it scores three checks on how narrow a pass is: the best box per still only, boxes
+ * over half the picture dropped (a big box matches any close-up), and the IoU cut moved at the
+ * gate threshold (labels are only accurate to about 5%).
+ */
+export function owlRows(stills, owl, loadSeconds) {
+  const name = `OWLv2 ${owl.dtype} "${owl.prompts.join('" + "')}"`;
+  const seconds = meanSeconds(owl, stills);
+  const row = (detector, boxesOf, iouMatch) => ({ detector, seconds, loadSeconds, ...(iouMatch ? { iou: iouMatch } : {}), ...score(stills, boxesOf, iouMatch) });
+  const above = (threshold) => (still) => owl[still.id].boxes.filter((box) => box.s >= threshold);
+  const rows = [];
+  for (const threshold of OWL_THRESHOLDS) rows.push(row(`${name} score>=${threshold}`, (still) => above(threshold)(still).map((box) => box.box)));
+  for (const threshold of OWL_THRESHOLDS.slice(0, 2)) {
+    const best = (still) => above(threshold)(still).sort((a, b) => b.s - a.s).slice(0, 1).map((box) => box.box);
+    rows.push(row(`${name} top box per still only, score>=${threshold}`, best));
+  }
+  for (const threshold of OWL_THRESHOLDS) {
+    const small = (still) => above(threshold)(still).map((box) => box.box).filter((box) => box[2] * box[3] <= MAX_SMALL_BOX_AREA);
+    rows.push(row(`${name} boxes over half the picture dropped, score>=${threshold}`, small));
+  }
+  for (const iouMatch of IOU_SWEEP) rows.push(row(`${name} score>=${OWL_THRESHOLDS[0]} at IoU ${iouMatch}`, (still) => above(OWL_THRESHOLDS[0])(still).map((box) => box.box), iouMatch));
+  return rows;
+}
+
 /** Recall over all labeled faces and over whole faces only, precision over every box found. */
-export function score(stills, boxesOf) {
+export function score(stills, boxesOf, iouMatch = IOU_MATCH) {
   let faces = 0, whole = 0, hits = 0, wholeHits = 0, found = 0, wrong = 0;
   for (const still of stills) {
     const truth = still.faces.map((face) => face.box);
     const boxes = boxesOf(still);
-    const { hits: hit, matchedTruth, falseFound } = matchCounts(truth, boxes);
+    const { hits: hit, matchedTruth, falseFound } = matchCounts(truth, boxes, iouMatch);
     faces += truth.length; hits += hit; found += boxes.length; wrong += falseFound;
     still.faces.forEach((face, index) => { if (face.whole) { whole += 1; if (matchedTruth.has(index)) wholeHits += 1; } });
   }
@@ -194,10 +222,7 @@ async function measure(opts) {
     const owl = await runOwl(stills, { modules: opts.modules, models: opts.models, dtype: opts.dtype, prompts });
     const name = `detections-owlv2-${owl.dtype}.json`;
     writeFileSync(path.join(opts.out, name), JSON.stringify(owl, null, 1));
-    for (const threshold of OWL_THRESHOLDS) {
-      rows.push({ detector: `OWLv2 ${owl.dtype} "${prompts.join('" + "')}" score>=${threshold}`, seconds: meanSeconds(owl, stills), loadSeconds: Math.round(owl.loadSeconds * 10) / 10,
-        ...score(stills, (still) => owl[still.id].boxes.filter((box) => box.s >= threshold).map((box) => box.box)) });
-    }
+    rows.push(...owlRows(stills, owl, Math.round(owl.loadSeconds * 10) / 10));
   }
   const scoresFile = path.join(opts.out, "scores.json");
   let saved = [];
@@ -230,11 +255,8 @@ function sheets(opts) {
 function rescoreOwl(opts) {
   const { stills } = JSON.parse(readFileSync(opts.labels, "utf8"));
   const owl = JSON.parse(readFileSync(opts.detections, "utf8"));
-  console.log("threshold | faces | hits | recall | whole recall | boxes | wrong | precision | s/image | gate 0.8");
-  for (const threshold of OWL_THRESHOLDS) {
-    const row = score(stills, (still) => owl[still.id].boxes.filter((box) => box.s >= threshold).map((box) => box.box));
-    console.log([threshold, row.faces, row.hits, row.recall, `${row.wholeHits}/${row.wholeFaces} ${row.wholeRecall}`, row.found, row.wrong, row.precision, meanSeconds(owl, stills), row.meetsGate ? "meets" : "below"].join(" | "));
-  }
+  console.log("detector | faces | hits | recall | whole recall | boxes | wrong | precision | s/image | gate 0.8");
+  for (const row of owlRows(stills, owl, null)) console.log([row.detector, row.faces, row.hits, row.recall, `${row.wholeHits}/${row.wholeFaces} ${row.wholeRecall}`, row.found, row.wrong, row.precision, row.seconds, row.meetsGate ? "meets" : "below"].join(" | "));
 }
 
 const opts = options(process.argv.slice(2));
