@@ -191,7 +191,7 @@ test("a muted clip's spoken lines are named once (edit receipt or status); keep_
   assert.deepEqual(voice.animations.filter((animation) => /^Line /.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
 });
 
-test("short lines the layer does not play never hide the one it plays; a line just past the trim is named with file seconds; keep_line reads a transcript heard with older names", { skip: skipWithoutMediaTools }, async () => {
+test("short lines the layer does not play never hide the one it plays; a line just past the trim is named with file seconds and a call that moves the trim; keep_line reads a transcript heard with older names", { skip: skipWithoutMediaTools }, async () => {
   const other = path.join(folder, "long-clip.wav");
   await writeWav(other, toneWords(TONES, DURATION + 0.1));
   const media = await upload(server, other, "long-clip.wav");
@@ -206,12 +206,19 @@ test("short lines the layer does not play never hide the one it plays; a line ju
   const added = await client.call("edit", { project: "long-lines", ops: [{ op: "add_layer", layerType: "audio", name: "vo", properties: { src: media.src, mediaStart: 0, mediaOffset: 2.8, mediaDuration: 2.4, volume: 0 } }] });
   assert.equal(added.isError, undefined, added.text);
   const note = (added.data.notes ?? []).join("\n");
-  assert.match(note, /your clips say 2 lines and none is heard: vo "The whole long line is here\." 0\.2-1\.9 s · vo "Run fast\." plays file 2\.8-5\.2, line at 1\.9-2\.4\./);
+  assert.match(note, /your clips say 2 lines and none is heard: vo "The whole long line is here\." 0\.2-1\.9 s · vo "Run fast\." plays 2\.8-5\.2, line at 1\.9-2\.4\./);
   // The brief now names someone, so whisper would hear the clip with other names: keep_line finds the line the agent was shown.
   assert.equal((await client.call("notes", { project: "long-lines", action: "brief", fields: { message: { text: "made for Zuri riders", by: "guessed" } } })).isError, undefined);
   const kept = await client.call("edit", { project: "long-lines", ops: [...["reference", "treatments"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a test of keep_line" })), { op: "keep_line", layer: "vo", line: "The whole long line is here." }] });
   assert.equal(kept.isError, undefined, kept.text);
   assert.deepEqual((await readdir(path.dirname(file))).filter((name) => name.startsWith(`${path.basename(file)}.words`)), [`${path.basename(file)}.words-small.en-0123abcd`]);
+  // A line the trim cuts off: the named call moves the trim and keeps the line, pasted as written.
+  assert.equal((await client.call("project", { action: "create", id: "cut-line", width: 320, height: 180, duration: 8 })).isError, undefined);
+  const cut = await client.call("edit", { project: "cut-line", ops: [{ op: "add_layer", layerType: "audio", name: "vo", properties: { src: media.src, mediaStart: 1, mediaOffset: 3.6, mediaDuration: 2.4, volume: 0 } }] });
+  const { ops } = JSON.parse((cut.data.notes ?? []).join("\n").match(/edit (\{.*\})\. The song/)[1]);
+  assert.deepEqual(ops.slice(0, 2), [{ op: "update_layer", layer: "vo", properties: { mediaOffset: 2.8 } }, { op: "keep_line", layer: "vo", line: "The whole long line is here." }]);
+  const pasted = await client.call("edit", { project: "cut-line", ops: [{ op: "waive_check", code: "reference", target: "*", reason: "a test of keep_line" }, ...ops.filter((op) => op.op !== "isolate_voice")] });
+  assert.deepEqual(pasted.data.keepLine?.file, [3, 4.7], pasted.text);
 });
 
 test("the dashboard's own check (listen:false) never transcribes; an agent's full check does", { skip: skipWithoutMediaTools }, async () => {

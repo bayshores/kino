@@ -107,7 +107,7 @@ import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
-import { constantSpeed, isRemapped } from "../../engine/mediaTime.js";
+import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
@@ -164,6 +164,18 @@ const SPEECH_TARGET = /^speech:(.+?)(?:\[(file)?,?(?:from=(\d+(?:\.\d+)?))?\])?$
 // A clip's spoken line this many file seconds or less past what its layer plays is still named
 // with that layer (the trim stops just before it), so the agent can move the trim to play it.
 const LINE_NEAR = 1;
+const LINE_PAD = 0.15;
+// The smallest move of a speed-1 layer's trim that plays a whole line with LINE_PAD around it:
+// mediaOffset slides the file seconds the layer plays; mediaDuration grows only for a longer line.
+// `lead` is the scene seconds between mediaStart and where the layer starts playing (scene start, windows).
+function lineTrim({ plays, line, mediaStart, sceneStart }) {
+  const lead = sceneStart - mediaStart;
+  const need = line.end - line.start + 2 * LINE_PAD;
+  const grow = plays[1] - plays[0] < need;
+  const slide = grow || line.start - LINE_PAD < plays[0] ? line.start - LINE_PAD - plays[0] : Math.max(0, line.end + LINE_PAD - plays[1]);
+  const offset = Math.max(0, Math.floor((plays[0] + slide - lead) * 10) / 10);
+  return { offset, properties: { mediaOffset: offset, ...(grow ? { mediaDuration: Math.ceil((need + lead) * 10) / 10 } : {}) } };
+}
 export const VERBS = Object.freeze(["status", "edit", "check", "look", "inspect", "render", "library", "history", "notes", "project"]);
 const RECEIPT_LIST = 30;
 // An edit receipt lists the times of at most this many animations it made or retimed.
@@ -4604,8 +4616,10 @@ export function createAgentService(deps) {
         if (overlap < -LINE_NEAR) continue;
         const whole = !slowed && line.start >= plays[0] - 1e-6 && line.end <= plays[1] + 1e-6;
         const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
+        // Why keep_line cannot take the line as the layer plays it (it needs speed 1, forwards, every frame).
+        const how = !slowed ? "" : constantSpeed(layer) !== 1 ? `speed ${constantSpeed(layer)}` : isReversed(layer) ? "backwards" : "speed animated or own frame rate";
         const entry = { layer: refName(layer.id, codes), src: layer.src, text: line.text, whole, overlap, plays, line, from: at(line.start), to: at(line.end),
-          speed: slowed ? constantSpeed(layer) : 1 };
+          speed: slowed ? constantSpeed(layer) : 1, how, mediaStart: layer.mediaStart ?? 0, sceneStart: range.start, offset: range.offset };
         const key = `${layer.src} ${line.start}`;
         const known = found.get(key);
         if (!known || (entry.whole - known.whole || entry.overlap - known.overlap) > 0) found.set(key, entry);
@@ -4613,21 +4627,29 @@ export function createAgentService(deps) {
     }
     if (!found.size) return null;
     // Whole lines in scene order, then lines at speed 1 (only the trim moves), each by how much of it plays.
-    const named = [...found.values()].sort((a, b) => (b.whole - a.whole) || (a.whole ? a.from - b.from : (a.speed !== 1) - (b.speed !== 1) || b.overlap - a.overlap));
+    const named = [...found.values()].sort((a, b) => (b.whole - a.whole) || (a.whole ? a.from - b.from : !!a.how - !!b.how || b.overlap - a.overlap));
     const key = createHash("sha256").update(JSON.stringify(named.map((line) => [line.src, line.text]))).digest("hex").slice(0, 16);
     if (state?.linesNamed === key) return null;
     const file = (seconds) => seconds.toFixed(1);
     const shown = named.slice(0, 3).map((line) => `${line.layer} "${line.text.replaceAll('"', "'")}" ${line.whole ? `${line.from}-${line.to} s`
-      : `plays file ${file(line.plays[0])}-${file(line.plays[1])}, line at ${file(line.line.start)}-${file(line.line.end)}${line.speed !== 1 ? ` (speed ${line.speed})` : ""}`}`);
+      : `plays ${file(line.plays[0])}-${file(line.plays[1])}, line at ${file(line.line.start)}-${file(line.line.end)}${line.how ? ` (${line.how})` : ""}`}`);
     // The song to dip: a music layer that is not one of the clips with lines.
     const talking = new Set(named.map((line) => line.src));
     const song = scene.layers.find((layer) => !talking.has(layer.src) && isMusicLayer(layer, scene));
     const duck = song ? { duck: refName(song.id, codes) } : {};
     const [first] = named;
-    // keep_line {line} finds the words the layer plays: a cut-off line needs its trim moved first.
-    const keep = first.whole
-      ? ` Keep one under the song: edit ${JSON.stringify({ ops: [{ op: "keep_line", layer: first.layer, line: first.text, ...duck }, { op: "isolate_voice", layer: first.layer }] })}.`
-      : ` To keep one, trim its layer (mediaOffset, mediaDuration; speed 1) to play the whole line, then keep_line ${JSON.stringify({ layer: first.layer, line: first.text, ...duck })}.`;
+    // keep_line {line} finds the words the layer plays: a cut-off line at speed 1 gets its trim
+    // moved in the same edit (the layer keeps its length unless the line is longer). A line
+    // clipLines shortened ("…") is kept by its scene seconds, since its words are not all shown.
+    const trim = first.whole || first.how ? null : lineTrim(first);
+    // Scene seconds of a file second: after the trim, mediaStart plays file second mediaOffset.
+    const sceneAt = (seconds, step) => Math[step]((trim ? first.mediaStart + seconds - trim.offset : first.sceneStart + seconds - first.offset) * 100) / 100;
+    const what = first.text.endsWith("…") ? { from: sceneAt(first.line.start, "floor"), to: sceneAt(first.line.end, "ceil") } : { line: first.text };
+    const ops = [...(trim ? [{ op: "update_layer", layer: first.layer, properties: trim.properties }] : []),
+      { op: "keep_line", layer: first.layer, ...what, ...duck }, { op: "isolate_voice", layer: first.layer }];
+    const keep = first.how
+      ? ` To keep one, set its layer to speed 1, forwards, then trim it to the line and keep_line ${JSON.stringify({ op: "keep_line", layer: first.layer, line: first.text, ...duck })}.`
+      : ` Keep one under the song: edit ${JSON.stringify({ ops })}.`;
     const text = `lines: your clips say ${named.length} line${named.length === 1 ? "" : "s"} and none is heard: ${shown.join(" · ")}${named.length > 3 ? ` +${named.length - 3} more` : ""}.${keep} The song alone is a choice too.`;
     return { text, key };
   }
