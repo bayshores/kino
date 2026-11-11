@@ -2,7 +2,8 @@
 // cue motivates it. The kind must match what the cue is:
 //   flash         light in the shot (a footage light event), a song seam (song-drop, song-return,
 //                 song-switch ...) or a top accent from detect_beats (rank 1 or weight 0.6 and up)
-//   shake         an impact in the footage (a contact: something hits)
+//   shake         an impact in the footage (a contact: something hits), a song seam or a top accent
+//                 (the same reasons effect_fit accepts); without a footage hit it shakes up and down
 //   impact-frame  an impact in the footage that has no impact frame of its own
 //   dip           a rest in the song (song-break, song-dropout): darker until the next seam
 //   strobe        a drum fill measured just before the cue (4 or more even onsets), resolving on it
@@ -33,7 +34,7 @@ const FRAME = 1 / 30;
 const NEAR = 2.5 * FRAME;
 const EARLY = 2 * FRAME + 1e-6;
 export { IMPACT_KINDS };
-const NEEDS = Object.freeze({ flash: ["light", "seam", "accent"], shake: ["impact"], "impact-frame": ["impact"], dip: ["dropout"], strobe: ["fill"] });
+const NEEDS = Object.freeze({ flash: ["light", "seam", "accent"], shake: ["impact", "seam", "accent"], "impact-frame": ["impact"], dip: ["dropout"], strobe: ["fill"] });
 const SAYS = { light: "light in the shot", seam: "a song seam", accent: "a top accent", impact: "an impact in the footage", dropout: "a rest in the song", fill: "a drum fill before it" };
 // Song seams (fit_music cues song-<kind>-<n>) by how hard the picture may answer them.
 const SEAMS = { drop: 1, return: 0.9, switch: 0.8, "vocal-in": 0.6, build: 0.6, intro: 0.5, outro: 0.5 };
@@ -143,7 +144,8 @@ const build = {
   },
   shake(ctx, shot, { motive }, t) {
     if (ctx.reduced) { ctx.note("impact-accent shake: none in reduced motion"); return { start: t, end: t + FRAME, tags: [] }; }
-    const dir = motive.dir ?? "right";
+    // A footage hit shakes along its own direction; a song seam or accent has none, so it bumps down.
+    const dir = motive.dir ?? (motive.motive === "impact" ? "right" : "down");
     const axes = [/left|right/.test(dir) ? "x" : null, /up|down/.test(dir) ? "y" : null].filter(Boolean);
     const size = ctx.frame.width * (0.01 + 0.01 * motive.weight) / (axes.length > 1 ? Math.SQRT2 : 1);
     // A cosine wave (phase a quarter) 0.1 s a cycle, decaying 14 a second: full on the cue's frame,
@@ -160,7 +162,7 @@ const build = {
     // before it, a drift through it) put it at each moment, and nothing is pinned after it.
     const here = ctx.stateAt(shot.id, t);
     const rest = Object.fromEntries(axes.map((axis) => [axis, round(here[axis] ?? shot[axis], 2)]));
-    const shake = { ...motion({ name: `Shake (impact ${round(motive.weight, 2)} ${dir})`, start: t, duration: length, easing: SNAP, from: rest, to: {} }),
+    const shake = { ...motion({ name: `Shake (${motive.motive} ${round(motive.weight, 2)} ${dir})`, start: t, duration: length, easing: SNAP, from: rest, to: {} }),
       fromCurrent: true, behavior: { oscillate: { amount, period: 0.1, phase: 0.25, wave: "sine", decay: 14 } } };
     ctx.animate(shot.id, "shake", shake, "impact");
     return { start: t, end: t + length, tags: ["shake"] };
@@ -211,7 +213,7 @@ export const impactAccent = {
   tags: ["flash", "shake"],
   length: 0.2,
   fields: {
-    kind: { kind: "choice", values: IMPACT_KINDS, required: true, about: "flash (light, a seam or a top accent), shake or impact-frame (an impact in the footage), dip (a rest), strobe (a drum fill before the cue)" },
+    kind: { kind: "choice", values: IMPACT_KINDS, required: true, about: "flash (light, a seam or a top accent), shake (an impact in the footage, a seam or a top accent), impact-frame (an impact in the footage), dip (a rest), strobe (a drum fill before the cue)" },
     layer: { kind: "layer", about: "the shot (default the clip the impact or light is in, else the top shot on screen)" },
     color: { kind: "text", max: 7, about: "impact-frame: the silhouette's ink, hex (default near black)" },
   },
