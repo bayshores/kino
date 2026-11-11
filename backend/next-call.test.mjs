@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { answerText, callText, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
 import { originReferenceLine } from "./agent/seen-names.mjs";
 import { statusMove } from "./stops.test.support.mjs";
+import { withAsk } from "./agent-ask.test.support.mjs";
 
 const LOOK = { tool: "look", input: { mode: "review" } };
 
@@ -41,7 +42,7 @@ test("the direction's calls: a new video's brief with every line at once, the pl
   assert.deepEqual(Object.keys(fresh.input.fields), ["message", "look_sound", "never", "plays_on", "made_from"]);
   assert.equal(statusMove({}, video).call, null, "a change to a video with layers: the build steps");
   const line = (text) => ({ text, by: "guessed" });
-  const brief = { rev: 1, fields: { message: line("m"), plays_on: line("p"), made_from: line("f"), look_sound: line("l"), never: line("n") }, log: [], noPlayback: { reason: "just start", rev: 1 } };
+  const brief = { rev: 1, fields: withAsk({ message: line("m"), plays_on: line("p"), made_from: line("f"), look_sound: line("l"), never: line("n") }), log: [], noPlayback: { reason: "just start", rev: 1 } };
   assert.equal(statusMove({ brief }, unwaived).step, "write 5 treatments", "the idea comes before the plan (T3)");
   const plan = statusMove({ brief }, video);
   assert.equal(plan.step, "notes set_plan, build, then ask rough");

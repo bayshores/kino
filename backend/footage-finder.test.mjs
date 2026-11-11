@@ -18,6 +18,7 @@ import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
 import { footageLed } from "./footage-finder/step.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
+import { withAsk } from "./agent-ask.test.support.mjs";
 import { openStore } from "./store.mjs";
 import { createDocument, createLayer, createScene } from "../engine/model.js";
 
@@ -772,7 +773,7 @@ test("footage codes: at most 24 kept, the oldest go first but never a scanned, n
 });
 
 const line = (text) => ({ text, by: "you", quote: text });
-const footageBrief = (message, never = "none said") => ({ rev: 1, confirmedRev: 1, log: [], fields: { message: line(message), plays_on: line("phone, vertical"), made_from: line("whatever fits"), look_sound: line("a hype song"), never: line(never) } });
+const footageBrief = (message, never = "none said") => ({ rev: 1, confirmedRev: 1, log: [], fields: withAsk({ message: line(message), plays_on: line("phone, vertical"), made_from: line("whatever fits"), look_sound: line("a hype song"), never: line(never) }) });
 
 test("a footage-led brief is an edit of an existing subject; product briefs and the never line do not count", () => {
   for (const message of ["make an anime edit of Frieren to a hype song", "basketball highlights from last season", "an AMV of my favorite show", "a gaming montage of my clutch rounds"])

@@ -14,6 +14,7 @@ import { personCall } from "./agent/critique.mjs";
 import { cleanTreatments } from "./agent/treatments.mjs";
 import { videoFacts } from "./agent/brief.mjs";
 import { ASK_SHOTS, ASK_TOKENS, FRESH_TOKENS, SHOT_TOKENS } from "./agent/board-text.mjs";
+import { withAsk } from "./agent-ask.test.support.mjs";
 
 const VIDEO = { seconds: 24, layers: 1, footage: false, width: 1080, height: 1920 };
 // Since B4a the storyboard stop asks about the board saved in the document: one title card a
@@ -343,7 +344,7 @@ test("before any stop, status names the first stop to ask once the brief is sett
   const state = ready(4);
   assert.deepEqual(statusLines(state, VIDEO), ["direction: no brief lines, no playback · replies 0/10", "step: guess 5 missing lines"], "the brief comes first");
   const fields = Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never"].map((name) => [name, { text: "x", by: "guessed" }]));
-  state.brief = { ...state.brief, rev: 1, fields };
+  state.brief = { ...state.brief, rev: 1, fields: withAsk(fields) };
   assert.equal(statusLines(state, VIDEO)[1], "step: write 5 treatments", "the idea comes before the plan (T3)");
   const IDEA = { ...VIDEO, treatmentsWaived: true };
   assert.equal(statusLines(state, IDEA)[1], "step: notes set_plan, build, then ask rough");
