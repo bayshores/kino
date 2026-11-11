@@ -173,7 +173,9 @@ test("variants {vary:\"format\"} composes a 16:9 footage scene again in 9:16, cr
   // cuts that face: crop_no_subject warns "is the mark on the right part?", it is not an error.
   await agent("edit", { project: "reformat", ops: [{ op: "mark_subject", layer: "shot-1-v3", t: 0.1, box: [40, 10, 20, 60] }, { op: "update_layer", layer: "shot-1-v3", properties: { x: -1167 } }] });
   const elsewhere = await agent("check", { project: "reformat", scene: "scene-1-v3", rules: ["crop_no_subject"] });
-  assert.match(elsewhere.text, /^W crop_no_subject shot-1-v3 @0: .*while its marked subject is elsewhere/m, elsewhere.text);
+  // The face is found by Apple Vision, so off a Mac there is no face to cut and no warning.
+  if (process.platform === "darwin") assert.match(elsewhere.text, /^W crop_no_subject shot-1-v3 @0: .*while its marked subject is elsewhere/m, elsewhere.text);
+  else assert.doesNotMatch(elsewhere.text, /crop_no_subject shot-1-v3/, elsewhere.text);
 
   await agent("project", { action: "create", id: "by-hand", name: "By hand" });
   await agent("edit", { project: "by-hand", ops: [{ op: "add_layer", layerType: "rectangle", name: "box", properties: { x: 100, y: 100, width: 200, height: 200 } }] });

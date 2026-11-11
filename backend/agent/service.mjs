@@ -7119,7 +7119,9 @@ export function createAgentService(deps) {
     const meta = caller.getStore() ?? {};
     if (!(error instanceof AgentError)) return error;
     // The person's own render, or one they approved, lists no gates, but still sees what is waived.
-    if (meta.reviewed || meta.approved || meta.by === "you") {
+    // The person's own render: the dashboard shows the waived checks as chips beside this sentence.
+    if (meta.by === "you") return error;
+    if (meta.reviewed || meta.approved) {
       error.message = `${error.message}${waivedNote(record.document)}`;
       return error;
     }

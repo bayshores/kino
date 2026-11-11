@@ -104,10 +104,10 @@ test("the person's own final render on the dashboard waits too, with words for t
   assert.equal(reply.status, 200);
   assert.equal(reply.body.data.error, "stops_open");
   assert.equal(reply.body.data.next, "Answer them when your agent asks, or set them to allow in settings › stops.");
-  // The person's own refusal shows what is waived too.
+  // The person's own refusal stays one sentence: the dashboard shows what is waived as chips.
   assert.equal((await agent("edit", { project: "final-yours", ops: [{ op: "waive_check", code: "overlap", target: "title", reason: "meant" }] })).isError, undefined);
   const waived = await dashboard("act/render", { body: { project: "final-yours", quality: "final", format: "png" } });
-  assert.match(waived.body.data.reason, /1 waived \(overlap 1\)\.$/, waived.body.data.reason);
+  assert.doesNotMatch(waived.body.data.reason, /waived/, waived.body.data.reason);
 });
 
 test("the older export-batches route refuses a final while stops are open and lets a draft through", async () => {
