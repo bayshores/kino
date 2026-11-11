@@ -297,11 +297,11 @@ test("no_playback settles the brief without a playback for the rest of the video
   ].join("\n"));
   assert.deepEqual((await statusLines("brief-just-start")).slice(1, 3), ["direction: brief r1 (5 guessed), no playback · replies 1/10", 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build']);
   // The step log: the calls up to the brief save arrived in the brief step (create, the waivers
-  // edit, the save); the status call after it found the build open. history prints the table.
+  // edit, the save); the status call after it found the storyboard open. history prints the table.
   const stepLog = (await savedState("brief-just-start")).stepLog;
-  assert.deepEqual(stepLog.order, ["brief", "build"]);
-  assert.deepEqual([stepLog.steps.brief.calls, stepLog.steps.build.calls], [3, 1]);
-  assert.match((await agent("history", { project: "brief-just-start" })).text, /\nsteps \(kino's time and calls[^\n]*\n  brief +<1 min +3 calls\n  build +<1 min +\d+ calls?\n  total /);
+  assert.deepEqual(stepLog.order, ["brief", "board"]);
+  assert.deepEqual([stepLog.steps.brief.calls, stepLog.steps.board.calls], [3, 1]);
+  assert.match((await agent("history", { project: "brief-just-start" })).text, /\nsteps \(kino's time and calls[^\n]*\n  brief +<1 min +3 calls\n  board +<1 min +\d+ calls?\n  total /);
   await agent("notes", { project: "brief-just-start", action: "set_plan", steps: ["Build", "Render"] });
   assert.equal((await statusLines("brief-just-start"))[2], "step: ask board, then follow the plan");
   // A later change is saved, and still needs no playback.
