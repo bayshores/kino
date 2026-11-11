@@ -1280,6 +1280,7 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   and AI-made results go last with a `doubt`; `borrow_rhythm` uses a reference's cuts. TikTok and
   Instagram links are refused. Gaps: link lookup run live once; the reference cache is not trimmed.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`.
+- **Reference search from the ask**: Test-verified, no network. The `order_needed` step fills the first inspire search from the brief's names and quotes, the song's title and "edit" (plus a song-free twin); results far longer than the video and song uploads are dropped and counted; a `shared:` line names words in many titles; the first build needs each of 2 saved references studied. Evidence: `backend/inspire.test.mjs`, `backend/agent-brief.test.mjs`. Gap: not run live.
 - **Reference event reader**: Test-verified on synthetic frames and clips. Inspire keeps 2-frame shots and
   counts flashes; a reference answer adds "cuts n · x% within 1 frame of a beat (random y%)" with offsets in
   frames; taste packets list every cut plus flash, black and hold events. A flash on a cut is one cut, bright

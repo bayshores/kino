@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
-  closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
+  dropNonEdits, dropReason, droppedText, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
   cannotPlayLine, cannotPlayReason,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
@@ -96,6 +96,30 @@ test("ranking: clean results by log views, a verified channel and YouTube's plac
   assert.equal(doubtOf({ title: "City timelapse", description: "Royalty free stock footage", views: 4e5 }), "stock");
   assert.equal(doubtOf({ title: "logo sting", views: 4e5, duration: 4 }), "very short");
   assert.equal(doubtOf({ title: "Typography Animation - Motion Tutorial", views: 8e5 }), "tutorial");
+});
+
+test("results that are not edits to learn from are dropped and counted; the shared words of the rest are one line", () => {
+  const ref = (n, title, duration, fields = {}) => ({ id: `yt:${String(n).repeat(11)}`, title, duration, channel: "Chan", views: 50_000, ...fields });
+  const found = [
+    ref(1, "Hero stairs climb edit", 21), ref(2, "Hero climbs the stairs | cut", 113), ref(3, "Hero stairs scene edit", 30),
+    ref(4, "Song Name (Official Audio)", 100), ref(5, "Song Name 1 hour mix", 3600), ref(6, "Song Name lyrics", 150, { views: 90 }),
+    ref(7, "Song Name slowed + reverb", 100, { channel: "Artist - Topic" }), ref(8, "Song Name edit lyrics", 40), ref(9, "Hero montage", 900),
+  ];
+  // A 15 s video keeps the 21 s and 113 s edits; the 15 minute montage is over 150 s; song uploads go by title; a title with an edit word stays.
+  const { kept, dropped } = dropNonEdits(found, { seconds: 15 });
+  assert.deepEqual(kept.map((item) => item.title), ["Hero stairs climb edit", "Hero climbs the stairs | cut", "Hero stairs scene edit", "Song Name edit lyrics"]);
+  assert.deepEqual(dropped, { "song uploads": 3, "over 150 s (the video is 15 s)": 2 });
+  assert.equal(droppedText(dropped), "Dropped 5: 3 song uploads, 2 over 150 s (the video is 15 s).");
+  // Without a video length only titles drop; low views alone never do.
+  assert.equal(dropNonEdits(found).kept.length, 5);
+  assert.equal(dropReason(ref(0, "Hero walk", 30, { views: 3 })), null);
+  // "stairs" is in 3 of 4 titles and not in the search; "hero" is in the search, so it is left out.
+  assert.deepEqual(sharedWords(kept, "Hero edit"), [{ word: "stairs", count: 3 }]);
+  const text = searchText("Hero edit", kept.map((item) => ({ ...item, state: "found" })), { dropped, alsoTry: "Hero edit" });
+  assert.match(text, /\nDropped 5: 3 song uploads, 2 over 150 s \(the video is 15 s\)\.\nshared: "stairs" in 3 of 4 titles\. Search footage for "stairs" too: library \{topic:"footage", search:"stairs"\}\.\nWithout the song: library \{topic:"inspire", search:"Hero edit"\}\./);
+  // Under a third of the titles, or under 3, shows no line.
+  assert.equal(sharedLine(kept.slice(0, 2), ""), "");
+  assert.equal(sharedLine([...kept, ...kept, ...kept].slice(0, 12).map((item, k) => ({ ...item, title: k < 2 ? item.title : `${"abcdefghij"[k]}${"abcdefghij"[k]}${"abcdefghij"[k]}` })), ""), "");
 });
 
 // A look vector pointing mostly along one axis (dimension 8), stored as a measured record keeps it.

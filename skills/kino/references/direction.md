@@ -30,10 +30,10 @@ person: only their answer or their settings let one pass.
    - `idea` (optional, yours, not asked): the one idea (ideas reference); stops show it.
    Under 8 s: only the open question. A named length: `project create {duration}` plus the
    brief's `fields:{length:30}`, a gate (`{seconds, tolerance}`; default 2%, min 0.5 s).
-3. Don't ask what they can't judge yet (loudness, colors). Before the playback,
-   check for clashes ("dark and moody" against "faces readable on a phone").
-4. "Just start": save what you have not heard as guessed, with `no_playback:"just start"`;
-   say your main calls (and the treatment you picked) in one line and go on.
+3. Don't ask what they can't judge yet (loudness, colors). Before the playback, check for
+   clashes ("dark and moody" against "faces readable on a phone").
+4. "Just start": save the unheard as guessed, with `no_playback:"just start"`; say your main
+   calls (and the treatment you picked) in one line and go on.
 
 ## Saving
 
@@ -66,7 +66,8 @@ What's wrong or missing?
 ```
 
 A correction: save it and play it back again. No revision numbers in the chat. Then, before
-building: 2 saved references, one studied (inspire reference); 5 treatments and the pick of
+building: 2 saved references, each studied (inspire reference: search with the names and song
+they gave, read its `shared:` line); 5 treatments and the pick of
 the 3 shown, and its signature (techniques reference). Earlier, edits are `order_needed`.
 
 ## Replies
@@ -102,14 +103,12 @@ Asking:
 - Then end your turn: `Waiting for you: the rough cut (C1)`. Until they answer, that project's
   writes answer `{waiting:"C1"}` and change nothing; reads, `look`, `check` and `notes` work.
 - A stop closes by itself only when the person undid or changed the work it showed (`lapsed`:
-  check, ask again), the video lost that stop, or their settings allow it. Nothing you save
-  closes it.
+  check, ask again), the video lost that stop, or their settings allow it.
 
 Their answer:
 - "ok", "yes", "looks good", "go", "C1 yes": approve. An approval plus a change ("yes,
   warmer"): approve with notes. Only problems: redo.
-- Unclear ("hmm", "maybe?"): ask once what they meant. Silence or an unrelated message is
-  never an answer.
+- Unclear ("hmm", "maybe?"): ask once what they meant. Silence is never an answer.
 - Record it word for word with the `rev` of the ask: `notes {action:"answer", id:"C1", rev:4,
   words:"<their reply>", read_as:"approve"}`. Then one line, `Read as: approve`: a receipt,
   not a second question.

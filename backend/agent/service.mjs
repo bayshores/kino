@@ -59,7 +59,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -887,6 +887,18 @@ export function createAgentService(deps) {
     return videoFacts(document, (await deps.listMedia?.().catch(() => [])) ?? []);
   }
 
+  // The song this video is about, in the person's words or the song's own title: the song the
+  // agent marked as named by the person (library soundtrack song), else the longest credited song
+  // imported for this project (not a sound effect). "" when there is none.
+  async function songTitleFor(document) {
+    const named = (await agentState.read(document.id)).soundtrack?.candidates?.find((entry) => entry.picked && entry.named);
+    if (named) return named.named;
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    const songs = media.filter((item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("audio/") && item.credit?.title
+      && !/^sfx:/.test(String(item.credit?.id ?? "")) && item.duration >= 20).sort((a, b) => b.duration - a.duration);
+    return songs[0]?.credit.title ?? "";
+  }
+
   // videoFacts plus what the direction step needs about references: how many the project saved
   // (left out when kino has no inspire, so the step is skipped) and whether the check is waived;
   // and about the material: needs {checked} when the video has footage or speech (left out
@@ -898,8 +910,10 @@ export function createAgentService(deps) {
     const treatmentsWaived = waivers.some((waiver) => waiver.code === TREATMENTS_WAIVER && waiver.target === "*");
     // The order step (brief.mjs orderStep) also wants the saved ids and whether one was studied.
     const saved = references ? await savedIds(document.id) : [];
-    const studied = references !== undefined ? ((await agentState.read(document.id)).studied ?? []).length > 0 : undefined;
+    const studied = references !== undefined ? ((await agentState.read(document.id)).studied ?? []) : undefined;
     const facts = { ...(await videoFactsFor(document)), references, referenceWaived, treatmentsWaived, saved, studied };
+    // The first search is filled from what the person named, while references are still wanted.
+    if (references !== undefined && references < REFERENCES_WANTED && !referenceWaived) facts.songTitle = await songTitleFor(document);
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
@@ -3892,8 +3906,12 @@ export function createAgentService(deps) {
     const skip = order.call.tool === "notes" ? 'edit waive_check {code:"treatments", target:"*", reason}' : 'edit waive_check {code:"reference", target:"*", reason}';
     // Every gate still open in one answer, so a build does not find them one refusal at a time.
     const then = later.length ? ` Then: ${later.map((entry) => entry.step).join("; ")}.` : "";
+    // The find step also offers the same search without the song; the study step names each saved
+    // reference still to study, with its exact call.
+    const also = order.alt ? ` Or without the song: ${callText(order.alt)}.` : "";
+    const study = order.refs ? ` ${REFERENCES_WANTED} saved references must each be studied; still to study: ${order.refs.map((ref) => callText({ tool: "look", input: { mode: "reference", ref } })).join(", ")}.` : "";
     throw Object.assign(new AgentError("order_needed", `Nothing was built: this briefed video finds its idea before the template. Next: ${order.step}.${then}`, {
-      next: `Send the call below, then build. Importing media, set_brand, notes, library, look and inspect work now. A deliberate skip the person sees: ${skip}.`,
+      next: `Send the call below, then build.${also}${study} Importing media, set_brand, notes, library, look and inspect work now. A deliberate skip the person sees: ${skip}.`,
     }), { nextCall: order.call });
   }
   async function refuseWithoutReference(record, scenes, { format, options }) {
@@ -5895,10 +5913,19 @@ export function createAgentService(deps) {
     if (search) {
       const kind = input.kind ?? "videos";
       if (!SEARCH_KINDS.includes(kind)) throw new AgentError("bad_input", `kind is "videos" (edits to learn from), "shorts" (short vertical edits: YouTube Shorts) or "sounds" (sound effects, ${MAX_SOUND_SECONDS} s or less), not ${JSON.stringify(kind)}.`);
+      // For a briefed video, its length (the brief's, else the scene's unless it is create's
+      // default) drops results far longer than it; the search the step filled in offers its
+      // song-free twin. A search for no video in particular drops by title only.
+      const state = await agentState.read(projectId);
+      const briefed = hasBrief(state.brief);
+      const facts = briefed ? await videoFactsFor(record.document) : null;
+      const seconds = briefed ? lengthTarget(state.brief)?.seconds ?? (facts.seconds > 0 && facts.seconds !== state.defaultLength ? facts.seconds : undefined) : undefined;
+      const filled = kind === "videos" && briefed ? referenceSearches(state.brief, await songTitleFor(record.document)) : null;
+      const alsoTry = filled?.withoutSong && filled.search.toLowerCase() === typed.replace(/\s+/g, " ").toLowerCase() ? filled.withoutSong : "";
       let found;
-      try { found = await deps.inspire.search(projectId, search, { by, count: input.count, kind }); }
+      try { found = await deps.inspire.search(projectId, search, { by, count: input.count, kind, seconds }); }
       catch (error) { throw new AgentError(error.code === "NO_YTDLP" ? "unavailable" : "failed", error.message); }
-      return { project: projectId, text: searchText(found.search.query, found.results, { kind, collapsed: found.collapsed ?? [] }), data: { search: found.search.n, kind, results: found.results.map(({ numbers, ...ref }) => ref) } };
+      return { project: projectId, text: searchText(found.search.query, found.results, { kind, collapsed: found.collapsed ?? [], dropped: found.dropped ?? {}, alsoTry }), data: { search: found.search.n, kind, ...(Object.keys(found.dropped ?? {}).length ? { dropped: found.dropped } : {}), results: found.results.map(({ numbers, ...ref }) => ref) } };
     }
     const view = await deps.inspire.projectView(projectId);
     return { project: projectId, text: projectText(view), data: { searches: view.searches.length, saved: view.saved } };
