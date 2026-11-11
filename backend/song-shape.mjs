@@ -294,7 +294,9 @@ function refine(part, frames, samples, sampleRate) {
  * is 15 dB or more under the median of the 8 s around it for 0.75 to 4 s (shorter gaps are rests,
  * seams), after 1 s with the low band within 6 dB of the song's loud level (its 75th percentile) and
  * before 1 s with the low band and the whole sound back within 6 dB of theirs. The whole sound may
- * stay up through the stop (hats, a pad): only the kick and bass need to be out.
+ * stay up through the stop (hats, a pad): only the kick and bass need to be out. A stop of the whole
+ * sound gets the dropout seam and this drop; its return seam is not made (seamsOf drops a return that
+ * sits on a section). 4 or more stops of one length at an even spacing are the groove (withoutGroove).
  */
 export function stopReturns(frames) {
   const per = 1 / frames.hopSeconds;
@@ -318,7 +320,26 @@ export function stopReturns(frames) {
     // The size of the return: the low band's level in the half second after the stop against its level in the stop.
     if (full) found.push({ from: f * frames.hopSeconds, to: end * frames.hopSeconds, change: level(frames.low, end, end + Math.round(per / 2)) - mean(low.slice(f, end)) });
   }
-  return found;
+  return withoutGroove(found);
+}
+
+const GROOVE_STOPS = 4; // this many stops of one length at an even spacing are the song's groove
+
+/** Drops the stops of a groove: 4 or more in a row of the same length (within 0.3 s) at an even spacing (within 0.3 s) are a pattern, not a stop before a drop. */
+function withoutGroove(found) {
+  const groove = new Set();
+  let run = [];
+  const close = () => { if (run.length >= GROOVE_STOPS) for (const stop of run) groove.add(stop); };
+  for (const stop of found) {
+    const last = run.at(-1);
+    const prev = run.at(-2);
+    const sameLength = last && Math.abs(stop.to - stop.from - (last.to - last.from)) <= 0.3;
+    const evenSpacing = !prev || Math.abs(stop.from - last.from - (last.from - prev.from)) <= 0.3;
+    if (sameLength && evenSpacing) run.push(stop);
+    else { close(); run = [stop]; }
+  }
+  close();
+  return found.filter((stop) => !groove.has(stop));
 }
 
 /**
@@ -755,7 +776,9 @@ export function vocalShare(spans, seconds) {
 }
 
 // Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
-// millisecond, weights; 3: bars, and the bar of every section and seam).
+// millisecond, weights; 3: bars, and the bar of every section and seam; 4: bars list the bars where
+// kick and bass are out in place of thin, and the attack time of the hit on each line; 5: the kick
+// and bass back at full after a stop of 0.75 to 4 s is a drop, a repeating gap (4 or more) is not).
 export const SONG_SHAPE_VERSION = 5;
 const VOCALS_RETRY_MS = 10 * 60_000;
 

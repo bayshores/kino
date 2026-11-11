@@ -859,7 +859,8 @@ How to read it:
 - **fit_music** (op): plays one unbroken stretch of a song with its drop on the payoff (a fade in
   to a bar line, a fade out at the end); `recut:true` re-arranges it in whole groups of 4 bars, cut and joined on measured
   bar lines (a drop played 2 bars before a jump was heard as premature), the song's own ending
-  chosen before any fade ending when a plan reaches it by the end; sections become `song-*`
+  chosen before any fade when it ends at most 2 bars before the end (more silence than that: the drop
+  plays on and fades); sections become `song-*`
   cues. Unverified by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **fit_music plan stop** (op): `plan:"stop"` plays the song's opening up to its own stop, a drop of
@@ -870,7 +871,9 @@ How to read it:
 - **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
   (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
   heard time, in the piece that plays it; one cue per hit. The kick and bass back at full after a
-  stop of 0.75 to 4 s (the whole sound may stay up) is a drop weighted by the size of the return.
+  stop of 0.75 to 4 s (the whole sound may stay up) is a drop weighted by the size of the return, in
+  place of a return seam (the dropout seam stays); 4 or more such gaps of one length at an even
+  spacing are the groove, not drops.
   Synthetic songs only, unverified on real songs (measured on three). Evidence: `backend/soundtrack.test.mjs`, `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **seam_lock, rest_fit** (warnings): a picture change near a song seam lands within 1 frame, a drop
   or return is marked (a move of a large picture counts; only the video's scene is judged); inside a dropout no cut, accent or fast move starts, and the picture restarts

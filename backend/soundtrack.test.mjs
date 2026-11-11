@@ -288,18 +288,22 @@ test("song shape: the kick and bass coming in is a drop, leaving at the end an o
 
 test("song shape: the kick and bass back at full after a 1 s stop is a drop at the return, a one-beat stop is not", () => {
   const rate = 8000;
-  const song = (stopFrom, stopTo) => {
-    const samples = new Float32Array(rate * 24);
+  const song = (stopFrom, stopTo, { seconds = 24, every = 0 } = {}) => {
+    const samples = new Float32Array(rate * seconds);
     for (let i = 0; i < samples.length; i += 1) {
       const t = i / rate;
       samples[i] = 0.1 * Math.sin(2 * Math.PI * 600 * t); // a tone plays through
-      if (!(t >= stopFrom && t < stopTo)) samples[i] += 0.8 * Math.exp(-(t % 0.5) * 12) * Math.sin(2 * Math.PI * 60 * t); // kicks at 120 bpm
+      const stopped = every ? t >= every && (t % every) < stopTo - stopFrom : t >= stopFrom && t < stopTo; // every: a stop at that second and each time after it
+      if (!stopped) samples[i] += 0.8 * Math.exp(-(t % 0.5) * 12) * Math.sin(2 * Math.PI * 60 * t); // kicks at 120 bpm
     }
-    return songShape(samples, rate, { bpm: 120 }).sections;
+    return songShape(samples, rate, { bpm: 120 });
   };
-  const drops = song(12, 13).filter((part) => part.kind === "drop");
+  const dropsOf = (shape) => shape.sections.filter((part) => part.kind === "drop");
+  const drops = dropsOf(song(12, 13));
   assert.ok(drops.length === 1 && Math.abs(drops[0].at - 13) <= 1 / 30 && drops[0].weight > 0.9, JSON.stringify(drops));
-  assert.deepEqual(song(12, 12.5).filter((part) => part.kind === "drop"), []);
+  assert.deepEqual(dropsOf(song(12, 12.5)), []);
+  // A 1 s gap that comes back every 12 s (4 times) is the groove, not a drop at each one.
+  assert.deepEqual(dropsOf(song(0, 1, { seconds: 60, every: 12 })), []);
 });
 
 // 56 s at 8 kHz: kicks at 120 bpm under a tone, the highs filtered out 14 to 22 s, a one-beat stop

@@ -116,6 +116,7 @@ const JOIN_FADE_LINE = 0.005;
 const JOIN_FADE_OUT = 0.005;
 const LATE_HEARD = 0.06; // a drop heard this much after its bar line: the bass enters late
 const GROUP = 4; // a drop plays whole groups of this many bars
+const SILENCE_BARS = 2; // the song's own ending beats a fade only when it ends at most this many bars before the end
 const LATE_START = 0.05; // an opening that would start this late in the video is skipped
 
 /**
@@ -383,7 +384,8 @@ function gridBars({ seconds, whole, bar, downbeat }) {
  * drop, break or build inside it (else after its first bar line), and plays at least 4 bars; this
  * wins over the turn and payoff alignment (another entry bar, up to 16 bars before its drop, is
  * tried). The song's own ending ends by `end` (+ 50 ms) or the last piece fades over 1 to 2 bars; a plan
- * that ends on the own ending is chosen before any plan that fades, even when the ending comes well before `end`.
+ * that ends on the own ending is chosen before any plan that fades when the ending comes at most 2 bars before
+ * `end` (the video then ends in at most 2 bars of silence); a later-ending fade wins over a longer silence.
  * `drop` (a song second) picks the drop that lands on the payoff, as in planStop.
  * Pieces are entered on the run-up of a drop (its latest break, else build) when it has one,
  * else on the drop; never on a bar where the kick and bass are out unless a break or build starts there.
@@ -469,7 +471,10 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
       const fits = (g) => g <= hi && at(e + GROUP * g) + closing.tail <= end + CUT_SLACK && (e + GROUP * g === lastBar || enterable(lastBar)) && accept(e + GROUP * g);
       let g = 0;
       for (let k = lo; k <= hi; k += 1) if (fits(k)) g = k;
-      if (g) return { x: e + GROUP * g, cost: Math.min(4, Math.abs(at(e + GROUP * g) + closing.tail - end) / bar) };
+      if (g) {
+        const gap = end - (at(e + GROUP * g) + closing.tail); // seconds of silence between the song's ending and the end
+        return { x: e + GROUP * g, gap, cost: Math.min(4, Math.abs(gap) / bar) };
+      }
     }
     let fadeAt = null;
     for (let line = d + 1; line < lines.length && line <= lastBar + 1 && lines[line] <= seconds + CUT_SLACK; line += 1) if (at(line) <= end + EPS) fadeAt = line;
@@ -506,11 +511,12 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
   };
 
   // The best way to play the song: the payoff's drop (heavy, a run-up, an earlier drop for the turn, room for the ending).
-  // Every candidate already obeys the cut, join and group rules. Ordered: a plan that ends on the song's own ending
-  // (tail.x) comes before any plan that fades; within each, the lower cost.
+  // Every candidate already obeys the cut, join and group rules. Ordered: a plan whose song ends on its own ending
+  // (tail.x) at most 2 bars before the end comes before any plan that fades; within each, and for an ending
+  // further from the end (a fade costs less than that much silence), the lower cost.
   const preferred = (a, b) => {
-    const ends = (choice) => choice.tail.x != null;
-    return ends(a) !== ends(b) ? ends(a) : a.cost < b.cost - EPS;
+    const closes = (choice) => choice.tail.x != null && choice.tail.gap <= SILENCE_BARS * bar + EPS;
+    return closes(a) !== closes(b) ? closes(a) : a.cost < b.cost - EPS;
   };
   let best = null;
   for (const drop of usable) {

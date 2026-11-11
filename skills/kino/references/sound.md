@@ -10,7 +10,7 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 - Sources: the person's own files first. Else kino's built-in CC0 effects:
   `library {topic:"sounds", search:"whoosh"}`, then `project {action:"import", file:"sfx:<id>"}`
   (Openverse and music: the sound-library guide). No ding or beep on nothing.
-- Search what happens on screen ("swish", "click", "impact"), never a mood ("epic whoosh").
+- Search the on-screen action ("swish", "click"), never a mood ("epic whoosh").
 - Length fits the action: a tap or click 0.05-0.5 s, a slam 0.3-1 s, a whoosh under 1 s.
 - Place each one on an action the picture shows (a tap, a message arriving, a cut to a new
   place), never on every text entrance: two or three in 15 s is plenty, and silence between
@@ -36,9 +36,9 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
   an untranscribed voice) dips while it is over -44 LUFS (`loud`). `warning`: a dip covers a section cue.
   Rerun after moving a voice-over. `summary` names each dip's layers. The music comes back up
   only for 3 s or more, never across a section cue (`sections`). List every voice-over in one `under`:
-  a second `duck_audio` on a layer replaces its dips (`replaced`). When one edit
-  ducks several layers, `duck` is a list with one such report per layer (`duck[0].summary`, …).
-- Add a fade out after the last dip: an animation that starts inside a dip takes over from it.
+  a second `duck_audio` on a layer replaces its dips (`replaced`). Several layers in
+  one edit: `duck` is a list of reports (`duck[0].summary`).
+- Fade out after the last dip: an animation starting inside a dip takes over from it.
 - Muffled until the drop: animate `lowpass` (cutoff Hz, 20-20000; none is off) from 400 to
   20000 over the bar before it, `kind:"in"`, `ease-in` (example below).
 
@@ -55,7 +55,8 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 
 - `fit_music {layer}` plays one unbroken stretch of the song, its drop on the spine's payoff
   (or `payoff`): time the picture to it; its notes say where the turn and end fit the song.
-  Then `duck_audio`. `recut:true` re-arranges in 4-bar groups.
+  Then `duck_audio`. `recut:true` re-arranges in 4-bar groups; the song's own ending
+  counts within 2 bars of `end`, else a fade.
 - `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
   (payoff)"); cues `song-drop-1`, `song-dropout-`, `song-return-`, `song-vocal-in-`,
   `song-switch-` mark them where heard.
