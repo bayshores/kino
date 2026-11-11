@@ -9,7 +9,7 @@ import { fromAppPick, fromJudged, ladder } from "../evals/taste/ladder.mjs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { APPROVAL, callsTool, checkReplies, htmlText, nextMessage, pickMp4, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize } from "../evals/taste/firstpass.mjs";
+import { APPROVAL, askedAfter, callsTool, checkReplies, htmlText, nextMessage, pickMp4, projectIdFor, projectIdFromStatus, promptFor, REPLY, replyFor, seedHouse, stopEntry, summarize } from "../evals/taste/firstpass.mjs";
 import { stopsSummary } from "../backend/agent/stops.mjs";
 import { projectSeed } from "../engine/deck.js";
 import { createHouseMemory, familyOf } from "../backend/house-memory.mjs";
@@ -186,6 +186,11 @@ test("a waiting kino stop gets a person's reply in order, anything else gets you
   assert.deepEqual(checkReplies(brief.replies), brief.replies);
   assert.deepEqual(checkReplies(undefined), {});
   for (const bad of [[], "ok", { board: [] }, { board: [1] }, { rough: " " }]) assert.throws(() => checkReplies(bad), /replies/);
+  for (const kind of ["storyboard", "Board"]) assert.throws(() => checkReplies({ [kind]: "ok" }), /not a stop kind: use board, rough, color, sound, critique/, "a kind kino never asks is refused, not dropped");
+  assert.deepEqual(checkReplies({ critique: "ok" }), { critique: "ok" });
+  // askedAfter is the stored askedAt against the run's start; a missing or out-of-run time falls back to the turn's end.
+  const t0 = Date.parse("2026-11-11T10:00:00Z");
+  assert.deepEqual([askedAfter({ askedAt: "2026-11-11T10:00:07.4Z" }, t0, t0 + 12_500), askedAfter({ askedAt: null }, t0, t0 + 12_500), askedAfter({ askedAt: "nope" }, t0, t0 + 12_500), askedAfter({ askedAt: "2026-11-11T09:00:00Z" }, t0, t0 + 12_500)], [7.4, 12.5, 12.5, 12.5]);
   const tool = { type: "assistant", message: { content: [{ type: "text" }, { type: "tool_use", name: "Bash" }] } };
   assert.deepEqual([callsTool(tool), callsTool({ ...tool, parent_tool_use_id: "t1" }), callsTool({ type: "result" })], [true, false, false], "the agent's own tool calls only");
 });

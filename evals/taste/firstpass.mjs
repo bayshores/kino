@@ -18,6 +18,7 @@ import { chmod, copyFile, cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } fro
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CRITIQUE_STOP, STOP_KINDS } from "../../backend/agent/stops.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const REPLY = "your call";
@@ -108,6 +109,10 @@ export function waitingFromSnapshot(snapshot) {
 export function checkReplies(replies) {
   if (replies === undefined) return {};
   if (!replies || typeof replies !== "object" || Array.isArray(replies)) throw new Error("A brief's replies is an object by stop kind, like {\"board\": [\"make the opening slower\", \"approved\"], \"rough\": \"approved\"}.");
+  // A kind kino never asks (a typo, a wrong case) would never match: the reply would be dropped without a word.
+  const kinds = [...STOP_KINDS, CRITIQUE_STOP];
+  for (const kind of Object.keys(replies))
+    if (!kinds.includes(kind)) throw new Error(`A brief's replies.${kind} is not a stop kind: use ${kinds.join(", ")}.`);
   for (const [kind, wanted] of Object.entries(replies))
     if (!(typeof wanted === "string" && wanted.trim()) && !(Array.isArray(wanted) && wanted.length && wanted.every((text) => typeof text === "string" && text.trim())))
       throw new Error(`A brief's replies.${kind} is a reply or a list of replies, each a non-empty string.`);
@@ -139,9 +144,19 @@ export function nextMessage(snapshot, brief, earlier = []) {
 }
 
 /**
+ * Seconds into the run when the agent asked: the stop's stored `askedAt` (an ISO time) against the
+ * run's start. When `askedAt` is missing or unreadable (or says a time outside the run), the turn's
+ * end is used: the agent ends its turn right after it asks.
+ */
+export function askedAfter(stop, startedMs, nowMs) {
+  const at = Date.parse(stop?.askedAt ?? "");
+  return seconds1(Number.isFinite(at) && at >= startedMs && at <= nowMs ? at - startedMs : nowMs - startedMs);
+}
+
+/**
  * One line of run.json's `stops`: the stop's kind and id, the seconds into the run when the agent
- * asked, the reply sent, and (once the next turn runs) the seconds from the reply to the agent's
- * next tool call. Seconds are the turn's end: the agent ends its turn right after it asks.
+ * asked (askedAfter), the reply sent, and (once the next turn runs) the seconds from the reply to
+ * the agent's next tool call.
  */
 export function stopEntry(stop, askedAfter, reply) {
   return { kind: stop.kind, id: stop.id, askedAfter, reply, nextToolAfter: null };
@@ -428,7 +443,7 @@ async function main() {
       const next = nextMessage(snapshot, brief, stops);
       message = next.message;
       if (next.stop) {
-        openStop = stopEntry(next.stop, seconds1(Date.now() - started), message);
+        openStop = stopEntry(next.stop, askedAfter(next.stop, started, Date.now()), message);
         stops.push(openStop);
         console.log(`  stop ${next.stop.kind} (${next.stop.id}) waiting: replied "${message}"`);
       }
