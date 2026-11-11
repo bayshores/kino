@@ -790,18 +790,19 @@ export function musicTurn(model, ctx) {
     return level;
   };
   // How many dB the song's own file drops at `time`: its median level in the 2 s before, minus its
-  // lowest 0.25 s level from 1 s before to 0.25 s after (null when the song is not playing there).
+  // lowest 0.25 s level from 1 s before up to the turn (a dip that starts at the turn is not a dip
+  // "just before" it, which is what the check counts); null when the song is not playing there.
   const ownDrop = (song, time) => {
     if (!song || time < song.range.start || time >= song.range.end) return null;
     const at = song.range.offset + (time - song.range.start);
     if (at >= song.sound.duration) return null;
     const usual = levelBetween(song.sound, at - TURN_SIDE, at);
     let low = usual;
-    for (let from = at - 1; from <= at + 0.25; from += TURN_STEP) low = Math.min(low, levelBetween(song.sound, from, from + 0.25));
+    for (let from = at - 1; from <= at - 0.25 + 1e-9; from += TURN_STEP) low = Math.min(low, levelBetween(song.sound, from, from + 0.25));
     return usual - low;
   };
   const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
-  const head =songs.find((song) => !song.layer.fitMusic)?.layer ?? songs[0].layer;
+  const head = songs.find((song) => !song.layer.fitMusic)?.layer ?? songs[0].layer;
   const songCues = (ctx.cues ?? []).filter((cue) => String(cue.name ?? "").startsWith("song-") && Number.isFinite(cue.time));
   // A song fit_music already cut: running it again gives the same cut (one drop, or the turn's
   // drop on a bar line away from the turn), so the hint moves the turn to a drop instead.

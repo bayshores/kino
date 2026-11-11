@@ -115,7 +115,11 @@ test("a bad move.ref says what the project accepts now: its saved keys, the fixe
   const help = referenceHelp(saved);
   // A saved id or key sent without its moment: the fixed ref, by the key when it has one.
   assert.equal(help("yt:mKIY0Pb2XHA"), '"yt:mKIY0Pb2XHA" is saved as phone-film: send ref "phone-film@<seconds>", the second of it the shot copies.');
-  assert.match(referenceHelp(saved)("YT:UXLWYZ022ZU@x"), /saved as yt:uXlWYZ022zU: send ref "yt:uXlWYZ022zU@<seconds>"/);
+  assert.match(referenceHelp(saved)("YT:UXLWYZ022ZU"), /saved as yt:uXlWYZ022zU: send ref "yt:uXlWYZ022zU@<seconds>"/);
+  // The key is right but the seconds are malformed: it says how seconds are written, not the same fix again.
+  for (const sent of ["phone-film@2.555", "phone-film@3s", "phone-film@-1", "phone-film@ 3", "yt:mKIY0Pb2XHA@12345", "phone-film@"]) {
+    assert.match(referenceHelp(saved)(sent), /seconds are not valid: write digits with up to 2 decimals and no unit \(e\.g\. "phone-film@3\.2"\)/, sent);
+  }
   // A near miss names the closest one; anything else lists the saved names, once per refusal.
   assert.equal(referenceHelp(saved)("phone-flim@3"), 'The closest saved reference is phone-film: send ref "phone-film@<seconds>".');
   const other = referenceHelp(saved);

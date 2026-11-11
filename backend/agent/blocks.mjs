@@ -124,6 +124,8 @@ export function referenceHelp(refs) {
     if (!names.length) return once('No reference is saved in this project: save one with library {topic:"inspire", name:"save yt:<id> as <key>"} (ids come from library {topic:"inspire"}), then send ref "<key>@<seconds>".');
     const base = typeof sent === "string" ? plain(sent.trim().replace(/@.*$/, "")) : "";
     const exact = names.find((entry) => entry.name === base);
+    // The key is right but the text already has its "@": the seconds are what is wrong, so say how they are written.
+    if (exact && /@/.test(sent)) return `"${exact.shown}" is saved, but its seconds are not valid: write digits with up to 2 decimals and no unit (e.g. "${exact.shown}@3.2").`;
     if (exact) return `"${String(sent).trim()}" is saved as ${exact.shown}: send ref "${exact.shown}@<seconds>", the second of it the shot copies.`;
     const near = base ? nearMiss(base, names.map((entry) => entry.name)) : null;
     const close = near ? names.find((entry) => entry.name === near) : null;
