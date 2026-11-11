@@ -104,7 +104,7 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
 
 test("for a briefed video the search drops results far longer than it and says which; an unbriefed project drops none", { skip: skipWithoutMediaTools }, async () => {
   await agent("project", { action: "create", id: "insp-brief", name: "Inspire brief", width: 640, height: 360, duration: 3 });
-  const saved = await agent("notes", { project: "insp-brief", action: "brief", fields: { message: { text: "Quillby launch for hosts", by: "guessed" } } });
+  const saved = await agent("notes", { project: "insp-brief", action: "brief", fields: { message: { text: 'A "Quillby" launch for hosts', by: "guessed" } } });
   assert.equal(saved.isError, undefined, saved.text);
   const found = await agent("library", { topic: "inspire", project: "insp-brief", search: "Quillby edit", count: 3 });
   // The recorded results are 10 s to 701 s: for a 3 s video, over 90 s is dropped, and the line names them.

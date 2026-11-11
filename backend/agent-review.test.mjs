@@ -229,7 +229,7 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.deepEqual(nextCallOf(none), { tool: "library", input: { topic: "inspire", search: "<an edit like yours>" } });
   // A briefed video's gate offers the same filled search as the order step.
   const named = await project("versus-named", 6, { references: true });
-  await agent("notes", { project: named, action: "brief", fields: { message: { text: "Quillby launch for hosts", by: "guessed" } } });
+  await agent("notes", { project: named, action: "brief", fields: { message: { text: 'A "Quillby" launch for hosts', by: "guessed" } } });
   await agent("edit", { project: named, ops: [{ op: "waive_check", code: "review", target: "*", reason: "tested above" }] });
   const filled = await agent("render", { project: named, action: "start", quality: "final", format: "gif" });
   assert.equal(filled.data.error, "reference_needed", filled.text);

@@ -517,55 +517,17 @@ export function pickOpen(brief, video = {}) {
 }
 
 // ---- the first reference search, from what the person named -------------------------------------
-// Plain text rules, no language model. A named thing is (1) text in double or single quotes, or
-// (2) a run of capitalized words (up to 4, "of", "the", "and" and "de" allowed inside a run), in the
-// brief's message, made_from and look_sound lines. Not names: the common words in CAPITAL_STOP
-// (function words, common verbs, adjectives and abbreviations), a label before a colon, and a
-// lone capitalized word that only starts a sentence, unless it starts the line, owns something
-// ("Vantro's") or is followed by a verb like "is" (a subject).
+// Plain text rules, no language model. kino does not guess names from capital letters (people
+// type asks in lowercase, and a capitalized word is often not a name). It takes only text the
+// brief puts in quotes; with none, the search has a slot the agent fills with who or what the
+// video is about, which the agent knows from the chat.
 const NAMED_LINES = ["message", "made_from", "look_sound"];
 const MAX_NAMED = 3;
 const SEARCH_LIMIT = 100;
-const CAPITAL_STOP = new Set(("I A An The This That These Those It Its He She They We You My Our Your Their His Her In On At For From With And But Or If When While No Not To Of By As Is Are "
-  + "Make Use Show Start Open End Keep Let Then Every Each Some One Two After Before Over Under Into Without Only All Any Also Just "
-  + "Highlight Introduce Focus Feature Include Avoid Add Cut Build Create End Finish Close Opening Closing Intro Outro Really Very Super So Too More Most Less Quite "
-  + "Fast Slow Quick Dark Bright Light Calm Bold Clean Intense Moody Warm Cool Soft Hard Big Small Short Long Simple Real Raw Fresh Sharp Smooth Loud Quiet "
-  + "Brand Product Client Company Story Audience Music Song Look Mood Style Idea Goal Message Footage Sound Voice Text Title Logo App "
-  + "Mr Mrs Ms Dr St Vs Co Inc Ltd Llc Corp Etc AM PM").split(" "));
-const CONNECTORS = new Set(["of", "the", "de", "la", "von", "van"]);
-const VERBS_AFTER_SUBJECT = new Set(["is", "was", "are", "were", "has", "had", "will", "would", "does", "did", "can", "needs", "wants"]);
+export const SUBJECT_SLOT = "<who or what it is about>";
 const SONG_NOISE = /\b(?:official|lyrics?|audio|video|music video|hd|hq|4k|topic|reupload|re-upload)\b/gi;
 
-// The runs of capitalized words in one sentence (see above). firstOfLine: it starts the line.
-function capitalRuns(sentence, firstOfLine = false) {
-  const words = sentence.split(/\s+/).filter(Boolean);
-  const bare = (word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-  const owner = (word) => bare(word).replace(/['’]s$/i, "");
-  const isCap = (word) => /^\p{Lu}/u.test(owner(word)) && !CAPITAL_STOP.has(owner(word)) && !/\p{L}\.\p{L}/u.test(bare(word));
-  const runs = [];
-  let run = [];
-  const close = () => {
-    while (run.length && CONNECTORS.has(owner(words[run.at(-1)]).toLowerCase())) run.pop();
-    if (run.length) {
-      // A lone capitalized word that starts the sentence is a name only with a sign of one.
-      const lone = run.length === 1 && run[0] === 0;
-      const label = /:$/.test(words[0]);
-      const sign = firstOfLine || /['’]s$/i.test(bare(words[0])) || VERBS_AFTER_SUBJECT.has(bare(words[1] ?? "").toLowerCase());
-      if (!lone || (sign && !label)) runs.push(run.slice(0, 4).map((index) => owner(words[index])).join(" "));
-    }
-    run = [];
-  };
-  words.forEach((word, index) => {
-    if (isCap(word)) run.push(index);
-    else if (run.length && CONNECTORS.has(bare(word).toLowerCase()) && words[index + 1] && isCap(words[index + 1])) run.push(index);
-    else close();
-    if (/[,;:.!?)]$/.test(word)) close();
-  });
-  close();
-  return runs;
-}
-
-/** The things a brief names, in order: quoted text, then capitalized runs. [] when it names none. */
+/** The things a brief names in quotes, in order. [] when it quotes none. */
 export function namedThings(brief) {
   const names = [];
   const add = (text) => {
@@ -577,7 +539,6 @@ export function namedThings(brief) {
     if (!hasText(text)) continue;
     const quotes = /(?:^|[\s(])(?:"([^"]{2,40})"|“([^”]{2,40})”|'([^']{2,40})'(?=$|[\s.,;:!?)])|‘([^’]{2,40})’)/gu;
     for (const match of text.matchAll(quotes)) add(match[1] ?? match[2] ?? match[3] ?? match[4]);
-    text.replace(quotes, " ").trim().split(/(?<=[.!?])\s+|\n/).forEach((sentence, index) => capitalRuns(sentence, index === 0).forEach(add));
   }
   return names;
 }
@@ -598,23 +559,23 @@ export function songTitleOf(candidates = [], audio = []) {
 }
 
 /**
- * The first reference search words from what the person named: the brief's named things (at most
- * 3), the song's title when there is one, and "edit". { search, withoutSong } or null when nothing
- * is named (the step then keeps its placeholder). withoutSong (the named things and "edit") is
- * set only when there is a song and at least one named thing outside its title.
+ * The first reference search words: who or what the video is about (the brief's quoted names, at
+ * most 3, else SUBJECT_SLOT for the agent to fill), the song's title when there is one, and
+ * "edit". { search, withoutSong }, or null when there is no quoted name and no song (the step
+ * then keeps its open placeholder). withoutSong is set only when there is a song.
  */
 export function referenceSearches(brief, songTitle) {
   // A link or an id is not a title.
   const song = (LINK_OR_ID.test(String(songTitle ?? "").trim()) ? "" : String(songTitle ?? "")).replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(SONG_NOISE, " ").replace(/\s+/g, " ").trim().slice(0, 60);
   const named = namedThings(brief).filter((name) => !song.toLowerCase().includes(name.toLowerCase())).slice(0, MAX_NAMED);
   if (!named.length && !song) return null;
-  const join = (names, withSong) => {
-    const kept = [...names];
+  const join = (withSong) => {
+    const kept = named.length ? [...named] : [SUBJECT_SLOT];
     const words = () => [...kept, ...(withSong && song ? [song] : []), "edit"].join(" ");
     while (words().length > SEARCH_LIMIT && kept.length > 1) kept.pop();
     return words().slice(0, SEARCH_LIMIT);
   };
-  return { search: join(named, true), withoutSong: song && named.length ? join(named, false) : null };
+  return { search: join(true), withoutSong: song ? join(false) : null };
 }
 
 /**

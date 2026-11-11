@@ -860,32 +860,26 @@ async function savedReference(project, name, key = null) {
 test("the first reference search is filled from what the person named; each wanted reference must be studied", () => {
   const line = (text) => ({ text, by: "guessed" });
   const brief = { rev: 1, fields: { message: line("A fast edit of Mara Voss on the lighthouse stairs. Make it hit."), made_from: line('footage from "The Long Climb" and Lighthouse Keepers of Norway'), look_sound: line("dark, grainy") } };
-  // Quoted text and capitalized runs, in order; a lone capital that starts a sentence is not a name.
-  assert.deepEqual(namedThings(brief), ["Mara Voss", "The Long Climb", "Lighthouse Keepers of Norway"]);
-  assert.deepEqual(namedThings({ fields: { message: line("make the most intense edit ever") } }), []);
-  // A name that starts the line, owns something or is the subject is kept; verbs, labels and moods that start a sentence are not.
-  const names = (text) => namedThings({ fields: { message: line(text) } });
-  assert.deepEqual(names("Brightloop launch"), ["Brightloop"]);
-  assert.deepEqual(names("Vantro, Kelmora"), ["Vantro", "Kelmora"]);
-  assert.deepEqual(names("A shoe ad. Vantro's drop is the story. Brightloop is the client."), ["Vantro", "Brightloop"]);
-  assert.deepEqual(names("Quillby launch video. Highlight the Dashboard. Opening: Dark, moody."), ["Quillby", "Dashboard"]);
-  assert.deepEqual(names("I want it Fast. Really Fast. Introduce Acme. Price: 9 A.M. Co. only."), ["Acme"]);
+  // Only quoted text is a name: kino does not guess names from capital letters.
+  assert.deepEqual(namedThings(brief), ["The Long Climb"]);
+  assert.deepEqual(namedThings({ fields: { message: line("make the most INTENSE mara voss edit ever") } }), []);
   // The song's title: a link or an id never reaches the search; a sound effect or an ambience is never the song.
-  assert.deepEqual(referenceSearches({ fields: { message: line("Brightloop launch") } }, "https://youtu.be/dQw4w9WgXcQ"), { search: "Brightloop edit", withoutSong: null });
+  assert.deepEqual(referenceSearches({ fields: { message: line('a "Brightloop" launch') } }, "https://youtu.be/dQw4w9WgXcQ"), { search: "Brightloop edit", withoutSong: null });
   const candidates = [{ id: "yt:aaaaaaaaaaa", title: "Glass Harbor (Official Audio)", picked: true, named: "https://youtu.be/aaaaaaaaaaa" }];
   assert.equal(songTitleOf(candidates, []), "Glass Harbor (Official Audio)");
   assert.equal(songTitleOf([{ ...candidates[0], named: "Glass Harbor by Mara" }], []), "Glass Harbor by Mara");
   const audio = (id, title, duration) => ({ duration, credit: { id, title } });
   assert.equal(songTitleOf([{ id: "yt:aaaaaaaaaaa" }], [audio("yt:sfxsfxsfxsf", "heavy rain ambience", 58), audio("openverse:9", "rain", 40), audio("yt:aaaaaaaaaaa", "Glass Harbor", 150), audio("yt:aaaaaaaaaaa", "Glass Harbor short", 12)]), "Glass Harbor");
   assert.equal(songTitleOf([], [audio("yt:sfxsfxsfxsf", "heavy rain ambience", 58)]), "");
-  // Names, the song's title (noise words cut) and "edit"; the same without the song is offered too.
-  assert.deepEqual(referenceSearches(brief, "Glass Harbor (Official Audio)"), { search: "Mara Voss The Long Climb Lighthouse Keepers of Norway Glass Harbor edit", withoutSong: "Mara Voss The Long Climb Lighthouse Keepers of Norway edit" });
-  assert.deepEqual(referenceSearches({ fields: { message: line("a calm edit") } }, "Glass Harbor"), { search: "Glass Harbor edit", withoutSong: null });
+  // Quoted names, the song's title (noise words cut) and "edit"; the same without the song is offered too.
+  assert.deepEqual(referenceSearches(brief, "Glass Harbor (Official Audio)"), { search: "The Long Climb Glass Harbor edit", withoutSong: "The Long Climb edit" });
+  // No quoted name: a slot the agent fills with who or what the video is about (an unfilled slot is refused).
+  assert.deepEqual(referenceSearches({ fields: { message: line("make the most INTENSE mara voss edit ever") } }, "Glass Harbor"), { search: "<who or what it is about> Glass Harbor edit", withoutSong: "<who or what it is about> edit" });
   assert.equal(referenceSearches({ fields: { message: line("a calm edit") } }, ""), null, "nothing named keeps the placeholder");
   const video = { seconds: 15, references: 0, saved: [], studied: [], treatmentsWaived: true };
   const [find] = orderSteps({ brief }, { ...video, songTitle: "Glass Harbor" });
-  assert.equal(find.call.input.search, "Mara Voss The Long Climb Lighthouse Keepers of Norway Glass Harbor edit");
-  assert.equal(find.alt.input.search, "Mara Voss The Long Climb Lighthouse Keepers of Norway edit");
+  assert.equal(find.call.input.search, "The Long Climb Glass Harbor edit");
+  assert.equal(find.alt.input.search, "The Long Climb edit");
   assert.equal(orderSteps({ brief: { rev: 1, fields: {} } }, video)[0].call.input.search, "<an edit like yours>");
   // Studying: each of the 2 wanted saved references, named in the step; none left when both are studied.
   const saved = { ...video, references: 2, saved: ["yt:a", "yt:b", "yt:c"] };

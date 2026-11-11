@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, songTitleOf, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -902,6 +902,17 @@ export function createAgentService(deps) {
     const candidates = (await agentState.read(projectId)).soundtrack?.candidates ?? [];
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     return songTitleOf(candidates, media.filter((item) => mediaAllowedIn(item, projectId) && String(item.mime ?? "").startsWith("audio/")));
+  }
+
+  // The song-free twin of a search the agent sent from the step's filled words: the filled twin,
+  // or, when the step left a slot for the subject, the agent's own words before the song's title.
+  function songFreeTwin(filled, typed) {
+    if (!filled?.withoutSong) return "";
+    const sent = String(typed).replace(/\s+/g, " ").trim();
+    if (!filled.search.includes(SUBJECT_SLOT)) return filled.search.toLowerCase() === sent.toLowerCase() ? filled.withoutSong : "";
+    const tail = filled.search.slice(filled.search.indexOf(SUBJECT_SLOT) + SUBJECT_SLOT.length);
+    const subject = sent.toLowerCase().endsWith(tail.toLowerCase()) ? sent.slice(0, sent.length - tail.length).trim() : "";
+    return subject ? `${subject} edit` : "";
   }
 
   // The first inspire search for this video's own words: the step's filled search while the brief
@@ -5941,7 +5952,7 @@ export function createAgentService(deps) {
       const facts = briefed ? await videoFactsFor(record.document) : null;
       const seconds = briefed ? lengthTarget(state.brief)?.seconds ?? (facts.seconds > 0 && facts.seconds !== state.defaultLength ? facts.seconds : undefined) : undefined;
       const filled = kind === "videos" && briefed ? referenceSearches(state.brief, await songTitleFor(projectId)) : null;
-      const alsoTry = filled?.withoutSong && filled.search.toLowerCase() === typed.replace(/\s+/g, " ").toLowerCase() ? filled.withoutSong : "";
+      const alsoTry = songFreeTwin(filled, typed);
       let found;
       try { found = await deps.inspire.search(projectId, search, { by, count: input.count, kind, seconds }); }
       catch (error) { throw new AgentError(error.code === "NO_YTDLP" ? "unavailable" : "failed", error.message); }
