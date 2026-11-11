@@ -7,17 +7,17 @@ description: Makes and edits motion videos with kino, a local motion design engi
 
 ## The short path
 
-Every kino answer ends with `next:`, the most likely next call written out. When unsure,
-send it as it is; put your own words where it has `<angle brackets>`. A new video, idea first:
+Every answer ends with `next:`, the likely next call written out. When unsure,
+send it as is; put your own words where it has `<angle brackets>`. A new video, idea first:
 
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
-2. `notes` brief: what the person asked for, one line each (plain text is your guess).
+2. `notes` brief: their message whole (`ask`), then a line per thing (plain text is a guess).
 3. Save 2 references (`library {topic:"inspire"}`), study one (`look {mode:"reference"}`).
 4. 5 treatments (3+ whos), their pick, its signature and spine; building first is refused (`order_needed`).
-5. `edit` with one `compose` (or `format`: `library {topic:"formats"}`), then `check {fix:"auto"}` and `look {mode:"review"}`; then `render`.
+5. `edit` with one `compose` (or `format`: `library {topic:"formats"}`), then `check {fix:"auto"}`, `look {mode:"review"}`, `render`.
 
 ```json
-{"tool":"notes","action":"brief","fields":{"message":"Plan the whole week in one view","plays_on":"web, 16:9","made_from":"kino blocks","look_sound":"dark, bold type","never":"no stock photos"},"no_playback":"just start"}
+{"tool":"notes","action":"brief","fields":{"ask":"Plan the whole week in one view","message":"Plan the whole week in one view","plays_on":"web, 16:9","made_from":"kino blocks","look_sound":"dark, bold type","never":"no stock photos"},"no_playback":"just start"}
 {"tool":"edit","ops":[{"op":"compose","duration":6,"beats":[{"recipe":"logo-sting","text":"Orbit","tagline":"Plan the week in one view"}]}],"expect":"order_needed"}
 {"tool":"check","fix":"auto"}
 {"tool":"look","mode":"review"}
@@ -48,7 +48,7 @@ fields as `key=value`: `kino look frame t=3`.
    Save their material (`edit` op `source`) and write the story.
    **A video is one scene**: `render` makes one file per scene.
 3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study their
-   strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps (`{done:[n]}` ticks).
+   strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
 4. First a rough whole scene in **one** `edit` (`compose`).
    Then up to 3 sections, each an `edit` + `look {from, to}`.
 5. Read the receipt, not `status`.
@@ -66,7 +66,7 @@ fields as `key=value`: `kino look frame t=3`.
 ## Rules
 
 - Name things: `name` on `add_layer` is its ID, so later ops (same edit too) say
-  `layer:"headline"`; `headline.in` is its entrance once saved. Codes (`L3`, `A2`, `s1`) work too.
+  `layer:"headline"`; `headline.in` is its entrance. Codes (`L3`, `A2`, `s1`) work too.
 - One scene: no `scene` field. Several: `scene:"s2"` or its name.
 - Positions: top-left, scene pixels; colors hex. Text needs a `width` and `height` that fit.
 - Restraint: plain cuts; 1-2 signature moves; one type style, grade, brightness. Every effect
@@ -76,7 +76,7 @@ fields as `key=value`: `kino look frame t=3`.
 - A refused edit saves nothing; `next` resends it fixed, or send fixes:
   `edit {retry:"E2", fix:{"3":{"easing":"smooth"}, "7":null}}`.
 - `{status:"awaiting_approval", id:"Q1"}`: tell them; a chat yes counts (notes answer).
-  `{held:true}`: nothing changed; wait for "hold released" (inbox).
+  `{held:true}`: nothing changed; wait for "hold released".
 - `{status:"waiting_for_you", id:"C1"}` (a stop): send its `ask`, end your turn, record their
   reply with `notes answer`. Until then writes answer `{waiting}`.
 
