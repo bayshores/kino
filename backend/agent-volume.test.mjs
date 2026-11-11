@@ -227,7 +227,7 @@ test("two duck_audio ops on one layer in one edit: the receipt reports only the 
 // When one edit ducks two layers the receipt's duck is a list (above), but sound.md and the
 // duck_audio rules said to read duck.summary, which then is undefined. They now say it is a list.
 test("the skill and the duck_audio rules say duck is a list when one edit ducks several layers", async () => {
-  assert.match(skillSection("Sound: volume, fades and ducking"), /When one edit\s+ducks several layers, `duck` is a list with one such report per layer \(`duck\[0\]\.summary`/);
+  assert.match(skillSection("Sound: volume, fades and ducking"), /Several layers in\s+one edit: `duck` is a list of reports \(`duck\[0\]\.summary`/);
   assert.match(skillSection("Sound: separating voice from background"), /`duck\[n\]\.summary` when it ducks several layers/);
   const op = await agent("library", { topic: "op", name: "duck_audio" });
   assert.match(op.text, /the receipt's duck gives the dips, their times and a summary in words \(a list, one per layer, when an edit ducks several layers\)/);
