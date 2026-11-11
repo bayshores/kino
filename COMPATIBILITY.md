@@ -809,8 +809,9 @@ How to read it:
   `backend/agent-captions.test.mjs`. Gap: assumes one steady tempo; not measured on commercial music.
 - **Weighted hits**: Verified on generated audio. Onset cues carry `weight` and `band`, bar
   starts `downbeat`, and `accent-N` cues mark each section's hardest hits (kick plus hi-hat track:
-  kicks low, hats high and under 0.3, accents on the loud bar kicks). Evidence:
-  `engine/beatDetection.test.js`. Gap: weight and band not measured on commercial music.
+  kicks low, hats high and under 0.3, accents on the loud bar kicks; the band is by energy gain,
+  so a kick with overtones is low). Evidence: `engine/beatDetection.test.js`. Gap: weight and
+  band not checked against labeled drums on commercial music.
 - **Cue lists**: Verified. `inspect {targets:["cues"]}` pages with filters
   (`cues[kind=beat,from=60,to=90]`). Evidence: `backend/agent-cue-list.test.mjs`.
 - **Captions**: Verified. `add_captions {file|text|words|speech}` reads SRT and WebVTT, pages to

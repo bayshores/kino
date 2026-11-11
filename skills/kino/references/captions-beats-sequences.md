@@ -45,7 +45,8 @@ played as one.
 - Beats: import the music, add it as an audio layer, and run `detect_beats` in the same edit
   (it reads the sound the ops before it set). It writes cues `beat-1`, `beat-2`, … and
   `onset-1`, … and sets the project's rhythm. Onsets carry `weight` (0 to 1 against the song)
-  and `band` (low, mid, high); bar starts have `downbeat`; `accent-1`, … are each section's
+  and `band` (where most of its new sound energy is: low under 150 Hz, mid to 2.5 kHz, high
+  above; in a full mix most hits read mid); bar starts have `downbeat`; `accent-1`, … are each section's
   hardest hits (`inspect "cues[kind=accent]"`). The receipt's `beats` has bpm and confidence;
   under 0.5 the grid is a guess. Running it again (say after `replace_media`) can move beats;
   animations keep their times, and `beats.cuesMoved` lists those that started on a moved cue

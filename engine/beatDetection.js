@@ -32,8 +32,9 @@
 // the end of a long song (ten minutes); version 6 finds the tempo in three bands with the octave
 // checks of step 3 (on 21 songs with published tempos, 20 right instead of 15); version 7 gives
 // each onset a weight (how hard it hits, against the whole song) and a band (low, mid, high), so
-// a drop's kick is told from a hi-hat (steps 2c and 2d). Older .beats files are made again.
-export const BEAT_ANALYSIS_VERSION = 7;
+// a drop's kick is told from a hi-hat (steps 2c and 2d); version 8 gives the band by where the
+// new sound energy is (version 7 never said low on a real song). Older .beats files are made again.
+export const BEAT_ANALYSIS_VERSION = 8;
 export const MIN_BPM = 60;
 export const MAX_BPM = 200;
 /** Below this confidence the grid is reported as uncertain and not used to set the rhythm. */
@@ -90,7 +91,7 @@ export function onsetStrength(samples, sampleRate) {
   const im = new Float64Array(FRAME);
   let previous = new Float64Array(bins);
   let current = new Float64Array(bins);
-  // Linear magnitudes, for how much new sound each band gained (an onset's band, version 7).
+  // Linear magnitudes, to measure how much new sound energy each band gained (an onset's band).
   let previousLinear = new Float64Array(bins);
   let currentLinear = new Float64Array(bins);
   const flux = new Float64Array(count);
@@ -120,7 +121,11 @@ export function onsetStrength(samples, sampleRate) {
       if (bin < lowBins) lowSum += rise;
       const band = bin < edges[0] ? 0 : bin < edges[1] ? 1 : 2;
       bands[band][frame] += rise;
-      gain[band][frame] += Math.max(0, currentLinear[bin] - previousLinear[bin]);
+      // Energy (magnitude squared) adds up across bins, so each band's total is the new sound
+      // energy in that band and the bands compare fairly whatever their number of bins. Summing
+      // the magnitudes themselves let the 396 high and 109 mid bins outvote the 7 low ones: a
+      // kick with its energy under 150 Hz was labeled mid, and a song never got a low label.
+      gain[band][frame] += Math.max(0, currentLinear[bin] ** 2 - previousLinear[bin] ** 2);
     }
     flux[frame] = sum;
     low[frame] = lowSum;
@@ -202,8 +207,10 @@ export const BANDS = ["low", "mid", "high"];
 // How far before an onset weighOnsets looks for its hit (step 2d).
 const LATE_SECONDS = 0.04;
 
-// Step 2c: the band that gained the most new sound at frame i and the two after it (a kick's body
-// follows its click): low (kick, bass, under 150 Hz), mid (snare, clap, voice) or high (hi-hats).
+// Step 2c: the band that gained the most new sound energy at frame i and the two after it (a
+// kick's body follows its click): low (kick, bass, under 150 Hz), mid (snare, clap, voice) or high
+// (hi-hats). A hit counts as low when most of its new energy is under 150 Hz, and as high only
+// when most of it is over 2.5 kHz, which in a full mix only the quiet hits between drums reach.
 function gainBand(gain, i) {
   const totals = gain.map((band) => {
     let sum = 0;

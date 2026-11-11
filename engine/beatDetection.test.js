@@ -134,6 +134,27 @@ test("kicks weigh more than hi-hats, the loud kick starts the bar, and accents a
   assert.ok(cues.filter((cue) => cue.kind === "onset").every((cue) => typeof cue.weight === "number" && cue.band));
 });
 
+test("a kick with overtones is labeled low, and a lone hi-hat is labeled high", () => {
+  // A 55 Hz kick with 40 overtones, each weaker (1/k): 85% of its energy is under 150 Hz. Summing
+  // each band's magnitude gain over its bins let the 109 mid bins outvote the 7 low ones, so every
+  // one of these kicks came out mid. The band follows where the new sound energy is.
+  const deep = new Float32Array(LENGTH * RATE);
+  for (let i = 0; i < deep.length; i += 1) {
+    const since = ((i / RATE) - FIRST) % PERIOD;
+    let tone = 0;
+    for (let k = 1; k <= 40; k += 1) tone += Math.sin(2 * Math.PI * 55 * k * since) / k;
+    deep[i] = 0.002 * noise(i) + (i / RATE < FIRST ? 0 : 0.4 * tone * Math.exp(-since * 25));
+  }
+  const kicks = analyzeBeats(deep, RATE).onsets.filter((onset) => onset.time > 1);
+  assert.ok(kicks.length >= 40, `${kicks.length} kicks`);
+  assert.deepEqual([...new Set(kicks.map((onset) => onset.band))], ["low"]);
+  const hats = new Float32Array(LENGTH * RATE);
+  for (let i = 0; i < hats.length; i += 1) hats[i] = 0.3 * (noise(i) - noise(i - 1)) * Math.exp(-((i / RATE) % PERIOD) * 80);
+  const hit = analyzeBeats(hats, RATE).onsets;
+  assert.ok(hit.length >= 20, `${hit.length} hats`);
+  assert.deepEqual([...new Set(hit.map((onset) => onset.band))], ["high"]);
+});
+
 test("a louder kick over a steady pad weighs more than a quiet kick alone, and gets the accents", () => {
   // 12 s of kicks alone, then 12 s of kicks twice as loud over a steady pad (220 and 330 Hz). A
   // weight from loudness after minus loudness before shrank the drop's kicks under the pad, so
