@@ -763,6 +763,8 @@ const TURN_DIP = 0.5;
 const TURN_DIP_DB = 6;
 const TURN_STEP = 0.05;
 const SILENT_DB = -60;
+// Five studied edits dipped 7 to 13 dB in all before a loud moment; a duck is suggested up to about this.
+const TURN_TOTAL_DB = 10;
 
 export function musicTurn(model, ctx) {
   const scene = ctx.speechScene;
@@ -787,8 +789,19 @@ export function musicTurn(model, ctx) {
     }
     return level;
   };
+  // How many dB the song's own file drops at `time`: its median level in the 2 s before, minus its
+  // lowest 0.25 s level from 1 s before to 0.25 s after (null when the song is not playing there).
+  const ownDrop = (song, time) => {
+    if (!song || time < song.range.start || time >= song.range.end) return null;
+    const at = song.range.offset + (time - song.range.start);
+    if (at >= song.sound.duration) return null;
+    const usual = levelBetween(song.sound, at - TURN_SIDE, at);
+    let low = usual;
+    for (let from = at - 1; from <= at + 0.25; from += TURN_STEP) low = Math.min(low, levelBetween(song.sound, from, from + 0.25));
+    return usual - low;
+  };
   const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
-  const head = songs.find((song) => !song.layer.fitMusic)?.layer ?? songs[0].layer;
+  const head =songs.find((song) => !song.layer.fitMusic)?.layer ?? songs[0].layer;
   const songCues = (ctx.cues ?? []).filter((cue) => String(cue.name ?? "").startsWith("song-") && Number.isFinite(cue.time));
   // A song fit_music already cut: running it again gives the same cut (one drop, or the turn's
   // drop on a bar line away from the turn), so the hint moves the turn to a drop instead.
@@ -814,14 +827,20 @@ export function musicTurn(model, ctx) {
     }
     if (dipped) continue;
     const nearest = [...(drops.length ? drops : songCues)].sort((a, b) => Math.abs(a.time - at) - Math.abs(b.time - at))[0];
-    const volumeKeys = "volume keys that change it at the turn";
+    // The song's own dip at the turn (its file level, volume left out), so a duck adds to it instead of stacking on it.
+    const own = ownDrop(songs.find((song) => song.layer === head), at);
+    const dropDb = own === null ? null : Math.round(own);
+    const duck = dropDb === null ? null : Math.max(0, TURN_TOTAL_DB - dropDb);
+    const volumeKeys = duck === null ? "volume keys that change it at the turn"
+      : duck > 0 ? `volume keys that duck it ${duck} dB for ${TURN_DIP} s just before the turn (the song drops ${dropDb} dB there; ${TURN_TOTAL_DB} dB in all, edits measured dip 7 to 13)`
+        : `no duck is needed (the song already drops ${dropDb} dB there; hold that dip ${TURN_DIP} s)`;
     const hint = !fitted ? `fit_music {layer:"${head.name}"} (its drop on the payoff; then move the turn onto the song change its note names), or ${volumeKeys}.`
       : nearest ? `move the spine's turn to ${sec(nearest.time)} s (${nearest.name}) with notes brief, or ${volumeKeys}.`
         : `${volumeKeys[0].toUpperCase()}${volumeKeys.slice(1)} (the song is already fitted).`;
     findings.push({
       rule: "music_turn", severity: "warn", layerId: head.id, at: sec(at),
       message: `The turn at ${sec(at)} s: the music does not change here (${sec(Math.abs(now - was))} dB from the 2 s before to the 2 s after, no song section, no dip).`,
-      measured: `${sec(was)} dB before, ${sec(now)} dB after the turn`,
+      measured: `${sec(was)} dB before, ${sec(now)} dB after the turn${dropDb === null ? "" : `, the song's own dip ${dropDb} dB`}`,
       required: `at the turn a song section within ${TURN_NEAR} s, a level change of ${TURN_DB} dB either way, or a dip of ${TURN_DIP} s just before`,
       fix: { kind: "hint", text: hint },
     });

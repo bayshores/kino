@@ -902,7 +902,8 @@ How to read it:
   moved to end there, and a file that runs out stops where it ends); the fix names `fit_music`, then an auto 0.25 s fade. Verified on a real trailer project. Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.
 - **music_turn** (warning): at a spine `turn` beat the music changes (a `song-*` cue within 0.5 s,
-  4 dB either way, or a 0.5 s dip before); the fix names `fit_music`. Unverified by ear. Evidence:
+  4 dB either way, or a 0.5 s dip before); the fix names `fit_music` and gives the song's own dip
+  in dB with a duck for about 10 dB in all (none when it drops 10 or more). Unverified by ear. Evidence:
   `engine/qualityPolish.test.js`.
 - **Mix levels (T4)**: Verified by measurement on made-up tones, not by ear. Each voice clip is
   leveled to -16 LUFS from a cached loudness curve (`backend/loudness-curve.mjs`), line by line when
