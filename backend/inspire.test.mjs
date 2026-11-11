@@ -102,24 +102,45 @@ test("results that are not edits to learn from are dropped and counted; the shar
   const ref = (n, title, duration, fields = {}) => ({ id: `yt:${String(n).repeat(11)}`, title, duration, channel: "Chan", views: 50_000, ...fields });
   const found = [
     ref(1, "Hero stairs climb edit", 21), ref(2, "Hero climbs the stairs | cut", 113), ref(3, "Hero stairs scene edit", 30),
-    ref(4, "Song Name (Official Audio)", 100), ref(5, "Song Name 1 hour mix", 3600), ref(6, "Song Name lyrics", 150, { views: 90 }),
-    ref(7, "Song Name slowed + reverb", 100, { channel: "Artist - Topic" }), ref(8, "Song Name edit lyrics", 40), ref(9, "Hero montage", 900),
+    ref(4, "Song Name (Official Audio)", 100), ref(5, "Song Name 1 hour", 3600), ref(6, "Lyric video motion design", 150, { views: 90 }),
+    ref(7, "Song Name slowed + reverb", 100, { channel: "Artist - Topic" }), ref(8, "Song Name edit official audio", 40), ref(9, "Hero montage", 900),
   ];
-  // A 15 s video keeps the 21 s and 113 s edits; the 15 minute montage is over 150 s; song uploads go by title; a title with an edit word stays.
-  const { kept, dropped } = dropNonEdits(found, { seconds: 15 });
-  assert.deepEqual(kept.map((item) => item.title), ["Hero stairs climb edit", "Hero climbs the stairs | cut", "Hero stairs scene edit", "Song Name edit lyrics"]);
-  assert.deepEqual(dropped, { "song uploads": 3, "over 150 s (the video is 15 s)": 2 });
-  assert.equal(droppedText(dropped), "Dropped 5: 3 song uploads, 2 over 150 s (the video is 15 s).");
-  // Without a video length only titles drop; low views alone never do.
-  assert.equal(dropNonEdits(found).kept.length, 5);
+  // A 15 s video keeps the 21 s and 113 s edits; the 15 minute montage is over 150 s; only a release
+  // (official audio, a Topic channel) goes by title, never a style such as lyric videos; an edit word keeps one.
+  const { kept, dropped, items } = dropNonEdits(found, { seconds: 15 });
+  assert.deepEqual(kept.map((item) => item.title), ["Hero stairs climb edit", "Hero climbs the stairs | cut", "Hero stairs scene edit", "Lyric video motion design", "Song Name edit official audio"]);
+  assert.deepEqual(dropped, { "song uploads": 2, "over 150 s (the video is 15 s)": 2 });
+  // The line names the first few dropped, so a wrong drop can be seen and opened with name:"yt:<id>".
+  assert.equal(droppedText(dropped, items), `Dropped 4: 2 song uploads, 2 over 150 s (the video is 15 s). First: "Song Name (Official Audio)" ${found[3].id}, "Song Name 1 hour" ${found[4].id}, "Song Name slowed + reverb" ${found[6].id}.`);
+  // Without a video length only a release drops; low views alone never do.
+  assert.equal(dropNonEdits(found).kept.length, 7);
   assert.equal(dropReason(ref(0, "Hero walk", 30, { views: 3 })), null);
-  // "stairs" is in 3 of 4 titles and not in the search; "hero" is in the search, so it is left out.
+  for (const title of ["Interview audio", "Kinetic type lyric video", "Product ad with audio reactive visuals", "Fast cut moments lyrics"]) assert.equal(dropReason(ref(0, title, 60), { seconds: 15 }), null, title);
+  // "stairs" is in 3 of 5 titles and not in the search; "hero" is in the search, so it is left out; a contraction is no word.
   assert.deepEqual(sharedWords(kept, "Hero edit"), [{ word: "stairs", count: 3 }]);
-  const text = searchText("Hero edit", kept.map((item) => ({ ...item, state: "found" })), { dropped, alsoTry: "Hero edit" });
-  assert.match(text, /\nDropped 5: 3 song uploads, 2 over 150 s \(the video is 15 s\)\.\nshared: "stairs" in 3 of 4 titles\. Search footage for "stairs" too: library \{topic:"footage", search:"stairs"\}\.\nWithout the song: library \{topic:"inspire", search:"Hero edit"\}\./);
+  assert.deepEqual(sharedWords(["Don't kill", "Don't kill", "Don’t kill"].map((title) => ({ title })), ""), [{ word: "kill", count: 3 }]);
+  const text = searchText("Hero edit", kept.map((item) => ({ ...item, state: "found" })), { dropped, droppedItems: items, alsoTry: "Hero edit" });
+  assert.match(text, /\nDropped 4: 2 song uploads, 2 over 150 s \(the video is 15 s\)\. First: "Song Name \(Official Audio\)" yt:4{11}, .*\nshared: "stairs" in 3 of 5 titles\. If one names something you could film: library \{topic:"footage", search:"<that word>"\}\.\nWithout the song: library \{topic:"inspire", search:"Hero edit"\}\./);
   // Under a third of the titles, or under 3, shows no line.
   assert.equal(sharedLine(kept.slice(0, 2), ""), "");
   assert.equal(sharedLine([...kept, ...kept, ...kept].slice(0, 12).map((item, k) => ({ ...item, title: k < 2 ? item.title : `${"abcdefghij"[k]}${"abcdefghij"[k]}${"abcdefghij"[k]}` })), ""), "");
+});
+
+test("the video's length reaches the search: far longer results are dropped and counted, and fewer than wanted asks once more", async () => {
+  const log = path.join(folder, "drop.log");
+  process.env.STUB_YTDLP_LOG = log;
+  const inspire = createInspire({ directory: path.join(folder, "drop"), projectState: memoryProjects(), search: (words, options) => searchYouTube(words, { ...options, command: STUB }) });
+  let found;
+  try { found = await inspire.search("p1", "fast cut walking edit", { count: 3, seconds: 3 }); }
+  finally { delete process.env.STUB_YTDLP_LOG; }
+  // The recorded results are 10 s, 60 s, 114 s, 259 s, 564 s and 701 s: 90 s is the limit for a 3 s video.
+  assert.deepEqual(found.results.map((ref) => ref.id).sort(), ["yt:CGzyD_54ajU", "yt:ghBpKLARE_8"]);
+  assert.deepEqual(found.dropped, { "over 90 s (the video is 3 s)": 4 });
+  assert.deepEqual(found.droppedItems.map((item) => item.id).sort(), ["yt:J0ydlAqg6_8", "yt:OAH0MoAv2CI", "yt:RpowN_JNIsQ", "yt:tgEWNHVbk3U"]);
+  assert.deepEqual((await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line).at(-1)), ["ytsearch6:fast cut walking edit", "ytsearch20:fast cut walking edit"]);
+  // Without a length nothing is dropped by it, and there is no second request.
+  const plain = await inspire.search("p2", "fast cut walking edit", { count: 3 });
+  assert.deepEqual([plain.results.length, plain.dropped], [3, {}]);
 });
 
 // A look vector pointing mostly along one axis (dimension 8), stored as a measured record keeps it.

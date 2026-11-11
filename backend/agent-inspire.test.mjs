@@ -99,6 +99,22 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   assert.match(help.text, /^borrow_rhythm \{ref, fit\?, at\?, scene\?\}/);
 });
 
+test("for a briefed video the search drops results far longer than it and says which; an unbriefed project drops none", { skip: skipWithoutMediaTools }, async () => {
+  await agent("project", { action: "create", id: "insp-brief", name: "Inspire brief", width: 640, height: 360, duration: 3 });
+  const saved = await agent("notes", { project: "insp-brief", action: "brief", fields: { message: { text: "Quillby launch for hosts", by: "guessed" } } });
+  assert.equal(saved.isError, undefined, saved.text);
+  const found = await agent("library", { topic: "inspire", project: "insp-brief", search: "Quillby edit", count: 3 });
+  // The recorded results are 10 s to 701 s: for a 3 s video, over 90 s is dropped, and the line names them.
+  assert.match(found.text, /\nDropped 4: 4 over 90 s \(the video is 3 s\)\. First: "5 Fast Tips for Fast-Cut Editing" yt:tgEWNHVbk3U, /);
+  assert.deepEqual(found.data.dropped, { "over 90 s (the video is 3 s)": 4 });
+  assert.equal(found.data.results.length, 2);
+  // No brief: only a release is dropped by its title, so all 6 show and nothing is said.
+  await agent("project", { action: "create", id: "insp-plain", name: "Inspire plain", width: 640, height: 360, duration: 3 });
+  const plain = await agent("library", { topic: "inspire", project: "insp-plain", search: "Quillby edit" });
+  assert.doesNotMatch(plain.text, /Dropped/);
+  assert.equal(plain.data.dropped, undefined);
+});
+
 test("an agent proposes ideas from a reference; only the person turns them on or off and allows them", { skip: skipWithoutMediaTools }, async () => {
   const ideas = { ref: FIRST, take: [
     { title: "a quiet ending", from: 4.6, to: 6, what: "the last shot holds", why: "the stop lands after the speed", use: "end on a 2 s hold", place: { at: 1 } },

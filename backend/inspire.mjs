@@ -247,16 +247,17 @@ export function rankResults(results, wanted = results.length) {
 // edit and drops a 15 minute mix.
 export const FAR_LONGER = 10;
 export const LONG_ENOUGH = 90;
-// Title words that mark a song upload, a mix or a loop of a song; and words that mark an edit,
-// which keep a result even when its title also names the song ("song name edit lyrics").
-const SONG_UPLOAD = /\b(?:lyrics?|lyric video|official audio|audio|slowed|reverb|sped up|nightcore|karaoke|instrumental|visuali[sz]er|full album|8d|bass boosted|playlist|mix(?:es)?|\d+ ?(?:hours?|hrs?))\b/i;
+// A release of a song (not an edit made from it) has one of these in its title, or an auto-made
+// "- Topic" channel; any word that marks an edit keeps a result even then ("song edit, official
+// audio"). Style and technique words (lyric, visualizer, slowed, mix) never drop a result.
+const SONG_UPLOAD = /\b(?:official audio|full album)\b/i;
 const EDIT_WORD = /\b(?:edits?|amv|fmv|montage|trailer|tribute|fan ?made|clips?|scenes?|shorts?|reel|moments|twixtor|transitions?)\b/i;
 
 /**
  * Why a search result is dropped before it is shown, or null when it stays: "over N s (the video is
  * S s)" when it is far longer than the video being made (`seconds`, when known), or "song uploads"
- * when its title has a song-upload word (lyrics, audio, slowed, reverb, 1 hour, mix, ...) or its
- * channel is a "- Topic" channel, and no word that marks an edit. Low views alone never drop one.
+ * when its title says "official audio" or "full album", or its channel is a "- Topic" channel, and
+ * no word marks an edit. Low views alone never drop one.
  */
 export function dropReason(result, { seconds } = {}) {
   const limit = Number.isFinite(seconds) && seconds > 0 ? Math.max(LONG_ENOUGH, Math.round(FAR_LONGER * seconds)) : null;
@@ -267,28 +268,35 @@ export function dropReason(result, { seconds } = {}) {
   return null;
 }
 
-/** The results that stay, and how many were dropped for each reason: { kept, dropped: {reason: count} }. */
+/** The results that stay, how many were dropped for each reason, and the dropped ones: { kept, dropped: {reason: count}, items: [{id, title, reason}] }. */
 export function dropNonEdits(results, { seconds } = {}) {
   const dropped = {};
+  const items = [];
   const kept = results.filter((result) => {
     const reason = dropReason(result, { seconds });
-    if (reason) dropped[reason] = (dropped[reason] ?? 0) + 1;
+    if (reason) { dropped[reason] = (dropped[reason] ?? 0) + 1; items.push({ id: result.id, title: String(result.title ?? ""), reason }); }
     return !reason;
   });
-  return { kept, dropped };
+  return { kept, dropped, items };
 }
 
-/** "Dropped 2: 1 over 150 s (the video is 15 s), 1 song uploads." or "" when none were dropped. */
-export function droppedText(dropped = {}) {
+/**
+ * "Dropped 2: 1 over 150 s (the video is 15 s), 1 song uploads. First: "Title" yt:abc, ...", or ""
+ * when none were dropped. `items` (from dropNonEdits) names up to 3, so a wrong drop can be seen
+ * and the result opened with name:"yt:<id>".
+ */
+export function droppedText(dropped = {}, items = []) {
   const entries = Object.entries(dropped).filter(([, count]) => count > 0).sort((a, b) => b[1] - a[1]);
   if (!entries.length) return "";
-  return `Dropped ${entries.reduce((sum, [, count]) => sum + count, 0)}: ${entries.map(([reason, count]) => `${count} ${reason}`).join(", ")}.`;
+  const first = items.slice(0, 3).map((item) => `"${item.title.slice(0, 40)}" ${item.id}`).join(", ");
+  return `Dropped ${entries.reduce((sum, [, count]) => sum + count, 0)}: ${entries.map(([reason, count]) => `${count} ${reason}`).join(", ")}.${first ? ` First: ${first}.` : ""}`;
 }
 
 // Words that say nothing about what a title shows.
 const COMMON_WORDS = new Set(("the and for with from this that into your you are was were his her their its our not but all can has have had out one two new how why what who when where than then them they she him very more most "
   + "just over under about after before also only like make made video videos edit edits amv fmv official full part audio lyrics lyric feat").split(" "));
-const titleWords = (text) => String(text ?? "").toLowerCase().replace(/['’]/g, "").match(/\p{L}[\p{L}\p{N}]*/gu) ?? [];
+// A word with an apostrophe (a contraction) says nothing about what a title shows either.
+const titleWords = (text) => (String(text ?? "").toLowerCase().match(/\p{L}[\p{L}\p{N}'’]*/gu) ?? []).filter((word) => !/['’]/.test(word));
 
 /**
  * Words that many of the shown titles share and the search itself does not have: [{word, count}],
@@ -308,12 +316,12 @@ export function sharedWords(results, query = "") {
   return [...counts].filter(([, count]) => count >= need).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 4).map(([word, count]) => ({ word, count }));
 }
 
-/** The one line for sharedWords: `shared: "stairs" in 5 of 9 titles, "climbs" in 3. ...search footage for "stairs": ...`, or "". */
+/** The one line for sharedWords: `shared: "stairs" in 5 of 9 titles, "climbs" in 3. If one names something you could film: ...`, or "". */
 export function sharedLine(results, query = "") {
   const shared = sharedWords(results, query);
   if (!shared.length) return "";
   const words = shared.map(({ word, count }, index) => `"${word}" in ${count}${index ? "" : ` of ${results.length} titles`}`).join(", ");
-  return `shared: ${words}. Search footage for "${shared[0].word}" too: library {topic:"footage", search:"${shared[0].word}"}.`;
+  return `shared: ${words}. If one names something you could film: library {topic:"footage", search:"<that word>"}.`;
 }
 
 /**
@@ -674,29 +682,35 @@ export const shortsSearchUrl = (words) => `https://www.youtube.com/results?searc
  * asks for twice as many (up to MAX_SEARCH_COUNT) and keeps the best by rankResults. With `dropped`
  * (an object), results that are not edits to learn from (dropReason, judged against `seconds`, the
  * length of the video being made) are left out before the best are kept, and `dropped` gets the
- * count for each reason.
+ * count for each reason (`droppedItems`, an array, gets each one's {id, title, reason}). When drops
+ * leave fewer than wanted, a plain search asks once more for MAX_SEARCH_COUNT.
  */
-export async function searchYouTube(query, { count = SEARCH_COUNT, command, signal, shorts = false, vet = false, dropped, seconds } = {}) {
+export async function searchYouTube(query, { count = SEARCH_COUNT, command, signal, shorts = false, vet = false, dropped, droppedItems, seconds } = {}) {
   const words = String(query ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_QUERY_LENGTH);
   if (!words) throw new Error("A search needs words, such as walking tour edit.");
   const wanted = Math.max(1, Math.min(MAX_SEARCH_COUNT, Math.round(count) || SEARCH_COUNT));
   const asked = vet ? Math.min(MAX_SEARCH_COUNT, wanted * 2) : wanted;
-  const parse = (text) => {
-    const results = parseSearchLines(text);
-    if (!dropped) return results;
-    const split = dropNonEdits(results, { seconds });
-    Object.assign(dropped, split.dropped);
-    return split.kept;
+  const split = (text) => (dropped ? dropNonEdits(parseSearchLines(text), { seconds }) : { kept: parseSearchLines(text), dropped: {}, items: [] });
+  const parse = (found) => {
+    Object.assign(dropped ?? {}, found.dropped);
+    droppedItems?.push(...found.items);
+    return found.kept;
   };
   const keep = (results) => (vet ? rankResults(results, wanted) : results.slice(0, wanted));
-  if (!shorts) return keep(parse(await runYtDlp(["--flat-playlist", "--dump-json", `ytsearch${asked}:${words}`], { command, signal })));
+  if (!shorts) {
+    const run = async (n) => split(await runYtDlp(["--flat-playlist", "--dump-json", `ytsearch${n}:${words}`], { command, signal }));
+    let found = await run(asked);
+    // Drops left fewer than wanted: ask once for the most YouTube gives, and count that answer's drops.
+    if (dropped && found.kept.length < wanted && found.items.length && asked < MAX_SEARCH_COUNT) found = await run(MAX_SEARCH_COUNT);
+    return keep(parse(found));
+  }
   const [grid, plain] = await Promise.allSettled([
     runYtDlp(["--flat-playlist", "--dump-json", "--playlist-end", String(asked), shortsSearchUrl(words)], { command, signal }),
     runYtDlp(["--flat-playlist", "--dump-json", `ytsearch${Math.min(MAX_SEARCH_COUNT, asked * 2)}:${words} shorts`], { command, signal }),
   ]);
   if (grid.status === "rejected" && plain.status === "rejected") throw grid.reason;
   const text = [grid, plain].map((answer) => (answer.status === "fulfilled" ? answer.value : "")).join("\n");
-  const found = keep(parse(text).filter((result) => result.vertical || result.duration <= SHORT_SECONDS));
+  const found = keep(parse(split(text)).filter((result) => result.vertical || result.duration <= SHORT_SECONDS));
   // Nothing left and one run failed: its error (a bot check, a 429), not a quiet "nothing found".
   const failed = [grid, plain].find((answer) => answer.status === "rejected");
   if (!found.length && failed) throw failed.reason;
@@ -1233,7 +1247,7 @@ export function createInspire(deps) {
    * Searches YouTube for a project, saves the search (who asked: an agent {id, name, color} or
    * "you") and queues every result that is not measured yet. `seconds` is the length of the video
    * being made: results far longer than it, and song uploads, are dropped (dropReason) and counted.
-   * Resolves with {search, results, collapsed, dropped: {reason: count}}.
+   * Resolves with {search, results, collapsed, dropped: {reason: count}, droppedItems: [{id, title, reason}]}.
    */
   async function search(projectId, query, { by, count = SEARCH_COUNT, signal, kind = "videos", seconds } = {}) {
     await start();
@@ -1251,12 +1265,13 @@ export function createInspire(deps) {
     });
     let results;
     const dropped = {};
+    const droppedItems = [];
     try {
       // Sound effects: YouTube's sound effect uploads, a minute or shorter.
       // Junk (compilations, meme sounds, long ambiences for a hit, sci-fi unasked) is left out.
       results = sounds ? (await deps.search(`${words} sound effect`, { count: wanted + SOUND_SEARCH_SPARE, signal }))
         .filter((result) => result.duration <= MAX_SOUND_SECONDS && !junkSound(result.title, { words, seconds: result.duration })).slice(0, wanted)
-        : await deps.search(words, { count: wanted, signal, vet: true, dropped, seconds, ...(kind === "shorts" ? { shorts: true } : {}) });
+        : await deps.search(words, { count: wanted, signal, vet: true, dropped, droppedItems, seconds, ...(kind === "shorts" ? { shorts: true } : {}) });
     } catch (error) {
       inFlight.delete(`${projectId}/${entry.n}`);
       await updateProject(projectId, (state) => {
@@ -1294,7 +1309,7 @@ export function createInspire(deps) {
       fetchThumb(record).catch(() => {});
       if (isSound(record) ? !record.sound : record.state !== "measured") enqueue(record.id);
     }
-    return { search: done, results: results.map((result) => summary(refs.get(result.id))), collapsed, dropped };
+    return { search: done, results: results.map((result) => summary(refs.get(result.id))), collapsed, dropped, droppedItems };
   }
 
   /**
@@ -1807,9 +1822,10 @@ const sourceWords = (ref) => `${ref?.views != null ? ` · ${viewsShort(ref.views
  * A search's answer: one line per result, then what to do next. dropped: {reason: count} from the
  * search (never shown as results, only counted). alsoTry: a second ready search words (the
  * person's named things without the song), offered when the first search was the filled one.
+ * droppedItems: the dropped results' {id, title}, a few of which the Dropped line names.
  */
-export function searchText(query, results, { kind = "videos", collapsed = [], dropped = {}, alsoTry = "" } = {}) {
-  const dropLine = droppedText(dropped);
+export function searchText(query, results, { kind = "videos", collapsed = [], dropped = {}, droppedItems = [], alsoTry = "" } = {}) {
+  const dropLine = droppedText(dropped, droppedItems);
   if (!results.length) return `inspire "${query}": nothing found on YouTube${kind === "sounds" ? ` (sound effects of ${MAX_SOUND_SECONDS} s or less)` : kind === "shorts" ? " Shorts" : ""}. Try other words${kind === "shorts" ? ', or the same words without kind:"shorts"' : ""}.${dropLine ? ` ${dropLine}` : ""}${alsoTry ? ` Without the song: library {topic:"inspire", search:"${alsoTry}"}.` : ""}`;
   if (kind === "sounds") {
     return [`inspire sounds "${query}": ${results.length} sound effect${results.length === 1 ? "" : "s"} on YouTube (${MAX_SOUND_SECONDS} s or less). kino measures each, one at a time: length (silence trimmed), loudest moment, loudness, and keeps a short preview.`,

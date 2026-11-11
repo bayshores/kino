@@ -15,7 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { applyBrief, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefText, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { applyBrief, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefText, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
 import { wordsOnly } from "./agent/treatments.mjs";
@@ -779,7 +779,8 @@ test("the two status lines fit in 40 tokens in every state; the brief read is me
   let widest = "";
   for (const rev of [0, 1, 9, 10, 99]) for (let mask = 0; mask < 2 ** BRIEF_FIELDS.length; mask += 1) for (const guessed of [false, true])
     for (const count of [0, 1, 2, 3, 9, 10, 11, 99, 100]) for (const playbacks of [0, 1]) for (const settled of ["no", "confirmed", "no playback", "corrected"])
-      for (const steps of [[], [{ text: "Build", done: false }]]) for (const video of [{ seconds: 24, layers: 0 }, { seconds: 6, layers: 0 }, { seconds: 24, layers: 3 }, { seconds: 24, layers: 0, references: 0 }, { seconds: 24, layers: 0, references: 1 }, { seconds: 24, layers: 0, references: 2, needs: { checked: false } }]) {
+      for (const steps of [[], [{ text: "Build", done: false }]]) for (const video of [{ seconds: 24, layers: 0 }, { seconds: 6, layers: 0 }, { seconds: 24, layers: 3 }, { seconds: 24, layers: 0, references: 0 }, { seconds: 24, layers: 0, references: 1 }, { seconds: 24, layers: 0, references: 2, needs: { checked: false } },
+        { seconds: 24, layers: 0, references: 2, saved: ["yt:dQw4w9WgXcQ", "yt:9bZkp7q19f0"], studied: [] }, { seconds: 24, layers: 0, references: 1, saved: ["yt:dQw4w9WgXcQ"], studied: ["yt:9bZkp7q19f0"], songTitle: "Glass Harbor" }]) {
         if (playbacks > count) continue;
         const fields = rev ? Object.fromEntries(BRIEF_FIELDS.filter((name, index) => mask & (1 << index)).map((name) => [name, { text: "t", by: guessed ? "guessed" : "you", quote: guessed ? undefined : "q" }])) : {};
         const log = Array.from({ length: count }, (_, index) => ({ q: "q?", a: "a", kind: index >= count - playbacks ? "playback" : "question", rev, confirmed: false }));
@@ -862,13 +863,28 @@ test("the first reference search is filled from what the person named; each want
   // Quoted text and capitalized runs, in order; a lone capital that starts a sentence is not a name.
   assert.deepEqual(namedThings(brief), ["Mara Voss", "The Long Climb", "Lighthouse Keepers of Norway"]);
   assert.deepEqual(namedThings({ fields: { message: line("make the most intense edit ever") } }), []);
+  // A name that starts the line, owns something or is the subject is kept; verbs, labels and moods that start a sentence are not.
+  const names = (text) => namedThings({ fields: { message: line(text) } });
+  assert.deepEqual(names("Brightloop launch"), ["Brightloop"]);
+  assert.deepEqual(names("Vantro, Kelmora"), ["Vantro", "Kelmora"]);
+  assert.deepEqual(names("A shoe ad. Vantro's drop is the story. Brightloop is the client."), ["Vantro", "Brightloop"]);
+  assert.deepEqual(names("Quillby launch video. Highlight the Dashboard. Opening: Dark, moody."), ["Quillby", "Dashboard"]);
+  assert.deepEqual(names("I want it Fast. Really Fast. Introduce Acme. Price: 9 A.M. Co. only."), ["Acme"]);
+  // The song's title: a link or an id never reaches the search; a sound effect or an ambience is never the song.
+  assert.deepEqual(referenceSearches({ fields: { message: line("Brightloop launch") } }, "https://youtu.be/dQw4w9WgXcQ"), { search: "Brightloop edit", withoutSong: null });
+  const candidates = [{ id: "yt:aaaaaaaaaaa", title: "Glass Harbor (Official Audio)", picked: true, named: "https://youtu.be/aaaaaaaaaaa" }];
+  assert.equal(songTitleOf(candidates, []), "Glass Harbor (Official Audio)");
+  assert.equal(songTitleOf([{ ...candidates[0], named: "Glass Harbor by Mara" }], []), "Glass Harbor by Mara");
+  const audio = (id, title, duration) => ({ duration, credit: { id, title } });
+  assert.equal(songTitleOf([{ id: "yt:aaaaaaaaaaa" }], [audio("yt:sfxsfxsfxsf", "heavy rain ambience", 58), audio("openverse:9", "rain", 40), audio("yt:aaaaaaaaaaa", "Glass Harbor", 150), audio("yt:aaaaaaaaaaa", "Glass Harbor short", 12)]), "Glass Harbor");
+  assert.equal(songTitleOf([], [audio("yt:sfxsfxsfxsf", "heavy rain ambience", 58)]), "");
   // Names, the song's title (noise words cut) and "edit"; the same without the song is offered too.
-  assert.deepEqual(referenceSearches(brief, "Night Run (Official Audio)"), { search: "Mara Voss The Long Climb Lighthouse Keepers of Norway Night Run edit", withoutSong: "Mara Voss The Long Climb Lighthouse Keepers of Norway edit" });
-  assert.deepEqual(referenceSearches({ fields: { message: line("a calm edit") } }, "Night Run"), { search: "Night Run edit", withoutSong: null });
+  assert.deepEqual(referenceSearches(brief, "Glass Harbor (Official Audio)"), { search: "Mara Voss The Long Climb Lighthouse Keepers of Norway Glass Harbor edit", withoutSong: "Mara Voss The Long Climb Lighthouse Keepers of Norway edit" });
+  assert.deepEqual(referenceSearches({ fields: { message: line("a calm edit") } }, "Glass Harbor"), { search: "Glass Harbor edit", withoutSong: null });
   assert.equal(referenceSearches({ fields: { message: line("a calm edit") } }, ""), null, "nothing named keeps the placeholder");
   const video = { seconds: 15, references: 0, saved: [], studied: [], treatmentsWaived: true };
-  const [find] = orderSteps({ brief }, { ...video, songTitle: "Night Run" });
-  assert.equal(find.call.input.search, "Mara Voss The Long Climb Lighthouse Keepers of Norway Night Run edit");
+  const [find] = orderSteps({ brief }, { ...video, songTitle: "Glass Harbor" });
+  assert.equal(find.call.input.search, "Mara Voss The Long Climb Lighthouse Keepers of Norway Glass Harbor edit");
   assert.equal(find.alt.input.search, "Mara Voss The Long Climb Lighthouse Keepers of Norway edit");
   assert.equal(orderSteps({ brief: { rev: 1, fields: {} } }, video)[0].call.input.search, "<an edit like yours>");
   // Studying: each of the 2 wanted saved references, named in the step; none left when both are studied.
@@ -900,7 +916,7 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   assert.equal(picture.data.error, "order_needed", picture.text);
   await savedReference(id, "kinoOrder01");
   await savedReference(id, "kinoOrder02", "order-two");
-  await refused("study yt:kinoOrder01, yt:kinoOrder02", { tool: "look", input: { mode: "reference", ref: "yt:kinoOrder01" } });
+  await refused("study yt:kinoOrder01 \\+1", { tool: "look", input: { mode: "reference", ref: "yt:kinoOrder01" } });
   const studied = await agent("look", { project: id, mode: "reference", ref: "yt:kinoOrder01" });
   assert.equal(studied.isError, undefined, studied.text);
   // One studied is not enough: the refusal names the other saved reference and its call.

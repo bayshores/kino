@@ -519,34 +519,45 @@ export function pickOpen(brief, video = {}) {
 // ---- the first reference search, from what the person named -------------------------------------
 // Plain text rules, no language model. A named thing is (1) text in double or single quotes, or
 // (2) a run of capitalized words (up to 4, "of", "the", "and" and "de" allowed inside a run), in the
-// brief's message, made_from and look_sound lines. A single capitalized word that only starts a
-// sentence is not one, and neither are the function words in CAPITAL_STOP.
+// brief's message, made_from and look_sound lines. Not names: the common words in CAPITAL_STOP
+// (function words, common verbs, adjectives and abbreviations), a label before a colon, and a
+// lone capitalized word that only starts a sentence, unless it starts the line, owns something
+// ("Vantro's") or is followed by a verb like "is" (a subject).
 const NAMED_LINES = ["message", "made_from", "look_sound"];
 const MAX_NAMED = 3;
 const SEARCH_LIMIT = 100;
 const CAPITAL_STOP = new Set(("I A An The This That These Those It Its He She They We You My Our Your Their His Her In On At For From With And But Or If When While No Not To Of By As Is Are "
-  + "Make Use Show Start Open End Keep Let Then Every Each Some One Two After Before Over Under Into Without Only All Any Also Just").split(" "));
+  + "Make Use Show Start Open End Keep Let Then Every Each Some One Two After Before Over Under Into Without Only All Any Also Just "
+  + "Highlight Introduce Focus Feature Include Avoid Add Cut Build Create End Finish Close Opening Closing Intro Outro Really Very Super So Too More Most Less Quite "
+  + "Fast Slow Quick Dark Bright Light Calm Bold Clean Intense Moody Warm Cool Soft Hard Big Small Short Long Simple Real Raw Fresh Sharp Smooth Loud Quiet "
+  + "Brand Product Client Company Story Audience Music Song Look Mood Style Idea Goal Message Footage Sound Voice Text Title Logo App "
+  + "Mr Mrs Ms Dr St Vs Co Inc Ltd Llc Corp Etc AM PM").split(" "));
 const CONNECTORS = new Set(["of", "the", "de", "la", "von", "van"]);
+const VERBS_AFTER_SUBJECT = new Set(["is", "was", "are", "were", "has", "had", "will", "would", "does", "did", "can", "needs", "wants"]);
 const SONG_NOISE = /\b(?:official|lyrics?|audio|video|music video|hd|hq|4k|topic|reupload|re-upload)\b/gi;
 
-// The runs of capitalized words in one sentence (see above).
-function capitalRuns(sentence) {
+// The runs of capitalized words in one sentence (see above). firstOfLine: it starts the line.
+function capitalRuns(sentence, firstOfLine = false) {
   const words = sentence.split(/\s+/).filter(Boolean);
   const bare = (word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-  const isCap = (word) => /^\p{Lu}/u.test(bare(word)) && !CAPITAL_STOP.has(bare(word));
+  const owner = (word) => bare(word).replace(/['’]s$/i, "");
+  const isCap = (word) => /^\p{Lu}/u.test(owner(word)) && !CAPITAL_STOP.has(owner(word)) && !/\p{L}\.\p{L}/u.test(bare(word));
   const runs = [];
   let run = [];
-  let from = 0;
   const close = () => {
-    while (run.length && CONNECTORS.has(run.at(-1).toLowerCase())) run.pop();
-    // A lone capitalized word that starts the sentence is just a sentence start.
-    if (run.length && !(from === 0 && run.length === 1)) runs.push(run.slice(0, 4).join(" "));
+    while (run.length && CONNECTORS.has(owner(words[run.at(-1)]).toLowerCase())) run.pop();
+    if (run.length) {
+      // A lone capitalized word that starts the sentence is a name only with a sign of one.
+      const lone = run.length === 1 && run[0] === 0;
+      const label = /:$/.test(words[0]);
+      const sign = firstOfLine || /['’]s$/i.test(bare(words[0])) || VERBS_AFTER_SUBJECT.has(bare(words[1] ?? "").toLowerCase());
+      if (!lone || (sign && !label)) runs.push(run.slice(0, 4).map((index) => owner(words[index])).join(" "));
+    }
     run = [];
   };
   words.forEach((word, index) => {
-    const text = bare(word);
-    if (isCap(word)) { if (!run.length) from = index; run.push(text); }
-    else if (run.length && CONNECTORS.has(text.toLowerCase()) && words[index + 1] && isCap(words[index + 1])) run.push(text);
+    if (isCap(word)) run.push(index);
+    else if (run.length && CONNECTORS.has(bare(word).toLowerCase()) && words[index + 1] && isCap(words[index + 1])) run.push(index);
     else close();
     if (/[,;:.!?)]$/.test(word)) close();
   });
@@ -566,9 +577,24 @@ export function namedThings(brief) {
     if (!hasText(text)) continue;
     const quotes = /(?:^|[\s(])(?:"([^"]{2,40})"|“([^”]{2,40})”|'([^']{2,40})'(?=$|[\s.,;:!?)])|‘([^’]{2,40})’)/gu;
     for (const match of text.matchAll(quotes)) add(match[1] ?? match[2] ?? match[3] ?? match[4]);
-    for (const sentence of text.replace(quotes, " ").split(/(?<=[.!?])\s+|\n/)) capitalRuns(sentence).forEach(add);
+    text.replace(quotes, " ").trim().split(/(?<=[.!?])\s+|\n/).forEach((sentence, index) => capitalRuns(sentence, index === 0).forEach(add));
   }
   return names;
+}
+
+const LINK_OR_ID = /^(?:https?:|www\.|yt:)|youtu\.?be/i;
+
+/**
+ * The title of the song a video is about, from the project's soundtrack candidates and its audio
+ * media: the picked candidate the person named (its title when they gave a link or an id), else
+ * the title of the longest audio of 20 s or more that is one of the candidates (so a sound effect
+ * or an ambience, which is none, never counts). "" when there is none.
+ */
+export function songTitleOf(candidates = [], audio = []) {
+  const named = candidates.find((entry) => entry.picked && entry.named);
+  if (named) return LINK_OR_ID.test(String(named.named).trim()) ? String(named.title ?? "") : String(named.named);
+  const songs = audio.filter((item) => item.duration >= 20 && candidates.some((entry) => entry.id === item.credit?.id)).sort((a, b) => b.duration - a.duration);
+  return songs[0]?.credit?.title ?? "";
 }
 
 /**
@@ -578,7 +604,8 @@ export function namedThings(brief) {
  * set only when there is a song and at least one named thing outside its title.
  */
 export function referenceSearches(brief, songTitle) {
-  const song = String(songTitle ?? "").replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(SONG_NOISE, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+  // A link or an id is not a title.
+  const song = (LINK_OR_ID.test(String(songTitle ?? "").trim()) ? "" : String(songTitle ?? "")).replace(/[([{][^)\]}]*[)\]}]/g, " ").replace(SONG_NOISE, " ").replace(/\s+/g, " ").trim().slice(0, 60);
   const named = namedThings(brief).filter((name) => !song.toLowerCase().includes(name.toLowerCase())).slice(0, MAX_NAMED);
   if (!named.length && !song) return null;
   const join = (names, withSong) => {
@@ -617,7 +644,7 @@ export function orderSteps(state, video = {}) {
       const needed = Math.max(0, REFERENCES_WANTED - (saved.length - unstudied.length));
       const refs = unstudied.slice(0, needed);
       if (!saved.length) open.push({ step: "study a reference (look)", call: { tool: "look", input: { mode: "reference", ref: "<a saved reference>" } } });
-      else if (refs.length) open.push({ step: `study ${refs.join(", ")} (look)`, refs, call: { tool: "look", input: { mode: "reference", ref: refs[0] } } });
+      else if (refs.length) open.push({ step: `study ${refs[0]}${refs.length > 1 ? ` +${refs.length - 1}` : ""} (look)`, refs, call: { tool: "look", input: { mode: "reference", ref: refs[0] } } });
     }
   }
   if (video.treatmentsWaived) return open;
