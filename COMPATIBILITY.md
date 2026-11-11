@@ -685,6 +685,9 @@ How to read it:
   or top accent (up and down, as effect_fit allows); a strobe flashes 3 times a second
   at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
   through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **speed-ramp and beat-repeat moves**: Unit-verified. `move {name:"speed-ramp", layer, at}` puts the clip's
+  speed animations around a cue (before, on it, back); `move {name:"beat-repeat", layer, at, count|times}`
+  replays one file moment as muted move-made copies. Evidence: `engine/moves.test.js`. Not rendered or judged yet.
 - **Anime edit guidance and proof**: Partly verified. The skill says every effect needs a cue that motivates it,
   reference counts are ceilings and none of a device is fine; a title 0.1 to 0.3 s after a cut counts as on it.
   compose writes the song's seams and rests as fitted `song-*` cues and the end card's entrance as an `end-card`

@@ -84,7 +84,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 45);
+  assert.equal(MOVE_NAMES.length, 47);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -973,4 +973,40 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   const lit = run("strobe", "cue:fill-1", 4).animations.map((entry) => entry.animation).filter((animation) => animation.name === "Strobe up").map((animation) => round3(animation.start + animation.duration));
   assert.equal(lit.at(-1), 4);
   assert.ok(lit.every((at) => lit.filter((other) => other >= at && other < at + 1).length <= 3), `at most 3 flashes a second (${lit})`);
+});
+
+test("speed-ramp slows the clip into the cue, lands the new speed on it and comes back to its own speed; it refuses a cue the clip does not reach", () => {
+  const scene = sceneFor(1920, 1080);
+  const made = runExample("speed-ramp", scene);
+  const speeds = made.animations.map(({ layerId, animation }) => [layerId, animation.id, round3(animation.start), round3(animation.start + animation.duration), animation.from.speed, animation.to.speed]);
+  assert.deepEqual(speeds, [
+    ["clip", "speed-ramp.layer-into", 0.9, 1.1, 1, 0.35],
+    ["clip", "speed-ramp.layer-hit", round3(1.5 - 2 / 30), 1.5, 0.35, 1.5],
+    ["clip", "speed-ramp.layer-back", 2.1, 2.3, 1.5, 1],
+  ]);
+  const clip = { ...scene.layers.find((layer) => layer.id === "clip"), animations: made.animations.map((entry) => entry.animation) };
+  assert.deepEqual([0.5, 1.3, 1.8, 3].map((t) => round3(evaluateLayer(clip, t).speed ?? 1)), [1, 0.35, 1.5, 1]);
+  assert.deepEqual([made.start, made.end, made.added.length], [0.9, 2.3, 0]);
+  const run = (fields, start) => runMove(MOVES["speed-ramp"], { id: "ramp", input: readMoveInput(MOVES["speed-ramp"], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media });
+  assert.throws(() => run({ layer: "clip", over: 1 }, 0.5), /clip must play from -0.5 s to the cue at 0.5 s/);
+  assert.throws(() => run({ layer: "shot-a" }, 2), /shot-a is a picture; give a video layer/);
+});
+
+test("beat-repeat replays one file moment as muted copies on each beat, each a step bigger, marked as the move's own", () => {
+  const scene = sceneFor(1920, 1080);
+  const made = runExample("beat-repeat", scene);
+  const copies = made.added.map(({ layer }) => layer);
+  assert.deepEqual(copies.map((layer) => [layer.id, layer.mediaStart, layer.mediaOffset, layer.mediaDuration, layer.volume, layer.scaleX]), [
+    ["beat-repeat-r1", 1, 1, 0.3, 0, 1], ["beat-repeat-r2", 1.5, 1, 0.3, 0, 1.05], ["beat-repeat-r3", 2, 1, 0.3, 0, 1.1], ["beat-repeat-r4", 2.5, 1, 0.3, 0, 1.15],
+  ]);
+  assert.ok(copies.every((layer) => layer.move.name === "beat-repeat" && layer.src === "/api/media/clip.mp4"));
+  assert.deepEqual(copies[1].animations.map((animation) => [animation.kind, animation.start]), [["show", 1.5], ["hide", 1.8]]);
+  assert.deepEqual([made.start, made.end], [1, 2.8]);
+  const run = (fields, options = {}) => runMove(MOVES["beat-repeat"], { id: "rep", input: readMoveInput(MOVES["beat-repeat"], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media, ...options });
+  // count without every takes one beat of the song's tempo; flip mirrors every other replay.
+  const beats = run({ layer: "clip", count: 3, flip: "alternate", from: 4 }, { bpm: 120 }).added.map(({ layer }) => [layer.mediaStart, layer.mediaOffset, layer.scaleX]);
+  assert.deepEqual(beats, [[1, 4, 1], [1.5, 4, -1], [2, 4, 1]]);
+  assert.throws(() => run({ layer: "clip", count: 3 }), /give every .* no tempo/);
+  assert.throws(() => run({ layer: "clip", times: [0.5] }), /0.5 s must come after 1 s/);
+  assert.throws(() => run({ layer: "clip", times: [2], from: 7.9, length: 0.5 }), /runs past the file's end \(8 s\)/);
 });

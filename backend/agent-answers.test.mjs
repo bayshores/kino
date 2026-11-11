@@ -251,7 +251,8 @@ test("library search turns what a reference shows into the kino name and the cal
     glow: ["glow", 'library {topic:"rules", name:"light"}'], bloom: ["glow", 'name:"light"'],
     particles: ["embers", 'name:"particles"'], embers: ["embers", 'name:"particles"'],
     subtitles: ["add_captions", 'library {topic:"op", name:"add_captions"}'], "cut out": ["cut_out", 'name:"cut_out"'], cutout: ["cut_out", 'name:"cut_out"'],
-    "speed ramp": ["clip-speed", 'library {topic:"rules", name:"clip-speed"}'], "slow motion": ["clip-speed", 'name:"clip-speed"'],
+    "speed ramp": ["speed-ramp", 'library {topic:"moves", name:"speed-ramp"}'], "slow motion": ["speed-ramp", 'name:"speed-ramp"'],
+    "repeat on beats": ["beat-repeat", 'library {topic:"moves", name:"beat-repeat"}'],
     shake: ["impact-accent", 'library {topic:"moves", name:"impact-accent"}'], flash: ["impact-accent", 'name:"impact-accent"'],
     "light rays": ["light-rays", 'name:"light"'], "color grade": ["color_filter", 'library {topic:"op", name:"color_filter"}'], "green tint": ["white-balance", 'name:"color"'],
   };

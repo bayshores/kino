@@ -10,12 +10,11 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 
 - `move {name, at, dur?, id?, seed?, reduced?, look?, brand?, …its fields}`. `at` takes every
   time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or
-  groups (a layer alone in a group, as frame makes, means the group).
+  groups.
 - `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
   animates (`<id>.<role>-<name>`). Its id is the move's name (`-2` for a second).
-- The same id remakes it; `{name, id, remove:true}` takes it away. Parts are rebuilt: never
-  edit them by hand.
+- The same id remakes it; `{name, id, remove:true}` takes it away. Never edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 
@@ -30,7 +29,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **zoom-through**: pushes into a point of one shot and comes out in the next.
   `target:{layer, rect?}`: until a layer in `from` or its `rect` [x, y, w, h] % fills the
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
-  shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"` (`color`). A clip `to` starts when shown.
+  shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"` (`color`).
 - **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
   group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
@@ -72,6 +71,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **freeze-shutter**: footage stops on the beat with a one-frame `shutter` (white, black or
   `kick`), holds `hold` 0.6-1.5 s leaning in, optional `label`, then `release` (ramp or
   cut).
+- **speed-ramp**: a clip at `before` into a cue, `after` from it. **beat-repeat**: one moment on beats.
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
   (a cut_out layer) stands it behind the person; `reveal`: `rise` (default) or `cut`.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
