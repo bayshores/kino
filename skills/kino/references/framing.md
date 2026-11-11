@@ -3,8 +3,8 @@
 - The shape follows the footage unless the person named one.
 - `look {mode:"source", layer, t}`, then `mark_subject {layer, t, box}` the subject you see: box
   `[x, y, w, h]` in % of the source, top-left; a face: the head. A deliberate strip adds
-  `part:"eyes"`. A mark made without a look does not clear `narrow_window` or `crop_no_subject`;
-  waive those two only on a layer you looked at.
+  `part:"eyes"`. An unlooked mark clears neither `narrow_window` nor `crop_no_subject`.
+  Waive `narrow_window` or `head_cut_off` only on a layer you looked at.
 - Then `frame_shot {layer | layers}`: crops on the mark or a found face, else the whole shot
   over a blurred copy. Faces come from a full check: run one first.
 - Mark each shot's start, middle and end (end − 0.05 s, never the end), every 0.5 s it moves over 10%.

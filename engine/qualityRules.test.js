@@ -1760,6 +1760,10 @@ test("narrow_window: a window under 40% of the file's width where no face was fo
   assert.equal((await cropRun("narrow_window", keeperMarked([45, 20, 20, 60]), null, { keeper: { src: "/api/media/other.mp4", at: [1] } })).findings.length, 1);
   assert.equal((await cropRun("narrow_window", keeperMarked([45, 20, 20, 60]), null, { keeper: { src: TALL_CROP.src, at: [9] } })).findings.length, 1);
   assert.equal((await cropRun("narrow_window", keeperMarked([10, 20, 20, 60]), null, keeperLooked)).findings.length, 1);
+  // Marks left from the file before replace_media (off a sample moment) are not the new file's subject.
+  const replaced = tall({ ...TALL_CROP, subjectBoxes: { src: "/api/media/old.mp4", boxes: [0.4, 1.4].map((at) => ({ at, box: [45, 20, 20, 60], by: "agent" })) } });
+  assert.equal((await cropRun("narrow_window", replaced, null, keeperLooked)).findings.length, 1);
+  assert.equal(cropCounts(replaced.scenes[0], { mediaSizes: keeperSizes, sourceLooks: keeperLooked }).unseen, 1);
   assert.equal(seenMark(TALL_CROP, keeperLooked, 0.6, 1), true);
   assert.equal(seenMark(TALL_CROP, keeperLooked, 1.4, 2), true, "0.5 s of reach");
   assert.equal(seenMark(TALL_CROP, keeperLooked, 1.6, 2), false);

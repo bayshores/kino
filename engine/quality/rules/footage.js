@@ -108,6 +108,8 @@ export function softUpscale(model, ctx) {
 
 // The mark ({at, box, part?}) nearest file time `at` (within BOX_REACH), or null.
 function markNear(layer, at) {
+  // Marks made on another file (before replace_media) are not this file's subject.
+  if (layer.subjectBoxes?.src !== layer.src) return null;
   const exact = boxesAt(layer, at);
   if (exact.length) return exact[0];
   let best = null;
