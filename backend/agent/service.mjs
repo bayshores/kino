@@ -1930,7 +1930,7 @@ export function createAgentService(deps) {
   // The fix a refused waiver (waive_check on a viewer or face-cut code) answers with. A cut face or
   // a narrow window: kino's own framing of the layers named (frame_shot), or mark_subject for a shot
   // an animation moves (frame_shot would fight it). Any other code: check {fix:"auto"} when its
-  // finding has an auto fix, else the finding's own fix op. Null when the edit refused no waiver.
+  // finding has an auto fix, else the finding's own fix op, else check {rules:[code]} (its words). Null when the edit refused no waiver.
   const FRAME_WAIVERS = new Set(["crop_no_subject", "head_cut_off", "narrow_window"]);
   async function waiverFixCall(document, problems, codes) {
     const refused = problems.filter((problem) => problem.waive);
@@ -1946,7 +1946,9 @@ export function createAgentService(deps) {
     const own = findings.filter((finding) => finding.rule === refused[0].waive.code && !finding.waived);
     if (own.some((finding) => finding.auto)) return nextOf("check", { fix: "auto" });
     const fix = own.find((finding) => finding.fix && typeof finding.fix === "object")?.fix;
-    return fix ? nextOf("edit", { ops: [fix].flat() }) : nextOf("check", { fix: "auto" });
+    if (fix) return nextOf("edit", { ops: [fix].flat() });
+    // A finding whose fix is words only (a hint), or none left: check lists it with those words.
+    return nextOf("check", { rules: [refused[0].waive.code] });
   }
 
   // The call that resends a refused edit with each refused op fixed as kino would: a name it
@@ -7115,7 +7117,12 @@ export function createAgentService(deps) {
   // check (with pixels) found it. Other errors pass through unchanged.
   async function withOpenGates(error, record, scenes, options) {
     const meta = caller.getStore() ?? {};
-    if (!(error instanceof AgentError) || meta.reviewed || meta.approved || meta.by === "you") return error;
+    if (!(error instanceof AgentError)) return error;
+    // The person's own render, or one they approved, lists no gates, but still sees what is waived.
+    if (meta.reviewed || meta.approved || meta.by === "you") {
+      error.message = `${error.message}${waivedNote(record.document)}`;
+      return error;
+    }
     let gates;
     try { gates = await finalGates(record, { scenes, options }); } catch { return error; }
     // A still waits only for the stops and the check.

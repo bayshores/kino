@@ -155,7 +155,7 @@ const boxText = (box) => `[${box.map((value) => Math.round(value)).join(", ")}]`
 // Whether the layer keeps one place and size on screen the whole scene (within a pixel). kino's own
 // framing (the agent's frame_shot op) places a still layer; one an animation moves or scales was
 // framed by hand on purpose, so the op is offered there but not applied by check {fix:"auto"}.
-function heldStill(model, item) {
+export function heldStill(model, item) {
   const first = boxAt(item, 0);
   return model.times.every((_, index) => {
     const box = boxAt(item, index);

@@ -18,6 +18,7 @@ import { moveLayerByWorldDelta } from "../../engine/geometry.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { RULES, runQuality } from "../../engine/quality/index.js";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
+import { heldStill } from "../../engine/quality/rules/footage.js";
 import { judderBlurId, techniqueCounts, techniquesUsed } from "../../engine/quality/techniques.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { SCREEN_NAME } from "../../engine/movePicks.js";
@@ -198,6 +199,8 @@ export function timingCopies(animations, opacity) {
 }
 
 const LAYER_FIXES = new Set(["transform", "plate", "motion", "retime", "smear"]);
+// Findings about footage cut by the frame: on a layer an animation moves, frame_shot is not applied.
+const FACE_CUT_RULES = new Set(["crop_no_subject", "head_cut_off", "narrow_window"]);
 
 /**
  * The polish fixes that change a layer and its animations (engine/quality/rules/polish.js), as
@@ -834,7 +837,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           ...(fix !== undefined ? { fix } : {}), ...(auto ? { auto: true, ...(finding.fix?.why ? { why: finding.fix.why } : {}), ...(finding.fix?.push ? { push: true } : {}) } : {}),
           ...(waiver ? { waived: waiver.reason } : {}),
           // A shot an animation moves: frame_shot would fight it, so a refused waiver answers with mark_subject.
-          ...(finding.fix?.kind === "frame_shot" && finding.fix.still === false ? { moves: true } : {}),
+          ...(FACE_CUT_RULES.has(finding.rule) && item?.kind === "video" && !heldStill(model, item) ? { moves: true } : {}),
           ...(finding.internal ? { internal: true } : {}),
           // plain_beats marks the warning that holds a final render (blocksFinal).
           ...(finding.final ? { final: true } : {}),

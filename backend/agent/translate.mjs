@@ -72,7 +72,8 @@ export const SUBJECT_WAIVERS = new Set(["head_cut_off", "narrow_window"]);
 // Waiver codes that are not rules in the registry: the gates (review.mjs, viewer.mjs, needs.mjs,
 // brief.mjs, critique.mjs, footage-finder/step.mjs, service.mjs REFERENCE_WAIVER) and the findings
 // of checks.mjs and av-offset.mjs.
-const WAIVER_GATES = ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler",
+const WHOLE_VIDEO_GATES = ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler"];
+const WAIVER_GATES = [...WHOLE_VIDEO_GATES,
   "missing_media", "empty_text", "off_canvas", "past_scene_end", "missing_font", "missing_glyphs", "av_offset"];
 // Rules another chain adds to the registry (engine/quality/index.js): known by name before they land.
 const NEW_RULE_CODES = ["shape_guess", "narrow_window", "ask_unmet"];
@@ -837,7 +838,7 @@ function resolveReferences(operation, type, resolver, document) {
       // A waiver on "*" or on every layer of a per-layer rule covers shots nobody looked at: allowed,
       // but the receipt says how many layers it covers.
       const everyLayer = new Set(resolver.matchAll("*", "layer"));
-      const perLayer = KNOWN_WAIVER_CODES.has(operation.code) && !WAIVER_GATES.includes(operation.code) && !SCENE_ONLY_WAIVERS.has(operation.code);
+      const perLayer = KNOWN_WAIVER_CODES.has(operation.code) && !WHOLE_VIDEO_GATES.includes(operation.code) && !SCENE_ONLY_WAIVERS.has(operation.code);
       const covers = operation.target === "*" ? everyLayer.size : [operation.target].flat().filter((id) => everyLayer.has(id)).length;
       if (perLayer && covers && (operation.target === "*" || (covers >= everyLayer.size && everyLayer.size > 1)))
         resolver.notes.push(`waive_check ${operation.code} covers ${covers} layer${covers === 1 ? "" : "s"}`);
