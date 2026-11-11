@@ -84,21 +84,21 @@ test("framing.md's crop to 9:16 runs as written: a layer and a crop per shot, th
   // the frame kino draws for file 2.2 s: frame 52, from 2.167 s).
   assert.match(dragon.text, /^source shot2 @2\.2s: file 2\.2 s of sintel-village-dragon\.mp4 \(384×216\), shot 2 of 2 \(file 1\.25–3\.33 s, scene 1\.25–3\.33 s\)$/m);
   const third = await look("shot2", 2.2);
-  assert.match(third.text, /^crop: x 33–64%, y 0–100% of the source \(dashed\); the result is on the right$/m);
+  assert.match(third.text, /^crop: x 34–66%, y 0–100% of the source \(dashed\); the result is on the right$/m);
   assert.match(third.text, /^boxes: agent \[40, 12, 17, 22\] 100% in the crop · /m);
-  assert.equal((await look("shot1", 1.2)).data.crop.map(Math.round).join(), "20,0,52,100", "shot 1 keeps its own crop to its end");
+  assert.equal((await look("shot1", 1.2)).data.crop.map(Math.round).join(), "0,0,100,100", "shot 1's wide mark gets the whole shot over a blurred copy, to its end");
   // A listed end is the next shot's first frame: file 1.25 s is shot 2, 1.2 s (end − 0.05 s) shot 1.
   assert.equal((await look("shot2", 1.25)).data.shot.n, 2);
   assert.equal((await look("shot1", 1.2)).data.shot.n, 1);
   const framing = await readFile(new URL("../skills/kino/references/framing.md", import.meta.url), "utf8");
   assert.ok(framing.includes("A listed end is the next shot's first frame") && framing.includes("(end − 0.05 s,"), "framing.md says where a shot ends");
-  assert.match(second.text, /^crop: x 20–52%, y 0–100% of the source \(dashed\); the result is on the right$/m);
-  assert.match(second.text, /^boxes: agent \[17, 25, 38, 63\] 83% in the crop · /m);
+  assert.match(second.text, /^crop: x 0–100%, y 0–100% of the source \(dashed[^)]*\)/m);
+  assert.match(second.text, /^boxes: agent \[17, 25, 38, 63\] 100% in the crop · /m);
   assert.doesNotMatch(second.text, /mark the subject/);
-  near(second.data.crop[0], 20.19, 1, "moved crop x0");
-  near(second.data.crop[2], 51.83, 1, "moved crop x1");
+  near(second.data.crop[0], 0, 1, "blur-fill crop x0");
+  near(second.data.crop[2], 100, 1, "blur-fill crop x1");
   assert.deepEqual(second.data.boxes.filter((entry) => entry.by === "agent").map(({ at, box }) => ({ at, box })), [{ at: 0.6, box: [17, 25, 38, 63] }]);
-  near(second.data.boxes[0].inside, 0.83, 0.01, "share of the box in the crop");
+  near(second.data.boxes[0].inside, 1, 0.01, "share of the box in the crop");
   assert.deepEqual(second.data.file, { src: clip.src, name: "sintel-village-dragon.mp4", width: 384, height: 216, time: 0.6 });
   if (process.platform !== "darwin") {
     assert.ok(first.text.includes(VISION_SKIPPED) && second.text.includes(VISION_SKIPPED), "off a Mac, Vision is skipped and said so");

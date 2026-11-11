@@ -207,8 +207,8 @@ const OPERATIONS = {
     rules: "shift {at, by, scene?}: a ripple insert. Everything at or after at (layer play times, animations, cues, captions, rests) moves by seconds and the scene grows by by; an animation running across at stretches. A negative by takes out the by seconds before at, refused when something starts or ends in them. at takes any at form (\"cue:win\").",
   },
   mark_subject: {
-    fields: ["layerId", "t", "box"],
-    rules: 'mark_subject {layer, t, box}: marks the subject in a video layer\'s source frame at scene time t. box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
+    fields: ["layerId", "t", "box", "part"],
+    rules: 'mark_subject {layer, t, box, part?}: marks the subject in a video layer\'s source frame at scene time t, after you looked at it. box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. part names a deliberate part crop (part:"eyes" for a strip). box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
   },
   frame_shot: {
     fields: ["layerId", "layerIds", "sceneId"],
@@ -1912,9 +1912,12 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const box = subjectBox(operation.box);
     if (!box) throw problem('box is [x, y, w, h] in % of the source frame (look {mode:"source"} draws the grid), such as [40, 10, 25, 80]: each from 0 to 100, w and h above 0, x + w and y + h at most 100.');
     if (others.length >= MAX_SUBJECT_BOXES) throw problem(`${name} has ${MAX_SUBJECT_BOXES} subject boxes, the most kept; remove some with box:null.`);
-    layer.subjectBoxes = { src: layer.src, boxes: [...others, { at, box, by: "agent" }].sort((a, b) => a.at - b.at) };
+    // part names a deliberate part crop (an eye strip): 1 to 30 characters, kept on the box.
+    const part = operation.part === undefined || operation.part === null ? null : typeof operation.part === "string" ? operation.part.trim() : "";
+    if (part !== null && (part.length < 1 || part.length > 30)) throw problem("part is 1-30 characters naming the part you mean (eyes), or leave it out for the whole subject.");
+    layer.subjectBoxes = { src: layer.src, boxes: [...others, { at, box, by: "agent", ...(part ? { part } : {}) }].sort((a, b) => a.at - b.at) };
     noteMark(work, layer.id, { name, at, removed: false, total: count(others.length + 1),
-      line: `mark_subject ${name}: agent box [${box.join(", ")}] at file ${shown(at)} s · ${count(others.length + 1)}` });
+      line: `mark_subject ${name}: agent box [${box.join(", ")}]${part ? ` (${part})` : ""} at file ${shown(at)} s · ${count(others.length + 1)}` });
   }
 
   // One receipt line per layer, however many marks the edit makes (an edit may hold 200 ops):

@@ -269,12 +269,16 @@ export function openFindingLines(findings) {
 
 // More waivers than this for one rule in a project and the rule is likely wrong, not the video.
 export const WAIVER_LIMIT = 5;
+// Rules whose waiver keeps a crop kino cannot see into: a mark made after a look clears them instead.
+const CROP_WAIVERS = new Set(["narrow_window", "head_cut_off", "crop_no_subject"]);
 /** A note for each rule waived more than WAIVER_LIMIT times (document.checkWaivers), or []. `codes` keeps only those rules. */
 export function waiverNotes(waivers = [], { codes = null } = {}) {
   const counts = {};
   for (const waiver of waivers) if (waiver?.code && (!codes || codes.includes(waiver.code))) counts[waiver.code] = (counts[waiver.code] ?? 0) + 1;
   return Object.entries(counts).filter(([, count]) => count > WAIVER_LIMIT)
-    .map(([code, count]) => `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
+    .map(([code, count]) => CROP_WAIVERS.has(code)
+      ? `${code} is waived ${count} times here: each keeps a crop kino cannot see into; a mark after look {mode:"source"} clears it, and every stop shows the count.`
+      : `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
 }
 
 /** The waivers that still count: all but the stale ones (a full check's `stale`, quality.mjs staleWaivers). */

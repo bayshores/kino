@@ -36,6 +36,8 @@ export class OperationError extends Error {
     this.suggestions = error.suggestions ?? [];
     // A refused waiver: its code and the video layers it named (the service offers the fix for them).
     if (error.waive) this.waive = error.waive;
+    // A waiver for a shot nobody looked at: the code says to look first.
+    if (error.code === "look_first") this.code = "look_first";
     // One op that works instead (null: the op's usual example), sent with the refusal.
     if (error.example !== undefined) this.example = error.example;
     // No example at all: no op would do what was sent (an empty one would change nothing).
@@ -829,6 +831,13 @@ function resolveReferences(operation, type, resolver, document) {
       throw new Error(`${type} target names layers or scenes (a list, or a glob such as "arch-*"); target:"*" alone waives the whole project.`);
     const ids = [...new Set([operation.target].flat().flatMap(one))];
     operation.target = ids.length === 1 ? ids[0] : ids;
+    // A waiver keeps a shot the agent looked at. Callers that do not record looks leave
+    // resolver.sourceLooks undefined: nothing is refused then.
+    const unlooked = type === "waive_check" && SUBJECT_WAIVERS.has(operation.code) && resolver.sourceLooks ? ids.find((id) => !resolver.sourceLooks[id]) : null;
+    if (unlooked) {
+      const name = resolver.nameOf("layer", unlooked) ?? unlooked;
+      throw Object.assign(new Error(`${operation.code} on ${name}: look at its source first (look {mode:"source", layer:"${name}"}): a waiver keeps a shot you looked at; marking what you see (mark_subject) clears it without one.`), { code: "look_first" });
+    }
   }
   // Removing a waiver that is not there changes nothing: the edit goes on, and the receipt says so.
   if (type === "waive_check" || type === "unwaive_check") {

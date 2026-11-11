@@ -9,6 +9,7 @@ import { applyOperations } from "../engine/operations.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { assignCodes, closest, createResolver, documentObjects, emptyCodes, ReferenceError } from "./agent/refs.mjs";
 import { OperationError, translateOperations } from "./agent/translate.mjs";
+import { createBlockRunner, translateBlock } from "./agent/blocks.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
@@ -284,6 +285,12 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
     assert.throws(() => send({ code, target: "**" }), /reaches every layer/);
     assert.deepEqual(send({ code, target: "shot-1" })[0].target, "shot-1");
     assert.equal(translateOperations([{ op: "unwaive_check", code, target: "main" }], resolver, document).length, 1, "removing is never refused");
+    // With the source looks known, a layer nobody looked at is refused look_first; one that was looked at is kept.
+    resolver.sourceLooks = {};
+    assert.throws(() => send({ code, target: "shot-1" }), (thrown) => thrown.code === "look_first" && thrown.message.includes(`${code} on Rectangle: look at its source first (look {mode:"source", layer:"Rectangle"}): a waiver keeps a shot you looked at; marking what you see (mark_subject) clears it without one.`));
+    resolver.sourceLooks = { "shot-1": { src: "a.mp4", at: [1] } };
+    assert.equal(send({ code, target: "shot-1" })[0].target, "shot-1");
+    delete resolver.sourceLooks;
   }
   // A finding of a whole scene (a still hold, the ending) is kept by naming the scene with the person's words;
   // text_slides, ending_seen and music_stall never name a layer, so a layer waiver is refused, not saved to cover nothing.
@@ -319,6 +326,16 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   send({ code: "off_canvas", target: "*" });
   assert.deepEqual(resolver.notes, ["waive_check overlap covers 3 layers", "waive_check off_canvas covers 3 layers"]);
   assert.deepEqual(resolver.fixes, []);
+});
+
+test("mark_subject keeps part on the box (1-30 characters) and refuses a bad one in words", async () => {
+  const document = sceneDocument([{ type: "add_layer", layerType: "video", properties: { id: "clip", name: "clip", src: "/api/media/clip.mp4", x: 0, y: 0, width: 640, height: 360 } }]);
+  const runner = createBlockRunner({ fontsFor: async () => [], listMedia: async () => [], fontCatalog: [], operationContext: {} });
+  const mark = (extra) => runner.apply(document, translateBlock({ op: "mark_subject", layer: "clip", t: 1, box: [40, 40, 20, 8], ...extra }, createResolver(document), document), {});
+  assert.deepEqual((await mark({ part: "eyes" })).scenes[0].layers[0].subjectBoxes.boxes, [{ at: 1, box: [40, 40, 20, 8], by: "agent", part: "eyes" }]);
+  assert.equal("part" in (await mark({})).scenes[0].layers[0].subjectBoxes.boxes[0], false, "a whole-subject mark has no part");
+  for (const part of ["", "x".repeat(31), 5])
+    await assert.rejects(mark({ part }), /part is 1-30 characters naming the part you mean \(eyes\), or leave it out for the whole subject\./);
 });
 
 test("translate errors name the operation's number and offer close names", () => {
@@ -739,6 +756,8 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   const [note, ...rest] = waiverNotes([...waivers(6, "hold"), ...waivers(2, "judder")]);
   assert.match(note, /^hold is waived 6 times here: likely a kino false positive/);
   assert.equal(rest.length, 0);
+  // A crop waiver says what a mark does instead, not "kino false positive".
+  assert.deepEqual(waiverNotes(waivers(6, "narrow_window")), ['narrow_window is waived 6 times here: each keeps a crop kino cannot see into; a mark after look {mode:"source"} clears it, and every stop shows the count.']);
   // `codes` limits the notes to the rules an edit just waived.
   assert.deepEqual(waiverNotes(waivers(6, "hold"), { codes: ["judder"] }), []);
   assert.equal(waiverNotes(waivers(6, "hold"), { codes: ["hold"] }).length, 1);
