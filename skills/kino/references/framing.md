@@ -1,10 +1,10 @@
 # Framing footage
 
-Read before cropping 16:9 footage to 9:16.
+Before cropping 16:9 to 9:16.
 
 - Import lists a video's shots in file seconds (all: `library {topic:"media", search:"<id>"}`).
   A listed end is the next shot's first frame. Cut on them.
-- Never guess the subject or center the crop by default. At each shot you use,
+- Never guess the subject or center it by default. At each shot,
   `look {mode:"source", layer, t}` shows the frame, a % grid, the crop, the boxes and the result.
 - `mark_subject {layer, t, box}`, box `[x, y, w, h]` in % (0–100) of the source, x, y top-left;
   a face: the head. Mark each shot's start, middle and end (end − 0.05 s, not the listed end),
@@ -13,6 +13,7 @@ Read before cropping 16:9 footage to 9:16.
   center % / 100 × `width`, from W − `width` to 0. Look again.
 - Eyes near the top third; subjects far apart: cut between them; faces out of the bottom 707
   and right 120 px of 1080×1920 (unverified).
+- A cut found face errs; mark a meant strip.
 
 ## Framing: crop footage to 9:16
 
