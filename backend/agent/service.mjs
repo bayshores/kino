@@ -4122,12 +4122,15 @@ export function createAgentService(deps) {
       ? { step: "ask board", call: nextOf("notes", { action: "checkpoint", id: "board" }) }
       : { step: "save the storyboard", call: nextOf("edit", { ops: [{ op: "board", music: "<song layer or file>", shots: [{ '<library {topic:"op", name:"board"}>': "" }] }] }) };
   }
-  // Video layers that play one after another (a cut): enabled, with a time range in the scene.
+  // Video layers that play one after another (a cut): two enabled ones in a scene whose time
+  // ranges differ. A clip placed later on top of a longer one cuts to it as much as one placed
+  // after it ends, and so does a short one ending over a longer one; two on the same range
+  // play together (a split screen, a picture in picture).
   function cutsVideo(document) {
     return document.scenes.some((scene) => {
       if (scene.isComponent) return false;
       const ranges = scene.layers.filter((layer) => layer.type === "video" && layer.enabled !== false).map((layer) => mediaPlaybackRange(layer, scene.duration)).filter(Boolean);
-      return ranges.some((one) => ranges.some((other) => other !== one && one.end <= other.start + 0.01));
+      return ranges.some((one) => ranges.some((other) => Math.abs(one.start - other.start) > 0.01 || Math.abs(one.end - other.end) > 0.01));
     });
   }
   async function refuseBeforeBoard(projectId, before, after) {

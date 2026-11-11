@@ -890,6 +890,9 @@ test("a cut waits for the storyboard, so does a draft; the approved board lets t
     assert.equal(nextCallOf(refused).tool, "edit");
     assert.equal(nextCallOf(refused).input.ops[0].op, "board");
     assert.equal(await revision(project), rev, "nothing was saved");
+    // The second clip placed on top of an untrimmed first one (both run to the end) is a cut too.
+    const stacked = CUT.map(({ properties: { mediaDuration, ...rest }, ...op }) => ({ ...op, properties: rest }));
+    assertRefused(await agent("edit", { project, ops: stacked }), "board_needed", /Next: save the storyboard\.$/);
     assertRefused(await agent("render", { project, action: "start", quality: "draft" }), "board_needed", /^A draft waits for the storyboard \(never asked\): ask board first; look shows frames now\./);
 
     // The board is saved but not asked: the cut still waits, and the next call asks it.

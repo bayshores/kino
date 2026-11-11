@@ -100,7 +100,7 @@ test("origin word, no person footage: next is the footage search for the quote a
 
 // The first compose: the shape the person named, else the shape most listed clips share, else the
 // scene's own ratio (a 1080x1920 scene is a guess until someone says it plays on a phone).
-test("an empty portrait video with two landscape clips and no plays_on gets a 16:9 compose next", async (t) => {
+test("an empty portrait video with two landscape clips and no plays_on gets a 16:9 compose next; the shape the person named wins", async (t) => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-next-compose-"));
   t.after(() => rm(dataRoot, { recursive: true, force: true }));
   const store = await openStore(dataRoot);
@@ -118,5 +118,13 @@ test("an empty portrait video with two landscape clips and no plays_on gets a 16
   clips.push(clip("c", 1080, 1920), clip("d", 1080, 1920));
   assert.match(await next(), /"format":"9:16"/);
   clips.splice(1, 3);
+  assert.match(await next(), /"format":"9:16"/);
+  // Two landscape clips again: a guessed phone keeps their shape; the person's own phone wins.
+  clips.push(clip("b", 1920, 1080));
+  const playsOn = (line, more = {}) => service.call("notes", { project: "p", action: "brief", fields: { plays_on: line, ...more } });
+  assert.equal((await playsOn({ text: "a phone", by: "guessed" })).isError, undefined);
+  assert.match(await next(), /"format":"16:9"/);
+  const yours = await playsOn({ text: "a phone", by: "you", quote: "it plays on my phone" }, { ask: "The keeper is back, it plays on my phone" });
+  assert.equal(yours.isError, undefined, yours.text);
   assert.match(await next(), /"format":"9:16"/);
 });
