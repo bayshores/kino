@@ -810,7 +810,7 @@ How to read it:
 - **Weighted hits**: Verified on generated audio. Onset cues carry `weight` and `band`, bar
   starts `downbeat`, and `accent-N` cues mark each section's hardest hits (kick plus hi-hat track:
   kicks low, hats high and under 0.3, accents on the loud bar kicks; the band is by energy gain,
-  so a kick with overtones is low). Evidence: `engine/beatDetection.test.js`. Gap: weight and
+  so a kick with overtones is low, and a hat over a steady bass line is high). Evidence: `engine/beatDetection.test.js`. Gap: weight and
   band not checked against labeled drums on commercial music.
 - **Cue lists**: Verified. `inspect {targets:["cues"]}` pages with filters
   (`cues[kind=beat,from=60,to=90]`). Evidence: `backend/agent-cue-list.test.mjs`.

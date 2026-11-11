@@ -121,11 +121,13 @@ export function onsetStrength(samples, sampleRate) {
       if (bin < lowBins) lowSum += rise;
       const band = bin < edges[0] ? 0 : bin < edges[1] ? 1 : 2;
       bands[band][frame] += rise;
-      // Energy (magnitude squared) adds up across bins, so each band's total is the new sound
-      // energy in that band and the bands compare fairly whatever their number of bins. Summing
-      // the magnitudes themselves let the 396 high and 109 mid bins outvote the 7 low ones: a
-      // kick with its energy under 150 Hz was labeled mid, and a song never got a low label.
-      gain[band][frame] += Math.max(0, currentLinear[bin] ** 2 - previousLinear[bin] ** 2);
+      // The energy (rise squared) of the new sound adds up across bins, so each band's total is
+      // the new sound energy in that band and the bands compare fairly whatever their number of
+      // bins. Summing the magnitudes themselves let the 396 high and 109 mid bins outvote the 7
+      // low ones: a kick with its energy under 150 Hz was labeled mid, and a song never got a low
+      // label. The rise is squared, not the difference of squared magnitudes: that difference
+      // also counts steady sound times the new sound, so a bass line would claim a quiet hat.
+      gain[band][frame] += Math.max(0, currentLinear[bin] - previousLinear[bin]) ** 2;
     }
     flux[frame] = sum;
     low[frame] = lowSum;

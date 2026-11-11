@@ -153,6 +153,16 @@ test("a kick with overtones is labeled low, and a lone hi-hat is labeled high", 
   const hit = analyzeBeats(hats, RATE).onsets;
   assert.ok(hit.length >= 20, `${hit.length} hats`);
   assert.deepEqual([...new Set(hit.map((onset) => onset.band))], ["high"]);
+  // The same hats over a steady, loud 60 Hz bass line: the hat is the only new sound, so it is
+  // high. (Counting the bass times the hat made the bass claim the hat's gain: labeled low.)
+  const over = new Float32Array(LENGTH * RATE);
+  for (let i = 0; i < over.length; i += 1) {
+    const t = i / RATE;
+    over[i] = 0.5 * Math.sin(2 * Math.PI * 60 * t) + (t < 1 ? 0 : 0.2 * noise(i) * Math.exp(-((t - 1) % PERIOD) * 80));
+  }
+  const hatsOverBass = analyzeBeats(over, RATE).onsets.filter((onset) => onset.time > 1);
+  assert.ok(hatsOverBass.length >= 30, `${hatsOverBass.length} hats over bass`);
+  assert.deepEqual([...new Set(hatsOverBass.map((onset) => onset.band))], ["high"]);
 });
 
 test("a louder kick over a steady pad weighs more than a quiet kick alone, and gets the accents", () => {
