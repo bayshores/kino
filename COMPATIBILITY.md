@@ -777,9 +777,11 @@ How to read it:
   run live in CI; the image model does not know character names.
 - **Footage codes and long scans**: Verified on a lavfi clip. The `kino` command sends `F1`, `F1.15`,
   `clip:` and `yt:` imports as typed; a scan picks stills in passes of 200 times (ffmpeg's expression
-  parser refuses a flat sum of 99 terms; 300 stills measured); a rescan keeps shown shot numbers and
-  ranges and adds new shots under new numbers. Evidence: `backend/kino-cli.test.mjs`,
-  `backend/footage-finder.test.mjs` (numbers, 300 shots).
+  parser refuses a flat sum of 99 terms; 250 stills through two ffmpeg passes land as files 000 to 249); a
+  rescan keeps shown shot codes (a cut shot grows whole, a split one keeps its code on its larger part, no two
+  codes overlap), adds new shots under new numbers and matches all saved shots to the newest words together.
+  Gap: the sheet shows the newest scan only; no scan longer than 350 stills was run. Evidence:
+  `backend/kino-cli.test.mjs`, `backend/footage-finder.test.mjs` (numbering, rescan match, stills).
 - **Scan marks, subtitles and drawn footage**: Stub-verified. A small logo near an edge on most shots
   of a scan is said once and is no text (its video lists after clean ones), subtitles and captions
   on most shots never become a mark, bottom-center subtitles go last, a short flash decides no match,

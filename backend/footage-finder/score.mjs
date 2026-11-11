@@ -21,9 +21,12 @@
 //    the image model did not run.
 // Times: yt-dlp cuts each stretch without re-encoding, so its file starts at the keyframe before
 // the stretch. The probe's length minus the stretch's length is that lead-in, taken off each time.
-// 4. Saves <data>/footage/scans/<id>.json and one sheet (<id>.jpg, the best 12 stills, 4 by 3),
-//    then removes the 360p copy. At most 300 files or 200 MB of scans: the oldest unused go
-//    first; a scan the caller keeps (noted or imported) stays.
+// 4. Saves <data>/footage/scans/<id>.json and one sheet (<id>.jpg, the best 12 stills of this scan,
+//    4 by 3), then removes the 360p copy. At most 300 files or 200 MB of scans: the oldest unused
+//    go first; a scan the caller keeps (noted or imported) stays. A scan of the same video again
+//    adds its shots to the saved ones (numberShots), and all of them are matched to the newest
+//    `want` together (their saved vectors), so one ranking and one match z-score population;
+//    marks, drawn, model and the sheet are the newest scan's.
 import { copyFile, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { decodeVector, dot, encodeVector, normalize } from "../music-embed.mjs";
@@ -260,21 +263,38 @@ export function matchBar(count, { drawn = false } = {}) {
 }
 
 /**
- * The shots best first, each with {flags, score, match}. flags: "dark", "text", "subtitles",
- * "short" (these go last), "logo" (a small cost). match: the z-score of the shot's closeness to
- * `wantVector` among these shots (null without one); it adds to the score only when matchShown
- * (the best clean shot, one without dark, text, subtitles or short, reaches matchBar; drawn: the
- * footage is drawn). Answers {shots, matchShown, matchBest (that best z-score, or null),
- * matchBar, skipped: {dark, text, subtitles, short}}.
+ * The match step of a ranking, for shots of one population (every shot of a scan, or of every
+ * scan of a video when a rescan joins them): shots with {vector (normalized, or null), flags,
+ * base (the score without a match)}. Answers {matches (z-score of each shot's closeness to
+ * `wantVector` among these shots, null without a vector or a want), scores (base plus 10 a
+ * z-score, the boost only when matchShown), matchShown (the best clean shot, one without dark,
+ * text, subtitles or short, reaches matchBar), matchBest, matchBar}.
  */
-export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
+export function matchShots(shots, { wantVector = null, drawn = false } = {}) {
   const closeness = wantVector ? shots.map((shot) => (shot.vector ? dot(wantVector, shot.vector) : null)) : [];
   const known = closeness.filter((value) => value !== null);
   const z = zScores(known);
   let next = 0;
-  const matches = closeness.map((value) => (value === null ? null : round1(z[next++])));
+  const matches = shots.map((_, index) => (wantVector && closeness[index] !== null ? round1(z[next++]) : null));
+  // A title card that spells the searched name can match best, and a short shot sorts last and is
+  // too short to import: only clean shots decide.
+  const clean = matches.filter((value, index) => value !== null && shots[index].flags.every((flag) => flag === "logo"));
+  const bar = matchBar(known.length, { drawn });
+  const matchBest = clean.length ? Math.max(...clean) : null;
+  const matchShown = matchBest !== null && matchBest >= bar;
+  const scores = shots.map((shot, index) => round1(shot.base + (matchShown && matches[index] !== null ? 10 * matches[index] : 0)));
+  return { matches, scores, matchShown, matchBest, matchBar: Number.isFinite(bar) ? round1(bar) : null };
+}
+
+/**
+ * The shots best first, each with {flags, base, score, match}. flags: "dark", "text", "subtitles",
+ * "short" (these go last), "logo" (a small cost). base: the score before any match. match and
+ * score: matchShots'. Answers {shots, matchShown, matchBest (that best z-score, or null),
+ * matchBar, skipped: {dark, text, subtitles, short}}.
+ */
+export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
   const skipped = { dark: 0, text: 0, subtitles: 0, short: 0 };
-  const flagged = shots.map((shot) => {
+  const rows = shots.map((shot) => {
     const flags = [];
     if (shot.luma < DARK_LUMA) flags.push("dark");
     if (shot.text >= TEXT_SHARE) flags.push("text");
@@ -282,24 +302,13 @@ export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
     if (shot.end - shot.start < SHORT_SECONDS) flags.push("short");
     for (const flag of flags) skipped[flag] += 1;
     if (shot.logo >= TEXT_SHARE) flags.push("logo");
-    return flags;
+    const base = round3(0.5 * shot.motion + 0.3 * (shot.face ?? 0) + 20 * (1 - shot.text) - (flags.includes("logo") ? 10 : 0));
+    return { ...shot, flags, base };
   });
-  // A title card that spells the searched name can match best, and a short shot sorts last and is
-  // too short to import: only clean shots decide.
-  const clean = matches.filter((value, index) => value !== null && flagged[index].every((flag) => flag === "logo"));
-  const bar = matchBar(known.length, { drawn });
-  const matchBest = clean.length ? Math.max(...clean) : null;
-  const matchShown = matchBest !== null && matchBest >= bar;
-  const rows = shots.map((shot, index) => {
-    const flags = flagged[index];
-    const match = wantVector ? matches[index] : null;
-    const score = round1(0.5 * shot.motion + 0.3 * (shot.face ?? 0) + 20 * (1 - shot.text)
-      + (matchShown && match !== null ? 10 * match : 0) - (flags.includes("logo") ? 10 : 0));
-    const last = flags.some((flag) => flag !== "logo");
-    return { ...shot, flags, score, match, last };
-  });
-  rows.sort((a, b) => Number(a.last) - Number(b.last) || b.score - a.score || a.start - b.start);
-  return { shots: rows.map(({ last, ...row }) => row), matchShown, matchBest, matchBar: Number.isFinite(bar) ? round1(bar) : null, skipped };
+  const { matches, scores, matchShown, matchBest, matchBar: bar } = matchShots(rows, { wantVector, drawn });
+  const ranked = rows.map((row, index) => ({ ...row, score: scores[index], match: matches[index] }));
+  ranked.sort(compareShots);
+  return { shots: ranked, matchShown, matchBest, matchBar: bar, skipped };
 }
 
 // ---- files ----------------------------------------------------------------------------------
@@ -307,37 +316,50 @@ export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
 const SCAN_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A shot of these flags goes after the clean ones (a logo alone is a small cost, not a reason). */
 const isLast = (shot) => (shot.flags ?? []).some((flag) => flag !== "logo");
+/** Clean shots first, then best score, then earliest. */
+const compareShots = (a, b) => Number(isLast(a)) - Number(isLast(b)) || b.score - a.score || a.start - b.start;
 
-/** Two shots are one shot for numbering when their time ranges overlap by at least this share of their union. */
+/** A new shot is a saved shot's when they overlap by at least this share of the shorter one. */
 export const SAME_RANGE = 0.5;
+/** Two shot ranges that share no more than this many seconds do not overlap. */
+const TOUCH_SECONDS = 0.1;
+const overlapOf = (a, b) => Math.min(a.end, b.end) - Math.max(a.start, b.start);
 
 /**
  * Numbers a scan's shots (each {start, end}) against the shots a saved scan of the same video
- * already shows (known, each {n, start, end}). A shot whose time range overlaps a known shot's
- * (SAME_RANGE of their union, the most overlap first, each known number once) keeps that number
- * and that shot's start and end, so a code shown before points at the same range of the video. The
- * others are new: they count on from the largest known number, in time order (1, 2, 3 ... in a
- * first scan), so no number is reused or shifted. Answers [{n, start, end}] in the order of `shots`.
+ * already shows (known, each {n, start, end}). A shot that overlaps a known shot by SAME_RANGE of
+ * the shorter one (the most overlap first, each known number once) is that shot: it keeps the
+ * number, and its range is the two ranges joined (a shot a window edge cut is found whole by the
+ * next window, and its code stays). When that joined range would overlap another shot, known or
+ * new (a shot the new scan splits: the larger part, the first when equal, keeps the code), the shot keeps its own
+ * range, so no two codes list the same footage. The others are new: they count on from the
+ * largest known number, in time order (1, 2, 3 ... in a first scan), so no number is reused or
+ * shifted. Answers [{n, start, end}] in the order of `shots`; each range holds its shot's range.
  */
 export function numberShots(known = [], shots = []) {
   const pairs = [];
   shots.forEach((shot, index) => known.forEach((old, at) => {
-    const overlap = Math.min(shot.end, old.end) - Math.max(shot.start, old.start);
-    const union = Math.max(shot.end, old.end) - Math.min(shot.start, old.start);
-    if (overlap > 0 && union > 0 && overlap / union >= SAME_RANGE) pairs.push({ index, at, share: overlap / union });
+    const overlap = overlapOf(shot, old);
+    const shorter = Math.min(shot.end - shot.start, old.end - old.start);
+    if (overlap > 0 && shorter > 0 && overlap / shorter >= SAME_RANGE) pairs.push({ index, at, overlap });
   }));
-  pairs.sort((a, b) => b.share - a.share);
+  pairs.sort((a, b) => b.overlap - a.overlap || a.index - b.index || a.at - b.at);
   const out = new Array(shots.length).fill(null);
   const used = new Set();
-  for (const { index, at, share } of pairs) {
+  for (const { index, at } of pairs) {
     if (out[index] || used.has(at)) continue;
-    out[index] = { n: known[at].n, start: known[at].start, end: known[at].end, share };
+    const old = known[at];
+    const joined = { start: Math.min(shots[index].start, old.start), end: Math.max(shots[index].end, old.end) };
+    const clear = (range) => shots.every((other, i) => i === index || overlapOf(range, other) <= TOUCH_SECONDS)
+      && known.every((other, i) => i === at || overlapOf(range, other) <= TOUCH_SECONDS);
+    const range = clear(joined) ? joined : { start: shots[index].start, end: shots[index].end };
+    out[index] = { n: old.n, ...range };
     used.add(at);
   }
   let next = Math.max(0, ...known.map((old) => old.n)) + 1;
   shots.map((shot, index) => index).filter((index) => !out[index]).sort((a, b) => shots[a].start - shots[b].start)
     .forEach((index) => { out[index] = { n: next++, start: shots[index].start, end: shots[index].end }; });
-  return out.map(({ n, start, end }) => ({ n, start, end }));
+  return out;
 }
 
 /** The folder saved scans live in. */
@@ -422,7 +444,7 @@ export function stillPicks(times, most = STILLS_PER_PASS) {
 
 // One still per time: the first frame at or after each time, in as many passes as stillPicks gives
 // (one ffmpeg at a time). The stills are numbered by their time's place in `times`.
-async function stillsAt(file, times, folder, { signal } = {}) {
+export async function stillsAt(file, times, folder, { signal } = {}) {
   if (!times.length) return [];
   const { runMediaTool } = await import("../media-probe.mjs");
   await mkdir(folder, { recursive: true });
@@ -544,21 +566,31 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     }
     const rows = ranked.shots.map((shot, index) => ({
       n: numbered[index].n, start: numbered[index].start, end: numbered[index].end, motion: shot.motion, face: shot.face,
-      match: shot.match, score: shot.score, flags: shot.flags,
+      match: shot.match, score: shot.score, base: shot.base, flags: shot.flags,
       ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
     }));
-    // The shots of earlier scans stay, as they were shown, under their numbers.
+    // The shots of earlier scans stay under their numbers, and every shot of the video is then
+    // matched to the newest `want` together (their saved vectors), so no shot keeps the match or
+    // score of another scan's words. An older save without a base keeps its score as the base.
     const taken = new Set(rows.map((row) => row.n));
-    const shotsOf = [...rows, ...(before?.shots ?? []).filter((shot) => !taken.has(shot.n))];
-    shotsOf.sort((a, b) => Number(isLast(a)) - Number(isLast(b)) || b.score - a.score || a.start - b.start);
+    const together = [...rows, ...(before?.shots ?? []).filter((shot) => !taken.has(shot.n))]
+      .map((row) => ({ ...row, flags: row.flags ?? [], base: row.base ?? row.score ?? 0 }));
+    // (This scan's shots, the first of `together`, match on their exact vectors, not the saved halves.)
+    const answer = matchShots(together.map((row, index) => ({ ...row, vector: index < rows.length ? ranked.shots[index].vector ?? null : decodeVector(row.vector) })),
+      { wantVector: wantVector ? normalize(wantVector) : null, drawn });
+    const shotsOf = together.map((row, index) => ({ ...row, match: answer.matches[index], score: answer.scores[index] }));
+    shotsOf.sort(compareShots);
+    const skipped = { dark: 0, text: 0, subtitles: 0, short: 0 };
+    for (const shot of shotsOf) for (const flag of shot.flags) if (flag in skipped) skipped[flag] += 1;
     const windows = [...(before?.windows ?? []), ...copy.files.map((window) => ({ start: window.start, end: window.end }))]
       .filter((window, index, list) => list.findIndex((other) => other.start === window.start && other.end === window.end) === index);
     const scan = {
       version: SCAN_VERSION, id, title, want: words, scannedAt: new Date().toISOString(),
       windows,
-      vision, model: looked?.model ?? null, drawn, marks, matchShown: ranked.matchShown,
-      matchBest: ranked.matchBest, matchBar: ranked.matchBar,
-      skipped: { ...ranked.skipped, repeats },
+      vision: Object.fromEntries(Object.entries(vision).map(([key, value]) => [key, value || before?.vision?.[key] === true])),
+      model: looked?.model ?? null, drawn, marks, matchShown: answer.matchShown,
+      matchBest: answer.matchBest, matchBar: answer.matchBar,
+      skipped: { ...skipped, repeats: repeats + (Number.isFinite(before?.skipped?.repeats) ? before.skipped.repeats : 0) },
       sheet,
       shots: shotsOf,
     };

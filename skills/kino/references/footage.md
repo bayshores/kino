@@ -21,14 +21,15 @@ Contents: Three calls · Visual words, not names · Reading a scan · Note a vid
    (the whole video up to 8 min; else its most replayed parts and the chapters your words name,
    8 min in all; `from`/`to` for one stretch; `whole:true` up to 30 min), then lists the 12 best
    shots. It waits about 50 s; a longer scan answers with progress: send the same call again.
-   Shot numbers: the first scan numbers shots in time order; a code once shown keeps its time
-   range, and a later scan of the same video (any `from`/`to`) adds its new shots from the next
-   number up, never reusing or shifting one. Scans of any length work (any number of shots).
+   Shot numbers: the first scan numbers shots in time order; a code once shown keeps its footage
+   (a shot a stretch edge cut grows to the whole shot), and a later scan of the same video (any
+   `from`/`to`) adds its new shots from the next number up, never reusing or shifting one. All
+   saved shots are ranked and matched to the newest `want` together; the sheet is the newest scan's.
 3. `import`: the shots you pick become H.264 clips (1080p at most), each with its credit, ready
    for `compose {footage:[...]}` or `add_layer`. `F1.37` alone imports one shot; `from`/`to` a
    stretch of 60 s at most. Only scanned videos import; 5 min a call, 15 min a project.
 
-In the `kino` command, `project import file=F1`, `file=F1.15` and `yt:<id>` go to kino as typed.
+In the `kino` command, `project import file=F1`, `file=F1.15` and `clip:` ids go to kino as typed.
 
 `library {topic:"footage"}` lists this video's found videos again. `look {mode:"source",
 ref:"F1"}` shows a scan's stills labeled `F1.<shot>`; look at them before you pick.

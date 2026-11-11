@@ -46,7 +46,7 @@ function commonsPage(pageid, { license = "CC BY-SA 4.0", licenseUrl = "https://c
   };
 }
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
-import { matchBar, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts, stillPicks } from "./footage-finder/score.mjs";
+import { matchBar, numberShots, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts, stillPicks, stillsAt } from "./footage-finder/score.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
@@ -438,6 +438,81 @@ test("a scan again keeps the numbers shown before: the same range keeps its code
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("numbering: a shot a window edge cut keeps its code and grows to the whole shot, a shot split keeps its code on its larger part, and no two codes list the same footage", () => {
+  // Old 20 to 30 was cut at its window's end; the next window finds the whole shot (25 to 40 after its own cut).
+  assert.deepEqual(numberShots([{ n: 1, start: 20, end: 30 }], [{ start: 25, end: 40 }]), [{ n: 1, start: 20, end: 40 }]);
+  // Old 0 to 20 is now two shots: the first keeps code 1 with its own range, the second is new.
+  assert.deepEqual(numberShots([{ n: 1, start: 0, end: 20 }], [{ start: 0, end: 10 }, { start: 10, end: 20 }]), [{ n: 1, start: 0, end: 10 }, { n: 2, start: 10, end: 20 }]);
+  // Old 10 to 20 split into 10 to 14 and 14 to 30: the larger part keeps code 2 on its own range, the others are new.
+  // Every saved range holds its shot's own range, so a sheet still from the shot's middle lies inside it.
+  const known = [{ n: 1, start: 0, end: 10 }, { n: 2, start: 10, end: 20 }];
+  const shots = [{ start: 10, end: 14 }, { start: 14, end: 30 }, { start: 40, end: 41 }];
+  const numbered = numberShots(known, shots);
+  assert.deepEqual(numbered, [{ n: 3, start: 10, end: 14 }, { n: 2, start: 14, end: 30 }, { n: 4, start: 40, end: 41 }]);
+  numbered.forEach((shot, index) => assert.ok(shot.start <= shots[index].start && shot.end >= shots[index].end));
+});
+
+test("a scan again with other words matches every saved shot to the newest words: no old z-score or boost stays", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-rematch-"));
+  const copyFolder = path.join(directory, "copy");
+  const looks = { A: [1, 0, 0, 0], B: [0, 1, 0, 0], C: [0, 0, 1, 0], D: [0, 0, 0, 1], E: [0, 1, 0, 0], F: [0, 0, 1, 0] };
+  const embed = {
+    images: async (files) => ({ model: "test", vectors: files.map((file) => encodeVector(normalize(looks[file.slice(-1)]))) }),
+    text: async (prompts) => prompts.map((prompt) => Float32Array.from(prompt === "dog" ? [1, 0, 0, 0] : prompt === "cat" ? [0, 0, 0, 1] : [0, 0, 0, 0])),
+  };
+  const scanOf = async (start, letters, want) => {
+    await mkdir(copyFolder, { recursive: true });
+    const tools = {
+      probe: async () => ({ duration: 60, width: 640, height: 360 }),
+      findShots: async () => ({ shots: [...letters].map((_, index) => ({ start: index * 20, end: index * 20 + 20 })) }),
+      measure: async () => ({ samples: Array.from({ length: 12 }, (_, index) => ({ t: index * 5, luma: 0.5, change: 0.1, motion: null, faces: [], text: [] })) }),
+      stills: async () => [...letters].map((letter) => `still-${letter}`),
+      sheet: async () => {},
+    };
+    const copy = { folder: copyFolder, files: [{ start, end: start + 60, file: path.join(copyFolder, "scan.webm") }] };
+    return scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, want, embed, tools });
+  };
+  try {
+    const dog = await scanOf(0, "ABC", "dog");
+    assert.deepEqual([dog.matchShown, dog.shots.find((shot) => shot.n === 1).match], [true, 1.4]);
+    const cat = await scanOf(100, "DEF", "cat");
+    assert.equal(cat.want, "cat");
+    assert.equal(cat.shots.length, 6);
+    // Shot 1 was the dog shot: now it is one of five shots that look nothing like a cat.
+    const byNumber = Object.fromEntries(cat.shots.map((shot) => [shot.n, shot]));
+    assert.deepEqual([byNumber[4].match, byNumber[1].match, byNumber[2].match], [2.2, -0.4, -0.4]);
+    assert.equal(cat.matchShown, true);
+    assert.equal(cat.shots[0].n, 4);
+    // Same base for both, so the old dog shot scores by the cat words like every other non-match.
+    assert.equal(byNumber[1].score, byNumber[2].score);
+    assert.ok(cat.shots.every((shot) => shot.match !== 1.4));
+    // Cat words only on the saved vectors: a rescan with no words clears every match.
+    const none = await scanOf(200, "ABC", "");
+    assert.ok(none.shots.every((shot) => shot.match === null));
+    assert.equal(none.matchShown, false);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("stills of a 250-time scan come from two ffmpeg passes and land as files 000 to 249 under their times' places", { skip: skipWithoutMediaTools, timeout: 30_000 }, async (t) => {
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-test-stills-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const video = path.join(folder, "clip.mp4");
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=160x90:r=4:d=65", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video]);
+  // One time a frame (a quarter second), a hair after each frame: 250 times, so 200 and then 50.
+  const times = Array.from({ length: 250 }, (_, index) => index * 0.25 + 0.01);
+  const stills = await stillsAt(video, times, path.join(folder, "stills"));
+  assert.equal(stills.length, 250);
+  assert.deepEqual(stills.map((file, index) => (file === null ? index : null)).filter((index) => index !== null), []);
+  assert.equal(path.basename(stills[0]), "000.jpg");
+  assert.equal(path.basename(stills[249]), "249.jpg");
+  // The second pass starts at 200 and does not write over the first: still 200 shows another frame than 199 and 0.
+  const bytes = async (index) => (await readFile(stills[index])).toString("base64");
+  assert.notEqual(await bytes(200), await bytes(199));
+  assert.notEqual(await bytes(200), await bytes(0));
 });
 
 test("the stills of a video with 300 shots are picked in passes of at most 200 times, each a shallow expression", () => {
