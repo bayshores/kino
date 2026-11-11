@@ -258,6 +258,24 @@ test("the numbers: shots, cuts a second, the longest shot and where, cuts on the
   assert.equal(measureNumbers({ cuts: [], beats: [], seconds: 8 }).longest.where, "the whole clip");
 });
 
+test("the median shot: one long shot moves the mean cuts a second but not the median", () => {
+  // Five 1 s shots and one 25 s shot: the mean shot is 5 s (0.17 cuts/s), the usual shot is 1 s.
+  const beats = Array.from({ length: 61 }, (_, index) => index * 0.5);
+  const long = measureNumbers({ cuts: [1, 2, 3, 4, 5], beats, seconds: 30 });
+  assert.deepEqual([long.cutsPerSecond, long.median, long.longest.seconds], [0.17, 1, 25]);
+  // The reference's own beat is 0.5 s: the median is 2 beats exactly, kept unrounded beside the nearest of 1, 2, 4, 8.
+  assert.deepEqual(long.medianBeats, { exact: 2, near: 2, beatSeconds: 0.5 });
+  assert.equal(numbersLine({ state: "measured", numbers: long }), "0.17 cuts/s · 6 shots in 30 s · median shot 1 s · longest 25 s · on the beat 5 of 5");
+  // Cuts that are not whole beats keep the exact value (1.4 s at 1 s a beat) and round by ratio.
+  const odd = measureNumbers({ cuts: [1.4, 2.8, 4.2], beats: [0, 1, 2, 3, 4, 5, 6], seconds: 5.6 });
+  assert.deepEqual(odd.medianBeats, { exact: 1.4, near: 1, beatSeconds: 1 });
+  // No sound, no beat: seconds only. A reference saved before medians were kept still shows one.
+  const quiet = measureNumbers({ cuts: [1, 2, 3, 4, 5], beats: [], seconds: 30 });
+  assert.deepEqual([quiet.median, quiet.medianBeats], [1, null]);
+  const { median, medianBeats, ...before } = quiet;
+  assert.match(numbersLine({ state: "measured", numbers: before }), /median shot 1 s · longest 25 s · no steady beat$/);
+});
+
 test("a borrowed rhythm: each section's pace in a new order, scaled to fit, cut on the song's seams", () => {
   const numbers = measureNumbers({ cuts: [2, 4, 6, 8], beats: [], seconds: 10 });
   assert.deepEqual(rhythmCues(numbers, { length: 5 }).cues.map((cue) => cue.time), [2, 4]);
@@ -292,11 +310,11 @@ test("clock and the agent's lines", () => {
   assert.equal(clock(3725), "1:02:05");
   const ref = { id: "yt:tgEWNHVbk3U", title: "Fast", channel: "Brandon Li", duration: 259, url: "https://www.youtube.com/watch?v=tgEWNHVbk3U", state: "measured", bpm: 120,
     numbers: measureNumbers({ cuts: [2, 4, 4.5, 9], beats: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], seconds: 90 }) };
-  assert.equal(numbersLine(ref), "0.04 cuts/s · 5 shots in 90 s · on the beat 3 of 4");
+  assert.equal(numbersLine(ref), "0.04 cuts/s · 5 shots in 90 s · median shot 2 s · longest 81 s · on the beat 3 of 4");
   assert.equal(numbersLine({ state: "measuring", phase: "reading cuts" }), "measuring (reading cuts)");
   assert.equal(numbersLine({ state: "queued", place: 2 }), "waiting to be measured (2 in line)");
   const text = referenceText(ref);
-  assert.match(text, /measured the first 90 s of 4:19: 5 shots · 0\.04 cuts\/s · longest 81 s \(the end\) · cuts on the beat 3 of 4 \(120 bpm\)/);
+  assert.match(text, /measured the first 90 s of 4:19: 5 shots · 0\.04 cuts\/s · median shot 2 s \(2 beats, about 2 at 120 bpm\) · longest 81 s \(the end\) · cuts on the beat 3 of 4 \(120 bpm\)/);
   assert.match(text, /cuts \(s\): 2\* 4\* 4\.5 9\* \(\* on the beat\)/);
   assert.match(text, /\ncuts 4 · 75% within 1 frame of a beat \(random \d+%\) · frames off the beat \(- early\) 0:3 more:1\n/);
   assert.match(searchText("walk", [ref]), /^inspire "walk": 1 found on YouTube/);
@@ -404,7 +422,7 @@ test("the queue measures one reference at a time, keeps only the numbers and the
   const first = view.refs["yt:tgEWNHVbk3U"];
   assert.equal(first.state, "measured");
   const { beatFit, ...numbers } = first.numbers;
-  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1, fps: 25 });
+  assert.deepEqual(numbers, { seconds: 30, shots: 3, cuts: [10, 20], cutsPerSecond: 0.07, median: 10, medianBeats: { exact: 0.98, near: 1, beatSeconds: 10.25 }, longest: { seconds: 10, start: 0, where: "the start" }, onBeat: [true, false], onBeatCount: 1, flashes: 1, fps: 25 });
   assert.deepEqual([beatFit.cuts, beatFit.fps, beatFit.onBeat, beatFit.offsets["0"], beatFit.further], [2, 25, 0.5, 1, 1], "frames at the file's rate; 20 is 12 frames before 20.5");
   assert.equal(first.thumb, true);
   assert.equal(first.vertical, true, "the downloaded picture, taller than wide, says it is vertical");

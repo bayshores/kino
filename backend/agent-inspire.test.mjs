@@ -65,7 +65,7 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   assert.match(early.text, /not measured yet/);
 
   const one = await agent("library", { topic: "inspire", project: "insp", name: FIRST });
-  assert.match(one.text, /measured the first 6 s of 11:41: 5 shots · 0\.67 cuts\/s · longest 1\.5 s \(the end\) · cuts on the beat 3 of 4 \(120 bpm\)/);
+  assert.match(one.text, /measured the first 6 s of 11:41: 5 shots · 0\.67 cuts\/s · median shot 1\.2 s \(2\.48 beats, about 2 at 120 bpm\) · longest 1\.5 s \(the end\) · cuts on the beat 3 of 4 \(120 bpm\)/);
   // The fingerprint and the frame strips kept around its cuts; look shows them.
   assert.match(one.text, /^fingerprint \(numbers only/m);
   assert.match(one.text, /^frame strips kept: \d+ .*look \{mode:"reference", ref:"yt:OAH0MoAv2CI", t:/m);

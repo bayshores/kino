@@ -33,6 +33,7 @@ import { SEARCH_KINDS } from "./agent/actions.mjs";
 import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "./look-embed.mjs";
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
 import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
+import { beatSecondsOf, numbersWithMedian, shotStats } from "../engine/footage/refPace.js";
 
 // What a search looks for: edits, short vertical edits (YouTube Shorts) or sound effects.
 export { SEARCH_KINDS };
@@ -373,7 +374,9 @@ const round = (value, places = 2) => Math.round(value * 10 ** places) / 10 ** pl
 /**
  * The numbers kino shows for a measured video, from its cut times and beats (seconds) over the
  * `seconds` it measured: shots, cuts a second, the longest shot and where it is, and which cuts are
- * on the beat (null when no steady beat was found). beatFit: the cuts against the beat in frames at
+ * on the beat (null when no steady beat was found). median: the median shot in seconds (a mean is
+ * skewed by one long shot); medianBeats: {exact, near, beatSeconds}, the median shot in beats of the
+ * reference's own sound (near is the nearest of 1, 2, 4, 8), null without a beat. beatFit: the cuts against the beat in frames at
  * `fps`, with a random baseline (beat-fit.mjs; null without a beat); flashes: how many were found.
  */
 export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) {
@@ -397,11 +400,16 @@ export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) 
       return near <= ON_BEAT_SECONDS + 1e-9;
     });
   }
+  // The mean cuts a second is skewed by one long shot, so the median shot is kept too (in beats when
+  // the reference's own sound gave a beat). No audio, no beat: medianBeats is null.
+  const { median, medianBeats } = shotStats(times, length, beatSecondsOf(beatList));
   return {
     seconds: round(length),
     shots,
     cuts: times,
     cutsPerSecond: length > 0 ? round(times.length / length) : 0,
+    median,
+    medianBeats,
     longest: { seconds: round(longest.seconds, 1), start: round(longest.start, 1), where },
     onBeat,
     onBeatCount: onBeat ? onBeat.filter(Boolean).length : null,
@@ -1802,8 +1810,17 @@ export function numbersLine(ref) {
   const numbers = ref?.numbers;
   if (!numbers) return "not measured";
   const beat = numbers.onBeat ? `on the beat ${numbers.onBeatCount} of ${numbers.cuts.length}` : "no steady beat";
-  return `${numbers.cutsPerSecond} cuts/s · ${numbers.shots} shots in ${Math.round(numbers.seconds)} s · ${beat}`;
+  return `${numbers.cutsPerSecond} cuts/s · ${numbers.shots} shots in ${Math.round(numbers.seconds)} s · ${shotWords(numbers)} · ${beat}`;
 }
+
+/** "median shot 0.9 s · longest 3.2 s": the usual shot and the longest, which a mean cuts/s hides. */
+function shotWords(numbers) {
+  const { median } = numbersWithMedian(numbers);
+  return `median shot ${round(median, 1)} s · longest ${numbers.longest.seconds} s`;
+}
+
+/** " (1.8 beats, about 2 at 120 bpm)" when the reference's own beat is known; "" otherwise. */
+const medianBeatWords = (numbers, bpm) => (numbers.medianBeats ? ` (${numbers.medianBeats.exact} beats, about ${numbers.medianBeats.near}${bpm ? ` at ${Math.round(bpm)} bpm` : ""})` : "");
 
 // " · Short 9:16" for a vertical YouTube Short; nothing for any other video.
 const shapeWords = (ref) => (ref?.vertical ? " · Short 9:16" : "");
@@ -1863,7 +1880,9 @@ export function referenceText(ref, { full = false } = {}) {
     ? `cuts (s): ${shown.map((index) => `${numbers.cuts[index]}${numbers.onBeat?.[index] ? "*" : ""}`).join(" ")}${shown.length < lent.length ? ` … (${lent.length} in all; full:true lists them)` : ""}${numbers.onBeat ? " (* on the beat)" : ""}${closer ? ` (${closer} under ${LEND_MIN_FRAMES} frames apart not listed or borrowed)` : ""}`
     : "cuts: none (one shot)";
   const fit = [beatFitLine(numbers.beatFit), numbers.flashes ? `flashes ${numbers.flashes}` : ""].filter(Boolean).join(" · ");
-  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${longest} · ${beat}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
+  const filled = numbersWithMedian(numbers, ref.bpm);
+  const median = `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}`;
+  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${median} · ${longest} · ${beat}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
     ...fingerprintLines(ref),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
 }

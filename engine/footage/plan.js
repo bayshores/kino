@@ -13,7 +13,7 @@ import { barAtOrAfter, beatGrid, editBeats, snapToImpact } from "./cuts.js";
 import { faceCenter, KEEP_BAR, markedSubject, openingMoment, rankMoments, samplesIn } from "./moments.js";
 import { isScreenRecording, shapeOf, shotLayout } from "./layout.js";
 import { editStyle } from "./treatments.js";
-import { accentTimes, burstPassages, PACES, phrasePlan, rateAt, runsOf, songSections } from "./pace.js";
+import { accentTimes, burstPassages, FREE_BEAT, PACES, phrasePlan, rateAt, runsOf, songSections } from "./pace.js";
 import { round as round3 } from "../numbers.js";
 
 const sum = (list) => list.reduce((total, value) => total + value, 0);
@@ -22,8 +22,6 @@ export const END_CARD = 2.8;
 const TITLE_LENGTH = { "push-through-type": 2.4, headline: 2.4 };
 // The headline-reveal entrances a treatment or a type card may name for the title (never a blur).
 const TITLE_ENTERS = ["fade", "lines", "letters", "fade-up", "scale", "rise"];
-// Without music, a "beat" is this long, so the treatments' shot lengths still mean something.
-const FREE_BEAT = 0.6;
 // The most of an edit that speech may fill (the rest is the title, the end card and pictures).
 const SPEECH_SHARE = 0.65;
 const SPEECH_BAR = 60;

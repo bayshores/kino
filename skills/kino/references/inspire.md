@@ -2,8 +2,8 @@
 
 Looking at how other edits are cut and move. kino searches YouTube (with the person's yt-dlp; no
 account, no cookies) and measures each result: it downloads a small copy (360p, the first 90 s at
-most), measures it and deletes the copy. The numbers, a thumbnail and small frame strips stay. The
-person sees it all on the dashboard's F3 inspire screen and can search there too. Songs for the
+most), reads it and deletes it. The numbers, a thumbnail and small frame strips stay. The
+person sees it on the dashboard's F3 inspire screen and can search there. Songs for the
 video are compared the same way: `library {topic:"soundtrack"}`.
 
 Contents: What is measured · Before the plan · Borrowing a rhythm · Shorts · Fingerprint and
@@ -11,9 +11,10 @@ frame strips · Proposing ideas · Sound effects
 
 ## What is measured
 
-- Shots, cuts a second, the longest shot and where it is, length, the beat (bpm), and cuts on
-  the beat (n of m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame
-  of a beat vs random (near it: cuts on action).
+- Shots, cuts a second, the median shot (in beats too, nearest of 1, 2, 4, 8, when the sound
+  has a beat), the longest and where it is, length, the beat (bpm), and cuts on the beat (n of
+  m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame of a beat vs random
+  (near it: cuts on action).
 - The fingerprint (Apple Vision on a Mac): motion and holds, camera moves
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,
@@ -52,8 +53,8 @@ frame strips · Proposing ideas · Sound effects
 - `library {topic:"inspire", name:"yt:…"}` waits (up to 50 s) for that one's numbers and lists
   its cut times (`*` on the beat); `full:true` lists them all.
 - A video the person linked needs no search: `name:"yt:<id>"` or `name:"measure yt:<id>"`, or
-  the whole link in `search` (a watch, youtu.be or `/shorts/` link). kino reads its title and length, adds it as a one-video search (the
-  screen shows the link) and measures it.
+  the whole link in `search` (a watch, youtu.be or `/shorts/` link). kino reads its title and
+  length and measures it as a one-video search.
 - `name:"save yt:…"` (`"save yt:… as launch"` keys it for a board `move.ref` `"launch@3.1"`), `"unsave yt:…"`, `"measure yt:…"` (read again after a failure) and
   `"cancel"` (stop reading) do what they say. A saved or opened one is measured before the
   rest (a failed one is tried again). It keeps a still a second (10 to 90)
@@ -112,7 +113,7 @@ frame strips · Proposing ideas · Sound effects
   the person allows them (with an optional note) or says not yet. Only the person switches or
   allows; your next call's inbox says which ideas to use. Then add each to the brief's style
   (`notes {action:"brief"}`, with `ref` and `at`) and make them.
-- While a reference is read, F3 shows what is found so far (live).
+- While one is read, F3 shows what is found so far.
 
 ```json
 {"tool":"library","topic":"inspire","ideas":{"ref":"yt:tgEWNHVbk3U","take":[{"title":"cut on the third beat","from":1,"to":2,"what":"a hard cut lands on the beat","why":"the cut feels earned","use":"cut the title in on rhythm-3","place":{"at":1}}],"skip":[{"title":"their logo","why":"their brand, not a style"}]}}
@@ -125,6 +126,6 @@ frame strips · Proposing ideas · Sound effects
   Search the visible action in words. `name:"yt:<id>"` waits for one (64-bar shape).
 - `name:"sounds 3"`: search 3 ranked by how each sound matches the words (CLAP, `match` 0-100)
   and the person's `use`/`no` on sounds (`taste`); near-duplicates fold into one.
-- `project {action:"import", file:"yt:<id>"}` brings its short preview (AAC) in with its credit
+- `project {action:"import", file:"yt:<id>"}` brings its short preview in with its credit
   (kept as metadata). A song: `library {topic:"soundtrack", song:"yt:<id>"}`; a video: footage guide.
 - `name:"forget 3"` drops search 3 from the project; measured references stay in kino's cache.
