@@ -11,6 +11,7 @@ import { PRESETS } from "../../engine/animation.js";
 import { OPERATION_TYPES, SERVICE_OPERATION_TYPES } from "../operation-guide.mjs";
 import { VOICE_ENGINES } from "../voice/isolate.mjs";
 import { CUTOUT_ENGINES, CUTOUT_OUTPUTS } from "../cutout/cutout.mjs";
+import { RULES } from "../../engine/quality/index.js";
 import { closest, nearMiss, ReferenceError } from "./refs.mjs";
 import { refId } from "../inspire.mjs";
 import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOperation, translateBlock } from "./blocks.mjs";
@@ -55,7 +56,26 @@ export const AGENT_OPERATION_TYPES = Object.freeze([...new Set([...OPERATION_TYP
 // Operations that work on one scene. Project operations and add_scene don't need one.
 const NO_SCENE = new Set(["rename_project", "update_project", "waive_check", "unwaive_check", "add_scene"]);
 // Findings about what a viewer sees: the agent fixes them; only the person's words keep one.
-export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "ending_seen", "clip_reuse", "music_stall"]);
+// crop_no_subject and shape_guess are here too: a crop that may cut a face, or a frame shape the
+// footage does not have, is the person's call, never the agent's.
+export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "ending_seen", "clip_reuse", "music_stall", "crop_no_subject", "shape_guess"]);
+// Findings about a face or a subject cut by the frame. A filmed cut can be meant (a feet shot), so
+// the agent may waive these, but only on the layers it looked at: never "*", never a whole scene.
+export const SUBJECT_WAIVERS = new Set(["head_cut_off", "narrow_window"]);
+// Waiver codes that are not rules in the registry: the gates (review.mjs, viewer.mjs, needs.mjs,
+// brief.mjs, critique.mjs, footage-finder/step.mjs, service.mjs REFERENCE_WAIVER) and the findings
+// of checks.mjs and av-offset.mjs.
+const WAIVER_GATES = ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler",
+  "missing_media", "empty_text", "off_canvas", "past_scene_end", "missing_font", "missing_glyphs", "av_offset"];
+// Rules another chain adds to the registry (engine/quality/index.js): known by name before they land.
+const NEW_RULE_CODES = ["shape_guess", "narrow_window", "ask_unmet"];
+// Every code a waiver may name: the rule registry, the gates and the new rules.
+const KNOWN_WAIVER_CODES = new Set([...RULES.map((entry) => entry.code), ...WAIVER_GATES, ...NEW_RULE_CODES]);
+// What each person-words waiver is about, and the fix to try first (the default text is for what viewers see).
+const PERSON_WORDS_ABOUT = {
+  crop_no_subject: { about: "who stays in the frame", fix: 'mark_subject the part you mean, or frame the shot with the frame op' },
+  shape_guess: { about: "the frame's shape", fix: 'ask which shape they want and save it as plays_on by "you" with their quote, or make the scene the shape the footage has' },
+};
 const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
 // Fields that name one layer.
 const LAYER_FIELDS = ["layerId", "referenceId", "parentId", "maskLayerId", "speechId", "toId", "duckId"];
@@ -687,13 +707,35 @@ function resolveReferences(operation, type, resolver, document) {
   // looped): a blind judge marked fp-6 down for exactly the screen_unreadable and frozen_picture
   // findings its agent waived. The agent fixes these; only the person's own words accept one
   // (quote: what they said about it), never "your call", and only on named layers.
+  // A code nobody checks would sit in the document and cover nothing: refuse it, with the near names.
+  if (type === "waive_check" && typeof operation.code === "string" && operation.code && !KNOWN_WAIVER_CODES.has(operation.code)) {
+    const suggestions = closest(operation.code, [...KNOWN_WAIVER_CODES]);
+    throw Object.assign(new Error(`waive_check: "${operation.code}" is not a check rule or a gate. Did you mean ${suggestions.join(", ")}? library {topic:"rules"} lists the rules.`), { suggestions });
+  }
+  const targetsStar = operation.target === "*" || (Array.isArray(operation.target) && operation.target.includes("*"));
   if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code)) {
     const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
+    const own = PERSON_WORDS_ABOUT[operation.code];
     if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 4)
-      throw new Error(`${operation.code} is what viewers see: fix it (its finding's fix, or check {fix:"auto"}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.`);
-    if (operation.target === "*" || (Array.isArray(operation.target) && operation.target.includes("*")))
+      throw new Error(`${operation.code} is ${own ? `about ${own.about}` : "what viewers see"}: fix it (${own ? own.fix : `its finding's fix, or check {fix:"auto"}`}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.`);
+    if (targetsStar)
       throw new Error(`waive_check ${operation.code} names the layers the person kept, not target:"*".`);
     operation.reason = `${String(operation.reason ?? "").trim() || "the person kept it"} (the person: "${quote.slice(0, 200)}")`;
+  }
+  // A face cut by the frame can be meant (a feet shot), so these stay waivable by the agent, one
+  // layer at a time: a waiver on "*" or a scene would cover shots nobody looked at (scenes: below).
+  if (type === "waive_check" && SUBJECT_WAIVERS.has(operation.code) && targetsStar)
+    throw new Error(`waive_check ${operation.code} names the layers whose cut is meant (look {mode:"source"} shows each), not target:"*".`);
+  // ask_unmet: the video never shows what the person's subject search found everyone calls it. A
+  // waiver says which word it is about, so it cannot be a stock reason (resolver.origin: state.origin).
+  if (type === "waive_check" && operation.code === "ask_unmet") {
+    const words = (resolver.origin?.words ?? []).map((entry) => String(entry?.word ?? "")).filter(Boolean);
+    if (!words.length)
+      throw new Error("waive_check ask_unmet: this project has no origin word (the subject search found none), so there is nothing to waive.");
+    const reason = String(operation.reason ?? "");
+    const said = (word) => new RegExp(`(?<![\\p{L}\\p{N}])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\p{L}\\p{N}])`, "iu").test(reason);
+    if (!words.some(said))
+      throw new Error(`waive_check ask_unmet names the origin word in its reason (${words.map((word) => `"${word}"`).join(", ")}) and why the video does without it.`);
   }
   // no_music: silence is the person's call. Their words (quote) mark the waiver as theirs; an
   // agent's own waiver still holds the sound stop while the song search found songs (stops.mjs).
@@ -735,7 +777,12 @@ function resolveReferences(operation, type, resolver, document) {
       }
       try { return [resolve(ref, "layer")]; }
       catch (error) {
-        try { return [resolve(ref, "scene")]; } catch { throw error; }
+        let scene;
+        try { scene = resolve(ref, "scene"); } catch { throw error; }
+        // A scene covers every layer in it, shots nobody looked at: these name layers.
+        if (type === "waive_check" && (VIEWER_WAIVERS.has(operation.code) || SUBJECT_WAIVERS.has(operation.code)))
+          throw new Error(`waive_check ${operation.code} names layers, not the scene "${ref}": a scene waiver covers every shot in it. Name the layers (a list, or a glob such as "shot-*").`);
+        return [scene];
       }
     };
     if (!operation.target.length || (Array.isArray(operation.target) && operation.target.includes("*")))

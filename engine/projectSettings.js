@@ -21,7 +21,7 @@ function waiverTargets({ code, target }) {
   if (typeof code !== "string" || !code) throw new Error("A waiver needs code: the check rule to accept, such as reading_time.");
   const targets = [target].flat();
   if (!targets.length || targets.some((each) => typeof each !== "string" || !each))
-    throw new Error("A waiver needs target: a layer, a scene, a list of them, or * for the whole project.");
+    throw new Error("A waiver needs target: a layer, a scene, or a list of them.");
   return targets;
 }
 
@@ -32,7 +32,7 @@ export function withWaiver(waivers = [], { code, target, reason }) {
   const next = [...waivers.filter((waiver) => waiver.code !== code || !targets.has(waiver.target)), ...[...targets].map((each) => ({ code, target: each, reason }))];
   // A glob or list is saved as one waiver per layer, so a broad one ("word-*") can pass the limit.
   if (next.length > MAX_WAIVERS)
-    throw new Error(`waive_check would make ${next.length} waivers (${targets.size} from this target); a project keeps at most ${MAX_WAIVERS}. Waive a scene, or target:"*" for the whole project.`);
+    throw new Error(`waive_check would make ${next.length} waivers (${targets.size} from this target); a project keeps at most ${MAX_WAIVERS}. Name fewer layers, or the scene when the rule allows a scene waiver (face, crop and viewer rules name layers only).`);
   return next;
 }
 

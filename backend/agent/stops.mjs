@@ -253,18 +253,38 @@ function offerFor(kind, video, rules, state) {
 }
 
 /**
+ * "39 waived (crop_no_subject 17, held_static 9)": the project's waivers (document.checkWaivers) by
+ * rule, the top 3, so a stop shows how many findings the agent called fine. A rule waived on "*" shows
+ * "all" (subject rules refuse "*", so a count per rule is one target each). "" when none.
+ */
+export function waivedLine(waivers = []) {
+  const byRule = new Map();
+  for (const waiver of Array.isArray(waivers) ? waivers : []) {
+    if (!waiver?.code) continue;
+    const entry = byRule.get(waiver.code) ?? { count: 0, all: false };
+    entry.count += 1;
+    entry.all ||= waiver.target === "*";
+    byRule.set(waiver.code, entry);
+  }
+  if (!byRule.size) return "";
+  const total = [...byRule.values()].reduce((sum, entry) => sum + entry.count, 0);
+  const top = [...byRule].sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0])).slice(0, 3);
+  return `${total} waived (${top.map(([code, entry]) => `${code} ${entry.all ? "all" : entry.count}`).join(", ")})`;
+}
+
+/**
  * What the agent sends the person (one line each, no revision numbers). The storyboard's ask is
  * its headline and reply lines: the agent puts its shot list (kino's numbers from B4a) after
  * the first line, so plan §12's 120 tokens leave room for it.
  */
-export function askText({ id, kind, video = {}, checked, offer = [], idea = null, pick = [], music = null }) {
+export function askText({ id, kind, video = {}, checked, offer = [], idea = null, pick = [], music = null, waivers = [] }) {
   const frame = video.width && video.height ? `, ${video.width}×${video.height}` : "";
   return [
     `${HEADLINES[kind]} (${id}): ${sec(video.seconds ?? 0)} s${frame}.`,
     idea ? `Idea: ${idea}` : "",
     // The treatments to pick from (treatments.mjs), until the person picked one.
     ...pick,
-    kind === "board" ? "" : `Checked: ${plural(checked?.errors ?? 0, "error")} · ${plural(checked?.warnings ?? 0, "warning")}.`,
+    kind === "board" ? "" : `Checked: ${plural(checked?.errors ?? 0, "error")} · ${plural(checked?.warnings ?? 0, "warning")}${waivedLine(waivers) ? ` · ${waivedLine(waivers)}` : ""}.`,
     // A sound stop with no music says so, with the person's choices (checkpointStep).
     music ?? "",
     kind === "board" ? "" : "What did you notice, and what would you change?",
@@ -343,7 +363,7 @@ const NO_MUSIC_ASK = "No music yet: name a song or artist, send a track, or keep
  * closed first; that change stays even when a later rule refuses the call, so the project's
  * writes work again.
  */
-export function checkpointStep(draft, { kind: wanted, video = {}, rules: given = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null, styleFrame = null }) {
+export function checkpointStep(draft, { kind: wanted, video = {}, rules: given = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null, styleFrame = null, waivers = video.waivers ?? [] }) {
   const kind = typeof wanted === "string" ? wanted.trim().toLowerCase() : "";
   const rules = rulesOf(draft, given);
   if (!STOP_KINDS.includes(kind) && kind !== CRITIQUE_STOP)
@@ -427,7 +447,7 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
   const id = `C${draft.nextStop}`;
   const offer = offerFor(kind, video, rules, draft);
   const music = noMusic ? (songSearch ? `No music yet: ${measured} songs measured; name one to use, or keep it silent.` : NO_MUSIC_ASK) : null;
-  const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief), music });
+  const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief), music, waivers });
   const round = { id, kind, rev, askedAt: at, client, status: "waiting", offer, ask: passes ? `${asked}\n${HELD_LINE}` : asked, answer: null, ...(work ? { work } : {}), ...(noMusic ? { noMusic: songSearch ? "search" : true } : {}) };
   draft.nextStop += 1;
   draft.stops.push(round);

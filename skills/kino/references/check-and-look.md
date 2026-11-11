@@ -10,7 +10,6 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   applies the `(auto)` fixes in one edit (skipping one that adds an error or leaves its
   finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
   edit moved, a waiver names or a spine beat uses.
-- Receipts, dry runs, `status` skip pixel gates until `check`.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
 - `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate; fast
@@ -23,14 +22,17 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   line's first word (0.2 s) warns.
 - `out_of_sync` (gate): a line over a synced file's picture of another moment: the fix retimes it.
 - `covered_layer` (warns): a solid shape, mp4 or jpg above hides a layer all its time on screen
-  (a png, webm or mov may be clear: no cover). Fix: move it above; `(auto)`: a full-frame overlay.
+  (a png, webm or mov may be clear). Fix: move it above; `(auto)`: a full-frame overlay.
 - Motion rules (camera, brightness, frozen pictures): motion reference.
 - Contrast: failing under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
 - Errors, and in a real edit warnings, block final. On purpose:
   `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or a
-  glob (`"arch-*"`) waives each matching layer. What viewers see (small screens, frozen
-  pictures, slides, template ends, `ending_seen`) needs `quote`: the person's words.
+  glob (`"arch-*"`) waives each matching layer. These need `quote` (the person's words) and
+  named layers, never `*` or a scene: what viewers see (small screens, frozen pictures, slides,
+  template ends, `ending_seen`), `crop_no_subject`, `shape_guess`. `head_cut_off`,
+  `narrow_window`: named layers, no quote. `ask_unmet`: the reason names the origin word.
+  An unknown code is refused.
 - AI tells warn: `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
   `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references; waive naming `yt:<id>`).
@@ -80,8 +82,8 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 ## Looking
 
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
-- `inspect {targets, fields}`: an unknown field is said so; `color` answers
-  with `fill`, `size` with `width` and `height`, and `fontSize` on text.
+- `inspect {targets, fields}`: `color` answers with `fill`,
+  `size` with `width` and `height`.
 - `sheet` (default): a scene in about 12 tiles; with cuts, one or more a shot, labeled
   `2 · 1.42s` (at most 24 shots, then which `from` shows the rest). With several
   scenes and none named, one frame a scene. `sheet {from:60, to:120}`: one stretch.
@@ -124,5 +126,4 @@ Get a rough whole scene first (layout, background and the main subject, often on
 supporting parts, 2 motion and timing, 3 polish (color, type, sound). Each section is one
 `edit`, then `look {mode:"sheet", from, to}` at the time it covers before the next one;
 those looks are your pass. With the fixes in one more `edit` that is at most 5 edits to build
-it; the storyboard, a redo the person asks for at a stop and a retry come on top. A short video
-needs no sections. Changed layers show a striped outline until a `look` covers them.
+it; the storyboard, a redo the person asks for at a stop and a retry come on top.

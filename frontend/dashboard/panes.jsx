@@ -1303,6 +1303,22 @@ const LOG_MARKS = {
 const atWords = (at) => (Number.isFinite(Number(at)) ? `@${Math.round(Number(at) * 100) / 100}s` : "");
 
 /**
+ * The 3 waivers the check skipped most often, as "×17 crop_no_subject: the person's reason".
+ * A waiver is the agent saying a finding is fine, so the person sees how many and why.
+ */
+function topWaivers(waivedFindings) {
+  const groups = new Map();
+  for (const entry of Array.isArray(waivedFindings) ? waivedFindings : []) {
+    const key = `${entry?.rule ?? ""}\n${entry?.reason ?? ""}`;
+    groups.set(key, (groups.get(key) ?? 0) + 1);
+  }
+  return [...groups].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([key, count]) => {
+    const [rule, reason] = key.split("\n");
+    return `×${count} ${rule}${reason ? `: ${reason.length > 90 ? `${reason.slice(0, 89)}…` : reason}` : ""}`;
+  });
+}
+
+/**
  * The checks tab: the findings the agent gets after each revision, one line each. Only the mark
  * is coloured (✕ error, ▲ warning); the rule, the layer, the time and the message are text, and the
  * fix is in plain words (fixWords). A long line ends with "…": its tooltip has all of it, and a
@@ -1335,6 +1351,7 @@ function CheckList({ checks }) {
           {data?.rev != null ? `rev ${data.rev} · ` : ""}{errors} {errors === 1 ? "error" : "errors"} · {warnings} {warnings === 1 ? "warning" : "warnings"}{data?.waived ? ` · ${data.waived} waived` : ""}
         </p>
       )}
+      {topWaivers(data?.waivedFindings).map((line) => <p key={line} className="check-note dim">waived {line}</p>)}
       <ul className="check-list" aria-label="Findings">
         {rows.map((row, index) => {
           const key = `${index} ${row.rule ?? ""} ${row.ref ?? ""}`;
