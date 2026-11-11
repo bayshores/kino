@@ -1921,6 +1921,10 @@ test("reference_range: a video darker than its saved references warns with the d
   assert.match(dark.message, /s1 is darker than its saved references \(yt:aaa, yt:bbb\): median 31 of 255 against 48 to 56/);
   assert.match(dark.fix.text, /color-wheels", parameters:\{gamma:1\.3\}.*waive_check \{code:"reference_range", target:"s1", reason\}/);
   assert.deepEqual(await rangeRun(52), []);
+  // The fix names every clip in the dark stretch, not only the first.
+  const two = scene({ duration: 10, layers: [footage("a", { duration: 5, mediaDuration: 5 }), footage("b", { start: 5, duration: 5, mediaDuration: 5 })] });
+  const [both] = (await runQuality(modelOf(two), { codes: ["reference_range"], pixels: true, context: { sceneName: "s1", renderFrames: flatFrames(31), rangeRefs: RANGE_REFS } })).findings;
+  assert.match(both.fix.text, /layer:"a".*\(and b\)/);
   // One measured reference is no range.
   assert.deepEqual(await rangeRun(31, { rangeRefs: RANGE_REFS.slice(0, 1) }), []);
 });

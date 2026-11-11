@@ -142,8 +142,10 @@ export async function referenceRange(model, ctx) {
       const word = lower && !higher ? "darker than" : higher && !lower ? "brighter than" : "lit differently from";
       const span = (low, high, show) => (low === high ? show(low) : `${show(low)} to ${show(high)}`);
       const [from, to] = lower && run ? run : [0, model.duration];
-      const index = Math.max(0, model.times.findIndex((time) => time >= from));
-      const shown = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && item.samples.opacity[index] >= 0.5).map((item) => ctx.name?.(item) ?? item.id);
+      // Every clip or image shown in the stretch, so the fix lifts all of it (not only the first shot).
+      const inStretch = model.times.map((time, index) => (time >= from && time < to ? index : -1)).filter((index) => index >= 0);
+      const indexes = inStretch.length ? inStretch : [Math.max(0, model.times.findIndex((time) => time >= from))];
+      const shown = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && indexes.some((index) => item.samples.opacity[index] >= 0.5)).map((item) => item.name ?? item.id);
       const stretch = `${near(from)}-${near(to)} s`;
       const gamma = lower && !higher ? 1.3 : 0.8;
       const target = shown[0] ?? "<layer>";
