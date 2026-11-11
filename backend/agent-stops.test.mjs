@@ -79,6 +79,45 @@ test("the service's stop ask carries the document's waivers: the person's rough 
   assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? · 1 waived \(default_font 1\)\.$/m, asked.data.ask);
 });
 
+test("a board ask names a guessed shape against the footage's; an answer that names none saves the footage's shape as plays_on", () => {
+  const state = ready(4);
+  state.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };
+  const wide = { width: 1920, height: 1080 };
+  const video = { ...VIDEO, footage: true, footageSizes: [wide, wide, wide] };
+  const asked = checkpointStep(state, { kind: "board", video, rev: 4, now: T0, board: BOARD });
+  assert.match(asked.data.ask, /^Shape: 9:16 \(1080x1920\) is my guess; your footage is 16:9 \(3 of 3\)\. Name a shape or a place to keep 9:16; any other reply makes it 16:9 like the footage\.$/m);
+  assert.deepEqual(state.stops[0].shape, { scene: "9:16", footage: "16:9", size: [1920, 1080] });
+  const answered = answerStep(state, { input: { id: "C1", rev: 4, words: "looks good, keep going", read_as: "approve" }, video, rev: 4, now: T0 + 30_000, board: BOARD });
+  assert.match(answered.text, /shape: no shape named: kino follows the footage \(16:9\); next: edit update_scene \+ frame_shot/);
+  const plays = state.brief.fields.plays_on;
+  assert.deepEqual([plays.by, plays.named, plays.quote], ["you", false, "looks good, keep going"]);
+  assert.match(plays.text, /16:9, like the footage/);
+  assert.equal(state.brief.rev, 1, "applyBrief raised the revision");
+  // A shape named in the words is saved with the sentence that names it, and the next ask no longer carries the line.
+  const named = ready(4);
+  named.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };
+  checkpointStep(named, { kind: "board", video, rev: 4, now: T0, board: BOARD });
+  answerStep(named, { input: { id: "C1", rev: 4, words: "Fine. Keep it vertical for my phone feed. Thanks.", read_as: "approve" }, video, rev: 4, now: T0 + 30_000, board: BOARD });
+  assert.deepEqual([named.brief.fields.plays_on.named, named.brief.fields.plays_on.quote], ["portrait", "Keep it vertical for my phone feed."]);
+});
+
+test("rough passed on a revision also passes color on the same work; the board never merges", () => {
+  const state = ready(5);
+  checkpointStep(state, { kind: "rough", video: VIDEO, rev: 5, work: "W", now: T0 });
+  answerStep(state, { input: { id: "C1", rev: 5, words: "looks good", read_as: "approve" }, video: VIDEO, rev: 5, work: "W", now: T0 + 30_000 });
+  const color = checkpointStep(state, { kind: "color", video: VIDEO, rev: 5, work: "W", now: T0 + 40_000 });
+  assert.match(color.text, /^C2 color passed with C1 rough: the person answered this same revision \(rev 5\) and nothing changed since\. Change the color first to ask it on its own\.$/);
+  assert.deepEqual([state.stops[1].status, state.stops[1].covers], ["allowed", "C1"]);
+  assert.equal(state.inbox.at(-1).text, color.text);
+  // Other work asks on its own.
+  assert.equal(checkpointStep(state, { kind: "sound", video: VIDEO, rev: 5, work: "other", now: T0 + 50_000 }).data.status, "waiting_for_you");
+});
+
+test("a stop ask prints the crop line the service filled", () => {
+  const video = { ...VIDEO, cropLine: "Crops: 3 of 4 shots keep the face whole." };
+  assert.match(stops.askText({ id: "C1", kind: "rough", video, checked: { errors: 0, warnings: 0 } }), /^Crops: 3 of 4 shots keep the face whole\.$/m);
+});
+
 test("the sound stop of a video with no music: the person's three choices, or 2 songs measured first", () => {
   const rules = stopRules({ "checkpoint-rough": "allow", "checkpoint-color": "allow" });
   const silent = { ...VIDEO, music: false };

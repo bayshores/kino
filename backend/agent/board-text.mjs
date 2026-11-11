@@ -35,6 +35,8 @@ const CHARS_PER_TOKEN = 2.5;
 // (what changed as they asked, without being asked, and what they named but did not change:
 // 103 tokens at the widest) are counted on their own, outside ASK_TOKENS, like the agent's lines.
 export const FRESH_TOKENS = 25;
+// The shape line (a guess against the footage's shape, one sentence) is counted on its own too: at most 65 tokens, only when the shapes differ.
+export const SHAPE_TOKENS = 65;
 export const CHANGED_TOKENS = 105;
 export const SENTENCE_MAX = 150;
 const SENTENCE_MIN = 60;
@@ -220,14 +222,15 @@ function audioWords(music, audio) {
  * `seconds` its length; `music` the music layer's name or null; `audio` the names of the other
  * audio layers (a voice-over); `message` the brief's message line or null; `soundFiles` whether
  * the person sent sound files; `bans` the guessed bans to ask about (brief.mjs guessedBans);
- * `offerSound` on the video's first storyboard ask; `changed`
+ * `offerSound` on the video's first storyboard ask; `shape`, `crops` and `waived` lines that
+ * follow the headline (empty for none); `changed`
  * ({why: [reasons], ids: [shot ids], approved: the stop that approved the board}) after an
  * approval lapsed: this ask (`id`) is a new one. `fresh` is the fresh-eyes check ("ran",
  * "skipped", "not reported", or null for no line); `redone` (round.redone, stops.mjs) what
  * changed since a redo or approve with notes: then the shots that changed as asked come first,
  * then those changed without being asked, then those named but not changed.
  */
-export function boardAsk({ id, board, frame, seconds, music = null, audio = [], message = null, idea = null, pick = [], bans = [], soundSearch = false, soundFiles = false, offerSound = false, all = false, changed = null, fresh = null, redone = null }) {
+export function boardAsk({ id, board, frame, seconds, music = null, audio = [], message = null, idea = null, pick = [], bans = [], soundSearch = false, soundFiles = false, offerSound = false, all = false, changed = null, fresh = null, redone = null, shape = "", crops = "", waived = "" }) {
   const shots = board.shots.map((shot, index) => ({ shot, n: index + 1, measures: shotMeasures(shot, frame) }));
   const lines = [];
   if (changed) {
@@ -237,8 +240,11 @@ export function boardAsk({ id, board, frame, seconds, music = null, audio = [], 
     lines.push(`The storyboard changed since you approved it${approved}; asking again (${id}): ${why.slice(0, REASONS).join("; ")}${more}.`);
   } else {
     lines.push(`The storyboard is ready (${id}): ${plural(shots.length, "shot")}, ${sec(seconds)} s, ${frame.width}×${frame.height}, ${audioWords(music, audio)}.`);
-    if (message) lines.push(`Brief: ${message}`);
   }
+  // Right after the headline: the shape kino guessed against the footage's, the crops it measured
+  // and the findings called fine (stops.mjs builds the three lines).
+  lines.push(...[shape, crops, waived].filter(Boolean));
+  if (!changed && message) lines.push(`Brief: ${message}`);
   if (idea) lines.push(`Idea: ${idea}`);
   // The treatments to pick from (treatments.mjs), until the person picked one.
   lines.push(...pick);

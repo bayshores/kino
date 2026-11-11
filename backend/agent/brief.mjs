@@ -33,6 +33,8 @@ import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, stylePro
 import { OWN_PICK_CALL, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
+import { namedShape, sizeLikeFootage } from "../../engine/quality/rules/shape.js";
+import { shapeOf } from "../../engine/footage/layout.js";
 import { isRecord } from "../../engine/numbers.js";
 import { footageMove } from "../footage-finder/step.mjs";
 import { cleanControls, controlsLine, hasControls, questionsGo, skippedLine } from "./controls.mjs";
@@ -406,7 +408,7 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   };
   const given = Object.fromEntries(sent);
   const lines = [...BRIEF_FIELDS, "about"].filter((name) => Object.hasOwn(given, name) && changed(name, given[name]))
-    .map((name) => ({ name, line: given[name] === null ? null : { text: given[name].text.trim(), by: given[name].by, ...(given[name].by === "you" ? { quote: given[name].quote.trim() } : {}) } }));
+    .map((name) => ({ name, line: given[name] === null ? null : { text: given[name].text.trim(), by: given[name].by, ...(given[name].by === "you" ? { quote: given[name].quote.trim() } : {}), ...(name === "plays_on" && given[name].by === "you" ? { named: namedShape(given[name].quote) ?? false } : {}) } }));
   // style: undefined when it does not change, null to remove it, else the cleaned spec.
   let style;
   if (sentStyle) {
@@ -586,7 +588,10 @@ const guessAll = (missing, brief = null) => briefCall({
 // The step words for what is missing: their message first, then the about line, then the lines.
 const missingStep = (missing) => (missing[0] === "ask" ? "save ask and about"
   : missing[0] === "about" ? "save about" : `guess ${plural(missing.length, "missing line")}`);
-export const PLAN_CALL = (stop) => ({ tool: "notes", input: { action: "set_plan", steps: [
+// The board stop comes before the build: the board is drawn and asked first, then the whole video is built.
+export const PLAN_CALL = (stop) => ({ tool: "notes", input: { action: "set_plan", steps: stop === "board" ? [
+  "Board a move per shot (edit board)", "Ask board (notes checkpoint)", "Build the whole video in one edit (compose)", "check {fix:\"auto\"}",
+  "look {mode:\"review\"} until every moment is reviewed", "Render final"] : [
   "Build the whole video in one edit (compose)", "check {fix:\"auto\"}", ...(stop ? [`Ask ${stop} (notes checkpoint)`] : []),
   "look {mode:\"review\"} until every moment is reviewed", "Render final"] } });
 
@@ -1060,6 +1065,32 @@ export function shapeLine(brief, video = {}) {
   for (const size of sizes) { const label = aspectLabel(size.width, size.height); counts.set(label, (counts.get(label) ?? 0) + 1); }
   const [label, count] = [...counts].reduce((best, entry) => (entry[1] > best[1] ? entry : best));
   return `shape: ${aspectLabel(video.width, video.height)} (${brief?.fields?.plays_on?.by === "you" ? "you said" : "guessed"}), footage ${label} (${count} of ${sizes.length})`;
+}
+
+/**
+ * The shape question a stop asks: { line, round } or null. It is asked when more than half of the
+ * video's footage files have one shape, the video has another, and the person has not named a
+ * shape (plays_on by "you" with `named`). `line` is the sentence for the ask; `round` is what the
+ * stop keeps ({scene, footage, size: [w, h] of the footage's shape at the video's long edge}), so
+ * the person's answer can be saved as plays_on (stops.mjs answerStep).
+ */
+export function shapeAsk(brief, video = {}) {
+  const sizes = (Array.isArray(video?.footageSizes) ? video.footageSizes : []).filter((size) => size?.width > 0 && size?.height > 0);
+  if (!sizes.length || !(video?.width > 0 && video?.height > 0)) return null;
+  const plays = brief?.fields?.plays_on;
+  // A line saved before kino stored `named` is read from its quote.
+  if (plays?.by === "you" && (plays.named === undefined ? namedShape(plays.quote) : plays.named)) return null;
+  const own = shapeOf(video.width, video.height);
+  const majority = ["landscape", "portrait", "square"].find((shape) => shape !== own && sizes.filter((size) => shapeOf(size.width, size.height) === shape).length * 2 > sizes.length);
+  if (!majority) return null;
+  const same = sizes.filter((size) => shapeOf(size.width, size.height) === majority);
+  const scene = aspectLabel(video.width, video.height);
+  const footage = aspectLabel(same[0].width, same[0].height);
+  const { width, height } = sizeLikeFootage(video, same[0]);
+  return {
+    line: `Shape: ${scene} (${Math.round(video.width)}x${Math.round(video.height)}) is my guess; your footage is ${footage} (${same.length} of ${sizes.length}). Name a shape or a place to keep ${scene}; any other reply makes it ${footage} like the footage.`,
+    round: { scene, footage, size: [width, height] },
+  };
 }
 
 /** The answer to notes {action:"brief"} with nothing to save. */
