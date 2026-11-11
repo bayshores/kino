@@ -1,7 +1,7 @@
 // Pacing and promise rules. Gates: promo_basics, assertions.
 // Warnings: scene_lengths, no_rhythm, transitions_dense, static_scene, off_beat (near misses of a beat only).
 import { atFullOpacity, coversFrame, cuts, drawnSize, firstEntrances, goodEntranceDelay, inRest, isPerpetual, motions, primaryItems, readableAt, readingTexts, recommendedHold, sec, sections, shownShare } from "../analysis.js";
-import { area, boxAt, chainOf, fillColorsAt, frameAt, hexRgba, insideShare, intersection, isDecor, itemById, luminance, paintColors, startsWithCut } from "../model.js";
+import { area, boxAt, chainOf, fillColorsAt, frameAt, hexRgba, insideShare, intersection, isDecor, itemById, luminance, paintColors, startsWithCut, visibleBoxAt } from "../model.js";
 import { typeLimits } from "./text.js";
 import { isHoldMotion } from "./motion.js";
 
@@ -179,14 +179,18 @@ export const NEAR_MISS = 0.07;
 
 const SHOT_MOVE_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation"]);
 
-// A full-frame layer's place or scale move that starts on its own hard cut in: the shot's own
-// camera move. busy_edit and drift_on_every_shot judge it, and its cut is already a plain cut.
+// A full-frame layer's place or scale move that starts on its own hard cut in and keeps the frame
+// covered to its end: the shot's own camera move. busy_edit and drift_on_every_shot judge it, and
+// its cut is already a plain cut. A shot that slides in from off the frame is a transition.
 function startsOnOwnCut(model, item, motion, frame) {
   if (!motion.tweens.every((tween) => tween.kind !== "in" && tween.kind !== "out" && tween.keys.every((key) => SHOT_MOVE_KEYS.has(key)))) return false;
+  const whole = { x0: 0, y0: 0, x1: model.width, y1: model.height };
+  const covers = (index) => area(intersection(visibleBoxAt(model, item, index), whole)) / frame >= 0.95;
+  if (!covers(frameAt(model, motion.end))) return false;
   const first = frameAt(model, motion.start);
   // The move may start a frame before the first sample where the layer is shown.
   return [first, first + 1].some((index) => index < model.times.length && item.samples.opacity[index] >= 0.9
-    && motion.start <= model.times[index] + 1 / model.fps && area(boxAt(item, index)) / frame >= 0.95 && startsWithCut(model, item, index));
+    && motion.start <= model.times[index] + 1 / model.fps && covers(index) && startsWithCut(model, item, index));
 }
 
 // Transitions that move a large share of the frame: entrances, exits and moves of big layers.

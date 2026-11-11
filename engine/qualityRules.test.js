@@ -1053,6 +1053,9 @@ test("transitions_dense: at most two large transitions in 6 beats", async () => 
   const push = (id, at) => ({ type: "image", id, name: id, src: `/api/media/${id}.png`, x: 0, y: 0, width: 1920, height: 1080,
     animations: [show(at), move(at, 1, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.3, scaleY: 1.3 })] });
   await silent("transitions_dense", scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [push("s1", 0.5), push("s2", 1.5), push("s3", 2.5)] }));
+  // The same shots sliding in from off the frame are transitions: the frame is not covered at the cut.
+  const slide = (id, at) => ({ ...push(id, at), animations: [show(at), move(at, 0.6, "ease-out", { x: 1920 }, { x: 0 })] });
+  await fires("transitions_dense", scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [slide("s1", 0.5), slide("s2", 1.5), slide("s3", 2.5)] }));
 });
 
 test("static_scene: something changes within the text's hold plus 2 s", async () => {
