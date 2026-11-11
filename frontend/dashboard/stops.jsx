@@ -221,7 +221,7 @@ export function StopsCard({ rows, open, onToggle, onReopen, onKeepAsking }) {
 
 // "ask (default): when the rough cut is done"
 function askHint(kind) {
-  return kind === "board" ? "ask (default): before building, when the video has footage" : `ask (default): when the ${STOP_WORDS[kind]} is done`;
+  return kind === "board" ? "ask (default): before building" : `ask (default): when the ${STOP_WORDS[kind]} is done`;
 }
 
 /**

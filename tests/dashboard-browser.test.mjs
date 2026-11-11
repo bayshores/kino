@@ -3597,6 +3597,8 @@ test("stop settings by keyboard and by mouse: ask or allow and skip-under for ea
   const nameOf = (id) => `${stopField(id)}?.getAttribute("aria-label")`;
   const chosen = (id) => `${q(`#${id} input:checked`)}?.value`;
   try {
+    // stopVideo raised the board skip-under for its fixtures: this test reads the defaults.
+    await asDashboard("settings", { limits: { skipBoardUnder: 8 } }, "PUT");
     await openOn("stops-b");
     await browser.key(":");
     await browser.type("settings");
@@ -3616,7 +3618,7 @@ test("stop settings by keyboard and by mouse: ask or allow and skip-under for ea
         ["ask", ["ask", "allow"], String(seconds)], kind);
       assert.equal(await browser.evaluate(`${stopField(`set-stop-${kind}-skip`)}.title`), `videos shorter than this have no ${word} stop (default ${seconds}; 0 never skips)`, `${kind}'s skip hint`);
     }
-    assert.equal(await browser.evaluate(`${q("#set-stop-board-hint")}.textContent`), "ask (default): before building, when the video has footage", "the storyboard's hint");
+    assert.equal(await browser.evaluate(`${q("#set-stop-board-hint")}.textContent`), "ask (default): before building", "the storyboard's hint");
     assert.equal(await browser.evaluate(`${q("#set-stop-color-hint")}.textContent`), "ask (default): when the color pass is done", "the color pass's hint");
     // By keyboard: → moves the color pass's choice from ask to allow.
     await browser.evaluate(`${q("#set-stop-color input:checked")}.focus()`);
@@ -3664,7 +3666,8 @@ test("stop settings by keyboard and by mouse: ask or allow and skip-under for ea
     assert.equal((await settings()).limits.skipBoardUnder, 8, "7.5 was not saved as 8");
     assert.equal(await browser.evaluate(`${stopField("set-stop-board-skip")}.value`), "7.5", "the field shows what was typed, and the message says it was not saved");
   } finally {
-    await asDashboard("settings", { approvals: { "checkpoint-color": "ask" }, limits: { skipRoughUnder: 15 } }, "PUT");
+    // The stop tests after this one go on with the fixtures, so the board skip-under goes back up.
+    await asDashboard("settings", { approvals: { "checkpoint-color": "ask" }, limits: { skipRoughUnder: 15, skipBoardUnder: BOARD_SKIP_UNDER } }, "PUT");
   }
 });
 
@@ -3976,6 +3979,8 @@ const boardShots = (src) => [
 /** A video with that board, its brief settled ("just start"); `ask` asks its storyboard stop (C1). */
 async function boardVideo(id, { ask = true, shots = boardShots } = {}) {
   const src = await sintel();
+  // The stop tests above raised the board skip-under on this shared server: back to the default.
+  await asDashboard("settings", { limits: { skipBoardUnder: 8 } }, "PUT");
   const made = await agent("project", { action: "create", id, name: id, width: 1080, height: 1920, duration: 8.8, background: "#101820" });
   assert.equal(made.isError, undefined, made.text);
   assert.equal((await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src } }] })).isError, undefined);
