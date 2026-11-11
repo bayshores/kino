@@ -79,6 +79,9 @@ How to read it:
   refused (`backend/agent-edit-repair.test.mjs`). Gap: a recipe-made layer in the same edit still takes align (saved as textAlign).
 - **Turns and history**: Verified. Every edit is a turn; revert keeps later edits, `restore` returns
   to a revision, and the person's undo and notes arrive in the inbox (`backend/agent-service.test.mjs`).
+- **Minutes and calls per step**: Verified. `history` prints them per step, a final render's answer
+  carries one line, and `stepRanges` gives a range per step from finished videos (`backend/step-log.test.mjs`,
+  `backend/agent-render.test.mjs`).
 - **Repeat-safe requests**: Verified. The last 100 request ids are kept per project and scope; a
   reused id with a new payload is refused (`backend/operation-request.test.mjs`, `frontend/request.test.js`).
 - **Small answers**: Verified. No answer is over 8,000 estimated tokens; larger ones are saved under

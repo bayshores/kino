@@ -66,6 +66,7 @@ import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, workPrint } from "./stops.mjs";
+import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { addRejected } from "./style.mjs";
 import { pickedEnding, pickedType } from "./treatments.mjs";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, settleBoard } from "./board.mjs";
@@ -691,6 +692,15 @@ export function createAgentService(deps) {
   // A call made by the person (by:"you") is not the agent's: it leaves the turns, the inbox
   // and what the agent has seen alone, and only applies `change` when it is `shared` (a revert
   // notice for the agent, a new plan).
+  // The step open when this call arrived (answer's openStepOf) gets the call in the step log
+  // (step-log.mjs). Once per call: a handler that finishes twice still counts one call.
+  function logOpenStep(state) {
+    const open = caller.getStore()?.openStep;
+    if (!open || open.logged) return;
+    open.logged = true;
+    state.stepLog = logCall(state.stepLog, open.name, open.at, now());
+  }
+
   async function finishCall(projectId, { edit, change, shared = false } = {}) {
     // A call you approved in the dashboard runs again for the agent (meta.approved): its edit
     // belongs to the agent's turn, and the inbox stays for the agent's own next call.
@@ -699,6 +709,7 @@ export function createAgentService(deps) {
         const turn = currentTurn(state, now());
         turn.calls += 1;
         if (edit) turn.edits.push(edit);
+        logOpenStep(state);
         change?.(state);
         return { turn: turn.id, inbox: [] };
       });
@@ -712,6 +723,7 @@ export function createAgentService(deps) {
       const turn = currentTurn(state, now());
       turn.calls += 1;
       if (edit) turn.edits.push(edit);
+      logOpenStep(state);
       change?.(state);
       // A line for one agent (a helper's hand-back to its lead, crew.mjs) waits for that agent's
       // own call; every other line goes to the agent that calls next.
@@ -4662,7 +4674,10 @@ export function createAgentService(deps) {
         lines.push(`  ${turn.id} ${turn.startedAt.slice(11, 16)} ${plural(turn.calls, "call")}${turn.edits.length ? ` · ${plural(turn.edits.length, "edit")} rev ${first}→${last}${keep ? "" : " (too old to revert)"}` : " · no edits"}${turn.reverted ? ` · reverted at rev ${turn.reverted.rev}` : ""}`);
       }
       lines.push("history {action:\"revert\", turn} undoes a turn; {action:\"restore\", rev} brings back a saved version.");
-      return done(projectId, { text: lines.join("\n"), data: { rev: record.revision, turns } });
+      // The run's facts too: minutes and kino calls per step (step-log.mjs), with this call counted.
+      const log = await stepLogNow(projectId);
+      lines.push(...stepsTable(log));
+      return done(projectId, { text: lines.join("\n"), data: { rev: record.revision, turns, ...(log ? { steps: stepRows(log) } : {}) } });
     }
     if (action === "revert") {
       const state = await agentState.read(projectId);
@@ -5666,7 +5681,19 @@ export function createAgentService(deps) {
       }
     } else if (action !== "status" && action !== "list") throw new AgentError("bad_input", `Unknown render action "${action}".`, { didYouMean: closest(action, ["start", "status", "wait", "cancel"]) });
     await finishRender(job);
-    return done(job.projectId, { text: renderText(job), data: renderData(job) });
+    // A final render that came out gets the step line (minutes and calls per step) and marks the
+    // video finished, so its log counts in the ranges (step-log.mjs stepRanges).
+    const finalDone = job.quality === "final" && renderData(job).status === "done";
+    const steps = finalDone ? stepsLine(await stepLogNow(job.projectId)) : "";
+    return done(job.projectId, { text: steps ? `${renderText(job)} · ${steps}` : renderText(job), data: renderData(job) },
+      finalDone ? { change(draft) { draft.stepLog = finishLog(draft.stepLog, new Date(now()).toISOString()); } } : undefined);
+  }
+
+  // The project's step log with the call being answered added (it is logged when the call ends).
+  async function stepLogNow(projectId) {
+    const log = (await agentState.read(projectId).catch(() => null))?.stepLog ?? null;
+    const open = caller.getStore()?.openStep;
+    return open && !open.logged ? logCall(log, open.name, open.at, now()) : log;
   }
 
   // ---- library ----------------------------------------------------------------------------
@@ -7113,10 +7140,37 @@ export function createAgentService(deps) {
     }
   }
 
+  // The step open when an agent call arrives, { name, at }, for the step log (step-log.mjs); null
+  // when the call is not the agent's work on a project. A video with no brief is in its brief (or,
+  // with layers already, in a change to it: the build); with a brief the name is the one in
+  // status's `step:` line. Never makes the call fail.
+  async function openStepOf(verb, input, meta, at) {
+    if (meta.by === "you" || meta.quiet || !Object.hasOwn(handlers, verb)) return null;
+    try {
+      const action = input?.action;
+      // Waiting on a final render's job is the final render step, though the wait names no quality.
+      const asked = verb === "render" && input?.job && renders.get(String(input.job))?.quality === "final" ? { ...input, quality: "final" } : input;
+      if (verb === "project" && ["create", "duplicate"].includes(action)) return { name: "brief", at };
+      // Opening, listing or removing projects is not work on the project the agent had open.
+      if (verb === "project" && ["open", "list", "archive", "trash", "delete", "restore"].includes(action)) return null;
+      const id = typeof input?.project === "string" ? input.project : await readCurrent();
+      const record = id ? await store.getProject(String(id)).catch(() => null) : null;
+      if (!record || record.trashedAt) return null;
+      const state = await agentState.read(record.document.id);
+      // No brief: an empty video is still in its brief; one with layers is a change to it, whose
+      // passes before the final render are named by the call.
+      if (!hasBrief(state.brief)) return { name: hasLayers(record.document) ? stepNameOf(null, { verb, input: asked }) : "brief", at };
+      const move = statusMove(state, await directionFacts(record.document), stopRulesNow());
+      return { name: stepNameOf(move, { waiting: waitingStop(state)?.kind ?? null, verb, input: asked }), at };
+    } catch { return null; }
+  }
+
   async function answer(verb, input, meta, live, started) {
     let reply;
     let refusedFor = null;
     let held = false;
+    const openStep = await openStepOf(verb, input, meta, started);
+    if (openStep) meta = { ...meta, openStep };
     if (!Object.hasOwn(handlers, verb)) reply = errorReply(new AgentError("unknown_verb", `Unknown verb "${verb}".`, { didYouMean: closest(String(verb), VERBS) }));
     else {
       const safeInput = input && typeof input === "object" ? input : {};

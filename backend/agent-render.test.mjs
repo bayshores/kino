@@ -202,6 +202,10 @@ test("the agent render endpoint exports, reuses, queues, cancels, and recovers r
   const finalFile = finalApng.data.files.find((file) => file.scene === sceneA);
   assert.deepEqual({ width: finalFile.width, height: finalFile.height, fps: finalFile.fps }, { width: 96, height: 64, fps: 30 });
   assert.equal(finalFile.validation.checks.dimensions, "pass");
+  // The final render's receipt carries the step line (step-log.mjs): this video has no brief, so
+  // its first calls are the brief's (an empty video), then the build's, and the final render's
+  // start and wait are the final step's.
+  assert.match(finalApng.text, / · steps: brief \S+ min \d+ calls? · build \S+ min \d+ calls? · final \S+ min \d+ calls?\n/);
   assert.equal(finalFile.validation.facts.frameCount, 13, "APNG includes the exact timeline endpoint");
   const explicitFinal = await renderAndWait({ project: PROJECT_ID, scene: sceneA, quality: "final", format: "apng", motionBlur: 0.5, dither: true });
   assert.equal(await hashFile(finalFile.path), await hashFile(explicitFinal.data.files[0].path), "omitted final quality settings equal motionBlur 0.5 and dither true");
