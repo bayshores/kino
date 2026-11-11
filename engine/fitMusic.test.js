@@ -1,5 +1,6 @@
 // fit_music: one unbroken stretch of the song with its drop on the payoff; with recut:true the
-// song cut so its drop lands on the payoff and its ending on the end (fitMusic.js).
+// song cut on measured bar lines in whole groups of 4 bars so its drop lands on the payoff and its
+// ending on the end (fitMusic.js).
 // The song's measures (song-shape.mjs, the beat analysis) are made up here; the agent service
 // measures real files.
 import assert from "node:assert/strict";
@@ -26,28 +27,29 @@ test("planFitMusic: one unbroken stretch of the song, its drop on the payoff, fa
   assert.equal(close.ending, 48);
 });
 
-test("planFitMusic recut: the drop on the payoff, an earlier drop on the turn, the song's own ending on the end, cuts on bar lines in song order", () => {
-  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, turn: 8, end: 30, recut: true });
+test("planFitMusic recut: the drop on the payoff, an earlier drop on the turn, the song's own ending on the end, cuts on bar lines in song order, whole groups of 4 bars between joins", () => {
+  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 36, turn: 12, end: 46, recut: true });
   const drops = plan.sections.filter((part) => part.kind === "drop");
-  assert.deepEqual(drops.map((part) => [part.at, part.label]), [[8, "turn"], [20, "payoff"]]);
-  assert.equal(plan.ending, 30);
-  assert.deepEqual(plan.sections.at(-1), { at: 30, kind: "ending" });
-  // In song order, each cut on a bar line of the song, each piece's start a whole number of bars from the payoff's.
+  assert.deepEqual(drops.map((part) => [part.at, part.label]), [[12, "turn"], [36, "payoff"]]);
+  assert.equal(plan.ending, 46);
+  assert.deepEqual(plan.sections.at(-1), { at: 46, kind: "ending" });
+  // In song order. Each piece after the first is entered 2 ms (and the 12 ms the song's hits sit before a made-up grid's lines) before a bar line,
+  // the piece before it ends at the same video instant (the bar count goes on), and a piece that is left plays whole groups of 4 bars (8 s).
   for (const [index, piece] of plan.pieces.entries()) {
     if (index) assert.ok(piece.from > plan.pieces[index - 1].from, "song order");
-    assert.ok(onBar(piece.from + piece.fadeIn) && onBar(piece.at + piece.fadeIn), `piece ${index} starts on a bar line`);
+    if (index) assert.ok(onBar(piece.from + 0.014) && piece.fadeIn === 0.003 && Math.abs(piece.at - (plan.pieces[index - 1].at + plan.pieces[index - 1].to - plan.pieces[index - 1].from)) < 0.002, `piece ${index} is joined on a bar line`);
+    if (index && index < plan.pieces.length - 1) assert.ok(Math.abs((piece.to - piece.from) / 8 - Math.round((piece.to - piece.from) / 8)) < 0.001, `piece ${index} plays whole groups`);
   }
   assert.equal(plan.pieces.at(-1).to, 120, "the last piece plays to the song's end");
-  assert.equal(plan.pieces.at(-1).fadeOut, 0, "the song ends by itself");
+  assert.ok(plan.pieces.at(-1).fadeOut < 0.1, "the song ends by itself: only its ring fades");
+  assert.ok(plan.pieces.every((piece, index) => index === plan.pieces.length - 1 || piece.fadeOut === 0.005), "no crossfades");
   // Without a turn, the break or build before the payoff's drop plays under the line before it.
-  const plain = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30, recut: true });
-  const before = plain.sections.filter((part) => part.at < 20 && part.at >= 10).map((part) => part.kind);
-  assert.ok(before.includes("build") || before.includes("break"), JSON.stringify(plain.sections));
-  // A break heard 0.4 s before its bar line (more than the crossfade): the cut is on the bar line
-  // at 4 s, and the cue there too, not at 3.6 s, where the opening piece still plays.
-  const early = planFitMusic({ sections: SECTIONS.map((part) => (part.at === 64 ? { ...part, at: 63.6 } : part)), seconds: 120, bar: 2, downbeat: 0, payoff: 20, end: 30, recut: true });
-  assert.equal(early.pieces[1].at + early.pieces[1].fadeIn, 4, JSON.stringify(early.pieces));
-  assert.deepEqual(early.sections.filter((part) => part.kind === "break").map((part) => part.at), [4], JSON.stringify(early.sections));
+  const plain = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 36, end: 46, recut: true });
+  const before = plain.sections.filter((part) => part.at < 36 && part.at >= 20).map((part) => part.kind);
+  assert.ok(before.includes("build") && before.includes("break"), JSON.stringify(plain.sections));
+  // A break heard 0.4 s before its bar line: the piece is entered on the bar line (at 20 s), and the cue there too, not at 19.6 s.
+  const early = planFitMusic({ sections: SECTIONS.map((part) => (part.at === 64 ? { ...part, at: 63.6 } : part)), seconds: 120, bar: 2, downbeat: 0, payoff: 36, turn: 12, end: 46, recut: true });
+  assert.ok(early.sections.filter((part) => part.kind === "break").every((part) => Math.abs(part.at - 20) < 0.02), JSON.stringify(early.sections));
 });
 
 test("planFitMusic recut: a song cut off before its end fades out over at least a bar, ending on a bar line", () => {
@@ -59,7 +61,7 @@ test("planFitMusic recut: a song cut off before its end fades out over at least 
   assert.throws(() => planFitMusic({ sections: [{ at: 0, kind: "intro" }], seconds: 60, bar: 2, payoff: 10, end: 20 }), /no drop/);
 });
 
-test("fit_music keeps the music layer in one piece by default; recut:true cuts it into pieces with crossfades; both write the sections and seams as cues at their heard times, with weights", () => {
+test("fit_music keeps the music layer in one piece by default; recut:true cuts it into pieces joined on bar lines; both write the sections and seams as cues at their heard times, with weights", () => {
   // The drop is heard 20 ms after its bar line: the cut stays on the bar line, the cue on the sound.
   const HEARD = SECTIONS.map((part) => (part.at === 80 ? { ...part, at: 80.02, weight: 0.8 } : part));
   const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 30, volume: 0.8 });
@@ -81,7 +83,7 @@ test("fit_music keeps the music layer in one piece by default; recut:true cuts i
   assert.equal(report.pieces, layers.length);
   assert.ok(layers.length >= 2 && layers[0].name === "music" && layers[1].name === "music-2" && layers[1].fitMusic === "music");
   assert.ok(report.sections.includes("20.02 s drop, weight 0.8 (payoff)") && report.sections.includes("18.012 s dropout, weight 0.9") && report.sections.at(-1) === "30 s ending", report.sections.join("; "));
-  // Crossfades: each later piece fades in, each earlier one fades out, at the piece's volume.
+  // Joins: each later piece fades in (3 ms), each earlier one fades out (5 ms), at the piece's volume.
   assert.ok(layers.slice(1).every((layer) => layer.animations.some((animation) => animation.name === "Fit in" && animation.to.volume === 0.8)));
   assert.ok(layers.slice(0, -1).every((layer) => layer.animations.some((animation) => animation.name === "Fit out")));
   // The measured sections are marked fitted (impact-accent answers only these); a hand cue is not.
@@ -90,18 +92,18 @@ test("fit_music keeps the music layer in one piece by default; recut:true cuts i
   // Again on the result: the same pieces, not pieces of pieces.
   const again = applyOperations(next, [{ ...op, layerId: "music" }]);
   assert.equal(again.scenes[0].layers.length, layers.length);
-  // duck_audio on the song ducks every piece, and the crossfade at 4 s (under the voice) stays ducked.
-  const voice = createLayer("audio", { id: "voice", name: "voice", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556667.mp3", mediaStart: 3, mediaDuration: 2 });
+  // duck_audio on the song ducks every piece, and the join at 28 s (under the voice) stays ducked.
+  const voice = createLayer("audio", { id: "voice", name: "voice", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556667.mp3", mediaStart: 27, mediaDuration: 2 });
   next.scenes[0].layers.push(voice);
   const ducked = applyOperations(next, [{ type: "duck_audio", sceneId: "s1", layerId: "music", under: ["voice"], to: 0.25 }]).scenes[0].layers;
   const fade = (layer, name) => layer.animations.find((animation) => animation.name === name);
   assert.ok(ducked.filter((layer) => layer.id !== "voice").every((layer) => fade(layer, "Duck down")));
   assert.equal(fade(ducked[0], "Fit out").from.volume, 0.25);
   assert.equal(fade(ducked[1], "Fit in").to.volume, 0.25);
-  assert.equal(fade(ducked[1], "Fit out").from.volume, 0.8, "a crossfade outside the dip fades from full volume");
+  assert.equal(fade(ducked[1], "Fit out").from.volume, 0.8, "a fade outside the dip fades from full volume");
 });
 
-// plan "stop": the song's opening, its own stop, a drop on the payoff for whole groups of 4 bars, its last bar.
+// plan "stop" (and "recut" on the same song): the song's opening, its own stop, a drop on the payoff for whole groups of 4 bars, its last bar.
 // A made-up song whose bars drift (2.02 s each, a constant 2 s grid would be 1 s wrong by bar 50):
 // kick and bass out in bars 8 and 9 (the stop) and 45 and 46; drops at bars 20 and 40; a hit 10 ms before each line.
 const lines = Array.from({ length: 60 }, (_, index) => Math.round(2.02 * index * 1000) / 1000);
@@ -146,6 +148,25 @@ test("planFitMusic stop: the opening to the song's stop, the drop for whole grou
 test("planFitMusic stop: no usable stop is a plain failure that names plan stretch; a song with no bars cannot use it", () => {
   assert.throws(() => planFitMusic(stopInput({ bars: barsOf({ out: [] }) })), /no stop.*plan "stretch"/);
   assert.throws(() => planFitMusic(stopInput({ bars: null })), /no measured bars/);
+});
+
+test("planFitMusic recut: on drifting bar lines every piece left early plays whole groups of 4 bars, each join 2 ms before its hit", () => {
+  const plan = planFitMusic(stopInput({ plan: "recut", payoff: lines[22], end: 70 }));
+  const [opening, drop, last] = plan.pieces;
+  // The opening is left 4 bars after the drop that starts inside it (bar 20); the drop is entered on bar 40 and plays 8 bars; the last bar closes the song.
+  assert.equal(round(opening.to + 0.012), lines[24]);
+  assert.deepEqual([drop.from, drop.to, last.from], [round(lines[40] - 0.012), round(lines[48] - 0.012), round(lines[58] - 0.012)]);
+  assert.equal(round((drop.to - drop.from) / 2.02), 8);
+  // The bar count goes on across each join: bar 40 lands on the payoff, bar 58's place is where bar 48 would be.
+  assert.ok(Math.abs(drop.at + 0.012 - lines[22]) < 1e-9 && Math.abs(last.at + 0.012 - (lines[22] + lines[48] - lines[40])) < 1e-9);
+  assert.deepEqual([opening.fadeOut, drop.fadeIn, drop.fadeOut, last.fadeIn], [0.005, 0.003, 0.005, 0.003]);
+  assert.equal(plan.pieces.length, 3);
+});
+
+test("planFitMusic recut: a turn less than 4 bars before the payoff drops the turn piece and says so", () => {
+  const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 36, turn: 30, end: 46, recut: true });
+  assert.deepEqual(plan.pieces, planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 36, end: 46, recut: true }).pieces);
+  assert.ok(plan.notes.some((note) => /turn is less than 4 bars before the payoff/.test(note)) && !plan.sections.some((part) => part.label === "turn"), plan.notes.join("; "));
 });
 
 test("fit_music plan stop: three pieces with 3 ms and 5 ms fades kept, the receipt lists the plans not used; no plan is the unbroken stretch", () => {
