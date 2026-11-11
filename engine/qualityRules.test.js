@@ -1669,6 +1669,10 @@ test("crop_no_subject: a face found whole in the file and cut by the crop is a g
   assert.deepEqual([cut.severity, cut.itemId], ["error", "keeper"]);
   assert.match(cut.message, /cuts a face found whole in its file at the left at 0 s/);
   assert.match(cut.fix.text, /if the cut is meant \(an eye strip\), mark_subject the part you mean/);
+  // kino's own crop is the fix (frame {layer}), automatic unless an animation moves the layer's box.
+  assert.deepEqual([cut.fix.kind, cut.fix.itemId, cut.fix.auto], ["frame", "keeper", true]);
+  const drifting = { ...TALL_CROP, animations: [{ id: "keeper.drift", kind: "custom", start: 0, duration: 2, easing: "linear", from: { x: -1167 }, to: { x: -1100 } }] };
+  assert.equal((await cropRun("crop_no_subject", tall(drifting), facesFound([20, 30, 15, 25]))).findings[0].fix.auto, false);
   // A face the window keeps whole is the plain no-mark warning; an eye strip filmed past the
   // file's edges (two or more sides) is not the crop's cut.
   assert.equal((await cropRun("crop_no_subject", tall(), facesFound([45, 30, 10, 25]))).findings[0].severity, "warn");

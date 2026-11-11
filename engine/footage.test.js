@@ -9,6 +9,8 @@ import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/
 import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
 import { planEdit } from "./footage/plan.js";
 import { footageCues, footageOps } from "./footage/ops.js";
+import { createDocument, createLayer, createScene } from "./model.js";
+import { applyOperations } from "./operations.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -74,6 +76,51 @@ test("layout: same shape fills, a phone clip in 16:9 is a card, a screen goes ov
   assert.equal(shotLayout(wide, tall, { focus: [0.5, 0.5], subject: [0.2, 0.2, 0.6, 0.6] }).kind, "blur-fill");
   // A portrait clip in 16:9 keeps 32% of its height: a tall marked subject does not fit, a card.
   assert.equal(shotLayout(tall, wide, { focus: [0.5, 0.5], subject: [0.3, 0.1, 0.4, 0.8] }).kind, "blur-fill");
+});
+
+test("frame: a hand-placed 16:9 layer in 9:16 gets blur-fill; a face from subjects-v1 leads, a saliency box never is one", () => {
+  // The layer was cropped by hand to a 28.8% window of its 1920x1080 file (a face-cutting crop).
+  const sample = (faces) => Array.from({ length: 21 }, (_, index) => ({ t: index / 2, faces }));
+  const hand = (file, samples) => {
+    const layer = createLayer("video", { id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 10 });
+    const document = createDocument({ scenes: [createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [layer] })] });
+    const framed = applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: file, samples }]);
+    return framed.scenes[0].layers;
+  };
+  const wide = { width: 1920, height: 1080 };
+  // No face, no mark: a card in the safe area over a blurred copy of itself, both inside the frame.
+  const [back, card, ...rest] = hand(wide, []);
+  assert.deepEqual([rest.length, back.id, card.id, back.blur > 0, back.opacity < 1], [0, "keeper-blur", "keeper", true, true]);
+  assert.ok(card.width <= 1080 && card.x >= 0 && card.x + card.width <= 1080 && card.radius > 0);
+  assert.ok(back.x <= 0 && back.x + back.width >= 1080 && back.volume === 0 && !back.radius);
+  // A 4:3 file keeps 42% of its width in 9:16: a face found in it leads the crop (fill, one layer).
+  const square = { width: 1440, height: 1080 };
+  const face = [{ box: [0.7, 0.2, 0.15, 0.25], kind: "face" }];
+  const [filled, ...none] = hand(square, sample(face));
+  assert.equal(none.length, 0);
+  assert.ok(filled.x <= 0 && filled.x + filled.width >= 1080 && filled.y <= 0 && filled.y + filled.height >= 1920);
+  assert.ok(Math.abs(filled.x + 0.775 * filled.width - 540) <= 1);
+  // The same place as a saliency box is not a face: a big one decides blur-fill, a small one fill.
+  assert.equal(hand(square, sample([{ box: [0.2, 0.2, 0.6, 0.6], kind: "saliency" }])).length, 2);
+  const [small] = hand(wide, sample([{ box: [0.7, 0.3, 0.1, 0.3], kind: "saliency" }]));
+  assert.ok(Math.abs(small.x + 0.75 * small.width - 540) <= 1);
+  // A marked subject leads over the measured faces.
+  const marked = createLayer("video", { id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", x: 0, y: 0, width: 1920, height: 1080, mediaSourceDuration: 10, subjectBoxes: { src: "/api/media/keeper.mp4", boxes: [{ at: 1, box: [10, 20, 15, 40], by: "agent" }] } });
+  const document = createDocument({ scenes: [createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [marked] })] });
+  const [lead] = applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: wide, samples: sample(face) }]).scenes[0].layers;
+  assert.ok(Math.abs(lead.x + 0.175 * lead.width - 540) <= 1);
+  // A file of unknown size is refused with a sentence, nothing saved.
+  assert.throws(() => applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper" }]), /needs the size of keeper's file/);
+});
+
+test("compose footage: a face from subjects-v1 leads the crop, a saliency box only decides fill or card", () => {
+  const frame = { width: 1080, height: 1920 };
+  const samples = (faces) => Array.from({ length: 41 }, (_, index) => ({ t: index / 2, faces }));
+  const shotsOf = (faces) => paced("promo", 30, { frame, clip: { width: 1440, height: 1080, subjectSamples: samples(faces) } }).plan.shots.filter((shot) => shot.role === "body");
+  const led = shotsOf([{ box: [0.7, 0.2, 0.15, 0.25], kind: "face" }]);
+  assert.ok(led.length && led.every((shot) => shot.layout.kind === "fill" && Math.abs(shot.focus[0] - 0.775) < 1e-9));
+  const eye = shotsOf([{ box: [0.2, 0.2, 0.6, 0.6], kind: "saliency" }]);
+  assert.ok(eye.length && eye.every((shot) => shot.layout.kind === "blur-fill" && shot.focus === null));
 });
 
 // Music-led pacing (pace.js): six steady clips cut to a

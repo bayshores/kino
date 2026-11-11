@@ -11,7 +11,7 @@
 import { seeded } from "../blocks/build.js";
 import { barAtOrAfter, beatGrid, editBeats, snapToImpact } from "./cuts.js";
 import { faceCenter, KEEP_BAR, markedSubject, openingMoment, rankMoments, samplesIn } from "./moments.js";
-import { isScreenRecording, shapeOf, shotLayout } from "./layout.js";
+import { isScreenRecording, shapeOf, shotLayout, subjectsIn } from "./layout.js";
 import { editStyle } from "./treatments.js";
 import { accentTimes, burstPassages, FREE_BEAT, PACES, phrasePlan, rateAt, runsOf, songSections } from "./pace.js";
 import { round as round3 } from "../numbers.js";
@@ -89,8 +89,9 @@ const gainTo = (loud, target) => Math.min(1, Math.max(0.08, 10 ** ((target - lou
 
 /**
  * Plans an edit. `input`:
- *   clips     [{key, name, src, kind, width, height, duration, in, out, words, samples, shots, sound}]
- *             (sound: {src, own, duration, loud} when the clip is heard, own: its own track)
+ *   clips     [{key, name, src, kind, width, height, duration, in, out, words, samples, shots, sound,
+ *             subjectSamples?}] (sound: {src, own, duration, loud} when the clip is heard, own: its own
+ *             track; subjectSamples: the file's subjects-v1 samples [{t, faces: [[x,y,w,h] | {box, kind}]}])
  *   music     {src, duration, analysis, loud, curve} or null
  *   voice     {src, duration, words, loud} or null
  *   frame     {width, height}; duration: seconds or undefined; treatment: a name
@@ -530,9 +531,13 @@ export function planEdit(input) {
   let side = rng.next() < 0.5 ? 0 : 1;
   for (const shot of shots) {
     const clip = byKey.get(shot.clip);
-    // A subject the agent marked leads; else the faces measured.
-    const marked = markedSubject(clip, shot.in, shot.in + (shot.end - shot.start));
-    const focus = marked?.center ?? faceCenter(clip, shot.in, shot.in + (shot.end - shot.start));
+    // A subject the agent marked leads; else the faces measured; else the face in the file's
+    // subjects-v1 samples (clip.subjectSamples). Where the eye goes (a saliency box, no face found)
+    // only decides fill or blur-fill: it is never the shot's face.
+    const stretch = [shot.in, shot.in + (shot.end - shot.start)];
+    const marked = markedSubject(clip, ...stretch);
+    const detected = marked ? null : subjectsIn(clip.subjectSamples, ...stretch);
+    const focus = marked?.center ?? faceCenter(clip, ...stretch) ?? detected?.face ?? null;
     let partner = null;
     if (clip.kind === "screen" && camera.length) {
       // The camera shot behind a screen: the camera clip's best moment not used yet, or its first.
@@ -541,7 +546,7 @@ export function planEdit(input) {
       used.add(partnerMoment);
       partner = { clip: partnerClip, in: round3(Math.max(0, partnerMoment.in)), focus: faceCenter(partnerClip, partnerMoment.in, partnerMoment.in + 2) };
     }
-    shot.layout = shotLayout(clip, frame, { focus, subject: marked?.box ?? null, partner, side, zoom: 1, captions: shot.speech || Boolean(voice) });
+    shot.layout = shotLayout(clip, frame, { focus, subject: marked?.box ?? null, salient: focus ? null : detected?.salient ?? null, partner, side, zoom: 1, captions: shot.speech || Boolean(voice) });
     if (partner) shot.layout.partner = { ...shot.layout.partner, clip: partner.clip.key, in: partner.in };
     if (shot.layout.kind !== "fill") side = 1 - side;
     shot.focus = focus;

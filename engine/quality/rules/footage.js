@@ -32,6 +32,7 @@ import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
+import { flattenAnimations } from "../../animationTree.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -152,6 +153,10 @@ export function faceKept(face, bounds) {
   return { share: insideShare(face, open), side: SIDES[lost.indexOf(Math.max(...lost))] };
 }
 
+// Layer values an animation may move or scale (frame sets the layer's box and would fight them).
+const MOVING = ["x", "y", "width", "height", "scaleX", "scaleY"];
+const movesItself = (layer) => flattenAnimations(layer.animations ?? []).some((animation) => [animation.from, animation.to].some((values) => values && MOVING.some((key) => key in values)));
+
 const boxText = (box) => `[${box.map((value) => Math.round(value)).join(", ")}]`;
 
 /** crop_no_subject: footage drawn past the frame with no subject marked, or its subject cut off. */
@@ -222,8 +227,10 @@ export function cropNoSubject(model, ctx) {
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
         message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s: only ${Math.round(cut.share * 100)}% of it is in the frame.`,
         measured: `${Math.round(cut.share * 100)}% of the face box ${boxText(cut.face)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((faceCut.count * step) / model.fps)} s, no subject marked`,
-        required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame`,
-        fix: { kind: "hint", text: `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame; if the cut is meant (an eye strip), mark_subject the part you mean.` },
+        required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame; if the cut is meant (an eye strip), mark_subject the part you mean`,
+        // kino's own crop (frame {layer}) keeps the face whole. It is automatic only when nothing
+        // on the layer moves or scales it by animation, which frame would then fight.
+        fix: { kind: "frame", itemId: item.id, auto: !movesItself(layer), text: `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame, or frame {layer:"${ctx.name(item)}"}: kino's own crop or blur-fill; if the cut is meant (an eye strip), mark_subject the part you mean.` },
       });
       continue;
     }
@@ -298,7 +305,7 @@ export function narrowWindow(model, ctx) {
       message: `${ctx.name(item)} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and no face was found in it: kino cannot see faces here (drawn ones are not found).`,
       measured: `a window ${Math.round(narrowest.width)}% of the ${size.width}x${size.height} file wide (middle at ${middle}%) at ${sec(narrowest.time)} s, for ${sec((count * step) / model.fps)} s, no face found`,
       required: `a full-frame window at least ${NARROW_WINDOW}% of the file wide, or a look at what it keeps`,
-      fix: { kind: "hint", text: `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).` },
+      fix: { kind: "hint", text: `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame, or frame {layer:"${ctx.name(item)}"} for kino's own crop; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).` },
     });
   }
   return findings;
