@@ -735,6 +735,12 @@ test("music_hard_stop: a song that stops dead while loud", async () => {
   const document = scene({ duration: 6, layers: [song()] });
   const [raw] = document.scenes;
   assert.deepEqual((await check("music_hard_stop", document, { speechScene: raw, speech: [{ layer: raw.layers[0], music: true, loudness }], cues: [{ kind: "marker", time: 5 }] })).findings, []);
+  // A piece of a fit_music song that the next piece of it takes over from (a jump to the drop) is the plan's join, not a stop;
+  // the same two pieces with no fitMusic link are a song stopping dead.
+  const pieces = (link) => [song({ mediaDuration: 2 }), song({ id: "song-2", name: "song-2", mediaStart: 2, mediaOffset: 5, mediaDuration: 2, ...link })];
+  const atJoin = async (link) => (await stops(pieces(link))).filter((finding) => finding.at === 2);
+  assert.deepEqual(await atJoin({ fitMusic: "song" }), []);
+  assert.match((await atJoin({}))[0]?.message ?? "", /"song" stops dead at 2 s/);
   // A fade out still running at the stop leaves it loud (a shutter sound): the fix moves it to end there.
   const [running] = await stops([song({ animations: [{ id: "mine", kind: "out", start: 4.8, duration: 0.5, easing: "ease-in", from: { volume: 0.5 }, to: { volume: 0 } }] })]);
   assert.deepEqual([running.fix.kind, running.fix.animationId, running.fix.properties, running.fix.auto], ["layer_animation", "mine", { start: 4.5 }, true]);
@@ -784,6 +790,9 @@ test("bed_jump: street sound cut from 0.2 to 1.2 jumps 15 LU", async () => {
   assert.deepEqual(await soundFindings("bed_jump", [street("a", { volume: 0.2 }), street("b", { mediaStart: 3, volume: 0.25 })], entryOf), []);
   const jCut = street("b", { mediaStart: 2.5, mediaDuration: 3.5, volume: 1.2, animations: [move(2.5, 0.5, { volume: 0 }, { volume: 1.2 })] });
   assert.deepEqual(await soundFindings("bed_jump", [street("a", { volume: 0.2 }), jCut], entryOf), []);
+  // A fit_music piece entered where the piece before it of the same song ends (a stop, then the drop) is the song's own join.
+  const joined = street("b", { mediaStart: 3, volume: 1.2, animations: [fadeIn], fitMusic: "a" });
+  assert.deepEqual(await soundFindings("bed_jump", [street("a", { volume: 0.2 }), joined], entryOf), []);
 });
 
 test("volume_churn: a song ducked and raised again and again", async () => {

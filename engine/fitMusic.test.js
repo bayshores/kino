@@ -134,6 +134,9 @@ test("planFitMusic stop: the opening to the song's stop, the drop for whole grou
   // drop: the section nearest that song time (within 2 bars), else the bar line nearest it.
   assert.equal(planFitMusic(stopInput({ drop: 80 })).pieces[1].from, round(lines[40] - 0.012));
   assert.equal(planFitMusic(stopInput({ drop: 60 })).pieces[1].from, round(lines[30] - 0.012));
+  // A bar line that no section lists as a drop still gets the payoff cue (the picture is timed to it).
+  const payoffCue = planFitMusic(stopInput({ drop: 60 })).sections.find((part) => part.label === "payoff");
+  assert.ok(payoffCue?.kind === "drop" && Math.abs(payoffCue.at - lines[10]) < 0.02, JSON.stringify(payoffCue));
 });
 
 test("planFitMusic stop: no usable stop is a plain failure that names plan stretch; a song with no bars cannot use it", () => {
@@ -154,6 +157,11 @@ test("fit_music plan stop: three pieces with 3 ms and 5 ms fades kept, the recei
   assert.deepEqual([animation(layers[1], "Fit in").duration, animation(layers[0], "Fit out").duration, animation(layers[1], "Fit out").duration], [0.003, 0.005, 0.005]);
   const report = [...reports.values()][0];
   assert.equal(report.plays, "0:00-0:20, 0:40-1:04, 1:57-1:59");
+  // duck_audio ducks every piece and keeps the short fades: a join inside a dip fades to the ducked level.
+  next.scenes[0].layers.push(createLayer("audio", { id: "voice", name: "voice", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556667.mp3", mediaStart: 19, mediaDuration: 3 }));
+  const ducked = applyOperations(next, [{ type: "duck_audio", sceneId: "s1", layerId: "music", under: ["voice"], to: 0.25 }]).scenes[0].layers;
+  assert.deepEqual([animation(ducked[1], "Fit in").duration, animation(ducked[0], "Fit out").duration], [0.003, 0.005]);
+  assert.deepEqual([animation(ducked[1], "Fit in").to.volume, animation(ducked[0], "Fit out").from.volume], [0.25, 0.25]);
   assert.deepEqual(report.plans.map((line) => line.split(":")[0]), ["stretch", "recut"]);
   assert.ok(report.plans.every((line) => line.length <= 140));
   // No plan: one unbroken stretch, and the stop plan is the one listed.
@@ -163,4 +171,7 @@ test("fit_music plan stop: three pieces with 3 ms and 5 ms fades kept, the recei
   assert.equal([...unused.values()][0].plans[0], "stop: opening 0:00-0:20, the song stops at 16.16 s, drop 0:40 on the payoff for 12 bars, the song's last bar ends 46.78 s");
   // No bars in the shape: plan stop fails plainly.
   assert.throws(() => applyOperations(document, [{ ...op, plan: "stop", shape: { ...op.shape, bars: undefined } }]), /no measured bars/);
+  // A wrong plan or drop is refused in plain words.
+  assert.throws(() => applyOperations(document, [{ ...op, plan: "loop" }]), /plan is "stretch".*not "loop"/);
+  assert.throws(() => applyOperations(document, [{ ...op, plan: "stop", drop: -3 }]), /drop is a time in the song/);
 });

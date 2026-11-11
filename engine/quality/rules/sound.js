@@ -229,6 +229,20 @@ function onHit(model, ctx, time) {
 const runningFade = (layer, end) => (layer.animations ?? []).find((animation) => animation?.id && animation.enabled !== false && animation.kind !== "hide"
   && typeof animation.to?.volume === "number" && animation.to.volume < AUDIBLE && animation.duration > 0 && animation.start < end && animation.start + animation.duration > end + 1e-3);
 
+// A song fit_music cut is several pieces of one file (the head layer and the ones whose fitMusic is
+// its id). Where one piece hands over to the next at `time`, the plan made that join (its own stop,
+// a jump to a drop, the last bar): it is neither a song stopping nor a bed lurching. `edge` says
+// which end of the other piece must sit at `time`: "starts" (the leaving piece's stop) or "ends"
+// (the entering piece's start).
+const fitGroup = (layer) => layer.fitMusic ?? layer.id;
+function fitJoin(scene, layer, time, edge) {
+  return scene.layers.some((other) => {
+    if (other === layer || other.enabled === false || fitGroup(other) !== fitGroup(layer)) return false;
+    const range = mediaPlaybackRange(other, scene.duration);
+    return Boolean(range) && Math.abs((edge === "starts" ? range.start : range.end) - time) <= 0.1;
+  });
+}
+
 /** music_hard_stop: a song that stops while loud, with no fade out. */
 export function musicHardStop(model, ctx) {
   const scene = ctx.speechScene;
@@ -249,7 +263,7 @@ export function musicHardStop(model, ctx) {
       const next = mediaPlaybackRange(other, scene.duration);
       return next && Math.abs(next.start - end) <= 0.1 && Math.abs(next.offset - out) <= 0.1;
     })());
-    if (joined) continue;
+    if (joined || fitJoin(scene, layer, end, "starts")) continue;
     const stopping = volumeAt(layer, end - 0.01);
     // A song fit_music already cut ends where it can: only the fade is offered.
     const fitted = layer.fitMusic || scene.layers.some((other) => other.fitMusic === layer.id);
@@ -406,7 +420,8 @@ export function bedJump(model, ctx) {
   // Where a bed starts after the video's start, or a volume animation shorter than the window starts.
   const times = [];
   for (const bed of beds) {
-    if (bed.range.start > 0.05) times.push(bed.range.start);
+    // A piece of a fit_music song entered where the piece before it ends: the song's own join.
+    if (bed.range.start > 0.05 && !fitJoin(scene, bed.layer, bed.range.start, "ends")) times.push(bed.range.start);
     for (const animation of enabledAnimations(bed.layer.animations ?? [])) {
       if (animatesVolume({ ...bed.layer, animations: [animation] }) && animation.duration < JUMP_WINDOW && animation.start > bed.range.start + 0.05) times.push(animation.start);
     }

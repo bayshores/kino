@@ -6,7 +6,7 @@
 //   duck_audio    {sceneId, layerId, under, to?, fade?}  volume dips under other sound (audioDucking.js)
 //   cut_speech    {sceneId, layerId, words?, spans?, pauses?, restore?, ripple?, morph?, transcript}  words cut from (or put back in) a voice (speech.js)
 //   sync_clips    {sceneId, layerId, toId, at? | match}  one clip played in step with another (clipSync.js)
-//   fit_music     {sceneId, layerId, payoff, turn?, end?, recut?, shape, analysis}  one stretch of the song, its drop on the payoff (fitMusic.js)
+//   fit_music     {sceneId, layerId, payoff, turn?, end?, plan?, drop?, recut?, shape, analysis}  one stretch of the song, its drop on the payoff (fitMusic.js)
 //   place_broll   {sceneId, speechId, layerIds, about, lead?, transcript, shots}  B-roll where its words are said (broll.js)
 // Each one that has something to tell the agent (pages made, beats found) puts a short report in
 // `reports` (a Map from operation to report), which the agent service adds to its answer.

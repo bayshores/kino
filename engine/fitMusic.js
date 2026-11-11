@@ -249,6 +249,9 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
   const parts = sections.map((part) => ({ kind: part.kind, at: lines[barOfPart(part)] ?? part.at, heard: part.at, weight: part.weight }));
   // The chosen drop is heard no earlier than its piece reaches full volume, so its cue lands in that piece.
   for (const part of parts) if (part.kind === "drop" && part.at === lines[D]) part.heard = Math.max(part.heard, dropPiece.from + dropPiece.fadeIn);
+  // A drop the agent picked that the song's sections do not list (the bass coming back inside the
+  // song) still lands on the payoff: its cue is the entered line, so the picture can be timed to it.
+  if (!parts.some((part) => part.kind === "drop" && part.at === lines[D])) parts.push({ kind: "drop", at: lines[D], heard: dropPiece.from + dropPiece.fadeIn, weight: null });
   const seamParts = seams.filter((seam) => Number.isFinite(seam?.at) && typeof seam.kind === "string");
   const placed = placeSections({ parts, seams: seamParts, pieces, lands: { payoff, turn: null } });
   const stopAt = round(lines[stop.run] + opening.at - opening.from);

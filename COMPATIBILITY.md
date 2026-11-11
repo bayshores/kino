@@ -860,6 +860,11 @@ How to read it:
   to a bar line, a fade out at the end); `recut:true` re-arranges it on bar lines instead;
   sections become `song-*` cues. The owner rejected the re-arranged cut by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **fit_music plan stop** (op): `plan:"stop"` plays the song's opening up to its own stop, a drop of
+  whole 4-bar groups on the payoff (`drop` picks which), then the song's last bar, joined 2 ms before
+  the hit with 3 ms and 5 ms fades; the receipt lists the plans not used. Joins measured against a
+  hand-built cut (within 20 ms, no click). Unverified by ear. Evidence: `engine/fitMusic.test.js`,
+  `engine/qualityPolish.test.js`.
 - **Song seams** (fit_music): section edges, dropouts, returns (after a rest or a filter), vocal-in
   (whisper) and beat switches placed within one video frame with weights, as `song-*` cues at the
   heard time, in the piece that plays it; one cue per hit. Synthetic songs only, unverified on real

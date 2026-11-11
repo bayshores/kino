@@ -111,7 +111,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 ## Other
 
 - `cut_speech {scene?, layer, words? | spans?, pauses?, restore?, ripple?, morph?}`
-- `fit_music {scene?, layer, payoff?, turn?, end?, recut?}`
+- `fit_music {scene?, layer, payoff?, turn?, end?, plan?, drop?, recut?}`
 - `place_broll {scene?, speech, clips, lead?}`
 - `color_filter {scene?, layer | layers, filter, strength?}`
 - `match_color {scene?, layer | layers, to, at?}`
