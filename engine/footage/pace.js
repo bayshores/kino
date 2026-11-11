@@ -15,6 +15,8 @@ export const PACES = Object.freeze({
   velocity: Object.freeze({ beats: 1, hero: 5.5, line: "velocity pace: 1 beat a shot" }),
 });
 export const PACE_NAMES = Object.freeze(Object.keys(PACES));
+// Without music, a "beat" is this long, so the treatments' shot lengths still mean something.
+export const FREE_BEAT = 0.6;
 // A calm phrase holds at least this many shots (a run is 3 to 8 equal shots).
 const RUN_LEAST = 3;
 

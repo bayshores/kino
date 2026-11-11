@@ -6,6 +6,7 @@ import { barAtOrAfter, beatGrid, editBeats, snapToImpact, speechSpan } from "./f
 import { markedSubject, openingMoment } from "./footage/moments.js";
 import { shotLayout } from "./footage/layout.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
+import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
 import { planEdit } from "./footage/plan.js";
 import { footageCues, footageOps } from "./footage/ops.js";
 
@@ -98,6 +99,41 @@ test("pace: runs of whole beats on the beat grid, a calm open and an ending twic
   }
   // The body after the title: 4 shots of 4 beats, 6 of 2, then 7 of 1.
   assert.deepEqual(plan.runs.slice(1).map((run) => `${run.count}x${run.beats}`), ["4x4", "6x2", "7x1"]);
+});
+
+test("default pace: the median of the references' median shots and the longest of their longest, else today's numbers", () => {
+  const ids = (item) => [item.source, item.ids];
+  // No reference: today's pace, 2 beats with a song of known tempo (0.5 s a beat), else 0.6 s; the hold is 5.5 s.
+  const today = defaultPace([]);
+  assert.deepEqual([today.shot.seconds, today.shot.beats, ...ids(today.shot), today.hold.seconds, ...ids(today.hold)], [0.6, null, "today", [], 5.5, "today", []]);
+  assert.deepEqual([defaultPace([], { beatSeconds: 0.5 }).shot.seconds, defaultPace([], { beatSeconds: 0.5 }).shot.beats], [1, 2]);
+  // Two references measured before medians were kept (cuts only): medians 1 s and 1.5 s, longest 1 s and 2 s.
+  const a = { id: "yt:a", numbers: { cuts: [1, 2, 3, 4, 5, 6, 7, 8, 9], seconds: 10, longest: { seconds: 1 } } };
+  const b = { id: "yt:b", numbers: { cuts: [2, 3, 4], seconds: 6, longest: { seconds: 2 } } };
+  const free = defaultPace([a, b]);
+  assert.deepEqual([free.shot.seconds, ...ids(free.shot), free.hold.seconds, ...ids(free.hold)], [1.25, "ref", ["yt:a", "yt:b"], 2, "ref", ["yt:b"]]);
+  // With a song of 0.5 s a beat and no reference tempo: 1.25 s is 2.5 beats, kept as 2 beats (1 s).
+  const song = defaultPace([a, b], { beatSeconds: 0.5 });
+  assert.deepEqual([song.shot.beats, song.shot.exact, song.shot.seconds], [2, 2.5, 1]);
+  // A reference whose own beat was measured (1.5 s at 0.5 s a beat = 3 beats) speaks in beats; at 0.4 s a beat that is 4 beats.
+  const c = { id: "yt:c", numbers: { cuts: [1.5, 3, 4.5], seconds: 6, ...shotStats([1.5, 3, 4.5], 6, 0.5), longest: { seconds: 1.5 } } };
+  const own = defaultPace([a, b, c], { beatSeconds: 0.4 });
+  assert.deepEqual([own.shot.beats, own.shot.exact, own.shot.seconds, ...ids(own.shot)], [4, 3, 1.6, "ref", ["yt:c"]]);
+  // A reference saved before medians were kept, with its tempo saved (120 bpm = 0.5 s a beat), speaks in beats too.
+  const d = { id: "yt:d", bpm: 120, numbers: { cuts: [1.5, 3, 4.5], seconds: 6, longest: { seconds: 1.5 } } };
+  assert.deepEqual([defaultPace([a, b, d], { beatSeconds: 0.4 }).shot.beats, defaultPace([a, b, d], { beatSeconds: 0.4 }).shot.ids], [4, ["yt:d"]]);
+  // A very slow reference is kept inside 0.4 to 8 s (exact keeps the 12 s); beats round by ratio.
+  const slow = defaultPace([{ id: "yt:s", numbers: { cuts: [12], seconds: 24, longest: { seconds: 12 } } }]);
+  // The hold is kept to 8 s too (a clip that is one long shot), with the real length in exact.
+  assert.deepEqual([slow.shot.seconds, slow.shot.exact, slow.hold.seconds, slow.hold.exact], [8, 12, 8, 12]);
+  assert.deepEqual([3, 0.3, 100, 1.4, 1.5].map(nearestBeats), [4, 1, 8, 1, 2]);
+  // A very slow song (100 s a beat) never gives a shot over 8 s.
+  assert.equal(defaultPace([a, b], { beatSeconds: 100 }).shot.seconds, 8);
+  // Missing data is not a pace: no longest or a zero-length measure falls back to today's hold, and bad input is ignored.
+  const noLongest = defaultPace([{ id: "yt:n", numbers: { cuts: [1, 2], seconds: 3 } }]);
+  assert.deepEqual([noLongest.shot.source, noLongest.hold.seconds, ...ids(noLongest.hold)], ["ref", 5.5, "today", []]);
+  const empty = defaultPace([{ id: "yt:z", numbers: { median: 0, cuts: [], seconds: 0, longest: { seconds: 0 } } }, null]);
+  assert.deepEqual([empty.shot.source, empty.hold.source, defaultPace({}).shot.source], ["today", "today", "today"]);
 });
 
 test("title: each type card and treatment carries its own reveal, none a blur; a calm title is a plain fade", () => {
