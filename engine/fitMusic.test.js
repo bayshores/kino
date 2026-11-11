@@ -4,9 +4,10 @@
 // measures real files.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createDocument, createLayer, createScene } from "./model.js";
+import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applyOperations } from "./operations.js";
 import { planFitMusic } from "./fitMusic.js";
+import { round } from "./numbers.js";
 
 // 120 bpm (a bar is 2 s): intro, build at 24, drop at 32, break at 64, build at 72, drop at 80, outro at 112, ends at 120.
 const SECTIONS = [{ at: 0, kind: "intro" }, { at: 24, kind: "build" }, { at: 32, kind: "drop" }, { at: 64, kind: "break" }, { at: 72, kind: "build" }, { at: 80, kind: "drop" }, { at: 112, kind: "outro" }];
@@ -98,4 +99,68 @@ test("fit_music keeps the music layer in one piece by default; recut:true cuts i
   assert.equal(fade(ducked[0], "Fit out").from.volume, 0.25);
   assert.equal(fade(ducked[1], "Fit in").to.volume, 0.25);
   assert.equal(fade(ducked[1], "Fit out").from.volume, 0.8, "a crossfade outside the dip fades from full volume");
+});
+
+// plan "stop": the song's opening, its own stop, a drop on the payoff for whole groups of 4 bars, its last bar.
+// A made-up song whose bars drift (2.02 s each, a constant 2 s grid would be 1 s wrong by bar 50):
+// kick and bass out in bars 8 and 9 (the stop) and 45 and 46; drops at bars 20 and 40; a hit 10 ms before each line.
+const lines = Array.from({ length: 60 }, (_, index) => Math.round(2.02 * index * 1000) / 1000);
+const barsOf = (extra = {}) => ({ lines, out: [8, 9, 45, 46], hits: lines.map((time) => Math.round((time - 0.01) * 1000) / 1000), last: { bar: 58, ends: "own" }, ...extra });
+const STOP_SECTIONS = [{ at: 0, kind: "intro", bar: 0 }, { at: lines[15], kind: "build", bar: 15 }, { at: lines[20] + 0.01, kind: "drop", weight: 0.9, bar: 20 }, { at: lines[40], kind: "drop", weight: 0.5, bar: 40 }, { at: lines[56], kind: "outro", bar: 56 }];
+const stopInput = (extra = {}) => ({ sections: STOP_SECTIONS, seconds: 119.5, bar: 2.02, payoff: lines[10], end: 46.78, plan: "stop", bars: barsOf(), ...extra });
+
+test("planFitMusic stop: the opening to the song's stop, the drop for whole groups on the payoff, the last bar; each join on a hit, bar lines of the measured song", () => {
+  const plan = planFitMusic(stopInput());
+  // Song bar 10 (the stop's end) lands on the payoff; bar 20 enters 12 ms early (2 ms before its hit) and plays 3 groups (bars 20 to 31); the last bar (58) follows.
+  assert.deepEqual(plan.pieces, [
+    { from: 0, to: 20.188, at: 0, fadeIn: 0, fadeOut: 0.005 },
+    { from: 40.388, to: 64.628, at: 20.188, fadeIn: 0.003, fadeOut: 0.005 },
+    { from: 117.148, to: 119.5, at: 44.428, fadeIn: 0.003, fadeOut: 0 },
+  ]);
+  assert.equal(plan.ending, 46.78);
+  // The bar count goes on across each join: the entered bar line lands where the bar line left behind would have.
+  assert.ok(Math.abs(plan.pieces[1].at + 0.012 - lines[10] - 0) < 1e-9 && Math.abs(plan.pieces[2].at + 0.012 - (lines[10] + lines[32] - lines[20])) < 1e-9);
+  assert.deepEqual(plan.sections.map((part) => [part.at, part.kind, part.label]).filter(([, kind]) => kind !== "build" && kind !== "intro" && kind !== "outro"), [[16.16, "stop", undefined], [20.21, "drop", "payoff"], [46.78, "ending", undefined]]);
+  // No hit on the entered line: cut exactly on it with a 5 ms fade; the piece left ends at the same instant.
+  const plain = planFitMusic(stopInput({ bars: barsOf({ hits: barsOf().hits.map((time, index) => (index === 20 ? null : time)) }) }));
+  assert.deepEqual(plain.pieces.slice(0, 2), [{ from: 0, to: 20.2, at: 0, fadeIn: 0, fadeOut: 0.005 }, { from: 40.4, to: 64.628, at: 20.2, fadeIn: 0.005, fadeOut: 0.005 }]);
+  // The last bar has no hit: it is entered on its line with a 5 ms fade, and the end lands where the hit-less song ends.
+  const quiet = planFitMusic(stopInput({ bars: barsOf({ hits: barsOf().hits.map((time, index) => (index === 58 ? null : time)) }) }));
+  assert.deepEqual(quiet.pieces[2], { from: lines[58], to: 119.5, at: 44.44, fadeIn: 0.005, fadeOut: 0 });
+  // A bar out inside the third group: it is left out (never leave inside a group).
+  const shorter = planFitMusic(stopInput({ bars: barsOf({ out: [8, 9, 25] }) }));
+  assert.equal(shorter.pieces[1].to, 48.468, "plays bars 20 to 23 only");
+  assert.equal(shorter.pieces[2].at, 28.268, "the last bar follows at once");
+  // drop: the section nearest that song time (within 2 bars), else the bar line nearest it.
+  assert.equal(planFitMusic(stopInput({ drop: 80 })).pieces[1].from, round(lines[40] - 0.012));
+  assert.equal(planFitMusic(stopInput({ drop: 60 })).pieces[1].from, round(lines[30] - 0.012));
+});
+
+test("planFitMusic stop: no usable stop is a plain failure that names plan stretch; a song with no bars cannot use it", () => {
+  assert.throws(() => planFitMusic(stopInput({ bars: barsOf({ out: [] }) })), /no stop.*plan "stretch"/);
+  assert.throws(() => planFitMusic(stopInput({ bars: null })), /no measured bars/);
+});
+
+test("fit_music plan stop: three pieces with 3 ms and 5 ms fades kept, the receipt lists the plans not used; no plan is the unbroken stretch", () => {
+  const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 119.5 });
+  const document = createDocument({ scenes: [createScene({ id: "s1", duration: 60, layers: [music] })] });
+  const analysis = { bpm: 118.8, period: 0.505, beats: Array.from({ length: 240 }, (_, index) => index * 0.505), duration: 119.5 };
+  const op = { type: "fit_music", sceneId: "s1", layerId: "music", payoff: lines[10], end: 46.78, shape: { sections: STOP_SECTIONS, seconds: 119.5, whole: true, bars: barsOf() }, analysis };
+  const reports = new Map();
+  const next = parseDocument(applyOperations(document, [{ ...op, plan: "stop" }], { reports }));
+  const layers = next.scenes[0].layers;
+  const animation = (layer, name) => layer.animations.find((item) => item.name === name);
+  assert.equal(layers.length, 3);
+  assert.deepEqual([animation(layers[1], "Fit in").duration, animation(layers[0], "Fit out").duration, animation(layers[1], "Fit out").duration], [0.003, 0.005, 0.005]);
+  const report = [...reports.values()][0];
+  assert.equal(report.plays, "0:00-0:20, 0:40-1:04, 1:57-1:59");
+  assert.deepEqual(report.plans.map((line) => line.split(":")[0]), ["stretch", "recut"]);
+  assert.ok(report.plans.every((line) => line.length <= 140));
+  // No plan: one unbroken stretch, and the stop plan is the one listed.
+  const unused = new Map();
+  const whole = applyOperations(document, [op], { reports: unused });
+  assert.equal(whole.scenes[0].layers.length, 1);
+  assert.equal([...unused.values()][0].plans[0], "stop: opening 0:00-0:20, the song stops at 16.16 s, drop 0:40 on the payoff for 12 bars, the song's last bar ends 46.78 s");
+  // No bars in the shape: plan stop fails plainly.
+  assert.throws(() => applyOperations(document, [{ ...op, plan: "stop", shape: { ...op.shape, bars: undefined } }]), /no measured bars/);
 });
