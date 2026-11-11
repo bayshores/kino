@@ -8,7 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { createSongTaste, rankSongs, storyScore, tasteEntry, tasteScore, tempoCloseness } from "./songTaste.mjs";
 import { createMusicEmbed, decodeVector, encodeVector, songWindows } from "./music-embed.mjs";
-import { attackNear, createSongShapeCache, joinSpans, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
+import { attackNear, createSongShapeCache, joinSpans, SONG_SHAPE_VERSION, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
 import { songKey as clientSongKey } from "../frontend/dashboard/inspireView.js";
 import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, namedSong, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
 
@@ -286,6 +286,22 @@ test("song shape: the kick and bass coming in is a drop, leaving at the end an o
   assert.ok(!seams.some((seam) => Math.abs(seam.at - hit.at) < 0.05), JSON.stringify(seams));
 });
 
+test("song shape: the kick and bass back at full after a 1 s stop is a drop at the return, a one-beat stop is not", () => {
+  const rate = 8000;
+  const song = (stopFrom, stopTo) => {
+    const samples = new Float32Array(rate * 24);
+    for (let i = 0; i < samples.length; i += 1) {
+      const t = i / rate;
+      samples[i] = 0.1 * Math.sin(2 * Math.PI * 600 * t); // a tone plays through
+      if (!(t >= stopFrom && t < stopTo)) samples[i] += 0.8 * Math.exp(-(t % 0.5) * 12) * Math.sin(2 * Math.PI * 60 * t); // kicks at 120 bpm
+    }
+    return songShape(samples, rate, { bpm: 120 }).sections;
+  };
+  const drops = song(12, 13).filter((part) => part.kind === "drop");
+  assert.ok(drops.length === 1 && Math.abs(drops[0].at - 13) <= 1 / 30 && drops[0].weight > 0.9, JSON.stringify(drops));
+  assert.deepEqual(song(12, 12.5).filter((part) => part.kind === "drop"), []);
+});
+
 // 56 s at 8 kHz: kicks at 120 bpm under a tone, the highs filtered out 14 to 22 s, a one-beat stop
 // at 30 s, a voice 35.3 to 40 s, the kicks switching to every 0.75 s from 46.25 s.
 function seamSong(rate = 8000) {
@@ -378,7 +394,7 @@ test("song shape cache: whisper's spans give a vocal-in seam kept in the .song; 
     const sung = createSongShapeCache({ decode, vocals: async () => [[35, 40]] });
     const file = path.join(folder, "song.mp3");
     const first = await sung.get(file, 120);
-    assert.ok(first.version === 4 && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
+    assert.ok(first.version === SONG_SHAPE_VERSION && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
     assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), first);
     assert.deepEqual(await sung.get(file, 120), first);
     assert.equal(decodes, 1, "the kept .song is read back, not measured again");
@@ -406,7 +422,7 @@ test("song shape cache with the beat analysis: bars are kept in the .song, and a
     const file = path.join(folder, "song.mp3");
     assert.equal((await cache.get(file, 120)).bars, undefined, "a tempo alone gives no bars");
     const withBars = await cache.get(file, steady());
-    assert.ok(withBars.version === 4 && withBars.bars.lines.length === 24 && withBars.sections.every((part) => Number.isInteger(part.bar)), JSON.stringify(withBars.bars));
+    assert.ok(withBars.version === SONG_SHAPE_VERSION && withBars.bars.lines.length === 24 && withBars.sections.every((part) => Number.isInteger(part.bar)), JSON.stringify(withBars.bars));
     assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), withBars);
     assert.deepEqual(await cache.get(file, steady()), withBars);
     assert.deepEqual((await cache.get(file, 120)).bars, withBars.bars, "read back with a tempo, bars kept");

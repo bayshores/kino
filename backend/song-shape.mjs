@@ -226,6 +226,9 @@ const REST_SECONDS = [0.1, 4];
 const RETURN_DB = 12; // a filter return: the high band back up 12 dB after it was down
 const SWITCH_MIN = 0.5; // a switch: the hits' pattern this different (1 - cosine of the rhythms)
 const SAME_HIT = 0.05; // two edges closer than this (about a video frame) are one moment
+const STOP_DB = 15; // a stop: the low band this far under the median of the 8 s around it
+const STOP_SECONDS = [0.75, 4]; // a stop that ends in a drop lasts this long (shorter: a rest, longer: a break)
+const FULL_DB = 6; // the band is full again when it is within this many dB of the song's loud level
 const weightOf = (db, full = 30) => round(Math.min(1, Math.max(0, db / full)), 2);
 
 // What fineEdge compares, frame by frame: one band's level in dB.
@@ -284,6 +287,38 @@ function refine(part, frames, samples, sampleRate) {
     ? fineEdge(samples, sampleRate, at, { band: "total", radius: 0.5, window: 0.25 })
     : fineEdge(samples, sampleRate, at, { band: "low", direction: part.kind === "drop" ? 1 : -1, radius: 0.15, window: 0.1 });
   return { at: round(edge.at, 3), kind: part.kind, weight: weightOf(edge.change) };
+}
+
+/**
+ * Drops that come back after a stop: [{from, to, change}] (seconds, to the 46 ms frame; change: dB) where the low band
+ * is 15 dB or more under the median of the 8 s around it for 0.75 to 4 s (shorter gaps are rests,
+ * seams), after 1 s with the low band within 6 dB of the song's loud level (its 75th percentile) and
+ * before 1 s with the low band and the whole sound back within 6 dB of theirs. The whole sound may
+ * stay up through the stop (hats, a pad): only the kick and bass need to be out.
+ */
+export function stopReturns(frames) {
+  const per = 1 / frames.hopSeconds;
+  const second = Math.round(per);
+  const low = Array.from(frames.low, dbOf);
+  // The level of a stretch of frames: its mean power in dB (a kick's decay does not pull it down).
+  const level = (series, from, to) => dbOf(mean(Array.from(series.subarray(from, to))));
+  const loud = (series) => percentile(Array.from({ length: Math.max(1, series.length - second) }, (_, f) => level(series, f, f + second)), 0.75);
+  const [loudLow, loudTotal] = [loud(frames.low), loud(frames.total)];
+  const seconds = Math.ceil(frames.count * frames.hopSeconds);
+  const median = Array.from({ length: seconds }, (_, s) => percentile(low.slice(Math.max(0, Math.floor((s - 4) * per)), Math.min(low.length, Math.floor((s + 5) * per))), 0.5));
+  const out = low.map((value, f) => value < median[Math.floor(f * frames.hopSeconds)] - STOP_DB);
+  const found = [];
+  for (let f = second; f < out.length; f += 1) {
+    if (!out[f] || out[f - 1]) continue;
+    let end = f;
+    while (end < out.length && out[end]) end += 1;
+    const length = (end - f) * frames.hopSeconds;
+    if (length < STOP_SECONDS[0] || length > STOP_SECONDS[1] || end + second > out.length) continue;
+    const full = level(frames.low, f - second, f) >= loudLow - FULL_DB && level(frames.low, end, end + second) >= loudLow - FULL_DB && level(frames.total, end, end + second) >= loudTotal - FULL_DB;
+    // The size of the return: the low band's level in the half second after the stop against its level in the stop.
+    if (full) found.push({ from: f * frames.hopSeconds, to: end * frames.hopSeconds, change: level(frames.low, end, end + Math.round(per / 2)) - mean(low.slice(f, end)) });
+  }
+  return found;
 }
 
 /**
@@ -499,6 +534,13 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true, vocal
   });
   const novelty = spectralNovelty(vectors, Math.min(8, Math.floor(seconds / 4)));
   const sections = sectionsFromCurves({ low, rise, novelty, whole }).map((part) => refine(part, frames, samples, sampleRate));
+  // The kick and bass back at full after a stop of 0.75 s or more is a drop, weighted by the size of the return.
+  // One with a section within 1 s of it (a break that starts the stop, a drop already on the return) is that section's.
+  for (const stop of stopReturns(frames)) {
+    const edge = fineEdge(samples, sampleRate, stop.to, { band: "low", direction: 1, radius: 0.15, window: 0.1 });
+    if (!sections.some((part) => part.at >= stop.from - 1 && part.at <= edge.at + 1)) sections.push({ at: round(edge.at, 3), kind: "drop", weight: weightOf(stop.change) });
+  }
+  sections.sort((a, b) => a.at - b.at);
   const seams = seamsOf(frames, samples, sampleRate, sections, low, vocals);
   // With the beat analysis, the shape has bars, and every edge says which bar line it is nearest.
   const grid = beats ? barLines(beats, sections) : null;
@@ -714,7 +756,7 @@ export function vocalShare(spans, seconds) {
 
 // Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
 // millisecond, weights; 3: bars, and the bar of every section and seam).
-export const SONG_SHAPE_VERSION = 4;
+export const SONG_SHAPE_VERSION = 5;
 const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**
