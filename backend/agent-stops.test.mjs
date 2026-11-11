@@ -195,6 +195,20 @@ test("a graphics-only video of 8 s or more asks the storyboard; its title-card b
   assert.equal(refusal(() => stops.checkpointStep(ready(4), { kind: "board", video: graphics, rev: 4, now: T0 })).code, "board_first");
 });
 
+test("the brief's controls: a skip_under skips the board; rough set to go passes with an inbox line in the person's words; back to wait asks it again", () => {
+  // stops.checkpointStep: the plain rules, so only the brief's controls skip the board here.
+  const state = ready(4);
+  state.brief.controls = { stops: { rough: "go" }, skipUnder: { board: 30 }, quote: "no storyboard or rough cut, just make it" };
+  assert.deepEqual(stops.checkpointStep(state, { kind: "board", video: VIDEO, rev: 4, now: T0 }).data, { status: "skipped", kind: "board", reason: "under 30 s" });
+  const went = stops.checkpointStep(state, { kind: "rough", video: VIDEO, rev: 4, now: T0 });
+  assert.deepEqual([went.data.status, went.data.by], ["allowed", "controls"], went.text);
+  assert.match(went.text, /^C1 rough allowed \(the person's controls\)/);
+  assert.equal(state.inbox.at(-1).text, 'C1 rough goes on: the brief\'s controls say go ("no storyboard or rough cut, just make it").');
+  state.brief.controls.stops.rough = "wait";
+  assert.equal(stops.stopPlan(state, VIDEO).find((entry) => entry.kind === "rough").passed, false, "back to wait: the round no longer passes");
+  assert.equal(stops.checkpointStep(state, { kind: "rough", video: VIDEO, rev: 4, now: T0 + 60_000 }).data.status, "waiting_for_you");
+});
+
 test("a stop the person's settings now allow is allowed by them, and asking it again says it passed", () => {
   const state = ready(4);
   checkpointStep(state, { kind: "rough", video: VIDEO, rev: 4, now: T0 });

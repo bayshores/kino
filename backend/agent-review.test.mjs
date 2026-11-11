@@ -10,7 +10,6 @@ import os from "node:os";
 import path from "node:path";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { makeVideo, nextCallOf, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
-import { skipBoardOn } from "./stops.test.support.mjs";
 import { frameSignature, nearDuplicate, newFindingsLine, reviewEvents, reviewSizes } from "./agent/review.mjs";
 import { captionSpoilers, captionWindows, directionMiss, heardLines, heardText, musicSections, openStoryBugs, packetKind, parseViewer, viewerGap, viewerTimes, writePacket } from "./agent/viewer.mjs";
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
@@ -679,9 +678,10 @@ test("a briefed video of 15 s or more with 10 layers is a real edit: its open wa
 
 test("a real edit (a brief, over 30 layers) needs one critic round before its final render; after two rounds an open P0 goes to the person as the critique stop", async () => {
   const id = await project("critique-needed", 12);
-  // A gate test of the critic: the storyboard is skipped by the person's board skip-under (stops.test.support.mjs).
-  await skipBoardOn(server);
-  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
+  // A gate test of the critic: this video's own controls skip the storyboard (the person's words
+  // in quote), so no server-wide setting changes and nothing needs putting back.
+  const controls = { skip_under: { board: 30 }, quote: "no storyboard for this one" };
+  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start", fields: { controls } })).isError, undefined);
   const style = { wants: [], avoids: ["flash"], lines: [{ text: "the title type", ref: "yt:dQw4w9WgXcQ" }], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 12, purpose: "the promise" }], fonts: { caption: { family: "Inter", size: 40 } } };
   const locked = await agent("notes", { project: id, action: "brief", fields: { style } });
   assert.equal(locked.isError, undefined, locked.text);
@@ -716,7 +716,6 @@ test("a real edit (a brief, over 30 layers) needs one critic round before its fi
   assert.equal(asked.data.status, "waiting_for_you", asked.text);
   assert.match(asked.data.ask, /1\. P0 t=1 · box · too slow/);
   assert.equal(nextCallOf(await agent("status", { project: id })).input.action, "answer");
-  await skipBoardOn(server, 8);
 });
 
 test("one helper a round: look critique carries the viewer's sheets when both gates ask; one notes critique answer passes both; a P0 asks round 2; separate answers still pass", { skip: skipWithoutMediaTools }, async (t) => {

@@ -530,7 +530,12 @@ describe("commands against a running kino", () => {
     assert.equal((await runKino(["project", "create", "id=cli-stop", "name=Stop", "width=1080", "height=1920", "duration=24", "background=#101820"], { env })).code, 0);
     const title = { op: "add_layer", layerType: "text", name: "title", properties: { text: "Park reopens Saturday", x: 140, y: 760, width: 800, height: 240, fontSize: 96, fill: "#ffffff" } };
     assert.equal((await runKino([...project, "edit", JSON.stringify([title])], { env })).code, 0);
-    assert.equal((await runKino([...project, "notes", "brief", "no_playback=just start"], { env })).code, 0);
+    // A one-title video: the person said to skip the storyboard, so the agent saves that control
+    // with their words and the rough cut is this video's first stop.
+    const controls = { controls: { skip_under: { board: 30 }, quote: "no storyboard, it is one title" } };
+    const briefed = await runKino([...project, "notes", "brief", "no_playback=just start", `fields=${JSON.stringify(controls)}`], { env });
+    assert.equal(briefed.code, 0, briefed.stdout + briefed.stderr);
+    assert.match(briefed.stdout, /skipped for this video: board \(under 30 s\)/);
     assert.equal((await runKino([...project, "check"], { env })).code, 0);
     const asked = await runKino([...project, "notes", "checkpoint", "id=rough"], { env });
     assert.equal(asked.code, 0, asked.stdout + asked.stderr);
