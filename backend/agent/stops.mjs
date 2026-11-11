@@ -237,7 +237,7 @@ export function settleWaiting(draft, { video = null, rules: given = DEFAULT_STOP
 // What only the person can answer in a stop's ask: the treatments to pick (until one is picked)
 // and, on the storyboard, the bans the agent guessed. A stop their settings allow still waits
 // while any is open: the settings pass the work, not a question nobody else can answer.
-const forThePerson = (draft, kind) => [...pickLines(draft.brief), ...(kind === "board" ? guessedBans(draft.brief) : [])];
+const forThePerson = (draft, kind) => [...pickLines(draft.brief, draft.origin), ...(kind === "board" ? guessedBans(draft.brief) : [])];
 const HELD_LINE = "Your settings pass this stop: it waits only for the question above.";
 
 // "the sound check", "the color and sound checks", "the rough, color and sound checks".
@@ -447,7 +447,7 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
   const id = `C${draft.nextStop}`;
   const offer = offerFor(kind, video, rules, draft);
   const music = noMusic ? (songSearch ? `No music yet: ${measured} songs measured; name one to use, or keep it silent.` : NO_MUSIC_ASK) : null;
-  const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief), music, waivers });
+  const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), music, waivers });
   const round = { id, kind, rev, askedAt: at, client, status: "waiting", offer, ask: passes ? `${asked}\n${HELD_LINE}` : asked, answer: null, ...(work ? { work } : {}), ...(noMusic ? { noMusic: songSearch ? "search" : true } : {}) };
   draft.nextStop += 1;
   draft.stops.push(round);
@@ -568,7 +568,7 @@ const freshWord = (round) => round.fresh ?? (round.offerSound === true ? "not re
 // shot ids in the order it showed them (round.shown: the places the person's words name).
 function boardWaiting(draft, round, facts, { all = false, soundFiles = false, soundSearch = false } = {}) {
   const input = { id: round.id, board: facts.board, frame: facts.frame, seconds: facts.seconds, music: facts.span?.music ?? null, audio: facts.audio ?? [],
-    message: draft.brief?.fields?.message?.text ?? null, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief), bans: guessedBans(draft.brief), soundSearch, soundFiles, offerSound: round.offerSound === true, changed: round.changed ?? null,
+    message: draft.brief?.fields?.message?.text ?? null, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), bans: guessedBans(draft.brief), soundSearch, soundFiles, offerSound: round.offerSound === true, changed: round.changed ?? null,
     fresh: freshWord(round), redone: round.redone ?? null };
   // A board their settings allow waits only for its open questions (held), and says so.
   const told = (ask) => (round.held ? { ...ask, text: `${ask.text}\n${HELD_LINE}` } : ask);

@@ -34,7 +34,7 @@ export function readFootageList(value) {
  * facts(document, {footage, music, voice}) resolves to {clips,
  * music, voice, notes}; notes say what could not be measured and why.
  */
-export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnalysis, footageCache, songShapes = null }) {
+export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnalysis, footageCache, songShapes = null, peopleCache = null }) {
   const fileOf = (record) => {
     const file = mediaRoot ? path.join(mediaRoot, record.id) : null;
     if (!file || !existsSync(file)) throw new Error(`${record.name} is not in kino's media folder; import it again.`);
@@ -86,6 +86,10 @@ export function createFootageFacts({ listMedia, mediaRoot, transcripts, beatAnal
         try {
           const measured = await footageCache.video(file, { width: clip.width, height: clip.height, duration });
           clip.samples = measured.samples;
+          // The saved subjects (faces, people and where the eye goes) only when saliency ran on the
+          // file; otherwise the clip stays unmeasured for subjects, never "nothing stands out".
+          const subjects = await peopleCache?.savedSubjects?.(file).catch(() => null);
+          clip.subjectSamples = subjects?.saliency === true ? subjects.samples ?? null : null;
           // Impacts, light and motion at the frame, and frames per drawing (footage/events.mjs).
           clip.events = measured.events ?? null;
           clip.drawing = measured.drawing ?? null;
