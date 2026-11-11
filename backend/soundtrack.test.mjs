@@ -8,7 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { createSongTaste, rankSongs, storyScore, tasteEntry, tasteScore, tempoCloseness } from "./songTaste.mjs";
 import { createMusicEmbed, decodeVector, encodeVector, songWindows } from "./music-embed.mjs";
-import { createSongShapeCache, joinSpans, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
+import { attackNear, createSongShapeCache, joinSpans, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
 import { songKey as clientSongKey } from "../frontend/dashboard/inspireView.js";
 import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, namedSong, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
 
@@ -330,16 +330,34 @@ function barSong({ end = 48, fade = 0, rate = 8000 } = {}) {
 }
 const steady = (seconds = 48) => ({ duration: seconds, bpm: 120, period: 0.5, beats: Array.from({ length: seconds * 2 }, (_, i) => i * 0.5) });
 
-test("song bars: a one-bar stop where a tone plays on is thin, the loudest bar is 0 dB, and sections and seams carry their bar", () => {
+test("song bars: a one-bar stop where a tone plays on is out, the loudest bar is 0 dB, and sections and seams carry their bar", () => {
   const { bars, sections, seams } = songShape(barSong(), 8000, { bpm: 120, beats: steady() });
   assert.equal(bars.lines.length, 24);
-  assert.deepEqual(bars.thin.filter((bar) => bar >= 8), [14], "in the kicks, only the stop is thin");
+  assert.deepEqual(bars.out.filter((bar) => bar >= 8), [14], "in the kicks, only the stop is out");
+  assert.ok(bars.out.includes(2) && !bars.out.includes(bars.last.bar), "the bars before the kicks are out, the last bar never");
+  assert.equal(bars.voice, undefined, "no per-bar voice");
   assert.equal(Math.max(...bars.low), 0);
   assert.equal(Math.max(...bars.all), 0);
   const drop = sections.find((part) => part.kind === "drop");
   assert.ok(drop && drop.bar === 8 && Math.abs(drop.at - 16) <= 1 / 30, JSON.stringify(sections));
   assert.ok(seams.every((seam) => Number.isInteger(seam.bar)));
   assert.equal(songShape(barSong(), 8000, { bpm: 120 }).bars, undefined, "no beat analysis, no bars");
+});
+
+test("song bars: the hit on a bar line is its attack to 2 ms, and a line with no hit is null", () => {
+  const rate = 8000;
+  const samples = new Float32Array(rate * 20);
+  // A quiet tone, and a 5 ms burst on the bar lines at 2, 4, 6, 8 and 10 s (not on 0 or 12 s), each 10 ms late.
+  for (let i = 0; i < samples.length; i += 1) samples[i] = 0.01 * Math.sin(2 * Math.PI * 300 * (i / rate));
+  const bursts = [2, 4, 6, 8, 10];
+  for (const line of bursts) {
+    for (let i = 0; i < 0.005 * rate; i += 1) samples[Math.round((line + 0.01) * rate) + i] += 0.8 * Math.sin(2 * Math.PI * 1000 * (i / rate)) * (1 - i / (0.005 * rate));
+  }
+  for (const line of bursts) assert.ok(Math.abs(attackNear(samples, rate, line) - (line + 0.01)) <= 0.002, `line ${line}: ${attackNear(samples, rate, line)}`);
+  assert.equal(attackNear(samples, rate, 12), null, "no burst near the line");
+  assert.equal(attackNear(samples, rate, 2.1), null, "a burst further than 35 ms from the line is not on it");
+  const { bars } = songShape(barSong(), 8000, { bpm: 120, beats: steady() });
+  assert.ok(bars.hits.length === 24 && bars.hits[2] === null && Math.abs(bars.hits[8] - 16) <= 0.02, JSON.stringify(bars.hits.slice(0, 10)));
 });
 
 test("song bars: the last bar with sound, and whether the song stops by itself or fades", () => {

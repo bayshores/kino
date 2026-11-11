@@ -28,12 +28,6 @@ const percentile = (list, share) => {
   return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(share * (sorted.length - 1))))];
 };
 
-const median = (list) => {
-  const sorted = [...list].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
-};
-
 /** In-place radix-2 Fourier transform (re and im have a power-of-two length). */
 function fft(re, im) {
   const n = re.length;
@@ -508,7 +502,7 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true, vocal
   const seams = seamsOf(frames, samples, sampleRate, sections, low, vocals);
   // With the beat analysis, the shape has bars, and every edge says which bar line it is nearest.
   const grid = beats ? barLines(beats, sections) : null;
-  const bars = grid ? barsOf(frames, grid) : null;
+  const bars = grid ? barsOf(frames, grid, { samples, sampleRate }) : null;
   const onBar = (edge) => (bars ? { ...edge, bar: barIndexAt(bars.lines, edge.at) } : edge);
 
   // Features.
@@ -537,8 +531,12 @@ export function songShape(samples, sampleRate, { bpm = null, whole = true, vocal
 // ---------------------------------------------------------------- bars
 // What each bar of the song holds, on the bar lines of the measured beats (engine/songBars.js).
 
-const THIN_DB = 12; // a bar the song thins out: its last half's low band this far under its neighbors'
-const THIN_AROUND = 4; // bars on each side that give the neighbors' level (8 around)
+const OUT_DB = 12; // a bar's kick and bass are out when its last half's low band is this far under the loud level
+const OUT_LOUD = 0.75; // the loud level: this percentile of the last-half low level over the song's bars
+const HIT_SPAN = 0.035; // a hit is on a bar line when its attack falls this close to the line (seconds)
+const HIT_WINDOW = 0.008; // the sound this long after an instant against the same before it
+const HIT_RISE_DB = 12; // the rise at an attack
+const HIT_FLOOR = 0.003; // an attack is not heard when the sound after it is quieter than this (RMS, 0 to 1)
 const SOUND_DB = 50; // sound is anything this close to the loudest frame or louder (dB)
 const FADE_DB = 12; // a fade falls at least this far...
 const FADE_SECONDS = 4; // ...over at least this long before the silence
@@ -558,26 +556,57 @@ function levelBetween(series, frames, from, to) {
 }
 
 /**
- * Per bar of the song, on its bar lines: {lines, low, all, voice, thin, last}. low and all: the mean
- * level in dB of the low band and of the whole sound, 0 for the loudest bar (1 decimal). voice: 0 to 1,
- * the share of the bar whose frames carry more voice band than usual in this song (voiceGuess's
- * measure, per frame). thin: the bars where the song itself thins out: the low band in the bar's
- * last half is THIN_DB or more under the median of the same half in the 8 bars around it (one-bar
- * stops where kick and bass leave and a voice or a tone stays). last: {bar, at, ends}, the last bar
- * with sound, its line, and how the song ends: "fade" (the whole sound falls steadily 12 dB or more
- * over 4 s or more before the silence) or "own" (it stops by itself).
+ * The instant within HIT_SPAN of `time` where the sound rises steeply, or null: for each instant
+ * (every millisecond) the RMS of the HIT_WINDOW after it against the RMS of the same before it;
+ * the attack is the instant with the largest rise when that rise is HIT_RISE_DB or more (of several
+ * instants within 0.5 dB of the largest, the last: a short click rises the same from every instant
+ * in the window before it, and the last is where it starts). Only the samples around `time` are read.
  */
-export function barsOf(frames, grid) {
+export function attackNear(samples, sampleRate, time) {
+  const window = Math.round(HIT_WINDOW * sampleRate);
+  const step = Math.max(1, Math.round(sampleRate / 1000));
+  const first = Math.max(window, Math.round((time - HIT_SPAN) * sampleRate));
+  const last = Math.min(samples.length - window, Math.round((time + HIT_SPAN) * sampleRate));
+  if (last < first) return null;
+  // energy[k]: the sum of squares of samples [from, from + k), so any window is two lookups.
+  const from = first - window;
+  const energy = new Float64Array(last + window - from + 1);
+  for (let i = 0; i < energy.length - 1; i += 1) energy[i + 1] = energy[i] + samples[from + i] ** 2;
+  const sumOf = (a, b) => energy[b - from] - energy[a - from];
+  const rises = [];
+  let best = -Infinity;
+  for (let at = first; at <= last; at += step) {
+    const after = sumOf(at, at + window) / window;
+    const before = sumOf(at - window, at) / window;
+    const rise = after < HIT_FLOOR ** 2 ? -Infinity : dbOf(after) - dbOf(before);
+    rises.push([at, rise]);
+    if (rise > best) best = rise;
+  }
+  if (best < HIT_RISE_DB) return null;
+  const near = rises.filter(([, rise]) => rise >= best - 0.5);
+  return round(near.at(-1)[0] / sampleRate, 3);
+}
+
+/**
+ * Per bar of the song, on its bar lines: {lines, low, all, out, hits, last}. low and all: the
+ * mean level in dB of the low band and of the whole sound, 0 for the loudest bar (1 decimal). out:
+ * the sorted bars where the song's kick and bass are out: the low band in the bar's last half is
+ * OUT_DB or more under the song's loud level (OUT_LOUD of the bars' last-half low levels); the
+ * last bar is never listed (a song stopping in it is its ending, see last). hits: per bar line, the
+ * time in seconds of the attack of the hit on it (attackNear, from `samples`), or null. There is
+ * no per-bar voice: whisper's vocal segments did not tell a bar with a voice from one without.
+ * last: {bar, at, ends}, the last bar with sound, its line, and how the song ends: "fade" (the
+ * whole sound falls steadily 12 dB or more over 4 s or more before the silence) or "own" (it stops
+ * by itself).
+ */
+export function barsOf(frames, grid, { samples = null, sampleRate = 0 } = {}) {
   const { lines } = grid;
   const end = frames.count * frames.hopSeconds + frames.hopSeconds; // the last frame's far edge
   const edges = [...lines, Math.max(end, lines.at(-1) + grid.bar)];
   const span = (index) => [Math.max(0, edges[index]), edges[index + 1]];
   const [low, all, tail] = [[], [], []];
-  const share = Float32Array.from(frames.voice, (value, f) => value / (frames.total[f] || 1));
-  const line = percentile(Array.from(share), 0.5) * 1.3;
   const loudest = frames.total.reduce((top, value) => Math.max(top, value), 0);
   const sounding = (f) => dbOf(frames.total[f]) >= dbOf(loudest) - SOUND_DB;
-  const voice = [];
   const sounded = []; // per bar: the share of its frames that have sound
   lines.forEach((_, index) => {
     const [from, to] = span(index);
@@ -585,14 +614,9 @@ export function barsOf(frames, grid) {
     all.push(levelBetween(frames.total, frames, from, to));
     tail.push(levelBetween(frames.low, frames, (from + to) / 2, to));
     const [a, b] = framesIn(frames, from, to);
-    let led = 0;
     let heard = 0;
-    for (let f = a; f < b; f += 1) {
-      if (sounding(f)) heard += 1;
-      if (share[f] >= line && sounding(f)) led += 1;
-    }
+    for (let f = a; f < b; f += 1) if (sounding(f)) heard += 1;
     sounded.push(b > a ? heard / (b - a) : 0);
-    voice.push(b > a ? round(led / (b - a), 2) : 0);
   });
   const [topLow, topAll] = [Math.max(...low), Math.max(...all)]; // bar counts are small
   // The last bar with sound: more than half of it sounding (a ring that runs on into the next bar
@@ -602,14 +626,11 @@ export function barsOf(frames, grid) {
   let lastFrame = -1;
   for (let f = frames.count - 1; f >= 0 && lastFrame < 0; f -= 1) if (sounding(f)) lastFrame = f;
   const lastTime = Math.min(edges[lastBar + 1], (lastFrame + 2) * frames.hopSeconds);
-  // Thin bars: the last half against the median of the same half in the neighbors. The last bar is
-  // left out: a song stopping in it is its ending (last.ends), not a one-bar stop.
-  const thin = [];
-  for (let i = 0; i < lastBar; i += 1) {
-    const around = [];
-    for (let j = Math.max(0, i - THIN_AROUND); j <= Math.min(lastBar, i + THIN_AROUND); j += 1) if (j !== i) around.push(tail[j]);
-    if (around.length >= THIN_AROUND && tail[i] <= median(around) - THIN_DB) thin.push(i);
-  }
+  // Out bars: the last half's low level against the song's own loud level, so a quiet intro and a
+  // loud drop are judged by the same line. The last bar is left out.
+  const loud = percentile(tail.slice(0, lastBar + 1), OUT_LOUD);
+  const out = [];
+  for (let i = 0; i < lastBar; i += 1) if (tail[i] <= loud - OUT_DB) out.push(i);
   // How it ends: the bars that fall one after the other up to the last sound.
   const levelAt = (index) => levelBetween(frames.total, frames, Math.max(0, lines[index]), index === lastBar ? lastTime : edges[index + 1]);
   let first = lastBar;
@@ -620,8 +641,8 @@ export function barsOf(frames, grid) {
     lines,
     low: low.map((value) => round(value - topLow) + 0), // + 0: not -0
     all: all.map((value) => round(value - topAll) + 0),
-    voice,
-    thin,
+    out,
+    hits: lines.map((time) => (samples ? attackNear(samples, sampleRate, time) : null)),
     last: { bar: lastBar, at: lines[lastBar], ends },
   };
 }
