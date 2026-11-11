@@ -107,6 +107,7 @@ import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
+import { shapeOf } from "../../engine/footage/layout.js";
 import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
@@ -696,7 +697,7 @@ export function createAgentService(deps) {
     const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, text, from, to, slowed }) => ({ layer, text, from, to, ...(slowed ? { slowed } : {}) }));
     const asks = askedItems(saved);
     // listen:false (the dashboard's own check) never starts a reference's voice measure either.
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null, sourceLooks: saved?.sourceLooks ?? {} });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
@@ -970,9 +971,12 @@ export function createAgentService(deps) {
         if (id) ids.add(id);
       }
     }
-    if (!ids.size) return [];
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
-    return media.filter((item) => ids.has(item.id) && !item.recording && item.width > 0 && item.height > 0).map((item) => ({ width: item.width, height: item.height }));
+    // No video layer placed yet: the project's own video files stand in, so the stops that ask
+    // before the cut already know the footage's shape.
+    const wanted = ids.size ? (item) => ids.has(item.id)
+      : (item) => mediaAllowedIn(item, document.id) && String(item.mime ?? "").startsWith("video/");
+    return media.filter((item) => wanted(item) && !item.recording && item.width > 0 && item.height > 0).map((item) => ({ width: item.width, height: item.height }));
   }
 
   async function videoFactsFor(document) {
@@ -1076,6 +1080,7 @@ export function createAgentService(deps) {
   // that was skipped has no words, so the waiver says there is nothing to waive.
   async function waiverReferences(resolver, document, ops) {
     const list = Array.isArray(ops) ? ops : [ops];
+    resolver.sourceLooks = (await agentState.read(document.id).catch(() => null))?.sourceLooks ?? {};
     if (list.some((op) => op?.code === "ask_unmet")) {
       const origin = (await agentState.read(document.id).catch(() => null))?.origin;
       if (origin?.words?.length) resolver.origin = origin;
@@ -2388,6 +2393,7 @@ export function createAgentService(deps) {
       // person) takes further changes without being sent back to its treatments.
       const building = buildsSomething(before, after);
       if (building === "first") await refuseOutOfOrder(projectId, after);
+      await refuseBeforeBoard(projectId, before, after);
       // The edit is worked out but not saved: ask about every scene it would remove. The approval
       // keeps their ids, so the allowed edit asks again if it would then remove any other scene.
       if (bulkDeletes) {
@@ -4099,6 +4105,48 @@ export function createAgentService(deps) {
       next: `Send the call below, then build.${also}${study} Importing media, set_brand, notes, library, look and inspect work now. A deliberate skip the person sees: ${skip}.`,
     }), { nextCall: order.call });
   }
+  // The storyboard comes before the cut. On a briefed video whose board stop is open and whose
+  // board was never approved or allowed (a lapsed approval is the final gate's business), the
+  // agent's cut and its draft renders wait for the board, so the person can still change it.
+  // Answers { step, call } while the gate holds, else null. The person's own calls pass.
+  // `document` is the video the stops are judged on; `saved` the one whose board counts as saved.
+  async function boardGate(projectId, document, saved = document) {
+    const meta = caller.getStore() ?? {};
+    if (meta.approved || meta.by === "you") return null;
+    const state = await agentState.read(projectId);
+    if (!hasBrief(state.brief)) return null;
+    if (!openStops(state, await videoFactsFor(document), stopRulesNow()).some((stop) => stop.kind === "board")) return null;
+    const passedOnce = (state.stops ?? []).some((round) => round.kind === "board" && (round.status === "allowed" || (round.status === "answered" && String(round.answer?.read_as).startsWith("approve"))));
+    if (passedOnce) return null;
+    return boardFacts(saved).board
+      ? { step: "ask board", call: nextOf("notes", { action: "checkpoint", id: "board" }) }
+      : { step: "save the storyboard", call: nextOf("edit", { ops: [{ op: "board", music: "<song layer or file>", shots: [{ '<library {topic:"op", name:"board"}>': "" }] }] }) };
+  }
+  // Video layers that play one after another (a cut): enabled, with a time range in the scene.
+  function cutsVideo(document) {
+    return document.scenes.some((scene) => {
+      if (scene.isComponent) return false;
+      const ranges = scene.layers.filter((layer) => layer.type === "video" && layer.enabled !== false).map((layer) => mediaPlaybackRange(layer, scene.duration)).filter(Boolean);
+      return ranges.some((one) => ranges.some((other) => other !== one && one.end <= other.start + 0.01));
+    });
+  }
+  async function refuseBeforeBoard(projectId, before, after) {
+    if (!(buildsSomething(before, after) === "first" || (!cutsVideo(before) && cutsVideo(after)))) return;
+    // The saved board is read from the document the edit started from: an edit that would save
+    // the board and cut in one call is refused whole, so nothing it holds is saved.
+    const gate = await boardGate(projectId, after, before);
+    if (!gate) return;
+    throw Object.assign(new AgentError("board_needed", `Nothing was built: the storyboard comes before the cut, so the person can still change it. Next: ${gate.step}.`, {
+      next: "Importing media, the board op, library, look, notes and inspect work now.",
+    }), { nextCall: gate.call });
+  }
+  async function refuseDraftBeforeBoard(record) {
+    const gate = await boardGate(record.document.id, record.document);
+    if (!gate) return;
+    throw Object.assign(new AgentError("board_needed", `A draft waits for the storyboard (never asked): ask board first; look shows frames now. Next: ${gate.step}.`, {
+      next: "Importing media, the board op, library, look, notes and inspect work now.",
+    }), { nextCall: gate.call });
+  }
   async function refuseWithoutReference(record, scenes, { format, options }) {
     const meta = caller.getStore() ?? {};
     if (meta.reviewed || meta.approved || meta.by === "you" || format === "png") return;
@@ -4794,6 +4842,20 @@ export function createAgentService(deps) {
     return { image, text: shown.text, extra: shown.data, nextCall: shown.nextCall };
   }
 
+  // A look at a layer's source is written down: sourceLooks[layerId] = {src, at: [file seconds]},
+  // the last 8 seconds looked at per layer and at most 200 layers (the oldest layer is dropped).
+  // A checker can then tell a crop kino saw from one it only computed.
+  async function recordSourceLook(projectId, layer, fileTime) {
+    await agentState.update(projectId, (state) => {
+      const looks = state.sourceLooks ??= {};
+      const before = looks[layer.id]?.src === layer.src ? looks[layer.id].at : [];
+      delete looks[layer.id];
+      looks[layer.id] = { src: layer.src, at: [...before, fileTime].slice(-8) };
+      const ids = Object.keys(looks);
+      for (const id of ids.slice(0, Math.max(0, ids.length - 200))) delete looks[id];
+    });
+  }
+
   async function sourceLook(input, { document, codes, resolver, fonts, state: agentFacts }) {
     if ((input.layer == null || input.layer === "") && input.ref != null && String(input.ref).trim() !== "") return footageSheetLook(input, agentFacts);
     if (input.layer == null || input.layer === "") return clipsOverview(input, { document, codes, fonts, state: agentFacts });
@@ -4857,6 +4919,8 @@ export function createAgentService(deps) {
       boxes: agentBoxes.map((entry) => ({ by: "agent", box: entry.box })),
       vision: (picture) => visionBoxes(picture).catch((error) => ({ skipped: `Apple Vision failed: ${String(error?.message ?? error).split("\n")[0].slice(0, 160)}` })),
     });
+
+    await recordSourceLook(document.id, layer, fileTime);
 
     const boxes = [...agentBoxes.map((entry) => ({ by: "agent", at: entry.at, box: entry.box })), ...(image.vision?.boxes ?? []).map((entry) => ({ by: "vision", at: fileTime, box: entry.box }))]
       .map((entry) => ({ ...entry, inside: Number(insideShare(entry.box, crop.bounds).toFixed(2)) }));
@@ -5812,6 +5876,8 @@ export function createAgentService(deps) {
         range = renderRange(scene, options);
         if (range && scenes.length !== 1) throw new Error("Choose one scene for a render range.");
       } catch (error) { throw new AgentError("bad_input", error.message); }
+      // A draft waits for the storyboard too (never asked), for the agent's calls only.
+      if (quality === "draft") await refuseDraftBeforeBoard(record);
       // The final render's gates, in the order they refuse. A refusal keeps its code and next call
       // and names every gate still open, in finalGates' order, so the agent plans them at once.
       if (quality === "final") try {
@@ -7155,14 +7221,43 @@ export function createAgentService(deps) {
   // Never the brief's message as a text slide (that reads as cheap): with imported
   // clips, an edit cut from them; else a hero beat on the product's picture, or a beat the agent
   // picks to show its idea.
+  // The format compose is told: the shape the person named (plays_on said by them), else the
+  // shape most of the listed clips share (more than half of 2 or more), else the scene's own
+  // ratio. The scene's ratio alone repeated a guess back to the agent as if it were settled.
+  const FORMAT_OF_SHAPE = { portrait: "9:16", landscape: "16:9", square: "1:1" };
+  const SHAPE_WORDS = {
+    portrait: /\b(vertical|portrait|phone|tall|stor(?:y|ies)|reels?|shorts|9\s*[:x]\s*16|4\s*[:x]\s*5)\b/i,
+    landscape: /\b(horizontal|landscape|widescreen|tv|television|desktop|laptop|monitor|cinema|16\s*[:x]\s*9)\b/i,
+    square: /\b(square|1\s*[:x]\s*1)\b/i,
+  };
+  function namedFormat(playsOn) {
+    if (playsOn?.by !== "you") return null;
+    if (FORMAT_OF_SHAPE[playsOn.named]) return FORMAT_OF_SHAPE[playsOn.named];
+    const words = `${playsOn.text ?? ""} ${playsOn.quote ?? ""}`;
+    const found = Object.keys(SHAPE_WORDS).filter((shape) => SHAPE_WORDS[shape].test(words));
+    return found.length === 1 ? FORMAT_OF_SHAPE[found[0]] : null;
+  }
+  function clipsFormat(listed) {
+    if (listed.length < 2) return null;
+    const counts = new Map();
+    for (const item of listed) {
+      if (!(item.width > 0 && item.height > 0)) continue;
+      const shape = shapeOf(item.width, item.height);
+      counts.set(shape, (counts.get(shape) ?? 0) + 1);
+    }
+    const [shape, count] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [];
+    return shape && count * 2 > listed.length ? FORMAT_OF_SHAPE[shape] : null;
+  }
   async function composeCall(document, state) {
     const scene = document.scenes.find((entry) => !entry.isComponent) ?? document.scenes[0];
     const ratio = scene ? scene.width / scene.height : 16 / 9;
-    const format = ratio > 1.2 ? "16:9" : ratio < 0.8 ? "9:16" : "1:1";
+    const sceneFormat = ratio > 1.2 ? "16:9" : ratio < 0.8 ? "9:16" : "1:1";
     const target = lengthTarget(state.brief)?.seconds;
     const duration = target ?? sec(scene?.duration ?? 15);
     const media = ((await deps.listMedia?.().catch(() => [])) ?? []).filter((item) => mediaAllowedIn(item, document.id) && typeof item.name === "string");
-    const clips = media.filter((item) => /^video\//.test(item.mime ?? "")).slice(0, MAX_FOOTAGE).map((item) => item.name);
+    const listed = media.filter((item) => /^video\//.test(item.mime ?? "")).slice(0, MAX_FOOTAGE);
+    const clips = listed.map((item) => item.name);
+    const format = namedFormat(state.brief?.fields?.plays_on) ?? clipsFormat(listed) ?? sceneFormat;
     // Footage sends a length only when the brief sets one: without it the planner sizes the
     // edit to the speech worth hearing (footage/plan.js), not to the empty scene's default.
     if (clips.length) return nextOf("edit", { ops: [{ op: "compose", footage: clips, format, ...(target >= 6 ? { duration: target } : {}) }] });

@@ -874,6 +874,49 @@ test("once the brief is settled, status says which stop to ask after building", 
   assert.equal((await statusOf(project)).lines[1], "step: follow the plan, then ask rough");
 });
 
+// The storyboard comes before the cut and before drafts (service.mjs refuseBeforeBoard). This file
+// skips the board for its other tests, so this one asks for it again (8 s) and puts the skip back.
+const CUT = [0, 12].map((start, index) => ({ op: "add_layer", layerType: "video", name: `cut${index + 1}`, properties: { src: "/api/media/none.mp4", mediaStart: start, mediaDuration: 12 } }));
+const BOARD = { op: "board", music: "none", shots: [{ cue: 0, dur: 24, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none",
+  text: { text: "Park reopens Saturday", family: "Inter" }, sound: "none", why: "the title on its own", move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" } }] };
+
+test("a cut waits for the storyboard, so does a draft; the approved board lets the same edit save, and the person's own call passes", async () => {
+  await skipBoardOn(server, 8);
+  try {
+    const project = "stops-board-first";
+    const { rev } = await stopProject(project);
+    const refused = await agent("edit", { project, ops: CUT });
+    assertRefused(refused, "board_needed", /^Nothing was built: the storyboard comes before the cut, so the person can still change it\. Next: save the storyboard\.$/);
+    assert.equal(nextCallOf(refused).tool, "edit");
+    assert.equal(nextCallOf(refused).input.ops[0].op, "board");
+    assert.equal(await revision(project), rev, "nothing was saved");
+    assertRefused(await agent("render", { project, action: "start", quality: "draft" }), "board_needed", /^A draft waits for the storyboard \(never asked\): ask board first; look shows frames now\./);
+
+    // The board is saved but not asked: the cut still waits, and the next call asks it.
+    assert.equal((await agent("edit", { project, ops: [BOARD] })).isError, undefined);
+    const saved = await revision(project);
+    const asking = await agent("edit", { project, ops: CUT });
+    assertRefused(asking, "board_needed", /Next: ask board\.$/);
+    assert.deepEqual(nextCallOf(asking), { tool: "notes", input: { action: "checkpoint", id: "board" } });
+    assert.equal(await revision(project), saved);
+
+    // Approved: the same edit saves.
+    const asked = await checkpoint(project, "board");
+    assert.equal(asked.data.status, "waiting_for_you", asked.text);
+    const approved = await dashboard("stops", { body: { project, action: "answer", id: asked.data.id, rev: asked.data.rev, read_as: "approve" } });
+    assert.equal(approved.status, 200, JSON.stringify(approved.body));
+    const built = await agent("edit", { project, ops: CUT });
+    assert.equal(built.isError, undefined, built.text);
+
+    // The person's own call passes without a board.
+    await stopProject("stops-board-person");
+    const byYou = await dashboard("act/edit", { body: { project: "stops-board-person", ops: CUT } });
+    assert.equal(byYou.body.isError, undefined, byYou.body.text);
+  } finally {
+    await skipBoardOn(server);
+  }
+});
+
 // Plan §4 and §12: the direction and next lines are at most 40 tokens (kino's estimate,
 // backend/meter.mjs) in every state, now with stops.
 test("the direction and next lines fit in 40 tokens with stops in every state", () => {
