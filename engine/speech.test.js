@@ -290,3 +290,70 @@ test("place_broll puts each clip on the word that says its concept, from a shot 
   assert.match(report.placed[1], /phone 6\.3–7\.45 s on "Oaks" \(word 10, also app\), shot 2/);
   assert.match(report.unmatched[0], /rocket: no word of "rocket launch" is said/);
 });
+
+const musicLayer = () => createLayer("audio", { id: "music", name: "music", src: "/api/media/song.mp3", mediaSourceDuration: 30 });
+
+test("keep_line keeps the named words audible, silences the rest, subtitles the words and dips the music", () => {
+  const clip = createLayer("video", { id: "clip", name: "clip", src: "/api/media/clip.mp4", mediaSourceDuration: 12, mediaStart: 1, mediaOffset: 0 });
+  const document = documentWith([clip, musicLayer()], 12);
+  const operation = { type: "keep_line", sceneId: "s", layerId: "clip", line: "we will, we will", transcript };
+  const reports = new Map();
+  const next = parseDocument(applyOperations(document, [operation], { reports, fonts: defaultFonts }));
+  const scene = next.scenes[0];
+  const kept = scene.layers.find((layer) => layer.id === "clip");
+  const music = scene.layers.find((layer) => layer.id === "music");
+  const report = reports.get(operation);
+  // Words 1-4 are said at file 1.3-2.2 s; the clip plays from scene 1 s, so the scene plays them 1 s later.
+  assert.deepEqual(report.scene, [2.3, 3.2]);
+  assert.deepEqual(report.file, [1.3, 2.2]);
+  assert.equal(report.line, "we will, we will");
+  assert.equal(volumeAt(kept, 1.5), 0, "before the line: silent");
+  assert.equal(volumeAt(kept, 3), 1, "in the line: the layer's own volume");
+  assert.equal(volumeAt(kept, 5), 0, "after the line: silent");
+  assert.ok(scene.layers.some((layer) => layer.role === "caption" && /we will, we will/.test(layer.text)), "a subtitle holds the words");
+  assert.equal(volumeAt(music, 3), 0.5, "the music dips by half under the line");
+  assert.equal(volumeAt(music, 8), 1, "and is at full away from it");
+  assert.match(report.duck.summary, /music ducked to 0\.5/);
+  // A second line on the same layer keeps the first.
+  const second = parseDocument(applyOperations(next, [{ type: "keep_line", sceneId: "s", layerId: "clip", line: "the Oaks app", transcript, subtitle: false }], { fonts: defaultFonts })).scenes[0];
+  const again = second.layers.find((layer) => layer.id === "clip");
+  assert.deepEqual([volumeAt(again, 3), volumeAt(again, 5), volumeAt(again, 7.7)], [1, 0, 1]);
+});
+
+test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips by half", () => {
+  const document = documentWith([voice(), createLayer("audio", { id: "music", name: "music", src: "/api/media/song.mp3", mediaSourceDuration: 30, volume: 0.3 })]);
+  const cut = parseDocument(applyOperations(document, [{ type: "cut_speech", sceneId: "s", layerId: "vo", transcript, words: [5], pauses: "tight" }], {}));
+  const operation = { type: "keep_line", sceneId: "s", layerId: "vo", line: "the Oaks app", transcript, subtitle: false };
+  const reports = new Map();
+  const scene = parseDocument(applyOperations(cut, [operation], { reports, fonts: defaultFonts })).scenes[0];
+  const pieces = scene.layers.filter((layer) => layer.name.startsWith("vo"));
+  assert.ok(pieces.length >= 3, "the voice was cut into pieces");
+  // Heard at one moment inside the line and at one outside it, whichever piece plays them: only the line is audible.
+  const audible = (time) => pieces.filter((piece) => time >= (piece.mediaStart ?? 0) && time < (piece.mediaStart ?? 0) + (piece.mediaDuration ?? 99)).map((piece) => volumeAt(piece, time));
+  assert.deepEqual(audible(4.5), [1]);
+  assert.deepEqual(audible(1), [0]);
+  const report = reports.get(operation);
+  assert.ok(report.file[1] - report.file[0] > 0.5, "the receipt gives the file seconds of the line on the piece that plays it");
+  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 4.5), 0.15, "half of the music's own 0.3, not a raise to 0.5");
+});
+
+test("keep_line with from, to and text works with no transcript and takes duck none and subtitle false", () => {
+  const clip = createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12, volume: 0.8 });
+  const document = documentWith([clip, musicLayer()], 12);
+  const reports = new Map();
+  const operation = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, text: "I will see you there.", transcript: { words: [] } };
+  const scene = parseDocument(applyOperations(document, [operation], { reports, fonts: defaultFonts })).scenes[0];
+  const report = reports.get(operation);
+  assert.deepEqual([report.scene, report.volume, report.line], [[4, 6], 0.8, "I will see you there."]);
+  assert.equal(volumeAt(scene.layers[0], 5), 0.8);
+  assert.equal(volumeAt(scene.layers[0], 2), 0);
+  assert.match(scene.layers.find((layer) => layer.role === "caption").text, /I will see you there\./);
+  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 5), 0.5);
+  const plain = new Map();
+  const quiet = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, duckNone: true };
+  const bare = parseDocument(applyOperations(document, [quiet], { reports: plain })).scenes[0];
+  assert.deepEqual([plain.get(quiet).subtitle, plain.get(quiet).duck], ["off", "none"]);
+  assert.equal(bare.layers.some((layer) => layer.role === "caption"), false);
+  assert.equal(volumeAt(bare.layers.find((layer) => layer.id === "music"), 5), 1);
+  assert.throws(() => applyOperations(document, [{ type: "keep_line", sceneId: "s", layerId: "clip", line: "x", transcript: { words: [] } }]), /no words heard/);
+});

@@ -787,6 +787,13 @@ How to read it:
   on most shots never become a mark, bottom-center subtitles go last, a short flash decides no match,
   drawn footage is not ranked by faces and keeps the match bar at 2, and a miss says how close it
   came. Evidence: `backend/footage-finder.test.mjs` (drawn footage). Gap: tuned on one live anime scan.
+- **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
+  (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
+  the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).
+  Gaps: auto-caption format not seen live; a 429 on the 4th rapid fetch is not retried for 15 minutes.
+- **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. Keeps
+  one line of a clip's sound (every piece of a cut voice), silences the rest, subtitles it and dips the music
+  by half. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
 
 ## Audio and captions
 

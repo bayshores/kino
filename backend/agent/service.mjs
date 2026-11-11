@@ -22,6 +22,7 @@ import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs"
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { shotsNeeded } from "../footage-finder/needs.mjs";
+import { SAYS_MIN_SECONDS } from "../footage-finder/words.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -1592,7 +1593,7 @@ export function createAgentService(deps) {
   // operation runs on its own, on the document as the operations before it left it, with the
   // transcript put in as `transcript` (replacing anything the caller sent).
   function needsTranscript(operation) {
-    return operation?.type === "cut_speech" || operation?.type === "duck_audio" || operation?.type === "place_broll" || (operation?.type === "add_captions" && operation.speechId !== undefined);
+    return operation?.type === "cut_speech" || operation?.type === "duck_audio" || operation?.type === "place_broll" || operation?.type === "keep_line" || (operation?.type === "add_captions" && operation.speechId !== undefined);
   }
 
   // move voice-type {speech, line}: the line's words and times from the voice's transcript
@@ -1634,7 +1635,7 @@ export function createAgentService(deps) {
       // The music's level sets the depth (without `to`); each under layer's says when it is loud.
       operation.levels = await levelsOf(document, operation.to === undefined ? [operation.layerId, ...(operation.under ?? [])] : (operation.under ?? []));
     }
-    const layerId = operation.type === "cut_speech" ? operation.layerId : operation.type === "add_captions" || operation.type === "place_broll" ? operation.speechId : null;
+    const layerId = operation.type === "cut_speech" || operation.type === "keep_line" ? operation.layerId : operation.type === "add_captions" || operation.type === "place_broll" ? operation.speechId : null;
     const layers = document.scenes.flatMap((scene) => scene.layers);
     const layer = layers.find((item) => item.id === layerId);
     // place_broll starts each clip on one of its file's shots (backend/shot-detection.mjs).
@@ -1646,7 +1647,12 @@ export function createAgentService(deps) {
       }
     }
     // Without a layer or a sound, the engine names the problem.
-    if (layer?.src && (layer.type === "audio" || layer.type === "video")) operation.transcript = await transcripts.get(mediaFileOf(layer), document, layer);
+    // keep_line {from, to} needs the words only for its subtitle: not when it has its own text (or none),
+    // and a clip whisper cannot read (speech in another language) still keeps its stretch.
+    const wordsOptional = operation.type === "keep_line" && operation.line === undefined;
+    if (layer?.src && (layer.type === "audio" || layer.type === "video") && !(wordsOptional && (operation.text !== undefined || operation.subtitle === false))) {
+      try { operation.transcript = await transcripts.get(mediaFileOf(layer), document, layer); } catch (error) { if (!wordsOptional) throw error; }
+    }
     const context = await operationContext(document, [operation]);
     if (work.reports) context.reports = work.reports;
     return parseDocument(applyOperations(document, [operation], context));
@@ -1755,7 +1761,7 @@ export function createAgentService(deps) {
         (fields.movedWithLayer ??= []).push(...found.presetsMoved.map(({ layerId, animationId, name, what }) => `${refName(animationId, codes)}${name ? ` (${name})` : ""}${what ? ` ${what}` : ""} with ${refName(layerId, codes)}`));
         continue;
       }
-      const key = { add_captions: "captions", detect_beats: "beats", fit_music: "music", add_sequence: "sequence", duck_audio: "duck", isolate_voice: "voice", cut_out: "cutout", track: "track", pin: "pin", stabilize: "stabilize", cut_speech: "speech", sync_clips: "sync", match_color: "color", place_broll: "broll" }[operation.type];
+      const key = { add_captions: "captions", detect_beats: "beats", fit_music: "music", add_sequence: "sequence", duck_audio: "duck", isolate_voice: "voice", cut_out: "cutout", track: "track", pin: "pin", stabilize: "stabilize", cut_speech: "speech", sync_clips: "sync", match_color: "color", place_broll: "broll", keep_line: "keepLine" }[operation.type];
       if (!key) continue;
       if (operation.type === "duck_audio" && lastDuck.get(duckOf(operation)) !== operation) continue;
       let report = found.cuesMoved
@@ -6080,7 +6086,11 @@ export function createAgentService(deps) {
             entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
           });
         }
-        return { value: result };
+        // What the clips say: the video's captions (kept since the scan, so usually no new request).
+        // Only for a clip long enough to carry a line; no captions, or a failure, adds nothing.
+        const captions = result.media.some((item) => Number(item.duration) >= SAYS_MIN_SECONDS)
+          ? await deps.footage.captions?.(candidate).catch(() => null) : null;
+        return { value: captions?.lines ? { ...result, captions } : result };
       }).catch((error) => ({ error }));
       job.promise.finally(() => { setTimeout(() => { if (footageTakes.get(key) === job) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.(); });
       footageTakes.set(key, job);

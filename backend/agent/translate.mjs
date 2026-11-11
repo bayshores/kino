@@ -58,7 +58,7 @@ const NO_SCENE = new Set(["rename_project", "update_project", "waive_check", "un
 export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "ending_seen", "clip_reuse", "music_stall"]);
 const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
 // Fields that name one layer.
-const LAYER_FIELDS = ["layerId", "referenceId", "parentId", "maskLayerId", "speechId", "toId"];
+const LAYER_FIELDS = ["layerId", "referenceId", "parentId", "maskLayerId", "speechId", "toId", "duckId"];
 const LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path", "text", "image", "video", "audio", "group"]);
 // Short field names agents often use, and the engine field each stands for. They are the
 // documented way to write these fields, so renaming them is not reported.
@@ -88,6 +88,12 @@ function applyAliases(operation, fixes) {
   if ((operation.type === "add_captions" || operation.type === "place_broll") && operation.speech !== undefined && operation.speechId === undefined) {
     operation.speechId = operation.speech;
     delete operation.speech;
+  }
+  // keep_line {duck}: the music layer to dip ("none" or false: no dip); {subtitle:false} stays as it is.
+  if (operation.type === "keep_line" && operation.duck !== undefined && operation.duckId === undefined) {
+    if (operation.duck === "none" || operation.duck === false) operation.duckNone = true;
+    else operation.duckId = operation.duck;
+    delete operation.duck;
   }
   // sync_clips and match_color {to}: the clip to play in step with, or to match (duck_audio's `to` is a volume).
   if ((operation.type === "sync_clips" || operation.type === "match_color") && operation.to !== undefined && operation.toId === undefined) {
@@ -558,6 +564,7 @@ function translateOne(raw, resolver, document) {
     if (type === "cut_out") checkCutOut(operation, resolver);
     if (type === "cut_speech") checkCutSpeech(operation);
     if (type === "place_broll") checkPlaceBroll(operation);
+    if (type === "keep_line") checkKeepLine(operation);
     if (type === "color_filter") checkColorFilter(operation);
     if (type === "sync_clips") checkSyncClips(operation);
     if (type === "match_color") checkMatchColor(operation);
@@ -813,6 +820,15 @@ function checkPlaceBroll(operation) {
   if (typeof operation.speechId !== "string") throw new Error("place_broll needs speech: the audio or video layer with the voice.");
   if (!Array.isArray(operation.layerIds) || !operation.layerIds.length || !operation.about?.every((item) => typeof item === "string"))
     throw new Error('place_broll needs clips: {"<video layer>":"<a few words the voice says about it>"}.');
+}
+
+// keep_line {sceneId, layerId, line? | from?, to?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?}: an unknown
+// field is refused here, before the clip is transcribed; the engine checks the values (engine/keepLine.js).
+const KEEP_LINE_FIELDS = new Set(["type", "sceneId", "layerId", "line", "from", "to", "text", "subtitle", "look", "name", "duckId", "duckNone", "dip"]);
+function checkKeepLine(operation) {
+  const extra = Object.keys(operation).filter((key) => !KEEP_LINE_FIELDS.has(key));
+  if (extra.length) throw Object.assign(new Error(`keep_line has no ${extra.join(", ")}; it takes layer, line or from and to, text, subtitle, look, name, duck and dip.`), { suggestions: closest(extra[0], ["line", "from", "to", "text", "subtitle", "duck", "dip"]) });
+  if (typeof operation.layerId !== "string") throw new Error("keep_line needs layer: the video or audio layer with the spoken line.");
 }
 
 // color_filter {sceneId, layerId | layerIds, filter, strength?}: checked by the engine (engine/colorFilter.js).

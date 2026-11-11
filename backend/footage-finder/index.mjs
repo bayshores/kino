@@ -1,6 +1,7 @@
 // The footage finder: from a prompt alone to found, scanned and imported clips. This file joins
 // its parts: search.mjs finds candidate videos, scan.mjs and score.mjs scan one, licensed.mjs is
 // Commons, actions.mjs is the agent's library {topic:"footage"}. Wired into kino by backend/index.mjs.
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runYtDlp } from "../inspire.mjs";
 import { createWebCache } from "../web-cache.mjs";
@@ -9,9 +10,14 @@ import { downloadScanCopy, pickWindows, probeFootage } from "./scan.mjs";
 import { readScan, readScanSheet, scanFootage } from "./score.mjs";
 import { searchFootage } from "./search.mjs";
 import { takeFootage } from "./take.mjs";
+import { defaultLanguages, fetchCaptions } from "./words.mjs";
 
 /** A footage search answer lasts this long (ms): the same search within a day asks YouTube nothing. */
 export const FOOTAGE_CACHE_MS = 24 * 60 * 60 * 1000;
+/** A video's captions (or the fact that it has none) are kept this long (ms). */
+export const CAPTIONS_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
+/** After YouTube could not be asked for captions (a rate limit), kino does not ask again for this long (ms). */
+export const CAPTIONS_RETRY_MS = 15 * 60 * 1000;
 
 // Thrown inside the cache's make() so an empty answer is never saved: YouTube once answered
 // nothing for a search that worked minutes later.
@@ -25,14 +31,18 @@ class NothingFound extends Error {
  * now() (the clock); for scans: dataRoot (scans are kept in <data>/footage/scans), youtube (the
  * shared gate), embed (look-embed.mjs, or null), commons (licensed.mjs createCommonsSource),
  * keep() (scan ids the cap leaves alone), modelReady() (false: the image model still downloads);
- * for imports: addMedia(file, {name, mime, extra}) (backend/index.mjs addGeneratedMedia), takeTools (tests).
+ * for imports: addMedia(file, {name, mime, extra}) (backend/index.mjs addGeneratedMedia), takeTools (tests);
+ * for captions: languages (the person's, best first; default the computer's language, then English),
+ * runtime (the JavaScript runtime yt-dlp needs; default the one inspire.mjs finds; tests pass one).
  * Returns {search(words, {count, signal}) → {words, tried?, candidates, dropped, cached},
  * scan(candidate, options), take(candidate, pieces, {projectId}), readScan(id),
- * readSheet(id) → the scan's sheet jpg or null, searchCommons(words)}.
+ * readSheet(id) → the scan's sheet jpg or null, searchCommons(words),
+ * captions(candidate, {signal}) → words.mjs fetchCaptions' answer, kept in <directory>/captions}.
  */
 export function createFootageFinder(deps) {
   const { directory, ytDlp = (args, options) => runYtDlp(args, options), now = Date.now,
-    dataRoot = null, youtube = null, embed = null, commons = null, keep = () => [], modelReady = () => true, addMedia = null, takeTools } = deps;
+    dataRoot = null, youtube = null, embed = null, commons = null, keep = () => [], modelReady = () => true, addMedia = null, takeTools,
+    languages = defaultLanguages(), runtime = null } = deps;
   if (!directory) throw new Error("createFootageFinder needs a directory.");
   const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: FOOTAGE_CACHE_MS, now });
   // The same search running twice at once (two agents) asks YouTube once. The shared job has its
@@ -71,6 +81,45 @@ export function createFootageFinder(deps) {
     }
   }
 
+  // Captions: kept per video in <directory>/captions/<video id>.json (lines, or that the video has
+  // none), so a video's captions are asked of YouTube once. An answer that says YouTube could not be
+  // asked now (retry) is not kept: it is remembered for CAPTIONS_RETRY_MS in memory, so a rate
+  // limit is not pushed on by more requests.
+  const captionJobs = new Map();
+  const captionFailed = new Map();
+
+  /**
+   * One candidate's captions: {lang, auto, lines}, {none: true}, or {none: true, why, retry: true}.
+   * Commons clips and drawn-only sources have none. Never throws except for a cancel.
+   */
+  async function captions(candidate, { signal } = {}) {
+    const videoId = candidate?.source === "commons" ? null : candidate?.videoId;
+    if (!videoId) return { none: true };
+    const file = path.join(directory, "captions", `${videoId}.json`);
+    const saved = await readFile(file, "utf8").then(JSON.parse).catch(() => null);
+    if (saved && now() - Number(saved.at) < CAPTIONS_KEEP_MS && (saved.lines || saved.languages?.join() === languages.join())) {
+      return saved.lines ? { lang: saved.lang, auto: saved.auto, lines: saved.lines } : { none: true };
+    }
+    const failed = captionFailed.get(videoId);
+    if (failed && failed.until > now()) return failed.answer;
+    let job = captionJobs.get(videoId);
+    if (!job) {
+      job = fetchCaptions(videoId, { youtube, run: ytDlp, languages, ...(runtime ? { runtime } : {}) })
+        .then(async (answer) => {
+          if (answer.retry) { captionFailed.set(videoId, { until: now() + CAPTIONS_RETRY_MS, answer }); return answer; }
+          captionFailed.delete(videoId);
+          await mkdir(path.dirname(file), { recursive: true });
+          await writeFile(`${file}.part`, JSON.stringify({ at: now(), languages, ...(answer.none ? {} : { lang: answer.lang, auto: answer.auto, lines: answer.lines }) }));
+          await rename(`${file}.part`, file);
+          return answer;
+        })
+        .catch((error) => ({ none: true, why: String(error?.message ?? error).slice(0, 120), retry: true }))
+        .finally(() => { if (captionJobs.get(videoId) === job) captionJobs.delete(videoId); });
+      captionJobs.set(videoId, job);
+    }
+    return untilAborted(job, signal);
+  }
+
   /**
    * Scans one candidate (scan.mjs, then score.mjs): YouTube through the probe, the chosen windows
    * and a 360p copy; Commons through its 360p copy, whole. Answers the saved scan. A video that
@@ -95,6 +144,9 @@ export function createFootageFinder(deps) {
       const probe = await probeFootage(candidate.videoId, { youtube, signal });
       if (probe.cannotPlay) throw Object.assign(new Error(`This video cannot play from here (${probe.cannotPlay}).`), { code: "UNPLAYABLE", reason: probe.cannotPlay });
       const windows = pickWindows(probe, { want, from, to, whole });
+      // Captions are read once per video and kept; a failure here never stops the scan.
+      onProgress?.("Reading captions.");
+      await captions(candidate, { signal }).catch((error) => { if (error?.name === "AbortError") throw error; });
       onProgress?.(`Downloading ${windows.length} stretch${windows.length === 1 ? "" : "es"} at 360p.`);
       copy = await downloadScanCopy(candidate.videoId, windows, { youtube, signal });
       if (!candidate.title) candidate = { ...candidate, title: probe.title };
@@ -116,6 +168,7 @@ export function createFootageFinder(deps) {
     search,
     scan,
     take,
+    captions,
     readScan: (id) => (dataRoot ? readScan(dataRoot, id) : Promise.resolve(null)),
     readSheet: (id) => (dataRoot ? readScanSheet(dataRoot, id) : Promise.resolve(null)),
     searchCommons: async (words) => {
