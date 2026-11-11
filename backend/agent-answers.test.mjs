@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { estimateTextTokens, pngSize } from "./meter.mjs";
 import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
-import { REFERENCE_LOOKUP } from "./agent/seen-names.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
@@ -262,7 +261,14 @@ test("library search turns what a reference shows into the kino name and the cal
     const line = lines.slice(1, 4).find((entry) => entry.startsWith(`${name} (`));
     assert.ok(line?.includes(call), `${query}: ${name} with ${call} in ${lines.slice(1, 4).join(" | ")}`);
   }
-  assert.match(REFERENCE_LOOKUP, /^to make what you see: library \{topic:"search", search:"<what you saw: glow, particles/);
+  // Punctuation and case do not count.
+  assert.match(searchGuide("Bloom!"), /^kino names for it:\nglow \(/);
+  // A common word inside a longer query is not a look: no wrong lead ahead of the topics.
+  const wrong = { "green screen": ["white-balance", "color-wheels"], "ramp up numbers": ["speed-ramp", "clip-speed"], "reverse transition": ["clip-speed"], "repeat text": ["beat-repeat"], "hit the button": ["impact-accent"] };
+  for (const [query, names] of Object.entries(wrong)) {
+    const leads = searchGuide(query).split("\n").filter((line) => /^[a-z_-]+ \((effect|move|op|topic): /.test(line));
+    for (const name of names) assert.ok(!leads.some((line) => line.startsWith(`${name} (`)), `${query} does not lead with ${name}: ${leads.join(" | ")}`);
+  }
 });
 
 test("render start with wait:true answers with the checked file, or says it is still running", { skip: skipWithoutMediaTools }, async () => {
