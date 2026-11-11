@@ -14,7 +14,8 @@ import { personCall } from "./agent/critique.mjs";
 import { cleanTreatments } from "./agent/treatments.mjs";
 import { videoFacts } from "./agent/brief.mjs";
 import { ASK_SHOTS, ASK_TOKENS, FRESH_TOKENS, SHOT_TOKENS } from "./agent/board-text.mjs";
-import { withAsk } from "./agent-ask.test.support.mjs";
+import { serviceFor, withAsk } from "./agent-ask.test.support.mjs";
+import { createDocument, createScene } from "../engine/model.js";
 
 const VIDEO = { seconds: 24, layers: 1, footage: false, width: 1080, height: 1920 };
 // Since B4a the storyboard stop asks about the board saved in the document: one title card a
@@ -62,6 +63,20 @@ test("a stop ask names the waived count and the top rules; a rule waived on * sh
   assert.doesNotMatch(checkpointStep(ready(4), { kind: "rough", video: VIDEO, rev: 4, now: T0 }).data.ask, /waived/);
   // The service can hand the waivers over inside the video facts instead.
   assert.match(checkpointStep(ready(4), { kind: "rough", video: { ...VIDEO, waivers: waivers.slice(0, 2) }, rev: 4, now: T0 }).data.ask, /2 waived \(crop_no_subject 2\)/);
+});
+
+test("the service's stop ask carries the document's waivers: the person's rough cut ask shows the waived line", async (t) => {
+  const title = { op: "add_layer", layerType: "text", name: "title", properties: { text: "Park reopens Saturday", x: 140, y: 760, width: 800, height: 240, fontSize: 96, fill: "#101010" } };
+  const waive = { op: "waive_check", code: "type_min", target: "title", reason: "small on purpose" };
+  const { call } = await serviceFor(t, { document: createDocument({ id: "waived", name: "waived", scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 24 })] }) });
+  const edited = await call("edit", { ops: [title, waive] });
+  assert.equal(edited.isError, undefined, edited.text);
+  assert.equal((await call("notes", { action: "brief", no_playback: "just start" })).isError, undefined);
+  const checked = await call("check");
+  assert.equal(checked.data.errors, 0, checked.text);
+  const asked = await call("notes", { action: "checkpoint", id: "rough" });
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? · 1 waived \(type_min 1\)\.$/m, asked.data.ask);
 });
 
 test("the sound stop of a video with no music: the person's three choices, or 2 songs measured first", () => {

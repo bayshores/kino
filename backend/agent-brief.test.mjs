@@ -21,7 +21,8 @@ import { styleContext } from "../engine/styleSpec.js";
 import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { hasMediaTools, makeToneAfterSilence, nextCallOf, startTestServer, withoutNext } from "./media.test.support.mjs";
-import { ASK_TEXT, withAsk } from "./agent-ask.test.support.mjs";
+import { ASK_TEXT, serviceFor, withAsk } from "./agent-ask.test.support.mjs";
+import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -954,6 +955,37 @@ test("with an ask stored, a quote by you must be in it or in a reply; with no as
   assert.throws(() => briefChanges(draft.brief, { fields: { treatments: { pick: "A", quote: "the fourth one, please" } } }), { code: "quote_not_said" });
   assert.equal(briefChanges(draft.brief, { fields: { treatments: { pick: "A", quote: "keep it vertical" } } }).lines[0].line.by, "you");
   assert.equal(briefChanges(draft.brief, { fields: { treatments: { pick: "A", why: "a viewer would retell it" } } }).lines[0].line.by, "guessed");
+});
+
+test("the service counts the person's answer to a stop as said: a quote from it passes the quote check, an invented one does not", async (t) => {
+  const { call, agentState } = await serviceFor(t, {
+    document: createDocument({ id: "said", name: "said", scenes: [createScene({ id: "s1", duration: 6 })] }),
+  });
+  await agentState.update("said", (draft) => {
+    draft.brief = { rev: 1, fields: withAsk(), log: [] };
+    draft.stops = [{ id: "C1", kind: "rough", rev: 1, status: "answered", answer: { words: "keep it narrow for the feed", read_as: "approve" } }];
+  });
+  const playsOn = (quote) => ({ action: "brief", fields: { plays_on: { text: "a narrow feed", by: "you", quote } } });
+  const refused = await call("notes", playsOn("an invented sentence"));
+  assert.match(refused.text, /quote_not_said|not in anything they said/, refused.text);
+  const saved = await call("notes", playsOn("narrow for the feed"));
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.equal((await agentState.read("said")).brief.fields.plays_on.quote, "narrow for the feed");
+});
+
+test("check hands the brief's plays_on to shape_guess: portrait over landscape footage is a guess until the person said where it plays", async (t) => {
+  const fileId = "11111111-2222-3333-4444-555555555555.mp4";
+  const clip = { id: fileId, name: "keeper", width: 1920, height: 1080, duration: 4 };
+  const layer = createLayer("video", { id: "v", name: "clip", src: `/api/media/${fileId}`, x: 0, y: 0, width: 3413, height: 1920 });
+  const { call, agentState } = await serviceFor(t, {
+    document: createDocument({ id: "shape", name: "shape", scenes: [createScene({ id: "s1", name: "main", width: 1080, height: 1920, duration: 4, layers: [layer] })] }),
+    media: [clip],
+  });
+  const said = (by) => (draft) => { draft.brief = { rev: 1, fields: withAsk({ plays_on: { text: "a phone", by, ...(by === "you" ? { quote: "my skate crew" } : {}) } }), log: [] }; };
+  await agentState.update("shape", said("you"));
+  assert.doesNotMatch((await call("check")).text, /shape_guess/, "the person's own plays_on clears it");
+  await agentState.update("shape", said("guessed"));
+  assert.match((await call("check")).text, /shape_guess/, "a guessed plays_on is still a guess");
 });
 
 test("the ask step is named only while the order has an open part and the video is not built; briefData sends a count, not the messages", () => {
