@@ -4,12 +4,14 @@
 // the person's own render on the dashboard, and the older export-batches and export routes. Drafts still
 // render. A video with no brief has no stops, so nothing waits.
 //
-// Every project here has no footage (no storyboard stop): 24 s has rough, color and sound.
+// Every project here has no footage and a 3600 s board skip-under (no storyboard stop,
+// stops.test.support.mjs): 24 s has rough, color and sound.
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { finalRefusal, openStops } from "./agent/stops.mjs";
+import { finalRefusal } from "./agent/stops.mjs";
+import { openStops, skipBoardOn } from "./stops.test.support.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 
 let server;
@@ -17,6 +19,7 @@ let key;
 before(async () => {
   server = await startTestServer();
   key = (await (await server.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: server.baseUrl } })).json()).key;
+  await skipBoardOn(server);
   // A final render past the stops then asks the person (pastStops below) instead of drawing.
   assert.equal((await setting({ limits: { finalRenderFrames: 1 } })).status, 200);
 });

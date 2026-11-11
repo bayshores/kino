@@ -15,6 +15,7 @@ import { createAgentService } from "./agent/service.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
 import { openStore } from "./store.mjs";
+import { SKIP_BOARD_APPROVALS } from "./stops.test.support.mjs";
 
 const PROJECT = "stop-race";
 const TITLE = { op: "add_layer", layerType: "text", name: "title", properties: { text: "Park reopens Saturday", x: 140, y: 760, width: 800, height: 240, fontSize: 96, fill: "#ffffff" } };
@@ -45,6 +46,8 @@ async function setup(t) {
       await pauses.save?.wait();
       return store.updateProject(projectId, document, expectedRevision, { request, resultMetadata });
     },
+    // The rough cut is the stop raced here: the storyboard is skipped (stops.test.support.mjs).
+    approvals: SKIP_BOARD_APPROVALS,
   });
   const call = (verb, input) => service.call(verb, { project: PROJECT, ...input }, { client: "claude-code" });
   // The fixture, a brief settled with no playback and the agent's full check of its revision.

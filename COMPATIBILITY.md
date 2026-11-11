@@ -1196,6 +1196,11 @@ How to read it:
   Evidence: `backend/board-rules.test.mjs`, `backend/agent-board.test.mjs`.
 - **After a redo**: Verified. The next ask lists what changed as asked, unasked, and not changed.
   Evidence: `backend/board-redo.test.mjs`.
+- **Graphics-only board**: Verified. The storyboard stop asks from 8 s with or without footage; a 20 s
+  title-card board is asked and shown, a 6 s one skips. Evidence: `backend/agent-stops.test.mjs`.
+- **Stop controls**: Verified. `notes brief` saves `controls` per video (each stop and the questions
+  wait or go, skip-under seconds); asking less needs the person's quote; status and the save name
+  them. Evidence: `backend/agent-brief.test.mjs`, `backend/agent-stops.test.mjs`, `backend/kino-cli.test.mjs`.
 - **Board screen (v4)**: Verified. The dashboard plays a rough cut of the board from its files (crop, text, directed
   lengths), shows one shot at a time (first and last frame, options A to C from `alts`) and a timeline with the
   story roles; a picked option, a new length or remove shot goes to the agent as that shot's note. Evidence:

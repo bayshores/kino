@@ -44,7 +44,7 @@ fields as `key=value`: `kino look frame t=3`.
 ## The loop
 
 1. `status`; inbox notes first (`notes reply` when fixed; `always ▸` ones stay). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
-2. New video: the brief from the chat and, with footage, the storyboard before you build
+2. New video: brief from the chat ([controls](references/controls.md)); from 8 s, board first.
    Save their material (`edit` op `source`) and write the story.
    **A video is one scene**: `render` makes one file per scene.
 3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study their
@@ -95,7 +95,7 @@ fields as `key=value`: `kino look frame t=3`.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
 - [taste](references/taste.md): motion, readability, restraint.
-- [direction](references/direction.md): the brief, stops, playback.
+- [direction](references/direction.md): brief, stops, playback.
 - [dashboard](references/dashboard.md): history, notes, helpers.
 - [render](references/render.md): `preview=fast`, exports.
 - [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).

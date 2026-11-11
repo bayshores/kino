@@ -6,7 +6,9 @@ import { test } from "node:test";
 import { mergeSettings, defaultSettings } from "./agent/dashboard.mjs";
 import { emptyAgentState } from "./agent/state.mjs";
 import { estimateTextTokens } from "./meter.mjs";
-import { answerStep, checkpointStep, dashboardAnswerStep, keepAsking, reopenStep, settleWaiting, StopError, stopPlan, stopRules, stopsSummary, statusLines, waitingStop, workPrint } from "./agent/stops.mjs";
+import { keepAsking, reopenStep, StopError, stopRules, stopsSummary, waitingStop, workPrint } from "./agent/stops.mjs";
+import * as stops from "./agent/stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, settleWaiting, stopPlan, statusLines } from "./stops.test.support.mjs";
 import { boardFacts, freezeBoard } from "./agent/board.mjs";
 import { personCall } from "./agent/critique.mjs";
 import { cleanTreatments } from "./agent/treatments.mjs";
@@ -172,12 +174,39 @@ test("a waiting stop the video no longer has is closed: shorter after an undo, a
   assert.equal(color.data.id, "C2");
   assert.deepEqual(longer.stops.map((round) => [round.id, round.status, round.lapsedFor]), [["C1", "lapsed", "under 30 s"], ["C2", "waiting", undefined]]);
 
-  // The storyboard waits; an undo removes the only video layer.
+  // The storyboard waits; an undo makes the video 6 s, under its 8 s skip-under length.
   const board = ready(4);
   const footage = { ...VIDEO, footage: true };
   assert.equal(checkpointStep(board, { kind: "board", video: footage, rev: 4, now: T0, board: BOARD }).data.id, "C1");
-  assert.equal(checkpointStep(board, { kind: "board", video: VIDEO, rev: 5, now: T0 + 1000, board: BOARD }).text, "board skipped: no footage in this video. C1 no longer waits.");
+  assert.equal(checkpointStep(board, { kind: "board", video: { ...footage, seconds: 6 }, rev: 5, now: T0 + 1000, board: BOARD }).text, "board skipped: this video is 6 s, under 8 s. C1 no longer waits.");
   assert.equal(waitingStop(board), null);
+});
+
+test("a graphics-only video of 8 s or more asks the storyboard; its title-card board is shown; a 6 s one skips it", () => {
+  // stops.checkpointStep: the plain rules, not this file's board skip-under for videos with no footage.
+  const graphics = { ...VIDEO, seconds: 20, footage: false };
+  const asked = stops.checkpointStep(ready(4), { kind: "board", video: graphics, rev: 4, now: T0, board: boardOf({ seconds: 20 }) });
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  assert.match(asked.data.ask, /^The storyboard is ready \(C1\): 2 shots, 20 s/);
+  assert.match(asked.data.ask, /Shot 1, 0–10 s: no footage; "Line 1" in Inter 700\./);
+  const short = stops.checkpointStep(ready(4), { kind: "board", video: { ...graphics, seconds: 6 }, rev: 4, now: T0, board: boardOf({ seconds: 6 }) });
+  assert.deepEqual(short.data, { status: "skipped", kind: "board", reason: "under 8 s" });
+  // Without a board saved, the stop asks for one: kino never skips it for want of footage.
+  assert.equal(refusal(() => stops.checkpointStep(ready(4), { kind: "board", video: graphics, rev: 4, now: T0 })).code, "board_first");
+});
+
+test("the brief's controls: a skip_under skips the board; rough set to go passes with an inbox line in the person's words; back to wait asks it again", () => {
+  // stops.checkpointStep: the plain rules, so only the brief's controls skip the board here.
+  const state = ready(4);
+  state.brief.controls = { stops: { rough: "go" }, skipUnder: { board: 30 }, quote: "no storyboard or rough cut, just make it" };
+  assert.deepEqual(stops.checkpointStep(state, { kind: "board", video: VIDEO, rev: 4, now: T0 }).data, { status: "skipped", kind: "board", reason: "under 30 s" });
+  const went = stops.checkpointStep(state, { kind: "rough", video: VIDEO, rev: 4, now: T0 });
+  assert.deepEqual([went.data.status, went.data.by], ["allowed", "controls"], went.text);
+  assert.match(went.text, /^C1 rough allowed \(the person's controls\)/);
+  assert.equal(state.inbox.at(-1).text, 'C1 rough goes on: the brief\'s controls say go ("no storyboard or rough cut, just make it").');
+  state.brief.controls.stops.rough = "wait";
+  assert.equal(stops.stopPlan(state, VIDEO).find((entry) => entry.kind === "rough").passed, false, "back to wait: the round no longer passes");
+  assert.equal(stops.checkpointStep(state, { kind: "rough", video: VIDEO, rev: 4, now: T0 + 60_000 }).data.status, "waiting_for_you");
 });
 
 test("a stop the person's settings now allow is allowed by them, and asking it again says it passed", () => {

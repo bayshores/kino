@@ -678,7 +678,10 @@ test("a briefed video of 15 s or more with 10 layers is a real edit: its open wa
 
 test("a real edit (a brief, over 30 layers) needs one critic round before its final render; after two rounds an open P0 goes to the person as the critique stop", async () => {
   const id = await project("critique-needed", 12);
-  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
+  // A gate test of the critic: this video's own controls skip the storyboard (the person's words
+  // in quote), so no server-wide setting changes and nothing needs putting back.
+  const controls = { skip_under: { board: 30 }, quote: "no storyboard for this one" };
+  assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start", fields: { controls } })).isError, undefined);
   const style = { wants: [], avoids: ["flash"], lines: [{ text: "the title type", ref: "yt:dQw4w9WgXcQ" }], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 12, purpose: "the promise" }], fonts: { caption: { family: "Inter", size: 40 } } };
   const locked = await agent("notes", { project: id, action: "brief", fields: { style } });
   assert.equal(locked.isError, undefined, locked.text);

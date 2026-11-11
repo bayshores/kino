@@ -26,6 +26,11 @@ import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.j
 import { deckLine } from "../../engine/deck.js";
 import { isRecord } from "../../engine/numbers.js";
 import { footageMove } from "../footage-finder/step.mjs";
+import { cleanControls, controlsLine, hasControls, questionsGo, skippedLine } from "./controls.mjs";
+
+// The skip-under length of each stop without a control (stops.mjs DEFAULT_STOP_RULES): a longer
+// one asks the person less, so it needs their quote.
+const CONTROL_SKIP_DEFAULTS = Object.freeze({ board: 8, rough: 15, color: 15, sound: 15 });
 
 // The brief's lines, in the order they are shown.
 // idea is the agent's one creative idea for the video (ideas guide); it is shown to the person at
@@ -104,7 +109,7 @@ function textProblem(where, value, limit) {
 // The problem with one line, as { code, message, details? }, or null.
 function lineProblem(name, line, current) {
   if (!BRIEF_FIELDS.includes(name))
-    return { code: "bad_input", message: `${name} is not a brief line; the lines are ${BRIEF_FIELDS.join(", ")}, style (the style spec), treatments and length (seconds).`, details: { didYouMean: closest(name, [...BRIEF_FIELDS, "style", "treatments", "length"]) } };
+    return { code: "bad_input", message: `${name} is not a brief line; the lines are ${BRIEF_FIELDS.join(", ")}, style (the style spec), treatments, length (seconds) and controls.`, details: { didYouMean: closest(name, [...BRIEF_FIELDS, "style", "treatments", "length", "controls"]) } };
   if (line === null) {
     if (current?.by === "you") return yoursProblem(name, current);
     return null;
@@ -149,13 +154,14 @@ export function briefChanges(current, input = {}) {
   const sentStyle = Object.hasOwn(fields ?? {}, "style") && fields.style !== undefined;
   const sentTreatments = Object.hasOwn(fields ?? {}, "treatments") && fields.treatments !== undefined;
   const sentLength = Object.hasOwn(fields ?? {}, "length") && fields.length !== undefined;
+  const sentControls = Object.hasOwn(fields ?? {}, "controls") && fields.controls !== undefined;
   // A pick of a treatment saves the idea line too (unless the idea is sent as well).
   const picking = sentTreatments && isRecord(fields.treatments) && fields.treatments.pick !== undefined;
   // A line sent as plain text is the agent's guess: "never":"no meme text" is {text, by:"guessed"}.
-  const sent = Object.entries(fields ?? {}).filter(([name]) => name !== "style" && name !== "treatments" && name !== "length")
+  const sent = Object.entries(fields ?? {}).filter(([name]) => !["style", "treatments", "length", "controls"].includes(name))
     .map(([name, line]) => [name, typeof line === "string" ? { text: line, by: "guessed" } : line]);
   const entries = log ?? [];
-  if (!sent.length && !sentStyle && !sentTreatments && !sentLength && !entries.length && noPlayback == null)
+  if (!sent.length && !sentStyle && !sentTreatments && !sentLength && !sentControls && !entries.length && noPlayback == null)
     throw new BriefError("bad_input", "A brief save needs a line in fields, a reply in log or no_playback; send none of them to read the brief.");
 
   // Every problem of the call is collected, so one resend fixes them all: [where, {code, message, details?}].
@@ -175,6 +181,18 @@ export function briefChanges(current, input = {}) {
     } catch (error) {
       if (!(error instanceof BriefError)) throw error;
       bad("length", error.message);
+    }
+  }
+  // controls: undefined when they do not change, null to remove them all (controls.mjs).
+  let controls;
+  if (sentControls) {
+    try {
+      const next = cleanControls(fields.controls, current?.controls ?? null, CONTROL_SKIP_DEFAULTS);
+      const plain = (value) => (hasControls(value) ? JSON.stringify({ stops: value.stops, skipUnder: value.skipUnder }) : null);
+      if (plain(next) !== plain(current?.controls) || (next?.quote ?? null) !== (current?.controls?.quote ?? null)) controls = hasControls(next) ? next : null;
+    } catch (error) {
+      if (!(error instanceof BriefError)) throw error;
+      problems.push(["controls", { code: error.code, message: error.message, details: error.details }]);
     }
   }
   for (const [name, line] of sent) {
@@ -283,7 +301,7 @@ export function briefChanges(current, input = {}) {
   if (treatments && JSON.stringify(treatments) === JSON.stringify(current?.treatments ?? null)) treatments = undefined;
   // A save that unlocks a locked direction says so in its first line, with why.
   const lapsed = style !== undefined || treatments ? lockLapse(current, { ...current, ...(style !== undefined ? { style } : {}), ...(treatments ? { treatments } : {}) }, merged?.dropped) : null;
-  return { lines, style, treatments, length, log: replies, noPlayback: noPlayback == null ? null : noPlayback.trim(), ...(lapsed ? { lapsed } : {}) };
+  return { lines, style, treatments, length, controls, log: replies, noPlayback: noPlayback == null ? null : noPlayback.trim(), ...(lapsed ? { lapsed } : {}) };
 }
 
 // Why a save turned a locked direction (directionLock) into an unlocked one, or null.
@@ -330,6 +348,10 @@ export function applyBrief(draft, changes, { now = Date.now(), client = null } =
     else if (changes.length === null) delete brief.length;
   }
   if (changes.log.some((entry) => entry.confirmed && entry.rev === brief.rev)) brief.confirmedRev = brief.rev;
+  // Controls are how the person wants to be asked, not what the video says: saving them keeps
+  // the revision, so a confirmed brief stays confirmed.
+  if (changes.controls) brief.controls = { ...changes.controls, client, at };
+  else if (changes.controls === null) delete brief.controls;
   if (changes.noPlayback) brief.noPlayback = { reason: changes.noPlayback, rev: brief.rev, client, at };
   // Text the person turned down joins the style spec's never list (rejected_text gates it), as
   // notes answer {rejected} does; it is a reply, not a question. Added after a style sent in the
@@ -387,6 +409,8 @@ const importedClip = (media, projectId) => Array.isArray(media) && projectId != 
 function questionLimit(state, video) {
   const seconds = video?.seconds;
   const chosen = seconds > 0 && seconds !== state?.defaultLength;
+  // The person set the questions to go (controls.mjs): no questions, the agent guesses.
+  if (questionsGo(state?.brief)) return 0;
   return chosen && seconds < SHORT_VIDEO_SECONDS ? 1 : QUESTION_LIMIT;
 }
 
@@ -833,6 +857,7 @@ export function briefText(state, video = {}) {
     state.deck ? deckLine(state.deck) : "",
     ...(state.deck?.swaps ?? []).map((swap) => `deck swap: ${swap.out} → ${swap.in} (${swap.why})`),
     brief.noPlayback ? `no playback: ${brief.noPlayback.reason}` : "",
+    controlsLine(brief.controls) ?? "",
     `missing: ${missing.length ? missing.join(", ") : "none"}`,
     `step: ${nextStep(state, video)}`,
   ].filter(Boolean).join("\n");
@@ -861,6 +886,9 @@ export function savedText(state, changes, video = {}) {
     changes.style ? styleLine(brief.style) : "",
     changes.length ? `${lengthLine(lengthTarget(brief))}; check holds the video to it` : "",
     changes.treatments ? treatmentsText(brief) : "",
+    // The receipt of a controls save: what they are now, and each step they pass without the person.
+    changes.controls !== undefined ? (controlsLine(brief.controls) ?? "controls removed: the person's settings ask every stop again") : "",
+    changes.controls ? skippedLine(brief.controls, video?.seconds ?? 0) ?? "" : "",
     stale ? `not confirmed: they answered r${stale.rev}, and the brief is r${brief.rev} now; play it back again.` : "",
     changes.rejectedDropped?.length ? `style.rejected keeps the newest ${STYLE_LIMITS.rejected}; dropped: ${changes.rejectedDropped.map((text) => `"${text}"`).join(", ")}` : "",
     `missing: ${missing.length ? missing.join(", ") : "none"}`,

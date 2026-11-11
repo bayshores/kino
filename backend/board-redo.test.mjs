@@ -17,7 +17,8 @@ import { fileURLToPath } from "node:url";
 import { boardFacts, namedShots, shotChanges } from "./agent/board.mjs";
 import { ASK_SHOTS, ASK_TOKENS, boardAsk, CHANGED_TOKENS, FRESH_TOKENS, SHOT_TOKENS } from "./agent/board-text.mjs";
 import { emptyAgentState } from "./agent/state.mjs";
-import { answerStep, checkpointStep, dashboardAnswerStep, StopError, stopsSummary } from "./agent/stops.mjs";
+import { StopError, stopsSummary } from "./agent/stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep } from "./stops.test.support.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 

@@ -18,6 +18,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { ffmpeg, run, skipWithoutMediaTools } from "../backend/media.test.support.mjs";
+import { BOARD_SKIP_UNDER } from "../backend/stops.test.support.mjs";
 import { button, layerButton, pageHas, q, sleep, slowdown, startDashboard, textOf, until } from "./dashboard-browser.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -3184,7 +3185,7 @@ test("more lanes than fit: the timeline ends on a whole lane and shows its scrol
 // note; A and D are off on stops) or in the chat, where the agent records the reply word for word
 // and the card says "recorded by the agent", with a reopen button. The agent hears a dashboard
 // answer or a reopen in its inbox. These tests come last, so no stop waits during the tests above.
-// Their videos have no footage, so there is no storyboard stop and the rough cut comes first.
+// Their videos have no footage and a board skip-under of 3600 s, so the rough cut comes first.
 // kino refuses a chat answer recorded under 5 s after the ask (too_fast), so the two chat answers
 // here wait 5.2 s, timed on the steady clock as the server times them: this PC's wall clock
 // (WSL 2) jumps by several seconds against it, back and forth (measured: −2.5 s to +7.6 s in 30 s).
@@ -3221,6 +3222,9 @@ async function stopCheck(project) {
 
 /** A video for stops: the fixture, its brief settled with no playback ("just start"), and a full check. */
 async function stopVideo(id, { brief = true } = {}) {
+  // The storyboard is asked with or without footage: the person's board skip-under skips it here
+  // (backend/stops.test.support.mjs), so the rough cut comes first.
+  await asDashboard("settings", { limits: { skipBoardUnder: BOARD_SKIP_UNDER } }, "PUT");
   const made = await agent("project", { action: "create", id, name: id, width: 1080, height: 1920, duration: 24, background: "#101820" });
   assert.equal(made.isError, undefined, made.text);
   // References are not what these stops are about (the reference step and gate: agent-brief and agent-review tests).

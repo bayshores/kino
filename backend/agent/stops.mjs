@@ -29,6 +29,7 @@ import { activeApproval, boardSummary, freezeBoard, keepAnswered, lapsedChanges,
 import { boardAsk } from "./board-text.mjs";
 import { movesNeeded } from "../../engine/board.js";
 import { pickLines } from "./treatments.mjs";
+import { withControls } from "./controls.mjs";
 
 export const STOP_KINDS = Object.freeze(["board", "rough", "color", "sound"]);
 // The stops "stop asking" may switch to allow for one video. Never the board or an approval.
@@ -42,7 +43,7 @@ export const READ_AS = Object.freeze(["approve", "approve with notes", "redo", "
 // An answer recorded sooner than this after the ask is refused (too_fast): nobody reads a stop
 // that fast, so it is the agent's own reply, not the person's.
 export const ANSWER_GAP_MS = 5000;
-// The person's defaults: every stop asks; the board needs footage and 8 s, the others 15 s.
+// The person's defaults: every stop asks; the board from 8 s (with or without footage), the others from 15 s.
 export const DEFAULT_STOP_RULES = Object.freeze({
   policy: Object.freeze({ board: "ask", rough: "ask", color: "ask", sound: "ask" }),
   skipUnder: Object.freeze({ board: 8, rough: 15, color: 15, sound: 15 }),
@@ -112,16 +113,22 @@ export function stopRules(approvals = {}, limits = {}) {
   return { policy, skipUnder };
 }
 
-// Why this video has no such stop, or null: the board needs footage, and every stop needs the
-// video to be at least its skip-under length (0 never skips).
+// Why this video has no such stop, or null: every stop needs the video to be at least its
+// skip-under length (0 never skips). The storyboard is asked with or without footage: a
+// graphics-only video's board has shots with media "none" (engine/board.js), and the person
+// sees its order and words before anything is built.
 function skipReason(kind, video, rules) {
-  if (kind === "board" && !video?.footage) return "no footage";
   const under = rules.skipUnder[kind];
   return (video?.seconds ?? 0) < under ? `under ${under} s` : null;
 }
 
-const skippedText = (kind, reason, video) => reason === "no footage" ? `${kind} skipped: no footage in this video.`
-  : `${kind} skipped: this video is ${sec(video.seconds ?? 0)} s, ${reason}.`;
+// The rules for this video: the person's settings with the brief's controls laid over them
+// (controls.mjs). Laying them over twice gives the same rules, so every entry point may call it.
+const rulesOf = (state, rules) => withControls(rules, state?.brief?.controls);
+// Who let a stop through without the person: their brief's controls, or their settings.
+const allowedByOf = (rules, kind) => rules.by?.[kind] ?? "settings";
+
+const skippedText = (kind, reason, video) => `${kind} skipped: this video is ${sec(video.seconds ?? 0)} s, ${reason}.`;
 
 // A round passed: the person's settings allowed it, or the person approved it. A round allowed by
 // "stop asking" passes only while that is on: once the person undoes it, the stop asks again.
@@ -133,6 +140,8 @@ function roundPassed(round, state) {
     const frozen = (state?.boards ?? []).findLast((entry) => entry.stop === round.id);
     if (!frozen || frozen.lapsed) return false;
   }
+  // A round the brief's controls let through passes only while they still say "go".
+  if (round.status === "allowed" && round.allowedBy === "controls") return state?.brief?.controls?.stops?.[round.kind] === "go";
   if (round.status === "allowed") return round.allowedBy !== "chat" || stopAskingOn(state);
   const read = round.answer?.read_as;
   return round.status === "answered" && PASSING_READS.includes(read) && (read !== "stop asking" || SWITCHABLE.includes(round.kind));
@@ -143,7 +152,8 @@ function roundPassed(round, state) {
  * skipped, its latest round passed, or (ask_limit) it is switchable, was never asked and the
  * person already gave REPLY_LIMIT replies: then the agent makes that call itself.
  */
-export function stopPlan(state, video = {}, rules = DEFAULT_STOP_RULES) {
+export function stopPlan(state, video = {}, given = DEFAULT_STOP_RULES) {
+  const rules = rulesOf(state, given);
   const replies = replyCount(state).count;
   return STOP_KINDS.map((kind) => {
     const skipped = skipReason(kind, video, rules);
@@ -160,7 +170,8 @@ export function stopPlan(state, video = {}, rules = DEFAULT_STOP_RULES) {
  * switched off, does not wait. A video without a brief has no stops (a stop checks the work
  * against the brief, so none can be asked): nothing waits. Drafts never wait.
  */
-export function openStops(state, video = {}, rules = DEFAULT_STOP_RULES) {
+export function openStops(state, video = {}, given = DEFAULT_STOP_RULES) {
+  const rules = rulesOf(state, given);
   if (!hasBrief(state?.brief)) return [];
   const released = (kind) => rules.policy[kind] === "allow" || (SWITCHABLE.includes(kind) && stopAskingOn(state));
   return stopPlan(state, video, rules).filter((entry) => !entry.passed && !released(entry.kind)).map(({ kind, round }) => (round ? { kind, round } : { kind }));
@@ -207,14 +218,17 @@ export function waitingStop(state) {
  * stop blocks a write and before status, checkpoint and answer read it, so a stop nobody can
  * answer any more never stays. Nothing the agent saves (a brief, a note) closes one.
  */
-export function settleWaiting(draft, { video = null, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), board = null }) {
+export function settleWaiting(draft, { video = null, rules: given = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), board = null }) {
+  const rules = rulesOf(draft, given);
   const round = waitingStop(draft);
   if (!round) return null;
   const at = new Date(now).toISOString();
   const skipped = video ? skipReason(round.kind, video, rules) : null;
   if (movedOn(round, rev, work) || skipped) Object.assign(round, { status: "lapsed", lapsedAt: at, lapsedRev: rev, ...(skipped ? { lapsedFor: skipped } : {}) });
   else if (video && rules.policy[round.kind] === "allow" && !forThePerson(draft, round.kind).length) {
-    Object.assign(round, { status: "allowed", allowedBy: "settings", allowedAt: at });
+    const by = allowedByOf(rules, round.kind);
+    Object.assign(round, { status: "allowed", allowedBy: by, allowedAt: at });
+    if (by === "controls") draft.inbox?.push({ kind: "stops", text: `${round.id} ${round.kind} goes on: the brief's controls say go ("${draft.brief.controls.quote}").` });
     if (round.kind === "board") freezeBoard(draft, round, { board, by: "settings", now });
   } else return null;
   return round;
@@ -307,7 +321,7 @@ export function waitingData(round) {
 // How a passed round passed, for the passed and answered refusals: "approve, 14:05", or
 // "approve in kino, 14:05" when the person answered on the dashboard.
 function howPassed(round) {
-  if (round.status === "allowed") return `${round.allowedBy === "chat" ? "allowed in chat" : "allowed by the person's settings"}, ${clock(round.allowedAt ?? round.askedAt)}`;
+  if (round.status === "allowed") return `${round.allowedBy === "chat" ? "allowed in chat" : round.allowedBy === "controls" ? "allowed by the person's controls" : "allowed by the person's settings"}, ${clock(round.allowedAt ?? round.askedAt)}`;
   return `${round.answer?.read_as ?? round.status}${round.answer?.via === "dashboard" ? " in kino" : ""}${round.answer?.silent ? `, ${SILENT}` : ""}, ${clock(round.answer?.at)}`;
 }
 
@@ -329,8 +343,9 @@ const NO_MUSIC_ASK = "No music yet: name a song or artist, send a track, or keep
  * closed first; that change stays even when a later rule refuses the call, so the project's
  * writes work again.
  */
-export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null, styleFrame = null }) {
+export function checkpointStep(draft, { kind: wanted, video = {}, rules: given = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, board = null, all = false, words, soundFiles = false, soundSearch = false, songSearch = soundSearch, fresh = null, critique = null, styleFrame = null }) {
   const kind = typeof wanted === "string" ? wanted.trim().toLowerCase() : "";
+  const rules = rulesOf(draft, given);
   if (!STOP_KINDS.includes(kind) && kind !== CRITIQUE_STOP)
     throw new StopError("bad_input", "id is board, rough, color, sound or critique.", { didYouMean: closest(String(wanted ?? ""), [...STOP_KINDS, CRITIQUE_STOP]) });
   if (fresh != null && kind !== "board") throw new StopError("bad_input", "fresh goes with the storyboard stop.");
@@ -389,15 +404,17 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules = DEFAUL
   const switched = SWITCHABLE.includes(kind) && stopAskingOn(draft);
   const passes = rules.policy[kind] === "allow" || switched;
   if (passes && !forThePerson(draft, kind).length) {
-    const by = rules.policy[kind] === "allow" ? "settings" : "chat";
+    const by = rules.policy[kind] === "allow" ? allowedByOf(rules, kind) : "chat";
     const round = { id: `C${draft.nextStop}`, kind, rev, askedAt: at, client, status: "allowed", allowedBy: by, offer: [], ask: null, answer: null };
     draft.nextStop += 1;
     draft.stops.push(round);
+    // The person sees in their inbox that a stop went on by their controls, with their words.
+    if (by === "controls") draft.inbox?.push({ kind: "stops", text: `${round.id} ${kind} goes on: the brief's controls say go ("${draft.brief.controls.quote}").` });
     const next = "say in one line what you checked, then go on.";
     // A sound stop passed with no music: the final message says why the video is silent.
     if (noMusic) round.noMusic = songSearch ? "search" : true;
     return {
-      text: [`${round.id} ${kind} allowed (${by === "chat" ? "set in chat" : "the person's settings"}) · checked: ${plural(checked.errors, "error")} · ${plural(checked.warnings, "warning")}`,
+      text: [`${round.id} ${kind} allowed (${by === "chat" ? "set in chat" : by === "controls" ? "the person's controls" : "the person's settings"}) · checked: ${plural(checked.errors, "error")} · ${plural(checked.warnings, "warning")}`,
         noMusic ? `No music: silent because ${songSearch ? "no measured song was imported" : "no track was sent and no song search is available"}. Your final message says so; never that they asked for silence.` : "", `step: ${next}`].filter(Boolean).join("\n"),
       data: { status: "allowed", id: round.id, kind, rev, by, next },
     };
@@ -477,7 +494,7 @@ function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, wor
   const id = `C${draft.nextStop}`;
   const held = rules.policy.board === "allow";
   if (held && !forThePerson(draft, "board").length) {
-    const round = { id, kind: "board", rev, askedAt: at, client, status: "allowed", allowedBy: "settings", allowedAt: at, offer: [], ask: null, answer: null };
+    const round = { id, kind: "board", rev, askedAt: at, client, status: "allowed", allowedBy: allowedByOf(rules, "board"), allowedAt: at, offer: [], ask: null, answer: null };
     draft.nextStop += 1;
     draft.stops.push(round);
     freezeBoard(draft, round, { board: facts, by: "settings", now });
@@ -845,7 +862,7 @@ export function statusMove(state, video = {}, rules = DEFAULT_STOP_RULES) {
   }
   const { count, limit } = replyCount(state);
   // The approved storyboard changed past kino's tolerances (board.mjs): ask it again, unless
-  // the video has no storyboard stop now (under its skip-under length, or no footage).
+  // the video has no storyboard stop now (under its skip-under length).
   const approval = activeApproval(state);
   const boardSkipped = plan.find((entry) => entry.kind === "board")?.skipped;
   if (approval?.lapsed && !boardSkipped && !waitingStop(state)) return { direction: `direction: ${approval.stop} board lapsed · replies ${count}/${limit}`, step: "ask board again (changed shots)", call: askCall("board") };

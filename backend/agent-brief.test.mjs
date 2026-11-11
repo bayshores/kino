@@ -198,9 +198,9 @@ test("a yes to the playback confirms the brief; a later line change needs a new 
   assert.match(before.text, /\nnext: library \{"topic":"inspire","search":"<an edit like yours>"\}$/);
   await agent("edit", { project: "brief-playback", ops: [{ op: "waive_check", code: "reference", target: "*", reason: "a brief test" }, { op: "waive_check", code: "treatments", target: "*", reason: "a brief test" }] });
   // status also names the first stop this 24 s video asks once it is built (B2a).
-  assert.deepEqual((await statusLines("brief-playback")).slice(1, 3), ["direction: brief r1 (2 guessed), confirmed · replies 1/10", "step: notes set_plan, build, then ask rough"]);
+  assert.deepEqual((await statusLines("brief-playback")).slice(1, 3), ["direction: brief r1 (2 guessed), confirmed · replies 1/10", 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build']);
   await agent("notes", { project: "brief-playback", action: "set_plan", steps: ["Build", "Render"] });
-  assert.equal((await statusLines("brief-playback"))[2], "step: follow the plan, then ask rough");
+  assert.equal((await statusLines("brief-playback"))[2], "step: ask board, then follow the plan");
 
   const change = await brief("brief-playback", { fields: { plays_on: { text: "TikTok, 9:16, 20 s", by: "guessed" } }, log: [{ q: "What's wrong or missing?", a: "make it 20 seconds", kind: "playback", rev: 1 }] });
   assert.match(withoutNext(change.text), /^brief r2 saved: plays_on \(guessed\) · 1 reply logged \(playback\) · replies 2 of 10\nmissing: none\nstep: play the brief back \(5–8 lines\)$/,
@@ -279,7 +279,8 @@ test("an unconfirmed brief: status and notes say play it back, other answers nam
   assert.equal(nextCallOf(await agent("look", { project: "brief-hint", mode: "frame", t: 1, width: 160 })).input.ops[0].op, "update_layer", "checked: an edit of what it showed");
   // Built, checked and looked at: status still names the playback, but the build steps lead.
   const status = await agent("status", { project: "brief-hint" });
-  assert.equal(status.text.split("\n")[2], "step: build on, then ask rough; play the brief back at your next ask");
+  // A graphics-only video of 8 s or more shows its storyboard before the build.
+  assert.equal(status.text.split("\n")[2], "step: ask board, then build on; play the brief back then");
   assert.notEqual(playback(status), "playback");
 });
 
@@ -294,7 +295,7 @@ test("no_playback settles the brief without a playback for the rest of the video
     "missing: none",
     "step: notes set_plan, then build",
   ].join("\n"));
-  assert.deepEqual((await statusLines("brief-just-start")).slice(1, 3), ["direction: brief r1 (5 guessed), no playback · replies 1/10", "step: notes set_plan, build, then ask rough"]);
+  assert.deepEqual((await statusLines("brief-just-start")).slice(1, 3), ["direction: brief r1 (5 guessed), no playback · replies 1/10", 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build']);
   // The step log: the calls up to the brief save arrived in the brief step (create, the waivers
   // edit, the save); the status call after it found the build open. history prints the table.
   const stepLog = (await savedState("brief-just-start")).stepLog;
@@ -302,10 +303,10 @@ test("no_playback settles the brief without a playback for the rest of the video
   assert.deepEqual([stepLog.steps.brief.calls, stepLog.steps.build.calls], [3, 1]);
   assert.match((await agent("history", { project: "brief-just-start" })).text, /\nsteps \(kino's time and calls[^\n]*\n  brief +<1 min +3 calls\n  build +<1 min +\d+ calls?\n  total /);
   await agent("notes", { project: "brief-just-start", action: "set_plan", steps: ["Build", "Render"] });
-  assert.equal((await statusLines("brief-just-start"))[2], "step: follow the plan, then ask rough");
+  assert.equal((await statusLines("brief-just-start"))[2], "step: ask board, then follow the plan");
   // A later change is saved, and still needs no playback.
   await brief("brief-just-start", { fields: { plays_on: { text: "TikTok, 9:16, 20 s", by: "guessed" } } });
-  assert.deepEqual((await statusLines("brief-just-start")).slice(1, 3), ["direction: brief r2 (5 guessed), no playback · replies 1/10", "step: follow the plan, then ask rough"]);
+  assert.deepEqual((await statusLines("brief-just-start")).slice(1, 3), ["direction: brief r2 (5 guessed), no playback · replies 1/10", "step: ask board, then follow the plan"]);
   assert.match(withoutNext((await brief("brief-just-start")).text), /\nno playback: just start\nmissing: none\nstep: follow the plan$/);
   const panel = (await dashboard("snapshot?project=brief-just-start", { method: "GET" })).body.agent.brief;
   assert.deepEqual([panel.confirmed, panel.noPlayback], [false, "just start"]);
@@ -584,7 +585,7 @@ test("each logged reply counts; past 3 questions and at 10 replies the answers s
   assert.equal(tenth.isError, undefined, "B1 refuses nothing at the limit");
   assert.equal(tenth.data.replies.count, REPLY_LIMIT);
   assert.match(withoutNext(tenth.text), /\nreplies: 10 of 10; make the remaining calls yourself and say "my call"\.$/);
-  assert.deepEqual((await statusLines("brief-count")).slice(1, 3), ["direction: brief r2 (2 guessed), unconfirmed · replies 10/10", "step: out of replies: set_plan, build"]);
+  assert.deepEqual((await statusLines("brief-count")).slice(1, 3), ["direction: brief r2 (2 guessed), unconfirmed · replies 10/10", 'step: out of replies: set_plan, board a move per shot (library {topic:"moves"}), ask board, then build']);
   const eleventh = await brief("brief-count", { log: [{ q: "k?", a: "l" }] });
   assert.equal(eleventh.isError, undefined);
   assert.equal(eleventh.data.replies.count, 11);
@@ -746,7 +747,7 @@ test("a restart keeps the brief, the status lines and the dashboard's brief", as
     assert.equal(withoutNext(again.text), withoutNext(read.text));
     assert.deepEqual(again.data, read.data);
     assert.deepEqual((await statusLines("brief-restart", second)).slice(1, 3), lines);
-    assert.deepEqual(lines, ["direction: brief r1 (2 guessed), confirmed · replies 2/10", "step: notes set_plan, build, then ask rough"]);
+    assert.deepEqual(lines, ["direction: brief r1 (2 guessed), confirmed · replies 2/10", 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build']);
     assert.deepEqual((await (await second.api("/api/dashboard/snapshot?project=brief-restart")).json()).agent.brief, snapshot);
   } finally {
     await first?.stop();
@@ -1030,4 +1031,29 @@ test("a rejected reply joins style.rejected and is not counted as a question", (
   applyBrief(state, more);
   assert.equal(state.brief.style.rejected.length, 12);
   assert.match(savedText(state, more), /style\.rejected keeps the newest 12; dropped: "line 0"/);
+});
+
+test("controls: a bad value names the accepted ones; asking less needs the person's quote; the save keeps the revision, its receipt names the skipped steps, and questions go asks none", () => {
+  const draft = { brief: emptyBrief() };
+  applyBrief(draft, briefChanges(draft.brief, { fields: { message: "the park reopens" } }));
+  const video = { seconds: 24, layers: 0 };
+  assert.match(nextMove(draft, video).step, /ask/, "before: the agent asks about the missing lines");
+  assert.throws(() => briefChanges(draft.brief, { fields: { controls: { rough: "skip" } } }), (error) => error.code === "bad_input" && /"wait" or "go"/.test(error.message) && error.details.example.controls.rough === "go");
+  assert.throws(() => briefChanges(draft.brief, { fields: { controls: { pace: 2 } } }), { code: "bad_input" }, "a control kino does not act on yet is refused, not saved");
+  assert.throws(() => briefChanges(draft.brief, { fields: { controls: { rough: "go" } } }), (error) => error.code === "quote_needed" && error.details.example.controls.quote === "<their exact words>");
+  assert.throws(() => briefChanges(draft.brief, { fields: { controls: { skip_under: { board: 30 } } } }), { code: "quote_needed" });
+  // Asking the person more needs no quote.
+  assert.equal(briefChanges(draft.brief, { fields: { controls: { color: "wait", skip_under: { rough: 10 } } } }).controls.stops.color, "wait");
+  const changes = briefChanges(draft.brief, { fields: { controls: { rough: "go", questions: "go", skip_under: { board: 30 }, quote: "no storyboard or rough cut, just make it" } } });
+  applyBrief(draft, changes);
+  assert.equal(draft.brief.rev, 1, "controls keep the brief's revision");
+  const receipt = savedText(draft, changes, video).split("\n");
+  assert.ok(receipt.includes("controls (you): questions go · rough go · skip board under 30 s"), receipt.join(" | "));
+  assert.ok(receipt.includes("skipped for this video: questions (go on), rough (go on), board (under 30 s)"), receipt.join(" | "));
+  assert.ok(briefText(draft, video).split("\n").includes("controls (you): questions go · rough go · skip board under 30 s"));
+  assert.doesNotMatch(nextMove(draft, video).step, /^ask/, "questions go: no questions, the agent guesses");
+  const removed = briefChanges(draft.brief, { fields: { controls: null } });
+  applyBrief(draft, removed);
+  assert.equal(draft.brief.controls, undefined);
+  assert.match(savedText(draft, removed, video), /controls removed/);
 });

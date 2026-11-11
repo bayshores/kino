@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { answerText, callText, opWithName, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
-import { statusMove } from "./agent/stops.mjs";
+import { statusMove } from "./stops.test.support.mjs";
 
 const LOOK = { tool: "look", input: { mode: "review" } };
 

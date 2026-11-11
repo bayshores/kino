@@ -23,6 +23,7 @@ import { stopsSummary } from "./agent/stops.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
 import { startTestServer } from "./media.test.support.mjs";
 import { openStore } from "./store.mjs";
+import { SKIP_BOARD_APPROVALS, skipBoardOn } from "./stops.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const NOVA = "test-nova-1";
@@ -34,6 +35,8 @@ before(async () => {
   server = await startTestServer();
   const response = await server.api("/api/dashboard/review-key", { method: "POST", headers: { "sec-fetch-site": "same-origin", origin: server.baseUrl } });
   key = (await response.json()).key;
+  // The stops asked here are the rough cut's: the storyboard is skipped (stops.test.support.mjs).
+  await skipBoardOn(server);
 });
 after(() => server?.stop());
 
@@ -388,6 +391,8 @@ async function liveService(t, { id = "turns", width = 1920, height = 1080, durat
     quality: { async check() { return { findings: [], notes: [], ms: 0, unchecked: [], scenes: 1 }; } },
     saveDocument: (projectId, before, document, expectedRevision, { request, resultMetadata } = {}) => store.updateProject(projectId, document, expectedRevision, { request, resultMetadata }),
     now: () => wall.at, live, ...(emit ? { emit } : {}),
+    // The stops asked here are the rough cut's: the storyboard is skipped (stops.test.support.mjs).
+    approvals: SKIP_BOARD_APPROVALS,
   });
   const as = (session) => ({ client: "claude-code", session });
   return { service, live, published, wall, gates, agentState, as, id };

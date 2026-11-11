@@ -6,7 +6,8 @@ import test from "node:test";
 import { activeApproval, BOARD_FPS, boardChanges, boardFacts, boardSummary, CROP_SHARE, CUT_FRAMES, freezeBoard, lapsedChanges, leavesItToYou, settleBoard, YOUR_CALL } from "./agent/board.mjs";
 import { boardAsk } from "./agent/board-text.mjs";
 import { keepShotIds } from "../engine/board.js";
-import { answerStep, checkpointStep, dashboardAnswerStep, reopenStep, settleWaiting, stopPlan, stopRules, statusLines } from "./agent/stops.mjs";
+import { reopenStep, stopRules } from "./agent/stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, settleWaiting, stopPlan, statusLines } from "./stops.test.support.mjs";
 import { emptyAgentState } from "./agent/state.mjs";
 
 const FRAME = { width: 1080, height: 1920 };
@@ -389,17 +390,17 @@ test("the board answered on the dashboard: approve and approve with notes freeze
   assert.ok(again.data.ask.startsWith("The storyboard is ready (C2): "), again.data.ask);
 });
 
-test("status stops saying 'ask board again' once the video has no storyboard stop (under 8 s, no footage)", () => {
+test("status stops saying 'ask board again' once the video has no storyboard stop (under 8 s, or its skip-under)", () => {
   const state = approved();
   const short = FOUR();
   short.shots[3].dur = 7 - 4.417;
   settleBoard(state, { ...boardFacts(documentWith(short, 7)), rev: 9, now: 1000 });
   assert.deepEqual(statusLines(state, VIDEO), ["direction: C1 board lapsed · replies 1/10", "step: ask board again (changed shots)"]);
-  for (const video of [{ ...VIDEO, seconds: 7 }, { ...VIDEO, footage: false }]) {
-    const [direction, next] = statusLines(state, video);
+  for (const [video, rules] of [[{ ...VIDEO, seconds: 7 }], [VIDEO, stopRules({}, { skipBoardUnder: 3600 })]]) {
+    const [direction, next] = statusLines(state, video, rules);
     assert.equal(direction, "direction: C1 board approved · replies 1/10", JSON.stringify(video));
     assert.notEqual(next, "step: ask board again (changed shots)");
-    assert.equal(checkpointStep(state, { kind: "board", video, rev: 9, now: 2000, board: boardFacts(documentWith(short, 7)) }).data.status, "skipped");
+    assert.equal(checkpointStep(state, { kind: "board", video, rules, rev: 9, now: 2000, board: boardFacts(documentWith(short, 7)) }).data.status, "skipped");
   }
 });
 
