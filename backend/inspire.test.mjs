@@ -595,11 +595,22 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   const lines = fingerprintLines({ id: "yt:x", fingerprint: { look: { brightness: 0.2, darkShare: 0.1, palette: [] } }, heard: saved.heard }).join("\n");
   assert.match(lines, /look: brightness 0\.2 · dark 10%/);
   assert.match(lines, /heard: loudest change 12 s \(drop\) · voice 0-2 s/);
-  const failed = make("heard-failed", async () => { throw new Error("no sound"); });
+  let tries = 0;
+  const failed = make("heard-failed", async () => { tries += 1; if (tries === 1) throw new Error("no sound"); return { change: { at: 5, kind: "drop" }, voice: [], by: "whisper" }; });
   const second = (await failed.search("p1", "walking tour edit", { count: 1 })).results[0].id;
   assert.equal((await failed.reference(second, { wait: 3000 })).state, "measured");
   await failed.setSaved("p1", second);
-  assert.equal((await failed.savedFingerprints("p1"))[0].heard, undefined);
+  const [left] = await failed.savedFingerprints("p1");
+  assert.ok(left.heard === undefined && !left.heardPending, "left out, and not measured unless a full check asks");
+  // A full check asks: it is measured in the background (pending until then), once.
+  assert.equal((await failed.savedFingerprints("p1", { heardLater: true }))[0].heardPending, true);
+  let later;
+  for (let wait = 0; wait < 60 && !later?.heard; wait += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    [later] = await failed.savedFingerprints("p1", { heardLater: true });
+  }
+  assert.deepEqual(later.heard, { change: { at: 5, kind: "drop" }, voice: [], by: "whisper" });
+  assert.equal(tries, 2);
 });
 
 test("a sounds search keeps sound effects of 60 s or less, measures their shape, keeps a preview, imports it with credit; forget drops a search", async () => {

@@ -65,7 +65,8 @@ export async function referenceDrift(model, ctx) {
 // render sees it. Every bound is the references' own (no fixed target): an edit may stay outside
 // the range and say why (waive_check). ctx.rangeRefs: [{id, fingerprint, heard}] (inspire
 // savedFingerprints); at least RANGE_REFS of them need a brightness. ctx.cues carry the song's
-// section weights (fit_music), ctx.speech the heard words and a song's vocal spans (`voice`).
+// section weights (fit_music), ctx.speech the clips' heard words and the music layer's loudest
+// change (`change`, from its saved song shape), ctx.clipLines the lines the clips say (the fix).
 const RANGE_REFS = 2;
 const RANGE_STEP = 0.5;
 const RANGE_FRAMES = 120;
@@ -94,24 +95,27 @@ function lookOf(samples, spacing, duration) {
   };
 }
 
-/** The video's loudest song change (a song- cue with the biggest weight, not the intro or outro) or null. */
+/**
+ * The video's loudest song change, {time}, or null: a song- cue with the biggest weight (fit_music;
+ * not the intro or outro), else the music layer's saved song shape (`change` on its ctx.speech
+ * entry: the played section with the most weight), so a hand-cut edit has one too.
+ */
 function loudestChange(ctx) {
   const cues = (ctx.cues ?? []).filter((cue) => /^song-/.test(cue.name ?? "") && !/^song-(intro|outro)-/.test(cue.name) && Number.isFinite(cue.weight));
-  return cues.sort((a, b) => b.weight - a.weight || a.time - b.time)[0] ?? null;
+  const cue = cues.sort((a, b) => b.weight - a.weight || a.time - b.time)[0];
+  if (cue) return cue;
+  return (ctx.speech ?? []).map((entry) => entry.change).filter((change) => Number.isFinite(change?.time)).sort((a, b) => a.time - b.time)[0] ?? null;
 }
 
-/** Whether a voice (a spoken word or a song's vocal) starts before `time`: true or false, or null when a sound's voice is not known. */
-function voiceBefore(ctx, time) {
+/** Whether a clip's own speech (a heard word, not a song) starts before `time`: true or false, or null when a heard clip has no transcript yet. */
+function speechBefore(ctx, time) {
   const scene = ctx.speechScene ?? ctx.scene;
   let unknown = false;
   for (const entry of ctx.speech ?? []) {
-    let starts = [];
-    if (entry.music) {
-      if (Array.isArray(entry.voice)) starts = entry.voice.map((span) => span[0]); else unknown = true;
-    } else if (entry.transcript?.words && scene) {
-      starts = speechWords(scene, [entry.layer], entry.transcript).filter((word) => !word.unclear).map((word) => word.start);
-    } else if (entry.missing) unknown = true;
-    if (starts.some((start) => start < time)) return true;
+    if (entry.music) continue;
+    if (entry.missing) { unknown = true; continue; }
+    if (!entry.transcript?.words || !scene) continue;
+    if (speechWords(scene, [entry.layer], entry.transcript).some((word) => !word.unclear && word.start < time)) return true;
   }
   return unknown ? null : false;
 }
@@ -172,17 +176,27 @@ export async function referenceRange(model, ctx) {
     });
   }
 
-  // A voice before the loudest change of the music: the references' majority has one, the edit none.
+  // A voice before the loudest change of the music: most references have one, and no clip's own
+  // speech plays there in the edit (the song's singer does not count: the edit's voice is its
+  // footage's). A reference's voice is whisper's, which hears singing and speech alike.
   const change = loudestChange(ctx);
   const voice = ranges.voice;
-  if (change && voice.n >= RANGE_REFS && voice.before / voice.n > VOICE_MAJORITY && voiceBefore(ctx, change.time) === false) {
-    const example = voice.example;
+  if (change && voice.pending) {
+    ctx.note?.(`reference_range: ${voice.pending} saved reference${voice.pending === 1 ? " is" : "s are"} not measured yet for a voice before the loudest change (measuring in the background); the next check includes it.`);
+  } else if (change && voice.n >= RANGE_REFS && voice.before / voice.n > VOICE_MAJORITY && speechBefore(ctx, change.time) === false) {
+    const at = near(change.time);
+    const lines = ctx.clipLines ?? [];
+    const line = lines.find((entry) => entry.from < change.time) ?? lines[0];
+    const shown = lines.slice(0, 3).map((entry) => `${entry.layer} "${entry.text.replaceAll('"', "'")}" ${entry.from}-${entry.to} s`).join(" · ");
+    const fix = line
+      ? `Your clips say ${shown}: keep one before ${at} s, edit {ops:[{op:"keep_line", layer:"${line.layer}", line:${JSON.stringify(line.text)}}]}`
+      : `No clip kino transcribed says a line: find one, library {topic:"footage", search:"<a spoken line>"}`;
     findings.push({
       rule: "reference_range", severity: "warn", at: change.time,
-      measured: `no voice before the loudest change (${near(change.time)} s)`,
-      required: `${voice.before} of your ${voice.n} references with one have a voice before theirs (${example.id} at ${near(example.at)} s)`,
-      message: `${scene} has no voice before its loudest change at ${near(change.time)} s; ${voice.before} of ${voice.n} saved references have one before theirs.`,
-      fix: { kind: "hint", text: `Let a clip's spoken line play before ${near(change.time, 0)} s (look {mode:"source"} on it, then volume up), or keep it silent: ${waive}.` },
+      measured: `no clip's own speech plays before the loudest change at ${at} s`,
+      required: `${voice.before} of ${voice.n} references have a voice there (sung or spoken; ${voice.example.id} at ${near(voice.example.at)} s)`,
+      message: `${scene}: no clip's own speech plays before the loudest change at ${at} s; ${voice.before} of ${voice.n} saved references have a voice there (whisper hears singing and speech alike).`,
+      fix: { kind: "hint", text: `${fix}, or keep the song alone: ${waive}.` },
     });
   }
   return findings;

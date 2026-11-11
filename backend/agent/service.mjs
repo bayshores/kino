@@ -432,7 +432,7 @@ export function createAgentService(deps) {
     // screen_unreadable: a video measured before kino read its picture facts gets them once.
     videoFacts: deps.videoFacts ?? null,
     // reference_drift: the project's saved Inspire references, measured like a render.
-    references: deps.inspire ? (projectId) => deps.inspire.savedFingerprints(projectId) : null,
+    references: deps.inspire ? (projectId, options) => deps.inspire.savedFingerprints(projectId, options) : null,
     // reference_closeness: the saved references' lent cuts (an edit must not copy their order).
     rhythms: deps.inspire?.savedRhythms ? (projectId) => deps.inspire.savedRhythms(projectId) : null,
     // seen_before: what kino rendered in other projects (house-memory.mjs).
@@ -675,13 +675,12 @@ export function createAgentService(deps) {
       const file = mediaFileOf(layer);
       return make ? loudnessCurves.get(file) : loudnessCurves.saved(file);
     };
-    // A song's vocal spans (.song file, never a new measure): reference_range asks whether a voice plays before the loudest change.
-    const voiceOf = async (layer) => {
-      const shape = await songShapes.saved?.(mediaFileOf(layer));
-      return shape?.vocals === "whisper" && Array.isArray(shape.voice) ? shape.voice : null;
-    };
+    // A song's saved shape (.song file, never a new measure): reference_range reads its loudest change.
+    const songOf = async (layer) => (await songShapes.saved?.(mediaFileOf(layer))) ?? null;
+    // The lines the clips say (saved transcripts only), heard or muted: reference_range names them.
+    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, text, from, to }) => ({ layer, text, from, to }));
     const asks = askedItems(saved);
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, voiceOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
@@ -4572,25 +4571,33 @@ export function createAgentService(deps) {
   // none says a line, or when these lines were already named (state.linesNamed). Otherwise
   // {text, key}: the line to say once, with the call that keeps one. A layer not at speed 1 is only
   // counted (keep_line refuses it). The song alone stays a valid choice: no finding, no next call.
-  async function linesToName(document, codes, state) {
-    const scene = videoScene(document);
-    if (!scene) return null;
-    const heardBy = [];
-    const slowed = [];
+  // The lines the scene's clips say within the stretch each plays, from saved transcripts only:
+  // [{layer, src, text, from, to (scene s), heard (the layer is not at volume 0), slowed}].
+  async function sceneLines(scene, document, codes) {
+    const found = [];
     for (const layer of scene.layers) {
       if ((layer.type !== "video" && layer.type !== "audio") || !layer.src || layer.enabled === false) continue;
       const lines = await savedLinesOf(layer.src, document, 3);
-      if (!lines.length) continue;
-      // The same predicate as the speech checks (quality.mjs heardSpeech): a layer at volume 0 is not heard.
-      if (Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to)) return null;
-      const range = mediaPlaybackRange(layer, scene.duration);
+      const range = lines.length ? mediaPlaybackRange(layer, scene.duration) : null;
       if (!range) continue;
+      // The same predicate as the speech checks (quality.mjs heardSpeech): a layer at volume 0 is not heard.
+      const heard = Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to);
       for (const line of lines) {
         if (line.start < range.offset - 1e-6 || line.end > range.offset + range.duration + 1e-6) continue;
         const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
-        (isRemapped(layer) ? slowed : heardBy).push({ layer: refName(layer.id, codes), src: layer.src, text: line.text, from: at(line.start), to: at(line.end) });
+        found.push({ layer: refName(layer.id, codes), src: layer.src, text: line.text, from: at(line.start), to: at(line.end), heard, slowed: isRemapped(layer) });
       }
     }
+    return found.sort((a, b) => a.from - b.from);
+  }
+
+  async function linesToName(document, codes, state) {
+    const scene = videoScene(document);
+    if (!scene) return null;
+    const lines = await sceneLines(scene, document, codes);
+    if (lines.some((line) => line.heard)) return null;
+    const heardBy = lines.filter((line) => !line.slowed);
+    const slowed = lines.filter((line) => line.slowed);
     if (!heardBy.length && !slowed.length) return null;
     heardBy.sort((a, b) => a.from - b.from);
     const key = createHash("sha256").update(JSON.stringify([...heardBy, ...slowed].map((line) => [line.src, line.text]))).digest("hex").slice(0, 16);

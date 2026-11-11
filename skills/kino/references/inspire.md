@@ -100,8 +100,8 @@ frame strips · Proposing ideas · Sound effects
 - Strips are kept around cuts, motion peaks and each suggested line's time (24 at most).
 - With saved references, a full check runs `reference_drift` in the background (the next check has
   it): text far from theirs, or alone on a plain frame over twice theirs, warns; motion advises.
-- A full check runs `reference_range` too: brightness, dark share, text entrances and a voice
-  before the loudest change against theirs (an older one needs `measure` for its voice).
+- A full check runs `reference_range` too: brightness, dark share, text entrances, and a clip's
+  own speech before the loudest change where theirs have a voice (an older one is heard later).
 
 ```json
 {"tool":"library","topic":"inspire","name":"yt:tgEWNHVbk3U"}

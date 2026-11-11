@@ -1745,19 +1745,47 @@ export function createInspire(deps) {
     return record?.strips?.length ? { folder: stripsOf(id), strips: record.strips } : null;
   }
 
+  // A reference measured before `heard` existed gets it once, when a full check first asks: one at
+  // a time, in the background (the same small download and heard() as a measure), never for every
+  // project at launch. A failure leaves it out (never guessed) and is not tried again this run.
+  const heardTried = new Set();
+  const heardPending = new Set();
+  let heardChain = Promise.resolve();
+  function measureHeardLater(record) {
+    if (heardTried.has(record.id) || !heavy.heard || !heavy.download) return;
+    heardTried.add(record.id);
+    heardPending.add(record.id);
+    heardChain = heardChain.then(async () => {
+      const folder = path.join(workRoot, `${record.id.slice(3)}-heard-${randomUUID().slice(0, 8)}`);
+      try {
+        await start();
+        await mkdir(folder, { recursive: true, mode: 0o700 });
+        const file = await heavy.download(record.id.slice(3), folder, {});
+        const heard = await heavy.heard(file, { seconds: record.seconds, bpm: record.bpm ?? null });
+        const kept = await load(record.id);
+        if (kept && heard) { kept.heard = heard; await save(kept); }
+      } catch { /* left out */ } finally {
+        heardPending.delete(record.id);
+        await rm(folder, { recursive: true, force: true }).catch(() => {});
+      }
+    });
+  }
+
   /**
    * The fingerprints of a project's saved references that have one, with their feature prints:
-   * [{id, title, fingerprint, prints, heard?}] (for the reference_drift and reference_range checks).
+   * [{id, title, fingerprint, prints, heard?, heardPending?}] (for the reference_drift and
+   * reference_range checks). heardLater: measure a missing `heard` in the background.
    */
-  async function savedFingerprints(projectId) {
+  async function savedFingerprints(projectId, { heardLater = false } = {}) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
     const found = [];
     for (const id of state.saved) {
       const record = await load(id);
       if (!record?.fingerprint) continue;
+      if (heardLater && !record.heard) measureHeardLater(record);
       let prints = [];
       try { prints = JSON.parse(await readFile(fileOf(id, "prints.json"), "utf8")); } catch { /* none kept */ }
-      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: record.fingerprint, prints, ...(record.heard ? { heard: record.heard } : {}) });
+      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: record.fingerprint, prints, ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
     }
     return found;
   }
