@@ -676,7 +676,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, sourceLooks = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -754,6 +754,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // brief's plays_on line): ask_unmet and shape_guess. ownFootage and foundTitles are what kino
       // recorded about the clips: the person's own, and the titles of the ones it found.
       ...(origin ? { origin } : {}), ...(playsOn ? { playsOn } : {}),
+      // The source looks the agent made {layerId: {src, at}}: a mark counts only after one (narrow_window, crop_no_subject).
+      ...(sourceLooks ? { sourceLooks } : {}),
       ownFootage: Boolean(media.ownFootage), foundTitles: media.foundTitles ?? [],
       // The marker cues: music or story turns where pacing_jump lets the cut rate change.
       cues: markerCues(document),
@@ -800,7 +802,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
    * that check. `unchecked` lists the IDs of the scenes whose rendered rules did not run, so a
    * count can say what it leaves out; it stays empty when this checker cannot render at all.
    */
-  async function check(document, { fonts, codes, sceneId = null, pixels = false, listen = true, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, songOf = null, clipLines = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
+  async function check(document, { fonts, codes, sceneId = null, pixels = false, listen = true, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, songOf = null, clipLines = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null, sourceLooks = null } = {}) {
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
@@ -832,7 +834,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // Stale waivers are judged only when every rule had what it measures (media sizes, transcripts, people, drift).
     let measuredAll = !media.pending;
     // What shape_guess and ask_unmet read besides the document: part of each scene's key.
-    const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles]);
+    const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles, sourceLooks]);
     // The story spine is the video's: only its scene is held to it (a format variant or a
     // component scene has other layers and times). The rest of the style spec counts everywhere.
     // The idea's signature ranges are the video's too (signature_missing).
@@ -859,7 +861,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
       // A rule without its input (a transcript, the people found) finds nothing: no waiver is judged stale then.
       if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
-      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, people, soundSearch, media, isVideo, origin, playsOn, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
       if (pending) measuredAll = false;
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);

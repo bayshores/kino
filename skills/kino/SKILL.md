@@ -86,7 +86,7 @@ fields as `key=value`: `kino look frame t=3`.
 - [building-blocks](references/building-blocks.md): compose, recipes, brand, formats; [moves](references/moves.md).
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
 - [media](references/media.md): imports, cuts, speed, syncing, B-roll; [recording](references/recording.md).
-- [framing](references/framing.md): 9:16 crops; [screens](references/screens.md): UI shots; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
+- [framing](references/framing.md): crops and marks; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
 - [sound](references/sound.md): ducking, voice; [library](references/sound-library.md): SFX, music.
 - [color](references/color.md): grades; [cutout](references/cutout.md): subject cut-outs, track, pin.

@@ -7,7 +7,8 @@
 //   subjectBoxes: { src, boxes: [{ at, box: [x, y, w, h], by: "agent" }] }
 // where `at` is seconds into the file (not the scene), so a box stays on its moment of the
 // footage when the clip is moved or sped up. `src` is the file the boxes were marked on: after
-// replace_media they belong to another file and are not used.
+// replace_media they belong to another file and are not used. A box may also carry `part`
+// (1-30 characters, "eyes"): a deliberate part crop such as an eye strip.
 import { evaluateLayer } from "./animation.js";
 import { inverse, point, worldMatrix } from "./geometry.js";
 
@@ -49,7 +50,9 @@ export function normalizeSubjectBoxes(value, path, layerType) {
     const box = subjectBox(entry.box);
     if (!box) fail(`${label}.box`, "must be [x, y, w, h] in % of the source frame: x and y 0 or more, w and h above 0, x + w and y + h at most 100");
     if (entry.by !== "agent") fail(`${label}.by`, 'must be "agent"');
-    return { at: round(entry.at, 3), box, by: "agent" };
+    const part = entry.part;
+    if (part !== undefined && (typeof part !== "string" || part.length < 1 || part.length > 30)) fail(`${label}.part`, "must be 1-30 characters naming the part marked (eyes)");
+    return { at: round(entry.at, 3), box, by: "agent", ...(part ? { part } : {}) };
   });
   return { src: value.src, boxes: boxes.sort((a, b) => a.at - b.at) };
 }

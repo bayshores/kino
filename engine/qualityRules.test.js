@@ -12,6 +12,7 @@ import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { RULES, blocksFinal, ruleOf, runQuality } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
+import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
 import { judderBlurId } from "./quality/techniques.js";
 
 // ---------------------------------------------------------------- builders
@@ -1688,7 +1689,10 @@ const tall = (layer = TALL_CROP) => scene({ width: 1080, height: 1920, duration:
 const keeperSizes = { [TALL_CROP.src]: { width: 1920, height: 1080 } };
 // Face boxes in % of the file, as the detector's samples (fractions) every half second.
 const facesFound = (...boxes) => ({ [TALL_CROP.src]: { samples: [0, 0.5, 1, 1.5, 2].map((t) => ({ t, faces: boxes.map((box) => box.map((value) => value / 100)), people: [] })) } });
-const cropRun = (code, document, people) => check(code, document, { scene: document.scenes[0], mediaSizes: keeperSizes, ...(people ? { people } : {}) });
+const cropRun = (code, document, people, sourceLooks) => check(code, document, { scene: document.scenes[0], mediaSizes: keeperSizes, ...(people ? { people } : {}), ...(sourceLooks ? { sourceLooks } : {}) });
+// The keeper marked at 0, 1 and 2 s of its file (a mark inside the 9:16 window), with an optional part.
+const keeperMarked = (box, extra = {}) => tall({ ...TALL_CROP, subjectBoxes: { src: TALL_CROP.src, boxes: [0, 1, 2].map((at) => ({ at, box, by: "agent", ...extra })) } });
+const keeperLooked = { keeper: { src: TALL_CROP.src, at: [1] } };
 
 test("crop_no_subject: a face found whole in the file and cut by the crop is a gate; a filmed strip is not", async () => {
   const [cut] = (await cropRun("crop_no_subject", tall(), facesFound([20, 30, 15, 25]))).findings;
@@ -1743,6 +1747,52 @@ test("narrow_window: a window under 40% of the file's width where no face was fo
   assert.deepEqual((await cropRun("narrow_window", tall(), facesFound([45, 30, 10, 25]))).findings, []);
   const wide = scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] });
   assert.deepEqual((await cropRun("narrow_window", wide)).findings, []);
+  // Nothing marked: the message says to look, mark, then frame_shot, and offers no waiver.
+  assert.match(narrow.message, /^"keeper" shows 32% of its file's width at 0 s and kino cannot see faces here: look \{mode:"source", layer:"keeper", t:1\}, mark what the shot is about \(mark_subject; part:"eyes" for a deliberate strip\), then frame_shot crops on it\.$/);
+  assert.doesNotMatch(`${narrow.message} ${narrow.fix.text}`, /waive_check/);
+  // A mark the window keeps clears it once the agent looked at the shot (a part mark the same); unlooked it warns.
+  assert.deepEqual((await cropRun("narrow_window", keeperMarked([45, 20, 20, 60]), null, keeperLooked)).findings, []);
+  assert.deepEqual((await cropRun("narrow_window", keeperMarked([45, 40, 20, 8], { part: "eyes" }), null, keeperLooked)).findings, []);
+  const unlooked = (await cropRun("narrow_window", keeperMarked([45, 20, 20, 60]))).findings;
+  assert.equal(unlooked.length, 1);
+  assert.match(unlooked[0].message, /never looked at/);
+  // A look of another file, or of another moment, is no look at this shot; a mark the window cuts stays open.
+  assert.equal((await cropRun("narrow_window", keeperMarked([45, 20, 20, 60]), null, { keeper: { src: "/api/media/other.mp4", at: [1] } })).findings.length, 1);
+  assert.equal((await cropRun("narrow_window", keeperMarked([45, 20, 20, 60]), null, { keeper: { src: TALL_CROP.src, at: [9] } })).findings.length, 1);
+  assert.equal((await cropRun("narrow_window", keeperMarked([10, 20, 20, 60]), null, keeperLooked)).findings.length, 1);
+  // Marks left from the file before replace_media (off a sample moment) are not the new file's subject.
+  const replaced = tall({ ...TALL_CROP, subjectBoxes: { src: "/api/media/old.mp4", boxes: [0.4, 1.4].map((at) => ({ at, box: [45, 20, 20, 60], by: "agent" })) } });
+  assert.equal((await cropRun("narrow_window", replaced, null, keeperLooked)).findings.length, 1);
+  assert.equal(cropCounts(replaced.scenes[0], { mediaSizes: keeperSizes, sourceLooks: keeperLooked }).unseen, 1);
+  assert.equal(seenMark(TALL_CROP, keeperLooked, 0.6, 1), true);
+  assert.equal(seenMark(TALL_CROP, keeperLooked, 1.4, 2), true, "0.5 s of reach");
+  assert.equal(seenMark(TALL_CROP, keeperLooked, 1.6, 2), false);
+  assert.equal(seenMark(TALL_CROP, null, 0, 2), false);
+});
+
+test("cropCounts and cropLine: narrow shots are told apart by marks made after a look, part marks and marks never looked at", () => {
+  const options = (sourceLooks) => ({ mediaSizes: keeperSizes, ...(sourceLooks ? { sourceLooks } : {}) });
+  const seen = cropCounts(keeperMarked([45, 20, 20, 60]).scenes[0], options(keeperLooked));
+  assert.deepEqual([seen.shots, seen.narrow, seen.seen, seen.parts, seen.unseen], [1, 1, 1, 0, 0]);
+  const unseen = cropCounts(keeperMarked([45, 20, 20, 60]).scenes[0], options());
+  assert.deepEqual([unseen.shots, unseen.narrow, unseen.seen, unseen.parts, unseen.unseen], [1, 1, 0, 0, 1]);
+  const eyes = cropCounts(keeperMarked([45, 40, 20, 8], { part: "eyes" }).scenes[0], options(keeperLooked));
+  assert.deepEqual([eyes.seen, eyes.parts, eyes.partNames], [0, 1, ["eyes"]]);
+  assert.equal(cropLine(seen), "Crops: 1 of 1 shots show under 40% of their file's width: 1 marked after a look.");
+  assert.equal(cropLine({ shots: 25, narrow: 24, seen: 18, parts: 3, unseen: 3, partNames: ["eyes", "hands", "feet", "ears"] }),
+    "Crops: 24 of 25 shots show under 40% of their file's width: 18 marked after a look, 3 part crops (eyes, hands, feet), 3 not looked at.");
+  assert.equal(cropLine(cropCounts(scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] }).scenes[0], options())), "");
+});
+
+test("crop_no_subject: a mark on a file with no faces counts only after a look; faces found leave it as it was", async () => {
+  // Unlooked, nothing found in the file: the mark is a guess, so the arbitrary-crop warning comes.
+  const [guessed] = (await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]))).findings;
+  assert.equal(guessed.severity, "warn");
+  assert.match(guessed.message, /no subject marked \(marked without a look\)/);
+  // Looked at: the mark counts, and the window keeps it.
+  assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), null, keeperLooked)).findings, []);
+  // A face found in the file: the mark counts as before, with no look.
+  assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), facesFound([45, 30, 10, 25]))).findings, []);
 });
 
 test("crop_no_subject replay: a 9:16 crop of 17 16:9 shots flags each whole face it cut, no eye strip", async () => {
