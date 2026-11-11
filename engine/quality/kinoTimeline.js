@@ -321,7 +321,7 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       id: layer.id, name: layer.name ?? layer.id, kind: layer.type === "component" ? "group" : layer.type,
       role: layer.role ?? (layer.componentBackground ? "background" : null),
       perpetual: layer.perpetual === true, sceneCamera: layer.sceneCamera === true, loops: flattenAnimations(layer.animations, { enabledOnly: true }).some(loops),
-      allowOverlap: layer.allowOverlap === true, move: layer.move?.instance ?? null,
+      allowOverlap: layer.allowOverlap === true, blendMode: layer.blendMode ?? "normal", move: layer.move?.instance ?? null,
       // A copy a move lays over your layer to color it (accent-hit, light-sweep): drawn as part of that layer.
       overlay: layer.move?.part === "overlay",
       // The clip this layer was cut out of (cut_out): type between the two stands behind the subject.

@@ -11,7 +11,7 @@
 //   zoom-blur, snow or rgb-shift), and `retimes` (optional) every Speed animation of a clip
 //   (`to` is the speed it reaches; 0 freezes it). The technique finder (techniques.js) reads them.
 // An Item is one thing drawn (a text, shape, image, video or group):
-//   { id, name, kind, role, perpetual, loops, allowOverlap, z, parentId, clipIds, maskId, isMask,
+//   { id, name, kind, role, perpetual, loops, allowOverlap, blendMode, z, parentId, clipIds, maskId, isMask,
 //     text, texts, fontSize, fontWeight, fontFamily, textAlign, letterSpacing, textCase, fill, painted, opaque, sceneBackground,
 //     shadow: {blur, x, y, color} | null, blur, radius, restWidth, restHeight, source, src,
 //     samples: { x0, y0, x1, y1, opacity, scale, blur, textIndex, turn?, colors?, matrix? } }

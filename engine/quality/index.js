@@ -3,6 +3,7 @@
 // Data rules read the model; pixel rules also render frames (ctx.renderFrames).
 import { contrast, flashing } from "./pixels.js";
 import { frozenPicture, lumaJump } from "./motionPixels.js";
+import { coveredLayer } from "./rules/covered.js";
 import { accentStripe, cardGrid, centeredRun, glowBlobPill, overlap, safeZone } from "./rules/layout.js";
 import { defaultFont, gradientBanding, gradientText, neonOnDark, pureFrame } from "./rules/look.js";
 import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, judder, linearMotion, sameMotion, speedJump, springOnFade, staggerLong, staggerOrder } from "./rules/motion.js";
@@ -65,6 +66,7 @@ export const RULES = [
   rule("rejected_text", "error", rejectedText, "no on-screen text (one layer, or two shown together) nearly saying what the person turned down (style.rejected; case, punctuation and spelled numbers ignored)"),
   rule("overlay_covers_subject", "error", overlayCoversSubject, "a layer over footage covers at most 30% of the marked subject for 0.5 s (full-clip frames and scrims aside); a gate for an opaque layer or caption over its middle (auto: moved aside), a warning for light tints and big type; unmarked, a warning over a found face or raised hands"),
   rule("out_of_sync", "error", outOfSync, "a line heard from one file over the picture (25% of the frame) of a file filmed with it (sync_clips) is from the same moment, within 0.25 s; J or L cuts under 1 s and slowed or reversed clips pass; the fix retimes the picture's mediaOffset (auto when nothing else depends on it)"),
+  rule("covered_layer", "warn", coveredLayer, "a layer that its own timing and opacity put on screen is not hidden all that time by an opaque layer above it (a flash or fade added before the footage sits under it and never shows); the fix moves it above the layer that covers it (auto for a full-frame overlay: a flash, a fade to black, a tint or vignette)"),
   rule("text_wrap", "warn", textWrap, "a 1-word title does not wrap and punctuation is never alone on a line (both errors); a 2 or 3 word title that wraps, and a one-word last line under a long line, are warnings"),
   rule("clip_reuse", "warn", clipReuse, "with 4+ clips, one clip fills the frame under 4 times and at most 35% of the video"),
   rule("crop_no_subject", "warn", cropNoSubject, "footage filling the frame and drawn past it (over 8% of the file cut off on a side) has a subject marked (mark_subject); a marked subject less than 85% in the frame is an error"),

@@ -344,6 +344,13 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
   };
   const copyHint = (item) => `${refOfItem(item, model, codes)} is a copy of a component; change it in the component's scene (${refName(item.source.sceneId, codes)}).`;
   if (fix.kind === "hint") return { fix: fix.text, auto: false };
+  // A layer hidden under another (covered_layer): move it right above the layer that covers it.
+  if (fix.kind === "reorder") {
+    const [item, cover] = [itemOf(fix.itemId), itemOf(fix.aboveId)];
+    const [found, over] = [sourceLayer(document, item), sourceLayer(document, cover)];
+    if (!found || !over || item.source.componentPath || cover.source.componentPath) return { fix: item ? `Move ${refOfItem(item, model, codes)} above ${refOfItem(cover, model, codes)} in the layer order.` : undefined, auto: false };
+    return { fix: { op: "move_layers", ...sceneField(found.scene.id), layerIds: [refName(found.layer.id, codes)], position: "above", referenceId: refName(over.layer.id, codes) }, auto: Boolean(fix.auto) };
+  }
   // A layer of the scene itself, by its ID (speech_cut: audio layers are not model items).
   if (fix.kind === "layer") return { fix: { op: "update_layer", layerId: refName(fix.layerId, codes), properties: fix.properties }, auto: Boolean(fix.auto) };
   if (fix.kind === "tween" || fix.kind === "tweens") {

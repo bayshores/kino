@@ -2,7 +2,8 @@
 // wipe change reveal), so a title that leaves with preset-blur stays there, blurred, and the next
 // title is drawn over it. While making the smokescreen promo the check said only "overlaps from
 // 0s to 20s". Now the overlap names the exit that does not fade, and check {fix:"auto"} adds a
-// preset-fade with the same timing. Runs on a real server with a temporary data folder.
+// preset-fade with the same timing. The last test: a flash under a layer added after it (covered_layer)
+// is moved above it by the auto fix. Runs on a real server with a temporary data folder.
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { startTestServer } from "./media.test.support.mjs";
@@ -86,4 +87,30 @@ test("a blur entrance that waits on screen loses its blur and fades in plainly (
     assert.match(second.text, /preset fade opacity 0→1 2\.6s/, second.text);
     assert.doesNotMatch(second.text, /blur/i, second.text);
   }
+});
+
+test("a flash drawn under footage added after it is reported, and check {fix:\"auto\"} moves it above", async () => {
+  // The order an agent built: the flash first, then a full-frame layer, which covers it all its time.
+  await agent("project", { action: "create", id: "buried", name: "Buried", width: 1920, height: 1080, duration: 4, background: "#101010" });
+  const full = { x: 0, y: 0, width: 1920, height: 1080 };
+  const made = await agent("edit", { project: "buried", ops: [
+    { op: "add_layer", layerType: "rectangle", name: "flash", properties: { ...full, fill: "#ffffff" },
+      animations: [{ preset: "preset-fade", start: 1, duration: 0.1 }, { preset: "preset-fade", mode: "out", start: 1.1, duration: 0.3 }] },
+    { op: "add_layer", layerType: "rectangle", name: "ground", properties: { ...full, fill: "#224466" } },
+  ] });
+  assert.equal(made.isError, undefined, made.text);
+  const order = async () => (await (await server.api("/api/projects/buried")).json()).document.scenes[0].layers.map((layer) => layer.name);
+  assert.deepEqual(await order(), ["flash", "ground"]);
+
+  const first = await agent("check", { project: "buried", pixels: false });
+  const [finding] = first.data.findings.filter((entry) => entry.rule === "covered_layer");
+  assert.ok(finding, first.text);
+  assert.match(finding.message, /flash never shows: ground is drawn over it/, finding.message);
+  assert.equal(finding.auto, true, JSON.stringify(finding));
+  assert.deepEqual([finding.fix.op, finding.fix.position], ["move_layers", "above"]);
+
+  const fixed = await agent("check", { project: "buried", fix: "auto", pixels: false });
+  assert.equal(fixed.isError, undefined, fixed.text);
+  assert.deepEqual(await order(), ["ground", "flash"]);
+  assert.deepEqual(fixed.data.findings.filter((entry) => entry.rule === "covered_layer"), [], fixed.text);
 });

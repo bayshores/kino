@@ -1727,6 +1727,43 @@ test("request_unmet: quoted words, music and 'no logo' are checked against the e
   await silent("request_unmet", doc, { scene: doc.scenes[0], asks: asks.slice(0, 1) });
 });
 
+// ---------------------------------------------------------------- covered_layer
+
+const FULL = { x: 0, y: 0, width: 1920, height: 1080 };
+const footage = (id, props = {}) => ({ type: "video", id, name: id, src: `/api/media/${id}.mp4`, ...FULL, start: 0, duration: 4, mediaStart: 0, mediaDuration: 4, mediaSourceDuration: 20, ...props });
+const flash = (id = "flash", props = {}) => rect(id, { ...FULL, fill: "#ffffff", animations: [fadeIn(1, 0.1), fadeOut(1.1, 0.3)], ...props });
+
+test("covered_layer: a flash or fade under footage added after it never shows, and an overlay is moved above it", async () => {
+  // The agent's order: the flash and the fade first, the footage added later (so drawn above them).
+  const bad = scene({ layers: [flash(), rect("fade", { ...FULL, fill: "#000000", animations: [fadeIn(3, 0.8)] }), footage("a", { duration: 2 }), footage("b", { start: 2, duration: 2, mediaStart: 2 })] });
+  const found = await fires("covered_layer", bad);
+  assert.deepEqual(found.map((finding) => [finding.itemId, finding.otherId, finding.fix.auto]), [["flash", "a", true], ["fade", "b", true]]);
+  assert.match(found[0].message, /"flash" never shows: "a" is drawn over it .*\(1\.03s to 1\.37s\)/);
+  assert.deepEqual([found[0].fix.kind, found[0].fix.itemId, found[0].fix.aboveId], ["reorder", "flash", "a"]);
+  // A tint, a vignette: clear somewhere, so the footage over it is the finding, and it is an overlay too.
+  const tint = scene({ layers: [rect("tint", { ...FULL, fill: "#ff880033", animations: [fadeIn(1, 0.3)] }), footage("a")] });
+  assert.equal((await fires("covered_layer", tint))[0].fix.auto, true);
+  // A plate that stays, or a small card, under footage is told to the agent, not moved.
+  const plate = scene({ layers: [rect("plate", { ...FULL, fill: "#222222" }), rect("card", { width: 300, height: 200 }), footage("a")] });
+  const plain = await fires("covered_layer", plate);
+  assert.deepEqual(plain.map((finding) => [finding.itemId, finding.fix.auto]), [["plate", false], ["card", false]]);
+});
+
+test("covered_layer: stays quiet on a cut, a partial cover, a clear cover, a blend and the fixed order", async () => {
+  // A video replaced by the next on a cut (they never overlap in time), with the flash on the cut above both.
+  await silent("covered_layer", scene({ layers: [footage("a", { duration: 2 }), footage("b", { start: 2, duration: 2, mediaStart: 2 }), flash("flash")] }));
+  // The flash shows before the footage starts (and above the layer order it would be hidden in).
+  await silent("covered_layer", scene({ layers: [flash(), footage("a", { start: 1.2, duration: 2.8, mediaStart: 1.2 })] }));
+  // A background that sticks out under smaller footage, and a card half under it.
+  await silent("covered_layer", scene({ layers: [rect("bg", { ...FULL, fill: "#222222" }), rect("card", { x: 900, y: 400, width: 600, height: 300 }), footage("a", { x: 0, y: 0, width: 1200, height: 700 })] }));
+  // Under footage at 80%, under a blended layer, and under an image with edges to spare.
+  await silent("covered_layer", scene({ layers: [flash(), footage("a", { opacity: 0.8 })] }));
+  await silent("covered_layer", scene({ layers: [flash(), footage("a", { blendMode: "screen" })] }));
+  await silent("covered_layer", scene({ layers: [flash(), { type: "image", id: "pic", name: "pic", src: "/api/media/pic.png", x: 100, y: 100, width: 800, height: 600 }] }));
+  // The scene's own background under footage is the normal case, and a flash in the right order too.
+  await silent("covered_layer", scene({ layers: [footage("a"), flash()] }));
+});
+
 // ---------------------------------------------------------------- coverage
 
 test("every data rule has a bad and a good example above", () => {
