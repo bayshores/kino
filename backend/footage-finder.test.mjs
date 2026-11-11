@@ -1034,11 +1034,14 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   const agentState = createAgentStateStore(dataRoot);
   await agentState.update("anime-edit", (draft) => { draft.footage = addCandidates(null, [found(1), found(2)]); draft.footage.candidates[0].scan = { id: "yt-vvvvvvvvvv1", shots: 1 }; });
   const taken = [];
-  const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }] }),
+  const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }, { n: 5, start: 32, end: 34 }] }),
     captions: async () => ({ lang: "en", auto: false, lines: [{ start: 0.2, end: 1.5, text: "Hold on." }] }),
-    take: async (candidate, pieces, { projectId }) => { taken.push([candidate.code, pieces.map((piece) => piece.n), projectId]); return { media: [{ id: "m1.mp4", src: "/api/media/m1.mp4", duration: 2, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot: 4 } }], failed: [] }; } };
+    take: async (candidate, pieces, { projectId }) => { taken.push([candidate.code, pieces.map((piece) => piece.n), projectId]); return { media: pieces.map((piece) => ({ id: `m${piece.n}.mp4`, src: `/api/media/m${piece.n}.mp4`, duration: 2, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot: piece.n } })), failed: [] }; } };
+  // A stand-in whisper and loudness: a clip the captions say nothing about is heard in its own sound.
+  const heardWords = { words: [{ text: "Wait", start: 0.3, end: 0.6, p: 0.9 }, { text: "here.", start: 0.6, end: 1.1, p: 0.9 }] };
   const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
-    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder });
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder,
+    transcripts: { get: async () => heardWords, saved: async () => null }, footageCache: { sound: async () => ({ loud: -20 }) } });
   const importing = (input) => service.call("project", { project: "anime-edit", action: "import", ...input });
   const bare = await importing({ file: "F2" });
   assert.equal(bare.isError, true);
@@ -1050,8 +1053,14 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   assert.equal(imported.isError, undefined, imported.text);
   assert.deepEqual(taken, [["F1", [4], "anime-edit"]]);
   assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\)/);
-  assert.match(imported.text, /^F1\.4 2s 1920×1080 \/api\/media\/m1\.mp4 says "Hold on\." 0\.2-1\.5 s$/m);
+  assert.match(imported.text, /^F1\.4 2s 1920×1080 \/api\/media\/m4\.mp4 says "Hold on\." 0\.2-1\.5 s$/m);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
+  // No captions: the clip's own sound is read at import (its file is in the media folder).
+  finder.captions = async () => null;
+  await mkdir(path.join(dataRoot, "media"), { recursive: true });
+  await writeFile(path.join(dataRoot, "media", "m5.mp4"), "clip");
+  const heard = await importing({ file: "F1", options: { shots: [5] } });
+  assert.match(heard.text, /^F1\.5 2s 1920×1080 \/api\/media\/m5\.mp4 heard "Wait here\." 0\.3-1\.1 s$/m);
 });
 
 test("a slow import answers with a repeat call, and the repeat joins it: one download, the seconds counted once", async (t) => {

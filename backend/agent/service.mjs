@@ -485,11 +485,11 @@ export function createAgentService(deps) {
   const transcripts = {
     /** The transcript of `file` (the sound `layer` of `document` plays), made when there is none. */
     get: async (file, document, layer) => (await isSoundEffect(file)) ? effectTranscript() : transcriptCache.get(file, { names: (await namesOf(document, layer)).names }),
-    /** The saved one, or null: never transcribes. */
-    saved: transcriptCache.saved ? async (file, document, layer) => {
+    /** The saved one, or null: never transcribes. `any`: one heard with older names counts too. */
+    saved: transcriptCache.saved ? async (file, document, layer, { any = false } = {}) => {
       if (await isSoundEffect(file)) return effectTranscript();
       const { names, pinned } = await namesOf(document, layer);
-      return transcriptCache.saved(file, { names, exact: pinned });
+      return transcriptCache.saved(file, { names, exact: pinned, any });
     } : undefined,
   };
   // compose {footage}: each clip's faces, motion and text, and each sound's loudness, kept beside the file.
@@ -4543,7 +4543,9 @@ export function createAgentService(deps) {
     try {
       if (!existsSync(file) || await isMusicFile(file)) return [];
       const layer = { src };
-      return clipLines(make ? await transcripts.get(file, document, layer) : await transcripts.saved?.(file, document, layer), { most });
+      // A transcript heard before the brief's names changed still says what the clip says.
+      const saved = await transcripts.saved?.(file, document, layer, { any: true });
+      return clipLines(saved ?? (make ? await transcripts.get(file, document, layer) : null), { most });
     } catch { return []; }
   }
 
