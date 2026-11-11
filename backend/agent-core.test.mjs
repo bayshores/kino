@@ -308,6 +308,16 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   });
   for (const code of ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler", "no_music", "av_offset", "narrow_window"])
     assert.equal(send({ code, target: code === "narrow_window" ? "shot-1" : "*" }).length, 1, code);
+  // A waiver of a per-layer rule on "*" or on every layer is allowed; the receipt notes say how many layers it covers
+  // (per-layer findings of checks.mjs count too; a whole-video gate does not).
+  resolver.fixes.length = 0;
+  resolver.notes.length = 0;
+  send({ code: "overlap", target: "*" });
+  send({ code: "overlap", target: "shot-1" });
+  send({ code: "review", target: "*" });
+  send({ code: "off_canvas", target: "*" });
+  assert.deepEqual(resolver.notes, ["waive_check overlap covers 3 layers", "waive_check off_canvas covers 3 layers"]);
+  assert.deepEqual(resolver.fixes, []);
 });
 
 test("translate errors name the operation's number and offer close names", () => {

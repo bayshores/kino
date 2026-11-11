@@ -34,6 +34,8 @@ export class OperationError extends Error {
     this.index = index;
     this.type = operation?.op ?? operation?.type ?? null;
     this.suggestions = error.suggestions ?? [];
+    // A refused waiver: its code and the video layers it named (the service offers the fix for them).
+    if (error.waive) this.waive = error.waive;
     // One op that works instead (null: the op's usual example), sent with the refusal.
     if (error.example !== undefined) this.example = error.example;
     // No example at all: no op would do what was sent (an empty one would change nothing).
@@ -70,7 +72,8 @@ export const SUBJECT_WAIVERS = new Set(["head_cut_off", "narrow_window"]);
 // Waiver codes that are not rules in the registry: the gates (review.mjs, viewer.mjs, needs.mjs,
 // brief.mjs, critique.mjs, footage-finder/step.mjs, service.mjs REFERENCE_WAIVER) and the findings
 // of checks.mjs and av-offset.mjs.
-const WAIVER_GATES = ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler",
+const WHOLE_VIDEO_GATES = ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler"];
+const WAIVER_GATES = [...WHOLE_VIDEO_GATES,
   "missing_media", "empty_text", "off_canvas", "past_scene_end", "missing_font", "missing_glyphs", "av_offset"];
 // Rules another chain adds to the registry (engine/quality/index.js): known by name before they land.
 const NEW_RULE_CODES = ["shape_guess", "narrow_window", "ask_unmet"];
@@ -653,6 +656,26 @@ function nameAnimation(operation, resolver) {
 }
 
 // Names and codes become IDs, in place.
+// A refused waiver, with its code and the video layers it named (a layer, a list, a glob, "*", or
+// the layers of a scene), as layer IDs. The service answers with the fix for them.
+function refusedWaiver(error, operation, resolver, document) {
+  const ids = new Set();
+  for (const ref of [operation.target].flat()) {
+    if (typeof ref !== "string") continue;
+    try {
+      if (/[*?]/.test(ref)) resolver.matchAll(ref, "layer").forEach((id) => ids.add(id));
+      else ids.add(resolver.resolve(ref, "layer"));
+    } catch {
+      try {
+        const sceneId = resolver.resolve(ref, "scene");
+        (document?.scenes ?? []).find((scene) => scene.id === sceneId)?.layers.forEach((layer) => ids.add(layer.id));
+      } catch { /* a name that is neither: nothing to offer for it */ }
+    }
+  }
+  const layers = [...ids].filter((id) => resolver.layerTypeOf(id) === "video");
+  return Object.assign(error, { waive: { code: operation.code, layers } });
+}
+
 function resolveReferences(operation, type, resolver, document) {
   const resolve = (value, kind, hint) => resolver.resolve(value, kind, hint);
   let sceneHint = null;
@@ -722,15 +745,15 @@ function resolveReferences(operation, type, resolver, document) {
     const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
     const own = PERSON_WORDS_ABOUT[operation.code];
     if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 4)
-      throw new Error(`${operation.code} is ${own ? `about ${own.about}` : "what viewers see"}: fix it (${own ? own.fix : `its finding's fix, or check {fix:"auto"}`}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.`);
+      throw refusedWaiver(new Error(`${operation.code} is ${own ? `about ${own.about}` : "what viewers see"}: fix it (${own ? own.fix : `its finding's fix, or check {fix:"auto"}`}), do not waive it. Only the person can keep it: when they asked for it in their own words, send waive_check with quote (their words about this, word for word; "your call" is not one) and the layers it covers.`), operation, resolver, document);
     if (targetsStar)
-      throw new Error(`waive_check ${operation.code} names the layers the person kept, not target:"*".`);
+      throw refusedWaiver(new Error(`waive_check ${operation.code} names the layers the person kept, not target:"*".`), operation, resolver, document);
     operation.reason = `${String(operation.reason ?? "").trim() || "the person kept it"} (the person: "${quote.slice(0, 200)}")`;
   }
   // A face cut by the frame can be meant (a feet shot), so these stay waivable by the agent, one
   // layer at a time: a waiver on "*" or a scene would cover shots nobody looked at (scenes: below).
   if (type === "waive_check" && SUBJECT_WAIVERS.has(operation.code) && targetsStar)
-    throw new Error(`waive_check ${operation.code} names the layers whose cut is meant (look {mode:"source"} shows each), not target:"*".`);
+    throw refusedWaiver(new Error(`waive_check ${operation.code} names the layers whose cut is meant (look {mode:"source"} shows each), not target:"*".`), operation, resolver, document);
   // ask_unmet: the video never shows what the person's subject search found everyone calls it. A
   // waiver says which word it is about, so it cannot be a stock reason (resolver.origin: state.origin).
   if (type === "waive_check" && operation.code === "ask_unmet") {
@@ -786,7 +809,7 @@ function resolveReferences(operation, type, resolver, document) {
         if (type === "waive_check" && (VIEWER_WAIVERS.has(operation.code) || SUBJECT_WAIVERS.has(operation.code))) {
           const everyLayer = resolver.matchAll("*", "layer").length;
           if (!/[^*?]/.test(ref) || (everyLayer > 1 && matched.length >= everyLayer))
-            throw new Error(`waive_check ${operation.code} names the layers whose cut or look is meant: the glob "${ref}" reaches every layer of the project, like target:"*". Name the layers (a list, or a glob that leaves some out, such as "shot-*").`);
+            throw refusedWaiver(new Error(`waive_check ${operation.code} names the layers whose cut or look is meant: the glob "${ref}" reaches every layer of the project, like target:"*". Name the layers (a list, or a glob that leaves some out, such as "shot-*").`), operation, resolver, document);
         }
         return matched;
       }
@@ -796,7 +819,7 @@ function resolveReferences(operation, type, resolver, document) {
         try { scene = resolve(ref, "scene"); } catch { throw error; }
         // A scene covers every layer in it, shots nobody looked at: these name layers (whole-scene findings name the scene).
         if (type === "waive_check" && !SCENE_WIDE_WAIVERS.has(operation.code) && (VIEWER_WAIVERS.has(operation.code) || SUBJECT_WAIVERS.has(operation.code)))
-          throw new Error(`waive_check ${operation.code} names layers, not the scene "${ref}": a scene waiver covers every shot in it. Name the layers (a list, or a glob such as "shot-*").`);
+          throw refusedWaiver(new Error(`waive_check ${operation.code} names layers, not the scene "${ref}": a scene waiver covers every shot in it. Name the layers (a list, or a glob such as "shot-*").`), operation, resolver, document);
         return [scene];
       }
       if (sceneOnly) throw needsScene();
@@ -810,8 +833,16 @@ function resolveReferences(operation, type, resolver, document) {
   // Removing a waiver that is not there changes nothing: the edit goes on, and the receipt says so.
   if (type === "waive_check" || type === "unwaive_check") {
     const keys = [operation.target].flat().map((target) => `${operation.code} ${target}`);
-    if (type === "waive_check") for (const key of keys) (resolver.batchWaivers ??= new Set()).add(key);
-    else {
+    if (type === "waive_check") {
+      for (const key of keys) (resolver.batchWaivers ??= new Set()).add(key);
+      // A waiver on "*" or on every layer of a per-layer rule covers shots nobody looked at: allowed,
+      // but the receipt says how many layers it covers.
+      const everyLayer = new Set(resolver.matchAll("*", "layer"));
+      const perLayer = KNOWN_WAIVER_CODES.has(operation.code) && !WHOLE_VIDEO_GATES.includes(operation.code) && !SCENE_ONLY_WAIVERS.has(operation.code);
+      const covers = operation.target === "*" ? everyLayer.size : [operation.target].flat().filter((id) => everyLayer.has(id)).length;
+      if (perLayer && covers && (operation.target === "*" || (covers >= everyLayer.size && everyLayer.size > 1)))
+        resolver.notes.push(`waive_check ${operation.code} covers ${covers} layer${covers === 1 ? "" : "s"}`);
+    } else {
       const had = new Set([...(document?.checkWaivers ?? []).map((waiver) => `${waiver.code} ${waiver.target}`), ...(resolver.batchWaivers ?? [])]);
       if (!keys.some((key) => had.has(key))) resolver.fixes.push(`unwaive_check: no ${operation.code} waiver on ${[operation.target].flat().map((id) => resolver.nameOf("layer", id) ?? resolver.nameOf("scene", id) ?? id).join(", ")}, nothing to remove`);
     }

@@ -1696,6 +1696,8 @@ test("crop_no_subject: a found face cut while the mark misses it warns, naming b
   const [missed] = (await cropRun("crop_no_subject", tall(marked([45, 30, 10, 20])), facesFound([20, 30, 15, 25]))).findings;
   assert.equal(missed.severity, "warn");
   assert.match(missed.measured, /face box \[20, 30, 15, 25\].*marked subject \[45, 30, 10, 20\]/);
+  // A face wholly outside the window (5% to 20% of the file) is a framing choice: no finding.
+  assert.deepEqual((await cropRun("crop_no_subject", tall(marked([45, 30, 10, 20])), facesFound([5, 30, 15, 25]))).findings, []);
   // The mark on the face: the marked subject's own gate, as before.
   const [onFace] = (await cropRun("crop_no_subject", tall(marked([20, 30, 15, 25])), facesFound([20, 30, 15, 25]))).findings;
   assert.match(onFace.message, /cuts off its marked subject/);

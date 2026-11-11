@@ -194,6 +194,10 @@ test("frame_shot frames a hand-placed crop from the file's size and found faces;
   await agent("edit", { project: "keeper-tall", ops: [{ op: "add_layer", layerType: "video", name: "keeper", properties: placed }] });
   const cut = await agent("check", { project: "keeper-tall", ...cropOnly });
   assert.match(cut.text, /^E crop_no_subject \S+ @0: keeper cuts a face found whole in its file at the left .* fix\(auto\): .*"op":"frame_shot"/m, cut.text);
+  // A waiver of that cut is refused (the person's words keep it); the answer's next is the fix for the layer, not an example waiver.
+  const waived = await agent("edit", { project: "keeper-tall", ops: [{ op: "waive_check", code: "crop_no_subject", target: "keeper", reason: "meant" }] });
+  assert.equal(waived.isError, true, waived.text);
+  assert.equal(JSON.parse(waived.text).next, 'edit {"ops":[{"op":"frame_shot","layers":["keeper"]}]}', waived.text);
   const fixed = await agent("check", { project: "keeper-tall", fix: "auto", ...cropOnly });
   assert.match(fixed.text, /applied 1 auto fix.*\n {2}fixed crop_no_subject keeper$/m, fixed.text);
   assert.doesNotMatch(fixed.text, /^[EW] crop_no_subject/m, fixed.text);
@@ -224,6 +228,19 @@ test("frame_shot frames a hand-placed crop from the file's size and found faces;
   assert.equal(bare.isError, undefined, bare.text);
   assert.match(bare.text, /frame_shot plain: no faces measured for this file yet.*full check with pixels on/, bare.text);
   assert.match(bare.text, /frame_shot plain: 1 animation on it still move or scale the layer from its old box/, bare.text);
+  // The edit receipt itself says how many layers a "*" waiver covers.
+  const everyLayer = await agent("edit", { project: "plain-feed", ops: [{ op: "waive_check", code: "off_canvas", target: "*", reason: "meant" }] });
+  assert.deepEqual(JSON.parse(everyLayer.text).notes, ["waive_check off_canvas covers 2 layers"], everyLayer.text);
+
+  // A cut face on a layer an animation moves: frame_shot would fight the move, so a refused waiver answers with mark_subject.
+  await agent("project", { action: "create", id: "keeper-moving", name: "Keeper moving", width: 1080, height: 1920, duration: 2 });
+  await agent("edit", { project: "keeper-moving", ops: [
+    { op: "add_layer", layerType: "video", name: "keeper", properties: placed },
+    { op: "add_animation", layer: "keeper", preset: "move", start: 0, duration: 1, from: { x: -1167 }, to: { x: -1100 } },
+  ] });
+  const moving = await agent("edit", { project: "keeper-moving", ops: [{ op: "waive_check", code: "crop_no_subject", target: "keeper", reason: "meant" }] });
+  assert.equal(moving.isError, true, moving.text);
+  assert.match(JSON.parse(moving.text).next, /^edit \{"ops":\[\{"op":"mark_subject","layer":"keeper"/, moving.text);
 });
 
 test("library media lists every shot of one video by its id when two uploads share a name", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {

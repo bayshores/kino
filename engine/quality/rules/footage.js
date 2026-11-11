@@ -155,7 +155,7 @@ const boxText = (box) => `[${box.map((value) => Math.round(value)).join(", ")}]`
 // Whether the layer keeps one place and size on screen the whole scene (within a pixel). kino's own
 // framing (the agent's frame_shot op) places a still layer; one an animation moves or scales was
 // framed by hand on purpose, so the op is offered there but not applied by check {fix:"auto"}.
-function heldStill(model, item) {
+export function heldStill(model, item) {
   const first = boxAt(item, 0);
   return model.times.every((_, index) => {
     const box = boxAt(item, index);
@@ -168,7 +168,10 @@ function heldStill(model, item) {
 // `auto` false offers it without applying it: narrow_window found no problem, only a window kino
 // cannot see into (scenery, b-roll and a requested vertical edit are fine), so a person's or an
 // agent's look decides before a deliberate crop becomes a card.
-const frameFix = (model, item, text, auto = true) => ({ kind: "frame_shot", itemId: item.id, auto: auto && heldStill(model, item), text });
+const frameFix = (model, item, text, auto = true) => {
+  const still = heldStill(model, item);
+  return { kind: "frame_shot", itemId: item.id, auto: auto && still, still, text };
+};
 
 /** crop_no_subject: footage drawn past the frame with no subject marked, or its subject cut off. */
 export function cropNoSubject(model, ctx) {
@@ -212,7 +215,9 @@ export function cropNoSubject(model, ctx) {
         if (!marked) { if (!cutHere || cut.share < cutHere.share) cutHere = cut; continue; }
         // A mark wholly inside the face is the part the agent means (an eye strip), not a miss.
         const onFace = mark && insideShare(mark, [face[0], face[1], face[0] + face[2], face[1] + face[3]]) >= MARK_ON_FACE;
-        if (mark && !onFace && insideShare(face, [mark[0], mark[1], mark[0] + mark[2], mark[1] + mark[3]]) < MARK_MISSES && (!missedHere || cut.share < missedHere.share)) missedHere = { ...cut, mark };
+        // A face wholly outside the window is a framing choice; only a face the window slices is a miss.
+        const sliced = kept.share > 0;
+        if (mark && sliced && !onFace &&insideShare(face, [mark[0], mark[1], mark[0] + mark[2], mark[1] + mark[3]]) < MARK_MISSES && (!missedHere || cut.share < missedHere.share)) missedHere = { ...cut, mark };
       }
       for (const [tally, cut] of [[faceCut, cutHere], [missed, missedHere]]) {
         if (!cut) continue;
