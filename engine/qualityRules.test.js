@@ -1047,7 +1047,12 @@ test("transitions_dense: at most two large transitions in 6 beats", async () => 
   const slides = (thirdAt) => scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [panel("panel-a", 240, 0.5), panel("panel-b", 240, 1.5), panel("panel-c", 240, thirdAt)] });
   const [finding] = await fires("transitions_dense", slides(2.5));
   assert.equal(finding.measured, "3 in 6 beats");
+  assert.match(finding.message, /panel-a/);
   await silent("transitions_dense", slides(4));
+  // Three full-frame shots hard-cut at 0.5, 1.5 and 2.5 s, each pushing in from its own cut: camera moves, not transitions.
+  const push = (id, at) => ({ type: "image", id, name: id, src: `/api/media/${id}.png`, x: 0, y: 0, width: 1920, height: 1080,
+    animations: [show(at), move(at, 1, "smooth", { scaleX: 1, scaleY: 1 }, { scaleX: 1.3, scaleY: 1.3 })] });
+  await silent("transitions_dense", scene({ duration: 6, rhythm: { bpm: 120, offset: 0 }, layers: [push("s1", 0.5), push("s2", 1.5), push("s3", 2.5)] }));
 });
 
 test("static_scene: something changes within the text's hold plus 2 s", async () => {
@@ -1404,6 +1409,17 @@ test("cut_mid_move: a hard cut that chops a fast push with the next shot still",
   const [finding] = await fires("cut_mid_move", cutAt(0.95));
   assert.match(finding.message, /cut while still moving/);
   await silent("cut_mid_move", cutAt(1.7));
+});
+
+test("cut_mid_move: a move that starts on the incoming shot's first frame is begun by the cut", async () => {
+  // Still shot a cuts at 1 s to shot b, which eases from 1.3 to 1 over 0.6 s. Bad: b's move
+  // started at 0.85 s, so the viewer joins it partway. Good: it starts at the cut.
+  const settle = (start) => move(start, 0.6, "ease-out", { scaleX: 1.3, scaleY: 1.3 }, { scaleX: 1, scaleY: 1 });
+  const cutTo = (start) => scene({ duration: 3, layers: [plate("a", { animations: [hide(1)] }), plate("b", { animations: [show(1), settle(start)] })] });
+  await silent("cut_mid_move", cutTo(1));
+  const [finding] = await fires("cut_mid_move", cutTo(0.85));
+  assert.match(finding.message, /partway through a move that started at 0\.85/);
+  assert.match(finding.fix.text, /first frame/);
 });
 
 // ---------------------------------------------------------------- consistency

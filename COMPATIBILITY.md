@@ -952,7 +952,8 @@ How to read it:
 - **Transition dip check** (`transition_dip`, warning): a dissolve fading both full-frame shots at
   once. Hand-made scenes only. Evidence: `engine/qualityRules.test.js`.
 - **Cut mid move check** (`cut_mid_move`, warning): a hard cut chopping a fast move with the other
-  side still. Hand-made scenes only. Evidence: `engine/qualityRules.test.js`.
+  side still; a move that starts on the incoming layer's first frame is begun by the cut and passes.
+  Hand-made scenes only. Evidence: `engine/qualityRules.test.js`.
 - **Frozen picture check** (`frozen_picture`): a gate on rendered frames: the picture in a playing
   clip's box unchanged 0.3 s+. Partly verified: hand-made clips and a real trailer's phone
   screen. Evidence: `backend/quality-pixels.test.mjs`.

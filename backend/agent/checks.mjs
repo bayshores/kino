@@ -269,10 +269,10 @@ export function openFindingLines(findings) {
 
 // More waivers than this for one rule in a project and the rule is likely wrong, not the video.
 export const WAIVER_LIMIT = 5;
-/** A note for each rule waived more than WAIVER_LIMIT times (document.checkWaivers), or []. */
-export function waiverNotes(waivers = []) {
+/** A note for each rule waived more than WAIVER_LIMIT times (document.checkWaivers), or []. `codes` keeps only those rules. */
+export function waiverNotes(waivers = [], { codes = null } = {}) {
   const counts = {};
-  for (const waiver of waivers) if (waiver?.code) counts[waiver.code] = (counts[waiver.code] ?? 0) + 1;
+  for (const waiver of waivers) if (waiver?.code && (!codes || codes.includes(waiver.code))) counts[waiver.code] = (counts[waiver.code] ?? 0) + 1;
   return Object.entries(counts).filter(([, count]) => count > WAIVER_LIMIT)
     .map(([code, count]) => `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
 }

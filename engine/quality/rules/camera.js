@@ -6,7 +6,7 @@
 // They came from a trailer that had to be fixed by eye: the phone grew over a still dark plate,
 // its bezel lingered as bars at the frame edge. Thresholds come from measured motion signals.
 import { scaleOf, sec, speedAt } from "../analysis.js";
-import { area, boxAt, chainOf, intersection, itemById, movingAt, runs, visibleBoxAt } from "../model.js";
+import { area, boxAt, chainOf, intersection, itemById, moveStartedAt, movingAt, runs, startsWithCut, visibleBoxAt } from "../model.js";
 import { plateChanges } from "../techniques.js";
 
 const FRAME = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
@@ -424,16 +424,25 @@ export function cutMidMove(model, ctx) {
     if (!gone.length || !come.length) continue;
     const [moving, still] = out.speed >= into.speed ? [out, into] : [into, out];
     if (moving.speed < CUT_SPEED || still.speed >= CUT_MATCH * moving.speed) continue;
+    // A move that starts on the incoming layer's first frame is begun by the cut: nothing is interrupted.
+    if (moving === into && startsWithCut(model, into.item, index)) continue;
     if (model.times[index] - lastAt < 0.3) continue;
     lastAt = model.times[index];
     const at = sec(model.times[index]);
-    const side = moving === out ? `${ctx.name(moving.item)} is cut while still moving` : `${ctx.name(moving.item)} cuts in already moving`;
+    const name = ctx.name(moving.item);
+    const began = moving === into ? moveStartedAt(model, into.item, index) : null;
+    const speeds = `(${moving.speed.toFixed(2)} frame widths a second) and the other side of the cut is still (${still.speed.toFixed(2)})`;
+    const message = began === null
+      ? `At ${at} s ${moving === out ? `${name} is cut while still moving` : `${name} cuts in already moving`} ${speeds}.`
+      : `At ${at} s ${name} cuts in partway through a move that started at ${sec(began)} s ${speeds}.`;
+    const fix = began === null
+      ? `Let the move finish before the cut (end it by ${at} s), or give the other shot a matching move in the same direction for the first 0.3 s, or join them with a push or whip.`
+      : `Start ${name}'s move on its first frame (${at} s) so the cut begins it, or give the other shot a matching move for its last 0.3 s, or join them with a push or whip.`;
     findings.push({
-      rule: "cut_mid_move", severity: "warn", itemId: moving.item.id, itemIds: [out.item?.id ?? gone[0].id, into.item?.id ?? come[0].id], at,
-      message: `At ${at} s ${side} (${moving.speed.toFixed(2)} frame widths a second) and the other side of the cut is still (${still.speed.toFixed(2)}).`,
+      rule: "cut_mid_move", severity: "warn", itemId: moving.item.id, itemIds: [out.item?.id ?? gone[0].id, into.item?.id ?? come[0].id], at, message,
       measured: `${moving.speed.toFixed(2)} vs ${still.speed.toFixed(2)} frame widths a second across the cut`,
       required: `a cut lands after the move settles, or both sides move alike (at least ${percent(CUT_MATCH)} of the speed)`,
-      fix: { kind: "hint", text: `Let the move finish before the cut (end it by ${at} s), or give the other shot a matching move in the same direction for the first 0.3 s, or join them with a push or whip.` },
+      fix: { kind: "hint", text: fix },
     });
   }
   return findings;

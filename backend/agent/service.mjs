@@ -2389,6 +2389,9 @@ export function createAgentService(deps) {
       if (jumps.length) (work.warnings ??= []).push(...jumps);
       const handEdits = moveHandEdits(after, translation.operations, (id) => refName(id, afterCodes));
       if (handEdits.length) (work.warnings ??= []).push(...handEdits);
+      // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
+      const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
+      const waiverNote = waivedCodes.length ? waiverNotes(after.checkWaivers, { codes: waivedCodes }) : [];
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,
@@ -2403,7 +2406,7 @@ export function createAgentService(deps) {
         ...(timed.more ? { timesMore: timed.more } : {}),
         ...animationKeyCounts(after, [...changes.created, ...changes.changed], afterCodes),
         ...(resolver.fixes.length ? { fixed: [...new Set(resolver.fixes)] } : {}),
-        ...(work.notes.length || resolver.notes.length ? { notes: [...work.notes, ...new Set(resolver.notes)] } : {}),
+        ...(work.notes.length || resolver.notes.length || waiverNote.length ? { notes: [...work.notes, ...new Set(resolver.notes), ...waiverNote] } : {}),
         // compose {footage}: the plan in words (all of it in a dry run).
         ...(work.plan ? { plan: input.dry_run ? work.plan : work.plan.slice(0, 2) } : {}),
         ...(work.finished ? { finished: work.finished } : {}),
@@ -2545,6 +2548,9 @@ export function createAgentService(deps) {
     const report = checkReport(result.findings, { info: Boolean(rules) });
     const counts = `${report.errors} err · ${report.warnings} warn${report.info ? ` · ${report.info} info` : ""}${report.waived ? ` · ${report.waived} waived` : ""}`;
     const lines = [`rev ${record.revision} · ${counts}${scene ? ` · ${refName(scene.id, codes)} only` : ""}${options.pixels ? "" : " · pixels off"} · ${result.ms} ms`];
+    // A rule waived over and over in one project is likely kino's mistake, not taste. Right after
+    // the counts, so an agent that reads only the first lines still sees it.
+    for (const note of waiverNotes(record.document.checkWaivers)) lines.push(`note: ${note}`);
     if (applied) {
       lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
       for (const line of applied.fixed) lines.push(`  fixed ${line}`);
@@ -2556,8 +2562,6 @@ export function createAgentService(deps) {
     if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
     // Advice (info): taste notes in one line; they never block a render.
     if (report.advice) lines.push(`advice (does not block): ${report.advice}. check {rules:[code]} lists one.`);
-    // A rule waived over and over in one project is likely kino's mistake, not taste.
-    for (const note of waiverNotes(record.document.checkWaivers)) lines.push(`note: ${note}`);
     if (!report.errors && !report.warnings) lines.push("Nothing to fix.");
     else if (!applied && report.autoFixes) lines.push(`check {fix:"auto"} applies the ${report.autoFixes} ${report.autoFixes === 1 ? "fix" : "fixes"} marked auto.`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
