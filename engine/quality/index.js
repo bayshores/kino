@@ -8,7 +8,7 @@ import { accentStripe, cardGrid, centeredRun, glowBlobPill, overlap, safeZone } 
 import { defaultFont, gradientBanding, gradientText, neonOnDark, pureFrame } from "./rules/look.js";
 import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, judder, linearMotion, sameMotion, speedJump, springOnFade, staggerLong, staggerOrder } from "./rules/motion.js";
 import { assertions, noRhythm, offBeat, promoBasics, sceneLengths, staticScene, transitionsDense } from "./rules/pacing.js";
-import { referenceCloseness, referenceDrift } from "./rules/reference.js";
+import { referenceCloseness, referenceDrift, referenceRange } from "./rules/reference.js";
 import { endingSeen, seenBefore, typeSeen } from "./rules/seenBefore.js";
 import { hold, readingTime, typeMin } from "./rules/text.js";
 import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
@@ -144,6 +144,7 @@ export const RULES = [
   rule("split_card_layout", "warn", splitCardLayout, "no 160 px type beside a small framed card on a flat frame for 4 s"),
   rule("page_chrome", "warn", pageChrome, "tracked caps labels under 40 px and rows of thin bars 8 s at most"),
   rule("reference_drift", "warn", referenceDrift, "close to the saved Inspire references in text on screen, and text alone on a plain frame at most twice their share (motion, camera and look advise); needs references and Apple Vision", true),
+  rule("reference_range", "warn", referenceRange, "inside the range of your saved references (2 or more measured) in median brightness, share of the video under 38 of 255, text entrances per 10 s and a voice before the loudest change of the music; the fix names the dark stretch and a color-wheels gamma, or waive it with a reason", true),
   rule("reference_closeness", "warn", referenceCloseness, "no run of 6 shots timed like a saved reference (shot lengths in order at one scale, each within a frame, more than chance gives), and in a music edit not every device your saved references share (black hole, seam flash, bars, word cards) or 3 of them in their order within 2 s"),
   rule("seen_before", "warn", seenBefore, "type or a logo not laid out as in another kino project (0.12) unless a reference is closer; the edit not built like another (same pace and 75% of its parts)"),
   rule("type_seen", "warn", typeSeen, "the type look (face, weight, case, size, reveal) not the look of one of kino's last 3 projects (same face and 4 of 5 parts) unless a reference or the picked treatment chose it; an agent waives it with a reason naming the reference"),

@@ -933,7 +933,9 @@ export function cleanIdeas(input, duration) {
  *   fingerprint   (file, {seconds, cuts, signal}) → {fingerprint, prints} (measure/measure.mjs);
  *                 optional: without it only the cuts and the beat are measured
  *   strips        (file, moments, folder, {signal}) → [{at, kinds, file}] (measure/strips.mjs)
- *   encodeFrame   ({bgra, width, height}) → JPEG bytes LIVE_WIDTH wide; optional: without it the
+ *   heard         (file, {seconds, bpm, signal}) → {change: {at, kind} | null, voice: [[from, to]] | null, by}:
+ *                 the loudest change of the sound and where a voice is heard (reference_range); optional
+ *   encodeFrame  ({bgra, width, height}) → JPEG bytes LIVE_WIDTH wide; optional: without it the
  *                 live view gets no picture
  * Sound effects (a sounds search; optional):
  *   downloadSound (videoId, folder, {signal}) → the audio file (yt-dlp, the first 60 s)
@@ -966,7 +968,7 @@ export function createInspire(deps) {
   const youtube = deps.youtube ?? createYouTubeGate({ gapMs: 0, now, slot: createSlots(1) });
   const downloads = new Set(["download", "downloadSound"]);
   const heavy = {};
-  for (const name of ["download", "probe", "findShots", "findBeats", "fingerprint", "strips", "stills", "downloadSound", "decodeSound", "soundPreview", "soundLoudness"]) {
+  for (const name of ["download", "probe", "findShots", "findBeats", "heard", "fingerprint", "strips", "stills", "downloadSound", "decodeSound", "soundPreview", "soundLoudness"]) {
     if (typeof deps[name] !== "function") continue;
     const work = downloads.has(name)
       ? (videoId, folder, { force, ...options } = {}) => youtube(() => deps[name](videoId, folder, options), { force, signal: options.signal })
@@ -1230,6 +1232,12 @@ export function createInspire(deps) {
       // findBeats says steady: false for a beat grid it is unsure of (a stub that says nothing is steady).
       const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], steady: beat?.steady !== false, ...read });
       if (running?.id === record.id) running.partial = { ...numbers, ...(beat?.bpm ? { bpm: beat.bpm } : {}) };
+      // The loudest change of the sound and where a voice plays: a failure leaves it out (never guessed).
+      let heard = null;
+      if (heavy.heard) {
+        try { heard = await heavy.heard(file, { seconds, bpm: beat?.bpm ?? null, signal }); }
+        catch (error) { if (signal.aborted) throw error; }
+      }
       // The fingerprint and the strips: a failure here keeps the cuts and says what went wrong.
       let fingerprint = null, strips = [], fingerprintError = null;
       if (deps.fingerprint) {
@@ -1267,7 +1275,7 @@ export function createInspire(deps) {
         } catch (error) { if (signal.aborted) throw error; }
       }
       Object.assign(record, { state: "measured", numbers, bpm: beat?.bpm ?? null, error: null, measuredAt: new Date(now()).toISOString(), version: INSPIRE_VERSION,
-        fingerprint, strips, fingerprintError, stills, stillsEach: STILLS_EACH, seconds, ...(look ? { look, same: sameFrames(look) } : {}) });
+        fingerprint, strips, fingerprintError, stills, stillsEach: STILLS_EACH, seconds, ...(heard ? { heard } : {}), ...(look ? { look, same: sameFrames(look) } : {}) });
     } catch (error) {
       if (signal.aborted) record.state = "found";
       else Object.assign(record, { state: "failed", error: String(error?.message ?? error).split("\n")[0].slice(0, 200) });
@@ -1683,7 +1691,7 @@ export function createInspire(deps) {
 
   /**
    * The fingerprints of a project's saved references that have one, with their feature prints:
-   * [{id, title, fingerprint, prints}] (for the reference_drift check).
+   * [{id, title, fingerprint, prints, heard?}] (for the reference_drift and reference_range checks).
    */
   async function savedFingerprints(projectId) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
@@ -1693,7 +1701,7 @@ export function createInspire(deps) {
       if (!record?.fingerprint) continue;
       let prints = [];
       try { prints = JSON.parse(await readFile(fileOf(id, "prints.json"), "utf8")); } catch { /* none kept */ }
-      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: record.fingerprint, prints });
+      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: record.fingerprint, prints, ...(record.heard ? { heard: record.heard } : {}) });
     }
     return found;
   }
@@ -1832,6 +1840,17 @@ export async function inspireTools({ command } = {}) {
     encodeFrame: (frame) => encodeLiveFrame(frame, createCanvas),
     strips: (file, moments, folder, options) => makeStrips(file, moments, folder, options),
     stills: (file, seconds, folder, options) => makeStills(file, seconds, folder, options),
+    // The loudest change (the song's section with the most weight, not the intro or outro) and the
+    // voice spans (whisper, when a model is installed: by "none" says it was not heard).
+    async heard(file, { seconds, bpm } = {}) {
+      const { songShape, songVocals, whisperModelReady } = await import("./song-shape.mjs");
+      const { samples, sampleRate } = await decodeMono(file);
+      const top = songShape(samples, sampleRate, { bpm }).sections.filter((part) => part.kind !== "intro" && part.kind !== "outro" && Number.isFinite(part.weight))
+        .sort((a, b) => b.weight - a.weight || a.at - b.at)[0];
+      let voice = null;
+      if (whisperModelReady()) { try { voice = await songVocals(file, { seconds }); } catch { voice = null; } }
+      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none" };
+    },
     // steady: kino's own test of whether the beat grid is a song's (a voice scores low).
     findBeats: async (file) => { const analysis = await analyzeAudioFile(file); return { ...analysis, steady: steadyBeat(analysis) }; },
     probe: (file, options) => probeMedia(file, options),
@@ -2030,7 +2049,9 @@ export function fingerprintLines(ref) {
     lines.push(`text: on screen ${pct(fp.text.share)} · big type ${pct(fp.text.bigShare)} · on a plain background ${pct(fp.text.onPlain)} of text · lowercase ${pct(fp.text.lowercase)}${counts ? ` · appears: ${counts}` : ""}`);
   }
   if (fp.persistent?.length) lines.push(`stays in place across cuts: ${fp.persistent.map((item) => `${item.kind === "text" ? `"${item.text}"` : "a patch"} at ${item.box.slice(0, 2).join(",")} (${pct(item.share)})`).join("; ")}`);
-  lines.push(`look: brightness ${fp.look.brightness} · palette ${fp.look.palette.map((entry) => `${entry.hex} ${pct(entry.share)}`).join(" ")}${fp.shots?.subjectArea != null ? ` · subject ${pct(fp.shots.subjectArea)} of the frame` : ""}`);
+  lines.push(`look: brightness ${fp.look.brightness}${Number.isFinite(fp.look.darkShare) ? ` · dark ${pct(fp.look.darkShare)}` : ""} · palette ${fp.look.palette.map((entry) => `${entry.hex} ${pct(entry.share)}`).join(" ")}${fp.shots?.subjectArea != null ? ` · subject ${pct(fp.shots.subjectArea)} of the frame` : ""}`);
+  // What reference_range compares: the loudest change of the sound and where a voice is heard (whisper hears sung and spoken voice alike).
+  if (ref.heard) lines.push(`heard: loudest change ${ref.heard.change ? `${ref.heard.change.at} s (${ref.heard.change.kind})` : "none found"} · voice ${ref.heard.voice ? (ref.heard.voice.length ? ref.heard.voice.map(([from, to]) => `${from}-${to} s`).join(", ") : "none") : "not heard"}`);
   if (ref.stripList?.length) lines.push(`frame strips kept: ${ref.stripList.length} (cuts, motion peaks, text entrances): look {mode:"reference", ref:"${ref.id}", t:${ref.stripList[0].at}}; without t, page 1 of ${Math.ceil(ref.stripList.length / 6)}`);
   const suggested = suggestionText(suggestStyleLines(fp, ref.numbers, ref.id), ref.id);
   if (suggested) lines.push(suggested);

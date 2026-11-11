@@ -1338,6 +1338,11 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   `backend/agent-inspire.test.mjs`; one live run on yt:G9wj1YA0DYI. Gaps: no Vision off macOS; style
   lines are guesses; flow and closeness only advise; reveal styles are read at 4 frames a second,
   misread interface labels and are not checked on the render.
+- **Reference range**: Test-verified on synthetic scenes and stubbed references. `reference_range` warns when the
+  edit's brightness, dark share, text entrances or a voice before its loudest song change fall outside the project's
+  2+ saved references (`heard` is kept at measure), names the stretch and a gamma fix, and `look versus` says it in
+  one line. Evidence: `engine/qualityRules.test.js`, `backend/inspire.test.mjs`, `backend/agent-review.test.mjs`.
+  Gap: the real `heard` listen (whisper on a downloaded copy) is not run in tests.
 - **Inspire live view and ideas**: Verified in the desktop app. F3 shows the frame being measured;
   agents propose ideas that the person allows or holds. Evidence: `backend/inspire-live.test.mjs`,
   `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`. Gap: agents add allowed ideas to

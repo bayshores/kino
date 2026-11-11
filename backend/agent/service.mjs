@@ -676,8 +676,13 @@ export function createAgentService(deps) {
       const file = mediaFileOf(layer);
       return make ? loudnessCurves.get(file) : loudnessCurves.saved(file);
     };
+    // A song's vocal spans (.song file, never a new measure): reference_range asks whether a voice plays before the loudest change.
+    const voiceOf = async (layer) => {
+      const shape = await songShapes.saved?.(mediaFileOf(layer));
+      return shape?.vocals === "whisper" && Array.isArray(shape.voice) ? shape.voice : null;
+    };
     const asks = askedItems(saved);
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, voiceOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
@@ -3973,6 +3978,16 @@ export function createAgentService(deps) {
       for (const finding of findings) for (const row of String(finding.measured ?? "").split("; ").filter(craftRow)) drift.push(`${where}reference_drift off: ${row}`);
       if (unchecked === "all" || unchecked.length) drift.push(`${where}reference_drift not measured on this revision: check measures it.`);
     }
+    // reference_range: the whole video against the range of the saved references (brightness, dark share, text, voice).
+    const measuredRefs = ((await deps.inspire?.savedFingerprints?.(projectId).catch(() => [])) ?? []).filter((ref) => Number.isFinite(ref.fingerprint?.look?.brightness)).length;
+    const range = [];
+    for (const item of measuredRefs >= 2 ? scenes : []) {
+      // Measured here (2 frames a second, small; no listening), not read from a check: a check is not kept while a drift measure runs.
+      const { findings } = await findingsFor(document, { fonts, codes, sceneId: item.id, pixels: true, listen: false, rules: ["reference_range"] });
+      const where = scenes.length > 1 ? `${refName(item.id, codes)} ` : "";
+      for (const finding of findings) range.push(`${where}outside your ${measuredRefs} references: ${finding.measured} (theirs: ${String(finding.required).replace(/^inside your \d+ saved references: /, "")}). check lists each fix.`);
+    }
+    if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, dark share, text per 10 s, voice.`);
     const fair = pairs.filter((pair) => pair.still).length;
     const lines = [
       `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) of the same kind of shot: ${fair} matched${fair < pairs.length ? `, ${pairs.length - fair} with no fair match` : ""}. Compare craft (hero size, type, motion, holds, contrast), not content or footage colors.`,
@@ -3980,6 +3995,7 @@ export function createAgentService(deps) {
       ...(pinned.missing.length ? [`not pinned, no saved reference by that key: ${pinned.missing.join(", ")} (library inspire name:"save yt:<id> as <key>").`] : []),
       ...(pinned.waiting.length ? [`not pinned yet, that reference is saved but not measured yet: ${pinned.waiting.join(", ")} (look {mode:"versus"} again in a minute).`] : []),
       ...(drift.length ? drift : ["reference_drift: near the references in the craft measured."]),
+      ...range,
       judgeLine(state, record.revision),
       `image ${file}`,
     ];

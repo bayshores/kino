@@ -13,17 +13,16 @@ frame strips · Proposing ideas · Sound effects
 
 - Shots, cuts a second, the median shot (in beats too, nearest of 1, 2, 4, 8, when the sound
   has a beat), the longest and where it is, length, the beat (bpm), and cuts on the beat (n of
-  m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame of a beat vs random
-  (near it: cuts on action).
+  m, within 0.08 s). 2-frame shots count, flashes not. Cuts within 1 frame of a beat vs random.
 - The fingerprint (Apple Vision on a Mac): motion and holds, camera moves
   (push-in, pull-back, pan, rotate, shaky), cuts that land in motion, blur dips, dissolves and
   fades, text on screen (share, big type, case, how it appears), what stays in place across cuts,
   palette and brightness. Off a Mac the Vision numbers are named as not measured, never guessed.
 - Text numbers are reliable; motion numbers advise (handheld reads as camera moves); reveals
   are read 4 times a second and can mistake interface labels for captions.
-- One video is measured at a time; a search answers at once, numbers arrive as each is read.
+- One video is measured at a time; numbers arrive as each is read.
 - Searches and saved references belong to the project; the numbers are shared.
-- yt-dlp missing: the search says how to install it (or set `KINO_YTDLP`). Downloads need a
+- yt-dlp missing: the search says how to install it (`KINO_YTDLP`). Downloads need a
   JavaScript runtime (deno, node or bun; `KINO_YTDLP_JS` names one); with none, the answer says
   so. On YouTube's "not a bot" sign-in, kino stops downloading for 15 minutes, never signs in.
 
@@ -42,7 +41,7 @@ frame strips · Proposing ideas · Sound effects
   none of their own footage, `next:` leads to a footage search for `<about quote> <word>`, then
   a scan with `want:"<word>"`; it keeps an edit upload with the word (`doubt: edit upload`).
 - Results come best first: views, verified channel, 2 a channel, then how their frames look
-  (SigLIP on the thumbnail, then one keyframe a shot once measured) against the search words and
+  (SigLIP on the thumbnail, then a keyframe a shot) against the search words and
   the project's taste (saved = liked, unsaved = rejected; varied until 2 are saved). Near-identical
   copies collapse into the most viewed (`N copies hidden`). `doubt:` marks likely slop (AI, SEO,
   tutorial, template or stock words in the title or description, hashtag spam, few views, under
@@ -54,12 +53,12 @@ frame strips · Proposing ideas · Sound effects
 
 - `library {topic:"inspire", search:"walking tour edit"}` lists what it found, with ids like
   `yt:tgEWNHVbk3U`. `library {topic:"inspire"}` lists the project's searches and saved ones.
-- `library {topic:"inspire", name:"yt:…"}` waits (up to 50 s) for its numbers and lists
+- `library {topic:"inspire", name:"yt:…"}` waits for its numbers and lists
   its cut times (`*` on the beat); `full:true` lists all.
 - A video the person linked needs no search: `name:"yt:<id>"` or `name:"measure yt:<id>"`, or
   the whole link in `search` (a watch, youtu.be or `/shorts/` link). kino reads its title and
   length and measures it.
-- `name:"save yt:…"` (`"save yt:… as launch"` keys it for a board `move.ref` `"launch@3.1"`), `"unsave yt:…"`, `"measure yt:…"` (read again after a failure) and
+- `name:"save yt:…"` (`"save yt:… as launch"` keys it for a board `move.ref` `"launch@3.1"`), `"unsave yt:…"`, `"measure yt:…"` (again after a failure) and
   `"cancel"` (stop reading) do what they say. A saved or opened one is measured before the
   rest. It keeps a still a second (10 to 90)
   for `look versus`; saving one kept with 10 measures it again. `"copy <project>"` saves another
@@ -67,7 +66,7 @@ frame strips · Proposing ideas · Sound effects
 - `borrow_rhythm {ref, fit?, at?, scene?}` (an edit op) lends each section's shot lengths
   (`lend:`) in a new order as cue marks `rhythm-1`, … (`at:"cue:rhythm-3"`), cut on `song-` seams.
   `fit:true` scales to the scene. `reference_closeness` warns on copied cut timing.
-- Search, read one, borrow it scaled (`start:"cue:rhythm-3"` lands on its 3rd cut):
+- Search, read one, borrow it scaled:
 
 ```json
 {"tool":"library","topic":"inspire","search":"fast cut walking edit"}
@@ -80,8 +79,7 @@ frame strips · Proposing ideas · Sound effects
 - `kind:"shorts"` searches YouTube's Shorts filter, then fills up with videos of 60 s or less.
   A result marked `Short 9:16` (`vertical:true`) has a `/shorts/` link and a tall
   thumbnail; measuring reads the picture's shape for the others (5 to 15 s).
-- TikTok and Instagram links are refused (they need a login or a faked browser); use a
-  YouTube Shorts link.
+- TikTok and Instagram links are refused; use a YouTube Shorts link.
 
 ```json
 {"tool":"library","topic":"inspire","search":"app launch animation","kind":"shorts","count":6}
@@ -94,13 +92,15 @@ frame strips · Proposing ideas · Sound effects
   at the strips first, then keep the ones you confirm in the brief's style (with `ref` and `at`).
 - A reference with text asks for its type: read the family class (serif, sans, mono, script),
   size, case and reveal off the strips; save `"type: <family class>, <size>, <case>, <reveal>"`
-  with `ref` and `at`. Treatments take their `type` from these.
+  with `ref` and `at`.
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.
   Without `ref`: the saved references, one line each.
 - Strips are kept around cuts, motion peaks and every time a suggested line names (24 at most).
 - With saved references, a full check runs `reference_drift` in the background (the next check has
   it): text far from theirs, or alone on a plain frame over twice theirs, warns; motion advises.
+- A full check runs `reference_range` too: brightness, dark share, text entrances and a voice
+  before the loudest change against theirs (each reference keeps `heard`).
 
 ```json
 {"tool":"library","topic":"inspire","name":"yt:tgEWNHVbk3U"}

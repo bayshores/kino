@@ -259,6 +259,21 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.deepEqual(versus.data.rows.map((row) => [row.match, row.ref]), [["none", null], ["none", null], ["none", null]], versus.text);
   const page = await loadImage(Buffer.from(versus.images[0].data, "base64"));
   assert.deepEqual([page.width, page.height], [644, 548], "3 rows of two 320x180 pictures");
+  assert.doesNotMatch(versus.text, /references: |inside your/, "one reference is no range: reference_range says nothing");
+  // Two references that are bright, with text and a voice before their loudest change: yours is measured against that range.
+  for (const key of ["kinoTest002", "kinoTest003"]) {
+    await mkdir(path.join(folder, "stills", key), { recursive: true });
+    for (const n of [1, 2, 3]) await writeFile(path.join(folder, "stills", key, `${n}.jpg`), still.toBuffer("image/jpeg"));
+    await writeFile(path.join(folder, `${key}.json`), JSON.stringify({ id: `yt:${key}`, title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
+      stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })),
+      fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0 }, text: { counts: { a: 8, b: 8 } } }, heard: { change: { at: 10, kind: "drop" }, voice: [[1, 4]], by: "whisper" } }));
+    assert.equal((await agent("library", { project: id, topic: "inspire", name: `save yt:${key}` })).isError, undefined);
+  }
+  // check lists it as a warning with its fix; versus measures it itself and says it in one line.
+  const checked = await agent("check", { project: id });
+  assert.match(checked.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references .*color-wheels.*gamma:1\.3/, checked.text);
+  const ranged = await agent("look", { project: id, mode: "versus" });
+  assert.match(ranged.text, /outside your 2 references: .*(brightness|dark).*\(theirs: .*\)\. check lists each fix\./, ranged.text);
   // A small fix after it asks for no new versus (one counts for 10 revisions).
   await agent("edit", { project: id, ops: [{ op: "update_layer", layer: "box", properties: { fill: "#ffaa00" } }] });
   const allowed = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });
@@ -380,6 +395,11 @@ test("viewer packet text: heard lines by voice and pause, a caption's words over
   assert.match(openStoryBugs(scored, beats)[1].what, /fell from 7 at the start to 5 in the middle/);
   assert.equal(viewerGap({ ...story, viewers: [{ ...scored, rev: 5, sceneId: "s" }] }, "s", 6), null, "warnings hold no render");
   assert.deepEqual(openStoryBugs({ ...scored, scores: { start: 6, middle: 6, end: 7 }, drags: [] }, beats), [], "no dip, no long drag");
+  // A start 3 or more under the best later score is a warning too (a dark opening: 5, 8, 6); 7, 8 is not.
+  const [slow] = openStoryBugs({ ...scored, scores: { start: 5, middle: 8, end: 6 }, drags: [] }, beats);
+  assert.deepEqual([slow.at, slow.warn], [0, true]);
+  assert.match(slow.what, /at the start 5, 8 later: the opening holds least/);
+  assert.deepEqual(openStoryBugs({ ...scored, scores: { start: 7, middle: 8, end: 7 }, drags: [] }, beats), []);
   // The moment the viewer cared most, outside every signature, is a direction miss.
   assert.match(directionMiss(scored, [{ from: 1, to: 3 }]), /^direction miss: the viewer cared most about 8\.2 s, outside every signature \(1-3 s\)/);
   assert.equal(directionMiss(scored, [{ from: 7, to: 9 }]), null);

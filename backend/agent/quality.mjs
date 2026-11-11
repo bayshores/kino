@@ -29,6 +29,7 @@ import { createFrameReuse } from "./frame-reuse.mjs";
 import { sceneKey } from "./look.mjs";
 import { inBackground, waitForQuiet } from "../render-activity.mjs";
 import { round as round3 } from "../../engine/numbers.js";
+import { mediaPlaybackRange } from "../../engine/playback.js";
 
 const CACHE_SIZE = 64;
 // The models kept are also bounded by the bytes of their samples: a ten-minute scene with a
@@ -498,7 +499,9 @@ function waiverFor(finding, model, waivers) {
 // (a full check) transcribes the file first; it throws when it cannot (no speech model).
 // `loudnessOf(layer, {make})` gives the file's waveform peaks (null when unknown), so speech_cut
 // can hear whether a cut is inside the voice.
-async function heardSpeech(scene, transcriptOf, make, loudnessOf = null, levelsOf = null) {
+// `voiceOf(layer)` gives a song file's saved vocal spans [[from, to]] in file seconds (null when
+// unknown); a song's entry carries them in scene seconds as `voice` (reference_range).
+async function heardSpeech(scene, transcriptOf, make, loudnessOf = null, levelsOf = null, voiceOf = null) {
   const layers = scene.layers.filter((layer) => (layer.type === "audio" || layer.type === "video") && layer.src && layer.enabled !== false
     && (Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to)));
   const list = [];
@@ -515,7 +518,12 @@ async function heardSpeech(scene, transcriptOf, make, loudnessOf = null, levelsO
     const loudness = loudnessOf ? await loudnessOf(layer, { make }).catch(() => null) : null;
     // The file's loudness in LUFS (backend/loudness-curve.mjs) for the measured sound rules.
     const levels = levelsOf ? await levelsOf(layer, { make }).catch(() => null) : null;
-    list.push({ ...entry, ...(loudness?.available ? { loudness } : {}), ...(levels ? { levels } : {}) });
+    const voice = entry.music && voiceOf ? await voiceOf(layer).catch(() => null) : null;
+    const range = voice ? mediaPlaybackRange(layer, scene.duration) : null;
+    // Only a clip that plays at its own speed maps file seconds to scene seconds one to one.
+    const played = voice && range && !range.remapped
+      ? voice.filter(([from, to]) => to > range.offset && from < range.offset + range.duration).map(([from, to]) => [round3(range.start + Math.max(from, range.offset) - range.offset), round3(range.start + Math.min(to, range.offset + range.duration) - range.offset)]) : null;
+    list.push({ ...entry, ...(loudness?.available ? { loudness } : {}), ...(levels ? { levels } : {}), ...(played ? { voice: played } : {}) });
   }
   return list;
 }
@@ -701,6 +709,9 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         driftPending = true;
         return null;
       } } : {}),
+      // The saved references' own brightness, text and voice facts the edit is held to (reference_range):
+      // a pixel rule, so a final render sees it (reference_drift above runs in the background).
+      ...(pixels && refs.length ? { rangeRefs: refs } : {}),
       // The saved references' lent cuts: an edit must not copy their shot lengths (reference_closeness).
       closeRefs,
       // What kino rendered in other projects, and this project's references as layouts (seen_before).
@@ -771,7 +782,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
    * that check. `unchecked` lists the IDs of the scenes whose rendered rules did not run, so a
    * count can say what it leaves out; it stays empty when this checker cannot render at all.
    */
-  async function check(document, { fonts, codes, sceneId = null, pixels = false, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
+  async function check(document, { fonts, codes, sceneId = null, pixels = false, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, voiceOf = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
@@ -809,8 +820,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const isVideo = scene.id === videoScene(document)?.id;
       const sceneAsks = asks?.length && isVideo ? asks : null;
       // The transcripts change what the speech rules say, so whether each is known is in the key.
-      const speech = await heardSpeech(scene, transcriptOf, pixels, loudnessOf, levelsOf);
-      const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}`).join(",");
+      const speech = await heardSpeech(scene, transcriptOf, pixels, loudnessOf, levelsOf, voiceOf);
+      const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}${entry.voice ? `:voice${JSON.stringify(entry.voice)}` : ""}`).join(",");
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
       const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
