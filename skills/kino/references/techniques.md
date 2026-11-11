@@ -133,8 +133,8 @@ signature and the spine's end; the lock's fonts name the faces. Building first i
 Every effect needs a cue that motivates it. Placed by beat number, seed or habit, a flash or
 shake reads as decoration. Reference counts are ceilings, not targets; none of a device is fine.
 
-- Flash: light rising in the shot, a song seam or a top accent. Shake, impact frame: a contact
-  in the footage. Dip: a rest. Strobe: a measured drum fill. `move {name:"impact-accent", kind,
+- Flash: light rising in the shot, a song seam or a top accent. Shake: a footage contact, a song
+  seam or a top accent. Impact frame: a contact. Dip: a rest. Strobe: a measured drum fill. `move {name:"impact-accent", kind,
   at:"cue:<name>"}` refuses any other cue and names one that fits; size follows its weight.
 - The picture may come 2 frames early, never late. Slow motion holds frames on drawn footage.
 - Lend a reference's principles (pace per section, rests), never its times, order or devices.

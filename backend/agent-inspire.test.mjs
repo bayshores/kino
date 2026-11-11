@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
+import { REFERENCE_LOOKUP } from "./agent/seen-names.mjs";
 
 const STUB = fileURLToPath(new URL("../tests/fixtures/inspire/stub-yt-dlp.mjs", import.meta.url));
 // Best first: the most viewed of the recorded search, sixth on YouTube's own list.
@@ -70,6 +71,8 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   assert.match(one.text, /^frame strips kept: \d+ .*look \{mode:"reference", ref:"yt:OAH0MoAv2CI", t:/m);
   const strips = await agent("look", { project: "insp", mode: "reference", ref: FIRST, t: 2 });
   assert.match(strips.text, /^reference yt:OAH0MoAv2CI strips \(nearest 2s\): .*2(\.\d+)?s cut/);
+  // What the agent sees there leads to the kino names that make it.
+  assert.equal(strips.text.split("\n")[1], REFERENCE_LOOKUP);
   assert.equal(strips.images.length, 1);
   assert.equal((await agent("look", { project: "insp", mode: "reference", ref: "yt:dQw4w9WgXcQ" })).isError, true);
 

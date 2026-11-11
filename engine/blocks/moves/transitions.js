@@ -232,7 +232,7 @@ export const zoomThrough = {
   length: 0.9,
   fields: {
     from: { kind: "layer", required: true, about: "the shot to push into" },
-    to: { kind: "layer", about: "the shot it lands on (needed unless target is given)" },
+    to: { kind: "layer", about: "the shot it lands on (needed unless target is given); a clip starts playing when it is shown" },
     point: { kind: "point", about: "[x, y] in % of from's box to push into (default its center)" },
     amount: { kind: "number", low: 2, high: 12, about: "how far the push goes, as a scale (default 5; 3 with reverse)" },
     target: { kind: "target", about: "{layer, rect?}: push until this layer (inside from, such as a phone's screen in its group) or the part rect ([x, y, w, h] in % of it) fills the frame exactly; without to, the shot stays there" },

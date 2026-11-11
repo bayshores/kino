@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { estimateTextTokens, pngSize } from "./meter.mjs";
-import { pageOf, pngTokens } from "./agent/service.mjs";
+import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
@@ -243,6 +243,32 @@ test("library media pages 30 files at a time and says how many are left", () => 
   assert.deepEqual(pageOf(files, 3).items, [60, 61, 62, 63, 64]);
   assert.equal(pageOf(files, 9).page, 3, "a page past the end shows the last one");
   assert.equal(pageOf(files, 3).left, 0);
+});
+
+test("library search turns what a reference shows into the kino name and the call that reads it, in the first three lines", () => {
+  const cases = {
+    glow: ["glow", 'library {topic:"rules", name:"light"}'], bloom: ["glow", 'name:"light"'],
+    particles: ["embers", 'name:"particles"'], embers: ["embers", 'name:"particles"'],
+    subtitles: ["add_captions", 'library {topic:"op", name:"add_captions"}'], "cut out": ["cut_out", 'name:"cut_out"'], cutout: ["cut_out", 'name:"cut_out"'],
+    "speed ramp": ["speed-ramp", 'library {topic:"moves", name:"speed-ramp"}'], "slow motion": ["speed-ramp", 'name:"speed-ramp"'],
+    "repeat on beats": ["beat-repeat", 'library {topic:"moves", name:"beat-repeat"}'],
+    shake: ["impact-accent", 'library {topic:"moves", name:"impact-accent"}'], flash: ["impact-accent", 'name:"impact-accent"'],
+    "light rays": ["light-rays", 'name:"light"'], "color grade": ["color_filter", 'library {topic:"op", name:"color_filter"}'], "green tint": ["white-balance", 'name:"color"'],
+  };
+  for (const [query, [name, call]] of Object.entries(cases)) {
+    const lines = searchGuide(query).split("\n");
+    assert.equal(lines[0], "kino names for it:", query);
+    const line = lines.slice(1, 4).find((entry) => entry.startsWith(`${name} (`));
+    assert.ok(line?.includes(call), `${query}: ${name} with ${call} in ${lines.slice(1, 4).join(" | ")}`);
+  }
+  // Punctuation and case do not count.
+  assert.match(searchGuide("Bloom!"), /^kino names for it:\nglow \(/);
+  // A common word inside a longer query is not a look: no wrong lead ahead of the topics.
+  const wrong = { "green screen": ["white-balance", "color-wheels"], "ramp up numbers": ["speed-ramp", "clip-speed"], "reverse transition": ["clip-speed"], "repeat text": ["beat-repeat"], "hit the button": ["impact-accent"] };
+  for (const [query, names] of Object.entries(wrong)) {
+    const leads = searchGuide(query).split("\n").filter((line) => /^[a-z_-]+ \((effect|move|op|topic): /.test(line));
+    for (const name of names) assert.ok(!leads.some((line) => line.startsWith(`${name} (`)), `${query} does not lead with ${name}: ${leads.join(" | ")}`);
+  }
 });
 
 test("render start with wait:true answers with the checked file, or says it is still running", { skip: skipWithoutMediaTools }, async () => {

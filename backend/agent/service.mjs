@@ -116,6 +116,7 @@ import { importedText } from "./client.mjs";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
+import { REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
@@ -319,9 +320,12 @@ export function searchGuide(search) {
   // A word in a topic's name or title counts once more than a word only in its text.
   const rank = (entries, textOf, titleOf = () => "") => entries.map((entry) => [entry, score(textOf(entry)), score(titleOf(entry))])
     .filter(([, points]) => points > 0).sort((a, b) => b[1] + b[2] - a[1] - a[2]).map(([entry]) => entry);
-  const ops = rank([...OPERATION_TYPES, ...SERVICE_OPERATION_TYPES, ...REACH_OPERATIONS], (type) => type).slice(0, SEARCH_SHOWN);
+  const allOps = [...OPERATION_TYPES, ...SERVICE_OPERATION_TYPES, ...REACH_OPERATIONS];
+  const ops = rank(allOps, (type) => type).slice(0, SEARCH_SHOWN);
   const topics = rank(guideTopics(), (entry) => `${entry.title}\n${entry.text}`.toLowerCase(), (entry) => `${entry.id} ${entry.title}`.toLowerCase());
-  if (!ops.length && !topics.length) return `Nothing mentions "${search}". library {topic:"rules"} lists every topic.`;
+  // What the words describe ("bloom", "subtitles"), as the kino names that make it (seen-names.mjs).
+  const names = seenNames(needle, { ops: allOps });
+  if (!ops.length && !topics.length && !names.length) return `Nothing mentions "${search}". library {topic:"rules"} lists every topic.`;
   // The sentence that holds the most of the words.
   const snippet = (text) => {
     let sentence = "", most = 0;
@@ -334,6 +338,8 @@ export function searchGuide(search) {
   const lines = topics.slice(0, SEARCH_SHOWN).map((entry) => `${entry.id} (${entry.title}): ${snippet(entry.text) || snippet(entry.title)}`);
   const more = topics.slice(SEARCH_SHOWN);
   return [
+    names.length ? "kino names for it:" : "",
+    ...names,
     ops.length ? `ops: ${ops.join(", ")} (library {topic:"op", name})` : "",
     topics.length ? `topics (library {topic:"rules", name} reads one):` : "",
     ...lines,
@@ -4340,7 +4346,7 @@ export function createAgentService(deps) {
     await agentState.update(projectId, (draft) => { draft.studied = [...new Set([...(draft.studied ?? []), id])].slice(-20); });
     const rows = made.shown.map((strip) => `${strip.at}s ${strip.kinds.join("+")}`).join(" · ");
     const where = Number.isFinite(input.t) ? `nearest ${input.t}s` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
-    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.`, extra: { ref: id, strips: made.shown } };
+    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}`, extra: { ref: id, strips: made.shown } };
   }
 
   // look {mode:"source", layer, t?, width?}: the whole source frame of a video layer at scene time

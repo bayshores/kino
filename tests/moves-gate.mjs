@@ -164,6 +164,8 @@ const USES = {
   "draw-on": [],
   "freeze-shutter": ["clip"],
   "masked-type": ["clip"],
+  "speed-ramp": ["clip"],
+  "beat-repeat": ["clip"],
   roll: [],
   "type-on": [],
   stream: [],

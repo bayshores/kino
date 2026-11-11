@@ -30,6 +30,7 @@ import { homeCamera } from "./blocks/moves/plane.js";
 import { groupLayers } from "./grouping.js";
 import { compactRecording } from "./recording.js";
 import { worldMatrix, point } from "./geometry.js";
+import { mediaFrameState } from "./playback.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -84,7 +85,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 45);
+  assert.equal(MOVE_NAMES.length, 47);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -928,7 +929,7 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   const definition = MOVES["impact-accent"];
   // song-drop-1 is fit_music's (fitted); song-drop-2 was set by hand. onset-1..5: a fill 0.2 s apart before fill-1.
   const fill = [3.0, 3.2, 3.4, 3.6, 3.8].map((time, index) => ({ name: `onset-${index + 1}`, time, kind: "onset" }));
-  const cues = [{ name: "hit-1", time: 2, kind: "marker", layer: "clip", media: 2 }, { name: "beat-5", time: 2, kind: "beat" }, { name: "song-drop-1", time: 3, kind: "marker", fitted: true }, { name: "song-drop-2", time: 2.6, kind: "marker" }, ...fill, { name: "fill-1", time: 4, kind: "marker" }];
+  const cues = [{ name: "hit-1", time: 2, kind: "marker", layer: "clip", media: 2 }, { name: "beat-5", time: 2, kind: "beat" }, { name: "song-drop-1", time: 3, kind: "marker", fitted: true }, { name: "song-drop-2", time: 2.6, kind: "marker" }, ...fill, { name: "fill-1", time: 4, kind: "marker" }, { name: "mark-1", time: 1, kind: "marker" }];
   const events = [{ kind: "impact", how: "contact", dir: "right", confidence: 0.8, at: 2.03, media: 2.03, layer: "clip" }];
   const run = (kind, at, start, { own = [], align, dur = null } = {}) => {
     const shots = { ...scene, layers: scene.layers.map((layer) => (layer.id === "clip" ? { ...layer, animations: own } : layer)) };
@@ -960,6 +961,16 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   const drift = [{ id: "clip.hold", name: "drift", kind: "custom", start: 0, duration: 5, easing: "linear", from: { x: 0 }, to: { x: 40 } }];
   const drifting = run("shake", "cue:hit-1", 2, { own: drift });
   assert.deepEqual([3, 4].map((t) => round3(x(drifting, drift, t))), [24, 32]);
+  // A song seam carries a shake too (effect_fit's reasons): it bumps up and down, sized by the seam; a cue with nothing measured is refused.
+  const seamShake = run("shake", "cue:song-drop-1", 3);
+  assert.deepEqual(seamShake.trigger, { cue: "song-drop-1", at: 3, motive: "seam", weight: 1, kind: "shake" });
+  assert.deepEqual(Object.keys(seamShake.animations[0].animation.behavior.oscillate.amount), ["y"]);
+  assert.throws(() => run("shake", "cue:mark-1", 1), /cue:mark-1 has nothing measured at it; shake needs an impact in the footage or a song seam or a top accent/);
+  // A cue that is a seam (weight 1) and a footage hit (0.8) at once: the shake follows the hit's direction.
+  const both = runMove(definition, { id: "hit", input: readMoveInput(definition, { kind: "shake", layer: "clip" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 3, media,
+    cueFacts: { at: "cue:song-drop-1", cues, events: [{ ...events[0], at: 3.03, media: 3.03 }] } });
+  assert.deepEqual([both.trigger.motive, Object.keys(both.animations[0].animation.behavior.oscillate.amount)], ["impact", ["x"]]);
+  assert.match(runMove(definition, { id: "hit", input: readMoveInput(definition, { kind: "shake", layer: "clip" }), scene, reduced: true, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 3, media, cueFacts: { at: "cue:song-drop-1", cues, events } }).notes.join(" "), /none in reduced motion/);
   // A seam flash lifts the shot's own exposure (its colors carry it) by the cue's weight, 1 frame early.
   const flash = run("flash", "cue:song-drop-1", 3).animations.map((entry) => entry.animation);
   assert.deepEqual(flash.map((animation) => [animation.effect, round3(animation.start), animation.to.stops]), [["color-grade", round3(3 - 1 / 30), 2], ["color-grade", 3, 0]]);
@@ -967,4 +978,70 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   const lit = run("strobe", "cue:fill-1", 4).animations.map((entry) => entry.animation).filter((animation) => animation.name === "Strobe up").map((animation) => round3(animation.start + animation.duration));
   assert.equal(lit.at(-1), 4);
   assert.ok(lit.every((at) => lit.filter((other) => other >= at && other < at + 1).length <= 3), `at most 3 flashes a second (${lit})`);
+});
+
+test("speed-ramp slows the clip into the cue, lands the new speed on it and comes back to its own speed; it refuses a cue the clip does not reach", () => {
+  const scene = sceneFor(1920, 1080);
+  const made = runExample("speed-ramp", scene);
+  const speeds = made.animations.map(({ layerId, animation }) => [layerId, animation.id, round3(animation.start), round3(animation.start + animation.duration), animation.from.speed, animation.to.speed]);
+  assert.deepEqual(speeds, [
+    ["clip", "speed-ramp.layer-into", 0.9, 1.1, 1, 0.35],
+    ["clip", "speed-ramp.layer-hit", round3(1.5 - 2 / 30), 1.5, 0.35, 1.5],
+    ["clip", "speed-ramp.layer-back", 2.1, 2.3, 1.5, 1],
+  ]);
+  const clip = { ...scene.layers.find((layer) => layer.id === "clip"), animations: made.animations.map((entry) => entry.animation) };
+  assert.deepEqual([0.5, 1.3, 1.8, 3].map((t) => round3(evaluateLayer(clip, t).speed ?? 1)), [1, 0.35, 1.5, 1]);
+  assert.deepEqual([made.start, made.end, made.added.length], [0.9, 2.3, 0]);
+  const run = (fields, start, { on = scene, reduced = false } = {}) => runMove(MOVES["speed-ramp"], { id: "ramp", input: readMoveInput(MOVES["speed-ramp"], fields), scene: on, reduced, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media });
+  const withClip = (fields) => ({ ...scene, layers: scene.layers.map((layer) => (layer.id === "clip" ? { ...layer, ...fields } : layer)) });
+  assert.throws(() => run({ layer: "clip", over: 1 }, 0.5), /clip must play from -0.5 s to the cue at 0.5 s/);
+  assert.throws(() => run({ layer: "shot-a" }, 2), /shot-a is a picture; give a video layer/);
+  // The file's own end counts: a 2 s file, or 2 s left after an offset of 6, has ended by 3 s.
+  assert.throws(() => run({ layer: "clip" }, 3, { on: withClip({ mediaSourceDuration: 2 }) }), /clip must play from 2.4 s to the cue at 3 s \(its file ends/);
+  assert.throws(() => run({ layer: "clip" }, 3, { on: withClip({ mediaOffset: 6 }) }), /clip must play from 2.4 s/);
+  // A second ramp inside the first one's span is refused: the clip's own speed is not known there.
+  const first = run({ layer: "clip" }, 2);
+  assert.throws(() => run({ layer: "clip" }, 2.5, { on: withClip({ animations: first.animations.map((entry) => entry.animation) }) }), /clip already changes speed from 1\.93\d* s to 2 s .*give an at outside it/);
+  // Slow into the cue: the footage after it runs late, and the receipt says by how much; land:"moment" moves mediaOffset so the cue keeps its file moment.
+  assert.match(first.notes.join(" "), /file 1\.6\d* s on the cue, 0\.3\d* s behind the unramped clip/);
+  const landed = run({ layer: "clip", land: "moment" }, 2);
+  const moved = { ...scene.layers.find((layer) => layer.id === "clip"), ...landed.sets[0].properties, animations: landed.animations.map((entry) => entry.animation) };
+  assert.ok(Math.abs(mediaFrameState(moved, 2).sourceTime - 2) < 0.01, `file ${mediaFrameState(moved, 2).sourceTime} s on the cue`);
+  // Reduced motion keeps slow motion but never speeds the clip up.
+  assert.deepEqual(run({ layer: "clip", before: 2, after: 3 }, 2, { reduced: true }).animations, []);
+  assert.deepEqual(run({ layer: "clip", before: 0.5, after: 2 }, 2, { reduced: true }).animations.map(({ animation }) => animation.to.speed), [0.5, 1]);
+});
+
+test("beat-repeat replays one file moment as muted copies on each beat, each a step bigger, marked as the move's own", () => {
+  const scene = sceneFor(1920, 1080);
+  const made = runExample("beat-repeat", scene);
+  const copies = made.added.map(({ layer }) => layer);
+  assert.deepEqual(copies.map((layer) => [layer.id, layer.mediaStart, layer.mediaOffset, layer.mediaDuration, layer.volume, layer.scaleX]), [
+    ["beat-repeat-r1", 1, 1, 0.3, 0, 1], ["beat-repeat-r2", 1.5, 1, 0.3, 0, 1.05], ["beat-repeat-r3", 2, 1, 0.3, 0, 1.1], ["beat-repeat-r4", 2.5, 1, 0.3, 0, 1.15],
+  ]);
+  assert.ok(copies.every((layer) => layer.move.name === "beat-repeat" && layer.src === "/api/media/clip.mp4"));
+  assert.deepEqual(copies[1].animations.map((animation) => [animation.kind, animation.start]), [["show", 1.5], ["hide", 1.8]]);
+  assert.deepEqual([made.start, made.end], [1, 2.8]);
+  const run = (fields, options = {}) => runMove(MOVES["beat-repeat"], { id: "rep", input: readMoveInput(MOVES["beat-repeat"], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media, ...options });
+  // count without every takes one beat of the song's tempo; flip mirrors every other replay.
+  const beats = run({ layer: "clip", count: 3, flip: "alternate", from: 4 }, { bpm: 120 }).added.map(({ layer }) => [layer.mediaStart, layer.mediaOffset, layer.scaleX]);
+  assert.deepEqual(beats, [[1, 4, 1], [1.5, 4, -1], [2, 4, 1]]);
+  assert.throws(() => run({ layer: "clip", count: 3 }), /give every .* no tempo/);
+  assert.throws(() => run({ layer: "clip", times: [0.5] }), /0.5 s must come after 1 s/);
+  assert.throws(() => run({ layer: "clip", times: [2], from: 7.9, length: 0.5 }), /runs past the file's end \(8 s\)/);
+  // A replay on the scene's last instant would show nothing.
+  assert.throws(() => run({ layer: "clip", count: 3, every: 2 }), /last replay at 5 s leaves no frame before the scene's end/);
+  // Reduced motion: cuts only, no growth or mirroring.
+  assert.deepEqual(run({ layer: "clip", count: 4, every: 0.25, flip: "alternate", scaleStep: 0.1 }, { reduced: true }).added.map(({ layer }) => layer.scaleX), [1, 1, 1, 1]);
+  // A replay shows the moment as the clip shows it at at: backwards, or after a speed change.
+  const same = (fields, clip, at, t) => {
+    const on = { ...scene, layers: scene.layers.map((layer) => (layer.id === "clip" ? { ...layer, ...clip } : layer)) };
+    const copy = run({ layer: "clip", ...fields }, { scene: on, start: at }).added[0].layer;
+    return [mediaFrameState(on.layers.find((layer) => layer.id === "clip"), t).sourceTime, mediaFrameState(copy, t).sourceTime].map(round3);
+  };
+  const [back, replay] = same({ count: 2, every: 1 }, { mediaReverse: true }, 2, 2.1);
+  assert.ok(Math.abs(back - replay) < 0.01, `backwards ${back} and ${replay}`);
+  const ramp = [{ id: "r.into", name: "slow", kind: "custom", start: 1, duration: 0.2, easing: "linear", from: { speed: 1 }, to: { speed: 0.5 } }];
+  const [slow, again] = same({ count: 2, every: 1 }, { animations: ramp }, 3, 3.1);
+  assert.ok(Math.abs(slow - again) < 0.01, `after a ramp ${slow} and ${again}`);
 });

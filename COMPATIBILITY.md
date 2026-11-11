@@ -681,9 +681,15 @@ How to read it:
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues
-  not written by fit_music are refused; a shake adds to the shot's own moves; a strobe flashes 3 times a second
+  not written by fit_music are refused; a shake adds to the shot's own moves and also takes a fitted song seam
+  or top accent (up and down, as effect_fit allows; a footage hit on the same cue gives the direction); a strobe flashes 3 times a second
   at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
   through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **speed-ramp and beat-repeat moves**: Unit-verified. `move {name:"speed-ramp", layer, at}` puts the clip's
+  speed animations around a cue (before, on it, back), refuses a clip whose file has ended or a second ramp
+  over the first, and `land:"moment"` keeps the cue's file moment; `move {name:"beat-repeat", layer, at,
+  count|times}` replays one file moment as muted move-made copies in the clip's direction and speed; reduced
+  motion drops speed-ups, growth and flips. Evidence: `engine/moves.test.js`. Not rendered or judged yet.
 - **Anime edit guidance and proof**: Partly verified. The skill says every effect needs a cue that motivates it,
   reference counts are ceilings and none of a device is fine; a title 0.1 to 0.3 s after a cut counts as on it.
   compose writes the song's seams and rests as fitted `song-*` cues and the end card's entrance as an `end-card`
@@ -1303,6 +1309,10 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Inspire sound effects**: Stub-verified. `library {topic:"inspire", kind:"sounds"}` finds and
   measures YouTube sound effects of 60 s or less; `project import yt:<id>` brings one in with its credit.
   Evidence: `backend/inspire.test.mjs`, `backend/agent-inspire.test.mjs`. Gaps: not run live; no UI.
+- **Seen in a reference, found by name**: Test-verified. `look {mode:"reference"}` ends with a
+  search line; `library {topic:"search"}` starts with the kino names for plain words ("bloom",
+  "subtitles", "shake") and the call that reads each; a common word inside a longer query ("green
+  screen") leads nowhere. Evidence: `backend/agent-answers.test.mjs`, `backend/agent-inspire.test.mjs`.
 - **Reference fingerprint**: Verified on a Mac. Inspire measures motion, camera, text, palette and
   shots (`kino-measure`, Apple Vision); `reference_drift` measures the render the same way. Evidence:
   `backend/measure-fingerprint.test.mjs`, `backend/measure-vision.test.mjs`, `backend/inspire.test.mjs`,
