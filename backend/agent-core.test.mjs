@@ -257,7 +257,8 @@ test("waive_check takes a list or a glob of layer names and saves one waiver per
 });
 
 test("waivers: crop and shape need the person's words on layers; face-cut codes refuse * and scenes; ask_unmet names the word; unknown codes get a did-you-mean", () => {
-  const document = sceneDocument([rectangle("shot-1"), rectangle("shot-2")]);
+  // sky-1 is the layer "shot-*" leaves out: a glob that reaches all three would be "*" in disguise.
+  const document = sceneDocument([rectangle("shot-1"), rectangle("shot-2"), rectangle("sky-1")]);
   const resolver = createResolver(document, assignCodes(emptyCodes(), document));
   const send = (op) => translateOperations([{ op: "waive_check", reason: "meant", ...op }], resolver, document);
   const said = "keep the tight crop on the eyes";
@@ -269,6 +270,7 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
     assert.throws(() => send({ code, target: "main", quote: said }), /names layers, not the scene "main"/);
     assert.throws(() => send({ code, target: "s1", quote: said }), /names layers, not the scene "s1"/);
     assert.throws(() => send({ code, target: ["shot-1", "main"], quote: said }), /not the scene "main"/);
+    for (const glob of ["**", "?*", "*?", "*-*", "s*"]) assert.throws(() => send({ code, target: glob, quote: said }), /reaches every layer/, `glob ${glob}`);
     const [kept] = send({ code, target: "shot-*", quote: said });
     assert.deepEqual(kept.target, ["shot-1", "shot-2"]);
     assert.match(kept.reason, /the person: "keep the tight crop on the eyes"/);
@@ -278,6 +280,7 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
     assert.throws(() => send({ code, target: "*" }), /not target:"\*"/);
     assert.throws(() => send({ code, target: ["shot-1", "*"] }), /not target:"\*"/);
     assert.throws(() => send({ code, target: "main" }), /names layers, not the scene "main"/);
+    assert.throws(() => send({ code, target: "**" }), /reaches every layer/);
     assert.deepEqual(send({ code, target: "shot-1" })[0].target, "shot-1");
     assert.equal(translateOperations([{ op: "unwaive_check", code, target: "main" }], resolver, document).length, 1, "removing is never refused");
   }

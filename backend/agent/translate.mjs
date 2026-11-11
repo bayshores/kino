@@ -773,6 +773,13 @@ function resolveReferences(operation, type, resolver, document) {
       if (typeof ref === "string" && /[*?]/.test(ref)) {
         const matched = resolver.matchAll(ref, "layer");
         if (!matched.length) throw new ReferenceError(`No layer name matches "${ref}".`, { ref, kind: "layer" });
+        // "**", "?*" or "s*" is "*" in disguise: a glob that reaches every layer of the project covers
+        // shots nobody looked at, so these codes refuse it (a lone layer in a one-layer project is fine).
+        if (type === "waive_check" && (VIEWER_WAIVERS.has(operation.code) || SUBJECT_WAIVERS.has(operation.code))) {
+          const everyLayer = resolver.matchAll("*", "layer").length;
+          if (!/[^*?]/.test(ref) || (everyLayer > 1 && matched.length >= everyLayer))
+            throw new Error(`waive_check ${operation.code} names the layers whose cut or look is meant: the glob "${ref}" reaches every layer of the project, like target:"*". Name the layers (a list, or a glob that leaves some out, such as "shot-*").`);
+        }
         return matched;
       }
       try { return [resolve(ref, "layer")]; }
