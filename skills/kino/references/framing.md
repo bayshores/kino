@@ -1,18 +1,18 @@
 # Framing footage
 
-- `frame_shot {layer | layers}` first: kino crops on the mark or found face, else shows the shot
-  whole over a blurred copy.
-- `library {topic:"media", search:"<id>"}` lists a video's shots in file seconds. A listed end is
-  the next shot's first frame.
+- `frame_shot {layer | layers}` first: crops on the mark or a found face, else the whole shot
+  over a blurred copy. Faces come from a full check (pixels on): run one first.
+- `library {topic:"media", search:"<id>"}` lists a video's shots in file seconds.
+  A listed end is the next shot's first frame.
 - To aim it or crop by hand: `look {mode:"source", layer, t}`, then `mark_subject {layer, t,
   box}`, box `[x, y, w, h]` in % of the source, top-left; a face: the head. Mark each shot's
   start, middle and end (end − 0.05 s, not the listed end), every 0.5 s it moves over 10%. A
-  mark beats a found face (an eye strip: mark the part).
+  mark beats a found face.
 - By hand, one layer per shot: `height` = H, `width` = H × w / h, `x` = W / 2 − box center
   % / 100 × `width`, from W − `width` to 0.
 - Eyes near the top third; faces out of the bottom 707 and right 120 px of 1080×1920.
-- `crop_no_subject` (a found face under 85% in frame: error) and `narrow_window` offer
-  `frame_shot`, auto when nothing moves the layer.
+- `crop_no_subject` and `narrow_window` offer `frame_shot`; only a cut face on an unmoved layer
+  is auto.
 
 ## Framing: crop footage to 9:16
 

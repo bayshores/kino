@@ -212,7 +212,7 @@ const OPERATIONS = {
   },
   frame_shot: {
     fields: ["layerId", "layerIds", "sceneId"],
-    rules: 'frame_shot {layer | layers}: kino\'s own framing for video layers placed by hand: a crop on the subject marked (mark_subject), else on the faces kino found in the file, or the whole shot as a card over a blurred copy of itself when no crop keeps them. kino reads the file\'s size and found faces itself. mark_subject first to aim it; a layer in a group is refused.',
+    rules: 'frame_shot {layer | layers}: kino\'s own framing for video layers placed by hand: a crop on the subject marked (mark_subject), else on the faces kino found in the file, or the whole shot as a card over a blurred copy of itself when no crop keeps them. kino reads the file\'s size and the faces a full check saved (none yet: the receipt says so). mark_subject first to aim it; a layer in a group is refused.',
   },
   split_image: {
     fields: ["layerId", "sceneId", "boxes"],
@@ -1973,6 +1973,14 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       work.notes.push(shot.kind === "fill"
         ? `frame_shot ${name}: ${on ? `cropped to ${on}` : "filled the frame"} (${box})`
         : `frame_shot ${name}: whole shot as a card (${box}), blurred backdrop ${shot.backdrop.id} added under it`);
+      // No saved faces and no mark: kino framed the file by its size alone. Faces are measured by a full check.
+      if (!samples.length && !layer.subjectBoxes?.boxes?.length)
+        work.notes.push(`frame_shot ${name}: no faces measured for this file yet, so the frame uses only its size (a full check with pixels on finds faces; then frame_shot again after deleting the backdrop, or mark_subject)`);
+      // The op writes the box once; a move or scale animation of the layer keeps its own x, y, width or height.
+      const framed = document.scenes.flatMap((item) => item.layers).find((item) => item.id === layerId);
+      const moving = (framed?.animations ?? []).filter((animation) => /"(?:x|y|width|height)":/.test(JSON.stringify([animation.from ?? null, animation.to ?? null, animation.keyframes ?? null])));
+      if (moving.length)
+        work.notes.push(`frame_shot ${name}: ${moving.length} animation${moving.length === 1 ? "" : "s"} on it still move or scale the layer from its old box and pull it off the frame above (delete_animation ${moving.length === 1 ? "it" : "them"}, or update_animation to the new box)`);
     }
   }
 

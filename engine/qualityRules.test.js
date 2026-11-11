@@ -1709,7 +1709,8 @@ test("narrow_window: a window under 40% of the file's width where no face was fo
   const [narrow] = (await cropRun("narrow_window", tall())).findings;
   assert.deepEqual([narrow.severity, narrow.itemId], ["warn", "keeper"]);
   assert.match(narrow.measured, /^a window 32% of the 1920x1080 file wide/);
-  assert.deepEqual([narrow.fix.kind, narrow.fix.auto], ["frame_shot", true]);
+  // Offered, not applied by fix:"auto": no face was found, so a deliberate vertical crop of scenery stays unless someone decides.
+  assert.deepEqual([narrow.fix.kind, narrow.fix.auto], ["frame_shot", false]);
   // A face found in the window (crop_no_subject judges it), or the whole width shown: quiet.
   assert.deepEqual((await cropRun("narrow_window", tall(), facesFound([45, 30, 10, 25]))).findings, []);
   const wide = scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] });

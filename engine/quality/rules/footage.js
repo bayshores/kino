@@ -165,7 +165,10 @@ function heldStill(model, item) {
 
 // The fix for a face cut or a window kino cannot see into: kino's own framing of the layer
 // (frame_shot), with `text` as the words when the op cannot be offered (a layer inside a group).
-const frameFix = (model, item, text) => ({ kind: "frame_shot", itemId: item.id, auto: heldStill(model, item), text });
+// `auto` false offers it without applying it: narrow_window found no problem, only a window kino
+// cannot see into (scenery, b-roll and a requested vertical edit are fine), so a person's or an
+// agent's look decides before a deliberate crop becomes a card.
+const frameFix = (model, item, text, auto = true) => ({ kind: "frame_shot", itemId: item.id, auto: auto && heldStill(model, item), text });
 
 /** crop_no_subject: footage drawn past the frame with no subject marked, or its subject cut off. */
 export function cropNoSubject(model, ctx) {
@@ -314,7 +317,7 @@ export function narrowWindow(model, ctx) {
       message: `${ctx.name(item)} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and no face was found in it: kino cannot see faces here (drawn ones are not found). A deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).`,
       measured: `a window ${Math.round(narrowest.width)}% of the ${size.width}x${size.height} file wide (middle at ${middle}%) at ${sec(narrowest.time)} s, for ${sec((count * step) / model.fps)} s, no face found`,
       required: `a full-frame window at least ${NARROW_WINDOW}% of the file wide, or a look at what it keeps`,
-      fix: frameFix(model, item, `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).`),
+      fix: frameFix(model, item, `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).`, false),
     });
   }
   return findings;

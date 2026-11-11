@@ -20,7 +20,7 @@ import { VIEWER_WAIVERS } from "./agent/translate.mjs";
 
 // A viewer-facing finding is kept only on the person's words, on named layers: not "*", not a scene,
 // not a glob that reaches every layer. The test cards here are the layers named dot*.
-const viewerWaiver = (code) => (VIEWER_WAIVERS.has(code) ? { target: "dot*", quote: "keep the still test card as it is" } : { target: "*" });
+const viewerWaiver = (code) => (VIEWER_WAIVERS.has(code) ? { target: ["ending_seen", "text_slides"].includes(code) ? "s1" : "dot*", quote: "keep the still test card as it is" } : { target: "*" });
 
 // A 1280×720 scene: a title fades in at 0.2–0.6 s, a box flies across at 1–2 s, a caption comes
 // in at 4 s, and nothing happens after 4.4 s (a quiet stretch to 8 s).
@@ -596,7 +596,10 @@ test("a viewer-facing finding is the agent's to fix: its waiver needs the person
   assert.match(handed.text, /your call\W{0,3} is not one/);
   const all = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "*", quote: "keep the title cards, I like them", reason: "their pick" }] });
   assert.match(all.text, /names the layers the person kept, not target:\W{0,3}\*/);
-  const kept = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "card", quote: "keep the title cards, I like them", reason: "their pick" }] });
+  // text_slides finds a whole scene and names no layer: a layer waiver would be saved and cover nothing, so it is refused.
+  const onLayer = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "card", quote: "keep the title cards, I like them", reason: "their pick" }] });
+  assert.match(onLayer.text, /covers a whole scene and names no layer.*Name the scene/);
+  const kept = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "s1", quote: "keep the title cards, I like them", reason: "their pick" }] });
   assert.equal(kept.isError, undefined, kept.text);
   const record = await (await server.api(`/api/projects/${id}`)).json();
   const waiver = (record.document ?? record).checkWaivers.find((entry) => entry.code === "text_slides");

@@ -284,6 +284,16 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
     assert.deepEqual(send({ code, target: "shot-1" })[0].target, "shot-1");
     assert.equal(translateOperations([{ op: "unwaive_check", code, target: "main" }], resolver, document).length, 1, "removing is never refused");
   }
+  // A finding of a whole scene (a still hold, the ending) is kept by naming the scene with the person's words;
+  // text_slides, ending_seen and music_stall never name a layer, so a layer waiver is refused, not saved to cover nothing.
+  assert.equal(send({ code: "held_static", target: "main", quote: "keep the long still hold" })[0].target, "main");
+  assert.equal(send({ code: "held_static", target: "shot-1", quote: "keep the long still hold" })[0].target, "shot-1");
+  for (const code of ["text_slides", "ending_seen", "music_stall"]) {
+    assert.equal(send({ code, target: "s1", quote: "keep the long still hold" })[0].target, "main");
+    assert.throws(() => send({ code, target: "shot-1", quote: "keep the long still hold" }), /covers a whole scene and names no layer/);
+    assert.throws(() => send({ code, target: "shot-*", quote: "keep the long still hold" }), /names no layer/);
+    assert.throws(() => send({ code, target: "*", quote: "keep the long still hold" }), /not target:"\*"/);
+  }
   // ask_unmet: the reason names an origin word (kino's search result), whole word.
   assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "the tower is off screen" }), /no origin word/);
   resolver.origin = { words: [{ word: "tower", count: 11, of: 15 }] };
