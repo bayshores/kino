@@ -2983,7 +2983,7 @@ export function createAgentService(deps) {
       if (await isMusicFile(file)) {
         for (const piece of pieces) {
           const range = mediaPlaybackRange(piece, scene.duration);
-          if (range) music.push(...musicSections(range, lowpassSampler(piece)));
+          if (range) music.push(...musicSections(range, lowpassSampler(piece), 0.1, piece.src));
         }
         continue;
       }

@@ -138,16 +138,25 @@ export function heardLines(words, captions = []) {
 
 /**
  * A song's stretches: muffled while its low-pass filter is on, full after it opens.
- * cutoffAt(time) is animation.js lowpassSampler (0 = off or fully open).
+ * cutoffAt(time) is animation.js lowpassSampler (0 = off or fully open). A range that knows its
+ * place in the file (mediaPlaybackRange's offset, at normal speed) also gives each stretch's
+ * seconds of the recording (song: [from, to]); src names the recording.
  */
-export function musicSections(range, cutoffAt, step = 0.1) {
+export function musicSections(range, cutoffAt, step = 0.1, src = null) {
+  const inFile = Number.isFinite(range.offset) && !range.remapped;
   const sections = [];
   for (let time = range.start; time < range.end; time += step) {
     const what = cutoffAt(time) > 0 ? "song (muffled)" : "song (full)";
     if (sections.at(-1)?.what === what) sections.at(-1).end = Math.min(range.end, time + step);
     else sections.push({ start: time, end: Math.min(range.end, time + step), what });
   }
-  return sections.map((section) => ({ ...section, start: sec(section.start), end: sec(section.end) }));
+  return sections.map((section) => ({
+    ...section,
+    start: sec(section.start),
+    end: sec(section.end),
+    ...(inFile ? { song: [sec(range.offset + section.start - range.start), sec(range.offset + section.end - range.start)] } : {}),
+    ...(src ? { src } : {}),
+  }));
 }
 
 /** heard.txt: what a first-time viewer hears, and when. Nothing from the brief or the plan. */
@@ -158,7 +167,17 @@ export function heardText({ duration, sheets, lines, music, missing = [] }) {
   for (const line of lines) out.push(`  ${time(line.start)}-${time(line.end)}s  [${line.voice}] ${line.text}`);
   for (const voice of missing) out.push(`  [${voice.voice}] speaks, but there is no transcript (${voice.why})`);
   out.push(music.length ? "Music:" : "No music.");
-  for (const section of music) out.push(`  ${time(section.start)}-${time(section.end)}s  ${section.what}`);
+  // The song's own seconds are listed, and a join is named where the recording does not play on.
+  let last = null;
+  for (const section of [...music].sort((a, b) => a.start - b.start)) {
+    if (last?.song && section.song && section.start - last.end < 0.5) {
+      const playsOn = last.song[1] + section.start - last.end;
+      if (section.src !== last.src) out.push(`  ${time(section.start)}s  another recording takes over`);
+      else if (Math.abs(section.song[0] - playsOn) > 0.3) out.push(`  ${time(section.start)}s  the song jumps from ${sec(playsOn)} s to ${section.song[0]} s of its recording`);
+    }
+    out.push(`  ${time(section.start)}-${time(section.end)}s  ${section.what}${section.song ? `, ${section.song[0]} to ${section.song[1]} s of the recording` : ""}`);
+    last = section;
+  }
   return out.join("\n");
 }
 

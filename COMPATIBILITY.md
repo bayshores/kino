@@ -179,7 +179,7 @@ How to read it:
   `backend/agent-edit-repair.test.mjs`.
 - **Viewer test (story)**: Partly verified. `notes intents`, `look {mode:"viewer"}` and `notes viewer`
   record a fresh subagent's report; a final render of 15 s+ with footage or speech answers
-  `viewer_needed` until no story bugs are open, or while a caption before the last beat spoils the ending (not one the voice says; waivable per caption). Evidence: `backend/agent-review.test.mjs`; not yet run
+  `viewer_needed` until no story bugs are open, or while a caption before the last beat spoils the ending (not one the voice says; waivable per caption). `heard.txt` gives each song stretch's seconds of the recording and names a join where the song jumps. Evidence: `backend/agent-review.test.mjs`; not yet run
   through kino with a real fresh agent.
 - **Fresh-eyes critic**: Partly verified. `look {mode:"critique"}` and `notes critique` record a fresh
   critic's P0/P1/P2 lines; an open P0 or GENERIC (no moment only this product could have) blocks a final render (a line at any level that cuts or flattens a designed move is only asked), a real edit needs one round, and after 2 rounds the rest go to the

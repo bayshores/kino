@@ -36,7 +36,9 @@ each, and `heard.txt`, what is heard and when. Its answer prints the prompt for 
 
 - each voice's lines, tagged with its layer's name; a line your captions cover uses the
   caption's words (a machine transcript mishears names);
-- each song's stretches: muffled while its low-pass filter is on, full after it opens.
+- each song's stretches: muffled while its low-pass filter is on, full after it opens, each
+  with its seconds of the recording; a join where the recording does not play on is named ("the
+  song jumps from 7 s to 68 s of its recording").
 
 Nothing from the brief, the plan, the intents or other layer names is in it. Name voice layers
 for who speaks (`judge`, `app`, `street`), never for what they are for (`hook-line`).

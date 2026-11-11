@@ -337,6 +337,12 @@ test("viewer packet text: heard lines by voice and pause, a caption's words over
   assert.match(text, /^Video length 10 s\. Frames every 0\.5 s on 3 sheets, 9 to a sheet/);
   assert.match(text, / {3}1\.1- {2}2\.5s {2}\[ask\] Zuri, find the closest bakery\n/);
   assert.match(text, /Music:\n {4}0\.0- {2}2\.0s {2}song \(muffled\)/);
+  // Two pieces of one recording: each stretch says its seconds of the song, and the join is named.
+  const pieces = [{ start: 0, end: 7, offset: 0 }, { start: 6.9, end: 20, offset: 68 }].flatMap((range) => musicSections(range, () => 0, 0.1, "song.wav"));
+  assert.deepEqual(pieces[1].song, [68, 81.1]);
+  const joined = heardText({ duration: 20, sheets: 5, lines: [], music: pieces });
+  assert.match(joined, /song \(full\), 0 to 7 s of the recording\n {4}6\.9s {2}the song jumps from 6\.9 s to 68 s of its recording\n/);
+  assert.doesNotMatch(heardText({ duration: 20, sheets: 5, lines: [], music: [pieces[0], ...musicSections({ start: 7, end: 20, offset: 7 }, () => 0, 0.1, "song.wav")] }), /jumps/, "the recording plays on");
 
   const beats = [{ from: 0, to: 4, intent: "the viewer knows what he asks for" }, { from: 4, to: 10, intent: "the viewer feels relief at the arrival" }];
   assert.throws(() => parseViewer({ report: "x".repeat(50), matches: [{ beat: 1, got: "yes" }] }, beats), /beat 2 has no/);
