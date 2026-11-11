@@ -274,6 +274,13 @@ test("the median shot: one long shot moves the mean cuts a second but not the me
   assert.deepEqual([quiet.median, quiet.medianBeats], [1, null]);
   const { median, medianBeats, ...before } = quiet;
   assert.match(numbersLine({ state: "measured", numbers: before }), /median shot 1 s · longest 25 s · no steady beat$/);
+  // An unsure beat grid (a voice gets one too) keeps the median in seconds only, never in made-up beats.
+  const voice = measureNumbers({ cuts: [3, 6, 9, 12], beats, seconds: 20, steady: false });
+  assert.deepEqual([voice.median, voice.medianBeats], [3, null]);
+  // A saved record without a longest shot still reads: the line leaves that part out instead of throwing.
+  const partial = { state: "measured", numbers: { cuts: [1, 2], seconds: 3, shots: 3, cutsPerSecond: 0.67 } };
+  assert.equal(numbersLine(partial), "0.67 cuts/s · 3 shots in 3 s · median shot 1 s · no steady beat");
+  assert.match(referenceText({ id: "yt:p", title: "p", duration: 3, url: "u", ...partial }), /3 shots · 0\.67 cuts\/s · median shot 1 s · no steady beat/);
 });
 
 test("a borrowed rhythm: each section's pace in a new order, scaled to fit, cut on the song's seams", () => {

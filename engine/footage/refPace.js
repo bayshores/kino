@@ -72,19 +72,24 @@ const sourced = (value, source, ids = []) => ({ ...value, source, ids });
  *       rounded to 1, 2, 4 or 8 and shown in seconds at the song's tempo. Without a song: seconds,
  *       kept between 0.4 and 8 (exact is the value before that); beats is null.
  *     without refs ("today"): 2 beats with a song, else 0.6 s.
- *   hold: {seconds, source, ids}: the longest of their longest shots ("ref"), else 5.5 s ("today").
+ *   hold: {seconds, exact, source, ids}: the longest of their longest shots ("ref"), kept at 8 s
+ *     at most (a clip that is one long shot would otherwise hold the whole clip; exact keeps it),
+ *     else 5.5 s ("today", also when no reference knows its longest shot).
+ *
+ * Ignores anything that is not a measured reference with a median above 0 (a zero-length measure
+ * says nothing about pace).
  */
 export function defaultPace(refs, { beatSeconds = null } = {}) {
   const song = beatSeconds > 0;
-  const measured = (refs ?? []).map((ref) => ({ id: ref.id, numbers: numbersWithMedian(ref.numbers, ref.bpm) })).filter((ref) => ref.numbers?.median != null);
-  const hold = measured.length
-    ? (() => {
-      const longest = Math.max(...measured.map((ref) => ref.numbers.longest?.seconds ?? 0));
-      return sourced({ seconds: longest }, "ref", measured.filter((ref) => (ref.numbers.longest?.seconds ?? 0) === longest).map((ref) => ref.id));
-    })()
-    : sourced({ seconds: PACES.promo.hero }, "today");
+  const measured = (Array.isArray(refs) ? refs : []).filter(Boolean)
+    .map((ref) => ({ id: ref.id, numbers: numbersWithMedian(ref.numbers, ref.bpm) })).filter((ref) => ref.numbers?.median > 0);
+  const longestOf = (ref) => ref.numbers.longest?.seconds > 0 ? ref.numbers.longest.seconds : 0;
+  const longest = Math.max(0, ...measured.map(longestOf));
+  const hold = longest > 0
+    ? sourced({ seconds: Math.min(longest, SHOT_SECONDS.most), exact: longest }, "ref", measured.filter((ref) => longestOf(ref) === longest).map((ref) => ref.id))
+    : sourced({ seconds: PACES.promo.hero, exact: PACES.promo.hero }, "today");
   if (!measured.length) {
-    return { shot: song ? sourced({ seconds: round(PACES.promo.beats * beatSeconds, 2), beats: PACES.promo.beats, exact: PACES.promo.beats }, "today") : sourced({ seconds: FREE_BEAT, beats: null, exact: FREE_BEAT }, "today"), hold };
+    return { shot: song ? sourced({ seconds: round(Math.min(PACES.promo.beats * beatSeconds, SHOT_SECONDS.most), 2), beats: PACES.promo.beats, exact: PACES.promo.beats }, "today") : sourced({ seconds: FREE_BEAT, beats: null, exact: FREE_BEAT }, "today"), hold };
   }
   if (!song) {
     const exact = round(medianOf(measured.map((ref) => ref.numbers.median)), 2);
@@ -94,6 +99,8 @@ export function defaultPace(refs, { beatSeconds = null } = {}) {
   const withBeat = measured.filter((ref) => ref.numbers.medianBeats);
   const used = withBeat.length ? withBeat : measured;
   const exact = round(withBeat.length ? medianOf(withBeat.map((ref) => ref.numbers.medianBeats.exact)) : medianOf(measured.map((ref) => ref.numbers.median)) / beatSeconds, 2);
-  const beats = nearestBeats(exact);
-  return { shot: sourced({ seconds: round(beats * beatSeconds, 2), beats, exact }, "ref", used.map((ref) => ref.id)), hold };
+  // Beats stay the nearest step, but a very slow song never makes a shot longer than 8 s.
+  let beats = nearestBeats(exact);
+  while (beats > 1 && beats * beatSeconds > SHOT_SECONDS.most) beats /= 2;
+  return { shot: sourced({ seconds: round(Math.min(beats * beatSeconds, SHOT_SECONDS.most), 2), beats, exact }, "ref", used.map((ref) => ref.id)), hold };
 }

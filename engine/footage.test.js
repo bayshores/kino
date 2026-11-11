@@ -124,8 +124,16 @@ test("default pace: the median of the references' median shots and the longest o
   assert.deepEqual([defaultPace([a, b, d], { beatSeconds: 0.4 }).shot.beats, defaultPace([a, b, d], { beatSeconds: 0.4 }).shot.ids], [4, ["yt:d"]]);
   // A very slow reference is kept inside 0.4 to 8 s (exact keeps the 12 s); beats round by ratio.
   const slow = defaultPace([{ id: "yt:s", numbers: { cuts: [12], seconds: 24, longest: { seconds: 12 } } }]);
-  assert.deepEqual([slow.shot.seconds, slow.shot.exact, slow.hold.seconds], [8, 12, 12]);
+  // The hold is kept to 8 s too (a clip that is one long shot), with the real length in exact.
+  assert.deepEqual([slow.shot.seconds, slow.shot.exact, slow.hold.seconds, slow.hold.exact], [8, 12, 8, 12]);
   assert.deepEqual([3, 0.3, 100, 1.4, 1.5].map(nearestBeats), [4, 1, 8, 1, 2]);
+  // A very slow song (100 s a beat) never gives a shot over 8 s.
+  assert.equal(defaultPace([a, b], { beatSeconds: 100 }).shot.seconds, 8);
+  // Missing data is not a pace: no longest or a zero-length measure falls back to today's hold, and bad input is ignored.
+  const noLongest = defaultPace([{ id: "yt:n", numbers: { cuts: [1, 2], seconds: 3 } }]);
+  assert.deepEqual([noLongest.shot.source, noLongest.hold.seconds, ...ids(noLongest.hold)], ["ref", 5.5, "today", []]);
+  const empty = defaultPace([{ id: "yt:z", numbers: { median: 0, cuts: [], seconds: 0, longest: { seconds: 0 } } }, null]);
+  assert.deepEqual([empty.shot.source, empty.hold.source, defaultPace({}).shot.source], ["today", "today", "today"]);
 });
 
 test("title: each type card and treatment carries its own reveal, none a blur; a calm title is a plain fade", () => {

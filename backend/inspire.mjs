@@ -376,10 +376,12 @@ const round = (value, places = 2) => Math.round(value * 10 ** places) / 10 ** pl
  * `seconds` it measured: shots, cuts a second, the longest shot and where it is, and which cuts are
  * on the beat (null when no steady beat was found). median: the median shot in seconds (a mean is
  * skewed by one long shot); medianBeats: {exact, near, beatSeconds}, the median shot in beats of the
- * reference's own sound (near is the nearest of 1, 2, 4, 8), null without a beat. beatFit: the cuts against the beat in frames at
+ * reference's own sound (near is the nearest of 1, 2, 4, 8), null without a beat. steady: false when
+ * the sound's beat grid is unsure (a voice or noise gets one too): the median is then kept in
+ * seconds only, never in made-up beats. beatFit: the cuts against the beat in frames at
  * `fps`, with a random baseline (beat-fit.mjs; null without a beat); flashes: how many were found.
  */
-export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) {
+export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0, steady = true }) {
   const length = Math.max(0, Number(seconds) || 0);
   const times = [...new Set((cuts ?? []).filter((time) => Number.isFinite(time) && time > 0 && time < length).map((time) => round(time, 3)))].sort((a, b) => a - b);
   const edges = [0, ...times, length];
@@ -402,7 +404,7 @@ export function measureNumbers({ cuts, beats, seconds, fps = 24, flashes = 0 }) 
   }
   // The mean cuts a second is skewed by one long shot, so the median shot is kept too (in beats when
   // the reference's own sound gave a beat). No audio, no beat: medianBeats is null.
-  const { median, medianBeats } = shotStats(times, length, beatSecondsOf(beatList));
+  const { median, medianBeats } = shotStats(times, length, steady ? beatSecondsOf(beatList) : null);
   return {
     seconds: round(length),
     shots,
@@ -1144,7 +1146,8 @@ export function createInspire(deps) {
       let beat = null;
       try { beat = await heavy.findBeats(file, { signal }); }
       catch (error) { if (signal.aborted) throw error; /* no sound: no beat to measure */ }
-      const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], ...read });
+      // findBeats says steady: false for a beat grid it is unsure of (a stub that says nothing is steady).
+      const numbers = measureNumbers({ cuts: shots.slice(1).map((shot) => shot.start), beats: beat?.beats ?? [], steady: beat?.steady !== false, ...read });
       if (running?.id === record.id) running.partial = { ...numbers, ...(beat?.bpm ? { bpm: beat.bpm } : {}) };
       // The fingerprint and the strips: a failure here keeps the cuts and says what went wrong.
       let fingerprint = null, strips = [], fingerprintError = null;
@@ -1665,7 +1668,7 @@ export function screenNumbers(fp) {
 /** The real tools behind createInspire: yt-dlp, FFmpeg's shot and beat finders, fetch, and the
  * fingerprint measure (Apple Vision on a Mac). */
 export async function inspireTools({ command } = {}) {
-  const [{ findShots }, { analyzeAudioFile, decodeMono }, { probeMedia, ffmpegCommand }, { measureVideo }, { makeStrips }, { makeStills }, { createCanvas }, { runExportProcess }, { measureFileLevels }] = await Promise.all([
+  const [{ findShots }, { analyzeAudioFile, decodeMono, steadyBeat }, { probeMedia, ffmpegCommand }, { measureVideo }, { makeStrips }, { makeStills }, { createCanvas }, { runExportProcess }, { measureFileLevels }] = await Promise.all([
     import("./shot-detection.mjs"), import("./audio-analysis.mjs"), import("./media-probe.mjs"), import("./measure/measure.mjs"), import("./measure/strips.mjs"),
     import("./measure/stills.mjs"), import("@napi-rs/canvas"), import("./export-process.mjs"), import("./audio-levels.mjs"),
   ]);
@@ -1727,7 +1730,8 @@ export async function inspireTools({ command } = {}) {
     encodeFrame: (frame) => encodeLiveFrame(frame, createCanvas),
     strips: (file, moments, folder, options) => makeStrips(file, moments, folder, options),
     stills: (file, seconds, folder, options) => makeStills(file, seconds, folder, options),
-    findBeats: (file) => analyzeAudioFile(file),
+    // steady: kino's own test of whether the beat grid is a song's (a voice scores low).
+    findBeats: async (file) => { const analysis = await analyzeAudioFile(file); return { ...analysis, steady: steadyBeat(analysis) }; },
     probe: (file, options) => probeMedia(file, options),
     async fetchThumb(url, { signal } = {}) {
       // KINO_INSPIRE_THUMBS=off: no thumbnails (the tests, which never go online).
@@ -1810,13 +1814,14 @@ export function numbersLine(ref) {
   const numbers = ref?.numbers;
   if (!numbers) return "not measured";
   const beat = numbers.onBeat ? `on the beat ${numbers.onBeatCount} of ${numbers.cuts.length}` : "no steady beat";
-  return `${numbers.cutsPerSecond} cuts/s · ${numbers.shots} shots in ${Math.round(numbers.seconds)} s · ${shotWords(numbers)} · ${beat}`;
+  return [`${numbers.cutsPerSecond} cuts/s`, `${numbers.shots} shots in ${Math.round(numbers.seconds)} s`, shotWords(numbers), beat].filter(Boolean).join(" · ");
 }
 
-/** "median shot 0.9 s · longest 3.2 s": the usual shot and the longest, which a mean cuts/s hides. */
+/** "median shot 0.9 s · longest 3.2 s": the usual shot and the longest, which a mean cuts/s hides.
+ * A part a saved record lacks is left out ("" when both are). */
 function shotWords(numbers) {
   const { median } = numbersWithMedian(numbers);
-  return `median shot ${round(median, 1)} s · longest ${numbers.longest.seconds} s`;
+  return [median != null ? `median shot ${round(median, 1)} s` : "", numbers.longest ? `longest ${numbers.longest.seconds} s` : ""].filter(Boolean).join(" · ");
 }
 
 /** " (1.8 beats, about 2 at 120 bpm)" when the reference's own beat is known; "" otherwise. */
@@ -1871,7 +1876,7 @@ export function referenceText(ref, { full = false } = {}) {
   const numbers = ref.numbers;
   if (!numbers) return `${head}\n${numbersLine(ref)}`;
   const span = numbers.seconds < ref.duration - 0.5 ? `the first ${Math.round(numbers.seconds)} s of ${clock(ref.duration)}` : `all ${Math.round(numbers.seconds)} s`;
-  const longest = `longest ${numbers.longest.seconds} s ${numbers.longest.where ? `(${numbers.longest.where})` : `from ${clock(numbers.longest.start)}`}`;
+  const longest = numbers.longest ? `longest ${numbers.longest.seconds} s ${numbers.longest.where ? `(${numbers.longest.where})` : `from ${clock(numbers.longest.start)}`}` : "";
   const beat = numbers.onBeat ? `cuts on the beat ${numbers.onBeatCount} of ${numbers.cuts.length}${ref.bpm ? ` (${Math.round(ref.bpm)} bpm)` : ""}` : "no steady beat in its sound";
   const lent = lentCuts(numbers);
   const shown = full ? lent : lent.slice(0, 40);
@@ -1881,8 +1886,8 @@ export function referenceText(ref, { full = false } = {}) {
     : "cuts: none (one shot)";
   const fit = [beatFitLine(numbers.beatFit), numbers.flashes ? `flashes ${numbers.flashes}` : ""].filter(Boolean).join(" · ");
   const filled = numbersWithMedian(numbers, ref.bpm);
-  const median = `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}`;
-  return [head, `measured ${span}: ${numbers.shots} shots · ${numbers.cutsPerSecond} cuts/s · ${median} · ${longest} · ${beat}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
+  const median = filled.median != null ? `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}` : "";
+  return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
     ...fingerprintLines(ref),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
 }
