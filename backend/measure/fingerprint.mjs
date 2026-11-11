@@ -16,6 +16,7 @@
 //   stats  pixelStats(): brightness, sharpness and a color histogram
 //   flow   the helper's 16 × 9 grid of arrows {cols, rows, u, v} in pixels of the frame
 //   text   the helper's lines [{box: [x, y, w, h], s, c}] (null when text was not read)
+import { cellContrast } from "../../engine/quality/motionPixels.js";
 
 // Below this much motion (frame diagonals a second) a frame pair is still.
 export const STILL_SPEED = 0.015;
@@ -59,6 +60,9 @@ const SHARP_W = 160;
 const SHARP_H = 90;
 export const CELL_COLS = 16;
 export const CELL_ROWS = 9;
+
+/** The mean brightness of each cell, from pixelStats' cells (a mean and a spread per cell). */
+const cellMeans = (cells) => Array.from({ length: cells.length / 2 }, (_, cell) => cells[cell * 2]);
 
 /**
  * Plain numbers from one frame of BGRA (or RGBA, `order` "rgba") bytes: mean brightness (0–1),
@@ -697,9 +701,12 @@ export function fingerprint(records, { width, height, seconds, cuts = [], dense 
   }
 
   const lumas = records.map((record) => record.stats.luma);
+  // Contrast: the median over the frames of 2 x the spread of their 16 x 9 cell brightness (left out without cells).
+  const contrasts = records.filter((record) => record.stats.cells).map((record) => cellContrast(cellMeans(record.stats.cells)));
   const look = {
     brightness: round(median(lumas), 2),
     darkShare: round(lumas.filter((value) => value < 0.15).length / Math.max(1, lumas.length), 2),
+    ...(contrasts.length ? { contrast: round(median(contrasts), 2) } : {}),
     palette: palette(records.flatMap((record) => record.stats.pixels ?? [])),
   };
 

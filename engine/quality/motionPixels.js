@@ -63,6 +63,37 @@ export function brightness(frame, box = null) {
   return sum / Math.max(1, (x1 - x0) * (y1 - y0));
 }
 
+// Contrast is read on the 16 x 9 grid of cells the reference fingerprints use
+// (backend/measure/fingerprint.mjs CELL_COLS, CELL_ROWS).
+const CONTRAST_COLS = 16;
+const CONTRAST_ROWS = 9;
+// A contrast gap worth saying: apart by this amount and by this ratio (look versus, reference_range).
+export const CONTRAST_GAP = 0.05;
+export const CONTRAST_RATIO = 1.5;
+
+/** Contrast from the mean luma (0 to 1) of each cell of the 16 x 9 grid: 2 x their standard deviation, 2 decimals. */
+export function cellContrast(means) {
+  const count = means.length;
+  if (!count) return 0;
+  let sum = 0, squares = 0;
+  for (const value of means) { sum += value; squares += value * value; }
+  const average = sum / count;
+  return Math.round(2 * Math.sqrt(Math.max(0, squares / count - average * average)) * 100) / 100;
+}
+
+/** The contrast (0 to 1) of an RGBA frame {width, height, pixels}: cellContrast of its 16 x 9 cell mean lumas. */
+export function frameContrast(frame) {
+  const means = [];
+  for (let row = 0; row < CONTRAST_ROWS; row += 1) {
+    const y0 = Math.floor((row * frame.height) / CONTRAST_ROWS), y1 = Math.max(y0 + 1, Math.floor(((row + 1) * frame.height) / CONTRAST_ROWS));
+    for (let col = 0; col < CONTRAST_COLS; col += 1) {
+      const x0 = Math.floor((col * frame.width) / CONTRAST_COLS), x1 = Math.max(x0 + 1, Math.floor(((col + 1) * frame.width) / CONTRAST_COLS));
+      means.push(brightness(frame, { x0, y0, x1, y1 }) / 255);
+    }
+  }
+  return cellContrast(means);
+}
+
 /** Mean absolute difference (0 to 1) of two RGBA frames, inside `box` (frame pixels) or all of them. */
 export function frameDiff(a, b, box = null) {
   const { x0, y0, x1, y1 } = pixelBox(a, box);

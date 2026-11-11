@@ -11,7 +11,7 @@
 // two of them agree.
 import { SHARE_MARGIN, compareFingerprints, referenceRanges } from "../referenceCompare.js";
 import { readingTexts } from "../analysis.js";
-import { MOTION_WIDTH, brightness } from "../motionPixels.js";
+import { CONTRAST_GAP, CONTRAST_RATIO, MOTION_WIDTH, brightness, frameContrast } from "../motionPixels.js";
 import { speechWords } from "../../speech.js";
 import { backgroundLuma, plateChanges, plates, techniquesUsed, transitions } from "../techniques.js";
 import { hasMusic } from "./sound.js";
@@ -58,8 +58,9 @@ export async function referenceDrift(model, ctx) {
 // ---------------------------------------------------------------- reference_range
 //
 // reference_range (warning) holds the edit to the range of the project's own saved references in
-// four plain facts, measured the same way on both sides (backend/measure/fingerprint.mjs,
-// backend inspire measure): median brightness and the share of the video under DARK, text
+// five plain facts, measured the same way on both sides (backend/measure/fingerprint.mjs,
+// backend inspire measure): median brightness and the share of the video under DARK, median
+// contrast (2 x the spread of 16 x 9 cell brightness, read on the same frames), text
 // entrances per 10 s, and whether a voice plays before the loudest change of the music. Unlike
 // reference_drift it needs no Apple Vision, so it runs in the normal pixel pass and a final
 // render sees it. Every bound is the references' own (no fixed target): an edit may stay outside
@@ -120,6 +121,35 @@ function speechBefore(ctx, time) {
   return unknown ? null : false;
 }
 
+/**
+ * The contrast row, or null: the median contrast of the render's `frames` against the references'
+ * `range` ({low, high, n}); a row when at least RANGE_REFS references have one and the render is
+ * apart from the nearest bound by CONTRAST_GAP and by CONTRAST_RATIO. The fix is one color-grade
+ * step (the next check measures again) on the shown clips and images.
+ */
+function contrastFinding(model, range, refs, frames, scene, waive) {
+  if (!range || range.n < RANGE_REFS) return null;
+  const values = (frames ?? []).filter(Boolean).map(frameContrast).sort((a, b) => a - b);
+  if (!values.length) return null;
+  const ours = values[Math.floor(values.length / 2)];
+  const less = ours < range.low && range.low - ours >= CONTRAST_GAP && range.low >= ours * CONTRAST_RATIO;
+  const more = ours > range.high && ours - range.high >= CONTRAST_GAP && ours >= range.high * CONTRAST_RATIO;
+  if (!less && !more) return null;
+  const names = refs.filter((ref) => Number.isFinite(ref.fingerprint?.look?.contrast)).map((ref) => ref.id).join(", ");
+  const span = range.low === range.high ? `${range.low}` : `${range.low} to ${range.high}`;
+  // One step toward the range, to the nearest 0.05 and no further than 1.1 to 1.5 (or 0.7 to 0.9).
+  const step = Math.round((less ? (ours > 0 ? range.low / ours : 2) : range.high / ours) * 20) / 20;
+  const amount = less ? Math.min(1.5, Math.max(1.1, step)) : Math.min(0.9, Math.max(0.7, step));
+  const shown = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && item.samples.opacity.some((value) => value >= 0.5)).map((item) => item.name ?? item.id);
+  return {
+    rule: "reference_range", severity: "warn",
+    measured: `median contrast ${ours} (2 x the spread of 16x9 cell brightness)`,
+    required: `inside your ${range.n} saved references: ${span}`,
+    message: `${scene} has ${less ? "less" : "more"} contrast than its saved references (${names}): ${ours} against ${span}.`,
+    fix: { kind: "hint", text: `${less ? "Raise" : "Lower"} it one step: edit {ops:[{op:"add_animation", layer:"${shown[0] ?? "<layer>"}", effect:"color-grade", parameters:{contrast:${amount}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
+  };
+}
+
 export async function referenceRange(model, ctx) {
   const refs = ctx.rangeRefs ?? [];
   const ranges = referenceRanges(refs);
@@ -162,6 +192,10 @@ export async function referenceRange(model, ctx) {
       });
     }
   }
+
+  // Contrast: the median of the same frames, apart from the references' range by CONTRAST_GAP and CONTRAST_RATIO.
+  const contrast = contrastFinding(model, ranges.contrast, refs, frames, scene, waive);
+  if (contrast) findings.push(contrast);
 
   // Text entrances per 10 s: one per text layer shown.
   const texts = readingTexts(model).length / model.duration * 10;

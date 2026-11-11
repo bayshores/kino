@@ -261,17 +261,19 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.deepEqual([page.width, page.height], [644, 548], "3 rows of two 320x180 pictures");
   assert.doesNotMatch(versus.text, /references: |inside your/, "one reference is no range: reference_range says nothing");
   // Two references that are bright, with text and a voice before their loudest change: yours is measured against that range.
-  for (const key of ["kinoTest002", "kinoTest003"]) {
+  for (const [key, contrast] of [["kinoTest002", 0.44], ["kinoTest003", 0.5]]) {
     await mkdir(path.join(folder, "stills", key), { recursive: true });
     for (const n of [1, 2, 3]) await writeFile(path.join(folder, "stills", key, `${n}.jpg`), still.toBuffer("image/jpeg"));
     await writeFile(path.join(folder, `${key}.json`), JSON.stringify({ id: `yt:${key}`, title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
       stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })),
-      fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0 }, text: { counts: { a: 8, b: 8 } } }, heard: { change: { at: 10, kind: "drop" }, voice: [[1, 4]], by: "whisper" } }));
+      fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0, contrast }, text: { counts: { a: 8, b: 8 } } }, heard: { change: { at: 10, kind: "drop" }, voice: [[1, 4]], by: "whisper" } }));
     assert.equal((await agent("library", { project: id, topic: "inspire", name: `save yt:${key}` })).isError, undefined);
   }
   // check lists it as a warning with its fix; versus measures it itself and says it in one line.
   const checked = await agent("check", { project: id });
   assert.match(checked.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references .*color-wheels.*gamma:1\.3/, checked.text);
+  // Contrast: the flat scene has less than the references' 0.44 to 0.5, and the row's fix is one color-grade step.
+  assert.match(checked.text, /W reference_range s1: s1 has less contrast than its saved references .*color-grade.*contrast:1\.[1-5]/, checked.text);
   const ranged = await agent("look", { project: id, mode: "versus" });
   assert.match(ranged.text, /outside your 2 references: .*(brightness|dark).*\(theirs: .*\)\. check lists each fix\./, ranged.text);
   // A small fix after it asks for no new versus (one counts for 10 revisions).
@@ -282,6 +284,13 @@ test("the reference gate: with no saved reference a final render is refused; wit
   await agent("edit", { project: id, ops: [{ op: "waive_check", code: "reference", target: "*", reason: "the person chose this look" }] });
   const waived = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });
   assert.equal(waived.isError, undefined, waived.text);
+  // A third reference with contrast 0.2 puts the scene (0.22) inside the range, 0.2 to 0.5: no contrast row.
+  await writeFile(path.join(folder, "kinoTest004.json"), JSON.stringify({ id: "yt:kinoTest004", title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
+    fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0, contrast: 0.2 } } }));
+  assert.equal((await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest004" })).isError, undefined);
+  const inside = await agent("check", { project: id });
+  assert.match(inside.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references/, "the brightness row is still there");
+  assert.doesNotMatch(inside.text, /contrast than its saved references/, inside.text);
 });
 
 test("an edit receipt names the findings it brought into the stretch it changed", async () => {

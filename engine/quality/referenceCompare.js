@@ -52,7 +52,7 @@ export function referenceSpread(references) {
 /**
  * What the saved references' own facts span, for the reference_range check: per fact {low, high, n}
  * over the references that measured it. brightness (median luma 0 to 1) and dark (share of frames
- * under 0.15) come from `fingerprint.look`; text10 is text entrances per 10 s; voice counts the
+ * under 0.15) and contrast (2 x the spread of 16 x 9 cell brightness) come from `fingerprint.look`; text10 is text entrances per 10 s; voice counts the
  * references with a voice span that starts before their own loudest change (`heard`, inspire
  * measure): {n: references that heard both, before, example: {id, at}, pending: references whose
  * voice is still being measured (`heardPending`)}.
@@ -69,7 +69,7 @@ export function referenceRanges(references) {
   const heard = references.filter((reference) => Array.isArray(reference.heard?.voice) && Number.isFinite(reference.heard?.change?.at));
   const first = heard.map((reference) => ({ id: reference.id, at: reference.heard.voice.map((voice) => voice[0]).filter((from) => from < reference.heard.change.at).sort((a, b) => a - b)[0] }));
   return {
-    brightness: span((fp) => fp.look?.brightness), dark: span((fp) => fp.look?.darkShare), text10: span(entrances),
+    brightness: span((fp) => fp.look?.brightness), dark: span((fp) => fp.look?.darkShare), contrast: span((fp) => fp.look?.contrast), text10: span(entrances),
     voice: { n: heard.length, before: first.filter((entry) => entry.at != null).length, example: first.find((entry) => entry.at != null) ?? null, pending: references.filter((reference) => reference.heardPending).length },
   };
 }

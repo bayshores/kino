@@ -219,4 +219,17 @@ test("a fingerprint without Vision has no motion, camera or text numbers, and sa
   assert.equal(result.text, null);
   assert.equal(result.vision.flow, why);
   assert.equal(result.look.brightness, 0.3);
+  assert.equal("contrast" in result.look, false, "no cells, no contrast");
+});
+
+test("look.contrast is the median of 2 x the spread of the cell brightness; a record without cells is ignored", () => {
+  const cellsOf = (value) => Float32Array.from({ length: CELL_COLS * CELL_ROWS * 2 }, (_, index) => (index % 2 ? 0 : value(index / 2)));
+  const half = cellsOf((cell) => (cell < (CELL_COLS * CELL_ROWS) / 2 ? 0 : 1));
+  const why = "Apple Vision is only on macOS";
+  const lookOf = (cells) => fingerprint(
+    [...cells.map((one, index) => ({ t: index / 12, stats: stats(0.5, 100, null, one) })), { t: cells.length / 12, stats: stats(0.5, 100) }],
+    { width: W, height: H, seconds: 2, vision: { flow: why, text: why, print: why, saliency: why } },
+  ).look;
+  assert.equal(lookOf([half, half]).contrast, 1, "half black and half white is the most contrast");
+  assert.equal(lookOf([cellsOf(() => 0.5), cellsOf(() => 0.5)]).contrast, 0, "flat gray has none");
 });

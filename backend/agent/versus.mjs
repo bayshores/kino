@@ -16,6 +16,7 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import path from "node:path";
 import { mediaKind, shotKinds } from "../../engine/movePicks.js";
+import { CONTRAST_GAP, CONTRAST_RATIO, cellContrast, frameContrast } from "../../engine/quality/motionPixels.js";
 import { CELL_COLS, CELL_ROWS, pixelStats } from "../measure/fingerprint.mjs";
 
 export const KIND_WORDS = Object.freeze({ app: "app recording", type: "type on a plain frame", footage: "footage", device: "phone in hand", end: "end card" });
@@ -33,8 +34,6 @@ const APP_SHARP = 700;
 const END_SHARE = 0.85;
 // Gaps worth saying: the hero's share of the frame apart by this much; contrast apart by this ratio and amount.
 const FILL_GAP = 0.2;
-const CONTRAST_RATIO = 1.5;
-const CONTRAST_GAP = 0.05;
 
 const round = (value) => Math.round(value * 100) / 100;
 const percent = (value) => `${Math.round(value * 100)}%`;
@@ -51,12 +50,13 @@ export function frameStats(rgba, width, height) {
   }
   border.sort((a, b) => a - b);
   const background = border[Math.floor(border.length / 2)];
-  let flat = 0, hero = 0, sum = 0, squares = 0;
+  let flat = 0, hero = 0;
+  const means = [];
   const busyRows = new Set();
   for (let cell = 0; cell < count; cell += 1) {
     if (spread(cell) < FLAT) flat += 1; else busyRows.add(Math.floor(cell / CELL_COLS));
     if (spread(cell) >= FLAT || Math.abs(mean(cell) - background) >= 0.1) hero += 1;
-    sum += mean(cell); squares += mean(cell) ** 2;
+    means.push(mean(cell));
   }
   let skin = 0, sampled = 0;
   for (let at = 0; at < rgba.length; at += 4 * 37) {
@@ -64,9 +64,8 @@ export function frameStats(rgba, width, height) {
     sampled += 1;
     if (r > 95 && g > 40 && b > 20 && r > g && r > b && r - g > 15 && r - Math.min(g, b) > 15) skin += 1;
   }
-  const average = sum / count;
   return { plain: busyRows.size <= PLAIN_ROWS || flat / count >= PLAIN_SHARE, skin: round(skin / Math.max(1, sampled)), flat: round(flat / count),
-    sharp: Math.round(stats.sharp), fill: round(hero / count), contrast: round(2 * Math.sqrt(Math.max(0, squares / count - average * average))) };
+    sharp: Math.round(stats.sharp), fill: round(hero / count), contrast: cellContrast(means) };
 }
 
 /** A frame's kind from its stats: type (plain), footage (people) or app; "end" is decided by its place. */
@@ -76,16 +75,27 @@ export function pixelKind(stats) {
   return stats.flat >= APP_FLAT || stats.sharp >= APP_SHARP ? "app" : "footage";
 }
 
-/** The stats of an image file or buffer (`cache`, a Map, keeps a file's). */
-export async function imageStats(source, cache = null) {
-  const key = typeof source === "string" ? source : null;
-  if (key && cache?.has(key)) return cache.get(key);
+// An image file or buffer as RGBA pixels, at most 640 px wide: {pixels, width, height}.
+async function decodeImage(source) {
   const image = await loadImage(source);
   const width = Math.min(640, image.width), height = Math.max(2, Math.round((image.height * width) / image.width));
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
   context.drawImage(image, 0, 0, width, height);
-  const stats = frameStats(context.getImageData(0, 0, width, height).data, width, height);
+  return { pixels: context.getImageData(0, 0, width, height).data, width, height };
+}
+
+/** The contrast (0 to 1) of an image file, as the checks measure a frame (null when it cannot be read). */
+export async function imageContrast(source) {
+  try { return frameContrast(await decodeImage(source)); } catch { return null; }
+}
+
+/** The stats of an image file or buffer (`cache`, a Map, keeps a file's). */
+export async function imageStats(source, cache = null) {
+  const key = typeof source === "string" ? source : null;
+  if (key && cache?.has(key)) return cache.get(key);
+  const { pixels, width, height } = await decodeImage(source);
+  const stats = frameStats(pixels, width, height);
   if (key && cache) { if (cache.size > 4000) cache.clear(); cache.set(key, stats); }
   return stats;
 }

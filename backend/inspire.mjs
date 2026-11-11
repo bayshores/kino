@@ -1779,6 +1779,30 @@ export function createInspire(deps) {
     }
   }
 
+  // A fingerprint measured before contrast was kept gets the median contrast of its saved stills
+  // (read at 640 px wide, as look versus reads them), marked contrastFrom:"stills". No readable
+  // still leaves it out. The saved record itself is not changed.
+  // The median is kept per reference and set of stills, so a check does not decode them again.
+  const stillContrasts = new Map();
+  async function withStillContrast(record, id) {
+    const fingerprint = record.fingerprint;
+    if (!fingerprint.look || Number.isFinite(fingerprint.look.contrast) || !record.stills?.length) return fingerprint;
+    const key = `${id}:${record.stills.length}:${record.stills.at(-1)?.file}`;
+    if (!stillContrasts.has(key)) {
+      const { imageContrast } = await import("./agent/versus.mjs");
+      const values = [];
+      for (const still of record.stills) {
+        const value = await imageContrast(path.join(stillsOf(id), still.file));
+        if (Number.isFinite(value)) values.push(value);
+      }
+      values.sort((a, b) => a - b);
+      const middle = Math.floor(values.length / 2);
+      stillContrasts.set(key, !values.length ? null : Math.round((values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2) * 100) / 100);
+    }
+    const contrast = stillContrasts.get(key);
+    return contrast === null ? fingerprint : { ...fingerprint, look: { ...fingerprint.look, contrast, contrastFrom: "stills" } };
+  }
+
   /**
    * The fingerprints of a project's saved references that have one, with their feature prints:
    * [{id, title, fingerprint, prints, heard?, heardPending?}] (for the reference_drift and
@@ -1793,7 +1817,7 @@ export function createInspire(deps) {
       if (heardLater && !record.heard) measureHeardLater(record);
       let prints = [];
       try { prints = JSON.parse(await readFile(fileOf(id, "prints.json"), "utf8")); } catch { /* none kept */ }
-      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: record.fingerprint, prints, ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
+      found.push({ id, title: record.title, measuredAt: record.measuredAt, fingerprint: await withStillContrast(record, id), prints, ...(record.heard ? { heard: record.heard } : heardPending.has(id) ? { heardPending: true } : {}) });
     }
     return found;
   }
