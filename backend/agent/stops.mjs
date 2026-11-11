@@ -24,7 +24,8 @@
 import { createHash } from "node:crypto";
 import { closest } from "./refs.mjs";
 import { sec } from "./describe.mjs";
-import { applyBrief, directionLines, guessedBans, hasBrief, nextMove, REPLY_LIMIT, replyCount } from "./brief.mjs";
+import { applyBrief, directionLines, guessedBans, hasBrief, nextMove, REPLY_LIMIT, replyCount, shapeAsk } from "./brief.mjs";
+import { namedShape } from "../../engine/quality/rules/shape.js";
 import { activeApproval, boardSummary, freezeBoard, keepAnswered, lapsedChanges, leavesItToYou, namedShots, shotChanges } from "./board.mjs";
 import { boardAsk } from "./board-text.mjs";
 import { movesNeeded } from "../../engine/board.js";
@@ -142,6 +143,11 @@ function roundPassed(round, state) {
   }
   // A round the brief's controls let through passes only while they still say "go".
   if (round.status === "allowed" && round.allowedBy === "controls") return state?.brief?.controls?.stops?.[round.kind] === "go";
+  // A round that passed with another one stands while that one does.
+  if (round.status === "allowed" && round.allowedBy === "same-work") {
+    const covered = (state?.stops ?? []).find((entry) => entry.id === round.covers);
+    return Boolean(covered) && roundPassed(covered, state);
+  }
   if (round.status === "allowed") return round.allowedBy !== "chat" || stopAskingOn(state);
   const read = round.answer?.read_as;
   return round.status === "answered" && PASSING_READS.includes(read) && (read !== "stop asking" || SWITCHABLE.includes(round.kind));
@@ -277,10 +283,13 @@ export function waivedLine(waivers = []) {
  * its headline and reply lines: the agent puts its shot list (kino's numbers from B4a) after
  * the first line, so plan §12's 120 tokens leave room for it.
  */
-export function askText({ id, kind, video = {}, checked, offer = [], idea = null, pick = [], music = null, waivers = [] }) {
+export function askText({ id, kind, video = {}, checked, offer = [], idea = null, pick = [], music = null, waivers = [], brief = null }) {
   const frame = video.width && video.height ? `, ${video.width}×${video.height}` : "";
   return [
     `${HEADLINES[kind]} (${id}): ${sec(video.seconds ?? 0)} s${frame}.`,
+    // The shape the video guessed against its footage, and the crops kino measured (the service fills cropLine).
+    shapeAsk(brief, video)?.line ?? "",
+    typeof video.cropLine === "string" ? video.cropLine : "",
     idea ? `Idea: ${idea}` : "",
     // The treatments to pick from (treatments.mjs), until the person picked one.
     ...pick,
@@ -341,6 +350,7 @@ export function waitingData(round) {
 // How a passed round passed, for the passed and answered refusals: "approve, 14:05", or
 // "approve in kino, 14:05" when the person answered on the dashboard.
 function howPassed(round) {
+  if (round.status === "allowed" && round.allowedBy === "same-work") return `passed with ${round.covers}, ${clock(round.allowedAt ?? round.askedAt)}`;
   if (round.status === "allowed") return `${round.allowedBy === "chat" ? "allowed in chat" : round.allowedBy === "controls" ? "allowed by the person's controls" : "allowed by the person's settings"}, ${clock(round.allowedAt ?? round.askedAt)}`;
   return `${round.answer?.read_as ?? round.status}${round.answer?.via === "dashboard" ? " in kino" : ""}${round.answer?.silent ? `, ${SILENT}` : ""}, ${clock(round.answer?.at)}`;
 }
@@ -389,7 +399,7 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
     if (kind === "board" && styleFrame) waiting.styleFrame = styleFrame;
     if (kind !== "board" || !(all || fresh) || !board?.board) return waitingAnswer(waiting);
     if (fresh) waiting.fresh = fresh;
-    return boardWaiting(draft, waiting, board, { all, soundFiles, soundSearch });
+    return boardWaiting(draft, waiting, board, { all, soundFiles, soundSearch, video: { ...video, waivers } });
   }
   if (waiting) {
     const data = waitingData(waiting);
@@ -400,10 +410,25 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
   const plan = stopPlan(draft, video, rules);
   const first = plan.slice(0, STOP_KINDS.indexOf(kind)).find((entry) => !entry.passed);
   if (first) throw new StopError("out_of_order", `${kind} refused: ${first.kind} is not approved yet; run notes checkpoint {id:"${first.kind}"} first.`, { first: first.kind });
-  if (kind === "board") return boardCheckpoint(draft, { facts: board, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame });
+  if (kind === "board") return boardCheckpoint(draft, { facts: board, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame, video: { ...video, waivers } });
   const latest = latestRound(draft, kind);
   if (latest && latest.rev === rev && roundPassed(latest, draft)) {
     return { text: `${latest.id} ${kind} passed at rev ${rev} (${howPassed(latest)}); nothing changed since. Go on.`, data: { status: "passed", id: latest.id, kind, rev } };
+  }
+  // The person already approved another of rough, color and sound on this same work: one answer
+  // covers them. The board never merges, and a stop whose work changed asks on its own. An approve
+  // with notes asked for changes (the same work means none was made), and a sound stop with no
+  // music has its own question (music_first and the person's choice of silence), so neither merges.
+  const silentSound = kind === "sound" && (video.music === false || (video.music === "waived" && (draft.soundtrack?.candidates ?? []).length > 0));
+  const covered = SWITCHABLE.includes(kind) && work && !silentSound ? draft.stops.findLast((round) => round.kind !== kind && SWITCHABLE.includes(round.kind) && round.status === "answered" && round.answer?.read_as === "approve"
+    && round.rev === rev && round.work === work && roundPassed(round, draft)) : null;
+  if (covered) {
+    const round = { id: `C${draft.nextStop}`, kind, rev, askedAt: at, client, status: "allowed", allowedBy: "same-work", allowedAt: at, covers: covered.id, offer: [], ask: null, answer: null, work };
+    draft.nextStop += 1;
+    draft.stops.push(round);
+    const text = `${round.id} ${kind} passed with ${covered.id} ${covered.kind}: the person answered this same revision (rev ${rev}) and nothing changed since. Change the ${kind} first to ask it on its own.`;
+    draft.inbox?.push({ kind: "stops", text });
+    return { text, data: { status: "passed", id: round.id, kind, rev, covers: covered.id } };
   }
 
   // The agent checks its own work before it shows it: a full check of this revision, no errors.
@@ -447,8 +472,9 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
   const id = `C${draft.nextStop}`;
   const offer = offerFor(kind, video, rules, draft);
   const music = noMusic ? (songSearch ? `No music yet: ${measured} songs measured; name one to use, or keep it silent.` : NO_MUSIC_ASK) : null;
-  const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), music, waivers });
-  const round = { id, kind, rev, askedAt: at, client, status: "waiting", offer, ask: passes ? `${asked}\n${HELD_LINE}` : asked, answer: null, ...(work ? { work } : {}), ...(noMusic ? { noMusic: songSearch ? "search" : true } : {}) };
+  const asked = askText({ id, kind, video, checked, offer, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), music, waivers, brief: draft.brief });
+  const shape = shapeAsk(draft.brief, video)?.round;
+  const round = { id, kind, rev, askedAt: at, client, status: "waiting", offer, ask: passes ? `${asked}\n${HELD_LINE}` : asked, answer: null, ...(shape ? { shape } : {}), ...(work ? { work } : {}), ...(noMusic ? { noMusic: songSearch ? "search" : true } : {}) };
   draft.nextStop += 1;
   draft.stops.push(round);
   return waitingAnswer(round);
@@ -471,7 +497,7 @@ function critiqueCheckpoint(draft, { critique, video, rev, at, client, work }) {
 // a saved board with no gap, then passed (its approval stands), the open items, the person's
 // settings, or a new round that waits with kino's ask. No check first: the board is shown before
 // anything is built. `facts` is boardFacts(document).
-function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame }) {
+function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame, video = {} }) {
   const board = facts?.board;
   if (!board) throw new StopError("board_first", 'Save the storyboard first: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}; library guide storyboard).');
   if (facts.coverage) throw new StopError("board_gap", `${facts.coverage.message} Fix the board (edit board), then ask again.`, { at: facts.coverage.at });
@@ -528,12 +554,16 @@ function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, wor
   const changed = lapsedChanges(draft, facts);
   const redone = redoneSince(draft, facts);
   const offerSound = !draft.stops.some((entry) => entry.kind === "board");
+  const shape = shapeAsk(draft.brief, boardVideo(facts, video))?.round;
   const round = { id, kind: "board", rev, askedAt: at, client, status: "waiting", offer: [], ask: null, answer: null,
-    ...(held ? { held } : {}), ...(changed ? { changed } : {}), ...(redone ? { redone } : {}), ...(fresh ? { fresh } : {}), ...(offerSound ? { offerSound } : {}), ...(styleFrame ? { styleFrame } : {}), ...(work ? { work } : {}) };
+    ...(shape ? { shape } : {}), ...(held ? { held } : {}), ...(changed ? { changed } : {}), ...(redone ? { redone } : {}), ...(fresh ? { fresh } : {}), ...(offerSound ? { offerSound } : {}), ...(styleFrame ? { styleFrame } : {}), ...(work ? { work } : {}) };
   draft.nextStop += 1;
   draft.stops.push(round);
-  return boardWaiting(draft, round, facts, { all, soundFiles, soundSearch });
+  return boardWaiting(draft, round, facts, { all, soundFiles, soundSearch, video });
 }
+
+// The video's facts for the shape line of a board ask: the service's video, with the board's frame when it has no size.
+const boardVideo = (facts, video) => ({ width: facts?.frame?.width, height: facts?.frame?.height, ...video });
 
 // After a redo or an approve with notes of the last storyboard round that did not lapse: what
 // changed since, against the copy kino kept when they answered (draft.boardAnswered), in
@@ -566,8 +596,9 @@ const freshWord = (round) => round.fresh ?? (round.offerSound === true ? "not re
 // and answers waiting_for_you with it, every shot when `all`. `soundFiles`: the person sent
 // sound files (kino's media library has some this video does not play yet). The round keeps the
 // shot ids in the order it showed them (round.shown: the places the person's words name).
-function boardWaiting(draft, round, facts, { all = false, soundFiles = false, soundSearch = false } = {}) {
+function boardWaiting(draft, round, facts, { all = false, soundFiles = false, soundSearch = false, video = {} } = {}) {
   const input = { id: round.id, board: facts.board, frame: facts.frame, seconds: facts.seconds, music: facts.span?.music ?? null, audio: facts.audio ?? [],
+    shape: shapeAsk(draft.brief, boardVideo(facts, video))?.line ?? "", crops: typeof video.cropLine === "string" ? video.cropLine : "", waived: waivedLine(video.waivers ?? []),
     message: draft.brief?.fields?.message?.text ?? null, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), bans: guessedBans(draft.brief), soundSearch, soundFiles, offerSound: round.offerSound === true, changed: round.changed ?? null,
     fresh: freshWord(round), redone: round.redone ?? null };
   // A board their settings allow waits only for its open questions (held), and says so.
@@ -659,6 +690,8 @@ export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_ST
   if (readAs === "stop asking") draft.stopAsking = { stop: round.id, words, at, client, undoneAt: null };
   // An approved storyboard: kino keeps the board it showed (`board` is boardFacts(document)).
   if (round.kind === "board" && (readAs === "approve" || readAs === "approve with notes")) freezeBoard(draft, round, { board, by: "chat", now });
+  // The ask also put the footage's shape to the person: their answer is the plays_on line.
+  const shapeSaid = round.shape ? saveShape(draft, round, words.trim(), { now, client }) : "";
   const replies = replyCount(draft);
   const next = {
     approve: 'say "Read as: approve" in one line, then go on.',
@@ -675,11 +708,34 @@ export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_ST
       `${round.id} ${round.kind}: ${readAs}, recorded ${afterSeconds} s after asking · replies ${replies.count} of ${replies.limit}`,
       readAs === "stop asking" ? "rough, color and sound are set to allow for this video (set in chat, recorded by the agent; the person can undo it in kino)." : "",
       silent ? `No music: ${SILENT} (${round.noMusic === "search" ? "they picked none of the measured songs" : "they sent no track and sound search is off"}). Your final message says so; never that they asked for silence.` : "",
+      shapeSaid,
       `step: ${said}`,
     ].filter(Boolean).join("\n"),
     data: { id: round.id, kind: round.kind, rev: round.rev, read_as: readAs, passed: PASSING_READS.includes(readAs), afterSeconds, replies, next: said, ...(silent ? { silent: SILENT } : {}) },
     ...(REDONE_READS.includes(readAs) || readAs === "redo" ? { nextCall: fixCall } : {}),
   };
+}
+
+/**
+ * Saves the person's answer to a stop's shape question as the brief's plays_on line (applyBrief,
+ * so brief.rev stays right) and returns the line the answer text adds. Their words name a shape
+ * (namedShape): the line holds the sentence that names it. Else they left it to kino, which
+ * follows the footage. A line that is already saved this way changes nothing.
+ */
+function saveShape(draft, round, words, { now, client }) {
+  const shape = namedShape(words);
+  const sentence = shape ? words.split(/(?<=[.!?])\s+|\n+/).find((part) => namedShape(part) === shape) ?? words : words;
+  const quote = sentence.trim().slice(0, 200);
+  const line = shape ? { text: `${shape} (their words)`, by: "you", quote, named: shape } : { text: `${round.shape.footage}, like the footage`, by: "you", quote, named: false };
+  const before = draft.brief?.fields?.plays_on;
+  const same = before && before.by === "you" && before.text === line.text && before.quote === line.quote && before.named === line.named;
+  // The person said this line themselves in the stop: a brief they confirmed stays confirmed
+  // (no second playback for their own answer).
+  const confirmed = draft.brief?.rev > 0 && draft.brief.confirmedRev === draft.brief.rev;
+  if (!same) applyBrief(draft, { lines: [{ name: "plays_on", line }], log: [], noPlayback: null }, { now, client });
+  if (!same && confirmed) draft.brief.confirmedRev = draft.brief.rev;
+  return shape ? `shape: they named ${shape}; saved as plays_on (brief r${draft.brief.rev})`
+    : `shape: no shape named: kino follows the footage (${round.shape.footage}); next: edit update_scene + frame_shot`;
 }
 
 /**
@@ -710,7 +766,7 @@ function namedRound(draft, input) {
 
 // How a round the person can no longer answer passed, in their words: "approve, in chat".
 function answeredFor(round) {
-  if (round.status === "allowed") return round.allowedBy === "chat" ? 'allowed by "stop asking"' : "allowed by your settings";
+  if (round.status === "allowed") return round.allowedBy === "chat" ? 'allowed by "stop asking"' : round.allowedBy === "same-work" ? `answered with ${round.covers}` : "allowed by your settings";
   return `${round.answer?.read_as}, ${round.answer?.via === "dashboard" ? "on the dashboard" : "in chat"}`;
 }
 
@@ -823,6 +879,7 @@ export function reopenStep(draft, { input = {}, now = Date.now() } = {}) {
   if (round.status === "lapsed") throw new StopError("not_answered", `${id} lapsed: nothing to reopen.`);
   if (round.status === "reopened") throw new StopError("not_answered", `${id} is already reopened.`);
   if (round.status === "allowed" && round.allowedBy === "chat") throw new StopError("not_answered", `${id} was allowed by "stop asking": use keep asking.`);
+  if (round.status === "allowed" && round.allowedBy === "same-work") throw new StopError("not_answered", `${id} passed with ${round.covers}: reopen ${round.covers} instead.`);
   if (round.status === "allowed") throw new StopError("not_answered", `${id} was allowed by your settings: set the ${labelOf(round.kind)} to ask in settings.`);
   const newer = latestRound(draft, round.kind);
   if (newer !== round) throw new StopError("superseded", `${id} has a newer round (${newer.id}) of ${STOP_LABELS[round.kind]}: reopen that one.`);

@@ -15,7 +15,8 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { namedShape, shapeGuess } from "../engine/quality/rules/shape.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
 import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
@@ -1055,11 +1056,32 @@ test("check hands the brief's plays_on to shape_guess: portrait over landscape f
     document: createDocument({ id: "shape", name: "shape", scenes: [createScene({ id: "s1", name: "main", width: 1080, height: 1920, duration: 4, layers: [layer] })] }),
     media: [clip],
   });
-  const said = (by) => (draft) => { draft.brief = { rev: 1, fields: withAsk({ plays_on: { text: "a phone", by, ...(by === "you" ? { quote: "my skate crew" } : {}) } }), log: [] }; };
-  await agentState.update("shape", said("you"));
-  assert.doesNotMatch((await call("check")).text, /shape_guess/, "the person's own plays_on clears it");
+  const said = (by) => (draft) => { draft.brief = { rev: 1, fields: withAsk({ plays_on: { text: "a phone", by } }), log: [] }; };
   await agentState.update("shape", said("guessed"));
   assert.match((await call("check")).text, /shape_guess/, "a guessed plays_on is still a guess");
+  // The person left the shape to the agent: the line is saved (not refused), and kino follows the footage.
+  await agentState.update("shape", said("guessed"));
+  const left = await call("notes", { action: "brief", fields: { plays_on: { text: "up to you", by: "you", quote: "your call" } }, log: [{ q: "Where does it play?", a: "your call" }] });
+  assert.equal(left.isError, undefined, left.text);
+  assert.equal((await agentState.read("shape")).brief.fields.plays_on.named, false);
+  const checked = await call("check");
+  assert.match(checked.text, /shape_guess/);
+  assert.match(checked.text, /left the shape to you \("your call"\) and 1 of 1 footage files are landscape \(1920x1080\): kino follows the footage/);
+  // They named a shape in their own words: it clears the guess.
+  const vertical = await call("notes", { action: "brief", fields: { ask: "make it vertical for phones", plays_on: { text: "phones", by: "you", quote: "make it vertical for phones" } } });
+  assert.equal(vertical.isError, undefined, vertical.text);
+  assert.equal((await agentState.read("shape")).brief.fields.plays_on.named, "portrait");
+  assert.doesNotMatch((await call("check")).text, /shape_guess/, "a named shape equal to the scene's clears it");
+  // namedShape: whole words, any case, two shapes name none.
+  assert.deepEqual(["Make it VERTICAL", "for a 9 x 16 feed", "a 16:9 TV", "square please", "your call", "vertical or horizontal", "verticality"].map(namedShape),
+    ["portrait", "portrait", "landscape", "square", null, null, null]);
+  // A line of theirs saved before `named` existed, naming no shape, reads as left to the agent.
+  const legacy = shapeGuess({ width: 1080, height: 1920, duration: 4 }, { scene: { layers: [{ type: "video", src: "a.mp4", name: "clip" }] }, sceneName: "s1",
+    mediaSizes: { "a.mp4": { width: 1920, height: 1080 } }, playsOn: { text: "the feed", by: "you", quote: "for the feed" }, quote: (words) => words });
+  assert.match(legacy[0].message, /the person left the shape to you \("for the feed"\)/);
+  // The board stop comes before the build in the plan; other stops keep the old order.
+  assert.ok(PLAN_CALL("board").input.steps[0].startsWith("Board") && PLAN_CALL("board").input.steps[1].startsWith("Ask board"));
+  assert.match(PLAN_CALL("rough").input.steps[0], /^Build/);
 });
 
 test("the ask step is named only while the order has an open part and the video is not built; briefData sends a count, not the messages", () => {
