@@ -56,6 +56,43 @@ export function answerText({ text, data, json }, next, inbox = []) {
   return `${text}${lines}\nnext: ${callText(next)}`;
 }
 
+const wordsOf = (text) => String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+
+/**
+ * The origin word the footage still lacks, as {word, query}, or null. state.origin names what
+ * the subject is known for; the person's own footage wins, and so does any found video whose
+ * title already has the word. The query is the about quote and the word.
+ */
+export function originFootage({ origin, about, footage, personClips = 0 } = {}) {
+  const word = String(origin?.words?.[0]?.word ?? "").toLowerCase();
+  const quote = String(about?.quote ?? about?.text ?? "").replace(/\s+/g, " ").trim();
+  if (!word || !quote || personClips > 0) return null;
+  if ((footage?.candidates ?? []).some((candidate) => wordsOf(candidate.title).includes(word))) return null;
+  return { word, query: `${quote} ${word}` };
+}
+
+/**
+ * The next call that fetches the origin footage, or null to leave the answer's own next call.
+ * After a footage search, a footage scan or an inspire search it is the footage search for the
+ * origin query; once that search ran (its answer has candidates) it is a scan wanting the word.
+ * A scan already wanting the word is left alone (its next call is the import), so this ends.
+ */
+export function originFootageNext({ found, topic, input = {}, footage, reply } = {}) {
+  if (!found) return null;
+  const same = (text) => wordsOf(text).join(" ");
+  if (topic === "inspire") return input.search && (input.kind ?? "videos") === "videos" ? call("library", { topic: "footage", search: found.query }) : null;
+  if (topic !== "footage") return null;
+  const search = input.search ?? input.query;
+  if (search !== undefined && input.source !== "commons") {
+    if (same(search) !== same(found.query)) return call("library", { topic: "footage", search: found.query });
+    return reply?.data?.candidates?.length ? call("library", { topic: "footage", scan: "top", want: found.word }) : null;
+  }
+  if (input.scan !== undefined) {
+    return wordsOf(input.want ?? footage?.want).includes(found.word) ? null : call("library", { topic: "footage", search: found.query });
+  }
+  return null;
+}
+
 // The edit distance between two short words (for didYouMean substitution).
 function distance(a, b) {
   const row = Array.from({ length: b.length + 1 }, (_, index) => index);

@@ -118,7 +118,7 @@ import { importedText } from "./client.mjs";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
-import { REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
+import { originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
@@ -148,7 +148,7 @@ import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
 import { callDetails as answerDetails, takeSaid } from "./said.mjs";
-import { answerText, call as nextOf, callText, cleanInput, opWithName, STATUS_CALL, unfilledSlot, withSuggestion } from "./next-call.mjs";
+import { answerText, call as nextOf, callText, cleanInput, opWithName, originFootage, originFootageNext, STATUS_CALL, unfilledSlot, withSuggestion } from "./next-call.mjs";
 
 // Inbox lines kept for one agent (a helper's hand-back to its lead) until that agent calls.
 const INBOX_FOR_OTHERS_KEPT = 50;
@@ -487,7 +487,11 @@ export function createAgentService(deps) {
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
   // library {topic:"footage"}: found video for the project (deps.footage is footage-finder/index.mjs).
-  const footageActions = deps.footage ? createFootageActions({ finder: deps.footage, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
+  // The subject's origin ({word, about}) of the footage call running, so a search keeps the edit
+  // uploads that carry the word (footage-finder/search.mjs isOriginEdit).
+  const footageOrigin = new AsyncLocalStorage();
+  const originFinder = deps.footage ? { ...deps.footage, search: (words, options) => deps.footage.search(words, { ...options, origin: footageOrigin.getStore() ?? null }) } : null;
+  const footageActions = deps.footage ? createFootageActions({ finder: originFinder, ...(deps.footageWaitMs !== undefined ? { waitMs: deps.footageWaitMs } : {}) }) : null;
   // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
   // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
   const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
@@ -4374,7 +4378,9 @@ export function createAgentService(deps) {
     await agentState.update(projectId, (draft) => { draft.studied = [...new Set([...(draft.studied ?? []), id])].slice(-20); });
     const rows = made.shown.map((strip) => `${strip.at}s ${strip.kinds.join("+")}`).join(" · ");
     const where = Number.isFinite(input.t) ? `nearest ${input.t}s` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
-    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}`, extra: { ref: id, strips: made.shown } };
+    // A studied edit whose title has the subject's origin word also leads to that footage.
+    const origin = originReferenceLine((await originFootageFor(projectId)).found, (await deps.inspire.reference(id).catch(() => null))?.title);
+    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown } };
   }
 
   // look {mode:"source", layer, t?, width?}: the whole source frame of a video layer at scene time
@@ -6099,7 +6105,10 @@ export function createAgentService(deps) {
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     let reply;
     const song = ({ signal } = {}) => songNeeds(record.document, media, signal);
-    try { reply = await footageActions.handle(input, { footage: state.footage ?? null, personClips: personClipCount(record.document, media), song }); }
+    const personClips = personClipCount(record.document, media);
+    const word = state.origin?.words?.[0]?.word;
+    const origin = word && !personClips ? { word, about: state.brief?.fields?.about?.quote ?? state.brief?.fields?.about?.text ?? "" } : null;
+    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song })); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
       throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
@@ -7075,8 +7084,31 @@ export function createAgentService(deps) {
     return nextOf("edit", { ops: [{ op: "update_layer", layer: first?.kind === "layer" ? first.name : "<the layer to change>", properties }] });
   }
 
+  // When state.origin names a word the subject is known for and the person gave no footage of their
+  // own, a footage search, a footage scan or an inspire search is followed by the footage search for
+  // "<about quote> <word>" and then a scan wanting the word (next-call.mjs originFootage). Else null.
+  async function originFootageFor(projectId) {
+    const record = await store.getProject(String(projectId)).catch(() => null);
+    if (!record) return {};
+    const state = await agentState.read(record.document.id).catch(() => null);
+    if (!state?.origin?.words?.length) return {};
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    return { state, found: originFootage({ origin: state.origin, about: state.brief?.fields?.about, footage: state.footage, personClips: personClipCount(record.document, media) }) };
+  }
+
+  async function originFootageCall(input, reply, projectId) {
+    if (!["footage", "inspire"].includes(input?.topic)) return null;
+    const { state, found } = await originFootageFor(projectId);
+    return originFootageNext({ found, topic: input.topic, input, footage: state?.footage, reply });
+  }
+
   // The next call for an answer that did not name one.
   async function nextCallFor(verb, input, reply, projectId) {
+    // The subject's origin footage comes before the answer's own next call (originFootageCall).
+    if (!reply.isError && verb === "library" && projectId) {
+      const origin = await originFootageCall(input, reply, projectId);
+      if (origin) return origin;
+    }
     if (reply.nextCall) return reply.nextCall;
     const data = reply.data ?? {};
     const asked = cleanInput(input);

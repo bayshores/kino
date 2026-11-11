@@ -4,7 +4,8 @@
 // a refusal's call on a live server.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { answerText, callText, opWithName, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
+import { answerText, callText, opWithName, originFootage, originFootageNext, unfilledSlot, withSuggestion } from "./agent/next-call.mjs";
+import { originReferenceLine } from "./agent/seen-names.mjs";
 import { statusMove } from "./stops.test.support.mjs";
 
 const LOOK = { tool: "look", input: { mode: "review" } };
@@ -59,4 +60,32 @@ test("the direction's calls: a new video's brief with every line at once, the pl
   assert.deepEqual([footage.step, footage.call.input], ["ask board, then build on; play the brief back then", { action: "checkpoint", id: "board" }]);
   const waiting = statusMove({ brief, stops: [{ id: "C1", kind: "rough", rev: 4, status: "waiting", askedAt: "2026-10-26T14:00:00.000Z" }] }, video);
   assert.deepEqual(waiting.call, { tool: "notes", input: { action: "answer", id: "C1", rev: 4, words: "<their reply, word for word>", read_as: "approve" } });
+});
+
+test("origin word, no person footage: next is the footage search for the quote and the word, then a scan wanting it; with person footage or a titled find: unchanged", () => {
+  const origin = { words: [{ word: "tower", count: 11, of: 15 }] };
+  const about = { text: "the keeper", by: "you", quote: "the keeper" };
+  const found = originFootage({ origin, about, footage: { candidates: [{ title: "Keeper at rest" }] }, personClips: 0 });
+  assert.deepEqual(found, { word: "tower", query: "the keeper tower" });
+  const search = { tool: "library", input: { topic: "footage", search: "the keeper tower" } };
+  // After a footage search for other words, a footage scan or an inspire search: the origin search.
+  assert.deepEqual(originFootageNext({ found, topic: "footage", input: { search: "keeper fight" } }), search);
+  assert.deepEqual(originFootageNext({ found, topic: "footage", input: { scan: "F1" } }), search);
+  assert.deepEqual(originFootageNext({ found, topic: "inspire", input: { search: "keeper edit" } }), search);
+  assert.equal(originFootageNext({ found, topic: "inspire", input: { name: "yt:abc" } }), null);
+  assert.equal(originFootageNext({ found, topic: "inspire", input: { search: "whoosh", kind: "sounds" } }), null);
+  // The origin search itself: a scan wanting the word when it found something, else the answer's own call.
+  assert.deepEqual(originFootageNext({ found, topic: "footage", input: { search: "The keeper tower" }, reply: { data: { candidates: [{ code: "F1" }] } } }),
+    { tool: "library", input: { topic: "footage", scan: "top", want: "tower" } });
+  assert.equal(originFootageNext({ found, topic: "footage", input: { search: "the keeper tower" }, reply: { data: { candidates: [] } } }), null);
+  // A scan that wants the word is left alone: its next call is the import.
+  assert.equal(originFootageNext({ found, topic: "footage", input: { scan: "top", want: "the tower" } }), null);
+  // The person's own footage, or a found video whose title has the word: nothing changes.
+  assert.equal(originFootage({ origin, about, footage: null, personClips: 1 }), null);
+  assert.equal(originFootage({ origin, about, footage: { candidates: [{ title: "Keeper climbs the Tower" }] }, personClips: 0 }), null);
+  assert.equal(originFootage({ origin: { skipped: "offline" }, about, personClips: 0 }), null);
+  assert.equal(originFootageNext({ found: null, topic: "footage", input: { scan: "F1" } }), null);
+  // A studied reference with the word in its title gets the lookup line.
+  assert.equal(originReferenceLine(found, "Keeper tower edit"), 'to find the footage it shows: library {topic:"footage", search:"the keeper tower"}');
+  assert.equal(originReferenceLine(found, "Keeper edit"), "");
 });
