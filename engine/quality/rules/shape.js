@@ -75,8 +75,8 @@ export function shapeGuess(model, ctx) {
   const own = shapeOf(model.width, model.height);
   if (!footage || footage.shape === own) return [];
   const plays = ctx.playsOn;
-  // A line saved before kino stored `named` is read from its quote.
-  const named = plays?.by === "you" ? (plays.named === undefined ? namedShape(plays.quote) : plays.named) : null;
+  // A line saved before kino stored `named` is read from its quote (no shape in it: false, left to you).
+  const named = plays?.by === "you" ? (plays.named === undefined ? namedShape(plays.quote) ?? false : plays.named) : null;
   if (named === own) return [];
   const footageSize = size(footage.example.width, footage.example.height);
   const ownSize = size(model.width, model.height);

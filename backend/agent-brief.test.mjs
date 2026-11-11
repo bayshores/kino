@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
-import { namedShape } from "../engine/quality/rules/shape.js";
+import { namedShape, shapeGuess } from "../engine/quality/rules/shape.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
 import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
@@ -1075,6 +1075,10 @@ test("check hands the brief's plays_on to shape_guess: portrait over landscape f
   // namedShape: whole words, any case, two shapes name none.
   assert.deepEqual(["Make it VERTICAL", "for a 9 x 16 feed", "a 16:9 TV", "square please", "your call", "vertical or horizontal", "verticality"].map(namedShape),
     ["portrait", "portrait", "landscape", "square", null, null, null]);
+  // A line of theirs saved before `named` existed, naming no shape, reads as left to the agent.
+  const legacy = shapeGuess({ width: 1080, height: 1920, duration: 4 }, { scene: { layers: [{ type: "video", src: "a.mp4", name: "clip" }] }, sceneName: "s1",
+    mediaSizes: { "a.mp4": { width: 1920, height: 1080 } }, playsOn: { text: "the feed", by: "you", quote: "for the feed" }, quote: (words) => words });
+  assert.match(legacy[0].message, /the person left the shape to you \("for the feed"\)/);
   // The board stop comes before the build in the plan; other stops keep the old order.
   assert.ok(PLAN_CALL("board").input.steps[0].startsWith("Board") && PLAN_CALL("board").input.steps[1].startsWith("Ask board"));
   assert.match(PLAN_CALL("rough").input.steps[0], /^Build/);

@@ -415,9 +415,12 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
   if (latest && latest.rev === rev && roundPassed(latest, draft)) {
     return { text: `${latest.id} ${kind} passed at rev ${rev} (${howPassed(latest)}); nothing changed since. Go on.`, data: { status: "passed", id: latest.id, kind, rev } };
   }
-  // The person already answered another of rough, color and sound on this same work: one answer
-  // covers them. The board never merges, and a stop whose work changed asks on its own.
-  const covered = SWITCHABLE.includes(kind) && work ? draft.stops.findLast((round) => round.kind !== kind && SWITCHABLE.includes(round.kind) && round.status === "answered" && round.answer?.read_as !== "stop asking"
+  // The person already approved another of rough, color and sound on this same work: one answer
+  // covers them. The board never merges, and a stop whose work changed asks on its own. An approve
+  // with notes asked for changes (the same work means none was made), and a sound stop with no
+  // music has its own question (music_first and the person's choice of silence), so neither merges.
+  const silentSound = kind === "sound" && (video.music === false || (video.music === "waived" && (draft.soundtrack?.candidates ?? []).length > 0));
+  const covered = SWITCHABLE.includes(kind) && work && !silentSound ? draft.stops.findLast((round) => round.kind !== kind && SWITCHABLE.includes(round.kind) && round.status === "answered" && round.answer?.read_as === "approve"
     && round.rev === rev && round.work === work && roundPassed(round, draft)) : null;
   if (covered) {
     const round = { id: `C${draft.nextStop}`, kind, rev, askedAt: at, client, status: "allowed", allowedBy: "same-work", allowedAt: at, covers: covered.id, offer: [], ask: null, answer: null, work };
@@ -726,7 +729,11 @@ function saveShape(draft, round, words, { now, client }) {
   const line = shape ? { text: `${shape} (their words)`, by: "you", quote, named: shape } : { text: `${round.shape.footage}, like the footage`, by: "you", quote, named: false };
   const before = draft.brief?.fields?.plays_on;
   const same = before && before.by === "you" && before.text === line.text && before.quote === line.quote && before.named === line.named;
+  // The person said this line themselves in the stop: a brief they confirmed stays confirmed
+  // (no second playback for their own answer).
+  const confirmed = draft.brief?.rev > 0 && draft.brief.confirmedRev === draft.brief.rev;
   if (!same) applyBrief(draft, { lines: [{ name: "plays_on", line }], log: [], noPlayback: null }, { now, client });
+  if (!same && confirmed) draft.brief.confirmedRev = draft.brief.rev;
   return shape ? `shape: they named ${shape}; saved as plays_on (brief r${draft.brief.rev})`
     : `shape: no shape named: kino follows the footage (${round.shape.footage}); next: edit update_scene + frame_shot`;
 }
@@ -872,6 +879,7 @@ export function reopenStep(draft, { input = {}, now = Date.now() } = {}) {
   if (round.status === "lapsed") throw new StopError("not_answered", `${id} lapsed: nothing to reopen.`);
   if (round.status === "reopened") throw new StopError("not_answered", `${id} is already reopened.`);
   if (round.status === "allowed" && round.allowedBy === "chat") throw new StopError("not_answered", `${id} was allowed by "stop asking": use keep asking.`);
+  if (round.status === "allowed" && round.allowedBy === "same-work") throw new StopError("not_answered", `${id} passed with ${round.covers}: reopen ${round.covers} instead.`);
   if (round.status === "allowed") throw new StopError("not_answered", `${id} was allowed by your settings: set the ${labelOf(round.kind)} to ask in settings.`);
   const newer = latestRound(draft, round.kind);
   if (newer !== round) throw new StopError("superseded", `${id} has a newer round (${newer.id}) of ${STOP_LABELS[round.kind]}: reopen that one.`);

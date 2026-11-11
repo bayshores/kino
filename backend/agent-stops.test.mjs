@@ -93,6 +93,12 @@ test("a board ask names a guessed shape against the footage's; an answer that na
   assert.deepEqual([plays.by, plays.named, plays.quote], ["you", false, "looks good, keep going"]);
   assert.match(plays.text, /16:9, like the footage/);
   assert.equal(state.brief.rev, 1, "applyBrief raised the revision");
+  // Their own answer keeps a confirmed brief confirmed: no second playback.
+  const confirmed = ready(4);
+  confirmed.brief = { ...confirmed.brief, rev: 2, confirmedRev: 2, noPlayback: null, fields: { plays_on: { text: "a phone feed", by: "guessed", rev: 1 } } };
+  checkpointStep(confirmed, { kind: "board", video, rev: 4, now: T0, board: BOARD });
+  answerStep(confirmed, { input: { id: "C1", rev: 4, words: "looks good", read_as: "approve" }, video, rev: 4, now: T0 + 30_000, board: BOARD });
+  assert.deepEqual([confirmed.brief.rev, confirmed.brief.confirmedRev], [3, 3]);
   // A shape named in the words is saved with the sentence that names it, and the next ask no longer carries the line.
   const named = ready(4);
   named.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };
@@ -109,8 +115,17 @@ test("rough passed on a revision also passes color on the same work; the board n
   assert.match(color.text, /^C2 color passed with C1 rough: the person answered this same revision \(rev 5\) and nothing changed since\. Change the color first to ask it on its own\.$/);
   assert.deepEqual([state.stops[1].status, state.stops[1].covers], ["allowed", "C1"]);
   assert.equal(state.inbox.at(-1).text, color.text);
+  // The merged round is reopened through the one it passed with.
+  assert.match(refusal(() => reopenStep(state, { input: { id: "C2" }, now: T0 + 45_000 })).message, /C2 passed with C1: reopen C1 instead\./);
+  // A sound stop with no music keeps its own question.
+  assert.equal(refusal(() => checkpointStep(state, { kind: "sound", video: { ...VIDEO, music: false }, rev: 5, work: "W", now: T0 + 50_000, songSearch: true })).code, "music_first");
   // Other work asks on its own.
   assert.equal(checkpointStep(state, { kind: "sound", video: VIDEO, rev: 5, work: "other", now: T0 + 50_000 }).data.status, "waiting_for_you");
+  // An approve with notes asked for changes: the next stop on the same work asks on its own.
+  const notes = ready(5);
+  checkpointStep(notes, { kind: "rough", video: VIDEO, rev: 5, work: "W", now: T0 });
+  answerStep(notes, { input: { id: "C1", rev: 5, words: "ok, but the colors are too dark", read_as: "approve with notes" }, video: VIDEO, rev: 5, work: "W", now: T0 + 30_000 });
+  assert.equal(checkpointStep(notes, { kind: "color", video: VIDEO, rev: 5, work: "W", now: T0 + 40_000 }).data.status, "waiting_for_you");
 });
 
 test("a stop ask prints the crop line the service filled", () => {
