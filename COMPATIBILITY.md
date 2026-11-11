@@ -804,6 +804,11 @@ How to read it:
 - **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. Keeps
   one line of a clip's sound (every piece of a cut voice), silences the rest, subtitles it and dips the music
   by half. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
+- **Spoken lines in found footage**: Verified with a stand-in whisper, not on found clips. An import reads
+  each clip's own sound (`heard "..."`), look source lists `heard:`, and a muted clip's lines are named once
+  (status or an edit's notes) with the keep_line plus isolate_voice call. Evidence: `engine/speech.test.js`
+  (clipLines), `backend/footage-finder.test.mjs` (takeText), `backend/agent-speech.test.mjs`. Gaps: the model
+  is English only, so other languages come out as sound-alike words; import time with whisper not measured.
 
 ## Audio and captions
 

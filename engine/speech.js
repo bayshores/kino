@@ -766,6 +766,50 @@ function restoreSpeech(document, scene, pieces, transcript, restore, ripple, mor
 // "(upbeat music)", "♪"), not something said.
 export const SOUND_TAG = /[[\]()♪]/;
 
+// ---- lines a clip says -----------------------------------------------------------------------
+
+export const LINE_SURE = 0.5; // a line's mean word probability must reach this (a guess over loud music is under it)
+const LINE_TEXT_MOST = 60;
+// A tag glued to a word ("see.(laughs)") goes; a whole tag word ("(Door", "creaks)", "Sigh*") is not a word said.
+const GLUED_TAG = /\([^)]*\)|\[[^\]]*\]/g;
+const isTagWord = (text) => SOUND_TAG.test(text) || /^\*|\*$/.test(text);
+const endsLine = (text) => /[.?!…]["')]*$/.test(text);
+
+/**
+ * The lines a clip's own sound says, for the import answer and look source: [{text, start, end}]
+ * in file seconds, shortest first (then earliest), at most `most`. Sound tags, unclear sound,
+ * fillers and unsure guesses are left out: a line needs 2 or more words and a mean probability of
+ * LINE_SURE. A line ends at a pause of LONG_PAUSE or at a full stop, "?" or "!".
+ */
+export function clipLines(transcript, { most = 3 } = {}) {
+  const lines = [];
+  let line = [];
+  const close = () => {
+    const words = line;
+    line = [];
+    if (words.length < 2) return;
+    if (words.reduce((sum, word) => sum + (word.p ?? 1), 0) / words.length < LINE_SURE) return;
+    const text = words.map((word) => word.text).join(" ");
+    lines.push({ text: text.length > LINE_TEXT_MOST ? `${text.slice(0, LINE_TEXT_MOST - 1).trimEnd()}…` : text, start: round(words[0].start), end: round(Math.max(words[0].start, words.at(-1).end)) });
+  };
+  for (const word of transcript?.words ?? []) {
+    const text = String(word.text).replace(GLUED_TAG, "").trim();
+    if (word.unclear || !text || isTagWord(text) || FILLERS.has(plainWord(text))) { close(); continue; }
+    if (line.length && word.start - line.at(-1).end >= LONG_PAUSE) close();
+    line.push({ ...word, text });
+    if (endsLine(text)) close();
+  }
+  close();
+  return lines.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start).slice(0, most);
+}
+
+/** `heard "Heh heh heh." 0.4-2.0 s, "I'm just gonna see." 7.1-9.2 s` for clipLines' answer, or "". */
+export function clipLinesText(lines = [], most = 2) {
+  if (!lines.length) return "";
+  const shown = lines.slice(0, most).map((line) => `"${line.text.replaceAll('"', "'")}" ${line.start.toFixed(1)}-${line.end.toFixed(1)} s`);
+  return `heard ${shown.join(", ")}${lines.length > most ? ", …" : ""}`;
+}
+
 export function captionWordsFromSpeech(words, fix = {}) {
   if (fix === null || typeof fix !== "object" || Array.isArray(fix)) fail("add_captions", 'fix is an object of {"heard": "meant"}, for example {"Acmes": "Acme"}.');
   const rules = Object.entries(fix).map(([heard, meant]) => {

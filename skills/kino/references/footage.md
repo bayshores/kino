@@ -67,6 +67,12 @@ their times to the nearest half second and their words as probably right.
   instead of ranking last. `next:` imports that line by its time range:
   `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
 - No captions, or YouTube not answering: the answer says the words were not looked for.
+- Import also listens: a clip of 1.5 s or more with sound and no caption line gets `heard "..."
+  a-b s` (whisper on the clip's own sound, an English model: other languages come out as
+  sound-alike words; keep_line `{from, to, text}` takes a translation). `look` source lists `heard:`
+  per clip, and on one layer says `(muted here)` at volume 0. To keep a line over the song:
+  `{"tool":"edit","ops":[{"op":"keep_line","layer":"climb","line":"I'm just gonna see.","duck":"song"},{"op":"isolate_voice","layer":"climb"}]}`.
+  The song alone is a valid cut.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
 - Footage has its own sound, and a line said in a clip can open or set up a moment. Keep it with
   `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest of that

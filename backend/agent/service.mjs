@@ -22,7 +22,7 @@ import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs"
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { shotsNeeded } from "../footage-finder/needs.mjs";
-import { SAYS_MIN_SECONDS } from "../footage-finder/words.mjs";
+import { SAYS_MIN_SECONDS, saysOf } from "../footage-finder/words.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -107,6 +107,7 @@ import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange } from "../../engine/playback.js";
+import { isRemapped } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
@@ -138,7 +139,7 @@ import { createTranscriptCache, TRANSCRIPT_VERSION } from "../speech/transcribe.
 import { projectNames, speechNamesFor } from "../speech/name-hint.mjs";
 import { createSyncEnvelopeCache } from "../clip-sync.mjs";
 import { currentLag, matchEnvelopes, SYNC_FALLBACK, syncLayers } from "../../engine/clipSync.js";
-import { checkSpeechLayer, cutSpeechIndices, fileWords, speechPieces, speechText, speechWords } from "../../engine/speech.js";
+import { checkSpeechLayer, clipLines, clipLinesText, cutSpeechIndices, fileWords, speechPieces, speechText, speechWords } from "../../engine/speech.js";
 import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
@@ -484,11 +485,11 @@ export function createAgentService(deps) {
   const transcripts = {
     /** The transcript of `file` (the sound `layer` of `document` plays), made when there is none. */
     get: async (file, document, layer) => (await isSoundEffect(file)) ? effectTranscript() : transcriptCache.get(file, { names: (await namesOf(document, layer)).names }),
-    /** The saved one, or null: never transcribes. */
-    saved: transcriptCache.saved ? async (file, document, layer) => {
+    /** The saved one, or null: never transcribes. `any`: one heard with older names counts too. */
+    saved: transcriptCache.saved ? async (file, document, layer, { any = false } = {}) => {
       if (await isSoundEffect(file)) return effectTranscript();
       const { names, pinned } = await namesOf(document, layer);
-      return transcriptCache.saved(file, { names, exact: pinned });
+      return transcriptCache.saved(file, { names, exact: pinned, any });
     } : undefined,
   };
   // compose {footage}: each clip's faces, motion and text, and each sound's loudness, kept beside the file.
@@ -2390,6 +2391,9 @@ export function createAgentService(deps) {
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
       const waiverNote = waivedCodes.length ? waiverNotes(after.checkWaivers, { codes: waivedCodes }) : [];
+      // Spoken lines of the footage that no layer plays: named once, here or in status (linesToName).
+      const lineNote = await linesToName(after, afterCodes, await agentState.read(projectId));
+      if (lineNote) work.notes.push(lineNote.text);
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,
@@ -2436,6 +2440,7 @@ export function createAgentService(deps) {
       await agentState.update(projectId, (state) => {
         if (savedAtBuild && !state.firstBuild && hasBrief(state.brief)) state.firstBuild = { rev: updated.revision, saved: savedAtBuild, studied: [...(state.studied ?? [])] };
         state.codes = assignCodes(state.codes, updated.document, resolver.reserved);
+        if (lineNote) state.linesNamed = lineNote.key;
         // The layers this edit moved (placedByYou); check's own auto-fix edit does not count.
         if (!autoFixEdits.has(input)) state.placed = { rev: updated.revision, ids: movedLayers(before, updated.document) };
         // The agent hears about an edit the person made from the command line.
@@ -2472,13 +2477,16 @@ export function createAgentService(deps) {
     const deckLine = deck ? deckStatusLine(deck.deck, deck.basis) : "";
     const always = alwaysLine(state.notes, codes);
     const needs = needsLine(state.needs);
+    // Spoken lines of the footage that no layer plays, said once (an edit receipt may have said them).
+    const lineNote = await linesToName(document, codes, state);
+    if (lineNote) await nameLinesOnce(projectId, lineNote.key);
     // Past the build (built and checked once, no stop waiting, the storyboard stop not open): every
     // gate left before the final render. A gate that fails to work out leaves the line out.
     const prebuild = waitingStop(state) || openStops(state, await directionFacts(document), stopRulesNow()).some((stop) => stop.kind === "board");
     const toFinal = hasLayers(document) && state.checked && !prebuild ? await finalGates(record).then(toFinalLine, () => "") : "";
     const outline = projectOutline(record, {
       codes, focus: focus.id, page: input.page ?? 1, seen: state.seen ?? {}, full: input.full === true,
-      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(always ? [always] : []), ...(needs ? [needs] : [])],
+      plan: state.plan, checks: checkSummary(findings, { unchecked }), pointing, direction: [...statusLines(state, await directionFacts(document), stopRulesNow()), ...(controlsLine(state.brief?.controls) ? [controlsLine(state.brief.controls)] : []), ...(toFinal ? [toFinal] : []), ...(deckLine ? [deckLine] : []), ...(always ? [always] : []), ...(needs ? [needs] : []), ...(lineNote ? [lineNote.text] : [])],
     });
     // What waits for the person: approvals, and a hold on agent writes.
     const waiting = deps.approvals?.pending?.(projectId) ?? [];
@@ -4528,6 +4536,62 @@ export function createAgentService(deps) {
     return { image, text, extra: { file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };
   }
 
+  // The lines a video file says (engine/speech.js clipLines), from its saved transcript only: [] for
+  // a song, a file with no transcript yet or one with no line. With `make`, whisper reads it first.
+  async function savedLinesOf(src, document, most = 3, make = false) {
+    const id = mediaIdFromSource(src);
+    if (!id || !deps.mediaRoot) return [];
+    const file = path.join(deps.mediaRoot, id);
+    try {
+      if (!existsSync(file) || await isMusicFile(file)) return [];
+      const layer = { src };
+      // A transcript heard before the brief's names changed still says what the clip says.
+      const saved = await transcripts.saved?.(file, document, layer, { any: true });
+      return clipLines(saved ?? (make ? await transcripts.get(file, document, layer) : null), { most });
+    } catch { return []; }
+  }
+
+  // Lines the video's footage says that no layer plays: from saved transcripts only (import, compose,
+  // a full check or look source {layer} make them). Null when a footage layer plays speech, when
+  // none says a line, or when these lines were already named (state.linesNamed). Otherwise
+  // {text, key}: the line to say once, with the call that keeps one. A layer not at speed 1 is only
+  // counted (keep_line refuses it). The song alone stays a valid choice: no finding, no next call.
+  async function linesToName(document, codes, state) {
+    const scene = videoScene(document);
+    if (!scene) return null;
+    const heardBy = [];
+    const slowed = [];
+    for (const layer of scene.layers) {
+      if ((layer.type !== "video" && layer.type !== "audio") || !layer.src || layer.enabled === false) continue;
+      const lines = await savedLinesOf(layer.src, document, 3);
+      if (!lines.length) continue;
+      // The same predicate as the speech checks (quality.mjs heardSpeech): a layer at volume 0 is not heard.
+      if (Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to)) return null;
+      const range = mediaPlaybackRange(layer, scene.duration);
+      if (!range) continue;
+      for (const line of lines) {
+        if (line.start < range.offset - 1e-6 || line.end > range.offset + range.duration + 1e-6) continue;
+        const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
+        (isRemapped(layer) ? slowed : heardBy).push({ layer: refName(layer.id, codes), src: layer.src, text: line.text, from: at(line.start), to: at(line.end) });
+      }
+    }
+    if (!heardBy.length && !slowed.length) return null;
+    heardBy.sort((a, b) => a.from - b.from);
+    const key = createHash("sha256").update(JSON.stringify([...heardBy, ...slowed].map((line) => [line.src, line.text]))).digest("hex").slice(0, 16);
+    if (state?.linesNamed === key) return null;
+    const total = heardBy.length + slowed.length;
+    const shown = heardBy.slice(0, 3).map((line) => `${line.layer} "${line.text.replaceAll('"', "'")}" ${line.from}-${line.to} s`);
+    // The song to dip: a music layer that is not one of the clips with lines.
+    const talking = new Set([...heardBy, ...slowed].map((line) => line.src));
+    const song = scene.layers.find((layer) => !talking.has(layer.src) && isMusicLayer(layer, scene));
+    const [first] = heardBy;
+    const call = first ? JSON.stringify({ ops: [{ op: "keep_line", layer: first.layer, line: first.text, ...(song ? { duck: refName(song.id, codes) } : {}) }, { op: "isolate_voice", layer: first.layer }] }) : "";
+    const keep = first ? ` Keep one under the song: edit ${call}.` : "";
+    const text = `lines: your clips say ${total} line${total === 1 ? "" : "s"} and none is heard${shown.length ? `: ${shown.join(" · ")}` : ""}${slowed.length ? `${shown.length ? " " : ": "}+${slowed.length} on slowed layers (keep_line needs speed 1)` : ""}.${keep} The song alone is a choice too.`;
+    return { text, key };
+  }
+  const nameLinesOnce = (projectId, key) => agentState.update(projectId, (draft) => { draft.linesNamed = key; });
+
   // look {mode:"source"} with no layer: every clip and picture of the project (imported for it or
   // on a layer), 3 to 6 frames each, laid out by clips-sheet.mjs planClips; page:n past one page.
   // The person's own files come first; found clips (footage-finder) follow, one block per video
@@ -4607,8 +4671,17 @@ export function createAgentService(deps) {
         return `${index + 1} ${clip.name} ${clip.record.width}×${clip.record.height}${clip.video ? ` ${sec(clip.record.duration)} s` : " picture"}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`;
       }),
       `Exact frames of one: look {mode:"source", layer:"<file name>", times:[…]} (file seconds).`];
+    // The lines the clips say, from saved transcripts only (look source {layer} or compose made them).
+    const heard = [];
+    for (const clip of clips.filter((each) => each.video)) {
+      for (const line of await savedLinesOf(clip.src, document, 1)) heard.push({ clip: clip.tag?.label ?? clip.name, ...line });
+    }
+    heard.sort((a, b) => (a.end - a.start) - (b.end - b.start));
+    const heardShown = heard.slice(0, 4);
+    if (heardShown.length) lines.splice(lines.length - 1, 0, `heard (shortest first): ${heardShown.map((entry) => `${entry.clip} "${entry.text.replaceAll('"', "'")}" ${entry.start.toFixed(1)}-${entry.end.toFixed(1)} s`).join(" · ")}`);
     const clipFacts = (clip) => ({ src: clip.src, name: clip.name, ...(clip.video ? { duration: clip.record.duration } : {}), layers: clip.layers });
     return { image: { png }, text: lines.join("\n"), extra: {
+      ...(heardShown.length ? { heard: heardShown } : {}),
       clips: entries.map((entry, index) => (entry.group
         ? { group: entry.group, shots: entry.clips.map((clip) => ({ code: clip.tag.label, ...clipFacts(clip) })) }
         : { n: index + 1, ...clipFacts(entry.clips[0]) })),
@@ -4714,8 +4787,12 @@ export function createAgentService(deps) {
       `crop: x ${x0}–${x1}%, y ${y0}–${y1}% of the source (dashed${crop.covers < 0.99 ? `; the clip covers ${percent(crop.covers)}% of the frame` : ""}); the result is on the right`,
       `boxes: ${agentText} · ${visionText}`,
     ];
+    // What this file says (read once if needed; a song says none), and that the layer does not play it.
+    const said = await savedLinesOf(layer.src, document, 3, true);
+    if (said.length) lines.push(`${clipLinesText(said, 3).replace(/^heard /, "heard: ")} (file s)${Number(layer.volume ?? 1) === 0 ? " (muted here)" : ""}`);
     if (!agentBoxes.length) lines.push(`mark the subject: edit mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} (% of the source; x, y top-left)`);
     const extra = {
+      ...(said.length ? { heard: said } : {}),
       layer: name, t, file: { src: layer.src, name: record.name, width: record.width, height: record.height, time: fileTime },
       shot, crop: crop.bounds, covers: crop.covers, boxes, vision,
     };
@@ -6221,6 +6298,30 @@ export function createAgentService(deps) {
   // a footage scan): a repeated call joins the running one or collects its finished result.
   const footageTakes = new Map();
 
+  // The lines each imported clip says in its own sound, for a clip of SAYS_MIN_SECONDS or more
+  // that has sound (over -55 LUFS) and that the video's captions say nothing about: whisper reads
+  // it once and keeps the transcript beside the file, so compose, checks and keep_line reuse it.
+  // Returns {byId: {mediaId: lines}, missing} or null when there is nothing to say (take.mjs takeText).
+  async function hearClips(media, captions, document) {
+    const byId = {};
+    let missing = null;
+    for (const item of media) {
+      const seconds = Number(item.duration) || 0;
+      if (!(seconds >= SAYS_MIN_SECONDS) || item.hasAudio === false || !deps.mediaRoot) continue;
+      if (captions?.lines && saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, seconds).length) continue;
+      const file = path.join(deps.mediaRoot, item.id);
+      if (!existsSync(file)) continue;
+      try {
+        if (!((await footageCache.sound(file)).loud > -55)) continue;
+        const lines = clipLines(await transcripts.get(file, document, { src: item.src }));
+        if (lines.length) byId[item.id] = lines;
+      } catch (error) {
+        if (/install/i.test(String(error?.message))) missing = "no speech model";
+      }
+    }
+    return Object.keys(byId).length || missing ? { byId, missing } : null;
+  }
+
   // project {action:"import", file:"F1", options:{shots}} (or F1.37, clip:<id>, from/to): shots of a
   // scanned found video become clips for this project (footage-finder/take.mjs), each with its
   // credit and code; the candidate keeps what it imported, for the 15 min a project cap.
@@ -6267,7 +6368,9 @@ export function createAgentService(deps) {
         // Only for a clip long enough to carry a line; no captions, or a failure, adds nothing.
         const captions = result.media.some((item) => Number(item.duration) >= SAYS_MIN_SECONDS)
           ? await deps.footage.captions?.(candidate).catch(() => null) : null;
-        return { value: captions?.lines ? { ...result, captions } : result };
+        // And, for a clip the captions say nothing about, what its own sound says (whisper).
+        const heard = await hearClips(result.media, captions, record.document);
+        return { value: { ...result, ...(captions?.lines ? { captions } : {}), ...(heard ? { heard } : {}) } };
       }).catch((error) => ({ error }));
       job.promise.finally(() => { setTimeout(() => { if (footageTakes.get(key) === job) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.(); });
       footageTakes.set(key, job);

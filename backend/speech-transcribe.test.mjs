@@ -77,6 +77,11 @@ test("the transcript is made once per file, model and names, and kept beside the
     assert.equal(files.length, 3);
     assert.deepEqual(files.slice(0, 2), ["voice.wav", "voice.wav.words-small.en"]);
     assert.match(files[2], /^voice\.wav\.words-small\.en-[0-9a-f]{8}$/);
+    // Names changed since and no transcript without names: only `any` takes the one heard with older names.
+    await rm(path.join(folder, "voice.wav.words-small.en"));
+    assert.equal(await cache.saved(file, { names: ["Other"] }), null);
+    assert.equal((await cache.saved(file, { names: ["Other"], any: true })).words[0].text, "Zuri");
+    assert.equal(await cache.saved(file, { names: ["Other"], any: true, exact: true }), null);
   } finally {
     await rm(folder, { recursive: true, force: true });
   }

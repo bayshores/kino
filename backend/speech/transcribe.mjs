@@ -26,7 +26,7 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, rename, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { decodeMono } from "../audio-analysis.mjs";
@@ -711,12 +711,19 @@ export function createTranscriptCache({ setup = () => whisperSetup(), transcribe
    * up): the one heard with these names, else (unless `exact`) the one heard without names (an
    * older version counts). Never transcribes: the dashboard's voice lane only shows what is
    * already known. `exact` is for a cut voice, whose cut words point into one transcript only.
+   * `any` also takes one heard with other names (the brief's names changed since): enough to
+   * say what a clip says, not to cut by.
    */
-  async function saved(filename, { names = [], exact = false } = {}) {
+  async function saved(filename, { names = [], exact = false, any = false } = {}) {
     let found;
     try { found = setup(); } catch { return null; }
     if (!found?.modelName) return null;
     const files = [sidecarPath(filename, found.modelName, names), ...(exact ? [] : [sidecarPath(filename, found.modelName)])];
+    if (any && !exact) {
+      const prefix = `${path.basename(sidecarPath(filename, found.modelName))}-`;
+      const others = await readdir(path.dirname(filename)).catch(() => []);
+      files.push(...others.filter((name) => name.startsWith(prefix) && !name.endsWith(".tmp")).sort().map((name) => path.join(path.dirname(filename), name)));
+    }
     for (const file of new Set(files)) {
       try {
         const value = JSON.parse(await readFile(file, "utf8"));
