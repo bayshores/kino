@@ -778,8 +778,9 @@ export function vocalShare(spans, seconds) {
 // Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
 // millisecond, weights; 3: bars, and the bar of every section and seam; 4: bars list the bars where
 // kick and bass are out in place of thin, and the attack time of the hit on each line; 5: the kick
-// and bass back at full after a stop of 0.75 to 4 s is a drop, a repeating gap (4 or more) is not).
-export const SONG_SHAPE_VERSION = 5;
+// and bass back at full after a stop of 0.75 to 4 s is a drop, a repeating gap (4 or more) is not;
+// 6: the vocal spans are kept as `voice`, for reference_range).
+export const SONG_SHAPE_VERSION = 6;
 const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**
@@ -826,7 +827,7 @@ export function createSongShapeCache({ decode = decodeMono, vocals = null, vocal
       }
     }
     const shape = songShape(samples, sampleRate, { bpm: beats ? beats.bpm : input, vocals: spans, beats });
-    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams, ...(beats ? { bars: shape.bars ?? null } : {}), vocals: found, ...(failedAt ? { failedAt } : {}) };
+    const result = { version: SONG_SHAPE_VERSION, seconds, whole: true, sections: shape.sections, seams: shape.seams, ...(beats ? { bars: shape.bars ?? null } : {}), vocals: found, ...(spans ? { voice: spans } : {}), ...(failedAt ? { failedAt } : {}) };
     await writeFile(sidecar, JSON.stringify(result), { mode: 0o600 }).catch(() => { /* it still counts unsaved */ });
     return result;
   }

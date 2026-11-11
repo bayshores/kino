@@ -7,8 +7,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 ## Check
 
 - Each finding says what it measured, what is required and a fix op. `check {fix:"auto"}`
-  applies the `(auto)` fixes in one edit (skipping one that adds an error or leaves its
-  finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
+  applies the `(auto)` fixes in one edit (skipping one that adds an error or keeps its finding),
+  re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
   edit moved, a waiver names or a spine beat uses.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
@@ -83,9 +83,9 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 
 - CLI: `kino look frame t=3 width=720`; a list is one word (`fields=x,width`).
 - `inspect {targets, fields}`: `color` answers with `fill`,
-  `size` with `width` and `height`.
+  `size`: `width`, `height`.
 - `sheet` (default): a scene in about 12 tiles; with cuts, one or more a shot, labeled
-  `2 · 1.42s` (at most 24 shots, then which `from` shows the rest). With several
+  `2 · 1.42s` (at most 24 shots; `from` shows the rest). With several
   scenes and none named, one frame a scene. `sheet {from:60, to:120}`: one stretch.
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   (`every:true`: each frame), `compare {rev}`, `changed`, `variants`.
@@ -95,7 +95,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   of its time on screen), a 10% grid, the crop as a dashed box, the subject boxes (`agent`:
   yours, from `mark_subject`; `vision`: Apple Vision, Mac only) and the result. The text gives
   the shot, the crop in % and each box's share. Not your last look for `changed`.
-  Cropping footage: the framing reference.
+  Cropping: the framing reference.
 - `board {page?}`: the storyboard, 4 shots a page, with numbers (storyboard reference).
 
 ## Review before final
@@ -116,7 +116,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
    skip: `waive_check {code:"review", target:"s1", reason}`.
 6. Saved references: final needs `look {mode:"versus"}` in the last 10 revs (`reference_needed`):
    6 rows, a shot by its `move.ref` moment, else one of its kind (app, type, footage,
-   end), else "no fair match". Gaps: hero fill, contrast, craft drift rows. A lost
+   end), else "no fair match". Gaps: hero fill, contrast, craft drift and `reference_range` rows. A lost
    judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
 
 ## Building in order

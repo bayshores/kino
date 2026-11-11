@@ -1918,3 +1918,42 @@ test("every data rule has a bad and a good example above", () => {
   const dataCodes = RULES.filter((entry) => !entry.pixels && !TECHNIQUE_RULES.has(entry.code) && !polish.has(entry.code)).map((entry) => entry.code);
   assert.deepEqual(dataCodes.filter((code) => !covered.has(code)), []);
 });
+
+// ---------------------------------------------------------------- reference_range (a pixel rule)
+
+const flatFrames = (level) => async (times, { width }) => times.map(() => {
+  const height = Math.round((width * 9) / 16);
+  return { width, height, pixels: new Uint8ClampedArray(width * height * 4).fill(level) };
+});
+const rangeRef = (id, brightness, darkShare, count, heard) => ({ id, fingerprint: { seconds: 30, look: { brightness, darkShare }, text: { counts: { whole: count } } }, ...(heard ? { heard } : {}) });
+const RANGE_REFS = [rangeRef("yt:aaa", 0.19, 0.02, 0, { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" }), rangeRef("yt:bbb", 0.22, 0.24, 5, { change: { at: 20, kind: "drop" }, voice: [[3, 5]], by: "whisper" })];
+const rangeRun = async (level, context = {}) => {
+  const document = scene({ duration: 10, layers: [footage("clip", { duration: 10, mediaDuration: 10 })] });
+  return (await runQuality(modelOf(document), { codes: ["reference_range"], pixels: true, context: { sceneName: "s1", renderFrames: flatFrames(level), rangeRefs: RANGE_REFS, ...context } })).findings;
+};
+
+test("reference_range: a video darker than its saved references warns with the dark stretch and a gamma fix; inside their range it is quiet", async () => {
+  const [dark] = await rangeRun(31);
+  assert.equal(dark.severity, "warn");
+  assert.equal(dark.measured, "median brightness 31 of 255; under 38 for 100% of the video, 0.3-10 s");
+  assert.equal(dark.required, "inside your 2 saved references: median 48 to 56, under 38 for 2% to 24%");
+  assert.match(dark.message, /s1 is darker than its saved references \(yt:aaa, yt:bbb\): median 31 of 255 against 48 to 56/);
+  assert.match(dark.fix.text, /color-wheels", parameters:\{gamma:1\.3\}.*waive_check \{code:"reference_range", target:"s1", reason\}/);
+  assert.deepEqual(await rangeRun(52), []);
+  // The fix names every clip in the dark stretch, not only the first.
+  const two = scene({ duration: 10, layers: [footage("a", { duration: 5, mediaDuration: 5 }), footage("b", { start: 5, duration: 5, mediaDuration: 5 })] });
+  const [both] = (await runQuality(modelOf(two), { codes: ["reference_range"], pixels: true, context: { sceneName: "s1", renderFrames: flatFrames(31), rangeRefs: RANGE_REFS } })).findings;
+  assert.match(both.fix.text, /layer:"a".*\(and b\)/);
+  // One measured reference is no range.
+  assert.deepEqual(await rangeRun(31, { rangeRefs: RANGE_REFS.slice(0, 1) }), []);
+});
+
+test("reference_range: no voice before the loudest song change warns when most references have one; a known voice or no song cue is quiet", async () => {
+  const cues = [{ name: "song-drop-1", time: 9, kind: "marker", weight: 0.8 }, { name: "song-drop-2", time: 5, kind: "marker", weight: 0.3 }, { name: "song-intro-1", time: 0, kind: "marker", weight: 1 }];
+  const [miss] = await rangeRun(52, { cues, speech: [] });
+  assert.equal(miss.measured, "no voice before the loudest change (9 s)");
+  assert.equal(miss.required, "2 of your 2 references with one have a voice before theirs (yt:aaa at 0 s)");
+  assert.deepEqual(await rangeRun(52, { cues, speech: [{ music: true, voice: [[4, 6]] }] }), [], "a song's voice before the change");
+  assert.deepEqual(await rangeRun(52, { cues, speech: [{ music: true }] }), [], "a song whose voice is not known is left out");
+  assert.deepEqual(await rangeRun(52, { cues: [], speech: [] }), []);
+});

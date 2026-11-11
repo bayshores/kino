@@ -53,6 +53,8 @@ export const viewerBarProtocol = (a, b) => `There are two cuts of the same video
 
 // A drag this long (seconds) or longer is an open story bug (a warning: it does not hold a render).
 export const DRAG_OVER = 5;
+// A start score this many points under the best of the middle and end is a warning (scoreBugs).
+export const START_GAP = 3;
 const NUMBER = String.raw`(\d+(?:\.\d+)?)`;
 const SCORES = new RegExp(String.raw`start\D{0,12}?${NUMBER}[^\n]{0,40}?middle\D{0,12}?${NUMBER}[^\n]{0,40}?end\D{0,12}?${NUMBER}`, "gi");
 const DRAG = new RegExp(String.raw`^\W*DRAG\W+${NUMBER}\s*s?\s*(?:-|–|to)\s*${NUMBER}`, "gim");
@@ -241,6 +243,11 @@ export function scoreBugs(record) {
     bugs.push({ at: third, to: sec(2 * third), what: `keep-watching fell from ${scores.start} at the start to ${scores.middle} in the middle: raise ${third}-${sec(2 * third)} s (a push into what matters, a detail lift, a hit on the music)`, warn: true });
   if (scores && scores.end < scores.start)
     bugs.push({ at: sec(2 * third), to: sec(length), what: `keep-watching fell from ${scores.start} at the start to ${scores.end} at the end: raise ${sec(2 * third)}-${sec(length)} s`, warn: true });
+  // A start score well under the best later one: the opening holds least. Relative to this report's
+  // own scores, advisory like the rest (viewer numbers are not calibrated; reference_range measures the cause).
+  const later = scores ? Math.max(scores.middle, scores.end) : null;
+  if (scores && later - scores.start >= START_GAP)
+    bugs.push({ at: 0, to: third, what: `keep-watching at the start ${scores.start}, ${later} later: the opening holds least; raise 0-${third} s (show what matters sooner, a clearer picture, a hit on the music)`, warn: true });
   for (const drag of record.drags ?? [])
     if (drag.to - drag.from > DRAG_OVER) bugs.push({ at: drag.from, to: drag.to, what: `dragged ${drag.from}-${drag.to} s (${sec(drag.to - drag.from)} s): cut it shorter or keep the screen moving`, warn: true });
   return bugs;

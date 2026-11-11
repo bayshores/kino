@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
   dropNonEdits, dropReason, droppedText, originOf, originPhrase, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
-  cannotPlayLine, cannotPlayReason,
+  cannotPlayLine, cannotPlayReason, fingerprintLines,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
 import { copiedRun } from "../engine/quality/rules/reference.js";
@@ -564,6 +564,42 @@ test("while an agent call runs, measuring waits, but a ref a call waits for goes
     // The second is behind it: the call waiting for it must not wait for quiet (it is the busy call).
     assert.equal((await inspire.reference(found.results[1].id, { wait: 3000 })).state, "measured");
   } finally { ended(); }
+});
+
+test("a measured reference keeps what was heard in it (loudest change, voice) and savedFingerprints hands it on; a failed listen leaves it out", async () => {
+  const asked = [];
+  const make = (name, heard) => createInspire({
+    directory: path.join(folder, name), projectState: memoryProjects(),
+    search: async (query, { count }) => parseSearchLines(await readFile(RECORDED, "utf8")).slice(0, count),
+    async download(videoId, workFolder) {
+      const file = path.join(workFolder, "clip.mp4");
+      await (await import("node:fs/promises")).writeFile(file, "not really a video");
+      return file;
+    },
+    probe: async () => ({ duration: 30 }),
+    findShots: async () => ({ shots: [{ start: 0 }, { start: 10 }] }),
+    findBeats: async () => ({ beats: [0, 10], bpm: 6 }),
+    fingerprint: async () => ({ fingerprint: { seconds: 30, look: { brightness: 0.2, darkShare: 0.1 } }, prints: [] }),
+    heard,
+    fetchThumb: async () => Buffer.from("jpeg bytes"),
+  });
+  const listen = make("heard", async (file, options) => { asked.push([options.seconds, options.bpm]); return { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" }; });
+  const found = await listen.search("p1", "walking tour edit", { count: 1 });
+  const id = found.results[0].id;
+  assert.equal((await listen.reference(id, { wait: 3000 })).state, "measured");
+  await listen.setSaved("p1", id);
+  const [saved] = await listen.savedFingerprints("p1");
+  assert.deepEqual(saved.heard, { change: { at: 12, kind: "drop" }, voice: [[0, 2]], by: "whisper" });
+  assert.deepEqual(asked, [[30, 6]]);
+  // The fingerprint text says what reference_range compares: dark share and what was heard.
+  const lines = fingerprintLines({ id: "yt:x", fingerprint: { look: { brightness: 0.2, darkShare: 0.1, palette: [] } }, heard: saved.heard }).join("\n");
+  assert.match(lines, /look: brightness 0\.2 · dark 10%/);
+  assert.match(lines, /heard: loudest change 12 s \(drop\) · voice 0-2 s/);
+  const failed = make("heard-failed", async () => { throw new Error("no sound"); });
+  const second = (await failed.search("p1", "walking tour edit", { count: 1 })).results[0].id;
+  assert.equal((await failed.reference(second, { wait: 3000 })).state, "measured");
+  await failed.setSaved("p1", second);
+  assert.equal((await failed.savedFingerprints("p1"))[0].heard, undefined);
 });
 
 test("a sounds search keeps sound effects of 60 s or less, measures their shape, keeps a preview, imports it with credit; forget drops a search", async () => {

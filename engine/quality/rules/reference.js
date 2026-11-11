@@ -9,8 +9,10 @@
 // a feature print once a second. The comparison is referenceCompare.js. Text measures can raise
 // the warning on their own; motion and closeness only advise, so they raise it only when at least
 // two of them agree.
-import { compareFingerprints } from "../referenceCompare.js";
+import { SHARE_MARGIN, compareFingerprints, referenceRanges } from "../referenceCompare.js";
 import { readingTexts } from "../analysis.js";
+import { MOTION_WIDTH, brightness } from "../motionPixels.js";
+import { speechWords } from "../../speech.js";
 import { backgroundLuma, plateChanges, plates, techniquesUsed, transitions } from "../techniques.js";
 import { hasMusic } from "./sound.js";
 
@@ -51,6 +53,139 @@ export async function referenceDrift(model, ctx) {
     message: `${ctx.sceneName} is far from its references (${names}): ${rows.map((row) => `${row.off ? "OFF " : ""}${row.line}${row.drives ? "" : " (advice)"}`).join("; ")}.`,
     fix: { kind: "hint", text: `Look at how the references do it: look {mode:"reference", ref:"${references[0].id}"}, then change the scene toward them, or waive this if the difference is wanted.` },
   }];
+}
+
+// ---------------------------------------------------------------- reference_range
+//
+// reference_range (warning) holds the edit to the range of the project's own saved references in
+// four plain facts, measured the same way on both sides (backend/measure/fingerprint.mjs,
+// backend inspire measure): median brightness and the share of the video under DARK, text
+// entrances per 10 s, and whether a voice plays before the loudest change of the music. Unlike
+// reference_drift it needs no Apple Vision, so it runs in the normal pixel pass and a final
+// render sees it. Every bound is the references' own (no fixed target): an edit may stay outside
+// the range and say why (waive_check). ctx.rangeRefs: [{id, fingerprint, heard}] (inspire
+// savedFingerprints); at least RANGE_REFS of them need a brightness. ctx.cues carry the song's
+// section weights (fit_music), ctx.speech the heard words and a song's vocal spans (`voice`).
+const RANGE_REFS = 2;
+const RANGE_STEP = 0.5;
+const RANGE_FRAMES = 120;
+const DARK = 0.15;
+// 8 levels of 255: the same step luma_jump counts as a visible brightness change.
+const LEVEL_MARGIN = 8 / 255;
+const TEXT_MARGIN = 1;
+const VOICE_MAJORITY = 2 / 3;
+
+const levelsOf = (value) => Math.round(value * 255);
+const near = (value, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
+
+/** The brightness numbers of a render's frames: {median, dark, run: [from, to] | null} (0 to 1; the longest dark stretch, seconds). */
+function lookOf(samples, spacing, duration) {
+  const sorted = samples.map((sample) => sample.level).sort((a, b) => a - b);
+  const dark = samples.map((sample) => sample.level < DARK);
+  let run = null, start = -1;
+  for (let index = 0; index <= samples.length; index += 1) {
+    if (dark[index]) { if (start < 0) start = index; continue; }
+    if (start >= 0 && (!run || index - start > run[1] - run[0])) run = [start, index];
+    start = -1;
+  }
+  return {
+    median: sorted[Math.floor(sorted.length / 2)], dark: dark.filter(Boolean).length / samples.length,
+    run: run ? [samples[run[0]].time, Math.min(duration, samples[run[1] - 1].time + spacing)] : null,
+  };
+}
+
+/** The video's loudest song change (a song- cue with the biggest weight, not the intro or outro) or null. */
+function loudestChange(ctx) {
+  const cues = (ctx.cues ?? []).filter((cue) => /^song-/.test(cue.name ?? "") && !/^song-(intro|outro)-/.test(cue.name) && Number.isFinite(cue.weight));
+  return cues.sort((a, b) => b.weight - a.weight || a.time - b.time)[0] ?? null;
+}
+
+/** Whether a voice (a spoken word or a song's vocal) starts before `time`: true or false, or null when a sound's voice is not known. */
+function voiceBefore(ctx, time) {
+  const scene = ctx.speechScene ?? ctx.scene;
+  let unknown = false;
+  for (const entry of ctx.speech ?? []) {
+    let starts = [];
+    if (entry.music) {
+      if (Array.isArray(entry.voice)) starts = entry.voice.map((span) => span[0]); else unknown = true;
+    } else if (entry.transcript?.words && scene) {
+      starts = speechWords(scene, [entry.layer], entry.transcript).filter((word) => !word.unclear).map((word) => word.start);
+    } else if (entry.missing) unknown = true;
+    if (starts.some((start) => start < time)) return true;
+  }
+  return unknown ? null : false;
+}
+
+export async function referenceRange(model, ctx) {
+  const refs = ctx.rangeRefs ?? [];
+  const ranges = referenceRanges(refs);
+  if (!ctx.renderFrames || (ranges.brightness?.n ?? 0) < RANGE_REFS || !(model.duration > 0)) return [];
+  const names = refs.filter((ref) => Number.isFinite(ref.fingerprint?.look?.brightness)).map((ref) => ref.id).join(", ");
+  const scene = ctx.sceneName;
+  const waive = `waive_check {code:"reference_range", target:"${scene}", reason}`;
+  const findings = [];
+
+  // Brightness: median and share under DARK, read at 2 frames a second (at most RANGE_FRAMES frames).
+  const spacing = Math.max(RANGE_STEP, model.duration / RANGE_FRAMES);
+  const times = [];
+  for (let time = 0.25; time < model.duration; time += spacing) times.push(Math.round(time * 1000) / 1000);
+  const frames = await ctx.renderFrames(times, { width: Math.min(MOTION_WIDTH, model.width), hide: [] });
+  const samples = times.map((time, index) => (frames?.[index] ? { time, level: brightness(frames[index]) / 255 } : null)).filter(Boolean);
+  if (samples.length) {
+    const { median, dark, run } = lookOf(samples, spacing, model.duration);
+    const light = ranges.brightness, shade = ranges.dark;
+    const offLight = median < light.low - LEVEL_MARGIN || median > light.high + LEVEL_MARGIN;
+    const offDark = shade && (dark > shade.high + SHARE_MARGIN || dark < shade.low - SHARE_MARGIN);
+    if (offLight || offDark) {
+      const lower = (offLight && median < light.low) || (offDark && dark > shade.high);
+      const higher = (offLight && median > light.high) || (offDark && dark < shade.low);
+      const word = lower && !higher ? "darker than" : higher && !lower ? "brighter than" : "lit differently from";
+      const span = (low, high, show) => (low === high ? show(low) : `${show(low)} to ${show(high)}`);
+      const [from, to] = lower && run ? run : [0, model.duration];
+      // Every clip or image shown in the stretch, so the fix lifts all of it (not only the first shot).
+      const inStretch = model.times.map((time, index) => (time >= from && time < to ? index : -1)).filter((index) => index >= 0);
+      const indexes = inStretch.length ? inStretch : [Math.max(0, model.times.findIndex((time) => time >= from))];
+      const shown = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && indexes.some((index) => item.samples.opacity[index] >= 0.5)).map((item) => item.name ?? item.id);
+      const stretch = `${near(from)}-${near(to)} s`;
+      const gamma = lower && !higher ? 1.3 : 0.8;
+      const target = shown[0] ?? "<layer>";
+      findings.push({
+        rule: "reference_range", severity: "warn", at: from, until: to,
+        measured: `median brightness ${levelsOf(median)} of 255; under ${levelsOf(DARK)} for ${Math.round(dark * 100)}% of the video${lower && run ? `, ${stretch}` : ""}`,
+        required: `inside your ${light.n} saved references: median ${span(levelsOf(light.low), levelsOf(light.high), String)}${shade ? `, under ${levelsOf(DARK)} for ${span(Math.round(shade.low * 100), Math.round(shade.high * 100), (value) => `${value}%`)}` : ""}`,
+        message: `${scene} is ${word} its saved references (${names}): median ${levelsOf(median)} of 255 against ${span(levelsOf(light.low), levelsOf(light.high), String)}${lower && run ? `; ${stretch} stays under ${levelsOf(DARK)}` : ""}.`,
+        fix: { kind: "hint", text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
+      });
+    }
+  }
+
+  // Text entrances per 10 s: one per text layer shown.
+  const texts = readingTexts(model).length / model.duration * 10;
+  const text = ranges.text10;
+  if (text && (texts > text.high + TEXT_MARGIN || texts < text.low - TEXT_MARGIN)) {
+    const span = text.low === text.high ? `${near(text.low)}` : `${near(text.low)} to ${near(text.high)}`;
+    findings.push({
+      rule: "reference_range", severity: "warn",
+      measured: `${near(texts)} text entrances per 10 s`, required: `${span} per 10 s, as your references`,
+      message: `${scene} brings in ${near(texts)} texts per 10 s; its saved references (${names}) bring in ${span}.`,
+      fix: { kind: "hint", text: `${texts > text.high ? "Fold texts together or drop the ones the picture already says" : "Add the words the story needs"}, or keep the count: ${waive}.` },
+    });
+  }
+
+  // A voice before the loudest change of the music: the references' majority has one, the edit none.
+  const change = loudestChange(ctx);
+  const voice = ranges.voice;
+  if (change && voice.n >= RANGE_REFS && voice.before / voice.n > VOICE_MAJORITY && voiceBefore(ctx, change.time) === false) {
+    const example = voice.example;
+    findings.push({
+      rule: "reference_range", severity: "warn", at: change.time,
+      measured: `no voice before the loudest change (${near(change.time)} s)`,
+      required: `${voice.before} of your ${voice.n} references with one have a voice before theirs (${example.id} at ${near(example.at)} s)`,
+      message: `${scene} has no voice before its loudest change at ${near(change.time)} s; ${voice.before} of ${voice.n} saved references have one before theirs.`,
+      fix: { kind: "hint", text: `Let a clip's spoken line play before ${near(change.time, 0)} s (look {mode:"source"} on it, then volume up), or keep it silent: ${waive}.` },
+    });
+  }
+  return findings;
 }
 
 // ---------------------------------------------------------------- reference_closeness

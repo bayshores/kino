@@ -50,6 +50,30 @@ export function referenceSpread(references) {
 }
 
 /**
+ * What the saved references' own facts span, for the reference_range check: per fact {low, high, n}
+ * over the references that measured it. brightness (median luma 0 to 1) and dark (share of frames
+ * under 0.15) come from `fingerprint.look`; text10 is text entrances per 10 s; voice counts the
+ * references with a voice span that starts before their own loudest change (`heard`, inspire
+ * measure): {n: references that heard both, before, example: [{id, at}]}.
+ */
+export function referenceRanges(references) {
+  const span = (pick) => {
+    const values = references.map((reference) => pick(reference.fingerprint ?? {})).filter(Number.isFinite);
+    return values.length ? { low: Math.min(...values), high: Math.max(...values), n: values.length } : null;
+  };
+  const entrances = (fp) => {
+    const counts = fp.text?.counts;
+    return counts && fp.seconds > 0 ? (Object.values(counts).reduce((sum, value) => sum + value, 0) / fp.seconds) * 10 : null;
+  };
+  const heard = references.filter((reference) => Array.isArray(reference.heard?.voice) && Number.isFinite(reference.heard?.change?.at));
+  const first = heard.map((reference) => ({ id: reference.id, at: reference.heard.voice.map((voice) => voice[0]).filter((from) => from < reference.heard.change.at).sort((a, b) => a - b)[0] }));
+  return {
+    brightness: span((fp) => fp.look?.brightness), dark: span((fp) => fp.look?.darkShare), text10: span(entrances),
+    voice: { n: heard.length, before: first.filter((entry) => entry.at != null).length, example: first.find((entry) => entry.at != null) ?? null },
+  };
+}
+
+/**
  * The render against the references, as rows: [{key, label, value, low, high, off, drives, line}].
  * `render` and each reference's `fingerprint` come from fingerprint.mjs; `renderPrints` and each
  * reference's `prints` are packed feature prints. Rows a side did not measure are left out.
