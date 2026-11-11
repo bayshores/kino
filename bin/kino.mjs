@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { agentSession } from "../backend/agent/agent-session.mjs";
-import { createAgentClient, importedText, resolveConnection } from "../backend/agent/client.mjs";
+import { KINO_IMPORT, createAgentClient, importedText, resolveConnection } from "../backend/agent/client.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERBS = ["status", "edit", "check", "look", "inspect", "render", "library", "history", "notes", "project"];
@@ -479,8 +479,9 @@ export async function parseCommand(argv) {
     }
     if (input.file === undefined && free.length) input.file = free.shift();
     // A file path is read from the folder kino runs in, and ~ is your home folder (zsh leaves the
-    // ~ in path=~/song.wav as typed); openverse:, archive:, yt:, sfx: and music: ids stay as typed.
-    if (typeof input.file === "string" && !/^(openverse|archive|yt|sfx|music):/i.test(input.file.trim())) input.file = absoluteFolder(input.file);
+    // ~ in path=~/song.wav as typed); ids kino resolves itself (openverse:, archive:, yt:, sfx:,
+    // music:, clip: and footage codes F1 or F1.15) stay as typed.
+    if (typeof input.file === "string" && !KINO_IMPORT.test(input.file.trim())) input.file = absoluteFolder(input.file);
   } else {
     // Words in these places are names and text, kept as typed ("1.50" stays a string). A note's
     // text may be several words: `kino notes add Make the logo bigger`.

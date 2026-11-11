@@ -280,7 +280,7 @@ export function createAgentClient(connection, { name = "mcp", session, reconnect
 }
 
 // Imports kino makes itself rather than a local file: sounds, songs and found footage codes.
-const KINO_IMPORT = /^(?:(?:openverse|archive|yt|sfx|music|clip):|F\d{1,3}(?:\.\d+)?$)/i;
+export const KINO_IMPORT = /^(?:(?:openverse|archive|yt|sfx|music|clip):|F\d{1,3}(?:\.\d+)?$)/i;
 
 // A body fetch reads as it sends (a file upload): it can be sent only once.
 const isStream = (body) => Boolean(body) && typeof body.pipe === "function";

@@ -305,6 +305,41 @@ export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
 // ---- files ----------------------------------------------------------------------------------
 
 const SCAN_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** A shot of these flags goes after the clean ones (a logo alone is a small cost, not a reason). */
+const isLast = (shot) => (shot.flags ?? []).some((flag) => flag !== "logo");
+
+/** Two shots are one shot for numbering when their time ranges overlap by at least this share of their union. */
+export const SAME_RANGE = 0.5;
+
+/**
+ * Numbers a scan's shots (each {start, end}) against the shots a saved scan of the same video
+ * already shows (known, each {n, start, end}). A shot whose time range overlaps a known shot's
+ * (SAME_RANGE of their union, the most overlap first, each known number once) keeps that number
+ * and that shot's start and end, so a code shown before points at the same range of the video. The
+ * others are new: they count on from the largest known number, in time order (1, 2, 3 ... in a
+ * first scan), so no number is reused or shifted. Answers [{n, start, end}] in the order of `shots`.
+ */
+export function numberShots(known = [], shots = []) {
+  const pairs = [];
+  shots.forEach((shot, index) => known.forEach((old, at) => {
+    const overlap = Math.min(shot.end, old.end) - Math.max(shot.start, old.start);
+    const union = Math.max(shot.end, old.end) - Math.min(shot.start, old.start);
+    if (overlap > 0 && union > 0 && overlap / union >= SAME_RANGE) pairs.push({ index, at, share: overlap / union });
+  }));
+  pairs.sort((a, b) => b.share - a.share);
+  const out = new Array(shots.length).fill(null);
+  const used = new Set();
+  for (const { index, at, share } of pairs) {
+    if (out[index] || used.has(at)) continue;
+    out[index] = { n: known[at].n, start: known[at].start, end: known[at].end, share };
+    used.add(at);
+  }
+  let next = Math.max(0, ...known.map((old) => old.n)) + 1;
+  shots.map((shot, index) => index).filter((index) => !out[index]).sort((a, b) => shots[a].start - shots[b].start)
+    .forEach((index) => { out[index] = { n: next++, start: shots[index].start, end: shots[index].end }; });
+  return out.map(({ n, start, end }) => ({ n, start, end }));
+}
+
 /** The folder saved scans live in. */
 export const scansFolder = (dataRoot) => path.join(dataRoot, "footage", "scans");
 
@@ -365,15 +400,37 @@ export async function pruneScans(dataRoot, { keep = [], maxFiles = SCAN_FILES_MO
 
 // ---- FFmpeg (the default tools; tests pass their own) ----------------------------------------
 
-// One still per time in one pass: the first frame at or after each time.
+/** Most times one select expression holds. */
+export const STILLS_PER_PASS = 200;
+
+/**
+ * The select expressions that pick one still at each time (the first frame at or after it), at most
+ * `most` times each. ffmpeg's expression parser refuses a sum of 99 or more terms written as
+ * a+b+c+..., (measured: 98 pass), because a flat sum nests one level deeper per term. Terms
+ * joined as a balanced tree of parentheses nest only log2(n) levels (1000 terms passed), and a
+ * pass takes at most `most` of them. Answers [{from (index of its first time), pick}].
+ */
+export function stillPicks(times, most = STILLS_PER_PASS) {
+  const tree = (terms) => (terms.length === 1 ? terms[0] : `(${tree(terms.slice(0, terms.length >> 1))}+${tree(terms.slice(terms.length >> 1))})`);
+  const passes = [];
+  for (let from = 0; from < times.length; from += most) {
+    const terms = times.slice(from, from + most).map((time) => `lt(prev_pts*TB\\,${round3(time)})*gte(t\\,${round3(time)})`);
+    passes.push({ from, pick: tree(terms) });
+  }
+  return passes;
+}
+
+// One still per time: the first frame at or after each time, in as many passes as stillPicks gives
+// (one ffmpeg at a time). The stills are numbered by their time's place in `times`.
 async function stillsAt(file, times, folder, { signal } = {}) {
   if (!times.length) return [];
   const { runMediaTool } = await import("../media-probe.mjs");
-  const pick = times.map((time) => `lt(prev_pts*TB\\,${round3(time)})*gte(t\\,${round3(time)})`).join("+");
   await mkdir(folder, { recursive: true });
-  await heavyDecodeSlot(() => runMediaTool("ffmpeg", ["-hide_banner", "-nostdin", "-v", "error", "-y", "-threads", "2", "-i", file, "-an", "-sn", "-dn",
-    "-vf", `select='${pick}',scale=${STILL_WIDTH}:-2:flags=area`, "-fps_mode", "vfr", "-q:v", "4", "-start_number", "0",
-    path.join(folder, "%03d.jpg")], { signal }));
+  for (const { from, pick } of stillPicks(times)) {
+    await heavyDecodeSlot(() => runMediaTool("ffmpeg", ["-hide_banner", "-nostdin", "-v", "error", "-y", "-threads", "2", "-i", file, "-an", "-sn", "-dn",
+      "-vf", `select='${pick}',scale=${STILL_WIDTH}:-2:flags=area`, "-fps_mode", "vfr", "-q:v", "4", "-start_number", String(from),
+      path.join(folder, "%03d.jpg")], { signal }));
+  }
   const names = new Set(await readdir(folder));
   return times.map((_, index) => {
     const name = `${String(index).padStart(3, "0")}.jpg`;
@@ -468,9 +525,11 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     if (drawn) for (const shot of all) shot.face = null;
     const { shots: joined, repeats } = mergeAlike(all);
     const ranked = rankShots(joined, { wantVector: wantVector ? normalize(wantVector) : null, drawn });
-    // Shot numbers follow time, so F1.37 comes before F1.38 in the video.
-    const order = [...ranked.shots].sort((a, b) => a.start - b.start);
-    const number = new Map(order.map((shot, index) => [shot, index + 1]));
+    // Shot numbers (numberShots): time order in a first scan; a shot already numbered keeps its
+    // number and time range, a later scan's new shots count on from the largest number.
+    const before = await readScan(dataRoot, id);
+    const numbered = numberShots(before?.shots ?? [], ranked.shots);
+    const number = new Map(ranked.shots.map((shot, index) => [shot, numbered[index].n]));
     const folder = scansFolder(dataRoot);
     await mkdir(folder, { recursive: true });
     const best = ranked.shots.filter((shot) => shot.still).slice(0, SHEET_SHOTS);
@@ -483,18 +542,25 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
         if (signal?.aborted) throw error;
       }
     }
+    const rows = ranked.shots.map((shot, index) => ({
+      n: numbered[index].n, start: numbered[index].start, end: numbered[index].end, motion: shot.motion, face: shot.face,
+      match: shot.match, score: shot.score, flags: shot.flags,
+      ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
+    }));
+    // The shots of earlier scans stay, as they were shown, under their numbers.
+    const taken = new Set(rows.map((row) => row.n));
+    const shotsOf = [...rows, ...(before?.shots ?? []).filter((shot) => !taken.has(shot.n))];
+    shotsOf.sort((a, b) => Number(isLast(a)) - Number(isLast(b)) || b.score - a.score || a.start - b.start);
+    const windows = [...(before?.windows ?? []), ...copy.files.map((window) => ({ start: window.start, end: window.end }))]
+      .filter((window, index, list) => list.findIndex((other) => other.start === window.start && other.end === window.end) === index);
     const scan = {
       version: SCAN_VERSION, id, title, want: words, scannedAt: new Date().toISOString(),
-      windows: copy.files.map((window) => ({ start: window.start, end: window.end })),
+      windows,
       vision, model: looked?.model ?? null, drawn, marks, matchShown: ranked.matchShown,
       matchBest: ranked.matchBest, matchBar: ranked.matchBar,
       skipped: { ...ranked.skipped, repeats },
       sheet,
-      shots: ranked.shots.map((shot) => ({
-        n: number.get(shot), start: shot.start, end: shot.end, motion: shot.motion, face: shot.face,
-        match: shot.match, score: shot.score, flags: shot.flags,
-        ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
-      })),
+      shots: shotsOf,
     };
     const file = scanPath(dataRoot, id, "json");
     await writeFile(`${file}.part`, JSON.stringify(scan));

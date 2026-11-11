@@ -46,7 +46,7 @@ function commonsPage(pageid, { license = "CC BY-SA 4.0", licenseUrl = "https://c
   };
 }
 import { downloadScanCopy, parseProbe, pickWindows, probeFootage } from "./footage-finder/scan.mjs";
-import { matchBar, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts } from "./footage-finder/score.mjs";
+import { matchBar, pruneScans, rankShots, readScan, SCAN_VERSION, scanFootage, scanMarks, scansFolder, shotFacts, stillPicks } from "./footage-finder/score.mjs";
 import { encodeVector, normalize } from "./music-embed.mjs";
 import { findShots } from "./shot-detection.mjs";
 import { botCheckError, createYouTubeGate } from "./process-slots.mjs";
@@ -406,6 +406,58 @@ test("a scan copy that starts at the keyframe before its stretch saves shot time
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("a scan again keeps the numbers shown before: the same range keeps its code, new shots count on, and earlier shots stay", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-numbers-"));
+  const copyFolder = path.join(directory, "copy");
+  await mkdir(copyFolder);
+  const scanOf = async (start, end, shots) => {
+    const tools = {
+      probe: async () => ({ duration: end - start, width: 640, height: 360 }),
+      findShots: async () => ({ shots: shots.map(([from, to]) => ({ start: from - start, end: to - start })) }),
+      measure: async () => ({ samples: [] }),
+      stills: async (file, times) => times.map(() => null),
+      sheet: async () => {},
+    };
+    const copy = { folder: copyFolder, files: [{ start, end, file: path.join(copyFolder, "scan.webm") }] };
+    return scanFootage("yt-abcdefghijk", copy, { dataRoot: directory, tools });
+  };
+  const ranges = (scan) => Object.fromEntries(scan.shots.map((shot) => [shot.n, [shot.start, shot.end]]));
+  try {
+    const first = await scanOf(0, 30, [[0, 10], [10, 20], [20, 30]]);
+    assert.deepEqual(ranges(first), { 1: [0, 10], 2: [10, 20], 3: [20, 30] });
+    // 15 to 45 cuts shot 2 at its window (15 to 20): still shot 2, with its range of 10 to 20.
+    const second = await scanOf(15, 45, [[15, 20], [20, 30], [30, 45]]);
+    assert.deepEqual(ranges(second), { 1: [0, 10], 2: [10, 20], 3: [20, 30], 4: [30, 45] });
+    // Shots that match nothing known are new numbers, in time order, never 1 or 2 again.
+    const third = await scanOf(50, 60, [[50, 54], [54, 60]]);
+    assert.deepEqual(ranges(third), { 1: [0, 10], 2: [10, 20], 3: [20, 30], 4: [30, 45], 5: [50, 54], 6: [54, 60] });
+    assert.deepEqual(ranges(await readScan(directory, "yt-abcdefghijk")), ranges(third));
+    assert.equal(third.windows.length, 3);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("the stills of a video with 300 shots are picked in passes of at most 200 times, each a shallow expression", () => {
+  const times = Array.from({ length: 300 }, (_, index) => index * 0.5 + 0.1);
+  const passes = stillPicks(times);
+  assert.deepEqual(passes.map((pass) => pass.from), [0, 200]);
+  assert.deepEqual(passes.map((pass) => pass.pick.match(/gte\(/g).length), [200, 100]);
+  for (const { pick } of passes) {
+    // ffmpeg stops parsing a sum nested about 99 deep (measured); a balanced tree nests about log2(200).
+    let depth = 0;
+    let deepest = 0;
+    for (const character of pick) {
+      if (character === "(") deepest = Math.max(deepest, ++depth);
+      else if (character === ")") depth--;
+    }
+    assert.ok(deepest <= 20, `nested ${deepest} deep`);
+  }
+  assert.match(passes[0].pick, /gte\(t\\,0\.1\)/);
+  assert.match(passes[1].pick, /gte\(t\\,100\.1\)/);
+  assert.deepEqual(stillPicks([]), []);
 });
 
 test("an empty footage search is tried once without 4k, and the same search again asks yt-dlp nothing", async () => {

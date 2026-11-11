@@ -86,6 +86,11 @@ describe("parseCommand", () => {
       [["project", "import", "source=yt:abc123"], { verb: "project", input: { action: "import", file: "yt:abc123" } }],
       [["project", "import", "source=sfx:swish-3"], { verb: "project", input: { action: "import", file: "sfx:swish-3" } }],
       [["project", "import", "music:calm-1"], { verb: "project", input: { action: "import", file: "music:calm-1" } }],
+      // Found footage codes go to the server as typed, not as a path in the current folder.
+      [["project", "import", "file=F1"], { verb: "project", input: { action: "import", file: "F1" } }],
+      [["project", "import", "file=F1.15"], { verb: "project", input: { action: "import", file: "F1.15" } }],
+      [["project", "import", '{"action":"import","file":"F13","options":{"shots":[83,64]}}'], { verb: "project", input: { action: "import", file: "F13", options: { shots: [83, 64] } } }],
+      [["project", "import", "file=clip:abc"], { verb: "project", input: { action: "import", file: "clip:abc" } }],
       [["project", "record", "start", 'target={"app":"Notes"}', "maxSeconds=60"], { verb: "project", input: { action: "record", options: { target: { app: "Notes" }, maxSeconds: 60, step: "start" } } }],
       [["project", "record", "mark", "Open", "the", "menu"], { verb: "project", input: { action: "record", options: { step: "mark", label: "Open the menu" } } }],
       // zsh leaves the ~ after = as typed; it is the home folder, as in out=~/Movies.
