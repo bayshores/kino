@@ -685,7 +685,7 @@ export function createAgentService(deps) {
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
-    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: checked.stale ?? [] };
+    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [] };
   }
 
   // The project's waivers that still silence a finding (stale ones left out): what the waived

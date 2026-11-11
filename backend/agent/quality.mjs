@@ -769,7 +769,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     if (driftPending) {
       // Not kept: the next check runs the scene again (its frames are reused) and reads the drift.
       const note = "reference_drift is measuring this scene against its references in the background (about a minute); the next check includes it.";
-      return { model, findings: result.findings, notes: [...result.notes, note], techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model) };
+      return { model, findings: result.findings, notes: [...result.notes, note], techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model), pending: true };
     }
     const entry = { model, findings: result.findings, notes: result.notes, techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model) };
     cache.set(key, entry);
@@ -821,6 +821,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const lengthScene = length ? videoScene(document) : null;
     const videoLength = lengthScene ? { ...length, video: lengthScene.duration } : null;
     const media = await mediaSizes(document);
+    // Stale waivers are judged only when every rule had what it measures (media sizes, transcripts, people, drift).
+    let measuredAll = !media.pending;
     // What shape_guess and ask_unmet read besides the document: part of each scene's key.
     const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles]);
     // The story spine is the video's: only its scene is held to it (a format variant or a
@@ -845,7 +847,10 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null
         : null;
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
-      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, origin, playsOn, base });
+      // A rule without its input (a transcript, the people found) finds nothing: no waiver is judged stale then.
+      if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
+      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ??await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, origin, playsOn, base });
+      if (pending) measuredAll = false;
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {
@@ -875,7 +880,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // Stale waivers are judged only on a check of every scene with everything measured (pixels on,
     // or each scene's full check kept): a quick check without saved faces or words would miss findings.
     const pixelsRan = Boolean(renderFrames) && !unchecked.length;
-    const stale = !sceneId && (pixels || pixelsRan) ? staleWaivers(waivers, silencing, { pixelsRan }) : [];
+    const stale = !sceneId && measuredAll && (pixels || pixelsRan) ? staleWaivers(waivers, silencing, { pixelsRan }) : [];
     return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale };
   }
 

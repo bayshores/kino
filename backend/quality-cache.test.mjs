@@ -127,6 +127,12 @@ test("speech_cut reads transcripts through transcriptOf, and a transcript made l
   assert.deepEqual(song.findings.filter((entry) => entry.rule.startsWith("speech")), []);
   const [stop] = song.findings.filter((entry) => entry.rule === "music_hard_stop");
   assert.deepEqual([stop.auto, stop.fix.op, stop.fix.layerId, stop.fix.animation.start, stop.fix.animation.to], [true, "add_animation", "voice", 1.05, { volume: 0 }]);
+  // A waiver that silences nothing is stale only when every rule had its input: not while a transcript is missing.
+  const waiver = { code: "speech_cut", target: "voice", reason: "meant" };
+  document.checkWaivers = [waiver];
+  const full = (transcriptOf) => checker.check(document, { fonts: defaultFonts, pixels: true, transcriptOf });
+  assert.deepEqual((await full(() => null)).stale, []);
+  assert.deepEqual((await full(async () => ({ music: true }))).stale, [waiver]);
 });
 
 test("reference_drift measures in the background: the check answers with a note, the next check reads it", async () => {
