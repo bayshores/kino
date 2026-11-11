@@ -1177,7 +1177,8 @@ How to read it:
 - **board op**: Verified. `edit {ops:[{op:"board", music, shots}]}` saves the whole storyboard, every
   shot naming every layer or "none" and the shots covering the music or the whole video; it is part of the document (undo, restore).
   A refusal names every field over its limit with its length. A shot's `move` ({kind, name, ref} or
-  {none}) is checked against kino's moves and move-like ops (frame), with every bad field named at once. Evidence:
+  {none}) is checked against kino's moves and move-like ops (frame), with every bad field named at once; a bad `ref` also
+  names the project's saved keys, the fixed ref for a saved key sent without its moment, or the call that saves one. Evidence:
   `backend/agent-board.test.mjs`, `engine/board.test.js`.
 - **look board**: Verified. `look {mode:"board", page}` draws 4 shots a page with crops and measured
   framing flags and each shot's move, flagging shots that name no move (a chosen cut, move {none},

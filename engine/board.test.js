@@ -60,6 +60,11 @@ test("a shot's move: {kind, name, ref, planned?} or {none}; every bad field name
     'shot 2 move.name "zoom-thru" is not a kino move or preset (library {topic:"moves"}).',
     'shot 2 move.ref is "<reference key>@<seconds>", the reference moment it copies (e.g. "app-trailer@3.2").',
   ]);
+  // refHelp adds what the project would accept to a bad ref's message, and only to that message.
+  const help = (sent) => `saved: ${sent}`;
+  assert.deepEqual(moveProblems({ kind: "type", name: "zoom-through", ref: "yt:uXlWYZ022zU" }, "m", known, { refHelp: help }),
+    ['m.ref is "<reference key>@<seconds>", the reference moment it copies (e.g. "app-trailer@3.2"). saved: yt:uXlWYZ022zU']);
+  assert.deepEqual(moveProblems({ kind: "type", name: "zoom-through", ref: "yt:uXlWYZ022zU@3.2" }, "m", known, { refHelp: help }), []);
   // A saved YouTube reference can be named by its id as inspire lists it, "yt:" kept.
   assert.deepEqual(moveProblems({ kind: "type", name: "zoom-through", ref: "yt:uXlWYZ022zU@3.2" }, "m", known), []);
   assert.equal(MOVE_REF.exec("yt:uXlWYZ022zU@3.2")[1], "uXlWYZ022zU");

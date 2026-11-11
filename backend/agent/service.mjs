@@ -439,6 +439,8 @@ export function createAgentService(deps) {
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops),
+    // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
+    savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
       const brief = (await agentState.read(document.id).catch(() => null))?.brief;
