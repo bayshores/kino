@@ -65,7 +65,7 @@ import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
-import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, workPrint } from "./stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
@@ -1875,6 +1875,7 @@ export function createAgentService(deps) {
     const problem = new AgentError(isReference ? "unknown_ref" : "op_failed", `Operation ${error.index}${error.type ? ` (${error.type})` : ""}: ${error.message}`, details);
     // The names that were not found ({kind, ref} each), for the refusal's `missing` list (not
     // sent on their own): one, or one for each part of an op such as delete_layer {layers:[…]}.
+    if (error.waive) problem.waive = error.waive;
     if (Array.isArray(error.missing)) problem.missing = error.missing;
     else if (isReference && !error.cause.ambiguous && typeof error.cause.ref === "string" && error.cause.kind) problem.missing = [{ kind: error.cause.kind, ref: error.cause.ref }];
     return problem;
@@ -1892,7 +1893,7 @@ export function createAgentService(deps) {
   // One answer for every problem of an edit: the first in full (with the op's rules), up to
   // four more in a line each, and the ops that were not tried because they use what a
   // refused op makes. Nothing is saved; `retry` resends the edit with only the fixes.
-  function refusal(projectId, ops, problems, blocked) {
+  function refusal(projectId, ops, problems, blocked, waiverCall = null) {
     problems.sort((a, b) => (a.details.op ?? -1) - (b.details.op ?? -1));
     const [first, ...rest] = problems;
     const code = rememberRefused(projectId, ops);
@@ -1917,8 +1918,35 @@ export function createAgentService(deps) {
     details.retry = code;
     const opNumber = first.details.op ?? "<op number>";
     details.next = `Nothing was saved. edit {retry:"${code}", fix:{"${opNumber}": {fields to change}}} resends the ${ops.length} ops with your fixes (a whole op replaces it, null drops it; a field set to null is removed).`;
+    // A refused waiver answers with the fix of what it tried to waive, not an example waive_check.
+    if (waiverCall && first.waive) {
+      delete details.example;
+      details.next = `Nothing was saved. The finding needs its fix, not a waiver: ${callText(waiverCall)}`;
+    }
     const message = problems.length > 1 ? `${plural(problems.length, "operation")} refused. ${first.message}` : first.message;
-    return Object.assign(new AgentError(first.code, message, details), { nextCall: retryCall(code, ops, problems) });
+    return Object.assign(new AgentError(first.code, message, details), { nextCall: waiverCall && first.waive ? waiverCall : retryCall(code, ops, problems) });
+  }
+
+  // The fix a refused waiver (waive_check on a viewer or face-cut code) answers with. A cut face or
+  // a narrow window: kino's own framing of the layers named (frame_shot), or mark_subject for a shot
+  // an animation moves (frame_shot would fight it). Any other code: check {fix:"auto"} when its
+  // finding has an auto fix, else the finding's own fix op. Null when the edit refused no waiver.
+  const FRAME_WAIVERS = new Set(["crop_no_subject", "head_cut_off", "narrow_window"]);
+  async function waiverFixCall(document, problems, codes) {
+    const refused = problems.filter((problem) => problem.waive);
+    if (!refused.length) return null;
+    const { findings } = await findingsFor(document, { fonts: await fontsFor(document), codes }).catch(() => ({ findings: [] }));
+    const layers = [...new Set(refused.filter((problem) => FRAME_WAIVERS.has(problem.waive.code)).flatMap((problem) => problem.waive.layers))].map((id) => refName(id, codes));
+    if (FRAME_WAIVERS.has(refused[0].waive.code) && layers.length) {
+      const moves = (ref) => findings.some((finding) => finding.moves && finding.ref === ref);
+      const still = layers.filter((ref) => !moves(ref));
+      if (still.length) return nextOf("edit", { ops: [{ op: "frame_shot", layers: still }] });
+      return nextOf("edit", { ops: [{ op: "mark_subject", layer: layers[0], t: "<seconds into the file>", box: "<[x, y, width, height] in % of the file>" }] });
+    }
+    const own = findings.filter((finding) => finding.rule === refused[0].waive.code && !finding.waived);
+    if (own.some((finding) => finding.auto)) return nextOf("check", { fix: "auto" });
+    const fix = own.find((finding) => finding.fix && typeof finding.fix === "object")?.fix;
+    return fix ? nextOf("edit", { ops: [fix].flat() }) : nextOf("check", { fix: "auto" });
   }
 
   // The call that resends a refused edit with each refused op fixed as kino would: a name it
@@ -2288,7 +2316,7 @@ export function createAgentService(deps) {
         // `work` is shared by set_font, the block ops, detect_beats, isolate_voice and cut_out: fonts, media, notes, reports, the names and the cut_outs' deadline.
         work = { resolver, notes: [], reports: editBag.reports };
         after = await applyAll(before, translation.operations, ops, work, problems, translation.blocked);
-        if (problems.length) throw refusal(projectId, ops, problems, translation.blocked);
+        if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.
         if (work.footage && input.dry_run !== true) {
           const fixed = await finishFootage(after, work.footage.sceneId, codes);
@@ -2373,7 +2401,7 @@ export function createAgentService(deps) {
         ...(timed.more ? { timesMore: timed.more } : {}),
         ...animationKeyCounts(after, [...changes.created, ...changes.changed], afterCodes),
         ...(resolver.fixes.length ? { fixed: [...new Set(resolver.fixes)] } : {}),
-        ...(work.notes.length ? { notes: work.notes } : {}),
+        ...(work.notes.length || resolver.notes.length ? { notes: [...work.notes, ...new Set(resolver.notes)] } : {}),
         // compose {footage}: the plan in words (all of it in a dry run).
         ...(work.plan ? { plan: input.dry_run ? work.plan : work.plan.slice(0, 2) } : {}),
         ...(work.finished ? { finished: work.finished } : {}),
@@ -5682,7 +5710,7 @@ export function createAgentService(deps) {
       const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
       const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
-        + (quality === "final" ? await finalSources(record.document) : "");
+        + (quality === "final" ? await finalSources(record.document) + waivedNote(record.document) : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
       if (input.wait === true) {
@@ -7095,8 +7123,15 @@ export function createAgentService(deps) {
     const family = (code) => code.replace(/_(needed|open|unchecked|failed)$/, "");
     if (!gates.some((gate) => family(gate.code) === family(error.code)))
       gates.unshift({ code: error.code, words: error.code === "check_failed" ? 'check fix:"auto", then fix the findings named here' : `clear ${error.code}` });
-    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:")}.`;
+    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:")}.${waivedNote(record.document)}`;
     return error;
+  }
+
+  // " 39 waived (crop_no_subject 17, held_static 9).": how many findings the agent called fine, shown at
+  // the last step (the final gate's refusal and the final render's receipt); "" when none is waived.
+  function waivedNote(document) {
+    const line = waivedLine(document.checkWaivers);
+    return line ? ` ${line}.` : "";
   }
 
   // The fixed call for a refusal: the code's own step, the suggestion kino made (didYouMean)

@@ -131,6 +131,8 @@ export function createResolver(document, codes) {
   const declared = { scene: new Map(), layer: new Map(), animation: new Map() };
   const names = { scene: new Map(), layer: new Map(), animation: new Map() };
   const fixes = [];
+  // Facts the receipt reports that are not corrections (a waiver that covers many layers).
+  const notes = [];
   // Objects an earlier operation of the batch deletes: their IDs and names are free again, so
   // "delete card, then add card" makes a new layer called card, not card-2.
   const removed = { scene: new Set(), layer: new Set(), animation: new Set() };
@@ -354,5 +356,5 @@ export function createResolver(document, codes) {
       .filter((id) => glob.test(id) || glob.test(String(nameOf(kind, id) ?? "")));
   }
 
-  return { resolve, matchAll, declare, declarePrefix, forget, removedId, nameTaken, rename, sceneOf, layerOfAnimation, nameOf, layerTypeOf, codeOf, fixes, objects, exists, reserved };
+  return { resolve, matchAll, declare, declarePrefix, forget, removedId, nameTaken, rename, sceneOf, layerOfAnimation, nameOf, layerTypeOf, codeOf, fixes, notes, objects, exists, reserved };
 }

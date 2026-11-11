@@ -194,6 +194,10 @@ test("frame_shot frames a hand-placed crop from the file's size and found faces;
   await agent("edit", { project: "keeper-tall", ops: [{ op: "add_layer", layerType: "video", name: "keeper", properties: placed }] });
   const cut = await agent("check", { project: "keeper-tall", ...cropOnly });
   assert.match(cut.text, /^E crop_no_subject \S+ @0: keeper cuts a face found whole in its file at the left .* fix\(auto\): .*"op":"frame_shot"/m, cut.text);
+  // A waiver of that cut is refused (the person's words keep it); the answer's next is the fix for the layer, not an example waiver.
+  const waived = await agent("edit", { project: "keeper-tall", ops: [{ op: "waive_check", code: "crop_no_subject", target: "keeper", reason: "meant" }] });
+  assert.equal(waived.isError, true, waived.text);
+  assert.equal(JSON.parse(waived.text).next, 'edit {"ops":[{"op":"frame_shot","layers":["keeper"]}]}', waived.text);
   const fixed = await agent("check", { project: "keeper-tall", fix: "auto", ...cropOnly });
   assert.match(fixed.text, /applied 1 auto fix.*\n {2}fixed crop_no_subject keeper$/m, fixed.text);
   assert.doesNotMatch(fixed.text, /^[EW] crop_no_subject/m, fixed.text);

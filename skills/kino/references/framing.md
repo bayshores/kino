@@ -11,8 +11,7 @@
 - By hand, one layer per shot: `height` = H, `width` = H × w / h, `x` = W / 2 − box center
   % / 100 × `width`, from W − `width` to 0.
 - Eyes near the top third; faces out of the bottom 707 and right 120 px of 1080×1920.
-- `crop_no_subject` and `narrow_window` offer `frame_shot`; only a cut face on an unmoved layer
-  is auto.
+- A refused waiver on `crop_no_subject` or `narrow_window` answers with `frame_shot`.
 
 ## Framing: crop footage to 9:16
 

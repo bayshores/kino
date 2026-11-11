@@ -73,6 +73,11 @@ test("the agent's final render and final export wait for rough, color and sound;
   const exported = await agent("project", { action: "manage", id: "final-waits", options: { resource: "exports", action: "start", quality: "final", options: { profile: "png", width: 32, height: 56 } } });
   assert.equal(exported.data.error, "stops_open", exported.text);
 
+  // A waived check shows at the last step: the final gate's refusal ends with the waived count.
+  const waive = await agent("edit", { project: "final-waits", ops: [{ op: "waive_check", code: "overlap", target: "title", reason: "meant" }] });
+  assert.equal(waive.isError, undefined, waive.text);
+  assert.match((await finalRender("final-waits")).data.reason, /A final render still needs: .*\. 1 waived \(overlap 1\)\.$/);
+
   const draft = await agent("render", { project: "final-waits", quality: "draft", format: "png" });
   assert.equal(draft.isError, undefined, draft.text);
   assert.ok(draft.data.job, "the draft started");

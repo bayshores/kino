@@ -833,6 +833,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           ...(finding.bbox ? { bbox: finding.bbox } : {}),
           ...(fix !== undefined ? { fix } : {}), ...(auto ? { auto: true, ...(finding.fix?.why ? { why: finding.fix.why } : {}), ...(finding.fix?.push ? { push: true } : {}) } : {}),
           ...(waiver ? { waived: waiver.reason } : {}),
+          // A shot an animation moves: frame_shot would fight it, so a refused waiver answers with mark_subject.
+          ...(finding.fix?.kind === "frame_shot" && finding.fix.still === false ? { moves: true } : {}),
           ...(finding.internal ? { internal: true } : {}),
           // plain_beats marks the warning that holds a final render (blocksFinal).
           ...(finding.final ? { final: true } : {}),

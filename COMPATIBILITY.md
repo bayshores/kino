@@ -922,6 +922,7 @@ How to read it:
 - **volume_churn** (warning): a song or bed turns volume direction 3 times in 10 s, fades in and out
   aside. Unit-tested. Evidence: `engine/qualityPolish.test.js`.
 - **Waivers lapse**: a waiver on a layer is dropped when the layer is deleted or its `src` changes.
+- **Waived checks point to the fix**: Done. A refused face-cut waiver answers with `frame_shot` for its layers, a `*` waiver says how many layers it covers, the final gate and render show the waived count, and a mark that misses a face warns only when the crop slices it. Evidence: `backend/look-source.test.mjs`, `backend/agent-core.test.mjs`, `backend/agent-final-stops.test.mjs`, `engine/qualityRules.test.js`.
   Evidence: `engine/operations.test.js`.
 - **no_music, the no-music sound stop, look sound** (warning): a 10 s video with no song warns, the
   sound stop offers track, search or silence, and `look {mode:"motion", ref:"sound"}` measures the mix.
