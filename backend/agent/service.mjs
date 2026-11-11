@@ -22,6 +22,7 @@ import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs"
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { shotsNeeded } from "../footage-finder/needs.mjs";
+import { SAYS_MIN_SECONDS } from "../footage-finder/words.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { applyOperations } from "../../engine/operations.js";
@@ -6045,7 +6046,11 @@ export function createAgentService(deps) {
             entry.imported = { shots: [...new Set([...(entry.imported?.shots ?? []), ...shots])], seconds: Math.round(((Number(entry.imported?.seconds) || 0) + seconds) * 100) / 100 };
           });
         }
-        return { value: result };
+        // What the clips say: the video's captions (kept since the scan, so usually no new request).
+        // Only for a clip long enough to carry a line; no captions, or a failure, adds nothing.
+        const captions = result.media.some((item) => Number(item.duration) >= SAYS_MIN_SECONDS)
+          ? await deps.footage.captions?.(candidate).catch(() => null) : null;
+        return { value: captions?.lines ? { ...result, captions } : result };
       }).catch((error) => ({ error }));
       job.promise.finally(() => { setTimeout(() => { if (footageTakes.get(key) === job) footageTakes.delete(key); }, FOOTAGE_RESULT_KEEP_MS).unref?.(); });
       footageTakes.set(key, job);

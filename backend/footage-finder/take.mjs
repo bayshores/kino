@@ -17,6 +17,7 @@ import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { FootageError, stamp } from "./actions.mjs";
 import { readTime } from "./scan.mjs";
 import { scanCall } from "./step.mjs";
+import { saysOf, saysText } from "./words.mjs";
 
 /** Seconds kept before and after each shot in its download. */
 export const TAKE_PAD_SECONDS = 0.5;
@@ -267,7 +268,9 @@ export async function takeFootage(candidate, pieces, { addMedia, projectId = nul
           const out = path.join(folder, `clip-${media.length + failed.length}-${index}.mp4`);
           await use.encode(stretch.file, out, { start, seconds, signal });
           media.push(await addMedia(out, { name: `${label} ${title}.mp4`.slice(0, 200), mime: "video/mp4",
-            extra: { ...(projectId ? { projectId } : {}), credit, footage: { candidate: candidate.id, code: candidate.code, shot: piece.n, start: piece.start, end: piece.end } } }));
+            extra: { ...(projectId ? { projectId } : {}), credit, footage: { candidate: candidate.id, code: candidate.code, shot: piece.n, start: piece.start, end: piece.end,
+              // Where the cut really starts in the video (an exact cut moves a little): what the clip says is read from here.
+              cutAt: round2(piece.start + start - local(piece.start)) } } }));
         } catch (error) {
           if (error?.name === "AbortError") throw error;
           failed.push({ n: piece.n, label, why: short(oneLine(error?.message ?? error), 160) });
@@ -284,12 +287,15 @@ export async function takeFootage(candidate, pieces, { addMedia, projectId = nul
  * The import answer's lines: each clip by its code and file, then the credit kept as metadata.
  * code: F1; candidate: its footage entry; result: takeFootage's answer.
  */
-export function takeText(candidate, { media, failed }) {
+export function takeText(candidate, { media, failed, captions = null }) {
   const total = media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
   const lines = [`Imported ${media.length} clip${media.length === 1 ? "" : "s"} of ${candidate.code} "${short(oneLine(candidate.title) || candidate.id, 60)}" (${round2(total)} s in all, H.264) for this video:`];
   for (const item of media) {
     const label = item.footage?.shot === null || item.footage?.shot === undefined ? `${candidate.code} ${stamp(item.footage?.start)}` : `${candidate.code}.${item.footage.shot}`;
-    lines.push(`${label} ${round2(Number(item.duration) || 0)}s ${item.width}×${item.height} ${item.src}`);
+    // What the clip says, when the video's captions are known and the clip is long enough (words.mjs).
+    const duration = Number(item.duration) || 0;
+    const says = captions?.lines ? saysText(saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, duration)) : "";
+    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src}${says ? ` ${says}` : ""}`);
   }
   if (failed.length) lines.push(`Not imported: ${failed.slice(0, 5).map((each) => `${each.label ?? each.n} (${each.why})`).join("; ")}.`);
   const [first] = media;

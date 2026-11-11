@@ -12,6 +12,7 @@ import { SCAN_VERSION } from "./score.mjs";
 import { candidateLine, droppedLine, nothingFoundText } from "./search.mjs";
 import { scanCall, searchCall } from "./step.mjs";
 import { needLine, wantBySection } from "./needs.mjs";
+import { applySaid, linesBlock, lineStretch, spokenLines } from "./words.mjs";
 
 /** Candidates kept per project. */
 export const FOOTAGE_KEPT = 24;
@@ -34,6 +35,7 @@ export const FOOTAGE_TOPIC_LINE = 'footage {search, want?, scan?, note?} (found 
 
 const VERDICTS = ["pick", "maybe", "no"];
 const TITLE_SHOWN = 70;
+const SAID_SHOWN = 120;
 
 /** An expected refusal: the service turns it into an error answer with this code and next call. */
 export class FootageError extends Error {
@@ -46,6 +48,12 @@ export class FootageError extends Error {
 
 /** The import call for chosen shots of one candidate. */
 export const importCall = (code, shots) => call("project", { action: "import", file: code, options: { shots } });
+
+/** The import call for one spoken line: its time range (words.mjs lineStretch) as from/to, in seconds. */
+export const importLineCall = (code, line, duration = null) => {
+  const { from, to } = lineStretch(line, duration);
+  return call("project", { action: "import", file: code, options: { from, to } });
+};
 
 const oneLine = (text) => String(text ?? "").replace(/\s+/g, " ").trim();
 const short = (text, most) => (text.length > most ? `${text.slice(0, most - 1)}…` : text);
@@ -153,6 +161,8 @@ export function shotLine(code, shot, { matchShown = false } = {}) {
   if (Number.isFinite(shot.face)) parts.push(`face ${Math.round(shot.face)}`);
   if (matchShown && Number.isFinite(shot.match)) parts.push(`match ${shot.match >= 0 ? "+" : ""}${shot.match.toFixed(1)}`);
   if (shot.flags?.length) parts.push(shot.flags.join(" "));
+  if (shot.hasSubs) parts.push("has subtitles");
+  if (shot.says) parts.push(`says: "${shot.says}"`);
   return parts.join(" ");
 }
 
@@ -191,7 +201,7 @@ function noMatchLine(scan) {
  * The scan answer: what was looked at, the 12 best shots, the skips, the match word and, with a
  * song in the video, how many shots it needs (needs.mjs shotsNeeded).
  */
-export function scanText(candidate, scan, need = null) {
+export function scanText(candidate, scan, need = null, heard = null) {
   const looked = (scan.windows ?? []).reduce((sum, window) => sum + window.end - window.start, 0);
   const shots = scan.shots ?? [];
   const head = `${candidate.code} "${short(oneLine(candidate.title) || candidate.id, TITLE_SHOWN)}" · scanned ${clockOf(looked)}${candidate.seconds ? ` of ${clockOf(candidate.seconds)}` : ""} · ${shots.length} shot${shots.length === 1 ? "" : "s"}${shots.length > FOOTAGE_SHOTS_SHOWN ? `, best ${FOOTAGE_SHOTS_SHOWN}` : ""}:`;
@@ -201,7 +211,20 @@ export function scanText(candidate, scan, need = null) {
   if (scan.want && !scan.matchShown) tail.push(noMatchLine(scan));
   if (shots.length) tail.push(`Stills: look {mode:"source", ref:"${candidate.code}"}`);
   tail.push(needLine(need));
-  return [head, ...lines, ...tail.filter(Boolean)].join("\n");
+  return [head, ...lines, ...tail.filter(Boolean), ...heardLines(candidate, shots, heard)].join("\n");
+}
+
+// What the captions add at the end of a scan answer: the spoken lines with the shots each covers, or
+// why there are none. A video without captions is said so once; asked-for words say it every time.
+function heardLines(candidate, shots, heard) {
+  if (!heard) return [];
+  const said = heard.said ? `"${heard.said}"` : "";
+  if (heard.retry) return said ? [`Captions could not be read now (${short(oneLine(heard.why), 60)}), so ${said} was not looked for.`] : [];
+  if (heard.none) return said ? [`No captions, so ${said} was not looked for: shots rank on the picture.`] : heard.noCaptionsKnown ? [] : ["No captions on this video."];
+  const spoken = spokenLines(heard.lines, shots, heard.said);
+  const out = [linesBlock(candidate.code, spoken, heard)];
+  if (said && !heard.hits) out.push(`Nobody says ${said} in the scanned part.`);
+  return out.filter(Boolean);
 }
 
 function candidateLabel(candidate) {
@@ -253,6 +276,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
   async function search(input, { footage, personClips, signal }) {
     const words = oneLine(input.search ?? input.query);
     const want = input.want === undefined ? null : short(oneLine(input.want), 160);
+    const said = input.said === undefined ? null : short(oneLine(input.said), SAID_SHOWN);
     if (!words) throw new FootageError("bad_input", 'search needs words: the series or subject and the scene, such as "<series> fight".', searchCall());
     let found;
     try {
@@ -268,11 +292,12 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const update = (saved) => {
       const next = found.candidates.length ? addCandidates(saved, found.candidates) : structuredClone(saved ?? emptyFootage());
       if (want !== null) next.want = want;
+      if (said !== null) next.said = said;
       return next;
     };
     if (!found.candidates.length) {
       return { text: withLead(personClips, [nothingFoundText(found.words ?? words, found.tried), droppedLine(found.dropped)]),
-        data: { candidates: [], dropped: found.dropped }, nextCall: searchCall(), update: want !== null ? update : undefined };
+        data: { candidates: [], dropped: found.dropped }, nextCall: searchCall(), update: want !== null || said !== null ? update : undefined };
     }
     const after = update(footage);
     const listed = logoLast(after.order.map((code) => after.candidates.find((entry) => entry.code === code)));
@@ -316,11 +341,12 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     };
     const joined = !findCandidate(footage, ref);
     const want = input.want === undefined ? saved.want ?? "" : short(oneLine(input.want), 160);
+    const said = input.said === undefined ? saved.said ?? "" : short(oneLine(input.said), SAID_SHOWN);
     const options = { want, from: input.from, to: input.to, whole: input.whole === true };
     const id = scanIdOf(candidate);
     const plain = options.from === undefined && options.to === undefined && !options.whole;
     checkStretch(input.from, input.to, scanCall(candidate.code));
-    const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }) });
+    const repeat = scanCall(candidate.code, { ...(input.want !== undefined ? { want } : {}), ...(input.said !== undefined ? { said } : {}), ...(plain ? {} : { from: input.from, to: input.to, ...(options.whole ? { whole: true } : {}) }) });
     // A scan saved before with the same words answers at once.
     let result = plain ? await finder.readScan(id).catch(() => null) : null;
     // A scan of an older version, or of other words, is scanned again.
@@ -367,18 +393,31 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     // The video's song (needs.mjs), when it has one: the answer says how many shots it needs, and
     // the import call names every clean shot listed, up to 1.5 times that.
     const need = await songOf?.({ signal }).catch(() => null) ?? null;
+    // What is said (captions, kept once per video by the finder): each shot gets `says`, and shots
+    // that say the asked words go first (words.mjs applySaid). A video without captions is no error.
+    const answer = candidate.source === "commons" ? null : await finder.captions?.(candidate, { signal }).catch((error) => { if (error?.name === "AbortError") throw error; return null; });
+    const lines = answer?.lines ?? [];
+    const applied = lines.length ? applySaid(result.shots ?? [], lines, said) : { shots: result.shots ?? [], hits: 0 };
+    result = { ...result, shots: applied.shots };
+    const heard = answer ? { ...answer, said, hits: applied.hits, noCaptionsKnown: Boolean(candidate.noCaptions) } : null;
     const picks = importPicks(result, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
+    const spoken = lines.length ? spokenLines(lines, result.shots, said) : [];
+    const firstHit = spoken.find((line) => line.hit);
     const update = (current) => {
       const { after, entry } = ensure(current);
       entry.scan = { id, shots: (result.shots ?? []).length, at: result.scannedAt ?? null, ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}) };
+      if (answer?.none && !answer.retry) entry.noCaptions = true;
       if (input.want !== undefined) after.want = want;
+      if (input.said !== undefined) after.said = said;
       return after;
     };
     const song = need ? { bpm: need.bpm, shots: need.shots, import: need.import, parts: need.parts.map(({ kind, from, to, shots }) => ({ kind, from, to, shots })), want: wantBySection(want, need.parts) } : undefined;
-    return { text: withLead(personClips, [scanText(candidate, result, need)]),
-      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags }) => ({ n, start, end, motion, face, match, flags })), matchShown: Boolean(result.matchShown),
-        ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}) },
-      nextCall: picks.length ? importCall(candidate.code, picks) : nextCandidate(saved, candidate.code) ? scanCall(nextCandidate(saved, candidate.code).code) : searchCall(), update };
+    const nextImport = firstHit ? importLineCall(candidate.code, firstHit, candidate.seconds) : picks.length ? importCall(candidate.code, picks) : null;
+    return { text: withLead(personClips, [scanText(candidate, result, need, heard)]),
+      data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
+        ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
+        ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, hit, shots }) => ({ start, end, text, shots, ...(hit ? { said: true } : {}) })) } : {}) },
+      nextCall: nextImport ?? (nextCandidate(saved, candidate.code) ? scanCall(nextCandidate(saved, candidate.code).code) : searchCall()), update };
   }
 
   function note(input, { footage, personClips }) {
@@ -417,10 +456,12 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     if (input.note !== undefined) return note(input, context);
     if (input.scan !== undefined) return scan(input, context);
     if (input.search !== undefined || input.query !== undefined) return search(input, context);
-    if (input.want !== undefined) {
-      const want = short(oneLine(input.want), 160);
-      return { text: withLead(context.personClips, [`want saved: "${want}". Scans rank shots by it.`]), data: { want }, nextCall: scanCall("top"),
-        update: (current) => ({ ...structuredClone(current ?? emptyFootage()), want }) };
+    if (input.want !== undefined || input.said !== undefined) {
+      const want = input.want === undefined ? null : short(oneLine(input.want), 160);
+      const said = input.said === undefined ? null : short(oneLine(input.said), SAID_SHOWN);
+      const saved = [want !== null && `want saved: "${want}". Scans rank shots by it.`, said !== null && `said saved: "${said}". Scans put shots that say it first.`].filter(Boolean);
+      return { text: withLead(context.personClips, saved), data: { ...(want !== null ? { want } : {}), ...(said !== null ? { said } : {}) }, nextCall: scanCall("top"),
+        update: (current) => ({ ...structuredClone(current ?? emptyFootage()), ...(want !== null ? { want } : {}), ...(said !== null ? { said } : {}) }) };
     }
     return list(context);
   }

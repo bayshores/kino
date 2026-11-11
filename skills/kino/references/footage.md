@@ -4,7 +4,7 @@ Read when the brief is an edit of something that exists (a series, a sport, a tr
 the person sent no clips, or too few. kino finds videos, scans them for their best shots and
 imports only the shots you pick. The person's own clips always lead; found clips fill the gaps.
 
-Contents: Three calls · Visual words, not names · Reading a scan · Note a video · Sources · Limits
+Contents: Three calls · Visual words, not names · Reading a scan · What is said · Note a video · Sources · Limits
 
 ## Three calls
 
@@ -53,6 +53,21 @@ shot: crop or cover it."), and such videos list after clean ones; subtitles and 
 on drawn footage."). Skipped counts say what was left out. With a song in the video, the answer
 says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
 names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
+
+## What is said
+
+A scan reads the video's captions once (YouTube's own, your language first, then English; auto
+captions are marked `auto captions`; no captions is said once, and is normal). A shot line ends
+`says: "..."` when a caption line overlaps it, and the answer ends with `Lines (en, auto
+captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a recognizer's guess: read
+their times to the nearest half second and their words as probably right.
+
+- `said:"words"` (with `search`, `scan` or alone; saved like `want`): shots whose lines say them
+  go first, and a burned-in subtitle on such a shot is its line, so it reads `has subtitles`
+  instead of ranking last. `next:` imports that line by its time range:
+  `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
+- No captions, or YouTube not answering: the answer says the words were not looked for.
+- An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
 
 ## Note a video
 

@@ -914,6 +914,7 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   await agentState.update("anime-edit", (draft) => { draft.footage = addCandidates(null, [found(1), found(2)]); draft.footage.candidates[0].scan = { id: "yt-vvvvvvvvvv1", shots: 1 }; });
   const taken = [];
   const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }] }),
+    captions: async () => ({ lang: "en", auto: false, lines: [{ start: 0.2, end: 1.5, text: "Hold on." }] }),
     take: async (candidate, pieces, { projectId }) => { taken.push([candidate.code, pieces.map((piece) => piece.n), projectId]); return { media: [{ id: "m1.mp4", src: "/api/media/m1.mp4", duration: 2, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot: 4 } }], failed: [] }; } };
   const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
     exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [], footage: finder });
@@ -928,6 +929,7 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   assert.equal(imported.isError, undefined, imported.text);
   assert.deepEqual(taken, [["F1", [4], "anime-edit"]]);
   assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\)/);
+  assert.match(imported.text, /^F1\.4 2s 1920×1080 \/api\/media\/m1\.mp4 says "Hold on\." 0\.2-1\.5 s$/m);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
 });
 
@@ -1006,4 +1008,206 @@ test("the skill's footage calls search, scan and import a stub video's shots; a 
   const colors = new Set();
   for (let at = 0; at < pixels.length; at += 3 * 97) colors.add(`${pixels[at] >> 4},${pixels[at + 1] >> 4},${pixels[at + 2] >> 4}`);
   assert.ok(colors.size > 20, `${colors.size} colors in the rendered frame`);
+});
+
+// ---- what is said: captions (footage-finder/words.mjs) ----------------------------------------
+import { applySaid, captionArgs, fetchCaptions, parseCaptions, saidMatches, saysOf, saysText } from "./footage-finder/words.mjs";
+import { importLineCall } from "./footage-finder/actions.mjs";
+
+// An uploaded caption file as YouTube serves it: a cue can wrap one sentence over two rows.
+const MANUAL_VTT = `WEBVTT
+Kind: captions
+Language: en
+
+00:00:01.200 --> 00:00:03.360
+All right, so here we are, in front of the
+elephants
+
+00:00:05.318 --> 00:00:07.974
+the cool thing about these guys is that they
+have really...
+
+00:00:07.974 --> 00:00:12.616
+really really long trunks
+
+00:00:14.421 --> 00:00:15.733
+(baaaaaaaaaaahhh!!)
+`;
+
+// Auto captions roll: each cue repeats the row before it, and a 0.01 s cue repeats the finished line.
+const ROLLING_VTT = `WEBVTT
+Kind: captions
+Language: en
+
+00:00:01.000 --> 00:00:03.500 align:start position:0%
+<SP>
+all<00:00:01.500><c> right</c><00:00:02.000><c> so</c>
+
+00:00:03.500 --> 00:00:03.510 align:start position:0%
+all right so
+<SP>
+
+
+00:00:03.510 --> 00:00:05.000 align:start position:0%
+all right so
+here<00:00:04.000><c> we</c><c> are</c>
+
+00:00:05.000 --> 00:00:05.010 align:start position:0%
+here we are
+<SP>
+
+
+00:00:05.010 --> 00:00:07.000 align:start position:0%
+here we are
+in front of the &amp; more
+`.replaceAll("<SP>", " "); // YouTube's blank-looking rows hold one space (an editor may trim them, so they are marked)
+
+test("parseCaptions reads uploaded cues (rows joined, times to the millisecond) and rolling auto cues (repeats dropped, tags removed)", () => {
+  assert.deepEqual(parseCaptions(MANUAL_VTT).map((each) => [each.start, each.end, each.text]), [
+    [1.2, 3.36, "All right, so here we are, in front of the elephants"],
+    [5.318, 7.974, "the cool thing about these guys is that they have really..."],
+    [7.974, 12.616, "really really long trunks"],
+    [14.421, 15.733, "(baaaaaaaaaaahhh!!)"],
+  ]);
+  assert.deepEqual(parseCaptions(ROLLING_VTT).map((each) => [each.start, each.end, each.text]), [
+    [1, 3.5, "all right so"], [3.51, 5, "here we are"], [5.01, 7, "in front of the & more"],
+  ]);
+});
+
+// A stub yt-dlp for captions: writes the file a scenario names into the -o folder, counts the calls.
+function captionRun(scenario, calls = []) {
+  return async (args) => {
+    calls.push(args);
+    if (scenario.fail) throw new Error("ERROR: Unable to download video subtitles for 'en': HTTP Error 429: Too Many Requests");
+    const auto = args.includes("--write-auto-subs");
+    const text = auto ? scenario.auto : scenario.manual;
+    if (text) await writeFile(args[args.indexOf("-o") + 1].replace("%(id)s", "jNQXAC9IVRw").replace("%(ext)s", `${auto ? "en-orig" : "en"}.vtt`), text);
+    return "";
+  };
+}
+const withRuntime = { runtime: { name: "node", path: process.execPath }, languages: ["en"] };
+
+test("fetchCaptions asks for uploaded captions first and for the video's own auto captions only when there are none; no captions and a rate limit are answers, not errors", async () => {
+  const calls = [];
+  const manual = await fetchCaptions("jNQXAC9IVRw", { ...withRuntime, run: captionRun({ manual: MANUAL_VTT, auto: ROLLING_VTT }, calls) });
+  assert.deepEqual([manual.lang, manual.auto, manual.lines.length, calls.length], ["en", false, 4, 1]);
+  assert.ok(calls[0].includes("--write-subs") && !calls[0].includes("--write-auto-subs") && calls[0].includes("--skip-download"));
+  const autoCalls = [];
+  const auto = await fetchCaptions("jNQXAC9IVRw", { ...withRuntime, run: captionRun({ auto: ROLLING_VTT }, autoCalls) });
+  assert.deepEqual([auto.lang, auto.auto, auto.lines.length, autoCalls.length], ["en", true, 3, 2]);
+  assert.equal(autoCalls[1][autoCalls[1].indexOf("--sub-langs") + 1], "en-orig");
+  assert.ok(!autoCalls.flat().some((arg) => /cookies/.test(arg)));
+  assert.deepEqual(await fetchCaptions("jNQXAC9IVRw", { ...withRuntime, run: captionRun({}) }), { none: true });
+  const limited = await fetchCaptions("jNQXAC9IVRw", { ...withRuntime, run: captionRun({ fail: true }) });
+  assert.deepEqual([limited.none, limited.retry], [true, true]);
+  assert.match(limited.why, /429/);
+  const args = captionArgs("jNQXAC9IVRw", "/x", { languages: ["de", "en"] });
+  assert.equal(args[args.indexOf("--sub-langs") + 1], "de(-.+)?,en(-.+)?");
+});
+
+test("the finder keeps a video's captions (or that it has none) so YouTube is asked once; a rate limit is not kept but is not asked again for 15 minutes", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "kino-test-captions-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let clock = 1_000_000;
+  const calls = [];
+  const make = (scenario) => createFootageFinder({ directory, now: () => clock, languages: ["en"], runtime: withRuntime.runtime, ytDlp: captionRun(scenario, calls) });
+  const video = { source: "youtube", videoId: "jNQXAC9IVRw" };
+  const first = make({ manual: MANUAL_VTT });
+  assert.equal((await first.captions(video)).lines.length, 4);
+  assert.equal(calls.length, 1);
+  assert.equal((await make({}).captions(video)).lines.length, 4);
+  assert.equal(calls.length, 1, "a second finder reads the saved file");
+  assert.deepEqual(await first.captions({ source: "commons", id: "clip:commons-1" }), { none: true });
+  const quiet = make({});
+  const none = { source: "youtube", videoId: "aqz-KE-bpKQ" };
+  assert.deepEqual(await quiet.captions(none), { none: true });
+  const asked = calls.length;
+  assert.deepEqual(await quiet.captions(none), { none: true });
+  assert.equal(calls.length, asked, "no captions is asked once");
+  const busy = make({ fail: true });
+  const limited = { source: "youtube", videoId: "9bZkp7q19f0" };
+  assert.equal((await busy.captions(limited)).retry, true);
+  const afterLimit = calls.length;
+  assert.equal((await busy.captions(limited)).retry, true);
+  assert.equal(calls.length, afterLimit, "not asked again inside 15 minutes");
+  clock += 16 * 60_000;
+  await busy.captions(limited);
+  assert.ok(calls.length > afterLimit, "asked again after 15 minutes");
+});
+
+test("applySaid: the shot that says the words goes first and a burned-in subtitle on it is its line, not a flaw; saidMatches reads words in any order", () => {
+  const spoken = [{ start: 1, end: 2.5, text: "All right, so here we are" }, { start: 5.2, end: 7, text: "I will protect them all" }];
+  const shots = [
+    { n: 1, start: 0, end: 3, flags: [] },
+    { n: 2, start: 5, end: 7.5, flags: ["subtitles"] },
+    { n: 3, start: 30, end: 32, flags: ["subtitles"] },
+  ];
+  const { shots: ranked, hits } = applySaid(shots, spoken, "protect them");
+  assert.equal(hits, 1);
+  assert.deepEqual(ranked.map((shot) => shot.n), [2, 1, 3]);
+  assert.deepEqual([ranked[0].said, ranked[0].hasSubs, ranked[0].flags], [true, true, []]);
+  assert.equal(ranked[0].says, "I will protect them all");
+  assert.deepEqual(ranked[2].flags, ["subtitles"]);
+  assert.equal(applySaid(shots, spoken, "").hits, 0);
+  assert.equal(saidMatches("I will protect them all", "all protect"), true);
+  assert.equal(saidMatches("I will protect them all", "defend"), false);
+});
+
+// A scan of three shots over a video that says two lines (what a finder's captions() answers).
+const SAID_LINES = [{ start: 1, end: 2.5, text: "All right, so here we are" }, { start: 5.2, end: 7, text: "I will protect them all" }];
+const saidFinder = (captions) => ({
+  readScan: async () => null,
+  scan: async (_candidate, options) => ({ want: options.want, windows: [{ start: 0, end: 40 }], matchShown: false, skipped: {},
+    shots: [{ n: 1, start: 0, end: 3, motion: 50, face: 10, flags: [] }, { n: 2, start: 5, end: 7.5, motion: 60, face: 20, flags: ["subtitles"] }, { n: 3, start: 30, end: 32, motion: 70, face: 0, flags: [] }] }),
+  captions: async () => captions,
+});
+
+test("a scan prints what each shot says and the Lines list; said:\"words\" puts that shot first, says it has subtitles, and the next call imports the line by its time range", async () => {
+  const footage = addCandidates(null, [found(1)]);
+  const actions = createFootageActions({ finder: saidFinder({ lang: "en", auto: true, lines: SAID_LINES }) });
+  const plain = await actions.handle({ scan: "F1" }, { footage, personClips: 0 });
+  assert.match(plain.text, /^F1\.1 0:00\.0-0:03\.0 3\.0s motion 50 face 10 says: "All right, so here we are"$/m);
+  assert.match(plain.text, /^F1\.2 0:05\.0-0:07\.5 2\.5s motion 60 face 20 subtitles says: "I will protect them all"$/m);
+  assert.match(plain.text, /^Lines \(en, auto captions\):\n0:01 "All right, so here we are" \(F1\.1\)\n0:05 "I will protect them all" \(F1\.2\)$/m);
+  assert.deepEqual(plain.nextCall, { tool: "project", input: { action: "import", file: "F1", options: { shots: [1, 3] } } });
+  const asked = await actions.handle({ scan: "F1", said: "protect them" }, { footage, personClips: 0 });
+  assert.match(asked.text, /^F1\.2 0:05\.0-0:07\.5 2\.5s motion 60 face 20 has subtitles says: "I will protect them all"$/m);
+  assert.ok(asked.text.indexOf("F1.2 ") < asked.text.indexOf("F1.1 "), asked.text);
+  assert.match(asked.text, /^0:05 "I will protect them all" \(F1\.2\) says it$/m);
+  assert.deepEqual(asked.nextCall, importLineCall("F1", SAID_LINES[1]));
+  assert.deepEqual(asked.nextCall.input.options, { from: 4.9, to: 7.3 });
+  assert.equal(asked.update(footage).said, "protect them");
+  const nobody = await actions.handle({ scan: "F1", said: "dragon" }, { footage, personClips: 0 });
+  assert.match(nobody.text, /^Nobody says "dragon" in the scanned part\.$/m);
+  assert.deepEqual(nobody.nextCall.input.options.shots, [1, 3]);
+  // The words alone, with no scan, are kept for later scans.
+  const saved = await actions.handle({ said: "protect them" }, { footage, personClips: 0 });
+  assert.equal(saved.update(footage).said, "protect them");
+});
+
+test("a video with no captions is said once, and asked-for words say they were not looked for; a rate limit says so only when words were asked", async () => {
+  const footage = addCandidates(null, [found(1)]);
+  const none = createFootageActions({ finder: saidFinder({ none: true }) });
+  const first = await none.handle({ scan: "F1" }, { footage, personClips: 0 });
+  assert.match(first.text, /^No captions on this video\.$/m);
+  const again = first.update(footage);
+  assert.equal(again.candidates[0].noCaptions, true);
+  assert.doesNotMatch((await none.handle({ scan: "F1" }, { footage: again, personClips: 0 })).text, /No captions/);
+  assert.match((await none.handle({ scan: "F1", said: "hello there" }, { footage: again, personClips: 0 })).text, /^No captions, so "hello there" was not looked for: shots rank on the picture\.$/m);
+  const limited = createFootageActions({ finder: saidFinder({ none: true, why: "HTTP Error 429", retry: true }) });
+  const quiet = await limited.handle({ scan: "F1" }, { footage, personClips: 0 });
+  assert.doesNotMatch(quiet.text, /aption/);
+  assert.equal(quiet.update(footage).candidates[0].noCaptions, undefined);
+  assert.match((await limited.handle({ scan: "F1", said: "hello" }, { footage, personClips: 0 })).text, /^Captions could not be read now \(HTTP Error 429\), so "hello" was not looked for\.$/m);
+});
+
+test("an import answer says what a clip of 1.5 s or more says, in the clip's own seconds, from where the cut really starts; a tiny clip says nothing", () => {
+  const candidate = { ...found(1), code: "F1" };
+  const clip = (cutAt, duration, shot) => ({ id: `m${shot}.mp4`, src: `/api/media/m${shot}.mp4`, duration, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot, start: cutAt - 0.1, end: cutAt + duration, cutAt } });
+  const text = takeText(candidate, { media: [clip(4.9, 2.4, 2), clip(30, 1.2, 3)], failed: [], captions: { lang: "en", auto: false, lines: SAID_LINES } });
+  assert.match(text, /^F1\.2 2\.4s 1920×1080 \/api\/media\/m2\.mp4 says "I will protect them all" 0\.3-2\.1 s$/m);
+  assert.match(text, /^F1\.3 1\.2s 1920×1080 \/api\/media\/m3\.mp4$/m);
+  assert.doesNotMatch(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /says/);
+  assert.deepEqual(saysOf(SAID_LINES, 4.9, 1.4), []);
+  assert.equal(saysText(saysOf(SAID_LINES, 0, 8)), 'says "All right, so here we are" 1.0-2.5 s, "I will protect them all" 5.2-7.0 s');
 });
