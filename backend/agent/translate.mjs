@@ -59,6 +59,11 @@ const NO_SCENE = new Set(["rename_project", "update_project", "waive_check", "un
 // crop_no_subject and shape_guess are here too: a crop that may cut a face, or a frame shape the
 // footage does not have, is the person's call, never the agent's.
 export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "frozen_screen", "frozen_footage", "held_static", "hook_readable", "text_slides", "template_end", "ending_seen", "clip_reuse", "music_stall", "crop_no_subject", "shape_guess"]);
+// Findings that cover a whole scene (a still hold, text over a still, the ending, a stalled song):
+// the person's words keep one by naming the scene. SCENE_ONLY ones never name a layer, so a
+// waiver on a layer would be saved and cover nothing: it is refused with a sentence saying so.
+const SCENE_WIDE_WAIVERS = new Set(["held_static", "hook_readable", "text_slides", "ending_seen", "music_stall"]);
+const SCENE_ONLY_WAIVERS = new Set(["text_slides", "ending_seen", "music_stall"]);
 // Findings about a face or a subject cut by the frame. A filmed cut can be meant (a feet shot), so
 // the agent may waive these, but only on the layers it looked at: never "*", never a whole scene.
 export const SUBJECT_WAIVERS = new Set(["head_cut_off", "narrow_window"]);
@@ -73,7 +78,7 @@ const NEW_RULE_CODES = ["shape_guess", "narrow_window", "ask_unmet"];
 const KNOWN_WAIVER_CODES = new Set([...RULES.map((entry) => entry.code), ...WAIVER_GATES, ...NEW_RULE_CODES]);
 // What each person-words waiver is about, and the fix to try first (the default text is for what viewers see).
 const PERSON_WORDS_ABOUT = {
-  crop_no_subject: { about: "who stays in the frame", fix: 'mark_subject the part you mean, or frame the shot with the frame op' },
+  crop_no_subject: { about: "who stays in the frame", fix: 'mark_subject the part you mean, or frame_shot the layer (kino\'s own crop)' },
   shape_guess: { about: "the frame's shape", fix: 'ask which shape they want and save it as plays_on by "you" with their quote, or make the scene the shape the footage has' },
 };
 const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
@@ -769,7 +774,10 @@ function resolveReferences(operation, type, resolver, document) {
   // are not covered). One target stays a string; several become a list of IDs.
   if ((type === "waive_check" || type === "unwaive_check") && operation.target !== "*"
     && (typeof operation.target === "string" || Array.isArray(operation.target))) {
+    const sceneOnly = type === "waive_check" && SCENE_ONLY_WAIVERS.has(operation.code);
+    const needsScene = () => new Error(`waive_check ${operation.code}: its finding covers a whole scene and names no layer, so a layer waiver would cover nothing. Name the scene the person kept (target:"s1", with their quote).`);
     const one = (ref) => {
+      if (sceneOnly && typeof ref === "string" && /[*?]/.test(ref)) throw needsScene();
       if (typeof ref === "string" && /[*?]/.test(ref)) {
         const matched = resolver.matchAll(ref, "layer");
         if (!matched.length) throw new ReferenceError(`No layer name matches "${ref}".`, { ref, kind: "layer" });
@@ -782,15 +790,17 @@ function resolveReferences(operation, type, resolver, document) {
         }
         return matched;
       }
-      try { return [resolve(ref, "layer")]; }
-      catch (error) {
+      let layerId;
+      try { layerId = resolve(ref, "layer"); } catch (error) {
         let scene;
         try { scene = resolve(ref, "scene"); } catch { throw error; }
-        // A scene covers every layer in it, shots nobody looked at: these name layers.
-        if (type === "waive_check" && (VIEWER_WAIVERS.has(operation.code) || SUBJECT_WAIVERS.has(operation.code)))
+        // A scene covers every layer in it, shots nobody looked at: these name layers (whole-scene findings name the scene).
+        if (type === "waive_check" && !SCENE_WIDE_WAIVERS.has(operation.code) && (VIEWER_WAIVERS.has(operation.code) || SUBJECT_WAIVERS.has(operation.code)))
           throw new Error(`waive_check ${operation.code} names layers, not the scene "${ref}": a scene waiver covers every shot in it. Name the layers (a list, or a glob such as "shot-*").`);
         return [scene];
       }
+      if (sceneOnly) throw needsScene();
+      return [layerId];
     };
     if (!operation.target.length || (Array.isArray(operation.target) && operation.target.includes("*")))
       throw new Error(`${type} target names layers or scenes (a list, or a glob such as "arch-*"); target:"*" alone waives the whole project.`);

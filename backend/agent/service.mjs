@@ -446,6 +446,12 @@ export function createAgentService(deps) {
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops),
+    // frame_shot: the faces saved for a layer's file, the ones check reads (never a new decode).
+    subjectSamples: async (layer) => {
+      let file;
+      try { file = mediaFileOf(layer); } catch { return []; }
+      return ((await usableSubjects(file)) ?? (await peopleCache.saved(file)))?.samples ?? [];
+    },
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
@@ -489,6 +495,13 @@ export function createAgentService(deps) {
   const footageCache = deps.footageCache ?? createFootageCache();
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
+  // A file's saved .subjects-v1 when saliency ran on it. A header that says saliency did not run
+  // (saliency is not true) is not measured: an empty subjects list there is not "nothing stands
+  // out", so its readers fall back to the faces in people-v1 and mark nothing as salient.
+  const usableSubjects = async (file) => {
+    const saved = await peopleCache.savedSubjects?.(file).catch(() => null);
+    return saved?.saliency === true ? saved : null;
+  };
   // library {topic:"footage"}: found video for the project (deps.footage is footage-finder/index.mjs).
   // The subject's origin ({word, about}) of the footage call running, so a search keeps the edit
   // uploads that carry the word (footage-finder/search.mjs isOriginEdit).
@@ -498,7 +511,7 @@ export function createAgentService(deps) {
   // The footage step in status shows only once the tool schema takes the topic (LIBRARY_TOPICS
   // gains "footage" with importing), so its next call validates; deps.footageStep sets it in tests.
   const footageStepShown = deps.footageStep ?? LIBRARY_TOPICS.includes("footage");
-  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache, songShapes });
+  const footageFacts = createFootageFacts({ listMedia: async () => (await deps.listMedia?.()) ?? [], mediaRoot: deps.mediaRoot, transcripts, beatAnalysis, footageCache, songShapes, peopleCache });
   // sync_clips: each file's sound curves, kept in a .sync file beside it.
   const syncCurves = deps.syncCurves ?? createSyncEnvelopeCache();
   const manageWorkspace = createReachWorkspace(deps);
@@ -645,10 +658,17 @@ export function createAgentService(deps) {
       // A clip outside kino's media library (a link, a test file) is not measured.
       let file;
       try { file = mediaFileOf(layer); } catch { return null; }
+      // The saved subjects (.subjects-v1) hold the same faces and people as .people-v1 plus where
+      // the eye goes; they are read first. Never a new decode for them: a clip with no saved
+      // subjects is measured only where people-v1 is (a full check), which saves both.
+      const subjects = await usableSubjects(file);
+      if (subjects) return subjects;
       if (!make) return peopleCache.saved(file);
       let record = null;
       try { record = JSON.parse(await readFile(`${file}.json`, "utf8")); } catch { record = null; }
-      return record?.width > 0 && record?.height > 0 ? peopleCache.get(file, { width: record.width, height: record.height, duration: record.duration }) : null;
+      if (!(record?.width > 0 && record?.height > 0)) return null;
+      const found = await peopleCache.get(file, { width: record.width, height: record.height, duration: record.duration });
+      return (await usableSubjects(file)) ?? found;
     };
     // And the measured loudness in LUFS (voice_under_bed, voice_level_spread): saved ones; a full check measures.
     const levelsOfLayer = async (layer, { make: asked }) => {
@@ -657,7 +677,7 @@ export function createAgentService(deps) {
       return make ? loudnessCurves.get(file) : loudnessCurves.saved(file);
     };
     const asks = askedItems(saved);
-    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, peopleOf, soundSearch: songSearchOn() });
+    const checked = await quality.check(document, { fonts, codes, sceneId, pixels, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null });
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
@@ -912,6 +932,22 @@ export function createAgentService(deps) {
   // the storyboard stop asks before the build. Every stop site uses it, so a board round asked on
   // imported clips is not closed elsewhere as "no such stop now". The library is read only while
   // nothing is built and no video layer is placed: a built video counts only placed clips.
+  // The size of each distinct video file the video places, from its library record. A screen
+  // recording is shaped by the screen, not by how it was filmed, so it is left out as shape_guess does.
+  async function footageSizesOf(document) {
+    const ids = new Set();
+    for (const scene of document.scenes) {
+      if (scene.isComponent) continue;
+      for (const layer of scene.layers) {
+        const id = layer.type === "video" && layer.src && layer.enabled !== false ? mediaIdFromSource(layer.src) : null;
+        if (id) ids.add(id);
+      }
+    }
+    if (!ids.size) return [];
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    return media.filter((item) => ids.has(item.id) && !item.recording && item.width > 0 && item.height > 0).map((item) => ({ width: item.width, height: item.height }));
+  }
+
   async function videoFactsFor(document) {
     const facts = videoFacts(document);
     if (facts.footage || !notBuilt(document)) return facts;
@@ -959,6 +995,9 @@ export function createAgentService(deps) {
     const saved = references ? await savedIds(document.id) : [];
     const studied = references !== undefined ? ((await agentState.read(document.id)).studied ?? []) : undefined;
     const facts = { ...(await videoFactsFor(document)), references, referenceWaived, treatmentsWaived, saved, studied };
+    // The brief's playback compares the frame with the shape of the footage placed (shapeLine).
+    const footageSizes = await footageSizesOf(document);
+    if (footageSizes.length) facts.footageSizes = footageSizes;
     // The first search is filled from what the person named, while references are still wanted.
     if (references !== undefined && references < REFERENCES_WANTED && !referenceWaived) facts.songTitle = await songTitleFor(document.id);
     // The signature step offers the product's own picture: read the library only while it is next.
@@ -1006,8 +1045,15 @@ export function createAgentService(deps) {
   }
   // The references a type_seen waiver may name (translate.mjs): the brief's style lines' refs and the
   // saved Inspire references. Read only for an edit that waives it.
+  // An ask_unmet waiver's reason must name the origin word (state.origin: {words, top}); a search
+  // that was skipped has no words, so the waiver says there is nothing to waive.
   async function waiverReferences(resolver, document, ops) {
-    if (!(Array.isArray(ops) ? ops : [ops]).some((op) => op?.code === "type_seen")) return resolver;
+    const list = Array.isArray(ops) ? ops : [ops];
+    if (list.some((op) => op?.code === "ask_unmet")) {
+      const origin = (await agentState.read(document.id).catch(() => null))?.origin;
+      if (origin?.words?.length) resolver.origin = origin;
+    }
+    if (!list.some((op) => op?.code === "type_seen")) return resolver;
     const lines = (await agentState.read(document.id).catch(() => null))?.brief?.style?.lines ?? [];
     resolver.references = [...lines.map((line) => line?.ref).filter((ref) => typeof ref === "string"), ...(await savedIds(document.id))];
     return resolver;
@@ -5030,7 +5076,8 @@ export function createAgentService(deps) {
     return oneAtATime(projectId, async () => {
       const steady = steadyNow();
       const record = await store.getProject(projectId);
-      const video = { ...(await directionFacts(record.document)), ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document) } : { credits: [] }) };
+      // The document's waivers go in the facts so a stop's ask says how many findings were waived.
+      const video = { ...(await directionFacts(record.document)), waivers: record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document) } : { credits: [] }) };
       const rules = stopRulesNow();
       const board = boardFacts(record.document);
       // Each shot's file name: move_needed offers a screen recording UI moves (engine/movePicks.js).
@@ -5124,7 +5171,9 @@ export function createAgentService(deps) {
     let answer;
     try {
       const finished = await done(projectId, {}, { change(draft) {
-        const changes = briefChanges(draft.brief, input);
+        // A quote may come from what they said when they answered a stop (notes answer words).
+        const said = (draft.stops ?? []).map((round) => round?.answer?.words).filter((words) => typeof words === "string" && words.trim());
+        const changes = briefChanges(draft.brief, input, { said });
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };
       } });

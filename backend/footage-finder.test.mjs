@@ -18,6 +18,7 @@ import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
 import { footageLed } from "./footage-finder/step.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
+import { withAsk } from "./agent-ask.test.support.mjs";
 import { openStore } from "./store.mjs";
 import { createDocument, createLayer, createScene } from "../engine/model.js";
 
@@ -761,6 +762,34 @@ test("look reference: a studied edit whose title has the origin word ends with t
   assert.equal(lookups, 0, "no origin: no second reference lookup");
 });
 
+test("check reads the project's saved origin and plays_on; a waiver naming the origin word saves, one that does not is refused", async (t) => {
+  const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
+  t.after(() => rm(dataRoot, { recursive: true, force: true }));
+  await mkdir(path.join(dataRoot, "media"), { recursive: true });
+  // A clip kino found (its record says where from), titled without the origin word.
+  await writeFile(path.join(dataRoot, "media", "11111111-2222-3333-4444-555555555555.mp4.json"), JSON.stringify({ id: "11111111-2222-3333-4444-555555555555.mp4", name: "Keeper at rest", width: 1920, height: 1080, duration: 4, footage: { from: "found" } }));
+  const store = await openStore(dataRoot);
+  const agentState = createAgentStateStore(dataRoot);
+  const layer = createLayer("video", { id: "v", name: "clip", src: "/api/media/11111111-2222-3333-4444-555555555555.mp4", x: 0, y: 0, width: 1920, height: 1080 });
+  await store.createProject(createDocument({ id: "p", name: "p", scenes: [createScene({ id: "s1", name: "main", layers: [layer] })] }));
+  await agentState.update("p", (draft) => {
+    draft.origin = { query: "the keeper", words: [{ word: "tower", count: 11, of: 15 }], top: [] };
+    draft.brief = { rev: 1, fields: withAsk({ plays_on: line("phone, vertical") }), log: [] };
+  });
+  const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [{ id: "11111111-2222-3333-4444-555555555555.mp4", name: "Keeper at rest", kind: "video", width: 1920, height: 1080, duration: 4 }] });
+  const checked = await service.call("check", { project: "p" });
+  assert.match(checked.text, /ask_unmet/, "the stored origin word reaches the check");
+  assert.doesNotMatch(checked.text, /shape_guess/, "plays_on said by the person: no guess about the shape");
+  const waive = (reason) => service.call("edit", { project: "p", ops: [{ op: "waive_check", code: "ask_unmet", target: "main", reason }] });
+  const refused = await waive("not needed");
+  assert.match(refused.text, /names the origin word in its reason/, refused.text);
+  assert.match(refused.text, /Nothing was saved/);
+  const saved = await waive("no Tower here: the story stays on the stairs");
+  assert.doesNotMatch(saved.text, /names the origin word/, saved.text);
+  assert.doesNotMatch((await service.call("check", { project: "p" })).text, /ask_unmet/, "the waiver clears it");
+});
+
 test("footage codes: at most 24 kept, the oldest go first but never a scanned, noted or imported one, and a code stays with its video", () => {
   let footage = addCandidates(null, Array.from({ length: 20 }, (_, index) => found(index + 1)));
   footage.candidates[0].scan = { id: "yt-x", shots: 3 };
@@ -772,7 +801,7 @@ test("footage codes: at most 24 kept, the oldest go first but never a scanned, n
 });
 
 const line = (text) => ({ text, by: "you", quote: text });
-const footageBrief = (message, never = "none said") => ({ rev: 1, confirmedRev: 1, log: [], fields: { message: line(message), plays_on: line("phone, vertical"), made_from: line("whatever fits"), look_sound: line("a hype song"), never: line(never) } });
+const footageBrief = (message, never = "none said") => ({ rev: 1, confirmedRev: 1, log: [], fields: withAsk({ message: line(message), plays_on: line("phone, vertical"), made_from: line("whatever fits"), look_sound: line("a hype song"), never: line(never) }) });
 
 test("a footage-led brief is an edit of an existing subject; product briefs and the never line do not count", () => {
   for (const message of ["make an anime edit of Frieren to a hype song", "basketball highlights from last season", "an AMV of my favorite show", "a gaming montage of my clutch rounds"])

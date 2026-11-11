@@ -152,6 +152,24 @@ export function faceKept(face, bounds) {
 
 const boxText = (box) => `[${box.map((value) => Math.round(value)).join(", ")}]`;
 
+// Whether the layer keeps one place and size on screen the whole scene (within a pixel). kino's own
+// framing (the agent's frame_shot op) places a still layer; one an animation moves or scales was
+// framed by hand on purpose, so the op is offered there but not applied by check {fix:"auto"}.
+function heldStill(model, item) {
+  const first = boxAt(item, 0);
+  return model.times.every((_, index) => {
+    const box = boxAt(item, index);
+    return ["x0", "y0", "x1", "y1"].every((key) => Math.abs(box[key] - first[key]) <= 1);
+  });
+}
+
+// The fix for a face cut or a window kino cannot see into: kino's own framing of the layer
+// (frame_shot), with `text` as the words when the op cannot be offered (a layer inside a group).
+// `auto` false offers it without applying it: narrow_window found no problem, only a window kino
+// cannot see into (scenery, b-roll and a requested vertical edit are fine), so a person's or an
+// agent's look decides before a deliberate crop becomes a card.
+const frameFix = (model, item, text, auto = true) => ({ kind: "frame_shot", itemId: item.id, auto: auto && heldStill(model, item), text });
+
 /** crop_no_subject: footage drawn past the frame with no subject marked, or its subject cut off. */
 export function cropNoSubject(model, ctx) {
   const scene = ctx.scene ?? ctx.speechScene;
@@ -220,12 +238,11 @@ export function cropNoSubject(model, ctx) {
       const cut = faceCut.worst;
       findings.push({
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
-        message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s: only ${Math.round(cut.share * 100)}% of it is in the frame.`,
+        message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s: only ${Math.round(cut.share * 100)}% of it is in the frame. If the cut is meant (an eye strip), mark_subject the part you mean.`,
         measured: `${Math.round(cut.share * 100)}% of the face box ${boxText(cut.face)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((faceCut.count * step) / model.fps)} s, no subject marked`,
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame; if the cut is meant (an eye strip), mark_subject the part you mean`,
-        // Never automatic: the agent's op for kino's own crop (frame_shot) is not reachable from an
-        // agent call yet, so the fix is words only.
-        fix: { kind: "hint", text: `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame; if the cut is meant (an eye strip), mark_subject the part you mean.` },
+        // kino's own framing of the layer: automatic when nothing moves it.
+        fix: frameFix(model, item, `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame; if the cut is meant (an eye strip), mark_subject the part you mean.`),
       });
       continue;
     }
@@ -297,10 +314,10 @@ export function narrowWindow(model, ctx) {
     const middle = sec((narrowest.bounds[0] + narrowest.bounds[2]) / 2);
     findings.push({
       rule: "narrow_window", severity: "warn", itemId: item.id, at: sec(narrowest.time),
-      message: `${ctx.name(item)} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and no face was found in it: kino cannot see faces here (drawn ones are not found).`,
+      message: `${ctx.name(item)} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and no face was found in it: kino cannot see faces here (drawn ones are not found). A deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).`,
       measured: `a window ${Math.round(narrowest.width)}% of the ${size.width}x${size.height} file wide (middle at ${middle}%) at ${sec(narrowest.time)} s, for ${sec((count * step) / model.fps)} s, no face found`,
       required: `a full-frame window at least ${NARROW_WINDOW}% of the file wide, or a look at what it keeps`,
-      fix: { kind: "hint", text: `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).` },
+      fix: frameFix(model, item, `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).`, false),
     });
   }
   return findings;

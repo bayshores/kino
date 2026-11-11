@@ -1668,9 +1668,13 @@ test("crop_no_subject: a face found whole in the file and cut by the crop is a g
   const [cut] = (await cropRun("crop_no_subject", tall(), facesFound([20, 30, 15, 25]))).findings;
   assert.deepEqual([cut.severity, cut.itemId], ["error", "keeper"]);
   assert.match(cut.message, /cuts a face found whole in its file at the left at 0 s/);
-  assert.match(cut.fix.text, /if the cut is meant \(an eye strip\), mark_subject the part you mean/);
-  // Its fix is words only: kino's own crop (frame_shot) is not an agent op yet, so nothing is auto.
-  assert.deepEqual([cut.fix.kind, cut.fix.auto ?? false], ["hint", false]);
+  assert.match(cut.message, /If the cut is meant \(an eye strip\), mark_subject the part you mean/);
+  // Its fix is kino's own framing (frame_shot): automatic on a still layer, offered only on one an
+  // animation moves (framed by hand on purpose).
+  assert.deepEqual([cut.fix.kind, cut.fix.itemId, cut.fix.auto], ["frame_shot", "keeper", true]);
+  const pushed = tall({ ...TALL_CROP, animations: [{ id: "keeper.push", kind: "custom", start: 0, duration: 2, easing: "linear", from: { x: -1167 }, to: { x: -1000 } }] });
+  const [moving] = (await cropRun("crop_no_subject", pushed, facesFound([20, 30, 15, 25]))).findings;
+  assert.deepEqual([moving.severity, moving.fix.kind, moving.fix.auto], ["error", "frame_shot", false]);
   // A face the window keeps whole is the plain no-mark warning; a strip filmed past three of the
   // file's edges is not the crop's cut.
   assert.equal((await cropRun("crop_no_subject", tall(), facesFound([45, 30, 10, 25]))).findings[0].severity, "warn");
@@ -1705,6 +1709,8 @@ test("narrow_window: a window under 40% of the file's width where no face was fo
   const [narrow] = (await cropRun("narrow_window", tall())).findings;
   assert.deepEqual([narrow.severity, narrow.itemId], ["warn", "keeper"]);
   assert.match(narrow.measured, /^a window 32% of the 1920x1080 file wide/);
+  // Offered, not applied by fix:"auto": no face was found, so a deliberate vertical crop of scenery stays unless someone decides.
+  assert.deepEqual([narrow.fix.kind, narrow.fix.auto], ["frame_shot", false]);
   // A face found in the window (crop_no_subject judges it), or the whole width shown: quiet.
   assert.deepEqual((await cropRun("narrow_window", tall(), facesFound([45, 30, 10, 25]))).findings, []);
   const wide = scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] });

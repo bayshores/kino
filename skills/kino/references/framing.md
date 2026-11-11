@@ -1,17 +1,18 @@
 # Framing footage
 
-- Import lists a video's shots in file seconds (all: `library {topic:"media", search:"<id>"}`).
+- `frame_shot {layer | layers}` first: crops on the mark or a found face, else the whole shot
+  over a blurred copy. Faces come from a full check (pixels on): run one first.
+- `library {topic:"media", search:"<id>"}` lists a video's shots in file seconds.
   A listed end is the next shot's first frame.
-- Never guess the subject or center. At each shot you use, `look {mode:"source", layer, t}`
-  shows the frame, a % grid, the crop and the result.
-- `mark_subject {layer, t, box}`, box `[x, y, w, h]` in % of the source, x, y top-left; a face:
-  the head. Mark each shot's start, middle and end (end − 0.05 s, not the listed end), every
-  0.5 s where it moves over 10%. A mark beats a found face (an eye strip: mark the part).
-- One video layer per shot, as below. `height` = H, `width` = H × w / h, `x` = W / 2 − box
-  center % / 100 × `width`, from W − `width` to 0.
+- To aim it or crop by hand: `look {mode:"source", layer, t}`, then `mark_subject {layer, t,
+  box}`, box `[x, y, w, h]` in % of the source, top-left; a face: the head. Mark each shot's
+  start, middle and end (end − 0.05 s, not the listed end), every 0.5 s it moves over 10%. A
+  mark beats a found face.
+- By hand, one layer per shot: `height` = H, `width` = H × w / h, `x` = W / 2 − box center
+  % / 100 × `width`, from W − `width` to 0.
 - Eyes near the top third; faces out of the bottom 707 and right 120 px of 1080×1920.
-- A found face under 85% in frame (`crop_no_subject`) is an error: move, scale or mark. Also
-  `narrow_window`, `shape_guess`, `ask_unmet`: each says the fix.
+- `crop_no_subject` and `narrow_window` offer `frame_shot`; only a cut face on an unmoved layer
+  is auto.
 
 ## Framing: crop footage to 9:16
 

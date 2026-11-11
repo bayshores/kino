@@ -13,13 +13,13 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
 - `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate; fast
-  zooms, heavy blur left alone). `crop_no_subject`: footage cropped over 8% with no subject
-  marked warns; a marked subject under 85% in frame is a gate. `head_cut_off` (Mac): a head
-  out of the picture 1 s: play another part of the clip or move it.
+  zooms, heavy blur left alone). `crop_no_subject`: footage cropped over 8%, no subject
+  marked, warns; a marked subject under 85% in frame is a gate. `head_cut_off` (Mac): a head
+  out of the picture 1 s: play another part or move it.
 - `jump_cut` (warns): back-to-back shots of one file framed alike: cut away or punch in.
 - `frozen_footage` (gate): a clip's picture stops 0.3 s+ (speed 0, a held frame, a still in its
   place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. A freeze on a sound hit or a
-  line's first word (0.2 s) warns.
+  line's first word warns.
 - `out_of_sync` (gate): a line over a synced file's picture of another moment: the fix retimes it.
 - `covered_layer` (warns): a solid shape, mp4 or jpg above hides a layer all its time on screen
   (a png, webm or mov may be clear). Fix: move it above; `(auto)`: a full-frame overlay.
@@ -27,12 +27,12 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - Contrast: failing under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
 - Errors, and in a real edit warnings, block final. On purpose:
-  `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or a
+  `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or
   glob (`"arch-*"`) waives each matching layer. These need `quote` (the person's words) and
-  named layers, never `*` or a scene: what viewers see (small screens, frozen pictures, slides,
-  template ends, `ending_seen`), `crop_no_subject`, `shape_guess`. `head_cut_off`,
-  `narrow_window`: named layers, no quote. `ask_unmet`: the reason names the origin word.
-  An unknown code is refused.
+  named layers, never `*`: what viewers see (small screens, frozen pictures, template ends),
+  `crop_no_subject`, `shape_guess`; whole-scene `held_static`, `text_slides`, `ending_seen`,
+  `music_stall` take the scene (`"s1"`). `head_cut_off`, `narrow_window`: named layers, no
+  quote. `ask_unmet`: the reason names the origin word.
 - AI tells warn: `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
   `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references; waive naming `yt:<id>`).

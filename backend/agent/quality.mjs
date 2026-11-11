@@ -344,6 +344,14 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
   };
   const copyHint = (item) => `${refOfItem(item, model, codes)} is a copy of a component; change it in the component's scene (${refName(item.source.sceneId, codes)}).`;
   if (fix.kind === "hint") return { fix: fix.text, auto: false };
+  // kino's own framing of a video layer (crop_no_subject, narrow_window): the frame_shot op, or the
+  // words when the op cannot reach the layer (a component copy, a layer inside a group).
+  if (fix.kind === "frame_shot") {
+    const item = itemOf(fix.itemId);
+    const found = sourceLayer(document, item);
+    if (!found || item.source.componentPath || found.layer.parentId) return { fix: fix.text, auto: false };
+    return { fix: { op: "frame_shot", layerId: refName(found.layer.id, codes), ...sceneField(found.scene.id) }, auto: Boolean(fix.auto) };
+  }
   // A layer hidden under another (covered_layer): move it right above the layer that covers it.
   if (fix.kind === "reorder") {
     const [item, cover] = [itemOf(fix.itemId), itemOf(fix.aboveId)];

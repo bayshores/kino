@@ -6,6 +6,7 @@
 //   make_template, use_template, retime              templates with protected timing
 //   shift                                            ripple insert or remove time (engine/speech.js)
 //   mark_subject                                     the subject's box on a video's source frame
+//   frame_shot                                       kino's own crop (or blurred backdrop) for a hand-placed video
 //   split_image                                      a screenshot cut into pieces in place (engine/splitImage.js)
 //   board                                            the storyboard (engine/board.js)
 // They run in the agent service, like set_font, because they need fonts to measure text, the
@@ -55,6 +56,7 @@ import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
 import { FOOTAGE_FIELDS, readFootageList } from "./footage.mjs";
+import { frameShot } from "../../engine/footage/layout.js";
 import { planEdit } from "../../engine/footage/plan.js";
 import { footageCues, footageOps } from "../../engine/footage/ops.js";
 import { footageBrand, guessTreatment, treatmentFromPick, treatmentNamed, TREATMENT_NAMES } from "../../engine/footage/treatments.js";
@@ -207,6 +209,10 @@ const OPERATIONS = {
   mark_subject: {
     fields: ["layerId", "t", "box"],
     rules: 'mark_subject {layer, t, box}: marks the subject in a video layer\'s source frame at scene time t. box is [x, y, w, h] in % of the source (look {mode:"source"} draws the grid; x, y is the top-left corner); kino keeps it at that moment of the file. box:null removes the box at that frame. Mark each shot\'s start, middle and end (a listed end is the next shot\'s first frame: mark 0.05 s before it), and every 0.5 s where the subject moves.',
+  },
+  frame_shot: {
+    fields: ["layerId", "layerIds", "sceneId"],
+    rules: 'frame_shot {layer | layers}: kino\'s own framing for video layers placed by hand: a crop on the subject marked (mark_subject), else on the faces kino found in the file, or the whole shot as a card over a blurred copy of itself when no crop keeps them. kino reads the file\'s size and the faces a full check saved (none yet: the receipt says so). mark_subject first to aim it; a layer in a group is refused.',
   },
   split_image: {
     fields: ["layerId", "sceneId", "boxes"],
@@ -643,6 +649,15 @@ const TRANSLATE = {
     if (operation.layerId === undefined) throw problem("mark_subject needs layer, a video layer's name or code.");
     operation.layerId = layerRef(resolver, operation.layerId);
   },
+  // layer and layers both work; they become one list (each layer once).
+  frame_shot(operation, resolver) {
+    if (operation.layerIds !== undefined && !Array.isArray(operation.layerIds)) throw problem("layers is a list of video layer names or codes.");
+    const list = [...(operation.layerId !== undefined ? [operation.layerId] : []), ...(operation.layerIds ?? [])];
+    if (!list.length || list.length > 50) throw problem("frame_shot needs layer, a video layer's name or code (or layers, a list of up to 50).");
+    operation.layerIds = [...new Set(list.map((ref) => layerRef(resolver, ref)))];
+    delete operation.layerId;
+    if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);
+  },
   // The board's names (music, media) are looked up when it runs: they may be layers this edit makes.
   board() {},
   source() {},
@@ -865,7 +880,9 @@ function copyText(value, depth = 0) {
 // clipEvents(src): a clip's measured events in file seconds (footage/events.mjs), or null.
 // styleType(document): the picked type {fonts (the style spec's {caption:{family}, display:{family}, …}
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null }) {
+// subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
+// samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf });
   async function mediaOf(document, work) {
@@ -1918,6 +1935,55 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     work.notes[mark.index] = `mark_subject ${name}: ${done} at file ${shown(mark.from)}–${shown(mark.to)} s · ${total}`;
   }
 
+  // ---- frame_shot: kino's own shot layout on hand-placed video layers (engine/footage/layout.js) ----
+  // The file's size comes from its media record and the faces from the saved samples, so the agent
+  // names only the layer. A layer kino already framed (its blurred backdrop is there, or the crop
+  // would not move) is said so in the receipt, not refused.
+  async function applyFrameShot(document, operation, work) {
+    const media = await mediaOf(document, work);
+    const allIds = () => document.scenes.flatMap((item) => item.layers.map((layer) => layer.id));
+    for (const layerId of operation.layerIds) {
+      const scene = document.scenes.find((item) => item.layers.some((layer) => layer.id === layerId));
+      if (!scene) throw problem(`No layer "${layerId}".`, closest(String(layerId), allIds()));
+      if (operation.sceneId && operation.sceneId !== scene.id) throw problem(`${layerId} is not in scene ${operation.sceneId}.`);
+      const layer = scene.layers.find((item) => item.id === layerId);
+      const name = layer.name || layer.id;
+      if (layer.type !== "video") throw problem(`frame_shot needs a video layer; ${name} is ${/^[aeiou]/.test(layer.type) ? "an" : "a"} ${layer.type} layer.`);
+      let file;
+      try { file = media(layer.src); }
+      catch { throw problem(`frame_shot needs ${name}'s file in kino's media library (import it with project {action:"import", file} and use its src).`); }
+      const size = { width: file.width, height: file.height };
+      const samples = (await subjectSamples?.(layer)) ?? [];
+      let shot;
+      try { shot = frameShot(scene, layer, { size, samples, taken: new Set(allIds()) }); }
+      catch (error) {
+        if (!/is already framed/.test(error.message)) throw problem(error.message);
+        const backdrop = error.message.match(/framed: (.+) is its blurred backdrop/)?.[1] ?? "a blurred copy";
+        work.notes.push(`frame_shot ${name}: already framed (${backdrop} is its blurred backdrop; delete it to frame again)`);
+        continue;
+      }
+      const same = ["x", "y", "width", "height"].every((key) => Math.abs((layer[key] ?? 0) - shot.patch[key]) <= 1);
+      if (shot.kind === "fill" && same) { work.notes.push(`frame_shot ${name}: already framed (kino's crop is where it is)`); continue; }
+      let next;
+      try { next = applyOperations(document, [{ type: "frame_shot", sceneId: scene.id, layerId, size, samples }]); }
+      catch (error) { throw problem(error.message); }
+      document.scenes = next.scenes;
+      const box = `${shot.patch.width}×${shot.patch.height} at ${shot.patch.x}, ${shot.patch.y}`;
+      const on = { mark: "the marked subject", face: "the face", salient: "where the eye goes" }[shot.on];
+      work.notes.push(shot.kind === "fill"
+        ? `frame_shot ${name}: ${on ? `cropped to ${on}` : "filled the frame"} (${box})`
+        : `frame_shot ${name}: whole shot as a card (${box}), blurred backdrop ${shot.backdrop.id} added under it`);
+      // No saved faces and no mark: kino framed the file by its size alone. Faces are measured by a full check.
+      if (!samples.length && !layer.subjectBoxes?.boxes?.length)
+        work.notes.push(`frame_shot ${name}: no faces measured for this file yet, so the frame uses only its size (a full check with pixels on finds faces; then frame_shot again after deleting the backdrop, or mark_subject)`);
+      // The op writes the box once; a move or scale animation of the layer keeps its own x, y, width or height.
+      const framed = document.scenes.flatMap((item) => item.layers).find((item) => item.id === layerId);
+      const moving = (framed?.animations ?? []).filter((animation) => /"(?:x|y|width|height)":/.test(JSON.stringify([animation.from ?? null, animation.to ?? null, animation.keyframes ?? null])));
+      if (moving.length)
+        work.notes.push(`frame_shot ${name}: ${moving.length} animation${moving.length === 1 ? "" : "s"} on it still move or scale the layer from its old box and pull it off the frame above (delete_animation ${moving.length === 1 ? "it" : "them"}, or update_animation to the new box)`);
+    }
+  }
+
   // ---- source: the material the video is made from (engine/sources.js) ----
   function applySource(document, operation, work) {
     const name = typeof operation.name === "string" ? operation.name.trim() : "";
@@ -2217,7 +2283,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     place: layout.place, align: layout.align, distribute: layout.distribute, stack: layout.stack, fit: layout.fit,
     set_cue: applySetCue, remove_cue: applyRemoveCue, set_brand: applySetBrand, remove_brand: applyRemoveBrand,
     make_template: applyMakeTemplate, use_template: applyUseTemplate, retime: applyRetime, shift: applyShift, mark_subject: applyMarkSubject, split_image: applySplitImage,
-    board: applyBoard, source: applySource, frame: applyFrame,
+    board: applyBoard, source: applySource, frame: applyFrame, frame_shot: applyFrameShot,
   };
 
   return {

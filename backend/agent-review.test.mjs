@@ -18,8 +18,9 @@ import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } fro
 import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
 
-// A viewer-facing finding is kept only on the person's words, on a scene or layers (not "*").
-const viewerWaiver = (code) => (VIEWER_WAIVERS.has(code) ? { target: "s1", quote: "keep the still test card as it is" } : { target: "*" });
+// A viewer-facing finding is kept only on the person's words, on named layers: not "*", not a scene,
+// not a glob that reaches every layer. The test cards here are the layers named dot*.
+const viewerWaiver = (code) => (VIEWER_WAIVERS.has(code) ? { target: ["ending_seen", "text_slides"].includes(code) ? "s1" : "dot*", quote: "keep the still test card as it is" } : { target: "*" });
 
 // A 1280×720 scene: a title fades in at 0.2–0.6 s, a box flies across at 1–2 s, a caption comes
 // in at 4 s, and nothing happens after 4.4 s (a quiet stretch to 8 s).
@@ -595,7 +596,10 @@ test("a viewer-facing finding is the agent's to fix: its waiver needs the person
   assert.match(handed.text, /your call\W{0,3} is not one/);
   const all = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "*", quote: "keep the title cards, I like them", reason: "their pick" }] });
   assert.match(all.text, /names the layers the person kept, not target:\W{0,3}\*/);
-  const kept = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "card", quote: "keep the title cards, I like them", reason: "their pick" }] });
+  // text_slides finds a whole scene and names no layer: a layer waiver would be saved and cover nothing, so it is refused.
+  const onLayer = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "card", quote: "keep the title cards, I like them", reason: "their pick" }] });
+  assert.match(onLayer.text, /covers a whole scene and names no layer.*Name the scene/);
+  const kept = await agent("edit", { project: id, ops: [{ op: "waive_check", code: "text_slides", target: "s1", quote: "keep the title cards, I like them", reason: "their pick" }] });
   assert.equal(kept.isError, undefined, kept.text);
   const record = await (await server.api(`/api/projects/${id}`)).json();
   const waiver = (record.document ?? record).checkWaivers.find((entry) => entry.code === "text_slides");
@@ -605,8 +609,11 @@ test("a viewer-facing finding is the agent's to fix: its waiver needs the person
 test("look critique: a packet for a fresh critic (protocol, brief, trace, seam pages, one page a call); a P0 blocks final until fixed and re-read, or waived", async () => {
   const id = await project("critique-gate", 12);
   const plate = (name, fill) => ({ op: "add_layer", layerType: "rectangle", name, properties: { x: 0, y: 0, width: 640, height: 360, fill } });
-  await agent("edit", { project: id, ops: [plate("dark", "#202020"), plate("light", "#2c3e50"), { op: "add_animation", layer: "light", preset: "show", start: 6 },
-    { op: "waive_check", code: "held_static", target: "s1", quote: "keep the still test card as it is", reason: "a still test card (its silent end is dead air)" }] });
+  // A still end of the whole card has no layer a waiver can name (the person's-words waivers name
+  // layers), so a small ticker drawn over the plates keeps the card moving to the end.
+  const ticker = [{ op: "add_layer", layerType: "rectangle", name: "ticker", properties: { x: 0, y: 340, width: 60, height: 12, fill: "#ffffff" } },
+    { op: "add_animation", layer: "ticker", preset: "move", start: 0, duration: 12, easing: "smooth", from: { x: 0 }, to: { x: 560 } }];
+  await agent("edit", { project: id, ops: [plate("dark", "#202020"), plate("light", "#2c3e50"), { op: "add_animation", layer: "light", preset: "show", start: 6 }, ...ticker] });
   await reviewAll(id);
   const packet = await agent("look", { project: id, mode: "critique" });
   assert.equal(packet.isError, undefined, packet.text);
@@ -654,7 +661,7 @@ test("look critique: a packet for a fresh critic (protocol, brief, trace, seam p
   // A bar (notes verdict best): the packet opens with this cut and the bar at the same story
   // points, the person's verdicts as anchors; a round must compare (BAR), and BAR worse blocks.
   const barred = await project("critique-bar", 12);
-  await agent("edit", { project: barred, ops: [plate("dark", "#202020"), { op: "waive_check", code: "held_static", target: "s1", quote: "keep the still test card as it is", reason: "a still test card" }] });
+  await agent("edit", { project: barred, ops: [plate("dark", "#202020"), ...ticker] });
   await reviewAll(barred);
   const verdict = await agent("notes", { project: barred, action: "verdict", of: other, rev: third.data.rev, words: "the best so far", best: true });
   assert.match(verdict.text, /^bar saved: critique-waived rev \d+: "the best so far"/);
@@ -686,14 +693,17 @@ test("a real edit (a brief, over 30 layers) needs one critic round before its fi
   const locked = await agent("notes", { project: id, action: "brief", fields: { style } });
   assert.equal(locked.isError, undefined, locked.text);
   await agent("edit", { project: id, ops: [...Array.from({ length: 29 }, (_, n) => ({ op: "add_layer", layerType: "rectangle", name: `dot${n}`, properties: { x: 20 + n * 20, y: 320, width: 8, height: 8, fill: "#ffffff" } })),
-    { op: "waive_check", code: "held_static", target: "s1", quote: "keep the still test card as it is", reason: "a still test card" }] });
+    // The box drifts to the end and the title leaves at 3 s: a scene-wide finding (held_static on the whole card, text_slides, ending_seen) has no layer to waive, so none arises. The box's own slow stretch is kept in the person's words.
+    { op: "add_animation", layer: "box", preset: "move", start: 2, duration: 10, easing: "smooth", from: { x: 480 }, to: { x: 40 } },
+    { op: "add_animation", layer: "title", preset: "hide", start: 3 },
+    { op: "waive_check", code: "held_static", target: "box", quote: "keep the still test card as it is", reason: "a still test card" }] });
   await reviewAll(id);
   const final = () => agent("render", { project: id, action: "start", quality: "final", format: "gif" });
   // A real edit's open warnings hold its final render too, one line a rule; this card's are on purpose.
   const warned = await final();
   assert.equal(warned.data.error, "check_failed", warned.text);
   assert.match(warned.data.reason, /block a final render \(fix each or waive it with a reason\):\n {2}[a-z_]+/);
-  await agent("edit", { project: id, ops: [...["no_music", "static_scene", "default_font", "page_chrome", "seen_before", "ending_seen", "text_slides"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test card" })), { op: "waive_check", code: "type_seen", target: "*", reason: "set like the title in yt:dQw4w9WgXcQ" }] });
+  await agent("edit", { project: id, ops: [...["no_music", "static_scene", "default_font", "page_chrome", "seen_before"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a gate test card" })), { op: "waive_check", code: "type_seen", target: "*", reason: "set like the title in yt:dQw4w9WgXcQ" }] });
   await reviewAll(id);
   const cancel = async (reply) => { if (reply.data?.job) await agent("render", { project: id, action: "cancel", job: reply.data.job }); };
   const needed = await final();
@@ -732,9 +742,10 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
     const style = { wants: [], avoids: [], lines: [], by: "guessed", waived: "a gate test, no one watching", spine: [{ role: "hook", from: 0, to: 16, purpose: "the street" }], fonts: { caption: { family: "Inter", size: 40 } } };
     assert.equal((await agent("notes", { project: id, action: "brief", fields: { style } })).isError, undefined);
     const built = await agent("edit", { project: id, ops: [
-      ...["reference", "review", "soft_upscale", "plain_beats", "held_static", "no_music", "static_scene", "default_font", "page_chrome", "seen_before", "ending_seen", "text_slides", "needs", "treatments", "no_rhythm", "few_techniques"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test" })),
       { op: "add_layer", layerType: "video", name: "street", properties: { src: media.src ?? media.media?.src, x: 0, y: 0, width: 320, height: 180 } },
       ...Array.from({ length: 30 }, (_, n) => ({ op: "add_layer", layerType: "rectangle", name: `dot${n}`, properties: { x: 10 + n * 10, y: 170, width: 4, height: 4, fill: "#ffffff" } })),
+      // The waivers come last: a viewer waiver names layers, so they must exist first.
+      ...["reference", "review", "soft_upscale", "plain_beats", "held_static", "no_music", "static_scene", "default_font", "page_chrome", "seen_before", "ending_seen", "text_slides", "needs", "treatments", "no_rhythm", "few_techniques"].map((code) => ({ op: "waive_check", code, ...viewerWaiver(code), reason: "a gate test" })),
     ] });
     assert.equal(built.isError, undefined, built.text);
     await agent("check", { project: id, fix: "auto" });
