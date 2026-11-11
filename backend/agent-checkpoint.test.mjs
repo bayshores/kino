@@ -19,6 +19,7 @@ import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import { createAgentClient } from "./agent/client.mjs";
 import { READ_AS, statusLines, STOP_KINDS } from "./agent/stops.mjs";
+import { STEP_NAMES } from "./agent/step-log.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { nextCallOf, startTestServer, withoutNext } from "./media.test.support.mjs";
 
@@ -369,6 +370,10 @@ test("a stop needs the brief first, is asked by the agent, and names a kind", as
   assert.deepEqual((await checkpoint(project, "board")).data, { status: "skipped", kind: "board", reason: "no footage" });
   for (const id of [undefined, "C1", "storyboard", "rouhg"]) assertRefused(await checkpoint(project, id), "bad_input", "id is board, rough, color, sound or critique.");
   assert.equal((await checkpoint(project, "rouhg")).data.didYouMean[0], "rough");
+  // An id that is a property of every object names no step; the refused ask leaves the project working.
+  for (const id of ["__proto__", "toString"]) assertRefused(await checkpoint(project, id), "bad_input", "id is board, rough, color, sound or critique.");
+  assert.ok((await agent("status", { project })).text, "status still answers");
+  assert.ok((await savedState(project)).stepLog.order.every((name) => STEP_NAMES.includes(name)), "only real step names are saved");
   assertRefused(await checkpoint(project, "rough", { by: "you" }), "bad_input", "Stops are asked by the agent; the person answers them.");
   const fromDashboard = await dashboard("act/notes", { body: { project, action: "checkpoint", id: "rough" } });
   assert.equal(fromDashboard.status, 200);

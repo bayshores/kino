@@ -21,6 +21,9 @@ export const MIN_RUNS = 5;
 
 // The stop each stop kind is called here; the critic's stop is the critic's step.
 const STOP_STEP = { board: "board", rough: "rough", color: "color", sound: "sound", critique: "critic" };
+// The agent supplies the checkpoint id, so only the table's own keys count: an id such as
+// "__proto__" or "toString" must not come back as a function where a step name goes.
+const stopStep = (id) => (typeof id === "string" && Object.hasOwn(STOP_STEP, id) ? STOP_STEP[id] : null);
 
 // The brief-phase `step:` texts (brief.mjs nextMove, orderSteps, lockNeeded; footage-finder/step.mjs;
 // stops.mjs statusMove), by what they start with. A text that matches none is the build.
@@ -59,8 +62,8 @@ function buildStepOf(verb, input) {
  * call itself. A waiting stop and the call that asks a stop name that stop.
  */
 export function stepNameOf(move, { waiting = null, verb = "", input = {} } = {}) {
-  if (waiting) return STOP_STEP[waiting] ?? "build";
-  if (verb === "notes" && input?.action === "checkpoint" && STOP_STEP[input.id]) return STOP_STEP[input.id];
+  if (waiting) return stopStep(waiting) ?? "build";
+  if (verb === "notes" && input?.action === "checkpoint" && stopStep(input.id)) return stopStep(input.id);
   const text = String(move?.step ?? "");
   for (const [pattern, name] of TEXT_STEPS) if (pattern.test(text)) return name;
   const ask = ASK_STOP.exec(text);
@@ -68,43 +71,42 @@ export function stepNameOf(move, { waiting = null, verb = "", input = {} } = {})
 }
 
 const round1 = (number) => Math.round(number * 10) / 10;
-const copyLog = (log) => ({
-  steps: Object.fromEntries(Object.entries(log?.steps ?? {}).map(([name, entry]) => [name, { ...entry }])),
-  order: [...(log?.order ?? [])],
-  open: log?.open ? { ...log.open } : null,
-  ...(log?.finishedAt ? { finishedAt: log.finishedAt } : {}),
-});
+// A log read from disk may be damaged by hand: keep only the parts that have the right shape.
+const copyLog = (log) => {
+  const steps = log && typeof log.steps === "object" && log.steps ? log.steps : {};
+  const order = Array.isArray(log?.order) ? log.order : [];
+  return {
+    steps: Object.fromEntries(Object.entries(steps).map(([name, entry]) => [name, { ...entry }])),
+    order: order.filter((name) => typeof name === "string"),
+    ...(Number.isFinite(log?.lastEnd) ? { lastEnd: log.lastEnd } : {}),
+    ...(log?.finishedAt ? { finishedAt: log.finishedAt } : {}),
+  };
+};
 const entryOf = (log, name) => {
   if (!log.steps[name]) { log.steps[name] = { calls: 0, seconds: 0, waitSeconds: 0 }; log.order.push(name); }
   return log.steps[name];
 };
-// Adds the open stretch (first call to the end of the last call) to its step's seconds.
-function closeStretch(log) {
-  if (!log.open) return;
-  const entry = entryOf(log, log.open.name);
-  entry.seconds = round1(entry.seconds + Math.max(0, log.open.last - log.open.first) / 1000);
-  log.open = null;
-}
 
 /**
  * The log with one call added: a call that arrived at `startMs` and ended at `endMs`, in the step
- * `name`. Counts the call toward the step. A stretch is the run of calls in one step; its time is
- * from the first call's start to the last call's end. A gap of more than WAIT_GAP_MS inside a step
- * is the person's time (waitSeconds): the stretch ends and a new one starts. Returns a new log.
+ * `name` (a name outside STEP_NAMES is left out, so a bad name never reaches the saved state).
+ * Counts the call toward the step. The call is charged the time since the last call ended (the
+ * agent thinking about this step) plus its own running time, so a step the agent comes back to
+ * between other steps still gets its thinking time. A gap of more than WAIT_GAP_MS is the person's
+ * time (waitSeconds), kept apart. Returns a new log.
  */
 export function logCall(log, name, startMs, endMs = startMs) {
   const next = copyLog(log);
-  const open = next.open;
-  if (open && open.name === name && startMs - open.last <= WAIT_GAP_MS) open.last = Math.max(open.last, endMs);
-  else {
-    if (open && open.name === name) {
-      const entry = entryOf(next, name);
-      entry.waitSeconds = round1(entry.waitSeconds + (startMs - open.last) / 1000);
-    }
-    closeStretch(next);
-    next.open = { name, first: startMs, last: Math.max(startMs, endMs) };
-  }
-  entryOf(next, name).calls += 1;
+  if (!STEP_NAMES.includes(name) || !Number.isFinite(startMs)) return next;
+  const end = Math.max(startMs, Number.isFinite(endMs) ? endMs : startMs);
+  const entry = entryOf(next, name);
+  const gap = next.lastEnd === undefined ? 0 : Math.max(0, startMs - next.lastEnd);
+  // Calls that overlap the last one are charged only the part that runs past its end.
+  const running = Math.max(0, end - Math.max(startMs, next.lastEnd ?? startMs));
+  if (gap > WAIT_GAP_MS) entry.waitSeconds = round1(entry.waitSeconds + gap / 1000);
+  entry.seconds = round1(entry.seconds + ((gap > WAIT_GAP_MS ? 0 : gap) + running) / 1000);
+  entry.calls += 1;
+  next.lastEnd = Math.max(next.lastEnd ?? end, end);
   return next;
 }
 
@@ -113,10 +115,9 @@ export const finishLog = (log, atIso) => ({ ...copyLog(log), finishedAt: atIso }
 /** True for the log of a video whose final render came out. */
 export const isFinished = (log) => Boolean(log?.finishedAt);
 
-/** Rows [{name, calls, seconds, waitSeconds}] in the order the steps began, the open stretch included. */
+/** Rows [{name, calls, seconds, waitSeconds}] in the order the steps began. */
 export function stepRows(log) {
   const view = copyLog(log);
-  closeStretch(view);
   return view.order.map((name) => ({ name, ...view.steps[name] })).filter((row) => row.calls > 0);
 }
 
@@ -175,7 +176,7 @@ export async function readStepLogs(dataRoot) {
   for (const name of names) {
     try {
       const log = JSON.parse(await readFile(path.join(directory, name), "utf8")).stepLog;
-      if (log?.steps) logs.push(log);
+      if (log?.steps && Array.isArray(log.order)) logs.push(log);
     } catch { /* a file that cannot be read is left out */ }
   }
   return logs;

@@ -27,8 +27,9 @@ In a shell: `kino check why="see what blocks a final render" next="fix the title
   undoes one turn and keeps everything after it; `{action:"restore", rev}` brings back a
   saved revision. It also prints the steps table: minutes and kino calls for each step of this
   video (brief, references, treatments, build, each stop, viewer, critic, review, final). A call
-  counts toward the step `status` named when it arrived; a gap over 10 minutes inside a step is
-  the person's time ("waited"). A final render's answer ends with the same table as one line.
+  counts toward the step `status` named when it arrived, with the thinking time before it; a gap
+  of over 10 minutes before a call is the person's time ("waited"). A final render's answer ends
+  with the same table as one line.
 - `notes {action:"set_plan", steps:[…]}` sets your plan (a list, or one line split at commas);
   `set_plan {done:[2]}` marks step 2 done.
 - The brief (`notes {action:"brief"}`) shows read only on the dashboard; its quotes are
