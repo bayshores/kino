@@ -595,7 +595,8 @@ export function attackNear(samples, sampleRate, time) {
  * last bar is never listed (a song stopping in it is its ending, see last). hits: per bar line, the
  * time in seconds of the attack of the hit on it (attackNear, from `samples`), or null. There is
  * no per-bar voice: whisper's vocal segments did not tell a bar with a voice from one without.
- * last: {bar, at, ends}, the last bar with sound, its line, and how the song ends: "fade" (the
+ * last: {bar, at, end, ends}, the last bar with sound, its line, where the sound ends (a ring
+ * counted up to one bar past that bar), and how the song ends: "fade" (the
  * whole sound falls steadily 12 dB or more over 4 s or more before the silence) or "own" (it stops
  * by itself).
  */
@@ -625,7 +626,8 @@ export function barsOf(frames, grid, { samples = null, sampleRate = 0 } = {}) {
   sounded.forEach((share, index) => { if (share > 0.5) lastBar = index; });
   let lastFrame = -1;
   for (let f = frames.count - 1; f >= 0 && lastFrame < 0; f -= 1) if (sounding(f)) lastFrame = f;
-  const lastTime = Math.min(edges[lastBar + 1], (lastFrame + 2) * frames.hopSeconds);
+  const lastSound = (lastFrame + 2) * frames.hopSeconds;
+  const lastTime = Math.min(edges[lastBar + 1], lastSound);
   // Out bars: the last half's low level against the song's own loud level, so a quiet intro and a
   // loud drop are judged by the same line. The last bar is left out.
   const loud = percentile(tail.slice(0, lastBar + 1), OUT_LOUD);
@@ -643,7 +645,7 @@ export function barsOf(frames, grid, { samples = null, sampleRate = 0 } = {}) {
     all: all.map((value) => round(value - topAll) + 0),
     out,
     hits: lines.map((time) => (samples ? attackNear(samples, sampleRate, time) : null)),
-    last: { bar: lastBar, at: lines[lastBar], ends },
+    last: { bar: lastBar, at: lines[lastBar], end: Math.round(Math.min(lastSound, edges[lastBar + 1] + grid.bar) * 1000) / 1000, ends },
   };
 }
 
@@ -712,7 +714,7 @@ export function vocalShare(spans, seconds) {
 
 // Bump when songShape's sections change, so kept results are made again (2: seams, edges to the
 // millisecond, weights; 3: bars, and the bar of every section and seam).
-export const SONG_SHAPE_VERSION = 3;
+export const SONG_SHAPE_VERSION = 4;
 const VOCALS_RETRY_MS = 10 * 60_000;
 
 /**

@@ -105,7 +105,7 @@ test("fit_music keeps the music layer in one piece by default; recut:true cuts i
 // A made-up song whose bars drift (2.02 s each, a constant 2 s grid would be 1 s wrong by bar 50):
 // kick and bass out in bars 8 and 9 (the stop) and 45 and 46; drops at bars 20 and 40; a hit 10 ms before each line.
 const lines = Array.from({ length: 60 }, (_, index) => Math.round(2.02 * index * 1000) / 1000);
-const barsOf = (extra = {}) => ({ lines, out: [8, 9, 45, 46], hits: lines.map((time) => Math.round((time - 0.01) * 1000) / 1000), last: { bar: 58, ends: "own" }, ...extra });
+const barsOf = (extra = {}) => ({ lines, out: [8, 9, 45, 46], hits: lines.map((time) => Math.round((time - 0.01) * 1000) / 1000), last: { bar: 58, end: 119.5, ends: "own" }, ...extra });
 const STOP_SECTIONS = [{ at: 0, kind: "intro", bar: 0 }, { at: lines[15], kind: "build", bar: 15 }, { at: lines[20] + 0.01, kind: "drop", weight: 0.9, bar: 20 }, { at: lines[40], kind: "drop", weight: 0.5, bar: 40 }, { at: lines[56], kind: "outro", bar: 56 }];
 const stopInput = (extra = {}) => ({ sections: STOP_SECTIONS, seconds: 119.5, bar: 2.02, payoff: lines[10], end: 46.78, plan: "stop", bars: barsOf(), ...extra });
 
@@ -115,18 +115,22 @@ test("planFitMusic stop: the opening to the song's stop, the drop for whole grou
   assert.deepEqual(plan.pieces, [
     { from: 0, to: 20.188, at: 0, fadeIn: 0, fadeOut: 0.005 },
     { from: 40.388, to: 64.628, at: 20.188, fadeIn: 0.003, fadeOut: 0.005 },
-    { from: 117.148, to: 119.5, at: 44.428, fadeIn: 0.003, fadeOut: 0 },
+    { from: 117.148, to: 119.5, at: 44.428, fadeIn: 0.003, fadeOut: 0.32 }, // the ring past the last bar (line 59 to the song's end) fades
   ]);
   assert.equal(plan.ending, 46.78);
   // The bar count goes on across each join: the entered bar line lands where the bar line left behind would have.
   assert.ok(Math.abs(plan.pieces[1].at + 0.012 - lines[10] - 0) < 1e-9 && Math.abs(plan.pieces[2].at + 0.012 - (lines[10] + lines[32] - lines[20])) < 1e-9);
   assert.deepEqual(plan.sections.map((part) => [part.at, part.kind, part.label]).filter(([, kind]) => kind !== "build" && kind !== "intro" && kind !== "outro"), [[16.16, "stop", undefined], [20.21, "drop", "payoff"], [46.78, "ending", undefined]]);
-  // No hit on the entered line: cut exactly on it with a 5 ms fade; the piece left ends at the same instant.
-  const plain = planFitMusic(stopInput({ bars: barsOf({ hits: barsOf().hits.map((time, index) => (index === 20 ? null : time)) }) }));
-  assert.deepEqual(plain.pieces.slice(0, 2), [{ from: 0, to: 20.2, at: 0, fadeIn: 0, fadeOut: 0.005 }, { from: 40.4, to: 64.628, at: 20.2, fadeIn: 0.005, fadeOut: 0.005 }]);
-  // The last bar has no hit: it is entered on its line with a 5 ms fade, and the end lands where the hit-less song ends.
-  const quiet = planFitMusic(stopInput({ bars: barsOf({ hits: barsOf().hits.map((time, index) => (index === 58 ? null : time)) }) }));
-  assert.deepEqual(quiet.pieces[2], { from: lines[58], to: 119.5, at: 44.44, fadeIn: 0.005, fadeOut: 0 });
+  // No measured hit on an entered line (bar 20, the last bar): it is entered where its hit would be, the song's own lead
+  // (hits sit 10 ms before the lines), so a kick the measure missed is not cut into; the piece left ends at the same instant.
+  const plain = planFitMusic(stopInput({ bars: barsOf({ hits: barsOf().hits.map((time, index) => (index === 20 || index === 58 ? null : time)) }) }));
+  assert.deepEqual(plain.pieces, plan.pieces);
+  // A song with too few measured hits to tell its lead: 12 ms before the line, and 2 ms more.
+  const few = planFitMusic(stopInput({ bars: barsOf({ hits: [] }) }));
+  assert.deepEqual(few.pieces.slice(0, 2).map((piece) => [piece.from, piece.at, piece.fadeIn]), [[0, 0, 0], [round(lines[20] - 0.014), round(lines[10] - 0.014), 0.003]]);
+  // The song's sound ends before its file does: the last piece and the ending stop there.
+  const early = planFitMusic(stopInput({ bars: barsOf({ last: { bar: 58, end: 119.0, ends: "own" } }) }));
+  assert.deepEqual([early.pieces[2].to, early.pieces[2].fadeOut, early.ending], [119, 0.05, 46.28]);
   // A bar out inside the third group: it is left out (never leave inside a group).
   const shorter = planFitMusic(stopInput({ bars: barsOf({ out: [8, 9, 25] }) }));
   assert.equal(shorter.pieces[1].to, 48.468, "plays bars 20 to 23 only");

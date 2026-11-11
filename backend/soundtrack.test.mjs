@@ -362,7 +362,7 @@ test("song bars: the hit on a bar line is its attack to 2 ms, and a line with no
 
 test("song bars: the last bar with sound, and whether the song stops by itself or fades", () => {
   const own = songShape(barSong({ end: 40 }), 8000, { bpm: 120, beats: steady() }).bars.last;
-  assert.deepEqual(own, { bar: 19, at: 38, ends: "own" });
+  assert.deepEqual(own, { bar: 19, at: 38, end: 40.064, ends: "own" }); // end: where the sound stops (40 s), to the frame
   const faded = songShape(barSong({ end: 40, fade: 6 }), 8000, { bpm: 120, beats: steady() }).bars.last;
   assert.deepEqual([faded.bar, faded.ends], [19, "fade"]);
 });
@@ -378,7 +378,7 @@ test("song shape cache: whisper's spans give a vocal-in seam kept in the .song; 
     const sung = createSongShapeCache({ decode, vocals: async () => [[35, 40]] });
     const file = path.join(folder, "song.mp3");
     const first = await sung.get(file, 120);
-    assert.ok(first.version === 3 && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
+    assert.ok(first.version === 4 && first.vocals === "whisper" && first.seams.some((seam) => seam.kind === "vocal-in"), JSON.stringify(first));
     assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), first);
     assert.deepEqual(await sung.get(file, 120), first);
     assert.equal(decodes, 1, "the kept .song is read back, not measured again");
@@ -406,7 +406,7 @@ test("song shape cache with the beat analysis: bars are kept in the .song, and a
     const file = path.join(folder, "song.mp3");
     assert.equal((await cache.get(file, 120)).bars, undefined, "a tempo alone gives no bars");
     const withBars = await cache.get(file, steady());
-    assert.ok(withBars.version === 3 && withBars.bars.lines.length === 24 && withBars.sections.every((part) => Number.isInteger(part.bar)), JSON.stringify(withBars.bars));
+    assert.ok(withBars.version === 4 && withBars.bars.lines.length === 24 && withBars.sections.every((part) => Number.isInteger(part.bar)), JSON.stringify(withBars.bars));
     assert.deepEqual(JSON.parse(await readFile(`${file}.song`, "utf8")), withBars);
     assert.deepEqual(await cache.get(file, steady()), withBars);
     assert.deepEqual((await cache.get(file, 120)).bars, withBars.bars, "read back with a tempo, bars kept");

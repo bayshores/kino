@@ -101,10 +101,15 @@ export function planFitMusic(input) {
   return planStretch(input);
 }
 
-// The joins of the stop plan, in seconds. A hit on the entered bar line is cut in 2 ms before its
-// attack with a 3 ms fade (no click, none of the hit lost); with no hit the cut is exactly on the
-// line with a 5 ms fade. The piece that is left fades out over 5 ms.
+// The joins of the stop plan, in seconds. The entered bar is cut in 2 ms before the attack of the
+// hit on its line with a 3 ms fade (no click, none of the hit lost). A line with no measured hit is
+// entered where its hit would be: the song's own lead (the median of hit minus line; the lines sit
+// a few ms after the attacks), so a kick the measure missed is not cut into. The piece that is left
+// ends at the same instant with a 5 ms fade, before the next bar's attack.
 const JOIN_LEAD = 0.002;
+const HIT_LEAD = -0.012; // the lead of a song with fewer than HIT_LEAD_MIN measured hits
+const HIT_LEAD_MIN = 8;
+const END_FADE_MIN = 0.05; // the song's own ending fades at least this long (its ring past the last bar)
 const JOIN_FADE_HIT = 0.003;
 const JOIN_FADE_LINE = 0.005;
 const JOIN_FADE_OUT = 0.005;
@@ -118,7 +123,7 @@ const LATE_START = 0.05; // an opening that would start this late in the video i
  * groups of 4 bars; then the song's last bar and its own ending. Every song time is a measured bar
  * line (bars.lines, never a constant grid). The bar count goes on across each join: the entered
  * bar line lands where the bar line of the piece being left would have been.
- * Extra input: bars {lines, out, hits, last, voice?} (the song shape's), drop (a song time that
+ * Extra input: bars {lines, out, hits, last} (the song shape's), drop (a song time that
  * picks the drop). Extra result: facts {stop, dropFrom, bars, ending} for the receipt.
  */
 function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, bars, payoff, turn = null, end, drop: dropTime = null }) {
@@ -129,9 +134,11 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
   const lastBar = Number.isInteger(bars.last?.bar) ? bars.last.bar : lines.length - 1;
   const notes = [];
   const hitAt = (index) => (typeof hits[index] === "number" ? hits[index] : null);
+  const leads = lines.map((line, index) => (hitAt(index) == null ? null : hitAt(index) - line)).filter((value) => value != null).sort((a, b) => a - b);
+  const lead = leads.length >= HIT_LEAD_MIN ? leads[Math.floor(leads.length / 2)] : HIT_LEAD;
   // Where the piece entering bar `index` starts, against that bar's line (a few ms before its hit).
-  const enterDelta = (index) => (hitAt(index) == null ? 0 : hitAt(index) - JOIN_LEAD - lines[index]);
-  const enterFade = (index) => (hitAt(index) == null ? JOIN_FADE_LINE : JOIN_FADE_HIT);
+  const enterDelta = (index) => round((hitAt(index) ?? lines[index] + lead) - JOIN_LEAD - lines[index]);
+  const enterFade = () => JOIN_FADE_HIT;
   const barsOut = (from, to) => { for (let i = from; i < to; i += 1) if (out.has(i)) return true; return false; };
   const cleanRun = (from) => { let count = 0; while (from + count <= lastBar && !out.has(from + count)) count += 1; return count; };
 
@@ -147,7 +154,7 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
   }
   if (!drops.length) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
   const dropCost = (part) => (1 - (Number.isFinite(part.weight) ? part.weight : 0.5)) * 4 + (Math.abs(part.heard - lines[part.bar]) > LATE_HEARD ? 2 : 0)
-    + (cleanRun(part.bar) < GROUP ? 3 : 0) + (bars.voice?.[part.bar] > 0.5 ? 1 : 0);
+    + (cleanRun(part.bar) < GROUP ? 3 : 0);
   drops.sort((a, b) => dropCost(a) - dropCost(b) || a.heard - b.heard);
 
   // 2. The stop the opening ends on, for a drop at bar `drop`: bar s-1 is out, its run of out bars
@@ -186,7 +193,9 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
   // 3 and 4. The drop plays whole groups of 4 bars; the song's own last bar closes it.
   // The song's own ending: its last bar, cut in on its hit, or on its line when it has none (as for every join).
   const own = whole && bars.last?.ends === "own" && lastBar > D;
-  const songEnd = own ? Math.min(seconds, lines[lastBar] + 2 * bar) : 0;
+  // Where its sound ends (bars.last.end), and the fade over its ring past the last bar.
+  const songEnd = own ? Math.min(seconds, Number.isFinite(bars.last?.end) && bars.last.end > lines[lastBar] ? bars.last.end : lines[lastBar] + 2 * bar) : 0;
+  const endFade = own ? round(Math.min(bar, Math.max(END_FADE_MIN, songEnd - (lines[lastBar + 1] ?? songEnd)))) : 0;
   const tail = own ? songEnd - lines[lastBar] : 0;
   const groupEnd = (g) => payoff + lines[D + GROUP * g] - lines[D]; // video time of group g's end
   const reach = (g) => groupEnd(g) + tail; // where the song's ending would end
@@ -225,12 +234,13 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
     if (ending && lineEnd === lastBar) {
       // The groups run into the last bar: one piece plays on to the song's end.
       dropPiece.to = round(songEnd);
+      dropPiece.fadeOut = endFade;
       endAt = round(dropAt + dropPiece.to - dropPiece.from);
     } else if (ending) {
       dropPiece.to = round(dropFrom + (join - dropAt));
       dropPiece.fadeOut = JOIN_FADE_OUT;
       const lastFrom = round(lines[lastBar] + enterDelta(lastBar));
-      pieces.push({ from: lastFrom, to: round(songEnd), at: join, fadeIn: enterFade(lastBar), fadeOut: 0 });
+      pieces.push({ from: lastFrom, to: round(songEnd), at: join, fadeIn: enterFade(lastBar), fadeOut: endFade });
       endAt = round(join + songEnd - lastFrom);
     } else {
       // No ending of its own: a fade over the last bar, ending on the group's line.
