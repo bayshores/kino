@@ -172,15 +172,24 @@ export function shotSays(shot, lines) {
 const compact = (text) => String(text ?? "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^\p{L}\p{N}]+/gu, "");
 const wordsOf = (text) => String(text ?? "").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 
+// Scripts written without spaces between words: their phrases are matched letter by letter.
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+function inARow(have, wanted) {
+  for (let from = 0; from + wanted.length <= have.length; from += 1)
+    if (wanted.every((word, index) => have[from + index] === word)) return true;
+  return false;
+}
+
 /**
- * True when `text` says `said`: the same letters in a row (spaces and marks ignored, so a Japanese
- * or Chinese phrase matches too), or every word of it (three quarters of the words when there are
- * more than 3), in any order.
+ * True when `text` says `said`: the same words in a row (marks ignored; a Japanese, Chinese or Thai
+ * phrase is matched by its letters in a row instead, since it has no spaces), or every word of it
+ * (three quarters of the words when there are more than 3), in any order.
  */
 export function saidMatches(text, said) {
   const wanted = wordsOf(said);
   if (!wanted.length) return false;
-  if (compact(text).includes(compact(said))) return true;
+  if (UNSPACED.test(said) ? compact(text).includes(compact(said)) : inARow(wordsOf(text), wanted)) return true;
   const have = new Set(wordsOf(text));
   const found = wanted.filter((word) => have.has(word)).length;
   return found >= (wanted.length <= 3 ? wanted.length : Math.ceil(wanted.length * 0.75));

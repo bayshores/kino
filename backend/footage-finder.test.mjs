@@ -1125,7 +1125,7 @@ test("the finder keeps a video's captions (or that it has none) so YouTube is as
   assert.deepEqual(await quiet.captions(none), { none: true });
   assert.equal(calls.length, asked, "no captions is asked once");
   const busy = make({ fail: true });
-  const limited = { source: "youtube", videoId: "9bZkp7q19f0" };
+  const limited = { source: "youtube", videoId: "aB3dE5fG7hJ" };
   assert.equal((await busy.captions(limited)).retry, true);
   const afterLimit = calls.length;
   assert.equal((await busy.captions(limited)).retry, true);
@@ -1151,6 +1151,12 @@ test("applySaid: the shot that says the words goes first and a burned-in subtitl
   assert.equal(applySaid(shots, spoken, "").hits, 0);
   assert.equal(saidMatches("I will protect them all", "all protect"), true);
   assert.equal(saidMatches("I will protect them all", "defend"), false);
+  // Letters are not matched across word boundaries or inside other words (Latin text), but a phrase without spaces is.
+  assert.equal(saidMatches("Have a nice vacation", "a cat"), false);
+  assert.equal(saidMatches("I know that", "no"), false);
+  assert.equal(saidMatches("also it was", "so"), false);
+  assert.equal(saidMatches("so it was", "so it"), true);
+  assert.equal(saidMatches("今日はいい天気ですね", "いい天気"), true);
 });
 
 // A scan of three shots over a video that says two lines (what a finder's captions() answers).

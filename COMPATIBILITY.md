@@ -787,18 +787,13 @@ How to read it:
   on most shots never become a mark, bottom-center subtitles go last, a short flash decides no match,
   drawn footage is not ranked by faces and keeps the match bar at 2, and a miss says how close it
   came. Evidence: `backend/footage-finder.test.mjs` (drawn footage). Gap: tuned on one live anime scan.
-- **What a found video says**: Stub-verified, one live caption fetch. A scan reads the video's captions once
-  (yt-dlp, subtitles only, kept per video; uploaded first, then auto captions marked as such), prints
-  `says: "..."` per shot and a `Lines` list, `said:"words"` ranks the shots that say them first (a burned-in
-  subtitle on one is "has subtitles", not last) and the next call imports the line by from/to, and an import of
-  a clip of 1.5 s or more says what it says. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).
-  Gaps: auto-caption files parsed from the known rolling format, not seen live; YouTube answered 429 on the
-  4th rapid caption request, so a failed fetch is not kept and not retried for 15 minutes.
-- **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. One op
-  keeps a line of a clip's sound (by words, or from/to with its own text), silences the rest of that layer, adds
-  a small subtitle timed to the words and dips the music about 6 dB under it; its receipt gives the scene and
-  file seconds. Evidence: `engine/speech.test.js` (keep_line). Gaps: no listening test of the fades; `isolate_voice`
-  is a separate op when music is under the speech.
+- **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
+  (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
+  the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).
+  Gaps: auto-caption format not seen live; a 429 on the 4th rapid fetch is not retried for 15 minutes.
+- **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. Keeps
+  one line of a clip's sound (every piece of a cut voice), silences the rest, subtitles it and dips the music
+  by half. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
 
 ## Audio and captions
 

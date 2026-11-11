@@ -9,7 +9,7 @@
 //             the whole line
 //   subtitle  false: no subtitle. look: add_captions look (default "subtitle"); name: its group
 //   duckId    the music layer (default: the audio layer named music or song, else the only other one);
-//             duckNone: no dip. dip: the music's volume under the line (default 0.5, about 6 dB down)
+//             duckNone: no dip. dip: the music's volume under the line (default half its own, about 6 dB down)
 //
 // It is built from what exists: speechWords and captionWordsFromSpeech (the words), add_captions
 // (the subtitle) and duck_audio (the dip). The silence is two Volume animations per line, "Line up"
@@ -19,11 +19,12 @@ import { uid } from "./model.js";
 import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { applyAddCaptions } from "./captionLayers.js";
 import { applyDuckAudio } from "./audioDucking.js";
-import { captionWordsFromSpeech, checkSpeechLayer, speechWords } from "./speech.js";
+import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords } from "./speech.js";
 import { lineWords } from "./blocks/moves/footage.js";
 import { round } from "./numbers.js";
 
 export const LINE_NAMES = Object.freeze({ mute: "Line mute", up: "Line up", down: "Line down" });
+// The music's volume under the line, as a share of its own volume (half is about 6 dB down).
 export const DEFAULT_DIP = 0.5;
 // The fade up starts this long before the first word (the breath), the fade down after the last.
 const UP_PAD = 0.08;
@@ -63,6 +64,7 @@ function merged(ranges) {
 function silenceAround(ranges, volume, sceneDuration) {
   const added = [];
   const ramp = (name, start, end, from, to) => added.push({ id: uid(), name, kind: "custom", easing: "smooth", start: round(start), duration: Math.max(SHORTEST, round(end - start)), from: { volume: from }, to: { volume: to } });
+  if (!ranges.length) ramp(LINE_NAMES.mute, 0, SHORTEST, volume, 0);
   for (const [index, range] of ranges.entries()) {
     const upStart = Math.max(0, range.start - UP_PAD);
     if (index === 0 && upStart > 0.002) ramp(LINE_NAMES.mute, 0, SHORTEST, volume, 0);
@@ -99,10 +101,11 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   if (operation.line === undefined && !timed) fail("give line (words said in the clip) or from and to (scene seconds).");
   if (operation.line !== undefined && (typeof operation.line !== "string" || !operation.line.trim())) fail("line is the words to keep, as said.");
   if (operation.text !== undefined && (typeof operation.text !== "string" || !operation.text.trim())) fail("text is the subtitle's words, a string.");
-  const dip = operation.dip ?? DEFAULT_DIP;
-  if (typeof dip !== "number" || !(dip >= 0 && dip <= 1)) fail("dip is the music's volume under the line, a number from 0 to 1.");
-  const range = mediaPlaybackRange(layer, scene.duration);
-  if (!range) fail(`"${layer.name}" does not play inside this scene.`);
+  if (operation.dip !== undefined && (typeof operation.dip !== "number" || !(operation.dip >= 0 && operation.dip <= 1))) fail("dip is the music's volume under the line, a number from 0 to 1.");
+  // A voice cut into pieces (cut_speech) is one sound: the line may play on any piece, and every piece is silenced around it.
+  const plays = speechPieces(scene, layer).map((piece) => ({ piece, play: mediaPlaybackRange(piece, scene.duration) })).filter((entry) => entry.play);
+  if (!plays.length) fail(`"${layer.name}" does not play inside this scene.`);
+  const range = { start: Math.min(...plays.map((entry) => entry.play.start)), end: Math.max(...plays.map((entry) => entry.play.end)) };
 
   // The words the scene plays, as captions read them (none when the clip was not transcribed or has none).
   const heard = operation.transcript?.words?.length
@@ -128,10 +131,19 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   end = round(end);
 
   // The sound: only the kept stretches (an earlier keep_line's too) at the layer's own volume.
-  const volume = layer.volume > 0 ? layer.volume : 1;
-  const ranges = merged([...keptRanges(layer), { start, end }]);
-  layer.volume = volume;
-  layer.animations = [...(layer.animations ?? []).filter((animation) => !isLineMark(animation)), ...silenceAround(ranges, volume, scene.duration)];
+  // Each piece keeps the part of the line it plays; a piece that plays none is silent.
+  const kept = plays.map(({ piece, play }) => {
+    const from = Math.max(start, play.start);
+    const to = Math.min(end, play.end);
+    const volume = piece.volume > 0 ? piece.volume : 1;
+    const ranges = merged([...keptRanges(piece), ...(to - from > SHORTEST ? [{ start: from, end: to }] : [])]);
+    piece.volume = volume;
+    piece.animations = [...(piece.animations ?? []).filter((animation) => !isLineMark(animation)), ...silenceAround(ranges, volume, scene.duration)];
+    return { piece, play, ranges, volume };
+  });
+  const owner = kept.find((entry) => entry.play.start <= start + 0.001 && start < entry.play.end) ?? kept.find((entry) => entry.ranges.length) ?? kept[0];
+  const { volume } = owner;
+  const ranges = owner.ranges;
 
   // The subtitle, timed to the words (or to the line when the text is given).
   const notes = [];
@@ -153,13 +165,20 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   const music = musicOf(scene, layer, operation);
   let duck = null;
   if (music.layer) {
-    const words = ranges.map((item) => ({ text: "line", start: round(mediaSoundTime(layer, Math.max(item.start, range.start))), end: round(mediaSoundTime(layer, Math.min(item.end, range.end))), p: 1 }));
-    duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: [layer.id], to: dip, speech: { [layer.id]: { words } } });
+    // Without dip, half the music's own volume (about 6 dB down): an absolute 0.5 would raise a quieter bed.
+    const level = music.layer.volume ?? 1;
+    const dip = operation.dip ?? round(level * DEFAULT_DIP);
+    if (dip > level) notes.push(`dip ${dip} is above the music's volume ${level}, so the music gets louder under the line`);
+    const under = kept.filter((entry) => entry.ranges.length);
+    const speech = {};
+    for (const { piece, play, ranges: stretches } of under)
+      speech[piece.id] = { words: stretches.map((item) => ({ text: "line", start: round(mediaSoundTime(piece, Math.max(item.start, play.start))), end: round(mediaSoundTime(piece, Math.min(item.end, play.end))), p: 1 })) };
+    duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech });
   } else notes.push(`the music does not dip: ${music.reason}`);
 
   const text = operation.text ?? (said.length ? said.map((item) => item.text).join(" ") : null);
-  const fileFrom = round(mediaSoundTime(layer, start));
-  const fileTo = round(mediaSoundTime(layer, end));
+  const fileFrom = round(mediaSoundTime(owner.piece, Math.max(start, owner.play.start)));
+  const fileTo = round(mediaSoundTime(owner.piece, Math.min(end, owner.play.end)));
   return {
     layer: layer.name,
     line: text,

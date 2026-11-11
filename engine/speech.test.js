@@ -320,6 +320,23 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   assert.deepEqual([volumeAt(again, 3), volumeAt(again, 5), volumeAt(again, 7.7)], [1, 0, 1]);
 });
 
+test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips by half", () => {
+  const document = documentWith([voice(), createLayer("audio", { id: "music", name: "music", src: "/api/media/song.mp3", mediaSourceDuration: 30, volume: 0.3 })]);
+  const cut = parseDocument(applyOperations(document, [{ type: "cut_speech", sceneId: "s", layerId: "vo", transcript, words: [5], pauses: "tight" }], {}));
+  const operation = { type: "keep_line", sceneId: "s", layerId: "vo", line: "the Oaks app", transcript, subtitle: false };
+  const reports = new Map();
+  const scene = parseDocument(applyOperations(cut, [operation], { reports, fonts: defaultFonts })).scenes[0];
+  const pieces = scene.layers.filter((layer) => layer.name.startsWith("vo"));
+  assert.ok(pieces.length >= 3, "the voice was cut into pieces");
+  // Heard at one moment inside the line and at one outside it, whichever piece plays them: only the line is audible.
+  const audible = (time) => pieces.filter((piece) => time >= (piece.mediaStart ?? 0) && time < (piece.mediaStart ?? 0) + (piece.mediaDuration ?? 99)).map((piece) => volumeAt(piece, time));
+  assert.deepEqual(audible(4.5), [1]);
+  assert.deepEqual(audible(1), [0]);
+  const report = reports.get(operation);
+  assert.ok(report.file[1] - report.file[0] > 0.5, "the receipt gives the file seconds of the line on the piece that plays it");
+  assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 4.5), 0.15, "half of the music's own 0.3, not a raise to 0.5");
+});
+
 test("keep_line with from, to and text works with no transcript and takes duck none and subtitle false", () => {
   const clip = createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12, volume: 0.8 });
   const document = documentWith([clip, musicLayer()], 12);

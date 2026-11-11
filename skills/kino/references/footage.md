@@ -70,8 +70,8 @@ their times to the nearest half second and their words as probably right.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
 - Footage has its own sound, and a line said in a clip can open or set up a moment. Keep it with
   `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest of that
-  clip's sound goes silent, a small subtitle shows the line, and the music dips a few dB (not to
-  silence) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`.
+  clip's sound goes silent (every piece of a cut voice), a small subtitle shows the line, and the
+  music dips to half its own volume (`dip` sets the volume) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`.
 
 ## Note a video
 
