@@ -41,6 +41,7 @@ import { applyAudioCaptionOperation } from "./audioCaptionOperations.js";
 import { colorFilterSteps } from "./colorFilter.js";
 import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 import { refreshBehaviorLinks } from "./behaviorLinks.js";
+import { frameShot } from "./footage/layout.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -274,6 +275,17 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     const layer = scene.layers.find((l) => l.id === operation.layerId);
     if (!layer) throw new Error(`Layer ${operation.layerId} was not found.`);
+    // frame_shot {sceneId, layerId, size, samples?}: a hand-placed video layer gets kino's own shot
+    // layout (footage/layout.js frameShot): a crop around the face or mark, or a card over a blurred
+    // copy of itself. `size` is the file's width and height; `samples` its subjects-v1 samples.
+    if (operation.type === "frame_shot") {
+      if (isEffectivelyLocked(scene.layers, layer.id)) throw new Error("Unlock this layer before framing it.");
+      const taken = new Set(document.scenes.flatMap((item) => item.layers.map((entry) => entry.id)));
+      const shot = frameShot(scene, layer, { size: operation.size, samples: operation.samples, taken });
+      Object.assign(layer, shot.patch);
+      if (shot.backdrop) scene.layers.splice(scene.layers.indexOf(layer), 0, shot.backdrop);
+      continue;
+    }
     if (operation.type === "style_text_range") {
       if (layer.type !== "text") throw new Error("Select a text layer before styling a range.");
       if (isEffectivelyLocked(scene.layers, layer.id)) throw new Error("Unlock this text layer before styling a range.");

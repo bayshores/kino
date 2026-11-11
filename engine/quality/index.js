@@ -19,9 +19,11 @@ import { speechCaptions, speechCut, speechQuotes } from "./rules/speech.js";
 import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, musicTurn, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
-import { clipReuse, cropNoSubject, frozenFootage, jumpCut, softUpscale, trackLost } from "./rules/footage.js";
+import { clipReuse, cropNoSubject, frozenFootage, jumpCut, narrowWindow, softUpscale, trackLost } from "./rules/footage.js";
 import { darkUnderTitle, lowFpsMotion, sourceJump } from "./rules/sourcePixels.js";
 import { headCutOff } from "./rules/people.js";
+import { shapeGuess } from "./rules/shape.js";
+import { askUnmet } from "./rules/ask.js";
 import { outOfSync } from "./rules/sync.js";
 import { beatKick, cutMotivation, deckUnused, fewTechniques, flatSections, metronome, plainBeats, styleAvoided, styleWanted, techniqueRepeat, textSlides } from "./rules/style.js";
 import { TASTE_WARNINGS, accentBudget, brandConsistency, endingCount, hookReadable, templateEnd, textOnlyOpen, overlayCoversSubject, pacingJump, roleFontDrift, storyStall, vocabularyBudget } from "./rules/consistency.js";
@@ -69,7 +71,10 @@ export const RULES = [
   rule("covered_layer", "warn", coveredLayer, "a layer that its own timing and opacity put on screen is not hidden all that time by an opaque layer above it (a flash or fade added before the footage sits under it and never shows); the fix moves it above the layer that covers it (auto for a full-frame overlay: a flash, a fade to black, a tint or vignette)"),
   rule("text_wrap", "warn", textWrap, "a 1-word title does not wrap and punctuation is never alone on a line (both errors); a 2 or 3 word title that wraps, and a one-word last line under a long line, are warnings"),
   rule("clip_reuse", "warn", clipReuse, "with 4+ clips, one clip fills the frame under 4 times and at most 35% of the video"),
-  rule("crop_no_subject", "warn", cropNoSubject, "footage filling the frame and drawn past it (over 8% of the file cut off on a side) has a subject marked (mark_subject); a marked subject less than 85% in the frame is an error"),
+  rule("crop_no_subject", "warn", cropNoSubject, "footage filling the frame and drawn past it (over 8% of the file cut off on a side) has a subject marked (mark_subject); a marked subject less than 85% in the frame is an error; with nothing marked, a face found whole in the file (touching at most one file edge) less than 85% in the frame for 0.2 s is an error, and with a mark that misses it a warning"),
+  rule("narrow_window", "warn", narrowWindow, "footage filling the frame keeps at least 40% of its file's width for 0.2 s, or a face is found in what it keeps (drawn faces are not found); screen recordings aside"),
+  rule("shape_guess", "warn", shapeGuess, "the video's shape (landscape, portrait, square) is the shape of most of its footage files, or brief plays_on is the person's own words (by \"you\"); no footage, no finding; only the person's words waive it"),
+  rule("ask_unmet", "warn", askUnmet, "with the person's subject searched (state.origin has a word most titles about it share): a shot's file title or found clip's title has that word, or the person gave footage of their own; a scene waiver whose reason names the word clears it"),
   rule("track_lost", "warn", trackLost, "a layer pinned to a track (pin) never follows it through a stretch under 0.5 confidence longer than 0.3 s (the layer holds its last good place there); names the seconds"),
   rule("head_cut_off", "warn", headCutOff, "a person 40% of the picture tall or more keeps their head in the picture: their box touching the top with no head found (or the highest eye or ear at the edge) for 1 s while the clip shows, from filming or from the crop; found by Apple Vision on a Mac in a full check (elsewhere it does not run)"),
   rule("jump_cut", "warn", jumpCut, "back-to-back full-frame shots from one video file (the second at least 0.1 s later in it, framed alike: size within 10%, place within 5%; with pixels, their pictures also alike in framing and light) are joined by a fade, move or blur, or have a different shot between them"),

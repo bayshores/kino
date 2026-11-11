@@ -4,7 +4,13 @@
 //   soft_upscale     an image or video drawn at more than 1.3 output pixels per file pixel
 //                    (warning; over 2, a gate)
 //   crop_no_subject  footage drawn past the frame (over 8% of the file cut off on a side) with no
-//                    subject marked (warning); with one marked, the subject cut off (gate)
+//                    subject marked (warning); with one marked, the subject cut off (gate). A face
+//                    the detector found whole in the file and the crop cuts, nothing marked, is a
+//                    gate; a found face cut while the mark misses it warns (a 9:16 crop of 16:9
+//                    footage cut 12 whole faces with a 20% box marked by hand beside them)
+//   narrow_window    footage filling the frame through a window under 40% of its file's width
+//                    where no face was found (warning: drawn faces are not found, so kino cannot
+//                    tell an eye strip from a cut face there)
 //   jump_cut         back-to-back full-frame shots from one file, a little later in it and framed
 //                    alike, with no transition (warning: the trailer cut one walking take every bar)
 //   frozen_footage   a clip on screen whose picture stops: slowed to a stop, held before or after
@@ -25,6 +31,8 @@ import { boxAt, itemById, visibleBoxAt } from "../model.js";
 import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
+import { peopleNear } from "./people.js";
+import { sampleBoxes } from "../../footage/layout.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -108,6 +116,42 @@ export function boxNear(layer, at) {
   return best?.box ?? null;
 }
 
+// A face box this close (% of the file) to a file edge reaches that edge.
+const FILE_EDGE = 1;
+// A found face cut this long (seconds) is seen, not a flicker at a cut.
+const FACE_CUT_SECONDS = 0.2;
+// A face under this share inside the mark is one the mark misses.
+const MARK_MISSES = 0.5;
+// A mark with this share inside the face box is on that face (a part of it, as in an eye strip).
+const MARK_ON_FACE = 0.9;
+const SIDES = ["left", "top", "right", "bottom"];
+
+/**
+ * The faces found near file time `at`, as [x, y, w, h] in % of the file. Reads a subjects-v1
+ * sample's tagged `subjects` ({box, kind}; a "saliency" box is where the eye goes, never a face)
+ * and a people-v1 sample's plain `faces` ([x, y, w, h] fractions).
+ */
+export function facesAt(found, at) {
+  return sampleBoxes(peopleNear(found, at)).filter((entry) => entry.kind === "face").map((entry) => entry.box.map((value) => value * 100));
+}
+
+/**
+ * How much of a face ([x, y, w, h] in %) the crop `bounds` ([x0, y0, x1, y1] in %) keeps, and the
+ * side it cuts most: {share, side}. The face box is what the detector saw in the file, so the
+ * share is measured against the crop's own bounds: a face the file already cut (touching a file
+ * edge) is judged by what the crop keeps of that box. Only a face touching three or more file
+ * edges is a filmed strip (an eye or mouth close-up): null, the crop did not make that cut.
+ */
+export function faceKept(face, bounds) {
+  const [x, y, w, h] = face;
+  const touching = [x <= FILE_EDGE, y <= FILE_EDGE, x + w >= 100 - FILE_EDGE, y + h >= 100 - FILE_EDGE].filter(Boolean).length;
+  if (touching >= 3 || !(w > 0 && h > 0)) return null;
+  const lost = [Math.max(0, bounds[0] - x) / w, Math.max(0, bounds[1] - y) / h, Math.max(0, x + w - bounds[2]) / w, Math.max(0, y + h - bounds[3]) / h];
+  return { share: insideShare(face, bounds), side: SIDES[lost.indexOf(Math.max(...lost))] };
+}
+
+const boxText = (box) => `[${box.map((value) => Math.round(value)).join(", ")}]`;
+
 /** crop_no_subject: footage drawn past the frame with no subject marked, or its subject cut off. */
 export function cropNoSubject(model, ctx) {
   const scene = ctx.scene ?? ctx.speechScene;
@@ -128,7 +172,11 @@ export function cropNoSubject(model, ctx) {
       return [Math.max(0, (x / width) * 100 - 5), Math.max(0, (y / height) * 100 - 5), 10, 10].map((value) => Math.round(value * 10) / 10);
     } : null;
     const marked = (layer.subjectBoxes?.src === layer.src && layer.subjectBoxes.boxes.length > 0) || Boolean(pointer);
+    const found = ctx.people?.[layer.src];
     let cropped = null, croppedCount = 0, lost = null;
+    // Faces the detector found whole in the file that the crop cuts: with no mark (faceCut), or
+    // while the mark sits somewhere else (missed).
+    const faceCut = { count: 0, worst: null }, missed = { count: 0, worst: null };
     for (let index = 0; index < model.times.length; index += step) {
       if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
       const time = model.times[index];
@@ -136,9 +184,25 @@ export function cropNoSubject(model, ctx) {
       // Only footage that fills the frame (a picture in a corner is cut_off_at_rest's).
       if (!crop || crop.covers < 0.9) continue;
       const [x0, y0, x1, y1] = crop.bounds;
+      const second = mediaFrameState(layer, time).sourceTime;
+      const mark = marked ? (pointer ? pointer(second) : boxNear(layer, second)) : null;
+      let cutHere = null, missedHere = null;
+      for (const face of found ? facesAt(found, second) : []) {
+        const kept = faceKept(face, crop.bounds);
+        if (!kept || kept.share >= SUBJECT_KEPT) continue;
+        const cut = { ...kept, face, time, second };
+        if (!marked) { if (!cutHere || cut.share < cutHere.share) cutHere = cut; continue; }
+        // A mark wholly inside the face is the part the agent means (an eye strip), not a miss.
+        const onFace = mark && insideShare(mark, [face[0], face[1], face[0] + face[2], face[1] + face[3]]) >= MARK_ON_FACE;
+        if (mark && !onFace && insideShare(face, [mark[0], mark[1], mark[0] + mark[2], mark[1] + mark[3]]) < MARK_MISSES && (!missedHere || cut.share < missedHere.share)) missedHere = { ...cut, mark };
+      }
+      for (const [tally, cut] of [[faceCut, cutHere], [missed, missedHere]]) {
+        if (!cut) continue;
+        tally.count += 1;
+        if (!tally.worst || cut.share < tally.worst.share) tally.worst = cut;
+      }
       if (marked) {
-        const second = mediaFrameState(layer, time).sourceTime;
-        const box = pointer ? pointer(second) : boxNear(layer, second);
+        const box = mark;
         if (!box) continue;
         const share = insideShare(box, crop.bounds);
         if (share < SUBJECT_KEPT && (!lost || share < lost.share)) lost = { share, time, box };
@@ -151,6 +215,31 @@ export function cropNoSubject(model, ctx) {
       if (!cropped || sides[side] > cropped.cut) cropped = { cut: sides[side], side, time };
     }
     const look = `look {mode:"source", layer:${ctx.name(item)}, t}`;
+    const seen = (tally) => tally.worst && tally.count * step >= model.fps * FACE_CUT_SECONDS - 1e-6;
+    if (seen(faceCut)) {
+      const cut = faceCut.worst;
+      findings.push({
+        rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
+        message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s: only ${Math.round(cut.share * 100)}% of it is in the frame.`,
+        measured: `${Math.round(cut.share * 100)}% of the face box ${boxText(cut.face)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((faceCut.count * step) / model.fps)} s, no subject marked`,
+        required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame; if the cut is meant (an eye strip), mark_subject the part you mean`,
+        // Never automatic: the agent's op for kino's own crop (frame_shot) is not reachable from an
+        // agent call yet, so the fix is words only.
+        fix: { kind: "hint", text: `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame; if the cut is meant (an eye strip), mark_subject the part you mean.` },
+      });
+      continue;
+    }
+    if (!lost && seen(missed)) {
+      const cut = missed.worst;
+      findings.push({
+        rule: "crop_no_subject", severity: "warn", itemId: item.id, at: sec(cut.time),
+        message: `${ctx.name(item)} cuts a face found whole in its file at the ${cut.side} at ${sec(cut.time)} s while its marked subject is elsewhere: is the mark on the right part?`,
+        measured: `${Math.round(cut.share * 100)}% of the face box ${boxText(cut.face)} in the frame at ${sec(cut.time)} s; the marked subject ${boxText(cut.mark)} holds under ${Math.round(MARK_MISSES * 100)}% of it`,
+        required: `a face found whole in the file kept ${Math.round(SUBJECT_KEPT * 100)}% in the frame, or the mark on it`,
+        fix: { kind: "hint", text: `${look}, then mark_subject the face (or the part you mean) and frame the crop on it.` },
+      });
+      continue;
+    }
     if (lost) {
       findings.push({
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(lost.time),
@@ -168,6 +257,51 @@ export function cropNoSubject(model, ctx) {
         fix: { kind: "hint", text: `Fit ${ctx.name(item)} to the frame (zoom less), or ${look} and mark_subject the subject, then frame the crop on it (library guide framing).` },
       });
     }
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------- narrow_window
+
+// The least of the file's width a full-frame window keeps before kino needs to see a face in it
+// (the share footage/layout.js asks of a face-led crop).
+export const NARROW_WINDOW = 40;
+
+/** narrow_window: footage seen through a window under 40% of its file's width with no face found. */
+export function narrowWindow(model, ctx) {
+  const scene = ctx.scene ?? ctx.speechScene;
+  if (!scene || !ctx.mediaSizes) return [];
+  const findings = [];
+  const step = Math.max(1, Math.round(model.fps / 10));
+  for (const item of model.items) {
+    if (item.kind !== "video" || item.source?.componentPath || item.blur >= SOFT_BLUR) continue;
+    const layer = scene.layers.find((entry) => entry.id === item.source?.layerId);
+    const size = sizeOf(ctx, item);
+    // A screen recording's detail crop is read by its pointer (screen_unreadable asks for them).
+    if (!layer || !size || layer.recording) continue;
+    const found = ctx.people?.[layer.src];
+    let count = 0, narrowest = null;
+    for (let index = 0; index < model.times.length; index += step) {
+      if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
+      const time = model.times[index];
+      const crop = cropOnSource(scene, layer, time, size);
+      if (!crop || crop.covers < 0.9) continue;
+      const width = crop.bounds[2] - crop.bounds[0];
+      if (width >= NARROW_WINDOW) continue;
+      // A face found here is judged by crop_no_subject; only a window kino cannot see into warns.
+      if (found && facesAt(found, mediaFrameState(layer, time).sourceTime).length) continue;
+      count += 1;
+      if (!narrowest || width < narrowest.width) narrowest = { width, time, bounds: crop.bounds };
+    }
+    if (!narrowest || count * step < model.fps * FACE_CUT_SECONDS - 1e-6) continue;
+    const middle = sec((narrowest.bounds[0] + narrowest.bounds[2]) / 2);
+    findings.push({
+      rule: "narrow_window", severity: "warn", itemId: item.id, at: sec(narrowest.time),
+      message: `${ctx.name(item)} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and no face was found in it: kino cannot see faces here (drawn ones are not found).`,
+      measured: `a window ${Math.round(narrowest.width)}% of the ${size.width}x${size.height} file wide (middle at ${middle}%) at ${sec(narrowest.time)} s, for ${sec((count * step) / model.fps)} s, no face found`,
+      required: `a full-frame window at least ${NARROW_WINDOW}% of the file wide, or a look at what it keeps`,
+      fix: { kind: "hint", text: `look {mode:"source", layer:${ctx.name(item)}, t:${sec(narrowest.time)}} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; a deliberate strip is waived per layer (waive_check {code:"narrow_window", target:${ctx.name(item)}, reason}).` },
+    });
   }
   return findings;
 }

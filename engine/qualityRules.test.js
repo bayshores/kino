@@ -7,6 +7,7 @@
 // backend/quality-pixels.test.mjs because they need the renderer.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { RULES, blocksFinal, ruleOf, runQuality } from "./quality/index.js";
@@ -1653,6 +1654,116 @@ test("head_cut_off: a person's head out of the picture for a second is a warning
   assert.match(cropped.message, /crop cuts it off/);
   // A blurred backdrop is not framing anyone.
   assert.deepEqual((await run(doc({ ...walk, blur: 30 }), at({ box: [0.4, 0, 0.3, 1], head: 0 }))).findings, []);
+});
+
+// A 16:9 file cropped to a 9:16 frame: the window keeps 31.6% of its width (34.2% to 65.8%).
+const TALL_CROP = { type: "video", id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", mediaSourceDuration: 10, x: -1167, y: 0, width: 3413, height: 1920 };
+const tall = (layer = TALL_CROP) => scene({ width: 1080, height: 1920, duration: 2, layers: [layer] });
+const keeperSizes = { [TALL_CROP.src]: { width: 1920, height: 1080 } };
+// Face boxes in % of the file, as the detector's samples (fractions) every half second.
+const facesFound = (...boxes) => ({ [TALL_CROP.src]: { samples: [0, 0.5, 1, 1.5, 2].map((t) => ({ t, faces: boxes.map((box) => box.map((value) => value / 100)), people: [] })) } });
+const cropRun = (code, document, people) => check(code, document, { scene: document.scenes[0], mediaSizes: keeperSizes, ...(people ? { people } : {}) });
+
+test("crop_no_subject: a face found whole in the file and cut by the crop is a gate; a filmed strip is not", async () => {
+  const [cut] = (await cropRun("crop_no_subject", tall(), facesFound([20, 30, 15, 25]))).findings;
+  assert.deepEqual([cut.severity, cut.itemId], ["error", "keeper"]);
+  assert.match(cut.message, /cuts a face found whole in its file at the left at 0 s/);
+  assert.match(cut.fix.text, /if the cut is meant \(an eye strip\), mark_subject the part you mean/);
+  // Its fix is words only: kino's own crop (frame_shot) is not an agent op yet, so nothing is auto.
+  assert.deepEqual([cut.fix.kind, cut.fix.auto ?? false], ["hint", false]);
+  // A face the window keeps whole is the plain no-mark warning; a strip filmed past three of the
+  // file's edges is not the crop's cut.
+  assert.equal((await cropRun("crop_no_subject", tall(), facesFound([45, 30, 10, 25]))).findings[0].severity, "warn");
+  assert.equal((await cropRun("crop_no_subject", tall(), facesFound([0, 0, 100, 100]))).findings[0].severity, "warn");
+  // A face the file already cut at an edge is judged by what the crop keeps of its box: the crop's
+  // own cut counts (touching one edge, wholly outside the window, a full-width close-up, a tall one).
+  for (const box of [[5, 20, 90, 80], [0, 30, 50, 40], [0, 30, 20, 40], [0, 10, 100, 80], [10, 0, 60, 100]])
+    assert.equal((await cropRun("crop_no_subject", tall(), facesFound(box))).findings[0].severity, "error", `face ${box}`);
+  // A saliency box is never a face. Real subjects-v1 samples keep plain faces in `faces` and the
+  // tagged boxes in `subjects`: the saliency box in `subjects` is not read as one.
+  const salient = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [], subjects: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "saliency" }], people: [] })) } };
+  assert.equal((await cropRun("crop_no_subject", tall(), salient)).findings[0].severity, "warn");
+  const tagged = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [[0.2, 0.3, 0.15, 0.25]], subjects: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "face" }], people: [] })) } };
+  assert.equal((await cropRun("crop_no_subject", tall(), tagged)).findings[0].severity, "error");
+});
+
+test("crop_no_subject: a found face cut while the mark misses it warns, naming both boxes", async () => {
+  const marked = (box) => ({ ...TALL_CROP, subjectBoxes: { src: TALL_CROP.src, boxes: [0, 1, 2].map((at) => ({ at, box, by: "agent" })) } });
+  const [missed] = (await cropRun("crop_no_subject", tall(marked([45, 30, 10, 20])), facesFound([20, 30, 15, 25]))).findings;
+  assert.equal(missed.severity, "warn");
+  assert.match(missed.measured, /face box \[20, 30, 15, 25\].*marked subject \[45, 30, 10, 20\]/);
+  // The mark on the face: the marked subject's own gate, as before.
+  const [onFace] = (await cropRun("crop_no_subject", tall(marked([20, 30, 15, 25])), facesFound([20, 30, 15, 25]))).findings;
+  assert.match(onFace.message, /cuts off its marked subject/);
+  // A mark wholly inside the cut face is the part the agent means (an eye strip): no miss warning.
+  const strip = await cropRun("crop_no_subject", tall(marked([36, 35, 10, 6])), facesFound([30, 30, 20, 30]));
+  assert.ok(strip.findings.every((finding) => !/is the mark on the right part/.test(finding.message)), strip.findings.map((finding) => finding.message).join("; "));
+});
+
+test("narrow_window: a window under 40% of the file's width where no face was found warns", async () => {
+  covered.add("narrow_window");
+  const [narrow] = (await cropRun("narrow_window", tall())).findings;
+  assert.deepEqual([narrow.severity, narrow.itemId], ["warn", "keeper"]);
+  assert.match(narrow.measured, /^a window 32% of the 1920x1080 file wide/);
+  // A face found in the window (crop_no_subject judges it), or the whole width shown: quiet.
+  assert.deepEqual((await cropRun("narrow_window", tall(), facesFound([45, 30, 10, 25]))).findings, []);
+  const wide = scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] });
+  assert.deepEqual((await cropRun("narrow_window", wide)).findings, []);
+});
+
+test("crop_no_subject replay: a 9:16 crop of 17 16:9 shots flags each whole face it cut, no eye strip", async () => {
+  // Revision 31 of a failed edit, numbers only: 17 shots cropped by hand to 28.8% of the file's
+  // width, and one face box per shot hand-labeled on its source still (null: no face to see).
+  const replay = JSON.parse(readFileSync(new URL("./qualityRules.faceCuts.json", import.meta.url), "utf8"));
+  const src = (name) => `/api/media/${name}.mp4`;
+  const layers = replay.layers.map(({ name, face, ...fields }) => ({ type: "video", id: name, name, src: src(name), ...fields }));
+  const flash = rect("flash", { x: 0, y: 0, width: replay.width, height: replay.height, fill: "#ffffff", ...replay.flash });
+  const document = scene({ width: replay.width, height: replay.height, duration: replay.duration, layers: [...layers, flash] });
+  const [width, height] = replay.file;
+  const mediaSizes = Object.fromEntries(replay.layers.map(({ name }) => [src(name), { width, height }]));
+  const people = Object.fromEntries(replay.layers.filter(({ face }) => face).map(({ name, face, mediaSourceDuration }) => [src(name), {
+    samples: Array.from({ length: Math.ceil(mediaSourceDuration * 2) + 1 }, (_, index) => ({ t: index / 2, faces: [face.map((value) => value / 100)], people: [] })),
+  }]));
+  const { findings } = await check("crop_no_subject", document, { scene: document.scenes[0], mediaSizes, people });
+  const gated = findings.filter((finding) => finding.severity === "error").map((finding) => finding.itemId).sort();
+  // Whole in the still and cut by the crop: s1 to s5, s9, s10, s13, s15, s16. Eye strips (s7, s8),
+  // faces kept whole (s6, s17) and shots with no face (s11, s12, s14) are not gated.
+  assert.deepEqual(gated, ["s1", "s10", "s13", "s15", "s16", "s2", "s3", "s4", "s5", "s9"]);
+  // Without the boxes (drawn faces are not found) the narrow window still warns on every shot.
+  const narrow = (await check("narrow_window", document, { scene: document.scenes[0], mediaSizes })).findings;
+  assert.equal(narrow.length, 17);
+});
+
+test("shape_guess: a vertical scene of 16:9 footage with a guessed plays_on warns; the person's words, a matching shape or no footage are quiet", async () => {
+  const guessed = { text: "a phone feed", by: "agent" };
+  const sizes = { [TALL_CROP.src]: { width: 1920, height: 1080 } };
+  const [found] = await fires("shape_guess", tall(), { scene: tall().scenes[0], mediaSizes: sizes, playsOn: guessed });
+  assert.match(found.measured, /^scene portrait 1080x1920 \(guessed\); footage landscape 1920x1080 \(1 of 1\)$/);
+  // The person said it (a quote kino checked): the deliberate vertical edit stays possible.
+  await silent("shape_guess", tall(), { scene: tall().scenes[0], mediaSizes: sizes, playsOn: { ...guessed, by: "you", quote: "for my phone" } });
+  // A scene shaped like its footage, and a scene with no footage at all: nothing to compare.
+  const wide = scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] });
+  await silent("shape_guess", wide, { scene: wide.scenes[0], mediaSizes: sizes, playsOn: null });
+  await silent("shape_guess", tall(), { scene: tall().scenes[0], mediaSizes: {} });
+  const bare = scene({ width: 1080, height: 1920, duration: 2, layers: [text("t", "hi")] });
+  await silent("shape_guess", bare, { scene: bare.scenes[0], mediaSizes: sizes });
+});
+
+test("ask_unmet: the origin word in no shot title warns once; own footage, a titled shot or found clip, or no word are quiet", async () => {
+  const origin = { words: [{ word: "tower", count: 11, of: 15 }], top: [{ id: "a", title: "Keeper climbs the tower (full)", views: 5e6, seconds: 188 }] };
+  const bad = tall();
+  const context = (extra) => ({ scene: bad.scenes[0], mediaSizes: keeperSizes, mediaNames: { [TALL_CROP.src]: "F1.2 keeper walks the field.mp4" }, origin, ...extra });
+  const [found] = await fires("ask_unmet", bad, context());
+  assert.match(found.message, /^"tower" is in 11 of 15 titles.*Keeper climbs the tower \(full\).*no shot's title/);
+  assert.match(found.fix.text, /waive_check ask_unmet on the scene with a reason that names "tower"/);
+  // The person's own footage leads, and no origin word (or a skipped search) means nothing to check.
+  await silent("ask_unmet", bad, context({ ownFootage: true }));
+  await silent("ask_unmet", bad, context({ origin: { skipped: "offline" } }));
+  // A shot titled with the word (whole word, any case), or a found clip kino titled with it.
+  await silent("ask_unmet", bad, context({ mediaNames: { [TALL_CROP.src]: "F1.2 The Tower.mp4" } }));
+  await silent("ask_unmet", bad, context({ foundTitles: ["F4 the tower stairs.mp4"] }));
+  // "towers" is another word: not a match.
+  assert.equal((await check("ask_unmet", bad, context({ foundTitles: ["F4 towers.mp4"] }))).findings.length, 1);
 });
 
 // ---------------------------------------------------------------- restraint, request_unmet
