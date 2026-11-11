@@ -67,7 +67,7 @@ test("a stop ask names the waived count and the top rules; a rule waived on * sh
 
 test("the service's stop ask carries the document's waivers: the person's rough cut ask shows the waived line", async (t) => {
   const title = { op: "add_layer", layerType: "text", name: "title", properties: { text: "Park reopens Saturday", x: 140, y: 760, width: 800, height: 240, fontSize: 96, fill: "#101010" } };
-  const waive = { op: "waive_check", code: "type_min", target: "title", reason: "small on purpose" };
+  const waive = { op: "waive_check", code: "default_font", target: "title", reason: "the brand's font" };
   const { call } = await serviceFor(t, { document: createDocument({ id: "waived", name: "waived", scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 24 })] }) });
   const edited = await call("edit", { ops: [title, waive] });
   assert.equal(edited.isError, undefined, edited.text);
@@ -76,7 +76,7 @@ test("the service's stop ask carries the document's waivers: the person's rough 
   assert.equal(checked.data.errors, 0, checked.text);
   const asked = await call("notes", { action: "checkpoint", id: "rough" });
   assert.equal(asked.data.status, "waiting_for_you", asked.text);
-  assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? · 1 waived \(type_min 1\)\.$/m, asked.data.ask);
+  assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? · 1 waived \(default_font 1\)\.$/m, asked.data.ask);
 });
 
 test("the sound stop of a video with no music: the person's three choices, or 2 songs measured first", () => {

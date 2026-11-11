@@ -15,7 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
 import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
@@ -1087,6 +1087,16 @@ test("a quote in a script without spaces, or only emoji, is found as plain text;
   assert.equal(isSaid("🔥🔥🔥", ["make it fire 🔥🔥 please now"]), false);
   assert.equal(isSaid("skate", ["my skateboard crew"]), false, "half a word is still not said");
   assert.equal(isSaid("", ["anything"]), false);
+});
+
+test("a real edit (the critic's gate): a brief, and over 30 layers, or 10 to 30 layers in 15 s or more", () => {
+  const briefed = { brief: { rev: 1 } };
+  assert.equal(realEdit(briefed, { seconds: 15, layers: 10 }), true, "15 s with 10 layers is the shortest real edit");
+  assert.equal(realEdit(briefed, { seconds: 15, layers: 30 }), true);
+  assert.equal(realEdit(briefed, { seconds: 14.9, layers: 30 }), false, "under 15 s, 30 layers is still rough");
+  assert.equal(realEdit(briefed, { seconds: 15, layers: 9 }), false);
+  assert.equal(realEdit(briefed, { seconds: 5, layers: 31 }), true, "over 30 layers at any length");
+  assert.equal(realEdit({}, { seconds: 15, layers: 10 }), false, "no brief, no real edit");
 });
 
 test("controls.quote that lets a stop pass must be said; a line or pick sent again as stored is not checked again", () => {

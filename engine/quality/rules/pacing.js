@@ -193,6 +193,15 @@ function startsOnOwnCut(model, item, motion, frame) {
     && motion.start <= model.times[index] + 1 / model.fps && covers(index) && startsWithCut(model, item, index));
 }
 
+// An effect animation (a glow, a grade) on a layer shown before and after it: it changes the look
+// of a shot that stays on screen, not the picture between shots. A blur on a shot that leaves at
+// its end is still a transition.
+function effectOnStayingLayer(model, item, motion) {
+  if (!motion.tweens.every((tween) => tween.keys.every((key) => key.startsWith("effect.")))) return false;
+  const shown = (time) => item.samples.opacity[frameAt(model, time)] > 0.05;
+  return shown(motion.start - 1 / model.fps) && shown(motion.end + 1 / model.fps);
+}
+
 // Transitions that move a large share of the frame: entrances, exits and moves of big layers.
 function bigTransitions(model) {
   const frame = model.width * model.height;
@@ -200,7 +209,7 @@ function bigTransitions(model) {
     const item = itemById(model, motion.itemId);
     // A slow drift through a hold is not a transition, nor is an instant step (a frame cut).
     if (!item || isPerpetual(model, item) || isHoldMotion(model, item, motion) || motion.duration <= 0.5 / model.fps) return false;
-    if (startsOnOwnCut(model, item, motion, frame)) return false;
+    if (startsOnOwnCut(model, item, motion, frame) || effectOnStayingLayer(model, item, motion)) return false;
     let largest = 0;
     for (let index = 0; index < model.times.length; index += 1)
       if (item.samples.opacity[index] > 0.05 || item.isMask) largest = Math.max(largest, area(boxAt(item, index)) / frame);

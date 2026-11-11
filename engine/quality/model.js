@@ -140,14 +140,14 @@ const PLACE_KEYS = ["x", "y", "scaleX", "scaleY", "rotation"];
 
 /**
  * When the move that is under way at sample `index` started: the earliest start of a place, scale
- * or rotation tween (not an in or out) of the item or a group it is in, or null when none runs.
+ * or rotation tween (an entrance too, not an exit) of the item or a group it is in, or null when none runs.
  */
 export function moveStartedAt(model, item, index) {
   const time = model.times[index];
   let started = null;
   for (const entry of chainOf(model, item))
     for (const tween of tweensOf(model, entry.id))
-      if (tween.kind !== "in" && tween.kind !== "out" && tween.keys.some((key) => PLACE_KEYS.includes(key))
+      if (tween.kind !== "out" && tween.keys.some((key) => PLACE_KEYS.includes(key))
         && tween.start <= time + 1 / model.fps && tween.end > time && (started === null || tween.start < started)) started = tween.start;
   return started;
 }

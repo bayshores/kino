@@ -76,7 +76,7 @@ import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
-import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, mergeFindings, openFindingLines, triageFindings, waiverNotes } from "./checks.mjs";
+import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
@@ -685,7 +685,15 @@ export function createAgentService(deps) {
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
-    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec };
+    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [] };
+  }
+
+  // The project's waivers that still silence a finding (stale ones left out): what the waived
+  // counts at a stop and at the final render count.
+  async function waiversInUse(document) {
+    const codes = await syncCodes(document.id, document);
+    const { stale } = await findingsFor(document, { fonts: await fontsFor(document), codes }).catch(() => ({ stale: [] }));
+    return liveWaivers(document.checkWaivers, stale);
   }
 
   // What the person asked for, in their own words, for request_unmet: the brief lines they said
@@ -2376,7 +2384,7 @@ export function createAgentService(deps) {
       const changes = documentChanges(before, after);
       const fonts = await fontsFor(after);
       const afterCodes = assignCodes(codes, after, resolver.reserved);
-      const { findings, unchecked } = await findingsFor(after, { fonts, codes: afterCodes });
+      const { findings, unchecked, stale: staleWaivers } = await findingsFor(after, { fonts, codes: afterCodes });
       // The findings this edit brought into the stretch it changed, so a regression shows at once.
       const removedLayers = (before.scenes ?? []).flatMap((scene) => (scene.layers ?? []).filter((layer) => changes.removed.includes(layer.id)).map((layer) => ({ sceneId: scene.id, layerId: layer.id })));
       const stretches = changedStretches(before, after, [...touchedLayers(before, after), ...removedLayers], changes.changed);
@@ -2395,7 +2403,7 @@ export function createAgentService(deps) {
       if (handEdits.length) (work.warnings ??= []).push(...handEdits);
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
-      const waiverNote = waivedCodes.length ? waiverNotes(after.checkWaivers, { codes: waivedCodes }) : [];
+      const waiverNote = waivedCodes.length ? waiverNotes(liveWaivers(after.checkWaivers, staleWaivers), { codes: waivedCodes }) : [];
       // Spoken lines of the footage that no layer plays: named once, here or in status (linesToName).
       const lineNote = await linesToName(after, afterCodes, await agentState.read(projectId));
       if (lineNote) work.notes.push(lineNote.text);
@@ -2561,7 +2569,9 @@ export function createAgentService(deps) {
     const lines = [`rev ${record.revision} · ${counts}${scene ? ` · ${refName(scene.id, codes)} only` : ""}${options.pixels ? "" : " · pixels off"} · ${result.ms} ms`];
     // A rule waived over and over in one project is likely kino's mistake, not taste. Right after
     // the counts, so an agent that reads only the first lines still sees it.
-    for (const note of waiverNotes(record.document.checkWaivers)) lines.push(`note: ${note}`);
+    for (const note of waiverNotes(liveWaivers(record.document.checkWaivers, result.stale))) lines.push(`note: ${note}`);
+    const staleLine = staleWaiverLine(result.stale, (id) => (id === "*" ? "*" : refName(id, codes)));
+    if (staleLine) lines.push(staleLine);
     if (applied) {
       lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
       for (const line of applied.fixed) lines.push(`  fixed ${line}`);
@@ -5201,8 +5211,8 @@ export function createAgentService(deps) {
     return oneAtATime(projectId, async () => {
       const steady = steadyNow();
       const record = await store.getProject(projectId);
-      // The document's waivers go in the facts so a stop's ask says how many findings were waived.
-      const video = { ...(await directionFacts(record.document)), waivers: record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document) } : { credits: [] }) };
+      // The document's waivers in use go in the facts so a stop's ask says how many findings were waived.
+      const video = { ...(await directionFacts(record.document)), waivers: checkpoint ? await waiversInUse(record.document) : record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document) } : { credits: [] }) };
       const rules = stopRulesNow();
       const board = boardFacts(record.document);
       // Each shot's file name: move_needed offers a screen recording UI moves (engine/movePicks.js).
@@ -5813,7 +5823,7 @@ export function createAgentService(deps) {
       const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
       const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
-        + (quality === "final" ? await finalSources(record.document) + waivedNote(record.document) : "");
+        + (quality === "final" ? await finalSources(record.document) + await waivedNote(record.document) : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
       if (input.wait === true) {
@@ -7249,7 +7259,7 @@ export function createAgentService(deps) {
     // The person's own render: the dashboard shows the waived checks as chips beside this sentence.
     if (meta.by === "you") return error;
     if (meta.reviewed || meta.approved) {
-      error.message = `${error.message}${waivedNote(record.document)}`;
+      error.message = `${error.message}${await waivedNote(record.document)}`;
       return error;
     }
     let gates;
@@ -7259,14 +7269,14 @@ export function createAgentService(deps) {
     const family = (code) => code.replace(/_(needed|open|unchecked|failed)$/, "");
     if (!gates.some((gate) => family(gate.code) === family(error.code)))
       gates.unshift({ code: error.code, words: error.code === "check_failed" ? 'check fix:"auto", then fix the findings named here' : `clear ${error.code}` });
-    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:")}.${waivedNote(record.document)}`;
+    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:")}.${await waivedNote(record.document)}`;
     return error;
   }
 
   // " 39 waived (crop_no_subject 17, held_static 9).": how many findings the agent called fine, shown at
   // the last step (the final gate's refusal and the final render's receipt); "" when none is waived.
-  function waivedNote(document) {
-    const line = waivedLine(document.checkWaivers);
+  async function waivedNote(document) {
+    const line = waivedLine(await waiversInUse(document));
     return line ? ` ${line}.` : "";
   }
 

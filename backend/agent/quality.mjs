@@ -494,6 +494,19 @@ function waiverFor(finding, model, waivers) {
   return waivers.find((waiver) => waiver.code === finding.rule && (waiver.target === "*" || targets.has(waiver.target)));
 }
 
+const RULE_BY_CODE = new Map(RULES.map((entry) => [entry.code, entry]));
+/**
+ * The waivers of a rule that ran and silenced no finding: the rule no longer fires there, so the
+ * waiver is stale. Only rules of the registry are judged (not the gates such as review or
+ * critique, nor the render checks); a rule that renders frames only when `pixelsRan`.
+ */
+export function staleWaivers(waivers, silencing, { pixelsRan }) {
+  return waivers.filter((waiver) => {
+    const rule = RULE_BY_CODE.get(waiver?.code);
+    return rule && !rule.askOnly && (pixelsRan || !rule.pixels) && !silencing.has(waiver);
+  });
+}
+
 // The scene's audio and video layers whose sound may be heard, each with its word transcript or
 // why there is none. `transcriptOf(layer, {make})` reads the saved transcript, and with make
 // (a full check) transcribes the file first; it throws when it cannot (no speech model).
@@ -756,7 +769,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     if (driftPending) {
       // Not kept: the next check runs the scene again (its frames are reused) and reads the drift.
       const note = "reference_drift is measuring this scene against its references in the background (about a minute); the next check includes it.";
-      return { model, findings: result.findings, notes: [...result.notes, note], techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model) };
+      return { model, findings: result.findings, notes: [...result.notes, note], techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model), pending: true };
     }
     const entry = { model, findings: result.findings, notes: result.notes, techniques: techniqueCounts(techniquesUsed(model)), ms: Math.round(performance.now() - started), bytes: modelBytes(model) };
     cache.set(key, entry);
@@ -786,6 +799,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
+    // The waivers that silenced a finding: the rest of a rule that ran are stale.
+    const silencing = new Set();
     const findings = [];
     const notes = [];
     const unchecked = [];
@@ -806,6 +821,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const lengthScene = length ? videoScene(document) : null;
     const videoLength = lengthScene ? { ...length, video: lengthScene.duration } : null;
     const media = await mediaSizes(document);
+    // Stale waivers are judged only when every rule had what it measures (media sizes, transcripts, people, drift).
+    let measuredAll = !media.pending;
     // What shape_guess and ask_unmet read besides the document: part of each scene's key.
     const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles]);
     // The story spine is the video's: only its scene is held to it (a format variant or a
@@ -830,13 +847,17 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null
         : null;
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
-      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, origin, playsOn, base });
+      // A rule without its input (a transcript, the people found) finds nothing: no waiver is judged stale then.
+      if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
+      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ??await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, origin, playsOn, base });
+      if (pending) measuredAll = false;
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {
         const item = finding.itemId ? model.itemOf(finding.itemId) : null;
         const { fix, auto } = fixOps(finding.fix, finding, model, document, codes, fonts);
         const waiver = waiverFor(finding, model, waivers);
+        if (waiver) silencing.add(waiver);
         findings.push({
           severity: finding.severity, rule: finding.rule,
           ref: item ? refOfItem(item, model, codes) : finding.layerId ? refName(finding.layerId, codes) : refName(scene.id, codes),
@@ -856,7 +877,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       }
     }
     const sorted = Object.fromEntries(Object.entries(techniques).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
-    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted };
+    // Stale waivers are judged only on a check of every scene with everything measured (pixels on,
+    // or each scene's full check kept): a quick check without saved faces or words would miss findings.
+    const pixelsRan = Boolean(renderFrames) && !unchecked.length;
+    const stale = !sceneId && measuredAll && (pixels || pixelsRan) ? staleWaivers(waivers, silencing, { pixelsRan }) : [];
+    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale };
   }
 
   return { check };

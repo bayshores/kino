@@ -11,7 +11,8 @@ import { assignCodes, closest, createResolver, documentObjects, emptyCodes, Refe
 import { OperationError, translateOperations } from "./agent/translate.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
-import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, MAX_FINDINGS, mergeFindings, openFindingLines, waiverNotes } from "./agent/checks.mjs";
+import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
+import { staleWaivers } from "./agent/quality.mjs";
 
 // A one-scene document ("main", 640×360) with the given engine operations applied.
 function sceneDocument(operations = [], { duration = 4 } = {}) {
@@ -741,4 +742,12 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   // `codes` limits the notes to the rules an edit just waived.
   assert.deepEqual(waiverNotes(waivers(6, "hold"), { codes: ["judder"] }), []);
   assert.equal(waiverNotes(waivers(6, "hold"), { codes: ["hold"] }).length, 1);
+  // A waiver of a rule that ran and silenced nothing is stale: it no longer counts, and one line names it.
+  // A gate (review) is never judged, nor a rule that renders frames (contrast) when none were rendered.
+  const holds = waivers(6, "hold");
+  const stale = staleWaivers([...holds, { code: "review", target: "*" }, { code: "contrast", target: "L1" }], new Set(holds.slice(1)), { pixelsRan: false });
+  assert.deepEqual(stale, [holds[0]]);
+  assert.deepEqual(waiverNotes(liveWaivers(holds, stale)), []);
+  assert.equal(staleWaiverLine(stale), 'stale waivers (nothing left to waive): hold L0. Drop each: edit unwaive_check {code:"hold", target:"L0"}.');
+  assert.equal(staleWaiverLine([]), "");
 });
