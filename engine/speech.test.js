@@ -318,6 +318,12 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   const second = parseDocument(applyOperations(next, [{ type: "keep_line", sceneId: "s", layerId: "clip", line: "the Oaks app", transcript, subtitle: false }], { fonts: defaultFonts })).scenes[0];
   const again = second.layers.find((layer) => layer.id === "clip");
   assert.deepEqual([volumeAt(again, 3), volumeAt(again, 5), volumeAt(again, 7.7)], [1, 0, 1]);
+  // A sound tag glued to the last word ("app.(laughs)") does not hide it: the line is found as clipLines shows it.
+  const tagged = { ...transcript, words: transcript.words.map((item) => (item.text === "app." ? { ...item, text: "app.(laughs)" } : item)) };
+  const reportsTagged = new Map();
+  const taggedOp = { type: "keep_line", sceneId: "s", layerId: "clip", line: "the Oaks app.", transcript: tagged, subtitle: false };
+  applyOperations(document, [taggedOp], { reports: reportsTagged, fonts: defaultFonts });
+  assert.equal(reportsTagged.get(taggedOp).file[1], 7.3);
 });
 
 test("keep_line on a voice cut into pieces silences every piece but the part that plays the line, and a quiet bed dips by half", () => {

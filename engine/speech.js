@@ -773,6 +773,8 @@ const LINE_TEXT_MOST = 60;
 // A tag glued to a word ("see.(laughs)") goes; a whole tag word ("(Door", "creaks)", "Sigh*") is not a word said.
 const GLUED_TAG = /\([^)]*\)|\[[^\]]*\]/g;
 const isTagWord = (text) => SOUND_TAG.test(text) || /^\*|\*$/.test(text);
+/** A word without a sound tag glued to it: "see.(laughs)" is "see." (clipLines and keep_line read it so). */
+export const withoutGluedTag = (text) => String(text).replace(GLUED_TAG, "").trim();
 const endsLine = (text) => /[.?!…]["')]*$/.test(text);
 
 /**
@@ -793,7 +795,7 @@ export function clipLines(transcript, { most = 3 } = {}) {
     lines.push({ text: text.length > LINE_TEXT_MOST ? `${text.slice(0, LINE_TEXT_MOST - 1).trimEnd()}…` : text, start: round(words[0].start), end: round(Math.max(words[0].start, words.at(-1).end)) });
   };
   for (const word of transcript?.words ?? []) {
-    const text = String(word.text).replace(GLUED_TAG, "").trim();
+    const text = withoutGluedTag(word.text);
     if (word.unclear || !text || isTagWord(text) || FILLERS.has(plainWord(text))) { close(); continue; }
     if (line.length && word.start - line.at(-1).end >= LONG_PAUSE) close();
     line.push({ ...word, text });

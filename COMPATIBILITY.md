@@ -806,7 +806,8 @@ How to read it:
   by half. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
 - **Spoken lines in found footage**: Verified with a stand-in whisper, not on found clips. An import reads
   each clip's own sound (`heard "..."`), look source lists `heard:`, and a muted clip's lines are named once
-  (status or an edit's notes) with the keep_line plus isolate_voice call. Evidence: `engine/speech.test.js`
+  (status or an edit's notes) with the keep_line plus isolate_voice call, also a line the trim cuts off
+  (with the file seconds to move it to). Evidence: `engine/speech.test.js`
   (clipLines), `backend/footage-finder.test.mjs` (takeText), `backend/agent-speech.test.mjs`. Gaps: the model
   is English only, so other languages come out as sound-alike words; import time with whisper not measured.
 
