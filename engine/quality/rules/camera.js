@@ -424,7 +424,7 @@ export function cutMidMove(model, ctx) {
     if (!gone.length || !come.length) continue;
     const [moving, still] = out.speed >= into.speed ? [out, into] : [into, out];
     if (moving.speed < CUT_SPEED || still.speed >= CUT_MATCH * moving.speed) continue;
-    // A move that starts on the incoming layer's first frame is begun by the cut: nothing is interrupted.
+    // A move (or entrance) that starts on the incoming layer's first frame is begun by the cut: nothing is interrupted.
     if (moving === into && startsWithCut(model, into.item, index)) continue;
     if (model.times[index] - lastAt < 0.3) continue;
     lastAt = model.times[index];
@@ -432,10 +432,11 @@ export function cutMidMove(model, ctx) {
     const name = ctx.name(moving.item);
     const began = moving === into ? moveStartedAt(model, into.item, index) : null;
     const speeds = `(${moving.speed.toFixed(2)} frame widths a second) and the other side of the cut is still (${still.speed.toFixed(2)})`;
-    const message = began === null
-      ? `At ${at} s ${moving === out ? `${name} is cut while still moving` : `${name} cuts in already moving`} ${speeds}.`
-      : `At ${at} s ${name} cuts in partway through a move that started at ${sec(began)} s ${speeds}.`;
-    const fix = began === null
+    // The outgoing side chops a move; the incoming side joins one the viewer did not see begin.
+    const message = moving === out ? `At ${at} s ${name} is cut while still moving ${speeds}.`
+      : began === null ? `At ${at} s ${name} cuts in already moving ${speeds}.`
+        : `At ${at} s ${name} cuts in partway through a move that started at ${sec(began)} s ${speeds}.`;
+    const fix = moving === out
       ? `Let the move finish before the cut (end it by ${at} s), or give the other shot a matching move in the same direction for the first 0.3 s, or join them with a push or whip.`
       : `Start ${name}'s move on its first frame (${at} s) so the cut begins it, or give the other shot a matching move for its last 0.3 s, or join them with a push or whip.`;
     findings.push({

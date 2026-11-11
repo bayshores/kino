@@ -21,8 +21,10 @@ Camera rules read the model at 30 samples a second (no render).
   covered. A fade through black (under 10%) is deliberate, and so is a quick dip (under 40%
   with the two fades overlapping under 30% of the shorter one). Fix: fade only the top shot.
 - `cut_mid_move` (warning): a cut of a large layer while one side moves fast and the other is
-  still. Cut after the move settles, or match the move across it. A move that starts on the
-  incoming layer's first frame is begun by the cut and passes.
+  still. Cut after the move settles, or match the move across it. A move or entrance that starts
+  on the incoming layer's first frame is begun by the cut and passes.
+- `transitions_dense` (warning): over 2 large transitions in 6 beats. A full-frame shot's move
+  from its own cut, and an effect (a glow) on a layer that stays on screen, are not transitions.
 - `speed_jump` (warning): where one move hands off to the next, the on-screen speed (place,
   scale at the corners, rotation) jumps over 5%. A still move or a gap between is a hold, not a
   jump, and an instant step (a `frame` cut) is a jump on purpose. Auto fix: same way on, it roves the pair (time shared by distance, one speed at the join);

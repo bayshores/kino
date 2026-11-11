@@ -929,7 +929,7 @@ How to read it:
   aside. Unit-tested. Evidence: `engine/qualityPolish.test.js`.
 - **Waivers lapse**: a waiver on a layer is dropped when the layer is deleted or its `src` changes.
   Evidence: `engine/operations.test.js`.
-- **Waived checks point to the fix**: Done. A refused face-cut waiver answers with `frame_shot` for its layers, a `*` waiver says how many layers it covers, the final gate and render show the waived count, and a mark that misses a face warns only when the crop slices it. Evidence: `backend/look-source.test.mjs`, `backend/agent-core.test.mjs`, `backend/agent-final-stops.test.mjs`, `engine/qualityRules.test.js`.
+- **Waived checks point to the fix**: Done. A refused face-cut waiver answers with `frame_shot` for its layers, a `*` waiver says how many layers it covers, the final gate and render show the waived count (stale waivers, whose rule no longer fires, left out and listed by a full check), and a mark that misses a face warns only when the crop slices it. Evidence: `backend/look-source.test.mjs`, `backend/agent-core.test.mjs`, `backend/agent-final-stops.test.mjs`, `engine/qualityRules.test.js`.
 - **no_music, the no-music sound stop, look sound** (warning): a 10 s video with no song warns, the
   sound stop offers track, search or silence, and `look {mode:"motion", ref:"sound"}` measures the mix.
   Unit-tested, not yet proven on a real first pass. Evidence: `engine/qualityPolish.test.js`,
@@ -957,7 +957,7 @@ How to read it:
 - **Transition dip check** (`transition_dip`, warning): a dissolve fading both full-frame shots at
   once. Hand-made scenes only. Evidence: `engine/qualityRules.test.js`.
 - **Cut mid move check** (`cut_mid_move`, warning): a hard cut chopping a fast move with the other
-  side still; a move that starts on the incoming layer's first frame is begun by the cut and passes.
+  side still; a move or entrance that starts on the incoming layer's first frame is begun by the cut and passes.
   Hand-made scenes only. Evidence: `engine/qualityRules.test.js`.
 - **Frozen picture check** (`frozen_picture`): a gate on rendered frames: the picture in a playing
   clip's box unchanged 0.3 s+. Partly verified: hand-made clips and a real trailer's phone

@@ -100,6 +100,11 @@ test("a rule waived a sixth time says so in the edit receipt's notes and right a
   const six = await agent("edit", { project: "waived6", ops: [tiles[5], { op: "waive_check", code: "hold", target: "tile5", reason: "on purpose" }] });
   assert.match(six.data.notes.join(" "), /^hold is waived 6 times here: likely a kino false positive/, six.text);
   assert.match((await agent("check", { project: "waived6", pixels: false })).text.split("\n")[1], /^note: hold is waived 6 times/);
+  // A full check measures everything: hold never fires on a tile (no text), so the six waivers are
+  // stale, are not counted, and one line names them with the call that drops one.
+  const full = (await agent("check", { project: "waived6" })).text;
+  assert.doesNotMatch(full, /hold is waived 6 times/, full);
+  assert.match(full, /\nstale waivers \(nothing left to waive\): hold tile0, hold tile1, hold tile2, hold tile3 \+2\. Drop each: edit unwaive_check \{code:"hold", target:"tile0"\}\.\n/, full);
 });
 
 test("check {fix:\"auto\"} tightens a slow layer stagger and keeps its order", async () => {

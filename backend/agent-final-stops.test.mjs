@@ -74,9 +74,12 @@ test("the agent's final render and final export wait for rough, color and sound;
   assert.equal(exported.data.error, "stops_open", exported.text);
 
   // A waived check shows at the last step: the final gate's refusal ends with the waived count.
-  const waive = await agent("edit", { project: "final-waits", ops: [{ op: "waive_check", code: "overlap", target: "title", reason: "meant" }] });
+  // A waiver that silences nothing (overlap: the title overlaps nothing) is stale and not counted.
+  const waive = await agent("edit", { project: "final-waits", ops: [{ op: "waive_check", code: "default_font", target: "title", reason: "meant" },
+    { op: "waive_check", code: "overlap", target: "title", reason: "meant" }] });
   assert.equal(waive.isError, undefined, waive.text);
-  assert.match((await finalRender("final-waits")).data.reason, /A final render still needs: .*\. 1 waived \(overlap 1\)\.$/);
+  assert.equal((await agent("check", { project: "final-waits" })).isError, undefined);
+  assert.match((await finalRender("final-waits")).data.reason, /A final render still needs: .*\. 1 waived \(default_font 1\)\.$/);
   // A refused waiver whose finding has no op to apply answers with the check that lists its words, not a dead end.
   const hinted = await agent("edit", { project: "final-waits", ops: [{ op: "waive_check", code: "held_static", target: "title", reason: "meant" }] });
   assert.equal(hinted.isError, true, hinted.text);

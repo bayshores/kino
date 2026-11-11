@@ -494,6 +494,19 @@ function waiverFor(finding, model, waivers) {
   return waivers.find((waiver) => waiver.code === finding.rule && (waiver.target === "*" || targets.has(waiver.target)));
 }
 
+const RULE_BY_CODE = new Map(RULES.map((entry) => [entry.code, entry]));
+/**
+ * The waivers of a rule that ran and silenced no finding: the rule no longer fires there, so the
+ * waiver is stale. Only rules of the registry are judged (not the gates such as review or
+ * critique, nor the render checks); a rule that renders frames only when `pixelsRan`.
+ */
+export function staleWaivers(waivers, silencing, { pixelsRan }) {
+  return waivers.filter((waiver) => {
+    const rule = RULE_BY_CODE.get(waiver?.code);
+    return rule && !rule.askOnly && (pixelsRan || !rule.pixels) && !silencing.has(waiver);
+  });
+}
+
 // The scene's audio and video layers whose sound may be heard, each with its word transcript or
 // why there is none. `transcriptOf(layer, {make})` reads the saved transcript, and with make
 // (a full check) transcribes the file first; it throws when it cannot (no speech model).
@@ -786,6 +799,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
+    // The waivers that silenced a finding: the rest of a rule that ran are stale.
+    const silencing = new Set();
     const findings = [];
     const notes = [];
     const unchecked = [];
@@ -837,6 +852,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         const item = finding.itemId ? model.itemOf(finding.itemId) : null;
         const { fix, auto } = fixOps(finding.fix, finding, model, document, codes, fonts);
         const waiver = waiverFor(finding, model, waivers);
+        if (waiver) silencing.add(waiver);
         findings.push({
           severity: finding.severity, rule: finding.rule,
           ref: item ? refOfItem(item, model, codes) : finding.layerId ? refName(finding.layerId, codes) : refName(scene.id, codes),
@@ -856,7 +872,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       }
     }
     const sorted = Object.fromEntries(Object.entries(techniques).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
-    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted };
+    // Stale waivers are judged only on a check of every scene with everything measured (pixels on,
+    // or each scene's full check kept): a quick check without saved faces or words would miss findings.
+    const pixelsRan = Boolean(renderFrames) && !unchecked.length;
+    const stale = !sceneId && (pixels || pixelsRan) ? staleWaivers(waivers, silencing, { pixelsRan }) : [];
+    return { findings, notes, ms: Math.round(performance.now() - started), scenes: scenes.length, unchecked, techniques: sorted, stale };
   }
 
   return { check };

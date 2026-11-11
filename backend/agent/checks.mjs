@@ -277,6 +277,17 @@ export function waiverNotes(waivers = [], { codes = null } = {}) {
     .map(([code, count]) => `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
 }
 
+/** The waivers that still count: all but the stale ones (a full check's `stale`, quality.mjs staleWaivers). */
+export const liveWaivers = (waivers = [], stale = []) => waivers.filter((waiver) => !stale.includes(waiver));
+
+/** One line naming the stale waivers (their rule no longer fires) and the call that drops one, or "". */
+export function staleWaiverLine(stale = [], nameOf = (id) => id) {
+  if (!stale.length) return "";
+  const named = stale.map((waiver) => `${waiver.code} ${nameOf(waiver.target)}`);
+  const [first] = stale;
+  return `stale waivers (nothing left to waive): ${named.slice(0, 4).join(", ")}${named.length > 4 ? ` +${named.length - 4}` : ""}. Drop each: edit unwaive_check {code:"${first.code}", target:"${nameOf(first.target)}"}.`;
+}
+
 // info: true lists advice too (a check that names its rules asked for them).
 export function checkReport(findings, { limit = MAX_FINDINGS, info = false } = {}) {
   const shown = info ? findings.filter((finding) => !finding.waived) : shownFindings(findings);
