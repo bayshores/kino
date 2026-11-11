@@ -24,11 +24,11 @@ const TOOLS = "Bash,Read,Agent";
 // ---- pure parts (tests/taste-harness.test.mjs) ----------------------------------------------------
 
 /**
- * The person's message: the ask, then the files, then any notes, then the project's name when
+ * The person's message: the ask, then the files (none: kino finds the footage and the song), then any notes, then the project's name when
  * there is one. Nothing about kino or taste.
  */
 export function promptFor(brief, files, projectId = null) {
-  const lines = [brief.ask.trim(), "", "Files:", ...files.map((file) => `- ${file}`)];
+  const lines = [brief.ask.trim(), ...(files.length ? ["", "Files:", ...files.map((file) => `- ${file}`)] : [])];
   if (brief.notes) lines.push("", brief.notes.trim());
   if (projectId) lines.push("", `Use ${projectId} as the project id.`);
   return lines.join("\n");
@@ -105,7 +105,7 @@ export function summarize(events) {
 function loadBrief(name) {
   const file = existsSync(name) ? path.resolve(name) : path.join(root, "evals/taste/briefs", `${name.replace(/\.json$/, "")}.json`);
   const brief = JSON.parse(readFileSync(file, "utf8"));
-  if (typeof brief.ask !== "string" || !Array.isArray(brief.media) || !brief.media.length) throw new Error(`${file}: a brief needs ask and media.`);
+  if (typeof brief.ask !== "string" || !Array.isArray(brief.media)) throw new Error(`${file}: a brief needs ask and media (media may be an empty list: kino finds the material).`);
   return { ...brief, name: brief.name ?? path.basename(file, ".json") };
 }
 

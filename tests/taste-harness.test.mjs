@@ -141,6 +141,7 @@ test("each first pass names its own project from the run id: its own deal seed a
   assert.equal(projectIdFor("Fp 10 (retry)!"), "fp-10-retry");
   assert.equal(projectIdFor("x".repeat(80) + "-12").length, 63);
   assert.equal(promptFor({ ask: "make a video" }, ["/r/a.mp4"], "kino-fp9"), "make a video\n\nFiles:\n- /r/a.mp4\n\nUse kino-fp9 as the project id.");
+  assert.equal(promptFor({ ask: "make an edit of the series" }, [], "kino-fp9"), "make an edit of the series\n\nUse kino-fp9 as the project id.", "no files: no Files list");
   assert.equal(projectIdFromStatus("kino launch (v2) trailer (kino-launch) rev 47 · 1 scene"), "kino-launch", "the id the agent really made");
   assert.equal(projectIdFromStatus("No project open."), null);
 });
