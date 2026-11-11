@@ -176,6 +176,37 @@ test("variants {vary:\"format\"} composes a 16:9 footage scene again in 9:16, cr
   assert.match(refused.text, /reformats a scene made by compose; 'Scene 1' was built by hand\. Build it with compose/);
 });
 
+test("frame_shot frames a hand-placed crop from the file's size and found faces; check offers it for a cut face and fix:auto applies it", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {
+  const keeper = await upload(server, await makeClip("keeper.mp4", "testsrc=size=1920x1080:rate=24", 2));
+  // A face found at [20, 30, 15, 25]% of the file every half second, saved as a full check saves it.
+  const samples = [0, 0.5, 1, 1.5, 2].map((t) => ({ t, faces: [[0.2, 0.3, 0.15, 0.25]], people: [] }));
+  await writeFile(path.join(server.dataDirectory, "media", `${keeper.id}.people-v1`), JSON.stringify({ version: 1, fps: 2, samples }));
+  const placed = { src: keeper.src, x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 2 };
+  const cropOnly = { rules: ["crop_no_subject"], pixels: false };
+
+  // 9:16: the window (34 to 66% of the file) cuts the face; the fix is frame_shot, applied by fix:auto.
+  await agent("project", { action: "create", id: "keeper-tall", name: "Keeper tall", width: 1080, height: 1920, duration: 2 });
+  await agent("edit", { project: "keeper-tall", ops: [{ op: "add_layer", layerType: "video", name: "keeper", properties: placed }] });
+  const cut = await agent("check", { project: "keeper-tall", ...cropOnly });
+  assert.match(cut.text, /^E crop_no_subject \S+ @0: keeper cuts a face found whole in its file at the left .* fix\(auto\): .*"op":"frame_shot"/m, cut.text);
+  const fixed = await agent("check", { project: "keeper-tall", fix: "auto", ...cropOnly });
+  assert.match(fixed.text, /applied 1 auto fix.*\n {2}fixed crop_no_subject keeper$/m, fixed.text);
+  assert.doesNotMatch(fixed.text, /^[EW] crop_no_subject/m, fixed.text);
+  const ids = (await (await server.api("/api/projects/keeper-tall")).json()).document.scenes[0].layers.map((layer) => layer.id);
+  assert.ok(ids.some((id) => id.endsWith("-blur")), `no crop of a 16:9 file keeps the face in 9:16: the shot is a card over a blurred copy (${ids})`);
+  const again = await agent("edit", { project: "keeper-tall", ops: [{ op: "frame_shot", layer: "keeper" }] });
+  assert.match(again.text, /frame_shot keeper: already framed \(keeper blur is its blurred backdrop/, again.text);
+
+  // 4:5: a crop keeps 45% of the width, so it is cropped to the face (its middle, x 27.5% of the
+  // 2400 px wide file, at the frame's middle: 540 - 660 = -120).
+  await agent("project", { action: "create", id: "keeper-feed", name: "Keeper feed", width: 1080, height: 1350, duration: 2 });
+  await agent("edit", { project: "keeper-feed", ops: [{ op: "add_layer", layerType: "video", name: "keeper", properties: { ...placed, x: -700, width: 2400, height: 1350 } }] });
+  const framed = await agent("edit", { project: "keeper-feed", ops: [{ op: "frame_shot", layer: "keeper" }] });
+  assert.equal(framed.isError, undefined, framed.text);
+  assert.match(framed.text, /frame_shot keeper: cropped to the face \(2400×1350 at -120, 0\)/, framed.text);
+  assert.doesNotMatch((await agent("check", { project: "keeper-feed", ...cropOnly })).text, /E crop_no_subject/);
+});
+
 test("library media lists every shot of one video by its id when two uploads share a name", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {
   const again = await upload(server, CLIP);
   const byName = await agent("library", { project: "framing", topic: "media", search: "sintel-village" });

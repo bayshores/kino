@@ -136,6 +136,7 @@ export const OP_EXAMPLES = {
   split_layer: { op: { op: "split_layer", layer: "footage", at: 0.8 }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   split_image: { op: { op: "split_image", layer: "shot", boxes: [{ name: "bar", rect: [0, 0, 100, 20] }, { name: "row1", rect: [0, 20, 100, 40] }] }, setup: [{ op: "add_layer", layerType: "image", name: "shot", properties: { src: "/api/media/<image>.png" } }], media: ["image"] },
   mark_subject: { op: { op: "mark_subject", layer: "footage", t: 1, box: [30, 10, 40, 80] }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
+  frame_shot: { op: { op: "frame_shot", layer: "footage" }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   // A board covers the whole video (6 s here) or its music: one shot of the 2 s clip needs a 2 s scene
   // (an example stays under 400 characters, so it has one shot).
   board: { op: { op: "board", music: "none", shots: [{ cue: 0, dur: 2, pacing: "free", media: "<video>.mp4", in: 0, crop: [0, 7.8, 100, 84.4], subject: { what: "the speaker", box: [30, 10, 40, 80] },

@@ -446,6 +446,12 @@ export function createAgentService(deps) {
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.
     footageFacts: (document, input) => footageFacts(document, input), footageDeck: (document, options) => footageDeck(document, options),
     runOps: (document, ops) => runOps(document, ops),
+    // frame_shot: the faces saved for a layer's file, the ones check reads (never a new decode).
+    subjectSamples: async (layer) => {
+      let file;
+      try { file = mediaFileOf(layer); } catch { return []; }
+      return ((await usableSubjects(file)) ?? (await peopleCache.saved(file)))?.samples ?? [];
+    },
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.

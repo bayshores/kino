@@ -189,7 +189,8 @@ function backdropAnimation(animation, opacity) {
  * kino's own shot layout for a video layer that was placed by hand: the same choice compose
  * {footage} makes (shotLayout), from the file's size, the subject marked on the layer (mark_subject)
  * and the subjects measured in the file (`samples`, subjects-v1 or people-v1). Returns
- *   {kind, patch, backdrop}  patch: the layer's new box (and, for blur-fill, radius and shadow);
+ *   {kind, on, patch, backdrop}  on: "mark", "face", "salient" or null (what the layout aimed at);
+ *                            patch: the layer's new box (and, for blur-fill, radius and shadow);
  *                            backdrop: a blurred copy to put right under the layer (blur-fill), or null.
  * `taken` is the set of layer ids in use. Throws a plain sentence when the layer cannot be framed.
  */
@@ -212,7 +213,9 @@ export function frameShot(scene, layer, { size, samples = [], taken = new Set() 
   const screen = Boolean(layer.recording);
   const layout = shotLayout({ width: size.width, height: size.height, name: layer.name, kind: screen ? "screen" : "camera" }, frame,
     { focus: marked?.center ?? seen.face, subject: marked?.box ?? null, salient: seen.salient });
-  if (layout.kind === "fill") return { kind: "fill", patch: { ...layout.main }, backdrop: null };
+  // What the crop was aimed at, for the agent's receipt.
+  const on = marked ? "mark" : seen.face ? "face" : seen.salient ? "salient" : null;
+  if (layout.kind === "fill") return { kind: "fill", on, patch: { ...layout.main }, backdrop: null };
   const patch = { ...layout.main, radius: layout.radius, shadow: { color: "#000000B3", x: 0, y: Math.round(0.02 * frame.height), blur: Math.round(0.05 * frame.height) } };
   const back = layout.backdrop;
   let id = `${layer.id}-blur`;
@@ -226,5 +229,5 @@ export function frameShot(scene, layer, { size, samples = [], taken = new Set() 
   delete backdrop.shadow;
   delete backdrop.subjectBoxes;
   delete backdrop.move;
-  return { kind: "blur-fill", patch, backdrop };
+  return { kind: "blur-fill", on, patch, backdrop };
 }

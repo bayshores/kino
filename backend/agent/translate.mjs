@@ -73,7 +73,7 @@ const NEW_RULE_CODES = ["shape_guess", "narrow_window", "ask_unmet"];
 const KNOWN_WAIVER_CODES = new Set([...RULES.map((entry) => entry.code), ...WAIVER_GATES, ...NEW_RULE_CODES]);
 // What each person-words waiver is about, and the fix to try first (the default text is for what viewers see).
 const PERSON_WORDS_ABOUT = {
-  crop_no_subject: { about: "who stays in the frame", fix: 'mark_subject the part you mean, or frame the shot with the frame op' },
+  crop_no_subject: { about: "who stays in the frame", fix: 'mark_subject the part you mean, or frame_shot the layer (kino\'s own crop)' },
   shape_guess: { about: "the frame's shape", fix: 'ask which shape they want and save it as plays_on by "you" with their quote, or make the scene the shape the footage has' },
 };
 const HANDED_OVER = /^\s*(?:it'?s\s+)?(?:your call|up to you|you decide|you pick|whatever you think|ok(?:ay)?|yes|approve[ds]?|looks good|fine)[\s.!]*$/i;
