@@ -168,7 +168,7 @@ const ORDER = "stops-order";
 test("a video with no footage asks only its own stops, in order; notes answer records the reply and releases the writes", async () => {
   const project = ORDER;
   const { rev, checked } = await stopProject(project);
-  assert.deepEqual((await statusOf(project)).lines, ["direction: no brief lines, no playback · replies 0/10", "step: guess 5 missing lines"], "with no stop asked, status shows B1's lines");
+  assert.deepEqual((await statusOf(project)).lines, ["direction: no brief lines, no playback · replies 0/10", "step: save ask and about"], "with no stop asked, status shows B1's lines");
   const board = await checkpoint(project, "board");
   assert.equal(board.isError, undefined, board.text);
   assert.deepEqual(board.data, { status: "skipped", kind: "board", reason: "under 3600 s" });
@@ -790,7 +790,7 @@ test("a stop nobody can answer any more never holds up the writes: after an undo
   assert.equal((await dashboard("undo", { body: { project: short, turn: longer.data.turn } })).status, 200);
   // status, the agent's first call after the undo, does not say to wait for C1.
   const status = await statusOf(short);
-  assert.deepEqual(status.lines, ["direction: C1 rough lapsed · replies 0/10", "step: guess 5 missing lines"], "not: end your turn");
+  assert.deepEqual(status.lines, ["direction: C1 rough lapsed · replies 0/10", "step: save ask and about"], "not: end your turn");
   assert.equal(status.data.waiting, undefined);
   const skipped = await checkpoint(short, "rough");
   assert.deepEqual(skipped.data, { status: "skipped", kind: "rough", reason: "under 15 s" });
@@ -862,7 +862,9 @@ test("Trash and back, or a new name, while a stop waits: it still waits, and the
 test("once the brief is settled, status says which stop to ask after building", async () => {
   const project = "stops-next";
   await stopProject(project, { check: false });
-  const fields = Object.fromEntries(["message", "plays_on", "made_from", "look_sound", "never"].map((name) => [name, { text: "a guess", by: "guessed" }]));
+  // No person in this test: ask "none", so the subject may be a guess too.
+  const fields = Object.fromEntries(["about", "message", "plays_on", "made_from", "look_sound", "never"].map((name) => [name, { text: "a guess", by: "guessed" }]));
+  fields.ask = "none";
   assert.equal((await agent("notes", { project, action: "brief", fields })).isError, undefined);
   assert.equal((await statusOf(project)).lines[1], "step: notes set_plan, build, then ask rough");
   await agent("notes", { project, action: "set_plan", steps: ["Build", "Check"] });
@@ -886,7 +888,7 @@ test("the direction and next lines fit in 40 tokens with stops in every state", 
   const state = (count, stops, extra = {}) => ({ brief: brief(count), plan: { steps: [] }, stops, nextStop: stops.length + 1, checked: null, stopAsking: null, ...extra });
 
   // No stop asked: B1's lines, unchanged.
-  assert.deepEqual(statusLines(state(0, []), video(false), rules("ask")), ["direction: no brief lines, no playback · replies 0/10", "step: guess 5 missing lines"]);
+  assert.deepEqual(statusLines(state(0, []), video(false), rules("ask")), ["direction: no brief lines, no playback · replies 0/10", "step: save ask and about"]);
   // The F9 lines the API cannot reach (a lapsed round is replaced by the re-ask).
   assert.deepEqual(statusLines(state(5, [round(2, "rough", { status: "lapsed", lapsedAt: at, lapsedRev: 5 })]), video(false), rules("ask")),
     ["direction: C2 rough lapsed · replies 5/10", "step: check, then ask rough again"]);

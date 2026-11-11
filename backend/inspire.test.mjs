@@ -174,6 +174,8 @@ test("origin: words many relevant titles share, the most viewed relevant results
   const inspire = createInspire({ directory: path.join(folder, "origin"), projectState: memoryProjects(), search: async (query, options) => { asked.push([query, options.count, options.dropped]); return found; } });
   assert.deepEqual(await inspire.origin(about, { ask: [] }), { query: "keeper", ...originOf(found, about) });
   assert.deepEqual(asked, [["keeper", 20, undefined]]);
+  await inspire.origin(about, { ask: ["a long message about the keeper climbing the tower and nothing else"] });
+  assert.deepEqual(asked.map((entry) => entry[0]), ["keeper", "keeper"], "the person's whole message is never searched, only the about quote");
   const failing = createInspire({ directory: path.join(folder, "origin-fail"), projectState: memoryProjects(), search: async () => { throw Object.assign(new Error("not found"), { code: "NO_YTDLP" }); } });
   assert.deepEqual(await failing.origin(about), { query: "keeper", skipped: "yt-dlp is not installed" });
 });

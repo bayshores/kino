@@ -11,13 +11,13 @@ Every answer ends with `next:`, the likely next call written out. When unsure,
 send it as is; put your own words where it has `<angle brackets>`. A new video, idea first:
 
 1. `project {action:"create", id:"orbit", name:"Orbit promo", width:1920, height:1080, duration:15}`
-2. `notes` brief: their message whole (`ask`), then a line per thing (plain text is a guess).
+2. `notes` brief: `ask` (their message whole; `"none"` if no person), `about`, then a line per thing.
 3. Save 2 references (`library {topic:"inspire"}`), study one (`look {mode:"reference"}`).
 4. 5 treatments (3+ whos), their pick, its signature and spine; building first is refused (`order_needed`).
 5. `edit` with one `compose` (or `format`: `library {topic:"formats"}`), then `check {fix:"auto"}`, `look {mode:"review"}`, `render`.
 
 ```json
-{"tool":"notes","action":"brief","fields":{"ask":"Plan the whole week in one view","message":"Plan the whole week in one view","plays_on":"web, 16:9","made_from":"kino blocks","look_sound":"dark, bold type","never":"no stock photos"},"no_playback":"just start"}
+{"tool":"notes","action":"brief","fields":{"ask":"Plan the whole week in one view","about":{"text":"the week view","by":"you","quote":"the whole week in one view"},"message":"Plan the whole week in one view","plays_on":"web, 16:9","made_from":"kino blocks","look_sound":"dark, bold type","never":"no stock photos"},"no_playback":"just start"}
 {"tool":"edit","ops":[{"op":"compose","duration":6,"beats":[{"recipe":"logo-sting","text":"Orbit","tagline":"Plan the week in one view"}]}],"expect":"order_needed"}
 {"tool":"check","fix":"auto"}
 {"tool":"look","mode":"review"}
@@ -31,21 +31,21 @@ fields as `key=value`: `kino look frame t=3`.
 | Tool | Use |
 |---|---|
 | `status` | The outline, `direction:`, `step:`, the plan and your inbox. Call it first. |
-| `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision with a receipt. |
+| `edit {ops}` | Every change: a list of `{op, …}`, saved as one revision. |
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks in one call. |
 | `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets). |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
 | `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. |
-| `library` | Exact rules: `{topic:"op", name}` (fields, an example), presets, fonts, blocks. |
+| `library` | Exact rules: `{topic:"op", name}` (fields), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
 | `notes` | The `brief`, stops, plan, the person's notes, `helper` agents. |
 | `project` | `create`, `open`, `import`, `share`, `manage`. |
 
 ## The loop
 
-1. `status`; inbox notes first (`notes reply` when fixed; `always ▸` ones stay). New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
+1. `status`; inbox notes first. New chat or compaction: first say its `direction:` back in one sentence, and trust it over your memory.
 2. New video: brief from the chat ([controls](references/controls.md)); from 8 s, board first.
-   Save their material (`edit` op `source`) and write the story.
+   Save their material (`edit` op `source`); write the story.
    **A video is one scene**: `render` makes one file per scene.
 3. Save 2+ edits like yours (`library {topic:"inspire", search}`), study their
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
@@ -69,7 +69,7 @@ fields as `key=value`: `kino look frame t=3`.
   `layer:"headline"`; `headline.in` is its entrance. Codes (`L3`, `A2`, `s1`) work too.
 - One scene: no `scene` field. Several: `scene:"s2"` or its name.
 - Positions: top-left, scene pixels; colors hex. Text needs a `width` and `height` that fit.
-- Restraint: plain cuts; 1-2 signature moves; one type style, grade, brightness. Every effect
+- Restraint: plain cuts; 1-2 signature moves; one type style and grade. Every effect
   needs a cue that motivates it; reference counts are ceilings; none is fine ([techniques](references/techniques.md), style spec).
 - `add_layer` takes its animations inline: `animations:[{preset:"preset-fade", start, duration}]`;
   `"mode":"out"` makes an exit.

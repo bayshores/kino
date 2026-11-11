@@ -49,18 +49,30 @@ async function dashboard(route, { method = "POST", body } = {}, on = server) {
 // The order steps before building (2 references, 5 treatments: brief.mjs orderStep) are waived
 // unless a test asks for them.
 const ORDER_WAIVERS = ["reference", "treatments"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a brief test" }));
-async function newProject(id, on = server, duration = 24, { references = false } = {}) {
+// A project's first brief save with lines carries the person's message and what the video is about
+// (kino checks every quote against the message, and wants both before the brief is complete);
+// `ask: false` on newProject leaves them out for the tests about their absence.
+const askSent = new Set();
+const askKey = (project, on = server) => `${on.dataDirectory}/${project}`;
+async function newProject(id, on = server, duration = 24, { references = false, ask = true } = {}) {
   const made = await agent("project", { action: "create", id, name: id, width: 1080, height: 1920, duration }, on);
   assert.equal(made.isError, undefined, made.text);
   if (!references) await agent("edit", { project: id, ops: ORDER_WAIVERS }, on);
+  if (ask) askSent.delete(askKey(id, on)); else askSent.add(askKey(id, on));
 }
 
-const brief = (project, body, on) => agent("notes", { project, action: "brief", ...body }, on);
+function withMessage(project, body = {}, on) {
+  if (!body.fields || askSent.has(askKey(project, on))) return body;
+  askSent.add(askKey(project, on));
+  return { ...body, fields: { ask: ASK_TEXT, about: ABOUT, ...body.fields } };
+}
+const brief = (project, body, on) => agent("notes", { project, action: "brief", ...withMessage(project, body, on) }, on);
 const statusLines = async (project, on) => (await agent("status", { project }, on)).text.split("\n");
 // The project's agent-state file, where the reply log is kept (answers leave it out).
 const savedState = async (project, on = server) => JSON.parse(await readFile(path.join(on.dataDirectory, "agent", "projects", `${project}.json`), "utf8"));
 
 const MESSAGE = { text: "skate crew; make them want to skate now", by: "you", quote: "my skate crew, they should feel like going out to skate" };
+const ABOUT = { text: "the skate crew", by: "you", quote: "my skate crew" };
 const PLAYS_ON = { text: "TikTok, 9:16, 24 s", by: "guessed" };
 const FIRST_QUESTION = { q: "Who's it for, and what should they feel after watching?", a: "my skate crew, they should feel like going out to skate" };
 // The person's answer to a playback of revision `rev`: a yes confirms it, anything else does not.
@@ -80,7 +92,7 @@ test("a brief with a you line and a guessed line reads back, and status shows di
   const empty = await brief("brief-read");
   assert.equal(empty.isError, undefined, empty.text);
   assert.equal(withoutNext(empty.text), 'No brief yet · replies 0 of 10. Ask in the chat (library guide direction), then save: notes {action:"brief", fields:{message:{text, by:"you", quote}}, log:[{q, a}]}.');
-  assert.deepEqual(empty.data, { brief: null, missing: ["message", "plays_on", "made_from", "look_sound", "never"],
+  assert.deepEqual(empty.data, { brief: null, missing: ["ask", "message", "plays_on", "made_from", "look_sound", "never"],
     replies: { count: 0, limit: 10, questions: 0, playbacks: 0, stops: 0 }, next: "new video? brief first (library guide direction)" });
   const before = await statusLines("brief-read");
   assert.deepEqual(before.slice(1, 3), ["direction: no brief · replies 0/10", "step: new video? brief first (library guide direction)"]);
@@ -88,17 +100,19 @@ test("a brief with a you line and a guessed line reads back, and status shows di
   const saved = await brief("brief-read", { fields: { message: MESSAGE, plays_on: PLAYS_ON }, log: [FIRST_QUESTION] });
   assert.equal(saved.isError, undefined, saved.text);
   assert.equal(withoutNext(saved.text), [
-    "brief r1 saved: message (you said), plays_on (guessed) · 1 reply logged (question) · replies 1 of 10",
+    "brief r1 saved: message (you said), plays_on (guessed), about (you said) · ask saved (1 message as typed) · 1 reply logged (question) · replies 1 of 10",
     "missing: made_from, look_sound, never",
     "step: ask about look_sound, or guess it",
   ].join("\n"));
-  assert.ok(estimateTextTokens(withoutNext(saved.text)) <= 80, `the save answer is about ${estimateTextTokens(withoutNext(saved.text))} tokens`);
+  assert.ok(estimateTextTokens(withoutNext(saved.text)) <= 95, `the save answer is about ${estimateTextTokens(withoutNext(saved.text))} tokens`);
 
   const read = await brief("brief-read");
   assert.equal(withoutNext(read.text), [
     "brief r1, unconfirmed · replies 1 of 10 (1 question, 0 playbacks)",
     'message: you said "my skate crew, they should feel like going out to skate"',
     "plays_on: guessed → TikTok, 9:16, 24 s",
+    'about: you said "my skate crew"',
+    "ask: 1 message saved as typed",
     "missing: made_from, look_sound, never",
     "step: ask about look_sound, or guess it",
   ].join("\n"));
@@ -163,26 +177,26 @@ test("a you line needs a quote, a guessed line has none, and a refused save keep
   }
   const read = await brief("brief-quotes");
   assert.equal(read.data.brief.rev, 1, "no refused save changed the brief");
-  assert.deepEqual(Object.keys(read.data.brief.fields), ["message"]);
+  assert.deepEqual(Object.keys(read.data.brief.fields), ["message", "about"]);
   assert.equal(read.data.replies.count, 0);
 });
 
 test("the person's line is never replaced by a guess or removed; their correction replaces it", async () => {
   await newProject("brief-yours");
-  await brief("brief-yours", { fields: { never: { text: "no meme text", by: "you", quote: "no meme text please" } } });
+  await brief("brief-yours", { fields: { never: { text: "no meme text", by: "you", quote: "no meme text" } } });
   for (const never of [{ text: "no captions", by: "guessed" }, null]) {
     const refused = await brief("brief-yours", { fields: { never } });
     assert.equal(refused.data.error, "yours");
-    assert.equal(refused.data.reason, 'never is the person\'s ("no meme text please"). Ask them in the chat, then save their new words with by:"you".');
+    assert.equal(refused.data.reason, 'never is the person\'s ("no meme text"). Ask them in the chat, then save their new words with by:"you".');
   }
-  const corrected = await brief("brief-yours", { fields: { never: { text: "no meme text, no emoji", by: "you", quote: "no meme text and no emoji either" } } });
+  const corrected = await brief("brief-yours", { fields: { never: { text: "no meme text, no emoji", by: "you", quote: "no meme text and don't crop our faces out" } } });
   assert.equal(corrected.isError, undefined, corrected.text);
   assert.match(withoutNext(corrected.text), /^brief r2 saved: never \(you said\)/);
   // A guessed line may be guessed again or removed.
   await brief("brief-yours", { fields: { plays_on: PLAYS_ON } });
   const removed = await brief("brief-yours", { fields: { plays_on: null } });
   assert.match(withoutNext(removed.text), /^brief r4 saved: plays_on \(removed\)/);
-  const same = await brief("brief-yours", { fields: { never: { text: "no meme text, no emoji", by: "you", quote: "no meme text and no emoji either" } } });
+  const same = await brief("brief-yours", { fields: { never: { text: "no meme text, no emoji", by: "you", quote: "no meme text and don't crop our faces out" } } });
   assert.match(withoutNext(same.text), /^brief r4: no line changed · replies 0 of 10/, "a line sent again as it is changes nothing");
 });
 
@@ -196,7 +210,7 @@ test("a yes to the playback confirms the brief; a later line change needs a new 
   // Settled, with no saved reference: find 2 before the plan (the step's call is the search).
   const before = await agent("status", { project: "brief-playback" });
   assert.equal(before.text.split("\n")[2], "step: find 2 references (inspire)");
-  assert.match(before.text, /\nnext: library \{"topic":"inspire","search":"<an edit like yours>"\}$/);
+  assert.match(before.text, /\nnext: library \{"topic":"inspire","search":"my skate crew edit"\}$/);
   await agent("edit", { project: "brief-playback", ops: [{ op: "waive_check", code: "reference", target: "*", reason: "a brief test" }, { op: "waive_check", code: "treatments", target: "*", reason: "a brief test" }] });
   // status also names the first stop this 24 s video asks once it is built (B2a).
   assert.deepEqual((await statusLines("brief-playback")).slice(1, 3), ["direction: brief r1 (2 guessed), confirmed · replies 1/10", 'step: notes set_plan, board a move per shot (library {topic:"moves"}), ask board, then build']);
@@ -292,7 +306,7 @@ test("no_playback settles the brief without a playback for the rest of the video
   const saved = await brief("brief-just-start", { fields: guessed, log: [{ ...FIRST_QUESTION, a: "just start" }], no_playback: "just start" });
   assert.equal(saved.isError, undefined, saved.text);
   assert.equal(withoutNext(saved.text), [
-    "brief r1 saved: message (guessed), plays_on (guessed), made_from (guessed), look_sound (guessed), never (guessed) · 1 reply logged (question) · no playback (just start) · replies 1 of 10",
+    "brief r1 saved: message (guessed), plays_on (guessed), made_from (guessed), look_sound (guessed), never (guessed), about (you said) · ask saved (1 message as typed) · 1 reply logged (question) · no playback (just start) · replies 1 of 10",
     "missing: none",
     "step: notes set_plan, then build",
   ].join("\n"));
@@ -325,7 +339,7 @@ test("the brief's length is a gate: check holds the video to it until it is reti
   await agent("edit", { project: "brief-length", ops: [{ op: "add_scene", properties: { id: "badge", name: "Badge", duration: 60 } }, { op: "create_component", scene: "badge" }] });
   const saved = await brief("brief-length", { fields: { length: 30 } });
   assert.equal(saved.isError, undefined, saved.text);
-  assert.match(saved.text, /^brief r1 saved: length \(30 s\)/);
+  assert.match(saved.text, /^brief r1 saved: about \(you said\), length \(30 s\)/);
   assert.match(saved.text, /\nlength: 30 s \(within 0.6 s\); check holds the video to it\n/);
   assert.match((await brief("brief-length", { fields: { length: "long" } })).text, /length is the video's length in seconds/);
   await brief("brief-length", { fields: { message: { text: "Skate now", by: "guessed" } } });
@@ -574,7 +588,7 @@ test("each logged reply counts; past 3 questions and at 10 replies the answers s
     { q: "What would make you wince if I got it wrong?", a: "meme text" },
   ];
   await brief("brief-count", { log: asked });
-  assert.deepEqual((await statusLines("brief-count")).slice(1, 3), ["direction: no brief lines · replies 3/10", "step: guess 5 missing lines"]);
+  assert.deepEqual((await statusLines("brief-count")).slice(1, 3), ["direction: no brief lines · replies 3/10", "step: save ask and about"]);
   await brief("brief-count", { fields: FULL });
   const four = await brief("brief-count", { log: [PLAYBACK_YES(1)] });
   assert.match(withoutNext(four.text), /replies 4 of 10/);
@@ -644,7 +658,7 @@ test("the dashboard and kino --you read the brief but cannot save it; a hold doe
 
   await dashboard("hold", { body: { on: true } });
   try {
-    const held = await brief("brief-you", { fields: { message: MESSAGE } });
+    const held = await brief("brief-you", { fields: { message: MESSAGE, ask: ASK_TEXT } });
     assert.equal(held.isError, undefined, held.text);
     assert.equal(held.data.brief.rev, 1, "a brief save changes no frame, so a hold lets it through");
   } finally {
@@ -801,7 +815,7 @@ test("the two status lines fit in 40 tokens in every state; the brief read is me
 });
 
 test("the reference step: before the plan, until 2 references are saved; not when waived or under 5 s; then the needs step", () => {
-  const state = { brief: { ...emptyBrief(), rev: 1, fields: withAsk(FULL), log: [PLAYBACK_YES(1)], confirmedRev: 1 } };
+  const state = { brief: { ...emptyBrief(), rev: 1, fields: withAsk({ ...FULL, about: ABOUT }), log: [PLAYBACK_YES(1)], confirmedRev: 1 } };
   const step = (video) => nextMove(state, { seconds: 24, layers: 0, treatmentsWaived: true, ...video }).step;
   assert.equal(step({ references: 1 }), "find 1 more reference (inspire)");
   for (const video of [{ references: 2 }, { references: 0, referenceWaived: true }, { references: 0, seconds: 3 }, {}]) assert.equal(step(video), "notes set_plan, then build", JSON.stringify(video));
@@ -899,8 +913,10 @@ test("the first reference search is filled from what the person named; each want
 test("the ask is saved as typed and only added to; next names it until it is saved, and a build does not wait for it", async () => {
   const id = "brief-ask";
   await newProject(id, server, 24, { references: true });
-  await brief(id, { fields: FULL, no_playback: "just start" });
-  assert.ok((await statusLines(id)).includes("step: save their message (ask)"), "the order lists the ask first");
+  askSent.add(askKey(id));
+  const guessedFull = Object.fromEntries(Object.entries(FULL).map(([name, line]) => [name, { text: line.text, by: "guessed" }]));
+  await brief(id, { fields: guessedFull, no_playback: "just start" });
+  assert.ok((await statusLines(id)).includes("step: save ask and about"), "the ask comes first");
   assert.match((await agent("notes", { project: id, action: "brief" })).data.next, /ask/);
   // Not a gate: the build refusal names the references, not the ask.
   const build = await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "rectangle", name: "card" }] });
@@ -914,6 +930,8 @@ test("the ask is saved as typed and only added to; next names it until it is sav
   const stored = (await savedState(id)).brief;
   assert.deepEqual([stored.fields.ask.map((entry) => entry.text), stored.rev], [[typed], rev], "outer spaces off, inner text as typed, the revision stays");
   assert.match(stored.fields.ask[0].at, /^\d{4}-\d\d-\d\dT/);
+  assert.ok((await statusLines(id)).includes("step: save about"), "then what it is about");
+  await brief(id, { fields: { about: ABOUT } });
   assert.ok((await statusLines(id)).includes("step: find 2 references (inspire)"), "then the order goes on");
   // The same message again adds nothing; a second message is added after it.
   await brief(id, { fields: { ask: [typed, "and keep it under 20 seconds"] } });
@@ -926,11 +944,45 @@ test("the ask is saved as typed and only added to; next names it until it is sav
   assert.equal((await savedState(id)).brief.fields.ask.length, 2);
 });
 
-test("with an ask stored, a quote by you must be in it or in a reply; with no ask nothing is refused", () => {
+test("without a stored ask, missing names it and next carries the placeholders; ask:\"none\" clears it and the playback says so", () => {
+  const guessed = Object.fromEntries(Object.entries(FULL).map(([name, line]) => [name, { text: line.text, by: "guessed" }]));
+  const draft = { brief: emptyBrief() };
+  applyBrief(draft, briefChanges(draft.brief, { fields: guessed }));
+  // (a) every line guessed, no ask: missing says ask, and the next call carries both placeholders.
+  const none = nextMove(draft, { seconds: 24, layers: 0 });
+  assert.deepEqual(briefData(draft).missing, ["ask"]);
+  assert.match(briefText(draft), /\nmissing: ask\n/);
+  assert.deepEqual([none.step, none.call.input.fields.ask, none.call.input.fields.about], ["save ask and about", "<their message, pasted whole>", { text: "<the subject>", by: "you", quote: "<their words for it>" }]);
+  // With the ask stored, the about line is what is missing.
+  applyBrief(draft, briefChanges(draft.brief, { fields: { ask: ASK_TEXT } }));
+  assert.deepEqual(briefData(draft).missing, ["about"]);
+  assert.equal(nextMove(draft, { seconds: 24, layers: 0 }).call.input.fields.ask, undefined);
+  // (b) ask:"none" counts as given, shows in the playback, and lets about be a guess.
+  const quiet = { brief: emptyBrief() };
+  applyBrief(quiet, briefChanges(quiet.brief, { fields: { ...guessed, ask: "none" } }));
+  assert.deepEqual(briefData(quiet).missing, ["about"]);
+  assert.equal(briefData(quiet).brief.askNone, true);
+  assert.match(briefText(quiet), /\nask: none \(no person's words; quotes not checked\)\n/);
+  assert.deepEqual(nextMove(quiet, { seconds: 24, layers: 0 }).call.input.fields.about, { text: "<the subject>", by: "guessed" });
+  applyBrief(quiet, briefChanges(quiet.brief, { fields: { about: { text: "the skate crew", by: "guessed" } } }));
+  assert.deepEqual(briefData(quiet).missing, []);
+  // Under "none" a by:"you" quote has nothing to be checked against: refused unless a logged reply holds it.
+  const crew = { text: "vertical", by: "you", quote: "vertical on TikTok" };
+  assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew } }), (error) => error.code === "quote_not_said" && /ask is "none"/.test(error.message));
+  assert.equal(briefChanges(quiet.brief, { fields: { plays_on: crew }, log: [{ q: "Where?", a: "vertical on TikTok please" }] }).lines.length, 1);
+  // A real ask stored later replaces the marker.
+  applyBrief(quiet, briefChanges(quiet.brief, { fields: { ask: "vertical on TikTok please" } }));
+  assert.deepEqual([briefData(quiet).brief.askNone, briefData(quiet).brief.asks], [undefined, 1]);
+});
+
+test("with an ask stored, a quote by you must be in it or in a reply; with no ask a quote by you is refused", () => {
   const ask = "Make a clip for my skate crew. I want them to feel like going out to skate. Keep it vertical.";
   const vertical = { text: "vertical for TikTok", by: "you", quote: "vertical on TikTok" };
   const empty = emptyBrief();
-  assert.equal(briefChanges(empty, { fields: { plays_on: vertical } }).lines.length, 1, "no ask: as before");
+  // (c) no ask stored: the quote is refused, and the refusal says to store their message first.
+  assert.throws(() => briefChanges(empty, { fields: { plays_on: vertical } }), (error) => error.code === "quote_not_said" && /store it first \(ask:"<their message, pasted whole>"/.test(error.message));
+  // (d) the same words pass once the ask that holds them is stored (sent in the same call, or before).
+  assert.equal(briefChanges(empty, { fields: { ask: "Please make it vertical on TikTok", plays_on: vertical } }).lines.length, 1);
   // The ask sent in the same call counts; the refusal names the closest sentence they said.
   assert.throws(() => briefChanges(empty, { fields: { ask, plays_on: vertical } }),
     (error) => error.code === "quote_not_said" && error.details.closest === "Keep it vertical." && /plays_on\.quote is not in anything they said \(closest: "Keep it vertical\."\)/.test(error.message));
@@ -957,13 +1009,14 @@ test("with an ask stored, a quote by you must be in it or in a reply; with no as
 });
 
 test("the ask step is named only while the order has an open part and the video is not built; briefData sends a count, not the messages", () => {
-  const brief = { ...emptyBrief(), rev: 2, fields: FULL, log: [PLAYBACK_YES(2)], confirmedRev: 2 };
+  const brief = { ...emptyBrief(), rev: 2, fields: withAsk({ ...FULL, about: ABOUT }), log: [PLAYBACK_YES(2)], confirmedRev: 2 };
+  const noAsk = { ...brief, fields: { ...FULL, about: ABOUT } };
   // A finished order on a built video: no message to save; the plan and stop steps lead.
   const done = { seconds: 20, layers: 10, references: 2, referenceWaived: false, treatmentsWaived: true };
   assert.equal(nextMove({ brief, checked: { rev: 5 }, lastLook: "s1" }, done, "rough").step, "build on, then ask rough");
   assert.equal(nextMove({ brief, plan: { steps: [{ text: "Build" }] } }, done, "rough").step, "follow the plan, then ask rough");
-  assert.deepEqual(orderSteps({ brief }, { ...done, references: 0 }, { ask: true }).map((part) => part.step), ["save their message (ask)", "find 2 references (inspire)"]);
-  assert.deepEqual(orderSteps({ brief, checked: { rev: 5 }, lastLook: "s1" }, { ...done, references: 0 }, { ask: true }).map((part) => part.step), ["find 2 references (inspire)"], "built: not held for the message");
+  assert.deepEqual(orderSteps({ brief: noAsk }, { ...done, references: 0 }, { ask: true }).map((part) => part.step), ["save their message (ask)", "find 2 references (inspire)"]);
+  assert.deepEqual(orderSteps({ brief: noAsk, checked: { rev: 5 }, lastLook: "s1" }, { ...done, references: 0 }, { ask: true }).map((part) => part.step), ["find 2 references (inspire)"], "built: not held for the message");
   assert.deepEqual(orderSteps({ brief }, done, { ask: true }), [], "nothing open: nothing to name");
   // 30 messages of 2,000 characters stay out of the data of a read or a save.
   const asks = Array.from({ length: 30 }, (_, index) => ({ text: `${index} `.padEnd(BRIEF_LIMITS.ask, "x"), at: "2026-01-01T00:00:00.000Z" }));
@@ -990,9 +1043,8 @@ test("controls.quote that lets a stop pass must be said; a line or pick sent aga
   assert.throws(() => briefChanges(draft.brief, go("never ask me anything again, I trust you")), (error) => error.code === "quote_not_said" && /controls\.quote/.test(error.message));
   assert.ok(briefChanges(draft.brief, go("a promo for my skate crew")).controls.quote, "their words pass");
   // An old line quoted from earlier chat, then an ask saved later: the same line again is accepted.
-  const old = emptyBrief();
-  applyBrief({ brief: old }, briefChanges(old, { fields: { message: { text: "a message", by: "you", quote: "old words from earlier chat" } } }));
-  const later = { brief: old };
+  const later = { brief: emptyBrief() };
+  applyBrief(later, briefChanges(later.brief, { fields: { ask: "none", message: { text: "a message", by: "you", quote: "old words from earlier chat" } } }, { said: ["old words from earlier chat"] }));
   applyBrief(later, briefChanges(later.brief, { fields: { ask: "totally different message here" } }));
   const again = { text: "a message", by: "you", quote: "old words from earlier chat" };
   assert.doesNotThrow(() => briefChanges(later.brief, { fields: { message: again } }));
@@ -1079,7 +1131,7 @@ test("idea first: a briefed video builds only after 2 references (each studied),
     if (call) assert.deepEqual(nextCallOf(reply), call);
     return nextCallOf(reply);
   };
-  await refused("find 2 references", { tool: "library", input: { topic: "inspire", search: "<an edit like yours>" } });
+  await refused("find 2 references", { tool: "library", input: { topic: "inspire", search: "my skate crew edit" } });
   // The first refusal names every gate still open, not only the next.
   assert.match((await agent("edit", compose)).data.reason, /Then: study a reference \(look\); write 5 treatments\.$/);
   // One picture layer is building too.
@@ -1205,9 +1257,9 @@ test("a rejected reply joins style.rejected and is not counted as a question", (
 
 test("controls: a bad value names the accepted ones; asking less needs the person's quote; the save keeps the revision, its receipt names the skipped steps, and questions go asks none", () => {
   const draft = { brief: emptyBrief() };
-  applyBrief(draft, briefChanges(draft.brief, { fields: { message: "the park reopens" } }));
+  applyBrief(draft, briefChanges(draft.brief, { fields: { message: "the park reopens", ask: "The park reopens. No storyboard or rough cut, just make it." } }));
   const video = { seconds: 24, layers: 0 };
-  assert.match(nextMove(draft, video).step, /ask/, "before: the agent asks about the missing lines");
+  assert.match(nextMove(draft, video).step, /about/, "before: the agent saves what it is about");
   assert.throws(() => briefChanges(draft.brief, { fields: { controls: { rough: "skip" } } }), (error) => error.code === "bad_input" && /"wait" or "go"/.test(error.message) && error.details.example.controls.rough === "go");
   assert.throws(() => briefChanges(draft.brief, { fields: { controls: { pace: 2 } } }), { code: "bad_input" }, "a control kino does not act on yet is refused, not saved");
   assert.throws(() => briefChanges(draft.brief, { fields: { controls: { rough: "go" } } }), (error) => error.code === "quote_needed" && error.details.example.controls.quote === "<their exact words>");

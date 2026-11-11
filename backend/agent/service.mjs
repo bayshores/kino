@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, asksOf, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, ROUGH_LAYERS, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -5204,7 +5204,7 @@ export function createAgentService(deps) {
         if (!retry) return;
       }
       originTried.set(projectId, { query, at: now() });
-      const ask = (state.brief.fields.ask ?? []).map((entry) => entry.text);
+      const ask = asksOf(state.brief).map((entry) => entry.text);
       const origin = deps.inspire ? await deps.inspire.origin(about, { ask }) : { query, skipped: "kino cannot search YouTube here" };
       // Skipped when the line changed while the search ran: the next save searches the new one.
       await agentState.update(projectId, (draft) => { if (originQuery(draft.brief?.fields?.about?.quote ?? draft.brief?.fields?.about?.text) === query) draft.origin = origin; });

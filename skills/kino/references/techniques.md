@@ -118,7 +118,7 @@ signature and the spine's end; the lock's fonts name the faces. Building first i
 
 ```json
 {"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","ending":"noon","type":"grotesk, fade up","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","ending":"his","type":"handwriting, drawn on","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","ending":"map","type":"serif, cut on","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","ending":"laugh","type":"caps, a word a hit","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","ending":"beat","type":"mono, typed on","p":0.05,"source":"street.wav"}]}}
-{"tool":"notes","action":"brief","fields":{"treatments":{"pick":"B","quote":"the map one"}}}
+{"tool":"notes","action":"brief","fields":{"ask":"I like the map one","treatments":{"pick":"B","quote":"the map one"}}}
 ```
 
 ## Building with techniques
