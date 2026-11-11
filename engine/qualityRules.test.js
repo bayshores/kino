@@ -1728,6 +1728,38 @@ test("crop_no_subject replay: a 9:16 crop of 17 16:9 shots flags each whole face
   assert.equal(narrow.length, 17);
 });
 
+test("shape_guess: a vertical scene of 16:9 footage with a guessed plays_on warns; the person's words, a matching shape or no footage are quiet", async () => {
+  const guessed = { text: "a phone feed", by: "agent" };
+  const sizes = { [TALL_CROP.src]: { width: 1920, height: 1080 } };
+  const [found] = await fires("shape_guess", tall(), { scene: tall().scenes[0], mediaSizes: sizes, playsOn: guessed });
+  assert.match(found.measured, /^scene portrait 1080x1920 \(guessed\); footage landscape 1920x1080 \(1 of 1\)$/);
+  // The person said it (a quote kino checked): the deliberate vertical edit stays possible.
+  await silent("shape_guess", tall(), { scene: tall().scenes[0], mediaSizes: sizes, playsOn: { ...guessed, by: "you", quote: "for my phone" } });
+  // A scene shaped like its footage, and a scene with no footage at all: nothing to compare.
+  const wide = scene({ duration: 2, layers: [{ ...TALL_CROP, x: 0, width: 1920, height: 1080 }] });
+  await silent("shape_guess", wide, { scene: wide.scenes[0], mediaSizes: sizes, playsOn: null });
+  await silent("shape_guess", tall(), { scene: tall().scenes[0], mediaSizes: {} });
+  const bare = scene({ width: 1080, height: 1920, duration: 2, layers: [text("t", "hi")] });
+  await silent("shape_guess", bare, { scene: bare.scenes[0], mediaSizes: sizes });
+});
+
+test("ask_unmet: the origin word in no shot title warns once; own footage, a titled shot or found clip, or no word are quiet", async () => {
+  const origin = { words: [{ word: "tower", count: 11, of: 15 }], top: [{ id: "a", title: "Keeper climbs the tower (full)", views: 5e6, seconds: 188 }] };
+  const bad = tall();
+  const context = (extra) => ({ scene: bad.scenes[0], mediaSizes: keeperSizes, mediaNames: { [TALL_CROP.src]: "F1.2 keeper walks the field.mp4" }, origin, ...extra });
+  const [found] = await fires("ask_unmet", bad, context());
+  assert.match(found.message, /^"tower" is in 11 of 15 titles.*Keeper climbs the tower \(full\).*no shot's title/);
+  assert.match(found.fix.text, /waive_check ask_unmet on the scene with a reason that names "tower"/);
+  // The person's own footage leads, and no origin word (or a skipped search) means nothing to check.
+  await silent("ask_unmet", bad, context({ ownFootage: true }));
+  await silent("ask_unmet", bad, context({ origin: { skipped: "offline" } }));
+  // A shot titled with the word (whole word, any case), or a found clip kino titled with it.
+  await silent("ask_unmet", bad, context({ mediaNames: { [TALL_CROP.src]: "F1.2 The Tower.mp4" } }));
+  await silent("ask_unmet", bad, context({ foundTitles: ["F4 the tower stairs.mp4"] }));
+  // "towers" is another word: not a match.
+  assert.equal((await check("ask_unmet", bad, context({ foundTitles: ["F4 towers.mp4"] }))).findings.length, 1);
+});
+
 // ---------------------------------------------------------------- restraint, request_unmet
 
 test("restraint: a grade stacked on a grade, one footage moment twice and letterboxed footage warn; one grade and fresh footage are quiet", async () => {

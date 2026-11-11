@@ -591,6 +591,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const found = {};
     const names = {};
     const pending = [];
+    // Which video files the document plays are found clips and which are the person's (ask_unmet).
+    const foundClips = new Set(), ownClips = new Set();
     // Videos measured before kino read a frame's facts (backend/media-probe.mjs videoFrameFacts):
     // all are asked at once (videoFacts runs them one at a time) and waited on factsWaitMs in all.
     // One not measured by then is judged without facts and asked again next check.
@@ -624,7 +626,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           // screen_unreadable: kino recorded it (its frame in points), or its name says screen.
           ...(layer.type === "video" && record.recording ? { screen: true, ...(record.recording.frame?.[0] > 0 ? { points: record.recording.frame[0] } : {}) } : {}),
           ...(layer.type === "video" && SCREEN_NAME.test(String(record.name ?? "")) ? { named: true } : {}) } : null;
-        entry = { size, name: typeof record?.name === "string" ? record.name : null };
+        // `found`: kino's footage finder imported it (its record says where from); the rest are the person's.
+        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage) };
         // Unmeasured (failed or still running): not kept, so the next check reads the saved facts.
         if (!measured || Object.hasOwn(measured, "busy")) sizes.set(layer.src, entry);
         else pending.push(layer.src);
@@ -633,9 +636,10 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const { size, name } = entry;
       if (layer.type !== "audio") found[layer.src] = size;
       names[layer.src] = name;
+      if (layer.type === "video") (entry.found ? foundClips : ownClips).add(layer.src);
     }
     // In each scene's key, so a check made before the facts came is not kept after.
-    return { sizes: found, names, pending: pending.join(",") };
+    return { sizes: found, names, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
   }
 
   // A kept check, made the most recently used.
@@ -645,7 +649,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -714,6 +718,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       soundSearch,
       // The people Apple Vision found in each clip (head_cut_off, overlay_covers_subject).
       ...(people ? { people } : {}),
+      // The person's subject searched (state.origin) and where they said the video plays (the
+      // brief's plays_on line): ask_unmet and shape_guess. ownFootage and foundTitles are what kino
+      // recorded about the clips: the person's own, and the titles of the ones it found.
+      ...(origin ? { origin } : {}), ...(playsOn ? { playsOn } : {}),
+      ownFootage: Boolean(media.ownFootage), foundTitles: media.foundTitles ?? [],
       // The marker cues: music or story turns where pacing_jump lets the cut rate change.
       cues: markerCues(document),
       // The cues an effect's reason comes from (effect_fit).
@@ -759,7 +768,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
    * that check. `unchecked` lists the IDs of the scenes whose rendered rules did not run, so a
    * count can say what it leaves out; it stays empty when this checker cannot render at all.
    */
-  async function check(document, { fonts, codes, sceneId = null, pixels = false, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, peopleOf = null, soundSearch = false } = {}) {
+  async function check(document, { fonts, codes, sceneId = null, pixels = false, outputFps = 30, signal, styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, transcriptOf = null, loudnessOf = null, levelsOf = null, peopleOf = null, soundSearch = false, origin = null, playsOn = null } = {}) {
     const started = performance.now();
     const scenes = document.scenes.filter((scene) => (sceneId ? scene.id === sceneId : !scene.isComponent));
     const waivers = document.checkWaivers ?? [];
@@ -783,6 +792,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const lengthScene = length ? videoScene(document) : null;
     const videoLength = lengthScene ? { ...length, video: lengthScene.duration } : null;
     const media = await mediaSizes(document);
+    // What shape_guess and ask_unmet read besides the document: part of each scene's key.
+    const askStamp = JSON.stringify([origin?.words ?? null, origin?.top?.[0]?.title ?? null, playsOn?.by ?? null, playsOn?.text ?? null, media.ownFootage, media.foundTitles]);
     // The story spine is the video's: only its scene is held to it (a format variant or a
     // component scene has other layers and times). The rest of the style spec counts everywhere.
     // The idea's signature ranges are the video's too (signature_missing).
@@ -799,13 +810,13 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       const speechStamp = speech.map((entry) => `${entry.layer.id}:${entry.transcript ? `${entry.transcript.model}@${entry.transcript.version}` : entry.music ? "music" : "none"}${entry.loudness ? `:peaks${entry.loudness.duration}` : ""}${entry.levels ? `:lufs${entry.levels.duration}` : ""}`).join(",");
       const { people, stamp: peopleStamp, why: peopleWhy } = await peopleIn(scene, peopleOf, pixels);
       if (peopleWhy && !notes.includes(peopleWhy)) notes.push(peopleWhy);
-      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}`;
+      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null
         : null;
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
-      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {} } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, people, soundSearch, media, isVideo, origin, playsOn, base });
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {
