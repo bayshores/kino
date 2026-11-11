@@ -161,6 +161,25 @@ test("planFitMusic recut: on drifting bar lines every piece left early plays who
   assert.ok(Math.abs(drop.at + 0.012 - lines[22]) < 1e-9 && Math.abs(last.at + 0.012 - (lines[22] + lines[48] - lines[40])) < 1e-9);
   assert.deepEqual([opening.fadeOut, drop.fadeIn, drop.fadeOut, last.fadeIn], [0.005, 0.003, 0.005, 0.003]);
   assert.equal(plan.pieces.length, 3);
+  // The piece that starts the video is left a whole number of groups after the drop inside it (the drop on bar 20: bar 28, not bar 27).
+  const first = planFitMusic(stopInput({ plan: "recut", payoff: 10, end: 30 })).pieces[0];
+  assert.equal(round(first.to + 0.012), lines[28], "left on bar 28");
+  // Entered on a bar line with the join lead (starts 30 ms before line 15): the join fade; a start mid-bar fades to the next bar line.
+  assert.equal(planFitMusic(stopInput({ plan: "recut", payoff: 10.13, end: 30 })).pieces[0].fadeIn, 0.005);
+  assert.ok(planFitMusic(stopInput({ plan: "recut", payoff: 10.6, end: 30 })).pieces[0].fadeIn > 1);
+  // drop: the drop section nearest that song time lands on the payoff, as for plan stop.
+  const picked = planFitMusic(stopInput({ plan: "recut", payoff: 22, end: 46, drop: lines[40] }));
+  assert.ok(picked.pieces.some((piece) => piece.from <= lines[40] && lines[40] < piece.to && Math.abs(piece.at + lines[40] - piece.from - 22) < 0.02), JSON.stringify(picked.pieces));
+  assert.ok(picked.sections.some((part) => part.label === "payoff" && Math.abs(part.at - 22) < 0.02));
+});
+
+test("planFitMusic recut: the song's own ending never runs past the end: when no whole group fits, the drop plays on and fades over 1 to 2 bars", () => {
+  // The ending would end at 22.12 s, 0.42 s past the end (it used to pass by less than a bar).
+  const plan = planFitMusic(stopInput({ plan: "recut", payoff: 11.7, end: 21.7 }));
+  const last = plan.pieces.at(-1);
+  assert.equal(plan.ending, null);
+  assert.ok(last.at + last.to - last.from <= 21.75 && last.fadeOut >= 2.02 && last.fadeOut <= 4.05, JSON.stringify(plan.pieces));
+  assert.ok(plan.notes.some((note) => /own ending do not fit before 21.7 s/.test(note)), plan.notes.join("; "));
 });
 
 test("planFitMusic recut: a turn less than 4 bars before the payoff drops the turn piece and says so", () => {

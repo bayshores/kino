@@ -145,15 +145,17 @@ function endingOf(lines, bars, lastBar, seconds, bar) {
 }
 
 // Starts on the song's first second (0), else on a bar line (1), else mid-bar (2).
-const startKindOf = (lines, beat, start) => (Math.abs(start) <= beat ? 0 : lines.some((line) => Math.abs(line - start) <= 0.02) ? 1 : 2);
+// `early`: how much further before a bar line than 20 ms still counts as on it (an opening entered
+// with the join lead starts up to LATE_START before its line).
+const startKindOf = (lines, beat, start, early = 0) => (Math.abs(start) <= beat ? 0 : lines.some((line) => line - start >= -0.02 && line - start <= 0.02 + early) ? 1 : 2);
 
 // The fade-in of a piece that opens the video at song time `start`: none when it plays from the
 // start of the song; 5 ms when it starts a little into the song or on a bar line (no click); else a
 // fade to the next bar line.
-function openingFade(lines, beat, payoff, start) {
+function openingFade(lines, beat, payoff, start, early = 0) {
   if (!(start > 0)) return 0;
   const line = lines.find((time) => time >= start + beat - EPS) ?? lines.at(-1);
-  return startKindOf(lines, beat, start) === 2 ? Math.min(round(line - start), round(payoff / 2)) : JOIN_FADE_LINE;
+  return startKindOf(lines, beat, start, early) === 2 ? Math.min(round(line - start), round(payoff / 2)) : JOIN_FADE_LINE;
 }
 
 /**
@@ -377,11 +379,15 @@ function gridBars({ seconds, whole, bar, downbeat }) {
  * the bar line it was entered on, and a drop plays at least 4 bars before the cut: a listener
  * heard a cut after 2 bars as premature and pieces of 3 or 5 bars as jarring. The video opens on a
  * piece that plays from a second of the song (the song's start when it fits), or on an opening of the
- * song's start that is left a whole number of groups after the latest section start inside it.
+ * song's start. Any piece that starts the video is left a whole number of groups after the latest
+ * drop, break or build inside it (else after its first bar line), and plays at least 4 bars; this
+ * wins over the turn and payoff alignment (another entry bar, up to 16 bars before its drop, is
+ * tried). The song's own ending ends by `end` (+ 50 ms) or the last piece fades over 1 to 2 bars.
+ * `drop` (a song second) picks the drop that lands on the payoff, as in planStop.
  * Pieces are entered on the run-up of a drop (its latest break, else build) when it has one,
  * else on the drop; never on a bar where the kick and bass are out unless a break or build starts there.
  */
-function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, bars, payoff, turn = null, end }) {
+function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, bars, payoff, turn = null, end, drop: dropTime = null }) {
   const measured = Array.isArray(bars?.lines) && bars.lines.length >= 2;
   const shape = measured ? bars : gridBars({ seconds, whole, bar, downbeat });
   const lines = shape.lines;
@@ -401,8 +407,17 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
     if (part.kind === "drop" && Number.isFinite(part.at) && !drops.some((drop) => drop.bar === barOfPart(part))) drops.push({ bar: barOfPart(part), heard: part.at, weight: part.weight });
   }
   if (!drops.length) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
-  const usable = drops.filter((drop) => drop.bar < lastBar && enterable(drop.bar)).sort((a, b) => b.bar - a.bar); // the later drop wins a tie
+  let usable = drops.filter((drop) => drop.bar < lastBar && enterable(drop.bar)).sort((a, b) => b.bar - a.bar); // the later drop wins a tie
   if (!usable.length) fail("no drop of the song can be entered: the kick and bass are out on the bar line of each.");
+  let picked = null;
+  if (Number.isFinite(dropTime)) {
+    // The agent's pick, as in planStop: the drop section nearest that song time within 2 bars, else the bar line nearest it.
+    const near = drops.filter((part) => Math.abs(part.heard - dropTime) <= 2 * bar).sort((a, b) => Math.abs(a.heard - dropTime) - Math.abs(b.heard - dropTime))[0];
+    const index = barIndexAt(lines, dropTime);
+    picked = near ?? { bar: index, heard: lines[index], weight: null };
+    if (!(picked.bar < lastBar && enterable(picked.bar))) fail(`the song cannot be entered on the bar line at ${round(lines[picked.bar])} s (the kick and bass are out there, or it is the song's last bar): pick another drop.`);
+    usable = [picked];
+  }
   const weightCost = (drop) => (1 - (Number.isFinite(drop.weight) ? drop.weight : 0.5)) * 4 + (Math.abs(drop.heard - lines[drop.bar]) > LATE_HEARD ? 2 : 0);
   // The run-up into a drop: the latest break before it (within 16 bars), else the latest build.
   const runUp = (drop) => {
@@ -413,18 +428,23 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
 
   // The video before a piece entered on bar `e` at video time `ve`: the song plays on from its start
   // (roll: song second f0 is at video 0), or an opening from the song's start is left on a bar line x.
+  // A piece that starts the video at song second f0 is left on bar line x: at least 4 bars after its
+  // first bar line, a whole number of groups after the latest drop, break or build inside it (else after its first bar line).
+  const phraseBars = sectionBars.filter((index) => startsAs(index, "drop", "break", "build"));
+  const leftOnGroup = (f0, x) => {
+    let first = 0;
+    while (first < x && lines[first] < f0 - 0.02) first += 1;
+    if (x - first < GROUP) return false;
+    const base = phraseBars.filter((index) => index >= first && index < x).at(-1) ?? first;
+    return (x - base) % GROUP === 0;
+  };
   const before = (e, ve) => {
     const roll = lines[e] - ve;
     if (ve <= LATE_START || roll <= bar + CUT_SLACK) return { f0: roll, x: null, cost: roll < -CUT_SLACK ? 50 - roll : 0 };
     const found = [];
-    let first = 0; // the opening's first bar line
     for (let x = 1; x < e; x += 1) {
       const f0 = lines[x] - ve;
-      if (f0 < -CUT_SLACK) continue;
-      while (first < x && lines[first] < f0 - 0.02) first += 1;
-      if (x - first < GROUP) continue; // an opening plays at least 4 bars
-      const base = sectionBars.filter((index) => index >= first && index < x).at(-1) ?? first; // the latest section start inside it
-      if ((x - base) % GROUP === 0) found.push({ f0, x });
+      if (f0 >= -CUT_SLACK && leftOnGroup(f0, x)) found.push({ f0, x });
     }
     // Left on the same place in the phrase as the next piece enters, then the song's own start.
     found.sort((a, b) => ((e - a.x) % GROUP ? 1 : 0) - ((e - b.x) % GROUP ? 1 : 0) || a.f0 - b.f0);
@@ -437,16 +457,17 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
   // song's own ending, or (no ending that fits) played on to the video's end and faded over 1 to 2 bars on a bar line.
   const ownEnd = whole && shape.last?.ends === "own";
   const closing = ownEnd ? endingOf(lines, shape, lastBar, seconds, bar) : null;
-  const tailOf = (e, d) => {
+  // `accept(x)`: a bar line the piece may be left on (the first piece of the video must obey leftOnGroup).
+  const tailOf = (e, d, accept = () => true) => {
     const at = (line) => payoff + lines[line] - lines[d]; // video time of a bar line of this piece
     const own = closing != null && lastBar > d;
     if (own) {
       const lo = Math.ceil((d + GROUP - e) / GROUP); // the drop plays at least 4 bars
       const hi = Math.floor((lastBar - e) / GROUP);
-      const fits = (g, room) => g <= hi && at(e + GROUP * g) + closing.tail <= end + room && (e + GROUP * g === lastBar || enterable(lastBar));
+      // The song's own ending must end by the video's end (no slack): else the drop plays on and fades.
+      const fits = (g) => g <= hi && at(e + GROUP * g) + closing.tail <= end + CUT_SLACK && (e + GROUP * g === lastBar || enterable(lastBar)) && accept(e + GROUP * g);
       let g = 0;
-      for (let k = lo; k <= hi; k += 1) if (fits(k, 0.05)) g = k;
-      if (!g && fits(lo, bar)) g = lo; // passes the end by less than a bar
+      for (let k = lo; k <= hi; k += 1) if (fits(k)) g = k;
       if (g) return { x: e + GROUP * g, cost: Math.min(4, Math.abs(at(e + GROUP * g) + closing.tail - end) / bar) };
     }
     let fadeAt = null;
@@ -456,17 +477,27 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
 
   // The earlier drops that can land on the turn: a piece left on a bar line a whole number of groups after its entry (and at least 4 bars after its drop), at or before `e`.
   const turnRoom = turn != null && payoff - turn >= GROUP * bar - bar / 2;
-  const turnOptions = (d, e, ve) => {
+  // `extra`: also any bar up to 16 bars before the drop that is not out (used when the group rule leaves no option).
+  const extraEntries = (index) => {
+    const list = [];
+    for (let i = Math.max(0, index - RUN_UP_BARS); i <= index; i += 1) if (!out.has(i) && !entriesOf(index).includes(i)) list.push(i);
+    return list;
+  };
+  let ruledOut = false; // turnOptions skipped a way because the first piece would break the group rule
+  const turnOptions = (d, e, ve, extra = false) => {
     const found = [];
+    ruledOut = false;
     for (const early of drops) {
       const t = early.bar;
       if (t >= d || !enterable(t)) continue;
-      for (const et of entriesOf(t)) {
+      for (const et of extra ? extraEntries(t) : entriesOf(t)) {
         for (let x = et + GROUP * Math.ceil((t + GROUP - et) / GROUP); x <= e; x += GROUP) {
           const vt = ve - (lines[x] - lines[et]); // video time of the bar line it is entered on
           const lands = vt + lines[t] - lines[et];
           if (lands < -CUT_SLACK) break;
-          found.push({ t, e: et, x, ve: vt, lands, cost: Math.min(4, Math.abs(lands - turn) / bar) + weightCost(early) / 4 + (et === t && runUp(t) != null ? 1.5 : 0) });
+          const head = before(et, vt);
+          if (head.x == null && x !== e && !leftOnGroup(head.f0, x)) { ruledOut = true; continue; } // it starts the video: it obeys the group rule (on x = e it plays on into the next piece)
+          found.push({ t, e: et, x, ve: vt, lands, head, cost: Math.min(4, Math.abs(lands - turn) / bar) + weightCost(early) / 4 + (et === t && runUp(t) != null ? 1.5 : 0) + (extra ? 1 : 0) });
         }
       }
     }
@@ -478,22 +509,33 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
   for (const drop of usable) {
     const d = drop.bar;
     const run = runUp(d);
-    for (const e of entriesOf(d)) {
-      const tail = tailOf(e, d);
+    let blocked = false; // the group rule of the first piece took a way to leave it
+    const consider = (e, extra) => {
+      const free = tailOf(e, d);
       const ve = payoff - (lines[d] - lines[e]);
-      const own = weightCost(drop) + tail.cost + (run == null ? 5 : e === run ? 0 : 3);
+      const ownCost = (tail) => weightCost(drop) + tail.cost + (run == null ? 5 : e === run ? 0 : extra ? 1 : 3);
       const plain = before(e, ve);
-      let choice = { head: plain, turn: null, cost: own + plain.cost + (turn != null ? 4 : 0) };
+      // A piece that starts the video is left on a bar line the group rule allows.
+      const tailPlain = plain.x == null ? tailOf(e, d, (x) => leftOnGroup(plain.f0, x)) : free;
+      if (tailPlain.x !== free.x) blocked = true;
+      let choice = { head: plain, tail: tailPlain, turn: null, cost: ownCost(tailPlain) + plain.cost + (turn != null ? 4 : 0) };
       if (turnRoom) {
-        for (const option of turnOptions(d, e, ve)) {
-          const head = before(option.e, option.ve);
-          if (own + option.cost + head.cost < choice.cost) choice = { head, turn: { ...option, head }, cost: own + option.cost + head.cost };
+        let options = turnOptions(d, e, ve, extra);
+        if (!options.length && !extra && ruledOut) options = turnOptions(d, e, ve, true);
+        for (const option of options) {
+          // The turn's piece plays on into this one (x = e): the merged piece is the first, left where this one is.
+          const tail = option.x === e && option.head.x == null ? tailOf(e, d, (x) => leftOnGroup(option.head.f0, x)) : free;
+          const cost = ownCost(tail) + option.cost + option.head.cost;
+          if (cost < choice.cost) choice = { head: option.head, tail, turn: option, cost };
         }
       }
-      if (!best || choice.cost < best.choice.cost - EPS) best = { drop, e, run, tail, choice };
-    }
+      if (!best || choice.cost < best.choice.cost - EPS) best = { drop, e, run, choice };
+    };
+    for (const e of entriesOf(d)) consider(e, false);
+    if (blocked) for (const e of extraEntries(d)) consider(e, true);
   }
-  const { drop, e, tail, choice } = best;
+  const { drop, e, choice } = best;
+  const tail = choice.tail;
   if (best.run == null) notes.push("no break or build before the drop in this song: nothing quiets the line before the payoff");
   if (turn != null && !choice.turn) {
     if (!turnRoom) notes.push("the turn is less than 4 bars before the payoff: an earlier drop cannot play 4 bars up to it, so the turn has no drop of its own");
@@ -534,7 +576,7 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
     if (seg.first) {
       from = Math.max(0, seg.f0);
       at = Math.max(0, -seg.f0);
-      fadeIn = openingFade(lines, beat, payoff, seg.f0);
+      fadeIn = openingFade(lines, beat, payoff, seg.f0, LATE_START - 0.02); // entered on a bar line with the join lead: the join fade
     } else {
       from = lines[seg.e] + enterDelta(seg.e);
       at = enterAt + enterDelta(seg.e);
@@ -562,6 +604,8 @@ function planRecut({ sections = [], seams = [], seconds, whole = true, bar, beat
 
   // Sections in video time (the payoff's drop labeled payoff, the turn's turn), then the ending or the fade.
   const parts = sections.map((part) => ({ kind: part.kind, at: lines[barOfPart(part)] ?? part.at, heard: part.at, weight: part.weight }));
+  // A bar line the agent picked that the song's sections do not list as a drop still lands on the payoff.
+  if (picked && !parts.some((part) => part.kind === "drop" && part.at === lines[drop.bar])) parts.push({ kind: "drop", at: lines[drop.bar], heard: lines[drop.bar], weight: null });
   const placed = placeSections({ parts, seams, pieces, lands: { payoff, turn: choice.turn?.lands ?? null } });
   if (choice.turn && Math.abs(choice.turn.lands - turn) > 0.01) notes.push(`the turn's drop lands at ${round(choice.turn.lands)} s (${round(choice.turn.lands - turn) > 0 ? "+" : ""}${round(choice.turn.lands - turn)} s): move the turn there for a hit`);
   const last = pieces.at(-1);
