@@ -3,10 +3,16 @@
 // computer with Apple Vision (the kino-measure helper, job 16 faces and 32 people) and kept beside
 // the file as a .people-v1 file, so a clip is measured once.
 //
+// The same pass also writes a .subjects-v1 file: the same samples plus, in each, `subjects`, the
+// boxes that show where the eye goes: the faces, or (a shot with no face) where Vision's saliency
+// says the eye goes. Each box is tagged kind "face" or "saliency", so a reader never takes a
+// saliency box for a face. The faces and people stay in the sample, so a reader of .people-v1
+// reads it too.
+//
 // How a video is measured:
 //   1. FFmpeg decodes it at PEOPLE_FPS frames a second (fewer for a long clip, at most MAX_FRAMES
 //      pictures in all), at most 480 pixels on the long side (never the full size).
-//   2. The helper finds the faces and the people in each picture.
+//   2. The helper finds the faces, the people and the saliency boxes in each picture.
 // Without the helper (not a Mac, macOS older than 12, no Xcode command line tools to build it,
 // or KINO_MEASURE_HELPER=none) nothing is measured and the answer says why: the checks then say
 // they did not run, and never guess.
@@ -20,31 +26,57 @@ import { round as round3 } from "../../engine/numbers.js";
 import { heavyDecodeSlot } from "../process-slots.mjs";
 
 export const PEOPLE_VERSION = 1;
+export const SUBJECTS_VERSION = 1;
 // How long a file that failed waits before it is measured again (createPeopleCache).
 const FAILED_RETRY_MS = 10 * 60_000;
 const PEOPLE_FPS = 2;
 const MAX_FRAMES = 600;
 const SIDE = 480;
-// The helper's job bits (kino-measure.swift): 16 faces, 32 people.
-const FACES = 16, PEOPLE = 32;
+// The helper's job bits (kino-measure.swift): 8 saliency, 16 faces, 32 people.
+const SALIENCY = 8, FACES = 16, PEOPLE = 32;
 
 /** Why people cannot be found on this computer, or null when they can (and the helper to use). */
 export async function peopleHelper() {
   const abilities = await measureAbilities();
   if (!abilities.helper) return { helper: null, why: abilities.flow };
-  if (abilities.people === true) return { helper: abilities.helper, why: null };
+  if (abilities.people === true) return { helper: abilities.helper, why: null, saliency: abilities.saliency };
   if (abilities.people === false) return { helper: null, why: "finding people needs macOS 12 or later" };
   // A helper built before job 32 existed: build this one from source when the tools are here.
   const built = await measureHelperPath({ fromSource: true });
-  if (built && built !== abilities.helper) return { helper: built, why: null };
+  if (built && built !== abilities.helper) return { helper: built, why: null, saliency: undefined };
   return { helper: null, why: "the kino-measure helper is too old to find people (npm run desktop:tools)" };
+}
+
+/**
+ * The boxes that show where the eye goes in one picture: its faces, and only when it has none the
+ * saliency boxes, each as {box: [x, y, w, h], kind: "face" | "saliency"} (fractions of the frame).
+ */
+export function subjectBoxes(answer) {
+  const faces = answer.faces ?? [];
+  if (faces.length) return faces.map((box) => ({ box, kind: "face" }));
+  return (answer.saliency ?? []).map((box) => ({ box, kind: "saliency" }));
+}
+
+/**
+ * Whether saliency ran: true when the helper answered it on at least one picture (an empty list
+ * counts: it looked and found nothing), else the reason it did not. Without this, a face-less
+ * picture with no subjects could mean "nothing stands out" or "saliency never ran".
+ */
+export function saliencyStatus(answers, abilityWhy) {
+  const real = answers.filter(Boolean);
+  if (real.some((answer) => Array.isArray(answer.saliency))) return true;
+  const failure = real.map((answer) => answer.errors?.saliency).find(Boolean);
+  if (failure) return `Vision could not: ${failure}`;
+  return typeof abilityWhy === "string" ? abilityWhy : "the kino-measure helper gave no saliency boxes";
 }
 
 /**
  * Measures a video file. Resolves to {version, fps, samples: [{t, faces: [[x, y, w, h]],
  * people: [{box: [x, y, w, h], head, top}]}]} in fractions of the frame (top left origin): head is
- * how many head joints (nose, eyes, ears) the body pose found, top the highest one's y. Or to
- * {version, unavailable: "why"} when this computer cannot find people.
+ * how many head joints (nose, eyes, ears) the body pose found, top the highest one's y. Also
+ * `subjects`: the same, each sample with `subjects: [{box, kind}]` added (subjectBoxes), for the
+ * .subjects-v1 file, whose header says `saliency`: true, or why saliency did not run (then a
+ * picture with no face and no subjects is unmeasured, not empty). Or {version, unavailable: "why"} when this computer cannot find people.
  */
 export function measurePeople(file, options = {}) {
   // One video decode at a time in this process (process-slots.mjs).
@@ -53,7 +85,7 @@ export function measurePeople(file, options = {}) {
 
 async function measurePeopleNow(file, { width, height, duration, signal } = {}) {
   if (signal?.aborted) throw Object.assign(new Error("Finding people was cancelled."), { name: "AbortError" });
-  const { helper, why } = await peopleHelper();
+  const { helper, why, saliency: abilityWhy } = await peopleHelper();
   if (!helper) return { version: PEOPLE_VERSION, unavailable: why };
   const size = measureSize(width, height, SIDE);
   const fps = duration > 0 ? Math.min(PEOPLE_FPS, MAX_FRAMES / duration) : PEOPLE_FPS;
@@ -75,7 +107,7 @@ async function measurePeopleNow(file, { width, height, duration, signal } = {}) 
       chunk.copy(current, filled, offset, offset + take);
       filled += take; offset += take;
       if (filled < frameBytes) continue;
-      await session.send(FACES | PEOPLE, current);
+      await session.send(FACES | PEOPLE | SALIENCY, current);
       count += 1;
       current = Buffer.alloc(frameBytes); filled = 0;
     }
@@ -86,16 +118,21 @@ async function measurePeopleNow(file, { width, height, duration, signal } = {}) 
   if (code !== 0 && !count) throw new Error(`FFmpeg could not decode the video: ${decodeError.trim().split("\n").at(-1) || `exit ${code}`}`);
   const { answers, error } = await session.finish();
   if (error && !answers.length) return { version: PEOPLE_VERSION, unavailable: `the kino-measure helper stopped: ${error}` };
-  const samples = [];
+  const samples = [], withSubjects = [];
   for (let index = 0; index < count; index += 1) {
     const answer = answers[index] ?? {};
     if (!Array.isArray(answer.people)) continue;
-    samples.push({ t: round3(index / fps), faces: answer.faces ?? [], people: answer.people });
+    const sample = { t: round3(index / fps), faces: answer.faces ?? [], people: answer.people };
+    samples.push(sample);
+    withSubjects.push({ ...sample, subjects: subjectBoxes(answer) });
   }
-  return { version: PEOPLE_VERSION, fps: round3(fps), samples };
+  return { version: PEOPLE_VERSION, fps: round3(fps), samples, subjects: { version: SUBJECTS_VERSION, fps: round3(fps), saliency: saliencyStatus(answers, abilityWhy), samples: withSubjects } };
 }
 
-/** Finds the people in each file once and keeps the answer beside it (`.people-v1`). */
+/**
+ * Finds the people in each file once and keeps the answer beside it: `.people-v1` (faces and
+ * people) and `.subjects-v1` (the same plus a tagged box per subject), both from one measure.
+ */
 export function createPeopleCache({ measure = measurePeople, now = () => Date.now() } = {}) {
   const pending = new Map();
   // A file that failed (FFmpeg could not decode it, or the helper stopped on it) is not measured
@@ -106,42 +143,55 @@ export function createPeopleCache({ measure = measurePeople, now = () => Date.no
     failed.set(file, { ...outcome, at: now() });
     if (failed.size > 512) failed.delete(failed.keys().next().value);
   };
-  const sidecar = (file) => `${file}.people-v${PEOPLE_VERSION}`;
-  async function saved(file) {
+  const versions = { people: PEOPLE_VERSION, subjects: SUBJECTS_VERSION };
+  const sidecar = (file, kind) => `${file}.${kind}-v${versions[kind]}`;
+  async function read(file, kind) {
     try {
-      const found = JSON.parse(await readFile(sidecar(file), "utf8"));
-      return found?.version === PEOPLE_VERSION && Array.isArray(found.samples) ? found : null;
+      const found = JSON.parse(await readFile(sidecar(file, kind), "utf8"));
+      return found?.version === versions[kind] && Array.isArray(found.samples) ? found : null;
     } catch { return null; }
   }
-  async function make(file, info) {
-    const found = await saved(file);
-    if (found) return found;
-    const result = await measure(file, info);
-    // A computer that cannot find people keeps nothing: another one (or a later macOS) can.
-    if (result.unavailable) return result;
-    const temporary = `${sidecar(file)}.${randomUUID()}.tmp`;
+  async function keep(file, kind, value) {
+    const temporary = `${sidecar(file, kind)}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, JSON.stringify(result), { mode: 0o600, flag: "wx" });
-      await rename(temporary, sidecar(file));
+      await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
+      await rename(temporary, sidecar(file, kind));
     } catch { /* The answer still counts when the folder cannot be written. */ }
     finally { await rm(temporary, { force: true }).catch(() => {}); }
-    return result;
+  }
+  // One measure makes both answers: {people, subjects}, or {unavailable} (kept for neither: another
+  // computer, or a later macOS, can find people).
+  async function measureBoth(file, info) {
+    const result = await measure(file, info);
+    if (result.unavailable) return { unavailable: result };
+    const { subjects, ...people } = result;
+    await keep(file, "people", people);
+    if (subjects) await keep(file, "subjects", subjects);
+    return { people, subjects: subjects ?? { version: SUBJECTS_VERSION, unavailable: "this measure made no subject boxes" } };
+  }
+  function measuring(file, info) {
+    if (!pending.has(file)) pending.set(file, measureBoth(file, info).then((both) => {
+      if (/helper stopped/.test(String(both.unavailable?.unavailable ?? ""))) remember(file, { result: both.unavailable });
+      return both;
+    }, (error) => {
+      if (error?.name !== "AbortError") remember(file, { error });
+      throw error;
+    }).finally(() => pending.delete(file)));
+    return pending.get(file);
+  }
+  function get(file, info, kind) {
+    const failure = failed.get(file);
+    if (failure && now() - failure.at < FAILED_RETRY_MS) return failure.error ? Promise.reject(failure.error) : Promise.resolve(failure.result);
+    return read(file, kind).then((found) => found ?? measuring(file, info).then((both) => both.unavailable ?? both[kind]));
   }
   return {
-    /** The saved answer for a file, or null (a quick check does not measure). */
-    saved,
-    /** The answer for a file, measured now when none is saved; `info` is {width, height, duration}. */
-    get(file, info) {
-      const failure = failed.get(file);
-      if (failure && now() - failure.at < FAILED_RETRY_MS) return failure.error ? Promise.reject(failure.error) : Promise.resolve(failure.result);
-      if (!pending.has(file)) pending.set(file, make(file, info).then((result) => {
-        if (/helper stopped/.test(String(result?.unavailable ?? ""))) remember(file, { result });
-        return result;
-      }, (error) => {
-        if (error?.name !== "AbortError") remember(file, { error });
-        throw error;
-      }).finally(() => pending.delete(file)));
-      return pending.get(file);
-    },
+    /** The saved people answer for a file, or null (a quick check does not measure). */
+    saved: (file) => read(file, "people"),
+    /** The people answer for a file, measured now when none is saved; `info` is {width, height, duration}. */
+    get: (file, info) => get(file, info, "people"),
+    /** The saved subjects answer for a file, or null. */
+    savedSubjects: (file) => read(file, "subjects"),
+    /** The subjects answer (faces, else saliency, each box tagged `kind`), measured now when none is saved. */
+    subjects: (file, info) => get(file, info, "subjects"),
   };
 }
