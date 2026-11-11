@@ -1303,6 +1303,29 @@ const LOG_MARKS = {
 const atWords = (at) => (Number.isFinite(Number(at)) ? `@${Math.round(Number(at) * 100) / 100}s` : "");
 
 /**
+ * The 3 rules the check skipped most often: {rule, count, reason}, reason being the one given
+ * most often for that rule. A waiver is the agent saying a finding is fine, so the person sees
+ * how many findings and, on hover, why. Same count per rule as the stop's "39 waived (...)" line.
+ */
+export function topWaivers(waivedFindings) {
+  const byRule = new Map();
+  for (const entry of Array.isArray(waivedFindings) ? waivedFindings : []) {
+    const rule = String(entry?.rule ?? "");
+    if (!rule) continue;
+    const group = byRule.get(rule) ?? { rule, count: 0, reasons: new Map() };
+    group.count += 1;
+    const reason = String(entry?.reason ?? "");
+    group.reasons.set(reason, (group.reasons.get(reason) ?? 0) + 1);
+    byRule.set(rule, group);
+  }
+  return [...byRule.values()].sort((a, b) => b.count - a.count || a.rule.localeCompare(b.rule)).slice(0, 3).map((group) => ({
+    rule: group.rule,
+    count: group.count,
+    reason: [...group.reasons].sort((a, b) => b[1] - a[1])[0][0],
+  }));
+}
+
+/**
  * The checks tab: the findings the agent gets after each revision, one line each. Only the mark
  * is coloured (✕ error, ▲ warning); the rule, the layer, the time and the message are text, and the
  * fix is in plain words (fixWords). A long line ends with "…": its tooltip has all of it, and a
@@ -1328,6 +1351,7 @@ function CheckList({ checks }) {
       });
   const errors = data?.errors ?? rows.filter((row) => row.severity === "error").length;
   const warnings = data?.warnings ?? rows.filter((row) => row.severity === "warn").length;
+  const waivedTop = topWaivers(data?.waivedFindings);
   return (
     <>
       {checks.error ? null : (
@@ -1335,6 +1359,15 @@ function CheckList({ checks }) {
           {data?.rev != null ? `rev ${data.rev} · ` : ""}{errors} {errors === 1 ? "error" : "errors"} · {warnings} {warnings === 1 ? "warning" : "warnings"}{data?.waived ? ` · ${data.waived} waived` : ""}
         </p>
       )}
+      {waivedTop.length ? (
+        <p className="note-meta waived-chips" aria-label="Waived findings">
+          {waivedTop.map((item) => (
+            <span key={item.rule} className="note-chip c-queued" title={item.reason ? `waived: ${item.reason}` : "waived"}>
+              ×{item.count} {item.rule}<span className="sr-only">{item.reason ? ` (${item.reason})` : ""}</span>
+            </span>
+          ))}
+        </p>
+      ) : null}
       <ul className="check-list" aria-label="Findings">
         {rows.map((row, index) => {
           const key = `${index} ${row.rule ?? ""} ${row.ref ?? ""}`;

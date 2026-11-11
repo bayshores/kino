@@ -51,6 +51,18 @@ test("a waiting stop lapses when the project moved on, and stays lapsed when the
   assert.deepEqual(statusLines(state, VIDEO), ["direction: C1 rough lapsed · replies 0/10", "step: check, then ask rough again"]);
 });
 
+test("a stop ask names the waived count and the top rules; a rule waived on * shows all; none waived adds nothing", () => {
+  const waivers = [...Array.from({ length: 17 }, (_, n) => ({ code: "crop_no_subject", target: `shot-${n}`, reason: "meant" })),
+    ...Array.from({ length: 9 }, (_, n) => ({ code: "held_static", target: `card-${n}`, reason: "meant" })),
+    { code: "no_music", target: "*", reason: "silent" }, { code: "overlap", target: "a", reason: "x" }, { code: "overlap", target: "b", reason: "x" }];
+  const asked = checkpointStep(ready(4), { kind: "rough", video: VIDEO, rev: 4, now: T0, waivers });
+  assert.match(asked.data.ask, /^Checked: 0 errors · 1 warning · 29 waived \(crop_no_subject 17, held_static 9, overlap 2\)\.$/m);
+  assert.match(stops.waivedLine([{ code: "no_music", target: "*", reason: "silent" }]), /^1 waived \(no_music all\)$/);
+  assert.doesNotMatch(checkpointStep(ready(4), { kind: "rough", video: VIDEO, rev: 4, now: T0 }).data.ask, /waived/);
+  // The service can hand the waivers over inside the video facts instead.
+  assert.match(checkpointStep(ready(4), { kind: "rough", video: { ...VIDEO, waivers: waivers.slice(0, 2) }, rev: 4, now: T0 }).data.ask, /2 waived \(crop_no_subject 2\)/);
+});
+
 test("the sound stop of a video with no music: the person's three choices, or 2 songs measured first", () => {
   const rules = stopRules({ "checkpoint-rough": "allow", "checkpoint-color": "allow" });
   const silent = { ...VIDEO, music: false };

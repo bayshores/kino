@@ -253,7 +253,51 @@ test("waive_check takes a list or a glob of layer names and saves one waiver per
   assert.throws(() => translateOperations([{ ...waiver, reason: "treatment B type direction" }], resolver, document), /names the reference that chose this type/);
   // A glob over hundreds of word layers passes the 200-waiver limit: the error says what to do instead.
   const many = { ...ops[1], target: Array.from({ length: 201 }, (_, index) => `word-${index}`) };
-  assert.throws(() => applyOperations(document, [many]), /would make 201 waivers .*target:"\*"/);
+  assert.throws(() => applyOperations(document, [many]), /would make 201 waivers .*Name fewer layers/);
+});
+
+test("waivers: crop and shape need the person's words on layers; face-cut codes refuse * and scenes; ask_unmet names the word; unknown codes get a did-you-mean", () => {
+  // sky-1 is the layer "shot-*" leaves out: a glob that reaches all three would be "*" in disguise.
+  const document = sceneDocument([rectangle("shot-1"), rectangle("shot-2"), rectangle("sky-1")]);
+  const resolver = createResolver(document, assignCodes(emptyCodes(), document));
+  const send = (op) => translateOperations([{ op: "waive_check", reason: "meant", ...op }], resolver, document);
+  const said = "keep the tight crop on the eyes";
+  // crop_no_subject and shape_guess: the person's quote, on layers only.
+  for (const code of ["crop_no_subject", "shape_guess"]) {
+    assert.throws(() => send({ code, target: "shot-1" }), /Only the person can keep it/);
+    assert.throws(() => send({ code, target: "shot-1", quote: "your call" }), /Only the person can keep it/);
+    assert.throws(() => send({ code, target: "*", quote: said }), /not target:"\*"/);
+    assert.throws(() => send({ code, target: "main", quote: said }), /names layers, not the scene "main"/);
+    assert.throws(() => send({ code, target: "s1", quote: said }), /names layers, not the scene "s1"/);
+    assert.throws(() => send({ code, target: ["shot-1", "main"], quote: said }), /not the scene "main"/);
+    for (const glob of ["**", "?*", "*?", "*-*", "s*"]) assert.throws(() => send({ code, target: glob, quote: said }), /reaches every layer/, `glob ${glob}`);
+    const [kept] = send({ code, target: "shot-*", quote: said });
+    assert.deepEqual(kept.target, ["shot-1", "shot-2"]);
+    assert.match(kept.reason, /the person: "keep the tight crop on the eyes"/);
+  }
+  // head_cut_off and narrow_window: the agent may waive them, on one layer at a time.
+  for (const code of ["head_cut_off", "narrow_window"]) {
+    assert.throws(() => send({ code, target: "*" }), /not target:"\*"/);
+    assert.throws(() => send({ code, target: ["shot-1", "*"] }), /not target:"\*"/);
+    assert.throws(() => send({ code, target: "main" }), /names layers, not the scene "main"/);
+    assert.throws(() => send({ code, target: "**" }), /reaches every layer/);
+    assert.deepEqual(send({ code, target: "shot-1" })[0].target, "shot-1");
+    assert.equal(translateOperations([{ op: "unwaive_check", code, target: "main" }], resolver, document).length, 1, "removing is never refused");
+  }
+  // ask_unmet: the reason names an origin word (kino's search result), whole word.
+  assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "the tower is off screen" }), /no origin word/);
+  resolver.origin = { words: [{ word: "tower", count: 11, of: 15 }] };
+  assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "not needed" }), /names the origin word in its reason \("tower"\)/);
+  assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "towers are off screen" }), /names the origin word/);
+  assert.equal(send({ code: "ask_unmet", target: "main", reason: "no Tower here: the keeper's story is on the stairs" })[0].target, "main");
+  // A code nobody checks is refused with the closest names; gates and new rules are known.
+  assert.throws(() => send({ code: "crop_no_subjct", target: "shot-1" }), (thrown) => {
+    assert.ok(thrown instanceof OperationError);
+    assert.equal(thrown.suggestions[0], "crop_no_subject");
+    return /is not a check rule or a gate/.test(thrown.message);
+  });
+  for (const code of ["review", "reference", "viewer", "needs", "treatments", "critique", "footage", "spoiler", "no_music", "av_offset", "narrow_window"])
+    assert.equal(send({ code, target: code === "narrow_window" ? "shot-1" : "*" }).length, 1, code);
 });
 
 test("translate errors name the operation's number and offer close names", () => {
