@@ -178,6 +178,9 @@ const LIBRARY_NAMES = 8;
 const INSPIRE_WAIT_MS = 50_000;
 // How long saving the brief's about line waits for the origin search (inspire.origin) before it answers.
 const ORIGIN_WAIT_MS = 20_000;
+// A skipped origin search (a bot check, a timeout, yt-dlp briefly missing) is tried again on a later
+// save of the same about line, but not within this long of the last try.
+const ORIGIN_RETRY_MS = 10 * 60_000;
 // The waiver code that lets a final render go without look versus (waive_check {code:"reference"}).
 const REFERENCE_WAIVER = "reference";
 // A look versus counts for this many revisions after it, like a viewer report: small fixes after
@@ -4379,7 +4382,9 @@ export function createAgentService(deps) {
     const rows = made.shown.map((strip) => `${strip.at}s ${strip.kinds.join("+")}`).join(" · ");
     const where = Number.isFinite(input.t) ? `nearest ${input.t}s` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
     // A studied edit whose title has the subject's origin word also leads to that footage.
-    const origin = originReferenceLine((await originFootageFor(projectId)).found, (await deps.inspire.reference(id).catch(() => null))?.title);
+    // (Without an origin word it reads nothing more: no second reference lookup.)
+    const { found } = await originFootageFor(projectId);
+    const origin = found ? originReferenceLine(found, (await deps.inspire.reference(id).catch(() => null))?.title) : "";
     return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown } };
   }
 
@@ -5136,12 +5141,20 @@ export function createAgentService(deps) {
   // changed: one search of that quote only, at any length, keeps what the subject is known for in
   // state.origin ({query, words, top}). Nothing else of the person's message is sent. Offline, without
   // yt-dlp or on an error it keeps {query, skipped}; the save and its answer never change.
+  // The last try per project (when, and for which quote): after a restart the first save tries again.
+  const originTried = new Map();
   async function findOrigin(projectId) {
     try {
       const state = await agentState.read(projectId);
       const about = state.brief?.fields?.about;
       const query = originQuery(about?.quote ?? about?.text);
-      if (!query || state.origin?.query === query) return;
+      if (!query) return;
+      if (state.origin?.query === query) {
+        const last = originTried.get(projectId);
+        const retry = state.origin.skipped && !(last?.query === query && now() - last.at < ORIGIN_RETRY_MS);
+        if (!retry) return;
+      }
+      originTried.set(projectId, { query, at: now() });
       const ask = (state.brief.fields.ask ?? []).map((entry) => entry.text);
       const origin = deps.inspire ? await deps.inspire.origin(about, { ask }) : { query, skipped: "kino cannot search YouTube here" };
       // Skipped when the line changed while the search ran: the next save searches the new one.

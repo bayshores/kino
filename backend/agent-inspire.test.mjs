@@ -320,6 +320,18 @@ test("saving the brief with an about line runs one search of the quote only; a f
     assert.equal(origin.query, "walking tour");
     assert.match(origin.skipped, /^the search failed: /);
     assert.equal(origin.words, undefined);
+    // Not again within minutes in the same run; the next run (after a restart) tries again.
+    const afterFailed = (await searches()).length;
+    await call(srv, "notes", never("no stock logos"));
+    assert.equal((await searches()).length, afterFailed, "a skipped search is not retried on every save");
+    await srv.stop();
+    srv = await boot();
+    const retried = await call(srv, "notes", never("no jump cuts"));
+    assert.equal(retried.isError, undefined, retried.text);
+    assert.equal((await searches()).length, afterFailed + 1, "a later run searches the same quote again");
+    const kept = (await readState()).origin;
+    assert.equal(kept.skipped, undefined);
+    assert.equal(kept.query, "walking tour");
   } finally {
     await srv?.stop();
     await rm(data, { recursive: true, force: true });

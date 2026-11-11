@@ -49,16 +49,17 @@ export function createFootageFinder(deps) {
   // own cancel: it stops only when every caller waiting on it has cancelled.
   const searching = new Map();
 
-  async function search(words, { count, signal } = {}) {
+  async function search(words, { count, signal, origin = null } = {}) {
     if (signal?.aborted) throw abortError();
-    const key = `youtube\n${count ?? ""}\n${String(words ?? "").replace(/\s+/g, " ").trim().toLowerCase()}`;
+    // The origin word is part of the key: an answer made without it dropped edit uploads this one keeps.
+    const key = `youtube\n${count ?? ""}\n${origin?.word ? String(origin.word).toLowerCase() : ""}\n${String(words ?? "").replace(/\s+/g, " ").trim().toLowerCase()}`;
     let job = searching.get(key);
     if (!job) {
       const controller = new AbortController();
       let asked = false;
       const promise = cached(key, async () => {
         asked = true;
-        const answer = await searchFootage(words, { run: ytDlp, count, signal: controller.signal });
+        const answer = await searchFootage(words, { run: ytDlp, count, signal: controller.signal, origin });
         if (!answer.candidates.length) throw new NothingFound(answer);
         return answer;
       })
