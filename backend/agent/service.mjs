@@ -106,8 +106,8 @@ import { changedStretches, findingsAt, frameSignature, nearDuplicate, newFinding
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
-import { mediaFrameState, mediaPlaybackRange } from "../../engine/playback.js";
-import { isRemapped } from "../../engine/mediaTime.js";
+import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
+import { constantSpeed, isRemapped } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
@@ -161,6 +161,9 @@ const SPEECH_BUDGET_ONE = 10_000;
 const SPEECH_BUDGET = 15_000;
 const SPEECH_BUDGET_MIN = 2_000;
 const SPEECH_TARGET = /^speech:(.+?)(?:\[(file)?,?(?:from=(\d+(?:\.\d+)?))?\])?$/;
+// A clip's spoken line this many file seconds or less past what its layer plays is still named
+// with that layer (the trim stops just before it), so the agent can move the trim to play it.
+const LINE_NEAR = 1;
 export const VERBS = Object.freeze(["status", "edit", "check", "look", "inspect", "render", "library", "history", "notes", "project"]);
 const RECEIPT_LIST = 30;
 // An edit receipt lists the times of at most this many animations it made or retimed.
@@ -1742,7 +1745,11 @@ export function createAgentService(deps) {
     // and a clip whisper cannot read (speech in another language) still keeps its stretch.
     const wordsOptional = operation.type === "keep_line" && operation.line === undefined;
     if (layer?.src && (layer.type === "audio" || layer.type === "video") && !(wordsOptional && (operation.text !== undefined || operation.subtitle === false))) {
-      try { operation.transcript = await transcripts.get(mediaFileOf(layer), document, layer); } catch (error) { if (!wordsOptional) throw error; }
+      const file = mediaFileOf(layer);
+      // keep_line finds the line in the transcript the agent was shown (linesToName, look source),
+      // also one heard before the brief's names changed, instead of hearing the clip again.
+      const shown = operation.type === "keep_line" && transcripts.saved ? await transcripts.saved(file, document, layer, { any: true }).catch(() => null) : null;
+      try { operation.transcript = shown ?? await transcripts.get(file, document, layer); } catch (error) { if (!wordsOptional) throw error; }
     }
     const context = await operationContext(document, [operation]);
     if (work.reports) context.reports = work.reports;
@@ -4570,40 +4577,58 @@ export function createAgentService(deps) {
   // Lines the video's footage says that no layer plays: from saved transcripts only (import, compose,
   // a full check or look source {layer} make them). Null when a footage layer plays speech, when
   // none says a line, or when these lines were already named (state.linesNamed). Otherwise
-  // {text, key}: the line to say once, with the call that keeps one. A layer not at speed 1 is only
-  // counted (keep_line refuses it). The song alone stays a valid choice: no finding, no next call.
+  // {text, key}: the line to say once, with the call that keeps one. A line the layer plays only
+  // part of, or misses by LINE_NEAR seconds or less, is named with the file seconds it plays, so
+  // the trim can move; so is a line on a layer not at speed 1 (keep_line needs speed 1). The song
+  // alone stays a valid choice: no finding, no next call.
   async function linesToName(document, codes, state) {
     const scene = videoScene(document);
     if (!scene) return null;
-    const heardBy = [];
-    const slowed = [];
+    // One entry a line of a file: the layer that plays most of it (a whole line at speed 1 first).
+    const found = new Map();
     for (const layer of scene.layers) {
       if ((layer.type !== "video" && layer.type !== "audio") || !layer.src || layer.enabled === false) continue;
-      const lines = await savedLinesOf(layer.src, document, 3);
+      // Every line of the file: a short line this layer does not play must not hide one it does.
+      const lines = await savedLinesOf(layer.src, document, Infinity);
       if (!lines.length) continue;
       // The same predicate as the speech checks (quality.mjs heardSpeech): a layer at volume 0 is not heard.
       if (Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to)) return null;
       const range = mediaPlaybackRange(layer, scene.duration);
       if (!range) continue;
+      const slowed = isRemapped(layer);
+      // The file seconds the layer plays (a layer at another speed reads them off its sound clock).
+      const ends = slowed ? [range.offset, mediaSoundTime(layer, range.end)] : [range.offset, range.offset + range.duration];
+      const plays = [Math.min(...ends), Math.max(...ends)];
       for (const line of lines) {
-        if (line.start < range.offset - 1e-6 || line.end > range.offset + range.duration + 1e-6) continue;
+        const overlap = Math.min(plays[1], line.end) - Math.max(plays[0], line.start);
+        if (overlap < -LINE_NEAR) continue;
+        const whole = !slowed && line.start >= plays[0] - 1e-6 && line.end <= plays[1] + 1e-6;
         const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
-        (isRemapped(layer) ? slowed : heardBy).push({ layer: refName(layer.id, codes), src: layer.src, text: line.text, from: at(line.start), to: at(line.end) });
+        const entry = { layer: refName(layer.id, codes), src: layer.src, text: line.text, whole, overlap, plays, line, from: at(line.start), to: at(line.end),
+          speed: slowed ? constantSpeed(layer) : 1 };
+        const key = `${layer.src} ${line.start}`;
+        const known = found.get(key);
+        if (!known || (entry.whole - known.whole || entry.overlap - known.overlap) > 0) found.set(key, entry);
       }
     }
-    if (!heardBy.length && !slowed.length) return null;
-    heardBy.sort((a, b) => a.from - b.from);
-    const key = createHash("sha256").update(JSON.stringify([...heardBy, ...slowed].map((line) => [line.src, line.text]))).digest("hex").slice(0, 16);
+    if (!found.size) return null;
+    // Whole lines in scene order, then lines at speed 1 (only the trim moves), each by how much of it plays.
+    const named = [...found.values()].sort((a, b) => (b.whole - a.whole) || (a.whole ? a.from - b.from : (a.speed !== 1) - (b.speed !== 1) || b.overlap - a.overlap));
+    const key = createHash("sha256").update(JSON.stringify(named.map((line) => [line.src, line.text]))).digest("hex").slice(0, 16);
     if (state?.linesNamed === key) return null;
-    const total = heardBy.length + slowed.length;
-    const shown = heardBy.slice(0, 3).map((line) => `${line.layer} "${line.text.replaceAll('"', "'")}" ${line.from}-${line.to} s`);
+    const file = (seconds) => seconds.toFixed(1);
+    const shown = named.slice(0, 3).map((line) => `${line.layer} "${line.text.replaceAll('"', "'")}" ${line.whole ? `${line.from}-${line.to} s`
+      : `plays file ${file(line.plays[0])}-${file(line.plays[1])}, line at ${file(line.line.start)}-${file(line.line.end)}${line.speed !== 1 ? ` (speed ${line.speed})` : ""}`}`);
     // The song to dip: a music layer that is not one of the clips with lines.
-    const talking = new Set([...heardBy, ...slowed].map((line) => line.src));
+    const talking = new Set(named.map((line) => line.src));
     const song = scene.layers.find((layer) => !talking.has(layer.src) && isMusicLayer(layer, scene));
-    const [first] = heardBy;
-    const call = first ? JSON.stringify({ ops: [{ op: "keep_line", layer: first.layer, line: first.text, ...(song ? { duck: refName(song.id, codes) } : {}) }, { op: "isolate_voice", layer: first.layer }] }) : "";
-    const keep = first ? ` Keep one under the song: edit ${call}.` : "";
-    const text = `lines: your clips say ${total} line${total === 1 ? "" : "s"} and none is heard${shown.length ? `: ${shown.join(" · ")}` : ""}${slowed.length ? `${shown.length ? " " : ": "}+${slowed.length} on slowed layers (keep_line needs speed 1)` : ""}.${keep} The song alone is a choice too.`;
+    const duck = song ? { duck: refName(song.id, codes) } : {};
+    const [first] = named;
+    // keep_line {line} finds the words the layer plays: a cut-off line needs its trim moved first.
+    const keep = first.whole
+      ? ` Keep one under the song: edit ${JSON.stringify({ ops: [{ op: "keep_line", layer: first.layer, line: first.text, ...duck }, { op: "isolate_voice", layer: first.layer }] })}.`
+      : ` To keep one, trim its layer (mediaOffset, mediaDuration; speed 1) to play the whole line, then keep_line ${JSON.stringify({ layer: first.layer, line: first.text, ...duck })}.`;
+    const text = `lines: your clips say ${named.length} line${named.length === 1 ? "" : "s"} and none is heard: ${shown.join(" · ")}${named.length > 3 ? ` +${named.length - 3} more` : ""}.${keep} The song alone is a choice too.`;
     return { text, key };
   }
   const nameLinesOnce = (projectId, key) => agentState.update(projectId, (draft) => { draft.linesNamed = key; });

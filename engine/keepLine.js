@@ -19,7 +19,7 @@ import { uid } from "./model.js";
 import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { applyAddCaptions } from "./captionLayers.js";
 import { applyDuckAudio } from "./audioDucking.js";
-import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords } from "./speech.js";
+import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { lineWords } from "./blocks/moves/footage.js";
 import { round } from "./numbers.js";
 
@@ -108,8 +108,10 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   const range = { start: Math.min(...plays.map((entry) => entry.play.start)), end: Math.max(...plays.map((entry) => entry.play.end)) };
 
   // The words the scene plays, as captions read them (none when the clip was not transcribed or has none).
+  // A sound tag glued to a word ("see.(laughs)") is left out, as clipLines shows the line.
   const heard = operation.transcript?.words?.length
-    ? captionWordsFromSpeech(speechWords(scene, checkSpeechLayer(scene, layer, "keep_line"), operation.transcript)).words : [];
+    ? captionWordsFromSpeech(speechWords(scene, checkSpeechLayer(scene, layer, "keep_line"), operation.transcript)
+      .map((word) => ({ ...word, text: withoutGluedTag(word.text) || word.text }))).words : [];
   let start;
   let end;
   let said;

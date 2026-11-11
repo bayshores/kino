@@ -10,13 +10,16 @@ import { createAgentClient } from "./agent/client.mjs";
 import { clipTile, clipTimes, layoutClips, planClips } from "./agent/clips-sheet.mjs";
 import { makeWorkingCopy } from "./media-working-copy.mjs";
 import { ffmpeg, ffprobe, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
+import { TRANSCRIPT_VERSION } from "./speech/transcribe.mjs";
+import { writeFakeWhisper } from "../tests/fake-whisper-cli.mjs";
 
 let server, client, folder;
 before(async () => {
   if (skipWithoutMediaTools) return;
-  server = await startTestServer();
-  client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "look-source-clips-test" });
   folder = await mkdtemp(path.join(tmpdir(), "kino-source-clips-"));
+  // A stand-in whisper: saved transcripts are read (look source's heard lines), none is made.
+  server = await startTestServer({ env: await writeFakeWhisper(folder, []) });
+  client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "look-source-clips-test" });
 });
 after(async () => {
   await server?.stop();
@@ -81,8 +84,14 @@ test("look source times: those file seconds of a clip, by file name or video lay
   await call("edit", { project: "clips", ops: [{ op: "add_layer", layerType: "video", name: "wide", properties: { src: media.src, x: 0, y: 0, width: 320, height: 180, mediaSourceDuration: 2 } }] });
   const byLayer = await call("look", { project: "clips", mode: "source", layer: "wide", times: [1] });
   assert.match(byLayer.text, /^source 01-wide\.mp4 \(160×90, 2 s\): file 1 s\./);
+  // A line in the clip's saved transcript: the overview and the layer's own view say it, in file seconds.
+  const file = path.join(server.dataDirectory, "media", media.src.split("/").pop());
+  const words = [{ text: "Hello", start: 0.2, end: 0.5, p: 0.9 }, { text: "there.", start: 0.6, end: 1.1, p: 0.9 }];
+  await writeFile(`${file}.words-small.en`, JSON.stringify({ version: TRANSCRIPT_VERSION, words }));
   const all = await call("look", { project: "clips", mode: "source" });
   assert.match(all.text, /^1 01-wide\.mp4 160×90 2 s · wide$/m, "the overview names the layer that shows a clip");
+  assert.match(all.text, /^heard \(shortest first\): \S+ "Hello there\." 0\.2-1\.1 s$/m);
+  assert.match((await call("look", { project: "clips", mode: "source", layer: "wide", t: 1 })).text, /^heard: "Hello there\." 0\.2-1\.1 s \(file s\)$/m);
 });
 
 test("a video over the upload limit imports as kino's own copy with a note; one under it has none", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {

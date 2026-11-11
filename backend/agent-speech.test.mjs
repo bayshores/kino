@@ -5,7 +5,7 @@
 // times snapped to the sound, quiet cut points, the saved transcript, cut_speech's pieces and
 // ripple, and captions from the cut voice.
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -14,7 +14,7 @@ import { skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 import { toneWords, writeFakeWhisper } from "../tests/fake-whisper-cli.mjs";
 import { writeWav } from "../tests/voice-mix.mjs";
-import { whisperSetup } from "./speech/transcribe.mjs";
+import { TRANSCRIPT_VERSION, whisperSetup } from "./speech/transcribe.mjs";
 
 // "So we will, we will um try. Like, the Acmes app.": a repeat (1-2), a filler (5), a 1.15 s pause
 // before "Like," and a misheard name. Tone 11 is one the stand-in does not write down, so kino
@@ -189,6 +189,29 @@ test("a muted clip's spoken lines are named once (edit receipt or status); keep_
   const voice = scene.layers.find((layer) => layer.name === "vo");
   assert.notEqual(voice.src, media.src, "the layer plays the voice-only file now");
   assert.deepEqual(voice.animations.filter((animation) => /^Line /.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
+});
+
+test("short lines the layer does not play never hide the one it plays; a line just past the trim is named with file seconds; keep_line reads a transcript heard with older names", { skip: skipWithoutMediaTools }, async () => {
+  const other = path.join(folder, "long-clip.wav");
+  await writeWav(other, toneWords(TONES, DURATION + 0.1));
+  const media = await upload(server, other, "long-clip.wav");
+  // Saved under names the brief no longer has: four short lines, then the long one the layer plays.
+  const said = [["Go", "now."], ["Hey", "you."], ["Stop", "it."], ["Run", "fast."], ["The", "whole", "long", "line", "is", "here."]];
+  const starts = [0.1, 0.6, 1.1, 1.9, 3.0];
+  const words = said.flatMap((line, index) => line.map((text, at) => ({ text, start: starts[index] + at * 0.3, end: starts[index] + at * 0.3 + 0.2, p: 0.9 })));
+  const file = path.join(server.dataDirectory, "media", media.src.split("/").pop());
+  await writeFile(`${file}.words-small.en-0123abcd`, JSON.stringify({ version: TRANSCRIPT_VERSION, words }));
+  const client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "cli" });
+  assert.equal((await client.call("project", { action: "create", id: "long-lines", width: 320, height: 180, duration: 8 })).isError, undefined);
+  const added = await client.call("edit", { project: "long-lines", ops: [{ op: "add_layer", layerType: "audio", name: "vo", properties: { src: media.src, mediaStart: 0, mediaOffset: 2.8, mediaDuration: 2.4, volume: 0 } }] });
+  assert.equal(added.isError, undefined, added.text);
+  const note = (added.data.notes ?? []).join("\n");
+  assert.match(note, /your clips say 2 lines and none is heard: vo "The whole long line is here\." 0\.2-1\.9 s · vo "Run fast\." plays file 2\.8-5\.2, line at 1\.9-2\.4\./);
+  // The brief now names someone, so whisper would hear the clip with other names: keep_line finds the line the agent was shown.
+  assert.equal((await client.call("notes", { project: "long-lines", action: "brief", fields: { message: { text: "made for Zuri riders", by: "guessed" } } })).isError, undefined);
+  const kept = await client.call("edit", { project: "long-lines", ops: [...["reference", "treatments"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a test of keep_line" })), { op: "keep_line", layer: "vo", line: "The whole long line is here." }] });
+  assert.equal(kept.isError, undefined, kept.text);
+  assert.deepEqual((await readdir(path.dirname(file))).filter((name) => name.startsWith(`${path.basename(file)}.words`)), [`${path.basename(file)}.words-small.en-0123abcd`]);
 });
 
 test("the dashboard's own check (listen:false) never transcribes; an agent's full check does", { skip: skipWithoutMediaTools }, async () => {
