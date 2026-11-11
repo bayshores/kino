@@ -201,6 +201,7 @@ test("origin: words many relevant titles share, the most viewed relevant results
   assert.deepEqual((await brokenPhrase.origin(about, { ask: lantern })).words, originOf(found, about, { ask: lantern }).words);
   const failing = createInspire({ directory: path.join(folder, "origin-fail"), projectState: memoryProjects(), search: async () => { throw Object.assign(new Error("not found"), { code: "NO_YTDLP" }); } });
   assert.deepEqual(await failing.origin(about), { query: "keeper", skipped: "yt-dlp is not installed" });
+  assert.deepEqual(await failing.origin(about, { ask: lantern }), { query: "keeper", phrase: "keeper lantern ladder", skipped: "yt-dlp is not installed" }, "a skipped search keeps its phrase");
 });
 
 test("the video's length reaches the search: far longer results are dropped and counted, and fewer than wanted asks once more", async () => {

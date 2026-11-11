@@ -1464,7 +1464,8 @@ export function createInspire(deps) {
     const failed = searches.find((one) => one.status === "rejected");
     if (failed && searches.every((one) => one.status === "rejected")) {
       const error = failed.reason;
-      return { query, skipped: error?.code === "NO_YTDLP" ? "yt-dlp is not installed" : `the search failed: ${String(error?.message).replace(/\s+/g, " ").slice(0, 80)}` };
+      // The phrase is kept so findOrigin's once-per-run retry rule sees the same search.
+      return { query, ...(phrase ? { phrase } : {}), skipped: error?.code === "NO_YTDLP" ? "yt-dlp is not installed" : `the search failed: ${String(error?.message).replace(/\s+/g, " ").slice(0, 80)}` };
     }
     const [named, beside] = searches.map((one) => (one.status === "fulfilled" ? originOf(one.value, about, { ask }) : null));
     if (!phrase) return { query, ...named };

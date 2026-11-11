@@ -274,8 +274,9 @@ test("the skill's inspire example runs as written (references/inspire.md)", { sk
 });
 
 // The brief's about line (written here straight into the saved state, so this test does not depend on
-// how the brief tool saves it): the next brief save searches its quote once and keeps state.origin.
-test("saving the brief with an about line runs one search of the quote only; a failing search keeps skipped and the save is unchanged", async () => {
+// how the brief tool saves it): the next brief save searches its quote, and the quote with the words
+// after it in the person's message, once and keeps state.origin.
+test("saving the brief with an about line searches the quote and the quote with the words beside it, never the message; a failing search keeps skipped and the save is unchanged", async () => {
   const data = await mkdtemp(path.join(tmpdir(), "kino-origin-"));
   const log = path.join(data, "yt.log");
   const stateFile = path.join(data, "agent", "projects", "orig.json");
@@ -294,24 +295,25 @@ test("saving the brief with an about line runs one search of the quote only; a f
     const state = await readState();
     assert.equal(state.origin, undefined, "no about line, no search");
     state.brief.fields.about = { text: "fast cut editing", by: "you", quote: "fast cut editing", rev: 1 };
-    state.brief.fields.ask = [{ text: "make a fast cut editing video about the tower", at: "2026-11-11T00:00:00.000Z" }];
+    state.brief.fields.ask = [{ text: "make a fast cut editing tower video about the city at night", at: "2026-11-11T00:00:00.000Z" }];
     await writeFile(stateFile, JSON.stringify(state));
 
     srv = await boot();
     const saved = await call(srv, "notes", never("no meme text"));
     assert.equal(saved.isError, undefined, saved.text);
-    assert.deepEqual(await searches(), ["ytsearch20:fast cut editing"], "one search, the quote only, as many results as YouTube gives");
+    assert.deepEqual((await searches()).sort(), ["ytsearch20:fast cut editing", "ytsearch20:fast cut editing tower"], "the quote, and the quote with the word after it up to a video word; as many results as YouTube gives");
     // Only the two results with 2 or more of the quote's words count ("cuts" is "cut"); one is 259 s, still a top result. Under 6: no words.
-    assert.deepEqual((await readState()).origin, { query: "fast cut editing", words: [], top: [
+    assert.deepEqual((await readState()).origin, { query: "fast cut editing", phrase: "fast cut editing tower", words: [], top: [
       { id: "yt:ghBpKLARE_8", title: "Fast Cuts SFX - Cinematic Sound Effects for Fast Edit Sequences", views: 781869, seconds: 10 },
       { id: "yt:tgEWNHVbk3U", title: "5 Fast Tips for Fast-Cut Editing", views: 682054, seconds: 259 }] });
     await call(srv, "notes", never("no logos"));
-    assert.equal((await searches()).length, 1, "the same about line is not searched again");
+    assert.equal((await searches()).length, 2, "the same about line is not searched again");
     await srv.stop();
 
-    // A changed quote with a search that fails: {query, skipped}, and the brief save answers as before.
+    // A changed quote with a search that fails: {query, phrase, skipped}, and the brief save answers as before.
     const changed = await readState();
     changed.brief.fields.about = { text: "walking tour", by: "you", quote: "walking tour", rev: 2 };
+    changed.brief.fields.ask = [{ text: "a walking tour lantern video", at: "2026-11-11T00:00:00.000Z" }];
     await writeFile(stateFile, JSON.stringify(changed));
     srv = await boot({ STUB_YTDLP_FAIL: "search" });
     const failed = await call(srv, "notes", never("no jump scares"));
@@ -320,6 +322,7 @@ test("saving the brief with an about line runs one search of the quote only; a f
     assert.equal(failed.text.split("\n").at(-1), saved.text.split("\n").at(-1), "the next: line is the same as after a search that worked");
     const { origin } = await readState();
     assert.equal(origin.query, "walking tour");
+    assert.equal(origin.phrase, "walking tour lantern");
     assert.match(origin.skipped, /^the search failed: /);
     assert.equal(origin.words, undefined);
     // Not again within minutes in the same run; the next run (after a restart) tries again.
@@ -330,7 +333,7 @@ test("saving the brief with an about line runs one search of the quote only; a f
     srv = await boot();
     const retried = await call(srv, "notes", never("no jump cuts"));
     assert.equal(retried.isError, undefined, retried.text);
-    assert.equal((await searches()).length, afterFailed + 1, "a later run searches the same quote again");
+    assert.equal((await searches()).length, afterFailed + 2, "a later run searches the same quote (and its phrase) again");
     const kept = (await readState()).origin;
     assert.equal(kept.skipped, undefined);
     assert.equal(kept.query, "walking tour");
