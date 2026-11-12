@@ -34,7 +34,7 @@ const SEEN_AS = {
   "film grain": ["grain", "scene-background"], "dark edges": ["vignette"], "darken edges": ["vignette"], edges: ["vignette"], "dark corners": ["vignette"], "darker edges": ["vignette"], corners: ["vignette"], tunnel: ["vignette"],
   "depth of field": ["focus-band", "lift-focus"], dof: ["focus-band", "lift-focus"], "tilt shift": ["focus-band"], tiltshift: ["focus-band"], "shallow focus": ["focus-band", "lift-focus"],
   "focus blur": ["focus-band", "lift-focus"], "lens blur": ["focus-band"], "background blur": ["focus-band", "lift-focus"], "rack focus": ["focus-band", "lift-focus"],
-  rim: ["glow", "cut_out"], "rim light": ["glow", "cut_out"], "rim lighting": ["glow", "cut_out"], "edge light": ["glow", "cut_out"], backlight: ["glow", "light-rays"],
+  rim: ["rim-light", "glow", "cut_out"], "rim light": ["rim-light", "glow", "cut_out"], "rim lighting": ["rim-light", "glow", "cut_out"], "edge light": ["rim-light", "glow", "cut_out"], backlight: ["glow", "light-rays"],
   streak: ["speed-lines", "rain", "light-rays"], "light streak": ["lens-flare", "light-rays"], anamorphic: ["lens-flare"], "lens streak": ["lens-flare"],
   "soft glow": ["glow"], dreamy: ["glow", "fog"],
   scrawl: ["text-ranges", "set_font", "outline_text"], brush: ["set_font", "outline_text"], handwritten: ["set_font", "outline_text"], handwriting: ["set_font", "outline_text"],
@@ -46,7 +46,7 @@ const SEEN_AS = {
   "lifted blacks": ["scene-background", "color-look"], "film look": ["scene-background", "color-look"], "frame finish": ["scene-background"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
-  rim: ["rim-light"], "rim light": ["rim-light"], electric: ["rim-light"], lightning: ["rim-light"],
+  electric: ["rim-light"],
   outline: ["outline_text", "rim-light", "glow", "cut_out"], outlined: ["outline_text", "rim-light", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
   "typed highlight": ["type-on"], jitter: ["text-ranges"], "hand set": ["text-ranges"],
   hollow: ["layer-style"], "outline glow": ["layer-style", "glow"], "glow outline": ["layer-style", "glow"],

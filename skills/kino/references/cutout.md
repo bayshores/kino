@@ -40,8 +40,7 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   changes nothing and keeps going. Send the same edit again later: the finished cut-out is kept,
   so it answers at once (`cached:true`), even while another one is being made.
 - The receipt's `cutout` gives the engine, frames, seconds, `cached`, and a `note` when some
-  frames had no subject. A refusal's `cutoutError` names the problem and its reason says what to
-  send instead. Undo it with `history` like any edit.
+  frames had no subject. A refusal's `cutoutError` says what to send instead. Undo: `history`.
 - `check` sees layer boxes, not transparency, so cut-outs get `allowOverlap`: `look` to see that
   a title behind the subject still reads. `covered_layer` and `held_static` skip the source clip.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between

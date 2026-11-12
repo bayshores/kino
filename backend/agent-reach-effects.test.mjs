@@ -185,7 +185,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   invert: { amount: 0.8, keepHue: true },
 };
 
-assert.equal(EFFECTS.length, 59, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 60, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

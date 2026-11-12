@@ -307,7 +307,7 @@ test("library effects lists the whole catalog small, with a name gives its field
   assert.equal(effectDetailText("nothing-like-it"), null);
 
   const found = (query, name) => searchGuide(query).split("\n").slice(0, 4).some((line) => line.startsWith(`${name} (`));
-  for (const [query, name] of [["vignette", "vignette"], ["dark edges", "vignette"], ["depth of field", "focus-band"], ["tilt shift", "focus-band"], ["rim light", "glow"], ["light streak", "lens-flare"],
+  for (const [query, name] of [["vignette", "vignette"], ["dark edges", "vignette"], ["depth of field", "focus-band"], ["tilt shift", "focus-band"], ["rim light", "rim-light"], ["light streak", "lens-flare"],
     ["neon", "outline_text"], ["typed", "type-on"], ["highlight", "accent-hit"], ["brush", "set_font"], ["scrawl", "set_font"], ["handwritten", "set_font"], ["grain", "grain"], ["duotone", "duotone"]])
     assert.ok(found(query, name), `${query} leads to ${name}: ${searchGuide(query)}`);
   // "edges" and "corners" alone mean a vignette; inside other words they do not.
