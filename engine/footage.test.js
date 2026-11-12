@@ -163,6 +163,23 @@ const paced = (pace, duration, { sample = {}, clip = {}, curve = [], shape, onse
   return { plan, period, clips: new Map(clips.map((clip) => [clip.key, clip])) };
 };
 
+test("spoken lines: with no voice a short clear repeated line is heard, captioned and ducked under; lines:false keeps every clip silent", () => {
+  const said = [{ text: "Kill", start: 5, end: 5.3, p: 0.9 }, { text: "you.", start: 5.3, end: 5.7, p: 0.9 }];
+  const { plan, clips } = paced(null, 18, { clip: { words: said, sound: { src: "c.mp4", own: true, duration: 20, loud: -20 } } });
+  const heard = plan.shots.filter((shot) => shot.speech);
+  assert.ok(heard.length >= 1 && heard.length <= 3, "a 2-word line passes (up to one per 6 s of 18 s)");
+  assert.match(plan.spokenLines[0], /^lines heard: "Kill you\." [\d.]+-[\d.]+ s \(shot-\d+\).*up to one per 6 s/);
+  const ops = footageOps(plan, clips);
+  const layer = ops.find((op) => op.name === `shot-${heard[0].n}`);
+  assert.deepEqual(layer.animations.filter((animation) => /^Sound (in|out)$/.test(animation.name)).map((animation) => animation.to.volume), [1, 0], "full clip volume for its span, short fades");
+  assert.ok(ops.some((op) => op.op === "duck_audio" && op.under.includes(`shot-${heard[0].n}`)), "the music ducks under it");
+  assert.ok(ops.some((op) => op.op === "move" && op.name === "caption-words" && op.words[0].text === "Kill"), "a caption shows it");
+  assert.equal(paced(null, 18, { clip: { words: said }, lines: false }).plan.shots.filter((shot) => shot.speech).length, 0);
+  const named = paced(null, 18, { clip: { words: said }, lines: ["kill you", "never said"] }).plan;
+  assert.equal(named.shots.filter((shot) => shot.speech).length, 1);
+  assert.match(named.spokenLines.at(-1), /lines not heard in the clips: "never said"/);
+});
+
 test("pace: runs of whole beats on the beat grid, a calm open and an ending twice as fast", () => {
   assert.deepEqual(phrasePlan("promo", 35), [{ from: 0, to: 16, beats: 4 }, { from: 16, to: 28, beats: 2 }, { from: 28, to: 35, beats: 1 }]);
   assert.deepEqual(phrasePlan("velocity", 10), [{ from: 0, to: 10, beats: 1 }]);

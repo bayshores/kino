@@ -597,6 +597,38 @@ function mutedBetween(scene, layer, from, to) {
   return bed >= SONG_BED && top <= UNDER_SONG * bed;
 }
 
+// ---------------------------------------------------------------- speech_unplayed
+/**
+ * speech_unplayed: the video's clips say lines (ctx.savedLines: saved transcripts of every clip on
+ * a layer, heard or muted, read in every check) and no layer plays any of them. Run 6 and the five
+ * runs before it muted every clip; nothing but a once-only status note said so
+ * (.scratch/ceiling/trace-code.md section 4). One warning for the scene, with the keep_line call
+ * for its best line: a whole line at speed 1, the most words up to 12, the earliest. A silent edit
+ * on purpose waives it with a reason.
+ */
+export function speechUnplayed(model, ctx) {
+  const scene = ctx.speechScene;
+  const lines = (ctx.savedLines ?? []).filter((line) => line?.layerId && line.text && Number.isFinite(line.from) && Number.isFinite(line.to));
+  if (!scene || !lines.length) return [];
+  const layerOf = (line) => scene.layers.find((layer) => layer.id === line.layerId);
+  const playing = lines.filter((line) => { const layer = layerOf(line); return layer && layer.enabled !== false; });
+  if (!playing.length || playing.some((line) => !mutedBetween(scene, layerOf(line), line.from, line.to))) return [];
+  const count = (line) => String(line.text).split(/\s+/).filter(Boolean).length;
+  const best = [...playing].sort((a, b) => (!!a.partial - !!b.partial) || (!!a.slowed - !!b.slowed) || (Math.min(12, count(b)) - Math.min(12, count(a))) || a.from - b.from)[0];
+  const name = best.layer ?? best.layerId;
+  // A line the layer plays only part of (partial) is kept by the seconds it plays, with its words as the subtitle.
+  const what = best.partial ? { from: best.from, to: best.to, text: best.text } : String(best.text).endsWith("…") ? { from: best.from, to: best.to } : { line: best.text };
+  const keep = JSON.stringify({ ops: [{ op: "keep_line", layer: name, ...what }] });
+  const shown = playing.slice(0, 3).map((line) => `${line.layer ?? line.layerId} "${String(line.text).replaceAll('"', "'").slice(0, 60)}" ${sec(line.from)}-${sec(line.to)} s`).join(" · ");
+  return [{
+    rule: "speech_unplayed", severity: "warn", layerId: layerOf(best).id, at: sec(best.from),
+    message: `the clips say ${playing.length} line${playing.length === 1 ? "" : "s"} and the edit plays none: every clip is muted where it speaks.`,
+    measured: `${shown}${playing.length > 3 ? ` +${playing.length - 3} more` : ""}`,
+    required: "at least one line the clips say is heard, or a waiver saying the edit is silent on purpose",
+    fix: { kind: "hint", text: `${best.slowed ? `${name} plays ${best.how || "at another speed"}; set it to speed 1 first, then ` : ""}edit ${keep}: plays only that line at the clip's volume, subtitles it and dips the music under it. Silent on purpose: waive_check {code:"speech_unplayed", target:"${scene.name ?? scene.id}", reason:"<why no line is heard>"}.` },
+  }];
+}
+
 /**
  * A reading text whose words match 60% or more of a line a video clip says (ctx.clipLines, from the
  * saved transcripts) while that clip plays muted under it. Nothing else says the line: the fix is

@@ -712,7 +712,8 @@ export function createAgentService(deps) {
     // A song's saved shape (.song file, never a new measure): reference_range reads its loudest change.
     const songOf = async (layer) => (await songShapes.saved?.(mediaFileOf(layer))) ?? null;
     // The lines the clips say (saved transcripts only), heard or muted: reference_range names them.
-    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, layerId, text, from, to, slowed, how, speedAnimations: speeds }) => ({ layer, layerId, text, from, to, ...(slowed ? { slowed, how, speedAnimations: speeds } : {}) }));
+    // {partial: true} adds lines a layer plays only part of (speech_unplayed).
+    const clipLinesOf = async (doc, scene, options) => (await sceneLines(scene, doc, codes, options)).map(({ layer, layerId, text, from, to, slowed, how, speedAnimations: speeds, partial }) => ({ layer, layerId, text, from, to, ...(slowed ? { slowed, how, speedAnimations: speeds } : {}), ...(partial ? { partial } : {}) }));
     const asks = askedItems(saved);
     // listen:false (the dashboard's own check) never starts a reference's voice measure either.
     const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null, sourceLooks: saved?.sourceLooks ?? {} });
@@ -2566,8 +2567,9 @@ export function createAgentService(deps) {
     const deckLine = deck ? deckStatusLine(deck.deck, deck.basis) : "";
     const always = alwaysLine(state.notes, codes);
     const needs = needsLine(state.needs);
-    // Spoken lines of the footage that no layer plays, said once (an edit receipt may have said them).
-    const lineNote = await linesToName(document, codes, state);
+    // Spoken lines of the footage that no layer plays: status says them while it is true (run 6 cut
+    // the once-only note out of a receipt and never heard of it again); an edit receipt says them once.
+    const lineNote = await linesToName(document, codes, null);
     if (lineNote) await nameLinesOnce(projectId, lineNote.key);
     // Past the build (built and checked once, no stop waiting, the storyboard stop not open): every
     // gate left before the final render. A gate that fails to work out leaves the line out.
@@ -4833,7 +4835,9 @@ export function createAgentService(deps) {
   // The lines the scene's clips say within the stretch each plays, from saved transcripts only:
   // [{layer, src, text, from, to (scene s), heard (the layer is not at volume 0), slowed,
   // how, speedAnimations (when slowed)}].
-  async function sceneLines(scene, document, codes) {
+  // With partial, a line the layer plays 0.3 s or more of comes too ({partial: true}, from/to the
+  // part it plays): speech_unplayed hears a clip trimmed into a line (run 6's scream clip).
+  async function sceneLines(scene, document, codes, { partial = false } = {}) {
     const found = [];
     for (const layer of scene.layers) {
       if ((layer.type !== "video" && layer.type !== "audio") || !layer.src || layer.enabled === false) continue;
@@ -4847,16 +4851,18 @@ export function createAgentService(deps) {
       const ends = slowed ? [range.offset, mediaSoundTime(layer, range.end)] : [range.offset, range.offset + range.duration];
       const plays = [Math.min(...ends), Math.max(...ends)];
       for (const line of lines) {
-        if (line.start < plays[0] - 1e-6 || line.end > plays[1] + 1e-6) continue;
+        const whole = line.start >= plays[0] - 1e-6 && line.end <= plays[1] + 1e-6;
+        const part = !whole && partial && Math.min(plays[1], line.end) - Math.max(plays[0], line.start) >= 0.3;
+        if (!whole && !part) continue;
         // Scene seconds of a file second, to 0.01 (a slowed layer maps it back through its clock).
         const at = (file, step) => {
           const time = slowed ? mediaSceneTime(layer, file) : range.start + file - range.offset;
           return Number.isFinite(time) ? Math[step](time * 100) / 100 : null;
         };
-        const times = [at(line.start, "floor"), at(line.end, "ceil")];
+        const times = whole ? [at(line.start, "floor"), at(line.end, "ceil")] : [at(Math.max(plays[0], line.start), "ceil"), at(Math.min(plays[1], line.end), "floor")];
         if (times.some((time) => time == null)) continue;
         const [from, to] = times.sort((a, b) => a - b);
-        found.push({ layer: refName(layer.id, codes), layerId: layer.id, src: layer.src, text: line.text, from, to, heard, slowed,
+        found.push({ layer: refName(layer.id, codes), layerId: layer.id, src: layer.src, text: line.text, from, to, heard, slowed, ...(part ? { partial: true } : {}),
           ...(slowed ? { how: remapReason(layer), speedAnimations: speedAnimations(layer).map((animation) => refName(animation.id, codes)) } : {}) });
       }
     }

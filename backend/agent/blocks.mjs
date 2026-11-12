@@ -56,7 +56,7 @@ import { sec } from "./describe.mjs";
 import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
-import { FOOTAGE_FIELDS, readFootageList } from "./footage.mjs";
+import { FOOTAGE_FIELDS, readFootageList, readLines } from "./footage.mjs";
 import { frameShot } from "../../engine/footage/layout.js";
 import { planEdit } from "../../engine/footage/plan.js";
 import { footageCues, footageOps } from "../../engine/footage/ops.js";
@@ -149,7 +149,7 @@ const OPERATIONS = {
   },
   compose: {
     fields: ["sceneId", "id", "name", "videoType", ...COMPOSE_KEYS.filter((key) => key !== "type"), ...FOOTAGE_FIELDS],
-    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix), then check fixes it; dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it.',
+    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, lines?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix), then check fixes it; without a voice the best spoken lines of the clips stay heard, captioned, music ducked (lines: a number, [texts] or false; default up to one per 6 s); dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it.',
   },
   format: {
     fields: ["name", "slots", "aspect", "sceneId", "id", "seed"],
@@ -312,7 +312,8 @@ function readCompose(input) {
 // footage before, else a new one) and its fields, checked before anything is measured.
 function translateFootage(operation, resolver, document) {
   const allowed = new Set(["type", "videoType", "sceneId", "id", "name", "format", "duration", "seed", ...FOOTAGE_FIELDS]);
-  for (const key of Object.keys(operation)) if (!allowed.has(key)) throw problem(`compose {footage} has no field "${key}". Its fields: footage, music, voice, treatment, pace, accents, duration, format, seed, title, end, scene, id, name.`, closest(key, [...allowed]));
+  for (const key of Object.keys(operation)) if (!allowed.has(key)) throw problem(`compose {footage} has no field "${key}". Its fields: footage, music, voice, treatment, pace, accents, lines, duration, format, seed, title, end, scene, id, name.`, closest(key, [...allowed]));
+  if (operation.lines !== undefined) { try { operation.lines = readLines(operation.lines); } catch (error) { throw problem(error.message); } }
   try { operation.footage = readFootageList(operation.footage); }
   catch (error) { throw problem(error.message); }
   for (const key of ["music", "voice"]) if (operation[key] !== undefined && (typeof operation[key] !== "string" || !operation[key].trim())) throw problem(`${key} is an imported sound's name or id.`);
@@ -1385,7 +1386,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       throw problem(`Scene ${existing.id} already has layers; compose {footage} builds into a new scene: leave scene out and give id, or delete its layers first.`);
     const saved = existing?.footage ?? {};
     const input = { footage: operation.footage };
-    for (const key of ["music", "voice", "treatment", "pace", "accents", "duration", "format", "seed", "title", "end"]) {
+    for (const key of ["music", "voice", "treatment", "pace", "accents", "duration", "format", "seed", "title", "end", "lines"]) {
       const value = operation[key] !== undefined ? operation[key] : saved[key];
       if (value !== undefined && value !== null) input[key] = value;
     }
@@ -1412,7 +1413,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const titleText = input.title ?? brand?.logos?.find((logo) => logo.text)?.text ?? brand?.name ?? projectTitle(document.name);
     let plan;
     try {
-      plan = planEdit({ clips: facts.clips, music: facts.music, voice: facts.voice, frame, duration: input.duration, treatment, deck, seed, title: titleText, end: input.end ?? null, pace: input.pace ?? null, accents: input.accents });
+      // The person's saved words (source {name, text}) lift the spoken lines that share them (engine/footage/lines.js).
+      const message = (document.sources ?? []).map((entry) => entry.text).join(" ");
+      plan = planEdit({ clips: facts.clips, music: facts.music, voice: facts.voice, frame, duration: input.duration, treatment, deck, seed, title: titleText, end: input.end ?? null, pace: input.pace ?? null, accents: input.accents, lines: input.lines, message });
     } catch (error) { throw problem(error.message); }
 
     // The scene: new, or emptied of what compose {footage} made in it before.
@@ -1475,6 +1478,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const label = sceneLabel(built);
     work.notes.push(`compose ${label} from footage: ${frame.width}×${frame.height} ${plan.duration} s, ${plan.treatment}${plan.pace ? `, ${plan.pace} pace` : ""}, ${plan.shots.length} shots, ${plan.captions.length} caption runs${plan.title ? ", title" : ""}${plan.endCard.text ? ", end card" : ""}${plan.music ? ", music ducked under speech" : ""}`);
     work.notes.push(...facts.notes);
+    // The spoken lines heard and left out, each with the call that keeps it (the plan shows only 2 lines outside a dry run).
+    work.notes.push(...(plan.spokenLines ?? []));
     work.plan = plan.words;
     work.footage = { sceneId: built.id };
     return parseDocument(next);
@@ -1507,7 +1512,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const label = `Format ${format}`;
       const suffix = id.startsWith(prefix) ? id.slice(prefix.length) : `-${id}`;
       const op = { type: "compose", footage: saved.footage, format, newSceneId: id, name: `${source.name} · ${label}`.slice(0, 120), suffix };
-      for (const key of ["music", "voice", "treatment", "pace", "accents", "duration", "seed", "title", "end"]) if (saved[key] !== undefined && saved[key] !== null) op[key] = saved[key];
+      for (const key of ["music", "voice", "treatment", "pace", "accents", "duration", "seed", "title", "end", "lines"]) if (saved[key] !== undefined && saved[key] !== null) op[key] = saved[key];
       next = structuredClone(await applyFootage(next, op, work));
       // Beside the original, in format order.
       const scene = next.scenes.find((item) => item.id === id);

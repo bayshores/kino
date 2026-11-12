@@ -907,7 +907,13 @@ How to read it:
   Gaps: auto-caption format not seen live; a 429 on the 4th rapid fetch is not retried for 15 minutes.
 - **Keep a spoken line** (`keep_line`): Verified in engine tests on word lists, not with a rendered mix. Keeps
   one line of a clip's sound (every piece of a cut voice), silences the rest, subtitles it and dips the music
-  by half. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
+  to 0.7 of its volume (stated in the receipt). `line` matches case, apostrophes, repeats and a short last
+  word; a miss lists the heard lines. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
+- **Compose keeps spoken lines**: Verified on plans in engine tests and probed on a real project. With no voice,
+  compose {footage} keeps the clips' best lines heard (up to one per 6 s; `lines` number, texts or false),
+  captioned, music ducked; the receipt lists kept and left-out lines with calls. `speech_unplayed` warns when
+  every clip is muted where it speaks. Evidence: `engine/footage.test.js` (spoken lines),
+  `engine/qualityPolish.test.js` (speech_unplayed). Gap: line choice not judged by the owner.
 - **Spoken lines in found footage**: Verified with a stand-in whisper, not on found clips. An import reads
   each clip's own sound (`heard "..."`), look source lists `heard:`, and a muted clip's lines are named once
   (status or an edit's notes) with the keep_line plus isolate_voice call, also a line the trim cuts off
