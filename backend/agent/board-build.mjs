@@ -38,7 +38,9 @@ export function shotBox(crop, source, frame) {
 // The move op a shot's designed move becomes, from the move's own fields: a transition gets the
 // shot before it (from) and this shot (to); a move on one layer gets this shot's layer (its text
 // for a type move). null when the move needs fields kino cannot fill from the board.
-function moveOp(shot, layer, previous, text) {
+function moveOp(shot, layer, previous, text, cues = []) {
+  if (shot.move?.name === "push" && shot.move.kind === "camera") return pushOp(shot, layer);
+  if (shot.move?.name === "impact-accent") return accentOp(shot, layer, cues);
   const definition = MOVES[shot.move?.name];
   if (!definition) return null;
   const fields = definition.fields ?? {};
@@ -51,13 +53,64 @@ function moveOp(shot, layer, previous, text) {
   return op;
 }
 
+// What compose chose for a move it filled in itself, said in its receipt so the agent can change it.
+const SAID = new WeakMap();
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+// A camera push keeps this share of the crop at its end (a 1.11x push, a guess at a slow push).
+const PUSH_KEEP = 0.9;
+// A cue this close to the shot's cue is the shot's moment (3 frames at 30 fps).
+const NEAR_CUE = 0.1;
+
+// A camera push on a footage shot: the 2D camera (frame op) from the crop to PUSH_KEEP of it over
+// the whole shot, centered on the subject box as far as the crop allows (on the crop's middle
+// without a subject). rect is % of the layer, which is the whole source.
+function pushOp(shot, layer) {
+  if (shot.media === NONE || !layer) return null;
+  const [x, y, w, h] = Array.isArray(shot.crop) ? shot.crop : [0, 0, 100, 100];
+  // The saved board keeps the subject as boxes (one per moment); the push aims at the first.
+  const box = [shot.subject?.boxes?.[0], shot.subject?.box].find(Array.isArray) ?? null;
+  const [cx, cy] = box ? [box[0] + box[2] / 2, box[1] + box[3] / 2] : [x + w / 2, y + h / 2];
+  const width = w * PUSH_KEEP, height = h * PUSH_KEEP;
+  const left = clamp(cx - width / 2, x, x + w - width), top = clamp(cy - height / 2, y, y + h - height);
+  const rect = [left, top, width, height].map((value) => Math.round(value * 100) / 100);
+  const op = { op: "frame", layer, rect, at: r3(shot.cue), dur: r3(shot.dur) };
+  SAID.set(op, `frame rect [${rect.join(", ")}] over ${r3(shot.dur)} s, toward ${box ? "the subject box" : "the crop's middle"}`);
+  return op;
+}
+
+// What a cue is, for the accent kind that answers it: a song seam (fit_music's) or a top accent
+// flashes, a rest dips; anything else is a hit, which takes any moment.
+function accentKind(cue) {
+  const song = /^song-([a-z]+(?:-[a-z]+)?)-\d+$/.exec(cue.name ?? "");
+  if (song && cue.fitted === true) return ["break", "dropout"].includes(song[1]) ? ["dip", "a rest in the song"] : ["flash", "a song seam"];
+  if (cue.kind === "accent" && (cue.rank === 1 || (cue.weight ?? 0) >= 0.6)) return ["flash", "a top accent"];
+  return null;
+}
+
+// impact-accent on a shot: the measured cue on the shot's cue (within 3 frames) is its reason and
+// picks its kind; with none, a hit at the shot's cue (a small one where nothing is measured).
+function accentOp(shot, layer, cues) {
+  if (!layer) return null;
+  const near = cues.filter((cue) => Number.isFinite(cue.time) && Math.abs(cue.time - shot.cue) <= NEAR_CUE && accentKind(cue))
+    .sort((a, b) => Math.abs(a.time - shot.cue) - Math.abs(b.time - shot.cue))[0];
+  if (near) {
+    const [kind, what] = accentKind(near);
+    const op = { op: "move", name: "impact-accent", kind, at: `cue:${near.name}`, layer };
+    SAID.set(op, `${kind} at cue:${near.name} (${what}, ${r3(near.time)} s)`);
+    return op;
+  }
+  const op = { op: "move", name: "impact-accent", kind: "hit", at: r3(shot.cue), layer };
+  SAID.set(op, `hit at ${r3(shot.cue)} s (no song seam or accent within 3 frames)`);
+  return op;
+}
+
 /**
  * The ops that build `board` on a frame of {width, height, duration}. `fileOf(src)` is the file's
  * {width, height, duration, kind: "video"|"image"} or null. Returns {ops, moves, shots, cards,
  * missing}: moves are [{n, op}] to run one by one (a move that cannot be placed is named, the
  * shots stay), missing the shot numbers whose file kino no longer has.
  */
-export function boardBuildOps(board, frame, fileOf) {
+export function boardBuildOps(board, frame, fileOf, cues = []) {
   const ops = [];
   const moves = [];
   const missing = [];
@@ -91,8 +144,8 @@ export function boardBuildOps(board, frame, fileOf) {
       if (!layer) cards += 1;
     }
     const own = layer ?? text;
-    const move = shot.move && !shot.move.none ? moveOp(shot, own, previous, text) : null;
-    if (shot.move?.name && !shot.move.none) moves.push({ n, name: shot.move.name, op: move });
+    const move = shot.move && !shot.move.none ? moveOp(shot, own, previous, text, cues) : null;
+    if (shot.move?.name && !shot.move.none) moves.push({ n, name: shot.move.name, op: move, ...(move && SAID.has(move) ? { said: SAID.get(move) } : {}) });
     previous = own;
   });
   return { ops, moves, footage, cards, missing };

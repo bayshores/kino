@@ -579,7 +579,29 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   assert.notEqual(after.text.match(/^next: (.*)$/m)?.[1], BUILD, "built once, next: moves on");
 });
 
-test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {
+test("a board move named slow-push is a push; compose places a camera push toward the subject and an impact-accent on the shot's cue, and says what it chose", { skip, timeout: 60_000 }, async () => {
+  const id = "board-moves";
+  await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [videoLayer()] });
+  const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [60, 30, 20, 40] } };
+  const saved = await editBoard(id, [
+    footage(0, 2, 0, 0, { ...whole, move: { kind: "camera", name: "slow-push", ref: "phone-film@7.27" } }),
+    footage(2, 2.417, 2, 0, { ...whole, move: { kind: "transition", name: "impact-accent", ref: "phone-film@7.27" } }),
+  ]);
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.ok(saved.data.notes.includes('shot 1 move "slow-push" → push'), saved.text);
+  assert.equal((await record(id)).document.board.shots[0].move.name, "push");
+  const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(built.isError, undefined, built.text);
+  const placed = built.data.notes.find((note) => note.startsWith("moves placed: "));
+  // The crop is the whole source: 90% of it, centered on the subject (70, 50) as far as the crop allows.
+  assert.match(placed, /push \(shot 1: frame rect \[10, 5, 90, 90\] over 2 s, toward the subject box; \{"op":"frame","layer":"board-S1","rect":\[10,5,90,90\],"at":0,"dur":2\} changes it\)/);
+  assert.match(placed, /impact-accent \(shot 2: hit at 2 s \(no song seam or accent within 3 frames\)/);
+  const layers = (await record(id)).document.scenes[0].layers;
+  const shot = layers.find((layer) => layer.name === "board-S1");
+  assert.ok(layers.find((layer) => layer.id === shot.parentId)?.animations.some((animation) => animation.start === 0 && animation.duration === 2), "the camera group pushes over the whole shot");
+});
+
+test("the person's settings can allow the board: kino keeps that board as the approved one",{ skip, timeout: 60_000 }, async () => {
   const id = "board-allowed";
   await stopProject(id);
   assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
