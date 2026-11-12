@@ -133,6 +133,9 @@ test("for a briefed video the search drops results far longer than it and says w
   assert.ok(long, `a result over 26 s for the 6 s video: ${JSON.stringify(first.data.results.map((one) => one.duration))}`);
   const vague = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "pacing: long holds" });
   assert.match(vague.data.reason, /"take":"pacing: long holds, from <m:ss> to <m:ss>"\}: .*the take names it as two times/, vague.text);
+  // A take with two faults (no technique named, no stretch) is refused once, naming both, with one call.
+  const both = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "x" });
+  assert.match(both.data.reason, /: a take names one of structure, pacing.*; and .*the take names it as two times.* \(2 things to fix\)\.$/, both.text);
   const sent = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "pacing: long holds, from <m:ss> to <m:ss>" });
   assert.equal(sent.data.reason.match(/from <m:ss> to <m:ss>/g).length, 1, sent.data.reason);
   const range = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "pacing: long holds, from 0:05 to 0:20." });

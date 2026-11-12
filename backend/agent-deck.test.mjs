@@ -293,10 +293,10 @@ const FIVE = [
 test("treatments: a source names the move's material; the pick drafts the lock's idea, signature and idea spine", () => {
   const withSource = FIVE.map((entry, index) => (index === 2 ? { ...entry, source: "route.mp4, the full loop at 0:40" } : entry));
   assert.equal(treatmentsProblem(withSource), null);
-  assert.match(treatmentsProblem(withSource.map((entry) => ({ ...entry, source: "x".repeat(81) }))).message, /^treatments\[0\]\.source is 81 characters, limit 80\. .* \(5 problems\)$/);
+  assert.match(treatmentsProblem(withSource.map((entry) => ({ ...entry, source: "x".repeat(81) }))).message, /^treatments\[0\]\.source is 81 characters, limit 80\. .* \(5 problems\) Resend all 5 with these fixed\.$/);
   // Every field over its limit at once, named with its length and limit.
   const long = withSource.map((entry, index) => (index === 1 ? { ...entry, idea: "x".repeat(125), ending: "y".repeat(61) } : entry));
-  assert.equal(treatmentsProblem(long).message, "treatments[1].idea is 125 characters, limit 120. treatments[1].ending is 61 characters, limit 60. (2 problems)");
+  assert.equal(treatmentsProblem(long).message, "treatments[1].idea is 125 characters, limit 120. treatments[1].ending is 61 characters, limit 60. (2 problems) Resend all 5 with these fixed.");
   const cleaned = cleanTreatments(withSource);
   // Picking a treatment with an idea of 81 to 120 characters fills the idea line and style.idea.
   const longIdea = "a".repeat(100);
@@ -314,7 +314,7 @@ test("treatments: a source names the move's material; the pick drafts the lock's
   assert.deepEqual([pickedEnding(picked), pickedEnding(cleanTreatments({ pick: "B" }, rhythmList))], ["the whole route glowing on the map", null]);
   // Each treatment carries its type (60 characters); the pick saves it as the style spec's type
   // and the lock's font call says what the fonts are for. A list from before type shows and picks as it did.
-  assert.match(treatmentsProblem(withSource.map(({ type, ...rest }) => rest)).message, /^treatments\[0\]\.type is 1 to 60 characters: "<family class>, <size>, <case>, <how it appears>".*\(5 problems\)$/);
+  assert.match(treatmentsProblem(withSource.map(({ type, ...rest }) => rest)).message, /^treatments\[0\]\.type is 1 to 60 characters: "<family class>, <size>, <case>, <how it appears>".*\(5 problems\) Resend all 5 with these fixed\.$/);
   assert.match(treatmentsProblem(withSource.map((entry) => ({ ...entry, type: "t".repeat(61) }))).message, /^treatments\[0\]\.type is 61 characters, limit 60\./);
   assert.match(treatmentsProblem(withSource.map((entry, index) => ({ ...entry, type: index < 3 ? "one look" : "Other look" }))).message, /only 2 different type directions; give at least 3/);
   assert.equal(pickedType(picked), "small serif captions, each word cut on");
@@ -353,7 +353,8 @@ test("treatments: a source names the move's material; the pick drafts the lock's
 
 test("treatments: 5 saved on the brief, the most typical dropped, the 3 least typical shown; a pick becomes the idea", async () => {
   assert.match(treatmentsProblem(FIVE.slice(0, 4)).message, /list of 5/);
-  assert.match(treatmentsProblem([...FIVE.slice(0, 4), { ...FIVE[4], p: 2 }]).message, /p is 0 to 1/);
+  assert.match(treatmentsProblem([...FIVE.slice(0, 4), { ...FIVE[4], p: 2 }]).message, /p is a number 0 to 1 \(it is 2\)/);
+  assert.equal(treatmentsProblem(FIVE.map((entry) => ({ ...entry, p: String(entry.p) }))), null, "p written as text counts as a number");
   assert.match(treatmentsProblem({ pick: "B" }, null).message, /first/);
   const cleaned = cleanTreatments(FIVE);
   assert.equal(cleaned.dropped, 0);

@@ -198,7 +198,10 @@ function liftLayerFields(operation, fixes) {
   const unknown = loose.filter((key) => !LAYER_PROPERTIES.has(key) && !isLayerFieldAlias(key) && !SHORTHANDS.has(key));
   if (unknown.length) {
     const suggestions = closest(unknown[0], [...own, ...LAYER_PROPERTY_NAMES].filter((key) => key !== "type"));
-    throw Object.assign(new Error(`${unknown.map((key) => `"${key}"`).join(", ")} ${unknown.length === 1 ? "is not a field" : "are not fields"} of ${operation.type} or of a layer.${suggestions.length ? ` Did you mean ${suggestions.join(", ")}?` : ""}`), { suggestions });
+    // A layer has no times of its own: they are animations (a start and duration on the layer was the common slip).
+    const timed = operation.type === "add_layer" && unknown.some((key) => ["start", "duration", "end", "delay", "from", "to"].includes(key))
+      ? ' A layer has no start or duration: its times are animations, such as animations:[{preset:"fade", start:2, duration:0.5}] (in) and {preset:"hide", start:5} (out).' : "";
+    throw Object.assign(new Error(`${unknown.map((key) => `"${key}"`).join(", ")} ${unknown.length === 1 ? "is not a field" : "are not fields"} of ${operation.type} or of a layer.${suggestions.length ? ` Did you mean ${suggestions.join(", ")}?` : ""}${timed}`), { suggestions });
   }
   const properties = { ...(operation.properties ?? {}) };
   for (const key of loose) {

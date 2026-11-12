@@ -186,7 +186,7 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, cleanTake, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, heardLinesText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, cleanTake, takeCutNote, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, heardLinesText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
@@ -286,6 +286,13 @@ function valueFix(sent, message) {
       return { animation };
     }
     return undefined;
+  }
+  // A field the op does not have ("start", "duration" are not fields of add_layer ...): the op goes in
+  // without it, with everything else as sent (it was replaced by the op's example, losing the agent's own fields).
+  const unknownFields = /^((?:"[^"]+"(?:, )?)+) (?:is not a field|are not fields) of /.exec(reason)?.[1] ?? (/\bhas no field "([^"]+)"/.exec(reason) ? `"${/\bhas no field "([^"]+)"/.exec(reason)[1]}"` : null);
+  if (unknownFields) {
+    const named = [...unknownFields.matchAll(/"([^"]+)"/g)].map((match) => match[1]).filter((key) => key in sent);
+    if (named.length) return Object.fromEntries(named.map((key) => [key, null]));
   }
   const field = /^([A-Za-z][\w]*): must be\b/.exec(reason)?.[1];
   const properties = sent.properties && typeof sent.properties === "object" && !Array.isArray(sent.properties) ? sent.properties : null;
@@ -1215,6 +1222,8 @@ export function createAgentService(deps) {
     if (references !== undefined && saved.length && deps.inspire?.seenStatus) {
       const status = await deps.inspire.seenStatus(document.id).catch(() => ({}));
       facts.seenOpen = Object.fromEntries(Object.entries(status).filter(([, entry]) => entry.open != null).map(([id, entry]) => [id, entry.open]));
+      // The counts for the label step: how many moments each reference has, how many are labeled, which are left.
+      facts.seenCount = Object.fromEntries(Object.entries(status).map(([id, entry]) => [id, { of: entry.moments?.length ?? 0, labeled: entry.labeled ?? 0, left: entry.left ?? [] }]));
     }
     // The brief's playback compares the frame with the shape of the footage placed (shapeLine).
     const footageSizes = await footageSizesOf(document);
@@ -5262,7 +5271,8 @@ export function createAgentService(deps) {
     const lock = lockNeeded(await agentState.read(record.document.id), videoFacts(record.document));
     if (!lock) return;
     throw Object.assign(new AgentError("direction_needed", `No locked direction: a final render of ${videoFacts(record.document).layers} layers needs a story spine and a style bible (notes brief style; with a picked treatment, the idea and a signature too) the person approved, or waived with a reason.`, {
-      next: `${lock.step}. One notes brief call does it; a draft render is allowed now.`,
+      // All that is left, counted, and how many calls: the idea and signature come first when there is no idea (the spine and fonts are drafted around it).
+      next: `${lock.step}. Still needed (${lock.left.length}): ${lock.left.join(", ")}. ${lock.step.startsWith("lock direction: idea + signature") ? `The call below saves the idea and signature; the next notes brief call drafts the spine and fonts around them and can carry style {waived:"<why>"} in the same call when no one is watching.` : "One notes brief call saves them."} A draft render is allowed now.`,
     }), { nextCall: lock.call });
   }
   // An edit builds when it adds a designed layer or an animation: "first" when the video had
@@ -5300,8 +5310,11 @@ export function createAgentService(deps) {
     // reference still to study, with its exact call.
     const also = order.alt ? ` Or without the song: ${callText(order.alt)}.` : "";
     const study = order.refs ? ` ${REFERENCES_WANTED} saved references must each be studied; still to study: ${order.refs.map((ref) => callText({ tool: "look", input: { mode: "reference", ref } })).join(", ")}.` : "";
+    // The label step names every moment still open (one look shows a moment and its neighbors), with one ready seen call.
+    const first = order.left?.[0];
+    const label = first ? ` Moments still to label: ${order.left.map((entry) => `${entry.ref} at ${entry.at.join(", ")}`).join("; ")}. Each: look {mode:"reference", ref, t} shows it, then library {topic:"inspire", name:"seen ${first.ref} @${first.at[0]} <kinds>: <what you see>"}.` : "";
     throw Object.assign(new AgentError("order_needed", `Nothing was built: this briefed video finds its idea before the template. Next: ${order.step}.${then}`, {
-      next: `Send the call below, then build.${also}${study} Importing media, set_brand, notes, library, look and inspect work now. A deliberate skip the person sees: ${skip}.`,
+      next: `Send the call below, then build.${also}${study}${label} Importing media, set_brand, notes, library, look and inspect work now. A deliberate skip the person sees: ${skip}.`,
     }), { nextCall: order.call });
   }
   // The storyboard comes before the cut. On a briefed video whose board stop is open and whose
@@ -5831,7 +5844,24 @@ export function createAgentService(deps) {
     // (Without an origin word it reads nothing more: no second reference lookup.)
     const { found } = await originFootageFor(projectId);
     const origin = found ? originReferenceLine(found, (await deps.inspire.reference(id).catch(() => null))?.title) : "";
-    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.${take ? `\nyour take: ${take}` : ""}\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown }, nextCall: labelCall };
+    // look {mode:"reference", ref, t, seen:"overlay, made: green outline"} looks and labels that moment in one call
+    // (the same label as library inspire "seen <ref> @<moment> <kinds>: <words>", saved after the look).
+    let labeled = "";
+    let labeledNext = null;
+    if (typeof input.seen === "string" && input.seen.trim()) {
+      const moments = (await deps.inspire.seenStatus?.(projectId).catch(() => ({})))?.[id]?.moments ?? [];
+      const target = moments.filter((moment) => made.shown.some((strip) => Math.abs(strip.at - moment) < 0.01))
+        .sort((a, b) => Math.abs(a - (at ?? a)) - Math.abs(b - (at ?? b)))[0];
+      if (target === undefined) labeled = `\nseen not saved: this look shows no one of its moments${moments.length ? ` (${moments.join(", ")}): look {mode:"reference", ref:"${id}", t:<one of them>, seen:"<kinds>: <what you see>"}` : ""}.`;
+      else {
+        try {
+          const saved = await inspire({ project: projectId }, `seen ${id} @${target} ${input.seen.trim()}`, "");
+          labeled = `\n${saved.text}`;
+          labeledNext = saved.nextCall ?? null;
+        } catch (error) { labeled = `\nseen not saved: ${error.message}`; }
+      }
+    }
+    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.${take ? `\nyour take: ${take}` : ""}\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}${labeled}`, extra: { ref: id, strips: made.shown }, nextCall: labeledNext ?? labelCall };
   }
 
   // look {mode:"source", layer, t?, width?}: the whole source frame of a video layer at scene time
@@ -8117,10 +8147,14 @@ export function createAgentService(deps) {
       const at = Number(parts[2]);
       const status = (await deps.inspire.seenStatus?.(projectId).catch(() => ({})))?.[id];
       const moment = status?.moments?.find((candidate) => Math.abs(candidate - at) <= 0.5);
-      if (moment !== undefined && !((await agentState.read(projectId))?.shown?.[id] ?? []).some((shown) => Math.abs(shown - moment) < 0.01))
+      const shownTimes = (await agentState.read(projectId))?.shown?.[id] ?? [];
+      if (moment !== undefined && !shownTimes.some((shown) => Math.abs(shown - moment) < 0.01))
         throw Object.assign(refuse(`you have not looked at ${moment} s yet: look {mode:"reference", ref:"${id}", t:${moment}} shows it, then label it`), { nextCall: nextOf("look", { mode: "reference", ref: id, t: moment }) });
+      // A time a look printed on its strips (its neighbors of the moment) is a frame you saw: it is
+      // kept as its own label, beside the moments' (it does not stand in for one of the six).
+      const strip = moment === undefined && status?.moments?.length && shownTimes.some((shown) => Math.abs(shown - at) < 0.01);
       let done;
-      try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,;+&/]+/).filter(Boolean), words: parts[4] }); }
+      try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,;+&/]+/).filter(Boolean), words: parts[4], ...(strip ? { strip: true } : {}) }); }
       catch (error) { throw refuse(error.message); }
       const counts = {};
       for (const entry of done.seen) for (const kind of entry.kinds) counts[kind] = (counts[kind] ?? 0) + 1;
@@ -8132,7 +8166,8 @@ export function createAgentService(deps) {
       // The next moment of this reference, else wherever the order goes next (the label step of the other one, the treatments).
       // Look at the next moment first (that look ends with the ready seen call), else wherever the order goes next.
       const nextCall = left.length ? nextOf("look", { mode: "reference", ref: id, t: left[0] }) : await buildNext(projectId);
-      const extra = others > 0 || done.offList ? ` and ${others} type label${others === 1 ? "" : "s"} at other times${done.offList ? ` (saved at ${done.at} s; library fonts like reads the nearest kept frame, ${done.frameAt} s)` : ""}` : "";
+      const extra = strip ? ` and ${others} label${others === 1 ? "" : "s"} at other strips you looked at (saved at ${done.at} s; it does not stand for a moment${left.length ? `, still open: ${left.join(", ")}` : ""})`
+        : others > 0 || done.offList ? ` and ${others} type label${others === 1 ? "" : "s"} at other times${done.offList ? ` (saved at ${done.at} s; library fonts like reads the nearest kept frame, ${done.frameAt} s)` : ""}` : "";
       return { project: projectId, text: `seen ${id}: ${onList} of ${done.moments.length} moments labeled${extra} (${tally}).`, nextCall,
         data: { ref: id, labeled: onList, of: done.moments.length, seen: done.seen } };
     }
@@ -8188,7 +8223,15 @@ export function createAgentService(deps) {
       if (verb === "save" || verb === "unsave") {
         const take = verb === "save" ? cleanTake(input.take) : "";
         // An agent's new save comes after comparing, and says what the edit takes from it (saveGate).
-        if (verb === "save" && !byYou()) await saveGate(projectId, record.document, known, { take, key });
+        if (verb === "save" && !byYou()) {
+          try { await saveGate(projectId, record.document, known, { take, key }); }
+          catch (error) {
+            // A refusal of a take that was shortened says so too (its length and the limit).
+            const cut = takeCutNote(input.take);
+            if (cut && error instanceof AgentError) error.message = `${error.message} ${cut}`;
+            throw error;
+          }
+        }
         const count = await deps.inspire.setSaved(projectId, id, verb === "save", { key });
         if (take) await deps.inspire.setTake?.(projectId, id, take);
         const as = key ? ` as ${key.toLowerCase()} (a board move.ref "${key.toLowerCase()}@<seconds>" pins its moment for look versus)` : "";
@@ -8196,7 +8239,7 @@ export function createAgentService(deps) {
         const doubt = verb === "save" ? [known.doubt, quietDoubt(known.measuredDoubt, message)].filter(Boolean).join(", ") : "";
         // The lines its voice says, when measured, with a footage call that looks for the picture that says one.
         const says = verb === "save" ? heardLinesText(await deps.inspire.reference(id, { full: true }).catch(() => null)) : "";
-        return { project: projectId, text: `${verb === "save" ? "Saved" : "Unsaved"} ${id}${as} in ${projectId} (${count} saved).${take ? ` Takes: ${take}.` : ""}${doubt ? ` Doubt: ${doubt}: look {mode:"reference", ref:"${id}"} before building on it.` : ""}${says ? `\n${says}` : ""}`,
+        return { project: projectId, text: `${verb === "save" ? "Saved" : "Unsaved"} ${id}${as} in ${projectId} (${count} saved).${take ? ` Takes: ${take}.` : ""}${verb === "save" && input.take ? ` ${takeCutNote(input.take)}`.trimEnd() : ""}${doubt ? ` Doubt: ${doubt}: look {mode:"reference", ref:"${id}"} before building on it.` : ""}${says ? `\n${says}` : ""}`,
           data: { saved: count, ...(key ? { key: key.toLowerCase() } : {}), ...(take ? { take } : {}) } };
       }
       if (verb === "measure") await deps.inspire.remeasure(id);
@@ -8272,22 +8315,17 @@ export function createAgentService(deps) {
     // The retry is built from the take with any old slot or stretch removed, so it never grows.
     const retry = (words) => nextOf("library", { topic: "inspire", name, take: `${words || "<structure, pacing, type, transitions or sound: what this edit takes>"}${long ? ", from <m:ss> to <m:ss>" : ""}` });
     const fit = long ? ` ${fitNote(ref, { seconds })}.` : "";
-    if (!take) {
-      const call = retry("");
-      throw Object.assign(new AgentError("bad_input", `${callText(call)}: a save says what this edit takes from it (one line; status, the study and look versus show it back).${fit}`), { nextCall: call });
-    }
-    if (/[<>]/.test(take)) {
-      const call = retry(takeWithoutStretch(take));
-      throw Object.assign(new AgentError("bad_input", `${callText(call)}: the take still has a <...> to fill in with your own words.${fit}`), { nextCall: call });
-    }
-    if (!takeSaysWhat(take)) {
-      const call = retry("");
-      throw Object.assign(new AgentError("bad_input", `${callText(call)}: a take names one of structure, pacing, type, transitions or sound and says what the edit takes, in a few words.${fit}`), { nextCall: call });
-    }
-    if (long && !takeStretch(take, ref.duration)) {
-      const call = retry(takeWithoutStretch(take));
-      throw Object.assign(new AgentError("bad_input", `${callText(call)}: ${fitNote(ref, { seconds })}; the take names it as two times in that reference, such as 0:10 to 0:25.`), { nextCall: call });
-    }
+    // Every fault of the take at once (a missing stretch used to show only after the words were fixed), with one call.
+    const faults = [];
+    const placeholder = /[<>]/.test(take);
+    if (!take) faults.push("a save says what this edit takes from it (one line; status, the study and look versus show it back)");
+    else if (placeholder) faults.push("the take still has a <...> to fill in with your own words");
+    else if (!takeSaysWhat(take)) faults.push("a take names one of structure, pacing, type, transitions or sound and says what the edit takes, in a few words");
+    const noStretch = long && !takeStretch(take, ref.duration);
+    if (noStretch) faults.push(`${fitNote(ref, { seconds })}; the take names it as two times in that reference, such as 0:10 to 0:25`);
+    if (!faults.length) return;
+    const call = retry(!take || (!placeholder && !takeSaysWhat(take)) ? "" : takeWithoutStretch(take));
+    throw Object.assign(new AgentError("bad_input", `${callText(call)}: ${faults.join("; and ")}${faults.length > 1 ? ` (${faults.length} things to fix)` : ""}.${long && !noStretch ? fit : ""}`), { nextCall: call });
   }
 
   // library {topic:"inspire", name:"copy <project>"}: saves in this project each reference the

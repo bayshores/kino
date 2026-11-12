@@ -676,8 +676,10 @@ const readAsWords = (value) => (typeof value === "string" ? value.trim().toLower
 export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, waited: measured = null, board = null }) {
   const asked = String(input.id ?? "").trim();
   const stops = draft.stops ?? [];
-  const round = stops.find((entry) => entry.id.toLowerCase() === asked.toLowerCase());
-  if (!round) throw new StopError("not_found", `kino never asked ${asked} in this project.`, { didYouMean: closest(asked, stops.map((entry) => entry.id)) });
+  // The id (C1), or the stop's name as the docs write it (board): the one waiting, else the latest asked.
+  const ofKind = stops.filter((entry) => entry.kind === asked.toLowerCase());
+  const round = stops.find((entry) => entry.id.toLowerCase() === asked.toLowerCase()) ?? ofKind.findLast((entry) => entry.status === "waiting") ?? ofKind.at(-1);
+  if (!round) throw new StopError("not_found", `kino never asked ${asked} in this project.${stops.length ? ` Asked so far: ${stops.map((entry) => `${entry.id} (${entry.kind})`).join(", ")}.` : ""}`, { didYouMean: closest(asked, stops.map((entry) => entry.id)) });
   settleWaiting(draft, { video, rules, rev, work, now, board });
   const askAgain = `Ask again: notes {action:"checkpoint", id:"${round.kind}"}.`;
   if (round.status === "answered" || round.status === "allowed")

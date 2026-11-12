@@ -15,7 +15,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, lockCall, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, lockCall, lockNeeded, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { namedShape, shapeGuess } from "../engine/quality/rules/shape.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
@@ -848,6 +848,8 @@ test("the reference step: before the plan, until 2 references are saved; not whe
   const lock = nextMove(state, { seconds: 24, layers: 31, references: 2, treatmentsWaived: true });
   assert.match(lock.step, /^lock direction: idea \+ signature/);
   assert.deepEqual(Object.keys(lock.call.input.fields.style), ["idea", "signatures", "by"]);
+  // The lock names everything still needed at once (the final-render refusal counts it), not the next part only.
+  assert.deepEqual(lockNeeded(state, { layers: 31 }).left, ["idea", "signature", "spine", "fonts", "approval or waiver"]);
   // With the idea, a spine around it and a style bible; deck cards are drafted as dealt moves.
   const withIdea = { ...state, brief: { ...state.brief, fields: { ...state.brief.fields, idea: { text: "the phone guides him by sound", by: "guessed" } } }, deck: { cards: [{ tag: "parallax" }] } };
   const drafted = nextMove(withIdea, { seconds: 24, layers: 31, references: 2, treatmentsWaived: true });
@@ -879,13 +881,13 @@ test("the reference step: before the plan, until 2 references are saved; not whe
 });
 
 // A measured reference with one frame strip, kept where kino keeps them (no download), saved.
-async function savedReference(project, name, key = null, seconds = null) {
+async function savedReference(project, name, key = null, seconds = null, ats = [1]) {
   const folder = path.join(server.dataDirectory, "inspire");
   await mkdir(path.join(folder, "strips", name), { recursive: true });
   const strip = createCanvas(240, 135);
   strip.getContext("2d").fillRect(0, 0, 240, 135);
-  await writeFile(path.join(folder, "strips", name, "1.jpg"), strip.toBuffer("image/jpeg"));
-  await writeFile(path.join(folder, `${name}.json`), JSON.stringify({ id: `yt:${name}`, title: name, state: "measured", version: 2, seconds: 9, ...(seconds ? { numbers: { seconds } } : {}), strips: [{ at: 1, file: "1.jpg", kinds: ["cut"] }] }));
+  for (const at of ats) await writeFile(path.join(folder, "strips", name, `${at}.jpg`), strip.toBuffer("image/jpeg"));
+  await writeFile(path.join(folder, `${name}.json`), JSON.stringify({ id: `yt:${name}`, title: name, state: "measured", version: 2, seconds: 9, ...(seconds ? { numbers: { seconds } } : {}), strips: ats.map((at) => ({ at, file: `${at}.jpg`, kinds: ["cut"] })) }));
   const saved = await agent("library", { project, topic: "inspire", name: `save yt:${name}${key ? ` as ${key}` : ""}`, take: "pacing: holds before each cut" });
   assert.equal(saved.isError, undefined, saved.text);
   if (key) assert.equal(saved.data.key, key, "save ... as <key> names it for a board move.ref");
@@ -1294,8 +1296,11 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   assert.match(noTurn.text, /treatments\[0\]\.turn is 1 to 60 characters: the on-screen moment it flips\..*\(5 problems\)/);
   // 5 stories driven by one who ("Kid" is "the kid") are one story told 5 ways: refused, naming who.
   const oneWho = await brief(id, { fields: { treatments: treatments.map((entry, index) => ({ ...entry, who: index ? "the kid" : "Kid" })) } });
-  assert.match(oneWho.data.reason, /^treatments: 5 of 5 share who "Kid"; give at least 3 different whos\./);
-  assert.equal((await brief(id, { fields: { treatments } })).isError, undefined);
+  assert.match(oneWho.data.reason, /^treatments: 5 of 5 share who "Kid"; give at least 3 different whos \(now 1\)\./);
+  // A field over its limit and a shared who in the same call are named together, with the count; p as text ("0.6") is a number.
+  const both = await brief(id, { fields: { treatments: treatments.map((entry, index) => ({ ...entry, who: "the kid", p: String(entry.p), ...(index === 1 ? { turn: "x".repeat(70) } : {}) })) } });
+  assert.match(both.data.reason, /treatments\[1\]\.turn is 70 characters, limit 60\. treatments: 5 of 5 share who "the kid"; give at least 3 different whos \(now 1\)\. \(2 problems\) Resend all 5 with these fixed\./);
+  assert.equal((await brief(id, { fields: { treatments: treatments.map((entry) => ({ ...entry, p: String(entry.p) })) } })).isError, undefined);
   // Under "just start" the pick is the agent's own, and says why.
   await refused("pick a treatment, with why", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } });
   // The pick's idea becomes style.idea; its move is offered as the first signature.
@@ -1390,12 +1395,13 @@ test("the order labels what each studied reference shows on screen (seen) before
   assert.deepEqual(nextCallOf(unlooked), { tool: "look", input: { mode: "reference", ref: "yt:kinoSeen001", t: 1 } });
   for (const name of ["kinoSeen001", "kinoSeen002"]) assert.equal((await agent("look", { project: id, mode: "reference", ref: `yt:${name}` })).isError, undefined);
   const first = await agent("edit", compose);
-  assert.match(first.data.reason, /^Nothing was built: .* Next: label yt:kinoSeen001 \+1 on screen \(seen\)\./);
+  assert.match(first.data.reason, /^Nothing was built: .* Next: label yt:kinoSeen001 \+1 on screen \(seen\): labels 0 of 2, 1 moment for each of 2 references\. Then: write 5 treatments\./);
+  assert.match(first.data.next, /Moments still to label/);
   assert.deepEqual(nextCallOf(first), { tool: "look", input: { mode: "reference", ref: "yt:kinoSeen001", t: 1 } });
   // The strip is at 1 s: every sixth of the 9 s points to it, so there is one moment. 5 s is off the list.
   const off = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @5 overlay: smoke over the face" });
   assert.equal(off.data.error, "bad_input");
-  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s\)/);
+  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s, and any kind at a strip time a look of this reference printed\)/);
   assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 glitter: smoke" })).data.reason, /kinds are type, overlay/);
   // A line that does not parse names the part that broke it (it was refused with no reason before).
   const faulty = async (name) => (await agent("library", { project: id, topic: "inspire", name })).data.reason;
@@ -1422,6 +1428,21 @@ test("the order labels what each studied reference shows on screen (seen) before
   assert.match(fonts.text, /^your label yt:kinoSeen001 @5 "small caps words typed on a torn tape strip" was not measured \(no lettering found in that region\): library \{topic:"fonts", like:"yt:kinoSeen001", t:5, region:\[x,y,w,h\]\}\nyour label yt:kinoSeen002 @1 "thin sans titles" was not measured/);
   assert.match(fonts.text, /\(smaller distance = closer letters; region:\[x,y,w,h\] around the letters measures them alone\)\ncatalog, look /);
   assert.equal((await agent("library", { project: id, topic: "fonts", search: "∞" })).text.startsWith("your label"), false, "a glyph search skips the labels");
+  // look {mode:"reference", t, seen} looks and labels that moment in one call; a label that does not parse says so after the strips.
+  await savedReference(id, "kinoSeen003", null, 9);
+  const oneCall = await agent("look", { project: id, mode: "reference", ref: "yt:kinoSeen003", t: 1, seen: "overlay, made: green outline traced on the figure" });
+  assert.equal(oneCall.isError, undefined, oneCall.text);
+  assert.match(oneCall.text, /\nseen yt:kinoSeen003: 1 of 1 moments labeled \(overlay 1, made 1\)\./);
+  const badKinds = await agent("look", { project: id, mode: "reference", ref: "yt:kinoSeen003", t: 1, seen: "glitter: smoke" });
+  assert.match(badKinds.text, /\nseen not saved: .*kinds are type, overlay/);
+  // A time a look printed on its strips (the neighbor of a moment) is accepted for any kind, kept beside the moments.
+  await savedReference(id, "kinoSeen004", null, 9, [1, 2, 3, 4, 5, 6, 7, 8]);
+  const strips = await agent("look", { project: id, mode: "reference", ref: "yt:kinoSeen004", t: 2 });
+  const neighbor = strips.data.strips.map((strip) => strip.at).find((at) => ![1, 2, 4, 5, 7, 8].includes(at));
+  assert.equal(neighbor, 3, "the look shows the strip beside the moment");
+  const beside = await agent("library", { project: id, topic: "inspire", name: `seen yt:kinoSeen004 @${neighbor} overlay: smoke by the door` });
+  assert.equal(beside.isError, undefined, beside.text);
+  assert.match(beside.text, /^seen yt:kinoSeen004: 0 of 6 moments labeled and 1 label at other strips you looked at \(saved at 3 s; it does not stand for a moment, still open: 1, 2, 4, 5, 7, 8\)/);
 });
 
 test("a brief save names every problem of the call at once: lines and log replies", () => {

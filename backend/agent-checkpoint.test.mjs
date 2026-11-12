@@ -520,13 +520,15 @@ test("notes answer refuses a reply under 5 s, a revision the person was not show
   const fast = await answer(project, reply);
   assertRefused(fast, "too_fast", /^C1 was asked \d s ago: nobody reads a stop that fast\. Send the ask and record the reply they send\.$/);
   assert.ok(fast.data.seconds < 5, `${fast.data.seconds} s`);
+  // The stop's name, as the docs write it, answers the stop that waits (the same refusal as its id).
+  assertRefused(await answer(project, { ...reply, id: "rough" }), "too_fast", /^C1 was asked \d s ago/);
   assertRefused(await answer(project, { ...reply, rev: rev - 1 }), "stale_rev");
   // An approval answered in the chat is read as allow or deny (agent-render-approval.test.mjs
   // renders an allowed one): "no" denies it, and it is answered once.
   const denied = await answer(project, { ...reply, id: final.data.id, words: "no, not yet", read_as: "deny" });
   assert.equal(denied.data.status, "denied", denied.text);
   assertRefused(await answer(project, { ...reply, id: final.data.id.toLowerCase() }), "answered");
-  for (const id of ["C9", "Q99", "M1", "V1"]) assertRefused(await answer(project, { ...reply, id }), "not_found", `kino never asked ${id} in this project.`);
+  for (const id of ["C9", "Q99", "M1", "V1"]) assertRefused(await answer(project, { ...reply, id }), "not_found", new RegExp(`^kino never asked ${id} in this project\\. Asked so far: C1 \\(rough\\)\\.`));
   assert.equal((await answer(project, { ...reply, id: "C9" })).data.didYouMean?.[0], "C1");
   for (const body of [{ words: "" }, { words: "   " }, { words: "a".repeat(2001) }, { read_as: "aprove" }, { read_as: undefined }, { rev: undefined }, { rev: "2" }, { rev: 2.5 }, { id: undefined }])
     assertRefused(await answer(project, { ...reply, ...body }), "bad_input", undefined, JSON.stringify(body));

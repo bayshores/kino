@@ -12,7 +12,7 @@ import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
 import { EFFECTS } from "../engine/effects/catalog.js";
 import { effectDetailText, effectsListText } from "./agent/effects-help.mjs";
 import { movesLibraryText } from "./agent/blocks.mjs";
-import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
+import { nextCallOf, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
 let server;
@@ -178,6 +178,15 @@ test("add_layer: a top-level layer field goes into properties and is reported; o
   const unknown = await agent("edit", { ops: [{ op: "add_layer", layerType: "text", name: "other", shade: "#fff", properties: { text: "x" } }] });
   assert.equal(unknown.isError, true);
   assert.match(unknown.data.reason, /"shade" is not a field of add_layer or of a layer\. Did you mean shadow/);
+  const withStart = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", properties: { y: 730 } }, { op: "add_layer", layerType: "text", name: "other", start: 2, duration: 3, properties: { text: "x" } }] });
+  assert.match(withStart.data.reason, /"start", "duration" are not fields of add_layer or of a layer\..* A layer has no start or duration: its times are animations, such as animations:\[\{preset:"fade", start:2, duration:0\.5\}\]/);
+  // The offered fix takes out only the fields that were wrong: the agent's own op (its name, text) is not replaced by the example.
+  const retryCall = nextCallOf(withStart);
+  assert.deepEqual(retryCall.input.fix, { 1: { start: null, duration: null } });
+  const resent = await agent("edit", retryCall.input);
+  assert.equal(resent.isError, undefined, resent.text);
+  assert.equal(findLayer(await saved(), "other").text, "x", "the op went in as sent, without the fields that were wrong");
+  assert.equal(findLayer(await saved(), "tagline").y, 730, "the other op of the edit went in too");
   const twice = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", text: "a", properties: { text: "b" } }] });
   assert.equal(twice.isError, true);
   assert.match(twice.data.reason, /text is given twice: at the top level and in properties/);
