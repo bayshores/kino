@@ -42,7 +42,7 @@ import { applyDuckAudio, DUCK_NAMES, RAMP_MIN, withoutDips } from "./audioDuckin
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { SOUND_SURE, soundMoments } from "./speech.js";
 import { energyMean, heardLoudness, lineOverMusic, lineWays, loudestHeard, loudnessOver, MAX_LEVEL_DB, waysText } from "./mixLevels.js";
-import { EVEN_RAMP, LINE_EVEN_LU, LINE_OVER_BED, lineEvening } from "./mixLevels.js";
+import { BED_VOLUME, EVEN_RAMP, LINE_EVEN_LU, LINE_OVER_BED, leveledVoice, lineEvening } from "./mixLevels.js";
 import { churnRun } from "./quality/rules/sound.js";
 import { barLines } from "./songBars.js";
 import { round } from "./numbers.js";
@@ -333,14 +333,17 @@ function soundRoom({ line, under }) {
  * lineEvening, measured on the clip's curve): "Line level" Volume ramps of EVEN_RAMP s on the owner
  * piece, and a leveled line's voiceLevel moves by the shift so the line as a whole stays where it was
  * set. Returns {median, spread, places: [[start, end, dB]] (scene s)} or null (fewer than 3 measured words).
+ * A clip played as a bed (volume under BED_VOLUME: the export does not level it) is evened only when
+ * `forced` (even:true): its words are measured and `bed` gives how many places it would even.
  */
-function evenLine(scene, owner, said, start, end, curve) {
+function evenLine(scene, owner, said, start, end, curve, forced) {
   const { piece, play, volume } = owner;
   const inPiece = said.filter((word) => word.start >= play.start - 0.001 && word.end <= play.end + 0.001 && word.end > word.start);
   if (!curve || inPiece.length < 3) return null;
   const shift = inPiece[0].start - mediaSoundTime(piece, inPiece[0].start);
   const evening = lineEvening(curve, inPiece.map((word) => ({ start: mediaSoundTime(piece, word.start), end: mediaSoundTime(piece, word.end) })));
   if (!evening) return null;
+  if (!forced && !leveledVoice({ volume })) return { median: evening.median, spread: evening.spread, places: [], bed: evening.places.length };
   const ranges = keptRanges(piece);
   const opens = ranges.some((range) => Math.abs(range.start - start) < 0.002);
   const closes = ranges.some((range) => Math.abs(range.end - end) < 0.002) && end + DOWN_PAD < scene.duration - 0.002;
@@ -593,7 +596,8 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
 
   // The line's own loud and quiet words, evened toward its median word (on unless even:false; a kept sound keeps its own level).
   if (operation.even !== undefined && typeof operation.even !== "boolean") fail("even is true (the line's loud and quiet words come toward its median word) or false (kept as said).");
-  const even = !sound && operation.even !== false ? evenLine(scene, owner, said, start, end, operation.levels?.[owner.piece.id]) : null;
+  const even = !sound && operation.even !== false ? evenLine(scene, owner, said, start, end, operation.levels?.[owner.piece.id], operation.even === true) : null;
+  if (even?.bed) notes.push(`not evened: ${layer.name} plays at volume ${owner.volume}, under ${BED_VOLUME}, a bed the export does not level; its words spread ${even.spread} LU (measured) and ${even.bed} ${even.bed === 1 ? "place is" : "places are"} over ${LINE_EVEN_LU} LU off its median word; even:true evens them`);
   if (even?.places.length) {
     const shown = even.places.slice(0, 3).map(([from, to, db]) => `${round(from, 2)}-${round(to, 2)} s ${db > 0 ? "+" : ""}${db} dB`).join(", ");
     notes.push(`evened ${even.places.length} ${even.places.length === 1 ? "place" : "places"} toward the line's median word (${even.median} LUFS; its words spread ${even.spread} LU, measured; a word over ${LINE_EVEN_LU} LU off it comes back to ${LINE_EVEN_LU}, a guess): ${shown}${even.places.length > 3 ? `, +${even.places.length - 3} more` : ""}; even:false keeps them as said`);

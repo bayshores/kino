@@ -522,10 +522,10 @@ test("keep_line evens the line's loud and quiet words toward its median word wit
   const transcript = { words: ["alpha", "bravo", "charlie", "delta"].map((text, index) => ({ text, start: 4 + index * 0.5, end: 4.4 + index * 0.5, p: 1 })) };
   const clip = createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12 });
   const document = documentWith([clip, musicLayer()], 12);
-  const run = (extra) => {
+  const run = (extra, from = document) => {
     const reports = new Map();
     const operation = { type: "keep_line", sceneId: "s", layerId: "clip", line: "alpha bravo charlie delta", subtitle: false, transcript, levels, beats: {}, ...extra };
-    const scene = parseDocument(applyOperations(document, [operation], { reports })).scenes[0];
+    const scene = parseDocument(applyOperations(from, [operation], { reports })).scenes[0];
     return { report: reports.get(operation), clip: scene.layers.find((layer) => layer.id === "clip") };
   };
   const evened = run({});
@@ -539,6 +539,14 @@ test("keep_line evens the line's loud and quiet words toward its median word wit
   assert.equal(plain.report.even, undefined);
   assert.equal(plain.clip.animations.some((animation) => animation.name === "Line level"), false);
   assert.ok(evened.clip.voiceLevel > plain.clip.voiceLevel, `${evened.clip.voiceLevel} vs ${plain.clip.voiceLevel}`);
+  // A clip played as a bed (volume 0.3, not leveled by the export) keeps its words as said, and the
+  // note gives what even:true would do (evening it made volume_churn warn on the clip).
+  const bedDocument = documentWith([createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12, volume: 0.3 }), musicLayer()], 12);
+  const bed = run({}, bedDocument);
+  assert.equal(bed.clip.animations.some((animation) => animation.name === "Line level"), false);
+  assert.deepEqual(bed.report.even, { median: -24, spread: 22, places: [] });
+  assert.match(bed.report.notes.join(" | "), /not evened: clip\.wav plays at volume 0\.3, under 0\.5, a bed the export does not level; its words spread 22 LU \(measured\) and 2 places are over 3 LU off its median word; even:true evens them/);
+  assert.equal(run({ even: true }, bedDocument).clip.animations.filter((animation) => animation.name === "Line level").length, 4);
 });
 
 test("keep_line {sound} keeps the loudest matching scene sound at its own level, with no subtitle, and the music makes room only when masked", () => {
