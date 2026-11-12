@@ -706,7 +706,7 @@ function modifiedGeometry(layer, state, context, paint, width, height) {
     source = scaledPathData(layer, state, path, width, height);
     if (!layer.convertedFrom) paintBounds = pathGradientBounds(pathBounds(source), box);
   } else source = shapePath(layer.type, state);
-  const d = serializePath(modifyContours(parsePath(source), { ...state, type: layer.type }));
+  const d = serializePath(modifyContours(parsePath(source), { ...state, type: layer.type }, context.time));
   if (!d.trim()) return "";
   const fillRule = layer.type === "path" && state.fillRule === "evenodd" ? "evenodd" : "nonzero";
   const reach = modifierReach({ ...state, type: layer.type });

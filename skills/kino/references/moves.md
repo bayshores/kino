@@ -117,7 +117,7 @@ Zoom shot-a into shot-b at 1 s, then karaoke captions.
 
 Shapes, paths: `strokeStart`, `strokeEnd` (0-1 a contour), `strokeOffset` (turns), `dash`
 ([on, off, …] px), `dashOffset` (px); modifiers `roundCorners`, `bloatAmount`, `twistAngle`,
-`zigzagSize` (`zigzagCount`, `zigzagPoints`), `offsetAmount` (`offsetJoin`); numbers animate, Lottie too.
+`zigzagSize` (`zigzagCount`, `zigzagPoints`), `offsetAmount` (`offsetJoin`), `roughenSize` (brush edge); animate.
 `trim` (or `draw-on`) draws `strokeEnd` from 0.
 
 ```json

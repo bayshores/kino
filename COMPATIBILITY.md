@@ -741,6 +741,10 @@ How to read it:
   engine/behavior.test.js, engine/qualityStyle.test.js, backend/agent-moves.test.mjs). Rendered through the agent path
   (edit, then look): 3 frames each, 0 check errors; streaks, wedges, a warm edge glow, a flipped picture, a 1.3x snap
   that returns to 1x, an edge-covered shake.
+- **Roughen edge and split-fields**: Verified. Shape modifier `roughenSize` (detail, seed, boil) draws irregular
+  teeth fixed per seed that boil at their rate (engine/shapeModifiers.test.js); `move split-fields {layer}` builds two
+  normalized duotone copies and a rough drifting mask (engine/moves.test.js). Rendered through the agent path with the
+  required field only: green and magenta fields of one shot along a ragged edge. Gap: boil is not exported to Lottie.
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues

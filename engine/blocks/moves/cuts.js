@@ -421,6 +421,7 @@ export const shapeWipe = {
     angle: { kind: "number", low: -360, high: 360, about: "clock only: where the hand starts, degrees (default -90, 12 o'clock)" },
     ...shared({ color: "the shape's color, hex (default the brand accent)" }),
     point: { kind: "point", about: "[x, y] in % of to's box where the shape grows from (default the center)" },
+    edge: { kind: "choice", values: ["clean", "brush"], about: "clean (default) or brush: a rough dry-brush edge that boils on twos (the roughen shape modifier)" },
     ...shared({ ease: "the curve of the shape and the opening growing (default a strong ease-out)" }), ...SPEED,
   },
   example: { from: "shot-a", to: "shot-b", at: 1, shape: "circle" },
@@ -439,7 +440,9 @@ export const shapeWipe = {
     const size = Math.ceil(reach * (shape === "circle" ? 2.04 : shape === "diamond" ? 2.1 : 2.3));
     const place = { x: Math.round(origin.x - size / 2), y: Math.round(origin.y - size / 2), width: size, height: size };
     const type = shape === "circle" ? "ellipse" : "rectangle";
-    const outline = { radius: shape === "rounded" ? Math.round(size * 0.22) : 0, rotation: shape === "diamond" ? 45 : 0 };
+    // A brush edge: the same roughen as split-fields (moves/split.js), its size a guess.
+    const brush = input.edge === "brush" ? { roughenSize: round(44 * ctx.scale, 1), roughenDetail: 0.7, roughenSeed: ctx.rng.pick([3, 7, 11, 19]), ...(ctx.reduced ? {} : { roughenBoil: 12 }) } : {};
+    const outline = { radius: shape === "rounded" ? Math.round(size * 0.22) : 0, rotation: shape === "diamond" ? 45 : 0, ...brush };
     const grow = (start, duration) => ({ ...paced(motion, pace, { name: "Grow", kind: "in", start, duration, easing: curve, from: { width: 1, height: 1 }, to: { width: size, height: size } }), anchor: "center" });
     // Drawn bottom to top: from, the color shape, the mask, to (a mask shows the layer just above it).
     if (ctx.order(to.id) < ctx.order(from.id)) ctx.raise(to.id, from.id);

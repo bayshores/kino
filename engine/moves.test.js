@@ -85,7 +85,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 51);
+  assert.equal(MOVE_NAMES.length, 52);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -138,6 +138,28 @@ test("every example builds at 16:9 and 9:16 and in reduced motion, the same way 
   }
   // Another seed changes the seeded choices of a move that has them.
   assert.notDeepEqual(runExample("rgb-split-hit", sceneFor(1920, 1080), { seed: 2 }), runExample("rgb-split-hit", sceneFor(1920, 1080)));
+});
+
+test("split-fields draws two normalized duotone copies split by a rough, drifting mask edge that a document keeps", () => {
+  const scene = sceneFor(1920, 1080);
+  const run = (fields) => runMove(MOVES["split-fields"], { id: "split-fields", input: readMoveInput(MOVES["split-fields"], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, dur: null, media });
+  const made = run({ layer: "shot-a" });
+  const layers = Object.fromEntries(made.added.map(({ layer, place }) => [layer.move.part, { layer, place }]));
+  const tone = (part) => layers[part].layer.animations.find((animation) => animation.effect === "duotone").to;
+  assert.deepEqual([tone("dark").highlightColor, tone("dark").shadowColor, tone("light").shadowColor, tone("light").highlightColor], ["#3BEA7A", "#0D331B", "#E0308F", "#FBE6F2"]);
+  assert.ok(tone("dark").normalize && tone("light").normalize, "both stretch the shot's own light range first");
+  // The mask sits just under the light field, with a boiling brush edge that drifts 0.15 of the width.
+  const { layer: mask, place } = layers.mask;
+  assert.deepEqual([mask.isMask, place.below, mask.roughenSize, mask.roughenBoil], [true, layers.light.layer.id, 72, 12]);
+  const drift = mask.animations.find((animation) => animation.name === "Edge drift");
+  assert.equal(Math.round(drift.from.x - drift.to.x), 288);
+  assert.equal(made.end, 1.5);
+  assert.equal(run({ layer: "shot-a", edge: "straight" }).added.find(({ layer }) => layer.move.part === "mask").layer.roughenSize, undefined);
+  assert.throws(() => readMoveInput(MOVES["split-fields"], { layer: "shot-a", colors: ["green", "#E0308F"] }), /hex colors/);
+  // Placed in a document it is a valid edit (the roughen fields pass the model's checks).
+  const placed = sceneFor(1920, 1080);
+  placeMove(placed, { id: "split-fields", name: "split-fields", settings: {} }, made);
+  assert.ok(parseDocument(createDocument({ id: "d", name: "split", scenes: [{ ...placed, id: "scene" }] })));
 });
 
 test("punch-in snaps closer about its point and is refused over the layer's own push; shake needs no cue, dies down, covers its edges and passes check on its cue", async () => {
