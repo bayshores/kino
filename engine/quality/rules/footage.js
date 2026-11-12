@@ -7,9 +7,13 @@
 //                    subject marked (warning); with one marked, the subject cut off (gate). A face
 //                    the detector found whole in the file and the crop cuts, nothing marked, is a
 //                    gate; a found face cut while the mark misses it warns (a 9:16 crop of 16:9
-//                    footage cut 12 whole faces with a 20% box marked by hand beside them)
+//                    footage cut 12 whole faces with a 20% box marked by hand beside them). Where
+//                    no face was found, the largest saliency box is what kino sees: a crop keeping
+//                    under 85% of it is a gate, unless a mark stands for it (a part mark, or one
+//                    holding 85% of it; a mouth marked inside a face does not). On drawn faces
+//                    saliency found 38 of 55 (precision 0.63), so the words say "what kino sees".
 //   narrow_window    footage filling the frame through a window under 40% of its file's width
-//                    where no face was found (warning: drawn faces are not found, so kino cannot
+//                    where no face and no saliency box was found (warning: kino has nothing to
 //                    tell an eye strip from a cut face there)
 //   jump_cut         back-to-back full-frame shots from one file, a little later in it and framed
 //                    alike, with no transition (warning: the trailer cut one walking take every bar)
@@ -32,7 +36,7 @@ import { coveredAt, plateChanges } from "../techniques.js";
 import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourcePixels.js";
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
-import { sampleBoxes } from "../../footage/layout.js";
+import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -43,8 +47,6 @@ export const UPSCALE_GATE = 2;
 export const SOFT_BLUR = 16;
 // The most of the file a side may lose before the crop needs a reason (a marked subject).
 export const CROP_MAX = 8;
-// The least of a marked subject that must stay in the frame.
-const SUBJECT_KEPT = 0.85;
 // A marked box counts for file times this close to it.
 const BOX_REACH = 0.5;
 const SHOWN = 0.3;
@@ -167,6 +169,37 @@ export function facesAt(found, at) {
   return sampleBoxes(peopleNear(found, at)).filter((entry) => entry.kind === "face").map((entry) => entry.box.map((value) => value * 100));
 }
 
+// A sample this close (seconds) to a short shot's middle stands in when none falls in it (as frame_shot reads them).
+const SALIENT_REACH = 0.5;
+
+/**
+ * What kino sees at file second `second` of a shot with no face found: the largest saliency box
+ * (subjects-v1) of the sample nearest it in the stretch [from, to] the layer plays (the samples
+ * frame_shot aims at; with none inside, the one nearest the stretch's middle), as [x, y, w, h] in
+ * % of the file, or null. A face in any of those samples makes the shot face-led (null), as
+ * frame_shot reads it. A box touching three or more file edges is the whole picture, no subject.
+ * Saliency is where the eye goes, never a face.
+ */
+export function salientAt(found, second, from, to) {
+  const measured = (found?.samples ?? []).filter((sample) => Number.isFinite(sample?.t));
+  let stretch = measured.filter((sample) => sample.t >= from - 1e-6 && sample.t <= to + 1e-6);
+  if (!stretch.length) {
+    const middle = (from + to) / 2;
+    let closest = null;
+    for (const entry of measured) if (Math.abs(entry.t - middle) <= SALIENT_REACH + (to - from) / 2 && (!closest || Math.abs(entry.t - middle) < Math.abs(closest.t - middle))) closest = entry;
+    stretch = closest ? [closest] : [];
+  }
+  if (stretch.some((entry) => sampleBoxes(entry).some((box) => box.kind === "face"))) return null;
+  const boxes = sampleBoxes(peopleNear({ samples: stretch }, second));
+  let largest = null;
+  for (const { box, kind } of boxes) {
+    const percent = box.map((value) => value * 100);
+    if (kind !== "saliency" || !faceKept(percent, [0, 0, 100, 100])) continue;
+    if (!largest || percent[2] * percent[3] > largest[2] * largest[3]) largest = percent;
+  }
+  return largest;
+}
+
 /**
  * How much of a face ([x, y, w, h] in %) the crop `bounds` ([x0, y0, x1, y1] in %) keeps, and the
  * side it cuts most: {share, side}. The face box is what the detector saw in the file, so the
@@ -234,7 +267,8 @@ export function cropNoSubject(model, ctx) {
     let cropped = null, croppedCount = 0, lost = null;
     // Faces the detector found whole in the file that the crop cuts: with no mark (faceCut), or
     // while the mark sits somewhere else (missed).
-    const faceCut = { count: 0, worst: null }, missed = { count: 0, worst: null };
+    // What kino sees (a saliency box where no face was found) that the crop cuts.
+    const faceCut = { count: 0, worst: null }, missed = { count: 0, worst: null }, salientCut = { count: 0, worst: null };
     for (let index = 0; index < model.times.length; index += step) {
       if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
       const time = model.times[index];
@@ -243,9 +277,11 @@ export function cropNoSubject(model, ctx) {
       if (!crop || crop.covers < 0.9) continue;
       const [x0, y0, x1, y1] = crop.bounds;
       const second = mediaFrameState(layer, time).sourceTime;
-      const mark = marked ? (pointer ? pointer(second) : boxNear(layer, second)) : null;
+      const entry = marked && !pointer ? markNear(layer, second) : null;
+      const mark = marked ? (pointer ? pointer(second) : entry?.box ?? null) : null;
+      const facesHere = found ? facesAt(found, second) : [];
       let cutHere = null, missedHere = null;
-      for (const face of found ? facesAt(found, second) : []) {
+      for (const face of facesHere) {
         const kept = faceKept(face, crop.bounds);
         if (!kept || kept.share >= SUBJECT_KEPT) continue;
         const cut = { ...kept, face, time, second };
@@ -261,11 +297,22 @@ export function cropNoSubject(model, ctx) {
         tally.count += 1;
         if (!tally.worst || cut.share < tally.worst.share) tally.worst = cut;
       }
-      if (marked) {
-        const box = mark;
-        if (!box) continue;
-        const share = insideShare(box, crop.bounds);
-        if (share < SUBJECT_KEPT && (!lost || share < lost.share)) lost = { share, time, box };
+      // A counted mark elsewhere in the shot but none near this moment: the agent chose the subject.
+      if (marked && !mark) continue;
+      // Where no face was found, what kino sees is the subject unless a mark stands for it: a part
+      // mark (a deliberate part crop), or one that holds SUBJECT_KEPT of it or sits elsewhere.
+      const salient = !pointer && !facesHere.length ? salientAt(found, second, playsFrom, playsTo) : null;
+      if (mark && (!salient || entry?.part || markHoldsSalient(mark, salient))) {
+        const share = insideShare(mark, crop.bounds);
+        if (share < SUBJECT_KEPT && (!lost || share < lost.share)) lost = { share, time, box: mark };
+        continue;
+      }
+      if (salient) {
+        const kept = faceKept(salient, crop.bounds);
+        if (kept.share < SUBJECT_KEPT) {
+          salientCut.count += 1;
+          if (!salientCut.worst || kept.share < salientCut.worst.share) salientCut.worst = { ...kept, box: salient, mark, time, second };
+        }
         continue;
       }
       const sides = { left: x0, top: y0, right: 100 - x1, bottom: 100 - y1 };
@@ -285,6 +332,20 @@ export function cropNoSubject(model, ctx) {
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of a face found whole in the file in the frame; if the cut is meant (an eye strip), mark_subject the part you mean`,
         // kino's own framing of the layer: automatic when nothing moves it.
         fix: frameFix(model, item, `Move or scale ${ctx.name(item)} so the face is in the frame at ${sec(cut.time)} s (${look} shows the crop), or fit the file to the frame; if the cut is meant (an eye strip), mark_subject the part you mean.`),
+      });
+      continue;
+    }
+    if (seen(salientCut)) {
+      const cut = salientCut.worst;
+      const name = ctx.name(item);
+      const call = `edit {"ops":[{"op":"frame_shot","layers":[${JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"))}]}]}`;
+      const held = cut.mark ? `; the mark ${boxText(cut.mark)} holds ${Math.round(insideShare(cut.box, [cut.mark[0], cut.mark[1], cut.mark[0] + cut.mark[2], cut.mark[1] + cut.mark[3]]) * 100)}% of it` : "";
+      findings.push({
+        rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
+        message: `${name} cuts what kino sees in its file at the ${cut.side} at ${sec(cut.time)} s: ${Math.round(cut.share * 100)}% of it is in the frame (a saliency box, not a face). ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.`,
+        measured: `${Math.round(cut.share * 100)}% of the saliency box ${boxText(cut.box)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((salientCut.count * step) / model.fps)} s, no face found${held}`,
+        required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of what kino sees (the largest saliency box where no face is found) in the frame, or a mark that holds it (part:"<name>" for a deliberate part)`,
+        fix: frameFix(model, item, `${call} keeps what kino sees whole (a card when it is wider than the frame); ${look} shows it; a deliberate part: mark_subject with part.`),
       });
       continue;
     }
@@ -355,6 +416,8 @@ export function narrowWindow(model, ctx) {
       const second = mediaFrameState(layer, time).sourceTime;
       // A face found here is judged by crop_no_subject; only a window kino cannot see into warns.
       if (found && facesAt(found, second).length) continue;
+      // So is what kino sees where no face was found (a saliency box): only a window kino has nothing for warns.
+      if (salientAt(found, second, playsFrom, playsTo)) continue;
       // A seen mark (a part such as an eye strip counts the same) that the window keeps is a crop on a subject.
       const mark = looked ? boxNear(layer, second) : null;
       if (mark && insideShare(mark, crop.bounds) >= SUBJECT_KEPT) continue;
@@ -383,7 +446,7 @@ export function narrowWindow(model, ctx) {
  * How a scene's footage is cropped, for the stop asks: {shots, narrow, seen, parts, unseen, partNames}.
  * shots: enabled video layers that fill the frame (not recordings); narrow: of those, ones whose
  * window at the middle of their shown time is under NARROW_WINDOW % of the file's width with no
- * face found there (as narrow_window judges it). Each narrow one is `seen` (a mark made after a
+ * face and no saliency box found there (as narrow_window judges it). Each narrow one is `seen` (a mark made after a
  * look, which the window keeps), `parts` (the same, marked as a part such as "eyes"; partNames
  * lists the distinct names) or `unseen` (anything else).
  */
@@ -399,9 +462,9 @@ export function cropCounts(scene, { mediaSizes, sourceLooks, people } = {}) {
     if (!crop || crop.covers < 0.9) continue;
     counts.shots += 1;
     const second = mediaFrameState(layer, time).sourceTime;
-    if (crop.bounds[2] - crop.bounds[0] >= NARROW_WINDOW || facesAt(people?.[layer.src], second).length) continue;
-    counts.narrow += 1;
     const [from, to] = playedStretch(scene, layer);
+    if (crop.bounds[2] - crop.bounds[0] >= NARROW_WINDOW || facesAt(people?.[layer.src], second).length || salientAt(people?.[layer.src], second, from, to)) continue;
+    counts.narrow += 1;
     const mark = seenMark(layer, sourceLooks, from, to) ? markNear(layer, second) : null;
     if (!mark || insideShare(mark.box, crop.bounds) < SUBJECT_KEPT) counts.unseen += 1;
     else if (mark.part) {

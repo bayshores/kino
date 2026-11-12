@@ -1741,9 +1741,9 @@ test("crop_no_subject: a face found whole in the file and cut by the crop is a g
   for (const box of [[5, 20, 90, 80], [0, 30, 50, 40], [0, 30, 20, 40], [0, 10, 100, 80], [10, 0, 60, 100]])
     assert.equal((await cropRun("crop_no_subject", tall(), facesFound(box))).findings[0].severity, "error", `face ${box}`);
   // A saliency box is never a face. Real subjects-v1 samples keep plain faces in `faces` and the
-  // tagged boxes in `subjects`: the saliency box in `subjects` is not read as one.
+  // tagged boxes in `subjects`: the saliency box in `subjects` is not read as one (its own finding below).
   const salient = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [], subjects: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "saliency" }], people: [] })) } };
-  assert.equal((await cropRun("crop_no_subject", tall(), salient)).findings[0].severity, "warn");
+  assert.doesNotMatch((await cropRun("crop_no_subject", tall(), salient)).findings[0].message, /face found/);
   const tagged = { [TALL_CROP.src]: { samples: [0, 1, 2].map((t) => ({ t, faces: [[0.2, 0.3, 0.15, 0.25]], subjects: [{ box: [0.2, 0.3, 0.15, 0.25], kind: "face" }], people: [] })) } };
   assert.equal((await cropRun("crop_no_subject", tall(), tagged)).findings[0].severity, "error");
 });
@@ -1820,6 +1820,27 @@ test("crop_no_subject: a mark on a file with no faces counts only after a look; 
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), null, keeperLooked)).findings, []);
   // A face found in the file: the mark counts as before, with no look.
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), facesFound([45, 30, 10, 25]))).findings, []);
+});
+
+test("crop_no_subject: where no face was found, the window must keep what kino sees (the largest saliency box); narrow_window goes quiet there", async () => {
+  // Saliency boxes in % of the file, one sample every half second, plus a smaller one the rule ignores.
+  const sees = (box) => ({ [TALL_CROP.src]: { samples: [0, 0.5, 1, 1.5, 2].map((t) => ({ t, faces: [], people: [], subjects: [{ box: box.map((value) => value / 100), kind: "saliency" }, { box: [0.4, 0.4, 0.02, 0.02], kind: "saliency" }] })) } });
+  // The 9:16 window (34% to 66%) keeps 69% of a box from 25% to 55%: a gate, fixed by frame_shot.
+  const [cut] = (await cropRun("crop_no_subject", tall(), sees([25, 20, 30, 50]))).findings;
+  assert.deepEqual([cut.severity, cut.fix.kind, cut.fix.auto], ["error", "frame_shot", true]);
+  assert.match(cut.message, /^"keeper" cuts what kino sees in its file at the left at 0 s: 69% of it is in the frame \(a saliency box, not a face\)\. edit \{"ops":\[\{"op":"frame_shot","layers":\["keeper"\]\}\]\} keeps it whole/);
+  // Kept whole: no finding, not even the arbitrary-crop warning; narrow_window is quiet with a box either way.
+  assert.deepEqual((await cropRun("crop_no_subject", tall(), sees([40, 20, 20, 50]))).findings, []);
+  assert.deepEqual((await cropRun("narrow_window", tall(), sees([25, 20, 30, 50]))).findings, []);
+  assert.equal(cropCounts(tall().scenes[0], { mediaSizes: keeperSizes, people: sees([25, 20, 30, 50]) }).narrow, 0);
+  // A looked-at mark inside the box (a mouth in a face) does not stand for it; a part mark does.
+  const [mouth] = (await cropRun("crop_no_subject", keeperMarked([40, 40, 8, 8]), sees([25, 20, 30, 50]), keeperLooked)).findings;
+  assert.match(mouth.measured, /the mark \[40, 40, 8, 8\] holds 4% of it$/);
+  assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([40, 40, 8, 8], { part: "mouth" }), sees([25, 20, 30, 50]), keeperLooked)).findings, []);
+  // A face found anywhere in the shot makes it face-led (as frame_shot aims): saliency is not judged.
+  const faceLed = sees([25, 20, 30, 50]);
+  faceLed[TALL_CROP.src].samples[4] = { t: 2, faces: [[0.45, 0.3, 0.1, 0.2]], people: [], subjects: [{ box: [0.45, 0.3, 0.1, 0.2], kind: "face" }] };
+  assert.ok((await cropRun("crop_no_subject", tall(), faceLed)).findings.every((finding) => !/what kino sees/.test(finding.message)));
 });
 
 test("crop_no_subject replay: a 9:16 crop of 17 16:9 shots flags each whole face it cut, no eye strip", async () => {

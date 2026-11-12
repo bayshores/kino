@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { barAtOrAfter, beatGrid, editBeats, snapToImpact, speechSpan } from "./footage/cuts.js";
 import { markedSubject, openingMoment } from "./footage/moments.js";
-import { shotLayout } from "./footage/layout.js";
+import { frameShot, shotLayout } from "./footage/layout.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
 import { planEdit } from "./footage/plan.js";
@@ -111,6 +111,13 @@ test("frame: a hand-placed 16:9 layer in 9:16 gets blur-fill; a face from subjec
   const document = createDocument({ scenes: [createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [marked] })] });
   const [lead] = applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper", size: wide, samples: sample(face) }]).scenes[0].layers;
   assert.ok(Math.abs(lead.x + 0.175 * lead.width - 540) <= 1);
+  // A mark inside what kino sees (a mouth in a saliency box) widens to hold both; a part mark stays a part crop.
+  const mouth = (extra = {}) => createLayer("video", { id: "keeper", name: "keeper", src: "/api/media/keeper.mp4", x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 10, subjectBoxes: { src: "/api/media/keeper.mp4", boxes: [{ at: 1, box: [40, 40, 8, 8], by: "agent", ...extra }] } });
+  const scene = (layer) => createScene({ id: "s", width: 1080, height: 1920, duration: 4, layers: [layer] });
+  const seesFace = sample([{ box: [0.25, 0.2, 0.3, 0.5], kind: "saliency" }]);
+  const shotOf = (layer) => { const { kind, on } = frameShot(scene(layer), layer, { size: wide, samples: seesFace }); return [kind, on]; };
+  assert.deepEqual(shotOf(mouth()), ["blur-fill", "mark-salient"]);
+  assert.deepEqual(shotOf(mouth({ part: "mouth" })), ["fill", "mark"]);
   // A file of unknown size is refused with a sentence, nothing saved.
   assert.throws(() => applyOperations(document, [{ type: "frame_shot", sceneId: "s", layerId: "keeper" }]), /needs the size of keeper's file/);
   // Framing a layer that already has its blurred backdrop is refused: a second one would stack.
