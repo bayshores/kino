@@ -1041,12 +1041,14 @@ test("lift_dark aims a dark shot at the other shots' median, adds a curve and gr
   // The dark shot is a ramp from 6 to 60 of 255 (mean 33), drawn through its lift curve when it has
   // one; the lit shot is 90 everywhere; black outside the shots' band.
   const curveOf = (scene) => scene.layers.find((layer) => layer.id === "dark")?.animations.find((animation) => animation.id === "dark.lift")?.parameters?.master;
+  // A white balance "dark.warm" on the dark shot draws it 10 levels brighter; any other effect draws nothing.
   const render = async (scene, times, { width }) => times.map((time) => {
     const height = Math.round((width * scene.height) / scene.width), [y0, y1] = [scene.layers[0].y, scene.layers[0].y + scene.layers[0].height].map((y) => Math.round((y * width) / scene.width));
+    const warm = scene.layers[0].animations?.some((animation) => animation.id === "dark.warm") ? 10 : 0;
     const pixels = new Uint8ClampedArray(width * height * 4);
     for (let at = 0; at < pixels.length; at += 4) {
       const row = Math.floor(at / 4 / width), band = row >= y0 && row < y1;
-      pixels.fill(!band ? 0 : time >= 5 ? 90 : 6 + Math.round(54 * ((at / 4) % width) / width), at, at + 3), pixels[at + 3] = 255;
+      pixels.fill(!band ? 0 : time >= 5 ? 90 : warm + 6 + Math.round(54 * ((at / 4) % width) / width), at, at + 3), pixels[at + 3] = 255;
     }
     const curve = time < 5 && curveOf(scene);
     if (!curve) return { width, height, pixels };
@@ -1079,6 +1081,17 @@ test("lift_dark aims a dark shot at the other shots' median, adds a curve and gr
   // the bars neither set the black point nor pull the shot past the other shot's 90.
   const tall = await liftDark(shotsIn([1080, 1920], [656, 608]), { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
   assert.match(tall.lines[0], /^lift_dark target 90 \(median of 1 other shot; full range 0-255; video range 16-235: 93\): dark mean 33 to (8[89]|9[0-2]) measured on the edit's render at \d+ px wide \(6 frames over [\d.]+ to [\d.]+ s\), contrast \(p90-p10\) 43 to \d+, black 7 to 7 /, tall.lines[0]);
+  // Color effects already on the shot are named with both means when they move it (a white balance,
+  // not only a grade); a saturation change that keeps the mean is not named.
+  const graded = (ids) => {
+    const next = structuredClone(document);
+    next.scenes[0].layers[0].animations = ids.map(([id, effect]) => ({ id, name: id, kind: "effect", effect, start: 0, duration: 10, easing: "linear", to: {} }));
+    return parseDocument(next);
+  };
+  const warmed = await liftDark(graded([["dark.warm", "white-balance"], ["dark.sat", "hue-saturation"], ["dark.blur", "zoom-blur"]]), { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
+  assert.match(warmed.lines[0], /dark mean 43 to \d+ measured on the edit's render at \d+ px wide \(6 frames over [\d.]+ to [\d.]+ s\), on top of dark\.warm \(white-balance\), dark\.sat \(hue-saturation\) already there: 33 without them, 43 with, contrast/, warmed.lines[0]);
+  const saturated = await liftDark(graded([["dark.sat", "hue-saturation"]]), { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
+  assert.doesNotMatch(saturated.lines[0], /on top of|without/, saturated.lines[0]);
   const [picked] = translateOperations([{ op: "lift_dark", layer: "dark", target: 80 }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.target], [["dark"], 80]);
 });

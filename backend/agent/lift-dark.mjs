@@ -5,6 +5,7 @@
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { enabledAnimations } from "../../engine/animationEnabled.js";
+import { EFFECTS } from "../../engine/effects/catalog.js";
 import { mainScene } from "../../engine/board.js";
 import { coveredAt } from "../../engine/quality/techniques.js";
 import { area, boxAt, intersection, visibleBoxAt } from "../../engine/quality/model.js";
@@ -25,9 +26,11 @@ const OTHER_SHARE = 0.2;
 
 const isPicture = (item) => item.kind === "video" || item.kind === "image";
 
-// Effects that move a shot's tones: another one on the layer or its groups lifts or darkens the
-// shot before (or after) the lift, so the receipt names it with the shot's mean without and with it.
-const TONE_EFFECTS = new Set(["color-grade", "curves", "lut", "color-wheels", "color-look"]);
+// Effects that can move a shot's tones (the catalog's Color group and color-grade, which holds
+// match_references' exposure): another one on the layer or its groups lifts or darkens the shot
+// before (or after) the lift, so the receipt names them with the shot's mean without and with them
+// when the two means differ by a level or more (a hue or saturation change that keeps the mean is not named).
+const TONE_EFFECTS = new Set([...EFFECTS.filter((effect) => effect.group === "Color").map((effect) => effect.key), "color-grade"]);
 
 /**
  * The tone effects on `layerId` and the groups around it in an expanded scene, other than the
@@ -217,12 +220,13 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   // Measured on the whole edit (overlays, the layer's other effects and its groups' included) at a
   // small width: video pictures are decoded alike at every width (media-probe.mjs pictureScale).
   const measured = (entry) => `measured on the edit's render at ${width} px wide (${entry.times.length} frame${entry.times.length === 1 ? "" : "s"}${span(entry)})`;
-  const gradeNote = (entry) => entry.bare ? `, on top of ${entry.grades.map((grade) => `${grade.id} (${grade.effect})`).join(", ")} already there: ${levels255(entry.bare.mean)} without ${entry.grades.length === 1 ? "it" : "them"}, ${levels255(entry.before.mean)} with` : "";
+  const moves = (entry) => entry.bare && levels255(entry.bare.mean) !== levels255((entry.before ?? lumaStats(entry.frames))?.mean ?? entry.bare.mean);
+  const gradeNote = (entry) => moves(entry) ? `, on top of ${entry.grades.map((grade) => `${grade.id} (${grade.effect})`).join(", ")} already there: ${levels255(entry.bare.mean)} without ${entry.grades.length === 1 ? "it" : "them"}, ${levels255(entry.before.mean)} with` : "";
   const level = (value) => Math.round(value * 100) / 100;
   const blockLine = (entry) => !entry.blocks ? ""
     : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`;
   const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)} ${measured(entry)}${gradeNote(entry)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
-  const keptGrade = (shot) => shot.bare ? ` (${levels255(shot.bare.mean)} without ${shot.grades.map((grade) => grade.id).join(", ")})` : "";
+  const keptGrade = (shot) => moves(shot) ? ` (${levels255(shot.bare.mean)} without ${shot.grades.map((grade) => grade.id).join(", ")})` : "";
   const kept = skipped.length ? `; ${skipped.map((shot) => `${name(shot.layerId)} ${levels255(lumaStats(shot.frames)?.mean ?? 0)}${keptGrade(shot)}`).join(", ")} already at or above it, left alone` : "";
   const lines = [lifted.length
     ? `lift_dark ${aimLine}: ${lifted.map(shotLine).join("; ")}${kept}. Effects ${lifted.some((entry) => entry.deblock) ? "<layer>.lift-deblock (deblock), " : ""}<layer>.lift (curves) and <layer>.lift-grain; again replaces them, remove:true takes them off.`
