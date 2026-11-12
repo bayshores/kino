@@ -37,6 +37,19 @@ test("fast review bounds resolution and leaves ordinary draft and final settings
   assert.equal(sceneOptions({ renderQuality: "final", format: "mp4" }, scene).width, 1920);
 });
 
+test("a draft given a width, height or size keeps its draft settings at that size, never above the scene", () => {
+  const size = (extra) => { const out = sceneOptions({ ...draft, fps: 30, ...extra }, scene); return [out.width, out.height, out.fps, out.motionBlur, out.dither]; };
+  assert.deepEqual(size({ width: 1920, height: 1080 }), [1920, 1080, 30, 0, false]);
+  assert.deepEqual(size({ width: 1280 }), [1280, 720, 30, 0, false]);
+  assert.deepEqual(size({ height: 360, draftWidth: 1920 }), [640, 360, 30, 0, false]);
+  assert.deepEqual(size({ size: "720p" }), [1280, 720, 30, 0, false]);
+  assert.deepEqual(size({ size: "720p", width: 1920 }), [1280, 720, 30, 0, false], "size wins, as a final reads it");
+  assert.deepEqual(sceneOptions({ ...draft, width: 1920, height: 1080 }, { ...scene, width: 1080, height: 1920 }).width, 608, "a 9:16 scene fits the box");
+  assert.deepEqual(size({ width: 4000, height: 3000 }), [1920, 1080, 30, 0, false], "capped at the scene's size");
+  assert.deepEqual(size({}), [960, 540, 30, 0, false], "no size given: half size as before");
+  assert.deepEqual(size({ draftWidth: 640 }), [640, 360, 30, 0, false]);
+});
+
 test("caption sidecars clip and rebase to the excerpt clock", () => {
   const events = [{ start: 1, end: 2, text: "before" }, { start: 2, end: 4, text: "across" }, { start: 4, end: 6, text: "after" }];
   assert.deepEqual(rangeCaptions(events, renderRange(scene, { ...draft, from: 3, to: 5 })),

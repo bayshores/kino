@@ -236,7 +236,7 @@ export function createReachExports({ exportBatches, agentDirectory, fontsFor, ch
       managed.set(batch.id, meta);
       observe(meta, batch);
       const data = snapshot(meta, batch);
-      const draftNote = quality === "draft" ? ' A draft is half size at 30fps (fps up to 30); quality:"final" uses the size and fps in options.' : "";
+      const draftNote = quality === "draft" ? ' A draft is half size at 30fps (fps up to 30) unless options give a width, height or size; quality:"final" uses the size and fps in options.' : "";
       return { text: `${batch.id} started ${quality} ${batch.options.format} for ${sceneIds.length} scene${sceneIds.length === 1 ? "" : "s"} at rev ${record.revision}.${draftNote} Use project manage {resource:"exports", action:"wait", batch:"${batch.id}"} for the saved files.`, data };
     }
 
