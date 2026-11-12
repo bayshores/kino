@@ -21,7 +21,7 @@ import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
-import { fitLoudness, loudMixWarning, masterLimiter, measureMixLevels, mixLead } from "./audio-levels.mjs";
+import { LIMITER_CEILING_DB, PEAK_METER, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, readPeakWindows } from "./audio-levels.mjs";
 import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -883,9 +883,10 @@ async function audioLayerSoundClips(layer, mediaRoot, sceneDuration, { signal, s
  * file is missing is left out with a warning, as the export draws it transparent. `duration` is
  * the export's length in seconds: whole frames, exportFrameTimes(…).length / fps.
  */
-export async function sceneSoundClips(scene, { mediaRoot, directory, duration, signal, warnings = [] }) {
-  // Live playback has no loudness target: no song or words are read for "auto".
-  const soundClip = soundClipMaker(directory, duration, signal, { lead: false });
+export async function sceneSoundClips(scene, { mediaRoot, directory, duration, signal, warnings = [], lead = false }) {
+  // Live playback has no loudness target: no song or words are read for "auto". lead: true reads
+  // them as a render does (measureMixPeaks names what the default "auto" target would do).
+  const soundClip = soundClipMaker(directory, duration, signal, { lead });
   const renderedIds = visibleLayerIds(scene);
   const clips = [];
   for (const layer of scene.layers) {
@@ -953,6 +954,38 @@ export async function soundCurve(clips, duration, signal) {
     if (point && peak && Number(peak[1]) > 0) point.tp = Math.max(point.tp ?? -Infinity, Math.round(200 * Math.log10(Number(peak[1]))) / 10);
   }
   return curve;
+}
+
+/**
+ * Where the mix of `clips` (from sceneSoundClips) passes the master limiter, from the same mix the
+ * render measures before its limiter (planMasterLimiter), in one FFmpeg run that writes nothing:
+ * { integratedLufs, truePeakDbtp, places: [{at, from, to, peakDbtp, overDb, factor, playing}] }
+ * (audio-levels.mjs limiterPlaces; playing: [{name, volume}] at `at`), or null when nothing is heard.
+ * Those are render loudness "off". `auto` is what the default "auto" target does first (clips read
+ * with sceneSoundClips lead: true name their songs and words): { target, targetLufs, gainDb, held,
+ * places, worst } (worst: the place most over the ceiling after that gain), or null when no gain applies.
+ * The gain is its first trial's; a render corrects it by a few tenths of a dB when the limiter gives some back.
+ */
+export async function measureMixPeaks(clips, duration, signal) {
+  const heard = audibleClips(clips, duration);
+  if (!heard.length) return null;
+  const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
+    "-filter_complex", `${audioMixGraph(heard, duration, "mp4", 0)},${PEAK_METER}`, "-f", "null", "-"], signal);
+  const { integratedLufs, truePeakDbtp, windows } = readPeakWindows(printed);
+  const places = limiterPlaces(windows).map((place) => ({ ...place,
+    playing: heard.filter((clip) => clip.start < place.at + 0.1 && clip.end > place.at)
+      .map((clip) => ({ name: clip.name, volume: clip.volumeTrack ? trackVolumeAt(clip, place.at) : clip.volume })) }));
+  const lead = await autoLoudness(heard, duration, 0, signal);
+  const gain = loudnessGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, 0, lead.targetLufs);
+  let auto = null;
+  if (gain) {
+    // A gain of g dB puts each peak g dB higher, so the limiter works where the peak passes ceiling - g.
+    const shifted = limiterPlaces(windows, { ceiling: LIMITER_CEILING_DB - gain.gainDb });
+    const worst = shifted.reduce((most, place) => (!most || place.overDb > most.overDb ? place : most), null);
+    auto = { target: gain.target, targetLufs: gain.targetLufs, gainDb: gain.gainDb, held: gain.held, places: shifted.length,
+      worst: worst ? { at: worst.at, overDb: worst.overDb } : null };
+  }
+  return { integratedLufs, truePeakDbtp, places, auto };
 }
 
 // `frameTimes` are the output frames' times; `samples` the times their pictures are drawn at, with

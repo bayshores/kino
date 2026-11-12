@@ -10,9 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLayer, createScene } from "../engine/model.js";
 import { createAgentClient } from "./agent/client.mjs";
-import { describeLevels, loudMixWarning, loudnessGain, mixLead, readLevels } from "./audio-levels.mjs";
+import { describeLevels, describeMixPeaks, limiterPlaces, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary } from "./loudness-curve.mjs";
-import { exportScene } from "./export.mjs";
+import { exportScene, measureMixPeaks, sceneSoundClips } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
 
@@ -241,6 +241,47 @@ test("the loud-mix warning names the moment and the sounds playing then, and sta
   assert.equal(loudMixWarning({ truePeakDbtp: null, loudestAt: null }, clips, fitted), null);
 });
 
+test("the limiter places: each 0.1 s peak over the ceiling, near ones joined, timed where the peak is first reached", () => {
+  const printed = [[0, "-20"], [0.1, "-1.2"], [0.2, "-0.4"], [0.3, "-0.45"], [0.4, "-9"], [2, "3.1"], [2.1, "-inf"]]
+    .map(([t, peak]) => `frame:0 pts:0 pts_time:${t}\nlavfi.r128.I=-11.2\nlavfi.r128.true_peak=1.43\nlavfi.astats.1.Peak_level=${peak}\nlavfi.astats.2.Peak_level=${peak === "-inf" ? peak : -30}`).join("\n");
+  const levels = readPeakWindows(printed);
+  assert.equal(levels.integratedLufs, -11.2);
+  assert.equal(levels.truePeakDbtp, 3.1);
+  assert.equal(levels.windows.length, 6, "a silent window (-inf) is left out");
+  const places = limiterPlaces(levels.windows);
+  assert.deepEqual(places, [
+    { at: 0.2, from: 0.1, to: 0.4, peakDbtp: -0.4, overDb: 1.1, factor: 0.88 },
+    { at: 2, from: 2, to: 2.1, peakDbtp: 3.1, overDb: 4.6, factor: 0.58 },
+  ]);
+  const mix = { integratedLufs: -11.2, truePeakDbtp: 3.1, places: places.map((place) => ({ ...place, playing: [{ name: "song", volume: 1 }, { name: "hit", volume: 0.55 }] })) };
+  const line = describeMixPeaks(mix, { limit: 1, tail: "; all: look" });
+  assert.match(line, /^mix: -11\.2 LUFS, true peak \+3\.1 dBTP .*works at 2 places, worst 1: 2 s \+3\.1 dBTP, 4\.6 dB over \(song 1, hit 0\.55\) x0\.58 .*; all: look$/);
+  assert.match(describeMixPeaks({ ...mix, places: [] }), /the limiter \(ceiling -1\.5 dBFS\) never works$/);
+  // The default "auto" target's gain moves every peak: a quiet mix raised 8 dB is limited where "off" is not.
+  const auto = { target: "web", targetLufs: -14, gainDb: 8, held: true, places: 1, worst: { at: 2, overDb: 6 } };
+  assert.match(describeMixPeaks({ ...mix, places: [], auto }), /never works; loudness "auto" \(the render default, target -14 web\) adds \+8 dB first \(held by the peaks\), then the limiter works at 1 place, most 6 dB at 2 s$/);
+});
+
+test("measuring the mix finds every limiter place, and the loudest matches the render's own warning", { skip: skipWithoutMediaTools }, async (t) => {
+  const { root, mediaRoot } = await setup(t);
+  // Three tones at 0.5-1.5 s (+3.3 dBTP), then two at 2.5-3.5 s (-0.2 dBTP, under the render's
+  // +0.5 warning but still limited).
+  const scene = toneScene([1, 1, 1, 1, 1]);
+  scene.duration = 4;
+  scene.layers.forEach((layer, index) => Object.assign(layer, { mediaSourceDuration: 1.5, mediaStart: index < 3 ? 0 : 2 }));
+  const directory = join(root, "clips");
+  await mkdir(directory);
+  const mix = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4);
+  assert.deepEqual(mix.places.map((place) => [place.at, place.peakDbtp, place.playing.length]), [[0.5, 3.3, 3], [2.5, -0.2, 2]]);
+  const result = await exportScene(scene, { profile: "mp4.alt", fps: 10 }, { mediaRoot, outputPath: join(root, "loud.mp4") });
+  const [, peak, at] = result.warnings.find((entry) => entry.code === "audio-limited").message.match(/peaked at \+([\d.]+) dBTP at ([\d.]+) s/);
+  assert.ok(Math.abs(Number(at) - mix.places[0].at) <= 0.1 && Math.abs(Number(peak) - mix.places[0].peakDbtp) <= 0.5, `render ${peak} at ${at}`);
+  // The default "auto" target: the same gain a render at "auto" applies (no song here, so -14 web).
+  const leveled = await exportScene(scene, { profile: "mp4.alt", fps: 10, loudness: "auto" }, { mediaRoot, outputPath: join(root, "auto.mp4") });
+  assert.equal(mix.auto.target, leveled.loudness.target);
+  assert.ok(Math.abs(mix.auto.gainDb - leveled.loudness.gainDb) <= 0.5, `measured ${mix.auto.gainDb}, render ${leveled.loudness.gainDb}`);
+});
+
 test("a loud mix is limited to about -1 dBTP in MP4, WebM and MOV, and the export warns with the loudest moment", {
   skip: skipWithoutMediaTools,
 }, async (t) => {
@@ -400,6 +441,15 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   assert.match(done.text, /The sound mix peaked at \+[56]\.\d dBTP at [\d.]+ s\. The master limiter turned it down about [\d.]+ dB there to stop clipping\./);
   assert.match(done.text, /Playing then: Song at volume 1, Song copy at volume 1\./);
   assert.ok(done.data.files[0].validation.facts.audioLevels.truePeakDbtp <= -1);
+  // check names the same peak without a render; look's sound map lists every place.
+  const [, renderPeak] = done.text.match(/peaked at \+([\d.]+) dBTP/);
+  const checked = await agent("check", { project, pixels: false });
+  const mixLine = checked.text.split("\n").find((line) => line.startsWith("mix: "));
+  t.diagnostic(mixLine);
+  assert.match(mixLine, /the limiter \(ceiling -1\.5 dBFS\) works at \d+ places?.*\(Song 1, Song copy 1\) x0\.\d+/);
+  assert.ok(Math.abs(Number(mixLine.match(/true peak \+([\d.]+) dBTP/)[1]) - Number(renderPeak)) <= 0.5, mixLine);
+  const sound = await agent("look", { project, mode: "motion", ref: "sound" });
+  assert.match(sound.text, /\nlimiter: .*works at \d+ place/);
 });
 
 test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky one quieter, naming the peak", { skip: skipWithoutMediaTools, timeout: 120_000 }, async (t) => {
