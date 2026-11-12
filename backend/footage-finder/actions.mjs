@@ -315,11 +315,14 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined, { 
   const lightless = used.some((part) => /^(brighter|darker):/.test(part)) ? shots.filter((shot) => lightOf(shot) === null).length : 0;
   const boxless = used.some((part) => part.startsWith("bigger:")) ? shots.filter((shot) => sizeOf(shot) === null).length : 0;
   const unframed = used.some((part) => /^(scale|height|room):/.test(part)) ? shots.filter((shot) => !framingOf(shot)).length : 0;
+  // moving: a shot kept from an older scan, or one whose flow failed, has none.
+  const unmoved = used.some((part) => part.startsWith("moving:")) ? shots.filter((shot) => !shot.moving).length : 0;
   const parts = [
     `${used.length ? `Filter ${used.join(" ")}` : "No filter"}${order ? `, sorted by ${sort}` : ""}: ${out.length} of ${shots.length} shot${shots.length === 1 ? "" : "s"}.`,
     lightless ? `${lightless} kept no light (an older scan) and are left out.` : "",
     boxless ? `${boxless} have no face or salient box and are left out.` : "",
     unframed ? `${unframed} have no figure or face box and are left out.` : "",
+    unmoved ? `${unmoved} kept no movement measure and are left out.` : "",
     unknown.length ? `Not measured, left out: ${unknown.join(", ")}.` : "",
     ignored.length ? `Not known, left out: ${ignored.join(", ")} (filter: ${Object.keys(SHOT_FILTERS).join(", ")}; sort: ${Object.keys(SHOT_SORTS).join(", ")}).` : "",
   ];

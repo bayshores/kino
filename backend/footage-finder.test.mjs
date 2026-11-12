@@ -398,6 +398,8 @@ test("framing facts: a small figure in a wide frame, a pan, a close face; filter
   assert.deepEqual(ns({ height: 40 }), [2, 3]);
   assert.deepEqual(ns({ moving: "camera" }), [2]);
   assert.deepEqual(ns({ moving: ["still", "subject"] }), [1, 3, 4]);
+  // A shot kept from an older scan has no movement measure: counted, not silently dropped.
+  assert.equal(narrowShots([...shots, { n: 5, start: 8, end: 9, motion: 10 }], { moving: "still" }).line, "Filter moving:still: 2 of 5 shots. 1 kept no movement measure and are left out.");
   assert.deepEqual(ns(undefined, "wide"), [1, 3, 2, 4]);
   assert.deepEqual(ns(undefined, "close"), [2, 3, 1, 4]);
   assert.equal(narrowShots(shots, { room: 70 }).line, "Filter room:70: 2 of 4 shots. 1 have no figure or face box and are left out.");
