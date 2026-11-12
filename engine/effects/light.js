@@ -21,7 +21,8 @@ const brightParts = () => ({
 export const LIGHT_EFFECTS = [
   { key: "glow", label: "Glow", group: "Light", kind: "ranged", render: renderGlow,
     parameters: {
-      strength: number("Strength", 1, 0, 8, 0.05),
+      // neutral 0: a glow pulse (peak) without from rises from no glow (effects/animation.js).
+      strength: number("Strength", 1, 0, 8, 0.05, "", { neutral: 0 }),
       radius: number("Radius", 24, 0, 400, 1, "px"),
       passes: number("Passes", 1, 1, MAX_GLOW_PASSES, 1, "", { integer: true }),
       ...brightParts(),

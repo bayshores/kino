@@ -108,7 +108,12 @@ test("a value effect with peak rises to To and returns to From inside its window
   assert.deepEqual([0, 0.125, 0.25, 0.625, 1, 2].map((time) => effectsAt(layer, time)[0].parameters.amount), [0, 0.5, 1, 0.5, 0, 0]);
   assert.equal(operation("back", "bulge", { return: true }).peak, 0.35, "return alone peaks at the default share");
   assert.throws(() => operation("bad", "bulge", { peak: 1 }), /0.05 to 0.95/);
-  assert.throws(() => operation("ranged", "fluid-warp", { peak: 0.5 }), /ranged effect/);
+  // A ranged effect (a red glow that ended hard at its window) pulses too, from its From.
+  // Without from it starts and ends at rest (glow strength 0).
+  const glow = operation("red", "glow", { to: { ...effectDefaults("glow"), strength: 1.4, radius: 40, threshold: 0.25 }, peak: 0.5, keepStill: "off" });
+  assert.deepEqual(glow.from, { strength: 0 });
+  assert.deepEqual([0.25, 0.5, 0.75, 0.999].map((time) => Number(effectsAt(layerWith([glow]), time)[0].parameters.strength.toFixed(2))), [0.7, 1.4, 0.7, 0]);
+  assert.throws(() => operation("ranged", "color-grade", { peak: 0.5 }), /already at rest/);
 });
 
 test("omitted and null optional From and intensity stay absent while partial From values normalize", () => {

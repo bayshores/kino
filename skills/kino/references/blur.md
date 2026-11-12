@@ -8,9 +8,9 @@ kaleidoscopes, an expression per point (field), and motion blur from movement in
 - `directional-blur {length, angle}`, `zoom-blur {amount, centerX, centerY}` and
   `spin-blur {angle, centerX, centerY}` smear a layer along a line, out from a centre or around
   it. They are value effects: `from` and `parameters` animate one, and a second one of the same
-  effect without `from` carries on from the first. A blur (or glow, grade, any value effect)
-  that rises and falls is one animation with `peak:0.35` (share of the window at its height)
-  or `return:true`. length is in the layer's own pixels; centres are fractions of its box.
+  effect without `from` carries on from the first. A blur (or glow, grade, any effect) that
+  rises and falls is one pulse: `peak:0.35` (share of the window at its height) or
+  `return:true`; a glow or grade without `from` starts and ends at rest. length is in the layer's own pixels; centres are fractions of its box.
 - A whip: a move with `easing:"natural"` (fastest at the middle) and a directional blur along
   it that peaks there. A zoom punch: a quick scale up with a zoom blur that falls to 0.
 - `edge-fill {mode: mirror|tile, extend}` repeats the picture past its edges, so a shake, spin

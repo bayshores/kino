@@ -849,6 +849,11 @@ function normalizeAnimation(raw, path, ids, layer, depth = 0, offset = 0) {
   // (animation.js holdsFromBeforeStart; left out, a Move holds and other operations do not).
   if (animation.fill == null) delete animation.fill;
   else if (animation.fill !== "both" && animation.fill !== "forwards") fail(`${path}.fill`, 'must be "both" or "forwards"');
+  // peak and return shape an effect's window (effects/animation.js); here they would do nothing.
+  for (const key of ["peak", "return"]) if (animation[key] != null)
+    fail(`${path}.${key}`, "works on an effect animation (effect: glow, zoom-blur, color-grade...); for a property that rises and falls, use keys or two animations");
+  delete animation.peak;
+  delete animation.return;
   if (animation.shadowChannels === undefined || animation.shadowChannels === null) delete animation.shadowChannels;
   else {
     if (!propertyKeys.has("shadow")) fail(`${path}.shadowChannels`, "requires a Shadow animation");

@@ -108,6 +108,9 @@ export function animationLong(animation, codes, offset = 0) {
   if (animation.unit && animation.unit !== "layer") parts.push(`by ${animation.unit}${Array.isArray(animation.delays) && animation.delays.length
     ? ` delays ${sec(Math.min(...animation.delays))}..${sec(Math.max(...animation.delays))}` : animation.stagger ? ` stagger ${sec(animation.stagger)}` : ""}${animation.order && animation.order !== "forward" ? ` ${animation.order}` : ""}`);
   if (animation.anchor) parts.push(`anchor ${animation.anchor}`);
+  // A pulse rises to `to` at peak and falls back; fill says what shows before the start.
+  if (animation.peak != null) parts.push(`peak ${num(animation.peak)} then back`);
+  if (animation.fill) parts.push(`fill ${animation.fill}`);
   if (animation.motionPath?.points?.length) parts.push(`curved path ${animation.motionPath.points.length} points`);
   if (animation.enabled === false) parts.push("off");
   return parts.join(" ");

@@ -181,6 +181,14 @@ test("add_layer: a top-level layer field goes into properties and is reported; o
   // The same value in both places is one field, not a conflict.
   const same = await agent("edit", { ops: [{ op: "add_layer", layerType: "text", name: "same", properties: { name: "same", text: "x" } }] });
   assert.equal(same.isError, undefined, same.text);
+  // peak and fill reach the engine through add_animation (they were refused as unknown fields).
+  const pulse = await agent("edit", { ops: [{ op: "add_animation", layer: "same", effect: "glow", start: 0, duration: 1, parameters: { strength: 1.4 }, peak: 0.5 },
+    { op: "add_animation", layer: "same", preset: "move", start: 1, duration: 0.5, fill: "forwards" }] });
+  assert.equal(pulse.isError, undefined, pulse.text);
+  assert.deepEqual(findLayer(await saved(), "same").animations.map((entry) => [entry.peak, entry.fill, entry.from?.strength]), [[0.5, undefined, 0], [undefined, "forwards", undefined]]);
+  // On a property animation peak would do nothing, so it is refused, not saved.
+  const idle = await agent("edit", { ops: [{ op: "add_animation", layer: "same", preset: "opacity", start: 0, duration: 1, peak: 0.5 }] });
+  assert.match(idle.data.reason, /peak: works on an effect animation/);
   const topLevel = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", y: 720 }] });
   assert.equal(topLevel.isError, undefined, topLevel.text);
   assert.equal(findLayer(await saved(), "tagline").y, 720);
