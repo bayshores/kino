@@ -5,6 +5,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLayer, createScene } from "../engine/model.js";
 import { placeAroundSubject } from "../engine/subjectRoom.js";
+import { placeMove, readMoveInput, runMove } from "../engine/blocks/move.js";
+import { MOVES } from "../engine/blocks/moves/index.js";
+import { styleFor } from "../engine/blocks/looks.js";
 import { renderStills } from "./export.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
 import { readImage } from "./media.test.support.mjs";
@@ -19,8 +22,8 @@ const subject = (visible = true) => createLayer("rectangle", { id: "person", nam
 const sceneOf = (layers) => createScene({ id: "s", width: WIDTH, height: HEIGHT, duration: 1, background: "#000000", layers });
 
 // White letter pixels in the frame, and those inside the subject box.
-async function letters(layers) {
-  const [still] = await renderStills(sceneOf(layers), [0], { width: SHOWN });
+async function letters(layers, time = 0) {
+  const [still] = await renderStills(sceneOf(layers), [time], { width: SHOWN });
   const image = await readImage(still.buffer);
   let all = 0, inside = 0;
   for (let y = 0; y < image.height; y += 1) for (let x = 0; x < image.width; x += 1) {
@@ -61,4 +64,28 @@ test("rendered frames: a line behind a cut-out and a line over the subject keep 
   assert.ok(overBefore.inside / overBefore.all > 0.3, `${overBefore.inside} of ${overBefore.all} letter pixels sat on the subject before`);
   assert.equal(overAfter.inside, 0, "no letter pixel on the subject after");
   assert.ok(overAfter.all > 0.9 * overBefore.all, "every letter is still drawn, at its size");
+});
+
+test("rendered frames: word-panel with subject draws the turned panel and word under the cut-out, so no letter pixel shows where the subject covers it", { timeout: 60_000 }, async () => {
+  const fonts = await loadBundledFonts();
+  for (const reduced of [false, true]) {
+    // The cut-out's measured box is its whole rectangle: a subjectPath (in shares of its own box), or
+    // in the reduced run only its subjectBox, as an older cut-out keeps it.
+    const cut = (visible) => Object.assign(subject(visible), reduced ? {} : { subjectPath: [[0, 0, 0, 1, 1], [1, 0, 0, 1, 1]] });
+    const build = (visible) => {
+      const scene = sceneOf([word(), cut(visible)]);
+      const input = readMoveInput(MOVES["word-panel"], { textLayer: "word", subject: "person", shape: "sign", turn: -8, color: "#203060", ink: "#ffffff" });
+      const made = runMove(MOVES["word-panel"], { id: "word-panel", input, scene, style: styleFor({ look: "crisp", frame: { width: WIDTH, height: HEIGHT } }), fonts, start: 0.1, dur: 0.8, media: () => null, reduced });
+      placeMove(scene, { id: "word-panel", name: "word-panel", settings: {} }, made);
+      return { layers: scene.layers, notes: made.notes };
+    };
+    const shown = build(true), uncovered = build(false);
+    const [drawn, without] = [await letters(shown.layers, 0.5), await letters(uncovered.layers, 0.5)];
+    assert.ok(without.inside > 200, `with the subject hidden, ${without.inside} letter pixels fall inside its box (reduced ${reduced})`);
+    assert.equal(drawn.inside, 0, `no letter pixel inside the subject's box (reduced ${reduced})`);
+    assert.ok(drawn.all > 0.3 * without.all, `${drawn.all} of ${without.all} letter pixels still show beside the subject`);
+    // The receipt's box shares agree: the letters it names over 60% are the ones the subject hides,
+    // at a moment inside the move (it starts at 0.1 s).
+    assert.match(shown.notes.join(" | "), /over 60% covered: L at 0\.1 s, L at 0\.1 s, Y at 0\.1 s/);
+  }
 });

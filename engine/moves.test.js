@@ -546,6 +546,11 @@ test("word-panel sizes a turned panel from the word's box, colors it from the sh
   assert.match(plain.notes.join(" | "), /the look's accent/);
   assert.match(plain.notes.join(" | "), /seed pick, a starting guess/);
   assert.equal(part(plain, "group").animations[0].name, "Fade in");
+  // slam lands from 1.25x about the panel's own center: the center stays put while it lands.
+  const slam = part(run({ textLayer: "kill", shape: "box", turn: 6, enter: "slam" }), "group");
+  const centerAt = (time) => point(worldMatrix(slam, [slam], (layer) => evaluateLayer(layer, time)), slam.width / 2, slam.height / 2);
+  const [early, landed] = [centerAt(0.55), centerAt(1.2)];
+  assert.ok(Math.hypot(early.x - landed.x, early.y - landed.y) < 0.5, `the center moved from ${JSON.stringify(early)} to ${JSON.stringify(landed)}`);
   // Behind a subject: the group goes under the cut-out; its box covers the right half of the word.
   const box = layoutText(word, defaultFonts);
   const half = (700 + box.width / 2) / 1920;

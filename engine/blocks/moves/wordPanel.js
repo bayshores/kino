@@ -1,6 +1,6 @@
 // word-panel: a word set on a made object instead of over the picture as a caption.
 //
-// Bar edits place the hook word as a thing in the shot (subaru-aura bar studies): a road sign in
+// Reference edits place the hook word as a thing in the shot (studied frame by frame): a road sign in
 // a TV set ("TRUST", 16.0 s, a stencil word on a diamond sign turned about -20 degrees), a rotated
 // serif word on a black editorial panel (6.38 s, turned 90 degrees), a poster word behind the
 // subject (19.42 s), "Earth" inside a planet disc (7.30 s). They come on with the cut and leave with
@@ -17,6 +17,7 @@ import { createLayer } from "../../model.js";
 import { layoutText, resizeTextLayer, textUnits } from "../../textLayout.js";
 import { hslToHex, shotHue } from "./backdrop.js";
 import { CURVES, contrast, hide, motion, round, show } from "./kit.js";
+import { cutoutShares } from "../../subjectRoom.js";
 
 const SHAPES = ["box", "sign", "strip"];
 // Starting guesses (not measured): padding in font sizes across and up/down, and the turn range.
@@ -28,14 +29,16 @@ const STEP = 1 / 30;
 
 /**
  * The share of each letter's box the subject's box covers, worst over [from, to]:
- * letters [{text, box: [x, y, w, h]}] in scene px; path [[t, x0, y0, x1, y1]] in shares of `layer`
- * (cutout-operation.mjs subjectPath). Returns [{text, share, at}] (share 0 to 1, at the scene
- * second of the worst sample), or null when there is no path.
+ * letters [{text, box: [x, y, w, h]}] in scene px; the cut-out `layer`'s subjectPath ([[t, x0, y0,
+ * x1, y1]] in shares of its box, cutout-operation.mjs), read at from, at to and at each sample
+ * between (straight between samples), else its subjectBox. Returns [{text, share, at}] (share 0 to
+ * 1, at the scene second of the worst moment, inside [from, to]), or null when it has neither.
  */
-export function letterCover(letters, path, layer, from, to) {
-  if (!Array.isArray(path) || !path.length) return null;
-  const inside = path.filter(([t]) => t >= from - 1e-6 && t <= to + 1e-6);
-  const samples = inside.length ? inside : [path.reduce((best, sample) => (Math.abs(sample[0] - from) < Math.abs(best[0] - from) ? sample : best), path[0])];
+export function letterCover(letters, layer, from, to) {
+  const path = Array.isArray(layer.subjectPath) ? layer.subjectPath : [];
+  const times = [from, ...path.map(([t]) => t).filter((t) => t > from && t < to), to];
+  const samples = times.map((t) => [t, ...(cutoutShares(layer, t) ?? [])]).filter((sample) => sample.length === 5);
+  if (!samples.length) return null;
   return letters.map(({ text, box: [x, y, w, h] }) => {
     let worst = { share: 0, at: samples[0][0] };
     for (const [t, x0, y0, x1, y1] of samples) {
@@ -150,16 +153,16 @@ export const wordPanel = {
     const tags = ["type-cut"];
     if (ctx.reduced) ctx.animate(group, "in", motion({ name: "Fade in", kind: "in", start: t, duration: Math.min(0.2, (end - t) / 3), easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
     else if (input.enter === "slam") {
-      const grown = { x: groupBox.x - groupBox.width * 0.125, y: groupBox.y - groupBox.height * 0.125 };
+      // A group scales about its own center (render.js pivot), so the box stays put while it lands.
       ctx.animate(group, "in", motion({ name: "Slam", kind: "in", start: t, duration: Math.min(0.18, (end - t) / 2), easing: CURVES.arrive,
-        from: { opacity: 0, x: round(grown.x, 1), y: round(grown.y, 1), scaleX: 1.25, scaleY: 1.25 }, to: { opacity: 1, x: groupBox.x, y: groupBox.y, scaleX: 1, scaleY: 1 } }));
+        from: { opacity: 0, scaleX: 1.25, scaleY: 1.25 }, to: { opacity: 1, scaleX: 1, scaleY: 1 } }));
       tags.splice(0, 1, "type-pop");
     } else ctx.animate(group, "in", motion({ name: "Cut on", kind: "in", start: t, duration: 0.001, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
     ctx.animate(group, "hide", hide(end));
 
     if (subject) {
       tags.push("type-behind");
-      const covered = letterCover(letterBoxes(look, ctx.fonts, turn, [groupBox.x + groupBox.width / 2, groupBox.y + groupBox.height / 2]), subject.subjectPath, subject, t, end);
+      const covered = letterCover(letterBoxes(look, ctx.fonts, turn, [groupBox.x + groupBox.width / 2, groupBox.y + groupBox.height / 2]), subject, t, end);
       if (covered) {
         ctx.note(`covered by ${subject.id}'s box (worst moment per letter): ${covered.map((letter) => `${letter.text} ${Math.round(letter.share * 100)}%`).join(", ")}`);
         const hidden = covered.filter((letter) => letter.share > COVERED);
