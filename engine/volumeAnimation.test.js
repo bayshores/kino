@@ -6,6 +6,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applyOperations } from "./operations.js";
 import { animatesVolume, evaluateLayer, volumeAt } from "./animation.js";
 import { isAnimationCompatible } from "./animationCompatibility.js";
+import { peakTrims } from "./peakTrim.js";
 
 const fade = (from, to, extra = {}) => ({ kind: "custom", start: 1, duration: 1, easing: "linear", from: { volume: from }, to: { volume: to }, ...extra });
 
@@ -82,4 +83,26 @@ test("layers without sound refuse a Volume animation, and a volume outside 0 to 
   assert.throws(() => addVolume(document, "music", fade(-0.1, 1)), /from\.volume: must be a finite number from 0 to 4/);
   assert.equal(isAnimationCompatible({ type: "rectangle" }, fade(0, 1)), false);
   assert.equal(isAnimationCompatible({ type: "video" }, fade(0, 1)), true);
+});
+
+test("a limiter place turns the layers playing there down by its factor: a long clip over the span only, a short hit whole", () => {
+  // The voice fades in across the place: a fixed level would flatten it, so it is left alone.
+  const document = addVolume(documentWith(
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 0.8, mediaSourceDuration: 4 }),
+    createLayer("audio", { id: "hit", name: "hit", src: "/api/media/b.wav", volume: 1, mediaStart: 2, mediaSourceDuration: 0.2 }),
+    createLayer("audio", { id: "voice", name: "voice", src: "/api/media/c.wav", volume: 1, mediaSourceDuration: 4 })),
+  "voice", { kind: "custom", start: 1.9, duration: 0.5, easing: "linear", from: { volume: 0 }, to: { volume: 1 } });
+  const scene = document.scenes[0];
+  const playing = ["song", "hit", "voice"].map((layerId) => ({ layerId, name: layerId }));
+  const trim = peakTrims(scene, [{ at: 2, from: 2, to: 2.2, overDb: 4.6, factor: 0.58, playing }]);
+  const after = applyOperations(document, trim.ops.map(({ op, ...rest }) => ({ type: op, ...rest })));
+  const [song, hit, voice] = after.scenes[0].layers;
+  assert.equal(hit.volume, 0.58);
+  assert.equal(volumeAt(song, 1.9), 0.8, "before the ramp");
+  assert.equal(volumeAt(song, 2.1), 0.464, "inside the span: 0.8 x 0.58");
+  assert.equal(volumeAt(song, 3), 0.8, "after the ramp up");
+  assert.deepEqual(song.animations.map((animation) => [animation.name, animation.start, animation.duration]), [["Peak down", 1.95, 0.05], ["Peak up", 2.2, 0.05]]);
+  assert.equal(voice.animations.length, 1);
+  assert.match(trim.dropped[0], /^mix 2 s voice: its volume moves there/);
+  assert.deepEqual(trim.fixed, ["mix 2 s (2-2.2 s, 4.6 dB over) x0.58: song 0.8->0.464, hit 0.58"]);
 });
