@@ -7,6 +7,7 @@ import { volumeAt } from "./animation.js";
 import { voiceLines } from "./mixLevels.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
+import { SOUND_LISTED, soundEvents } from "./speech.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
@@ -431,6 +432,40 @@ test("keep_line over measured music levels the line against the music around it,
   const old = run({ levels: {}, beats: {} });
   assert.equal(volumeAt(old.music, 5), 0.7);
   assert.equal(old.clip.voiceLevel, undefined);
+});
+
+test("keep_line {sound} keeps the loudest matching scene sound at its own level, with no subtitle, and the music makes room only when masked", () => {
+  // Six 1 s windows, half overlapped: music in all, a laugh at -30 dB and a louder one at -18/-17 dB.
+  const windows = [0, 0.5, 1, 1.5, 2, 2.5].map((t) => ({ t, d: 1, db: t === 0 ? -30 : t >= 2 ? (t === 2 ? -18 : -17) : -35,
+    top: [["music", 0.6], ...(t === 0 || t >= 2 ? [["laughter", 0.8]] : [])] }));
+  const { events, bed } = soundEvents(windows);
+  assert.deepEqual(bed, ["music"]);
+  assert.deepEqual(events.filter((event) => event.label === "laughter").map((event) => [event.start, event.end, event.db]), [[0, 1, -30], [2, 3.5, -17]]);
+  assert.equal(clipSoundText({ lufs: -20, sounds: { events, bed } }), "-20.0 LUFS · no voice heard · sounds laughter 2.0-3.5 s (-17 dB), laughter 0.0-1.0 s (-30 dB) · bed music");
+  const flat = (lufs, seconds) => ({ step: 0.1, momentary: new Array(seconds * 10).fill(lufs) });
+  const clip = createLayer("audio", { id: "clip", name: "laugh", src: "/api/media/clip.wav", mediaSourceDuration: 12 });
+  const document = documentWith([clip, musicLayer()], 12);
+  const run = (extra) => {
+    const reports = new Map();
+    const operation = { type: "keep_line", sceneId: "s", layerId: "clip", sound: "laugh", events: soundEvents(windows, { sure: SOUND_LISTED }).events, ...extra };
+    const scene = parseDocument(applyOperations(document, [operation], { reports, fonts: defaultFonts })).scenes[0];
+    return { report: reports.get(operation), scene, clip: scene.layers.find((layer) => layer.id === "clip"), music: scene.layers.find((layer) => layer.id === "music") };
+  };
+  // A quiet laugh (-24 LUFS) under a -13 LUFS song: it keeps its level, the music drops 17 dB to sit 6 LU under it.
+  const masked = run({ levels: { clip: flat(-24, 12), music: flat(-13, 30) } });
+  assert.deepEqual([masked.report.scene, masked.report.sound.label, masked.report.subtitle], [[2, 3.5], "laughter", "none"]);
+  assert.equal(masked.scene.layers.some((layer) => layer.role === "caption"), false);
+  assert.equal(masked.clip.voiceLevel, undefined, "a sound is never leveled to the line target");
+  assert.deepEqual([volumeAt(masked.clip, 3), volumeAt(masked.clip, 0.5)], [1, 0]);
+  assert.equal(Math.round(volumeAt(masked.music, 3) * 1000) / 1000, 0.141);
+  assert.deepEqual([masked.report.mix.sound, masked.report.mix.music], [-24, -13]);
+  assert.match(masked.report.notes.join(" | "), /also heard laughter 0-1 s/);
+  // A loud sound over a quiet bed is not masked: the music stays.
+  const clear = run({ levels: { clip: flat(-10, 12), music: flat(-30, 30) } });
+  assert.deepEqual([volumeAt(clear.music, 3), clear.report.duck], [1, "none"]);
+  assert.throws(() => run({ sound: "gasp" }), /no "gasp" heard where laugh plays\. Heard there: music 0-3\.5 s, laughter 2-3\.5 s/);
+  assert.throws(() => run({ events: undefined, eventsWhy: "no helper" }), /laugh's sounds are not measured here \(no helper\); give from and to/);
+  assert.throws(() => run({ from: 1, to: 2 }), /give one of sound/);
 });
 
 test("clipLines keeps the lines a clip says, shortest first, and drops sound tags, unsure guesses and one-word noises", () => {

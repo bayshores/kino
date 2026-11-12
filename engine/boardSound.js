@@ -17,10 +17,10 @@ import { DUCK_NAMES } from "./audioDucking.js";
 export const KEEP_ALL = "all";
 const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
 
-/** The shot's kept stretch: "all", [from, to] (file seconds) or null when it keeps none. */
+/** The shot's kept stretch: "all", [from, to] (file seconds), a sound's name, or null when it keeps none. */
 export function shotKeep(shot) {
   const keep = isRecord(shot?.sound) ? shot.sound.keep : undefined;
-  return keep === KEEP_ALL || (Array.isArray(keep) && keep.length === 2) ? keep : null;
+  return typeof keep === "string" && keep || (Array.isArray(keep) && keep.length === 2) ? keep : null;
 }
 
 /** The file seconds a shot plays: [in, in + dur × speed], or null without a video in-point. */
@@ -37,7 +37,8 @@ export function keptSceneSpan(shot) {
   const keep = shotKeep(shot);
   if (!keep) return null;
   const end = shot.cue + shot.dur;
-  if (keep === KEEP_ALL) return [round(shot.cue, 3), round(end, 3)];
+  // A named sound (keep_line {sound}) is found inside the shot when the board is built; the shot bounds it.
+  if (typeof keep === "string") return [round(shot.cue, 3), round(end, 3)];
   const speed = shot.speed ?? 1;
   const at = (file) => shot.cue + (file - (isNumber(shot.in) ? shot.in : 0)) / speed;
   const from = Math.max(shot.cue, at(keep[0]));
@@ -109,7 +110,9 @@ export function boardKeepOps(before, after) {
     const layer = layerOfShot(scene, shot);
     if (!layer || hasLineMarks(layer)) continue;
     if (had.has(layer.id) && sameSound(oldSound.get(shot.id), shot.sound)) continue;
-    ops.push({ n: index + 1, shot, operation: { type: "keep_line", sceneId: scene.id, layerId: layer.id, from: span[0], to: span[1], subtitle: false, ...(dip.duckId === layer.id ? {} : dip) } });
+    const keep = shotKeep(shot);
+    const what = typeof keep === "string" && keep !== KEEP_ALL ? { sound: keep } : { from: span[0], to: span[1] };
+    ops.push({ n: index + 1, shot, operation: { type: "keep_line", sceneId: scene.id, layerId: layer.id, ...what, subtitle: false, ...(dip.duckId === layer.id ? {} : dip) } });
   }
   return ops;
 }

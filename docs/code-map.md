@@ -89,6 +89,7 @@ Which file does what, for a first code change.
 | `backend/lottie-media-frames.mjs`    | Real video/GIF frame decoding for Lottie |
 | `engine/playback.js` and `engine/mediaPlay.js` | Media Play timing, Freeze, GIF frame clock and sync |
 | `backend/media-probe.mjs` and `backend/gif-frame-cache.mjs` | Media measurement, GIF frame timelines, and decoded frame cache |
+| `backend/footage/sounds.mjs` | A clip's sounds besides words (the macOS sound classifier, kino-measure `--sounds`), kept beside the file as `.sounds-v1` |
 | `backend/shot-detection.mjs` | The shots in an imported video: one FFmpeg `scdet` run, flashes and too-short shots merged away, the check that FFmpeg has `scdet` and `signalstats`, shots found later for older imports, and the `shots:` line of the import answer |
 | `backend/fonts.mjs`                  | Bundled and permitted uploaded font catalogs |
 | `backend/mcp.mjs`                   | MCP tools that call the same real HTTP API           |

@@ -12,6 +12,7 @@ import test from "node:test";
 import { createCanvas } from "@napi-rs/canvas";
 import { ffmpeg, skipWithoutMediaTools } from "./media.test.support.mjs";
 import { measureAbilities, measureVideo } from "./measure/measure.mjs";
+import { soundHelper } from "./footage/sounds.mjs";
 
 const skipWithoutVision = skipWithoutMediaTools
   || (process.platform !== "darwin" && "Apple Vision measure test skipped: it needs macOS")
@@ -81,6 +82,20 @@ test("Apple Vision measures the pan, the still card, the words appearing one at 
   assert.equal(fp.text.lowercase, 1);
   assert.ok(fp.text.counts.words >= 1, JSON.stringify(fp.text.counts));
   assert.equal(prints.length, 2, "one feature print a shot");
+});
+
+test("the helper's --sounds mode classifies 1 s windows, half overlapped, each with its labels and level", { skip: skipWithoutVision }, async () => {
+  const { helper, why } = await soundHelper();
+  assert.ok(helper, why);
+  // 3 s of a 440 Hz tone at half scale, written here (no FFmpeg): windows at 0, 0.5, ... 2 s.
+  const samples = new Float32Array(16000 * 3).map((_, index) => 0.5 * Math.sin((2 * Math.PI * 440 * index) / 16000));
+  const run = spawnSync(helper, ["--sounds", "--rate", "16000"], { input: Buffer.from(samples.buffer), encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  const windows = run.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(windows.length >= 4, `${windows.length} windows`);
+  for (const window of windows) assert.ok(Number.isFinite(window.t) && Array.isArray(window.top) && Number.isFinite(window.db), JSON.stringify(window));
+  // A sine at half scale is about -9 dBFS RMS.
+  assert.ok(Math.abs(windows[0].db + 9) < 1, `db ${windows[0].db}`);
 });
 
 test("without Apple Vision the fingerprint keeps kino's own numbers and names what it could not measure", { skip: skipWithoutMediaTools }, async () => {

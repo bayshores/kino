@@ -5,6 +5,9 @@
 //
 // Usage: kino-measure --width <w> --height <h>
 //        kino-measure --abilities   (prints which requests this Mac has, as one JSON line)
+//        kino-measure --sounds --rate 16000   (mono f32le PCM on standard input; one JSON line per
+//                     1 s window, half overlapped: {"t","d","top":[[label, confidence]],"db"} from
+//                     Apple's built-in sound classifier, labels at 0.1 or more, at most 5)
 //        kino-measure --version
 //
 // Standard input gets the pictures one after another. Each picture is one byte of jobs, then
@@ -31,11 +34,13 @@
 // Bad arguments or a broken input end the helper with a message on standard error.
 //
 // Apple asks for one optical flow request at a time, so every request here runs in turn.
+import AVFoundation
 import CoreVideo
 import Foundation
+import SoundAnalysis
 import Vision
 
-let version = "3"
+let version = "4"
 let gridColumns = 16
 let gridRows = 9
 
@@ -59,8 +64,75 @@ if arguments == ["--abilities"] {
     if #available(macOS 11.0, *) { flow = true }
     var people = false
     if #available(macOS 12.0, *) { people = true }
-    print("{\"version\":\"\(version)\",\"macOS\":\"\(osVersion())\",\"flow\":\(flow),\"text\":true,\"print\":true,\"saliency\":true,\"faces\":true,\"people\":\(people)}")
+    // Apple's sound classifier (SoundAnalysis, macOS 12+) for --sounds.
+    print("{\"version\":\"\(version)\",\"macOS\":\"\(osVersion())\",\"flow\":\(flow),\"text\":true,\"print\":true,\"saliency\":true,\"faces\":true,\"people\":\(people),\"sounds\":\(people)}")
     exit(0)
+}
+
+/// --sounds: what Apple's built-in sound classifier hears, one JSON line a window.
+@available(macOS 12.0, *)
+final class SoundWindows: NSObject, SNResultsObserving {
+    let samples: [Float], rate: Double
+    var lines: [(Double, [String: Any])] = []
+    var failure: String?
+    let done = DispatchSemaphore(value: 0)
+    init(samples: [Float], rate: Double) { self.samples = samples; self.rate = rate }
+    func request(_ request: SNRequest, didProduce result: SNResult) {
+        guard let result = result as? SNClassificationResult else { return }
+        let t = result.timeRange.start.seconds, d = result.timeRange.duration.seconds
+        let top = result.classifications.filter { $0.confidence >= 0.1 }.sorted { $0.confidence > $1.confidence }.prefix(5)
+            .map { [$0.identifier, r3(Double($0.confidence))] as [Any] }
+        // The window's RMS level in dBFS, from the same samples the classifier heard.
+        let from = max(0, min(samples.count, Int(t * rate))), to = max(from, min(samples.count, Int((t + d) * rate)))
+        var sum = 0.0
+        for k in from..<to { sum += Double(samples[k]) * Double(samples[k]) }
+        let rms = to > from ? (sum / Double(to - from)).squareRoot() : 0
+        let db = rms > 0 ? max(-120, 20 * log10(rms)) : -120
+        lines.append((t, ["t": r3(t), "d": r3(d), "top": top, "db": (db * 10).rounded() / 10]))
+    }
+    func request(_ request: SNRequest, didFailWithError error: Error) { failure = error.localizedDescription; done.signal() }
+    func requestDidComplete(_ request: SNRequest) { done.signal() }
+}
+
+@available(macOS 12.0, *)
+func runSounds(rate: Double) -> Never {
+    // Mono 32-bit float PCM on standard input until it ends (kino decodes it with FFmpeg).
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    let samples: [Float] = input.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+    guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false) else { fail("could not make an audio format") }
+    let analyzer = SNAudioStreamAnalyzer(format: format)
+    let observer = SoundWindows(samples: samples, rate: rate)
+    do {
+        let request = try SNClassifySoundRequest(classifierIdentifier: .version1)
+        request.windowDuration = CMTime(seconds: 1.0, preferredTimescale: 16000)
+        request.overlapFactor = 0.5
+        try analyzer.add(request, withObserver: observer)
+    } catch { fail("the sound classifier could not start: \(error.localizedDescription)") }
+    let chunk = Int(rate)
+    var at = 0
+    while at < samples.count {
+        let count = min(chunk, samples.count - at)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)) else { fail("could not make an audio buffer") }
+        buffer.frameLength = AVAudioFrameCount(count)
+        samples.withUnsafeBufferPointer { source in buffer.floatChannelData![0].update(from: source.baseAddress! + at, count: count) }
+        analyzer.analyze(buffer, atAudioFramePosition: AVAudioFramePosition(at))
+        at += count
+    }
+    analyzer.completeAnalysis()
+    _ = observer.done.wait(timeout: .now() + 30)
+    if let failure = observer.failure { fail("the sound classifier stopped: \(failure)") }
+    for (_, line) in observer.lines.sorted(by: { $0.0 < $1.0 }) {
+        guard let data = try? JSONSerialization.data(withJSONObject: line, options: []) else { continue }
+        FileHandle.standardOutput.write(data)
+        FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+    exit(0)
+}
+
+if arguments.first == "--sounds" {
+    let rate = Double(arguments.count > 2 && arguments[1] == "--rate" ? arguments[2] : "16000") ?? 16000
+    if #available(macOS 12.0, *) { runSounds(rate: rate) }
+    fail("the sound classifier needs macOS 12 or later", code: 3)
 }
 
 func option(_ name: String) -> String? {

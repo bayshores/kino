@@ -70,6 +70,7 @@ import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
+import { createSoundsCache } from "../footage/sounds.mjs";
 import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { madeNamesIn } from "../../engine/deck.js";
 import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
@@ -156,6 +157,7 @@ import { createTranscriptCache, TRANSCRIPT_VERSION } from "../speech/transcribe.
 import { projectNames, speechNamesFor } from "../speech/name-hint.mjs";
 import { createSyncEnvelopeCache } from "../clip-sync.mjs";
 import { currentLag, matchEnvelopes, SYNC_FALLBACK, syncLayers } from "../../engine/clipSync.js";
+import { soundEvents, SOUND_LISTED } from "../../engine/speech.js";
 import { checkSpeechLayer, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, speechPieces, speechText, speechWords } from "../../engine/speech.js";
 import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
@@ -592,6 +594,15 @@ export function createAgentService(deps) {
   const footageCache = deps.footageCache ?? createFootageCache();
   // The people in each clip (head_cut_off, overlay_covers_subject), in a .people-v1 file beside it.
   const peopleCache = deps.peopleCache ?? createPeopleCache();
+  // A clip's sounds besides words (a laugh, steps, a door), in a .sounds-v1 file beside it.
+  const soundsCache = deps.soundsCache ?? createSoundsCache();
+  // {events, bed} (engine/speech.js soundEvents) for a clip, or {why} when it cannot be classified.
+  async function clipSounds(file, options) {
+    try {
+      const found = await soundsCache.get(file);
+      return found.unavailable ? { why: found.unavailable } : soundEvents(found.windows, options);
+    } catch (error) { return { why: error?.message ?? "the sounds could not be measured" }; }
+  }
   // A file's saved .subjects-v1 when saliency ran on it. A header that says saliency did not run
   // (saliency is not true) is not measured: an empty subjects list there is not "nothing stands
   // out", so its readers fall back to the faces in people-v1 and mark nothing as salient.
@@ -1912,6 +1923,14 @@ export function createAgentService(deps) {
       for (const item of sound.filter((entry) => entry.type === "audio")) {
         try { operation.beats[item.id] = JSON.parse(await readFile(`${mediaFileOf(item)}.beats`, "utf8")); } catch { /* no beats: the old release */ }
       }
+      // keep_line {sound}: the clip's classified sounds in file seconds, every label listed (SOUND_LISTED).
+      delete operation.events;
+      delete operation.eventsWhy;
+      if (operation.sound !== undefined && owner?.src) {
+        const found = await clipSounds(mediaFileOf(owner), { sure: SOUND_LISTED });
+        if (found.events) operation.events = found.events;
+        else operation.eventsWhy = found.why;
+      }
     }
     const layer = layers.find((item) => item.id === layerId);
     // place_broll starts each clip on one of its file's shots (backend/shot-detection.mjs).
@@ -1926,7 +1945,7 @@ export function createAgentService(deps) {
     // keep_line {from, to} needs the words only for its subtitle: not when it has its own text (or none),
     // and a clip whisper cannot read (speech in another language) still keeps its stretch.
     const wordsOptional = operation.type === "keep_line" && operation.line === undefined;
-    if (layer?.src && (layer.type === "audio" || layer.type === "video") && !(wordsOptional && (operation.text !== undefined || operation.subtitle === false))) {
+    if (layer?.src && (layer.type === "audio" || layer.type === "video") && !(wordsOptional && (operation.text !== undefined || operation.subtitle === false || operation.sound !== undefined))) {
       const file = mediaFileOf(layer);
       // keep_line finds the line in the transcript the agent was shown (linesToName, look source),
       // also one heard before the brief's names changed, instead of hearing the clip again.
@@ -1982,7 +2001,9 @@ export function createAgentService(deps) {
     for (const { n, operation } of planned) {
       try {
         next = await runWithTranscript(next, operation, work);
-        kept.push({ layerId: operation.layerId, from: operation.from, to: operation.to });
+        // A named sound's stretch is the one keep_line found (its receipt's scene seconds).
+        const [from, to] = operation.sound !== undefined ? work.reports?.get(operation)?.scene ?? [] : [operation.from, operation.to];
+        if (Number.isFinite(from)) kept.push({ layerId: operation.layerId, from, to });
         const duck = work.reports?.get(operation)?.duck;
         // A line too quiet to reach the music gets the music out (0) from keep_line; one shared dip
         // then follows the last line that reaches the music, so those lines keep their measured dip.
@@ -5137,7 +5158,8 @@ export function createAgentService(deps) {
       const lufs = await clipLufs(file);
       if (lufs === null) return null;
       const saved = await transcripts.saved?.(file, document, { src }, { any: true });
-      return { lufs, voice: saved ? readClipSound(saved).voice : [] };
+      const sounds = await clipSounds(file);
+      return { lufs, voice: saved ? readClipSound(saved).voice : [], sounds };
     } catch { return null; }
   }
 
@@ -7480,6 +7502,8 @@ export function createAgentService(deps) {
         if (/install/i.test(String(error?.message))) missing = "no speech model";
       }
     }
+    // Sounds besides words for every clip with sound, short ones too (backend/footage/sounds.mjs).
+    for (const item of media) if (byId[item.id]) byId[item.id].sounds = await clipSounds(path.join(deps.mediaRoot, item.id));
     return Object.keys(byId).length || missing ? { byId, missing } : null;
   }
 

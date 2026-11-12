@@ -20,6 +20,7 @@ import { readTime } from "./scan.mjs";
 import { scanCall } from "./step.mjs";
 import { SAYS_MIN_SECONDS, saysOf, saysText } from "./words.mjs";
 import { clipSoundText } from "../../engine/speech.js";
+import { clipSoundsText } from "../../engine/speech.js";
 
 /** Seconds kept before and after each shot in its download. */
 export const TAKE_PAD_SECONDS = 0.5;
@@ -332,7 +333,7 @@ function markLine(clip, frame = null) {
 export function takeText(candidate, { media, failed, captions = null, heard = null, frame = null, reused = 0 }) {
   const total = media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
   const lines = [`Imported ${media.length} clip${media.length === 1 ? "" : "s"} of ${candidate.code} "${short(oneLine(candidate.title) || candidate.id, 60)}" (${round2(total)} s in all, H.264) for this video${reused ? `; ${reused === media.length ? "all" : reused} ${REUSED_LINE}, nothing downloaded` : ""}:`];
-  let heardAny = false;
+  let heardAny = false, soundAny = false;
   for (const item of media) {
     const label = item.footage?.shot === null || item.footage?.shot === undefined ? `${candidate.code} ${stamp(item.footage?.start)}` : `${candidate.code}.${item.footage.shot}`;
     // What the clip says, when the video's captions are known and the clip is long enough (words.mjs).
@@ -344,11 +345,15 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
     const sound = Array.isArray(read) ? { lines: read } : read ?? null;
     const aloud = captioned ? "" : sound?.lines?.length || sound?.voice?.length ? clipSoundText(sound) : "";
     if (aloud) heardAny = true;
+    // Sounds besides words (service.mjs hearClips, engine/speech.js soundEvents); clipSoundText
+    // already lists them when the clip says something.
+    const noises = !aloud && !captioned && sound?.sounds?.events ? clipSoundsText(sound.sounds) : "";
+    if (sound?.sounds?.events?.some((event) => !sound.sounds.bed?.includes(event.label))) soundAny = true;
     const level = Number.isFinite(sound?.lufs) ? `${sound.lufs.toFixed(1)} LUFS · ` : "";
     // One line a clip: its layer-ready file (add_layer src) and what it says. A clip that says nothing
     // says why, so the agent never needs a second call to learn it (found-shared; a/result.md 2).
     const quiet = duration < SAYS_MIN_SECONDS ? `no line (under ${SAYS_MIN_SECONDS} s)` : item.hasAudio === false ? "no sound" : !heard?.missing && (captions?.lines || heard) ? "no voice heard" : "speech not read";
-    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned ? `${level}${captioned}` : aloud || `${level}${quiet}`}`);
+    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned ? `${level}${captioned}` : aloud || `${level}${quiet}`}${noises ? ` · ${noises}` : ""}`);
   }
   if (failed.length) lines.push(`Not imported: ${failed.slice(0, 5).map((each) => `${each.label ?? each.n} (${each.why})`).join("; ")}.`);
   const [first] = media;
@@ -359,6 +364,7 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
   if (burned) lines.push(burned);
   if (heardAny) lines.push(`heard: lines whisper read from each clip's own sound; "voice heard ..., words not read" is voice it could not read (another language, a laugh), file seconds. Keep one: edit {ops:[{op:"keep_line", layer, line, duck:"<song layer>"}]}, or by time: keep_line {layer, from, to} (scene seconds).`);
   else if (heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
+  if (soundAny) lines.push(`sounds: what the macOS sound classifier heard besides words (file seconds, loudest first). Keep one with no subtitle: edit {ops:[{op:"keep_line", layer, sound:"<label>"}]}.`);
   const credit = media[0]?.credit ?? takeCredit(candidate);
   lines.push(`credit kept with each file: ${credit.line}`);
   return lines.join("\n");
