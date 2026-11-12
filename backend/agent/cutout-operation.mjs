@@ -126,7 +126,7 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
   const notes = made.note ? [made.note] : [];
   if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; their outline holds the shape before it`);
   if (empty > 0) notes.push(`${empty} sampled frame(s) had no subject and were skipped`);
-  if (layer.animations?.length) notes.push(`"${layer.name}" has animations that move or scale it; the outline layer does not copy them, so add the same ones to it`);
+  if (layer.animations?.some((animation) => animation.kind !== "effect")) notes.push(`"${layer.name}" has animations that move or scale it; the outline layer does not copy them, so add the same ones to it`);
   reports?.set(operation, { engine: made.engine, output: "outline", frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
     cached: made.cached, outline: { shapes: shapes.length, step: outline.step, points: Math.max(...outline.frames.map((frame) => frame.points?.length ?? 0)) },
     ...(notes.length ? { note: notes.join("; ") } : {}) });
