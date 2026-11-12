@@ -2371,7 +2371,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     // A shot whose span of its file runs across the file's own cut shows frames of another shot:
     // under a quarter second at either end the span is slid off the cut; longer is stated.
-    const cutNotes = problems.length ? [] : moveOffFileCuts(shots, media);
+    const cutNotes = problems.length ? [] : moveOffFileCuts(shots, media, document.board?.shots);
     const board = { music, calls: lists.calls, open: lists.open, shots: shots.map(({ id, ...shot }) => ({ id, ...shot })) };
     const span = problems.length ? null : boardSpan(document, board);
     const gap = span ? boardCoverage(board, span) : null;
@@ -2391,7 +2391,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // Only a real change raises the board's rev: the board as parseDocument keeps it, compared.
     const old = document.board;
     const kept = normalizeBoard({ board: { rev: (old?.rev ?? 0) + 1, ...board } }).board;
-    if (old && JSON.stringify({ ...old, rev: kept.rev }) === JSON.stringify(kept)) { work.notes.push(`board r${old.rev}: no change`); return; }
+    if (old && JSON.stringify({ ...old, rev: kept.rev }) === JSON.stringify(kept)) { work.notes.push(`board r${old.rev}: no change`, ...cutNotes); return; }
     document.board = kept;
     const last = board.shots.at(-1);
     work.notes.push(`board r${document.board.rev}: ${board.shots.length} shot${board.shots.length === 1 ? "" : "s"}, ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s, ${span.music ? `music ${span.music}` : "no music"} · look {mode:"board"} shows it`);
@@ -2401,14 +2401,19 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // The shots (mutated) moved off a file cut they cross by under NEAR_CUT, and the receipt lines:
   // what moved, and every crossing left as given with the cut's file second, its scene second and
   // the trim that would end the span before it (engine/spanCuts.js). Saved cuts only.
-  function moveOffFileCuts(shots, media) {
+  // A shot sent as the saved board has it (same id, file, in, length and speed) is left as saved:
+  // its in-point may be what the person approved, so a slide is only stated.
+  function moveOffFileCuts(shots, media, savedShots = []) {
     const moved = [], stated = [];
-    const left = { "more than one cut": "it crosses more than one cut", sound: "it keeps a range of the clip's own sound, in file seconds", file: "the slide would leave the file", cut: "the slid span would cross another cut" };
+    const left = { "more than one cut": "it crosses more than one cut", sound: "it keeps a range of the clip's own sound, in file seconds", file: "the slide would leave the file", cut: "the slid span would cross another cut", saved: "the saved board has this shot as sent" };
+    const saved = new Map(savedShots.map((shot) => [shot.id, shot]));
+    const asSaved = (shot) => ["media", "in", "dur", "speed"].every((key) => saved.get(shot.id)?.[key] === shot[key]);
     shots.forEach((shot, index) => {
       if (typeof shot?.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return;
       const file = media(shot.media, ["video"]);
       if (!file.shots) return;
-      const result = slideOffCut(shot, file.shots, { fileDuration: file.duration });
+      let result = slideOffCut(shot, file.shots, { fileDuration: file.duration });
+      if (result.shot && saved.has(shot.id) && asSaved(shot)) result = { shot: null, cuts: [result.was], why: "saved" };
       const n = index + 1;
       if (result.shot) {
         shots[index] = result.shot;

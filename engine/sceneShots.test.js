@@ -87,6 +87,9 @@ test("a layer's span across a file cut: the file second, the scene second and th
   assert.match(spanCutLine("clip", [cut]), /clip plays across a cut of its file.*file 5 s lands at 4 s of the scene \(3 s of the shot before it, 0\.07 s of the next\): out 4\.99 s ends before it \(mediaDuration 2\.99\)/);
   // A span that stops at the cut crosses nothing.
   assert.deepEqual(layerSpanCuts(video({ mediaOffset: 2, mediaDuration: 3, mediaSourceDuration: 10 }), oneCut, 6), []);
+  // A layer that starts before the scene does (mediaStart -1): mediaDuration counts from its own start.
+  const [early] = layerSpanCuts(video({ mediaStart: -1, mediaOffset: 1, mediaDuration: 5.6, mediaSourceDuration: 10 }), oneCut, 6);
+  assert.deepEqual([early.at, early.fields], [3, { mediaDuration: 3.99 }]);
 });
 
 test("a slowed span lands its file cut later on the scene, and a reversed one from the other end", () => {
@@ -95,6 +98,8 @@ test("a slowed span lands its file cut later on the scene, and a reversed one fr
   const [cut] = layerSpanCuts(slow, threeShots, 6);
   assert.deepEqual([cut.file, cut.at, cut.early, cut.late, cut.side], [5, 1.212, 1.212, 1.188, "end"]);
   assert.equal(cut.trim.out, 4.99);
+  // Both sides are over a quarter second, so either may be the planned shot: the line gives both trims.
+  assert.match(spanCutLine("slow", [cut]), /out 4\.99 s ends before it \(mediaDuration 1\.182\), or in 5\.01 s begins after it \(mediaOffset 5\.01, mediaStart 1\.242, mediaDuration 1\.158\)$/);
   // Played backwards over file 4–6 s: file 5 s is half way, and the scene second counts from the end of the stretch.
   const back = video({ mediaReverse: true, mediaOffset: 4.5, mediaDuration: 1, mediaSourceDuration: 10 });
   const [reversed] = layerSpanCuts(back, threeShots, 6);

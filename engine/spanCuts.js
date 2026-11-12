@@ -3,7 +3,7 @@
 // director did not plan. The file's cuts are in file seconds (backend/shot-detection.mjs: each
 // shot {start, end}); a span maps them onto the scene through the clip's offset, speed and
 // reverse, as beats are (beatCues.js sceneTimes), so a cut in a slowed stretch lands later.
-import { mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "./playback.js";
+import { effectiveMediaDuration, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "./playback.js";
 import { isReversed } from "./mediaTime.js";
 import { speedAnimations } from "./animation.js";
 import { round } from "./numbers.js";
@@ -36,8 +36,12 @@ export function spanCuts(span, fileShots) {
     const before = at - span.start, after = span.end - at;
     const early = span.reversed ? after : before, late = span.reversed ? before : after;
     const side = early <= late ? "start" : "end";
-    found.push({ file: round(file), at: round(at), early: round(early), late: round(late), side, leak: round(Math.min(early, late)),
-      trim: side === "start" ? { in: round(file + TRIM_MARGIN) } : { out: round(file - TRIM_MARGIN) } });
+    // Both sides of a long crossing are real footage, so either may be the planned shot: `other`
+    // is the trim that keeps the shorter side instead.
+    const keepStart = { out: round(file - TRIM_MARGIN) }, keepEnd = { in: round(file + TRIM_MARGIN) };
+    const leak = round(Math.min(early, late));
+    found.push({ file: round(file), at: round(at), early: round(early), late: round(late), side, leak,
+      trim: side === "start" ? keepEnd : keepStart, ...(leak >= NEAR_CUT ? { other: side === "start" ? keepStart : keepEnd } : {}) });
   }
   return found;
 }
@@ -61,13 +65,15 @@ export function layerSpanCuts(layer, fileShots, sceneDuration) {
   }
   const cuts = spanCuts({ from, to, start: range.start, end: range.end, sceneAt, reversed }, fileShots);
   const plain = !reversed && speedAnimations(layer).length === 0;
-  return cuts.map((cut) => {
-    if (!plain) return cut;
-    const fields = cut.trim.out !== undefined
-      ? { mediaDuration: round(sceneAt(cut.trim.out) - range.start) }
-      : { mediaOffset: cut.trim.in, mediaStart: round(sceneAt(cut.trim.in)), mediaDuration: round(range.end - sceneAt(cut.trim.in)) };
-    return { ...cut, fields };
-  });
+  // The layer's own start and end, which can sit before the scene's start or after its end
+  // (the range is clipped to the scene): mediaDuration counts from mediaStart.
+  const layerStart = layer.mediaStart ?? 0;
+  const played = effectiveMediaDuration(layer);
+  const layerEnd = Number.isFinite(played) ? layerStart + played : range.end;
+  const fieldsFor = (trim) => (trim.out !== undefined
+    ? { mediaDuration: round(sceneAt(trim.out) - layerStart) }
+    : { mediaOffset: trim.in, mediaStart: round(sceneAt(trim.in)), mediaDuration: round(layerEnd - sceneAt(trim.in)) });
+  return cuts.map((cut) => (plain ? { ...cut, fields: fieldsFor(cut.trim), ...(cut.other ? { otherFields: fieldsFor(cut.other) } : {}) } : cut));
 }
 
 /**
@@ -108,14 +114,15 @@ const sec = (value) => round(value, 2);
 
 /**
  * The fact for one span that crosses cuts, one line: the file second of each cut, the scene
- * second it lands on, and the trim that ends the span on the near side of it.
- * `name` is the layer or shot; `apply` ({fields}) names the layer fields that make the trim.
+ * second it lands on, and the trim that ends the span on the near side of it (for a long
+ * crossing, then the trim that keeps the other side). `name` is the layer or shot; a cut's
+ * `fields` and `otherFields` name the layer fields that make each trim.
  */
 export function spanCutLine(name, cuts) {
+  const trimText = (trim, fields) => `${trim.in !== undefined ? `in ${trim.in} s begins after it` : `out ${trim.out} s ends before it`}${fields ? ` (${Object.entries(fields).map(([key, value]) => `${key} ${value}`).join(", ")})` : ""}`;
   const parts = cuts.slice(0, 3).map((cut) => {
-    const trim = cut.trim.in !== undefined ? `in ${cut.trim.in} s begins after it` : `out ${cut.trim.out} s ends before it`;
-    const fields = cut.fields ? ` (${Object.entries(cut.fields).map(([key, value]) => `${key} ${value}`).join(", ")})` : "";
-    return `file ${sec(cut.file)} s lands at ${sec(cut.at)} s of the scene (${sec(cut.early)} s of the shot before it, ${sec(cut.late)} s of the next): ${trim}${fields}`;
+    const other = cut.other ? `, or ${trimText(cut.other, cut.otherFields)}` : "";
+    return `file ${sec(cut.file)} s lands at ${sec(cut.at)} s of the scene (${sec(cut.early)} s of the shot before it, ${sec(cut.late)} s of the next): ${trimText(cut.trim, cut.fields)}${other}`;
   });
   const more = cuts.length > 3 ? `; ${cuts.length - 3} more` : "";
   return `${name} plays across ${cuts.length === 1 ? "a cut" : `${cuts.length} cuts`} of its file, so frames of the other shot show: ${parts.join("; ")}${more}`;

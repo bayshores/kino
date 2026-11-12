@@ -901,4 +901,12 @@ test("a shot or layer whose span of its file runs across the file's own cut: a c
   assert.match(layer.data.notes.join("\n"), /footage plays across a cut of its file.*file 3\.33 s lands at 2\.13 s of the scene \(1\.13 s of the shot before it, 0\.07 s of the next\): out 3\.323 s ends before it \(mediaDuration 1\.123\)/);
   const off = await agent("edit", { project: "board-cut", ops: [{ op: "update_layer", layer: "footage", properties: { mediaDuration: 1.1 } }] });
   assert.doesNotMatch((off.data.notes ?? []).join("\n"), /across a cut/);
+  // A board saved before this default (an old document; maybe the approved one) keeps its in-point
+  // when the same shot is sent again: the crossing is stated, not slid.
+  const { document, revision } = await record("board-cut");
+  const old = { ...document.board, rev: document.board.rev + 1, shots: document.board.shots.map((shot, index) => (index === 0 ? { ...shot, in: 0.1 } : shot)) };
+  assert.equal((await server.api("/api/projects/board-cut", { method: "PUT", body: { document: { ...document, board: old }, revision } })).status, 200);
+  const again = await editBoard("board-cut", [footage(0, 1.2, 0.1, 30), footage(1.2, 1.5, 1.4, 30), footage(2.7, 3.3, 2.7, 30, { speed: 0.33 })]);
+  assert.equal((await record("board-cut")).document.board.shots[0].in, 0.1, again.text);
+  assert.match(again.data.notes.join("\n"), /board shot 1 \(sintel-village-dragon\.mp4\) plays across a cut.*file 1\.25 s lands at 1\.15 s.*out 1\.24 s ends before it \(not moved: the saved board has this shot as sent\)/);
 });
