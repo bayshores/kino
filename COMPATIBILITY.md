@@ -821,6 +821,9 @@ How to read it:
 - **Shots at import**: Verified. One FFmpeg pass finds cuts and flashes; shots are at least 6 frames
   (plan said 15; not yet confirmed); videos over 20 minutes get "shots: not found". Evidence:
   `backend/shot-detection.test.mjs` (clip sources in `tests/fixtures/footage/SOURCES.md`). Not built: dissolves. Not verified: drawn animation.
+- **Drawn holds under a camera drift, dim drawn cuts, slowed-drawn receipt**: Test-verified on generated clips. A drift over held
+  drawings is set aside per shot (holds.drift); a low-score jump into an unlike picture is a cut; a receipt names the interpolation
+  and hold of a slowed drawn clip. Evidence: `backend/shot-detection.test.mjs`, `backend/agent-board.test.mjs`. Gap: tuned on 20 clips of one show.
 - **Footage events**: Verified on a generated clip. Measuring a clip (`.footage-v2`, clips re-measured once) finds
   impacts (contact, impact frames), light and motion with direction at the frame, and frames per drawing; look
   source names them. Evidence: `backend/footage-events.test.mjs`, `backend/look-source.test.mjs`. Gaps: real anime
