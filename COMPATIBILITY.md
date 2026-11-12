@@ -1692,8 +1692,10 @@ How to read it:
 - **Blocks in punch-ins** (`check` soft_upscale, `deblock_upscaled`): Test-verified on a generated low-bitrate clip drawn 2.5x:
   a pixel check prints the file pixels across the frame (102 of 128) and the block step on the source's grid (0.30, 16 px grid);
   one call adds the deblock before the scale and prints the step before and after (0.30 to 0.18); a layer at 1x gets nothing.
-  Evidence: `backend/lift-deblock.test.mjs`. Gap: no real punch-in footage replayed; the deblock leaves part of the step; the
-  radius is set at the largest scale; check measures at most 6 shots a pass.
+  The layer's grain is left off for the measure (with it: ratio 1.01, no blocks found) and the deblock goes first in its effects.
+  Evidence: `backend/lift-deblock.test.mjs`; a hand replay on a saved 1.5x and 1.78x punch-in measured 0.49 and 0.26 (ratio 3.42,
+  2.16), deblocked to 0.40 and 0.14. Gap: the deblock leaves part of the step; the radius is set at the largest scale; check
+  measures at most 6 shots a pass; check's own grain-off render is not run through the server in a test.
 - **Footage added above text goes under it**: Test-verified. Full-frame footage added above overlapping text is placed below the
   text; masks and explicit order ops are left alone. Evidence: `backend/agent-edit-repair.test.mjs`, `backend/agent-moves.test.mjs`.
 - **Cut facts in the render answer**: Test-verified. A draft or final mp4, webm or mov is decoded to 32x18 frames

@@ -15,6 +15,31 @@ import { alone } from "./lift-dark.mjs";
 const isPicture = (item) => item.kind === "video" || item.kind === "image";
 const hundredth = (value) => Math.round(value * 100) / 100;
 
+// The layer drawn alone with its grain left off: a grain (lift_dark's) adds a step at every pixel,
+// so the steps inside the blocks rise to the grid lines' and the blocks under it no longer measure
+// (a 1.5x punch-in: ratio 1.03 with its grain, 3.42 without).
+export function grainless(scene, layerId) {
+  const shown = alone(scene, layerId);
+  return { ...shown, layers: shown.layers.map((layer) => (layer.id === layerId ? { ...layer, animations: (layer.animations ?? []).filter((animation) => !(animation.kind === "effect" && animation.effect === "grain")) } : layer)) };
+}
+
+// Effects run in the order of their start, then the order they were added: the deblock starts with
+// the layer's first other effect (when that is earlier than the stretch) and goes first in the list,
+// so it smooths the source's pixels before a curve lifts them or a grain is laid over them.
+function startOf(layer, from) {
+  const starts = (layer?.animations ?? []).filter((animation) => animation.kind === "effect" && animation.enabled !== false && !String(animation.id).endsWith(UPSCALE_DEBLOCK_SUFFIX)).map((animation) => Number(animation.start)).filter(Number.isFinite);
+  return Math.min(from, ...starts);
+}
+
+function deblockFirst(document, sceneId, ids) {
+  const scene = document.scenes.find((entry) => entry.id === sceneId);
+  for (const layer of scene?.layers ?? []) {
+    const first = (layer.animations ?? []).filter((animation) => ids.has(animation.id));
+    if (first.length) layer.animations = [...first, ...layer.animations.filter((animation) => !ids.has(animation.id))];
+  }
+  return document;
+}
+
 /**
  * Runs the deblock on `document`: {document, lines, shots}. `layerIds` names the layers (empty: every
  * picture drawn over `ratio` times its file), `render(scene, times, {width})` renders an expanded
@@ -43,18 +68,21 @@ export async function deblockUpscaled(document, { sceneId = null, layerIds = [],
       }
       continue;
     }
-    // The layer drawn alone at full size: text and other pictures on top add steps of their own.
-    const found = upscaleBlocks((await render(alone(drawn, layerId), shot.times, { width: model.width })) ?? [], shot);
-    shots.push({ ...shot, layerId, ...(found ?? { blocks: null, deblock: null }) });
+    // The layer drawn alone at full size, its grain left off: text and other pictures on top, and a
+    // grain, add steps of their own.
+    const found = upscaleBlocks((await render(grainless(drawn, layerId), shot.times, { width: model.width })) ?? [], shot);
+    const start = startOf(base.scenes.find((entry) => entry.id === scene.id)?.layers.find((layer) => layer.id === layerId), shot.from);
+    shots.push({ ...shot, layerId, start, ...(found ?? { blocks: null, deblock: null }) });
   }
-  const ops = shots.filter((shot) => shot.deblock).map((shot) => ({ op: "add_animation", layerId: shot.layerId, id: upscaleDeblockId(shot.layerId), effect: "deblock", start: hundredth(shot.from), duration: hundredth(Math.min(shot.to, scene.duration) - shot.from), parameters: shot.deblock }));
-  const after = ops.length ? await runOps(base, ops) : base;
+  const end = (shot) => Math.min(shot.to, scene.duration);
+  const ops = shots.filter((shot) => shot.deblock).map((shot) => ({ op: "add_animation", layerId: shot.layerId, id: upscaleDeblockId(shot.layerId), effect: "deblock", start: hundredth(shot.start), duration: hundredth(end(shot) - shot.start), parameters: shot.deblock }));
+  const after = ops.length ? deblockFirst(await runOps(base, ops), scene.id, new Set(ops.map((op) => op.id))) : base;
   if (ops.length) {
     const drawnAfter = expandComponents(after, scene.id, { fonts });
-    for (const shot of shots.filter((entry) => entry.deblock)) shot.blocksAfter = upscaleBlocks((await render(alone(drawnAfter, shot.layerId), shot.times, { width: model.width })) ?? [], shot, shot.blocks.side)?.blocks ?? null;
+    for (const shot of shots.filter((entry) => entry.deblock)) shot.blocksAfter = upscaleBlocks((await render(grainless(drawnAfter, shot.layerId), shot.times, { width: model.width })) ?? [], shot, shot.blocks.side)?.blocks ?? null;
   }
-  const frames = (shot) => `${shot.times.length} full-size frame${shot.times.length === 1 ? "" : "s"}`;
-  const shotLine = (shot) => `${name(shot.layerId)} drawn ${hundredth(shot.scale)}x at ${hundredth(shot.time)} s (${shot.across} of its ${shot.size.width} px file across the ${shot.frameWidth} px frame), ${shot.blocks ? `${blockFact(shot.blocks, shot.deblock, shot.blocksAfter)} on ${frames(shot)}` : "no block step measured"}${shot.deblock ? `, effect ${upscaleDeblockId(shot.layerId)} over ${hundredth(shot.from)} to ${hundredth(Math.min(shot.to, scene.duration))} s` : ""}`;
+  const frames = (shot) => `${shot.times.length} full-size frame${shot.times.length === 1 ? "" : "s"} of the layer alone, its grain left off`;
+  const shotLine = (shot) => `${name(shot.layerId)} drawn ${hundredth(shot.scale)}x at ${hundredth(shot.time)} s (${shot.across} of its ${shot.size.width} px file across the ${shot.frameWidth} px frame), ${shot.blocks ? `${blockFact(shot.blocks, shot.deblock, shot.blocksAfter)} on ${frames(shot)}` : "no block step measured"}${shot.deblock ? `, effect ${upscaleDeblockId(shot.layerId)} over ${hundredth(shot.start)} to ${hundredth(end(shot))} s${shot.start < shot.from ? ` (drawn over ${ratio}x from ${hundredth(shot.from)} s; it starts with the layer's first effect so it runs before them)` : ""}, first in the layer's effects` : ""}`;
   const kept = left.length ? `; left alone: ${left.join(", ")}` : "";
   const lines = [shots.length
     ? `deblock_upscaled (shots drawn over ${ratio}x their file): ${shots.map(shotLine).join("; ")}${kept}. Again replaces the effects, remove:true takes them off.`

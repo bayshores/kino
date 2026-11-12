@@ -85,10 +85,11 @@ export async function addUpscaleBlocks(model, ctx, findings) {
     if (!shot) continue;
     if (measured >= MAX_MEASURED) { ctx.note(`soft_upscale: block steps measured on the first ${MAX_MEASURED} shots; deblock_upscaled measures the rest.`); break; }
     measured += 1;
-    const frames = await ctx.renderFrames(shot.times, { width: model.width, solo: [item.id], background: "#000000" });
+    // Its grain left off: a grain adds a step at every pixel and hides the blocks under it.
+    const frames = await ctx.renderFrames(shot.times, { width: model.width, solo: [item.id], background: "#000000", noGrain: true });
     const found = upscaleBlocks(frames ?? [], shot);
     if (!found) continue;
-    const where = `at ${Math.round(shot.time * 100) / 100} s, ${shot.times.length} full-size frame${shot.times.length === 1 ? "" : "s"}`;
+    const where = `at ${Math.round(shot.time * 100) / 100} s, ${shot.times.length} full-size frame${shot.times.length === 1 ? "" : "s"} of the layer alone, its grain left off`;
     finding.measured = `${finding.measured}; ${blockFact(found.blocks, found.deblock)} ${where}`;
     if (found.deblock && finding.fix?.kind === "hint") finding.fix = { ...finding.fix, text: `${finding.fix.text} The blocks stand out: the edit op deblock_upscaled on ${ctx.name(item)} smooths them before the scale.` };
   }

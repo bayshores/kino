@@ -243,15 +243,16 @@ const quote = (text) => {
 
 // ctx.renderFrames that keeps each frame it rendered for this run, so a rule asking for a frame
 // another rule already has (text_on_busy reads the contrast frames) gets it without a render.
-// Frames are kept by width, the layers left out (or drawn alone, `solo`, over `background`) and the time.
+// Frames are kept by width, the layers left out (or drawn alone, `solo`, over `background`, with
+// their grain left off, `noGrain`) and the time.
 // `nearest(time, within)` gives a kept frame within `within` seconds of `time` (any width, the
 // fewest layers left out first), or null: small_on_empty reads the contrast frames that way.
 function cachedFrames(render) {
   const kept = new Map();
   const list = [];
   const cached = async (times, options = {}) => {
-    const { width, hide = [], solo = null, background = null } = options;
-    const prefix = `${width}|${[...hide].sort().join(",")}|${solo ? `solo:${[...solo].sort().join(",")}|${background}|` : ""}`;
+    const { width, hide = [], solo = null, background = null, noGrain = false } = options;
+    const prefix = `${width}|${[...hide].sort().join(",")}|${solo ? `solo:${[...solo].sort().join(",")}|${background}|${noGrain ? "nograin|" : ""}` : ""}`;
     const missing = [...new Set(times.filter((time) => !kept.has(prefix + time)))];
     if (missing.length) {
       const frames = await render(missing, options);
