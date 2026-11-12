@@ -55,6 +55,7 @@ import { evaluateLayer } from "../../engine/animation.js";
 import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { sec } from "./describe.mjs";
+import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps } from "./board-build.mjs";
 import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
@@ -155,8 +156,8 @@ const OPERATIONS = {
     rules: 'move {name, at, align?, dur?, scene?, id?, seed?, reduced?, look?, brand?, …its fields}: builds a designed set piece (zoom-through, whip-pan, caption-words, …) from your layers, pictures and brand. at: seconds or any at form ("cue:drop", "after:title.in"); align: start (default), center or end puts the span starting at, centered on or ending at at (end lands a transition on the beat). Layer fields take names or codes of top-level layers (give a group for nested ones; type-on, accent-hit and light-sweep take a layer inside a group as itself). The same id again makes it again with your changes; {name, id, remove:true} takes it away. id names its parts (<id>-<part>) and the animations it puts on your layers (<id>.<role>-<name>). library {topic:"moves"} lists them; library {topic:"moves", name} gives one\'s fields and an example.',
   },
   compose: {
-    fields: ["sceneId", "id", "name", "videoType", ...COMPOSE_KEYS.filter((key) => key !== "type"), ...FOOTAGE_FIELDS],
-    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, cards?, cardGap?, lines?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix, and the deck cards as made graphics on a drop, a face or a new section, one per cardGap 5 s; cards adds more, false none), then check fixes it; without a voice the best spoken lines of the clips stay heard, captioned, music ducked (lines: a number, [texts] or false; default up to one per 6 s); dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it.',
+    fields: ["sceneId", "id", "name", "videoType", "from", ...COMPOSE_KEYS.filter((key) => key !== "type"), ...FOOTAGE_FIELDS],
+    rules: 'compose {footage:[media or {media, in?, out?}], music?, voice?, treatment?: calm|story|punchy|loud, pace?: promo|velocity, accents?, cards?, cardGap?, lines?, duration?, format?, seed?, title?, end?}: a whole edit from footage (moments, cuts on the beat, layouts, captions, title, end card, mix, and the deck cards as made graphics on a drop, a face or a new section, one per cardGap 5 s; cards adds more, false none), then check fixes it; without a voice the best spoken lines of the clips stay heard, captioned, music ducked (lines: a number, [texts] or false; default up to one per 6 s); dry_run:true gives the plan in words. pace cuts pictures as runs of whole beats on the beat grid, the rate changing only at a phrase line (promo about 2 beats a shot, velocity 1), calm open, ending twice as fast; accents:true zoom-punches the downbeats (off by default), never under words. compose {format?, duration?, look?, brand?, feel?, type?: promo|ad|clip|explainer|sting|other, seed?, fps?, reduced?, beats:[{recipe, copy or its fields, media?, dur?, slot?, transition?, id?, seed?, hero?, region?}], scene?, id?, name?}: builds a whole scene, beat after beat. A promo or ad needs a logo beat (logo-sting, logo-build, wordmark-type) starting by 3.8 s and a hero: device-slide with a picture, or a feature-callout, whose card then fills its slot. A screenshot pushes into region [x, y, w, h] (% of the picture; its busiest part when left out; false keeps it still); screen-detail lifts that part. Left out, scene is the only scene when it is empty or composed; otherwise a new scene (id names it). On a composed scene it changes only the fields you give and keeps your own layers. duration stretches the beats to fill it. compose {from:"board"}: builds the storyboard as planned in its scene: one layer per shot in board order (file, in-point, crop, length, text; its move when it fits), the board\'s music kept where it is; again replaces only what it made.',
   },
   format: {
     fields: ["name", "slots", "aspect", "sceneId", "id", "seed"],
@@ -365,6 +366,30 @@ function translateFootage(operation, resolver, document) {
   }
 }
 
+// compose {from:"board"}: each refusal names the one condition that failed and the smallest fix,
+// with no example (the op's usual example is an unrelated promo; DESIGN.md D10, run 8 T324).
+function translateFromBoard(operation, document) {
+  const refuse = (message) => Object.assign(problem(message), { noExample: true });
+  if (operation.from !== "board") throw refuse(`from is "board" (the storyboard); ${JSON.stringify(operation.from)} is not something compose builds from.`);
+  const extra = Object.keys(operation).filter((key) => !["type", "from"].includes(key));
+  if (extra.length) throw refuse(`compose {from:"board"} takes no ${extra.join(", ")}: the board holds the shots, text and music. Send {op:"compose", from:"board"}; change the board itself (edit board) to change them.`);
+  if (!document.board?.shots?.length) throw refuse('There is no storyboard to build: save one first, edit {ops:[{op:"board", music, shots}]} (library guide storyboard).');
+}
+
+// A refused compose never offers the op's usual example as its fix: that is a beats promo about
+// another product, and sending the retry as written built it in the agent's video (run 8 T324).
+// With a storyboard in the project the fix is compose {from:"board"}, which builds the board's
+// shots as planned (shots under 1 s too); else there is none unless the refusal built one from
+// the op as sent. library {topic:"op", name:"compose"} still shows the example.
+export function composeRefusal(error, document) {
+  if (error?.example || error?.noExample || !(error instanceof Error)) return error;
+  if (document?.board?.shots?.length) {
+    error.message = `${error.message} Your storyboard has ${document.board.shots.length} shots: compose {from:"board"} builds them as planned, in order.`;
+    error.example = { ...BOARD_BUILD };
+  } else error.noExample = true;
+  return error;
+}
+
 const TRANSLATE = {
   recipe(operation, resolver, document) {
     if (typeof operation.name !== "string" || !operation.name) throw problem(`recipe needs name, such as headline-reveal. library {topic:"blocks"} lists them.`);
@@ -497,6 +522,7 @@ const TRANSLATE = {
     TRANSLATE.compose(operation, resolver, document);
   },
   compose(operation, resolver, document) {
+    if (operation.from !== undefined) return translateFromBoard(operation, document);
     if (operation.footage !== undefined) return translateFootage(operation, resolver, document);
     for (const key of FOOTAGE_FIELDS) if (operation[key] !== undefined) throw problem(`${key} belongs to compose {footage:[…]}, the edit from footage.`);
     let scene = null;
@@ -854,8 +880,8 @@ export function translateBlock(raw, resolver, document) {
     TRANSLATE[type](operation, resolver, document);
     return operation;
   } catch (error) {
-    failure = error;
-    throw error;
+    failure = type === "compose" ? composeRefusal(error, document) : error;
+    throw failure;
   } finally {
     declare(operation, resolver);
     if (failure) failure.createdIds = blockCreatedIds(operation);
@@ -1585,6 +1611,55 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     work.plan = plan.words;
     // match:false keeps the footage's own exposure (compose matches it to the references by default).
     work.footage = { sceneId: built.id, match: operation.match !== false };
+    return parseDocument(next);
+  }
+
+  // ---- compose {from:"board"} (board-build.mjs) -------------------------------------------
+  // The storyboard built in its main scene: one layer per shot in board order, the board's music
+  // layer kept where the board placed it. Building again replaces only what it made (board-*);
+  // a clip of the board's files that starts at 0 s (the whole source clip, put in to look at it,
+  // references/storyboard.md) goes, and the receipt names it.
+  async function applyFromBoard(document, work) {
+    if (!runOps) throw problem('compose {from:"board"} needs kino\'s agent service.');
+    const scene = mainScene(document);
+    const board = document.board;
+    work.mediaList ??= await listMedia();
+    const files = new Map(work.mediaList.map((item) => [item.src ?? `/api/media/${item.id}`, item]));
+    const fileOf = (src) => {
+      const item = files.get(src);
+      if (!item) return null;
+      return { width: Number(item.width) || 0, height: Number(item.height) || 0, duration: Number(item.duration) || 0, kind: String(item.mime ?? "").startsWith("image/") ? "image" : "video" };
+    };
+    const built = boardBuildOps(board, { width: scene.width, height: scene.height, duration: scene.duration }, fileOf);
+    if (built.missing.length)
+      throw Object.assign(problem(`shot ${built.missing.join(", ")} ${built.missing.length === 1 ? "names a file" : "name files"} kino no longer has: import ${built.missing.length === 1 ? "it" : "them"} again (project import), or change ${built.missing.length === 1 ? "that shot's" : "those shots'"} media (edit board), then send compose {from:"board"} again.`), { noExample: true });
+    const used = new Set(board.shots.map((shot) => shot.media).filter((src) => src !== NONE));
+    const own = (layer) => String(layer.name ?? layer.id).startsWith(BUILT_PREFIX);
+    const source = scene.layers.filter((layer) => !own(layer) && (layer.type === "video" || layer.type === "image") && used.has(layer.src) && !(layer.mediaStart > 0));
+    const gone = new Set([...scene.layers.filter(own), ...source].map((layer) => layer.id));
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const layer of scene.layers) if (layer.parentId && gone.has(layer.parentId) && !gone.has(layer.id)) { gone.add(layer.id); grew = true; }
+    }
+    scene.layers = scene.layers.filter((layer) => !gone.has(layer.id));
+    const where = document.scenes.filter((item) => !item.isComponent).length > 1 ? { scene: scene.id } : {};
+    let next;
+    try { next = await runOps(parseDocument(document), built.ops.map((op) => ({ ...op, ...where }))); }
+    catch (error) { throw Object.assign(problem(`compose {from:"board"} could not build the board: ${error.message} Fix that shot (edit board), then send compose {from:"board"} again.`), { noExample: true }); }
+    const placed = [];
+    const unplaced = [];
+    for (const { n, name, op } of built.moves) {
+      if (!op) { unplaced.push(`shot ${n} ${name}: library {topic:"op", name:"move"} for its fields`); continue; }
+      try { next = await runOps(next, [{ ...op, ...where }]); placed.push(`${name} (shot ${n})`); }
+      catch (error) { unplaced.push(`shot ${n} ${name}: ${String(error.message).slice(0, 120)} edit {ops:[${JSON.stringify(op)}]}`); }
+    }
+    const music = board.music !== NONE ? next.scenes.find((item) => item.id === scene.id)?.layers.find((layer) => layer.id === board.music) : null;
+    const last = board.shots.at(-1);
+    work.notes.push(`compose from board r${board.rev}: ${board.shots.length} shots in board order (${built.footage} footage, ${built.cards} text cards), ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s in ${sceneLabel(scene)}; `
+      + (music ? `music ${music.name || music.id} kept as the board placed it: song from ${sec(music.mediaOffset ?? 0)} s` : "no music (the board has none)"));
+    if (source.length) work.notes.push(`removed the source clip${source.length === 1 ? "" : "s"} ${source.map((layer) => layer.name || layer.id).join(", ")} (the board's shots replace ${source.length === 1 ? "it" : "them"})`);
+    if (placed.length) work.notes.push(`moves placed: ${placed.join(", ")}`);
+    for (const line of unplaced) work.notes.push(`move not placed: ${line}`);
     return parseDocument(next);
   }
 
@@ -2514,7 +2589,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       work.notes ??= [];
       const next = structuredClone(document);
       if (needsTiming(operation)) return applyTiming(next, operation, work);
-      if (operation.type === "compose" && operation.footage) return applyFootage(next, operation, work);
+      if (operation.type === "compose" && operation.from === "board") return applyFromBoard(next, work);
+      if (operation.type === "compose" && operation.footage) {
+        try { return await applyFootage(next, operation, work); }
+        catch (error) { throw composeRefusal(error, document); }
+      }
       if (operation.type === "compose" && operation.formatName) { await applyFormat(next, operation, work); return parseDocument(next); }
       if (operation.type === "variants" && operation.vary === "format" && !sceneOf(next, operation.sceneId).composition) return applyFootageFormats(next, operation, work);
       await APPLY[operation.type](next, operation, work);

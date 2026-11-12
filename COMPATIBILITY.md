@@ -1443,6 +1443,9 @@ How to read it:
   only while the hook, reveal and payoff are all plain, naming moves for those shots (the board's own
   device first); every other shot is offered a plain cut first (`engine/movePicks.js`).
   Evidence: `backend/board-rules.test.mjs`, `backend/agent-board.test.mjs`.
+- **Build the approved board**: Test-verified. After approval `next:` is `compose {from:"board"}`: one layer per
+  shot in board order (file, in-point, length, text card), the board's music kept; a refused compose offers it,
+  never the beats promo. Evidence: `backend/agent-board.test.mjs`.
 - **After a redo**: Verified. The next ask lists what changed as asked, unasked, and not changed.
   Evidence: `backend/board-redo.test.mjs`.
 - **Graphics-only board**: Verified. The storyboard stop asks from 8 s with or without footage; a 20 s

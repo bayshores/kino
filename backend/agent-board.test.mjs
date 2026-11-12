@@ -426,6 +426,43 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   assert.deepEqual((await savedState(id)).boards[1].copy, state.boards[1].copy, "the revert leaves the copy alone");
 });
 
+test("after the approval, next: is compose {from:\"board\"}: it builds the shots in board order, and a footage compose refusal offers it, never an unrelated promo", { skip, timeout: 60_000 }, async () => {
+  const id = "board-build";
+  await stopProject(id);
+  // The direction's own steps (references, treatments, needs) are other tests' subject.
+  await agent("edit", { project: id, ops: ["reference", "treatments", "needs"].map((code) => ({ op: "waive_check", code, target: "*", reason: "a board build test" })) });
+  const fields = { about: { text: "the dragon", by: "you", quote: "the dragon" }, message: "The dragon is back", look_sound: "dusk, the village sound", never: "none said", made_from: "the dragon clip" };
+  assert.equal((await agent("notes", { project: id, action: "brief", fields })).isError, undefined);
+  await agent("notes", { project: id, action: "set_plan", steps: ["Board", "Ask board", "Build the approved board", "Render final"] });
+  assert.equal((await editBoard(id, STOP_SHOTS(), DECIDED)).isError, undefined);
+  const asked = await checkpoint(id);
+  await gap(asked.at);
+  const approved = await answer(id, { id: "C1", rev: asked.data.rev, words: "looks good, keep going", read_as: "approve" });
+  assert.equal(approved.data.passed, true, approved.text);
+  const BUILD = 'edit {"ops":[{"op":"compose","from":"board"}]}';
+  assert.equal(approved.text.match(/^next: (.*)$/m)?.[1], BUILD, approved.text);
+  // A footage compose with a shot under 1 s (run 8 T324): the fix is the board build.
+  const refused = await agent("edit", { project: id, ops: [{ op: "compose", footage: [{ media: clip.src, in: 0, out: 0.5 }] }] });
+  assert.deepEqual(refused.data.fix?.["0"] ?? refused.data.example, { op: "compose", from: "board" }, refused.text);
+  assert.ok(!refused.text.includes("Orbit"), refused.text);
+  const wrong = await agent("edit", { project: id, ops: [{ op: "compose", from: "board", duration: 15 }] });
+  assert.ok(wrong.data.reason.endsWith('compose {from:"board"} takes no duration: the board holds the shots, text and music. Send {op:"compose", from:"board"}; change the board itself (edit board) to change them.'), wrong.text);
+  assert.equal(wrong.data.example, undefined, wrong.text);
+  const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(built.isError, undefined, built.text);
+  assert.ok(built.text.includes("compose from board r1: 4 shots in board order (3 footage, 1 text cards), 0–8.8 s"), built.text);
+  assert.ok(built.text.includes("removed the source clip footage"), built.text);
+  const { document } = await record(id);
+  const shots = document.board.shots;
+  const layers = document.scenes[0].layers.filter((layer) => layer.name.startsWith("board-"));
+  assert.deepEqual(layers.filter((layer) => layer.type === "video").map((layer) => [layer.mediaStart, layer.mediaOffset, layer.mediaDuration]).sort((a, b) => a[0] - b[0]),
+    shots.slice(0, 3).map((shot) => [shot.cue, shot.in, shot.dur]));
+  assert.equal(layers.find((layer) => layer.type === "text")?.text, "The dragon is back");
+  assert.equal(document.scenes.length, 1, "no stray scene");
+  const after = await agent("check", { project: id, pixels: false, rules: ["assertions"] });
+  assert.notEqual(after.text.match(/^next: (.*)$/m)?.[1], BUILD, "built once, next: moves on");
+});
+
 test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {
   const id = "board-allowed";
   await stopProject(id);
