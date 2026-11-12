@@ -316,4 +316,10 @@ test("place_sounds what:\"footstep\" places four steps against the bed; an unkno
   // library sounds with no match says the same, with the nearest kinds.
   const none = await agent("library", { project: "steps", topic: "sounds", search: "marimba" });
   assert.match(none.text, /No library sound matches \"marimba\"\. Nearest kinds: .*library \{topic:"inspire", search:"marimba", kind:"sounds"\}/);
+  // A 9:16 project with no music: the step still lands, its level read from its own peak.
+  await agent("project", { action: "create", id: "quiet-steps", name: "Quiet steps", width: 360, height: 640, duration: 3 });
+  const quietScene = (await (await server.api("/api/projects/quiet-steps")).json()).document.scenes[0].id;
+  const quiet = await agent("edit", { project: "quiet-steps", ops: [{ op: "place_sounds", sceneId: quietScene, at: [{ at: 1, what: "footstep" }] }] });
+  assert.equal(quiet.isError, undefined, quiet.text);
+  assert.equal(quiet.data.sounds.placed, 1, quiet.text);
 });
