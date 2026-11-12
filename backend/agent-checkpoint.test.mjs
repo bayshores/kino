@@ -133,7 +133,7 @@ const ANSWER_NEXT = {
   redo: (kind) => `say "Read as: redo (<what>)" in one line; fix only what they named, check, then ask again: notes {action:"checkpoint", id:"${kind}"}.`,
   "stop asking": "say in one line that you go on without stopping for rough, color and sound; go on.",
 };
-const waitingData = (id, kind) => ({ waiting: id, kind, next: `Nothing was changed. ${id} (${LABELS[kind]}) waits for the person's answer: end your turn. Reads, look, check and notes still work.` });
+const waitingData = (id, kind) => ({ waiting: id, kind, next: `Nothing was changed. ${id} (${LABELS[kind]}) waits for the person's answer: end your turn. Reads, look, check and notes still work.${kind === "board" ? " A revised board (an edit of board ops only, music by a sound's src or id included) saves and refreshes this ask." : ""}` });
 
 function assertAsked(reply, { id, kind, rev, check, offer, waived }) {
   assert.equal(reply.isError, undefined, reply.text);
@@ -926,10 +926,19 @@ test("a cut waits for the storyboard, so does a draft; the approved board lets t
     assert.deepEqual(nextCallOf(revised).input, { action: "answer", id: asked.data.id, rev: revised.data.rev, words: "<their reply, word for word>", read_as: "approve" });
     const stillAsks = await checkpoint(project, "board");
     assert.deepEqual([stillAsks.data.status, stillAsks.data.id, stillAsks.data.rev], ["waiting_for_you", asked.data.id, revised.data.rev], "one stop, now on the revised board");
-    assert.equal((await agent("edit", { project, ops: CUT })).data.waiting, asked.data.id, "a cut still waits for the answer");
+    const held = await agent("edit", { project, ops: CUT });
+    assert.equal(held.data.waiting, asked.data.id, "a cut still waits for the answer");
+    assert.match(held.data.next, /A revised board \(an edit of board ops only, music by a sound's src or id included\) saves and refreshes this ask\.$/);
     assert.equal(await revision(project), revised.data.rev);
+    // A refused revised board resent with retry and fix saves the same way (its ops are board ops).
+    const short = await agent("edit", { project, ops: [{ ...retitled, shots: [{ ...retitled.shots[0], dur: 20 }] }] });
+    assertRefused(short, "op_failed", /the shots end at 20 s, before the video ends \(24 s\)/);
+    const retried = await agent("edit", { project, retry: short.data.retry, fix: { 0: { shots: retitled.shots.map((shot) => ({ ...shot, text: { text: "Park reopens Monday", family: "Inter" } })) } } });
+    assert.equal(retried.isError, undefined, retried.text);
+    assert.deepEqual([retried.data.stop.id, retried.data.stop.rev], [asked.data.id, revised.data.rev + 1], retried.text);
+    assert.ok(retried.data.stop.ask.includes("Park reopens Monday"), retried.data.stop.ask);
 
-    const approved = await dashboard("stops", { body: { project, action: "answer", id: asked.data.id, rev: revised.data.rev, read_as: "approve" } });
+    const approved = await dashboard("stops", { body: { project, action: "answer", id: asked.data.id, rev: retried.data.stop.rev, read_as: "approve" } });
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     const built = await agent("edit", { project, ops: CUT });
     assert.equal(built.isError, undefined, built.text);

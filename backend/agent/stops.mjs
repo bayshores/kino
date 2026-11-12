@@ -365,8 +365,10 @@ function waitingAnswer(round, ask = round.ask, board = round.board) {
 
 /** The answer to a write while a stop waits (and to a stop asked while another waits). */
 export function waitingData(round) {
+  // The storyboard's one write that still saves: a revised board refreshes this same ask.
+  const board = round.kind === "board" ? " A revised board (an edit of board ops only, music by a sound's src or id included) saves and refreshes this ask." : "";
   return { waiting: round.id, kind: round.kind,
-    next: `Nothing was changed. ${round.id} (${STOP_LABELS[round.kind]}) waits for the person's answer: end your turn. Reads, look, check and notes still work.` };
+    next: `Nothing was changed. ${round.id} (${STOP_LABELS[round.kind]}) waits for the person's answer: end your turn. Reads, look, check and notes still work.${board}` };
 }
 
 // How a passed round passed, for the passed and answered refusals: "approve, 14:05", or
@@ -639,12 +641,15 @@ function boardWaiting(draft, round, facts, { all = false, soundFiles = false, so
  * through then): the same round now shows the new revision. Its rev and work move to the saved
  * one (so it does not lapse as "moved on") and its ask is written again from the new board, so the
  * person answers once, on the board they see. Returns the waiting_for_you answer, or null when no
- * board round waits. `facts` is boardFacts(document) of the saved revision.
+ * board round waits. `facts` is boardFacts(document) of the saved revision; `styleFrame` is the
+ * style frame of the new board (null: none), so the ask never names a frame of the old one.
  */
-export function reviseWaitingBoard(draft, { facts, rev, work = null, now = Date.now(), soundFiles = false, soundSearch = false, video = {} }) {
+export function reviseWaitingBoard(draft, { facts, rev, work = null, now = Date.now(), soundFiles = false, soundSearch = false, video = {}, styleFrame = null }) {
   const round = waitingStop(draft);
   if (!round || round.kind !== "board" || !facts?.board) return null;
   Object.assign(round, { rev, revisedAt: new Date(now).toISOString(), revisions: (round.revisions ?? 0) + 1, ...(work ? { work } : {}) });
+  if (styleFrame) round.styleFrame = styleFrame;
+  else delete round.styleFrame;
   return boardWaiting(draft, round, facts, { soundFiles, soundSearch, video });
 }
 

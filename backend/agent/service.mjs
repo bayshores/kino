@@ -1365,13 +1365,17 @@ export function createAgentService(deps) {
     if (talking) video.clipLines = (await sceneLines(talking, document, await syncCodes(projectId, document))).map(({ layer, text, from, heard }) => ({ layer, text, from, heard }));
     const facts = boardFacts(document);
     const soundFiles = await soundFilesFor(document);
+    // The style frame of the new board (the old one may show a shot that changed or left).
+    const styled = await styleFrameFor(projectId, document);
     const steady = { at: steadyNow(), boot: bootedAt };
-    return agentState.update(projectId, (draft) => {
-      const answer = reviseWaitingBoard(draft, { facts, rev: saved.revision, work: workPrint(document), now: now(), soundFiles, soundSearch: soundSearchOn(), video });
+    const answer = await agentState.update(projectId, (draft) => {
+      const revised = reviseWaitingBoard(draft, { facts, rev: saved.revision, work: workPrint(document), now: now(), soundFiles, soundSearch: soundSearchOn(), video, styleFrame: styled?.facts ?? null });
       // The person reads the new ask: an answer under 5 s after it is too fast again.
-      if (answer) waitingStop(draft).steady = steady;
-      return answer;
+      if (revised) waitingStop(draft).steady = steady;
+      return revised;
     });
+    if (!answer?.data?.styleFrame || !styled) return answer;
+    return { ...answer, styleFile: await look.save(projectId, "style", styled.png), stylePng: styled.png };
   }
 
   // A write that touched a part another agent holds (crew-locks.mjs): nothing was saved.
@@ -1556,18 +1560,24 @@ export function createAgentService(deps) {
 
   // While a board round waits, an edit of board ops only (no dry run) is a revised storyboard: it
   // saves, and the round shows it (saveDocument, reviseBoardStop). Every other write stays held.
-  function revisesBoard(verb, input, round) {
+  // A refused board resent with edit {retry, fix} counts too (its ops are the refused edit's).
+  function revisesBoard(verb, input, { projectId, round } = {}) {
     if (verb !== "edit" || round?.kind !== "board" || input.dry_run === true) return false;
-    const ops = Array.isArray(input.ops) ? input.ops : input.ops && typeof input.ops === "object" ? [input.ops] : [];
-    return ops.length > 0 && ops.every((op) => (op?.op ?? op?.type) === "board");
+    let ops;
+    try { ops = editOperations(input, projectId); } catch { return false; }
+    const list = Array.isArray(ops) ? ops : [ops];
+    return list.length > 0 && list.every((op) => (op?.op ?? op?.type) === "board");
   }
 
   // The edit's receipt with the refreshed ask of the waiting board round: stop {status, id, rev,
   // ask, board, next}, and the round's answer call as the next call (send the new ask, end the turn).
-  function withRevisedAsk(reply, waited) {
-    const stop = { ...waited.data, revised: true };
-    if (reply.receipt) return { ...reply, data: { ...reply.data, stop }, nextCall: waited.nextCall };
-    return { ...reply, text: `${reply.text}\n${waited.text}`, data: { ...(reply.data ?? {}), stop }, nextCall: waited.nextCall };
+  // The new board's style frame goes with it as one image, as the checkpoint's ask carries it.
+  function withRevisedAsk(reply, waited, input = {}) {
+    const stop = { ...waited.data, revised: true, ...(waited.styleFile ? { image: waited.styleFile } : {}) };
+    const images = waited.styleFile ? [...(reply.images ?? []), { path: waited.styleFile, mime: "image/png", data: input.inline === false ? undefined : waited.stylePng.toString("base64") }] : null;
+    // A receipt's text is its data (call() writes it); any other reply carries the ask as text.
+    const text = reply.receipt ? reply.text : `${reply.text}\n${waited.text}${waited.styleFile ? `\nimage ${waited.styleFile}` : ""}`;
+    return { ...reply, text, data: { ...(reply.data ?? {}), stop }, nextCall: waited.nextCall, ...(images ? { images } : {}) };
   }
 
   // A refused write while a stop waits: nothing changes, and the call counts in the turn.
@@ -9071,7 +9081,7 @@ export function createAgentService(deps) {
         held = gated && !crewAnswer && Boolean(deps.hold?.().on);
         let waiting = gated && !held && !crewAnswer ? await waitingFor(verb, safeInput) : null;
         // A revised storyboard goes through while its board round waits; the round shows it.
-        const boardRevise = waiting && revisesBoard(verb, safeInput, waiting.round) ? { id: waiting.round.id, answer: null } : null;
+        const boardRevise = waiting && revisesBoard(verb, safeInput, waiting) ? { id: waiting.round.id, answer: null } : null;
         if (boardRevise) {
           meta = { ...meta, boardRevise };
           waiting = null;
@@ -9087,7 +9097,7 @@ export function createAgentService(deps) {
         // status, library, notes) of another project leaves the agent's open project as it was.
         const keepCurrent = meta.keepCurrent || !opensProject(verb, safeInput);
         reply = await caller.run({ ...meta, keepCurrent }, () => (crewAnswer ? crewReply(crewAnswer, safeInput) : held ? heldReply(safeInput) : waiting ? waitingReply(waiting) : handlers[verb](safeInput, meta)));
-        if (boardRevise?.answer && !reply.isError) reply = withRevisedAsk(reply, boardRevise.answer);
+        if (boardRevise?.answer && !reply.isError) reply = withRevisedAsk(reply, boardRevise.answer, safeInput);
       } catch (error) {
         // A stop asked while this write ran refused its save (saveDocument).
         if (error instanceof StopWaits) {

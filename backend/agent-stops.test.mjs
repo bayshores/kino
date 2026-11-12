@@ -401,6 +401,19 @@ test("a graphics-only video of 8 s or more asks the storyboard; its title-card b
   assert.equal(refusal(() => stops.checkpointStep(ready(4), { kind: "board", video: graphics, rev: 4, now: T0 })).code, "board_first");
 });
 
+test("a revised board while its stop waits: the same round moves to the new rev, and its style frame is the new board's or none", () => {
+  const graphics = { ...VIDEO, seconds: 20, footage: false };
+  const state = ready(4);
+  const frame = { shot: "S1", type: "serif" };
+  stops.checkpointStep(state, { kind: "board", video: graphics, rev: 4, now: T0, board: boardOf({ seconds: 20 }), styleFrame: frame });
+  const revised = stops.reviseWaitingBoard(state, { facts: boardOf({ seconds: 20, shots: 3 }), rev: 5, now: T0 + 1000, styleFrame: { shot: "S2", type: "serif" } });
+  assert.deepEqual([revised.data.id, revised.data.rev, revised.data.board.shots, revised.data.styleFrame], ["C1", 5, 3, { shot: "S2", type: "serif" }]);
+  const plain = stops.reviseWaitingBoard(state, { facts: boardOf({ seconds: 20 }), rev: 6, now: T0 + 2000 });
+  assert.equal(plain.data.styleFrame, undefined, "no frame of the old board is named");
+  assert.doesNotMatch(plain.text, /style frame/);
+  assert.deepEqual([state.stops.length, state.stops[0].revisions], [1, 2]);
+});
+
 test("the brief's controls: a skip_under skips the board; rough set to go passes with an inbox line in the person's words; back to wait asks it again", () => {
   // stops.checkpointStep: the plain rules, so only the brief's controls skip the board here.
   const state = ready(4);
