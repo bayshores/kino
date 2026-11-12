@@ -266,8 +266,10 @@ export function subjectGaps(layer, made) {
   });
   if (gap) lost.push([at(gap[0]), at(gap[1])]);
   if (run) runs.push(run);
+  // A stretch of one sample has no length: no move fits on it, so no found is given (a dur of 0).
   const longest = runs.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0];
-  return { lost: lost.slice(0, 4), ...(lost.length > 4 ? { moreLost: lost.length - 4 } : {}), ...(longest ? { found: longest.map(at) } : {}) };
+  const found = longest?.map(at);
+  return { lost: lost.slice(0, 4), ...(lost.length > 4 ? { moreLost: lost.length - 4 } : {}), ...(found && found[1] > found[0] ? { found } : {}) };
 }
 
 /**

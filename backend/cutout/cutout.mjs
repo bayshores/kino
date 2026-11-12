@@ -724,8 +724,10 @@ function encoderArgs(output, colour, keyEvery) {
  * first picture from 0 s, then picture k at exactly lead + k / rate. FFmpeg times a file from its
  * first stream, so a picture that starts `lead` seconds after the sound is drawn at lead + k / rate.
  * Rounding the lead to whole frames put every picture of the cut-out up to half a frame off its
- * clip's: dm3 run a's clip had a 0.021 s lead at 30 fps, and for 12 ms of each 33 ms the cut-out
- * showed the drawing before the clip's (at 0.2x, two of every five frames: two heads). Returns
+ * clip's: dm3 run a's clip had a 0.021 s lead at 30 fps, and for 12 ms of each 33 ms a player that
+ * shows frames by their file time (the live view) drew the cut-out's drawing before the clip's.
+ * Export reads both files on one 1/fps grid and showed the same drawing either way (measured on
+ * run a at 0.2x: 1.4 to 1.7 levels apart inside the subject, before and after). Returns
  * { pad: "" or ",tpad=…,settb=…,setpts=…", frames, encoder: the encoder's time base arguments }:
  * the times are kept in milliseconds (WebM's own unit), since an encoder timed in frames rounds
  * them back to the frame grid.

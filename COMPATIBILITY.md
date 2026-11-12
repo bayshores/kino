@@ -946,7 +946,9 @@ How to read it:
   energy-aura works on a clip and cut-out inside a camera group. Evidence: `backend/cutout.test.mjs`
   ("starts late"), `backend/agent-cutout.test.mjs` ("leaves the clip's glow", "refusals"),
   `engine/moves.test.js` ("energy-aura"). Gap: no measure yet of a matte edge that sits off the picture's
-  edges; backdrop-flash and masked-type still refuse a layer inside a group.
+  edges; check and look review do not name empty-matte stretches; backdrop-flash and masked-type still
+  refuse a layer inside a group; export already showed the same drawing before the frame-time change
+  (run a at 0.2x), so the double head at its last frame has another cause.
 - **Outline shows only while its clip is drawn**: Test-verified. It takes the clip's Hide and Show and a
   playback window for a clip not frozen both ways; update_layer and update_layers move it.
   Evidence: `backend/agent-cutout.test.mjs` ("shows only while its clip is drawn").

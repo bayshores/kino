@@ -561,6 +561,9 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   // Empty matte frames are named at the scene times Play shows them, with the stretch the subject is in.
   const sampled = { ...made, empty: 12, boxes: { step: 4, frames: Array.from({ length: 8 }, (_, k) => ({ index: k * 4, box: k >= 2 && k < 5 ? null : [0.1, 0.2, 0.3, 0.9] })) } };
   assert.deepEqual(subjectGaps(clip, sampled), { lost: [[0.27, 0.67]], found: [0.67, 0.93] });
+  // A subject in every other sample only: no stretch has length, so no found (no move of dur 0).
+  const flicker = { ...sampled, boxes: { step: 4, frames: Array.from({ length: 4 }, (_, k) => ({ index: k * 4, box: k % 2 ? null : [0.1, 0.2, 0.3, 0.9] })) } };
+  assert.equal(subjectGaps(clip, flicker).found, undefined);
   const gapReports = new Map();
   await runCutOut(document, operation, { mediaRoot: root, reports: gapReports, cutoutMedia: { ...cutoutMedia, start: () => ({ done: Promise.resolve(sampled), progress: () => ({ fraction: 1, seconds: 0 }) }) },
     operationContext: async () => ({ mediaById: { [record.id]: record } }) });

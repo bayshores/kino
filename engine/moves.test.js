@@ -177,6 +177,9 @@ test("energy-aura puts rising rim-light copies of the cut-out in an add group on
   const grouped = runMove(definition, { id: "aura", input: readMoveInput(definition, { layer: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
   assert.deepEqual(grouped.added.filter((entry) => !entry.layer.parentId?.startsWith("aura")).map((entry) => [entry.layer.type, entry.layer.parentId]), [["group", "clip-camera"], ["rectangle", "clip-camera"]]);
   assert.ok(grouped.animations.some((entry) => entry.layerId === "clip-subject" && entry.animation.effect === "rim-light"));
+  // The clip and its cut-out given as layer and subject, in reduced motion: the group and embers go in the camera group too.
+  const both = runMove(definition, { id: "aura", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media, reduced: true });
+  assert.deepEqual(both.added.filter((entry) => !entry.layer.parentId?.startsWith("aura")).map((entry) => [entry.layer.type, entry.layer.parentId]), [["group", "clip-camera"], ["rectangle", "clip-camera"]]);
 });
 
 test("align puts a move's span starting at, centered on or ending at its at (FilmCraft start_for)", () => {
