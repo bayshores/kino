@@ -103,6 +103,7 @@ import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
+import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
@@ -7251,11 +7252,24 @@ export function createAgentService(deps) {
         if (!kept) throw new AgentError("not_ready", `${id} has no frame strips: library {topic:"inspire", name:"${id}"} adds and measures it.`);
         return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
       };
-      const likeDeps = { fonts: await loadFonts(), catalog: fontCatalog, lookFamilies: (words) => classFamilies(words, fontCatalog), referenceFrame };
+      // Facts beside a face in the ranking (the face stays listed): turned down by the person (the style's
+      // rejected texts that name it) or already the type of another project (house memory, type_seen's data).
+      const faceMarks = async () => {
+        const record = await projectFor(input).catch(() => null);
+        const projectId = record?.document?.id;
+        if (!projectId) return null;
+        const rejected = styleContext((await agentState.read(projectId).catch(() => null))?.brief?.style ?? null)?.rejected ?? [];
+        const seen = deps.house ? (await deps.house.others(projectId, record.document.name).catch(() => []))
+          .filter((entry) => entry.type?.family && entry.type.family !== "unknown" && entry.typeVersion === TYPE_VERSION)
+          .sort((a, b) => String(b.savedAt ?? "").localeCompare(String(a.savedAt ?? "")))
+          .map((entry) => ({ family: entry.type.family, name: entry.name ?? entry.projectId, rev: entry.rev })) : [];
+        return { rejected, seen };
+      };
+      const likeDeps = { fonts: await loadFonts(), catalog: fontCatalog, lookFamilies: (words) => classFamilies(words, fontCatalog), referenceFrame, faceMarks };
       if (input.like != null) {
         try {
-          const { text, fonts: found, measures } = await fontsLikeText(input, likeDeps);
-          return { text, data: { fonts: found, measures } };
+          const { text, fonts: found, measures, region, box } = await fontsLikeText(input, likeDeps);
+          return { text, data: { fonts: found, measures, region, ...(box ? { box } : {}) } };
         } catch (error) {
           if (error instanceof AgentError) throw error;
           throw new AgentError("bad_input", `fonts like: ${error.message}`);

@@ -1,5 +1,5 @@
-// library {topic:"fonts", like, region}: the faces whose letters look most like the lettering in a
-// picture. kino measures the lettering in the crop (stroke weight, letter width, slant, corners,
+// library {topic:"fonts", like, region?}: the faces whose letters look most like the lettering in a
+// picture (the region given, else the largest lettering box kino finds). kino measures the lettering in the crop (stroke weight, letter width, slant, corners,
 // stroke contrast, edge roughness, dots) and the same measures on sample letters it draws in each
 // candidate face, then ranks the faces by the distance between the two.
 //
@@ -354,10 +354,102 @@ async function writeMeasures(file, value) {
   await rename(temporary, file);
 }
 
+// The longest side the picture is scaled to before kino looks for lettering boxes. GUESS: a
+// 2688 px contact sheet becomes 1920 px, where a subtitle 12 px tall is still found (at 960 px
+// the same sheet's subtitles were lost).
+const SEARCH_SIDE = 1920;
+// The strongest boxes kept, and how many the answer lists beside the one it measured.
+const BOXES_KEPT = 8;
+const OTHER_BOXES = 3;
+
 /**
- * The lettering to match: { image, region } from an image path or a saved reference moment.
+ * The picture's lettering boxes, largest first: [{x, y, width, height}] in the picture's pixels.
+ * Edges (a step of 40 gray levels) are joined along the line, boxes on one row are merged when the
+ * gap between them is under 1.5 line heights, and a box counts as lettering when it is wider than tall
+ * and under 45% of the picture high, its ink covers 8% to 75% of it, splits into 2 or more letters
+ * (3 for a box over a tenth of the picture high) by empty columns that are typically a fifth of the
+ * line high, and its edge pixels fill 9% or more of it (a photo's ink breaks into slivers and is smooth).
+ * GUESS: every number here, set on a drawn title and caption, a noisy picture and two contact sheets
+ * of film frames (the sheets' captions and short words were found; a caption 8 px tall was not).
+ */
+export function letteringBoxes(image) {
+  const factor = Math.min(1, SEARCH_SIDE / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * factor)), height = Math.max(1, Math.round(image.height * factor));
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+  const { data } = context.getImageData(0, 0, width, height);
+  const gray = new Uint8Array(width * height);
+  for (let i = 0; i < gray.length; i += 1) gray[i] = Math.round(0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2]);
+  const edge = new Uint8Array(width * height);
+  for (let y = 1; y < height - 1; y += 1) for (let x = 1; x < width - 1; x += 1) {
+    const at = y * width + x;
+    edge[at] = Math.abs(gray[at + 1] - gray[at - 1]) + Math.abs(gray[at + width] - gray[at - width]) >= 40 ? 1 : 0;
+  }
+  // Join edges along the line (6 px each way) and a little across it (1 px).
+  const joined = new Uint8Array(width * height);
+  const reach = 6;
+  for (let y = 0; y < height; y += 1) {
+    let last = -1e9;
+    for (let x = 0; x < width; x += 1) { if (edge[y * width + x]) last = x; if (x - last <= reach) joined[y * width + x] = 1; }
+    last = 1e9;
+    for (let x = width - 1; x >= 0; x -= 1) { if (edge[y * width + x]) last = x; if (last - x <= reach) joined[y * width + x] = 1; }
+  }
+  const tall = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1)
+    if (joined[y * width + x]) { tall[y * width + x] = 1; if (y > 0) tall[(y - 1) * width + x] = 1; if (y < height - 1) tall[(y + 1) * width + x] = 1; }
+  let boxes = pieces({ ink: tall, width, height }).map((piece) => ({ x0: piece.x0, y0: piece.y0, x1: piece.x1, y1: piece.y1 }))
+    .filter((box) => box.y1 - box.y0 + 1 >= 5 && box.x1 - box.x0 + 1 >= 8);
+  // Boxes on one row join into one line of lettering.
+  for (let merged = true; merged;) {
+    merged = false;
+    outer: for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i], b = boxes[j];
+      const ha = a.y1 - a.y0 + 1, hb = b.y1 - b.y0 + 1;
+      const overlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) + 1;
+      const gap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1) - 1;
+      if (overlap >= 0.6 * Math.min(ha, hb) && gap < 1.5 * Math.max(ha, hb) && Math.max(ha, hb) < 3 * Math.min(ha, hb)) {
+        boxes[i] = { x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) };
+        boxes.splice(j, 1);
+        merged = true;
+        break outer;
+      }
+    }
+  }
+  const found = [];
+  for (const box of boxes) {
+    const w = box.x1 - box.x0 + 1, h = box.y1 - box.y0 + 1;
+    // A line of lettering is wider than tall and under 45% of the picture high (a taller box is a run
+    // of frames joined on a sheet; a title set across a single frame measured 34%).
+    if (w < 1.2 * h || h > 0.45 * height) continue;
+    const crop = createCanvas(w, h);
+    crop.getContext("2d").drawImage(canvas, box.x0, box.y0, w, h, 0, 0, w, h);
+    const mask = inkMask(crop.getContext("2d").getImageData(0, 0, w, h));
+    let ink = 0;
+    for (const value of mask.ink) ink += value;
+    const share = ink / (w * h);
+    if (share < 0.08 || share > 0.75) continue;
+    // Letters: at least 2 columns of ink split by gaps, the typical one at least a fifth of the line
+    // high (a photo's ink breaks into 1 px slivers), and the box edgy all through (photos are smooth).
+    const letters = letterRuns(mask);
+    if (letters.length < (h > height / 10 ? 3 : 2) || median(letters.map(([a, b]) => b - a + 1)) < 0.2 * h) continue;
+    let edges = 0;
+    for (let yy = box.y0; yy <= box.y1; yy += 1) for (let xx = box.x0; xx <= box.x1; xx += 1) edges += edge[yy * width + xx];
+    if (edges / (w * h) < 0.09) continue;
+    // Padded by a tenth of the line height, back in the picture's pixels.
+    const pad = Math.max(1, Math.round(h * 0.1));
+    const x = Math.max(0, box.x0 - pad), y = Math.max(0, box.y0 - pad);
+    const right = Math.min(width, box.x1 + 1 + pad), bottom = Math.min(height, box.y1 + 1 + pad);
+    found.push({ x: Math.round(x / factor), y: Math.round(y / factor), width: Math.round((right - x) / factor), height: Math.round((bottom - y) / factor) });
+  }
+  return found.sort((a, b) => b.width * b.height - a.width * a.height).slice(0, BOXES_KEPT);
+}
+
+/**
+ * The lettering to match: { image, region, boxes } from an image path or a saved reference moment.
  * `region` is [x, y, width, height] in pixels, or in fractions of the picture when every value is 1
- * or less. Without it the whole picture is measured.
+ * or less. Without it kino finds the lettering boxes (letteringBoxes) and measures the largest;
+ * `boxes` then holds { measured, others, found } ({ found: 0 } measures the whole picture).
  */
 async function letteringSource({ like, t, region }, { referenceFrame }) {
   const text = String(like ?? "").trim();
@@ -369,10 +461,34 @@ async function letteringSource({ like, t, region }, { referenceFrame }) {
     if (!path.isAbsolute(text)) throw new Error(`like takes an absolute path of a picture (PNG or JPEG) or a saved reference id with t (like:"yt:<id>", t:<seconds>); "${text}" is neither.`);
     image = await loadImage(await readFile(text));
   }
-  let box = Array.isArray(region) && region.length === 4 && region.every(Number.isFinite) ? region : [0, 0, image.width, image.height];
-  if (box.every((value) => value <= 1)) box = [box[0] * image.width, box[1] * image.height, box[2] * image.width, box[3] * image.height];
+  const given = Array.isArray(region) && region.length === 4 && region.every(Number.isFinite);
+  let box = given ? region : [0, 0, image.width, image.height];
+  let boxes = null;
+  if (!given) {
+    const found = letteringBoxes(image);
+    boxes = { found: found.length, measured: found[0] ?? null, others: found.slice(1, 1 + OTHER_BOXES) };
+    if (found.length) box = [found[0].x, found[0].y, found[0].width, found[0].height];
+  }
+  if (given && box.every((value) => value <= 1)) box = [box[0] * image.width, box[1] * image.height, box[2] * image.width, box[3] * image.height];
   const [x, y] = [Math.max(0, box[0]), Math.max(0, box[1])];
-  return { image, region: [x, y, Math.min(image.width - x, box[2]), Math.min(image.height - y, box[3])] };
+  return { image, region: [x, y, Math.min(image.width - x, box[2]), Math.min(image.height - y, box[3])], boxes };
+}
+
+const asRegion = (box) => `[${box.x}, ${box.y}, ${box.width}, ${box.height}]`;
+
+// Whether the text of `rejected` names the family: its words, not letters inside a longer word.
+const names = (text, family) => new RegExp(`(^|[^a-z0-9])${family.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^a-z0-9])`).test(String(text).toLowerCase());
+
+/**
+ * What the project already knows about a face, as a fact for its line in the ranking (the face stays
+ * listed): the person turned it down (`rejected`: the style's rejected texts that name it), or kino
+ * rendered it in another project (`seen`: house memory type looks, [{family, name, rev}], newest first).
+ */
+export function faceNote(family, { rejected = [], seen = [] } = {}) {
+  const turnedDown = rejected.find((text) => names(text, family));
+  if (turnedDown) return `turned down by the person: "${String(turnedDown).slice(0, 60)}"`;
+  const used = seen.find((entry) => String(entry.family).toLowerCase() === family.toLowerCase());
+  return used ? `seen before: the type of "${used.name}" r${used.rev}` : null;
 }
 
 /**
@@ -380,8 +496,8 @@ async function letteringSource({ like, t, region }, { referenceFrame }) {
  * project's FontRegistry, `catalog` the font catalog (downloads the class's families), and
  * `lookFamilies(words)` the catalog families of a class, best first ([{id, family, weights}]).
  */
-export async function fontsLikeText(input, { fonts, catalog, lookFamilies, referenceFrame }) {
-  const { image, region } = await letteringSource(input, { referenceFrame });
+export async function fontsLikeText(input, { fonts, catalog, lookFamilies, referenceFrame, faceMarks }) {
+  const { image, region, boxes } = await letteringSource(input, { referenceFrame });
   const words = typeof input.text === "string" && input.text.trim() ? input.text.trim() : null;
   const lines = words ? words.split("\n").length : 1;
   const mask = normalized(image, region, lines);
@@ -434,16 +550,27 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
   if (changed) await writeMeasures(catalog?.measuresFile, cache).catch(() => {});
   ranked.sort((a, b) => a.distance - b.distance);
   const shown = ranked.slice(0, count);
+  // Faces the person turned down or kino used in other projects: a fact on the line, the face stays listed.
+  const marks = faceMarks ? await faceMarks().catch(() => null) : null;
+  for (const font of shown) { const note = marks ? faceNote(font.family, marks) : null; if (note) font.note = note; }
   const measured = Object.entries(reference).map(([key, value]) => `${key} ${value}`).join(", ");
-  const lines_ = shown.map((font, index) => `${index + 1}. ${font.family} ${font.weight} (distance ${font.distance}: ${font.differs}) set_font {layerIds:["<layer>"], family:${JSON.stringify(font.family)}, weight:${font.weight}}`);
+  const lines_ = shown.map((font, index) => `${index + 1}. ${font.family} ${font.weight} (distance ${font.distance}: ${font.differs})${font.note ? ` [${font.note}]` : ""} set_font {layerIds:["<layer>"], family:${JSON.stringify(font.family)}, weight:${font.weight}}`);
+  // Which box was measured, and the other boxes the call can name as region.
+  const area = `[${region.map((value) => Math.round(value)).join(", ")}]`;
+  const boxLine = !boxes ? ""
+    : boxes.found
+      ? `\nbox measured: ${area}, the largest of ${boxes.found} lettering box${boxes.found === 1 ? "" : "es"} kino found${boxes.others.length ? `; others, to measure one pass region: ${boxes.others.map(asRegion).join(", ")}` : ""}.`
+      : `\nno lettering box found, so the whole picture was measured: pass region [x, y, width, height] around one line of the letters.`;
   return {
     text: [
-      `fonts like the lettering in ${String(input.like)}${input.t != null ? ` @${input.t}s` : ""} [${region.map((value) => Math.round(value)).join(", ")}]: ${measured} (weight and width against the line height; corners 0 round to 1 square).`,
+      `fonts like the lettering in ${String(input.like)}${input.t != null ? ` @${input.t}s` : ""} ${area}: ${measured} (weight and width against the line height; corners 0 round to 1 square).${boxLine}`,
       ...lines_,
       `${ranked.length} faces measured on "${sample}"${kinds.length ? `; class: ${kinds.join(", ")}${downloaded ? ` (${downloaded} catalog families downloaded)` : ""}` : ""}${catalogNote && !downloaded ? `; catalog: ${catalogNote}` : ""}.${words ? "" : " text:\"<the words in the region>\" measures the same letters and ranks closer."}`,
     ].join("\n"),
-    fonts: shown.map(({ family, weight, distance: gap, differs }) => ({ family, weight, distance: gap, differs })),
+    fonts: shown.map(({ family, weight, distance: gap, differs, note }) => ({ family, weight, distance: gap, differs, ...(note ? { note } : {}) })),
     measures: reference,
+    region: region.map((value) => Math.round(value)),
+    ...(boxes ? { box: { found: boxes.found, others: boxes.others.map((box) => [box.x, box.y, box.width, box.height]) } } : {}),
   };
 }
 
@@ -466,13 +593,15 @@ export async function fontsLikeLabels(labels, deps) {
     const where = `${label.id} @${label.at}`;
     const words = String(label.words ?? "").slice(0, 60);
     try {
-      const { fonts: ranked } = await fontsLikeText({ like: label.id, t: label.at, count: LABEL_FACES }, deps);
+      const { fonts: ranked, region, box } = await fontsLikeText({ like: label.id, t: label.at, count: LABEL_FACES }, deps);
       found.push({ ref: label.id, at: label.at, fonts: ranked.map(({ family, weight, distance: gap }) => ({ family, weight, distance: gap })) });
-      // The label has no region, so the whole frame is measured. When the faces sit this close the measure
-      // cannot tell them apart (run 8's @1.6 caption, 8 px tall in a 240 px frame: 3.19 to 3.46, 8% apart);
-      // the line says so and gives the region call. GUESS: 10% between the first and last face listed.
+      // The label has no region, so kino measures the frame's largest lettering box (the whole frame when
+      // it finds none). When the faces sit this close the measure cannot tell them apart (run 8's @1.6
+      // caption, 8 px tall in a 240 px frame: 3.19 to 3.46, 8% apart); the line says so and gives the
+      // region call. GUESS: 10% between the first and last face listed.
       const close = ranked.length > 1 && (ranked.at(-1).distance - ranked[0].distance) / ranked[0].distance < 0.1;
-      lines.push(`like your label ${where} "${words}" (whole frame${close ? `, too close to tell apart: like:"${label.id}", t:${label.at}, region:[x,y,w,h]` : ""}): ${ranked.map((font) => `${font.family} ${font.weight} (${font.distance})`).join(", ")}`);
+      const measuredBox = box?.found ? `box [${region.join(", ")}] of ${box.found}` : "whole frame";
+      lines.push(`like your label ${where} "${words}" (${measuredBox}${close ? `, too close to tell apart: like:"${label.id}", t:${label.at}, region:[x,y,w,h]` : ""}): ${ranked.map((font) => `${font.family} ${font.weight} (${font.distance})${font.note ? ` [${font.note}]` : ""}`).join(", ")}`);
     } catch (error) {
       lines.push(`your label ${where} "${words}" was not measured (${error.message.split(/[.:]/)[0]}): library {topic:"fonts", like:"${label.id}", t:${label.at}, region:[x,y,w,h]}`);
     }
