@@ -27,7 +27,8 @@ export function signatureFields(signature) {
       depth -= 1;
       if (depth === 0) take();
       else segment += character;
-    } else if (!quoted && depth === 1 && (character === "," || character === "|")) take();
+    // "layer | layers" lists two fields; "layout?:line|grid|radial" lists one field's values.
+    } else if (!quoted && depth === 1 && (character === "," || (character === "|" && !segment.includes(":")))) take();
     else if (depth >= 1) segment += character;
   }
   return names;
@@ -37,6 +38,8 @@ export function signatureFields(signature) {
 const ALWAYS = ["op", "type", "layer", "layerId", "layers", "layerIds", "scene", "sceneId", "parent", "parentId", "component", "componentSceneId"];
 // Building-block ops (isBlockOperation) refuse an unknown field in blocks.mjs. Ops whose own checks already refuse or lift an unknown field, or that take their fields in properties.
 const SKIPPED = new Set(["add_layer", "update_layer", "update_layers", "insert_component", "add_animation", "add_scene", "update_scene", "update_project"]);
+
+const TIME_WORDS = /^(times?|starts?|when|moments?|seconds)$/i;
 
 // type -> {text, known}: an op's field sheet and the field names in it, read once.
 const SHEETS = new Map();
@@ -58,6 +61,7 @@ export function unknownFieldsNote(raw, done) {
   const allowed = new Set([...known, ...ALWAYS]);
   const unknown = Object.keys(raw).filter((key) => !allowed.has(key) && raw[key] !== undefined && done?.[key] !== undefined);
   if (!unknown.length) return null;
-  const meant = [...new Set(unknown.map((key) => nearMiss(key, [...known])).filter(Boolean))];
+  // A misspelling (offest) is its near miss; a word for when (times, time, start) is at, when the op has at.
+  const meant = [...new Set(unknown.map((key) => nearMiss(key, [...known]) ?? (known.has("at") && TIME_WORDS.test(key) ? "at" : null)).filter(Boolean))];
   return `${type} has no field ${unknown.map((key) => `"${key}"`).join(", ")}, so ${unknown.length === 1 ? "it was" : "they were"} ignored.${meant.length ? ` Did you mean ${meant.join(", ")}?` : ""} Its fields: ${signature.slice(type.length + 1)}`;
 }

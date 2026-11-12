@@ -691,8 +691,12 @@ test("a field an op does not have is named in the receipt's notes, with the clos
   await project("unknown");
   const wrong = await agent("edit", { project: "unknown", ops: [{ op: "duplicate_layers", layers: ["box"], times: [4, 8] }] });
   assert.equal(wrong.isError, undefined, wrong.text);
-  const note = wrong.data.notes.find((line) => /duplicate_layers has no field "times"/.test(line));
-  assert.match(note ?? "", /so it was ignored\. Its fields: \{layers, offset\?:24, count\?:1\.\.50.*at\?:\[s or "cue:x"\]/, wrong.text);
+  const notes = wrong.data.notes.filter((line) => /duplicate_layers has no field "times"/.test(line));
+  assert.equal(notes.length, 1, wrong.text);
+  assert.match(notes[0], /so it was ignored\. Did you mean at\? Its fields: \{layers, offset\?:24, count\?:1\.\.50.*at\?:\[s or "cue:x"\]/, wrong.text);
+  // A value of a field (layout?:line|grid|radial) is not a field.
+  const value = await agent("edit", { project: "unknown", ops: [{ op: "duplicate_layers", layers: ["box"], grid: true }], dry_run: true });
+  assert.match(value.data.notes.join("\n"), /no field "grid"/, value.text);
   const typo = await agent("edit", { project: "unknown", ops: [{ op: "duplicate_layers", layers: ["box"], offest: 40 }], dry_run: true });
   assert.match(typo.data.notes.join("\n"), /no field "offest", so it was ignored\. Did you mean offset\?/);
   // A field the op has is not reported.

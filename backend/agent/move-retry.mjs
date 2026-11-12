@@ -10,7 +10,10 @@ import { nearMiss } from "./refs.mjs";
 // Fields every move op takes besides its own (blocks.mjs MOVE_KEYS), and the id.
 const SHARED = ["at", "align", "dur", "seed", "reduced", "look", "brand", "feel", "id"];
 const NUMBER = /^(\S+) (\w+)(?:\.(\w+))? must be a number from (-?[\d.]+) to (-?[\d.]+)\./;
-const CHOICE = /^(\S+) (\w+) is one of (.+)\.$/;
+// "zoom-through feel is one of ..." and "feel is one of ..." (blocks.mjs) both name the field.
+const CHOICE = /^(?:\S+ )?(\w+) is one of (.+)\.$/;
+const YES = new Set(["true", "yes", "on", "1"]);
+const NO = new Set(["false", "no", "off", "0"]);
 
 const clamp = (value, low, high) => Math.min(Math.max(value, low), high);
 const without = (operation, key) => Object.fromEntries(Object.entries(operation).filter(([name]) => name !== key));
@@ -54,11 +57,22 @@ export function moveRetry(operation, message, suggestions = []) {
 
   const choice = CHOICE.exec(text);
   if (choice) {
-    const [, , key, list] = choice;
+    const [, key, list] = choice;
     const values = list.split(", ");
     const pick = nearMiss(String(operation[key]), values);
     if (pick && operation[key] !== undefined) return { ...operation, [key]: pick };
   }
+
+  // "needs exactly one of words or text" with both sent: the first one sent stays.
+  const oneOf = /needs exactly one of ([\w ]+?)\./.exec(text);
+  if (oneOf) {
+    const sent = oneOf[1].split(" or ").filter((key) => operation[key] !== undefined);
+    if (sent.length > 1) return sent.slice(1).reduce(without, operation);
+  }
+  // "reduced is true or false." with "yes" or "no" sent: the true or false it means.
+  const flag = /^(\w+) is true or false\./.exec(text)?.[1];
+  const said = flag ? String(operation[flag]).toLowerCase() : "";
+  if (flag && (YES.has(said) || NO.has(said))) return { ...operation, [flag]: YES.has(said) };
 
   // The refusal only names a field: the op as sent, that field in words for the agent to fill.
   const missing = /\bneeds (\w+)\b/.exec(text)?.[1];

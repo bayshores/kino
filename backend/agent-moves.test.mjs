@@ -269,6 +269,12 @@ test("a bad move op saves nothing and says what to change", async () => {
   const sent = { op: "move", name: "rgb-split-hit", layer: "shot-a", at: 1, strength: 3 };
   assert.deepEqual(await retryOf(sent), { ...sent, strength: MOVES["rgb-split-hit"].fields.strength.high });
   assert.deepEqual(await retryOf({ op: "move", name: "zoom-through", from: "shot-a", at: 1 }), { op: "move", name: "zoom-through", from: "shot-a", at: 1, to: "<your to>" });
+  // A choice's near miss, a yes for a true-or-false field, and one of two fields that exclude each other.
+  const through = { op: "move", name: "zoom-through", from: "shot-a", to: "shot-b", at: 1 };
+  assert.deepEqual(await retryOf({ ...through, feel: "smoth" }), { ...through, feel: "smooth" });
+  assert.deepEqual(await retryOf({ ...through, reduced: "yes" }), { ...through, reduced: true });
+  const words = { op: "move", name: "caption-words", words: [{ text: "hi", at: 0.5 }] };
+  assert.deepEqual(await retryOf({ ...words, text: "hi there" }), words);
   assert.equal(JSON.stringify((await saved("bad")).document), before, "nothing was saved");
 });
 
