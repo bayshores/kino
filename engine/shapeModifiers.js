@@ -13,16 +13,23 @@
 //   zigzagPoints   "corner" (sharp teeth) or "smooth" (a wave) ("corner")
 //   offsetAmount   px the outline grows (or shrinks, below 0), -1000..1000 (0 = off); animates
 //   offsetJoin     how grown corners join: "miter", "round" or "bevel" ("miter")
+//   roughenSize    px a rough, brush-like edge reaches off the outline, 0..500 (0 = off); animates
+//   roughenDetail  0..1 (0.5): how fine and spiky the teeth are (0 = soft bumps, 1 = dense hairs)
+//   roughenSeed    0..9999 (0): which edge; the same seed draws the same teeth every frame
+//   roughenBoil    0..30 (0 = still): new teeth this many times a second (12 = "on twos" at 24 fps)
 // Peaks of the zig zag sit on the outline's corners and segment ends. Curves are offset and
 // twisted as fine straight pieces; an outline shrunk past its middle disappears. Each step keeps
 // the outline under a point budget (fewer teeth or coarser pieces past it) so the path can draw.
+// Roughen runs after the zig zag and before the offset path.
 export const MODIFIER_LAYER_TYPES = new Set(["rectangle", "ellipse", "star", "path"]);
-export const MODIFIER_REST = Object.freeze({ roundCorners: 0, bloatAmount: 0, twistAngle: 0, twistX: 0, twistY: 0, zigzagSize: 0, zigzagCount: 5, offsetAmount: 0 });
+export const MODIFIER_REST = Object.freeze({ roundCorners: 0, bloatAmount: 0, twistAngle: 0, twistX: 0, twistY: 0, zigzagSize: 0, zigzagCount: 5, offsetAmount: 0,
+  roughenSize: 0, roughenDetail: 0.5, roughenSeed: 0, roughenBoil: 0 });
 export const MODIFIER_KEYS = Object.keys(MODIFIER_REST);
 export const MODIFIER_CHOICES = Object.freeze({ zigzagPoints: ["corner", "smooth"], offsetJoin: ["miter", "round", "bevel"] });
 export const MODIFIER_CHOICE_KEYS = Object.keys(MODIFIER_CHOICES);
 const RANGES = { roundCorners: [0, 1000], bloatAmount: [-1, 1], twistAngle: [-3600, 3600], twistX: [-10000, 10000], twistY: [-10000, 10000],
-  zigzagSize: [-1000, 1000], zigzagCount: [1, 100], offsetAmount: [-1000, 1000] };
+  zigzagSize: [-1000, 1000], zigzagCount: [1, 100], offsetAmount: [-1000, 1000],
+  roughenSize: [0, 500], roughenDetail: [0, 1], roughenSeed: [0, 9999], roughenBoil: [0, 30] };
 const MITER_LIMIT = 4;
 const ROUND_STEP = Math.PI / 18;
 // Point budgets. vectorPath.js draws at most 10,000 segments and 1,000,000 characters (about
@@ -31,6 +38,9 @@ export const OUTLINE_LIMIT = 7000;
 const TWIST_POINTS = 3000;
 const ZIGZAG_POINTS = 3000;
 const TWIST_STEP = 3;
+const ROUGHEN_POINTS = 3000;
+// Longest reach of a roughen point, times its size: the bump share plus the longest spike.
+const ROUGHEN_REACH = 2.2;
 
 /** The range a modifier number accepts: [min, max]. */
 export const modifierRange = (key) => RANGES[key];
@@ -39,12 +49,15 @@ const finite = (value, fallback) => (typeof value === "number" && Number.isFinit
 const clamp = (value, [min, max]) => Math.max(min, Math.min(max, value));
 const number = (state, key) => clamp(finite(state[key], MODIFIER_REST[key]), RANGES[key]);
 
-/** The modifiers of a layer state, or null when it has none. */
-export function modifiersOf(state = {}) {
+/** The modifiers of a layer state, or null when it has none. `time` (s) moves a boiling roughen. */
+export function modifiersOf(state = {}, time = 0) {
   if (!MODIFIER_LAYER_TYPES.has(state.type)) return null;
   const round = number(state, "roundCorners"), bloat = number(state, "bloatAmount"), twist = number(state, "twistAngle");
-  const size = number(state, "zigzagSize"), amount = number(state, "offsetAmount");
-  if (!round && !bloat && !twist && !size && !amount) return null;
+  const size = number(state, "zigzagSize"), amount = number(state, "offsetAmount"), rough = number(state, "roughenSize");
+  if (!round && !bloat && !twist && !size && !amount && !rough) return null;
+  const boil = number(state, "roughenBoil");
+  // A boiling edge draws a new seed each 1/boil s; the small step keeps 1/12 s steps exact.
+  const step = boil > 0 ? Math.floor(finite(time, 0) * boil + 1e-6) : 0;
   const width = Math.max(0, finite(state.width, 0)), height = Math.max(0, finite(state.height, 0));
   return {
     round: round || null,
@@ -52,6 +65,7 @@ export function modifiersOf(state = {}) {
     twist: twist ? { angle: (twist * Math.PI) / 180, center: [width / 2 + number(state, "twistX"), height / 2 + number(state, "twistY")] } : null,
     zigzag: size ? { size, count: Math.round(number(state, "zigzagCount")), smooth: state.zigzagPoints === "smooth" } : null,
     offset: amount ? { amount, join: MODIFIER_CHOICES.offsetJoin.includes(state.offsetJoin) ? state.offsetJoin : "miter" } : null,
+    roughen: rough ? { size: rough, detail: number(state, "roughenDetail"), seed: Math.round(number(state, "roughenSeed")) + step * 7919 } : null,
   };
 }
 
@@ -69,14 +83,15 @@ export function modifierReach(state) {
     reach = Math.max(reach, dx + far - width / 2, dy + far - height / 2);
   }
   const zig = modifiers.zigzag ? Math.abs(modifiers.zigzag.size) * (modifiers.zigzag.smooth ? 1.5 : MITER_LIMIT) : 0;
+  const rough = (modifiers.roughen?.size ?? 0) * ROUGHEN_REACH;
   // Outer miters and inner corners move at most MITER_LIMIT x the amount.
   const grow = Math.abs(modifiers.offset?.amount ?? 0) * MITER_LIMIT;
-  return reach + zig + grow;
+  return reach + zig + rough + grow;
 }
 
-/** `contours` (vectorPath.js form) with the state's modifiers applied. */
-export function modifyContours(contours, state) {
-  const modifiers = modifiersOf(state);
+/** `contours` (vectorPath.js form) with the state's modifiers applied at `time` seconds. */
+export function modifyContours(contours, state, time = 0) {
+  const modifiers = modifiersOf(state, time);
   if (!modifiers) return contours;
   const sign = outwardSign(contours);
   let result = contours.map(cleanContour);
@@ -84,6 +99,7 @@ export function modifyContours(contours, state) {
   if (modifiers.bloat) result = result.map((contour) => bloat(contour, modifiers.bloat));
   if (modifiers.twist) result = twist(result, modifiers.twist);
   if (modifiers.zigzag) result = result.map((contour) => zigzag(contour, modifiers.zigzag, sign));
+  if (modifiers.roughen) result = roughen(result, modifiers.roughen, sign);
   if (modifiers.offset) {
     const plans = result.map(flattenPlan);
     const total = plans.reduce((sum, plan) => sum + plan.count, 0) || 1;
@@ -369,6 +385,61 @@ function zigzag(contour, { size, count, smooth }, sign) {
     points.push(add(last.segment.end, scale(normalOf(tangentAt(last.from, last.segment, 1), sign), steps % 2 ? -size : size)));
   }
   return smooth ? smoothContour(points, contour.closed) : polylineContour(points, contour.closed);
+}
+
+// --- roughen ---
+// A dry-brush edge: points along the outline move along its normal by three seeded parts, so no
+// two teeth match (a zig zag's teeth all do): a slow bump over about 3 sizes of outline, a fine
+// random tooth at every point, and now and then a long outward spike (a brush hair). `detail`
+// trades bumps for teeth and sets how close the points sit. Guess (tuned by eye against one
+// reference brush edge, not measured): spacing 1.1 to 0.25 sizes, spikes on 1 point in 7.
+const hash = (seed, index, salt) => {
+  let h = Math.imul((seed + 1) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(index + salt * 0x632be5ab + 1, 0xc2b2ae35);
+  h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
+  return (h >>> 0) / 4294967296;
+};
+function bump(seed, x) {
+  const i = Math.floor(x), f = x - i, s = f * f * (3 - 2 * f);
+  return (hash(seed, i, 1) * (1 - s) + hash(seed, i + 1, 1) * s) * 2 - 1;
+}
+
+function roughen(contours, { size, detail, seed }, sign) {
+  const total = contours.reduce((sum, contour) => sum + segmentsOf(contour)
+    .reduce((acc, { from, segment }) => acc + lengthTable(from, segment, 16).at(-1)[1], 0), 0);
+  const spacing = Math.max(1.5, size * (1.1 - 0.85 * detail), total / ROUGHEN_POINTS);
+  const smooth = 0.75 - 0.35 * detail, fine = 1 - smooth;
+  let index = 0, along = 0;
+  return contours.map((contour, which) => {
+    const parts = segmentsOf(contour).map((part) => ({ ...part, table: lengthTable(part.from, part.segment, 32) }))
+      .filter((part) => part.table.at(-1)[1] > 1e-6);
+    if (!parts.length) return contour;
+    const points = [];
+    const push = (point, normal, distance) => {
+      index += 1;
+      let off = smooth * bump(seed + which * 31, distance / (size * 3)) + fine * (hash(seed, index, 2) * 2 - 1);
+      if (hash(seed, index, 3) < 0.14) off = Math.abs(off) + 0.6 + hash(seed, index, 4) * 0.6;
+      points.push(add(point, scale(normal, off * size)));
+    };
+    parts.forEach((part, j) => {
+      const len = part.table.at(-1)[1], pieces = Math.max(1, Math.round(len / spacing));
+      for (let k = 0; k < pieces; k += 1) {
+        const t = tAtDistance(part.table, (len * k) / pieces);
+        let normal = normalOf(tangentAt(part.from, part.segment, t), sign);
+        if (k === 0 && (j > 0 || contour.closed)) {
+          const before = parts[(j - 1 + parts.length) % parts.length];
+          const sum = add(normalOf(tangentAt(before.from, before.segment, 1), sign), normal);
+          if (length(sum) > 1e-9) normal = unit(sum);
+        }
+        push(cubicAt(part.from, part.segment, t), normal, along + (len * k) / pieces);
+      }
+      along += len;
+    });
+    if (!contour.closed) {
+      const last = parts.at(-1);
+      push(last.segment.end, normalOf(tangentAt(last.from, last.segment, 1), sign), along);
+    }
+    return polylineContour(points, contour.closed);
+  }).filter(Boolean);
 }
 
 // --- offset path ---

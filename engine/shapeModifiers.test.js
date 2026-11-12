@@ -150,7 +150,8 @@ test("a zig zag after a twist keeps its teeth per side, and big outlines stay dr
 test("an offset of a cusp or a tight twist stays inside its reach", () => {
   const cases = [square({ width: 400, height: 400, bloatAmount: -1, offsetAmount: -5 }), square({ width: 160, bloatAmount: -1, offsetAmount: -5 }),
     square({ width: 160, twistAngle: 720, offsetAmount: 15 }), square({ width: 160, zigzagSize: 10, twistAngle: 180, offsetAmount: 15, roundCorners: 20 }),
-    square({ width: 300, twistAngle: 150, offsetAmount: -8, offsetJoin: "round" }), { type: "star", width: 200, height: 200, bloatAmount: -1, offsetAmount: 10, offsetJoin: "bevel" }];
+    square({ width: 300, twistAngle: 150, offsetAmount: -8, offsetJoin: "round" }), { type: "star", width: 200, height: 200, bloatAmount: -1, offsetAmount: 10, offsetJoin: "bevel" },
+    square({ width: 300, roughenSize: 25, roughenDetail: 1, roughenSeed: 9 })];
   for (const state of cases) {
     const contours = modifyContours(shapeContours(state.type, state), state), reach = modifierReach(state);
     assert.ok(contours.length, JSON.stringify(state));
@@ -158,4 +159,20 @@ test("an offset of a cusp or a tight twist stays inside its reach", () => {
     assert.ok(box.x >= -reach - 1e-6 && box.y >= -reach - 1e-6 && box.x + box.width <= state.width + reach + 1e-6 &&
       box.y + box.height <= state.height + reach + 1e-6, JSON.stringify({ state, reach, box }));
   }
+});
+
+test("roughen draws irregular teeth fixed per seed, and a boil changes them only at its rate", () => {
+  const state = { type: "rectangle", width: 400, height: 1000, roughenSize: 30 };
+  const edge = (more = {}, time = 0) => modifyContours(shapeContours("rectangle", state), { ...state, ...more }, time)[0].segments
+    .map(({ end }) => end).filter(([x, y]) => x > 300 && y > 50 && y < 950).map(([x]) => Math.round(x - 400));
+  const teeth = edge();
+  // Irregular: offsets go both ways, with no two-value rhythm like a zig zag.
+  assert.ok(teeth.length > 20 && Math.min(...teeth) < -5 && Math.max(...teeth) > 25 && new Set(teeth).size > teeth.length / 2, teeth.join(" "));
+  assert.deepEqual(edge(), teeth);
+  assert.notDeepEqual(edge({ roughenSeed: 4 }), teeth);
+  // 12 a second: the same edge inside one twelfth, a new one in the next.
+  assert.deepEqual(edge({ roughenBoil: 12 }, 0.05), teeth);
+  assert.notDeepEqual(edge({ roughenBoil: 12 }, 1 / 12), teeth);
+  // Off by default: an old shape draws the same.
+  assert.equal(modifyContours(shapeContours("rectangle", { ...state, roughenSize: 0 }), { ...state, roughenSize: 0 }).length, 1);
 });

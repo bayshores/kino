@@ -113,6 +113,10 @@ function readField(move, key, field, value) {
       if (typeof value !== "string" || !HEX.test(value)) throw new Error(`${where} is a hex color such as #FFFFFF.`);
       return value.toUpperCase();
     }
+    case "colors": return list(value).map((entry) => {
+      if (typeof entry !== "string" || !HEX.test(entry)) throw new Error(`${where} is a list of hex colors such as ["#3BEA7A", "#E0308F"].`);
+      return entry.toUpperCase();
+    });
     case "number": {
       if (typeof value !== "number" || !Number.isFinite(value) || value < field.low || value > field.high) throw new Error(`${where} must be a number from ${field.low} to ${field.high}.`);
       return field.whole ? Math.round(value) : value;

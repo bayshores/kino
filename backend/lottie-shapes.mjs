@@ -654,7 +654,8 @@ function modifiedContours(layer, states, label, copies) {
   const sampled = states.map((state) => {
     const key = JSON.stringify([state.width, state.height, state.path, state.radius, state.cornerRadii, state.donut, state.sweep,
       state.startAngle, state.spikes, state.starThickness, state.zigzagSize, state.zigzagCount, state.zigzagPoints, state.offsetAmount, state.offsetJoin,
-      state.roundCorners, state.bloatAmount, state.twistAngle, state.twistX, state.twistY]);
+      state.roundCorners, state.bloatAmount, state.twistAngle, state.twistX, state.twistY,
+      state.roughenSize, state.roughenDetail, state.roughenSeed]);
     if (!cache.has(key)) {
       const base = layer.type === "path" ? parsePath(String(state.path ?? "")).map((contour) => scaledContour(contour, pathSizing(state, layer)))
         : shapeContours(layer.type, state);
