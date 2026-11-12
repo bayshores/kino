@@ -110,7 +110,7 @@ export const PARTICLE_LOOKS = Object.freeze({
     // count and opacity raised after the first re-run (900 and 0.75 read sparser than the reference).
     defaults: { count: 1600, size: 2, speed: 420, direction: 180, spread: 0, gravity: 0, wind: 0, turbulence: 0,
       lifetime: 4, color: "#1C9E70", color2: "#D4FFE9", opacity: 0.9, softness: 0.3, glow: 0.6, flicker: 0.15,
-      trail: 0.45, emitter: "area", variation: 0.8 } },
+      trail: 0.45, emitter: "area", variation: 0.8, haze: 0.5 } },
   bokeh: { label: "Bokeh", shape: "dot", profile: "bokeh", colorMode: "pick", maxCount: 300, size: [4, 400],
     lifeJitter: 0.4, sizeJitter: 0.9, speedJitter: 0.6, depth: [0.5, 1.3], parallax: [0.6, 1.1], depthAlpha: 0.55,
     fade: [0.3, 0.3], sizeOverLife: [1, 1], flickerHz: [0.2, 0.6], wanderHz: [0.05, 0.2],
@@ -157,6 +157,9 @@ function lookParameters(look) {
       // color (color far, color2 near): 0 the look's own small jitter, 1 a deep field in one layer.
       // Optional on looks without their own default, so saved effects draw as before.
       variation: number("Variation", d.variation ?? 0, 0, 1, 0.01, "", d.variation === undefined ? { optional: true } : {}),
+      // A soft blurred copy of the particles under them: the haze that blooms where streaks
+      // cluster. Optional the same way.
+      haze: number("Haze", d.haze ?? 0, 0, 1, 0.01, "", d.haze === undefined ? { optional: true } : {}),
       emitter: { type: "enum", label: "Emitter", default: d.emitter, options: EMITTERS, animatable: false },
       originX: number("Origin X", d.originX ?? 0.5, 0, 1, 0.01),
       originY: number("Origin Y", d.originY ?? 0.5, 0, 1, 0.01),
@@ -244,12 +247,14 @@ export function particlesAt(key, frame) {
   const fields = PARTICLE_FIELDS[key];
   const p = frame.parameters;
   // Variation widens the look's depth ranges toward a deep field (end points are guesses tuned
-  // by eye on the streak-field study: far streaks at 0.3 size, 0.25 speed and 0.25 brightness).
+  // by eye on the streak-field study: far streaks at 0.45 size, 0.25 speed and 0.35 brightness;
+  // the builder's 0.3 size and 0.25 brightness left the far plane too faint to read next to the
+  // reference, whose far columns are dim but clearly there).
   const variation = plain.shape === "dot" ? clamp(Number.isFinite(p.variation) ? p.variation : plain.defaults.variation ?? 0, 0, 1) : 0;
   const look = variation > 0 ? { ...plain, speedJitter: lerp(plain.speedJitter, 1.5, variation),
-    depth: [lerp(plain.depth[0], 0.3, variation), lerp(plain.depth[1], 1.7, variation)],
+    depth: [lerp(plain.depth[0], 0.45, variation), lerp(plain.depth[1], 1.7, variation)],
     parallax: [lerp(plain.parallax[0], 0.25, variation), plain.parallax[1]],
-    depthAlpha: lerp(plain.depthAlpha, 0.25, variation) } : plain;
+    depthAlpha: lerp(plain.depthAlpha, 0.35, variation) } : plain;
   const width = frame.bounds.width, height = frame.bounds.height;
   let ticks = Math.round((Number.isFinite(frame.time) ? frame.time : 0) * CLOCK_TICKS);
   const dots = look.shape === "dot";
@@ -294,7 +299,9 @@ export function particlesAt(key, frame) {
     if (!prewarm && birth < 0) continue;
     if (slot >= Math.round(t.count.at(birth))) continue;
     const base = hashBase(seed, slot, lives ? ((cycle % lives) + lives) % lives : cycle);
-    const depth = random(base, 0);
+    // With variation most particles sit far back and few come near, as in a real field (the
+    // study's three planes held 1600 far, 450 mid and 70 near streaks).
+    const depth = variation > 0 ? random(base, 0) ** (1 + 1.5 * variation) : random(base, 0);
     const parallax = lerp(look.parallax[0], look.parallax[1], depth);
     const speedFactor = (1 - look.speedJitter / 2 + look.speedJitter * random(base, 2)) * parallax;
     const sizeFactor = (1 - look.sizeJitter / 2 + look.sizeJitter * random(base, 1)) * lerp(look.depth[0], look.depth[1], depth);
@@ -373,8 +380,8 @@ export function particlesAt(key, frame) {
     // "age": color -> color2 over the life; "pick": mostly one or the other; "random": any mix.
     const pick = random(base, 4);
     const own = look.colorMode === "age" ? lifeShare : look.colorMode === "pick" ? (pick < 0.5 ? pick * 0.4 : 0.6 + (pick - 0.5) * 0.8) : pick;
-    // With variation near particles lean to color2, far ones to color.
-    const shade = variation > 0 && look.colorMode !== "age" ? lerp(own, depth, variation) : own;
+    // With variation only the nearest particles lean to color2 (a pale core); the rest keep color.
+    const shade = variation > 0 && look.colorMode !== "age" ? lerp(own, depth * depth, variation) : own;
     const tone = Math.round(clamp(shade, 0, 1) * (COLOR_STEPS - 1));
     const reach = dots ? radius * (p.glow > 0 ? 2 + 4 * p.glow : 1) : radius * lerp(look.aspect[0], look.aspect[1], random(base, 12));
     const left = Math.min(hx, tail?.[0] ?? hx) - reach, right = Math.max(hx, tail?.[0] ?? hx) + reach;
@@ -450,6 +457,16 @@ export function renderParticles(key, frame) {
         parts.push(`<circle cx="${fmt(item.x)}" cy="${fmt(item.y)}" r="${fmt(r)}" fill="${fill}" fill-opacity="${fmtAlpha(alpha)}"/>`);
       }
     }
+  }
+  const haze = look.shape === "dot" && Number.isFinite(p.haze) ? clamp(p.haze, 0, 1) : 0;
+  if (haze > 0 && parts.length) {
+    // The particles once, in defs, drawn twice: blurred and brightened (the haze), then sharp.
+    // Blur 14 px is about the study's glow radii (18 on the middle plane, 10 on the near one).
+    const group = String(frame.helpers.id("particles-field")), blur = String(frame.helpers.id("particles-haze"));
+    const { x = 0, y = 0, width, height } = frame.bounds;
+    frame.helpers.defs.push(`<g id="${group}">${parts.join("")}</g>`,
+      `<filter id="${blur}" filterUnits="userSpaceOnUse" x="${fmt(x)}" y="${fmt(y)}" width="${fmt(width)}" height="${fmt(height)}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="14"/><feColorMatrix type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 ${fmt(8 * haze)} 0"/></filter>`);
+    return clipEffect(frame, `${frame.content}<g aria-hidden="true" pointer-events="none"><use href="#${group}" filter="url(#${blur})"/><use href="#${group}"/></g>`);
   }
   const markup = `${frame.content}<g aria-hidden="true" pointer-events="none">${parts.join("")}</g>`;
   return clipEffect(frame, markup);

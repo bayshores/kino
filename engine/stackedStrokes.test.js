@@ -28,7 +28,7 @@ test("two stacked strokes on text and on a path draw in order after the single s
 });
 
 test("a strokes entry takes a cap, a taper to a point and the neon style with restrained defaults", () => {
-  assert.deepEqual(normalizeStrokeList([{ color: "#5CFF3A", style: "neon" }]), [{ color: "#5CFF3A", width: 3, style: "neon", glow: 24 }]);
+  assert.deepEqual(normalizeStrokeList([{ color: "#5CFF3A", style: "neon" }]), [{ color: "#5CFF3A", width: 4, style: "neon", glow: 24 }]);
   assert.deepEqual(normalizeStrokeList([{ color: "#fff", width: 6, cap: "round", taper: 0.3 }])[0], { color: "#fff", width: 6, cap: "round", taper: { start: 0.3, end: 0.3 } });
   assert.throws(() => normalizeStrokeList([{ color: "#fff", width: 2, glow: 10 }]), /glow needs style "neon"/);
   assert.throws(() => normalizeStrokeList([{ color: "#fff", width: 2, cap: "arrow" }]), /cap must be butt, round, or square/);

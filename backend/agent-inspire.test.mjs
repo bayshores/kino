@@ -376,5 +376,7 @@ test("every look word an agent can search names an effect, move or op that exist
   assert.equal(noMakerLine("Halftone!"), 'no kino name for "halftone" yet: build it from shapes and draw-on, or say it is missing');
   assert.equal(searchGuide("halftone").split("\n")[0], noMakerLine("halftone"));
   assert.ok(seenNames("speed lines", { ops }).some((line) => line.startsWith("speed-lines (")));
+  assert.match(seenNames("code rain", { ops })[0], /^streaks \(effect/);
+  assert.match(seenNames("light streak", { ops })[0], /^lens-flare \(effect/);
   assert.equal(noMakerLine("glow"), "");
 });

@@ -37,21 +37,26 @@ test("variation spreads each particle's trail, brightness, glow and color by dep
   const spread = (key, to) => {
     const { particles } = particlesAt(key, frameAt(key, { direction: 180, spread: 0, ...to }, 2));
     const lengths = particles.filter((item) => item.tail).map((item) => Math.hypot(item.x - item.tail[0], item.y - item.tail[1]));
-    return { ratio: Math.max(...lengths) / Math.min(...lengths), alphas: particles.map((item) => item.alpha), particles };
+    const back = particles.filter((item) => item.depth < 0.2);
+    return { ratio: Math.max(...lengths) / Math.min(...lengths), backAlpha: back.reduce((sum, item) => sum + item.alpha, 0) / back.length, particles };
   };
   const even = spread("rain", { count: 300 }), deep = spread("rain", { count: 300, variation: 1 });
   assert.ok(deep.ratio > even.ratio * 2, `streak lengths spread ${even.ratio.toFixed(1)} -> ${deep.ratio.toFixed(1)}`);
-  assert.ok(Math.min(...deep.alphas) < Math.min(...even.alphas), "far particles dim further");
+  assert.ok(deep.backAlpha < even.backAlpha, `far particles dim further: ${even.backAlpha.toFixed(3)} -> ${deep.backAlpha.toFixed(3)}`);
   assert.equal("glow" in even.particles[0], false, "rain without variation draws as before");
   const field = spread("streaks", {});
   const far = field.particles.filter((item) => item.depth < 0.3), near = field.particles.filter((item) => item.depth > 0.8);
   const mean = (items, key) => items.reduce((sum, item) => sum + item[key], 0) / items.length;
   assert.ok(mean(near, "radius") > mean(far, "radius") * 2 && mean(near, "tone") > mean(far, "tone") && mean(near, "glow") > mean(far, "glow"));
+  assert.ok(far.length > near.length * 3, `most streaks sit far back: ${far.length} far, ${near.length} near`);
   assert.equal(effectDefaults("streaks").variation, 0.8);
-  assert.equal("variation" in effectDefaults("rain"), false);
+  assert.equal("variation" in effectDefaults("rain") || "haze" in effectDefaults("rain"), false);
+  // haze: the same particles once more, blurred, under the sharp ones; left out, rain draws as before.
+  assert.match(svgAt("streaks", {}, 2), /<use href="#p-particles-field-\d+" filter="url\(#p-particles-haze-\d+\)"\/><use href="#p-particles-field-\d+"\/>/);
+  assert.doesNotMatch(svgAt("rain", {}, 2), /particles-haze/);
 });
 
-test("the Generate group lists nine generators, each with count, size, speed, direction, spread, wind, turbulence, colour, lifetime, opacity and seed", () => {
+test("the Generate group lists nine generators, each with count, size, speed, direction, spread, wind, turbulence, color, lifetime, opacity and seed", () => {
   assert.ok(EFFECT_GROUPS.includes("Generate"));
   assert.deepEqual(KEYS, ["embers", "sparks", "snow", "dust", "rain", "streaks", "bokeh", "fog", "light-leaks"]);
   for (const key of KEYS) {

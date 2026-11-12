@@ -10,7 +10,7 @@ The accent-hit and light-sweep moves use glow to light one word.
   Long shadow: hard copies stepping one way (2, 4, 6 ... px). Static; not in Lottie.
 - `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?,
   cap?, taper?, style?, glow?}` after `stroke`, later on top. Sticker: wide outside outlines
-  first, `join:"round"`. Neon line or outline in one entry: `{color, style:"neon"}` (thin core 3,
+  first, `join:"round"`. Neon line or outline in one entry: `{color, style:"neon"}` (thin core 4,
   dim glow 24). `cap:"round"`; `taper:0.3` narrows both ends to points. Static; not in Lottie.
 
 ## Light: glow, rays and flares

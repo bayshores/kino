@@ -8,12 +8,16 @@ import { parsePath } from "./vectorPath.js";
 // stair edge was a 3 px core over 12 px and 26 px bands plus a glow); the brightness numbers were
 // then lowered until the line no longer outshone the reference's thin, dim edge (guesses tuned by
 // eye against the reference frames, see the study's after-lines-streaks.jpg).
-export const NEON_DEFAULTS = Object.freeze({ width: 3, glow: 24 });
+export const NEON_DEFAULTS = Object.freeze({ width: 4, glow: 24 });
+// Width 4 is the synthesis treatment's value; the reference edge measured a 4 to 6 px core.
+// The core stays near its own color (the reference core is saturated green, not white) and the
+// halo and glow opacities are guesses set by eye against the reference stair crop: a glow you
+// can see, well short of the study's first solid tube.
 const NEON = Object.freeze({
   // How much of the way to white the core is, and how opaque each part is.
-  coreWhite: 0.3, coreOpacity: 0.85,
-  haloWidth: 2.5, haloOpacity: 0.3, haloBlur: 0.6,
-  glowOpacity: 0.14, glowBlur: 0.4,
+  coreWhite: 0.15, coreOpacity: 0.85,
+  haloWidth: 2.5, haloOpacity: 0.4, haloBlur: 0.6,
+  glowOpacity: 0.24, glowBlur: 0.4,
 });
 
 const fmt = (value) => {
