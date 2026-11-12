@@ -425,6 +425,11 @@ export function sampleOps(kind, name) {
 }
 
 const TOPIC_OF_KIND = { move: "moves", effect: "effects", recipe: "blocks", look: "blocks" };
+// What a plain edit leaves to the scene: a fade shows what is under the shots (on real footage over a
+// light scene background, fade-black faded to near white).
+const PLAIN_NOTES = {
+  "fade-black": `. The fades show what is under the two shots, the scene's background when nothing is: on a light background add a black rectangle the frame's size under them, or update_scene {properties:{background:"#000000"}}`,
+};
 
 /** The library answer for a deck card name (a technique tag such as fade-black, or a made card)
  *  that moves, blocks and effects do not carry under that name: what it is, and the topic and
@@ -440,7 +445,7 @@ export function deckCardText(name) {
   if (!lines.length) {
     // A plain edit: the sample's own animation ops are the call (shot-a leaves, shot-b arrives).
     const plain = (tag && sampleOps("technique", tag.tag)?.ops.filter((op) => op.op === "add_animation")) || [];
-    if (plain.length) lines.push(`no move, recipe or effect has this name; it is plain add_animation ops (shot-a leaves, shot-b arrives: send your own layers): edit ${JSON.stringify({ ops: plain })}`);
+    if (plain.length) lines.push(`no move, recipe or effect has this name; it is plain add_animation ops (shot-a leaves, shot-b arrives: send your own layers): edit ${JSON.stringify({ ops: plain })}${PLAIN_NOTES[tag.tag] ?? ""}`);
     else lines.push(`no move, recipe or effect has this name: library {topic:"techniques", name:"${name}"}`);
   }
   return `"${name}" is a deck card, not a move, block or effect. ${what}\nHeld by: ${lines.join("; ")}`;

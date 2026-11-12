@@ -153,7 +153,7 @@ test("notes brief saves a style spec; check follows it and shows the techniques;
   for (const topic of ["moves", "blocks", "effects"]) {
     const card = await agent("library", { topic, name: "fade-black" });
     assert.notEqual(card.isError, true, topic);
-    assert.match(card.text, /^"fade-black" is a deck card[^]*Held by: [^]*add_animation/, topic);
+    assert.match(card.text, /^"fade-black" is a deck card[^]*Held by: [^]*add_animation[^]*the scene's background when nothing is/, topic);
   }
   assert.match((await agent("library", { topic: "moves", name: "parallax" })).text, /Held by: library \{topic:"moves", name:"parallax-stack"\}/);
   assert.equal((await agent("library", { topic: "moves", name: "no-such-thing" })).isError, true);

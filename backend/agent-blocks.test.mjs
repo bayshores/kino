@@ -275,9 +275,20 @@ test("place {around} sets a word beside the marked subject of the shot under it 
     { op: "place", layers: ["edge-word"], around: "subject", side: "split" },
   ] });
   assert.equal(edge.isError, undefined, edge.text);
-  assert.match(edge.text, /size 380 → 36 px to fit the room · the room here fits \d+ px, under the 33 px the type size check reads; right has the most room \(\d+×972, keeps \d+ px\): edit \{\\"ops\\":\[\{\\"op\\":\\"place\\",\\"layers\\":\[\\"edge-word\\"\],\\"around\\":\\"subject\\",\\"side\\":\\"right\\"\}\]\}/);
+  // place only shrinks: the call gives the text back its words and size and takes the split part away first.
+  const offer = edge.text.match(/size 380 → 36 px to fit the room · the room here fits \d+ px, under the 33 px the type size check reads; right has the most room \(\d+×972, keeps (\d+) px\): edit \{\\"ops\\":\[\{\\"op\\":\\"update_layer\\",\\"layer\\":\\"edge-word\\",\\"properties\\":\{\\"text\\":\\"KILL YOU\\",\\"fontSize\\":380\}\},\{\\"op\\":\\"delete_layer\\",\\"layer\\":\\"edge-word-2\\"\},\{\\"op\\":\\"place\\",\\"layers\\":\[\\"edge-word\\"\],\\"around\\":\\"subject\\",\\"side\\":\\"right\\"\}\]\}/);
+  assert.ok(offer, edge.text);
   assert.match(edge.text, /mark_subject shot: .*crop_no_subject: not flagged for this layer in the check just now/);
   assert.match(edge.text, /room left \d+×972, right \d+×972/);
+  const right = await agent("around-place", "edit", { ops: [
+    { op: "update_layer", layer: "edge-word", properties: { text: "KILL YOU", fontSize: 380 } },
+    { op: "delete_layer", layer: "edge-word-2" },
+    { op: "place", layers: ["edge-word"], around: "subject", side: "right" },
+  ] });
+  assert.equal(right.isError, undefined, right.text);
+  const moved = await saved("around-place");
+  assert.equal(findLayer(moved, "edge-word").fontSize, Number(offer[1]));
+  assert.equal(findLayer(moved, "edge-word-2"), undefined);
   // A face mark alone stands for a person: the box runs down to the picture's bottom, so no room below.
   const face = await agent("around-place", "edit", { ops: [
     { op: "add_layer", layerType: "video", name: "talk", properties: { src: "/api/media/00000000-0000-4000-8000-000000000001.mp4", x: 0, y: 0, width: 1920, height: 1080 } },

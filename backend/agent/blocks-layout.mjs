@@ -74,6 +74,8 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, 
       const frame = { width: scene.width, height: scene.height };
       const safe = safeArea(frame);
       const bounds = { x0: safe.x, y0: safe.y, x1: safe.x + safe.width, y1: safe.y + safe.height };
+      // As they were before this place: the offered side call puts them back first (it never grows type).
+      const was = layers.map((layer) => ({ text: layer.text, fontSize: layer.fontSize, width: layer.width, height: layer.height }));
       let placed;
       try {
         placed = placeAroundSubject(scene, layers, target.box, { fonts, scenes: document.scenes, gap: gapOf(operation, scene), bounds, side: operation.side,
@@ -92,8 +94,17 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, 
       const readable = Math.ceil(layers.some((layer) => layer.role === "headline") ? limits.headline : limits.body);
       if (placed.fitted < readable) {
         const best = roomSides(placed.room, placed.ink, placed.smallest).find((entry) => entry.side !== placed.side);
-        if (best && best.fits > placed.fitted)
-          sized += ` · the room here fits ${placed.fitted} px, under the ${readable} px the type size check reads; ${best.side} has the most room (${best.width}×${best.height}, keeps ${best.fits} px): edit ${JSON.stringify({ ops: [{ op: "place", layers: operation.layerIds, around: operation.around, side: best.side }] })}`;
+        if (best && best.fits > placed.fitted) {
+          // place only shrinks, so the call first gives each layer back its text, size and box, and
+          // takes the split's second part away; then the whole text goes to that side.
+          const restore = layers.flatMap((layer, index) => {
+            const properties = Object.fromEntries(Object.entries(was[index]).filter(([field, value]) => value !== undefined && layer[field] !== value));
+            return Object.keys(properties).length ? [{ op: "update_layer", layer: operation.layerIds[index], properties }] : [];
+          });
+          const part = placed.splitId ? [{ op: "delete_layer", layer: placed.splitId }] : [];
+          const again = { op: "place", layers: operation.layerIds, around: operation.around, side: best.side, ...(operation.at !== undefined ? { at: operation.at } : {}), ...(operation.gap !== undefined ? { gap: operation.gap } : {}) };
+          sized += ` · the room here fits ${placed.fitted} px, under the ${readable} px the type size check reads; ${best.side} has the most room (${best.width}×${best.height}, keeps ${best.fits} px): edit ${JSON.stringify({ ops: [...restore, ...part, again] })}`;
+        }
       }
       // Over the hold: how far the subject's box moves, and the worst moment's covered share.
       const moments = target.moments ?? [];
