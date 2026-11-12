@@ -35,6 +35,8 @@ const SEEN_AS = {
   repeat: ["beat-repeat"], stutter: ["beat-repeat"], "replay on beats": ["beat-repeat"], "repeat on beats": ["beat-repeat"], echo: ["beat-repeat", "inward-echoes"],
   glitch: ["glitch", "smear", "rgb-split-hit", "rgb-shift"], "glitch transition": ["smear", "glitch", "shatter"],
   smear: ["smear", "whip-pan"], drag: ["smear"], "pixel drag": ["smear"], datamosh: ["smear"], mosh: ["smear"],
+  mosaic: ["mosaic-reveal", "mosaic"], "pixel grid": ["mosaic-reveal"], cells: ["mosaic-reveal"], blocks: ["mosaic-reveal"], tiles: ["mosaic-reveal"],
+  "pixelate reveal": ["mosaic-reveal"], "pixel reveal": ["mosaic-reveal"], "mosaic reveal": ["mosaic-reveal"],
   shatter: ["shatter"], shattered: ["shatter"], glass: ["shatter", "fluted-glass"], "broken glass": ["shatter"], break: ["shatter"], shards: ["shatter"],
   "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
   "split screen": ["split-screen"], splitscreen: ["split-screen"], "side by side": ["split-screen"], panes: ["split-screen"], composite: ["split-screen", "picture-in-picture"],

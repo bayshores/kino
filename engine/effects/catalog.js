@@ -25,6 +25,7 @@ import { PARTICLE_EFFECTS } from "./particles.js";
 import { FINISH_EFFECTS } from "./finish.js";
 import { OVERLAY_EFFECTS } from "./overlays.js";
 import { FIELD_EFFECT } from "./field.js";
+import { MOSAIC_EFFECT } from "./mosaic.js";
 import { copyContent } from "./svg.js";
 import { compileExpression, ExpressionError } from "../expression.js";
 
@@ -253,6 +254,8 @@ const definitions = [
   FIELD_EFFECT,
   // Glow, light rays and lens flare (light.js).
   ...LIGHT_EFFECTS,
+  // Flat-colored cells that build, merge and resolve to the picture (mosaic.js).
+  MOSAIC_EFFECT,
 ];
 
 // Mix below 1 draws the layer as it was under the effect's result: (1 - mix) of one plus mix of
