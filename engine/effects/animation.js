@@ -40,8 +40,11 @@ export function defaultHold(key, duration, { peak, return: back, to } = {}) {
 // falls back over the landing shot.
 export const DEFAULT_PEAK = 0.35;
 // Export frame times drift up to 1 ms below n / fps (playback.js MEDIA_SAMPLE_TOLERANCE), so a
-// window ending on a frame counts as ended on that frame.
+// window ending on a frame counts as ended on that frame, and one starting on a frame counts as
+// started there (as a Show at that time does, visibilityOps.js): an impact-silhouette's ink keyed
+// with its Show at 4.7 s missed export frame 141 (4.6999953 s) and drew the color figure.
 const RELEASE_TOLERANCE = 1e-3;
+const START_TOLERANCE = 1e-3;
 
 // An effect with peak (0.05 to 0.95) or return: true rises from From to To by the peak and falls
 // back to From by the end of its window, so one animation is a pulse instead of two. A ranged
@@ -212,7 +215,7 @@ export function effectsAt(layer, time) {
   for (const { operation } of ordered) {
     const effect = effectDefinition(operation.effect);
     if (effect.kind === "value") {
-      if (clock < operation.start) continue;
+      if (clock < operation.start - START_TOLERANCE) continue;
       const earlier = previous.get(effect.key);
       const baseline = earlier && !released(earlier.operation, operation.start)
         ? sample(earlier.operation, effect, earlier.from, operation.start).parameters : effectDefaults(effect.key, { neutral: true });
@@ -222,7 +225,7 @@ export function effectsAt(layer, time) {
       active.push(released(operation, clock) ? null : sample(operation, effect, from, clock));
     } else {
       const hold = operation.keepStill ?? "both";
-      if (clock < operation.start && !["start", "both"].includes(hold)) continue;
+      if (clock < operation.start - START_TOLERANCE && !["start", "both"].includes(hold)) continue;
       if (clock >= operation.start + operation.duration && !["end", "both"].includes(hold)) continue;
       active.push(sample(operation, effect, { ...operation.to, ...operation.from }, clock));
     }

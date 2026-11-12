@@ -120,6 +120,11 @@ test("hold:false returns a value effect to rest on its end frame; short blurs de
   // A two-frame smear (25 fps): blurred on its frames, gone from 0.08 s, also on a frame drifting 1 ms early.
   const smear = operation("smear", "directional-blur", { duration: 0.08, from: { length: 120 }, to: { length: 120 }, hold: false });
   assert.deepEqual([0, 0.04, 0.0795, 0.08, 1].map((time) => effectsAt(layerWith([smear]), time).length), [1, 1, 0, 0, 0]);
+  // Started on its first export frame too, which drifts up to 1 ms early (frame 141 at 30 fps is
+  // 4.6999953 s): a one-frame ink keyed with a Show at 4.7 s drew nothing on that frame before.
+  const ink = operation("ink", "duotone", { start: 4.7, duration: 0.033, keepStill: "off" });
+  const late = operation("late", "bulge", { start: 4.7, duration: 0.033 });
+  assert.deepEqual([4.6985, 4.6999953, 4.7].map((time) => effectsAt(layerWith([ink, late]), time).length), [0, 2, 2]);
   assert.equal(Object.hasOwn(operation("kept", "directional-blur", { hold: true }), "hold"), false, "true is the old behavior, not stored");
   assert.equal(effectsAt(layerWith([operation("kept", "directional-blur", { duration: 0.08, to: { length: 120 } })]), 1)[0].parameters.length, 120);
   assert.throws(() => operation("ranged", "glow", { hold: false }), /value effects/);

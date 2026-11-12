@@ -208,6 +208,7 @@ test("impact-silhouette draws plate, rays, ticks, lines and the inked cut-out fo
   assert.match(notes, /matte at 1 s: covers 40% of the frame, head box inside: no \(face scan\), outline on the frame edge or a straight line: 60%: does not read as a figure \(a straight edge/);
   assert.match(notes, /nearest time in this shot that reads as a figure: 1\.5 s .*head box inside: yes \(face scan\).*: at:1\.5/);
   assert.match(notes, /12 rays to 0\.45 of the shorter side \(default count and length: starting guesses\)/);
+  assert.match(notes, /silhouette in the ink on 2 of 2 frames at 30 fps, 2 of 2 frames at 25 fps, 2 of 2 frames at 24 fps \(render frame times\)/);
   // Drawn footage: no face found is not "no head" (the shape decides), and a pose head counts.
   const drawn = (rows) => run({}, 1.5, { samples: () => rows }).notes.join("; ");
   assert.match(drawn([{ t: 1.5, faces: [] }]), /head box inside: none marked or found near .*: reads as a figure/);
@@ -271,6 +272,11 @@ test("impact-silhouette renders: the cut-out flat white on a black plate for its
   const at = (data, x, y) => [...data.subarray((y * W + x) * 4, (y * W + x) * 4 + 3)];
   const hit = new Resvg(renderSceneSvg(scene, 1.02)).render().pixels;
   for (const [x, y] of [[80, 55], [80, 20]]) assert.deepEqual(at(hit, x, y), [255, 255, 255], `figure ${x},${y} is the ink`);
+  // The first frame of a 30 fps render is sampled just below 1 s: the figure is the ink there too.
+  const { exportFrameTime } = await import("./exportOptions.js");
+  assert.ok(exportFrameTime(30, 30) < 1);
+  const first = new Resvg(renderSceneSvg(scene, exportFrameTime(30, 30))).render().pixels;
+  for (const [x, y] of [[80, 55], [80, 20]]) assert.deepEqual(at(first, x, y), [255, 255, 255], `first frame: figure ${x},${y} is the ink`);
   for (const [x, y] of [[2, 2], [10, 80], [150, 40]]) assert.deepEqual(at(hit, x, y), [0, 0, 0], `${x},${y} off the figure is the plate`);
   // Every pixel is ink or plate (edges blend the two): no picture shows through.
   let mixed = 0;

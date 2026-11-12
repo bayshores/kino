@@ -20,6 +20,9 @@
 // time inside the shot that reads as one, with its at: a fact and an offer, it still draws.
 import { createLayer } from "../../model.js";
 import { subjectsIn } from "../../footage/layout.js";
+import { effectsAt, normalizeEffectAnimation } from "../../effects/animation.js";
+import { exportFrameTime } from "../../exportOptions.js";
+import { visibleByOperations } from "../../visibilityOps.js";
 import { hslToHex, shotHue } from "./backdrop.js";
 import { CURVES, effect, hide, mix, motion, round, show } from "./kit.js";
 
@@ -134,6 +137,24 @@ function seeded(seed) {
     value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * On the export's own frame times (they drift up to 1 ms below n / fps), how many frames at `fps`
+ * show the silhouette (its Show and Hide) and on how many of them its ink effect is drawn:
+ * {shown, inked}. The fact the move prints, so a figure in its own colors on the plate is seen
+ * without a look (round 5: white on 2 of 6 impact frames).
+ */
+export function inkedFrames(ink, on, off, fps = 30) {
+  const layer = createLayer("rectangle", { animations: [normalizeEffectAnimation({ id: "ink", ...ink }), { id: "on", ...on }, { id: "off", ...off }] });
+  let shown = 0, inked = 0;
+  for (let index = Math.max(0, Math.floor(on.start * fps) - 1); index <= Math.ceil(off.start * fps) + 1; index += 1) {
+    const time = exportFrameTime(index, fps);
+    if (!visibleByOperations(layer.animations, time)) continue;
+    shown += 1;
+    if (effectsAt(layer, time).length) inked += 1;
+  }
+  return { shown, inked };
 }
 
 const point = (cx, cy, angle, radius) => `${round(cx + Math.cos(angle) * radius, 1)} ${round(cy + Math.sin(angle) * radius, 1)}`;
@@ -302,12 +323,16 @@ export const impactSilhouette = {
     parts.push(figure);
     const tone = input.tone ?? "flat";
     const dark = mix(ink, plate, 0.6);
-    ctx.animate(figure, "ink", effect({ name: `Impact ${tone}`, effect: "duotone", start: t, duration: end - t, easing: [0, 0, 1, 1],
-      to: tone === "flat" ? { shadowColor: ink, highlightColor: ink, midpoint: 0.5, contrast: 1, normalize: false } : { shadowColor: dark, highlightColor: ink, midpoint: 0.5, contrast: 4, normalize: true }, keepStill: "off" }));
+    const inkAnimation = effect({ name: `Impact ${tone}`, effect: "duotone", start: t, duration: end - t, easing: [0, 0, 1, 1],
+      to: tone === "flat" ? { shadowColor: ink, highlightColor: ink, midpoint: 0.5, contrast: 1, normalize: false } : { shadowColor: dark, highlightColor: ink, midpoint: 0.5, contrast: 4, normalize: true }, keepStill: "off" });
+    ctx.animate(figure, "ink", inkAnimation);
     for (const part of parts) {
       ctx.animate(part, "on", show(t));
       ctx.animate(part, "off", hide(end));
     }
+    // Measured on the render's own frame times: the frames that show the silhouette and draw it in the ink.
+    const counted = [30, 25, 24].map((fps) => ({ fps, ...inkedFrames(inkAnimation, show(t), hide(end), fps) }));
+    ctx.note(`silhouette in the ink on ${counted.map(({ fps, shown, inked }) => `${inked} of ${shown} frames at ${fps} fps`).join(", ")} (render frame times)`);
     const why = input.frames === undefined && frames === asked ? ", the default: the studied hits hold 1 frame at 24 to 25 fps (0.04 s), and 2 at 30 fps (0.067 s) keep one in a render at 15 fps or more" : "";
     ctx.note(`impact frame ${round(t, 3)} to ${end} s (${frames} frame${frames === 1 ? "" : "s"}${why}): ${tone} silhouette ${ink} on ${plate}${drawn.length ? `, ${drawn.join(", ")}` : ""}; then ${footage.id}'s own frame`);
     return { end, tags: ["flash"] };
