@@ -94,7 +94,7 @@ const abilityCache = new Map();
  * reason it cannot (a sentence), plus {helper, macOS} when the helper ran.
  */
 export async function measureAbilities() {
-  const none = (reason) => ({ flow: reason, text: reason, print: reason, saliency: reason, people: reason });
+  const none = (reason) => ({ flow: reason, text: reason, print: reason, saliency: reason, people: reason, foreground: reason });
   if (process.env.KINO_MEASURE_HELPER === HELPER_OFF) return none("Apple Vision is turned off (KINO_MEASURE_HELPER=none)");
   if (process.platform !== "darwin" && !process.env.KINO_MEASURE_HELPER) return none("Apple Vision is only on macOS");
   const helper = await measureHelperPath();
@@ -117,6 +117,8 @@ export async function measureAbilities() {
     saliency: info.saliency ? true : "saliency is missing",
     // false on macOS before 12; undefined from a helper built before people were found.
     people: info.people === true ? true : info.people,
+    // The subject mask's boxes (foreground): false before macOS 14, undefined from an older helper.
+    foreground: info.foreground === true ? true : info.foreground,
     // The sound classifier (--sounds): false before macOS 12, undefined from an older helper.
     sounds: info.sounds === true ? true : info.sounds,
     helper, macOS: info.macOS,

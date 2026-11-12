@@ -289,7 +289,9 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     // A has a small face (and a smaller one on some frames); B has where the eye goes, no face.
     return { t, luma: shot === "D" ? 0.05 : 0.5, change: shot === "B" || shot === "C" ? 0.01 : 0.1, motion: null,
       faces: shot === "A" ? [[0.4, 0.3, 0.2, 0.3], ...(index % 2 ? [[0.8, 0.1, 0.05, 0.05]] : [])] : [],
-      ...(shot === "B" ? { saliency: [[0.1, 0.2, 0.5, 0.6]] } : {}), ...(shot === "D" ? { people: [[0.1, 0.5, 0.08, 0.19]] } : {}),
+      ...(shot === "B" ? { saliency: [[0.1, 0.2, 0.5, 0.6]] } : {}), people: shot === "D" ? [[0.1, 0.5, 0.08, 0.19]] : [],
+      // The subject mask boxes A's face and shoulders: on live footage the body detector alone decides.
+      foreground: shot === "A" ? [[0.3, 0.2, 0.4, 0.8]] : [],
       text: shot === "E" ? [{ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" }] : [] };
   });
   let sheetStills = null;
@@ -323,6 +325,7 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     assert.match(shotLine("F1", scan.shots[1]), /^F1\.3 1:06\.0-1:08\.0 2\.0s motion \d+ light 13 face 0 wide \(figure 19% high, left, room 98%\) dark$/);
     // The figure (whole-body box) is saved with the shot, and the scan says people were read.
     assert.deepEqual([scan.shots[1].figure, scan.vision.people], [{ box: [0.1, 0.5, 0.08, 0.19], share: 0.015, seen: 1 }, true]);
+    assert.equal(scan.shots[0].figure, null);
     assert.match(shotLine("F1", scan.shots[0]), /^F1\.1 1:00\.0-1:02\.0 2\.0s motion \d+ light 128 face 100 \(middle, 6% of frame\) close \(face 30% high, middle, room 94%\)$/);
     assert.match(shotLine("F1", scan.shots[2]), / light 128 face 0 salient \(middle, 30% of frame\)$/);
     assert.deepEqual(scan.shots[0].subject, { kind: "face", box: [0.4, 0.3, 0.2, 0.3], share: 0.06 });
@@ -400,6 +403,11 @@ test("framing facts: a small figure in a wide frame, a pan, a close face; filter
   assert.deepEqual(ns({ moving: ["still", "subject"] }), [1, 3, 4]);
   // A shot kept from an older scan has no movement measure: counted, not silently dropped.
   assert.equal(narrowShots([...shots, { n: 5, start: 8, end: 9, motion: 10 }], { moving: "still" }).line, "Filter moving:still: 2 of 5 shots. 1 kept no movement measure and are left out.");
+  // Nor did it read figures: figure:false never counts it as having none.
+  assert.equal(narrowShots([...shots, { n: 5, start: 8, end: 9, motion: 10 }], { figure: false }).line, "Filter figure:false: 2 of 5 shots. 1 have no figure measure (kept from an older scan, or no frame of the shot read figures) and are left out.");
+  // Figures are read every other frame: a 0.25 s shot between two of them read none, which is no "no figure".
+  const everyOther = frames.map((frame, index) => (index % 2 ? (({ people, ...rest }) => rest)(frame) : frame));
+  assert.equal(shotFacts(0.25, 0.5, everyOther).figure, undefined);
   assert.deepEqual(ns(undefined, "wide"), [1, 3, 2, 4]);
   assert.deepEqual(ns(undefined, "close"), [2, 3, 1, 4]);
   assert.equal(narrowShots(shots, { room: 70 }).line, "Filter room:70: 2 of 4 shots. 1 have no figure or face box and are left out.");
@@ -425,12 +433,15 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     const text = [...(shot === 4 || shot === 9 ? [] : logo(k)), { box: [0.8, 0.95, 0.18, 0.02], s: `(c) studio ${k}` }];
     if ((shot === 3 || shot === 7) && k === 0) text.push({ box: [0.4, 0.88, 0.2, 0.05], s: "Behind you!" });
     if (shot === 11) text.push({ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" });
-    return { t: index / 4, luma: 0.5, change: 0.1, motion: null, faces: shot === 5 ? [[0.4, 0.3, 0.2, 0.3]] : [], text };
+    // The body detector finds nobody on the drawings; the subject mask boxes a small figure on 3 of
+    // shot 6's 4 frames.
+    const foreground = shot === 6 && k < 3 ? [[0.348, 0.515, 0.079, 0.411]] : [];
+    return { t: index / 4, luma: 0.5, change: 0.1, motion: null, faces: shot === 5 ? [[0.4, 0.3, 0.2, 0.3]] : [], people: [], foreground, text };
   });
   const tools = {
     probe: async () => ({ duration: 12, width: 640, height: 360 }),
     findShots: async () => ({ shots: Array.from({ length: 12 }, (_, index) => ({ start: index, end: index + 1 })) }),
-    measure: async () => ({ samples, vision: { faces: true, text: true, flow: false } }),
+    measure: async () => ({ samples, vision: { faces: true, text: true, flow: false, people: true, foreground: true } }),
     stills: async (file, times) => times.map((time) => `still-${Math.floor(time)}`),
     sheet: async (stills, out) => { await writeFile(out, "jpg"); },
   };
@@ -458,7 +469,12 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.deepEqual([scan.matchShown, scan.shots[0].n], [true, 7]);
     const text = scanText({ code: "F1", title: "Fight", license: "unknown" }, scan);
     assert.match(text, /\nNote: a mark is burned into this clip's bottom-right and top-left \(on every shot\)\. Pick a clean clip \(marked ones list last\), or crop it out; the import answer gives the numbers\.\nFaces: not read on drawn footage\./);
-    assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ light 128 match \+3\.3\n/);
+    // The subject mask gives the drawn figure the body detector missed: its box, height and room,
+    // said as "figure mask"; figure:true finds the shot.
+    assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ light 128 wide \(figure mask 41% high, bottom, room 97%\) match \+3\.3\n/);
+    const byN = Object.fromEntries(scan.shots.map((shot) => [shot.n, shot.figure]));
+    assert.deepEqual([byN[7], byN[3], byN[1]], [{ box: [0.348, 0.515, 0.079, 0.411], share: 0.032, seen: 0.75, by: "mask" }, null, null]);
+    assert.deepEqual(narrowShots(scan.shots, { figure: true, scale: "wide" }).shots.map((shot) => shot.n), [7]);
     assert.equal(text.match(/burned into/g).length, 1);
     // The video with a logo lists after one without; a scan without the model says so; a miss says how close it came.
     assert.deepEqual(logoLast([{ code: "F1", scan: { logo: "top-left" } }, { code: "F2" }]).map((entry) => entry.code), ["F2", "F1"]);

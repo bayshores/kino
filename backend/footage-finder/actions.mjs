@@ -185,10 +185,10 @@ export function framingOf(shot) {
   if (!box) return null;
   const faceHeight = face ? face[3] : 0;
   const scale = faceHeight >= CLOSE_FACE ? "close" : faceHeight >= MEDIUM_FACE || (shot.figure && box[3] >= FIGURE_MEDIUM) ? "medium" : "wide";
-  return { by: shot.figure ? "figure" : "face", height: box[3], room: 1 - box[2] * box[3], place: placeName(box), scale };
+  return { by: shot.figure ? (shot.figure.by === "mask" ? "figure mask" : "figure") : "face", height: box[3], room: 1 - box[2] * box[3], place: placeName(box), scale };
 }
 
-/** "wide (figure 19% high, left, room 96%)": a shot's framing in the shots line. */
+/** "wide (figure 19% high, left, room 96%)": a shot's framing in the shots line ("figure mask": the subject mask's box, drawn footage). */
 const framingWords = ({ by, height, room, place, scale }) => `${scale} (${by} ${Math.max(1, Math.round(height * 100))}% high, ${place}, room ${Math.round(room * 100)}%)`;
 
 /**
@@ -265,7 +265,9 @@ export const SHOT_FILTERS = {
   longer: over(lengthOf, true),
   shorter: over(lengthOf, false),
   bigger: over(sizeOf, true),
-  figure: yesNo((shot) => Boolean(shot.figure)),
+  // A shot that never read figures (no figure key: kept from an older scan, or a shot shorter than
+  // the 0.5 s between frames that read them) is left out and counted, never read as "no figure".
+  figure: (value) => { const test = yesNo((shot) => Boolean(shot.figure))(value); return test && ((shot) => shot.figure !== undefined && test(shot)); },
   scale: oneOf((shot) => framingOf(shot)?.scale ?? null, ["wide", "medium", "close"]),
   height: heightBetween,
   room: over(roomOf, true),
@@ -317,12 +319,14 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined, { 
   const unframed = used.some((part) => /^(scale|height|room):/.test(part)) ? shots.filter((shot) => !framingOf(shot)).length : 0;
   // moving: a shot kept from an older scan, or one whose flow failed, has none.
   const unmoved = used.some((part) => part.startsWith("moving:")) ? shots.filter((shot) => !shot.moving).length : 0;
+  const unread = used.some((part) => part.startsWith("figure:")) ? shots.filter((shot) => shot.figure === undefined).length : 0;
   const parts = [
     `${used.length ? `Filter ${used.join(" ")}` : "No filter"}${order ? `, sorted by ${sort}` : ""}: ${out.length} of ${shots.length} shot${shots.length === 1 ? "" : "s"}.`,
     lightless ? `${lightless} kept no light (an older scan) and are left out.` : "",
     boxless ? `${boxless} have no face or salient box and are left out.` : "",
     unframed ? `${unframed} have no figure or face box and are left out.` : "",
     unmoved ? `${unmoved} kept no movement measure and are left out.` : "",
+    unread ? `${unread} have no figure measure (kept from an older scan, or no frame of the shot read figures) and are left out.` : "",
     unknown.length ? `Not measured, left out: ${unknown.join(", ")}.` : "",
     ignored.length ? `Not known, left out: ${ignored.join(", ")} (filter: ${Object.keys(SHOT_FILTERS).join(", ")}; sort: ${Object.keys(SHOT_SORTS).join(", ")}).` : "",
   ];
@@ -638,8 +642,9 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     // With no line heard (no captions, no listening), speech is unknown, never "nobody speaks".
     const view = narrowShots(result.shots, input.filter, input.sort, { unmeasured: {
       ...(lines.length ? {} : { speech: "no captions or listening in this scan" }),
-      // Figures (whole-body boxes) and how shots move need Vision's people and flow on this computer.
-      ...(result.vision?.people === true ? {} : { figure: "figures not read in this scan" }),
+      // Figures (whole-body boxes; on drawn footage the subject mask's too) and how shots move need
+      // Vision's people (or foreground) and flow on this computer.
+      ...(result.vision?.people === true || (result.drawn && result.vision?.foreground === true) ? {} : { figure: "figures not read in this scan" }),
       ...(result.vision?.flow === true ? {} : { moving: "no optical flow in this scan" }),
     } });
     const picks = importPicks({ shots: view.shots }, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);

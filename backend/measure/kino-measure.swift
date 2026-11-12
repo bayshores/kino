@@ -25,6 +25,10 @@
 //                   show (nose, eyes, ears), the highest one, a box around the head and the wrists,
 //                   for the people checks
 //                   (backend/footage/people.mjs)
+//   64  foreground  each subject that stands out from the background
+//                   (VNGenerateForegroundInstanceMaskRequest, macOS 14+): a box around each
+//                   instance's mask pixels, largest first. It finds drawn figures the body
+//                   detector misses (backend/footage-finder/score.mjs)
 // (Apple's image aesthetics score is left out on purpose: measured on kino's references, it called
 // 24 of 30 good screen-recording frames "utility" pictures, so it says nothing about design.)
 // For each picture, standard output gets one JSON line: {"i": n, "flow": …, "text": […], …}.
@@ -40,7 +44,7 @@ import Foundation
 import SoundAnalysis
 import Vision
 
-let version = "4"
+let version = "5"
 let gridColumns = 16
 let gridRows = 9
 
@@ -64,8 +68,10 @@ if arguments == ["--abilities"] {
     if #available(macOS 11.0, *) { flow = true }
     var people = false
     if #available(macOS 12.0, *) { people = true }
+    var foreground = false
+    if #available(macOS 14.0, *) { foreground = true }
     // Apple's sound classifier (SoundAnalysis, macOS 12+) for --sounds.
-    print("{\"version\":\"\(version)\",\"macOS\":\"\(osVersion())\",\"flow\":\(flow),\"text\":true,\"print\":true,\"saliency\":true,\"faces\":true,\"people\":\(people),\"sounds\":\(people)}")
+    print("{\"version\":\"\(version)\",\"macOS\":\"\(osVersion())\",\"flow\":\(flow),\"text\":true,\"print\":true,\"saliency\":true,\"faces\":true,\"people\":\(people),\"foreground\":\(foreground),\"sounds\":\(people)}")
     exit(0)
 }
 
@@ -218,6 +224,28 @@ func flowGrid(_ flow: CVPixelBuffer) -> [String: Any] {
     return ["cols": gridColumns, "rows": gridRows, "u": u, "v": v]
 }
 
+/// Each instance of a foreground instance mask (one byte a pixel: 0 background, else the
+/// instance's label) as [x, y, w, h] around its pixels, top-left origin, largest first.
+func instanceBoxes(_ mask: CVPixelBuffer) -> [[Double]] {
+    CVPixelBufferLockBaseAddress(mask, .readOnly)
+    defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
+    let w = CVPixelBufferGetWidth(mask), h = CVPixelBufferGetHeight(mask)
+    let stride = CVPixelBufferGetBytesPerRow(mask)
+    let base = CVPixelBufferGetBaseAddress(mask)!.assumingMemoryBound(to: UInt8.self)
+    var boxes: [UInt8: (Int, Int, Int, Int, Int)] = [:]
+    for y in 0..<h {
+        for x in 0..<w {
+            let label = base[y * stride + x]
+            if label == 0 { continue }
+            let b = boxes[label] ?? (x, y, x, y, 0)
+            boxes[label] = (min(b.0, x), min(b.1, y), max(b.2, x), max(b.3, y), b.4 + 1)
+        }
+    }
+    return boxes.values.sorted { $0.4 > $1.4 }.map { b in
+        [r3(Double(b.0) / Double(w)), r3(Double(b.1) / Double(h)), r3(Double(b.2 + 1 - b.0) / Double(w)), r3(Double(b.3 + 1 - b.1) / Double(h))]
+    }
+}
+
 let picture = UnsafeMutablePointer<UInt8>.allocate(capacity: pictureBytes)
 var jobs: UInt8 = 0
 var index = 0
@@ -341,6 +369,16 @@ while fread(&jobs, 1, 1, stdin) == 1 {
                     }
                 } catch { errors["people"] = error.localizedDescription }
             } else { errors["people"] = "finding people needs macOS 12 or later" }
+        }
+
+        if jobs & 64 != 0 {
+            if #available(macOS 14.0, *) {
+                let request = VNGenerateForegroundInstanceMaskRequest()
+                do {
+                    try handler.perform([request])
+                    line["foreground"] = request.results?.first.map { instanceBoxes($0.instanceMask) } ?? []
+                } catch { errors["foreground"] = error.localizedDescription }
+            } else { errors["foreground"] = "the subject mask needs macOS 14 or later" }
         }
 
         if !errors.isEmpty { line["errors"] = errors }
