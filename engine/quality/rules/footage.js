@@ -184,7 +184,8 @@ export function seenMark(layer, sourceLooks, from, to, shots = null) {
   // picture: a director's mark was refused although a look had shown a nearby second
   // (.scratch/ceiling/a/result.md friction 8). shots: the file's measured [{start, end}].
   const same = (Array.isArray(shots) ? shots : []).filter((shot) => shot.start <= to + 1e-6 && shot.end >= from - 1e-6);
-  return Object.values(sourceLooks ?? {}).some((look) => look?.src === layer.src
+  // also: files made from the looked-at one with the same picture (isolate_voice on a video).
+  return Object.values(sourceLooks ?? {}).some((look) => (look?.src === layer.src || (look?.also ?? []).includes(layer.src))
     && (look.at ?? []).some((at) => (at >= from - LOOK_REACH && at <= to + LOOK_REACH) || same.some((shot) => at >= shot.start - 1e-6 && at <= shot.end + 1e-6)));
 }
 

@@ -14,6 +14,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createDocument, createScene } from "../engine/model.js";
 import { createAgentClient } from "./agent/client.mjs";
+import { agentSession, parseProcessTable, processChain } from "./agent/agent-session.mjs";
 import { agentToolList } from "./agent/tool-sync.mjs";
 import { cleanKind, coveredLayers, createLiveAgents, layerWindow, NAMES, PALETTE } from "./agent/live.mjs";
 import { defaultSettings, mergeSettings } from "./agent/dashboard.mjs";
@@ -643,6 +644,21 @@ test("the kino command line sends one session per program that runs it, past she
   delete env.KINO_AGENT_SESSION;
   const mcpSession = execFileSync(process.execPath, ["--input-type=module", "-e", "import { agentSession } from './backend/agent/agent-session.mjs'; console.log(agentSession());"], { cwd: root, env, encoding: "utf8" }).trim();
   assert.equal(mcpSession, plain);
+});
+
+// Stems study 2026-11-12: `/usr/bin/time -p env ... kino edit` named the session after `time`, so
+// each call was a new crew member and the next call waited 2 minutes for the last one's hold.
+test("a per-call launcher above the kino command is walked past like a shell", () => {
+  const table = [
+    "  100     1 /Applications/agent", "  200   100 /bin/zsh -c kino edit", "  300   200 /usr/bin/time -p env MOTION_API_URL=x node bin/kino.mjs edit",
+    "  301   200 perl -e alarm shift; exec @ARGV 90 node bin/kino.mjs", "  400   100 /bin/zsh -c other", "  500   400 /usr/local/bin/other-agent",
+  ].join("\n");
+  assert.deepEqual(processChain(parseProcessTable(table), 300).map((entry) => `${entry.program}${entry.passes ? "" : "*"}`), ["time", "zsh", "agent*"]);
+  const env = {};
+  assert.equal(agentSession({ env, table, ppid: 300, platform: "darwin" }), "agent-100");
+  assert.equal(agentSession({ env, table, ppid: 301, platform: "darwin" }), "agent-100", "a perl one-liner launcher too");
+  assert.equal(agentSession({ env, table, ppid: 200, platform: "darwin" }), "agent-100", "the same agent without a launcher");
+  assert.equal(agentSession({ env, table, ppid: 500, platform: "darwin" }), "agent-500", "another agent keeps its own session");
 });
 
 // Review round 2: your answer to a stop on the dashboard ends the agent's turn, as your undo does,
