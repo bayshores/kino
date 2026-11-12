@@ -6,6 +6,7 @@ import { effectsAt } from "./effects/animation.js";
 import { smearLength } from "./effects/motionBlurs.js";
 import { renderEffectPreset } from "./effects/presets.js";
 import { calmLightAnimations } from "./effects/light.js";
+import { cutoutBorderSteps } from "./effects/glow.js";
 import { copyContent } from "./effects/svg.js";
 import { renderBackdropBlur, renderGlassBackdrop } from "./effects/backdrop.js";
 import { effectiveBoxStyle } from "./boxStyles.js";
@@ -495,6 +496,9 @@ function filterFor(layer, context, bounds = null, last = "") {
     // their direction (upstream resvg #949/#1081). Pre-map the vector so the
     // native rasterizer produces the browser's rotated/skewed/mirrored offset.
     const matrix = context.raster ? multiply(parentWorldMatrix(layer.parentId, context), layerMatrix(layer)) : null;
+    // A cut-out's shadows stay off the faded strip along its source picture's border (glow.js).
+    const border = layer.cutoutOf ? cutoutBorderSteps(finite(layer.width), finite(layer.height), "shadow-border") : [];
+    effects.push(...border);
     const paints = passes.map((pass, index) => {
       const tag = index ? `-${index}` : "";
       const shadowColor = withShadowAlpha(pass.color, 1);
@@ -509,7 +513,8 @@ function filterFor(layer, context, bounds = null, last = "") {
         `<feGaussianBlur in="SourceAlpha" stdDeviation="${fmt(Math.max(0, finite(pass.blur)) / 2)}" result="shadow-blur${tag}"/>` +
         `<feOffset in="shadow-blur${tag}" dx="${fmt(dx)}" dy="${fmt(dy)}" result="shadow-offset${tag}"/>` +
         `<feFlood flood-color="${escapeXml(shadowColor)}" flood-opacity="${pass === single ? shadowAlpha(pass.color) : shadowStrength(pass)}" result="shadow-color${tag}"/>` +
-        `<feComposite in="shadow-color${tag}" in2="shadow-offset${tag}" operator="in" result="shadow-paint${tag}"/>`,
+        `<feComposite in="shadow-color${tag}" in2="shadow-offset${tag}" operator="in" result="shadow-paint${tag}"/>` +
+        (border.length ? `<feComposite in="shadow-paint${tag}" in2="shadow-border" operator="in" result="shadow-paint${tag}"/>` : ""),
       );
       return `<feMergeNode in="shadow-paint${tag}"/>`;
     });
@@ -869,7 +874,9 @@ function effectContent(content, layer, state, context, paintBounds, drawnBounds 
       // The operation lets an effect read its settings at other moments (particle births).
       parameters: frame.parameters, time: frame.time, progress: frame.progress, operation: frame.operation,
       // layerType: pixel layers (video, image) have stair-stepped mattes that rim-light smooths.
+      // cutout: the layer is a cut_out copy, whose matte fades out along its box (glow.js).
       helpers: { defs: context.defs, id: (kind) => idFor(context, `effect-${kind}`), raster: context.raster, scene, layerType: state.type ?? layer.type,
+        cutout: Boolean(layer.cutoutOf),
         transform: multiply(context.rasterMatrix, multiply(parentWorldMatrix(state.parentId, context), layerMatrix(state))),
         clipSentinel: (matrix) => rasterClipBounds(state, context, matrix),
         // Loaded .cube LUTs by src, for the lut effect (see the `luts` option of renderSceneSvg).
@@ -1226,7 +1233,7 @@ function renderLayerAt(node, context, { maskContent = false, maskInvert = null }
     content = backdropContent(content, layer, state, context, { mediaContent: body });
     const painted = effectContent(content, layer, state, context, contentBounds(node, state, context), drawnContentBounds(node, state, context));
     content = painted.content;
-    const filtered = soft ? { ...state, blur: 0 } : state;
+    const filtered = soft || (layer.cutoutOf && !state.cutoutOf) ? { ...state, ...(soft ? { blur: 0 } : {}), cutoutOf: layer.cutoutOf } : state;
     filter = filterFor(filtered, context, hasFilterEffect(filtered) ? painted.bounds : null, maskInvert === "alpha" ? TO_BLACK : "");
     context.renderedBounds.set(layer.id, mappedBounds(expandEffectBounds(painted.bounds, state), layerMatrix(state)));
     context.drawnBounds.set(layer.id, mappedBounds(expandEffectBounds(painted.drawn ?? painted.bounds, state), layerMatrix(state)));
