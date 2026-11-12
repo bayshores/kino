@@ -469,11 +469,13 @@ test("agent service: set_font on a face that lacks a glyph sets it, draws that g
   assert.match((await agent("library", { topic: "fonts", search: "∞" })).text, /^fonts with "∞" \(glyphs checked\): Roboto 400 /);
 
   // like with no region: the answer names the lettering box it measured (the face marks run here too, with no rejects or other projects).
-  const { createCanvas } = await import("@napi-rs/canvas");
+  // The letters are set in a bundled face: a system face such as sans-serif is not on every computer.
+  const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
+  GlobalFonts.registerFromPath(path.resolve("assets/fonts/NotoSerif-700.woff2"), "Like Serif");
   const picture = createCanvas(900, 300);
   const drawing = picture.getContext("2d");
   drawing.fillStyle = "#182030"; drawing.fillRect(0, 0, 900, 300);
-  drawing.fillStyle = "#f4f0e8"; drawing.font = "bold 110px sans-serif"; drawing.fillText("STORM", 60, 200);
+  drawing.fillStyle = "#f4f0e8"; drawing.font = "110px 'Like Serif'"; drawing.fillText("STORM", 60, 200);
   const folder = await mkdtemp(path.join(tmpdir(), "kino-like-"));
   t.after(() => rm(folder, { recursive: true, force: true }));
   const file = path.join(folder, "title.png");
