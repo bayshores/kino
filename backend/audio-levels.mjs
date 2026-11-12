@@ -223,6 +223,8 @@ export const PEAK_METER = "ebur128=peak=true:metadata=1,aresample=192000,aformat
   "astats=metadata=1:reset=1:measure_perchannel=Peak_level:measure_overall=none,ametadata=mode=print:file=-";
 // The same 0.1 s peaks without the loudness meter (one layer alone, place_sounds' bed).
 export const PEAK_WINDOWS = PEAK_METER.slice(PEAK_METER.indexOf("aresample"));
+// Each window of PEAK_METER: 19200 samples at 192 kHz.
+const PEAK_WINDOW = 0.1;
 // Peaks this close (s) are one place: a loud stretch, not one place per 0.1 s.
 const PLACE_GAP = 0.3;
 
@@ -232,7 +234,15 @@ export function readPeakWindows(printed) {
   const windows = [];
   for (const line of String(printed).split("\n")) {
     const frame = line.match(/pts_time:(\S+)/);
-    if (frame) { window = { t: Math.round(Number(frame[1]) * 100) / 100, peak: -Infinity }; windows.push(window); continue; }
+    // A window whose time is not a number (a real 14 s mix measured from the server read NaN for
+    // every one, so each window over the ceiling was its own place) is placed by its count: each
+    // one is PEAK_WINDOW seconds of the mix, in order.
+    if (frame) {
+      const time = Number(frame[1]);
+      window = { t: Math.round((Number.isFinite(time) ? time : windows.length * PEAK_WINDOW) * 100) / 100, peak: -Infinity };
+      windows.push(window);
+      continue;
+    }
     if (line.startsWith("lavfi.r128.I=")) loudness = Number(line.slice("lavfi.r128.I=".length));
     else if (/^lavfi\.r128\.true_peaks?(?:_ch\d+)?=/.test(line)) truePeak = Math.max(truePeak, Number(line.split("=")[1]) || 0);
     else if (window && /^lavfi\.astats\.\d+\.Peak_level=/.test(line)) {
