@@ -812,6 +812,29 @@ function fixEffectName(word, fixes, field, layer, given) {
     { op: "add_animation", layer, effect: suggestions[0], ...(parameters ? { parameters } : {}) }, suggestions);
 }
 
+// An effect with start and end points (lightning: startX, startY, endX, endY, shares of the box)
+// sent as from:[x,y] and to:[x,y], at the top or in parameters, the way a two-point call is
+// usually written: the four fields (named in fixed). Points outside -0.5..1.5 are refused, since
+// they read as pixels.
+function fixEffectPoints(operation, fixes, layer) {
+  const definition = EFFECTS.find((effect) => effect.key === operation.effect);
+  if (!definition || !["startX", "startY", "endX", "endY"].every((key) => Object.hasOwn(definition.parameters, key))) return;
+  const point = (value) => Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
+  for (const [end, x, y] of [["from", "startX", "startY"], ["to", "endX", "endY"]]) {
+    const parameters = isRecord(operation.parameters) ? operation.parameters : null;
+    const where = point(parameters?.[end]) ? "parameters." : point(operation[end]) ? "" : null;
+    if (where === null) continue;
+    const value = where ? parameters[end] : operation[end];
+    if (value.some((share) => share < -0.5 || share > 1.5))
+      throw mistake(`${definition.key} ${where}${end} ${quote(value)}: points are shares 0..1 of the layer's box (${x}, ${y}), not pixels.`,
+        { op: "add_animation", layer, effect: definition.key, start: operation.start ?? 0, duration: operation.duration ?? 0.3, parameters: { startX: 0.2, startY: 0.5, endX: 0.8, endY: 0.5 } });
+    if (where) delete parameters[end];
+    else delete operation[end];
+    operation.parameters = { ...(isRecord(operation.parameters) ? operation.parameters : {}), [x]: value[0], [y]: value[1] };
+    fixes.push(`${where}${end} ${quote(value)} → ${x}, ${y}`);
+  }
+}
+
 // The receipt says in plain words what a "1 = unchanged" setting did (exposure 0.5: half as
 // bright), and what a signed text such as "+0.5 stop" was taken to mean (ceiling studies a and c:
 // 0.5 was meant as half a stop up and darkened the shot to near black).
@@ -886,6 +909,7 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
   // The name the op gives ({name:"Push", from, to}) is the animation's name too, not only its ID.
   const givenName = typeof operation.name === "string" && operation.name.trim() ? operation.name : undefined;
   if (typeof operation.effect === "string") operation.effect = fixEffectName(operation.effect, fixes, "effect", layer, operation.parameters);
+  fixEffectPoints(operation, fixes, layer);
   if (typeof operation.preset === "string" && operation.preset.startsWith("effect:")) {
     const key = fixEffectName(operation.preset.slice("effect:".length), [], "effect", layer);
     if (`effect:${key}` !== operation.preset) fixes.push(`preset ${quote(operation.preset)} → effect:${key}`);

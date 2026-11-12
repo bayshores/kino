@@ -100,6 +100,8 @@ const FIXED = [
   ["kind out with a preset", { op: "add_animation", layer: "box", preset: "preset-fade", kind: "out", start: 5, duration: 0.5 }, 'kind "out" → mode "out"'],
   ["kind exit inside add_layer", { op: "add_layer", layerType: "rectangle", name: "r14", animations: [{ preset: "preset-slide", kind: "exit", start: 5, duration: 0.5 }] }, 'kind "exit" → mode "out"'],
   ["kind effect with an effect", { op: "add_animation", layer: "box", effect: "glow", kind: "effect" }, 'kind "effect" dropped (an effect takes no kind)'],
+  ["two points as from and to", { op: "add_animation", layer: "box", effect: "lightning", start: 0, duration: 0.3, parameters: { from: [0.1, 0.5], to: [0.9, 0.4] } }, "parameters.to [0.9,0.4] → endX, endY"],
+  ["two points at the top", { op: "add_animation", layer: "box", effect: "lightning", start: 0, duration: 0.3, from: [0.1, 0.5], to: [0.9, 0.4] }, "from [0.1,0.5] → startX, startY"],
   ["kind naming the preset", { op: "add_animation", layer: "box", preset: "preset-fade", kind: "fade" }, 'kind "fade" dropped (a preset takes no kind)'],
   ["kind out beside from and to", { op: "add_animation", layer: "box", kind: "out", start: 5, duration: 0.5, from: { opacity: 1 }, to: { opacity: 0 } }, 'from/to → animation {kind:"out"}'],
   ["a src ending in a full stop", { op: "add_layer", layerType: "image", name: "pic", properties: { src: "/api/media/0123abcd-0000-4000-8000-000000000001.png." } },
@@ -220,6 +222,8 @@ const REFUSED = [
   ["motion-blur as an effect", { op: "add_animation", layer: "box", effect: "motion-blur" }, "shutterAngle:180"],
   ["radial-blur as an effect", { op: "add_animation", layer: "box", effect: "radial blur" }, "zoom-blur"],
   ["an unknown effect", { op: "add_animation", layer: "box", effect: "sparkle" }, 'unknown effect "sparkle". Did you mean sparks'],
+  ["an effect named as a move", { op: "move", name: "lightning", layer: "box", at: 1 }, "lightning is an effect, not a move"],
+  ["points in pixels", { op: "add_animation", layer: "box", effect: "lightning", from: [100, 500], to: [1800, 400] }, "shares 0..1 of the layer's box"],
   // Effect names guessed from plain words lead to the real grading effects (ceiling study a, FRICTION 5).
   ["color-correct as an effect", { op: "add_animation", layer: "box", effect: "color-correct" }, "color-grade"],
   ["brightness as an effect", { op: "add_animation", layer: "box", effect: "brightness" }, "color-grade"],

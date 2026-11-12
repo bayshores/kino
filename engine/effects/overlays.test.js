@@ -1,10 +1,11 @@
-// Speed lines, impact lines, film burn and invert: each draws what it says on the layer's pixels,
+// Speed lines, impact lines, film burn, invert and lightning: each draws what it says on the layer's pixels,
 // the same for the same seed and time, and amount or opacity 0 leaves the layer alone.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Resvg } from "@resvg/resvg-js";
 import { effectDefaults, effectDefinition } from "./catalog.js";
 import { linePaths } from "./overlays.js";
+import { lightningAt } from "./lightning.js";
 import { seenNames } from "../../backend/agent/seen-names.mjs";
 
 const W = 96, H = 54;
@@ -61,10 +62,39 @@ test("invert flips light and dark; keepHue keeps a red red", () => {
   assert.equal(draw("invert", { amount: 0 }, 0, red).output, red);
 });
 
+test("lightning: jagged bolts from the middle out with branches, re-drawn at rate, flash only when asked", () => {
+  const at = (time, parameters = {}) => lightningAt({ bounds: { x: 0, y: 0, width: 960, height: 540 }, parameters, time });
+  const first = at(0);
+  assert.equal(first.lines.length, 3 + 3 * 3, "3 bolts, 3 branches each");
+  const bolt = first.lines[0].points;
+  assert.ok(bolt.length > 30, "cut into many jagged points");
+  const [ax, ay] = bolt[0], [bx, by] = bolt.at(-1);
+  assert.ok(ax > 280 && ax < 680 && ay > 160 && ay < 380, "starts near the middle");
+  assert.ok(bx < 0 || bx > 960 || by < 0 || by > 540, "ends past an edge");
+  assert.deepEqual(at(0.05).lines[0].points, bolt, "the same drawing within one re-draw");
+  assert.notDeepEqual(at(0.09).lines[0].points, bolt, "rate 12 draws a new bolt");
+  assert.notDeepEqual(at(0, { seed: 4 }).lines[0].points, bolt);
+  const pinned = at(0, { startX: 0.1, startY: 0, endX: 0.9, endY: 1, branches: 0 }).lines;
+  assert.ok(pinned.every((line) => line.points[0][0] === 96 && line.points.at(-1)[1] === 540), "fixed ends: every strand between them");
+  assert.equal(first.flash, 0, "no flash unless set");
+  assert.equal(at(0, { flash: 0.8 }).flash, 0.8);
+  assert.equal(at(0.1, { flash: 0.8 }).flash, 0, "the flash lasts one re-draw");
+  // breaks cuts each line into dashes along the same path, about that share of it empty.
+  const broken = at(0, { breaks: 0.4, branches: 0, bolts: 1 }).lines, whole = at(0, { branches: 0, bolts: 1 }).lines[0].points;
+  assert.ok(broken.length > 5 && broken.every((dash) => whole.some(([px, py]) => px === dash.points[0][0] && py === dash.points[0][1])), "dashes on the bolt's own path");
+  const drawn = broken.reduce((sum, dash) => sum + dash.points.length - 1, 0) / (whole.length - 1);
+  assert.ok(drawn > 0.45 && drawn < 0.75, `about 60% drawn: ${drawn}`);
+  const { pixels } = draw("lightning", { thickness: 40 });
+  assert.ok(lit(pixels, () => true) > 60, "bright lines show over the layer");
+  assert.equal(draw("lightning", { opacity: 0 }).output, GRAY);
+});
+
 test("search finds them by the words a person uses", () => {
-  for (const [words, name] of [["speed lines", "speed-lines"], ["focus lines", "impact-lines"], ["film burn", "film-burn"], ["negative", "invert"], ["punch in", "punch-in"], ["camera shake", "shake"]])
+  for (const [words, name] of [["lightning", "lightning"], ["electric arc", "lightning"], ["bolt", "lightning"], ["thunder", "lightning"], ["speed lines", "speed-lines"], ["focus lines", "impact-lines"], ["film burn", "film-burn"], ["negative", "invert"], ["punch in", "punch-in"], ["camera shake", "shake"]])
     assert.ok(seenNames(words)[0]?.startsWith(name), `${words}: ${seenNames(words)[0]}`);
   // Common words inside a longer query lead nowhere: subtitles are not a burn, a pyramid is not an invert.
   for (const [words, name] of [["burn in subtitles", "film-burn"], ["slow zoom in", "punch-in"], ["inverted pyramid", "invert"], ["negative space", "invert"]])
     assert.ok(!seenNames(words).some((line) => line.startsWith(name)), `${words}: ${seenNames(words)}`);
+  // A bare arc is also the ellipse sweep preset and a curved path, so it does not lead to lightning.
+  assert.ok(!seenNames("arc shape").some((line) => line.startsWith("lightning")), `${seenNames("arc shape")}`);
 });

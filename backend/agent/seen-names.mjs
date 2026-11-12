@@ -68,7 +68,9 @@ const SEEN_AS = {
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   // Matching a reference's lettering: library {topic:"fonts", like} (GAPS item 1).
   "match font": ["set_font"], "font match": ["set_font"], "same font": ["set_font"], "identify font": ["set_font"], "dot matrix": ["set_font"], "pixel font": ["set_font"], "rounded font": ["set_font"],
-  electric: ["rim-light"],
+  // A bare "arc" is left out: it is also the ellipse sweep preset and a curved motion path.
+  electric: ["lightning", "rim-light"], lightning: ["lightning"], "lightning bolt": ["lightning"], "electric arc": ["lightning"], "electric arcs": ["lightning"],
+  bolt: ["lightning"], bolts: ["lightning"], thunder: ["lightning"], zap: ["lightning"], electricity: ["lightning"], spark: ["sparks", "lightning"],
   // Line art of footage (edge-lines) and a subject's edge as a drawn path (cut_out output "outline").
   edge: ["edge-lines", "rim-light", "cut_out"], edges: ["edge-lines", "rim-light", "cut_out"], "edge detect": ["edge-lines", "cut_out"], "find edges": ["edge-lines", "cut_out"],
   "line art": ["edge-lines", "cut_out"], contour: ["edge-lines", "cut_out"], contours: ["edge-lines", "cut_out"], sketch: ["edge-lines"], trace: ["trace_image", "cut_out", "edge-lines"],
@@ -111,12 +113,9 @@ const SEEN_AS = {
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
-const NO_MAKER = ["dirt texture", "paper texture", "lightning", "electric arc"];
+const NO_MAKER = ["dirt texture", "paper texture"];
 // Looks with no maker of their own that still have a way to build them from kino's parts.
-const NO_MAKER_HOW = {
-  lightning: "a jagged path layer (add_layer path) with the glow effect and a few quick opacity steps; sparks adds the specks",
-  "electric arc": "a jagged path layer (add_layer path) with the glow effect and a few quick opacity steps",
-};
+const NO_MAKER_HOW = {};
 export { SEEN_AS };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.

@@ -11,7 +11,7 @@ import { ruleTopicOf, seenNames } from "./seen-names.mjs";
 const HINTS = {
   grain: "film grain", vignette: "darker edges", duotone: "two-color grade, dark to light", tritone: "three-color grade: shadows, mids, highlights",
   "luma-highlight": "tint or boost the brightest parts", "rgb-shift": "red, green and blue split apart; where:edges fringes only the lines", "speed-lines": "thin streaks racing across",
-  "impact-lines": "wedges pointing in from the edges", "film-burn": "hot glow eating in from an edge", dithering: "retro dot-pattern posterize",
+  "impact-lines": "wedges pointing in from the edges", "film-burn": "hot glow eating in from an edge", lightning: "jagged glowing bolts, electric arcs", dithering: "retro dot-pattern posterize",
   "dot-grid": "picture drawn as a grid of dots, or a halftone in its shadows (keepPicture)", "noise-mask": "noise holes, a dissolve", pixelate: "big square pixels", "threshold-color": "hard two-tone cut at a brightness",
   invert: "negative", curves: "tone curves per channel", lut: "a .cube grade file", "hue-saturation": "turn hue, saturate, lighten", "white-balance": "warmer or cooler, tint",
   "color-wheels": "lift, gamma, gain by tone", "keep-color": "gray out all but one hue", "color-ranges": "shift one hue range", "color-look": "a ready-made grade",

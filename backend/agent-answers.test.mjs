@@ -315,7 +315,8 @@ test("library effects lists the whole catalog small, with a name gives its field
   for (const query of ["rounded corners", "jagged edges", "soft edges"]) assert.ok(!found(query, "vignette"), `${query}: ${searchGuide(query)}`);
   assert.match(searchGuide("brush"), /library \{topic:"fonts", search:"<the look: brush, handwritten, marker, stencil/);
   assert.match(searchGuide("letterbox"), /update_scene/);
-  assert.match(searchGuide("lightning").split("\n")[0], /^no kino name for "lightning" yet: build it from a jagged path layer/);
+  for (const query of ["lightning", "electric arc", "bolt"]) assert.ok(found(query, "lightning"), `${query}: ${searchGuide(query)}`);
+  assert.match(searchGuide("dirt texture").split("\n")[0], /^no kino name for "dirt texture" yet: build it from shapes/);
 });
 
 test("render start with wait:true answers with the checked file, or says it is still running", { skip: skipWithoutMediaTools }, async () => {
