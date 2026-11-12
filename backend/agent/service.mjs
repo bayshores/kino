@@ -63,7 +63,7 @@ import { exampleFor, moreExamplesFor, signatureFor } from "./op-examples.mjs";
 import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
-import { EFFECT_KEYS, effectDetailText, effectsListText, plainKey } from "./effects-help.mjs";
+import { EFFECT_KEYS, effectDetailText, effectsListText, nearestTools, plainKey } from "./effects-help.mjs";
 import { projectOutline } from "./outline.mjs";
 import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
@@ -370,9 +370,11 @@ export function searchGuide(search) {
   const ops = rank(allOps, (type) => type).slice(0, SEARCH_SHOWN);
   const topics = rank(guideTopics(), (entry) => `${entry.title}\n${entry.text}`.toLowerCase(), (entry) => `${entry.id} ${entry.title}`.toLowerCase());
   // What the words describe ("bloom", "subtitles"), as the kino names that make it (seen-names.mjs).
-  const names = seenNames(needle, { ops: [...allOps, ...AGENT_OPERATION_TYPES] });
+  const names = seenNames(needle, { ops: [...allOps, ...AGENT_OPERATION_TYPES], limit: 9 });
   const noMaker = names.length ? "" : noMakerLine(needle);
-  if (!ops.length && !topics.length && !names.length && !noMaker) return `Nothing mentions "${search}". library {topic:"rules"} lists every topic.`;
+  // No kino name for the words: the 3 tools nearest by what they do (not by how their names read).
+  const nearest = names.length || noMaker ? [] : nearestTools(needle).map(({ name, kind, says }) => `- ${name} (${kind === "move" ? `move {name:"${name}", …}` : `effect add_animation {layer, effect:"${name}"}`}): ${says}`);
+  if (!ops.length && !topics.length && !names.length && !noMaker && !nearest.length) return `Nothing mentions "${search}". library {topic:"rules"} lists every topic.`;
   // The sentence that holds the most of the words.
   const snippet = (text) => {
     let sentence = "", most = 0;
@@ -388,6 +390,8 @@ export function searchGuide(search) {
     noMaker,
     names.length ? "kino names for it:" : "",
     ...names,
+    nearest.length ? `no kino name for "${needle}"; nearest by what they do:` : "",
+    ...nearest,
     ops.length ? `ops: ${ops.join(", ")} (library {topic:"op", name})` : "",
     topics.length ? `topics (library {topic:"rules", name} reads one):` : "",
     ...lines,

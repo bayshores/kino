@@ -5,6 +5,7 @@
 // and tritone as missing.
 import { EFFECTS, MIX_DOCUMENTATION, fieldRange } from "../../engine/effects/catalog.js";
 import { restsAtZero, SHORT_EFFECT } from "../../engine/effects/animation.js";
+import { MOVES, MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 import { ruleTopicOf, seenNames } from "./seen-names.mjs";
 
 // What each effect is, in a few words (one line each; the fields come from the catalog itself).
@@ -12,7 +13,7 @@ const HINTS = {
   grain: "film grain", vignette: "darker edges", duotone: "two-color grade, dark to light", tritone: "three-color grade: shadows, mids, highlights",
   "luma-highlight": "tint or boost the brightest parts", "rgb-shift": "red, green and blue split apart; where:edges fringes only the lines", "speed-lines": "thin streaks racing across",
   "impact-lines": "wedges pointing in from the edges", "film-burn": "hot glow eating in from an edge", lightning: "jagged glowing bolts, electric arcs", dithering: "retro dot-pattern posterize",
-  "dot-grid": "picture drawn as a grid of dots, or a halftone in its shadows (keepPicture)", "noise-mask": "noise holes, a dissolve", pixelate: "big square pixels", "threshold-color": "hard two-tone cut at a brightness",
+  "dot-grid": "picture drawn as a grid of dots, or a halftone in its shadows (keepPicture)", "noise-mask": "noise holes, a dissolve", pixelate: "big square pixels (a pixel mosaic)", "threshold-color": "hard two-tone cut at a brightness",
   invert: "negative", curves: "tone curves per channel", lut: "a .cube grade file", "hue-saturation": "turn hue, saturate, lighten", "white-balance": "warmer or cooler, tint",
   "color-wheels": "lift, gamma, gain by tone", "keep-color": "gray out all but one hue", "color-ranges": "shift one hue range", "color-look": "a ready-made grade",
   glow: "bloom around bright parts or edges", "light-rays": "beams from a point", "lens-flare": "ghosts, rings and an anamorphic streak",
@@ -28,6 +29,29 @@ const HINTS = {
 // Catalog groups shown by what they do, in the order an agent most often needs them.
 const SECTIONS = [["Post FX", "finish, grades, graphic looks"], ["Color", "grades"], ["Light", "glow, rays, flares"], ["Blur", "blur and focus"],
   ["Generate", "particles, fog"], ["Distortion", "warp and pattern"], ["Utility", "grade, key, tiling, 3D"]];
+
+// Words that say nothing about what a tool does (a search for "make a shape fly in" is about "shape" and "fly").
+const NEAREST_SKIP = new Set(["the", "and", "for", "with", "from", "into", "that", "this", "make", "adds", "add", "look", "effect", "move", "text", "layer", "video", "frame", "shot", "picture"]);
+const stemOf = (word) => (word.length < 5 ? word : word.replace(/(ing|ed)$/, "").replace(/(ch|sh|x|ss)es$/, "$1").replace(/s$/, ""));
+const stemsOf = (text) => [...new Set((String(text).toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((word) => word.length > 2 && !NEAREST_SKIP.has(word)).map(stemOf))];
+
+/**
+ * The tools nearest to words that matched no kino name, by what they do (an effect's hint, a move's
+ * about and fits text), not by how their names read: [{name, kind, says}], best first, at most `limit`.
+ * A word counts for more the fewer tools mention it ("splash" says more than "shape").
+ */
+export function nearestTools(query, limit = 3) {
+  const asked = stemsOf(query);
+  if (!asked.length) return [];
+  const tools = [
+    ...EFFECTS.map((effect) => ({ name: effect.key, kind: "effect", says: HINTS[effect.key] ?? sameWords(effect.key), text: `${sameWords(effect.key)} ${HINTS[effect.key] ?? ""}` })),
+    ...MOVE_NAMES.map((name) => ({ name, kind: "move", says: MOVES[name].about.split(/[;:]/)[0].replace(/^(.{1,80})\s.*$/, (whole, head) => (whole.length > 80 ? `${head}…` : whole)), text: `${sameWords(name)} ${MOVES[name].about} ${MOVES[name].fits}` })),
+  ].map((tool) => ({ ...tool, words: new Set(stemsOf(tool.text)) }));
+  const rarity = (stem) => 1 / (tools.filter((tool) => tool.words.has(stem)).length || 1);
+  return tools.map((tool) => ({ ...tool, score: asked.reduce((sum, stem) => sum + (tool.words.has(stem) ? rarity(stem) : 0), 0) }))
+    .filter((tool) => tool.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, limit)
+    .map(({ name, kind, says }) => ({ name, kind, says }));
+}
 
 export const EFFECT_KEYS = EFFECTS.map((effect) => effect.key);
 export const plainKey = (name) => String(name ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-");
