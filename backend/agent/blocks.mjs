@@ -236,7 +236,7 @@ const OPERATIONS = {
   },
   match_references: {
     fields: ["sceneId", "layerId", "layerIds", "remove", "lower", "made"],
-    rules: 'match_references {scene?, layer? | layers?, remove?, lower?, made?}: places the made techniques your references\' labels name (else your deck\'s unused cards) on song cues and subject shots, each value printed, with the made share before and after (made:false none, made:[names] your own); and brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
+    rules: 'match_references {scene?, layer? | layers?, remove?, lower?, made?}: made:true also places the made techniques your references\' labels name (else your deck\'s unused cards) on song cues and subject shots, each value printed, with the made share before and after (made:[names] your own; left out, the receipt names what made:true would place); it brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
   },
   lift_dark: {
     fields: ["sceneId", "layerId", "layerIds", "target", "grain", "reduced", "remove"],
@@ -798,10 +798,12 @@ const TRANSLATE = {
     delete operation.layerId;
     if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the match grades off) or left out.");
     if (operation.lower !== undefined && typeof operation.lower !== "boolean") throw problem("lower is true (also bring shots brighter than every reference down) or left out.");
-    // made (made-match.mjs): left out or true places the references' made techniques, false none, a list those names.
-    if (operation.made === undefined) operation.made = true;
+    // made (made-match.mjs): true places the references' made techniques, a list those names, false none.
+    // Left out: none are placed and the receipt names what made:true would place ("offer"); with
+    // remove:true the made elements come off with the grades.
+    if (operation.made === undefined) operation.made = operation.remove === true ? true : "offer";
     else if (typeof operation.made !== "boolean" && !(Array.isArray(operation.made) && operation.made.length && operation.made.every((entry) => typeof entry === "string" && entry.trim())))
-      throw problem('made is true (the default: the references\' made techniques), false (exposure only) or a list of names such as ["embers", "glow"].');
+      throw problem('made is true (place the references\' made techniques), false (exposure only) or a list of names such as ["embers", "glow"].');
   },
   lift_dark(operation, resolver) {
     if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);

@@ -1,7 +1,6 @@
 # Captions, beats and sequences
 
-Captions from a file, a transcript or plain text; cues from the music's beats; several scenes
-played as one.
+Captions from a file, a transcript or plain text; cues from the music's beats; several scenes played as one.
 
 ## Captions, beats and sequences
 
@@ -25,15 +24,12 @@ played as one.
   note says which engine ran; if none finds a subject the title stays in front (`cutout.fallback`).
 - Word by word on one text layer: `add_animation` with `preset-custom-text` and `unit:"words"`,
   `stagger` (seconds between words), and `order` (forward, reverse, center-out, edges-in, random
-  with `orderSeed`), `smoothing` if needed (text layers only); a
-  custom animation's `delays` [s per word] times each word itself. Karaoke or word-pop timed to
+  with `orderSeed`), `smoothing` if needed (text layers only); a custom animation's `delays` [s per word] times each word itself. Karaoke or word-pop timed to
   speech: `move caption-words` with `highlight:"active"`, `entrance:"pop"` (the moves reference).
   Its type: `fontFamily`, `fontWeight`, `fill`, `accent` (said word), `saidOpacity`,
-  `unsaidOpacity` (0-1), `activeScale` (said word grows; over 1.1 crowds), `activeBackground`
-  (a box behind the said word).
+  `unsaidOpacity` (0-1), `activeScale` (said word grows; over 1.1 crowds), `activeBackground` (a box behind the said word).
 - Text that stays alive between its in and out: layer field `textLoop:{style: wave | float | pulse
-  | jitter, amount?, speed?, stagger?, unit?, seed?, ramp?}` (operations section text-loop).
-- Letter type, one text layer each (no layer per word or letter):
+  | jitter, amount?, speed?, stagger?, unit?, seed?, ramp?}` (operations section text-loop). - Letter type, one text layer each (no layer per word or letter):
   - A color entrance on letters (`preset-custom-text` color, or `move type-on` with `highlight`
     "#hex", `highlightFor` 0.07 s) lights the newest letter, then each letter settles to its own
     range fill: color one word with `style_text_range {text:"AGAIN", style:{fill}}`, not a layer.
@@ -86,8 +82,7 @@ played as one.
 - Sequences: build each part as its own scene (same size), then `add_sequence` makes one scene
   that plays them in order: `cut` (default), `crossfade`, `push`, `wipe`, `zoom`, `whip` (a
   push smeared by a directional blur) or `spin` (a turn under a spin blur), 0.5 s by default.
-  Each takes `ease`; wipe `softness` and the wipe settings (`shape` radial, iris, clock...; not in Lottie), zoom
-  `amount`, whip `blur`, spin `turn` and `blur` (library topic sequences).
+  Each takes `ease`; wipe `softness` and the wipe settings (`shape` radial, iris, clock...; not in Lottie), zoom `amount`, whip `blur`, spin `turn` and `blur` (library topic sequences).
   Render the sequence scene. Parts stay editable; the sequence follows them.
 
 ```json

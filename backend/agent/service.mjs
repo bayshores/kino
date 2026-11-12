@@ -154,7 +154,7 @@ import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
 import { matchReferences } from "./exposure-match.mjs";
-import { placeMade } from "./made-match.mjs";
+import { deckTechniques, labelTechniques, placeMade } from "./made-match.mjs";
 import { liftDark } from "./lift-dark.mjs";
 import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { shutterNote } from "./shutter-notes.mjs";
@@ -7046,7 +7046,7 @@ export function createAgentService(deps) {
 
   // match_references (the op, compose {footage} and check's auto fix): the saved references'
   // fingerprints, the scene's frames rendered as check renders them, and the grades as ops.
-  // made (the op's default, never compose's or check's): also the references' made techniques (made-match.mjs).
+  // made (the op with made:true or a list, never compose's or check's): also the references' made techniques (made-match.mjs).
   async function runMatch(document, { sceneId = null, layerIds = null, remove = false, lower = false, made = false } = {}) {
     const fonts = await fontsFor(document);
     const refs = deps.inspire?.savedFingerprints ? await deps.inspire.savedFingerprints(document.id).catch(() => []) : [];
@@ -7060,6 +7060,15 @@ export function createAgentService(deps) {
       name: (id) => (codes ? refName(id, codes) : id) });
     if (made === false) return exposure;
     const labeled = (await deps.inspire?.savedFingerprints?.(document.id, { labeled: true }).catch(() => [])) ?? [];
+    // Left out on the op: nothing made is placed; the receipt names what made:true would place.
+    if (made === "offer") {
+      const seen = labeled.filter((ref) => ref?.seen?.length);
+      const scene = sceneId ? exposure.document.scenes.find((entry) => entry.id === sceneId) : mainScene(exposure.document);
+      if (!scene) return exposure;
+      const names = (seen.length ? labelTechniques(seen) : deckTechniques(state?.deck ?? null, scene)).map((entry) => entry.name);
+      if (!names.length) return exposure;
+      return { ...exposure, lines: [...exposure.lines, `made: ${seen.length ? "your references' labels name" : "your deck's unused cards are"} ${names.slice(0, 8).join(", ")} (none placed). match_references {made:true} places them on song cues and subject shots with each value printed; made:["${names[0]}"] places your pick.`] };
+    }
     const placed = await placeMade(exposure.document, { sceneId, remove, refs: labeled, deck: state?.deck ?? null, names: Array.isArray(made) ? made : null,
       faces: await faceLayers(exposure.document, sceneId), fonts, runOps });
     return { ...exposure, document: placed.document, lines: [...exposure.lines, ...placed.lines], made: placed.placed };

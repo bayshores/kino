@@ -928,6 +928,9 @@ test("match_references grades only the shot outside the references' range, repla
   // layer (one) works as layers does, the way a first guess sends it.
   const [picked] = translateOperations([{ op: "match_references", layer: "dark", lower: true }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.layerId, picked.lower], [["dark"], undefined, true]);
+  // Made techniques are placed only when asked: left out, the receipt offers them; remove takes them off too.
+  const made = (fields) => translateOperations([{ op: "match_references", ...fields }], createResolver(document), document)[0].made;
+  assert.deepEqual([picked.made, made({ made: true }), made({ remove: true }), made({ made: ["embers"] })], ["offer", true, true, ["embers"]]);
 });
 
 test("match_references made: places the labeled references' made techniques on the song cue and the face shot, prints made share before and after, and the placed elements draw", async (t) => {

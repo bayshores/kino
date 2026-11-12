@@ -36,9 +36,9 @@ Contents: Color grading · Frame finish and letterbox · Filters · Changing an 
   (exposure only, `<layer>.match-ref`; compose does it unless `match:false`); by hand, `lift_dark`
   (below), not `gamma`: the `reference_range` fix for dark footage names `lift_dark {layer}`;
   color-wheels `gamma` is for bringing a picture down.
-- `match_references` as an op also places the made techniques your saved references' labels name (else your deck's unused cards) on song cues and subject shots; a cut-out one (cut_out,
-  energy-aura, rim-light) comes back as a ready edit call. `made:false` places none (exposure
-  only), `made:["embers", "glow"]` your own list. Each is `match-made-<n>`: `update_animation` or `update_layer` changes
+- `match_references {made:true}` also places the made techniques your saved references' labels name (else your deck's unused cards) on song cues and subject shots; a cut-out one (cut_out,
+  energy-aura, rim-light) comes back as a ready edit call. Left out, the receipt only names
+  them; `made:["embers", "glow"]` your own list. Each is `match-made-<n>`: `update_animation` or `update_layer` changes
   it, `remove:true` takes it off. The receipt ends 'made share X of N moments before, Y of N after;
   your references' made labels ...'; in 9:16 the card over its blurred copy takes the made
   element; an op the scene cannot take is listed under 'not placed' and the rest still land.
