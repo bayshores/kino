@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { scaleMatte } from "./cutout/cutout.mjs";
-import { createSteadier, feather, finishMatte, grow, matteMeasure, radialEdgeErrors, softCounts } from "./cutout/matte.mjs";
+import { createSteadier, fadeOpenEdges, feather, fillHoles, finishMatte, grow, matteMeasure, radialEdgeErrors, refineEdges, softCounts } from "./cutout/matte.mjs";
 
 // A disc of radius r centred at (cx, cy), anti-aliased over one pixel like a real matte.
 function disc(width, height, { cx, cy, r }) {
@@ -157,4 +157,44 @@ test("softCounts tells a half see-through body from a clean edge", () => {
   assert.deepEqual(softCounts(clean), { seen: 44, soft: 4 });
   const mushy = Uint8Array.from({ length: 100 }, (_, i) => (i < 40 ? (i % 2 ? 255 : 150) : i < 44 ? 20 : 0));
   assert.deepEqual(softCounts(mushy), { seen: 40, soft: 20 });
+});
+
+test("refineEdges turns an 8-pixel stair-stepped matte back into the picture's round edge", () => {
+  const width = 160, height = 120, centre = { cx: 80, cy: 60, r: 40 };
+  const truth = disc(width, height, centre);
+  // Vision's way: a mask found at 1/8 size, near-binary, scaled up with hard steps.
+  const blocky = new Uint8Array(width * height);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1)
+    blocky[y * width + x] = truth[(Math.floor(y / 8) * 8 + 4) * width + Math.floor(x / 8) * 8 + 4] >= 128 ? 255 : 0;
+  const guide = Uint8Array.from(truth, (value) => 30 + Math.round(value * 0.7));
+  const worst = (matte) => Math.max(...radialEdgeErrors(matte, width, height, centre, 64).map((ray) => Math.abs(ray.error)));
+  const refined = refineEdges(blocky, guide, width, height);
+  assert.ok(worst(blocky) > 3, `the blocky edge is off by ${worst(blocky)} px`);
+  assert.ok(worst(refined) < 1.5, `the refined edge is off by ${worst(refined)} px at most`);
+  assert.equal(refined[60 * width + 80], 255, "inside stays solid");
+  assert.equal(refined[5 * width + 5], 0, "outside stays empty");
+});
+
+test("fillHoles fills a small hole inside the subject and keeps the background and big gaps", () => {
+  const width = 40, height = 30;
+  const matte = new Uint8Array(width * height);
+  for (let y = 5; y < 25; y += 1) for (let x = 5; x < 35; x += 1) matte[y * width + x] = 255;
+  matte[15 * width + 12] = 0; matte[15 * width + 13] = 0; // a 2-pixel hole
+  for (let y = 10; y < 20; y += 1) for (let x = 20; x < 30; x += 1) matte[y * width + x] = 0; // a 100-pixel gap
+  const filled = fillHoles(matte, width, height, 0.05);
+  assert.equal(filled[15 * width + 12], 255);
+  assert.equal(filled[15 * width + 25], 0, "a gap over 5% of the picture stays");
+  assert.equal(filled[0], 0, "the background touching the border stays");
+  assert.equal(fillHoles(matte, width, height, 0.1)[15 * width + 25], 255);
+});
+
+test("fadeOpenEdges fades a subject cut by the frame to 0 at the border only", () => {
+  const width = 40, height = 40;
+  const matte = new Uint8Array(width * height);
+  for (let y = 10; y < height; y += 1) for (let x = 10; x < 30; x += 1) matte[y * width + x] = 255; // a bust cut by the bottom
+  const faded = fadeOpenEdges(matte, width, height, 8);
+  assert.ok(faded[39 * width + 20] < 20, "the bottom row is nearly clear");
+  assert.ok(faded[35 * width + 20] > 20 && faded[35 * width + 20] < 255, "it fades in over the width");
+  assert.equal(faded[20 * width + 20], 255, "the subject away from the border is untouched");
+  assert.deepEqual(finishMatte(matte, width, height, { openEdges: 8 }), faded);
 });

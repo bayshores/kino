@@ -333,8 +333,13 @@ export function feather(matte, width, height, pixels) {
  * the subject, so they run on the subject's bounding box with room for the change around it
  * (everything outside stays empty); a subject that fills a third of the frame costs a third.
  */
-export function finishMatte(matte, width, height, { grow: growBy = 0, feather: featherBy = 0 } = {}) {
-  if (!growBy && !featherBy) return matte;
+export function finishMatte(matte, width, height, { grow: growBy = 0, feather: featherBy = 0, openEdges = 0 } = {}) {
+  if (!growBy && !featherBy) return openEdges > 0 ? fadeOpenEdges(matte, width, height, openEdges) : matte;
+  const finished = finishBox(matte, width, height, growBy, featherBy);
+  return openEdges > 0 ? fadeOpenEdges(finished, width, height, openEdges) : finished;
+}
+
+function finishBox(matte, width, height, growBy, featherBy) {
   let left = width, right = -1, top = height, bottom = -1;
   for (let y = 0; y < height; y += 1) {
     const row = y * width;
@@ -359,6 +364,144 @@ export function finishMatte(matte, width, height, { grow: growBy = 0, feather: f
   if (featherBy) box = feather(box, boxWidth, boxHeight, featherBy);
   const out = new Uint8Array(matte.length);
   for (let y = 0; y < boxHeight; y += 1) out.set(box.subarray(y * boxWidth, (y + 1) * boxWidth), (top + y) * width + left);
+  return out;
+}
+
+/**
+ * Fades the matte to 0 over `pixels` pixels toward the picture's four borders (smoothstep), so a
+ * subject cut by the frame (a bust at the bottom, a head past the side) has no straight edge there:
+ * a rim, outline or glow made from it then follows only the subject's real outline. Returns a new
+ * matte. The cut_out default is DEFAULT_OPEN_EDGES of the short side.
+ */
+export function fadeOpenEdges(matte, width, height, pixels) {
+  checkSize(width, height);
+  const out = Uint8Array.from(matte);
+  if (!(pixels > 0)) return out;
+  const ramp = new Float32Array(Math.ceil(pixels) + 1);
+  for (let d = 0; d < ramp.length; d += 1) { const t = Math.min(1, (d + 0.5) / pixels); ramp[d] = t * t * (3 - 2 * t); }
+  const reach = ramp.length - 1;
+  for (let y = 0; y < height; y += 1) {
+    const dy = Math.min(y, height - 1 - y);
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) {
+      const d = Math.min(dy, x, width - 1 - x);
+      if (d >= reach) { if (x < width - 1 - reach) x = width - 2 - reach; continue; }
+      out[row + x] = Math.round(out[row + x] * ramp[d]);
+    }
+  }
+  return out;
+}
+
+// Edge clean-up defaults for every cut_out output (one cleaned matte, kept in the cache):
+// Vision's subject mask is made at a lower size and scaled up by the system, so a near-binary
+// edge shows stair steps 6 to 10 px tall at 1080p (measured in the cut-out studies, 2026-11). A
+// guided filter whose radius covers one step smooths them and pulls the edge onto the picture's
+// own luma edges. REFINE_RADIUS 8 is that step size; REFINE_EPS and REFINE_CONTRAST are guesses,
+// tuned by eye on the study frames (the edge stays about 4 px soft, no stair left).
+export const REFINE_RADIUS = 8;
+const REFINE_EPS = 0.004;
+const REFINE_CONTRAST = 2;
+// Holes up to this share of the picture inside the subject are filled (a face whose middle
+// Vision dropped for a frame). Guess: a hand-sized gap between an arm and a body is larger.
+export const HOLE_SHARE = 0.01;
+// The border fade for open edges, as a share of the picture's short side: 3% is 32 px at 1080p,
+// a little more than the 18 to 30 px glow radius the studies' rims used (guess from those values).
+export const DEFAULT_OPEN_EDGES = 0.03;
+
+/** Luma (0 to 255) of a BGRA picture, one byte a pixel: the guide for refineEdges. */
+export function lumaFromBgra(bgra, width, height) {
+  const out = new Uint8Array(width * height);
+  for (let i = 0, p = 0; i < out.length; i += 1, p += 4) out[i] = (29 * bgra[p] + 150 * bgra[p + 1] + 77 * bgra[p + 2]) >> 8;
+  return out;
+}
+
+/**
+ * Fills holes in the subject: background pieces (under half) that do not touch the picture's
+ * border and are at most `share` of the picture become subject. Returns a new matte.
+ */
+export function fillHoles(matte, width, height, share = HOLE_SHARE) {
+  checkSize(width, height);
+  const out = Uint8Array.from(matte);
+  const limit = share * width * height;
+  const seen = new Uint8Array(matte.length);
+  const queue = new Int32Array(matte.length);
+  for (let start = 0; start < matte.length; start += 1) {
+    if (seen[start] || matte[start] >= 128) continue;
+    let head = 0, tail = 0, border = false;
+    queue[tail++] = start; seen[start] = 1;
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % width, y = (i - x) / width;
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) border = true;
+      if (x > 0 && !seen[i - 1] && matte[i - 1] < 128) { seen[i - 1] = 1; queue[tail++] = i - 1; }
+      if (x < width - 1 && !seen[i + 1] && matte[i + 1] < 128) { seen[i + 1] = 1; queue[tail++] = i + 1; }
+      if (y > 0 && !seen[i - width] && matte[i - width] < 128) { seen[i - width] = 1; queue[tail++] = i - width; }
+      if (y < height - 1 && !seen[i + width] && matte[i + width] < 128) { seen[i + width] = 1; queue[tail++] = i + width; }
+    }
+    if (!border && tail <= limit) for (let k = 0; k < tail; k += 1) out[queue[k]] = 255;
+  }
+  return out;
+}
+
+/**
+ * Edge-aware smoothing of a matte against its picture's luma (`guide`, one byte a pixel): a guided
+ * filter (He, Sun and Tang, "Guided Image Filtering", 2010) of `radius`, then a contrast curve
+ * around one half that brings the smoothed edge back to a few pixels. Stair steps from an
+ * upscaled mask become a smooth outline that follows the picture's own edges. Only the subject's
+ * box (with room) is worked on. Returns a new matte.
+ */
+export function refineEdges(matte, guide, width, height, { radius = REFINE_RADIUS, eps = REFINE_EPS, contrast = REFINE_CONTRAST } = {}) {
+  checkSize(width, height);
+  let left = width, right = -1, top = height, bottom = -1;
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    for (let x = 0; x < width; x += 1) if (matte[row + x]) { if (x < left) left = x; if (x > right) right = x; if (y < top) top = y; bottom = y; }
+  }
+  if (right < 0 || !(radius > 0)) return Uint8Array.from(matte);
+  const r = Math.max(1, Math.round(radius));
+  const room = 2 * r + 2;
+  left = Math.max(0, left - room); right = Math.min(width - 1, right + room);
+  top = Math.max(0, top - room); bottom = Math.min(height - 1, bottom + room);
+  const w = right - left + 1, h = bottom - top + 1, n = w * h;
+  const I = new Float32Array(n), P = new Float32Array(n), II = new Float32Array(n), IP = new Float32Array(n);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const from = (top + y) * width + left + x, at = y * w + x;
+      const i = guide[from] / 255, p = matte[from] / 255;
+      I[at] = i; P[at] = p; II[at] = i * i; IP[at] = i * p;
+    }
+  }
+  const tmp = new Float32Array(n), sums = new Float64Array(w);
+  const box = (a) => { boxRows(a, tmp, w, h, r); boxColumns(tmp, a, w, h, r, sums); return a; };
+  box(I); box(P); box(II); box(IP);
+  // I, P, II, IP now hold the window means; a and b go into II and IP.
+  for (let k = 0; k < n; k += 1) {
+    const variance = II[k] - I[k] * I[k], covariance = IP[k] - I[k] * P[k];
+    const a = covariance / (variance + eps);
+    II[k] = a; IP[k] = P[k] - a * I[k];
+  }
+  box(II); box(IP);
+  const out = Uint8Array.from(matte);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const at = y * w + x, to = (top + y) * width + left + x;
+      const q = II[at] * (guide[to] / 255) + IP[at];
+      const v = (q - 0.5) * contrast + 0.5;
+      out[to] = v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255);
+    }
+  }
+  return out;
+}
+
+/**
+ * The clean-up every cut_out output shares, run once per frame when the matte is found: holes
+ * filled (fillHoles), then the edge refined against the picture (refineEdges). `refine` is a
+ * radius in the matte's pixels (0 leaves Vision's edge), `holes` a share of the picture (0 keeps
+ * holes). `guide` is the picture's luma; without one only holes are filled.
+ */
+export function cleanMatte(matte, guide, width, height, { refine = REFINE_RADIUS, holes = HOLE_SHARE } = {}) {
+  let out = holes > 0 ? fillHoles(matte, width, height, holes) : matte;
+  if (refine > 0 && guide) out = refineEdges(out, guide, width, height, { radius: refine });
   return out;
 }
 

@@ -126,6 +126,15 @@ test("without an engine, cut-out says why, and auto falls back to the person eng
   setEnv(t, "KINO_CUTOUT_HELPER", broken);
   const failed = await cutoutEngines();
   assert.match(failed[0].reason, /^The kino-cutout helper could not start: .*EACCES/);
+
+  // A helper built from older source (no --track, no points) is named with the command that fixes
+  // it, instead of its matte bytes being read as track JSON.
+  const stale = await standInHelper({ KINO_STAND_IN_VERSION: "1" });
+  setEnv(t, "KINO_CUTOUT_HELPER", stale);
+  const fix = new RegExp(`^The kino-cutout helper at ${stale.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} is version 1; this kino needs version \\d+\\. Rebuild it with npm run desktop:cutout`);
+  assert.match((await cutoutEngines())[0].stale, fix);
+  await assert.rejects(makeTrack({ source: clip.path, cacheDir: join(root, "tracks"), at: 0, to: 1, box: [0.1, 0.1, 0.2, 0.2] }), { code: "CUTOUT_ENGINE_UNAVAILABLE", message: fix });
+  await assert.rejects(makeMatte({ source: clip.path, kind: "image", cacheDir: join(root, "cache"), pick: { points: [[50, 50]] } }), { code: "CUTOUT_ENGINE_UNAVAILABLE", message: fix });
 });
 
 test("a clip's matte follows the subject in every frame, is kept by the file's hash, and makes all three outputs", {

@@ -1073,7 +1073,7 @@ function checkTrackOrPin(operation, type) {
 // checked here, so a wrong value is refused before any picture is decoded. It names the new layer
 // now ("<layer name>-<output>" without a file extension, or `name`), so later operations in the
 // same edit can use that name. The agent service does the rest (cutout-operation.mjs runCutOut).
-const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name"]);
+const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name", "refine", "fillHoles", "openEdges"]);
 // [[x%, y%], …] of the clip's own picture, 1 to 8 points.
 function checkPoints(name, value) {
   const point = (item) => Array.isArray(item) && item.length === 2 && item.every((part) => typeof part === "number" && part >= 0 && part <= 100);
@@ -1083,9 +1083,15 @@ function checkPoints(name, value) {
 function checkCutOut(operation, resolver) {
   const extra = Object.keys(operation).filter((key) => !CUTOUT_FIELDS.has(key));
   if (extra.length) {
-    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name"]);
-    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind and name.`), { suggestions });
+    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name", "refine", "fillHoles", "openEdges"]);
+    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind, name, refine, fillHoles and openEdges.`), { suggestions });
   }
+  if (operation.refine !== undefined && !(typeof operation.refine === "boolean" || (typeof operation.refine === "number" && operation.refine >= 0 && operation.refine <= 40)))
+    throw new Error(`refine must be true (default: the edge smoothed along the picture's own edges), false (Vision's edge as found) or a radius from 0 to 40 pixels, not ${JSON.stringify(operation.refine)}.`);
+  if (operation.fillHoles !== undefined && typeof operation.fillHoles !== "boolean")
+    throw new Error(`fillHoles must be true (default: small holes inside the subject are filled) or false, not ${JSON.stringify(operation.fillHoles)}.`);
+  if (operation.openEdges !== undefined && !(["fade", "keep"].includes(operation.openEdges) || (typeof operation.openEdges === "number" && operation.openEdges >= 0 && operation.openEdges <= 400)))
+    throw new Error(`openEdges must be "fade" (default: the subject fades out where the clip's frame cuts it, so a glow skips that edge), "keep" or a fade width from 0 to 400 pixels, not ${JSON.stringify(operation.openEdges)}.`);
   if (typeof operation.layerId !== "string") throw new Error("cut_out needs layer: the video or image layer whose subject to cut out.");
   if (operation.behindText && (operation.output ?? "subject") !== "subject") throw new Error('behind puts a layer behind the person, so it takes output "subject" (the default).');
   const output = operation.output ?? "subject";

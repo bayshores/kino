@@ -24,15 +24,17 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   `{mode:"frame", t}`.
 - `grow` (-100 to 100 layer pixels) makes the shape bigger, or smaller below 0; `feather`
   (0 to 200) softens its edge.
-- A clip's `subject` edge is cleaned: on a shot whose camera holds still, background the matte
-  kept near the edge (a motion-blurred hand over a wall) is dropped, and edge pixels take the
-  subject's own color, so no halo shows over a new or darker background. A frame where Vision
-  lost the subject takes the nearest good frame's shape, keyed against the empty wall.
+- Every output shares one cleaned edge (rim, outline and glow sit on it): `refine` (default
+  true; false, or a radius to 40 px) smooths stair steps along the picture's own edges;
+  `fillHoles` (default true) fills small holes; `openEdges` (`"fade"` default, `"keep"`, or px)
+  fades the subject where the clip's frame cuts it, so a glow skips that straight edge.
+- A clip's `subject` edge drops still background near it and takes the subject's color (no
+  halo); a frame where Vision lost the subject takes the nearest good one's shape.
 - Keep the `"subject"` engine for a silhouette or a dark figure: `"person"` can leave the body
   half see-through (gray over a white title behind it), and the receipt's `note` says so.
 - `engine:"auto"` (default) is `"subject"` (any subject, macOS 14+) or `"person"` (people only,
   macOS 13). Other systems have no engine: the edit is refused (`CUTOUT_ENGINE_UNAVAILABLE`), so
-  mask with a shape there. On a Mac without the helper, `npm run desktop:cutout` builds it.
+  mask with a shape there. A missing or old helper: `npm run desktop:cutout` builds it.
 - It takes about 1.5 s per second of 1080p video, one cut-out at a time. An edit waits up to 50 s
   in all, however many cut_outs it has; a longer one answers `CUTOUT_RUNNING` with how far it got,
   changes nothing and keeps going. Send the same edit again later: the finished cut-out is kept,
@@ -40,8 +42,8 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
 - The receipt's `cutout` gives the engine, frames, seconds, `cached`, and a `note` when some
   frames had no subject. A refusal's `cutoutError` names the problem and its reason says what to
   send instead. Undo it with `history` like any edit.
-- `check` sees layer boxes, not transparency, so cut-outs get `allowOverlap` (contrast then reads a
-  title behind the subject against what is behind the title): use `look` to see that it still reads.
+- `check` sees layer boxes, not transparency, so cut-outs get `allowOverlap`: `look` to see that
+  a title behind the subject still reads.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between
   them (a title behind the subject moves with the shot), so the subject never shows twice.
 

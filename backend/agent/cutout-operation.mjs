@@ -1,4 +1,4 @@
-// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, name?} for
+// cut_out {sceneId, layerId, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, name?, refine?, fillHoles?, openEdges?} for
 // the agent service: finds the subject of a video or image layer on this computer (backend/cutout,
 // Apple Vision), adds the result to the media library (backend/cutout/media.mjs), and puts it in a
 // new layer.
@@ -122,6 +122,9 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
     kind: layer.type === "video" ? "video" : "image", output, engine,
     grow: inFilePixels(operation.grow), feather: inFilePixels(operation.feather),
     color: operation.color ?? "#ffffff", invert: operation.invert === true,
+    openEdges: typeof operation.openEdges === "number" ? inFilePixels(operation.openEdges) : operation.openEdges ?? "fade",
+    ...(operation.refine !== undefined || operation.fillHoles !== undefined
+      ? { clean: { refine: typeof operation.refine === "number" ? inFilePixels(operation.refine) : operation.refine, holes: operation.fillHoles } } : {}),
     ...(operation.points ? { pick: { points: operation.points, ...(operation.exclude ? { exclude: operation.exclude } : {}), ...(layer.type === "video" && operation.time !== undefined ? { time: operation.time } : {}) } } : {}) });
 
   // Past the deadline the job is still started (or joined), so it is made while the agent waits.

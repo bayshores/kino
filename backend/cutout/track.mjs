@@ -22,7 +22,7 @@ import { open, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/p
 import { join } from "node:path";
 import { ffmpegCommand } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
-import { cutoutEngines, cutoutError, cutoutHelperPath, probeVideo } from "./cutout.mjs";
+import { cutoutEngines, cutoutError, cutoutHelperPath, needHelperFeature, probeVideo } from "./cutout.mjs";
 
 const TRACK_FORMAT = 1;
 // Vision's tracker works on small pictures; this keeps a 1080p clip quick and never decodes 4K.
@@ -62,7 +62,10 @@ function startHelper(helper, size, box, signal) {
   let text = "";
   child.stdout.setEncoding("utf8").on("data", (chunk) => { text += chunk; });
   const lines = finished(child, "kino-cutout --track")
-    .then(() => text.split("\n").filter(Boolean).map((line) => JSON.parse(line)))
+    .then(() => text.split("\n").filter(Boolean).map((line) => {
+      try { return JSON.parse(line); }
+      catch { throw cutoutError("The kino-cutout helper did not answer --track with boxes (an old build?); rebuild it with npm run desktop:cutout (a few seconds).", "CUTOUT_ENGINE_UNAVAILABLE"); }
+    }))
     .finally(() => signal?.removeEventListener("abort", onAbort));
   return { child, lines };
 }
@@ -129,6 +132,9 @@ export async function makeTrack({ source, cacheDir, at, from = at, to, box, sign
     const [first] = await cutoutEngines();
     throw cutoutError(`Object tracking uses Apple Vision through the kino-cutout helper. ${first.reason ?? ""}`.trim(), "CUTOUT_ENGINE_UNAVAILABLE");
   }
+  // A helper built before --track existed ignores the flag and writes mattes, whose bytes were then
+  // read as JSON ("Unexpected token '\u0000'"); say which command fixes it instead.
+  await needHelperFeature("track");
   const engines = await cutoutEngines();
   const sourceHash = await sha256File(source, signal);
   const round = (value) => Math.round(value * 1000) / 1000;
