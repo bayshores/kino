@@ -470,8 +470,9 @@ export function expandComponents(document, sceneId, options = {}) {
   const scene = document?.scenes?.find((candidate) => candidate.id === sceneId);
   if (!scene) fail(`scene "${sceneId}" was not found.`);
   const drawn = materializeScene(document, scene, options);
-  // The project's shutter goes with each drawn scene, so look and render read it there (previewBlur.js).
-  if (typeof document.shutterAngle === "number") drawn.shutterAngle = document.shutterAngle;
+  // The project's shutter goes with each drawn scene, so look and render read it there (previewBlur.js);
+  // a scene's own (update_scene {shutterAngle}) wins, so one scene can stay sharp or smear alone.
+  if (typeof document.shutterAngle === "number" && typeof scene.shutterAngle !== "number") drawn.shutterAngle = document.shutterAngle;
   // The scene's drift (engine/camera.js) is part of how it is drawn; `camera: false` gives the saved
   // layer tree, for edits that look up a layer's own parent and place.
   if (options.camera === false || !scene.drift) return drawn;

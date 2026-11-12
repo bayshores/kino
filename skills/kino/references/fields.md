@@ -101,7 +101,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 ## Project, copies and data
 
 - `rename_project {name}`
-- `update_project {properties: {name?, videoType?, rhythm?}}`
+- `update_project {properties: {name?, videoType?, rhythm?, shutterAngle?}}`
 - `waive_check {code, target, reason}`
 - `unwaive_check {code, target}`
 - `copy_layers {fromProject?,fromScene?,layers,scene?,replaceLayers?}`

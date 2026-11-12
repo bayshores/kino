@@ -1144,6 +1144,13 @@ function renderLayerAt(node, context, { maskContent = false, maskInvert = null }
   let state = resizeTextLayer(getAnimatedLayer(layer, context), context.fonts);
   // Drawn ahead, hidden: a video about to show (showsSoon).
   let ahead = false;
+  // A shutter sample (context.time) outside the layer's own window, in a frame (mediaTime) where it
+  // shows: the layer holds the frame's pose there, as a camera shutter never opens across a cut.
+  // Without this the first or last frame of a moving clip blended in what lies behind it (dimmed).
+  if (state.visible === false && !context.design && context.mediaTime !== undefined && context.mediaTime !== context.time) {
+    const atFrame = resizeTextLayer(getAnimatedLayer(layer, { ...context, time: context.mediaTime }), context.fonts);
+    if (atFrame.visible !== false) state = atFrame;
+  }
   if (state.visible === false) {
     if (!showsSoon(node, context, maskContent)) return "";
     ahead = true;

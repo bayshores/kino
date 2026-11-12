@@ -23,10 +23,13 @@ function movesFast(animation) {
  * translated operations and `createdIds` the ids it created (animations among them).
  */
 export function shutterNote(before, after, operations, createdIds = []) {
-  const angle = after?.shutterAngle;
-  if (angle > 0 && angle !== before?.shutterAngle)
+  // A scene's own shutter (update_scene {shutterAngle}) counts as the project's for these lines.
+  const sceneAngle = (document, id) => document?.scenes?.find((scene) => scene.id === id)?.shutterAngle;
+  const turned = (after?.scenes ?? []).find((scene) => scene.shutterAngle > 0 && scene.shutterAngle !== sceneAngle(before, scene.id));
+  const angle = turned?.shutterAngle ?? after?.shutterAngle;
+  if (angle > 0 && (turned || angle !== before?.shutterAngle))
     return `shutterAngle ${angle}: look frames, sheets and draft renders draw motion blur, up to ${LOOK_MOTION_SAMPLES} moments a moving frame (a draft takes render options {motionSamples}); a final uses this shutter too`;
-  if (angle > 0 || angle === 0) return null;
+  if (angle > 0 || angle === 0 || (after?.scenes ?? []).some((scene) => typeof scene.shutterAngle === "number")) return null;
   const created = new Set(createdIds);
   const fastMove = operations.some((operation) => operation?.type === "move" && !operation.remove && FAST_MOVES.has(operation.name));
   const fastAnimation = !fastMove && (after?.scenes ?? []).some((scene) => (scene.layers ?? []).some((layer) =>

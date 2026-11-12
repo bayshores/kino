@@ -94,6 +94,12 @@ test("the project's shutter rides on each drawn scene and sets drafts and finals
   assert.equal(sceneOptions({ format: "mp4", renderQuality: "final" }, off).motionBlur, 0.5);
   assert.deepEqual(sceneShutterOptions(off), {});
   assert.throws(() => turnDocument(400), /shutterAngle must be a number of degrees from 0 to 360/);
+  assert.throws(() => applyProjectUpdate(turnDocument(), { motionBlur: true }), /motion blur is \{shutterAngle:180\}/, "a guessed name gets the call that works");
+  const sharpScene = turnDocument(180);
+  sharpScene.scenes[0].shutterAngle = 0;
+  assert.equal(expandComponents(parseDocument(sharpScene), "main").shutterAngle, 0, "a scene's own shutter wins over the project's");
+  sharpScene.scenes[0].shutterAngle = "on";
+  assert.throws(() => parseDocument(sharpScene), /shutterAngle must be a number/);
 });
 
 test("look stills with the project's shutter smear a turn that the cheap preview draws sharp", async () => {

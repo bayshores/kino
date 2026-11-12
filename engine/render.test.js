@@ -521,6 +521,14 @@ test("motion blur's shutter samples draw every clip's picture of the output fram
   assert.deepEqual(shown, [0.5, 0.5], "a GIF too");
 });
 
+test("a shutter sample before a clip starts still draws the clip of a frame it shows in, so the clip's first frame is not dimmed", () => {
+  const clip = layer("still", "image", { src: "/api/media/still.png", mediaStart: 1, mediaDuration: 1 });
+  const draw = (time, options = {}) => renderSceneSvg({ width: 40, height: 30, layers: [clip] }, time, options);
+  assert.ok(!draw(0.98).includes("still.png"), "not shown before it starts");
+  assert.ok(draw(0.98, { mediaTime: 1 }).includes("still.png"), "a sample of frame 1.0 s draws it");
+  assert.ok(!draw(0.95, { mediaTime: 0.97 }).includes("still.png"), "a frame before the clip still leaves it out");
+});
+
 test("decoded GIF frame URLs may carry the decoder version and a share token, and nothing else", () => {
   const gif = layer("anim", "image", { src: "/api/media/anim.gif", mediaStart: 0, mediaDuration: 1 });
   const draw = (url) => renderSceneSvg({ width: 40, height: 30, layers: [gif] }, 0, { imageFrames: { anim: { durations: [1], frames: [url] } } });

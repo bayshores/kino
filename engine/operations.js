@@ -36,7 +36,7 @@ import {
 import { animationOwners, backgroundAnimationProblem } from "./sceneBackground.js";
 import { parseCsv } from "./csv.js";
 import { applyBulkCreate, planBulkCreate } from "./bulkCreate.js";
-import { applyProjectUpdate, keptWaivers, withWaiver, withoutWaiver } from "./projectSettings.js";
+import { applyProjectUpdate, keptWaivers, normalizeShutterAngle, withWaiver, withoutWaiver } from "./projectSettings.js";
 import { assertReplacementKeepsOverrides, layerWithReplacementMedia, mediaIdFromSource } from "./replaceMedia.js";
 import { applyAudioCaptionOperation } from "./audioCaptionOperations.js";
 import { colorFilterSteps } from "./colorFilter.js";
@@ -148,6 +148,9 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
         scene.letterbox = normalizeLetterbox(scene.letterbox, "properties.letterbox", refuse);
         if (scene.letterbox === undefined) delete scene.letterbox;
       }
+      // The scene's own shutter (projectSettings.js normalizeShutterAngle), checked on this call.
+      if (operation.properties && Object.hasOwn(operation.properties, "shutterAngle"))
+        try { normalizeShutterAngle(scene); } catch (error) { refuse("properties.shutterAngle", error.message.replace(/^shutterAngle /, "")); }
       const problem = backgroundAnimationProblem(scene, previous) || sceneAnimationProblem(scene, previousLayers);
       if (problem) throw new Error(problem);
       continue;

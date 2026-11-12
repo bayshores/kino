@@ -1734,6 +1734,7 @@ export function parseDocument(value) {
   validateComponents(document);
   normalizeQualityDocumentFields(document, MAX_TIME);
   normalizeShutterAngle(document);
+  for (const scene of document.scenes ?? []) normalizeShutterAngle(scene);
   normalizeBlockDocumentFields(document);
   // The storyboard (board.js): its shape only; the board op checks it against media and fonts.
   normalizeBoard(document);
