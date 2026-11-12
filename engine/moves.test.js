@@ -89,7 +89,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 59);
+  assert.equal(MOVE_NAMES.length, 60);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -181,6 +181,62 @@ test("energy-aura puts rising rim-light copies of the cut-out in an add group on
   // The clip and its cut-out given as layer and subject, in reduced motion: the group and embers go in the camera group too.
   const both = runMove(definition, { id: "aura", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media, reduced: true });
   assert.deepEqual(both.added.filter((entry) => !entry.layer.parentId?.startsWith("aura")).map((entry) => [entry.layer.type, entry.layer.parentId]), [["group", "clip-camera"], ["rectangle", "clip-camera"]]);
+});
+
+test("impact-silhouette draws plate, rays, ticks, lines and the inked cut-out for its frames, prints the matte's facts and offers a figure frame; flashing passes", async () => {
+  const scene = sceneFor(1920, 1080);
+  const clip = scene.layers.find((layer) => layer.id === "clip");
+  Object.assign(clip, { mediaStart: 0, mediaDuration: 3 });
+  // A stubbed matte: at 1 s a slab (60% straight outline, no face inside), at 1.5 s a figure with the face in its box.
+  scene.layers.splice(1, 0, createLayer("video", { ...clip, id: "clip-subject", name: "clip-subject", cutoutOf: "clip", cutoutFor: "impact-silhouette", animations: [],
+    subjectBox: [0.3, 0.1, 0.7, 1], subjectPath: [[1, 0.1, 0.5, 0.9, 1], [1.2, 0.1, 0.3, 0.9, 0.8], [1.5, 0.4, 0.1, 0.6, 0.9]], subjectShapes: [[1, 0.4, 0.6], [1.5, 0.12, 0.08]] }));
+  const samples = () => [{ t: 1.5, faces: [[0.45, 0.15, 0.1, 0.12]] }, { t: 1, faces: [] }];
+  const definition = MOVES["impact-silhouette"];
+  const style = styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } });
+  const run = (fields, start, extra = {}) => runMove(definition, { id: "imp", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject", ...fields }), scene, style, fonts: defaultFonts, start, media, samples, seed: 4, ...extra });
+  const made = run({ ticks: 24, lines: 10, ink: "#FFFFFF", plate: "#000000" }, 1);
+  assert.deepEqual(made.added.map((entry) => [entry.layer.type, entry.layer.name]), [["rectangle", "imp-plate"], ["path", "imp-rays"], ["path", "imp-ticks"], ["path", "imp-lines"], ["video", "imp-silhouette"]]);
+  assert.deepEqual(made.added[0].place, { above: "clip-subject" });
+  assert.equal(made.end, 1.067);
+  for (const entry of made.added) assert.deepEqual([0.99, 1, 1.05, 1.07].map((time) => visibleByOperations(entry.layer.animations, time)), [false, true, true, false]);
+  assert.equal((made.added[1].layer.path.match(/M/g) ?? []).length, 12);
+  assert.equal((made.added[2].layer.path.match(/M/g) ?? []).length, 24);
+  const ink = made.added[4].layer.animations.find((animation) => animation.effect === "duotone");
+  assert.deepEqual([ink.to.shadowColor, ink.to.highlightColor, made.added[4].layer.volume], ["#FFFFFF", "#FFFFFF", 0]);
+  const notes = made.notes.join("; ");
+  assert.match(notes, /matte at 1 s: covers 40% of the frame, head box inside: no \(people scan\), outline on the frame edge or a straight line: 60%: does not read as a figure \(a straight edge/);
+  assert.match(notes, /nearest time in this shot that reads as a figure: 1\.5 s .*head box inside: yes.*: at:1\.5/);
+  assert.match(notes, /speed lines at -90°: the subject's box moved/);
+  // The same seed draws the same rays; at 1.5 s the matte reads as a figure; near the shot's cut the frames end on it.
+  assert.equal(run({}, 1, {}).added[1].layer.path, run({}, 1, {}).added[1].layer.path);
+  assert.match(run({}, 1.5).notes.join("; "), /matte at 1\.5 s: .*: reads as a figure/);
+  const late = run({ frames: 4 }, 2.94);
+  assert.equal(late.end, 2.973);
+  assert.match(late.notes.join("; "), /frames 1 \(asked 4\): clip cuts at 3 s/);
+  // Reduced motion: the shot holds its frame, nothing is added.
+  const calm = run({}, 1, { reduced: true });
+  assert.equal(calm.added.length, 0);
+  assert.deepEqual(calm.animations.filter((entry) => entry.layerId === "clip").map((entry) => entry.animation.to.speed), [0, 1]);
+  // The built scene passes the flashing check (plate and parts on for 2 frames: one flash).
+  const placed = sceneFor(1920, 1080);
+  placed.layers.splice(1, 0, structuredClone(scene.layers[1]));
+  placeMove(placed, { id: "imp", name: "impact-silhouette", settings: {} }, made);
+  const model = kinoTimeline(parseDocument(createDocument({ id: "d", name: "impact", scenes: [placed] })), "s", { fonts: defaultFonts });
+  assert.deepEqual(flashCandidates(model), []);
+  const { findings } = await runQuality(model, { codes: ["flashing"], pixels: false });
+  assert.deepEqual(findings, []);
+});
+
+test("matteShape measures cover and the straight share of the outline: a slab on the frame's bottom is straight, a figure is not", async () => {
+  const { matteShape } = await import("./blocks/moves/silhouette.js");
+  const width = 40, height = 40;
+  const draw = (inside) => Uint8Array.from({ length: width * height }, (_, index) => (inside(index % width, Math.floor(index / width)) ? 255 : 0));
+  const slab = matteShape(draw((x, y) => y >= 24), width, height);
+  assert.equal(slab.cover, 0.4);
+  assert.equal(slab.straight, 1);
+  const figure = matteShape(draw((x, y) => (x - 20) ** 2 / 36 + (y - 20) ** 2 / 196 <= 1 || (x - 20) ** 2 + (y - 5) ** 2 <= 9), width, height);
+  assert.ok(figure.straight < 0.2, `figure straight ${figure.straight}`);
+  assert.equal(matteShape(new Uint8Array(width * height), width, height), null);
 });
 
 test("align puts a move's span starting at, centered on or ending at its at (FilmCraft start_for)", () => {

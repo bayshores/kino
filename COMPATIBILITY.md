@@ -866,6 +866,11 @@ How to read it:
   the edit) in an add group on twos, with spill on the subject and embers (engine/moves.test.js; a render with
   `{layer, at}` only draws a flame mass rising off the figure, denser than the reference's separate tongues; a
   rim-light lobe crawl past the filter padding drew nothing, fixed in engine/effects/light.test.js).
+- **impact-silhouette** (`move impact-silhouette {layer, at}`): Partly verified. One call makes an impact frame: the
+  cut-out inked flat or two-tone on a plate (shot hue or given), seeded rays, tick ring and speed lines, ended inside
+  the shot; the note prints the matte's cover, head-inside and straight-outline share (cut_out's subjectShapes) and
+  offers the nearest figure time. Evidence: engine/moves.test.js (layers, times, reduced hold, flashing rule passes on
+  the built scene; matteShape). Gap: no render test yet; ray count default is a guess.
 - **mosaic-reveal** (`move mosaic-reveal {layer, at}`, effect `mosaic`): Partly verified. Flat mean-color cells with
   gaps arrive in a seeded order, merge into blocks and resolve to the picture, resolved blocks joining without a gap
   (engine/effects/postFx.test.js; sizes follow the frame, engine/moves.test.js; `{layer, at}` only on a photo and on
