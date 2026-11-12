@@ -28,7 +28,8 @@ Contents: Three calls · Visual words, not names · Reading a scan · What is sa
    of 60 s at most; 5 min a call, 15 min a project. A second import queues ("queued": repeat
    the call). One line per clip: its `clip:` reference, what it `says` or `heard`, or why none.
 
-Scans and clips are kept by video id and reused across projects, nothing downloaded again. The
+Scans and clips are kept by video id and reused across projects, nothing downloaded again;
+another project's F code or `clip:yt-<id>` imports under this project's own code. The
 `kino` command sends `file=F1`, `file=F1.15` and `clip:` ids as typed.
 
 `library {topic:"footage"}` lists the found videos. `look {mode:"source", ref:"F1"}` shows a
@@ -40,8 +41,8 @@ The image model never learned character names: `want:"<character>"` matches noth
 into what the camera sees: hair color, clothes, a mask or blindfold, the setting, the action
 ("white hair, blindfold, dark coat, fight, close up"). Put the names in `search` instead, where
 YouTube's titles carry them. A match shows only when the best shot clearly beats the rest; else
-the answer says "no visual match", how close the best came and what a match needs (or that the
-image model did not run), and shots rank on motion, faces and clean frames.
+the answer says "no visual match", how close it came and what a match needs (or that the model
+did not run), and shots rank on motion, faces and clean frames.
 
 ## Reading a scan
 
@@ -51,9 +52,8 @@ of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fi
 a dark shot keeps its rank (`dark, mean 13 of 255`). A burned-in mark is said once; such videos
 list after clean ones. Import offers a clean clip or a crop; `frame_shot` keeps the mark out;
 `burned_in_mark` names a layer still showing it (past 1.35x: a shift or a cover). Drawn footage
-has no face number. With a song in the video, the answer
-says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
-names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
+has no face number. With a song, the answer says how many shots it needs (a cut every 2 beats
+on the drop, 4 on builds); its `next:` imports up to 1.5 times that: change the shots after looking.
 
 ## What is said
 

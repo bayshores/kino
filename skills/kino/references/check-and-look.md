@@ -54,6 +54,10 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
   explains it).
 - Rendered (`check` only): `text_on_busy` (words over busy detail), `small_on_empty` (a small
   picture on a flat frame), `render_artifact` (an RGB split drawing flat slabs).
+- The fixes: a missing face takes the nearest loaded weight, else the brand font; the lesser
+  text (a caption, else the later) moves to a free safe place; a wrap gets a width that fits or
+  balances; a cut-off picture scales inside the margin; busy text moves to a calm place, else
+  gets a plate; a small picture grows and crops; an RGB split softens to 40%.
 
 ## Looking
 

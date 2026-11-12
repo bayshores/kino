@@ -32,7 +32,7 @@ Read before building a video from footage (the `board` stop), or to plan any vid
 `look {mode:"board", page}` shows 4 shots a page: the source frame with crop and subject boxes,
 the app's covered areas shaded on 9:16, the cropped still with the real text, kino's numbers,
 the move and your reason; its text, each shot's number, id and `look:` flags. Fix every flag
-you can before asking: the subject whole and 5%+ from the crop edge, eyes 20–45% from the
+before asking: the subject whole and 5%+ from the crop edge, eyes 20–45% from the
 top, nothing under the app's captions.
 
 ## Fresh-eyes check
@@ -60,7 +60,7 @@ Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one
   1.8 s"; "remove this shot"): edit `board` to match.
 - With a picked `style.type` and footage, the answer carries a style frame (the type over the
   first shot): send it with the ask.
-- Refused: `board_first`, `board_gap` (no longer covers the music or video), `open_items`,
+- Refused: `board_first`, `board_gap` (music or video not covered), `open_items`,
   `move_needed` (no designed move on the hook, reveal or payoff; it names moves that fit).
 - Record their reply with `notes answer`. Placing a second shot, the first build and drafts
   wait for the board (`board_needed`).
@@ -71,7 +71,8 @@ kino keeps a copy of the approved board: build to it. These lapse the approval: 
 sound, pacing, follow, move, music (or its file), shot order, a shot added or removed, a new open
 item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the frame width.
 `board.lapsed` and `status` say so: ask again (only changed shots show). A gap lapses it until
-the board covers it again. Smaller changes are logged (`board.revisions`). "Approve with notes": make the changes. After the person answers rough,
+covered. Smaller changes are logged (`board.revisions`). "Approve with notes": make the changes.
+After the person answers rough,
 color or sound, only another song, media or shot list lapses it. Approved with only "your
 call": fix what a viewer finds (cut a repeat), never waive it.
 

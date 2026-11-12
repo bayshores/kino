@@ -32,6 +32,9 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
   as measured, a transcribed voice for its words. List every voice-over in one `under` (a
   second run replaces the dips) and rerun after moving one; the receipt's `duck.summary` says
   where it dips. Depth, fades and section cues: `library {topic:"op", name:"duck_audio"}`.
+  Without `to` a dip over 2 s stays within 8 dB (`held`) unless a line needs it deeper to stay
+  6 LU over the music (`deeper`), down to 0.1 (`quiet` names lines still under); dips keep apart
+  at a section cue (`sections`).
 - Fade out after the last dip: an animation starting inside a dip takes over from it.
 - Muffled until the drop: animate `lowpass` (cutoff Hz, 20-20000; none is off) from 400 to
   20000 over the bar before it, `kind:"in"`, `ease-in` (example below).
@@ -86,7 +89,8 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    seconds). `pauses:0.4` shortens every pause over 0.4 s. The voice becomes pieces
    (`<name>`, `<name>-2` …) back to back with join fades; everything after a cut moves
    earlier (`ripple:false`: only the voice). Indices never change: cut more by them. A talking
-   video morphs over each join (`morph`). Undo: `restore:[indices]` or `restore:"all"`.
+   video morphs over each join in the render (preview and look: a dissolve; `morph:0.5`,
+   `morph:false`). Undo: `restore:[indices]` or `restore:"all"`.
 3. `add_captions {speech:"<layer>", fix:{"heard":"meant"}}` captions the words the voice plays
    now, without um/uh, and corrects misheard names. Caption after cutting.
 4. `check` transcribes every heard layer once. `speech_cut` gates a clip that starts or ends
@@ -96,6 +100,7 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    line under 6 LU over the beds), `voice_level_spread`, `bed_jump` (J-cut the new bed 0.5 s
    early), `volume_churn` (hold one level). The render cleans and levels lines to -16 LUFS
    (`voiceCleanup:false` skips it). `inspect {targets:["cuts"]}` lists cuts and the words near them.
+   A waiver on a layer lapses when its file changes. With no speech model, check says so.
 
 If whisper-cli or its model is missing, the refusal says how to install them (macOS:
 `brew install whisper-cpp`, and a model such as `ggml-small.en.bin` in `~/.kino/models/`).

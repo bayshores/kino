@@ -26,7 +26,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 What each is for; fields from `library {topic:"moves", name}`.
 
 - **caption-words**: captions low as written, a phrase at a time, cut on as said, one or two
-  lines; `highlight:"active"` is karaoke. Give forced-aligned `words` [{text, at}] or `text`.
+  lines; short words hold 0.3 s or pair up; `highlight:"active"` is karaoke. Give forced-aligned
+  `words` [{text, at}] or `text`.
   Font, colors, word box: captions-beats-sequences.md.
 - **zoom-through**: pushes into a point (or a layer's `target`) of one shot and comes out in the
   next; `reverse:true` pulls back to the whole shot.
@@ -36,8 +37,8 @@ What each is for; fields from `library {topic:"moves", name}`.
   a letter and the next shot shows inside it until it fills the frame.
 - **logo-match-move**: the logo arrives big, then flies into its `spot` on a page, screen or sign.
 - **speed-lines-phone**: light streaks rush past a phone pushing in.
-- **status-line**: an app icon with a changing status line, big or a corner badge; footage goes
-  under it.
+- **status-line**: an app icon with a changing status line, big or a corner badge; it moves off
+  text on screen (or refuses); footage goes under it.
 - **swipe-cards**: a card stack swiped YES or NO in the brand color, faster and faster.
 - **roll**: words, pictures or your `layers` cut one to the next in place, each shorter, then
   land and hold; `layout:"wheel"` turns a list.
