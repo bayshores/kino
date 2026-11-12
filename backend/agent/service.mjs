@@ -71,7 +71,8 @@ import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from 
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
 import { pickedEnding, pickedType } from "./treatments.mjs";
-import { activeApproval, boardFacts, boardPrint, laterAnswer, settleBoard } from "./board.mjs";
+import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, settleBoard } from "./board.mjs";
+import { reframeBoard } from "../../engine/board.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
@@ -5553,7 +5554,86 @@ export function createAgentService(deps) {
     const name = refName(scene.id, codes);
     const shots = ops[1]?.layers.length ?? 0;
     const what = `${name} ${aspectLabel(size.width, size.height)} (${size.width}x${size.height})${named ? "" : " like the footage"}`;
-    return `shape: ${named ? `they named ${named}: kino made` : "no shape named: kino made"} ${what}${shots ? ` and re-framed ${shots} shot${shots === 1 ? "" : "s"} (frame_shot)` : ""}, rev ${receipt.data?.rev ?? "?"}. Undo: history.`;
+    // A board saved before (footage arrived after it, or the person named a shape at a stop): its crops take the new shape too.
+    const board = await reframeBoardTo(projectId, size).catch(() => "");
+    return `shape: ${named ? `they named ${named}: kino made` : "no shape named: kino made"} ${what}${shots ? ` and re-framed ${shots} shot${shots === 1 ? "" : "s"} (frame_shot)` : ""}, rev ${receipt.data?.rev ?? "?"}. Undo: history.${board ? `\n${board}` : ""}`;
+  }
+
+  /**
+   * After kino gave the scene `size` (followShape): each board crop becomes the widest window of
+   * the new shape around its old center, kept inside its file (engine/board.js reframeBoard), in
+   * one save. An approved board keeps its approval: its copy takes the same crops and the change
+   * is logged as one revision line (board.mjs reframeApproved). Returns the answer's line, or "".
+   */
+  async function reframeBoardTo(projectId, size) {
+    const record = await store.getProject(projectId);
+    const board = record.document.board;
+    if (!board?.shots?.length) return "";
+    const media = (await deps.listMedia?.().catch(() => [])) ?? [];
+    const files = new Map(media.map((item) => [item.src ?? `/api/media/${item.id}`, item]));
+    const sizeOf = (src) => { const item = files.get(src); return item?.width > 0 && item?.height > 0 ? { width: item.width, height: item.height } : null; };
+    const frame = { width: size.width, height: size.height };
+    const done = reframeBoard(board, frame, sizeOf);
+    if (!done) return "";
+    const after = parseDocument({ ...structuredClone(record.document), board: { ...done.board, rev: board.rev + 1 } });
+    const saved = await saveDocument(projectId, record.document, after, record.revision, { actor: "agent", resultMetadata: { changes: documentChanges(record.document, after) } });
+    const label = aspectLabel(size.width, size.height);
+    const facts = { ...boardFacts(saved.document), rev: saved.revision, now: now() };
+    const logged = await agentState.update(projectId, (draft) => {
+      const line = reframeApproved(draft, { frame, sizeOf, label, rev: saved.revision, now: facts.now });
+      settleBoard(draft, facts);
+      return line;
+    });
+    return `board: ${plural(done.shots.length, "shot")} (${done.shots.join(", ")}) re-framed to ${label}, each the widest window around its old crop's center (board r${board.rev + 1}, rev ${saved.revision})${logged ? "; the approval stands, logged as a revision" : ""}. look {mode:"board"} shows it.`;
+  }
+
+  /**
+   * An edit with a board op, while the scene's shape is a guess (plays_on is not the person's
+   * words naming a shape) and most of the footage has another shape: the scene takes the
+   * footage's shape first (followShape: update_scene plus frame_shot on every footage layer), so
+   * the person never approves a storyboard kino then reshapes, and the board's crops are checked
+   * against the frame the video plays in. This also reaches clips the person imported themselves
+   * (shapeAtImport sees only found clips). Returns { from, to, line } (the revisions before and
+   * after, and the line the edit's answer carries) or null when nothing changed.
+   */
+  async function shapeBeforeBoard(input) {
+    if (input?.dry_run === true) return null;
+    const record = await projectFor(input);
+    const projectId = record.document.id;
+    let ops;
+    try { ops = editOperations(input, projectId); } catch { return null; }
+    if (!(Array.isArray(ops) ? ops : [ops]).some((op) => (op?.op ?? op?.type) === "board")) return null;
+    const state = await agentState.read(projectId);
+    const plays = state.brief?.fields?.plays_on;
+    if (plays?.by === "you" && (plays.named === undefined ? namedShape(plays.quote) : plays.named)) return null;
+    const scene = videoScene(record.document);
+    const footage = scene ? majorityShape(await footageSizesOf(record.document)) : null;
+    if (!footage || footage.shape === shapeOf(scene.width, scene.height)) return null;
+    if (!(await followShape(projectId, null))) return null;
+    const after = await store.getProject(projectId);
+    const framed = videoScene(after.document);
+    // The board stop then says the shape is the footage's and asks once (brief.mjs shapeAsk).
+    if (!state.shapeFollowed)
+      await agentState.update(projectId, (draft) => { draft.shapeFollowed = { from: [scene.width, scene.height], to: [framed.width, framed.height], at: new Date(now()).toISOString() }; });
+    const name = refName(scene.id, await syncCodes(projectId, after.document));
+    return { from: record.revision, to: after.revision,
+      line: `shape: ${name} is now ${aspectLabel(framed.width, framed.height)} (${framed.width}x${framed.height}) like your footage (${footage.count} of ${footage.of}), before the storyboard is saved: its crops are checked against this frame. The person can name another shape or a place at the storyboard stop (kino then gives the scene that shape and re-frames the board); undo: history.` };
+  }
+
+  // The edit verb: an edit with a board op first settles the frame's shape (shapeBeforeBoard), and
+  // its answer, a receipt or a refusal, carries the line that says so.
+  async function editVerb(input) {
+    const shaped = await shapeBeforeBoard(input).catch(() => null);
+    if (!shaped) return edit(input);
+    // The rev the agent read was the latest: kino's own shape change is not a conflict.
+    const sent = input.rev === shaped.from ? { ...input, rev: shaped.to } : input;
+    try {
+      const reply = await edit(sent);
+      return reply?.data ? { ...reply, data: { ...reply.data, shape: shaped.line } } : reply;
+    } catch (error) {
+      if (error instanceof AgentError) error.details = { ...error.details, shape: shaped.line };
+      throw error;
+    }
   }
 
   /**
@@ -7313,7 +7393,7 @@ export function createAgentService(deps) {
   }
 
   // ---- entry point ------------------------------------------------------------------------
-  const handlers = { status, edit, check, look: lookAt, inspect, render, library, history, notes, project };
+  const handlers = { status, edit: editVerb, check, look: lookAt, inspect, render, library, history, notes, project };
 
   /**
    * Runs one verb. `meta.by` is "you" when a person (not the agent) acted, such as a revert

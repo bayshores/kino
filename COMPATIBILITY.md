@@ -1389,6 +1389,10 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Shape and crops in the stop asks**: Test-verified. A stop's ask shows the video's shape against its footage and
   how many shots are narrow crops (marked after a look, part crops, not looked at); `shape_guess` clears only on a
   shape the person named. Evidence: `backend/agent-stops.test.mjs`, `engine/qualityRules.test.js`.
+- **Shape before the board**: Test-verified. A board saved on a guessed shape over footage of another shape (their own
+  imported clips too) first takes the footage's shape, so its crops are checked against that frame; a later reshape
+  re-frames the board's crops and keeps an approval. Evidence: `backend/agent-stops.test.mjs`,
+  `backend/board-rules.test.mjs`, `engine/board.test.js`. Gap: not replayed on a real run.
 - **Board before the cut**: Test-verified. A first build or a second video clip in a row answers `board_needed`
   until the storyboard stop passed (skipped under 8 s); draft renders wait too. Evidence: `backend/agent-checkpoint.test.mjs`.
 - **Marks count after a look**: Test-verified. `narrow_window` and `crop_no_subject` clear only on a mark made

@@ -10,7 +10,7 @@
 // Plain data in and out, like stops.mjs: the service calls settleBoard inside its agent-state
 // updates (after an edit, revert or restore that changed the board, and before status and the
 // stops decide), and stops.mjs calls freezeBoard when a board round passes.
-import { boardCoverage, boardSpan, mainScene, NONE, ONE_FRAME } from "../../engine/board.js";
+import { boardCoverage, boardSpan, mainScene, NONE, ONE_FRAME, reframeBoard } from "../../engine/board.js";
 import { sec } from "./describe.mjs";
 
 export const BOARD_FPS = 30;
@@ -191,7 +191,8 @@ const boardOf = (value) => (isFacts(value) ? value.board : value) ?? null;
 /**
  * A board round passed: keeps a copy of the board it showed (state.boards; the last 20), and the
  * file its music layer played (musicFile, from boardFacts). An approval adds an entry and never
- * changes one; the copy is never changed after this.
+ * changes one; the copy is changed after this only when kino gives the scene another shape
+ * (reframeApproved).
  * by: "chat" (the agent recorded the person's reply), "settings" or "dashboard".
  */
 export function freezeBoard(draft, round, { board, by, now = Date.now() }) {
@@ -255,6 +256,24 @@ export function settleBoard(draft, { board, frame, beats = [], coverage = null, 
   }
   approval.lapsed = null;
   return { approval, lapsed: null, revisions: logRevisions(approval, changes.revisions, at, rev), ...(earlier ? { stands: true } : {}) };
+}
+
+/**
+ * kino gave the scene another shape after the board was approved (the service's followShape:
+ * footage arrived after the board, or the person named a shape at a stop) and re-framed the
+ * board's crops (engine/board.js reframeBoard). The approved copy takes the same new crops, so
+ * the approval stands and the change is logged as one revision line: the person approved what
+ * each shot shows, and the frame's shape was theirs or the footage's, not the agent's change.
+ * Returns the line logged, or "" with no approval or nothing to re-frame.
+ */
+export function reframeApproved(draft, { frame, sizeOf, label, rev, now = Date.now() }) {
+  const approval = activeApproval(draft);
+  const done = approval ? reframeBoard(approval.copy, frame, sizeOf) : null;
+  if (!done) return "";
+  approval.copy = done.board;
+  const line = `revision: ${plural(done.shots.length, "shot")} (${done.shots.join(", ")}) re-framed to ${label}: kino gave the scene that shape; each crop is the widest window around its old center`;
+  logRevisions(approval, [line], new Date(now).toISOString(), rev);
+  return line;
 }
 
 // Logs the lines not logged yet on the approval, and returns them.

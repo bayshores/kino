@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { boardPicks, pickWords, picksFor, SHOT_PICKS, CUT } from "./movePicks.js";
-import { boardCoverage, boardSpan, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, SHOT_LAYERS } from "./board.js";
+import { boardCoverage, boardSpan, isPlainShot, keepShotIds, mainScene, MOVE_REF, moveProblems, movesNeeded, moveWords, normalizeBoard, ONE_FRAME, reframeBoard, SHOT_LAYERS } from "./board.js";
 
 // A shot of motion design: every layer "none" but its text.
 const motion = (cue, dur, extra = {}) => ({ id: `S${Math.round(cue * 1000)}`, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none",
@@ -178,4 +178,19 @@ test("keepShotIds: a shot sent again keeps its id by its clip and in-point, or i
   assert.deepEqual(keepShotIds(sent, before).map((shot) => shot.id), ["open", "S2", "S4"]);
   // The first board: S1, S2, ... by place.
   assert.deepEqual(keepShotIds([card(0, 1, "a"), card(1, 1, "b")]).map((shot) => shot.id), ["S1", "S2"]);
+});
+
+test("reframeBoard: each crop becomes the widest window of the new frame around its old center, kept inside the file", () => {
+  const shot = (crop, extra = {}) => ({ id: "S1", media: "/api/media/a.mp4", crop, ...extra });
+  const sizes = { "/api/media/a.mp4": { width: 1920, height: 1080 } };
+  // 9:16 crops on a 16:9 file, the scene now 16:9: the whole file.
+  const wide = reframeBoard({ shots: [shot([20, 12, 24, 76]), { ...motion(1, 1), crop: "none" }] }, { width: 1920, height: 1080 }, (src) => sizes[src]);
+  assert.deepEqual(wide, { board: { shots: [shot([0, 0, 100, 100]), { ...motion(1, 1), crop: "none" }] }, shots: [1] });
+  // The other way: a 9:16 window (31.6% of the width) centered on the old crop, clamped at the right edge.
+  const tall = reframeBoard({ shots: [shot([80, 0, 20, 100], { alts: [{ crop: [0, 0, 50, 100], why: "the left" }] })] }, { width: 1080, height: 1920 }, (src) => sizes[src]);
+  assert.deepEqual(tall.board.shots[0].crop, [68.4, 0, 31.6, 100]);
+  assert.deepEqual(tall.board.shots[0].alts[0].crop, [9.2, 0, 31.6, 100]);
+  // Nothing to change, or a file of unknown size: null.
+  assert.equal(reframeBoard({ shots: [shot([0, 0, 100, 100])] }, { width: 1920, height: 1080 }, (src) => sizes[src]), null);
+  assert.equal(reframeBoard({ shots: [shot([20, 12, 24, 76])] }, { width: 1920, height: 1080 }, () => null), null);
 });

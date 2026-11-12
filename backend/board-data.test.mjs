@@ -119,7 +119,8 @@ test("GET board-data: by stop, by rev, the newest round, and each refusal", { sk
   const empty = await readJson({ project: id });
   assert.deepEqual([empty.status, empty.body.error], [404, "No storyboard in rev 1."]);
   assert.equal((await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: clip.src } }] })).isError, undefined);
-  const brief = await agent("notes", { project: id, action: "brief", fields: { plays_on: { text: "TikTok, 9:16, 9 s", by: "guessed" } } });
+  // The person's words name 9:16, so kino keeps the vertical frame over the 16:9 clip (a guess would take the clip's shape before the board).
+  const brief = await agent("notes", { project: id, action: "brief", fields: { ask: "a 9:16 cut of the dragon", plays_on: { text: "TikTok, 9:16, 9 s", by: "you", quote: "a 9:16 cut of the dragon" } } });
   assert.equal(brief.isError, undefined, brief.text);
   assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
   await editBoard(id, STOP_SHOTS());

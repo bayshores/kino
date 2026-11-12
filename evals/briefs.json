@@ -95,7 +95,7 @@
       "media": [
         { "name": "park.mp4", "ffmpeg": ["-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=12", "-c:v", "libx264", "-preset", "veryfast", "-crf", "32", "-pix_fmt", "yuv420p"] }
       ],
-      "request": "Make me a 12 second TikTok with kino from {park.mp4}: it says the park reopens Saturday. Show me the storyboard before you build.",
+      "request": "Make me a 12 second vertical TikTok with kino from {park.mp4}: it says the park reopens Saturday. Show me the storyboard before you build.",
       "open": ["look_sound", "never"],
       "replies": [
         { "match": "look|sound|style|music", "text": "bright and plain, the park's own sound" },

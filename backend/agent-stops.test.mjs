@@ -89,12 +89,15 @@ test("the service's stop ask carries the document's waivers: the person's rough 
   assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? \([a-z_]+ \d+(, [a-z_]+ \d+){0,2}\) · 1 waived \(default_font 1\)\.$/m, asked.data.ask);
 });
 
-test("the service follows the footage itself: 'looks good' on a built 9:16 scene of 16:9 clips makes it 16:9 and re-frames both shots, even when they share a name", async (t) => {
+test("the service follows the footage itself: 'looks good' on a built 9:16 scene of 16:9 clips makes it 16:9 and re-frames both shots, even when they share a name, and the board's crops", async (t) => {
   const fileId = "11111111-2222-3333-4444-555555555555.mp4";
   const clip = (id, start) => createLayer("video", { id, name: "clip", src: `/api/media/${fileId}`, x: 0, y: 0, width: 3413, height: 1920, start, duration: 8 });
+  // A board saved before the footage was placed, its crops 9:16 windows of the 16:9 file.
+  const shot = (id, cue, crop) => ({ id, cue, dur: 8, pacing: "free", media: `/api/media/${fileId}`, in: 0, crop, subject: "none", follow: "steady", text: "none", sound: "none", why: "the clip" });
+  const board = { rev: 1, music: "none", shots: [shot("S1", 0, [20, 12, 24, 76]), shot("S2", 8, [70, 0, 30, 100])] };
   let clock = 1_000;
   const { call, agentState, store } = await serviceFor(t, { steadyNow: () => clock,
-    document: createDocument({ id: "follow", name: "follow", scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 16, layers: [clip("v1", 0), clip("v2", 8)] })] }),
+    document: createDocument({ id: "follow", name: "follow", board, scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 16, layers: [clip("v1", 0), clip("v2", 8)] })] }),
     media: [{ id: fileId, name: "keeper", mime: "video/mp4", width: 1920, height: 1080, duration: 16 }],
   });
   await agentState.update("follow", (draft) => { draft.brief = { rev: 1, fields: withAsk({ plays_on: { text: "a phone", by: "guessed" } }), log: [], noPlayback: { reason: "just start", rev: 1 } }; });
@@ -105,9 +108,32 @@ test("the service follows the footage itself: 'looks good' on a built 9:16 scene
   const answered = await call("notes", { action: "answer", id: asked.data.id, rev: asked.data.rev, words: "looks good", read_as: "approve" });
   assert.match(answered.text, /shape: no shape named: kino made s1 16:9 \(1920x1080\) like the footage and re-framed 2 shots \(frame_shot\)/, answered.text);
   assert.equal(answered.shapeFollow, undefined, "the follow intent stays inside kino");
-  const scene = (await store.getProject("follow")).document.scenes[0];
-  assert.deepEqual([scene.width, scene.height], [1920, 1080]);
+  const { document } = await store.getProject("follow");
+  assert.deepEqual([document.scenes[0].width, document.scenes[0].height], [1920, 1080]);
   assert.doesNotMatch((await call("check")).text, /shape_guess/);
+  assert.match(answered.text, /board: 2 shots \(1, 2\) re-framed to 16:9, each the widest window around its old crop's center \(board r2/, answered.text);
+  assert.deepEqual(document.board.shots.map((entry) => entry.crop), [[0, 0, 100, 100], [0, 0, 100, 100]]);
+});
+
+test("a board saved on a guessed 9:16 scene over the person's own 16:9 clip: kino makes the scene 16:9 first, so the 9:16 crops are refused with the new numbers", async (t) => {
+  const fileId = "21111111-2222-3333-4444-555555555555.mp4";
+  // A clip the person imported themselves (allowed in this project, not placed): shapeAtImport never saw it.
+  const { call, agentState, store } = await serviceFor(t, {
+    document: createDocument({ id: "shape-board", name: "shape-board", scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 4, layers: [] })] }),
+    media: [{ id: fileId, name: "theirs", mime: "video/mp4", width: 1920, height: 1080, duration: 8, projectId: "shape-board" }],
+  });
+  const shot = (crop) => ({ cue: 0, dur: 4, pacing: "free", media: `/api/media/${fileId}`, in: 0, crop, subject: "none", follow: "steady", text: "none", sound: "none", why: "their clip" });
+  const refused = await call("edit", { ops: [{ op: "board", music: "none", shots: [shot([38, 12, 24, 76])] }] });
+  assert.equal(refused.data.boardError, "bad_shot", refused.text);
+  assert.match(refused.data.reason, /crop \[38, 12, 24, 76\] is 0\.56 wide per 1 tall on the source; the video is 1920×1080 \(1\.78\): with h 76, w is 76/);
+  assert.match(refused.data.shape, /^shape: s1 is now 16:9 \(1920x1080\) like your footage \(1 of 1\), before the storyboard is saved/);
+  const scene = (await store.getProject("shape-board")).document.scenes[0];
+  assert.deepEqual([scene.width, scene.height], [1920, 1080], "the shape stays settled though the board was refused");
+  assert.deepEqual((await agentState.read("shape-board")).shapeFollowed.from, [1080, 1920]);
+  // Sent again with a 16:9 crop: saved, and nothing more to settle.
+  const saved = await call("edit", { ops: [{ op: "board", music: "none", shots: [shot("whole")] }] });
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.equal(saved.data.shape, undefined);
 });
 
 test("a board ask names a guessed shape against the footage's; an answer that names none saves the footage's shape as plays_on", () => {

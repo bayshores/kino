@@ -325,6 +325,10 @@ test("look board refuses a project with no storyboard and a page past the last",
 
 test("a 15-shot board: 4 pages of at most 4 rows, each text within 200 tokens; the board stop lists 8 shots, then all 15", { skip: skipWithoutMediaTools, timeout: 180_000 }, async () => {
   await agent("project", { action: "create", id: "fifteen", name: "Fifteen shots", width: 1080, height: 1920, duration: 15, background: "#000000" });
+  // The person's words name the vertical frame, so kino keeps 9:16 over the 16:9 clip (else it gives the scene the clip's shape before the board).
+  const vertical = "fifteen vertical shots of the dragon clip";
+  const named = await agent("notes", { project: "fifteen", action: "brief", fields: { ask: vertical, plays_on: { text: "vertical", by: "you", quote: vertical } } });
+  assert.equal(named.isError, undefined, named.text);
   // One video layer of the clip, so the video has footage and the board stop asks.
   const layer = await agent("edit", { project: "fifteen", ops: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: clip.src, x: -1167, y: 0, width: 3413, height: 1920, mediaSourceDuration: 4.417 } }] });
   assert.equal(layer.isError, undefined, layer.text);

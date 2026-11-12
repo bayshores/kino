@@ -351,3 +351,42 @@ export function boardCoverage(board, span) {
     return { code: "gap", message: `the shots end at ${sec(last)} s, before the ${where} ends (${sec(span.end)} s): make the last shot ${sec(span.end - last)} s longer.`, at: [last, span.end] };
   return null;
 }
+
+/**
+ * The widest window of `frame`'s shape on a file of `source` pixels, centered on `crop`'s center
+ * and kept inside the file: [x, y, w, h] in % of the file, one decimal. kino uses it when it gives
+ * a scene with a board another shape (backend/agent/service.mjs followShape), so each shot keeps
+ * what it was centered on and shows as much of its file as the new frame allows.
+ */
+export function reframeCrop(crop, source, frame) {
+  const aspect = frame.width / frame.height;
+  const wide = source.width / source.height >= aspect;
+  const w = round(wide ? (aspect * source.height * 100) / source.width : 100, 1);
+  const h = round(wide ? 100 : (source.width * 100) / aspect / source.height, 1);
+  const [x, y, cw, ch] = crop;
+  const place = (center, size) => Math.min(round(100 - size, 1), Math.max(0, round(center - size / 2, 1)));
+  return [place(x + cw / 2, w), place(y + ch / 2, h), w, h];
+}
+
+/**
+ * The board with each crop given in [x, y, w, h] (shots and their options) re-framed to `frame`
+ * (reframeCrop), or null when no crop changed. `sizeOf(src)` is the file's {width, height} or null
+ * (a crop on a file of unknown size is kept). Returns { board, shots: the numbers of the shots whose crop changed }.
+ */
+export function reframeBoard(board, frame, sizeOf) {
+  if (!board?.shots?.length || !(frame?.width > 0 && frame?.height > 0)) return null;
+  const changed = new Set();
+  const redo = (crop, media, n) => {
+    const source = Array.isArray(crop) && typeof media === "string" && media !== NONE ? sizeOf(media) : null;
+    if (!(source?.width > 0 && source?.height > 0)) return crop;
+    const next = reframeCrop(crop, source, frame);
+    if (next.some((value, index) => value !== crop[index])) changed.add(n);
+    return next;
+  };
+  const shots = board.shots.map((shot, index) => ({
+    ...shot,
+    crop: redo(shot.crop, shot.media, index + 1),
+    ...(Array.isArray(shot.alts) ? { alts: shot.alts.map((alt) => (Object.hasOwn(alt, "crop") ? { ...alt, crop: redo(alt.crop, alt.media ?? shot.media, index + 1) } : alt)) } : {}),
+  }));
+  return changed.size ? { board: { ...board, shots }, shots: [...changed] } : null;
+}

@@ -7,7 +7,7 @@
   "events": [
     {
       "type": "person",
-      "text": "Make me a 12 second TikTok with kino from /tmp/run/media/park.mp4: it says the park reopens Saturday. Show me the storyboard before you build."
+      "text": "Make me a 12 second vertical TikTok with kino from /tmp/run/media/park.mp4: it says the park reopens Saturday. Show me the storyboard before you build."
     },
     {
       "type": "call",
@@ -45,7 +45,7 @@
           "plays_on": {
             "text": "TikTok, 9:16, 12 s",
             "by": "you",
-            "quote": "12 second TikTok"
+            "quote": "12 second vertical TikTok"
           },
           "made_from": {
             "text": "park.mp4",
@@ -103,7 +103,7 @@
     },
     {
       "type": "agent",
-      "text": "Here's the brief. Quotes are yours; \"guess\" is mine.\n- message: you said \"it says the park reopens Saturday\"\n- plays on: you said \"12 second TikTok\" (so 9:16)\n- made from: you said \"park.mp4\"\n- look and sound: you said \"bright and plain, the park's own sound\"\n- never: you said \"no meme text\"\n- key moment: guess: the date, Saturday, at the end\nWhat's wrong or missing?"
+      "text": "Here's the brief. Quotes are yours; \"guess\" is mine.\n- message: you said \"it says the park reopens Saturday\"\n- plays on: you said \"12 second vertical TikTok\" (so 9:16)\n- made from: you said \"park.mp4\"\n- look and sound: you said \"bright and plain, the park's own sound\"\n- never: you said \"no meme text\"\n- key moment: guess: the date, Saturday, at the end\nWhat's wrong or missing?"
     },
     {
       "type": "person",
@@ -292,7 +292,7 @@
         "plays_on": {
           "text": "TikTok, 9:16, 12 s",
           "by": "you",
-          "quote": "12 second TikTok",
+          "quote": "12 second vertical TikTok",
           "rev": 1,
           "client": "claude-code",
           "at": "2026-10-25T09:01:05.000Z"

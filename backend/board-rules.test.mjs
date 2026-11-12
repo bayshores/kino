@@ -3,9 +3,9 @@
 // and that the copy never changes after it is written.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeApproval, BOARD_FPS, boardChanges, boardFacts, boardSummary, CROP_SHARE, CUT_FRAMES, freezeBoard, lapsedChanges, leavesItToYou, settleBoard, YOUR_CALL } from "./agent/board.mjs";
+import { activeApproval, BOARD_FPS, boardChanges, boardFacts, boardSummary, CROP_SHARE, CUT_FRAMES, freezeBoard, lapsedChanges, leavesItToYou, reframeApproved, settleBoard, YOUR_CALL } from "./agent/board.mjs";
 import { boardAsk } from "./agent/board-text.mjs";
-import { keepShotIds } from "../engine/board.js";
+import { keepShotIds, reframeBoard } from "../engine/board.js";
 import { reopenStep, stopRules } from "./agent/stops.mjs";
 import { answerStep, checkpointStep, dashboardAnswerStep, settleWaiting, stopPlan, statusLines } from "./stops.test.support.mjs";
 import { emptyAgentState } from "./agent/state.mjs";
@@ -198,6 +198,20 @@ test("settleBoard logs each revision once, and a lapse sticks even when the boar
     lapsed: { at: "1970-01-01T00:00:03.000Z", rev: 7, why: ["changed, then changed back to what you approved"] }, revisions: ["revision: shot 2 in-point moved 3 frames"] } });
   assert.equal(settleBoard({ stops: [], boards: [] }, { board: COPY, frame: FRAME, rev: 1 }), null, "nothing to settle without an approval");
   assert.deepEqual(boardSummary({ stops: [], boards: [] }), { approved: null });
+});
+
+test("kino reshapes the scene after an approval: the copy takes the re-framed crops, one revision is logged and the approval stands", () => {
+  const state = stateWith({ status: "answered", read_as: "approve" });
+  const wide = { width: 1920, height: 1080 };
+  const sizeOf = (src) => (src === clip ? { width: 1920, height: 1080 } : null);
+  const line = reframeApproved(state, { frame: wide, sizeOf, label: "16:9", rev: 9, now: 1000 });
+  assert.equal(line, "revision: 2 shots (1, 2) re-framed to 16:9: kino gave the scene that shape; each crop is the widest window around its old center");
+  assert.deepEqual(state.boards[0].copy.shots.map((shot) => shot.crop), [[0, 0, 100, 100], [0, 0, 100, 100], "none"]);
+  // The document's board re-framed the same way settles with no lapse and nothing more to log.
+  const settled = settleBoard(state, { board: reframeBoard(COPY, wide, sizeOf).board, frame: wide, rev: 9, now: 1000 });
+  assert.deepEqual([settled.lapsed, settled.revisions], [null, []]);
+  assert.deepEqual(state.boards[0].revisions.map((entry) => entry.line), [line]);
+  assert.equal(reframeApproved({ stops: [], boards: [] }, { frame: wide, sizeOf, label: "16:9", rev: 9 }), "", "no approval, nothing to re-frame");
 });
 
 test("once the person answered a later stop, the board's approval no longer lapses: changes are logged, a redo still blocks its own stop", () => {

@@ -237,7 +237,7 @@ const turns = [
     // Each reply they typed is stored with the ask: a reply logged in the same call proves no quote.
     await call("notes", { project, action: "brief", fields: { ask: [heard[0], reply], about: { text: "the park reopening", by: "you", quote: "the park reopens Saturday" },
       message: { text: "the park reopens Saturday", by: "you", quote: "it says the park reopens Saturday" },
-      plays_on: { text: "TikTok, 9:16, 12 s", by: "you", quote: "12 second TikTok" },
+      plays_on: { text: "TikTok, 9:16, 12 s", by: "you", quote: "12 second vertical TikTok" },
       made_from: { text: "park.mp4", by: "you", quote: "park.mp4" },
       look_sound: { text: "bright and plain; the park's own sound", by: "you", quote: reply } }, log: [{ q: asked[0], a: reply }] });
     say(asked[1]);
@@ -247,7 +247,7 @@ const turns = [
       key_moment: { text: "the date, Saturday, at the end", by: "guessed" } }, log: [{ q: asked[1], a: reply }] });
     playedRev = saved.data.brief.rev;
     say(["Here's the brief. Quotes are yours; \"guess\" is mine.", "- message: you said \"it says the park reopens Saturday\"",
-      "- plays on: you said \"12 second TikTok\" (so 9:16)", "- made from: you said \"park.mp4\"", "- look and sound: you said \"" + heard[1] + "\"",
+      "- plays on: you said \"12 second vertical TikTok\" (so 9:16)", "- made from: you said \"park.mp4\"", "- look and sound: you said \"" + heard[1] + "\"",
       "- never: you said \"" + reply + "\"", "- key moment: guess: the date, Saturday, at the end", "What's wrong or missing?"].join("\n"));
   },
   async (reply) => {
@@ -309,7 +309,7 @@ test("evals/run.mjs plays the person past the playback to the storyboard ask and
 
     // The request, the two scripted answers, the playback's answer and "your call" to the open
     // item (review round 2 of B4b); nothing after the board ask.
-    assert.match(heard[0], /^Make me a 12 second TikTok with kino from \/.+\/media\/park\.mp4: it says the park reopens Saturday\. Show me the storyboard before you build\.$/);
+    assert.match(heard[0], /^Make me a 12 second vertical TikTok with kino from \/.+\/media\/park\.mp4: it says the park reopens Saturday\. Show me the storyboard before you build\.$/);
     assert.deepEqual(heard.slice(1), [brief.replies[0].text, brief.replies[1].text, brief.playbackReply, brief.boardReply]);
     const ask = transcript.events.findLast((event) => event.type === "agent");
     assert.ok(!ask.text.startsWith("Stopped:"), ask.text);

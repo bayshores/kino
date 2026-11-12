@@ -669,6 +669,8 @@ test("on the server: a 30-shot board, all shots while it waits, fits the token b
   const id = "redo-thirty";
   assert.equal((await agent("project", { action: "create", id, name: id, width: 1080, height: 1920, duration: 30, background: "#101114" })).isError, undefined);
   assert.equal((await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: clip.src } }] })).isError, undefined);
+  // The person's words name the vertical frame, so the 9:16 crops stay right over the 16:9 clip.
+  assert.equal((await agent("notes", { project: id, action: "brief", fields: { ask: "a vertical for my phone", plays_on: { text: "vertical, 9:16", by: "you", quote: "vertical for my phone" } } })).isError, undefined);
   assert.equal((await agent("notes", { project: id, action: "brief", no_playback: "just start" })).isError, undefined);
   const shots = Array.from({ length: 30 }, (_, index) => (index % 3 === 2 ? motion(index, 1, { text: { text: `Line ${index + 1} of the dragon story`, family: "Inter" } })
     : footage(index, 1, (index % 4) * 0.8, 20 + (index % 5) * 8)));

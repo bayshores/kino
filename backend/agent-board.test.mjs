@@ -99,9 +99,17 @@ function assertRefused(reply, boardError, message) {
   assert.equal(reply.data.reason.replace(/^Operation \d+ \(board\) was refused: /, ""), message);
 }
 
+// These tests are about the board, not the frame's shape: the person's own words name the
+// vertical frame, so kino keeps 9:16 over the 16:9 clip. Without them kino gives the scene the
+// footage's shape before a board is saved (agent-stops.test.mjs).
+const VERTICAL = "a vertical cut of the dragon clip";
 async function project(id, { width = 1080, height = 1920, duration = 6, layers = [], on = server } = {}) {
   const made = await agent("project", { action: "create", id, name: id, width, height, duration, background: "#101114" }, on);
   assert.equal(made.isError, undefined, made.text);
+  if (height > width && layers.some((layer) => layer.layerType === "video")) {
+    const named = await agent("notes", { project: id, action: "brief", fields: { ask: VERTICAL, plays_on: { text: "vertical", by: "you", quote: VERTICAL } } }, on);
+    assert.equal(named.isError, undefined, named.text);
+  }
   if (!layers.length) return made;
   const edited = await agent("edit", { project: id, ops: layers }, on);
   assert.equal(edited.isError, undefined, edited.text);
