@@ -315,15 +315,46 @@ async function lookMatches({ categories, weights, names, styles = [], boost = []
   return { matches, offline, own };
 }
 
+/**
+ * The catalog families a search names: runs of the unknown words, longest first ("bebas neue",
+ * "anton"). One word names a family only when it is the whole name ("anton" is Anton, "big" is not
+ * Big Shoulders, "space" is not Space Mono); two or more words also name the families that start
+ * with them ("source sans"). Each named family brings its siblings ("Anton" brings "Anton SC",
+ * never "Antonio"). { found, rest }: the families, best first, and the words that named none.
+ * Run 8 asked "Anton condensed bold" and the answer said "ignored: anton" and listed condensed faces A to Z.
+ */
+async function namedFamilies(ignored, catalog) {
+  const found = [], used = new Set();
+  const runs = [];
+  for (let size = Math.min(3, ignored.length); size >= 1; size -= 1)
+    for (let start = 0; start + size <= ignored.length; start += 1) runs.push(ignored.slice(start, start + size).join(" "));
+  for (const phrase of runs) {
+    if (phrase.split(" ").some((word) => used.has(word))) continue;
+    const { families } = await catalog.list({ search: phrase, limit: 50 });
+    const name = (family) => family.family.toLowerCase();
+    const whole = families.some((family) => name(family) === phrase);
+    if (!whole && !phrase.includes(" ")) continue;
+    const hits = families.filter((family) => name(family) === phrase || name(family).startsWith(`${phrase} `))
+      .sort((a, b) => (name(b) === phrase) - (name(a) === phrase) || a.family.length - b.family.length);
+    if (!hits.length) continue;
+    for (const hit of hits) if (!found.some((family) => family.id === hit.id)) found.push(hit);
+    for (const word of phrase.split(" ")) used.add(word);
+  }
+  return { found, rest: ignored.filter((word) => !used.has(word)) };
+}
+
 async function lookFamilies(wanted, term, catalog) {
-  const { categories, weights, styles = [], scripts = [], ranks = [], ignored } = wanted;
-  const { matches, offline, own } = await lookMatches(wanted, catalog);
+  const { categories, weights, styles = [], scripts = [], ranks = [] } = wanted;
+  const { matches: categoryMatches, offline, own } = await lookMatches(wanted, catalog);
+  // A family the search names comes first, then the category's matches.
+  const { found: named, rest: ignored } = wanted.ignored.length ? await namedFamilies(wanted.ignored, catalog) : { found: [], rest: [] };
+  const matches = [...named, ...categoryMatches.filter((family) => !named.some((hit) => hit.id === family.id))];
   const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
   const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word]), ...styles, ...ranks.map((word) => `${word} first`), ...scripts].join(", ");
   const listed = matches.slice(0, LISTED);
   const label = (family) => `${family.family} ${range(family)}${own.has(family.family) ? " [kino's own]" : ""}`;
   return [
-    `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match${ignored.length ? `; ignored: ${ignored.join(", ")}` : ""}): ${listed.map(label).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
+    `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match${named.length ? `; named first: ${named.map((family) => family.family).join(", ")}` : ""}${ignored.length ? `; ignored: ${ignored.join(", ")}` : ""}): ${listed.map(label).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
     "Compare by eye with the reference strip, or library {topic:\"fonts\", like:\"<picture path, or yt:id with t>\", region:[x,y,w,h]} ranks faces by the measured letters; set_font {layerIds, family, weight} downloads the one you pick."
     + (listed.some((family) => own.has(family.family)) ? ` [kino's own] fonts are flagged by check unless a style line at a saved reference's moment names them (notes brief, style lines).` : ""),
   ].join("\n");
@@ -347,6 +378,13 @@ export async function fontsLibraryText(search, { fonts, catalog }) {
   // No family name holds the whole search, but its words describe a look ("condensed bold sans").
   const wanted = lookOf(term);
   if (wanted && total === 0 && !installed.length) return lookFamilies(wanted, term, catalog);
+  // A name with a weight word and no class word ("Anton bold", "Bebas Neue bold") matched nothing whole: the name alone.
+  if (!wanted && total === 0 && !installed.length) {
+    const words = lower.match(/[a-z0-9]+/g) ?? [];
+    const { found, rest } = words.length > 1 ? await namedFamilies(words.filter((word) => !WEIGHT_WORDS[word] && !FILLER_WORDS.includes(word)), catalog) : { found: [] };
+    if (found.length) return [`catalog, named ${JSON.stringify(term)}: ${found.slice(0, LISTED).map((family) => `${family.family} ${family.weights.join("/")}`).join(", ")}${rest.length ? ` (ignored: ${rest.join(", ")})` : ""}`,
+      "set_font {layerIds, family, weight} downloads a catalog font when needed."].join("\n");
+  }
   // One class, style or script word alone ("brush", "stencil", "japanese") names a look, not a family: the look's families, best fit first.
   if (wanted?.single && !families.some((family) => family.family.toLowerCase() === lower))
     return [...(installed.length ? [`installed: ${installed.slice(0, LISTED).join(", ")}${installed.length > LISTED ? ` +${installed.length - LISTED} more` : ""}`] : []), await lookFamilies(wanted, term, catalog)].join("\n");

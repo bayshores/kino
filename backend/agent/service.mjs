@@ -550,7 +550,9 @@ export function createAgentService(deps) {
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
       const brief = (await agentState.read(document.id).catch(() => null))?.brief;
-      return { fonts: brief?.style?.fonts ?? null, type: brief?.style?.type ?? pickedType(brief?.treatments) };
+      // typeLabeled: a saved reference has a type label (the picked type may follow what the references show).
+      const typeLabeled = Boolean((await deps.inspire?.typeLabels?.(document.id).catch(() => []))?.length);
+      return { fonts: brief?.style?.fonts ?? null, type: brief?.style?.type ?? pickedType(brief?.treatments), typeLabeled };
     } });
   // detect_beats: decoded and analysed sound, kept in a .beats file beside each media file.
   const beatAnalysis = deps.beatAnalysis ?? createBeatAnalysisCache();
@@ -6915,8 +6917,8 @@ export function createAgentService(deps) {
         "library {topic:\"rules\", name:\"presets\"} has the details."].join("\n") };
     }
     // like: the faces nearest the lettering in a picture or a saved reference's moment (font-like.mjs).
-    if (topic === "fonts" && input.like != null) {
-      const { fontsLikeText } = await import("../font-like.mjs");
+    if (topic === "fonts" && (input.like != null || deps.inspire?.typeLabels)) {
+      const { fontsLikeText, fontsLikeLabels } = await import("../font-like.mjs");
       const { classFamilies } = await import("./font-help.mjs");
       const { referenceStripFrame } = await import("../measure/strips.mjs");
       const referenceFrame = async (id, t) => {
@@ -6924,14 +6926,24 @@ export function createAgentService(deps) {
         if (!kept) throw new AgentError("not_ready", `${id} has no frame strips: library {topic:"inspire", name:"${id}"} adds and measures it.`);
         return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
       };
-      try {
-        const { text, fonts: found, measures } = await fontsLikeText(input, { fonts: await loadFonts(), catalog: fontCatalog,
-          lookFamilies: (words) => classFamilies(words, fontCatalog), referenceFrame });
-        return { text, data: { fonts: found, measures } };
-      } catch (error) {
-        if (error instanceof AgentError) throw error;
-        throw new AgentError("bad_input", `fonts like: ${error.message}`);
+      const likeDeps = { fonts: await loadFonts(), catalog: fontCatalog, lookFamilies: (words) => classFamilies(words, fontCatalog), referenceFrame };
+      if (input.like != null) {
+        try {
+          const { text, fonts: found, measures } = await fontsLikeText(input, likeDeps);
+          return { text, data: { fonts: found, measures } };
+        } catch (error) {
+          if (error instanceof AgentError) throw error;
+          throw new AgentError("bad_input", `fonts like: ${error.message}`);
+        }
       }
+      // No like: the type labels the project saved on its references come first (their lettering, measured),
+      // then the catalog search. A project with no labels, or none open, answers the search alone.
+      // (A one-character search asks which fonts draw that glyph: a different job, no labels.)
+      const glyphSearch = [...String(search || input.name || "").trim()].length === 1;
+      const labels = glyphSearch ? [] : await deps.inspire.typeLabels((await projectFor(input).catch(() => null))?.document?.id).catch(() => []);
+      const fromLabels = await fontsLikeLabels(labels, likeDeps).catch(() => null);
+      const searched = await fontsLibraryText(search || input.name, { fonts: likeDeps.fonts, catalog: fontCatalog });
+      return fromLabels ? { text: `${fromLabels.text}\n${searched}`, data: { likeLabels: fromLabels.found } } : { text: searched };
     }
     if (topic === "fonts")
       return { text: await fontsLibraryText(search || input.name, { fonts: await loadFonts(), catalog: fontCatalog }) };
@@ -7088,11 +7100,15 @@ export function createAgentService(deps) {
       for (const entry of done.seen) for (const kind of entry.kinds) counts[kind] = (counts[kind] ?? 0) + 1;
       const tally = Object.entries(counts).map(([kind, n]) => `${kind} ${n}`).join(", ");
       const left = done.moments.filter((at) => !done.seen.some((entry) => entry.at === at));
+      const onList = done.moments.length - left.length;
+      // A type label at another time inside the reference stays beside the six moments' labels.
+      const others = done.seen.length - onList;
       // The next moment of this reference, else wherever the order goes next (the label step of the other one, the treatments).
       // Look at the next moment first (that look ends with the ready seen call), else wherever the order goes next.
       const nextCall = left.length ? nextOf("look", { mode: "reference", ref: id, t: left[0] }) : await buildNext(projectId);
-      return { project: projectId, text: `seen ${id}: ${done.seen.length} of ${done.moments.length} moments labeled (${tally}).`, nextCall,
-        data: { ref: id, labeled: done.seen.length, of: done.moments.length, seen: done.seen } };
+      const extra = others > 0 || done.offList ? ` and ${others} type label${others === 1 ? "" : "s"} at other times${done.offList ? ` (saved at ${done.at} s; library fonts like reads the nearest kept frame, ${done.frameAt} s)` : ""}` : "";
+      return { project: projectId, text: `seen ${id}: ${onList} of ${done.moments.length} moments labeled${extra} (${tally}).`, nextCall,
+        data: { ref: id, labeled: onList, of: done.moments.length, seen: done.seen } };
     }
     // sounds <n>: a sounds search ranked by how each sound matches its words and the person's taste.
     if (verb === "sounds") {

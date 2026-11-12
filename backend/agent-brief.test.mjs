@@ -1385,13 +1385,25 @@ test("the order labels what each studied reference shows on screen (seen) before
   // The strip is at 1 s: every sixth of the 9 s points to it, so there is one moment. 5 s is off the list.
   const off = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @5 overlay: smoke over the face" });
   assert.equal(off.data.error, "bad_input");
-  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\)\)/);
+  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s\)/);
   assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 glitter: smoke" })).data.reason, /kinds are type, overlay/);
   const saved = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1.2 overlay, made: green outline traced on the figure" });
   assert.match(saved.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled \(overlay 1, made 1\)\.\nnext: look \{"mode":"reference","ref":"yt:kinoSeen002","t":1/);
   assert.match((await agent("edit", compose)).data.reason, /Next: label yt:kinoSeen002 on screen/);
   await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen002 @1 type: thin sans titles" });
   assert.match((await agent("edit", compose)).data.reason, /Next: write 5 treatments/);
+  // A type label may name any time inside the reference (run 8: the most specific lettering, at 3.8 s, was refused
+  // because it was not one of the six moments); other kinds stay on the list, and a time past the end is refused.
+  const typed = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @5 type: small caps words typed on a torn tape strip" });
+  assert.equal(typed.isError, undefined, typed.text);
+  assert.match(typed.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled and 1 type label at other times \(saved at 5 s; library fonts like reads the nearest kept frame, 1 s\) \(overlay 1, made 1, type 1\)\./);
+  assert.deepEqual(typed.data.seen.map((entry) => entry.at), [1, 5], "kept at the time given, beside the moment's label");
+  assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @20 type: too late" })).data.reason, /20 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s/);
+  // library fonts starts from the saved type labels: their lettering is measured first (a plain strip holds none: the answer says so and names the region call).
+  const fonts = await agent("library", { project: id, topic: "fonts", search: "condensed bold" });
+  assert.match(fonts.text, /^your label yt:kinoSeen001 @5 "small caps words typed on a torn tape strip" was not measured \(no lettering found in that region\): library \{topic:"fonts", like:"yt:kinoSeen001", t:5, region:\[x,y,w,h\]\}\nyour label yt:kinoSeen002 @1 "thin sans titles" was not measured/);
+  assert.match(fonts.text, /\(smaller distance = closer letters; region:\[x,y,w,h\] around the letters measures them alone\)\ncatalog, look /);
+  assert.equal((await agent("library", { project: id, topic: "fonts", search: "∞" })).text.startsWith("your label"), false, "a glyph search skips the labels");
 });
 
 test("a brief save names every problem of the call at once: lines and log replies", () => {

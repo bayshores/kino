@@ -446,3 +446,37 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
     measures: reference,
   };
 }
+
+// How many saved type labels the fonts answer measures, and how many faces it lists for each.
+// GUESS: 2 labels keep the answer small and the downloads few; run 8 saved 3 type labels on 2 references.
+const LABELS_MEASURED = 2;
+const LABEL_FACES = 4;
+
+/**
+ * The fonts answer's first lines when references carry type labels (library inspire "seen ... type:"):
+ * the `like:` ranking at each labeled moment, so the faces nearest the references' own lettering
+ * come before any catalog search result (run 8: `like:` was offered and never called; the face used
+ * was the first catalog result). `labels` is [{id, at, words}]. Resolves { text, found } or null
+ * without labels; a label whose frame holds no measurable lettering says so and names the region call.
+ */
+export async function fontsLikeLabels(labels, deps) {
+  if (!labels?.length) return null;
+  const lines = [], found = [];
+  for (const label of labels.slice(0, LABELS_MEASURED)) {
+    const where = `${label.id} @${label.at}`;
+    const words = String(label.words ?? "").slice(0, 60);
+    try {
+      const { fonts: ranked } = await fontsLikeText({ like: label.id, t: label.at, count: LABEL_FACES }, deps);
+      found.push({ ref: label.id, at: label.at, fonts: ranked.map(({ family, weight, distance: gap }) => ({ family, weight, distance: gap })) });
+      // The label has no region, so the whole frame is measured. When the faces sit this close the measure
+      // cannot tell them apart (run 8's @1.6 caption, 8 px tall in a 240 px frame: 3.19 to 3.46, 8% apart);
+      // the line says so and gives the region call. GUESS: 10% between the first and last face listed.
+      const close = ranked.length > 1 && (ranked.at(-1).distance - ranked[0].distance) / ranked[0].distance < 0.1;
+      lines.push(`like your label ${where} "${words}" (whole frame${close ? `, too close to tell apart: like:"${label.id}", t:${label.at}, region:[x,y,w,h]` : ""}): ${ranked.map((font) => `${font.family} ${font.weight} (${font.distance})`).join(", ")}`);
+    } catch (error) {
+      lines.push(`your label ${where} "${words}" was not measured (${error.message.split(/[.:]/)[0]}): library {topic:"fonts", like:"${label.id}", t:${label.at}, region:[x,y,w,h]}`);
+    }
+  }
+  const more = labels.length - LABELS_MEASURED;
+  return { text: `${lines.join("\n")}\n(smaller distance = closer letters${more > 0 ? `; ${more} more label${more === 1 ? "" : "s"}: like:"<ref>", t` : ""}; region:[x,y,w,h] around the letters measures them alone)`, found };
+}

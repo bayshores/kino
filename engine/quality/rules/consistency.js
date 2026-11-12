@@ -176,18 +176,31 @@ export function roleFontDrift(model, ctx) {
     // and speech may not. Against the bible's display or label size, a text off it is a warning
     // (display text beside one at that size is its second line).
     if (role === "subhead" || role === "stat" || role === "quote" || (role === "label" && !bible?.size) || (role === "display" && !bible?.size)) continue;
+    // A size in the style bible that the person's words do not name is the agent's guess (run 8: display
+    // 270 px was guessed before any lettering was measured, the person's approval "looks good, keep going"
+    // named no size, and this rule pushed 220 and 250 px back to 270 three times). Captions and speech
+    // still keep one size among themselves (the role's most used size, as with no bible); display and
+    // label text off a guessed size is reported as information only, never pushed back to it.
+    const sizeGiven = Boolean(bible?.size) && ctx.style?.fontsBacked && new RegExp(`(^|\\D)${Math.round(bible.size)}(\\D|$)`).test(ctx.style?.quote ?? "");
+    const guessedSize = Boolean(bible?.size) && !sizeGiven;
+    const ownSize = guessedSize && (role === "caption" || role === "speech");
+    const sizeFrom = ownSize ? null : bible;
     const sizes = items.map((item) => drawnSize(model, item));
     const [common] = mostUsed(items, (item) => Math.round(drawnSize(model, item)));
-    const target = bible?.size ?? common;
+    if (ownSize && items.length < 2) continue;
+    const target = sizeFrom?.size ?? common;
     const near = (index) => Math.abs(sizes[index] - target) / target <= SIZE_SPREAD;
     const onSize = items.filter((item, index) => near(index));
     const besideOnSize = (item) => onSize.some((other) => other !== item && model.times.some((time, at) => item.samples.opacity[at] > 0.3 && other.samples.opacity[at] > 0.3));
     const odd = items.filter((item, index) => !near(index) && !(role === "display" && besideOnSize(item)));
+    const asInfo = guessedSize && !ownSize;
     if (odd.length) findings.push({
-      rule: "role_font_drift", severity, itemId: odd[0].id, itemIds: odd.map((item) => item.id), at: sec(firstShown(model, odd[0])),
-      measured: `${roleName} at ${[...new Set(sizes.map(Math.round))].join(", ")} px`, required: `${bible?.size ? `the style bible's ${bible.size} px` : "one size"} for ${roleName} text (within ${Math.round(SIZE_SPREAD * 100)}%)`,
-      message: `${odd.slice(0, 3).map((item) => ctx.name(item)).join(", ")} ${odd.length === 1 ? "is" : "are"} ${roleName} text at another size than ${bible?.size ? `the style says (${bibleRole} ${Math.round(target)} px)` : `the others (${Math.round(target)} px)`}.`,
-      fix: { kind: "hint", text: `Set fontSize ${Math.round(target)} on ${odd.slice(0, 4).map((item) => ctx.name(item)).join(", ")} (update_layer)${bible?.size ? `, or change style.fonts.${bibleRole}.size (notes brief)` : ""}, or give a title the role headline.` },
+      rule: "role_font_drift", severity: asInfo ? "info" : severity, itemId: odd[0].id, itemIds: odd.map((item) => item.id), at: sec(firstShown(model, odd[0])),
+      measured: `${roleName} at ${[...new Set(sizes.map(Math.round))].join(", ")} px`, required: `${sizeFrom?.size ? `the style bible's ${sizeFrom.size} px${asInfo ? " (a guess)" : ""}` : "one size"} for ${roleName} text (within ${Math.round(SIZE_SPREAD * 100)}%)`,
+      message: `${odd.slice(0, 3).map((item) => ctx.name(item)).join(", ")} ${odd.length === 1 ? "is" : "are"} ${roleName} text at another size than ${sizeFrom?.size ? `the style says (${bibleRole} ${Math.round(target)} px)` : `the others (${Math.round(target)} px)`}.${asInfo ? ` Information only: ${Math.round(target)} px is the agent's guess (the person did not give it), so the size on screen stands unless it reads wrong.` : ""}`,
+      fix: { kind: "hint", text: asInfo
+        ? `Keep the size if it reads right and set style.fonts.${bibleRole}.size to it (notes brief); only a size the person gives is held.`
+        : `Set fontSize ${Math.round(target)} on ${odd.slice(0, 4).map((item) => ctx.name(item)).join(", ")} (update_layer)${sizeFrom?.size ? `, or change style.fonts.${bibleRole}.size (notes brief)` : ""}, or give a title the role headline.` },
     });
   }
   return findings;

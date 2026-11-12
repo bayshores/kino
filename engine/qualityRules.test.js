@@ -1636,11 +1636,17 @@ test("role_font_drift: two families among captions, or a caption at another size
   const { findings: locked } = await check("role_font_drift", captions("Noto Serif"), bible);
   assert.deepEqual([locked[0].severity, locked[0].fix.family], ["warn", "JetBrains Mono"]);
   // An off-size caption against the style's size names where the size comes from; a body note is not a caption.
-  const styled = { styleSpec: { wants: [], avoids: [], by: "guessed", fonts: { caption: { family: "Inter", size: 44 } } } };
+  const styled = { styleSpec: { wants: [], avoids: [], by: "you", quote: "captions at 44 px", fonts: { caption: { family: "Inter", size: 44 } } } };
   const notes = scene({ layers: [text("c1", "she walks to the store", { fontSize: 60, fontFamily: "Inter", role: "caption" }), text("n1", "always look up from the screen", { fontSize: 36, fontFamily: "Inter", role: "body", y: 600 })] });
   const { findings: [styleSize] } = await check("role_font_drift", notes, styled);
   assert.match(styleSize.message, /"c1" is caption text at another size than the style says \(caption 44 px\)/);
   assert.deepEqual(styleSize.itemIds, ["c1"]);
+  // A guessed caption size pushes no caption to it, but captions still keep one size among themselves (their most used one).
+  const guessedCaptions = { styleSpec: { ...styled.styleSpec, by: "guessed", quote: undefined } };
+  await silent("role_font_drift", notes, guessedCaptions);
+  const [among] = await fires("role_font_drift", captions("Noto Serif", 60), { styleSpec: { ...guessedCaptions.styleSpec, fonts: { caption: { family: "Noto Serif", size: 52 } } } });
+  assert.deepEqual([among.severity, among.itemId], ["warn", "c2"], among.message);
+  assert.match(among.message, /than the others/);
   // A wordmark text named logo is the logo's, not a caption's or a title's.
   await silent("role_font_drift", scene({ layers: [text("c1", "she walks to the store", { fontSize: 40, fontFamily: "JetBrains Mono", role: "caption" }), text("logo", "oak", { fontSize: 160, y: 600 })] }), bible);
   // A brand's serif and sans headlines, and a mock screen's small copy beside captions, are choices.
@@ -1666,8 +1672,23 @@ test("role_font_drift: two families among captions, or a caption at another size
   const { findings: [label] } = await check("role_font_drift", scene({ layers: [text("l1", "new", { fontSize: 30, fontFamily: "Inter", role: "label" })] }), labeled);
   assert.equal(label.severity, "warn");
   const sized = (kicker) => scene({ duration: 4, layers: [text("h1", "Plan less", { fontSize: 120, animations: [hide(2)] }), text("h2", "ship more", { fontSize: 72, y: 500, animations: kicker ? [hide(2)] : [hide(0), show(2)] })] });
-  const [display] = await fires("role_font_drift", sized(false), labeled);
+  // A size the person did not give is the agent's guess: reported as information only, so a title is not pushed back to it
+  // (run 8: display 270 px was guessed before any lettering was measured; 220 and 250 px were pushed back three times).
+  const { findings: [guess] } = await check("role_font_drift", sized(false), labeled);
+  assert.deepEqual([guess.severity, guess.itemId], ["info", "h2"], guess.message);
+  assert.match(guess.message, /Information only: 120 px is the agent's guess/);
+  assert.match(guess.fix.text, /^Keep the size if it reads right/);
+  // An approval that names no size leaves it a guess (run 8's spec was approved with "looks good, keep going").
+  const approved = { styleSpec: { ...labeled.styleSpec, by: "you", quote: "looks good, keep going" } };
+  assert.equal((await check("role_font_drift", sized(false), approved)).findings[0].severity, "info");
+  // A reference line naming the face does not make the guessed size the person's.
+  const lined = { styleSpec: { ...labeled.styleSpec, lines: [{ ref: "yt:AAAA", at: 3, text: "Noto Serif titles, as in ref R1 at 3s" }] }, savedRefIds: ["yt:AAAA"], savedRefCount: 1 };
+  assert.equal((await check("role_font_drift", sized(false), lined)).findings[0].severity, "info");
+  // The person's own words back the size: it is held, as before.
+  const yours = { styleSpec: { ...labeled.styleSpec, by: "you", quote: "titles at 120 px" } };
+  const [display] = await fires("role_font_drift", sized(false), yours);
   assert.deepEqual([display.severity, display.itemId], ["warn", "h2"], display.message);
+  assert.match(display.fix.text, /^Set fontSize 120 on "h2"/);
   await silent("role_font_drift", sized(true), labeled);
 });
 

@@ -241,7 +241,8 @@ test("compose and recipe with no look: the seed picks one and says so, and the s
   await agent("notes", { project: "look-t", action: "brief", fields: { treatments: { pick: "B", why: "the map is what a skater retells" } } });
   const named = await agent("edit", { project: "look-t", ops: [...ORDER_WAIVERS, { op: "compose", format: "16:9", beats }] });
   assert.equal(named.isError, undefined, named.text);
-  assert.match(named.text, /seeded; the picked type is 'small serif captions, each word cut on': set style\.fonts or set_font to a face for it/);
+  // No reference type label yet: the picked type is marked as a guess and the note points at the labels.
+  assert.match(named.text, /seeded; the picked type is a guess \(no reference type label yet\) 'small serif captions, each word cut on': set style\.fonts or set_font to a face for it; label a reference moment type, then library \{topic:\\?"fonts\\?"\} ranks faces from it/);
   // A recipe with no look takes the seed's, saves it, and keeps it when made again.
   await agent("project", { action: "create", id: "look-c", name: "look-c", width: 1920, height: 1080, duration: 6 });
   const recipe = await agent("edit", { project: "look-c", ops: [{ op: "recipe", name: "headline-reveal", id: "head", text: "Hello there" }] });

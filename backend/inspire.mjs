@@ -1861,16 +1861,28 @@ export function createInspire(deps) {
   /**
    * What the agent saw on screen at one of a saved reference's moments (library inspire `seen`):
    * { at, kinds, words }, saved with the project. `at` may be off by 0.5 s and is kept as the
-   * moment's own time; a label at the same moment replaces the earlier one. Throws a plain
-   * Error (the service words it as bad_input) for an unsaved reference, a time off the list,
-   * unknown kinds or words that are empty or over 120 characters. Resolves { moments, seen }.
+   * moment's own time; a label at the same moment replaces the earlier one. A label of kind type
+   * may name any time inside the reference (the most specific lettering is often between the six
+   * moments): it is kept at that time, rounded to 0.1 s, and the nearest kept frame stands for it
+   * (library fonts like reads that frame). Throws a plain Error (the service words it as bad_input)
+   * for an unsaved reference, a time off the list (other kinds) or outside the reference, unknown
+   * kinds or words that are empty or over 120 characters. Resolves { moments, seen, offList, frameAt }.
    */
   async function setSeen(projectId, id, { at, kinds, words }) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
     if (!state.saved.includes(id)) throw new Error(`${id} is not saved in this project`);
-    const moments = await momentsOf(id);
-    const moment = moments.find((candidate) => Math.abs(candidate - at) <= 0.5);
-    if (moment === undefined) throw new Error(moments.length ? `${at} s is not one of its moments (${moments.join(", ")})` : `${id} has no frame strips to label`);
+    const record = await load(id);
+    const moments = onscreenMoments({ stripList: record?.strips, numbers: record?.numbers });
+    let moment = moments.find((candidate) => Math.abs(candidate - at) <= 0.5);
+    let offList = false;
+    // The reference's length; a record without one ends at its last kept strip.
+    const seconds = Number.isFinite(record?.numbers?.seconds) ? record.numbers.seconds
+      : Math.max(0, ...(record?.strips ?? []).map((strip) => strip.at).filter(Number.isFinite));
+    if (moment === undefined && moments.length && new Set(kinds).has("type") && Number.isFinite(at) && at >= 0 && at <= seconds) {
+      moment = Math.round(at * 10) / 10;
+      offList = true;
+    }
+    if (moment === undefined) throw new Error(moments.length ? `${at} s is not one of its moments (${moments.join(", ")}); kind type may be at any time from 0 to ${Math.round(seconds * 10) / 10} s` : `${id} has no frame strips to label`);
     const kept = [...new Set(kinds)];
     if (!kept.length || kept.some((kind) => !ONSCREEN_KINDS.includes(kind))) throw new Error(`kinds are ${ONSCREEN_KINDS.join(", ")}`);
     const text = String(words ?? "").replace(/\s+/g, " ").trim();
@@ -1880,7 +1892,16 @@ export function createInspire(deps) {
       current.seen = { ...(current.seen ?? {}), [id]: [...others, { at: moment, kinds: kept, words: text }].sort((a, b) => a.at - b.at) };
       return current.seen[id];
     });
-    return { moments, seen };
+    // The kept frame that stands for an off-list time: the nearest strip's.
+    const strips = (record?.strips ?? []).map((strip) => strip.at).filter(Number.isFinite);
+    const frameAt = offList && strips.length ? strips.reduce((best, value) => (Math.abs(value - moment) < Math.abs(best - moment) ? value : best)) : undefined;
+    return { moments, seen, at: moment, ...(offList ? { offList, frameAt } : {}) };
+  }
+
+  /** The type labels a project saved on its references: [{id, at, words}], by reference then time (library fonts starts from them). */
+  async function typeLabels(projectId) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    return state.saved.flatMap((id) => (state.seen?.[id] ?? []).filter((entry) => entry.kinds?.includes("type")).map((entry) => ({ id, at: entry.at, words: entry.words })));
   }
 
   /**
@@ -2094,7 +2115,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, setSeen, seenStatus, setTake, savedTakes, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, setSeen, typeLabels, seenStatus, setTake, savedTakes, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**
