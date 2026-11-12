@@ -63,6 +63,17 @@ export function curveOf(value, where = "ease") {
   throw new Error(`${where} is ${EASE_NAMES.join(", ")}, [x1, y1, x2, y2] or steps-n (such as steps-4).`);
 }
 
+// The look and draft grid when the project names no frame rate.
+const DEFAULT_FPS = 30;
+/**
+ * The project's frame rate as a number: fps given as a number or "24000/1001", else 30. The one
+ * place moves read the rate (a project frame rate field feeds it through runMove's fps option).
+ */
+export function frameRateOf(fps) {
+  const value = typeof fps === "string" && /^\d+\/\d+$/.test(fps) ? Number(fps.split("/")[0]) / Number(fps.split("/")[1]) : Number(fps);
+  return Number.isFinite(value) && value > 0 && value <= 240 ? value : DEFAULT_FPS;
+}
+
 /** Reads the fields a move was given, checking each against the move's field list. */
 export function readMoveInput(definition, raw) {
   const fields = definition.fields;
@@ -237,7 +248,7 @@ export function alignedStart(at, duration, align = "start", name = "move") {
  * Returns {added: [{layer, place}], animations: [{layerId, animation}], start, end, notes}.
  */
 export function runMove(definition, options) {
-  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, samples = () => [], shotColor = () => null, fontFaces = {}, cueFacts = null } = options;
+  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, samples = () => [], shotColor = () => null, fontFaces = {}, cueFacts = null, fps = null } = options;
   const frame = { width: scene.width, height: scene.height };
   const added = [];
   const animations = [];
@@ -249,10 +260,13 @@ export function runMove(definition, options) {
   const lifted = new Map();
   // A move that stays (a status line) lasts to the end of the scene unless dur says otherwise.
   // timing(input, {reduced}): a move whose length depends on its fields (zoom-through reverse is shorter).
-  const timing = { length: definition.length, shortest: definition.shortest, ...definition.timing?.(input, { reduced }) };
+  const rate = frameRateOf(fps);
+  const timing = { length: definition.length, shortest: definition.shortest, ...definition.timing?.(input, { reduced, fps: rate }) };
+  // frames:n (a move that has it) sets its length in frames of the project's rate, instead of dur.
+  if (input.frames !== undefined && dur !== null) throw new Error(`${definition.name} takes frames or dur, not both.`);
   const duration = dur ?? (definition.untilEnd ? Math.max(0.1, scene.duration - at) : timing.length);
   const start = alignedStart(at, duration, align, definition.name);
-  if (dur !== null && timing.shortest && dur < timing.shortest) throw new Error(`${definition.name} needs dur of at least ${timing.shortest} s.`);
+  if (dur !== null && timing.shortest && dur < timing.shortest - 1e-6) throw new Error(`${definition.name} needs dur of at least ${round(timing.shortest)} s${input.frames === undefined && definition.fields.frames ? " (or frames:1 for one frame)" : ""}.`);
   const ctx = {
     move: definition.name, recipe: definition.name, id, frame, style, fonts, reduced, logo, brandFonts,
     scale: frameScale(frame), portrait: isPortraitFrame(frame),
@@ -267,6 +281,8 @@ export function runMove(definition, options) {
     cueFacts,
     // The shared speed field (SHARED): 1 plays the move's beats as designed.
     speed: input.speed ?? 1,
+    // Where the move sits on its at (start, center, end) and the project's frame rate.
+    align, fps: rate,
     /** A curve by kit name or a bezier (a move's own defaults table), as a new array. */
     curve(value) { return curveOf(value, `${definition.name} curve`); },
     /** The move's main curve: its ease field when given, else `fallback` (a curve name or bezier). */

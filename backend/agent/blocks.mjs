@@ -1347,7 +1347,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     let made;
     try {
       made = runMove(definition, {
-        cueFacts,
+        cueFacts, fps: document.fps ?? null,
         id: operation.id, input, scene, style, fonts, start, align: settings.align ?? "start", dur: settings.dur ?? null, media, logo: logoOf(brand, media),
         reduced: settings.reduced ?? composition.reduced ?? false, seed: settings.seed ?? 1, brandFonts: Boolean(faces), bpm: document.rhythm?.bpm ?? null,
         alpha: (src) => alphas.get(src) ?? null, samples: (layerId) => subjects.get(layerId) ?? [], shotColor: (layerId) => hues.get(layerId) ?? null, fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),

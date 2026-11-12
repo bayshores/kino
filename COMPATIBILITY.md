@@ -565,6 +565,11 @@ How to read it:
   before its start; without it nothing changes. Evidence: `engine/animation.test.js`. Gap: Lottie not checked.
 - **Effect pulse (peak, return)**: Verified. One effect (value or ranged, such as glow) rises to `to`
   and returns. Evidence: `engine/effects/animation.test.js`, `backend/agent-answers.test.mjs`.
+- **Short effects return to rest (hold)**: Verified. An agent's blur-like effect under 0.3 s returns to 0
+  on its end frame unless hold:true; the receipt says which. Evidence: `engine/effects/animation.test.js`.
+- **Short whip-pan, clip edges held**: Verified. whip-pan `frames:n` down to one frame, every frame smeared;
+  a carried clip holds its edge frame; Play ends on its end time. Evidence: `engine/movesShared.test.js`,
+  `engine/playback.test.js`. Gap: proof frames only at 30 fps until projects store a rate.
 - **Layer frameRate ("on twos")**: Verified. A layer or group holds every picture inside it for
   1/frameRate s; look's motion blur leaves a held child unsmeared inside one picture, as the export
   does; footage and GIFs inside are decoded at the held times. Evidence: `engine/render.test.js`,

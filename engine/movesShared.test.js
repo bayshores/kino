@@ -204,6 +204,30 @@ test("transition knobs change the look, and their defaults give the old one", ()
 });
 
 // breakup.js: smear and shatter, each one call with defaults from the transitions study.
+test("whip-pan runs down to one frame, smears every frame of a short whip, and holds a clip's edge frame", () => {
+  const scene = sceneOf();
+  scene.layers = [createLayer("video", { id: "shot-b", src: "/b.mp4", width: 1920, height: 1080, mediaStart: 1.04, mediaFreeze: "none" }),
+    createLayer("video", { id: "shot-a", src: "/a.mp4", width: 1920, height: 1080, mediaStart: 0, mediaDuration: 1.04, mediaFreeze: "none" })];
+  const whip = (fields, options = {}) => runMove(MOVES["whip-pan"], { id: "m", input: readMoveInput(MOVES["whip-pan"], { from: "shot-a", to: "shot-b", direction: "left", ...fields }), scene,
+    style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, dur: null, media: () => null, fps: 25, ...options });
+  const two = whip({ frames: 2 });
+  assert.deepEqual([two.start, two.end], [1, 1.08]);
+  const smear = two.animations.find((entry) => entry.animation.id === "m.from-smear").animation;
+  // Half a frame early, so the frames at 1.00 and 1.04 s sample the middle of each half of the pan, both fully smeared.
+  assert.deepEqual([smear.start, smear.duration, smear.from.length, smear.to.length], [0.98, 0.08, 461, 461]);
+  assert.equal(two.animations.find((entry) => entry.animation.id === "m.from-unsmear").animation.start, 1.06);
+  // shot-a ends at 1.04 s inside the whip and shot-b starts there: each holds its edge frame instead of black.
+  assert.deepEqual(two.sets, [{ layerId: "shot-a", properties: { mediaFreeze: "last" } }, { layerId: "shot-b", properties: { mediaFreeze: "first" } }]);
+  const open = whip({ frames: 2, holdEnds: false });
+  assert.deepEqual(open.sets, []);
+  assert.ok(open.notes.some((note) => /^black 1\.04-1\.06 s: shot-a ends before whip-pan ends; fix: leave out holdEnds/.test(note)), open.notes.join(" | "));
+  assert.deepEqual([whip({}, { dur: 0.04 }).end, whip({ frames: 1 }).end], [1.04, 1.04], "one frame is the floor");
+  assert.throws(() => whip({ frames: 2 }, { dur: 0.08 }), /frames or dur/);
+  // speed gathers the pan toward at (align start), not the middle of dur.
+  const quick = whip({ speed: 3 }, { dur: 0.3 }).animations.find((entry) => entry.animation.id === "m.from-whip").animation;
+  assert.deepEqual([quick.start, quick.duration], [1, 0.1]);
+});
+
 const partsOf = (made) => Object.fromEntries(made.added.map((entry) => [entry.layer.move.part, entry.layer]));
 test("smear drags the old shot along its angle under the next shot's lines, on twos, then flicks back", () => {
   const made = run("smear");

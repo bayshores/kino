@@ -203,7 +203,9 @@ export function normalizeBlockSceneFields(scene, path, maxTime) {
 export const IMPACT_KINDS = Object.freeze(["flash", "shake", "impact-frame", "dip", "strobe"]);
 
 // The layer fields a move may change on your own layers (ctx.set in engine/blocks/move.js).
-export const RESTORED = Object.freeze(["mediaStart", "mediaOffset", "mediaDuration"]);
+// mediaFreeze: a move that carries a clip past its play holds the edge frame (whip-pan holdEnds).
+export const RESTORED = Object.freeze(["mediaStart", "mediaOffset", "mediaDuration", "mediaFreeze"]);
+const FREEZES = Object.freeze(["none", "first", "last", "both"]);
 
 /** Checks a scene's list of applied moves. */
 function normalizeSceneMoves(scene, path) {
@@ -237,7 +239,7 @@ function normalizeSceneMoves(scene, path) {
     // making the move again or removing it puts it back.
     if (raw.restore !== undefined) {
       const ok = isRecord(raw.restore) && Object.keys(raw.restore).length <= 64 && Object.entries(raw.restore).every(([id, before]) => ID.test(id) && isRecord(before)
-        && Object.entries(before).every(([key, value]) => RESTORED.includes(key) && (value === null || (typeof value === "number" && Number.isFinite(value)))));
+        && Object.entries(before).every(([key, value]) => RESTORED.includes(key) && (value === null || (key === "mediaFreeze" ? FREEZES.includes(value) : typeof value === "number" && Number.isFinite(value)))));
       if (!ok) fail(`${at}.restore`, `must be {layerId: {${RESTORED.join(", ")}}}`);
       entry.restore = JSON.parse(JSON.stringify(raw.restore));
     }

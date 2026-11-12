@@ -7,6 +7,7 @@
 import { createLayer } from "../../model.js";
 import { boxOf, effect, hide, motion, pointIn, round, scaledAbout, show } from "./kit.js";
 import { constantSpeed, isReversed } from "../../mediaTime.js";
+import { effectiveMediaDuration } from "../../playback.js";
 import { speedAnimations } from "../../animation.js";
 import { shared } from "../move.js";
 
@@ -57,6 +58,38 @@ export function startClips(ctx, toId, at) {
     }
     ctx.set(clip.id, change);
     ctx.note(`${clip.id} starts at ${when} s (was ${begins} s), so it is on screen when ${toId} appears`);
+  }
+}
+
+// A whip shorter than this many frames smears every frame (a guess: 4 frames is where the old
+// rise-and-fall of the blur still shows one sharp-ish frame at each end).
+const SHORT_WHIP = 4;
+const FREEZE_WITH = Object.freeze({ first: { none: "first", last: "both" }, last: { none: "last", first: "both" } });
+
+/**
+ * A clip the move carries whose play ends before `until` (or starts after `since`) would draw
+ * nothing there, so the background shows through (GAPS 6: black frames at fan-fast k122-123,
+ * contest-a f906). By default it holds its edge frame instead (mediaFreeze, put back when the
+ * move is removed); holdEnds:false keeps the gap and the receipt names it with the fix.
+ */
+export function holdClipEdges(ctx, input, layerId, role, { since = null, until = null }) {
+  for (const clip of ctx.clipsOf(layerId)) {
+    const begins = clip.mediaStart ?? 0;
+    const ends = begins + effectiveMediaDuration(clip);
+    const freeze = clip.mediaFreeze ?? "both";
+    const gaps = [];
+    if (since !== null && begins > since + 1e-3 && FREEZE_WITH.first[freeze]) gaps.push(["first", since, begins, "starts after"]);
+    if (until !== null && Number.isFinite(ends) && ends < until - 1e-3 && FREEZE_WITH.last[freeze]) gaps.push(["last", ends, until, "ends before"]);
+    let held = freeze;
+    for (const [edge, from, to, how] of gaps) {
+      if (input.holdEnds === false) {
+        ctx.note(`black ${round(from)}-${round(to)} s: ${clip.id} ${how} ${ctx.move} ${how === "ends before" ? "ends" : "starts"}; fix: leave out holdEnds (holds its ${edge} frame)`);
+        continue;
+      }
+      held = FREEZE_WITH[edge][held] ?? held;
+      ctx.note(`${clip.id} holds its ${edge} frame ${round(from)}-${round(to)} s (its play ${how} the ${role === "from" ? "whip ends" : "whip starts"})`);
+    }
+    if (held !== freeze) ctx.set(clip.id, { mediaFreeze: held });
   }
 }
 
@@ -303,16 +336,21 @@ const AXIS_ANGLES = Object.freeze({ 0: "right", 90: "down", 180: "left", "-180":
 export const whipPan = {
   name: "whip-pan",
   needsAt: true,
-  about: "both shots fly across together like a fast camera pan, smeared by a directional blur that peaks in the middle; the motion runs the same way on both",
+  about: "both shots fly across together like a fast camera pan, smeared by a directional blur that peaks in the middle",
   fits: "jumping between places or moments with energy; a beat drop; side-by-side ideas",
   tags: ["whip-pan", "motion-blur"],
   length: 0.5,
-  shortest: 0.3,
+  lasts: "default 0.5, down to one frame; frames:n gives it in frames",
+  // Down to one frame of the project's rate (GAPS 8: the old 0.3 s floor was 7.5 frames at 25 fps
+  // where fast edits whip in 1 to 2 frames).
+  timing: (input, { fps }) => ({ shortest: 1 / fps, ...(input.frames !== undefined ? { length: input.frames / fps } : {}) }),
   fields: {
     from: { kind: "layer", required: true, about: "the shot that leaves" },
     to: { kind: "layer", required: true, about: "the shot that arrives" },
     direction: { kind: "choice", values: DIRECTIONS, about: "where the picture moves: left, right, up or down (default a seeded left or right)" },
     smear: { kind: "number", low: 0, high: 1, about: "the blur at the fastest moment, a share of the travel (default 0.24)" },
+    frames: { kind: "number", low: 1, high: 60, whole: true, knob: true, about: "its length in frames instead of dur: 2 = a two-frame whip starting at at, every frame smeared" },
+    holdEnds: { kind: "choice", knob: true, values: [true, false], about: "true (default): a clip whose play ends or starts inside the whip holds its edge frame; false shows the background there" },
     ...shared({ angle: "instead of direction, any way the picture moves in degrees: 0 right, 90 down; off the axes, copies of the shots fill the corners", ease: "the pan's curve (default whip)" }), ...shared("speed"),
   },
   example: { from: "shot-a", to: "shot-b", at: 1, direction: "left" },
@@ -334,22 +372,43 @@ export const whipPan = {
     const smear = Math.round(distance * (input.smear ?? 0.24));
     // The smear runs along the motion; its angle reads the same both ways (0 to 180).
     const blurAngle = direction ? (ux ? 0 : 90) : round((((angle % 180) + 180) % 180), 2);
-    const half = ctx.duration / 2;
-    const middle = ctx.start + half;
-    const pace = ctx.pace(middle);
+    // A whip of a few frames (under SHORT_WHIP frames) runs half a frame early, so each of its
+    // frames from at on samples the middle of its slice of the pan, and every one of them is
+    // smeared: a rise and fall cannot be seen in so few frames (fan-fast k15-16, k122-123: two
+    // fully smeared frames).
+    const frame = 1 / ctx.fps;
+    const short = ctx.duration < SHORT_WHIP * frame - 1e-6;
+    const begin = short ? round(Math.max(0, ctx.start - frame / 2)) : ctx.start;
+    const finish = short ? round(ctx.end - frame / 2) : ctx.end;
+    const length = finish - begin;
+    const half = length / 2;
+    const middle = begin + half;
+    // speed gathers the pan toward the moment at names: its start (align start), middle or end
+    // (it was always the middle, which put a quick whip asked at 0.52 s on 0.62 to 0.72 s).
+    const pace = ctx.pace(ctx.align === "end" ? finish : ctx.align === "center" ? middle : begin);
     const whip = ctx.ease(CURVE.whip);
+    holdClipEdges(ctx, input, from.id, "from", { until: pace.at(finish) });
+    holdClipEdges(ctx, input, to.id, "to", { since: begin });
     // The leaving shot starts where it is drawn at that moment (its own drift included).
-    const fromNow = ctx.stateAt(from.id, ctx.start);
+    const fromNow = ctx.stateAt(from.id, begin);
     const where = (layer, role, key) => (role === "from" ? fromNow[key] ?? layer[key] : layer[key]);
     const path = (layer, role, lead, shift = {}) => ({
       begin: Object.fromEntries(keys.map((key) => [key, round(where(layer, role, key) + lead * step[key] * distance + (shift[key] ?? 0))])),
       end: Object.fromEntries(keys.map((key) => [key, round(where(layer, role, key) + (lead + 1) * step[key] * distance + (shift[key] ?? 0))])),
     });
-    const travel = (target, role, { begin, end }, kind) => {
+    const travel = (target, role, { begin: first, end: last }, kind) => {
       const animate = (name, animation) => (role ? ctx.animate(target, name, animation, role) : ctx.animate(target, name, animation));
-      animate("whip", paced(motion, pace, { name: "Whip", kind, start: ctx.start, duration: ctx.duration, easing: whip, from: begin, to: end }));
+      animate("whip", paced(motion, pace, { name: "Whip", kind, start: begin, duration: length, easing: whip, from: first, to: last }));
+      if (short) {
+        // Full smear on every frame of the whip, gone on the frame after it.
+        animate("smear", effect({ name: "Smear", effect: "directional-blur", start: begin, duration: length, easing: ctx.curve(CURVE.smearUp),
+          from: { length: smear, angle: blurAngle }, to: { length: smear, angle: blurAngle } }));
+        animate("unsmear", effect({ name: "Unsmear", effect: "directional-blur", start: finish, duration: 0.001, easing: ctx.curve(CURVE.smearDown),
+          to: { length: 0, angle: blurAngle } }));
+        return;
+      }
       // The blur rises to its peak at the fastest moment and falls back as the move ends.
-      animate("smear", paced(effect, pace, { name: "Smear", effect: "directional-blur", start: ctx.start, duration: half, easing: ctx.curve(CURVE.smearUp),
+      animate("smear", paced(effect, pace, { name: "Smear", effect: "directional-blur", start: begin, duration: half, easing: ctx.curve(CURVE.smearUp),
         // An angled whip holds its angle from the start (a direction keeps its old sweep).
         from: direction ? { length: 0 } : { length: 0, angle: blurAngle }, to: { length: smear, angle: blurAngle } }));
       animate("unsmear", paced(effect, pace, { name: "Unsmear", effect: "directional-blur", start: middle, duration: half, easing: ctx.curve(CURVE.smearDown),
@@ -357,8 +416,8 @@ export const whipPan = {
     };
     travel(from.id, "from", path(from, "from", 0), "custom");
     travel(to.id, "to", path(to, "to", -1), "in");
-    if (!direction) fillCorners(ctx, { from, to, ux, uy, path, travel, pace });
-    ctx.animate(from.id, "hide", hide(pace.at(ctx.end)), "from");
+    if (!direction) fillCorners(ctx, { from, to, ux, uy, path, travel, pace, begin, finish });
+    ctx.animate(from.id, "hide", hide(pace.at(finish)), "from");
     return { end: ctx.end };
   },
 };
@@ -368,7 +427,7 @@ export const whipPan = {
  * `to` rides beside `from` and a copy of `from` beside `to` (one frame along that edge), so the
  * frame stays covered like a tiled strip. Copies are parts, shown only during the whip.
  */
-function fillCorners(ctx, { from, to, ux, uy, path, travel, pace }) {
+function fillCorners(ctx, { from, to, ux, uy, path, travel, pace, begin, finish }) {
   if (from.type === "group" || to.type === "group") return ctx.note("whip-pan angle: a shot is a group, so its corners are not filled (give pictures or clips)");
   const { width, height } = ctx.frame;
   // Rows stacked along y when the height bounds the travel, else columns along x.
@@ -381,8 +440,8 @@ function fillCorners(ctx, { from, to, ux, uy, path, travel, pace }) {
     const { id: _id, name: _name, animations: _animations, move: _move, parentId: _parent, ...look } = source;
     const copy = ctx.add(part, createLayer(source.type, { ...look, ...place.begin, role: "decor", allowOverlap: true, ...(source.type === "video" ? { volume: 0 } : {}) }), { above: below.id });
     travel(copy, null, place, "custom");
-    ctx.animate(copy, "show", show(pace.at(ctx.start)));
-    ctx.animate(copy, "hide", hide(pace.at(ctx.end)));
+    ctx.animate(copy, "show", show(pace.at(begin)));
+    ctx.animate(copy, "hide", hide(pace.at(finish)));
   }
 }
 

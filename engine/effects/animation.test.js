@@ -5,7 +5,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "../mode
 import { applyOperations } from "../operations.js";
 import { DOCUMENT_VERSION } from "../schema.js";
 import { effectDefaults, effectInitialValues } from "./catalog.js";
-import { createEffectAnimation, effectsAt, normalizeEffectAnimation } from "./animation.js";
+import { createEffectAnimation, defaultHold, effectsAt, normalizeEffectAnimation } from "./animation.js";
 
 const box = (values = {}) => createLayer("rectangle", { id: "box", name: "Box", width: 120, height: 80, ...values });
 const sceneFor = (layer, values = {}) => createScene({ id: "scene", name: "Scene", duration: 4, layers: [layer], ...values });
@@ -114,6 +114,19 @@ test("a value effect with peak rises to To and returns to From inside its window
   assert.deepEqual(glow.from, { strength: 0 });
   assert.deepEqual([0.25, 0.5, 0.75, 0.999].map((time) => Number(effectsAt(layerWith([glow]), time)[0].parameters.strength.toFixed(2))), [0.7, 1.4, 0.7, 0]);
   assert.throws(() => operation("ranged", "color-grade", { peak: 0.5 }), /already at rest/);
+});
+
+test("hold:false returns a value effect to rest on its end frame; short blurs default to it for agents", () => {
+  // A two-frame smear (25 fps): blurred on its frames, gone from 0.08 s, also on a frame drifting 1 ms early.
+  const smear = operation("smear", "directional-blur", { duration: 0.08, from: { length: 120 }, to: { length: 120 }, hold: false });
+  assert.deepEqual([0, 0.04, 0.0795, 0.08, 1].map((time) => effectsAt(layerWith([smear]), time).length), [1, 1, 0, 0, 0]);
+  assert.equal(Object.hasOwn(operation("kept", "directional-blur", { hold: true }), "hold"), false, "true is the old behavior, not stored");
+  assert.equal(effectsAt(layerWith([operation("kept", "directional-blur", { duration: 0.08, to: { length: 120 } })]), 1)[0].parameters.length, 120);
+  assert.throws(() => operation("ranged", "glow", { hold: false }), /value effects/);
+  const angle = { to: { angle: 35 } };
+  assert.deepEqual([[0.08, angle], [0.29, angle], [0.3, angle], [0.08, { ...angle, peak: 0.5 }]].map(([duration, extra]) => defaultHold("spin-blur", duration, extra)), [false, false, undefined, undefined]);
+  assert.equal(defaultHold("focus-band", 0.1, { to: { centerY: 0.25 } }), undefined, "a short step that only places the band holds");
+  assert.equal(defaultHold("glow", 0.1, { to: { strength: 1 } }), undefined, "a ranged effect already ends with its window");
 });
 
 test("omitted and null optional From and intensity stay absent while partial From values normalize", () => {
