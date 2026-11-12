@@ -350,10 +350,12 @@ test("the shots cover the music when there is a music layer, else the whole vide
 
   // A voice-over is an audio layer that is not music: the shots cover the whole video.
   await project("board-voice", { layers: [audioLayer("voice")] });
-  const voice = await editBoard("board-voice", [motion(0, 3), motion(3, 3, { text: { text: "Out now", family: "Inter", weight: 800, size: 120, y: 50, fill: "#ffd23f" } })]);
+  const heavy = (words) => ({ text: { text: words, family: "Inter", weight: 800, size: 120, y: 50, fill: "#ffd23f" } });
+  const voice = await editBoard("board-voice", [motion(0, 2), motion(2, 2, heavy("Out now")), motion(4, 2, heavy("Today"))]);
   assert.equal(voice.isError, undefined, voice.text);
-  // Shot 2 names every field, so only shot 1's words are filled and printed.
-  assert.deepEqual(voice.data.notes, ['board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`]);
+  // Shots 2 and 3 name every field, so only shot 1's words are filled and printed; their Inter 800 is not loaded (bundled Inter stops at 700): one line at the board names both.
+  assert.deepEqual(voice.data.notes, ['board shots 2, 3 text asks Inter 800, not loaded: built now it draws in Inter 700 (Inter loaded here: 400, 500, 600, 700); kino\'s font catalog lists no Inter 800: weight 700 draws as asked, or project {action:"import", file:"<a Inter 800 font file>"} loads it',
+    'board r1: 3 shots, 0–6 s, no music · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`]);
   assert.equal((await record("board-voice")).document.board.music, "none");
 });
 

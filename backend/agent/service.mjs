@@ -40,6 +40,7 @@ import { exportFrameTime, exportProfile } from "../../engine/exportOptions.js";
 import { fpsLabel, nearestFrame, onFrame, parseFps, projectFps, readFps, snapTime } from "../../engine/frameRate.js";
 import { fontTargetLayers, withFontPatches } from "../../engine/fontDocuments.js";
 import { ensureDocumentFonts, prepareFontPatches } from "../font-selection.mjs";
+import { faceAtCallNotes } from "./face-at-call.mjs";
 import { OPERATION_TYPES, SERVICE_OPERATION_TYPES, describeOperation, guideTopics, linesMentioning } from "../operation-guide.mjs";
 import { runIsolateVoice } from "./voice-operation.mjs";
 import { runCutOut } from "./cutout-operation.mjs";
@@ -605,8 +606,14 @@ export function createAgentService(deps) {
       const { measured, skipped } = await measuredTypeLabels(document.id);
       const faces = (await loadFonts()).faces ?? [];
       const layers = (document.scenes ?? []).flatMap((scene) => scene.layers ?? []);
+      // The project's largest text: a payoff with no measured label takes its share of the frame.
+      const largest = layers.filter((layer) => layer.type === "text" && String(layer.text ?? "").trim() && Number(layer.fontSize) > 0)
+        .sort((a, b) => Number(b.fontSize) - Number(a.fontSize))[0];
       return { labels: measured, skipped: await unsaidSkips(document.id, skipped, work?.labelSkips, 2), spine: (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null, advance: await faceAdvance(),
-        follow: (job, family = null) => jobFace(job, { layers, faces, family }) };
+        follow: (job, family = null) => jobFace(job, { layers, faces, family }),
+        largest: largest ? { size: Number(largest.fontSize), name: largest.name ?? largest.id } : null,
+        // A shot's own picture behind its words (shot-color.mjs boxColor on one small frame).
+        behind: (picture, box) => boxColor(deps.mediaRoot, picture, 0, box) };
     },
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
@@ -3360,6 +3367,12 @@ export function createAgentService(deps) {
       const changes = documentChanges(before, after);
       const fonts = await fontsFor(after);
       const afterCodes = assignCodes(codes, after, resolver.reserved);
+      // A face this edit named that is not loaded: the face drawn now and the one call that loads it,
+      // said here rather than first at the render (face-at-call.mjs); a face held locally is set at once.
+      const fontWas = new Map((before.scenes ?? []).flatMap((scene) => scene.layers ?? []).map((layer) => [layer.id, ["fontFamily", "fontWeight", "fontStyle", "fontSource"].map((field) => layer[field] ?? "").join("|")]));
+      const namedFaces = (after.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => layer.type === "text"
+        && fontWas.get(layer.id) !== ["fontFamily", "fontWeight", "fontStyle", "fontSource"].map((field) => layer[field] ?? "").join("|"));
+      work.notes.push(...await faceAtCallNotes(namedFaces, { fonts, catalog: fontCatalog, nameOf: (layer) => refName(layer.id, afterCodes) }));
       const { findings, unchecked, stale: staleWaivers } = await findingsFor(after, { fonts, codes: afterCodes });
       // The findings this edit brought into the stretch it changed, so a regression shows at once.
       const removedLayers = (before.scenes ?? []).flatMap((scene) => (scene.layers ?? []).filter((layer) => changes.removed.includes(layer.id)).map((layer) => ({ sceneId: scene.id, layerId: layer.id })));
