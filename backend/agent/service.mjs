@@ -1862,7 +1862,11 @@ export function createAgentService(deps) {
     if (operation.type === "keep_line") {
       delete operation.levels;
       delete operation.beats;
-      const sound = (document.scenes.find((scene) => scene.layers.some((item) => item.id === layerId))?.layers ?? []).filter((item) => item.src && (item.type === "audio" || item.type === "video"));
+      // Only the layers it can use: the line's clip (and its cut pieces, same file), the named duck
+      // layer and the audio layers; a scene of 15 muted footage clips is not measured clip by clip.
+      const owner = layers.find((item) => item.id === layerId);
+      const sound = (document.scenes.find((scene) => scene.layers.some((item) => item.id === layerId))?.layers ?? [])
+        .filter((item) => item.src && (item.type === "audio" || (item.type === "video" && (item.id === operation.duckId || item.src === owner?.src))));
       operation.levels = await levelsOf(document, sound.map((item) => item.id));
       operation.beats = {};
       for (const item of sound.filter((entry) => entry.type === "audio")) {

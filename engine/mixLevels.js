@@ -58,12 +58,11 @@ export function levelGain(lufs, target = VOICE_TARGET_LUFS) {
 // the line should land (.scratch/run8/trace/audio.md L31-32). Human edits hold the total under a
 // line (one measured -10.9 LUFS with and without speech, audio.md L84) or let the music drop out.
 // So over music the line sits LINE_OVER_BED LU over the dipped music under it, and the two together
-// sum to the music heard in the 2 s around the line. The design asked for the line 3 LU over the
-// music around; with a steady song that puts the total 3 LU or more over the 2 s around, so the
-// 3 LU is measured against the bed under the line instead (renders in .scratch/run8/wave/line-over-music).
-export const LINE_OVER_BED = 3;
-// The most the total under a kept line may move from the 2 s around it before the receipt says so.
-export const LINE_HOLD_LU = 1.5;
+// sum to the music heard in the 2 s around the line. The design asked for 3 LU; kino's own
+// voice_under_bed check warns under VOICE_OVER_BED (6) LU, so a 3 LU default handed the agent a
+// warning (and a critic its "dip deeper" note). The same 6 here keeps keep_line and the check in
+// agreement; the total still holds (renders in .scratch/run8/wave/line-over-music-review).
+export const LINE_OVER_BED = VOICE_OVER_BED;
 // A dip goes no deeper than this (dB): music under -20 dB sounds switched off (audioDucking DIP_FLOOR).
 const LINE_DIP_FLOOR_DB = -20;
 const powerSum = (...values) => 10 * Math.log10(values.filter(Number.isFinite).reduce((sum, value) => sum + 10 ** (value / 10), 0));
@@ -74,11 +73,13 @@ const powerSum = (...values) => 10 * Math.log10(values.filter(Number.isFinite).r
  * dip. Returns {target, gain, heard, dipDb, total} (dipDb: the music's change under the line, 0 or
  * less; -Infinity with dropout), or null when a level is unknown. `dropDb` sets the dip instead
  * (a given dip), `dropout` takes the music out: the line alone then holds the music's level (a guess).
+ * The line is never leveled under VOICE_TARGET_LUFS: over a quiet bed (a talk over music at 0.2)
+ * it stays the -16 talking-head line it was, and the mix rises under it (the receipt says by how much).
  */
 export function lineOverMusic({ line, around, under }, { dropDb, dropout = false } = {}) {
   if (![line, around, under].every(Number.isFinite)) return null;
-  // The line that, with a bed LINE_OVER_BED under it, sums to `around`.
-  const target = dropout ? around : around - 10 * Math.log10(1 + 10 ** (-LINE_OVER_BED / 10));
+  // The line that, with a bed LINE_OVER_BED under it, sums to `around`; at least the talking-head target.
+  const target = Math.max(VOICE_TARGET_LUFS, dropout ? around : around - 10 * Math.log10(1 + 10 ** (-LINE_OVER_BED / 10)));
   const gain = round1(Math.max(-MAX_LEVEL_DB, Math.min(MAX_LEVEL_DB, target - line)));
   const heard = line + gain;
   const dipDb = dropout ? -Infinity
@@ -188,7 +189,8 @@ export const LINE_PAUSE = 0.6;
  * (heard: each word's {text, start, end (scene s), lufs}); lines under 0.4 s are left out.
  */
 export function voiceLines(curve, layer, range, words, breaks = () => false) {
-  const leveling = voiceLeveling(curve, words.map((word) => ({ start: word.start, end: word.end })));
+  // A line keep_line leveled over music (layer.voiceLevel) is heard at that level, as the export does.
+  const leveling = voiceLeveling(curve, words.map((word) => ({ start: word.start, end: word.end })), layer?.voiceLevel ?? VOICE_TARGET_LUFS);
   const at = (time) => range.start + (time - range.offset);
   const lines = [];
   let run = [];

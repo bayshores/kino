@@ -1008,10 +1008,11 @@ How to read it:
   to 0.7 of its volume (stated in the receipt). `line` matches case, apostrophes, repeats and a short last
   word; a miss lists the heard lines. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
 - **Kept line over music** (`keep_line` default, `dropout`): Engine-tested and rendered once through the agent path
-  on a song plus a quiet clip. Over measured music the line is leveled against the 2 s around it (`voiceLevel`), the
-  dip puts the music 3 LU under it, the release ends on a beat; `dropout:true` takes the music out until the next
-  downbeat; the receipt's `mix` states the total under the line for any dip. Render: line span -13.8 vs -13.8 LUFS
-  around, line 3.0 LU over the bed (old default 0.6). Evidence: `engine/speech.test.js`. Gap: no owner listening test.
+  on a song plus a quiet clip, and a spoken line over a quiet bed. Over measured music the line is leveled against
+  the 2 s around it (`voiceLevel`, never under -16), the dip puts the music 6 LU under it (voice_under_bed's 6), the
+  release ends on a beat; `dropout:true` takes the music out until the next downbeat; the receipt's `mix` states the
+  total under the line for any dip. Render: line span -13.9 vs -13.8 LUFS around, line 5.9 LU over the bed (old
+  default 0.6); quiet bed: line at -16, as before. Evidence: `engine/speech.test.js`. Gap: no owner listening test.
 - **Compose keeps spoken lines**: Verified on plans in engine tests and probed on a real project. With no voice,
   compose {footage} keeps the clips' best lines heard (up to one per 6 s; `lines` number, texts or false),
   captioned, music ducked; the receipt lists kept and left-out lines with calls. `speech_unplayed` warns when

@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
+import { voiceLines } from "./mixLevels.js";
+import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
@@ -396,16 +398,23 @@ test("keep_line over measured music levels the line against the music around it,
     const scene = parseDocument(applyOperations(document, [operation], { reports })).scenes[0];
     return { report: reports.get(operation), clip: scene.layers.find((layer) => layer.id === "clip"), music: scene.layers.find((layer) => layer.id === "music") };
   };
-  // Default: the line 3 LU over the dipped bed, the two summing to the music around (-13).
+  // Default: the line 6 LU over the dipped bed (voice_under_bed's 6), the two summing to the music around (-13).
   const plain = run({});
-  assert.equal(plain.clip.voiceLevel, -14.8, "the export levels the line to the music around minus 1.8 LU, not to -16");
-  assert.equal(volumeAt(plain.music, 5), 0.575, "the dip puts the bed 3 LU under the line (-4.8 dB)");
-  assert.deepEqual(plain.report.mix, { line: -14.8, around: -13, under: -13, change: 0 });
+  assert.equal(plain.clip.voiceLevel, -14, "the export levels the line to the music around minus 1 LU, not to -16");
+  assert.equal(Math.round(volumeAt(plain.music, 5) * 1000) / 1000, 0.447, "the dip puts the bed 6 LU under the line (-7 dB)");
+  assert.deepEqual(plain.report.mix, { line: -14, around: -13, under: -13, change: 0 });
   assert.match(plain.report.summary, /mix under the line -13 vs -13 LUFS in the 2 s around \(\+0 LU\)/);
   assert.ok(plain.report.notes.some((note) => /comes back up on the beat at 6\.5 s/.test(note)), "the release ends on the next beat");
   assert.equal(volumeAt(plain.music, 6.5), 1);
+  // The check hears the line where the export puts it: 6 LU over the dipped bed, no voice_under_bed.
+  const words = [{ text: "a", start: 4.1, end: 4.9 }, { text: "b", start: 5, end: 5.9 }];
+  assert.equal(Math.round(voiceLines(levels.clip, plain.clip, mediaPlaybackRange(plain.clip, 12), words)[0].lufs), -14);
   // A given dip is kept; the receipt prints what it does to the mix (a fact, no refusal).
-  assert.deepEqual(run({ dip: 0.35 }).report.mix, { line: -14.8, around: -13, under: -14.1, change: -1.1 });
+  assert.deepEqual(run({ dip: 0.35 }).report.mix, { line: -14, around: -13, under: -13.4, change: -0.4 });
+  // A quiet bed (a talk over music at -30): the line stays the -16 talking-head line, the mix rises.
+  const quiet = run({ levels: { clip: flat(-24, 12), music: flat(-30, 30) } });
+  assert.equal(quiet.clip.voiceLevel, -16);
+  assert.ok(quiet.report.mix.change > 10, "the receipt says the mix rises under the line");
   // dropout: the music is out under the line and comes back on the next bar line (8 s), not before.
   const out = run({ dropout: true });
   assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 7.5), volumeAt(out.music, 8.1)], [0, 0, 1]);
