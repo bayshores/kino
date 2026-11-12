@@ -380,6 +380,12 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   const fadeOut = own ? 0 : round(Math.min(FADE_OUT_MAX, 2 * bar, Math.max(bar, (stop - payoff) / 2), Math.max(bar, stop - payoff - GROUP * bar), stop - start));
   const pieces = [{ from: round(from), to: round(stop - offset), at: round(start), fadeIn, fadeOut }];
   if (own && songEnd < end - bar - EPS) notes.push(`the song ends at ${round(songEnd)} s, ${round(end - songEnd)} s before the end`);
+  // A payoff the agent gave (or a spine's) that leaves the drop under one 4-bar group before the
+  // fade: said with the payoff that gives it the group (run 8's spine payoff 11.3 of 15 s left it
+  // 1.54 s). A note only: the payoff stays as given.
+  const heard = stop - fadeOut - payoff;
+  const roomy = defaultPayoff(end, bar);
+  if (!own && heard < GROUP * bar - beat && roomy < payoff - beat) notes.push(`the drop plays ${round(heard)} s before the fade, under 4 bars: payoff ${roomy} s gives it 4 bars and a bar to fade`);
   if (!own) {
     // A fade closes a phrase when it ends on a phrase line (every 4 bars from the drop).
     const phrase = 4 * bar;

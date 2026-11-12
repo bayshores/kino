@@ -123,6 +123,12 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   assert.ok(next.rhythm.bpm === 120 && Math.abs(next.rhythm.offset - first) < 0.01, JSON.stringify(next.rhythm));
   assert.match(report.rhythm, /120 bpm, first beat .* measured beats/);
   assert.ok(!(report.plans ?? []).some((line) => line.startsWith("stop")), "no bars: plan stop is not offered");
+  // A late payoff the agent gives is kept, and the receipt says what it costs the drop and which payoff gives it 4 bars.
+  const late = new Map();
+  applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 11.3, shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: late });
+  const lateReport = [...late.values()][0];
+  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 1\.7 s before the fade, under 4 bars: payoff 6\.75 s gives it/.test(note)), JSON.stringify(lateReport));
+  assert.ok(!(report.notes ?? []).some((note) => note.startsWith("the drop plays")), "no note when the payoff was chosen for the drop");
 });
 
 // plan "stop" (and "recut" on the same song): the song's opening, its own stop, a drop on the payoff for whole groups of 4 bars, its last bar.

@@ -1106,7 +1106,8 @@ How to read it:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **Song window, one drop chooser** (fit_music, soundtrack, board): the soundtrack answer and
   fit_music pick the same heaviest drop that fits; the answer prints the window's sections and vocal
-  spans; with no payoff the drop gets 4 bars and a bar of fade (45 to 75% in); fit_music sets the
+  spans; with no payoff the drop gets 4 bars and a bar of fade (45 to 75% in), a later given payoff a
+  note naming one that does; fit_music sets the
   rhythm from the tracked beats; board {music} fits a hand-laid song or keeps it as laid. Checked on
   a fixture and on one real song's shape files, unverified by ear. Evidence: `engine/fitMusic.test.js`,
   `backend/soundtrack.test.mjs`, `backend/agent-volume.test.mjs`.

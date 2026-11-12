@@ -1777,7 +1777,8 @@ export function createAgentService(deps) {
     const before = boardSpan(document, document.board);
     const was = music.mediaOffset ?? 0;
     try {
-      const fitted = await runFitMusic(document, { type: "fit_music", sceneId: scene.id, layerId: music.id }, { ...work, reports: null });
+      const reports = new Map();
+      const fitted = await runFitMusic(document, { type: "fit_music", sceneId: scene.id, layerId: music.id }, { ...work, reports });
       const after = boardSpan(fitted, fitted.board);
       if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end) > 0.05) {
         (work.notes ??= []).push(`board music: kept as laid (fit_music would move it to ${after.start}-${after.end} s, off the board's ${before.start}-${before.end} s)`);
@@ -1785,6 +1786,9 @@ export function createAgentService(deps) {
       }
       const head = mainScene(fitted).layers.find((item) => item.id === music.id);
       (work.notes ??= []).push(`board music: placed with fit_music (song from ${head?.mediaOffset ?? 0} s, was ${was} s; cues song-*${fitted.rhythm ? `, rhythm ${fitted.rhythm.bpm} bpm from ${fitted.rhythm.offset} s` : ""}); update_layer mediaOffset puts it back`);
+      // The fit's note when the spine's payoff leaves the drop under 4 bars (its receipt is not shown here).
+      const short = [...reports.values()].flatMap((report) => report?.notes ?? []).find((note) => note.startsWith("the drop plays "));
+      if (short) work.notes.push(`board music: ${short} (fit_music {payoff})`);
       return fitted;
     }
     catch {
