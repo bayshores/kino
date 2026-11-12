@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { getOutputSize } from "./export.mjs";
-import { describeOperation, guideTopics, OPERATION_TYPES } from "./operation-guide.mjs";
+import { describeOperation, guideTopics, OPERATION_TYPES, topicAnswer } from "./operation-guide.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -48,6 +48,10 @@ test("describe_operation answers by type, topic and search, and suggests close n
     const answer = describeOperation({ topic: id });
     assert.ok(answer.startsWith(`## ${id}: `) && answer.length <= 17_000, `${id} reads by name (${answer.length} characters)`);
   }
+  // A topic over the limit is sent cut at a whole line, and the answer says how many lines are left and how to read them.
+  const long = topicAnswer({ id: "long", title: "A long one", text: Array.from({ length: 1000 }, (_, index) => `line ${index} ${"x".repeat(40)}`).join("\n") });
+  assert.ok(long.length <= 17_000 && long.startsWith("## long: A long one\nline 0 "), `${long.length} characters`);
+  assert.match(long, /x{40}\n\n\(\d+ more lines of long: describe_operation \{topic\} with search:"<word>"/);
   // The checker's facts are two topics that each read whole and name the other.
   const settings = describeOperation({ topic: "quality-settings" }), references = describeOperation({ topic: "quality-references" });
   assert.ok(settings.length < 14_000 && references.length < 14_000 && !/more lines of/.test(settings + references), `${settings.length} and ${references.length} characters`);

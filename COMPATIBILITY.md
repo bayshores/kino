@@ -905,6 +905,13 @@ How to read it:
   A wanted accent no longer lifts technique_repeat's budget. Evidence:
   `engine/effectFit.test.js`, `engine/qualityStyle.test.js`, `engine/moves.test.js`. Gaps: no per-accent pixel
   check yet (luma jump, color mush, ghosting); footage events reach it only through cues pinned to a clip.
+- **A cut explains an accent**: Unit-verified. An impact-accent move of any kind at a raw time whose first part is within
+  3 frames either side of a cut has the cut as its reason (weight 0.3); the stacked check counts a hit it explains,
+  and its sound, once. Evidence: `engine/effectFit.test.js`. Gap: other hand-made effects still need a cue.
+- **Held card stays through a transition**: Unit-verified. A move that carries a card out (`from`) shows it again at the
+  card's own hide second when the move hides it later (zoom-through, mask-through-shape, shape-wipe); a duplicated
+  scene keeps its source scene's layer order for the footage-under-words default. Evidence: `engine/moves.test.js`,
+  `backend/agent-edit-repair.test.mjs`. Gap: cursor takes `from` as the pointer's start, so it carries no card.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and

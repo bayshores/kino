@@ -246,6 +246,22 @@ test("a text card held to 6 s that a transition leaves at 1 s is untouched until
     checked += 1;
   }
   assert.ok(checked >= 10, `${checked} transitions checked`);
+  // The move starts at 5.5 s, before the card's own 6 s hold ends: the card stays until the move hides it.
+  let late = 0;
+  for (const name of SWEPT) {
+    const definition = MOVES[name];
+    if (!definition.fields.from || !definition.fields.to || ["smear", "shatter", "cursor"].includes(name)) continue;
+    const { at: _at, dur = null, ...fields } = definition.example;
+    const made = runMove(definition, { id: name, input: readMoveInput(definition, { ...fields, from: "card", to: "shot-b" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 5.5, dur, media });
+    const own = made.animations.filter((entry) => entry.layerId === "card").map((entry) => entry.animation);
+    const hides = own.filter((animation) => animation.kind === "hide").map((animation) => animation.start);
+    if (!hides.length) continue;
+    const drawn = [...card.animations, ...own];
+    assert.ok(visibleByOperations(drawn, Math.max(...hides) - 0.02),`${name}: the card shows until the move hides it at ${Math.max(...hides)} s`);
+    assert.ok(!visibleByOperations(drawn, Math.max(...hides) + 0.02), `${name}: and is gone after`);
+    late += 1;
+  }
+  assert.ok(late >= 10, `${late} late transitions checked`);
 });
 
 test("every example builds at 16:9 and 9:16 and in reduced motion, the same way for the same seed", () => {
