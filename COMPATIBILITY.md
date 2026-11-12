@@ -1058,7 +1058,9 @@ How to read it:
   `heard in Japanese (ja, p 0.86): "..." (en: "I'll kill you.") 1.9-2.3 s`, and keep_line finds a line
   typed without spaces. No model: a clip tagged as another language starts its one 488 MB fetch. Evidence:
   `backend/speech-transcribe.test.mjs`, `engine/speech.test.js`, `backend/footage-finder.test.mjs`.
-  Gaps: line times are short (a segment snaps to one onset); no rendered subtitle frame yet.
+  A no-space phrase keeps whisper's end (F4.13 line 7.83-7.91 s became 7.83-9.92 s), and a clip with only
+  unsure English words is checked too (a Spanish line: no voice heard before, two Spanish lines after).
+  Gap: a Chinese subtitle drew boxes in the test server's look frame (missing_glyphs warns); Japanese drew.
 
 ## Audio and captions
 

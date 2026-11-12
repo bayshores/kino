@@ -295,6 +295,14 @@ test("transcribeFile hears an unsure sentence again in one more whisper-cli run 
     assert.equal((await cache.heard(clip, { english })).language, "ja");
     assert.equal((await cache.saved(clip, { any: true })).language, "ja", "keep_line's saved read takes it first");
     assert.equal(detected, 1);
+    // Only unsure sound-alike words (no line, no voice tag, as small.en wrote on a Spanish line): still checked.
+    const unsure = { words: [{ text: "Esta", start: 0.2, end: 0.5, p: 0.2 }, { text: "aplica", start: 0.5, end: 0.9, p: 0.3 }] };
+    const other = path.join(folder, "other.mp4");
+    await writeFile(other, "");
+    let checked = 0;
+    const quiet = createTranscriptCache({ setup: () => setup, languages: () => ({ ...setup, modelName: "small" }), detect: async () => { checked += 1; return { language: "en", p: 0.9 }; } });
+    assert.equal(await quiet.heard(other, { english: unsure }), unsure);
+    assert.equal(checked, 1);
     // No multilingual model: a clip the English model tagged as another language starts the one fetch.
     let fetched = 0;
     const tagged = { words: [{ text: "(Singing", start: 1, end: 1.4 }, { text: "in", start: 1.4, end: 1.6 }, { text: "Japanese)", start: 1.6, end: 2 }] };

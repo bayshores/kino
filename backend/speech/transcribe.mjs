@@ -914,7 +914,10 @@ export function createTranscriptCache({
    */
   async function heard(filename, { names = [], english } = {}) {
     const read = readClipSound(english);
-    if (!read.lines.length && !read.voice.length) return english;
+    // Any word the English model wrote counts, sure or not: on a Spanish line it wrote only unsure
+    // sound-alike words, no line and no voice tag (lines-any-language-review RESULT.md).
+    const wrote = (english?.words ?? []).some((word) => !word.unclear && /[\p{L}\p{N}]/u.test(String(word.text ?? "")));
+    if (!read.lines.length && !read.voice.length && !wrote) return english;
     const found = languages();
     if (!found) {
       if (read.otherLanguage && fetchState === null) {
