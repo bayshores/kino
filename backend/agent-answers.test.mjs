@@ -297,6 +297,8 @@ test("library effects lists the whole catalog small, with a name gives its field
   for (const [query, name] of [["vignette", "vignette"], ["dark edges", "vignette"], ["depth of field", "focus-band"], ["tilt shift", "focus-band"], ["rim light", "glow"], ["light streak", "lens-flare"],
     ["neon", "outline_text"], ["typed", "type-on"], ["highlight", "accent-hit"], ["brush", "set_font"], ["scrawl", "set_font"], ["handwritten", "set_font"], ["grain", "grain"], ["duotone", "duotone"]])
     assert.ok(found(query, name), `${query} leads to ${name}: ${searchGuide(query)}`);
+  // "edges" and "corners" alone mean a vignette; inside other words they do not.
+  for (const query of ["rounded corners", "jagged edges", "soft edges"]) assert.ok(!found(query, "vignette"), `${query}: ${searchGuide(query)}`);
   assert.match(searchGuide("brush"), /library \{topic:"fonts", search:"<the look: brush, handwritten, marker, stencil/);
   assert.match(searchGuide("letterbox").split("\n")[0], /^no kino name for "letterbox" yet: build it from two black rectangle layers/);
   assert.match(searchGuide("lightning").split("\n")[0], /^no kino name for "lightning" yet: build it from a jagged path layer/);

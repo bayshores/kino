@@ -245,7 +245,7 @@ test("fonts library class, style and script words: one word alone works, a scrip
   } };
   const fonts = { entries: () => [] };
   const brush = await fontsLibraryText("brush", { fonts, catalog });
-  assert.match(brush, /^catalog, look "brush" \(handwriting, 4 match\): Caveat Brush 400, Caveat 400-700, Klee One 400-600, Permanent Marker 400\n/, "the family named brush first, then the category");
+  assert.match(brush, /^catalog, look "brush" \(handwriting, 4 match\): Caveat Brush 400, Klee One 400-600, Permanent Marker 400, Caveat 400-700\n/, "the family named brush first, then the category, one face per family line before its siblings");
   assert.match(await fontsLibraryText("marker", { fonts, catalog }), /\(handwriting, 4 match\): Permanent Marker 400, Caveat 400-700, Klee One 400-600, Caveat Brush 400\n/);
   assert.match(await fontsLibraryText("stencil", { fonts, catalog }), /^catalog, look "stencil" \(all categories, stencil, 1 match\): Big Shoulders Stencil 100-900\n/);
   assert.match(await fontsLibraryText("slab serif", { fonts, catalog }), /\(serif, slab, 1 match\): Roboto Slab 100-900\n/, "a style word needs its name, a class word its category");
@@ -259,6 +259,11 @@ test("fonts library class, style and script words: one word alone works, a scrip
   assert.match(await fontsLibraryText("handwritten", { fonts, catalog }), /\(handwriting, 4 match\)/);
   // A family's own name still wins over a class word, and the names that were searched by name stay name searches.
   assert.match(await fontsLibraryText("Roboto", { fonts, catalog }), /^installed: none match\ncatalog: Roboto Slab 100\/900, Roboto 400\/900\n/);
+  // A family's copies for other scripts ("<name> Thai") come after the different faces, unless a script is asked.
+  const wide = [entry("Wavy Hand", "handwriting", [100, 900]), entry("Wavy Hand Thai", "handwriting", [100, 900], ["thai", "latin"]), entry("Quill", "handwriting", [400])];
+  const scripts = { list: async () => ({ families: wide, total: wide.length, offline: false }) };
+  assert.match(await fontsLibraryText("handwritten", { fonts, catalog: scripts }), /: Wavy Hand 100-900, Quill 400, Wavy Hand Thai 100-900\n/);
+  assert.match(await fontsLibraryText("thai", { fonts, catalog: scripts }), /: Wavy Hand Thai 100-900\n/);
 });
 
 // The agent service. The server does not download; this fills its font cache first.

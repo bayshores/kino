@@ -31,7 +31,7 @@ const SEEN_AS = {
   grain: ["grain"], vignette: ["vignette"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
   // Words for the effects that reports called missing (finish, depth, rim, streaks, highlight, typed
   // text); each leads to a name kino has (the test checks) or, with no maker, to NO_MAKER below.
-  "film grain": ["grain"], "dark edges": ["vignette"], "darken edges": ["vignette"], edges: ["vignette"], "dark corners": ["vignette"], corners: ["vignette"], tunnel: ["vignette"],
+  "film grain": ["grain"], "dark edges": ["vignette"], "darken edges": ["vignette"], edges: ["vignette"], "dark corners": ["vignette"], "darker edges": ["vignette"], corners: ["vignette"], tunnel: ["vignette"],
   "depth of field": ["focus-band", "lift-focus"], dof: ["focus-band", "lift-focus"], "tilt shift": ["focus-band"], tiltshift: ["focus-band"], "shallow focus": ["focus-band", "lift-focus"],
   "focus blur": ["focus-band", "lift-focus"], "lens blur": ["focus-band"], "background blur": ["focus-band", "lift-focus"], "rack focus": ["focus-band", "lift-focus"],
   rim: ["glow", "cut_out"], "rim light": ["glow", "cut_out"], "rim lighting": ["glow", "cut_out"], "edge light": ["glow", "cut_out"], backlight: ["glow", "light-rays"],
@@ -69,7 +69,8 @@ const NO_MAKER_HOW = {
 export { SEEN_AS };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.
-const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted"]);
+// "edges" and "corners" alone are a vignette, but "rounded corners" or "jagged edges" are not.
+const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted", "edges", "corners", "tunnel"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
 export const REFERENCE_LOOKUP = 'to make what you see (kinds: type, overlay, composite, color, made, frame, spoken, plain): library {topic:"search", search:"<your words: font, glow, cut-out, split screen, duotone, outline>"}';

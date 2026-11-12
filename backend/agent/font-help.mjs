@@ -260,6 +260,15 @@ async function lookFamilies({ categories, weights, names, styles = [], boost = [
   const named = (family) => names.filter((word) => hasName(family, word)).length + Number(hasAny(family, boost));
   // Best fit first: name words, then families kino does not pick itself, then more weights, then A to Z.
   matches.sort((a, b) => named(b) - named(a) || own.has(a.family) - own.has(b.family) || b.weights.length - a.weights.length || a.family.localeCompare(b.family));
+  // Then one face per family line before its siblings: families that share their first name word
+  // ("<Line> Sans" and "<Line> Sans Thai", dozens of "<Line> <region>" school hands) are mostly one
+  // face, and the short list should show different ones. GUESS: the first word, judged on the catalog
+  // list for brush, marker and japanese (two words still let one line fill half the list).
+  const line = (family) => family.family.toLowerCase().split(" ")[0];
+  const seen = new Map();
+  const sibling = new Map(matches.map((family) => { const count = seen.get(line(family)) ?? 0; seen.set(line(family), count + 1); return [family, Math.min(count, 1)]; }));
+  const order = new Map(matches.map((family, index) => [family, index]));
+  matches.sort((a, b) => named(b) - named(a) || sibling.get(a) - sibling.get(b) || order.get(a) - order.get(b));
   const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
   const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word]), ...styles, ...scripts].join(", ");
   const listed = matches.slice(0, LISTED);

@@ -8,7 +8,7 @@ or changing one color, plus the `add` blend mode.
 - The Color effects (`curves`, `lut`, `hue-saturation`, `white-balance`, `color-wheels`,
   `keep-color`, `color-ranges`, `color-look`) go on with `add_animation` and stack in order; grade a group to
   grade its layers.
-  `library {topic:"rules", name:"color"}` has their fields, the colour space (sRGB 0–1, Rec.709
+  `library {topic:"rules", name:"color"}` has their fields, the color space (sRGB 0–1, Rec.709
   luma) and recipes: teal-orange, bleach-bypass, noir-keep-red.
 - Not in that list but also color: `duotone` and `tritone` (two or three colors by brightness), and the finish `grain` and `vignette`; `focus-band` is depth of field (blur.md). `library {topic:"effects"}` lists all effects, `{topic:"effects", name}` gives one's fields.
 - A ready-made grade: `color-look` with `look` matte, ember, frost, ink, dusk, meadow, harbor or
