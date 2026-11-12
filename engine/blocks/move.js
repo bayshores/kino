@@ -109,8 +109,13 @@ function readField(move, key, field, value) {
     case "layers": case "pictures": return list(value).map((entry) => text(entry, 128));
     case "text": return text(value);
     case "ease": return typeof value === "string" ? (curveOf(value, where), value) : curveOf(value, where);
+    case "flags": return list(value).map((entry) => {
+      if (entry !== 0 && entry !== 1) throw new Error(`${where} is a list of 1 (on) and 0 (off), such as [1, 1, 0, 1].`);
+      return entry;
+    });
     case "color": {
-      if (typeof value !== "string" || !HEX.test(value)) throw new Error(`${where} is a hex color such as #FFFFFF.`);
+      if (field.auto && value === "auto") return "auto";
+      if (typeof value !== "string" || !HEX.test(value)) throw new Error(`${where} is a hex color such as #FFFFFF${field.auto ? ', or "auto"' : ""}.`);
       return value.toUpperCase();
     }
     case "number": {
@@ -228,7 +233,7 @@ export function alignedStart(at, duration, align = "start", name = "move") {
  * Returns {added: [{layer, place}], animations: [{layerId, animation}], start, end, notes}.
  */
 export function runMove(definition, options) {
-  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, samples = () => [], fontFaces = {}, cueFacts = null } = options;
+  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, samples = () => [], shotColor = () => null, fontFaces = {}, cueFacts = null } = options;
   const frame = { width: scene.width, height: scene.height };
   const added = [];
   const animations = [];
@@ -298,6 +303,8 @@ export function runMove(definition, options) {
     alpha(src) { return alpha(src); },
     /** The subjects measured in a named video layer's file (subjects-v1 samples), or [] when none are saved. */
     samples(layerId) { return samples(layerId) ?? []; },
+    /** A named clip's or picture's dominant hue at the move's start ({h, s, l}), or null when not measured. */
+    shotColor(layerId) { return shotColor(layerId) ?? null; },
     /** A font family the op asked for (a move's font field), ready to draw, or null when kino has none by that name. */
     fontFace(family) { return fontFaces[family] ?? null; },
     /** Every layer of the scene (groups' parts too), as they are now. */

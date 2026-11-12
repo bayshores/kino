@@ -464,6 +464,8 @@ engine "auto" (default) uses "subject" (Apple Vision's subject mask: any foregro
 
 points picks objects: 1 to 8 [x, y] in % of the clip's own picture (look {mode:"source"}), kept with exclude (the same, dropped) at time (seconds into the file, default 0). Only the subject engine's objects under points are kept (a point on none takes the nearest within 5% of the picture; an exclude point drops only the object right under it), and each later and earlier frame keeps the objects that overlap most with the ones kept in the nearest frame; without points every object is kept, as before. points need the subject engine (macOS 14); the receipt adds picked {frame, objects}, and for a clip lost and weak: [[from, to]] file seconds where nothing was kept, or the kept area fell under half or grew past 1.5 times the last sound frame, or jumped over half its size (not judged while cut by the picture's edge), with seeAt: the scene seconds of each span's first frame (look {mode:"frame", t}). No object under the points is CUTOUT_NO_SUBJECT.
 
+A move that needs the subject makes the cut_out itself: `backdrop-flash {layer, at}` (and masked-type's subject given as the plain clip) cuts the clip out in the same edit, or reuses a subject cut-out of it, and the move's note names the layer it made. backdrop-flash shows a color field behind the subject on frames [1,1,0,1] (30 fps), color "auto" (the shot's tritone/duotone grade hue, else its picture's dominant hue, turned -35°), texture "streaks" or "none", rim true (rim-light), punch 1.06.
+
 ## update-layers: Editing several layers at once
 ops: update_layers, update_layer
 

@@ -1,7 +1,7 @@
 # Moves
 
-A move is a designed set piece built in one op from your layers, pictures, brand.
-Most shots need none (a plain cut). Pick one or two as the signature, spend them
+A move is a set piece built in one op from your layers.
+Most shots need none. Pick one or two as the signature, spend them
 on the hook, reveal and payoff.
 
 Contents: The move op · The moves · Moves example · Trim paths and dashes
@@ -14,7 +14,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
   animates (`<id>.<role>-<name>`). Its id is the move's name (`-2` for a second).
-- The same id remakes it; `{name, id, remove:true}` takes it away. Never edit its parts (a remake redoes them).
+- The same id remakes it; `{name, id, remove:true}` takes it away. Never edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 
@@ -73,7 +73,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   cut).
 - **speed-ramp**, **beat-repeat**: footage time on a cue (media.md).
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
-  (a cut_out layer) stands it behind the person; `reveal`: `rise` (default) or `cut`.
+  (the clip, cut out for you) stands it behind the person; `reveal`: `rise` (default) or `cut`.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
   fills the frame 1s (`dur` 0.6-1.4), hard cuts, muted; `entry:"push"`.
 - **voice-type**: a spoken line set big word by word; `speech`+`line` or `words`.
@@ -90,7 +90,9 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   draws on, 0.4-1.2 s by length; a fill fades in last.
 - **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
   random shake that dies down (`strength`, `frequency`, `decay`), `at` a cue in a music edit.
-  Both refuse a layer moving its own place or size meanwhile.
+  Both refuse a layer that moves itself.
+- **backdrop-flash** `{layer, at}`: color field behind the subject (`frames`, `color`, `texture`,
+  `rim`, `punch`); it cuts out the clip.
 
 Launch-video type (words arrive faint, then darken):
 
@@ -100,7 +102,7 @@ Launch-video type (words arrive faint, then darken):
 - **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,
   most of it early; a `label` writes on under it.
 
-Moves write in the brand's fonts (else the project's text font) and add a dark box under words only where they could fail contrast (`scrim`).
+Moves write in the brand's fonts (else the project's) and add a `scrim` only where words could fail contrast.
 
 ## Moves example
 

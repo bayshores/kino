@@ -31,6 +31,7 @@ import { groupLayers } from "./grouping.js";
 import { compactRecording } from "./recording.js";
 import { worldMatrix, point } from "./geometry.js";
 import { mediaFrameState } from "./playback.js";
+import { visibleByOperations } from "./visibilityOps.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -85,7 +86,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 51);
+  assert.equal(MOVE_NAMES.length, 52);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -97,6 +98,27 @@ test("every move is described for the library with tags from the vocabulary and 
     if (move.needsAt) assert.equal(typeof move.example.at, move.needsCue ? "string" : "number", `${name}'s example gives at`);
   }
   assert.throws(() => moveOf("zoom-thru"), /zoom-through/);
+});
+
+test("backdrop-flash puts a color field between the clip and its cut-out on the on frames, rims the subject and punches both", () => {
+  const scene = sceneFor(1920, 1080);
+  const clip = scene.layers.find((layer) => layer.id === "clip");
+  clip.animations = [{ id: "grade", kind: "effect", effect: "tritone", start: 0, duration: 5, to: { midtoneColor: "#2FA866" } }];
+  scene.layers.splice(1, 0, createLayer("video", { ...clip, id: "clip-subject", name: "clip-subject", cutoutOf: "clip", animations: [] }));
+  const definition = MOVES["backdrop-flash"];
+  const made = runMove(definition, { id: "flash", input: readMoveInput(definition, { layer: "clip", subject: "clip-subject" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, media });
+  const field = made.added[0];
+  assert.deepEqual(field.place, { below: "clip-subject" });
+  // The grade's hue (147°) turned -35°: the study's green field.
+  assert.equal(field.layer.fill.stops[1].color, "#35DE1B");
+  const at = (time) => visibleByOperations(field.layer.animations, time);
+  assert.deepEqual([0.99, 1.01, 1.05, 1.08, 1.12, 1.14].map(at), [false, true, true, false, true, false]);
+  assert.ok(field.layer.animations.some((animation) => animation.effect === "streaks"));
+  assert.equal(made.animations.filter((entry) => entry.animation.effect === "rim-light").length, 2);
+  assert.deepEqual(made.animations.filter((entry) => entry.animation.name.startsWith("Flash punch x")).map((entry) => [entry.layerId, entry.animation.to.scaleX]), [["clip", 1.06], ["clip-subject", 1.06]]);
+  assert.equal(made.end, 1.133);
+  assert.throws(() => readMoveInput(definition, { layer: "clip", frames: [1, 2] }), /1 \(on\) and 0 \(off\)/);
+  assert.equal(readMoveInput(definition, { layer: "clip", color: "auto" }).color, "auto");
 });
 
 test("align puts a move's span starting at, centered on or ending at its at (FilmCraft start_for)", () => {

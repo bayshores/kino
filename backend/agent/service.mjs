@@ -50,6 +50,7 @@ import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
 import { pictureAlpha } from "./picture-alpha.mjs";
+import { shotColor } from "./shot-color.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
@@ -473,6 +474,8 @@ export function createAgentService(deps) {
   const blocks = createBlockRunner({ fontsFor: (document) => fontsFor(document), listMedia: async () => (await deps.listMedia?.()) ?? [], fontCatalog, operationContext,
     deckDeals: (document, count) => nextDecks(document.id, document, count),
     pictureAlpha: (src) => pictureAlpha(deps.mediaRoot, src),
+    // backdrop-flash color "auto": a clip's dominant hue at the move's start (one small frame).
+    shotColor: (layer, time) => shotColor(deps.mediaRoot, layer, time),
     // impact-accent: a clip's measured impacts and light (footage/events.mjs, kept beside the file).
     clipEvents: (src) => clipEventsOf(src),
     // compose {footage}: the material's measures, the deck it is cut with, and its ops applied.

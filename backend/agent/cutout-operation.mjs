@@ -155,6 +155,8 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   const copy = copied.document.scenes.find((item) => item.id === sceneId).layers.find((item) => item.id === copied.rootIds[0]);
   copy.id = operation.cutoutId;
   copy.cutoutOf = layerId;
+  // Which output it shows, so a move that needs the subject reuses this one (translate.mjs moveCutouts).
+  copy.cutoutOutput = output;
   let next = parseDocument(copied.document);
   const steps = [
     { type: "replace_media", sceneId, layerId: operation.cutoutId, mediaId: made.record.id },
