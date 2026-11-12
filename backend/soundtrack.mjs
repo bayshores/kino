@@ -31,6 +31,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { songShape, vocalShare } from "./song-shape.mjs";
+import { defaultPayoff, stretchDrop } from "../engine/fitMusic.js";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { createSlots, createYouTubeGate } from "./process-slots.mjs";
@@ -435,16 +436,24 @@ export function songSections(curve) {
 
 /**
  * One measured song against the video: beats [{from, to}] (the story intents, or the whole scene)
- * and length (seconds). The song starts at `start` seconds in so its first drop lands on the
- * payoff (the last beat's start; 75% in with one beat) when it can, else at 0. Numbers only.
+ * and length (seconds). The song starts at `start` seconds in so the drop fit_music would pick
+ * (engine/fitMusic.js stretchDrop: the heaviest that fits, not the first after the payoff; run 8's
+ * answer held a weight 0.24 drop while the weight 1 drop sat 17 s later) lands on the payoff (the
+ * last beat's start; with one beat, defaultPayoff: room for 4 bars of drop and a bar of fade),
+ * else at 0. `sections` lists what the window holds in video time: build, drop (weight), break,
+ * vocal spans. Numbers only.
  */
 export function compareToStory(measure, { beats, length }) {
   const curve = measure?.energy ?? [];
   const seconds = Number(measure?.seconds) || curve.length;
   const story = beats?.length ? beats : [{ from: 0, to: length }];
-  const payoff = story.length > 1 ? story.at(-1).from : round(length * 0.75, 1);
-  const drops = (measure?.sections ?? []).filter((entry) => entry.kind === "drop").map((entry) => entry.at);
-  const drop = drops.find((at) => at >= payoff) ?? null;
+  // The bar from the measured tempo; 2 s (120 bpm) is a guess for a song with none, used only to weigh drops.
+  const bar = measure?.bpm > 0 ? 240 / measure.bpm : null;
+  const payoff = story.length > 1 ? story.at(-1).from : round(defaultPayoff(length, bar), 1);
+  const listed = measure?.sections ?? [];
+  const firstDrop = listed.find((entry) => entry.kind === "drop");
+  const picked = firstDrop ? stretchDrop({ sections: listed, seconds, whole: false, bar: bar ?? 2, downbeat: firstDrop.at, payoff, end: length }).drop : null;
+  const drop = picked ? picked.heard : null;
   const start = drop === null ? 0 : Math.max(0, Math.min(drop - payoff, Math.max(0, seconds - length)));
   const mean = (from, to) => {
     const values = curve.slice(Math.floor(from), Math.max(Math.floor(from) + 1, Math.ceil(to)));
@@ -452,10 +461,18 @@ export function compareToStory(measure, { beats, length }) {
   };
   const rows = story.map((beat, index) => ({ n: index + 1, from: beat.from, to: beat.to, energy: mean(start + beat.from, start + beat.to) }));
   const inside = (at) => at >= start && at < start + length;
+  // What the window holds, in video time: the section that is playing when it starts, then each one that starts inside it.
+  const playing = listed.filter((entry) => entry.at <= start && entry.kind !== "outro").at(-1);
+  const held = listed.filter((entry) => inside(entry.at) || entry === playing)
+    .map((entry) => ({ kind: entry.kind, at: round(Math.max(0, entry.at - start), 1), ...(Number.isFinite(entry.weight) ? { weight: entry.weight } : {}), ...(entry === playing && entry.at < start ? { playing: true } : {}) }));
+  const vocals = (measure?.vocals ?? []).filter(([from, to]) => to > start && from < start + length)
+    .map(([from, to]) => [round(Math.max(0, from - start), 1), round(Math.min(length, to - start), 1)]);
   return {
     start, end: round(Math.min(seconds, start + length), 1), payoff,
     dropAt: drop === null ? null : round(drop - start, 1),
     dropOff: drop === null ? null : round(drop - start - payoff, 1),
+    ...(picked && Number.isFinite(picked.weight) ? { dropWeight: picked.weight } : {}),
+    sections: held, vocals,
     beats: rows,
     rise: rows.length > 1 ? rows.at(-1).energy - rows[0].energy : 0,
     breaks: (measure?.sections ?? []).filter((entry) => entry.kind === "break" && inside(entry.at)).map((entry) => round(entry.at - start, 1)),
@@ -490,8 +507,11 @@ export function compareText(candidate, comparison) {
   const c = comparison;
   const lines = [`${candidate.id} '${candidate.title}' by ${candidate.creator}${licenseTag(candidate)} · ${candidate.measure?.bpm ? `${Math.round(candidate.measure.bpm)} bpm${candidate.measure.alt ? ` (or ${Math.round(candidate.measure.alt)})` : ""}` : "no steady beat"} · ${candidate.seconds}s`,
     `  start at ${c.start}s in the song (to ${c.end}s)${c.short ? `, ${c.short}s short of the video` : ""}`,
-    `  drop: ${c.dropAt === null ? "none lands in the video" : `at ${c.dropAt}s in the video, payoff at ${c.payoff}s (${c.dropOff >= 0 ? "+" : ""}${c.dropOff}s)`}${c.breaks.length ? ` · breaks at ${c.breaks.join(", ")}s` : ""}`,
-    `  energy by beat: ${c.beats.map((beat) => `${beat.n} ${beat.from}-${beat.to}s ${beat.energy}`).join(" · ")} (rise ${c.rise >= 0 ? "+" : ""}${c.rise})`];
+    `  drop: ${c.dropAt === null ? "none lands in the video" : `at ${c.dropAt}s in the video${c.dropWeight != null ? ` (weight ${c.dropWeight})` : ""}, payoff at ${c.payoff}s (${c.dropOff >= 0 ? "+" : ""}${c.dropOff}s)`}${c.breaks.length ? ` · breaks at ${c.breaks.join(", ")}s` : ""}`];
+  // The window's sections and vocal spans (one row of energy over a single beat said nothing: run 8 read "1 0-15s 89").
+  const part = (entry) => `${entry.playing ? "in " : ""}${entry.kind}${entry.kind === "drop" && entry.weight != null ? ` (weight ${entry.weight})` : ""} ${entry.playing ? "from 0s" : `at ${entry.at}s`}`;
+  lines.push(`  the window: ${(c.sections ?? []).map(part).join(", ") || "no measured section"} · vocal ${(c.vocals ?? []).map(([from, to]) => `${from}-${to}s`).join(", ") || "none"}`);
+  if (c.beats.length > 1) lines.push(`  energy by beat: ${c.beats.map((beat) => `${beat.n} ${beat.from}-${beat.to}s ${beat.energy}`).join(" · ")} (rise ${c.rise >= 0 ? "+" : ""}${c.rise})`);
   if (candidate.note) lines.push(`  ${candidate.note.verdict}: ${candidate.note.why}`);
   return lines.join("\n");
 }

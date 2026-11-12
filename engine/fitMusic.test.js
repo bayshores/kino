@@ -17,8 +17,9 @@ const onBar = (time) => Math.abs(time / 2 - Math.round(time / 2)) < 1e-6;
 test("planFitMusic: one unbroken stretch of the song, its drop on the payoff, faded in to a bar line and out at the end", () => {
   const plan = planFitMusic({ sections: SECTIONS, seconds: 120, bar: 2, downbeat: 0, payoff: 21, turn: 8, end: 31 });
   // Song 59 to 90 s: the second drop, whose break lands nearest the turn. Nothing is skipped.
-  assert.deepEqual(plan.pieces, [{ from: 59, to: 90, at: 0, fadeIn: 1, fadeOut: 4 }]);
-  assert.deepEqual(plan.sections.map((part) => [part.at, part.kind, part.label]), [[5, "break", undefined], [13, "build", undefined], [21, "drop", "payoff"], [27, "fade", undefined]]);
+  // The drop plays its first 4 bars (8 s) at full volume, then fades over one bar (not from 27 s, inside the group).
+  assert.deepEqual(plan.pieces, [{ from: 59, to: 90, at: 0, fadeIn: 1, fadeOut: 2 }]);
+  assert.deepEqual(plan.sections.map((part) => [part.at, part.kind, part.label]), [[5, "break", undefined], [13, "build", undefined], [21, "drop", "payoff"], [29, "fade", undefined]]);
   // The picture moves to the song: where the turn and the end would land on it.
   assert.ok(plan.notes.some((note) => /song changes at 5 s \(-3 s from the turn\)/.test(note)) && plan.notes.some((note) => /phrase ends at 29 s/.test(note)), plan.notes.join("; "));
   // Its own ending when the stretch reaches it, and a clean start on a section line.
@@ -101,6 +102,27 @@ test("fit_music keeps the music layer in one piece by default; recut:true cuts i
   assert.equal(fade(ducked[0], "Fit out").from.volume, 0.25);
   assert.equal(fade(ducked[1], "Fit in").to.volume, 0.25);
   assert.equal(fade(ducked[1], "Fit out").from.volume, 0.8, "a fade outside the dip fades from full volume");
+});
+
+test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it when no payoff is given, the rhythm from the measured beats", () => {
+  // A light drop (0.24) at 50 s, the main drop (weight 1) at 68 s; 120 bpm, beats tracked from 0.023 s; no bars (plan stop cannot run).
+  const sections = [{ at: 0, kind: "intro" }, { at: 34, kind: "build", weight: 0.07 }, { at: 50, kind: "drop", weight: 0.24 }, { at: 68, kind: "drop", weight: 1 }, { at: 150, kind: "outro" }];
+  const beats = Array.from({ length: 370 }, (_, index) => round(0.023 + index * 0.5));
+  const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: 15 });
+  const document = createDocument({ scenes: [createScene({ id: "s1", duration: 15, layers: [music] })] });
+  const reports = new Map();
+  const next = applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports });
+  const report = [...reports.values()][0];
+  const layer = next.scenes[0].layers[0];
+  // 15 - 5 bars is 5 s, under 45% of the video: the payoff is 6.75 s, and the drop is heard 6 s before the fade (2 s at 75%).
+  assert.match(report.payoff, /^6\.75 s/);
+  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.weight === 1 && Math.abs(cue.time - 6.75) < 0.05) && !next.cues.some((cue) => cue.weight === 0.24), JSON.stringify(next.cues));
+  assert.ok(next.cues.find((cue) => cue.name === "song-fade-1").time >= 12.75, "the fade starts after 3 bars of drop at least");
+  // The rhythm: the first tracked beat the video hears, not a typed offset.
+  const first = beats.find((time) => time >= layer.mediaOffset) - layer.mediaOffset;
+  assert.ok(next.rhythm.bpm === 120 && Math.abs(next.rhythm.offset - first) < 0.01, JSON.stringify(next.rhythm));
+  assert.match(report.rhythm, /120 bpm, first beat .* measured beats/);
+  assert.ok(!(report.plans ?? []).some((line) => line.startsWith("stop")), "no bars: plan stop is not offered");
 });
 
 // plan "stop" (and "recut" on the same song): the song's opening, its own stop, a drop on the payoff for whole groups of 4 bars, its last bar.

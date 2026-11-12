@@ -77,7 +77,7 @@ import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
 import { pickedEnding, pickedType } from "./treatments.mjs";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, settleBoard } from "./board.mjs";
-import { reframeBoard } from "../../engine/board.js";
+import { boardSpan, mainScene, reframeBoard } from "../../engine/board.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
@@ -1579,6 +1579,7 @@ export function createAgentService(deps) {
             await voiceLine(next, first.operation);
             next = await blocks.apply(next, first.operation, fontsCache);
             if (first.operation.formatName && first.operation.formatMusic) next = await fitFormatMusic(next, first.operation, fontsCache);
+            if (first.operation.type === "board") next = await fitBoardMusic(next, fontsCache);
           }
           catch (error) { refuse(first, error instanceof AgentError ? error : operationFailed(first.index, raw[first.index], first.operation.type, error)); }
         }
@@ -1758,6 +1759,36 @@ export function createAgentService(deps) {
     }
     catch (error) {
       (work.notes ??= []).push(`format music: kept as laid, not fit to the beat (${String(error.message).replace(/^fit_music:\s*/, "")})`);
+      return document;
+    }
+  }
+
+  // board {music}: a song laid by hand (no fit_music yet) is placed with its beats: fit_music's
+  // stretch, its drop on the spine's payoff (else defaultPayoff), the rhythm from its beats. Run 8
+  // typed the song's offset and the rhythm by hand and never called fit_music. A song it cannot
+  // shape (no steady beat, no drop), or a fit that would move the board's span, stays as laid:
+  // the board is never refused for it.
+  async function fitBoardMusic(document, work) {
+    const id = document.board?.music;
+    const scene = mainScene(document);
+    const music = id && id !== "none" ? scene?.layers.find((item) => item.id === id) : null;
+    if (!music?.src || music.type !== "audio" || music.fitMusic || scene.layers.some((item) => item.fitMusic === music.id)) return document;
+    if ((document.cues ?? []).some((cue) => cue.fitted && String(cue.name).startsWith("song-"))) return document;
+    const before = boardSpan(document, document.board);
+    const was = music.mediaOffset ?? 0;
+    try {
+      const fitted = await runFitMusic(document, { type: "fit_music", sceneId: scene.id, layerId: music.id }, { ...work, reports: null });
+      const after = boardSpan(fitted, fitted.board);
+      if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end) > 0.05) {
+        (work.notes ??= []).push(`board music: kept as laid (fit_music would move it to ${after.start}-${after.end} s, off the board's ${before.start}-${before.end} s)`);
+        return document;
+      }
+      const head = mainScene(fitted).layers.find((item) => item.id === music.id);
+      (work.notes ??= []).push(`board music: placed with fit_music (song from ${head?.mediaOffset ?? 0} s, was ${was} s; cues song-*${fitted.rhythm ? `, rhythm ${fitted.rhythm.bpm} bpm from ${fitted.rhythm.offset} s` : ""}); update_layer mediaOffset puts it back`);
+      return fitted;
+    }
+    catch {
+      // A bed with no drop or no steady beat (a voice-over bed, a tone): the board answers as before, no note on every call.
       return document;
     }
   }

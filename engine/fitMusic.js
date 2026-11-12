@@ -25,6 +25,9 @@ import { uid } from "./model.js";
 import { withCues } from "./cues.js";
 import { round } from "./numbers.js";
 import { barIndexAt, downbeatPhase } from "./songBars.js";
+import { CONFIDENT } from "./beatDetection.js";
+import { constantSpeed } from "./mediaTime.js";
+import { animatesSpeed } from "./animation.js";
 
 const EPS = 1e-6;
 // How far a cut's bar line may sit outside its window. The window's ends come from measured times:
@@ -302,14 +305,35 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
   };
 }
 
-/** One unbroken stretch of the song, its drop on the payoff. */
-function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
+/**
+ * The payoff (where the drop lands) when none is given, for a video of `length` seconds on a song
+ * with bars of `bar` seconds: the drop gets one whole group of 4 bars at full volume and a bar to
+ * fade (GROUP, the listener test above: a cut after 2 bars sounded premature), so the payoff sits
+ * `length - 5 bars` in. Kept between 45% and 75% of the video. 75% was the old fixed default;
+ * on a 15 s edit it put the drop 1.5 s before the closing fade (run 8: drop 11.32 s, fade from
+ * 12.86 s). 45% is a guess from one measured human edit of the same length class (drop at 9.7 of
+ * 21 s, 46%, played 8.6 s: about 4 bars at its tempo). Without a bar length: 75%.
+ */
+export function defaultPayoff(length, bar) {
+  if (!(length > 0)) return 0;
+  if (!(bar > 0)) return round(length * 0.75);
+  return round(Math.min(length * 0.75, Math.max(length * 0.45, length - (GROUP + 1) * bar)));
+}
+
+/**
+ * The drop one unbroken stretch is built around, shared by fit_music (planStretch) and the
+ * soundtrack answer (backend/soundtrack.mjs compareToStory), so both name the same window: the
+ * heaviest drop that fits (cost: (1 - weight) x 4, plus the video opening without music, the song
+ * running out, no break or build before it, the turn, a start off a phrase line). Returns
+ * {drop, parts, runUp} with each part's bar-snapped `at` and its `heard` time; drop is null when
+ * the song has no drop.
+ */
+export function stretchDrop({ sections = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
   const snap = (time) => downbeat + Math.round((time - downbeat) / bar) * bar;
   const parts = sections.map((part) => ({ kind: part.kind, at: Math.max(0, snap(part.at)), heard: part.at, weight: part.weight }));
   const drops = parts.filter((part) => part.kind === "drop").filter((part, index, list) => list.findIndex((other) => other.at === part.at) === index);
-  if (!drops.length) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
-  const notes = [];
   const runUp = (drop, from) => parts.some((part) => (part.kind === "break" || part.kind === "build") && part.at < drop.at - EPS && part.at >= Math.max(from, drop.at - RUN_UP_BARS * bar) - EPS);
+  if (!drops.length) return { drop: null, parts, runUp };
   // A change the turn can sit on: another section start of the stretch, in video time.
   const changeNear = (drop, time) => parts.filter((part) => part.at !== drop.at && part.kind !== "intro" && part.kind !== "outro").map((part) => part.at + payoff - drop.at)
     .filter((lands) => lands > bar && lands < payoff - bar + EPS).sort((a, b) => Math.abs(a - time) - Math.abs(b - time))[0] ?? null;
@@ -328,7 +352,14 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
     if (from > CUT_SLACK && !parts.some((part) => Math.abs(part.at - from) <= beat)) total += 1;
     return total;
   };
-  const drop = [...drops].sort((a, b) => cost(a) - cost(b) || a.at - b.at)[0];
+  return { drop: [...drops].sort((a, b) => cost(a) - cost(b) || a.at - b.at)[0], parts, runUp, changeNear };
+}
+
+/** One unbroken stretch of the song, its drop on the payoff. */
+function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
+  const { drop, parts, runUp, changeNear } = stretchDrop({ sections, seconds, whole, bar, beat, downbeat, payoff, turn, end });
+  if (!drop) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
+  const notes = [];
   if (!runUp(drop, drop.at - payoff)) notes.push("no break or build before the drop in this stretch: nothing quiets the line before the payoff");
   const offset = payoff - drop.at; // video time = song time + offset
   const start = Math.max(0, offset);
@@ -343,7 +374,10 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
     const line = downbeat + Math.ceil((from + beat - EPS - downbeat) / bar) * bar;
     fadeIn = round(line - from);
   }
-  const fadeOut = own ? 0 : round(Math.min(FADE_OUT_MAX, 2 * bar, Math.max(bar, (stop - payoff) / 2), stop - start));
+  // The closing fade: 1 to 2 bars, but it never starts inside the drop's first group of 4 bars
+  // while a one-bar fade fits after that group (run 8: a 2-bar fade would have cut the drop's
+  // full-volume time to 2 bars).
+  const fadeOut = own ? 0 : round(Math.min(FADE_OUT_MAX, 2 * bar, Math.max(bar, (stop - payoff) / 2), Math.max(bar, stop - payoff - GROUP * bar), stop - start));
   const pieces = [{ from: round(from), to: round(stop - offset), at: round(start), fadeIn, fadeOut }];
   if (own && songEnd < end - bar - EPS) notes.push(`the song ends at ${round(songEnd)} s, ${round(end - songEnd)} s before the end`);
   if (!own) {
@@ -653,7 +687,25 @@ function otherPlans(input, used) {
   return lines;
 }
 
-/** Applies fit_music {sceneId, layerId, payoff, turn?, end?, plan?, drop?, recut?, shape: {sections, seconds, whole, bars?}, analysis}. Returns the receipt. */
+/**
+ * The project's rhythm from the beats the fitted song plays with: its tempo and the first tracked
+ * beat the video hears (the first piece's), so cuts snapped to the grid land on the song's own
+ * beats. Before, the agent typed it by hand (run 8: offset 0.086 s against a tracked first beat at
+ * 0.023 s, every snapped cut 63 ms late). Set as detect_beats sets it: a steady analysis
+ * (confidence 0.5 or more) at the file's own speed. Returns the rhythm, or null.
+ */
+function fittedRhythm(document, layer, pieces, analysis) {
+  const beats = Array.isArray(analysis?.beats) ? analysis.beats.filter(Number.isFinite) : [];
+  if (animatesSpeed(layer) || constantSpeed(layer) !== 1) return null;
+  if (!(analysis.bpm >= 30 && analysis.bpm <= 300) || !(analysis.confidence >= CONFIDENT) || beats.length < 2) return null;
+  const piece = pieces[0];
+  const first = beats.find((time) => time >= piece.from - EPS && time < piece.to);
+  if (first === undefined) return null;
+  document.rhythm = { bpm: analysis.bpm, offset: round(piece.at + first - piece.from) };
+  return document.rhythm;
+}
+
+/** Applies fit_music {sceneId, layerId, payoff?, turn?, end?, plan?, drop?, recut?, shape: {sections, seconds, whole, bars?}, analysis}. Returns the receipt. */
 export function applyFitMusic(document, operation) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
   if (!scene) fail(`scene ${operation.sceneId} was not found.`);
@@ -665,12 +717,14 @@ export function applyFitMusic(document, operation) {
     const value = operation[field];
     if (value !== undefined && value !== null && !(typeof value === "number" && value >= 0 && value <= scene.duration + EPS)) fail(`${field} is a time in seconds within the scene (0 to ${scene.duration}).`);
   }
-  if (typeof operation.payoff !== "number") fail("give payoff (the time the drop lands), or a spine with a payoff beat (notes brief style.spine).");
   const end = operation.end ?? scene.duration;
-  if (end < operation.payoff + 1) fail("end must be at least 1 s after the payoff.");
-  if (operation.turn != null && operation.turn >= operation.payoff) fail("turn must come before the payoff.");
   const grid = barGrid(analysis, shape.sections);
   if (!grid) fail("no steady beat was found in the song, so it cannot be cut on bar lines.");
+  // No payoff given (and no spine payoff): the drop gets a 4-bar group and a bar to fade (defaultPayoff).
+  const chosen = typeof operation.payoff !== "number";
+  if (chosen) operation = { ...operation, payoff: defaultPayoff(end, grid.bar) };
+  if (end < operation.payoff + 1) fail("end must be at least 1 s after the payoff.");
+  if (operation.turn != null && operation.turn >= operation.payoff) fail("turn must come before the payoff.");
   const seconds = shape.seconds ?? analysis.duration;
   const which = operation.plan ?? (operation.recut === true ? "recut" : "stretch");
   if (!PLANS.includes(which)) fail(`plan is "stretch" (one unbroken stretch), "stop" (the song's stop, then a drop on the payoff) or "recut" (the song re-arranged), not ${JSON.stringify(which)}.`);
@@ -713,12 +767,15 @@ export function applyFitMusic(document, operation) {
 
   const lines = plan.sections.map((part) => `${part.at} s ${part.kind}${part.weight != null ? `, weight ${part.weight}` : ""}${part.label ? ` (${part.label})` : ""}`);
   const plans = otherPlans(input, which);
+  const rhythm = fittedRhythm(document, head, plan.pieces, analysis);
   return {
     layer: base,
     pieces: made.length,
     // Which part of the song plays, in song order.
     plays: plan.pieces.map((piece) => `${clock(piece.from)}-${clock(piece.to)}`).join(", "),
+    ...(chosen ? { payoff: `${operation.payoff} s (none given: the drop gets 4 bars and a bar to fade)` } : {}),
     sections: lines,
+    ...(rhythm ? { rhythm: `${rhythm.bpm} bpm, first beat ${rhythm.offset} s (set from the song's measured beats)` } : {}),
     // The plans not used that this song allows, one line each, for choosing by the video's story.
     ...(plans.length ? { plans } : {}),
     ...(plan.notes.length || dropped ? { notes: [...plan.notes, ...(dropped ? [`its volume animations (ducks, fades) were removed: run duck_audio {layer:"${base}"} again (it ducks every piece)`] : [])] } : {}),

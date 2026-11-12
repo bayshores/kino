@@ -1104,6 +1104,12 @@ How to read it:
   plays on and fades); sections become `song-*`
   cues. Unverified by ear. Evidence:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
+- **Song window, one drop chooser** (fit_music, soundtrack, board): the soundtrack answer and
+  fit_music pick the same heaviest drop that fits; the answer prints the window's sections and vocal
+  spans; with no payoff the drop gets 4 bars and a bar of fade (45 to 75% in); fit_music sets the
+  rhythm from the tracked beats; board {music} fits a hand-laid song or keeps it as laid. Checked on
+  a fixture and on one real song's shape files, unverified by ear. Evidence: `engine/fitMusic.test.js`,
+  `backend/soundtrack.test.mjs`, `backend/agent-volume.test.mjs`.
 - **fit_music plan stop** (op): `plan:"stop"` plays the song's opening up to its own stop, a drop of
   whole 4-bar groups on the payoff (`drop` picks which), then the song's last bar, joined 2 ms before
   the hit with 3 ms and 5 ms fades; the receipt lists the plans not used. Joins measured against a

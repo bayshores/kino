@@ -10,7 +10,7 @@ import { createSongTaste, rankSongs, storyScore, tasteEntry, tasteScore, tempoCl
 import { createMusicEmbed, decodeVector, encodeVector, songWindows } from "./music-embed.mjs";
 import { attackNear, createSongShapeCache, joinSpans, SONG_SHAPE_VERSION, songShape, sungSegments, vocalShare } from "./song-shape.mjs";
 import { songKey as clientSongKey } from "../frontend/dashboard/inspireView.js";
-import { catalogQuery, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, namedSong, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
+import { catalogQuery, compareText, compareToStory, createSoundtrack, energyCurve, archiveQuery, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, namedSong, parseRecordings, parseTagRecordings, pickRecording, licenseFromUrl, parseArchiveFiles, parseArchiveSearch, parseOpenverseMusic, previewStretch, SONG_KEY, songKey, SOUNDTRACK_LIMITS, songSections, youtubeCandidates } from "./soundtrack.mjs";
 
 test("Openverse music: usable licenses and songs of 20 s or more, with a credit line", async () => {
   const body = JSON.parse(await readFile(new URL("../tests/fixtures/soundtrack/openverse-music.json", import.meta.url), "utf8"));
@@ -91,6 +91,15 @@ test("sections and comparison: the drop lands on the payoff, energy is read per 
   const long = compareToStory(measure, { beats: [], length: 80 });
   assert.equal(long.start, 0);
   assert.equal(long.short, 20);
+  // Two drops: the window holds the heavier one fit_music would pick, not the first after the
+  // payoff, and the answer prints the window's sections and vocal spans (no one-row energy line).
+  const two = { seconds: 188, bpm: 120, energy: [], vocals: [[60, 68], [75, 90]], sections: [{ at: 34, kind: "build", weight: 0.07 }, { at: 50, kind: "drop", weight: 0.24 }, { at: 68, kind: "drop", weight: 1 }] };
+  const short = compareToStory(two, { beats: [], length: 15 });
+  assert.deepEqual([short.payoff, short.start, short.dropAt, short.dropWeight], [6.8, 61.2, 6.8, 1]);
+  const text = compareText({ id: "yt:aaaaaaaaaaa", title: "t", creator: "c", seconds: 188, measure: two }, short);
+  assert.match(text, /drop: at 6\.8s in the video \(weight 1\)/);
+  assert.match(text, /the window: in drop \(weight 0\.24\) from 0s, drop \(weight 1\) at 6\.8s · vocal 0-6\.8s, 13\.8-15s/);
+  assert.doesNotMatch(text, /energy by beat/);
 });
 
 test("energy curve: 0 to 100 per second, the loudest second is 100", () => {
