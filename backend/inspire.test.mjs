@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
   dropNonEdits, dropReason, droppedText, originOf, originPhrase, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
-  cannotPlayLine, cannotPlayReason, cleanTake, fingerprintLines, fitNote, measuredDoubt, quietDoubt, takeSaysWhat, takeStretch, takeWithoutStretch,
+  cannotPlayLine, cannotPlayReason, cleanTake, fingerprintLines, fitNote, measuredDoubt, quietDoubt, takeSaysWhat, takeStretch, takeWithoutStretch, heardLinesText,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
 import { copiedRun } from "../engine/quality/rules/reference.js";
@@ -627,6 +627,15 @@ test("a measured reference keeps what was heard in it (loudest change, voice) an
   const lines = fingerprintLines({ id: "yt:x", fingerprint: { look: { brightness: 0.2, darkShare: 0.1, palette: [] } }, heard: saved.heard }).join("\n");
   assert.match(lines, /look: brightness 0\.2 · dark 10%/);
   assert.match(lines, /heard: loudest change 12 s \(drop\) · voice 0-2 s/);
+  // The lines it says (heard.lines): listed with a ready footage call that names one as said:. None kept, none listed.
+  assert.equal(heardLinesText({ heard: saved.heard }), "");
+  const sayings = [{ at: 0, text: "No." }, { at: 3.2, text: 'I will "protect" them all' }, { at: 9, text: "Not today" }];
+  const said = heardLinesText({ heard: { ...saved.heard, lines: sayings } }).split("\n");
+  assert.equal(said[0], `lines it says: 0.0 "No.", 3.2 "I will 'protect' them all", 9.0 "Not today"`);
+  assert.equal(said[1], `footage that says one: library {"topic":"footage","search":"<series or subject>","said":"I will 'protect' them all"}`);
+  assert.match(heardLinesText({ heard: { lines: Array.from({ length: 7 }, (_, n) => ({ at: n, text: `line number ${n}` })) } }), /\(7 in all\)/);
+  // The said: words are the line's first six, cut at a word with no ellipsis, so they still match.
+  assert.match(heardLinesText({ heard: { lines: [{ at: 1, text: "Welcome back to the harbor, the morning boats are leaving early" }] } }), /"said":"Welcome back to the harbor, the"\}/);
   let tries = 0;
   const failed = make("heard-failed", async () => { tries += 1; if (tries === 1) throw new Error("no sound"); return { change: { at: 5, kind: "drop" }, voice: [], by: "whisper" }; });
   const second = (await failed.search("p1", "walking tour edit", { count: 1 })).results[0].id;

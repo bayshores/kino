@@ -230,13 +230,23 @@ export function scanText(candidate, scan, need = null, heard = null) {
 function heardLines(candidate, shots, heard) {
   if (!heard) return [];
   const said = heard.said ? `"${heard.said}"` : "";
+  // Listening here was tried (words asked for, no captions) and could not be done: its reason, once.
+  if (heard.listenWhy) return [`${heard.retry ? "Captions could not be read now and" : "No captions, and"} listening here failed (${short(oneLine(heard.listenWhy), 140)}), so ${said} was not looked for: shots rank on the picture.`];
   if (heard.retry) return said ? [`Captions could not be read now (${short(oneLine(heard.why), 60)}), so ${said} was not looked for.`] : [];
-  if (heard.none) return said ? [`No captions, so ${said} was not looked for: shots rank on the picture.`] : heard.noCaptionsKnown ? [] : ["No captions on this video."];
+  if (heard.none) return said ? [`No captions, so ${said} was not looked for: shots rank on the picture.`] : heard.noCaptionsKnown ? [] : [`No captions on this video. ${LISTEN_HINT}`];
   const spoken = spokenLines(heard.lines, shots, heard.said);
   const out = [linesBlock(candidate.code, spoken, heard)];
-  if (said && !heard.hits) out.push(`Nobody says ${said} in the scanned part.`);
+  if (said && !heard.hits) out.push(`Nobody says ${said} in the scanned part${heard.local ? ` (listened to ${heard.listened} s here${heard.left ? `, ${heard.left} s of the scan not listened to` : ""})` : ""}.`);
   return out.filter(Boolean);
 }
+
+/**
+ * Said after "No captions on this video." once: the way to find a shot by its words anyway. The
+ * speed is what the proof measured on this machine (.scratch/run8/wave/said-local/RESULT.md: 60 s
+ * of speech took 5.7 s to hear, audio cut included, the YouTube download not), said as a rough
+ * rule, not a promise.
+ */
+export const LISTEN_HINT = 'said:"<words>" listens to the scanned part on this computer (English only, about 6 s per minute of video, plus the download) and puts the shots that say them first.';
 
 /** Said where a video's download or scan is already in the data folder (found-shared): nothing is fetched again. */
 export const REUSED_LINE = "already on this computer: reused";
@@ -283,6 +293,8 @@ function checkStretch(from, to, nextCall) {
 export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs = FOOTAGE_RESULT_KEEP_MS }) {
   // Scans running now, by scan id and options: a repeated call joins its scan instead of starting another.
   const scans = new Map();
+  // Listenings running now (spoken.mjs), by video and stretches: a repeated call joins its listening.
+  const listens = new Map();
 
   function withLead(personClips, lines) {
     return [personClipsLine(personClips), ...lines].filter(Boolean).join("\n");
@@ -427,7 +439,28 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const need = await songOf?.({ signal }).catch(() => null) ?? null;
     // What is said (captions, kept once per video by the finder): each shot gets `says`, and shots
     // that say the asked words go first (words.mjs applySaid). A video without captions is no error.
-    const answer = candidate.source === "commons" ? null : await finder.captions?.(candidate, { signal }).catch((error) => { if (error?.name === "AbortError") throw error; return null; });
+    let answer = candidate.source === "commons" ? null : await finder.captions?.(candidate, { signal }).catch((error) => { if (error?.name === "AbortError") throw error; return null; });
+    const noCaptions = Boolean(answer?.none && !answer.retry);
+    // No captions (or none readable now) and words asked for: listen to the scanned stretch here
+    // (spoken.mjs), bounded and kept per video. A long listen answers with its progress and a repeat call.
+    if (said && answer && !answer.lines?.length && candidate.source !== "commons" && finder.spoken) {
+      const key = `${id}\n${JSON.stringify(result.windows ?? [])}`;
+      let listen = listens.get(key);
+      if (!listen) {
+        listen = finder.spoken(candidate, result.windows ?? [], { signal: undefined })
+          .finally(() => { setTimeout(() => { if (listens.get(key) === listen) listens.delete(key); }, keepMs).unref?.(); });
+        listens.set(key, listen);
+      }
+      let timer;
+      const heardHere = await Promise.race([listen, new Promise((resolve) => { timer = setTimeout(() => resolve(null), waitMs); })]);
+      clearTimeout(timer);
+      if (signal?.aborted) throw Object.assign(new Error("Cancelled."), { name: "AbortError" });
+      if (!heardHere) {
+        return { text: withLead(personClips, [`${candidate.code} has no captions; listening to the scanned part for "${said}" on this computer, still going.`, "Send the same call again: it joins the listening and waits for it."]),
+          data: { listening: candidate.code }, nextCall: repeat, update: joined ? (current) => ensure(current).after : undefined };
+      }
+      answer = heardHere.none ? { ...answer, listenWhy: heardHere.why } : heardHere;
+    }
     const lines = answer?.lines ?? [];
     const applied = lines.length ? applySaid(result.shots ?? [], lines, said) : { shots: result.shots ?? [], hits: 0 };
     result = { ...result, shots: applied.shots };
@@ -438,7 +471,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const update = (current) => {
       const { after, entry } = ensure(current);
       entry.scan = { id, shots: (result.shots ?? []).length, at: result.scannedAt ?? null, ...(result.marks?.length ? { logo: markPlaces(result.marks) } : {}) };
-      if (answer?.none && !answer.retry) entry.noCaptions = true;
+      if (noCaptions) entry.noCaptions = true;
       if (input.want !== undefined) after.want = want;
       if (input.said !== undefined) after.said = said;
       return after;
@@ -455,7 +488,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
       data: { code: candidate.code, id, shots: (result.shots ?? []).slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs }) => ({ n, start, end, motion, face, match, flags, ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
         ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),
-        ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, hit, shots }) => ({ start, end, text, shots, ...(hit ? { said: true } : {}) })) } : {}) },
+        ...(lines.length ? { captions: { lang: answer.lang, auto: Boolean(answer.auto), ...(answer.local ? { local: true } : {}), ...(said ? { said, hits: applied.hits } : {}) }, lines: spoken.map(({ start, end, text, hit, shots }) => ({ start, end, text, shots, ...(hit ? { said: true } : {}) })) } : {}) },
       nextCall: nextImport ?? (following ? scanCall(following.code) : searchCall()), update };
   }
 

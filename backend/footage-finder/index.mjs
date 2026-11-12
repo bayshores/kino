@@ -9,6 +9,7 @@ import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { downloadScanCopy, pickWindows, probeFootage } from "./scan.mjs";
 import { readScan, readScanSheet, rematchScan, scanFootage } from "./score.mjs";
 import { searchFootage } from "./search.mjs";
+import { listenToVideo } from "./spoken.mjs";
 import { takeFootage } from "./take.mjs";
 import { defaultLanguages, fetchCaptions } from "./words.mjs";
 
@@ -38,12 +39,16 @@ class NothingFound extends Error {
  * scan(candidate, options), take(candidate, pieces, {projectId}), readScan(id),
  * rematch(id, want) → a saved scan ranked again for other words (no download), or null,
  * readSheet(id) → the scan's sheet jpg or null, searchCommons(words),
- * captions(candidate, {signal}) → words.mjs fetchCaptions' answer, kept in <directory>/captions}.
+ * captions(candidate, {signal}) → words.mjs fetchCaptions' answer, kept in <directory>/captions,
+ * spoken(candidate, windows, {signal}) → spoken.mjs listenToVideo's answer for the scanned stretches
+ * of a video without captions (kept in <directory>/spoken; deps.transcribe(file) is the speech code)}.
  */
 export function createFootageFinder(deps) {
   const { directory, ytDlp = (args, options) => runYtDlp(args, options), now = Date.now,
     dataRoot = null, youtube = null, embed = null, commons = null, keep = () => [], modelReady = () => true, addMedia = null, takeTools,
-    languages = defaultLanguages(), runtime = null } = deps;
+    languages = defaultLanguages(), runtime = null,
+    // Listens to a stretch of sound on this computer (spoken above): kino's own speech code, loaded when first asked.
+    transcribe = async (file) => { const speech = await import("../speech/transcribe.mjs"); return speech.transcribeFile(file, speech.whisperSetup()); } } = deps;
   if (!directory) throw new Error("createFootageFinder needs a directory.");
   const { cached } = createWebCache({ directory: path.join(directory, "cache"), ttlMs: FOOTAGE_CACHE_MS, now });
   // The same search running twice at once (two agents) asks YouTube once. The shared job has its
@@ -122,6 +127,37 @@ export function createFootageFinder(deps) {
     return untilAborted(job, signal);
   }
 
+  // What is said in the scanned stretches of a video without captions (spoken.mjs): listened to on
+  // this computer, kept per video in <directory>/spoken/<video id>.json (stretch by stretch).
+  const spokenJobs = new Map();
+
+  /**
+   * The lines said in `windows` ([{start, end}], seconds) of one candidate, captions-shaped:
+   * {lang, auto, local, lines, listened, left} or {none: true, why}. Commons clips have none.
+   * Never throws except for a cancel.
+   */
+  async function spoken(candidate, windows, { signal } = {}) {
+    const videoId = candidate?.source === "commons" ? null : candidate?.videoId;
+    if (!videoId) return { none: true, why: "not a YouTube video" };
+    const file = path.join(directory, "spoken", `${videoId}.json`);
+    const stretches = (await readFile(file, "utf8").then(JSON.parse).catch(() => null))?.stretches ?? [];
+    const key = `${videoId}\n${JSON.stringify(windows)}`;
+    let job = spokenJobs.get(key);
+    if (!job) {
+      job = listenToVideo(videoId, windows, { transcribe, kept: stretches, youtube, run: ytDlp, ...(runtime ? { runtime } : {}),
+        save: async (stretch) => {
+          stretches.push(stretch);
+          await mkdir(path.dirname(file), { recursive: true });
+          await writeFile(`${file}.part`, JSON.stringify({ at: now(), stretches }));
+          await rename(`${file}.part`, file);
+        } })
+        .catch((error) => (error?.name === "AbortError" ? { none: true, why: "cancelled" } : { none: true, why: String(error?.message ?? error).slice(0, 120) }))
+        .finally(() => { if (spokenJobs.get(key) === job) spokenJobs.delete(key); });
+      spokenJobs.set(key, job);
+    }
+    return untilAborted(job, signal);
+  }
+
   /**
    * Scans one candidate (scan.mjs, then score.mjs): YouTube through the probe, the chosen windows
    * and a 360p copy; Commons through its 360p copy, whole. Answers the saved scan. A video that
@@ -171,6 +207,7 @@ export function createFootageFinder(deps) {
     scan,
     take,
     captions,
+    spoken,
     readScan: (id) => (dataRoot ? readScan(dataRoot, id) : Promise.resolve(null)),
     rematch: (id, want) => (dataRoot ? rematchScan(dataRoot, id, want, { embed }) : Promise.resolve(null)),
     readSheet: (id) => (dataRoot ? readScanSheet(dataRoot, id) : Promise.resolve(null)),

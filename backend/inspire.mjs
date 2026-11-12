@@ -34,6 +34,33 @@ import { keyframeStills, lookVector, rankLooks, sameFrames, shotMiddles } from "
 import { junkSound, rankSounds, sfxPrompt, soundVector } from "./sfx-rank.mjs";
 import { COPY_RUN, copiedRun } from "../engine/quality/rules/reference.js";
 import { beatSecondsOf, numbersWithMedian, shotStats } from "../engine/footage/refPace.js";
+import { call, callText } from "./agent/next-call.mjs";
+
+/** Spoken lines a measured reference keeps (the first ones in time). */
+export const HEARD_LINES_KEPT = 12;
+/** Lines the save and read answers print, and the longest line printed (characters). */
+export const HEARD_LINES_SHOWN = 4;
+const HEARD_LINE_CHARS = 60;
+const HEARD_SAID_WORDS = 6;
+
+/**
+ * The spoken lines kino already holds for a measured reference, and a footage call that looks for
+ * the picture that says one of them, or "". The lines are what the voice measure (heard.lines)
+ * wrote while it found where a voice plays: nothing is transcribed for this. The line offered is
+ * the first of the shown ones with three words or more (a short "No." matches every video).
+ * The slot says it names the source of the footage, not the reference.
+ */
+export function heardLinesText(ref) {
+  const lines = (ref?.heard?.lines ?? []).filter((line) => line?.text);
+  if (!lines.length) return "";
+  const clip = (text) => (text.length > HEARD_LINE_CHARS ? `${text.slice(0, HEARD_LINE_CHARS - 1).trimEnd()}…` : text).replaceAll('"', "'");
+  const shown = lines.slice(0, HEARD_LINES_SHOWN);
+  const first = shown.find((line) => line.text.split(/\s+/).length >= 3) ?? shown[0];
+  // The first six words, cut at a word, no ellipsis: said: matches words in any order, and a cut-off "e…" would match nothing.
+  const said = { text: first.text.split(/\s+/).slice(0, HEARD_SAID_WORDS).join(" ").replace(/[\s,;:]+$/, "") };
+  return [`lines it says: ${shown.map((line) => `${Number(line.at).toFixed(1)} "${clip(line.text)}"`).join(", ")}${lines.length > shown.length ? `, … (${lines.length} in all)` : ""}`,
+    `footage that says one: ${callText(call("library", { topic: "footage", search: "<series or subject>", said: said.text.replaceAll('"', "'") }))}`].join("\n");
+}
 
 // What a search looks for: edits, short vertical edits (YouTube Shorts) or sound effects.
 export { SEARCH_KINDS };
@@ -1196,6 +1223,8 @@ export function createInspire(deps) {
       ...(record.fingerprint ? { print: screenNumbers(record.fingerprint), strips: record.strips?.length ?? 0 } : {}),
       ...(record.fingerprintError ? { fingerprintError: record.fingerprintError } : {}),
       ...(full && record.fingerprint ? { fingerprint: record.fingerprint, stripList: record.strips ?? [] } : {}),
+      // Where a voice plays and the lines it says (heard.lines): the agent's read lists them (heardLinesText).
+      ...(full && record.heard ? { heard: record.heard } : {}),
     };
   }
 
@@ -2129,13 +2158,15 @@ export async function inspireTools({ command } = {}) {
     // The loudest change (the song's section with the most weight, not the intro or outro) and the
     // voice spans (whisper, when a model is installed: by "none" says it was not heard).
     async heard(file, { seconds, bpm } = {}) {
-      const { songShape, songVocals, whisperModelReady } = await import("./song-shape.mjs");
+      const { songShape, songVoice, whisperModelReady } = await import("./song-shape.mjs");
       const { samples, sampleRate } = await decodeMono(file);
       const top = songShape(samples, sampleRate, { bpm }).sections.filter((part) => part.kind !== "intro" && part.kind !== "outro" && Number.isFinite(part.weight))
         .sort((a, b) => b.weight - a.weight || a.at - b.at)[0];
       let voice = null;
-      if (whisperModelReady()) { try { voice = await songVocals(file, { seconds }); } catch { voice = null; } }
-      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none" };
+      let lines = [];
+      if (whisperModelReady()) { try { ({ spans: voice, lines } = await songVoice(file, { seconds })); } catch { voice = null; } }
+      // The words whisper wrote for those spans stay too (no extra run): library inspire lists them.
+      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none", ...(lines.length ? { lines: lines.slice(0, HEARD_LINES_KEPT) } : {}) };
     },
     // steady: kino's own test of whether the beat grid is a song's (a voice scores low).
     findBeats: async (file) => { const analysis = await analyzeAudioFile(file); return { ...analysis, steady: steadyBeat(analysis) }; },
@@ -2301,6 +2332,7 @@ export function referenceText(ref, { full = false } = {}) {
   const median = filled.median != null ? `median shot ${round(filled.median, 1)} s${medianBeatWords(filled, ref.bpm)}` : "";
   return [head, `measured ${span}: ${[`${numbers.shots} shots`, `${numbers.cutsPerSecond} cuts/s`, median, longest, beat].filter(Boolean).join(" · ")}`, ...(fit ? [fit] : []), cuts, lendLine(numbers),
     ...fingerprintLines(ref),
+    ...heardLinesText(ref).split("\n").filter(Boolean),
     `borrow: edit {ops:[{op:"borrow_rhythm", ref:"${ref.id}", fit:true}]} (each section's shot lengths in a new order, cut on the song's seams when fit_music marked them; fit:true scales to the scene)`].join("\n");
 }
 

@@ -235,9 +235,9 @@ export function spokenLines(lines, shots, said = "", most = LINES_SHOWN) {
 }
 
 /** The "Lines" list: `Lines (en, auto captions):` and one `0:41 "..." (F1.12-F1.13)` a line. */
-export function linesBlock(code, spoken, { lang, auto } = {}) {
+export function linesBlock(code, spoken, { lang, auto, local } = {}) {
   if (!spoken.length) return "";
-  const head = `Lines (${[lang, auto ? "auto captions" : "captions"].filter(Boolean).join(", ")}):`;
+  const head = `Lines (${[lang, local ? "heard on this computer" : auto ? "auto captions" : "captions"].filter(Boolean).join(", ")}):`;
   const rows = spoken.map((line) => {
     const first = line.shots[0];
     const last = line.shots.at(-1);

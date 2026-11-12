@@ -741,15 +741,25 @@ export function sungSegments(segments) {
  * (whisper's times drift less in short pieces). It waits its turn with the transcriptions (at most
  * two whisper runs at once) and gives up after two minutes. Throws when whisper is not installed.
  */
-export async function songVocals(file, { seconds = 240, setup = whisperSetup(), decode = decodeMono, piece = 15, timeoutMs = 120_000 } = {}) {
+export async function songVocals(file, options = {}) {
+  return (await songVoice(file, options)).spans;
+}
+
+/**
+ * songVocals' pass with the words kept: {spans: [[from, to]] (as songVocals), lines: [{at, to,
+ * text}]} (the segments whisper heard as words, in time order, sound labels left out). The same
+ * whisper run, so the lines cost nothing more (a 30 s reference: see .scratch/run8/wave/said-local).
+ */
+export async function songVoice(file, { seconds = 240, setup = whisperSetup(), decode = decodeMono, piece = 15, timeoutMs = 120_000 } = {}) {
   return whisperTurn(async () => {
     const { samples } = await decode(file, { sampleRate: SPEECH_RATE });
     const limited = samples.subarray(0, Math.round(seconds * SPEECH_RATE));
     const pieces = [];
     for (let from = 0; from < limited.length / SPEECH_RATE; from += piece) pieces.push({ from, samples: limited.subarray(from * SPEECH_RATE, Math.min(limited.length, (from + piece) * SPEECH_RATE)) });
     const lists = await whisperSegments(pieces.map((part) => part.samples), setup, { args: ["-sns", "-mc", "0"], timeoutMs });
-    const spans = lists.flatMap((list, index) => sungSegments(list).map((segment) => [pieces[index].from + segment.from, Math.min(pieces[index].from + piece, pieces[index].from + segment.to)]));
-    return joinSpans(spans);
+    const heard = lists.flatMap((list, index) => sungSegments(list).map((segment) => ({ ...segment, from: pieces[index].from + segment.from, to: Math.min(pieces[index].from + piece, pieces[index].from + segment.to) })));
+    const lines = heard.map((segment) => ({ at: round(segment.from), to: round(segment.to), text: segment.text.replace(/\[[^\]]*\]|\([^)]*\)|[♪♫*]/g, " ").replace(/\s+/g, " ").trim() })).filter((line) => line.text);
+    return { spans: joinSpans(heard.map((segment) => [segment.from, segment.to])), lines };
   });
 }
 
