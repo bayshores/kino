@@ -191,27 +191,44 @@ export function askedLead(lufs) {
  * used, or null when the mix keeps its own loudness) and `graph` (the mix with it).
  */
 export async function fitLoudness(inputs, graph, levels, target, settings, lead = {}) {
+  const fitted = await fitGain(levels, target, lead, async (loudness) => {
+    const leveled = `${graph},${loudness.filter}`;
+    return { ...(await fitLimiterCeiling(inputs, leveled, settings)), graph: leveled };
+  });
+  if (!fitted) return { ...(await fitLimiterCeiling(inputs, graph, settings)), loudness: null, graph };
+  const { off, trials, first, ...result } = fitted;
+  return result;
+}
+
+/**
+ * The trials fitLoudness runs, with `trial(loudness)` measuring the mix at one gain ({ integratedLufs,
+ * ...}): while a trial lands more than 0.3 LU off target the correction grows by the miss divided by
+ * how far the last correction moved the result, at most 5 trials. Returns the closest trial's result
+ * plus { loudness, off, trials, first } (first: the first trial's gain, dB), or null with no gain.
+ * The render fits with trial encodes; check's cue lines fit the same way on the limited mix.
+ */
+export async function fitGain(levels, target, lead, trial) {
   // `lead` ({ targetLufs, why }) is what "auto" chose (mixLead): its own target, passed on every trial.
   const gain = (correction = 0) => loudnessGain(levels, target, correction, lead.targetLufs ?? LOUDNESS_TARGETS[target], lead.why);
   let loudness = gain();
-  if (!loudness) return { ...(await fitLimiterCeiling(inputs, graph, settings)), loudness: null, graph };
-  let best = null, previous = null;
-  for (let trial = 1; ; trial += 1) {
-    const leveled = `${graph},${loudness.filter}`;
-    const sound = await fitLimiterCeiling(inputs, leveled, settings);
+  if (!loudness) return null;
+  const first = loudness.gainDb;
+  let best = null, previous = null, trials = 0;
+  for (;;) {
+    trials += 1;
+    const sound = await trial(loudness);
     const off = sound.integratedLufs === null ? 0 : round1(loudness.targetLufs - sound.integratedLufs);
-    if (!best || Math.abs(off) < Math.abs(best.off)) best = { ...sound, loudness, graph: leveled, off };
-    if (Math.abs(off) <= TARGET_TOLERANCE_LU || trial === LOUDNESS_TRIALS || ((loudness.capped || loudness.held) && off > 0)) break;
+    if (!best || Math.abs(off) < Math.abs(best.off)) best = { ...sound, loudness, off };
+    if (Math.abs(off) <= TARGET_TOLERANCE_LU || trials === LOUDNESS_TRIALS || ((loudness.capped || loudness.held) && off > 0)) break;
     const step = previous ? loudness.correction - previous.correction : 0;
     const slope = step ? Math.min(1, Math.max(0.25, (previous.off - off) / step)) : 1;
     previous = { correction: loudness.correction, off };
     loudness = gain(loudness.correction + off / slope);
   }
-  const { off, ...result } = best;
   // A peak that limited the gain but still let the mix land on target (a loud song's own level
   // sits close to its peaks) is not named as the reason the target was missed.
-  if (result.loudness?.held && Math.abs(off) <= TARGET_TOLERANCE_LU) result.loudness = { ...result.loudness, held: false, loudestAt: null };
-  return result;
+  if (best.loudness?.held && Math.abs(best.off) <= TARGET_TOLERANCE_LU) best = { ...best, loudness: { ...best.loudness, held: false, loudestAt: null } };
+  return { ...best, trials, first };
 }
 
 /**
@@ -337,7 +354,7 @@ export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = 
   const level = `${label}: ${mix.integratedLufs === null ? "too short to measure LUFS" : `${mix.integratedLufs} LUFS`}, true peak ${mix.truePeakDbtp === null ? "silent" : `${signed(mix.truePeakDbtp)} dBTP`} with render loudness "off"${limited}`;
   // What the default "auto" target's gain does to the same peaks (measureMixPeaks `auto`).
   const auto = mix.auto;
-  const autoText = auto ? `; loudness "auto" (the render default, target ${auto.targetLufs} ${auto.target}${auto.why && auto.target === "references" ? `: ${auto.why}` : ""}) adds ${signed(auto.gainDb)} dB first${auto.held ? " (held by the peaks)" : ""}, then the limiter ` +
+  const autoText = auto ? `; loudness "auto" (the render default, target ${auto.targetLufs} ${auto.target}${auto.why && auto.target === "references" ? `: ${auto.why}` : ""}) adds ${signed(auto.gainDb)} dB first${auto.trials > 1 ? ` (fitted as a render fits it: ${auto.trials} trials from ${signed(auto.first)} dB)` : ""}${auto.held ? " (held by the peaks)" : ""}, then the limiter ` +
     (auto.places ? `works at ${auto.places} ${auto.places === 1 ? "place" : "places"}, most ${auto.worst.overDb} dB at ${auto.worst.at} s` : "never works") : "";
   if (!mix.places.length) return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) never works${autoText}`;
   // All of them in time order when they fit, else the worst first.

@@ -616,7 +616,8 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   const sound = await agent("look", { project, mode: "motion", ref: "sound" });
   assert.match(sound.text, /\nlimiter: .*works at \d+ place/);
   // The default "auto" gain turns this mix down past every place: check fix:auto keeps its shape.
-  assert.match(mixLine, /adds -[\d.]+ dB first, then the limiter never works$/);
+  // The gain is fitted as the render fits it (the limiter gives part of the first trial back).
+  assert.match(mixLine, /adds -[\d.]+ dB first( \(fitted as a render fits it: \d trials from -[\d.]+ dB\))?, then the limiter never works$/);
   const kept = await agent("check", { project, pixels: false, fix: "auto" });
   assert.match(kept.text, /not applied mix: loudness "auto" \(the render default\) adds -[\d.]+ dB first, so the limiter never works/);
   assert.doesNotMatch(kept.text, /mix fix:/);

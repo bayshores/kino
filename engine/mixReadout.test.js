@@ -30,6 +30,20 @@ test("a cue's rise: the mix over the 1 s before and after, and the loudest kept 
   assert.deepEqual(keptLinesOf({ duration: 6, layers: [clip] }), [{ name: "vo", start: 1.5, end: 2.8 }]);
 });
 
+test("a rise that comes from a dip names the dip and reads small against the loudest reading before", () => {
+  // Shaped like dm5-a: the mix -10 most of the second before the drop at 8.5 s, one 0.3 s hole at
+  // -18 just before it, -9.5 after; the song dips to 0 under a kept line 5.3-7.9 and comes up at 8.7.
+  const windows = readings(10, (t) => (t >= 8.5 ? -9.5 : t >= 8.0 && t < 8.3 ? -18 : -10));
+  const layer = song([{ start: 5.25, duration: 0.05, from: { volume: 1 }, to: { volume: 0 } }, { start: 8.65, duration: 0.05, from: { volume: 0 }, to: { volume: 1 } }], { mediaDuration: 10 });
+  const rise = cueRise(windows, { at: 8.5, kind: "drop" }, [{ name: "line3", start: 5.3, end: 7.9 }], { song: layer });
+  assert.ok(rise.rise > 1.5, `the energy mean holds the hole: ${rise.rise}`);
+  assert.deepEqual(rise.peak, { end: 7.9, lufs: -10, over: 0.5 });
+  assert.deepEqual(rise.dips.map((dip) => [dip.from, dip.to, dip.low, dip.line.name]), [[5.29, 8.67, 0, "line3"]]);
+  assert.match(cueRiseText(rise), /its loudest 0\.4 s reading in the 1 s before: -10 LUFS ending 7\.9 s, the 1 s after sits \+0\.5 LU over it; the 1 s before holds song's dip 5\.29-8\.67 s \(x0 of its level after, under line3 5\.3-7\.9 s\)$/);
+  // A song that plays on through the second before holds no dip.
+  assert.deepEqual(cueRise(windows, { at: 8.5, kind: "drop" }, [], { song: song([], { mediaDuration: 10 }) }).dips, []);
+});
+
 test("the ending: a hard stop on an onset, a fade across a bar line, a tail, and the picture after the sound", () => {
   const grid = { onsets: [5.45], beats: Array.from({ length: 25 }, (_, index) => index * 0.25) };
   // A 0.03 s stop at 5.5 s, 0.05 s after the onset; the mix is heard to 5.6 s, the picture runs to 6.5 s.

@@ -17,7 +17,7 @@ import { join } from "node:path";
  */
 export const TEMP_FOLDER_PREFIXES = [
   // The server (makeTempFolder).
-  "kino-export-", "kino-frames-", "kino-mix-", "kino-batch-", "kino-batch-download-", "kino-download-",
+  "kino-export-", "kino-frames-", "kino-mix-", "kino-heard-", "kino-batch-", "kino-batch-download-", "kino-download-",
   "kino-remux-", "kino-sound-", "kino-speech-", "kino-preview-", "kino-working-copy-", "kino-footage-",
   // Tests and scripts (they remove their own; these are what a stopped run leaves).
   "kino-test-server-", "kino-dashboard-browser-", "kino-inspire-profile-", "kino-blur-chromium-",

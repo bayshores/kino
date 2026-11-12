@@ -51,7 +51,7 @@ export function momentaryOver(windows, from, to) {
  * loudest kept line ending within LINE_REACH s before the cue ({name, start, end, lufs, over}:
  * lufs its own reading over its part of those 2 s, over how far the second after sits above it).
  */
-export function cueRise(windows, { at, kind }, lines = []) {
+export function cueRise(windows, { at, kind }, lines = [], { song = null } = {}) {
   const before = momentaryOver(windows, at - CUE_SIDE, at);
   const after = momentaryOver(windows, at, at + CUE_SIDE);
   const rise = before !== null && after !== null ? r1(after - before) : null;
@@ -60,7 +60,41 @@ export function cueRise(windows, { at, kind }, lines = []) {
     .filter((line) => line.lufs !== null);
   const loudest = near.reduce((most, line) => (!most || line.lufs > most.lufs ? line : most), null);
   const line = loudest ? { ...loudest, over: after === null ? null : r1(after - loudest.lufs) } : null;
-  return { at, kind, before, after, rise, line };
+  // The loudest single 0.4 s reading wholly inside the second before: a rise that only comes from
+  // a dip in that second reads small against it.
+  const top = windows.filter((window) => Number.isFinite(window.m) && window.m > -70 && window.t + WINDOW - MOMENTARY >= at - CUE_SIDE - 1e-6 && window.t + WINDOW <= at + 1e-6)
+    .reduce((most, window) => (!most || window.m > most.m ? window : most), null);
+  const peak = top ? { end: r2(top.t + WINDOW), lufs: r1(top.m), over: after === null ? null : r1(after - top.m) } : null;
+  const dips = song ? songDips(song, at, lines).map((dip) => ({ ...dip, song: String(song.name ?? song.id).slice(0, 24) })) : [];
+  return { at, kind, before, after, rise, line, peak, dips };
+}
+
+/**
+ * The song's dips that reach into the second before a cue at `at`: [{ from, to, low, line? }] (scene
+ * s; low its lowest volume as a share of its loudest in the second after; line the kept line
+ * overlapping it most). A dip is where the song plays under half that loudest volume.
+ */
+export function songDips(layer, at, lines = []) {
+  let level = 0;
+  for (let time = at; time < at + CUE_SIDE - 1e-9; time += STEP) level = Math.max(level, volumeAt(layer, time));
+  if (!(level > SILENT)) return [];
+  const low = (time) => volumeAt(layer, time) < level / 2;
+  const dips = [];
+  for (let time = at - CUE_SIDE; time < at - 1e-9; time += STEP) {
+    if (!low(time) || dips.some((dip) => time <= dip.to + 1e-9)) continue;
+    // Walk out to the whole dip, up to 10 s each way.
+    let from = time, to = time;
+    while (from - STEP > Math.max(0, at - 10) && low(from - STEP)) from -= STEP;
+    while (to + STEP < at + 10 && low(to + STEP)) to += STEP;
+    to += STEP;
+    let least = Infinity;
+    for (let each = from; each < to - 1e-9; each += STEP) least = Math.min(least, volumeAt(layer, each));
+    // The line under the part of the dip inside the second before.
+    const overlap = (line) => Math.min(line.end, to, at) - Math.max(line.start, from, at - CUE_SIDE);
+    const under = lines.filter((line) => overlap(line) > 0).sort((a, b) => overlap(b) - overlap(a))[0];
+    dips.push({ from: r2(from), to: r2(to), low: r2(least / level), ...(under ? { line: { name: under.name, start: r2(under.start), end: r2(under.end) } } : {}) });
+  }
+  return dips;
 }
 
 /** The lines keep_line kept in `scene` ([{name, start, end}], scene s, each within its layer's Play range). */
@@ -161,7 +195,11 @@ const level = (value) => (value === null ? "silent" : `${value} LUFS`);
 /** One line per read cue: "drop at 7.5 s: the mix -12.1 LUFS in the 1 s before, -9.0 in the 1 s after (+3.1 LU); ...". */
 export function cueRiseText(rise) {
   const line = rise.line ? `; loudest kept line in the 2 s before: ${rise.line.name} ${r2(rise.line.start)}-${r2(rise.line.end)} s at ${rise.line.lufs} LUFS, the 1 s after sits ${rise.line.over === null ? "silent" : `${signed(rise.line.over)} LU`} over it` : "";
-  return `${rise.kind} at ${r2(rise.at)} s: the mix ${level(rise.before)} in the 1 s before, ${level(rise.after)} in the 1 s after${rise.rise === null ? "" : ` (${signed(rise.rise)} LU)`}${line}`;
+  // Printed when it sits over 1 LU above the energy mean before (a dip pulls that mean down).
+  const peak = rise.peak && rise.peak.over !== null && (rise.before === null || rise.peak.lufs - rise.before > 1) ? `; its loudest 0.4 s reading in the 1 s before: ${rise.peak.lufs} LUFS ending ${rise.peak.end} s, the 1 s after sits ${signed(rise.peak.over)} LU over it` : "";
+  const dips = (rise.dips ?? []).map((dip) => `${dip.song ?? "the song"}'s dip ${dip.from}-${dip.to} s (x${dip.low} of its level after${dip.line ? `, under ${dip.line.name} ${dip.line.start}-${dip.line.end} s` : ""})`);
+  const holds = dips.length ? `; the 1 s before holds ${dips.join(" and ")}` : "";
+  return `${rise.kind} at ${r2(rise.at)} s: the mix ${level(rise.before)} in the 1 s before, ${level(rise.after)} in the 1 s after${rise.rise === null ? "" : ` (${signed(rise.rise)} LU)`}${line}${peak}${holds}`;
 }
 
 /** The ending in words: "ending: song stops hard at 14.72 s (0.03 s), 0.02 s after its onset at 14.7 s; sound ends 14.75 s, picture runs 0.22 s past it". */

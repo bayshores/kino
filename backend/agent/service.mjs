@@ -9070,9 +9070,13 @@ export function createAgentService(deps) {
     // Read as a default render plays the mix ("auto"'s gain, then the limiter: a drop the limiter
     // holds down reads as the file will), else at loudness "off" before the limiter.
     const heard = mix.heard?.windows?.length ? mix.heard : null;
-    const gain = heard ? `${heard.gainDb >= 0 ? "+" : ""}${heard.gainDb} dB` : "";
-    const which = heard ? `the mix as a default render plays it: loudness "auto" ${gain}, then the limiter` : "the mix at loudness \"off\", before the limiter";
-    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept))} (momentary 0.4 s readings, energy mean; ${which})`);
+    const signedDb = (value) => `${value >= 0 ? "+" : ""}${value} dB`;
+    const fit = heard?.trials > 1 ? ` (fitted as a render fits it: ${heard.trials} trials from ${signedDb(heard.first)})` : "";
+    // The ceiling comes from trial encodes with the fallback AAC settings; the render's own encoder
+    // can land a few tenths away (dm5-a and dm5-b, measured against their files: within 1 LU).
+    const ceiling = Number.isFinite(heard?.ceiling) ? Math.round(heard.ceiling * 10) / 10 : LIMITER_CEILING_DB;
+    const which = heard ? `the mix as a default render plays it: loudness "auto" ${signedDb(heard.gainDb)}${fit}, then the limiter at ${ceiling} dBFS from trial encodes; the render's own encoder can move both a few tenths, its sound: line measures the file` : "the mix at loudness \"off\", before the limiter";
+    for (const cue of read) lines.push(`cue: ${cueRiseText(cueRise(heard?.windows ?? mix.windows, cue, kept, { song: layer }))} (momentary 0.4 s readings, energy mean; ${which})`);
     const ending = songEnding({ layer, duration: scene.duration, windows: mix.windows, grid, fileSeconds });
     if (ending) lines.push(endingText(name, ending));
     const line = kept.find((entry) => entry.name !== name) ?? null;
