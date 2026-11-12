@@ -192,7 +192,7 @@ test("the shots cover the music when there is a music layer, else the whole vide
   assertRefused(await editBoard("board-music", [motion(0, 6)], { music: "title" }), "bad_shot", 'music is an audio layer\'s name or code, or "none"; title is a text layer.');
   const saved = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.equal(saved.isError, undefined, saved.text);
-  assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it']);
+  assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it', "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal(saved.data.board, undefined, "no approval yet, so no board field in the answer");
   const { document } = await record("board-music");
   const songLayer = document.scenes[0].layers.find((layer) => layer.name === "song");
@@ -200,7 +200,7 @@ test("the shots cover the music when there is a music layer, else the whole vide
   assert.deepEqual(document.board.shots.map((shot) => [shot.id, shot.cue, shot.dur]), [["S1", 0, 2], ["S2", 2, 4]]);
   assert.deepEqual(document.board.shots[0].text, { text: "The dragon is back", family: "Inter", weight: 700, size: 96, y: 20, fill: "#ffffff" }, "kino's text defaults: 5% of 1920 px");
   const again = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
-  assert.deepEqual(again.data.notes, ["board r1: no change"]);
+  assert.deepEqual(again.data.notes, ["board r1: no change", "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal((await record("board-music")).document.board.rev, 1, "the same board keeps its rev");
 
   await project("board-whole");

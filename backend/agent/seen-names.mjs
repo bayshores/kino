@@ -164,7 +164,7 @@ const SEEN_AS = {
   // A sound in the clip that is not a line (keep_line {sound}, the clip readout's `sounds`).
   "scene sound": ["keep_line"], "scene sounds": ["keep_line"], "clip sounds": ["keep_line"], "keep the laugh": ["keep_line"], "keep laugh": ["keep_line"], "laugh in the clip": ["keep_line"], "sound in the clip": ["keep_line"], "non speech sound": ["keep_line"],
   // The board's pace beside the references and its cuts moved onto the song's beats (board {snap:"beats"}; topic beats).
-  "snap to beat": ["beats"], "snap cuts": ["beats"], "cuts on the beat": ["beats"], "cut pace": ["beats"], "pace after the drop": ["beats"], "shots per second": ["beats"],
+  "snap to beat": ["board"], "snap cuts": ["board"], "cuts on the beat": ["board"], "cut pace": ["board"], "pace after the drop": ["board"], "shots per second": ["board"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
