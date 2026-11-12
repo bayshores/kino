@@ -1992,7 +1992,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const name = footage.name || footage.id;
     if (footage.type !== "video") throw problem(`place {on} needs a video layer in of; ${name} is ${/^[aeiou]/.test(footage.type) ? "an" : "a"} ${footage.type} layer.`);
     const fonts = await fontsOf(document, work);
-    const time = operation.at !== undefined ? resolveAt(operation.at, timeLookup(document, scene, fonts, work)) : (entranceWindow(layers[0], fonts)?.[0] ?? 0);
+    // Default: the earliest entrance among the placed layers (0 when none has one).
+    const entrances = layers.map((layer) => entranceWindow(layer, fonts)?.[0]).filter((start) => Number.isFinite(start));
+    const time = operation.at !== undefined ? resolveAt(operation.at, timeLookup(document, scene, fonts, work)) : (entrances.length ? Math.min(...entrances) : 0);
     if (!(time >= 0 && time <= scene.duration)) throw problem(`at is ${round(time)} s, outside the scene (0 to ${round(scene.duration)} s).`);
     const sourceTime = mediaFrameState(footage, time).sourceTime;
     let size = null;
@@ -2003,7 +2005,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const t = round(time);
     // No face: the refusal names the mark call (its own example would place on a slot instead).
     if (!found)
-      throw Object.assign(problem(`No face on ${name} near file ${round(sourceTime)} s (no mark there${samples.length ? ", and kino found no face in the saved samples" : ", and no faces measured yet"}). Look at the frame (look {mode:"source", layer:"${name}", t:${t}}), mark the head: mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h], part:"face"} (or part:"${operation.on === "above-head" ? "face" : operation.on}" for the part itself), then place again.`), { noExample: true });
+      throw Object.assign(problem(`No face on ${name} near file ${round(sourceTime)} s (no mark there${samples.length ? ", and kino found no face in the saved samples" : ", and no faces measured yet: check measures them in camera footage, drawn faces are mostly missed"}). Look at the frame (look {mode:"source", layer:"${name}", t:${t}}), mark the head: mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h], part:"face"} (or part:"${operation.on === "above-head" ? "face" : operation.on}" for the part itself), then place again.`), { noExample: true });
     const { point, edge } = facePartPoint(found, operation.on, { offset: operation.offset });
     const spot = subjectOnScene(scene, footage, time, [point[0], point[1], 0, 0], size);
     const face = subjectOnScene(scene, footage, time, found.box, size);
@@ -2011,7 +2013,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const shares = found.how === "part" ? null : facePartPoint(found, operation.on, {}).point;
     const how = found.how === "part"
       ? `your ${operation.on === "between-eyes" ? "eyes" : operation.on} mark at file ${round(found.at)} s (exact)`
-      : `${found.how === "head" ? "your head mark" : "the face kino found"} at file ${round(found.at)} s, an estimate from the box${shares && operation.on !== "above-head" ? ` (${operation.on} at ${Math.round(((shares[1] - found.box[1]) / found.box[3]) * 100)}% of its height)` : ""}: look {mode:"frame", t:${t}} confirms it; offset:[x, y] (% of the face box) or mark_subject {part:"${operation.on === "above-head" ? "face" : operation.on}"} corrects it`;
+      : `${found.how === "head" ? "your head mark" : "the face kino found"} at file ${round(found.at)} s, an estimate from the box${shares && operation.on !== "above-head" ? ` (${operation.on} at ${Math.round(((shares[1] - found.box[1]) / found.box[3]) * 100)}% of its height)` : ""}: look {mode:"frame", t:${t}} confirms it; offset:[x, y] (% of the face box)${["face", "above-head"].includes(operation.on) ? "" : ` or mark_subject {part:"${operation.on}"}`} corrects it`;
     return { x: spot.x0, y: spot.y0, edge, time: t, faceWidth: Math.round(face.x1 - face.x0), line: `${{ "between-eyes": "between the eyes", "above-head": "above the head" }[operation.on] ?? `on the ${operation.on}`} of ${name} at ${t} s: ${how}` };
   }
 

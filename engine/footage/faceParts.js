@@ -10,15 +10,17 @@ export const FACE_PARTS = Object.freeze(["mouth", "eyes", "between-eyes", "face"
 
 // Each part's center as shares of a face box ([x, y], 0 at the box's left and top edge).
 // head: a box the agent marked around the head (framing.md: "a face: the head", hair to chin).
-//   mouth 0.81: measured on the type-on-feature study's drawn face (head box y 4.2% to 95.8% of the
-//   frame, the open mouth's center at 855 px of 1080: 0.82); a real head puts the mouth near 0.79
-//   (classical proportions, a guess), so 0.81 sits between them.
+//   mouth 0.82: measured on the type-on-feature study's drawn face (a head mark y 3% to 96% of the
+//   frame; the open mouth's outline runs 763 to 950 px of 1080, its center at 857 px: 0.82). 0.81
+//   put the line 12 px high, over the upper teeth (after-face-place frames). A real head (classical
+//   proportions: skull top to chin 3.5 units, lip line 2.83) puts the lip line at 0.81, and an open
+//   mouth's opening sits below the lip line, so 0.82 holds there too (a guess, not measured).
 //   eyes 0.43: a guess between that drawn face (0.39) and a real head (about 0.47, eyes at half
 //   the head's height less the hair).
 //   face 0.62: a guess, the middle of the face below the hair (between the eyes and the mouth).
 // detected: a Vision face rectangle, brow to chin and tighter than a head: all guesses, not measured.
 export const PART_SHARES = Object.freeze({
-  head: Object.freeze({ mouth: [0.5, 0.81], eyes: [0.5, 0.43], "between-eyes": [0.5, 0.43], face: [0.5, 0.62] }),
+  head: Object.freeze({ mouth: [0.5, 0.82], eyes: [0.5, 0.43], "between-eyes": [0.5, 0.43], face: [0.5, 0.62] }),
   detected: Object.freeze({ mouth: [0.5, 0.78], eyes: [0.5, 0.38], "between-eyes": [0.5, 0.38], face: [0.5, 0.55] }),
 });
 
@@ -45,8 +47,9 @@ const partOf = (entry) => String(entry?.part ?? "").trim().toLowerCase();
 export function pickFace({ marks = [], samples = [], sourceTime, on, size = null, reach = FACE_REACH }) {
   const near = (marks ?? []).filter((entry) => Array.isArray(entry?.box) && Math.abs(entry.at - sourceTime) <= reach + 1e-9)
     .sort((a, b) => Math.abs(a.at - sourceTime) - Math.abs(b.at - sourceTime));
+  // A "face" mark is the head (framing.md), so on:"face" places by the head shares, never at its center.
   const exact = near.find((entry) => partOf(entry) === on || (on === "between-eyes" && partOf(entry) === "eyes"));
-  if (exact && on !== "above-head") return { box: exact.box, how: "part", at: exact.at };
+  if (exact && on !== "above-head" && on !== "face") return { box: exact.box, how: "part", at: exact.at };
   const aspect = size?.width > 0 && size?.height > 0 ? size.height / size.width : 1;
   const head = near.find((entry) => {
     const part = partOf(entry);

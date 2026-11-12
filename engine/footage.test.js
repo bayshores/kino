@@ -138,6 +138,7 @@ test("face parts: a part mark is exact, a person-shaped mark is not a head, a me
   assert.deepEqual(facePartPoint(pickFace({ marks: [person, strip], samples, sourceTime: 1, on: "between-eyes", size }), "between-eyes").point, [50, 35]);
   assert.deepEqual(facePartPoint(pickFace({ marks: [], samples, sourceTime: 1, on: "above-head", size }), "above-head", { offset: [0, -10] }), { point: [50, 16], edge: "bottom" });
   assert.equal(pickFace({ marks: [person], samples, sourceTime: 3, on: "mouth", size }), null, "nothing within half a second");
+  assert.equal(pickFace({ marks: [{ at: 1, box: [30, 10, 40, 80], by: "agent", part: "face" }], sourceTime: 1, on: "face", size }).how, "head", "a face mark is the head, placed by shares");
 });
 
 test("compose footage: a face from subjects-v1 leads the crop, a saliency box only decides fill or card", () => {

@@ -220,10 +220,11 @@ test("place {on, of} centers a line on a face part: refused with the mark call w
   await create("face-place");
   await agent("face-place", "edit", { ops: [
     { op: "add_layer", layerType: "video", name: "face", properties: { src: "/api/media/00000000-0000-4000-8000-000000000000.mp4", x: 0, y: 0, width: 1920, height: 1080 } },
-    { op: "add_layer", layerType: "text", name: "shout", properties: { text: "GET AWAY!", x: 0, y: 0, width: 420, height: 100, fontSize: 80 } },
+    { op: "add_layer", layerType: "text", name: "shout", properties: { text: "GET AWAY!", x: 0, y: 0, width: 420, height: 100, fontSize: 80 }, animations: [{ preset: "preset-appear", start: 0.3, duration: 0.04 }] },
   ] });
   const center = (layer) => [layer.x + layer.width / 2, layer.y + layer.height / 2];
-  const none = await agent("face-place", "edit", { ops: [{ op: "place", layers: ["shout"], on: "mouth", of: "face", at: 0.3 }] });
+  // Without at, the moment is the layers' first entrance (0.3 s), named in the mark call.
+  const none = await agent("face-place", "edit", { ops: [{ op: "place", layers: ["shout"], on: "mouth", of: "face" }] });
   assert.equal(none.isError, true);
   assert.match(none.text, /mark_subject \{layer:\\"face\\", t:0\.3, box:\[x, y, w, h\], part:\\"face\\"\}/);
   assert.doesNotMatch(none.text, /"slot"/, "the retry does not place on a slot instead");
@@ -232,9 +233,9 @@ test("place {on, of} centers a line on a face part: refused with the mark call w
     { op: "place", layers: ["shout"], on: "mouth", of: "face", at: 0.3 },
   ] });
   assert.equal(head.isError, undefined, head.text);
-  assert.match(head.text, /an estimate from the box \(mouth at 81% of its height\)/);
+  assert.match(head.text, /an estimate from the box \(mouth at 82% of its height\)/);
   const [x, y] = center(findLayer(await saved("face-place"), "shout"));
-  assert.ok(Math.abs(x - 960) <= 1 && Math.abs(y - (0.05 + 0.81 * 0.9) * 1080) <= 1, `centered on the estimated mouth (${x}, ${y})`);
+  assert.ok(Math.abs(x - 960) <= 1 && Math.abs(y - (0.05 + 0.82 * 0.9) * 1080) <= 1, `centered on the estimated mouth (${x}, ${y})`);
   const exact = await agent("face-place", "edit", { ops: [
     { op: "mark_subject", layer: "face", t: 0.3, box: [10, 60, 20, 10], part: "mouth" },
     { op: "place", layers: ["shout"], on: "mouth", of: "face", at: 0.3 },
