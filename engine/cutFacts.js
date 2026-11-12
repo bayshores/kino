@@ -98,7 +98,7 @@ export function cutFacts({ cuts = [], levels = [], turn = null, seconds, big = B
  * before it and earlier than the shot's end; a cut with no such time stays. Shots keep their
  * order, media and in-points; dur follows the moved cuts. `fits(shot, dur)` (optional) says whether
  * a shot can last `dur`: a move that would give a shot a length it does not fit (it would run past
- * its clip file) is not made, and the cut stays. Returns { shots, moved: [{id, from, to}],
+ * its clip file) is not made, and the cut stays. A shot with drop:true keeps its cut. Returns { shots, moved: [{id, from, to}],
  * kept: [{id, at, to}] } (kept: the cuts that stayed for that reason, `to` the beat they would
  * have moved to).
  */
@@ -108,7 +108,8 @@ export function cutsOnBeats(shots, { turn, times, frame = 1 / 30, fits = null })
   const end = (shot) => shot.cue + shot.dur;
   for (let index = 1; index < out.length; index += 1) {
     const cut = out[index].cue;
-    if (cut < turn - frame) continue;
+    // A shot with drop:true is where the agent pinned the song's drop: its cut stays on the drop.
+    if (cut < turn - frame || out[index].drop === true) continue;
     const after = out[index - 1].cue, until = end(out[index]);
     const open = times.filter((time) => time > after + frame && time < until - frame);
     if (!open.length) continue;

@@ -1,7 +1,7 @@
 // The storyboard's pace beside the project's references (look board) and the song's measured beat
 // times after its turn (look board, and board {snap:"beats"}). Facts only: kino never moves a cut
 // unasked, and the same words print inside or outside the references' range.
-import { boardSpan, mainScene } from "../../engine/board.js";
+import { boardSpan, mainScene, pinnedDrop } from "../../engine/board.js";
 import { paceFacts, paceLine, beatLine } from "../../engine/cutFacts.js";
 import { songSections } from "../../engine/footage/pace.js";
 import { beatGrid, editBeats } from "../../engine/footage/cuts.js";
@@ -97,13 +97,17 @@ function boardCueShows(board, song, span, { nameOf = (src) => src, tagsOf = () =
 }
 
 /**
- * The board's story cues (storyCues): its first payoff shot by shotRoles (the spine's payoff beat
- * when the brief has one, else the last shot) and its longest footage shot. Only on a board with
+ * The board's story cues (storyCues): its payoff shot (a shot with drop:true, else the first payoff
+ * shot by shotRoles: the spine's payoff beat when the brief has one, else the last shot) and its
+ * longest footage shot. Only on a board with
  * footage: a title-only board has no file to repeat.
  */
 export function boardStoryCues(board, { nameOf = (src) => src, spine = null, start = 0 } = {}) {
   const shots = board?.shots ?? [];
   if (!shots.some((shot) => typeof shot.media === "string" && shot.media !== "none")) return [];
+  // A shot with drop:true is the payoff the agent pinned (fit_music takes its cue): named as such.
+  const pin = pinnedDrop(board);
+  if (pin) return storyCues({ shots, payoffAt: pin.shot.cue, start, payoffKind: `payoff (shot ${pin.number}, drop:true)` });
   const names = Object.fromEntries(shots.map((shot) => [shot.media, nameOf(shot.media)]));
   const roles = shotRoles(shots, names, spine);
   const payoff = shots[roles.indexOf("payoff")];

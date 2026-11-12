@@ -174,6 +174,9 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   assert.equal((await editBoard("pace", [motion(0, 1.5), motion(1.5, 1.5, { drop: true }), motion(3, 1.2), motion(4.2, 1.8)], { music: "song" })).isError, undefined);
   // bars:null: kept as measured with the beats (no fresh measure of the tone).
   await writeFile(`${file}.song`, JSON.stringify({ ...JSON.parse(shape), bars: null }));
+  // A spine whose turn (3 s) and payoff (4.2 s) come after the pinned cut: the pin wins, and the turn is not refused for it.
+  const spine = [{ role: "hook", from: 0, to: 3, purpose: "open" }, { role: "turn", from: 3, to: 4.2, purpose: "turn" }, { role: "payoff", from: 4.2, to: 6, purpose: "land" }];
+  await agent("notes", { project: "pace", action: "brief", fields: { style: { spine, by: "guessed" } } });
   const fit = await agent("edit", { project: "pace", ops: [{ op: "fit_music", layer: "song" }] });
   assert.equal(fit.isError, undefined, fit.text);
   assert.match(fit.text, /1\.5 s \(the cut of board shot 2 \(drop:true\)\)/);
@@ -211,6 +214,9 @@ test("the payoff's cue line reads the scene's song when the board names none, an
     "one take fills 63% of the edit: a.mp4 (5 s)"]);
   // Without a spine the payoff is the last shot, and the line says so.
   assert.match(boardCueLines(boardPaceFacts({ document, shape, media: { nameOf }, music }))[1], /^on the last shot at 6\.00 s: shot 3/);
+  // A shot with drop:true is the payoff the agent pinned, ahead of the spine's beat: its line joins the song's drop.
+  const pinned = { ...document, board: { ...board, shots: board.shots.map((entry) => (entry.id === "S2" ? { ...entry, drop: true } : entry)) } };
+  assert.deepEqual(boardCueLines(boardPaceFacts({ document: pinned, shape, media: { nameOf }, music, spine })).slice(0, 2), ["on the drop and payoff (shot 2, drop:true) at 3.00 s: shot 2 (b.mp4) new", "one take fills 63% of the edit: a.mp4 (5 s)"]);
   // check: a clip inside a group whose play range starts at 6 s, and a picture shown again on the payoff.
   const story = boardStoryCues(board, { spine });
   const checked = (layers) => {

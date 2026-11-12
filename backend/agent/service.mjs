@@ -2020,7 +2020,8 @@ export function createAgentService(deps) {
     const spine = (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine;
     const beatOf = (role) => (Array.isArray(spine) ? spine.find((beat) => beat?.role === role)?.from : undefined);
     if (operation.payoff === undefined && typeof beatOf("payoff") === "number") operation.payoff = beatOf("payoff");
-    if (operation.turn === undefined && typeof beatOf("turn") === "number") operation.turn = beatOf("turn");
+    // The spine's turn only before the payoff: a pinned drop earlier than the spine's turn is not refused for it.
+    if (operation.turn === undefined && typeof beatOf("turn") === "number" && !(pin && beatOf("turn") >= operation.payoff)) operation.turn = beatOf("turn");
     const context = await operationContext(document, [operation]);
     if (work.reports) context.reports = work.reports;
     return parseDocument(applyOperations(document, [operation], context));
