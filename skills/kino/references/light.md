@@ -28,9 +28,10 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
   `spread` 20; `edge:"outside"` is a ring outline alone, `style:"lobes"` uneven electric lobes.
   `smooth` rounds a video matte's stair steps (auto: 4 px on video and image, 0 on text);
   `core` 0.3 mixes the line toward white (0 for a flat color line).
-- `edge-lines` draws line art of a layer's picture: a line (`color`, `width` 2) wherever the
-  brightness jumps, nothing on flat parts. `threshold` 0.1 (lower finds fainter edges), `smooth` 1,
-  `background:"keep"` shows the picture dimmed by `dim` 0.6 under the lines. One subject's edge as a
+- `edge-lines` draws line art of a layer's picture: a line (`color`, `width` 3) wherever the
+  brightness jumps. `threshold` 0.05 (lower finds fainter edges), `smooth` 1; the picture stays
+  under, dimmed by `dim` 0.7 (no grade needed; a dark one before it hides the edges);
+  `background:"transparent"` draws the lines alone. One subject's edge as a
   vector path to stroke, neon or draw on: `cut_out` with `output:"outline"` (`color`, `width`, `step`,
   `detail`), a path layer that follows the subject frame by frame.
 - `light-rays` streaks light out from `centerX`/`centerY` (fractions of the layer's box).

@@ -14,12 +14,19 @@
 // 5. Width: the lines grown by (width - 1) / 2 px.
 // 6. Color: `color` shaped by those lines, only where the layer has pixels (a cut-out subject
 //    gets lines on itself, not in the empty frame around it).
-// 7. Background: "transparent" is the lines alone; "keep" lays them over the picture, which
-//    `dim` darkens first (0 leaves it as it is, 1 is black) so the lines read.
+// 7. Background: "keep" (default) lays the lines over the picture, which `dim` darkens first
+//    (0 leaves it as it is, 1 is black) so the lines read: one call on a clip gives the study's
+//    dark figure with line art, with no separate grade (a dark grade before this effect hides
+//    the edges from step 3). "transparent" is the lines alone, over whatever is under the layer.
 //
 // Defaults come from the glow-outline study (.scratch/studies/glow-outline, interior line art
-// 2 to 4 px thick, lines in one color on a dark figure): width 2 and dim 0.6 under "keep" are
-// from that; threshold 0.1, smooth 1 and the ramp are guesses tuned on a 1080p face clip.
+// about 4 px thick at 1920 in the reference, lines in one color on a dark figure). The first
+// defaults (width 2, threshold 0.1) found only the face's outer contour on the study's dark
+// 1080p frame, about 1 px and faint; a skeptic re-run of width 3 with threshold 0.04, 0.05 and
+// 0.06 (after-edge-lines-skeptic) picked width 3, threshold 0.05: brows, eyes, mouth, ears and
+// scarf folds as single lines at about the reference's weight, little speckle. dim 0.7 sits
+// between the study's -3 stop grade (0.875) and a picture that still reads (a guess); smooth 1
+// and the ramp are guesses.
 import { filterEffect } from "./svg.js";
 import { numberParameter } from "./periodicDisplacement.js";
 import { hexColor } from "./glow.js";
@@ -32,11 +39,11 @@ const fmt = (value) => {
 };
 
 export function renderEdgeLines(frame) {
-  const width = numberParameter(frame, "width", 2, 0.5, 12);
-  const threshold = numberParameter(frame, "threshold", 0.1, 0, 1);
+  const width = numberParameter(frame, "width", 3, 0.5, 12);
+  const threshold = numberParameter(frame, "threshold", 0.05, 0, 1);
   const smooth = numberParameter(frame, "smooth", 1, 0, 8);
-  const dim = numberParameter(frame, "dim", 0.6, 0, 1);
-  const background = EDGE_LINES_BACKGROUNDS.includes(frame?.parameters?.background) ? frame.parameters.background : "transparent";
+  const dim = numberParameter(frame, "dim", 0.7, 0, 1);
+  const background = EDGE_LINES_BACKGROUNDS.includes(frame?.parameters?.background) ? frame.parameters.background : "keep";
   const rgb = hexColor(frame, "color", "#FFFFFF");
   // 1. Gray picture with whole alpha.
   const steps = [`<feColorMatrix in="SourceGraphic" type="matrix" values="0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0.2126 0.7152 0.0722 0 0 0 0 0 0 1" result="edgeGray"/>`];
@@ -66,10 +73,18 @@ export function renderEdgeLines(frame) {
     lines = "edgeWide";
   }
   steps.push(`<feGaussianBlur in="${lines}" stdDeviation="0.5" result="edgeSoft"/>`);
-  // 6. Color, kept on the layer's own pixels.
+  // 6. Color, kept on the layer's own pixels. On a video or image the box edge is the picture's
+  // rectangle, not a contour: the shifted copies and the blur meet the empty padding there and
+  // drew a false line along the top and left (glow-outline proof frame), so a strip of
+  // 3 x smooth + 2 px along the box is left out. Shapes and text keep their box edge.
+  const box = frame.bounds;
+  const inset = Math.ceil(3 * smooth) + 2;
+  const picture = ["video", "image"].includes(frame?.helpers?.layerType) && box.width > 2 * inset && box.height > 2 * inset;
   steps.push(`<feFlood flood-color="rgb(${rgb.join(",")})" result="edgeColor"/>`,
-    `<feComposite in="edgeColor" in2="edgeSoft" operator="in" result="edgeColored"/>`,
-    `<feComposite in="edgeColored" in2="SourceAlpha" operator="in" result="edgePaint"/>`);
+    `<feComposite in="edgeColor" in2="edgeSoft" operator="in" result="edgeColored"/>`);
+  if (picture) steps.push(`<feFlood flood-color="#fff" x="${fmt(box.x + inset)}" y="${fmt(box.y + inset)}" width="${fmt(box.width - 2 * inset)}" height="${fmt(box.height - 2 * inset)}" result="edgeInner"/>`,
+    `<feComposite in="edgeColored" in2="edgeInner" operator="in" result="edgeInside"/>`);
+  steps.push(`<feComposite in="${picture ? "edgeInside" : "edgeColored"}" in2="SourceAlpha" operator="in" result="edgePaint"/>`);
   // 7. Background.
   if (background === "keep") {
     const keep = 1 - dim;

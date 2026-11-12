@@ -656,8 +656,9 @@ How to read it:
   ring outline, no rim on the frame border, auto color); glow `mode:"behind"` keeps the fill color.
   Evidence: `engine/effects/light.test.js`. Gap: one color per effect (a pale core needs a second one).
 - **Edge lines and subject outline path**: Test-verified. `edge-lines` draws line art on a layer's
-  contours (nothing on flat parts, optional dimmed picture); `cut_out` `output:"outline"` makes a
-  path layer morphing through the subject's traced edge. Evidence: `engine/effects/light.test.js`,
+  contours (nothing on flat parts or a picture's border, the picture kept dimmed by default);
+  `cut_out` `output:"outline"` makes a path layer morphing through the subject's traced edge (no
+  line where the frame cuts the subject). Evidence: `engine/effects/light.test.js`,
   `backend/cutout-matte.test.mjs`, `backend/agent-cutout.test.mjs`. Gap: largest shape only (no holes).
 - **Cost**: 26 to 201 ms a 1080p MP4 frame.
 - **Lens flare streak, ghosts, softness**: Verified. One soft full-width line, no ghosts; ghosts 0

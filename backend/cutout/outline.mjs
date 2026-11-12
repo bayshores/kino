@@ -72,7 +72,15 @@ export function traceOutline(matte, width, height, { level = OUTLINE_DEFAULTS.le
     const area = Math.abs(loop.reduce((sum, [x, y], index) => { const [nx, ny] = loop[(index + 1) % loop.length]; return sum + x * ny - nx * y; }, 0) / 2);
     if (loop.length >= 3 && area > bestArea) { best = loop; bestArea = area; }
   }
-  return best ? simplifyLoop(best, points) : null;
+  if (!best) return null;
+  // Where the subject is cut by the frame, the loop closes along the picture's border, and a
+  // stroke there drew a line along the bottom of the frame (glow-outline proof frame). Those
+  // points move off the picture by `margin`, so the loop still closes (and morphs) but its border
+  // run, with a line and a glow on it, is out of sight. 6% of the longer side (38 px of a 640 px
+  // matte, about 115 px at 1920) is a guess past a 4 px line and a 40 px glow.
+  const margin = Math.max(4, Math.round(0.06 * Math.max(width, height)));
+  const off = (value, last) => (value < 0 ? -margin : value > last ? last + margin : value);
+  return simplifyLoop(best.map(([x, y]) => [off(x, width - 1), off(y, height - 1)]), points);
 }
 
 function distanceToSegment([px, py], [ax, ay], [bx, by]) {

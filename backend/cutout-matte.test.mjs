@@ -214,8 +214,9 @@ test("the outline tracer follows a disc's edge, keeps the biggest shape and fits
   // Every point lies on the disc's edge (matte pixel indexes: pixel i has its centre at i + 0.5).
   for (const [x, y] of loop) assert.ok(Math.abs(Math.hypot(x + 0.5 - centre.cx, y + 0.5 - centre.cy) - centre.r) < 1, `${x},${y}`);
   assert.equal(traceOutline(new Uint8Array(width * height), width, height), null, "an empty matte has no outline");
-  // A subject cut by the frame follows the frame's border, so the loop still closes.
+  // A subject cut by the frame still closes its loop, but the run along the border lies off the picture.
   const cut = traceOutline(disc(width, height, { cx: 4, cy: 30, r: 18 }), width, height, { points: 48 });
-  assert.ok(cut.some(([x]) => x < 0), "the path runs along the picture's left edge");
+  assert.ok(cut.some(([x]) => x < 0), "the loop closes past the picture's left edge");
+  for (const [x] of cut) assert.ok(x >= 0 || x <= -4, `no point on the border itself: x ${x}`);
   assert.match(outlinePathData([[0, 0], [10, 0], [10, 5]], 2, 2), /^M1 1 L21 1 L21 11 Z$/);
 });

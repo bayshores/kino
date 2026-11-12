@@ -168,11 +168,11 @@ const definitions = [
   { key: "edge-lines", label: "Edge Lines", group: "Post FX", kind: "ranged", render: renderEdgeLines,
     parameters: {
       color: color("Color", "#FFFFFF"),
-      width: number("Width", 2, 0.5, 12, 0.5, "px"),
-      threshold: number("Threshold", 0.1, 0, 1, 0.01),
-      background: { type: "enum", label: "Background", default: "transparent", options: EDGE_LINES_BACKGROUNDS.map((value) => [value, value[0].toUpperCase() + value.slice(1)]) },
+      width: number("Width", 3, 0.5, 12, 0.5, "px"),
+      threshold: number("Threshold", 0.05, 0, 1, 0.01),
+      background: { type: "enum", label: "Background", default: "keep", options: EDGE_LINES_BACKGROUNDS.map((value) => [value, value[0].toUpperCase() + value.slice(1)]) },
       smooth: number("Smooth", 1, 0, 8, 0.1, "px"),
-      dim: number("Dim", 0.6, 0, 1, 0.01),
+      dim: number("Dim", 0.7, 0, 1, 0.01),
     } },
   // Film grain and vignette (finish.js).
   ...FINISH_EFFECTS,
