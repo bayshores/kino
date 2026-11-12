@@ -618,6 +618,12 @@ How to read it:
   `backend/scene-background-export.test.mjs`; a search for letterbox, black bars, vignette or film
   grain names the field (`backend/agent-inspire.test.mjs`). Gap: halation is a blurred highlight screen, not true
   scatter; the starting values are guesses; saved references do not measure bars or grain.
+- **Finish soften and haze** (`finish {soften, haze}`): Test-verified. Diffusion and a warm veil, off
+  unless set; `finish:true` adds soften 0.5 (edge softness measured against reference stills).
+  Evidence: `engine/effects/finish.test.js`. Gap: haze values are guesses, not yet measured.
+- **Overexpose** (`move overexpose {layer, at, into?}`, color-grade `shoulder`): Test-verified. Exposure
+  rises and settles with a highlight roll-off and bloom; `into` cuts on the peak. Evidence:
+  `engine/moves.test.js`. Gap: a shot already graded to white stays white at the peak.
 - **Color recipes**: Verified. `library {topic:"rules", name:"color"}`. Evidence:
   `backend/agent-color.test.mjs`. Gap: no adjustment layer (grade a group).
 - **Shot color match** (`match_color`): Verified on synthetic frames and two tinted FFmpeg clips.

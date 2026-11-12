@@ -101,7 +101,7 @@ test("glow: color tints the glow, deep passes reach further, and on a transparen
   assert.ok(alpha > 40 && alpha < 255, `the glow is see-through over nothing: alpha ${alpha}`);
 });
 
-test("glow mode behind: an orange square keeps its orange and gets an orange halo", async () => {
+test("glow mode behind: an orange square keeps its orange and gets an orange halo; spill keeps a dark line inside a bright area", async () => {
   const size = 120;
   const behind = await draw(renderGlow, { ...effectDefaults("glow"), radius: 8, mode: "behind" }, { width: size, height: size, under: BLACK(size, size), content: SQUARE("#FF8000") });
   assert.deepEqual(behind.pixel(60, 60).slice(0, 3), [255, 128, 0], "the fill keeps its color");
@@ -109,6 +109,12 @@ test("glow mode behind: an orange square keeps its orange and gets an orange hal
   assert.ok(r > 40 && g > 10 && g < r * 0.7 && b === 0, `the halo is orange: ${[r, g, b]}`);
   const added = await draw(renderGlow, { ...effectDefaults("glow"), radius: 8, threshold: 0 }, { width: size, height: size, content: BLACK(size, size) + SQUARE("#FF8000") });
   assert.ok(added.pixel(60, 60)[1] > 150, `add mode lifts the fill toward yellow: ${added.pixel(60, 60)}`);
+  // spill: the same halo on the dark round a bright square, but a dark line inside it stays dark.
+  const lined = BLACK(size, size) + SQUARE("#FFF") + `<rect x="59" y="50" width="2" height="20" fill="#404040"/>`;
+  const glows = await Promise.all(["add", "spill"].map((mode) => draw(renderGlow, { ...effectDefaults("glow"), strength: 0.5, radius: 8, mode }, { width: size, height: size, content: lined })));
+  const [add, spill] = glows.map((glow) => [glow.pixel(59, 60)[0], glow.pixel(73, 60)[0]]);
+  assert.ok(Math.abs(spill[1] - add[1]) <= 3 && spill[1] > 20, `the same halo outside (${spill[1]} and ${add[1]})`);
+  assert.ok(spill[0] < add[0] - 20, `the line inside stays darker with spill (${spill[0]} against ${add[0]})`);
 });
 
 test("rim light: a band on the lit side, a ring alone outside, and no rim along the frame border", async () => {

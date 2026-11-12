@@ -116,6 +116,10 @@ export function renderGlow(frame) {
   // orange) and is drawn under it, so the fill keeps its own color instead of washing toward
   // white. Outside the layer's shape it adds the same light as "add".
   const behind = frame?.parameters?.mode === "behind";
+  // Mode "spill": the halo is blended with lighten, so each pixel moves toward the halo's color
+  // only where the halo is brighter (out = layer + strength x halo alpha x max(halo - layer, 0)).
+  // Dark line work inside a bright area stays dark; the light spills onto the dark round it.
+  const spill = frame?.parameters?.mode === "spill";
   const steps = brightPassSteps({ threshold: behind ? 0 : threshold, softness: behind ? 0 : softness, rgb, colorMix, result: "glowSource", prefix: "glow" });
   const radii = radius > 0 ? glowRadii(radius, passes) : [0];
   // With several passes, strength goes into each pass's weight, so the sum is rounded to 8 bits
@@ -139,6 +143,9 @@ export function renderGlow(frame) {
   if (behind) {
     steps.push(`<feComposite in="glowSum" in2="glowSum" operator="arithmetic" k1="0" k2="${fmt(several ? 1 : strength)}" k3="0" k4="0" result="glowHalo"/>`,
       `<feMerge><feMergeNode in="glowHalo"/><feMergeNode in="SourceGraphic"/></feMerge>`);
+  } else if (spill) {
+    steps.push(`<feComposite in="glowSum" in2="glowSum" operator="arithmetic" k1="0" k2="${fmt(several ? 1 : strength)}" k3="0" k4="0" result="glowHalo"/>`,
+      `<feBlend in="glowHalo" in2="SourceGraphic" mode="lighten"/>`);
   } else {
     steps.push(`<feComposite in="SourceGraphic" in2="glowSum" operator="arithmetic" k1="0" k2="1" k3="${fmt(several ? 1 : strength)}" k4="0"/>`);
   }

@@ -147,3 +147,21 @@ test("finish lifts blacks, darkens corners, adds grain, draws bars; text can sit
   assert.deepEqual(sceneFinishLayers(createScene({ width: SW, height: SH, letterbox: 2.35, finish: { grain: 0.1 } })).map((layer) => layer.name),
     ["Finish grain", "Finish bar-top", "Finish bar-bottom"], "grain under the bars");
 });
+
+test("soften spreads a thin light line over the dark beside it and keeps dark areas deep; haze lifts beside highlights; both off unless set", () => {
+  const dark = createLayer("rectangle", { id: "dark", x: 0, y: 0, width: 320, height: 180, fill: "#202020" });
+  const line = createLayer("rectangle", { id: "line", x: 80, y: 0, width: 2, height: 180, fill: "#E0E0E0" });
+  const light = createLayer("rectangle", { id: "light", x: 200, y: 0, width: 120, height: 180, fill: "#E0E0E0" });
+  const ink = createLayer("rectangle", { id: "ink", x: 260, y: 0, width: 2, height: 180, fill: "#202020" });
+  const plain = sceneFrame({}, [dark, line, light, ink], {}, [320, 180]);
+  const soft = sceneFrame({ finish: { soften: 0.5 } }, [dark, line, light, ink], {}, [320, 180]);
+  assert.equal(plain.pixel(83, 90)[0], 32);
+  assert.ok(soft.pixel(83, 90)[0] > 36, `the line glows onto the dark beside it (${soft.pixel(83, 90)})`);
+  assert.ok(soft.pixel(260, 90)[0] > 60, `a thin dark line on light softens (${soft.pixel(260, 90)})`);
+  assert.equal(soft.pixel(30, 90)[0], 32, "a large dark area stays as deep");
+  const hazy = sceneFrame({ finish: { haze: 1 } }, [dark, line, light], {}, [320, 180]);
+  assert.ok(hazy.pixel(190, 90)[0] > plain.pixel(190, 90)[0] + 8 && hazy.pixel(190, 90)[0] > hazy.pixel(190, 90)[2], `a warm veil beside the highlight (${hazy.pixel(190, 90)})`);
+  assert.ok(hazy.pixel(30, 90)[0] - 32 < hazy.pixel(190, 90)[0] - 32, "strongest near the highlights");
+  assert.ok(FINISH_START.soften > 0 && FINISH_START.haze === undefined, "finish true softens a little and has no haze");
+  assert.deepEqual(sceneFinishLayers(createScene({ width: SW, height: SH, finish: { grain: 0.1 } })).map((layer) => layer.name), ["Finish grain"], "a finish without them has neither");
+});

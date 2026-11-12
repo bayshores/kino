@@ -13,8 +13,8 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   groups (a layer alone in a group, as frame makes, means the group).
 - `library {topic:"moves", name?}` lists the moves, or one's fields, defaults and example.
 - The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
-  animates (`<id>.<role>-<name>`). Its id is the move's name (`-2` for a second).
-- The same id remakes it; `{name, id, remove:true}` takes it away. Never edit its parts (a remake redoes them).
+  animates. Its id is the move's name (`-2` for a second).
+- The same id remakes it; `{name, id, remove:true}` takes it away. Never edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 
@@ -91,6 +91,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
   random shake that dies down (`strength`, `frequency`, `decay`), `at` a cue in a music edit.
   Both refuse a layer moving its own place or size meanwhile.
+- **overexpose**: a soft wash out and back, faces kept; `into` cuts on the peak.
 
 Launch-video type (words arrive faint, then darken):
 

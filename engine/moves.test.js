@@ -31,6 +31,8 @@ import { groupLayers } from "./grouping.js";
 import { compactRecording } from "./recording.js";
 import { worldMatrix, point } from "./geometry.js";
 import { mediaFrameState } from "./playback.js";
+import { exposureTable } from "./effects/colorUtility.js";
+import { visibleByOperations } from "./visibilityOps.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -215,6 +217,30 @@ test("punch-in snaps closer about its point and is refused over the layer's own 
   assert.deepEqual(await reasons(2), [], "no effect_fit or speed_jump finding on the cue");
   const off = await reasons(3.5);
   assert.ok(off.length > 0 && off.every((reason) => reason === "untriggered"), `off the cue, check still asks for one (${off})`);
+});
+
+test("overexpose burns the shot out with a roll-off, cuts to into on the peak and settles it; the shoulder keeps light tones apart", () => {
+  const scene = sceneFor(1920, 1080);
+  const run = (fields, reduced = false) => runMove(MOVES.overexpose, { id: "overexpose", input: readMoveInput(MOVES.overexpose, fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, dur: null, media, reduced });
+  const pick = (made, layerId) => made.animations.filter((entry) => entry.layerId === layerId).map(({ animation }) => animation);
+  const hand = run({ layer: "shot-a", into: "shot-b" });
+  const [up] = pick(hand, "shot-a").filter((animation) => animation.effect === "color-grade");
+  const [down] = pick(hand, "shot-b").filter((animation) => animation.effect === "color-grade");
+  assert.deepEqual([up.start, up.duration, up.to.stops, up.to.shoulder], [1, 0.2, 2, 1], "rises 2 stops with a shoulder to the peak in the middle of 0.4 s");
+  assert.deepEqual([down.start, down.from.stops, down.to.stops, round3(down.start + down.duration)], [1.2, 2, 0, 1.4], "the next shot settles from the peak");
+  assert.ok(pick(hand, "shot-b").some((animation) => animation.effect === "glow"), "with a bloom");
+  assert.ok(!visibleByOperations(pick(hand, "shot-b"), 1.1) && visibleByOperations(pick(hand, "shot-b"), 1.2), "into appears on the peak");
+  assert.ok(!visibleByOperations(pick(hand, "shot-a"), 1.25), "the first shot is gone after it");
+  const alone = run({ layer: "shot-a" });
+  assert.equal(pick(alone, "shot-a").find((animation) => animation.name === "Overexpose settles").start, 1.12, "alone: peak at 30%, then it settles back");
+  assert.equal(pick(run({ layer: "shot-a" }, true), "shot-a")[0].to.stops, 1, "reduced motion: half as strong");
+  assert.throws(() => run({ layer: "shot-a", into: "shot-a" }), /into is the shot after layer/);
+  // At 3 stops a light skin tone (0.7) and a white (0.95) both clip to 255 without a shoulder; with 0.8 they stay apart.
+  const at = (table, value) => Number(table.split(" ")[Math.round(value * 255)]);
+  assert.deepEqual([at(exposureTable(8), 0.7), at(exposureTable(8), 0.95)], [1, 1]);
+  const soft = exposureTable(8, 256, 0.8);
+  assert.ok(at(soft, 0.95) - at(soft, 0.7) > 0.015 && at(soft, 0.95) < 0.99, `the shoulder keeps them apart (${at(soft, 0.7)}, ${at(soft, 0.95)})`);
+  assert.equal(exposureTable(2, 256, 0), exposureTable(2), "shoulder 0 is the old hard clip");
 });
 
 test("freeze-shutter stops the clip on the beat, blinks once and plays again; masked-type fills a word with the clip or stands it behind the subject", () => {

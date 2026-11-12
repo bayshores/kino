@@ -28,8 +28,9 @@ export const LIGHT_EFFECTS = [
       passes: number("Passes", 1, 1, MAX_GLOW_PASSES, 1, "", { integer: true }),
       ...brightParts(),
       // "behind": a halo under the layer from its whole shape, so the fill keeps its own color.
-      // Optional, so glows saved before it stay the same.
-      mode: { ...choice("Mode", "add", [["add", "Add"], ["behind", "Behind"]]), optional: true },
+      // "spill": the halo only lightens what is darker than it, so light spills onto the dark
+      // round a bright area while the lines inside it stay. Optional, so glows saved before stay the same.
+      mode: { ...choice("Mode", "add", [["add", "Add"], ["behind", "Behind"], ["spill", "Spill"]]), optional: true },
     } },
   { key: "light-rays", label: "Light Rays", group: "Light", kind: "ranged", render: renderLightRays,
     parameters: {

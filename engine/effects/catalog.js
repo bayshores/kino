@@ -199,6 +199,8 @@ const definitions = [
       // Stops: exposure in linear light (1 is one stop brighter). Brightness multiplies sRGB. exposure
       // is the old sRGB multiplier, stored only when given, so grades saved before stops draw the same.
       stops: number("Exposure", 0, -5, 5, 0.05, "stops"),
+      // Highlight roll-off for stops: 0 clips hard (as before it existed), 1 bends from 54% sRGB (colorUtility.js rollOff).
+      shoulder: number("Shoulder", 0, 0, 1, 0.01, "", { optional: true }),
       exposure: number("Gain", 1, 0, 4, 0.05, "x", { optional: true }), brightness: number("Brightness", 1, 0, 4, 0.05),
       contrast: number("Contrast", 1, 0, 4, 0.05), saturation: number("Saturation", 1, 0, 4, 0.05),
     } },

@@ -46,7 +46,8 @@ Off until set; one call each, no hand-built bar or vignette rectangles.
 - `finish {grain, blackLift, halation, vignette}`: each 0 to 1. Grain moves (the `grain` effect's
   amount: 0.15 is fine texture, 0.35 heavy film), blackLift raises the
   blacks to a soft gray, halation is a warm glow round bright spots, vignette darkens the corners.
-  `finish:true` is a mild start (0.15, 0.04, 0.2, 0.3); it is a guess, so look and tune. `false`
+  `soften` is diffusion (edges glow, fine lines soften, still in focus); `haze` a warm lifted veil.
+  `finish:true` is a mild start (0.15, 0.04, 0.2, 0.3, soften 0.5, no haze); look and tune. `false`
   removes it.
 - `letterbox`: a width : height ratio (2.35 is the wide cinema shape, 1.2 to 6), black bars top and
   bottom, each (height - width / ratio) / 2 tall. `false` removes it.
