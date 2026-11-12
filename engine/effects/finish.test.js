@@ -6,6 +6,10 @@ import { Resvg } from "@resvg/resvg-js";
 import { effectDefaults, effectDefinition, normalizeEffectParameters } from "./catalog.js";
 import { grainPlacement, vignetteShade } from "./finish.js";
 import { libraryCatalog } from "../../backend/agent/library-catalog.mjs";
+import { createDocument, createLayer, createScene, parseDocument } from "../model.js";
+import { renderSceneSvg } from "../render.js";
+import { FINISH_START, letterboxBar, normalizeLetterbox, normalizeSceneFinish } from "../sceneFinishFields.js";
+import { sceneFinishLayers, withSceneFinish } from "../sceneFinish.js";
 
 const W = 64, H = 40;
 // Dark, middle and light bands, with a see-through strip at the bottom.
@@ -87,4 +91,59 @@ test("vignette: clear in the middle, darkest at the corners, in its color, only 
   assert.ok(luma(white, 1, 1) > 240);
   const holed = draw("vignette", { amount: 1 }).pixels;
   assert.equal(at(holed, 1, 38)[3], 0, "the see-through corner stays see-through");
+});
+
+// Scene finish and letterbox (engine/sceneFinish.js): drawn above every layer of the scene.
+const SW = 160, SH = 90;
+const throwing = (path, message) => { throw new Error(`${path} ${message}`); };
+function sceneFrame(fields, layers = [], options = {}, [width, height] = [SW, SH]) {
+  const scene = createScene({ id: "s", width, height, duration: 1, background: "#808080", layers, ...fields });
+  const svg = renderSceneSvg(scene, 0.2, { raster: true, ...options });
+  const image = new Resvg(svg).render();
+  return { svg, pixel: (x, y) => [...image.pixels.subarray((y * image.width + x) * 4, (y * image.width + x) * 4 + 3)] };
+}
+
+test("finish and letterbox fields: plain forms, limits, true is the documented starting point", () => {
+  assert.deepEqual(normalizeSceneFinish(true, "finish", throwing), FINISH_START);
+  assert.deepEqual(normalizeSceneFinish({ grain: 0.2, vignette: 0 }, "finish", throwing), { grain: 0.2 });
+  for (const off of [false, null, undefined, {}]) assert.equal(normalizeSceneFinish(off, "finish", throwing), undefined);
+  assert.throws(() => normalizeSceneFinish({ grain: 2 }, "finish", throwing), /finish.grain must be a number from 0 to 1/);
+  assert.throws(() => normalizeSceneFinish({ glow: 0.5 }, "finish", throwing), /not a finish part; use grain, blackLift, halation, vignette/);
+  assert.equal(normalizeLetterbox(2.35, "letterbox", throwing), 2.35);
+  assert.throws(() => normalizeLetterbox(0.5, "letterbox", throwing), /from 1.2 to 6/);
+  assert.equal(letterboxBar(1920, 1080, 2.35), 131.49, "2.35 on 16:9 takes 12% of the height at each edge");
+  assert.equal(letterboxBar(1920, 1080, 1.5), 0, "a scene already wider than the ratio gets no bars");
+  // A saved scene keeps them (and refuses a wrong one) through parseDocument.
+  const saved = parseDocument(createDocument({ scenes: [createScene({ id: "s", finish: true, letterbox: 2 })] })).scenes[0];
+  assert.deepEqual([saved.finish, saved.letterbox], [FINISH_START, 2]);
+  assert.throws(() => parseDocument(createDocument({ scenes: [createScene({ id: "s", letterbox: 9 })] })), /letterbox/);
+});
+
+test("finish lifts blacks, darkens corners, adds grain, draws bars; text can sit above the bars; off changes nothing", () => {
+  const plain = sceneFrame({});
+  assert.equal(withSceneFinish(createScene({ layers: [] })).layers.length, 0, "no fields: the scene itself");
+  const black = [createLayer("rectangle", { id: "black", x: 0, y: 0, width: SW, height: SH, fill: "#000000" })];
+  const lifted = sceneFrame({ finish: { blackLift: 0.1 } }, black);
+  assert.ok(Math.abs(lifted.pixel(80, 45)[0] - 26) <= 2, `black rises to about 10% gray: ${lifted.pixel(80, 45)}`);
+  const vignette = sceneFrame({ finish: { vignette: 1 } });
+  assert.ok(vignette.pixel(80, 45)[0] > 120 && vignette.pixel(2, 2)[0] < 70, `middle ${vignette.pixel(80, 45)}, corner ${vignette.pixel(2, 2)}`);
+  const grain = sceneFrame({ finish: { grain: 0.5 } });
+  let moved = 0;
+  for (let x = 40; x < 120; x += 1) if (grain.pixel(x, 45)[0] !== plain.pixel(x, 45)[0]) moved += 1;
+  assert.ok(moved > 60, `grain changes most pixels (${moved}/80)`);
+  // A bright spot on gray: just outside it the picture glows red-orange (the plain scene is gray 128 there).
+  const spot = createLayer("rectangle", { id: "spot", x: 240, y: 100, width: 160, height: 160, fill: "#FFFFFF" });
+  const halation = sceneFrame({ finish: { halation: 1 } }, [spot], {}, [640, 360]);
+  const [hr, hg, hb] = halation.pixel(238, 180);
+  assert.ok(hr > 135 && hr > hg + 4 && hg >= hb, `a warm halo beside the bright spot (${halation.pixel(238, 180)})`);
+  assert.deepEqual(halation.pixel(20, 20), [128, 128, 128], "far from the highlight nothing changes");
+  const label = createLayer("rectangle", { id: "label", x: 0, y: 0, width: SW, height: 20, fill: "#FF0000" });
+  const barred = sceneFrame({ letterbox: 2.35 }, [label]);
+  assert.deepEqual(barred.pixel(80, 3), [0, 0, 0], "the bar covers a layer under it");
+  assert.deepEqual(barred.pixel(80, 45), [128, 128, 128]);
+  assert.deepEqual(barred.pixel(80, SH - 3), [0, 0, 0]);
+  assert.deepEqual(sceneFrame({ letterbox: 2.35 }, [{ ...label, aboveLetterbox: true }]).pixel(80, 3), [255, 0, 0], "aboveLetterbox draws over the bar");
+  assert.deepEqual(sceneFrame({ letterbox: 2.35 }, [label], { design: true }).pixel(80, 3), [255, 0, 0], "the design canvas shows the layers as edited");
+  assert.deepEqual(sceneFinishLayers(createScene({ width: SW, height: SH, letterbox: 2.35, finish: { grain: 0.1 } })).map((layer) => layer.name),
+    ["Finish grain", "Finish bar-top", "Finish bar-bottom"], "grain under the bars");
 });

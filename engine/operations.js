@@ -42,6 +42,7 @@ import { colorFilterSteps } from "./colorFilter.js";
 import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 import { refreshBehaviorLinks } from "./behaviorLinks.js";
 import { frameShot } from "./footage/layout.js";
+import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -135,6 +136,17 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       const previous = { ...scene };
       const previousLayers = scene.layers;
       Object.assign(scene, operation.properties, { id: scene.id });
+      // finish and letterbox are checked now and saved in their plain form (true is the starting
+      // point's numbers; false, null or 0 removes them), so a wrong value is refused on this call.
+      const refuse = (path, message) => { throw new Error(`update_scene ${path} ${message}`); };
+      if (operation.properties && Object.hasOwn(operation.properties, "finish")) {
+        scene.finish = normalizeSceneFinish(scene.finish, "properties.finish", refuse);
+        if (scene.finish === undefined) delete scene.finish;
+      }
+      if (operation.properties && Object.hasOwn(operation.properties, "letterbox")) {
+        scene.letterbox = normalizeLetterbox(scene.letterbox, "properties.letterbox", refuse);
+        if (scene.letterbox === undefined) delete scene.letterbox;
+      }
       const problem = backgroundAnimationProblem(scene, previous) || sceneAnimationProblem(scene, previousLayers);
       if (problem) throw new Error(problem);
       continue;

@@ -204,7 +204,7 @@ export const LAYER_PROPERTY_NAMES = [...new Set([
   ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn", "log",
   ...BACKDROP_STYLE_KEYS, "reveal", "effectPreset", "fillRule", "textStyleRanges", "inactiveBoxStyles", "convertedFrom",
   "componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides",
-  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "textLoop", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, ...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS, "maskInvert", "maskMode",
+  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "textLoop", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, ...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS, "maskInvert", "maskMode", "aboveLetterbox",
 ])];
 const LAYER_PROPERTIES = new Set(LAYER_PROPERTY_NAMES);
 // Operations whose `properties` are layer fields.

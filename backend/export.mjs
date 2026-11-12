@@ -68,6 +68,7 @@ import { backgroundLayer, isBackgroundEnabled, withoutBackground } from "../engi
 import { ffmpegRate, readFps } from "../engine/frameRate.js";
 import { exportFrameCount, exportFrameTime, exportFrameTimes, exportProfile, resolveExportDimensions, validateExportDimensions } from "../engine/exportOptions.js";
 import { nativePngSize } from "../engine/nativePngSize.js";
+import { hasSceneFinish } from "../engine/sceneFinishFields.js";
 import { MAX_TIME } from "../engine/schema.js";
 import { assertStillDesign, assertStillFrameTime } from "../engine/stillFrame.js";
 import { MORPH_SAME_SHOT, interpolateFrame, morphDissolveScene, morphFlows, morphJoins, shotDifference } from "../engine/morphCut.js";
@@ -3031,6 +3032,10 @@ async function exportSceneNow(
     warnings.push({ code: "lottie-audio-omitted", message: "This file includes audio, but audio can't be exported to Lottie." });
     scene = { ...scene, layers: scene.layers.filter((layer) => layer.type !== "audio") };
   }
+  if (format === "lottie" && hasSceneFinish(scene)) {
+    const parts = [scene.finish ? "finish (grain, black lift, halation, vignette)" : "", scene.letterbox ? "letterbox bars" : ""].filter(Boolean).join(" and ");
+    warnings.push({ code: "lottie-finish-omitted", message: `This scene's ${parts} are drawn above the layers by kino's own renderer, and Lottie keeps editable vector layers only. They are left out of this file; use video, GIF or PNG to keep them.` });
+  }
   if (format === "lottie") {
     const rendered = visibleLayerIds(scene);
     if (scene.layers.some((layer) => rendered.has(layer.id) && layer.blendMode && layer.blendMode !== "normal"))
@@ -3070,7 +3075,7 @@ async function exportSceneNow(
   };
   // Every result carries `warnings` when there are any, in a fixed order.
   const warningDetails = () => {
-    const order = ["missing-media", "lottie-media-first-frame", "lottie-video-first-frame", "lottie-gif-first-frame", "lottie-audio-omitted", "lottie-blend-mode-normalized", "lottie-image-clamped", "lottie-counter-effects-simplified", "lottie-reveal-softness", "lottie-effect-rasterized"];
+    const order = ["missing-media", "lottie-media-first-frame", "lottie-video-first-frame", "lottie-gif-first-frame", "lottie-audio-omitted", "lottie-finish-omitted", "lottie-blend-mode-normalized", "lottie-image-clamped", "lottie-counter-effects-simplified", "lottie-reveal-softness", "lottie-effect-rasterized"];
     warnings.sort((a, b) => order.indexOf(a.code) - order.indexOf(b.code));
     return warnings.length ? { warnings } : {};
   };

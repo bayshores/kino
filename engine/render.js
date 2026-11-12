@@ -32,6 +32,7 @@ import { IDENTITY, inverse, layerMatrix, multiply, pivotOf } from "./geometry.js
 import { PREVIEW_BLUR_FROM, previewSampleTimes, previewShutter, shutterTravel, smearTag, whipShutter } from "./previewBlur.js";
 import { TILT_TOLERANCE, hasTilt, tiltPivot, tiltTriangles, tiltVisiblePart, tiltedBounds } from "./tilt.js";
 import { footageLogMarkup } from "./footageLog.js";
+import { withSceneFinish } from "./sceneFinish.js";
 
 const SAFE_RASTER_DATA =
   /^data:image\/(?:png|jpeg|jpg|webp|gif|avif);base64,[a-z0-9+/=]+$/i;
@@ -1499,6 +1500,9 @@ export function renderSceneSvg(
 ) {
   if (!scene || !Array.isArray(scene.layers))
     throw new TypeError("A scene with a layers array is required.");
+  // The scene's finish and letterbox are layers drawn above all others (sceneFinish.js). The
+  // Design canvas shows the layers as edited; a layer capture (Lottie raster) draws that layer alone.
+  if (!design && !capture) scene = withSceneFinish(scene);
   const width = Math.max(
     1,
     Math.round(checkedNumber(scene.width, 1, 1, 100000)),

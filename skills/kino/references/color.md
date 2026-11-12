@@ -30,6 +30,28 @@ or changing one color, plus the `add` blend mode.
 {"op":"add_animation","layer":"footage","effect":"hue-saturation","start":"cue:drop","duration":1,"from":{"hue":0},"parameters":{"hue":360}}
 ```
 
+## Frame finish and letterbox
+
+Two scene fields (`update_scene properties`), drawn above every layer, in previews and renders.
+Off until set; one call each, no hand-built bar or vignette rectangles.
+
+- `finish {grain, blackLift, halation, vignette}`: each 0 to 1. Grain moves, blackLift raises the
+  blacks to a soft gray, halation is a warm glow round bright spots, vignette darkens the corners.
+  `finish:true` is a mild start (0.15, 0.04, 0.2, 0.3); it is a guess, so look and tune. `false`
+  removes it.
+- `letterbox`: a width : height ratio (2.35 is the wide cinema shape, 1.2 to 6), black bars top and
+  bottom, each (height - width / ratio) / 2 tall. `false` removes it.
+- `aboveLetterbox:true` on a root layer draws it over the bars (type that crosses into them).
+- Lottie leaves both out and warns (`lottie-finish-omitted`); video, GIF and PNG keep them.
+- The finish is not graded: it sits above the picture and its effects. Saved references do not
+  measure bars or grain yet, so read them from `look {mode:"source"}` frames and match by eye.
+
+```json
+{"op":"add_layer","layerType":"rectangle","name":"shot","properties":{"x":0,"y":0,"width":1920,"height":1080,"fill":"#3A4A5C"}}
+{"op":"add_layer","layerType":"text","name":"title","properties":{"text":"NIGHT SHIFT","fontSize":160,"fontWeight":900,"fill":"#FFFFFF","x":300,"y":470,"aboveLetterbox":true}}
+{"op":"update_scene","properties":{"finish":{"grain":0.25,"blackLift":0.05,"halation":0.3,"vignette":0.6},"letterbox":2.35}}
+```
+
 ## Filters
 
 - `color_filter {layer | layers, filter, strength?}`: one named look, as one or two Color effects

@@ -138,6 +138,17 @@ const SHAPE_STYLES = {
     layerType: "star", properties: { fill: "#26F0FF", spikes: 8, starThickness: 0.25, twistAngle: 120 }, ground: "#05121A" },
 };
 
+// Scene fields (engine/sceneFinish.js): drawn above every layer, set with update_scene properties.
+// The sample numbers are strong enough to see on a card; the engine's starting point is milder.
+const SCENE_STYLES = {
+  "frame-finish": { line: "frame finish: the scene field finish {grain, blackLift, halation, vignette}, each 0..1 and off until set (finish:true gives a mild starting point), draws film grain, lifted blacks, a warm glow round bright spots and darker corners above every layer",
+    fits: "a flat, sharp, too clean picture that needs film texture, depth or a vignette without hand-built layers",
+    properties: { finish: { grain: 0.45, blackLift: 0.08, halation: 0.45, vignette: 0.7 } } },
+  letterbox: { line: "letterbox: the scene field letterbox (a width : height such as 2.35) draws black bars above every layer; a layer with aboveLetterbox true sits over the bars, for type that breaks out of the frame",
+    fits: "a cinematic crop of 16:9 footage, a trailer or title look, bars that the text can cross",
+    properties: { letterbox: 2.35 } },
+};
+
 // Text loops (layer field textLoop, engine/textLoop.js): letters keep moving between the in and out.
 // Each sample fades the word in by letters, loops, then fades it out.
 const TEXT_LOOPS = {
@@ -173,6 +184,7 @@ export function libraryCatalog() {
   for (const [name, { line }] of Object.entries(SHADOW_STACKS)) entries.push({ ...entry("style", name, line, "a title or logo that needs depth or glow", []), field: "shadows" });
   for (const [name, { line }] of Object.entries(STROKE_STACKS)) entries.push({ ...entry("style", name, line, "a title or sticker word that must stand out", []), field: "strokes" });
   for (const [name, { line, field }] of Object.entries(SHAPE_STYLES)) entries.push({ ...entry("style", name, line, "a badge, sticker or shape that needs a bolder edge", []), field });
+  for (const [name, { line, fits }] of Object.entries(SCENE_STYLES)) entries.push(entry("style", name, line, fits, []));
   for (const [name, { line }] of Object.entries(WIPES)) entries.push(entry("animation", name, line, "a reveal of one layer, or the next shot over the last", ["mask-wipe"]));
   for (const [name, { line }] of Object.entries(TEXT_LOOPS)) entries.push({ ...entry("animation", name, line, "a title that holds on screen and should stay alive", ["type-kinetic"]), field: "textLoop" });
   for (const [name, { line, fits, tags }] of Object.entries(MASKS)) entries.push(entry("technique", name, line, fits, tags));
@@ -361,6 +373,10 @@ export function sampleOps(kind, name) {
     const over = top ? [{ op: "add_layer", layerType, name: "top", properties: { ...box, fill: top } }] : [];
     const label = word ? [{ ...WORD("NEW", 96), properties: { ...WORD("NEW", 96).properties, fill: word } }] : [];
     return { ops: [rect("ground", { x: 0, y: 0, width: W, height: H, fill: ground }), { op: "add_layer", layerType, name: "shape", properties: { ...box, ...properties } }, ...over, ...label, grow], duration: 2.6, still: 1.6 };
+  }
+  if (kind === "style" && SCENE_STYLES[name]) {
+    const word = WORD("kino", 150);
+    return { ops: [SHOT_A, { ...word, properties: { ...word.properties, ...(name === "letterbox" ? { aboveLetterbox: true } : {}) } }, { op: "update_scene", properties: SCENE_STYLES[name].properties }], duration: 2.6, still: 1.2 };
   }
   if (kind === "animation" && TEXT_LOOPS[name]) {
     const { loop, text, fill, ground } = TEXT_LOOPS[name];

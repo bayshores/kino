@@ -592,6 +592,11 @@ How to read it:
   `backend/agent-reach-effects.test.mjs`, `backend/effects-export.test.mjs`.
 - **add blend**: Verified. `blendMode:"add"` draws in Chromium, within 2/255. Evidence:
   `backend/chromium-pixel-export.test.mjs`, `backend/agent-reach-effects.test.mjs`.
+- **Frame finish and letterbox** (`update_scene finish, letterbox`): Partly verified. Grain, black lift,
+  halation, vignette and bars draw above every layer in previews, video, GIF and PNG; Lottie warns it
+  omits them. Evidence: `engine/effects/finish.test.js`, `engine/operations.test.js`,
+  `backend/scene-background-export.test.mjs`. Gap: halation is a blurred highlight screen, not true
+  scatter; the starting values are guesses; saved references do not measure bars or grain.
 - **Color recipes**: Verified. `library {topic:"rules", name:"color"}`. Evidence:
   `backend/agent-color.test.mjs`. Gap: no adjustment layer (grade a group).
 - **Shot color match** (`match_color`): Verified on synthetic frames and two tinted FFmpeg clips.

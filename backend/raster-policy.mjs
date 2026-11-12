@@ -1,9 +1,12 @@
 import { enabledAnimations } from "../engine/animationEnabled.js";
+import { withSceneFinish } from "../engine/sceneFinish.js";
 
 // These filters use Chromium's affine sampling and color pipeline in the editor.
 // Keep the established Resvg path for documents without the new filter features
 // or the "add" blend mode.
 export function sceneNeedsChromium(scene) {
+  // The scene's finish draws effect layers above the scene's own (sceneFinish.js).
+  scene = withSceneFinish(scene);
   const byId = new Map(scene.layers.map(layer => [layer.id, layer]));
   return scene.layers.some(layer => {
     if (layer.type === "audio") return false;
