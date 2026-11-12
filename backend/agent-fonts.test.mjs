@@ -332,7 +332,7 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   const frame = await (await import("node:fs/promises")).readFile(file);
   const labels = [{ id: "yt:aaaaaaaaaaa", at: 3.8, words: "STORM in a serif" }, { id: "yt:bbbbbbbbbbb", at: 1, words: "x" }, { id: "yt:ccccccccccc", at: 2, words: "y" }];
   const labeled = await fontsLikeLabels(labels, { fonts, catalog, referenceFrame: async () => frame });
-  assert.match(labeled.text, /^like your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif" \(whole frame[^)]*\): \S.* \d+ \([\d.]+\)(, .*){3}\n/, "four faces, each with its distance");
+  assert.match(labeled.text, /^like your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif" \(box \[[\d, ]+\] of \d+[^)]*\): \S.* \d+ \([\d.]+\)(, .*){3}\n/, "four faces, each with its distance, measured on the frame's lettering box");
   // Faces measured this close on the whole frame cannot be told apart: the line says so and gives the region call.
   const flat = await fontsLikeLabels([labels[0]], { fonts, catalog, referenceFrame: async () => frame });
   const spread = flat.found[0].fonts.map((font) => font.distance);
@@ -342,6 +342,58 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   assert.equal(await fontsLikeLabels([], { fonts }), null, "no labels, no lines");
   const blank = await fontsLikeLabels([labels[0]], { fonts, catalog, referenceFrame: async () => createCanvas(40, 40).toBuffer("image/png") });
   assert.match(blank.text, /^your label yt:aaaaaaaaaaa @3\.8 "STORM in a serif" was not measured \(no lettering found in that region\): library \{topic:"fonts", like:"yt:aaaaaaaaaaa", t:3\.8, region:\[x,y,w,h\]\}/);
+});
+
+// Without a region kino finds the lettering boxes itself: a contact sheet of frames measures the title, not the sheet.
+test("fonts like: no region measures the largest lettering box, names the others, and marks faces turned down or seen before", async (t) => {
+  const { createCanvas, GlobalFonts } = await import("@napi-rs/canvas");
+  const { fontsLikeText, letteringBoxes, faceNote } = await import("./font-like.mjs");
+  const { writeFile } = await import("node:fs/promises");
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-like-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  GlobalFonts.registerFromPath(path.resolve("assets/fonts/NotoSerif-700.woff2"), "Like Serif");
+  // A sheet: a dark frame with a big title and a small caption, and a noisy photo-like tile beside them.
+  const canvas = createCanvas(1600, 800);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#182030"; context.fillRect(0, 0, 1000, 800);
+  context.fillStyle = "#f4f0e8"; context.font = "150px 'Like Serif'"; context.fillText("STORM", 60, 300);
+  context.font = "40px 'Like Serif'"; context.fillText("THE LONG NIGHT", 60, 600);
+  for (let i = 0; i < 400; i += 1) { context.fillStyle = `hsl(${(i * 47) % 360} 50% ${20 + ((i * 29) % 60)}%)`; context.fillRect(1000 + ((i * 97) % 560), 20 + ((i * 53) % 740), 30 + (i % 40), 20 + (i % 30)); }
+  const file = path.join(folder, "sheet.png");
+  await writeFile(file, canvas.toBuffer("image/png"));
+  const { loadImage } = await import("@napi-rs/canvas");
+  const boxes = letteringBoxes(await loadImage(file));
+  assert.ok(boxes.length >= 2, JSON.stringify(boxes));
+  assert.ok(boxes[0].x < 100 && boxes[0].y < 300 && boxes[0].y + boxes[0].height > 300 && boxes[0].width > 500, `the title is the largest box: ${JSON.stringify(boxes)}`);
+  assert.ok(boxes.some((box) => box.y < 600 && box.y + box.height > 600 && box.x < 100), `the caption is another: ${JSON.stringify(boxes)}`);
+  // White type over strands of hair: the edges join word and hair into one tall box, its white pixels do not.
+  const hair = createCanvas(640, 360);
+  const strands = hair.getContext("2d");
+  strands.fillStyle = "#26302c"; strands.fillRect(0, 0, 640, 360);
+  strands.strokeStyle = "#5a6a64"; strands.lineWidth = 3;
+  for (let i = 0; i < 60; i += 1) { strands.beginPath(); strands.moveTo(80 + i * 8, 40); strands.quadraticCurveTo(140 + i * 7, 200, 60 + i * 9, 340); strands.stroke(); }
+  strands.fillStyle = "#ffffff"; strands.font = "110px 'Like Serif'"; strands.fillText("kill", 200, 170);
+  const [word] = letteringBoxes(hair);
+  assert.ok(word && word.x > 150 && word.x < 220 && word.y > 50 && word.y < 110 && word.width < 260 && word.height < 130, `the white word is a box: ${JSON.stringify(word)}`);
+  const fonts = await loadBundledFonts();
+  const catalog = { measuresFile: path.join(folder, "measures.json") };
+  const faceMarks = async () => ({ rejected: ["Noto Serif 700 looks dated"], seen: [{ family: "Inter", name: "Old promo", rev: 3 }] });
+  const answer = await fontsLikeText({ like: file, text: "STORM", count: 6 }, { fonts, catalog, faceMarks });
+  assert.match(answer.text, /\nbox measured: \[\d+, \d+, \d+, \d+\], the largest of \d+ lettering boxes kino found; others, to measure one pass region: \[/, answer.text);
+  assert.ok(answer.region.length === 4 && answer.region.every(Number.isInteger), JSON.stringify(answer.region));
+  assert.ok(answer.region[2] < 1000 && answer.box.found >= 2 && answer.box.others.length >= 1 && answer.box.others.length <= 3);
+  assert.equal(answer.fonts[0].family, "Noto Serif", answer.text);
+  // style.rejected is on-screen text, so the fact is that turned-down text names the family, quoted.
+  assert.match(answer.text, /\n1\. Noto Serif 700 \([^)]*\) \[named in text the person turned down: "Noto Serif 700 looks dated"\] set_font /, "the face stays listed with the fact");
+  assert.match(answer.text, /\n\d\. Inter \d+ \([^)]*\) \[seen before: the type of "Old promo" r3\] set_font /);
+  assert.equal(answer.fonts[0].note, 'named in text the person turned down: "Noto Serif 700 looks dated"');
+  // A given region is measured as it is: no box search, no box line.
+  const given = await fontsLikeText({ like: file, region: [40, 120, 800, 220], text: "STORM", count: 2 }, { fonts, catalog });
+  assert.equal(given.box, undefined);
+  assert.doesNotMatch(given.text, /box measured/);
+  // A word inside a longer one is not a match; no marks, no brackets.
+  assert.equal(faceNote("Inter", { rejected: ["interesting cut"] }), null);
+  assert.equal(faceNote("Anton", {}), null);
 });
 
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
@@ -404,6 +456,21 @@ test("agent service: set_font on a face that lacks a glyph sets it, draws that g
   assert.match(byQuery.text, /^installed: Roboto\ncatalog: Roboto 400\n/, "query works like search");
   assert.doesNotMatch(byQuery.text, /Anton/);
   assert.match((await agent("library", { topic: "fonts", search: "∞" })).text, /^fonts with "∞" \(glyphs checked\): Roboto 400 /);
+
+  // like with no region: the answer names the lettering box it measured (the face marks run here too, with no rejects or other projects).
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const picture = createCanvas(900, 300);
+  const drawing = picture.getContext("2d");
+  drawing.fillStyle = "#182030"; drawing.fillRect(0, 0, 900, 300);
+  drawing.fillStyle = "#f4f0e8"; drawing.font = "bold 110px sans-serif"; drawing.fillText("STORM", 60, 200);
+  const folder = await mkdtemp(path.join(tmpdir(), "kino-like-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = path.join(folder, "title.png");
+  await (await import("node:fs/promises")).writeFile(file, picture.toBuffer("image/png"));
+  const liked = await agent("library", { topic: "fonts", project: "glyphs", like: file, text: "STORM" });
+  assert.equal(liked.isError, undefined, liked.text);
+  assert.match(liked.text, /\nbox measured: \[\d+, \d+, \d+, \d+\], the largest of 1 lettering box kino found\./);
+  assert.equal(liked.data.box.found, 1);
 });
 
 // One set_font on several layers that lack ∞ sets them all in one edit.
