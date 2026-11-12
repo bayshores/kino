@@ -88,7 +88,9 @@ export const perceiveInsert = {
     const file = ctx.fileSize(from.src);
     const most = Math.max(1, Math.min(MOST_ZOOM, file ? (UPSCALE_GATE * 0.95 * Math.min(file.width / box.width, file.height / box.height)) : MOST_ZOOM));
     const target = insertBox(box, region, ctx.frame, most);
-    if (target.zoom >= most - 0.01) ctx.note(`perceive-insert zoom held at ${round(most, 2)}x so the footage stays sharp (the region shows more around it${file ? "; a sharper file allows a tighter detail" : ""})`);
+    // The file's pixels across the frame at the held zoom (the more of them, the fewer codec blocks show).
+    const across = file ? Math.round(ctx.frame.width / Math.min(target.width / file.width, target.height / file.height)) : null;
+    if (target.zoom >= most - 0.01) ctx.note(`perceive-insert zoom held at ${round(most, 2)}x so the footage stays sharp (the region shows more around it${file ? `; a sharper file allows a tighter detail; ${across} of its ${file.width} px across the ${ctx.frame.width} px frame there` : ""})`);
     // The same footage, muted, from this moment of the file, shown only for the insert.
     const { id, name, animations, subjectBoxes, move, recipe, ...media } = from;
     const shot = ctx.add("shot", createLayer(from.type, {

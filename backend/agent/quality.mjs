@@ -752,7 +752,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // Renders the scene's frames for the pixel rules (`signal`: the check's; none for background work).
     // `solo` draws only those layers (with their groups and children) over a plain `background`:
     // the contrast rule reads which pixels a layer in front of a text covers from two such frames.
-    const renderWith = (renderSignal) => async (times, { width, hide = [], solo = null, background = null }) => {
+    // `noGrain` leaves the solo layers' grain effects off (soft_upscale's block step: a grain hides the blocks).
+    const renderWith = (renderSignal) => async (times, { width, hide = [], solo = null, background = null, noGrain = false }) => {
       expanded ??= expandComponents(document, scene.id, { fonts });
       const hidden = new Set(hide);
       if (solo) {
@@ -764,6 +765,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       }
       let drawn = hidden.size ? { ...expanded, layers: expanded.layers.map((layer) => (hidden.has(layer.id) ? { ...layer, visible: false } : layer)) } : expanded;
       if (background) drawn = { ...drawn, background, backgroundEnabled: true, backgroundAnimations: [] };
+      if (solo && noGrain) drawn = { ...drawn, layers: drawn.layers.map((layer) => (solo.includes(layer.id) ? { ...layer, animations: (layer.animations ?? []).filter((animation) => !(animation.kind === "effect" && animation.effect === "grain")) } : layer)) };
       const render = (scene, missing) => renderFrames(scene, missing, { mediaRoot, fonts, width, signal: renderSignal });
       return frameReuse ? (await frameReuse.framesFor(drawn, times, { width, fonts, render })).frames : render(drawn, times);
     };

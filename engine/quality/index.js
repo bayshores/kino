@@ -3,6 +3,7 @@
 // Data rules read the model; pixel rules also render frames (ctx.renderFrames).
 import { contrast, flashing } from "./pixels.js";
 import { frozenPicture, lumaJump } from "./motionPixels.js";
+import { addUpscaleBlocks } from "./upscaleBlocks.js";
 import { coveredLayer } from "./rules/covered.js";
 import { typeCovered } from "./rules/typeCovered.js";
 import { accentStripe, cardGrid, centeredRun, glowBlobPill, overlap, safeZone } from "./rules/layout.js";
@@ -242,15 +243,16 @@ const quote = (text) => {
 
 // ctx.renderFrames that keeps each frame it rendered for this run, so a rule asking for a frame
 // another rule already has (text_on_busy reads the contrast frames) gets it without a render.
-// Frames are kept by width, the layers left out (or drawn alone, `solo`, over `background`) and the time.
+// Frames are kept by width, the layers left out (or drawn alone, `solo`, over `background`, with
+// their grain left off, `noGrain`) and the time.
 // `nearest(time, within)` gives a kept frame within `within` seconds of `time` (any width, the
 // fewest layers left out first), or null: small_on_empty reads the contrast frames that way.
 function cachedFrames(render) {
   const kept = new Map();
   const list = [];
   const cached = async (times, options = {}) => {
-    const { width, hide = [], solo = null, background = null } = options;
-    const prefix = `${width}|${[...hide].sort().join(",")}|${solo ? `solo:${[...solo].sort().join(",")}|${background}|` : ""}`;
+    const { width, hide = [], solo = null, background = null, noGrain = false } = options;
+    const prefix = `${width}|${[...hide].sort().join(",")}|${solo ? `solo:${[...solo].sort().join(",")}|${background}|${noGrain ? "nograin|" : ""}` : ""}`;
     const missing = [...new Set(times.filter((time) => !kept.has(prefix + time)))];
     if (missing.length) {
       const frames = await render(missing, options);
@@ -378,6 +380,10 @@ export async function runQuality(model, { codes = null, pixels = true, context =
     let found = runOne(entry, model, ctx);
     if (found && typeof found.then === "function") found = await found.catch((error) => runOne({ ...entry, check: () => { throw error; } }, model, ctx));
     findings.push(...(found ?? []));
+  }
+  // A pixel check adds the source's block step to the soft_upscale findings (upscaleBlocks.js).
+  if (pixels && ctx.renderFrames && findings.some((finding) => finding.rule === "soft_upscale")) {
+    try { await addUpscaleBlocks(model, ctx, findings); } catch { /* the finding stands without the block step */ }
   }
   // Times to the hundredth once here, so a 30 fps time reads 3.17, not 3.1666666666666665.
   for (const finding of findings) for (const key of ["at", "until"]) if (Number.isFinite(finding[key])) finding[key] = sec(finding[key]);
