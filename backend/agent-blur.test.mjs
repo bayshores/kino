@@ -103,6 +103,13 @@ test("library explains the blur effects with their fields, and the skill has a b
     assert.ok(rules.text.includes(text), `the blur topic says ${text}`);
   const guide = await agent("library", { topic: "guide", name: "blur" });
   assert.match(guide.text, /## Blur, edge fill and mirror/);
+  // A blur under 0.3 s that sets its strength returns to 0 at its end and the receipt says so; a longer one holds.
+  await create("blur-receipt");
+  const made = await edit("blur-receipt", [{ op: "add_layer", layerType: "rectangle", name: "card", properties: { x: 0, y: 0, width: 400, height: 300 } },
+    { op: "add_animation", layer: "card", effect: "directional-blur", start: 1, duration: 0.08, parameters: { length: 200 } },
+    { op: "add_animation", layer: "card", effect: "spin-blur", start: 1, duration: 0.5, parameters: { angle: 30 } }]);
+  for (const note of ["directional-blur returns to 0 at 1.08 s (hold:true keeps it)", "spin-blur holds its end value after 1.5 s (hold:false returns it to 0)"])
+    assert.ok(made.text.includes(note), made.text);
 });
 
 test("the blur recipes and the skill's blur example run as written and do what their names say", { timeout: 240_000 }, async () => {
