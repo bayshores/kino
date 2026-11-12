@@ -56,6 +56,8 @@ test("a fix that would add an error is not applied, and the answer says why", as
   assert.ok(rules(first).includes("text_wrap"), first.text);
   const fixed = await agent("check", { project: "crowded", fix: "auto", pixels: false });
   assert.match(fixed.text, /not applied text_wrap caption: it would add \w+/, fixed.text);
+  // Why it was not applied sits right under the applied line, before the findings it leaves open.
+  assert.match(fixed.text, /^applied [^\n]*\n {2}not applied text_wrap caption/m, fixed.text);
   assert.equal(fixed.data.errors, 0, fixed.text);
   // Only the bad fix is left out: a fix beside it on the same layer (held_static) still applies.
   assert.doesNotMatch(fixed.text, /fixed text_wrap/, fixed.text);

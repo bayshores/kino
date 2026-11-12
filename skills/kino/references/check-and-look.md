@@ -11,8 +11,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   re-checks, up to 3 rounds: call it once. A warning's fix skips layers your last
   edit moved, a waiver names or a spine beat uses.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
-- The first 8 lines of `check`, `look` versus and review, and `status` hold what decides your
-  next call (errors, advice, drift, `whole scene:`, inbox): read them; do not `head`.
+- The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
+  next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
 - `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate).
   `crop_no_subject`: footage cropped over 8%, no subject marked, warns; a marked subject
@@ -57,7 +57,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   or less). Fix (auto): motion blur while fast.
 - `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
   title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
-  fits one line or balances the lines, or for 1 to 3 words a smaller size (above type_min).
+  fits one line or balances the lines, or for 1 to 3 words a smaller size (at least type_min).
 - `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
   Fix: scaled about its middle inside the margin.
 - `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture

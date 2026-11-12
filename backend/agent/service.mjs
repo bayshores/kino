@@ -2660,6 +2660,10 @@ export function createAgentService(deps) {
     const staleLine = staleWaiverLine(result.stale, (id) => (id === "*" ? "*" : refName(id, codes)));
     if (staleLine) lines.push(staleLine);
     if (applied) lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
+    // Why an auto fix was not applied explains the error still open, so it stays under the applied
+    // line (the probe on the run 6 copy had it at line 15, past the first 8, before this); the
+    // fixed lines go to the tail.
+    if (applied) for (const line of groupFixLines(applied.dropped)) lines.push(`  not applied ${line}`);
     // Order (trace-code section 5: agents read the first 8 lines): the counts, the errors, then
     // what decides the next call (advice with the unused deck cards, the fix hint, a short next),
     // then the other findings, the long tail last. Same wording as before; only the order moved.
@@ -2677,10 +2681,7 @@ export function createAgentService(deps) {
     lines.push(...summary, ...findingLines.slice(beforeSummary));
     if (report.more) lines.push(`+${report.more} more: ${report.moreByRule}. Fix these first, or check {scene} or {rules}.`);
     if (report.waivedFindings.length) lines.push(`waived: ${report.waivedFindings.slice(0, 5).map((entry) => `${entry.rule} ${entry.ref}`).join(", ")}${report.waivedFindings.length > 5 ? ", …" : ""}`);
-    if (applied) {
-      for (const line of applied.fixed) lines.push(`  fixed ${line}`);
-      for (const line of groupFixLines(applied.dropped)) lines.push(`  not applied ${line}`);
-    }
+    if (applied) for (const line of applied.fixed) lines.push(`  fixed ${line}`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
     lines.push(`techniques: ${techniquesLine(result.techniques, 8)} · style: ${result.styleSpec ? "spec" : "kino default"}`);
     for (const note of result.notes) lines.push(`note: ${note}`);
