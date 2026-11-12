@@ -104,6 +104,12 @@ function loudEffects(model, cues, motivated) {
 // What takes an untriggered effect off: its own animations, or the card that flashes (a layer
 // that does nothing else). null when it is not one kino can take off alone (a glitch transition).
 function removal(model, use) {
+  // An impact-accent hit at a raw time has no cue (moves/impact.js): it goes whole, its light,
+  // blur, particles and shake, not only the light the hand scan finds (measured on run 8's copy:
+  // the old fix left the blur and the particle layer).
+  const hit = !use.cue && (model.moves ?? []).find((move) => move.name === "impact-accent" && !move.trigger
+    && ((use.animationIds ?? []).some((id) => id.startsWith(`${move.id}.`)) || (!use.itemId && use.at >= move.start - 0.1 && use.at <= move.end)));
+  if (hit) return { kind: "remove", move: { name: hit.name, id: hit.id }, auto: true };
   const item = use.itemId && itemById(model, use.itemId);
   if (item?.source?.componentPath) return null;
   if (use.tag === "flash" && use.shape === "card" && item) return { kind: "remove", layerItemId: item.id, auto: true };
@@ -172,7 +178,11 @@ export function effectFit(model, ctx) {
   const effects = loudEffects(model, cues, motivated);
 
   // untriggered: a loud effect with no reason on its frame. Its fix takes it off (check fix:"auto").
+  const takenOff = new Set();
   for (const use of effects.filter((entry) => !entry.trigger)) {
+    const off = removal(model, use);
+    // One hit is one effect: its light and its shake make one finding.
+    if (off?.move) { if (takenOff.has(off.move.id)) continue; takenOff.add(off.move.id); }
     const near = nearest(use.at);
     // A ready op, not a template: the effect's own impact-accent kind and layer when it has one
     // (directors b and c were blocked 3 to 4 times each by this finding, ceiling result.md).
@@ -180,8 +190,7 @@ export function effectFit(model, ctx) {
     const owner = use.itemId && itemById(model, use.itemId);
     // Some ctx.name callers quote the name and some do not: quote it once here.
     const layerField = owner ? `, layer:${JSON.stringify(String(ctx.name?.(owner) ?? owner.id).replace(/^"(.*)"$/, "$1"))}` : "";
-    const reason = `put it on a reason: edit {ops:[{op:"move", name:"impact-accent", kind:"${kind}"${layerField}, at:"cue:${near?.name ?? "<cue>"}"}]}${near ? ` (${sec(near.time)}s)` : ""} after taking it off. Most moments need no effect.`;
-    const off = removal(model, use);
+    const reason = `put it on a reason: edit {ops:[{op:"move", name:"impact-accent", kind:"${off?.move ? "hit" : kind}"${layerField}, at:"cue:${near?.name ?? "<cue>"}"}]}${near ? ` (${sec(near.time)}s)` : ""} after taking it off. Most moments need no effect.`;
     finding("untriggered", use.at, `${TAG_WORDS[use.tag]} at ${sec(use.at)}s on no measured cue${use.cue ? ` (its cue ${use.cue} moved or is gone)` : ""}`,
       "each loud effect on a cue that motivates it (footage impact or light, song seam or rest, top accent, fill), up to 2 frames early, never late",
       `The ${TAG_WORDS[use.tag]} at ${sec(use.at)}s in ${ctx.sceneName} has nothing under it in the song or the footage: it is decoration.${off ? ` The fix takes it off; or ${reason}` : ""}`,

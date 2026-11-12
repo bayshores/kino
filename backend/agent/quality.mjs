@@ -413,6 +413,8 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
   // An effect to take off (effect_fit: a loud effect nothing motivates): its animations, or the
   // card layer that only flashes.
   if (fix.kind === "remove") {
+    // A whole move (an impact-accent hit at a raw time): its own layers and animations go together.
+    if (fix.move) return { fix: { op: "move", name: fix.move.name, id: fix.move.id, remove: true, scene: refName(model.sceneId, codes) }, auto: Boolean(fix.auto) };
     if (fix.layerItemId) {
       const found = sourceLayer(document, itemOf(fix.layerItemId));
       if (!found) return { fix: "Take the effect off.", auto: false };

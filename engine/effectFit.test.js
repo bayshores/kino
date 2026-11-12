@@ -54,6 +54,10 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   const [grow, back] = punch(5);
   const late = await runQuality(kinoTimeline(edit([shake(5, { frames: 15 }), grow, { ...back, start: 5.3, duration: 0.2 }]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
   assert.deepEqual(late.findings[0].fix.animationIds.sort(), ["shot.1", "shot.2", "shot.3"]);
+  // A hit at a raw time (no cue): its light and shake are one finding, and the fix takes the whole move off.
+  const raw = { id: "hit", name: "impact-accent", settings: { kind: "hit" }, tags: ["flash", "shake"], start: 5 - 1 / 30, end: 5.6 };
+  const loose5 = await runQuality(kinoTimeline(edit(lift(5, 2, ["hit.impact-flash-up", "hit.impact-flash-down"]), [], { moves: [raw] }), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
+  assert.deepEqual(loose5.findings.map((finding) => [finding.reason, finding.fix]), [["untriggered", { kind: "remove", move: { name: "impact-accent", id: "hit" }, auto: true }]]);
   // A title sliding in 0.1 to 0.3 s after the start (first_entrance's delay) is on that cut; at 1 s it is on nothing.
   const title = (start) => ({ type: "text", id: "title", name: "title", text: "Hi", x: 200, y: 200, width: 800, height: 200, fontSize: 120,
     animations: [{ id: "title.in", name: "Slide in", kind: "in", start, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] });

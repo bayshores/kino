@@ -850,7 +850,8 @@ How to read it:
 - **impact-accent kind hit**: Unit-verified. `move {name:"impact-accent", kind:"hit", at}` builds light, blur, a
   recolor in the shot's hue, particles off the subject and a shake one frame apart, 1 to 5 parts by the cue's weight
   (a weak cue or a time gets 2, not a refusal; parts, weight, particles); a part with nothing in the shot is skipped
-  and named; effect_fit counts one hit once, with a sound on its cue. Evidence: `engine/moves.test.js`,
+  and named; effect_fit counts one hit once, with a sound on its cue, and its fix takes a hit at a time with no cue
+  off whole. Evidence: `engine/moves.test.js`,
   `engine/effectFit.test.js`; by hand on a copy of a real edit (`.scratch/barwave/wave/hit-accent`).
 - **speed-ramp and beat-repeat moves**: Unit-verified. `move {name:"speed-ramp", layer, at}` puts the clip's
   speed animations around a cue (before, on it, back), refuses a clip whose file has ended or a second ramp
