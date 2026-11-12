@@ -868,9 +868,10 @@ How to read it:
   rim-light lobe crawl past the filter padding drew nothing, fixed in engine/effects/light.test.js).
 - **impact-silhouette** (`move impact-silhouette {layer, at}`): Partly verified. One call makes an impact frame: the
   cut-out inked flat or two-tone on a plate (shot hue or given), seeded rays, tick ring and speed lines, ended inside
-  the shot; the note prints the matte's cover, head-inside and straight-outline share (cut_out's subjectShapes) and
-  offers the nearest figure time. Evidence: engine/moves.test.js (layers, times, reduced hold, flashing rule passes on
-  the built scene; matteShape). Gap: no render test yet; ray count default is a guess.
+  the shot; the note prints the matte's cover, head-inside (marks, else scanned faces or pose heads) and
+  straight-outline share (cut_out's subjectShapes) and offers the nearest figure time. Evidence: engine/moves.test.js
+  (layers, times, reduced hold, flashing rule passes on the built scene; matteShape; a render: figure pixels the ink,
+  the rest the plate, the shot's own picture after). Gap: ray count, figure bounds are guesses; in-file cuts unread.
 - **mosaic-reveal** (`move mosaic-reveal {layer, at}`, effect `mosaic`): Partly verified. Flat mean-color cells with
   gaps arrive in a seeded order, merge into blocks and resolve to the picture, resolved blocks joining without a gap
   (engine/effects/postFx.test.js; sizes follow the frame, engine/moves.test.js; `{layer, at}` only on a photo and on

@@ -52,11 +52,15 @@ function retimePath(animation, before, after) {
 
 // A cut-out's subject path (scene seconds, place {around} reads it) moved to the times its file
 // moments show with Play fields `after` (they showed with `before`); samples no longer shown go.
+// Its matte shapes ([t, cover, straight], impact-silhouette reads them) move the same way.
 function retimeSubjectPath(layer, before, after) {
-  const path = layer.subjectPath.map(([time, ...box]) => [mediaSceneTime(after, mediaSoundTime(before, time)), ...box])
-    .filter(([time]) => time !== null).map(([time, ...box]) => [Math.round(time * 1000) / 1000, ...box]).sort((a, b) => a[0] - b[0]);
-  if (path.length) layer.subjectPath = path;
-  else delete layer.subjectPath;
+  for (const key of ["subjectPath", "subjectShapes"]) {
+    if (!Array.isArray(layer[key])) continue;
+    const rows = layer[key].map(([time, ...rest]) => [mediaSceneTime(after, mediaSoundTime(before, time)), ...rest])
+      .filter(([time]) => time !== null).map(([time, ...rest]) => [Math.round(time * 1000) / 1000, ...rest]).sort((a, b) => a[0] - b[0]);
+    if (rows.length) layer[key] = rows;
+    else delete layer[key];
+  }
 }
 
 /**
@@ -65,7 +69,7 @@ function retimeSubjectPath(layer, before, after) {
  */
 export function followClipTiming(scene, before, after) {
   if ((after.type !== "video" && after.type !== "image") || !playChanged(before, after)) return;
-  if (after.cutoutOf && Array.isArray(after.subjectPath)) retimeSubjectPath(after, before, after);
+  if (after.cutoutOf && (Array.isArray(after.subjectPath) || Array.isArray(after.subjectShapes))) retimeSubjectPath(after, before, after);
   for (const layer of scene.layers) {
     if (layer.cutoutOf !== after.id || layer.id === after.id) continue;
     if (layer.type === "path") {
@@ -95,7 +99,7 @@ export function followClipTiming(scene, before, after) {
         else delete layer[key];
       }
       // Its subject's path moves to the times the clip now shows the same file moments.
-      if (Array.isArray(layer.subjectPath)) retimeSubjectPath(layer, before, after);
+      retimeSubjectPath(layer, before, after);
     }
   }
 }

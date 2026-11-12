@@ -14,8 +14,8 @@
 // own hue on black or a dark plate of that hue, rays in the ink's color.
 //
 // Before it draws, the receipt prints the matte's shape facts at the cue (cut_out measures them:
-// the copy's subjectShapes): the share of the frame it covers, whether the people scan's face box
-// is inside its box, and how much of its outline is the frame edge or a straight line (a floor or
+// the copy's subjectShapes): the share of the frame it covers, whether a head box (a face or head
+// mark, else the scan's faces or pose heads) is inside its box, and how much of its outline is the frame edge or a straight line (a floor or
 // stairs in the matte). When those say it is not a figure, the receipt names the nearest sampled
 // time inside the shot that reads as one, with its at: a fact and an offer, it still draws.
 import { createLayer } from "../../model.js";
@@ -25,7 +25,7 @@ import { CURVES, effect, hide, mix, motion, round, show } from "./kit.js";
 
 const FRAME = 1 / 30;
 // A matte reads as a figure when it covers 2% to 60% of the frame, at most 20% of its outline is the
-// frame edge or a straight line, and (with a people scan) a face box sits inside it. The bounds are
+// frame edge or a straight line, and no head box found near it sits outside it. The bounds are
 // guesses from run a's failed matte (a solid slab with a straight top edge) and a standing figure.
 export const FIGURE = Object.freeze({ least: 0.02, most: 0.6, straight: 0.2 });
 // A straight run of outline pixels this long (share of the matte box's side, at least 6 pixels) is a line.
@@ -93,24 +93,37 @@ function shotSpan(layer, sceneDuration) {
   return [from, layer.mediaDuration > 0 ? Math.min(sceneDuration, from + layer.mediaDuration) : sceneDuration];
 }
 
-// The cut-out's measured shape and box nearest `time` (within 0.25 s), and whether a face is in the box.
+// The head boxes near file second `second` ([x, y, w, h] fractions) and where they came from: the
+// agent's face or head marks (mark_subject part "face"/"head"), else the faces and the people pose
+// heads the scan saved (a pose head often stands in on drawn footage, where faces are mostly missed).
+function headsNear(footage, samples, second) {
+  const marks = footage.subjectBoxes?.src === footage.src ? footage.subjectBoxes.boxes ?? [] : [];
+  const marked = marks.filter((entry) => Array.isArray(entry?.box) && ["face", "head"].includes(String(entry.part ?? "").toLowerCase()) && Math.abs(entry.at - second) <= 0.5 + 1e-6);
+  if (marked.length) return { boxes: marked.map((entry) => entry.box.map((value) => value / 100)), from: "your mark" };
+  const face = subjectsIn(samples, second - 0.25, second + 0.25).faceBox;
+  const near = (samples ?? []).filter((sample) => Number.isFinite(sample?.t) && Math.abs(sample.t - second) <= 0.25 + 1e-6);
+  const poses = near.flatMap((sample) => (sample.people ?? []).map((person) => person?.headBox).filter((box) => Array.isArray(box) && box.length === 4));
+  const boxes = [...(face ? [face] : []), ...poses];
+  return boxes.length ? { boxes, from: face && poses.length ? "face and pose scan" : face ? "face scan" : "pose scan" } : null;
+}
+
+// The cut-out's measured shape and box nearest `time` (within 0.25 s; a picture's one row at any
+// time), and whether a head box is inside the matte's box (null when none was marked or found).
 function readsAt(subject, footage, samples, time) {
-  const nearest = (rows) => (rows ?? []).filter((row) => Math.abs(row[0] - time) <= 0.25 + 1e-6).sort((a, b) => Math.abs(a[0] - time) - Math.abs(b[0] - time))[0];
+  const still = subject.type === "image";
+  const nearest = (rows) => (rows ?? []).filter((row) => still || Math.abs(row[0] - time) <= 0.25 + 1e-6).sort((a, b) => Math.abs(a[0] - time) - Math.abs(b[0] - time))[0];
   const shape = nearest(subject.subjectShapes);
   if (!shape) return null;
   const box = nearest(subject.subjectPath)?.slice(1) ?? subject.subjectBox ?? null;
-  const scanned = (samples ?? []).some((sample) => Array.isArray(sample?.faces) || Array.isArray(sample?.people));
-  let head = null;
-  if (scanned && box) {
-    const second = fileSecond(footage, time);
-    const face = subjectsIn(samples, second - 0.25, second + 0.25).faceBox;
-    head = Boolean(face) && face[0] + face[2] / 2 >= box[0] && face[0] + face[2] / 2 <= box[2] && face[1] + face[3] / 2 >= box[1] && face[1] + face[3] / 2 <= box[3];
-  }
+  const heads = box && footage.type === "video" ? headsNear(footage, samples, fileSecond(footage, time)) : null;
+  const inside = (head) => head[0] + head[2] / 2 >= box[0] && head[0] + head[2] / 2 <= box[2] && head[1] + head[3] / 2 >= box[1] && head[1] + head[3] / 2 <= box[3];
+  const head = heads ? heads.boxes.some(inside) : null;
+  // No head found is not "no head": drawn faces are mostly missed, so only a head outside the box counts against it.
   const figure = shape[1] >= FIGURE.least && shape[1] <= FIGURE.most && shape[2] <= FIGURE.straight && head !== false;
-  return { at: round(shape[0], 3), cover: shape[1], straight: shape[2], head, box, figure };
+  return { at: still ? round(time, 3) : round(shape[0], 3), cover: shape[1], straight: shape[2], head, from: heads?.from ?? null, box, figure };
 }
 
-const said = (facts) => `covers ${Math.round(100 * facts.cover)}% of the frame, head box inside: ${facts.head === null ? "not checked (no people scan)" : facts.head ? "yes" : "no"} (people scan), outline on the frame edge or a straight line: ${Math.round(100 * facts.straight)}%`;
+const said = (facts) => `covers ${Math.round(100 * facts.cover)}% of the frame, head box inside: ${facts.head === null ? "none marked or found near (drawn faces are mostly missed: mark_subject part \"face\" adds one)" : `${facts.head ? "yes" : "no"} (${facts.from})`}, outline on the frame edge or a straight line: ${Math.round(100 * facts.straight)}%`;
 
 // A small seeded random source (mulberry32), so a seed gives the same rays every time.
 function seeded(seed) {
@@ -174,9 +187,10 @@ export const impactSilhouette = {
       if (!facts) ctx.note(`matte at ${round(t, 3)} s: no shape measured (cut_out again to measure cover and straight edges)`);
       else {
         box = facts.box;
-        const verdict = facts.figure ? "reads as a figure" : `does not read as a figure (${facts.cover > FIGURE.most ? "it fills most of the frame" : facts.cover < FIGURE.least ? "it is a speck" : facts.straight > FIGURE.straight ? "a straight edge: a floor, stairs or the frame is in it" : "no head in it"})`;
+        const verdict = facts.figure ? "reads as a figure" : `does not read as a figure (${facts.cover > FIGURE.most ? "it fills most of the frame" : facts.cover < FIGURE.least ? "it is a speck" : facts.straight > FIGURE.straight ? "a straight edge: a floor, stairs or the frame is in it" : "the head is outside it"})`;
         let offer = "";
-        if (!facts.figure) {
+        if (!facts.figure && subject.type === "image") offer = "; a picture's matte is the same at every time";
+        else if (!facts.figure) {
           const [shotStart] = shotSpan(footage, ctx.sceneDuration);
           const better = (subject.subjectShapes ?? []).map((row) => readsAt(subject, footage, samples, row[0]))
             .filter((entry) => entry?.figure && entry.at >= shotStart - 1e-6 && entry.at + frames * FRAME <= shotEnd + 1e-6)
@@ -198,12 +212,17 @@ export const impactSilhouette = {
     if (hue) ctx.note(`ink ${ink} and plate ${plate}: ${footage.id}'s hue from ${hue.from} (${Math.round(hue.hue)}°)`);
     else if (!input.ink || !input.plate) ctx.note(`ink ${ink} on plate ${plate}: no hue measured on ${footage.id}, white on black as in the studied impact frame`);
     if (ctx.reduced) {
-      // Reduced motion: the shot holds its frame for the same frames, no plate jump.
-      const speed = ctx.stateAt(footage.id, t).speed ?? footage.mediaSpeed ?? 1;
-      ctx.animate(footage.id, "hold", motion({ name: "Impact hold", start: t, duration: 0.001, easing: CURVES.fade, from: { speed }, to: { speed: 0 } }), "layer");
-      ctx.animate(footage.id, "go", motion({ name: "Impact play", start: end, duration: 0.001, easing: CURVES.fade, from: { speed: 0 }, to: { speed } }), "layer");
-      ctx.note("reduced motion: the shot holds its frame, no plate, silhouette or parts");
-      return { end, tags: ["freeze-frame"] };
+      // Reduced motion: the shot holds its frame for the same frames, no plate jump. A cut-out of it
+      // that shows (one the agent made, not this move's own) holds with it, so the two stay in step.
+      const held = [footage, ...(subject && subject.type === "video" && subject.cutoutFor !== impactSilhouette.name ? [subject] : [])].filter((entry) => entry.type === "video");
+      for (const entry of held) {
+        const speed = ctx.stateAt(entry.id, t).speed ?? entry.mediaSpeed ?? 1;
+        const part = entry === footage ? "layer" : "subject";
+        ctx.animate(entry.id, "hold", motion({ name: "Impact hold", start: t, duration: 0.001, easing: CURVES.fade, from: { speed }, to: { speed: 0 } }), part);
+        ctx.animate(entry.id, "go", motion({ name: "Impact play", start: end, duration: 0.001, easing: CURVES.fade, from: { speed: 0 }, to: { speed } }), part);
+      }
+      ctx.note(held.length ? "reduced motion: the shot holds its frame, no plate, silhouette or parts" : "reduced motion: a picture already holds, so nothing is drawn (no plate, silhouette or parts)");
+      return { end, tags: held.length ? ["freeze-frame"] : [] };
     }
     const { width: W, height: H } = ctx.frame;
     const short = Math.min(W, H);
@@ -239,7 +258,7 @@ export const impactSilhouette = {
         shapes.push(`M${point(cx, cy, angle - spread, inner)} L${point(cx, cy, angle, outer)} L${point(cx, cy, angle + spread, inner)} Z`);
       }
       pathLayer("rays", "Impact rays", shapes.join(" "));
-      drawn.push(`${rays} rays to ${round(input.rayLength ?? 0.45, 2)} of the shorter side`);
+      drawn.push(`${rays} rays to ${round(input.rayLength ?? 0.45, 2)} of the shorter side${input.rays === undefined || input.rayLength === undefined ? " (default count and length: starting guesses)" : ""}`);
     }
     const ticks = input.ticks ?? 0;
     if (ticks > 0) {
@@ -289,7 +308,8 @@ export const impactSilhouette = {
       ctx.animate(part, "on", show(t));
       ctx.animate(part, "off", hide(end));
     }
-    ctx.note(`impact frame ${round(t, 3)} to ${end} s (${frames} frame${frames === 1 ? "" : "s"}): ${tone} silhouette ${ink} on ${plate}${drawn.length ? `, ${drawn.join(", ")}` : ""}; then ${footage.id}'s own frame`);
+    const why = input.frames === undefined && frames === asked ? ", the default: the studied hits hold 1 frame at 24 to 25 fps (0.04 s), and 2 at 30 fps (0.067 s) keep one in a render at 15 fps or more" : "";
+    ctx.note(`impact frame ${round(t, 3)} to ${end} s (${frames} frame${frames === 1 ? "" : "s"}${why}): ${tone} silhouette ${ink} on ${plate}${drawn.length ? `, ${drawn.join(", ")}` : ""}; then ${footage.id}'s own frame`);
     return { end, tags: ["flash"] };
   },
 };
