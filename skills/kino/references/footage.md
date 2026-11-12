@@ -101,6 +101,13 @@ The order opens `label yt:X on screen (seen)` for each of the first 2 saved, stu
 until all its moments are labeled. A reference with no frame strips has none to label. Then ask
 what your edit shows that these do not: the labels are what you build toward, not a template.
 
+The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
+(type, overlay, composite, color, made, spoken) that 2 of them show at 2 or more moments must show
+somewhere in your edit, read every 0.5 s. Its fix names the library search for the label's words
+(`library {topic:"search", search:"<words>"}`): use kino's own tools to make your version, not a copy.
+Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
+`quote` in words the person typed; "your call" is refused.
+
 ## Sources
 
 - Each clip keeps its creator and link as metadata. Put no credits on screen unless the person asks.

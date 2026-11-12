@@ -728,6 +728,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The saved references' own brightness, text and voice facts the edit is held to (reference_range):
       // a pixel rule, so a final render sees it (reference_drift above runs in the background).
       ...(pixels && refs.length ? { rangeRefs: refs } : {}),
+      // What the agent labeled on screen in each reference (library inspire seen): reference_kinds.
+      ...(refs.length ? { seenRefs: refs } : {}),
       // The saved references' lent cuts: an edit must not copy their shot lengths (reference_closeness).
       closeRefs,
       // What kino rendered in other projects, and this project's references as layouts (seen_before).
@@ -818,7 +820,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // until then they come back `heardPending`.
     const refs = references ? await references(document.id, { heardLater: pixels && listen }).catch(() => []) : [];
     const closeRefs = rhythms ? await rhythms(document.id).catch(() => []) : [];
-    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ref.heardPending ? "+pending" : ""}`).join(",");
+    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ref.heardPending ? "+pending" : ""}${(ref.seen ?? []).map((entry) => `/${entry.at}${(entry.kinds ?? []).join("")}`).join("")}`).join(",");
     // The house memory changes seen_before: which projects and revs it holds are part of the key.
     const houseMoments = house ? await house(document.id, document.name ?? null).catch(() => []) : [];
     const houseStamp = houseMoments.map((entry) => `${entry.projectId}@${entry.rev}v${entry.sigVersion ?? 1}`).join(",");

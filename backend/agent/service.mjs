@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, asksOf, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, asksOf, storedQuoteProblem, BriefError, briefChanges, briefData, briefText, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -1091,6 +1091,11 @@ export function createAgentService(deps) {
     if (list.some((op) => op?.code === "ask_unmet")) {
       const origin = (await agentState.read(document.id).catch(() => null))?.origin;
       if (origin?.words?.length) resolver.origin = origin;
+    }
+    // A reference_kinds waiver quotes the person: checked against their stored asks and replies.
+    if (list.some((op) => op?.code === "reference_kinds")) {
+      const brief = (await agentState.read(document.id).catch(() => null))?.brief;
+      resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote);
     }
     if (!list.some((op) => op?.code === "type_seen")) return resolver;
     const lines = (await agentState.read(document.id).catch(() => null))?.brief?.style?.lines ?? [];

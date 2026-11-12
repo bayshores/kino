@@ -204,6 +204,18 @@ function notSaid(where, quote, said) {
 // The problem with a quote that must be their words, or null when it was said.
 const quoteProblem = (where, quote, said) => (!said.missing && isSaid(quote, said.texts) ? null : notSaid(where, quote, said));
 
+/**
+ * The check a waiver of the person's words uses: whether `quote` is in what the brief stores of
+ * theirs (the asks as typed and the replies they logged; the same check by:"you" quotes pass).
+ * Null when it was said, else { missing } (no ask stored), { none } (ask "none") or { closest }.
+ */
+export function storedQuoteProblem(brief, quote) {
+  const said = saidBy(brief, [], false, [], []);
+  if (said.missing) return { missing: true };
+  if (isSaid(quote, said.texts)) return null;
+  return { ...(said.none ? { none: true } : {}), closest: closestSentence(quote, said.texts) };
+}
+
 // A string field of 1 to `limit` characters, trimmed; a problem sentence when it is not.
 function textProblem(where, value, limit) {
   if (typeof value !== "string" || !value.trim()) return `${where} is text of 1–${limit} characters.`;
