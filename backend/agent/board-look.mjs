@@ -47,9 +47,9 @@ const isNone = (value) => value === "none" || value == null;
  * `look` is createLook's renderer, `fontsFor(document)` the fonts a document draws with,
  * `mediaRecord(src)` a library file's record ({width, height, duration, name, mime}) or null, and
  * `soundSearch` whether sound search is on in Settings (the header says so). An empty sound is
- * "none": kino's built-in library needs no switch.
+ * "none": kino's built-in library needs no switch. `pace` is the page-1 pace lines (boardPaceLines).
  */
-export async function boardLook(input, { document, look, fontsFor, mediaRecord, soundSearch = false }) {
+export async function boardLook(input, { document, look, fontsFor, mediaRecord, soundSearch = false, pace = [] }) {
   const board = document.board;
   if (!board?.shots?.length) throw new BoardLookError("not_found", 'No storyboard yet: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}).');
   const pages = Math.ceil(board.shots.length / BOARD_PAGE);
@@ -111,7 +111,9 @@ export async function boardLook(input, { document, look, fontsFor, mediaRecord, 
   const nextCall = page < pages ? { tool: "look", input: { mode: "board", page: page + 1 } } : { tool: "notes", input: { action: "checkpoint", id: "board" } };
 
   const image = await look.boardImage(rows);
-  return { image, text: fitPage(head, shotLines, more), extra: { board: board.rev, page, pages, shots: listed }, nextCall };
+  // Page 1 also gets the pace lines (board-pace.mjs), after fitPage so they never shorten a quote.
+  const text = [fitPage(head, shotLines, more), ...(page === 1 ? pace : [])].join("\n");
+  return { image, text, extra: { board: board.rev, page, pages, shots: listed }, nextCall };
 }
 
 // The widths the board screen asks a shot's image at (its srcset).
