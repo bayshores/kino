@@ -587,6 +587,32 @@ test("a full-frame file with an alpha channel (an alpha WebM, a picture with a c
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("animation codes hold through a refused edit that tries match_references; delete_animation needs no layer", async () => {
+  await agent("project", { action: "create", id: "codes", name: "Codes", width: 640, height: 360, duration: 4 });
+  const made = await agent("edit", { project: "codes", ops: ["one", "two"].flatMap((name) => [
+    { op: "add_layer", layerType: "rectangle", name, properties: { x: 1, y: 1, width: 10, height: 10 } },
+    { op: "add_animation", layer: name, preset: "preset-fade", start: 0, duration: 0.5 }]) });
+  const [one, two] = [made.data.created["one.in"], made.data.created["two.in"]];
+  assert.match(two, /^A\d+$/);
+  // delete_animation runs before match_references, which looks at the document as the edit has it
+  // so far: that document lacks the code's animation and must not make its code forgotten.
+  const refused = await agent("edit", { project: "codes", ops: [{ op: "delete_animation", animation: one }, { op: "match_references" }, { op: "update_layer", layer: "none-here", properties: { x: 1 } }] });
+  assert.equal(refused.isError, true, refused.text);
+  assert.equal(refused.data.op, 2, "only the update_layer is refused: the delete_animation by code alone works");
+  const read = await agent("inspect", { project: "codes", targets: ["one", "two"] });
+  assert.match(read.text, new RegExp(`${one} 'Fade In'`), read.text);
+  assert.match(read.text, new RegExp(`${two} 'Fade In'`), read.text);
+  assert.match(refused.data.next, /op numbers count from 0 as in "Operation N".* key 3 adds an op after them/);
+  // Op numbers count from 0; the key after the last op adds an op (and a list of ops adds several).
+  const dropped = await agent("edit", { project: "codes", retry: refused.data.retry, fix: { 2: null, 3: { op: "update_layer", layer: "two", properties: { x: 7 } }, 4: [{ op: "update_layer", layer: "two", properties: { y: 8 } }] } });
+  assert.equal(dropped.isError, undefined, dropped.text);
+  const placed = (await (await server.api("/api/projects/codes")).json()).document.scenes[0].layers.find((layer) => layer.name === "two");
+  assert.deepEqual([placed.x, placed.y], [7, 8]);
+  const wrong = await agent("edit", { project: "codes", retry: refused.data.retry, fix: { 3: null } });
+  assert.match(wrong.data.reason, /fix key "3" is not an op number of E\d+ \(0 to 2\)\. Op numbers count from 0.* A key from 3 on adds ops/);
+  assert.deepEqual(dropped.data.removed, [one]);
+});
+
 test("after a check fix:auto that applied nothing, next: names a plain check, not fix:auto again", async () => {
   await agent("edit", { ops: [{ op: "add_scene", name: "quiet", properties: { duration: 2 } }] });
   await agent("check", { fix: "auto" });
