@@ -283,7 +283,24 @@ const RISE_WINDOW = 0.4;
 const BED_LOWEST = -40;
 // A receipt's hidden link from a line's note to its music, so a later keep_line in the same edit rewrites it.
 const RETURN = Symbol("keep_line return");
-const db = (value) => 20 * Math.log10(Math.max(1e-6, value));
+// A receipt's hidden link to its line's place on the song, so its `dips` is written after every line in the edit.
+const CHAIN = Symbol("keep_line dips");
+
+// The dips that follow on from one another (each kept line its own level) around start..end on the
+// song, as the receipt's `dips` text ("0.631 at 0.2-1.5 s · 0.562 at 1.5-3 s"); null for one dip alone.
+function dipChain(scene, musicLayer, start, end) {
+  const songHead = songOf(scene, musicLayer)[0]?.layer;
+  const pairs = songHead ? duckPairs(songHead) : [];
+  const at = pairs.findIndex((pair) => pair.start < end && pair.end > start);
+  if (at < 0) return null;
+  let first = at;
+  let last = at;
+  while (first > 0 && !pairs[first - 1].up && Math.abs(pairs[first - 1].end - pairs[first].start) < 0.01) first -= 1;
+  while (last + 1 < pairs.length && !pairs[last].up && Math.abs(pairs[last].end - pairs[last + 1].start) < 0.01) last += 1;
+  if (last === first) return null;
+  return `${musicLayer.name} under the lines: ${pairs.slice(first, last + 1).map((pair) => `${round(pair.level)} at ${round(pair.start)}-${round(Math.min(pair.end, scene.duration))} s`).join(" · ")}`;
+}
+const db =(value) => 20 * Math.log10(Math.max(1e-6, value));
 const powerSum = (...values) => 10 * Math.log10(values.filter(Number.isFinite).reduce((sum, value) => sum + 10 ** (value / 10), 0));
 
 // The song and its fit_music pieces, each with its Play range.
@@ -339,7 +356,8 @@ function shareBed(scene, musicLayer, levels, start, end, own, silent) {
   const pieces = songOf(scene, musicLayer);
   if (!pieces.length) return null;
   const head = pieces[0];
-  const pair = duckPairs(head.layer).find((item) => item.start < end && item.end > start && item.level <= 0.001);
+  // The music out under the line, or at its bed (one dip the lines share at one level).
+  const pair = duckPairs(head.layer).find((item) => item.start < end && item.end > start && (item.level <= 0.001 || !silent));
   if (!pair) return null;
   const lines = sceneLines(scene, pieces.map((piece) => piece.layer)).filter((line) => line.start < pair.end && line.end > pair.start).sort((a, b) => a.start - b.start);
   const others = lines.filter((line) => !(own.includes(line.layer) && line.start < end + 0.01 && line.end > start - 0.01));
@@ -354,7 +372,7 @@ function shareBed(scene, musicLayer, levels, start, end, own, silent) {
   const left = pair.down?.from?.volume ?? volumeAt(bare, pair.start);
   const spans = `${lines.map((line) => `${round(line.start, 1)}-${round(line.end, 1)}`).join(", ")} s`;
   if (silent) {
-    return { gap, note: `the lines at ${spans} share one dip with the music out (dropout:true)${gap ? `: no music in the ${round(gap.end - gap.start, 1)} s between them at ${gap.start}-${gap.end} s` : ""}; without dropout the music holds a low bed there` };
+    return { gap, note: `the lines at ${spans} share one dip with the music out (dip:0)${gap ? `: no music in the ${round(gap.end - gap.start, 1)} s between them at ${gap.start}-${gap.end} s` : ""}; without dip:0 the music holds a measured bed there` };
   }
   // The quietest line as the export levels it (voiceLevel, at most MAX_LEVEL_DB over the file's own
   // level), its volume applied, and the music under the dip untouched.
@@ -371,7 +389,7 @@ function shareBed(scene, musicLayer, levels, start, end, own, silent) {
   const needed = measured ? Math.min(...heard) - LINE_OVER_BED - music : null;
   const bedDb = measured ? Math.max(BED_LOWEST, Math.min(0, needed)) : db(DIP_FLOOR);
   for (const piece of pieces) {
-    const match = duckPairs(piece.layer).find((item) => Math.abs(item.start - pair.start) < 0.002 && item.level <= 0.001);
+    const match = duckPairs(piece.layer).find((item) => Math.abs(item.start - pair.start) < 0.002 && Math.abs(item.level - pair.level) <= 0.001);
     if (!match) continue;
     const from = match.down?.from?.volume ?? volumeAt(withoutDips(piece.layer), match.start);
     const bed = round(from * 10 ** (bedDb / 20));
@@ -388,7 +406,7 @@ function shareBed(scene, musicLayer, levels, start, end, own, silent) {
     gap, bed,
     note: `the lines at ${spans} share one dip: the music holds a bed at ${bed} (${round(bedDb, 1)} dB; ${how}) through it instead of going out`
       + (gap ? `, ${gapLevel === null ? "unmeasured" : `${gapLevel} LUFS measured`} in the ${round(gap.end - gap.start, 1)} s between them at ${gap.start}-${gap.end} s` : "")
-      + "; dropout:true keeps the music out there",
+      + "; dropout:true with dip:0 keeps the music out there",
   };
 }
 
@@ -451,6 +469,15 @@ function bedWording(notes, bed) {
 // music comes back at another time now that later lines are placed (a later line joined its dip).
 function refreshEarlier(document, reports, current) {
   for (const report of reports?.values() ?? []) {
+    // Each line's `dips`, as the song now plays (a later line chained on, or shared its dip).
+    const chain = report?.[CHAIN];
+    const chainScene = chain && document.scenes.find((item) => item.id === chain.sceneId);
+    const chainMusic = chainScene?.layers.find((item) => item.id === chain.musicId);
+    if (chainMusic) {
+      const said = dipChain(chainScene, chainMusic, chain.start, chain.end);
+      if (said) report.dips = said;
+      else delete report.dips;
+    }
     const link = report?.[RETURN];
     if (!link || report === current) continue;
     const scene = document.scenes.find((item) => item.id === link.sceneId);
@@ -460,6 +487,18 @@ function refreshEarlier(document, reports, current) {
     const upAt = ups.length ? round(Math.min(...ups.map((animation) => animation.start + animation.duration))) : null;
     const under = volumeAt(musicLayer, (link.start + link.end) / 2);
     if (upAt === null || (Math.abs(upAt - link.at) <= 0.02 && Math.abs(under - link.under) <= 0.001)) continue;
+    // A later line's own dip follows on from this one (duck_audio chained them): this line keeps its level.
+    const next = (musicLayer.animations ?? []).filter((animation) => animation.name === DUCK_NAMES.down && animation.start > link.start + 0.01 && animation.start < upAt
+      && Math.abs((animation.from?.volume ?? -1) - under) <= 0.001).sort((a, b) => a.start - b.start)[0];
+    if (next && Math.abs(under - link.under) <= 0.001) {
+      report.notes[link.index] = `the next line's own dip follows on: the music goes from ${round(under)} to ${next.to?.volume} at ${round(next.start)}-${round(next.start + next.duration)} s instead of coming back up (each line keeps its own dip; full again by ${upAt} s)`;
+      const own = duckPairs(musicLayer).find((item) => item.start < link.end && item.end > link.start);
+      const said = own ? `ducked to ${round(under)} at ${round(own.start)}-${round(Math.min(own.end, scene.duration))} s` : null;
+      if (said && report.duck && typeof report.duck.summary === "string") report.duck = { ...report.duck, summary: report.duck.summary.replace(/ducked to [\d.]+ at [\d.]+-[\d.]+ s/, said) };
+      if (said && typeof report.summary === "string") report.summary = report.summary.replace(/ducked to [\d.]+ at [\d.]+-[\d.]+ s/, said);
+      link.at = upAt;
+      continue;
+    }
     const bed = under > 0.001 && link.under <= 0.001 ? `; the music holds a bed at ${round(under)} under the lines instead of going out` : "";
     report.notes[link.index] = `a later line in this edit shares this line's dip: the music is back by ${upAt} s (${round(upAt - link.end, 1)} s after the line)${bed}`;
     // The dip as it now plays under this line (a later line moved its end or raised it to a bed).
@@ -830,7 +869,6 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   const music = musicOf(scene, layer, operation);
   if (operation.dropout !== undefined && typeof operation.dropout !== "boolean") fail("dropout is true (the music leaves for the line and comes back on the next downbeat) or false.");
   if (operation.wait !== undefined && (typeof operation.wait !== "number" || !(operation.wait >= 0 && operation.wait <= 4))) fail("wait is how many seconds the music may stay out for the next downbeat, 0 to 4 (default half a bar; past it the music hits back on the next beat).");
-  if (operation.dropout && operation.dip !== undefined) fail("give dip or dropout:true, not both: dropout takes the music out under the line.");
   if (operation.lift !== undefined && typeof operation.lift !== "boolean" && operation.lift !== "gain") fail("lift is true (the song stays untouched and the line is lifted over it), \"gain\" (the same, past the lift cap by a gain stage on this line, the limiter after it) or false.");
   const lifting = operation.lift === true || operation.lift === "gain";
   // A given dip or dropout is kept as given; lift:true beside it is set aside, and a note says so.
@@ -852,6 +890,8 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   // cue, and the hidden link a later keep_line in this edit uses to rewrite this line's return note.
   let bedSaid = null;
   let dropSaid = null;
+  let chainSaid = null;
+  let chainLink = null;
   let returnLink = null;
   let levelsLink = null;
   if (music.layer) {
@@ -898,8 +938,15 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       over = lineOverMusicAt(scene, owner, music.layer, start, end, { ...operation, dropout: true }) ?? over;
     }
     const wayDip = () => (way === "dip" ? round(Math.max(0, Math.min(level, level * 10 ** (ways.dip.dipDb / 20)))) : level);
-    const dip = way ? wayDip() : untouched ? level : out ? 0
+    // Music out under the line (dropout, or a line no dip can hold): a bed LINE_OVER_BED LU under the
+    // line as leveled, measured, down to BED_LOWEST; dip (0 for none) given with dropout:true sets it.
+    const outBed = out && operation.dip === undefined && Number.isFinite(over?.heard) && Number.isFinite(over?.measured?.under)
+      ? Math.max(BED_LOWEST, Math.min(0, over.heard - LINE_OVER_BED - over.measured.under)) : null;
+    const dip = way ? wayDip() : untouched ? level : out ? (operation.dip ?? (outBed === null ? 0 : round(level * 10 ** (outBed / 20))))
       : operation.dip ?? (over ? round(Math.max(0, Math.min(level, level * 10 ** (over.dipDb / 20)))) : round(level * DEFAULT_DIP));
+    const outSaid = !out ? null : dip > 0.001
+      ? `the music at a bed of ${dip} under the line (${round(db(dip / level), 1)} dB${outBed === null ? ", given" : `: ${outBed <= BED_LOWEST ? `held at ${BED_LOWEST} dB, the lowest bed still heard (a starting guess)` : `${LINE_OVER_BED} LU under the line, measured`}`}); dropout:true with dip:0 takes it out`
+      : "music out under the line";
     if (dip > level) notes.push(`dip ${dip} is above the music's volume ${level}, so the music gets louder under the line`);
     // The line leveled for the way taken (lift or dip), its mix and one note; a second call (the
     // default dip would churn) replaces the note.
@@ -941,15 +988,17 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       // The export levels the kept line to this (before the layer's volume).
       owner.piece.voiceLevel = round(over.target - 20 * Math.log10(Math.max(1e-6, volume)), 1);
       for (const entry of kept) if (entry !== owner) entry.piece.voiceLevel = owner.piece.voiceLevel;
-      const given = operation.dip !== undefined ? lineOverMusic(over.measured, { dropDb: 20 * Math.log10(Math.max(1e-6, dip / level)) }) : over;
-      const change = round(given.total - over.measured.around, 1);
-      mix = { line: given.heard, around: over.measured.around, under: given.total, change };
-      notes.push(`line leveled to ${given.heard} LUFS against the music around it (${over.measured.around}); ${out ? "music out under the line" : `dip ${dip} (${round(given.dipDb, 1)} dB)`}`);
+      const given = operation.dip !== undefined && !out ? lineOverMusic(over.measured, { dropDb: 20 * Math.log10(Math.max(1e-6, dip / level)) }) : over;
+      // Music out with a bed under the line: the bed counts in the mix.
+      const total = out && dip > 0.001 ? round(powerSum(given.heard, over.measured.under + db(dip / level)), 1) : given.total;
+      const change = round(total - over.measured.around, 1);
+      mix = { line: given.heard, around: over.measured.around, under: total, change };
+      notes.push(`line leveled to ${given.heard} LUFS against the music around it (${over.measured.around}); ${out ? outSaid : `dip ${dip} (${round(given.dipDb, 1)} dB)`}`);
       if (tooQuiet) {
         // The cost of each choice, measured: the shortfall at the lift cap, and the dip that would hold the mix.
         const hold = Number.isFinite(tooQuiet.holdDb) ? round(level * 10 ** (tooQuiet.holdDb / 20), 3) : null;
         const buried = hold === null ? null : round(tooQuiet.measured.under + tooQuiet.holdDb - tooQuiet.heard, 1);
-        notes.push(`the line is ${tooQuiet.short} LU short of the music at the +${MAX_LEVEL_DB} dB lift (it reaches ${tooQuiet.heard} LUFS, the music around it ${tooQuiet.measured.around}), so the music goes out under it`
+        notes.push(`the line is ${tooQuiet.short} LU short of the music at the +${MAX_LEVEL_DB} dB lift (it reaches ${tooQuiet.heard} LUFS, the music around it ${tooQuiet.measured.around}), so ${dip > 0.001 ? `a dip cannot hold it: the music sits at a bed of ${dip} under it` : "the music goes out under it"}`
           + (hold === null ? "" : `; dip:${hold} keeps the music in and holds the mix, the line ${buried} LU under the music`)
           + (gainStage ? `; lift:"gain" keeps the song untouched with ${gainWords(gainStage)}, ${signed(ways.gain.over)} LU over the song, the master limiter after it` : ""));
       }
@@ -1004,7 +1053,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       if (duck?.payoff) notes.push(duck.payoff);
       if (out && back) hitBack(scene, music.layer, end, back.at);
       // Lines that share one music-out dip: a low bed between them, not silence (shareBed).
-      const shared = out && duck ? shareBed(scene, music.layer, operation.levels, start, end, kept.map((entry) => entry.piece), operation.dropout === true) : null;
+      const shared = out && duck ? shareBed(scene, music.layer, operation.levels, start, end, kept.map((entry) => entry.piece), dip <= 0.001) : null;
       if (shared) {
         notes.push(shared.note);
         if (shared.gap) bedSaid = { at: [shared.gap.start, shared.gap.end], bed: shared.bed ?? 0 };
@@ -1033,16 +1082,20 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
         const rise = before !== null && after !== null ? round(after - before, 1) : null;
         if (rise !== null) dropSaid = { at: back.at, cue: back.name, before, after, rise };
         notes.push(`the music stays ${musicOut ? "out" : "at its bed"} until the song's ${back.name} at ${back.at} s, ${round(back.at - end, 2)} s after the line's last word, and hits back on it${rise === null ? " (not measured)" : `: ${signed(rise)} LU there (${before} to ${after} LUFS, ${RISE_WINDOW} s each side, measured)`}`);
-      } else if (back && out && upAt !== null && upAt < back.at - 0.02) notes.push(`the music drops out for the line and is back by ${upAt} s (${Math.abs(round(upAt - end, 1))} s ${upAt >= end ? "after" : "before"} the line ends): the dip ends on the song's section cue there, not on the beat at ${back.at} s`);
-      else if (back && out && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
+      } else if (back && out && upAt !== null && upAt < back.at - 0.02) notes.push(`the music ${musicOut ? "drops out for the line" : "sits at its bed under the line"} and is back by ${upAt} s (${Math.abs(round(upAt - end, 1))} s ${upAt >= end ? "after" : "before"} the line ends): the dip ends on the song's section cue there, not on the beat at ${back.at} s`);
+      else if (back && out && back.kind === "beat") notes.push(`the music ${musicOut ? "drops out for the line" : "sits at its bed under the line"} and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
       // A dip joined with one under another line stays down past the beat: the note says when it is back.
       else if (back && duck && !out && upAt !== null && upAt > back.at + 0.02) notes.push(`the music stays down with the dip under the next sound and comes back up at ${upAt} s (not on the beat at ${back.at} s)`);
-      else if (back && duck) notes.push(out ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
+      else if (back && duck && !out && upAt !== null && upAt < back.at - 0.02) notes.push(`the music is back up by ${upAt} s, ${Math.abs(round(upAt - end, 1))} s ${upAt >= end ? "after" : "before"} the line ends: the dip ends on the song's section cue there, not on the beat at ${back.at} s`);
+      else if (back && duck) notes.push(out ? `the music ${musicOut ? "drops out for the line" : "sits at its bed under the line"} and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
       else if (out) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
       // A later keep_line in this edit that joins this dip rewrites this note (refreshEarlier).
       if (notes.length > before0 && duck && upAt !== null)
         returnLink = { sceneId: scene.id, musicId: music.layer.id, start, end, at: upAt, index: before0, under: volumeAt(music.layer, (start + end) / 2), level, bedFull: over?.measured?.under };
       if (duck && !out && operation.dip === undefined && over && !over.own) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
+      // The dips that follow on from one another around this line (each kept line its own level).
+      chainSaid = dipChain(scene, music.layer, start, end);
+      chainLink = { sceneId: scene.id, musicId: music.layer.id, start, end };
     }
     // A lift (asked, the default, or the churn fallback) replaces a dip an earlier keep_line left
     // under this line: that dip goes, unless it also holds another kept line or another heard sound
@@ -1099,6 +1152,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     ...(gainSaid ? { gain: gainSaid } : {}),
     ...(waysSaid ?? {}),
     ...(bedSaid ? { bed: bedSaid } : {}),
+    ...(chainSaid ? { dips: chainSaid } : {}),
     ...(dropSaid ? { drop: dropSaid } : {}),
     ...(even ? { even: { median: even.median, spread: even.spread, places: even.places } } : {}),
     summary: `kept ${sound ? `${sound.label.replaceAll("_", " ")} (${sound.db} dB) ` : text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : standing ? `subtitle ${standing.name} kept as it was` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the ${sound ? "sound" : "line"} ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
@@ -1106,6 +1160,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   };
   if (returnLink && notes.length) Object.defineProperty(receipt, RETURN, { value: returnLink, enumerable: false });
   if (levelsLink) Object.defineProperty(receipt, LEVELS, { value: levelsLink, enumerable: false });
+  if (chainLink) Object.defineProperty(receipt, CHAIN, { value: chainLink, enumerable: false });
   // Every line's note in one edit is written after all the lines are placed.
   refreshEarlier(document, reports, receipt);
   return receipt;

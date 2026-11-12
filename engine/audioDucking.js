@@ -198,7 +198,7 @@ export function loudSpans(curve, layer, range, spans) {
  * their fades must stop. Returns sorted [{ start, end, names?, upBy?, downFrom? }] of the
  * stretches themselves; `names` lists the names of the spans in each, when the spans have them.
  */
-export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks = [], join = 0) {
+export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks = [], join = 0, chain) {
   const sorted = spans
     .map((span) => ({ ...span, start: Math.max(0, span.start), end: Math.min(sceneDuration, span.end) }))
     .filter((span) => span.end > span.start)
@@ -212,14 +212,23 @@ export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks 
     // An earlier dip keeps its own fades; the music comes back up whenever the two ramps fit in the gap.
     const up = last?.ramps?.fadeUp ?? fadeUp;
     const down = ramps?.fade ?? fade;
+    // `chain` (keep_line's own dip level): a close stretch at another level is not merged into one
+    // dip at the deeper level; it follows on (`chained`), the song moving from one level to the next in the gap.
+    // Earlier dips that follow on from one another stay apart at their own levels in any call (a
+    // later duck_audio or keep_line join keeps each line's dip).
+    const level = earlier ?? chain;
     // `join`: stretches this close are one dip as well (the ramps keep their own lengths).
-    if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP) {
+    if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP && level !== undefined && last.level !== undefined && Math.abs(level - last.level) > 0.001) {
+      if (span.start < last.end) last.end = span.start;
+      joined.push(last = { ...span, chained: true, ...(ramps ? { ramps } : {}) });
+    } else if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP) {
       last.end = Math.max(last.end, span.end);
       if (earlier === undefined || last.ramps !== ramps) delete last.ramps;
     } else {
       if (cue != null && span.start - down <= last.end + up) { last.upBy = cue; span.downFrom = cue; }
       joined.push(last = { ...span, ...(ramps ? { ramps } : {}) });
     }
+    if (level !== undefined) last.level = Math.min(last.level ?? Infinity, level);
     if (name && !(last.names ??= []).includes(name)) last.names.push(name);
     if (Number.isFinite(voice)) last.voice = Math.min(last.voice ?? Infinity, voice);
     if (Number.isFinite(unlined)) last.unlined = Math.min(last.unlined ?? Infinity, unlined);
@@ -463,13 +472,16 @@ function duckOnce(document, operation) {
   const kept = earlier.filter((dip) => !inside(dip).length);
   // keep_line (ownLine): a dip this line shares with a close earlier line is cut around this line,
   // and its parts where another sound is still heard (that earlier line) dip with this one.
-  const rest = operation.ownLine ? earlier.filter((dip) => inside(dip).length).flatMap((dip) => outsideSpans(dip, inside(dip)))
+  // Each part keeps the level of the dip it came from (the other line's own depth).
+  const rest = operation.ownLine ? earlier.filter((dip) => inside(dip).length).flatMap((dip) => outsideSpans(dip, inside(dip)).map((part) => ({ ...part, earlier: dip.earlier, ramps: dip.ramps })))
     .filter((part) => heardElsewhere(scene, [layer, ...pieces], part)) : [];
+  // keep_line's own dip (not one it shares on purpose, join): each line keeps its own level.
+  const chain = operation.ownLine && !operation.join && operation.to !== undefined ? operation.to : undefined;
   const stretches = duckStretches([
     ...ducked.map(({ start, end, name, voice, unlined }) => ({ start, end, ...(name ? { name } : {}), voice, unlined })),
     ...rest,
     ...kept,
-  ], fade, scene.duration, fadeUp, sections.map((cue) => cue.time), operation.join ?? 0);
+  ], fade, scene.duration, fadeUp, sections.map((cue) => cue.time), operation.join ?? 0, chain);
   for (const stretch of stretches) {
     const cue = stretch.onlyEarlier ? undefined : drops.find((time) => time >= stretch.end - 1e-6 && time < stretch.end + fadeUp);
     if (cue !== undefined) stretch.upBy = Math.min(stretch.upBy ?? Infinity, cue);
@@ -515,10 +527,14 @@ function duckOnce(document, operation) {
     const kept = (piece.animations ?? []).filter((animation) => !isDuck(animation));
     const base = { ...piece, animations: kept.filter((animation) => !isFitFade(animation)) };
     const added = [];
+    // The level the stretch before was held at (a chained stretch moves on from it).
+    let before = null;
     for (const [number, stretch] of stretches.entries()) {
       // An earlier dip alone keeps its own fades and volume.
       const ramps = stretch.onlyEarlier ? stretch.ramps ?? { fade, fadeUp } : { fade, fadeUp };
-      const downStart = round(Math.max(0, stretch.start - ramps.fade, stretch.downFrom ?? 0));
+      const prev = stretch.chained && number > 0 ? stretches[number - 1] : null;
+      const chainedOut = stretches[number + 1]?.chained === true;
+      let downStart = round(Math.max(0, stretch.start - ramps.fade, stretch.downFrom ?? 0));
       const left = volumeAt(base, downStart);
       const target = toFor(stretch);
       // A given `to` is kept. A default long dip stays within LONG_DIP_DB of the level it leaves;
@@ -533,13 +549,22 @@ function duckOnce(document, operation) {
       // A dip joined with an earlier one goes as deep as the deeper of the two.
       const level = stretch.earlier !== undefined ? Math.min(made, stretch.earlier) : made;
       const under = clears[number].needs.filter((need) => need.volume < level).map((need) => need.line);
+      // Chained on from the stretch before: the song moves between the two levels in the gap, at
+      // least RAMP_MIN long; going deeper it is down by this line, coming up it leaves after the last one.
+      let downEnd = stretch.start;
+      if (prev && before !== null) {
+        downStart = level < before ? round(Math.max(prev.start, Math.min(prev.end, stretch.start - RAMP_MIN))) : round(prev.end);
+        downEnd = level < before ? stretch.start : Math.min(stretch.end, Math.max(stretch.start, prev.end + RAMP_MIN));
+      }
       added.push({
         id: uid(), name: DUCK_NAMES.down, kind: "custom", easing: "smooth",
-        start: downStart, duration: Math.max(SHORTEST, round(stretch.start - downStart)),
-        from: { volume: round(left) }, to: { volume: level },
+        start: downStart, duration: Math.max(SHORTEST, round(downEnd - downStart)),
+        from: { volume: prev && before !== null ? before : round(left) }, to: { volume: level },
       });
+      before = level;
       let end = stretch.end;
-      if (stretch.end < scene.duration - SHORTEST) {
+      if (chainedOut) end = stretch.end;
+      else if (stretch.end < scene.duration - SHORTEST) {
         // Cut short by a section cue, the fade up still takes RAMP_MIN, ending on the cue.
         const by = stretch.upBy ?? Infinity;
         const upStart = Number.isFinite(by) ? Math.max(stretch.start, Math.min(stretch.end, by - RAMP_MIN)) : stretch.end;
@@ -607,13 +632,14 @@ function duckOnce(document, operation) {
   // Dips at their own depths: the headline is the deepest one this call made (a measured depth
   // under a dip's floor is never the level heard), or the given `to`.
   const made = dips.filter((dip) => !dip.earlier).map((dip) => dip.level);
-  const headline = operation.to ?? (made.length ? Math.min(...made) : to);
+  // Only earlier dips (each line's own, kept): the deepest of them, not the unmeasured default.
+  const headline = operation.to ?? (made.length ? Math.min(...made) : dips.length ? Math.min(...dips.map((dip) => dip.level)) : to);
   const quoted = (line) => `"${line.text.length > 40 ? `${line.text.slice(0, 40)}...` : line.text}" (${line.name})`;
   return {
     layer: layer.name,
     to: dips.length && dips.every((dip) => dip.level === dips[0].level) ? dips[0].level : headline,
     dips: dips.length,
-    summary: !dips.length && (clear.length || keptLines.length) ? `${layer.name} is not ducked: ${keptLines.length ? "keep_line already set it under the kept lines" : ""}${keptLines.length && clear.length ? "; " : ""}${clear.length ? "every line is clear of it as it plays" : ""}` : duckSummary(layer.name, headline, dips),
+    summary: !dips.length && (clear.length || keptLines.length) ? `${layer.name} is not ducked: ${keptLines.length ? "keep_line already set it under the kept lines" : ""}${keptLines.length && clear.length ? "; " : ""}${clear.length ? "every line is clear of it as it plays" : ""}` : duckSummary(layer.name, headline, stretches.some((stretch) => stretch.chained) && made.length ? dips.filter((dip) => !dip.earlier) : dips),
     ...(pieces.length > 1 ? { pieces: pieces.length } : {}),
     ...(dips.length ? { times: dips.slice(0, MAX_REPORTED).map((dip) => [dip.start, dip.end]) } : {}),
     ...(dips.length > MAX_REPORTED ? { more: dips.length - MAX_REPORTED } : {}),
