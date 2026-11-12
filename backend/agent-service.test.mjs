@@ -397,6 +397,8 @@ test("look returns PNG images for a sheet and a frame, saved as files", async ()
   const sheet = await agent("look", { project: "alpha" });
   assert.equal(sheet.isError, undefined);
   assert.match(withoutNext(sheet.text), /^sheet s1: 1=0s 2=\S+ .* 12=\S+\nreturns: [^\n]+\nimage \S+\.png$/);
+  // The returns line also compares the first and last pictures (two small frames), not only the layers they share.
+  assert.match(sheet.text, /first 1 s and last frame share: [^\n]+ · first and last picture alike: [01](\.\d+)? \(1 is the same picture\)\n/);
   assert.equal(sheet.images.length, 1);
   const [image] = sheet.images;
   assert.equal(image.mime, "image/png");

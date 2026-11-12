@@ -618,6 +618,16 @@ test("keep_line over measured music levels the line against the music around it,
   const bedClip = parseDocument(applyOperations(parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [{ ...clip, volume: 0.38 }, document.scenes[0].layers[1]] }] }), [bedLine], { reports: bedReports })).scenes[0].layers[0];
   assert.deepEqual([bedReports.get(bedLine).gain.line[1], bedClip.voiceLevel], [-7, 1.4]);
   assert.equal(Math.round(voiceLines(bedLine.levels.clip, bedClip, mediaPlaybackRange(bedClip, 12), words)[0].lufs), -7);
+  // level:<dB> moves this line by that many dB on voiceLevel, and the receipt prints the line over the song.
+  const base = run({ levels, beats, lift: true });
+  const louder = run({ levels, beats, lift: true, level: 3 });
+  assert.equal(louder.clip.voiceLevel, Math.round((base.clip.voiceLevel + 3) * 10) / 10);
+  assert.deepEqual([louder.report.level.db, louder.report.mix.line - base.report.mix.line], [3, 3]);
+  assert.match(louder.report.notes.join(" | "), /level \+3 dB on this line only: it plays at -?[\d.]+ LUFS, [+-][\d.]+ LU over the song \(-?[\d.]+ LUFS under it\); stored as voiceLevel/);
+  assert.equal(run({ levels, beats, lift: true, level: -4 }).report.level.db, -4);
+  assert.throws(() => run({ levels, beats, level: "loud" }), /level is dB to add/);
+  // A raise past the 12 dB lift cap stores the gain stage too.
+  assert.ok(run({ levels: quietClip, lift: "gain", level: 6 }).clip.voiceLift > gained.clip.voiceLift);
 });
 
 test("two music-out lines 0.6 s apart share a low bed, not silence, and the song lands its drop after the last word", () => {

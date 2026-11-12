@@ -1044,6 +1044,17 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       return pages;
     },
 
+    // How alike the scene's first frame (0 s) and last frame (0.05 s before its end) are, as the share
+    // of pixels of two small frames (the look tile's size) that did not change past the same color
+    // threshold look changed uses: 1 is the same picture. Null when a frame cannot be drawn.
+    async endsLikeness(prepared) {
+      const size = tileSize(prepared.scene, TILE_LONG_EDGE);
+      const [first, last] = await frames(prepared, [0, Math.max(0, prepared.scene.duration - 0.05)], size.width);
+      if (!first?.png || !last?.png) return null;
+      const total = size.width * size.height;
+      return Math.round((1 - Math.min(total, await changedPixels(first.png, last.png)) / total) * 100) / 100;
+    },
+
     // Re-renders the frames of the last look and keeps the ones whose pixels changed.
     // `prepared` is one prepared scene, or a function giving the scene of a frame (a sheet of
     // every scene has frames from several); a frame whose scene is gone is skipped.

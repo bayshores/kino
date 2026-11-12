@@ -199,7 +199,10 @@ export function openAndClose(scene, { duration = scene?.duration ?? 0, scenes = 
 /** One line: `returns: ring at 3.3 7 11.3 14.2 (scaleX 0.4 to 1.6) · ... · first 1 s and last frame share: nothing`. */
 // At most this many times per device, so a 50-copy duplicate keeps the line short (a guess).
 const SHOWN_PLACES = 8;
-export function returnsLine(devices, { share = [] } = {}, limit = 4) {
+// `likeness` (0 to 1, from look's endsLikeness: the share of two small frames' pixels that match) is
+// printed beside the share: the layers can share while the pictures differ, or the pictures match
+// with nothing shared.
+export function returnsLine(devices, { share = [], likeness = null } = {}, limit = 4) {
   // "<label> at <times>": no count after the label, so "image at 2 5" is not read as a layer "image 2".
   // A short run ends with its count ("×4"); a device of several layers says how many at a place.
   const times = (places) => (places.length > SHOWN_PLACES ? `${places.slice(0, SHOWN_PLACES).join(" ")} … (${places.length} places)` : `${places.join(" ")} ×${places.length}`);
@@ -207,10 +210,10 @@ export function returnsLine(devices, { share = [] } = {}, limit = 4) {
   const rest = devices.slice(limit);
   const more = rest.length ? ` · +${rest.length} more (${rest.slice(0, 8).map((device) => `${device.label} ×${device.places.length}`).join(", ")}${rest.length > 8 ? ", ..." : ""})` : "";
   const head = listed.length ? listed.join(" · ") + more : "no made layer, word, move or shot is shown twice";
-  return `returns: ${head} · first 1 s and last frame share: ${share.length ? share.join(", ") : "nothing"}`;
+  return `returns: ${head} · first 1 s and last frame share: ${share.length ? share.join(", ") : "nothing"}${Number.isFinite(likeness) ? ` · first and last picture alike: ${likeness} (1 is the same picture)` : ""}`;
 }
 
 /** The line for a saved scene, as look and check print it. */
-export function sceneReturnsLine(scene, { scenes = [], duration = scene?.duration } = {}) {
-  return returnsLine(returningDevices(scene, { scenes }), { share: openAndClose(scene, { duration, scenes }) });
+export function sceneReturnsLine(scene, { scenes = [], duration = scene?.duration, likeness = null } = {}) {
+  return returnsLine(returningDevices(scene, { scenes }), { share: openAndClose(scene, { duration, scenes }), likeness });
 }

@@ -3776,7 +3776,7 @@ export function createAgentService(deps) {
     lines.push(`techniques: ${techniquesLine(result.techniques, 8)} · style: ${result.styleSpec ? "spec" : "kino default"}`);
     // What comes back in the checked (or main) scene: a fact beside techniques, never a finding.
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
-    if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
+    if (returnsScene) lines.push(options.pixels ? await returnsLineFor(returnsScene, record.document, fonts) : sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // Where the background shows between two full-frame shots, measured: a fact beside it, never a finding.
     if (returnsScene) lines.push(...await bareGapLines(returnsScene, codes));
     // And how much of it is designed, with the deck's unused cards and the references' own share.
@@ -4128,6 +4128,13 @@ export function createAgentService(deps) {
     const scene = expandComponents(document, sceneId, { fonts });
     return { scene, fonts, key: sceneKey(scene, fonts) };
   }
+  // The scene's returns line with the likeness of its first and last pictures (two small frames, look's
+  // endsLikeness); without it (a frame that will not draw) the line is as it was.
+  async function returnsLineFor(scene, document, fonts) {
+    let likeness = null;
+    try { likeness = await look.endsLikeness?.(await prepare(document, scene.id, fonts)) ?? null; } catch { /* the line is as it was */ }
+    return sceneReturnsLine(scene, { scenes: document.scenes, likeness });
+  }
 
   // When a layer is fully in: the end of its first entrance, or the middle of the scene.
   function settledTime(layer, scene) {
@@ -4221,7 +4228,7 @@ export function createAgentService(deps) {
           text = `sheet ${refName(scene.id, codes)}: ${times.map((time, index) => `${index + 1}=${time}s`).join(" ")}${!stretch && apart > SHEET_GAP_HINT ? ` (${apart}s apart; look {mode:"sheet", from, to} spreads 12 over a stretch)` : ""}`;
         }
         for (const line of cuts.unknownLines) text += `\n${line}`;
-        text += `\n${sceneReturnsLine(scene, { scenes: document.scenes })}`; // the saved scene: instances stay instances
+        text += `\n${await returnsLineFor(scene, document, fonts)}`; // the saved scene: instances stay instances
         const madeText = madeBesideOf(await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false }).catch(() => null));
         if (madeText) text += `\n${madeText}`;
       }

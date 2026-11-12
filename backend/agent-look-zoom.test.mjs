@@ -266,6 +266,12 @@ test("look changed shows every span an edit changed, even where the last look dr
   assert.match(reply.text, /^3 changed spans \(scanned the whole scene against rev \d+\)$/m, reply.text);
   // Nothing more changed: the next look is quiet, and the spans are remembered as frames.
   assert.match((await agent("look", { mode: "changed" })).text, new RegExp(`^nothing visible changed in s1 since your last look \\(${12 + frames} frames compared\\)`), "12 sheet frames and those of the spans");
+  // A cover that is gone by the last frame: the returns line also prints how alike the first and last pictures are.
+  const alike = async () => Number((await agent("look", { mode: "sheet" })).text.match(/first and last picture alike: (\d(?:\.\d+)?)/)?.[1]);
+  const before = await alike();
+  assert.ok(before > 0.5 && before < 1, `the flashes are small: most of the first and last pictures match (${before})`);
+  await agent("edit", { ops: [{ op: "add_layer", layerType: "rectangle", name: "cover", properties: { x: -500, y: -500, width: 4000, height: 4000, fill: "#ff00ff" }, animations: [{ preset: "hide", start: 0.3 }] }] });
+  assert.ok(await alike() < 0.1, "the first picture is the cover, the last is not");
 });
 
 test("spanPicks gives every span a frame, spreads the rest by length and reports the spans the limit cuts", () => {

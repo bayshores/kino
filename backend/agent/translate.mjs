@@ -1210,10 +1210,10 @@ function checkPlaceBroll(operation) {
 
 // keep_line {sceneId, layerId, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?, dropout?, wait?}: an unknown
 // field is refused here, before the clip is transcribed; the engine checks the values (engine/keepLine.js).
-const KEEP_LINE_FIELDS = new Set(["type", "sceneId", "layerId", "line", "from", "to", "sound", "text", "subtitle", "look", "name", "duckId", "duckNone", "dip", "lift", "dropout", "wait", "even"]);
+const KEEP_LINE_FIELDS = new Set(["type", "sceneId", "layerId", "line", "from", "to", "sound", "text", "subtitle", "look", "name", "duckId", "duckNone", "dip", "lift", "dropout", "wait", "even", "level"]);
 function checkKeepLine(operation) {
   const extra = Object.keys(operation).filter((key) => !KEEP_LINE_FIELDS.has(key));
-  if (extra.length) throw Object.assign(new Error(`keep_line has no ${extra.join(", ")}; it takes layer, line, sound or from and to, text, subtitle, look, name, duck, dip, lift, dropout, wait and even.`), { suggestions: closest(extra[0], ["line", "from", "to", "sound", "text", "subtitle", "duck", "dip", "lift", "dropout", "wait", "even"]) });
+  if (extra.length) throw Object.assign(new Error(`keep_line has no ${extra.join(", ")}; it takes layer, line, sound or from and to, text, subtitle, look, name, duck, dip, lift, dropout, wait, even and level.`), { suggestions: closest(extra[0], ["line", "from", "to", "sound", "text", "subtitle", "duck", "dip", "lift", "dropout", "wait", "even", "level"]) });
   if (typeof operation.layerId !== "string") throw new Error("keep_line needs layer: the video or audio layer with the spoken line.");
 }
 
