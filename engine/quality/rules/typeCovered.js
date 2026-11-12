@@ -51,7 +51,7 @@ export function typeCovered(model, ctx) {
         at: sec(model.times[worst]), bbox: roundBox(ink),
         measured: `${Math.round(worstShare * 100)}% of the type inside the subject's box for ${Math.round((100 * covered) / shown)}% of its time`,
         required: `at most ${TYPE_COVERED_SHARE * 100}% for half its time`,
-        message: `The cut-out ${ctx.name(cover)} hides most of ${ctx.name(text)} behind it (subject box x ${Math.round(subject.x0)} to ${Math.round(subject.x1)}). ${dx === null ? "" : "The fix moves the type beside the subject; "}or raise it: ${raise}.`,
+        message: `The cut-out ${ctx.name(cover)} hides most of ${ctx.name(text)} behind it (subject box x ${Math.round(subject.x0)} to ${Math.round(subject.x1)}). ${dx === null ? "Raise it" : "The fix moves the type beside the subject; or raise it"}: ${raise}.`,
         fix: dx === null ? { kind: "reorder", itemId: text.id, aboveId: cover.id, auto: false }
           : { kind: "move", itemId: text.id, dx: Math.round(dx), dy: 0, auto: false, why: `moved beside the subject (${dx < 0 ? "left" : "right"})` },
       });

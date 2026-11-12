@@ -158,8 +158,10 @@ test("the subject cut-out examples in the kino skill run as written", { skip: sk
   assert.equal(subject.allowOverlap, true, "the quality check knows the overlap is on purpose");
   assert.equal(runner.src, sources.runner, "the clip itself is unchanged");
   const receipt = replies[0].data.cutout;
-  assert.deepEqual({ ...receipt, seconds: undefined }, { engine: "subject", output: "subject", frames: 60, cached: false, seconds: undefined });
-  assert.match(replies[0].text, /"cutout":\{"engine":"subject","output":"subject","frames":60,"seconds":[\d.]+,"cached":false\}/);
+  assert.deepEqual({ ...receipt, seconds: undefined, subject: undefined }, { engine: "subject", output: "subject", frames: 60, cached: false, seconds: undefined, subject: undefined });
+  // The ball's box over time: it rolls right, so the box at the end is right of the one at the start.
+  assert.ok(receipt.subject.at.at(-1)[1] > receipt.subject.at[0][1], JSON.stringify(receipt.subject));
+  assert.match(replies[0].text, /"cutout":\{"engine":"subject","output":"subject","frames":60,"seconds":[\d.]+,"cached":false,"subject":\{"box":\[/);
 
   // Outline or glow: dancer, glow, outline, subject. The matte is found once and reused.
   const { layers: glow } = await sceneLayers(server, "cutout-1");
@@ -492,7 +494,8 @@ async function fakeOutline(t, { slow = 0, progress = 0.9 } = {}) {
   const started = performance.now();
   const cutoutMedia = { start: () => ({ done: new Promise((resolve) => setTimeout(() => resolve(made), slow)), progress: () => ({ fraction: progress, seconds: (performance.now() - started) / 1000 }) }), engines: async () => [] };
   const document = parseDocument(createDocument({ scenes: [createScene({ id: "scene", duration: 3, layers: [createLayer("video", { id: "clip", name: "clip", src: `/api/media/${id}`,
-    x: 0, y: 0, width: 640, height: 360, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1 })] })] }));
+    x: 0, y: 0, width: 640, height: 360, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1,
+    animations: [{ id: "push", name: "Push", kind: "custom", start: 0, duration: 1, easing: "ease-out", from: { scaleX: 1, scaleY: 1 }, to: { scaleX: 1.15, scaleY: 1.15 } }] })] })] }));
   const operation = { type: "cut_out", sceneId: "scene", layerId: "clip", output: "outline", cutoutId: "clip-line", cutoutName: "clip-outline" };
   return { root, cutoutMedia, document, operation };
 }
@@ -505,6 +508,8 @@ test("cut_out outline: with no subject it holds 0.5 s then fades, states the sub
   // The subject is last seen at frame 4 (0.133 s), lost from 0.167 s: faded out 0.5 s later.
   const out = line.animations.find((animation) => animation.kind === "out");
   assert.equal(out.start, 0.667);
+  // The clip's push is on the line too, so the line stays on the growing subject.
+  assert.ok(line.animations.some((animation) => animation.kind === "custom" && animation.to?.scaleX === 1.15));
   const receipt = reports.get(operation);
   assert.match(receipt.note, /^no subject in 25 of 30 traced frames Play shows: held 0\.5 s or faded \(faded out at 0\.67 s\)$/);
   // The box in scene pixels (10x scale), at up to 4 times, and the room on each side.
@@ -514,7 +519,7 @@ test("cut_out outline: with no subject it holds 0.5 s then fades, states the sub
   // The clip moved 1 s later: the line's shapes and its fade move with it (study c's offset).
   const moved = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip", properties: { mediaStart: 1 } }]);
   const after = moved.scenes[0].layers.find((layer) => layer.id === "clip-line");
-  const shapes = (layer) => layer.animations.find((animation) => animation.kind === "custom");
+  const shapes = (layer) => layer.animations.find((animation) => animation.kind === "custom" && animation.from?.path);
   assert.equal(shapes(after).start, shapes(line).start + 1);
   assert.equal(after.animations.find((animation) => animation.kind === "out").start, 1.667);
 });

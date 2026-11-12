@@ -10,7 +10,9 @@
 //     move to the scene times the clip now shows the same file moments (keys it never shows go).
 import { mediaSceneTime, mediaSoundTime } from "./playback.js";
 
-const PLAY_KEYS = ["mediaStart", "mediaDuration", "mediaOffset", "mediaSpeed", "mediaReverse", "mediaFreeze", "mediaSourceDuration", "mediaFrameRate", "playbackWindows"];
+/** The id part of an outline's fades where no subject is found (cutout-operation.mjs). */
+export const LOST_FADE = "lost-fade-";
+const PLAY_KEYS =["mediaStart", "mediaDuration", "mediaOffset", "mediaSpeed", "mediaReverse", "mediaFreeze", "mediaSourceDuration", "mediaFrameRate", "playbackWindows"];
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
 export function playChanged(before, after) {
@@ -37,8 +39,9 @@ export function followClipTiming(scene, before, after) {
     if (layer.cutoutOf !== after.id || layer.id === after.id) continue;
     if (layer.type === "path") {
       layer.animations = (layer.animations ?? []).flatMap((animation) => {
-        // Its fades (where no subject is found, or the shot's own) stay on the same clip moment.
-        if (animation.kind === "in" || animation.kind === "out") {
+        // Its fades where no subject is found stay on the same clip moment (the clip's own copied
+        // moves and fades stay where the clip's do).
+        if ((animation.kind === "in" || animation.kind === "out") && String(animation.id ?? "").includes(`.${LOST_FADE}`)) {
           const start = mediaSceneTime(after, mediaSoundTime(before, animation.start));
           return [start === null ? animation : { ...animation, start: Math.round(start * 1000) / 1000 }];
         }

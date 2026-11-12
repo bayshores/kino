@@ -28,6 +28,7 @@ import { duplicateLayers } from "../../engine/layerClipboard.js";
 import { createLayer, parseDocument } from "../../engine/model.js";
 import { outlinePathData, pointsBox } from "../cutout/outline.mjs";
 import { presetAnimation } from "../../engine/animation.js";
+import { LOST_FADE } from "../../engine/cutoutTiming.js";
 import { parseFrameRate } from "../media-probe.mjs";
 import { applyOperations } from "../../engine/operations.js";
 import { mediaSceneTime } from "../../engine/playback.js";
@@ -86,8 +87,7 @@ function pickedReport(picked, layer) {
 }
 
 // output "outline": a path layer of the subject's edge instead of a media copy. It takes the
-// clip's place, size and turn (not its animations: a clip that is scaled or moved by an animation
-// needs the same one added to the outline), and its path morphs through the traced shapes at the
+// clip's place, size and turn, and the clip's animations of those (MOVE_KEYS), and its path morphs through the traced shapes at the
 // scene times those frames show (custom animations of up to OUTLINE_KEYS keys each, one closed
 // path per frame, so the shapes always match). Strokes, neon, taper and roughen work on it as on
 // any path. Defaults: stroke color white, width 3 px (guesses).
@@ -96,6 +96,8 @@ const OUTLINE_KEYS = 48;
 // OUTLINE_FADE_OUT, and fades back in over OUTLINE_FADE_IN when the subject is back (all guesses:
 // half a second reads as the same moment, a fade under a fifth of a second as a cut).
 const OUTLINE_HOLD = 0.5, OUTLINE_FADE_OUT = 0.15, OUTLINE_FADE_IN = 0.08;
+// The animated values an outline takes over from its clip (place, size, turn, fade).
+const MOVE_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation", "skewX", "skewY", "opacity", "anchorX", "anchorY"]);
 const PLACE_KEYS = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY", "anchor", "opacity", "blendMode",
   "playbackWindows", "anchorX", "anchorY", "rotateX", "rotateY", "perspective"];
 
@@ -146,8 +148,18 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
       from: { path: run[0].path }, to: { path: run.at(-1).path },
       ...(run.length > 2 ? { keys: run.map((shape) => ({ t: Math.min(1, (shape.time - start) / duration), value: { path: shape.path } })) } : {}) } });
   }
+  // The clip's moves (a push, a slide, a turn, its fades) go on the line too, or a pushed clip's
+  // subject grows away from its outline (probe on run 6: "final" pushed 1 to 1.15, line 60 px off).
+  const moves = (layer.animations ?? []).filter((animation) => ["custom", "in", "out"].includes(animation.kind)
+    && [animation.from, animation.to, ...(animation.keys ?? []).map((key) => key.value)].every((values) => Object.keys(values ?? {}).every((key) => MOVE_KEYS.has(key))));
+  for (const animation of moves) {
+    const { id, ...copy } = structuredClone(animation);
+    steps.push({ type: "add_animation", sceneId, layerId: operation.cutoutId, animation: copy });
+  }
+  // Their ids say they mark lost frames, so a retimed clip moves them too (engine/cutoutTiming.js).
+  let fades = 0;
   const fade = (mode, start, duration) => ({ type: "add_animation", sceneId, layerId: operation.cutoutId,
-    animation: { ...presetAnimation("preset-fade", outlineLayer, Math.max(0, Math.round(start * 1000) / 1000), scene, { mode }), duration } });
+    animation: { ...presetAnimation("preset-fade", outlineLayer, Math.max(0, Math.round(start * 1000) / 1000), scene, { mode }), duration, id: `${operation.cutoutId}.${LOST_FADE}${(fades += 1)}` } });
   if (found[0].time > sampled[0].time) steps.push(fade("in", found[0].time, OUTLINE_FADE_IN));
   const faded = [];
   for (const { lost, back } of gaps) {
@@ -159,7 +171,7 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
   next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
   const notes = made.note ? [made.note] : [];
   if (empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} in ${empty} of ${sampled.length} traced frames Play shows: held ${OUTLINE_HOLD} s or faded${faded.length ? ` (faded out at ${faded.join(", ")} s)` : ""}`);
-  if (layer.animations?.some((animation) => animation.kind !== "effect")) notes.push(`"${layer.name}" has animations that move or scale it; the outline layer does not copy them, so add the same ones to it`);
+  if (layer.animations?.some((animation) => animation.kind !== "effect" && !moves.includes(animation))) notes.push(`"${layer.name}" has animations the outline does not copy (only its moves, scales, turns and fades); add the same ones to it if they change its place`);
   const subject = subjectReport(layer, found.map(({ time, box }) => ({ time, box })), scene);
   reports?.set(operation, { engine: made.engine, output: "outline", frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
     cached: made.cached, outline: { shapes: shapes.length, step: outline.step, points: Math.max(...outline.frames.map((frame) => frame.points?.length ?? 0)) },
