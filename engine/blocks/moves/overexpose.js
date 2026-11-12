@@ -17,7 +17,10 @@
 //   saturation 1.4  color kept at the peak: the roll-off pulls bright colors toward white, and the
 //                 contest-a recreate's bloom read milky (f909 L/C/S 131/69/45 against the
 //                 reference's 146/83/62, GAPS item 4); 62/45 = 1.38, so the peak lifts saturation
-//                 by 0.4 (scaled by amount). 1 gives the old milky wash.
+//                 by 0.4 (scaled by amount). 1 gives the old milky wash. Measured effect is small
+//                 (review on the same clip, mean chroma 0-255: peak 27 at 1, 30 at 1.4, 35 at 2;
+//                 f909 33, 35, 38 against the reference's 47): the saturation acts after the
+//                 per-channel roll-off, which has already pulled bright colors toward white.
 // Reduced motion: half the stops and bloom (as impact-accent's flash).
 import { CURVES, effect, hide, round, show } from "./kit.js";
 import { startClips } from "./transitions.js";

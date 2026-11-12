@@ -641,7 +641,7 @@ How to read it:
   (default 1.4) keeps colors at the peak instead of a milky wash (same test).
 - **Made lights** (`move light-shape {at, shape}`: streak, plate, ring): Test-verified. Soft concentric
   shapes in an add group, sized by the frame height, with sweep, pulse or hold. Evidence:
-  `engine/moves.test.js`. Gap: no perspective on plates.
+  `engine/moves.test.js`. Gap: no perspective on plates; a small ring's glow is wider than a hand-made halo.
 - **Color recipes**: Verified. `library {topic:"rules", name:"color"}`. Evidence:
   `backend/agent-color.test.mjs`. Gap: no adjustment layer (grade a group).
 - **Exposure match to references** (`match_references`, compose default, check auto fix): Verified on

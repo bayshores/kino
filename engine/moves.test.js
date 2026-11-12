@@ -320,12 +320,14 @@ test("light-shape adds a soft streak, plate or ring as light (add group) sized b
   const parts = (made) => Object.fromEntries(made.added.map(({ layer }) => [layer.move.part, layer]));
   const streak = parts(run({}));
   assert.equal(streak.light.blendMode, "add", "drawn as added light");
-  assert.ok(streak.halo.width >= 1920 && Math.abs(streak.halo.height - 1080 * 0.03 * 2.6) < 1 && streak.halo.blur > 0, "full width, thickness from the frame height, soft");
+  assert.ok(streak.halo.width >= 1920 && Math.abs(streak.halo.height - 1080 * 0.03 * 2.2) < 1 && streak.halo.blur > 0, "full width, thickness from the frame height, soft");
+  assert.ok(streak.core.opacity <= 0.5 && streak.core.blur >= streak.core.height * 0.3, "the core is one soft hump, not a hard bright line");
   assert.ok(streak.core.animations.some((animation) => animation.name === "Light sweep"), "sweeps out from its middle");
   const plate = parts(run({ shape: "plate", color: "#E08040" }));
   assert.ok(plate.fill.opacity < 0.5 && plate.edge.fillEnabled === false && plate.edge.strokeWidth >= 1.5 && plate.edge.blur === 0, "see-through fill, crisp edge line");
-  const ring = parts(run({ shape: "ring" }, true));
+  const ring = parts(run({ shape: "halo" }, true)); // "halo" is the ring's other name
   assert.equal(ring.ring.width, ring.ring.height, "a round halo");
+  assert.ok(Object.values(ring).every((layer) => layer.type === "group" || layer.fillEnabled === false), "only rings: the inside keeps the picture");
   assert.ok(!ring.ring.animations.length, "reduced motion: no pulse, only the fade on the group");
 });
 
