@@ -404,3 +404,16 @@ test("traceImage turns flat color regions into paths, largest first, with backgr
   const noise = new Uint8ClampedArray(width * height * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 7919) % 251));
   assert.ok(traceImage(noise, width, height, { colors: 2 }).suggest !== null);
 });
+
+test("traceImage's auto ground skips letterbox bars: the gray card is the ground, the black word is kept, the bars are dropped", () => {
+  const width = 40, height = 30, data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    const dark = y < 4 || y >= 26 || (x >= 14 && x < 26 && y >= 12 && y < 18);
+    data.set(dark ? [0, 0, 0, 255] : [220, 220, 220, 255], (y * width + x) * 4);
+  }
+  const traced = traceImage(data, width, height, { colors: 2 });
+  assert.equal(traced.background, "#dcdcdc");
+  assert.equal(traced.paths.length, 1);
+  assert.ok(Math.abs(traced.paths[0].area - 72) < 8, `only the word is left: ${traced.paths[0].area}`);
+  assert.equal(traceImage(data, width, height, { colors: 2, background: "#dcdcdc" }).paths.length, 3, "a named ground keeps the bars");
+});

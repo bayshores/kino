@@ -94,10 +94,24 @@ function majority(labels, width, height, k) {
   return out;
 }
 
+// The pixel indices of the region's four sides: top, bottom, left, right.
+function sidesOf(width, height) {
+  return [Array.from({ length: width }, (_, x) => x), Array.from({ length: width }, (_, x) => (height - 1) * width + x),
+    Array.from({ length: height }, (_, y) => y * width), Array.from({ length: height }, (_, y) => y * width + width - 1)];
+}
+
+// Sides that are one color end to end while another side is not: a letterbox or pillar bar of the
+// frame, not the ground the art sits on. Measured on the trailer title card (a whole 960x540 frame
+// with 10 px black bars): counting the bars made black the ground, so the title words were dropped
+// and the gray card became one big shape with letter holes.
+function barSides(labels, sides) {
+  const uniform = sides.map((side) => side.every((p) => labels[p] === labels[side[0]]));
+  return uniform.every(Boolean) ? uniform.map(() => false) : uniform;
+}
+
 function borderLabel(labels, width, height, k) {
-  const counts = new Int32Array(k + 1);
-  for (let x = 0; x < width; x += 1) { counts[labels[x] + 1] += 1; counts[labels[(height - 1) * width + x] + 1] += 1; }
-  for (let y = 0; y < height; y += 1) { counts[labels[y * width] + 1] += 1; counts[labels[y * width + width - 1] + 1] += 1; }
+  const counts = new Int32Array(k + 1), sides = sidesOf(width, height), bars = barSides(labels, sides);
+  sides.forEach((side, i) => { if (!bars[i]) for (const p of side) counts[labels[p] + 1] += 1; });
   let best = 0;
   for (let l = 1; l <= k; l += 1) if (counts[l] > counts[best]) best = l;
   return best - 1;
@@ -278,8 +292,7 @@ export function traceImage(data, width, height, options = {}) {
   let labels = majority(labelsOf(data, width, height, quantized.lookup), width, height, quantized.centers.length);
   const k = quantized.centers.length;
   let background = -1;
-  if (options.background === undefined || options.background === "auto") background = borderLabel(labels, width, height, k);
-  else if (typeof options.background === "string" && /^#[0-9a-f]{6}$/i.test(options.background)) {
+  if (options.background === undefined || options.background === "auto") background = borderLabel(labels, width, height, k);  else if (typeof options.background === "string" && /^#[0-9a-f]{6}$/i.test(options.background)) {
     const want = [1, 3, 5].map((i) => parseInt(options.background.slice(i, i + 2), 16));
     background = quantized.centers.reduce((best, c, i) => (dist2(c, want) < dist2(quantized.centers[best], want) ? i : best), 0);
   }
@@ -292,10 +305,14 @@ export function traceImage(data, width, height, options = {}) {
     suggest = "photo";
     for (let n = 2; n <= 12; n += 1) if (n !== colors && quantize(used, n).error <= FLAT_ERROR) { suggest = n; break; }
   }
+  // With the ground found automatically, a frame bar (a whole side of one color) is dropped too.
+  const auto = options.background === undefined || options.background === "auto";
+  const sides = sidesOf(width, height), barRegions = new Set();
+  if (auto) barSides(labels, sides).forEach((bar, i) => { if (bar && sides[i].every((p) => region[p] === region[sides[i][0]])) barRegions.add(region[sides[i][0]]); });
   const shapes = [];
   for (let id = 0; id < list.length; id += 1) {
     const { label, pixels } = list[id];
-    if (label === background || label < 0 || pixels.length < minPixels) continue;
+    if (label === background || label < 0 || pixels.length < minPixels || barRegions.has(id)) continue;
     const loops = loopsOf(pixels, id, region, width, height);
     const outer = loops.filter((loop) => loop.area > 0);
     // A hole stays a hole where the background shows through it (or always, for outlines); a hole

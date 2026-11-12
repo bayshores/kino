@@ -18,10 +18,12 @@ import { parseDocument } from "../../engine/model.js";
 import { traceImage, traceSvg } from "../../engine/traceImage.js";
 import { runMediaTool } from "../media-probe.mjs";
 
-// The traced grid's long side: twice the file's pixels (anti-aliased edges become smooth
-// half-pixel steps), at most 640 (guess: the contest-b wordmark, 316 px wide in the file, kept its
-// star cut and the open 6 at 632; 640 traces in well under a second).
-const WORK_LONG = 640;
+// The traced grid: twice the file's pixels (anti-aliased edges become smooth half-pixel steps; the
+// benchmark wordmark, 316 px wide in the file, kept its star cut and open 6 at 632), at most a
+// 1080p frame's pixel count. Measured: a long-side cap of 640 shrank a whole 960x540 title card to
+// 0.67x and its 12 px small caps lost their counters and two letters; at 1920x1080 grid pixels the
+// whole card traced in 0.46 s with every letter kept.
+const WORK_PIXELS = 1920 * 1080;
 // Stroke width of as:"outline" paths, scene px (guess: a thin ink line on a 1080p frame).
 const OUTLINE_WIDTH = 2;
 
@@ -80,8 +82,8 @@ async function regionPixels(document, op, mediaRoot) {
     box = [x0 / image.width, y0 / image.height, (x1 - x0) / image.width, (y1 - y0) / image.height];
   }
   const sx = box[0] * image.width, sy = box[1] * image.height, sw = box[2] * image.width, sh = box[3] * image.height;
-  const long = Math.min(WORK_LONG, Math.max(16, 2 * Math.max(sw, sh)));
-  const width = Math.max(2, Math.round(sw >= sh ? long : (long * sw) / sh)), height = Math.max(2, Math.round(sh > sw ? long : (long * sh) / sw));
+  const factor = Math.min(2, Math.sqrt(WORK_PIXELS / (sw * sh)));
+  const width = Math.max(2, Math.round(sw * factor)), height = Math.max(2, Math.round(sh * factor));
   const canvas = createCanvas(width, height);
   const context = canvas.getContext("2d");
   context.imageSmoothingQuality = "high";
@@ -91,6 +93,8 @@ async function regionPixels(document, op, mediaRoot) {
 
 /** Runs one translated trace_image op on `document`: {document, summary, warnings}. */
 export async function applyTraceImage(document, op, { mediaRoot } = {}) {
+  // src is what agents call an imported file elsewhere (add_layer properties.src): taken as media.
+  if (!op.media && typeof op.src === "string") op = { ...op, media: op.src };
   if (!op.layerId && !op.media) throw new Error("trace_image needs layer (a video or image layer) or media (an imported src).");
   if (op.colors !== undefined && !(Number.isInteger(op.colors) && op.colors >= 2 && op.colors <= 12)) throw new Error("colors is a whole number from 2 to 12.");
   if (op.smooth !== undefined && !(typeof op.smooth === "number" && op.smooth >= 0 && op.smooth <= 2)) throw new Error("smooth is from 0 (straight lines) to 2.");
@@ -104,7 +108,12 @@ export async function applyTraceImage(document, op, { mediaRoot } = {}) {
     background: op.background ?? "auto", scale: pixels.scale, outline });
   if (!result.paths.length) throw new Error(`nothing was left to trace in the region: every color region was the background (${result.background}) or smaller than minArea. Send background:"none" or a smaller minArea.`);
   const [x, y, w, h] = pixels.place;
-  const name = op.name ?? "trace";
+  // A second trace in the scene with the same name is "<name>-2" (the ID translate.mjs chose), so
+  // its paths are not named like the first trace's.
+  const taken = new Set(document.scenes.find((item) => item.id === op.sceneId).layers.map((layer) => layer.name));
+  const base = op.name ?? "trace";
+  let name = base;
+  for (let n = 2; taken.has(name) || taken.has(`${name} 1`); n += 1) name = `${base}-${n}`;
   const imported = importSvg(traceSvg(result, w, h, { name, outline, strokeWidth: OUTLINE_WIDTH }), { name, DOMParser });
   // The group gets the ID translate.mjs chose from its name, so later ops of the edit can name it;
   // its paths are "<name> 1", "<name> 2"... largest first.

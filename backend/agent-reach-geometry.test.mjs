@@ -148,6 +148,7 @@ test("trace_image turns an image layer's flat colors into a named group of paths
     { op: "add_layer", layerType: "image", name: "art", properties: { src, x: 100, y: 50, width: 80, height: 60 } },
     { op: "trace_image", layer: "art", name: "logo" },
     { op: "update_layer", layer: "logo", properties: { opacity: 0.9 } },
+    { op: "trace_image", src, region: [54, 16, 24, 28], name: "logo" },
     { op: "delete_layer", layer: "art" },
   ] });
   assert.equal(reply.isError, undefined, reply.text);
@@ -158,6 +159,10 @@ test("trace_image turns an image layer's flat colors into a named group of paths
   const group = layers.find((layer) => layer.name === "logo");
   assert.equal(group.opacity, 0.9, "a later op in the same edit names the group");
   assert.deepEqual(layers.filter((layer) => layer.parentId === group.id).map((layer) => layer.name), ["logo 1", "logo 2"]);
+  // A second trace of the same name (src taken as media, file pixels) gets its own names.
+  const second = layers.find((layer) => layer.name === "logo-2");
+  assert.deepEqual(layers.filter((layer) => layer.parentId === second.id).map((layer) => layer.name), ["logo-2 1"]);
+  assert.deepEqual(reply.data.summaries.filter((item) => item.kind === "trace_image").map((item) => item.group), ["logo", "logo-2"]);
   const frame = await agent("look", { project: before.id, scene: "main", mode: "frame", t: 0, width: 320 });
   const image = await readImage(Buffer.from(frame.images[0].data, "base64"));
   const [ring, hole, red] = [image.pixel(115, 65), image.pixel(130, 80), image.pixel(166, 80)];
