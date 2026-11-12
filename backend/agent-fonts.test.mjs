@@ -280,27 +280,20 @@ async function startFontServer(t, { withSerif = false } = {}) {
   return { server, agent };
 }
 
-// The same through the agent service: set_font's refusal, retry with its "instead" op, check's
-// fix and library query.
-test("agent service: set_font refusal points at the op and gives a working instead op; check and library use the same help", async (t) => {
+// The same through the agent service: set_font sets the face and draws only the missing glyph
+// in a font that has it (said in the notes), check's fix and library query.
+test("agent service: set_font on a face that lacks a glyph sets it, draws that glyph in a font that has it and says so; check and library use the same help", async (t) => {
   const { server, agent } = await startFontServer(t);
 
   await agent("project", { action: "create", id: "glyphs", name: "Glyphs", width: 1280, height: 720, duration: 2 });
   const added = await agent("edit", { project: "glyphs", ops: [{ op: "add_layer", layerType: "text", properties: { id: "title", text: "GLOW +∞", x: 100, y: 100, width: 900, height: 160, fontSize: 96 } }] });
   assert.equal(added.isError, undefined, added.text);
 
-  const refused = await agent("edit", { project: "glyphs", ops: [{ op: "set_font", layerIds: ["title"], family: "Anton" }] });
-  assert.equal(refused.isError, true);
-  assert.equal(refused.data.error, "op_failed");
-  assert.equal(refused.data.op, 0);
-  assert.equal(refused.data.type, "set_font");
-  assert.equal(refused.data.field, "family");
-  assert.ok(refused.data.reason.startsWith(`Operation 0 (set_font) was refused: Anton does not include "∞". Fonts with it (glyphs checked): Roboto 400 (fontSource ${source("roboto")}).`), refused.data.reason);
-  assert.doesNotMatch(refused.data.reason, /Noto Sans Symbols 2/);
-  assert.equal(refused.data.instead.op, "update_layer");
-
-  const retried = await agent("edit", { project: "glyphs", retry: refused.data.retry, fix: { 0: refused.data.instead } });
+  const retried = await agent("edit", { project: "glyphs", ops: [{ op: "set_font", layerIds: ["title"], family: "Anton" }] });
   assert.equal(retried.isError, undefined, retried.text);
+  const said = (retried.data.notes ?? []).join(" ");
+  assert.ok(said.includes(`op 0 set_font set Anton. Anton does not include "∞". Fonts with it (glyphs checked): Roboto 400 (fontSource ${source("roboto")}). Only those characters are drawn in the first font named`), said);
+  assert.doesNotMatch(said, /Noto Sans Symbols 2/);
   const saved = await (await server.api("/api/projects/glyphs")).json();
   const title = saved.document.scenes[0].layers.find((layer) => layer.id === "title");
   assert.equal(title.fontFamily, "Anton");
@@ -321,24 +314,17 @@ test("agent service: set_font refusal points at the op and gives a working inste
   assert.match((await agent("library", { topic: "fonts", search: "∞" })).text, /^fonts with "∞" \(glyphs checked\): Roboto 400 /);
 });
 
-// Before, `instead` fixed only the first layer that lacked ∞, so each such layer took one more retry.
-test("agent service: set_font on several layers that lack ∞ is refused once, and one retry with instead sets them all", async (t) => {
+// One set_font on several layers that lack ∞ sets them all in one edit.
+test("agent service: set_font on several layers that lack ∞ sets them all at once, each missing glyph drawn in a font that has it", async (t) => {
   const { server, agent } = await startFontServer(t);
   await agent("project", { action: "create", id: "many", name: "Many", width: 1280, height: 720, duration: 2 });
   const text = (id, value, y) => ({ op: "add_layer", layerType: "text", properties: { id, text: value, x: 100, y, width: 900, height: 120, fontSize: 64 } });
   const added = await agent("edit", { project: "many", ops: [text("title", "GLOW +∞", 100), text("sub", "to ∞", 300), text("plain", "GLOW", 500)] });
   assert.equal(added.isError, undefined, added.text);
 
-  const refused = await agent("edit", { project: "many", ops: [{ op: "set_font", layerIds: ["title", "sub", "plain"], family: "Anton" }] });
-  assert.equal(refused.isError, true);
-  assert.equal(refused.data.op, 0);
-  assert.equal(refused.data.field, "family");
-  assert.ok(refused.data.reason.startsWith(`Operation 0 (set_font) was refused: title, sub: Anton does not include "∞". Fonts with it (glyphs checked): Roboto 400 (fontSource ${source("roboto")}). "instead" keeps Anton and draws only the characters each layer lacks `), refused.data.reason);
-  assert.deepEqual(refused.data.instead.map((op) => [op.op, op.layerIds ?? op.layerId]),
-    [["set_font", ["plain"]], ["update_layer", "title"], ["update_layer", "sub"]]);
-
-  const retried = await agent("edit", { project: "many", retry: refused.data.retry, fix: { 0: refused.data.instead } });
+  const retried = await agent("edit", { project: "many", ops: [{ op: "set_font", layerIds: ["title", "sub", "plain"], family: "Anton" }] });
   assert.equal(retried.isError, undefined, retried.text);
+  assert.match((retried.data.notes ?? []).join(" "), /title, sub: Anton does not include "∞"\. .*a textStyleRanges range on title, sub\)/);
   const saved = await (await server.api("/api/projects/many")).json();
   const layers = Object.fromEntries(saved.document.scenes[0].layers.map((layer) => [layer.id, layer]));
   const roboto = { fontFamily: "Roboto", fontWeight: 400, fontSource: source("roboto") };
@@ -351,14 +337,15 @@ test("agent service: set_font on several layers that lack ∞ is refused once, a
 
 // The server here does not download (a real edit did), so the font kinds come from the faces
 // it has: each downloaded face keeps its family's catalog category.
-test("agent service: with a serif installed, Anton's refusal still offers the sans first, every time", async (t) => {
-  const { agent } = await startFontServer(t, { withSerif: true });
+test("agent service: with a serif installed, Anton's missing glyph still goes to the sans first, every time", async (t) => {
+  const { server, agent } = await startFontServer(t, { withSerif: true });
   await agent("project", { action: "create", id: "kinds", name: "Kinds", width: 1080, height: 1920, duration: 2 });
   await agent("edit", { project: "kinds", ops: [{ op: "add_layer", layerType: "text", properties: { id: "save", text: "SAVE ∞", x: 100, y: 300, width: 880, height: 200, fontSize: 120 } }] });
   for (const attempt of [1, 2]) {
-    const refused = await agent("edit", { project: "kinds", ops: [{ op: "set_font", layerIds: ["save"], family: "Anton" }] });
-    assert.equal(refused.data.error, "op_failed", refused.text);
-    assert.ok(refused.data.reason.includes(`Fonts with it (glyphs checked): Roboto 400 (fontSource ${source("roboto")}), Lora 400 (fontSource ${source("lora")}).`), `attempt ${attempt}: ${refused.data.reason}`);
-    assert.deepEqual(refused.data.instead.properties.textStyleRanges, [{ start: 5, end: 6, style: { fontFamily: "Roboto", fontWeight: 400, fontSource: source("roboto") } }]);
+    const set = await agent("edit", { project: "kinds", ops: [{ op: "set_font", layerIds: ["save"], family: "Anton" }] });
+    assert.equal(set.isError, undefined, set.text);
+    assert.ok((set.data.notes ?? []).join(" ").includes(`Fonts with it (glyphs checked): Roboto 400 (fontSource ${source("roboto")}), Lora 400 (fontSource ${source("lora")}).`), `attempt ${attempt}: ${set.text}`);
+    const saved = await (await server.api("/api/projects/kinds")).json();
+    assert.deepEqual(saved.document.scenes[0].layers.find((layer) => layer.id === "save").textStyleRanges, [{ start: 5, end: 6, style: { fontFamily: "Roboto", fontWeight: 400, fontSource: source("roboto") } }]);
   }
 });
