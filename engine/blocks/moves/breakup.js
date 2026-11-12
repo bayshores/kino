@@ -92,10 +92,19 @@ export const smear = {
     const land = round(Math.max(ctx.start + ctx.duration * 0.4, ctx.end - flicks));
     const group = ctx.add("smear", createLayer("group", { name: "Smear", x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, frameRate: fps, role: "decor", allowOverlap: true }), aboveBoth(ctx, from, to));
     const drag = copyOf(ctx, "drag", from, "top", group);
-    const lines = copyOf(ctx, "lines", to, { above: drag.id }, group, { extra: { blendMode: "multiply" } });
+    // The next shot as lines only: two copies a hair apart, the upper one in difference blend, are
+    // black where the picture is flat and light only along its contours (an edge detect); the group
+    // inverts that to dark lines on white and multiplies it over the drag, so flat or dark areas of
+    // the next shot leave the drag's colors alone. (The first build multiplied a brightened copy:
+    // the next shot's dark background blacked out the smear around the face.)
+    const scale = ctx.scale;
+    const lines = ctx.add("lines", createLayer("group", { name: "Lines", x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, blendMode: "multiply", role: "decor", allowOverlap: true }), { above: drag.id }, group);
+    const sharp = copyOf(ctx, "lines-a", to, "top", lines);
+    // Guess: 2 px at 1080 tall finds the drawn contours and skips compression noise.
+    const step = Math.max(1, round(2 * scale));
+    copyOf(ctx, "lines-b", to, { above: sharp.id }, lines, { offset: { x: -step, y: -step }, extra: { blendMode: "difference" } });
     startClips(ctx, to.id, ctx.start);
     const span = { start: ctx.start, duration: ctx.duration };
-    const scale = ctx.scale;
     // The old shot's colors pour along the angle: directional blur and a warp grow (study: 200 to
     // 320 px blur at -25 degrees, fluid-warp 120 px, noise scale 1.5, speed 3), mirrored edges so
     // the drag never pulls in transparent borders (study: edge-fill mirror 0.3).
@@ -110,13 +119,14 @@ export const smear = {
     const radians = (angle * Math.PI) / 180;
     const travel = ctx.frame.width * 0.06 * amount;
     ctx.animate(drag, "travel", motion({ name: "Travel", ...span, easing: CURVE.drag, from: { x: drag.x, y: drag.y }, to: { x: round(drag.x + Math.cos(radians) * travel, 1), y: round(drag.y + Math.sin(radians) * travel, 1) } }));
-    // The next shot as lines only: pushed so bright that only its darkest contours survive, gray,
-    // multiplied over the drag. The study's brightness 2.6, contrast 1.8 kept dark backgrounds dark
-    // (black patches over the drag in the first after run), so brightness 4, contrast 2.5 and
-    // saturation 0 (guess, checked by eye on the study's clips); rgb-shift 0.3 is the study's.
-    const ink = { brightness: 4, contrast: 2.5, saturation: 0 };
+    // Dark gray lines on white: drop the edge picture's color and lift it (a dimly lit shot's
+    // contours differ by only about 0.3), then invert it (guess, checked by eye against kq-17.40 and
+    // kq-17.60, where the lines are thin and nearly neutral). A slight color split along the drag:
+    // the study's rgb-shift 0.3 drew fat rainbow bands next to the reference's thin lines, so 0.08 (guess).
+    const ink = { brightness: 3, contrast: 1, saturation: 0 };
     ctx.animate(lines, "ink", effect({ name: "Lines only", effect: "color-grade", ...span, easing: CURVE.fade, from: ink, to: ink }));
-    ctx.animate(lines, "split", effect({ name: "Line split", effect: "rgb-shift", ...span, easing: CURVE.fade, from: { amount: 0.3, direction: angle }, to: { amount: 0.3, direction: angle } }));
+    ctx.animate(lines, "invert", effect({ name: "Edges to lines", effect: "invert", ...span, easing: CURVE.fade, from: { amount: 1 }, to: { amount: 1 } }));
+    ctx.animate(lines, "split", effect({ name: "Line split", effect: "rgb-shift", ...span, easing: CURVE.fade, from: { amount: 0.08, direction: angle }, to: { amount: 0.08, direction: angle } }));
     ctx.animate(lines, "in", motion({ name: "Lines in", kind: "in", start: ctx.start, duration: Math.max(0.04, (land - ctx.start) * 0.35), easing: CURVE.fade, from: { opacity: 0 }, to: { opacity: 1 } }));
     // The old shot is gone under the smear at once; the next shot is under it all along.
     ctx.animate(from.id, "hide", hide(ctx.start + 0.001), "from");
@@ -155,6 +165,23 @@ export function shardCell(seeds, index, width, height) {
     polygon = out;
   });
   return polygon;
+}
+
+/** The sides of a shard that are cracks (not on the frame's border), as an open path in its box; "" when none. */
+export function crackPath(polygon, box, width, height) {
+  const onBorder = ([ax, ay], [bx, by]) => (Math.abs(ax) < 0.5 && Math.abs(bx) < 0.5) || (Math.abs(ax - width) < 0.5 && Math.abs(bx - width) < 0.5)
+    || (Math.abs(ay) < 0.5 && Math.abs(by) < 0.5) || (Math.abs(ay - height) < 0.5 && Math.abs(by - height) < 0.5);
+  const point = ([x, y]) => `${round(x - box.x, 1)} ${round(y - box.y, 1)}`;
+  let path = "";
+  let open = false;
+  polygon.forEach((start, at) => {
+    const end = polygon[(at + 1) % polygon.length];
+    if (onBorder(start, end)) { open = false; return; }
+    if (!open) path += `${path ? " " : ""}M${point(start)}`;
+    path += ` L${point(end)}`;
+    open = true;
+  });
+  return path;
 }
 
 export const shatter = {
@@ -217,7 +244,10 @@ export const shatter = {
       const shard = ctx.add(`shard-${number}`, createLayer("group", { name: `Shard ${number}`, ...box, isMaskGroup: true, role: "decor", allowOverlap: true }), place);
       const mask = ctx.add(`mask-${number}`, createLayer("path", { x: 0, y: 0, width: box.width, height: box.height, path: outline, fill: DEFAULTS.colors.mask, isMask: true, role: "decor", allowOverlap: true }), { above: shard.id }, shard);
       const picture = copyOf(ctx, `piece-${number}`, from, { above: mask.id }, shard, { offset: box });
-      if (edge > 0) ctx.add(`edge-${number}`, createLayer("path", { x: 0, y: 0, width: box.width, height: box.height, path: outline, fillEnabled: false, stroke: ctx.color("color", DEFAULTS.colors.edge), strokeWidth: edge, strokeAlign: "inside", opacity: 0.7, role: "decor", allowOverlap: true }), { above: picture.id }, shard);
+      // The light edge runs only along the cracks: a side on the frame's border is no crack (the
+      // first build outlined the whole frame in a fringed line). The mask group clips the stroke.
+      const lines = crackPath(polygon, box, width, height);
+      if (edge > 0 && lines) ctx.add(`edge-${number}`, createLayer("path", { x: 0, y: 0, width: box.width, height: box.height, path: lines, fillEnabled: false, stroke: ctx.color("color", DEFAULTS.colors.edge), strokeWidth: edge * 2, opacity: 0.7, role: "decor", allowOverlap: true }), { above: picture.id }, shard);
       place = { above: shard.id };
       // Away from the break point with a little turn (guess: up to 12 degrees; 30 read as a soft
       // upscale of a tall frame's covering picture). No growth: a
@@ -230,6 +260,12 @@ export const shatter = {
       ctx.animate(shard, "fly", motion({ name: "Fly apart", ...fly, easing: CURVE.burst,
         from: { x: box.x, y: box.y, rotation: 0 },
         to: { x: round(box.x + ux * distance, 1), y: round(box.y + uy * distance + height * 0.08, 1), rotation: turn } }));
+      // Motion blur along the flight, as long as a 180 degree shutter at 30 fps: the burst curve
+      // starts at 3 times the mean speed, and the blur falls with the speed (without it a big shard
+      // judders: the judder check's own rule, engine/quality/rules/motion.js).
+      const shutter = Math.min(4000, Math.round((3 * Math.hypot(ux * distance, uy * distance + height * 0.08)) / fly.duration / 60));
+      const along = Math.round((Math.atan2(uy * distance + height * 0.08, ux * distance) * 180) / Math.PI);
+      ctx.animate(shard, "blur", effect({ name: "Flight blur", effect: "directional-blur", ...fly, easing: CURVE.burst, from: { length: shutter, angle: along }, to: { length: 0, angle: along } }));
       ctx.animate(shard, "fade", motion({ name: "Fade", start: ctx.start + ctx.duration * 0.6, duration: ctx.duration * 0.4, easing: CURVE.fade, from: { opacity: 1 }, to: { opacity: 0 } }));
       if (fringe > 0) ctx.animate(shard, "fringe", effect({ name: "Fringe", effect: "rgb-shift", start: ctx.start, duration: ctx.duration, easing: CURVE.fade, from: { amount: fringe, direction: round((Math.atan2(uy, ux) * 180) / Math.PI) }, to: { amount: fringe, direction: round((Math.atan2(uy, ux) * 180) / Math.PI) } }));
       if (ctx.start > 0) ctx.animate(shard, "show", show(ctx.start));

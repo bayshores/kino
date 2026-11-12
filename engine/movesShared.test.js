@@ -210,8 +210,14 @@ test("smear drags the old shot along its angle under the next shot's lines, on t
   const parts = partsOf(made);
   assert.equal(parts.smear.frameRate, 15);
   assert.equal(parts.drag.src, "/a.png");
-  assert.equal(parts.lines.src, "/b.png");
+  // The next shot's lines: two copies 2 px apart in difference blend (its edges), inverted to dark
+  // lines on white and multiplied, so its flat dark areas leave the drag's colors alone.
+  assert.equal(parts.lines.type, "group");
   assert.equal(parts.lines.blendMode, "multiply");
+  assert.ok(parts.lines.animations.some((animation) => animation.effect === "invert"));
+  assert.equal(parts["lines-a"].src, "/b.png");
+  assert.equal(parts["lines-b"].blendMode, "difference");
+  assert.equal(parts["lines-b"].x - parts["lines-a"].x, 2);
   const drag = parts.drag.animations.find((animation) => animation.effect === "directional-blur");
   assert.deepEqual(drag.to, { length: 320, angle: -25 });
   assert.equal(run("smear", { angle: 40, amount: 0.5 }).added.find((entry) => entry.layer.move.part === "drag").layer.animations.find((animation) => animation.effect === "directional-blur").to.length, 160);
@@ -234,11 +240,28 @@ test("shatter breaks the old shot into seeded masked shards that fly away from t
   assert.equal(json(run("shatter", { seed: 3 })), json(made));
   assert.notEqual(json(run("shatter", { seed: 4 })), json(made));
   assert.equal(Object.keys(partsOf(run("shatter", { shards: 5, edge: 0, fringe: 0 }))).filter((part) => part.startsWith("edge-")).length, 0);
+  // The light edges follow the cracks only, never the frame's border (a shard in the corner keeps
+  // its two inner sides).
+  const corner = parts["edge-1"] ?? parts["edge-2"];
+  assert.ok(corner.path.startsWith("M") && !corner.path.endsWith("Z"));
+  for (const part of Object.keys(parts).filter((name) => name.startsWith("edge-"))) {
+    const shard = parts[part.replace("edge", "shard")];
+    for (const run of parts[part].path.split("M").filter(Boolean)) {
+      const points = [...run.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)].map(([, x, y]) => [Number(x) + shard.x, Number(y) + shard.y]);
+      for (let at = 1; at < points.length; at += 1) {
+      const [a, b] = [points[at - 1], points[at]];
+        assert.ok(!(a[1] < 1 && b[1] < 1) && !(a[0] < 1 && b[0] < 1) && !(a[0] > 1919 && b[0] > 1919) && !(a[1] > 1079 && b[1] > 1079), `${part} has no side on the border`);
+      }
+    }
+  }
   // Every shard moves outward from the break point (default 50%, 45%).
   for (const part of shards) {
     const shard = parts[part];
     const fly = shard.animations.find((animation) => animation.name === "Fly apart");
     const [mx, my] = [shard.x + shard.width / 2 - 960, shard.y + shard.height / 2 - 486];
     assert.ok((fly.to.x - fly.from.x) * mx + (fly.to.y - fly.from.y - 86.4) * my >= 0, `${part} flies outward`);
+    // Blurred along its flight while fast (so the judder check passes), sharp again by the end.
+    const blur = shard.animations.find((animation) => animation.effect === "directional-blur");
+    assert.ok(blur.from.length > 20 && blur.to.length === 0, `${part} blurs while it flies`);
   }
 });
