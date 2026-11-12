@@ -1684,7 +1684,7 @@ How to read it:
   `backend/lift-deblock.test.mjs`. Gap: the means come from 6 rendered frames a shot (the next bullet), not every frame.
 - **lift_dark receipt equals the render on real footage**: Verified on a copy of a real night project (6 lifted shots: receipt
   48.3 to 49.2 against a 1920 px render of 12 frames across each shot, 48.3 to 49.6; it was 47 to 48 against 50 to 56). Cause: the
-  scaled video decode read dark colored footage up to 2 levels dark; video pictures now decode alike at every width. The receipt
+  scaled video decode read dark colored footage up to 2 levels dark; a resized video picture now decodes within 0.3 levels of one kept at the file's own size (which decodes as before, so the final render's audit reads the same). The receipt
   reads 6 frames at 240 px, prints the width and span, names color effects already on the shot that move its mean (a grade, a
   white balance) with both means, and draws block steps in one full-size render (14 renders to 4). Evidence:
   `backend/lift-deblock.test.mjs`, `backend/agent-core.test.mjs`. Gap: the means land 1 to 2 levels over the target (47 to 48.3

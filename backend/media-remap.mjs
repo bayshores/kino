@@ -82,7 +82,7 @@ function readRuns(indices, fps) {
  * Reads the frames numbered `indices` (frames come `fps` a second, numbered from 0 at the start of
  * `input`) as PNG files sized to fit width × height. Returns Map(index → path).
  */
-async function readFrames(input, indices, fps, { folder, prefix, width, height, decoderArgs = [], signal, label }) {
+async function readFrames(input, indices, fps, { folder, prefix, width, height, size, decoderArgs = [], signal, label }) {
   const sorted = [...new Set(indices)].sort((a, b) => a - b);
   const paths = new Map();
   let runNumber = 0;
@@ -100,7 +100,7 @@ async function readFrames(input, indices, fps, { folder, prefix, width, height, 
       decoderArgs,
       // The grid gives frame base, base + 1, … (repeating the last frame past the end, forever), so
       // trim ends it after the run's last frame; select keeps the ones used, in order.
-      filters: [`trim=end_frame=${run.at(-1).to - base + 1}`, `select='${terms.join("+")}'`, pictureScale(width, height)],
+      filters: [`trim=end_frame=${run.at(-1).to - base + 1}`, `select='${terms.join("+")}'`, pictureScale(width, height, size)],
       // Quick PNG compression (lossless either way): these pictures live only as long as the export.
       outputArgs: ["-an", "-sn", "-dn", "-compression_level", "1", "-start_number", "0"],
     }), signal);
@@ -260,7 +260,7 @@ export async function extractRemappedFrames(layer, videoPath, needed, options) {
  * A long export reads its pictures a window of frames at a time (export.mjs), each window with
  * remappedPictures, so the proxy and its frame factor are the same as for the whole export.
  */
-export async function remappedSource(layer, videoPath, needed, { end = Infinity, width, height, decoderArgs = [], design = false, signal, warnings, flowCacheDir }) {
+export async function remappedSource(layer, videoPath, needed, { end = Infinity, width, height, fileSize, decoderArgs = [], design = false, signal, warnings, flowCacheDir }) {
   const label = `Video layer “${layer.name ?? layer.id}”`;
   const fileFps = await probeFrameRate(videoPath, { signal });
   // The last moment a frame starts: a time past the end shows the last frame.
@@ -271,7 +271,8 @@ export async function remappedSource(layer, videoPath, needed, { end = Infinity,
     mode = "blend";
     warnings?.push({ code: "video-flow-unavailable", message: `${label} has a see-through picture, which flow cannot interpolate; it was blended instead.` });
   }
-  let source = { input: videoPath, fps: fileFps, first: 0, decoderArgs };
+  // size: the pictures' own width and height (media-probe.mjs pictureScale keeps that size as it is).
+  let source = { input: videoPath, fps: fileFps, first: 0, decoderArgs, size: fileSize ?? await probeMedia(videoPath, { signal }) };
   let flow = null;
   if (mode === "flow") {
     // Made at any speed, even 1: a file that repeats frames gets new in-between pictures (FLOW_DECIMATE).
@@ -283,7 +284,7 @@ export async function remappedSource(layer, videoPath, needed, { end = Infinity,
     const last = Math.floor(latest * fileFps + MEDIA_SAMPLE_TOLERANCE * fileFps) + 1;
     const size = await flowSize(videoPath, width, height, signal);
     const proxy = await flowProxy(videoPath, { first, last, fileFps, factor, ...size, decoderArgs, signal, cacheDir: flowCacheDir });
-    source = { input: proxy.path, fps: fileFps * factor, first: first / fileFps, decoderArgs: [] };
+    source = { input: proxy.path, fps: fileFps * factor, first: first / fileFps, decoderArgs: [], size };
     flow = { factor, built: proxy.built, seconds: Math.round(proxy.seconds * 10) / 10 };
     // Between two proxy frames (slower than the proxy has frames for), the two are mixed.
     mode = "blend";
@@ -299,7 +300,7 @@ export async function remappedPictures({ label, clamp, mode, source, flow }, nee
   const times = needed.map((item) => clamp(item.time));
   const positions = times.map((time) => framePosition(time, source.fps, source.first));
   const indices = positions.flatMap(({ index, part }) => (mode === "blend" && part > 0 ? [index, index + 1] : [index]));
-  const frames = await readFrames(source.input, indices, source.fps, { folder, prefix: "file-", width, height, decoderArgs: source.decoderArgs, signal, label });
+  const frames = await readFrames(source.input, indices, source.fps, { folder, prefix: "file-", width, height, size: source.size, decoderArgs: source.decoderArgs, signal, label });
   const pictures = new Map();
   let blends = 0;
   const keyOf = ({ index, part }) => (mode === "blend" && part > 0 ? `${index}@${Math.round(part * 1000)}` : `${index}`);

@@ -218,7 +218,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const seconds = (value) => Math.round(value * 100) / 100;
   const span = (entry) => entry.times.length > 1 ? ` over ${seconds(entry.times[0])} to ${seconds(entry.times.at(-1))} s` : entry.times.length ? ` at ${seconds(entry.times[0])} s` : "";
   // Measured on the whole edit (overlays, the layer's other effects and its groups' included) at a
-  // small width: video pictures are decoded alike at every width (media-probe.mjs pictureScale).
+  // small width: video pictures decode within 0.3 levels at every width (media-probe.mjs pictureScale).
   const measured = (entry) => `measured on the edit's render at ${width} px wide (${entry.times.length} frame${entry.times.length === 1 ? "" : "s"}${span(entry)})`;
   const moves = (entry) => entry.bare && levels255(entry.bare.mean) !== levels255((entry.before ?? lumaStats(entry.frames))?.mean ?? entry.bare.mean);
   const gradeNote = (entry) => moves(entry) ? `, on top of ${entry.grades.map((grade) => `${grade.id} (${grade.effect})`).join(", ")} already there: ${levels255(entry.bare.mean)} without ${entry.grades.length === 1 ? "it" : "them"}, ${levels255(entry.before.mean)} with` : "";

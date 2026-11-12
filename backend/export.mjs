@@ -558,12 +558,12 @@ async function extractVideoFrames(layer, videoPath, { folder, fps, sceneTimes, d
   const end = probe.duration > 0 ? probe.duration : Infinity;
   // A clip with a speed, backwards, choppy or blended shows the file's own frames (media-remap.mjs).
   if (remapped) {
-    shared.remap ??= mediaStep(signal, () => remappedSource(layer, videoPath, allNeeded ?? needed, { end, width, height, decoderArgs, design, signal, warnings, flowCacheDir }));
+    shared.remap ??= mediaStep(signal, () => remappedSource(layer, videoPath, allNeeded ?? needed, { end, width, height, fileSize: probe, decoderArgs, design, signal, warnings, flowCacheDir }));
     const source = await shared.remap;
     return mediaStep(signal, () => remappedPictures(source, needed, { folder, width, height, signal }));
   }
   const clampToEnd = (time) => Math.min(time, end);
-  const filters = [pictureScale(width, height)];
+  const filters = [pictureScale(width, height, probe)];
   const ffmpeg = ffmpegCommand();
 
   // One FFmpeg run samples `count` pictures from `first` on, one per 1/fps seconds, and writes the

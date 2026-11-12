@@ -337,13 +337,20 @@ export const PICTURE_COLOR_FILTERS = [
   "setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown",
 ];
 
-// A video picture scaled to `width` x `height` (kept inside, its own shape). FFmpeg's default scaler
-// reads the chroma at the scaled size without exact rounding, which darkened dark colored footage
-// at check sizes: a night stair frame whose Y plane reads 15.0 of 255 drew 13.1 at 240 and 960 px
-// wide and 14.8 at its own 1920, and a 3-stop lift raised that gap to 5 to 8 levels. Full chroma
-// and exact rounding draw 15.0 at every width, so check, look and the export read the same picture.
-export const pictureScale = (width, height) =>
-  `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=bicubic+accurate_rnd+full_chroma_int`;
+// A video picture scaled to `width` x `height` (kept inside, its own shape). When the picture is
+// resized, FFmpeg's default scaler reads the chroma at the scaled size without exact rounding, and
+// every picture comes out about 2 levels darker than the file (measured on 7 drawn clips, dark and
+// bright: 13.2 of 255 at 240 and 960 px wide against 15.0 at the file's own 1920; a 3-stop lift
+// raised that gap to 5 to 8 levels). Full chroma and exact rounding draw 15.2 at every width.
+// A picture kept at the file's own size (`source`: the file's width and height) is not resized, and
+// FFmpeg's plain conversion reads within 0.3 levels there: it stays as it was, because the final
+// render's audit limits were measured with it (the full-chroma conversion took a busy test clip
+// from 2.1 to 4.9 of the 10 levels the audit allows).
+export const pictureScale = (width, height, source) => {
+  const fit = `scale=${width}:${height}:force_original_aspect_ratio=decrease`;
+  const sameSize = source?.width > 0 && source?.height > 0 && Math.min(width / source.width, height / source.height) === 1;
+  return sameSize ? fit : `${fit}:flags=bicubic+accurate_rnd+full_chroma_int`;
+};
 
 /**
  * FFmpeg arguments that write `count` PNG pictures of a video, one per 1/fps seconds.
