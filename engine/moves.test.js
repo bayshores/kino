@@ -87,7 +87,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 57);
+  assert.equal(MOVE_NAMES.length, 58);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -310,6 +310,18 @@ test("overexpose burns the shot out with a roll-off, cuts to into on the peak an
   const soft = exposureTable(8, 256, 0.8);
   assert.ok(at(soft, 0.95) - at(soft, 0.7) > 0.015 && at(soft, 0.95) < 0.99, `the shoulder keeps them apart (${at(soft, 0.7)}, ${at(soft, 0.95)})`);
   assert.equal(exposureTable(2, 256, 0), exposureTable(2), "shoulder 0 is the old hard clip");
+});
+
+test("mosaic-reveal sizes its cells to the frame's short side and keeps a size that is sent", () => {
+  const cells = (width, height, fields = {}) => {
+    const made = runMove(MOVES["mosaic-reveal"], { id: "m", input: readMoveInput(MOVES["mosaic-reveal"], { layer: "shot-a", ...fields }), scene: sceneFor(width, height), style: styleFor({ look: "crisp", frame: { width, height } }), fonts: defaultFonts, start: 1, media });
+    const { to } = made.animations[0].animation;
+    return [to.cell, to.gap, to.radius];
+  };
+  assert.deepEqual(cells(1920, 1080), [30, 9, 2], "the measured 1080p sizes");
+  assert.deepEqual(cells(1080, 1920), [30, 9, 2], "a vertical frame keeps them");
+  assert.deepEqual(cells(1280, 720), [20, 6, 1.5], "720p scales them");
+  assert.deepEqual(cells(1280, 720, { cell: 30, gap: 9 }), [30, 9, 1.5], "sent sizes stay");
 });
 
 test("freeze-shutter stops the clip on the beat, blinks once and plays again; masked-type fills a word with the clip or stands it behind the subject", () => {

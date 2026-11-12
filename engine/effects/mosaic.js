@@ -17,8 +17,8 @@
 //                 cells resolve to the clean picture (the clean face block at f195 is 240 px).
 //   timing        cells arrive over the first 55% (f175, at 53%, is nearly full); 2 x 2 merges from
 //                 40%, 4 x 4 from 50% (MERGE_SPANS); clean blocks over 66% to 97% (f195 at 73%:
-//                 about 3 of 12 blocks clean, f210 at 88%: about 9); the last 3% keeps the gaps
-//                 as outlines (they leave on the last frame). The shares are fitted to this one
+//                 about 3 of 12 blocks clean, f210 at 88%: about 9); clean blocks join without
+//                 a gap, so by 97% the picture is whole. The shares are fitted to this one
 //                 reference; other edits change them with the move's fields.
 import { copiesEffect, copySource, filterEffect } from "./svg.js";
 import { renderPixelate } from "./postFx.js";
@@ -192,6 +192,27 @@ export function renderMosaic(frame) {
     const size = state === "clean" ? plan.clean.size : sizes[state];
     // A block is drawn once, from its top-left cell.
     if (col % size || row % size) continue;
+    if (state === "clean") {
+      // Clean blocks join their clean neighbors and the layer's edge without a gap, so the picture
+      // reads whole where it has resolved and the last frame does not jump (the reference's clean
+      // area at f210 has no grid lines; the gap stays only where a clean block meets cells). Square
+      // corners on clean blocks: a guess, rounded ones would notch where clean blocks meet.
+      const bx = col / size, by = row / size;
+      const clean = (dx, dy) => {
+        const nx = bx + dx, ny = by + dy;
+        if (nx < 0 || ny < 0 || nx >= plan.clean.cols || ny * size >= plan.rows) return true;
+        return plan.clean.times[ny * plan.clean.cols + nx] <= p;
+      };
+      const whole = block(col, row, size, 0);
+      if (!whole) continue;
+      // A flush side overlaps its neighbor by half a pixel so no antialiased seam shows between them.
+      const half = gap / 2;
+      const l = clean(-1, 0) ? -0.5 : half, r = clean(1, 0) ? -0.5 : half, t = clean(0, -1) ? -0.5 : half, b = clean(0, 1) ? -0.5 : half;
+      const box = { left: whole.left + l, top: whole.top + t, w: whole.w - l - r, h: whole.h - t - b };
+      if (box.w > 0 && box.h > 0) shapes.clean.push(rect(box, 0));
+      if (outline > 0) shapes.outline.push(rect(whole, 0));
+      continue;
+    }
     const box = block(col, row, size, gap / 2);
     if (box) shapes[state].push(rect(box));
     if (outline > 0) { const whole = block(col, row, size, 0); if (whole) shapes.outline.push(rect(whole, 0)); }

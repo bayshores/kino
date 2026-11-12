@@ -787,8 +787,9 @@ How to read it:
   `{layer, at}` only draws a flame mass rising off the figure, denser than the reference's separate tongues; a
   rim-light lobe crawl past the filter padding drew nothing, fixed in engine/effects/light.test.js).
 - **mosaic-reveal** (`move mosaic-reveal {layer, at}`, effect `mosaic`): Partly verified. Flat mean-color cells with
-  gaps arrive in a seeded order, merge into blocks and resolve to the picture (engine/effects/postFx.test.js; a look
-  render through the agent path on a photo with `{layer, at}` only shows clusters, merges and clean blocks).
+  gaps arrive in a seeded order, merge into blocks and resolve to the picture, resolved blocks joining without a gap
+  (engine/effects/postFx.test.js; sizes follow the frame, engine/moves.test.js; `{layer, at}` only on a photo and on
+  a full-frame clip, look frames and an mp4 render through the agent path, show clusters, merges and clean blocks).
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues
