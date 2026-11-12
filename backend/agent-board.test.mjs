@@ -256,8 +256,13 @@ test("kino checks the shots against the video, the files and the fonts: overlap,
   assertRefused(await editBoard("board-checks", [motion(0, 5)]), "overlap", "shot 1 ends at 5 s, after the video ends (4.42 s).");
   assertRefused(await editBoard("board-checks", [footage(0, 4.417, 0, 30, { crop: [30, 12, 40, 76] })]), "bad_shot",
     "shot 1 crop [30, 12, 40, 76] is 0.94 wide per 1 tall on the source; the video is 1080×1920 (0.56): with h 76, w is 24 (or crop \"whole\" when the source is shown whole).");
-  assertRefused(await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 3.5, 40)]), "bad_shot",
-    "shot 2 needs 2.1 s of sintel-village-dragon.mp4 from 3.5 s, but the file ends at 4.42 s.");
+  // A shot that runs past its file: the refusal names both one-field fixes with their numbers, and the
+  // retry's fix is the agent's own shots with the speed that fills the shot (the cuts stay).
+  const past = await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 3.5, 40)]);
+  assert.equal(past.data.boardError, "bad_shot", past.text);
+  assert.match(past.data.reason, /shot 2 needs 2\.1 s of sintel-village-dragon\.mp4 from 3\.5 s, but the file ends at 4\.42 s\. Send speed 0\.43 \(the clip plays slower and fills the 2\.1 s shot\) or dur 0\.91 \(a shorter shot, ending 1\.19 s sooner\)\.$/);
+  assert.deepEqual(past.data.example.shots.map((shot) => shot.speed), [undefined, 0.43]);
+  assert.match(JSON.parse(past.text).next, /^edit \{"retry":"E\d+","fix":\{"0":\{"op":"board".*"speed":0\.43\}/s);
   // Too long text and a font kino lacks: one refusal names both.
   assertRefused(await editBoard("board-checks", [motion(0, 4.417, { text: { text: "t".repeat(205), family: "Bangers" } })]), "bad_shot",
     'shot 1 text.text is 205 characters, limit 200. Also: shot 1 text family "Bangers" is not a font kino has (library {topic:"fonts", search:"Bangers"}).');
@@ -279,8 +284,8 @@ test("kino checks the shots against the video, the files and the fonts: overlap,
   const slow = await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 3.5, 40, { speed: 0.4 })]);
   assert.equal(slow.isError, undefined, slow.text);
   assert.equal((await record("board-checks")).document.board.shots[1].speed, 0.4);
-  assertRefused(await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 0, 40, { speed: 3 })]), "bad_shot",
-    "shot 2 needs 6.3 s of sintel-village-dragon.mp4 from 0 s, but the file ends at 4.42 s.");
+  const fast = await editBoard("board-checks", [motion(0, 2.317), footage(2.317, 2.1, 0, 40, { speed: 3 })]);
+  assert.match(fast.data.reason, /shot 2 needs 6\.3 s of sintel-village-dragon\.mp4 from 0 s, but the file ends at 4\.42 s\. Send speed 2\.1 /);
 
   // media is a video layer's name, a file's name or its src; all three are kept as the src.
   // A craft move built as an edit op (frame), a move (type-on) or a scene setting (drift) is known: no planned:true.

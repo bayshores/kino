@@ -158,7 +158,7 @@ test("a you line needs a quote, a guessed line has none, and a refused save keep
   assert.equal(several.data.error, "quote_needed");
   assert.deepEqual(several.data.lines, { never: "quote_needed", nevr: "bad_input" });
   for (const [body, pattern] of [
-    [{ fields: { plays_on: { text: "x".repeat(BRIEF_LIMITS.text + 1), by: "guessed" } } }, /^plays_on\.text is 1–80 characters \(it has 81\)/],
+    [{ fields: { plays_on: { text: "x".repeat(BRIEF_LIMITS.text + 1), by: "guessed" } } }, /^plays_on\.text is 1–120 characters \(it has 121\)\. Cut 1 character: Keep the line short/],
     [{ fields: { never: { text: "no meme text", by: "you", quote: "q".repeat(BRIEF_LIMITS.quote + 1) } } }, /^never\.quote is 1–120 characters \(it has 121\)/],
     [{ fields: { never: { text: "no meme text", by: "person", quote: "no meme text" } } }, /^never\.by is "you"/],
     [{ fields: { never: { text: "no meme text", by: "guessed", reason: "x" } } }, /^never takes text, by and quote, not reason/],
@@ -1397,7 +1397,13 @@ test("the order labels what each studied reference shows on screen (seen) before
   assert.equal(off.data.error, "bad_input");
   assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s\)/);
   assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 glitter: smoke" })).data.reason, /kinds are type, overlay/);
-  const saved = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1.2 overlay, made: green outline traced on the figure" });
+  // A line that does not parse names the part that broke it (it was refused with no reason before).
+  const faulty = async (name) => (await agent("library", { project: id, topic: "inspire", name })).data.reason;
+  assert.match(await faulty("seen yt:kinoSeen001 1.2 overlay: smoke"), /\("1\.2 overlay: smoke" is not @<seconds>: the reference id yt:kinoSeen001 is followed by @ and the second/);
+  assert.match(await faulty("seen yt:kinoSeen001 @1 overlay smoke"), /\(no ":" after the kinds/);
+  assert.match(await faulty("seen yt:kinoSeen001 @1 overlay 2: smoke"), /\("2" at 9 in the kinds "overlay 2": kinds are words separated by commas or spaces\)/);
+  // A comma and an "s" after the time, and commas in the words, are accepted.
+  const saved = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1.2s, overlay, made: green outline, traced on the figure" });
   assert.match(saved.text, /^seen yt:kinoSeen001: 1 of 1 moments labeled \(overlay 1, made 1\)\.\nnext: look \{"mode":"reference","ref":"yt:kinoSeen002","t":1/);
   assert.match((await agent("edit", compose)).data.reason, /Next: label yt:kinoSeen002 on screen/);
   await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen002 @1 type: thin sans titles" });

@@ -120,8 +120,8 @@ const BOARD_MOVE_NAMES = new Set([...MOVE_NAMES, ...TRANSITION_NAMES, ...RECIPE_
  * and a retry sent with it would replace the agent's own shots (run 8 T244, an 11-shot board). The
  * message names each shot and field to change.
  */
-function boardProblem(code, message, suggestions = []) {
-  return Object.assign(problem(message, suggestions), { boardError: code, noExample: true });
+function boardProblem(code, message, suggestions = [], retryWith = null) {
+  return Object.assign(problem(message, suggestions), { boardError: code, noExample: true }, retryWith ? { retryWith } : {});
 }
 
 /**
@@ -2346,7 +2346,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const scene = mainScene(document);
     if (!scene) throw boardProblem("bad_shot", "the board needs a scene: add_scene first.");
     const problems = [];
-    const add = (code, message, suggestions = []) => problems.push({ code, message, suggestions });
+    const add = (code, message, suggestions = [], fix = null) => problems.push({ code, message, suggestions, fix });
     const media = await boardMedia(document, work);
     const music = boardMusic(document, scene, operation.music, work, add);
     const lists = {
@@ -2378,7 +2378,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const rest = problems.slice(1, 9).map((problem) => problem.message);
       const more = problems.length > 1
         ? ` Also: ${rest.join(" ")}${problems.length > 9 ? ` (+${problems.length - 9} more)` : ""}` : "";
-      throw boardProblem(first.code, `${first.message}${more}`, first.suggestions);
+      // A shot that runs past its file: the retry's fix is the agent's own shots with the speed that
+      // fills the shot (the cuts stay where they are); the message names the shorter shot too.
+      const fixes = problems.filter((item) => item.fix && Array.isArray(sent));
+      const retryWith = fixes.length ? { shots: sent.map((shot, index) => { const fix = fixes.find((item) => item.fix.shot === index + 1)?.fix; return fix ? { ...shot, speed: fix.speed } : shot; }) } : null;
+      throw boardProblem(first.code, `${first.message}${more}`, first.suggestions, retryWith);
     }
     // Only a real change raises the board's rev: the board as parseDocument keeps it, compared.
     const old = document.board;
@@ -2506,8 +2510,17 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       add("bad_shot", `shot ${n} has no media, so in, crop, subject and follow are "none".`);
     if (footage.file?.kind === "video") {
       if (!number(shot.in) || shot.in < 0) add("bad_shot", `shot ${n} is a video: in is the file second it starts at (0 or more).`);
-      else if (footage.file.duration > 0 && number(shot.dur) && shot.in + shot.dur * speed > footage.file.duration + ONE_FRAME)
-        add("bad_shot", `shot ${n} needs ${sec(shot.dur * speed)} s of ${footage.file.name} from ${sec(shot.in)} s, but the file ends at ${sec(footage.file.duration)} s.`);
+      else if (footage.file.duration > 0 && number(shot.dur) && shot.in + shot.dur * speed > footage.file.duration + ONE_FRAME) {
+        // The two one-field fixes, with their numbers: the speed that makes the rest of the file fill
+        // the shot (the cuts stay), or the shot as long as the rest of the file plays.
+        const left = footage.file.duration - shot.in;
+        const fitSpeed = Math.floor((left / shot.dur) * 100) / 100;
+        const fitDur = Math.floor((left / speed) * 100) / 100;
+        const fixes = left > 0 && fitSpeed >= 0.05 && fitDur > 0
+          ? ` Send speed ${fitSpeed} (the clip plays slower and fills the ${sec(shot.dur)} s shot) or dur ${fitDur} (a shorter shot, ending ${sec(shot.dur - fitDur)} s sooner).`
+          : ` Start it earlier: in is at most ${sec(Math.max(0, footage.file.duration - shot.dur * speed))} s.`;
+        add("bad_shot", `shot ${n} needs ${sec(shot.dur * speed)} s of ${footage.file.name} from ${sec(shot.in)} s, but the file ends at ${sec(footage.file.duration)} s.${fixes}`, [], left > 0 && fitSpeed >= 0.05 && fitDur > 0 ? { shot: n, speed: fitSpeed } : null);
+      }
       if (!FOLLOW.includes(shot.follow)) add("bad_shot", `shot ${n} is a video: follow is steady, track or sweep.`);
     }
     if (footage.file?.kind === "image" && shot.in !== NONE) add("bad_shot", `shot ${n} is a picture: in is "none".`);
