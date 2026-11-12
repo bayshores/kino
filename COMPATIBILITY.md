@@ -1169,12 +1169,16 @@ How to read it:
   `backend/audio-levels.test.mjs`, `engine/volumeAnimation.test.js`. Gap: the dashboard preview mix is
   not leveled and plays volume at most 1.
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
-  layer at a shared place alone and turns down only the one that makes the peak, by its own factor
-  (all of them by xN when none can clear it alone; a short clip whole, a long one over the place with
-  0.05 s ramps, measured for clicks) and answers each place's peak before and after; a song whose dips
-  would churn keeps its level, and a mix the "auto" gain already clears is left alone. `place_sounds`
-  keeps a new sound's peak plus the mix's under the limiter. Evidence: `backend/audio-levels.test.mjs`,
-  `backend/agent-volume.test.mjs`, `engine/volumeAnimation.test.js`. Gap: not tried on a real project.
+  layer at a shared place alone and turns down only the one that makes the peak, by its measured share
+  of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the
+  place with 0.05 s ramps, measured for clicks); a song that cannot dip (churn, or a fade there) comes
+  down whole by its worst place's factor; the answer gives each place before and after, the places not
+  turned down, what is left and the one call that clears it; a mix the "auto" gain already clears is
+  left alone. `place_sounds` keeps a new sound's peak plus the mix's under the limiter. Evidence:
+  `backend/audio-levels.test.mjs`, `backend/agent-volume.test.mjs`, `engine/volumeAnimation.test.js`;
+  replayed on a real 14 s project: 3 -> 1 places, +3.1 -> -1.4 dBTP. Gap: there the whole-song trim
+  (x0.36) also moved "auto" from the song's level to -14 web; MIN_CAUSE_FACTOR and the 0.3 s whole-clip
+  margin are not measured.
 - **Waveform peaks**: Verified. `project manage media peaks` caches peaks beside the file; the
   dashboard draws them. Evidence: `backend/audio-peaks.test.mjs`, `engine/audioPeaks.test.js`. Partly
   verified: recovery from a corrupt cache.

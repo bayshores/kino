@@ -997,6 +997,21 @@ export async function measureMixPeaks(clips, duration, signal, { perLayer = fals
         for (const clip of place.playing) if (clip.layerId === layerId) clip.peakDbfs = peak;
       }
     }
+    // And the mix without its k loudest layers (k from 1 to all but two; with one layer left, that
+    // layer alone is the rest): place.restDbfs[k - 1], so peakCauses cuts them by their measured share
+    // of the peak, not with the others summed in phase. One FFmpeg run per distinct set left out.
+    const rests = new Map();
+    for (const place of places) {
+      const sorted = [...new Map(place.playing.map((clip) => [clip.layerId, clip.peakDbfs ?? -Infinity]))].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+      if (sorted.length < 3) continue;
+      place.restDbfs = [];
+      for (let count = 1; count <= sorted.length - 2; count += 1) {
+        const out = new Set(sorted.slice(0, count));
+        const key = [...out].sort().join(" ");
+        if (!rests.has(key)) rests.set(key, await measurePeakWindows(heard.filter((clip) => !out.has(clip.layerId)), until, signal));
+        place.restDbfs.push(peakOver(rests.get(key), place.from, place.to));
+      }
+    }
   }
   const lead = await autoLoudness(heard, duration, 0, signal);
   const gain = loudnessGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, 0, lead.targetLufs);

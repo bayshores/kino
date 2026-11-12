@@ -311,7 +311,7 @@ export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = 
  * limiter works at 9 -> 0 places (most 6.5 -> 0 dB over); -12.9 -> -13.4 LUFS, true peak +0.8 ->
  * -1.6 dBTP with loudness "off"; "auto" adds +4.2 -> +5.1 dB, then the limiter works at 82 -> 30 places".
  */
-export function describeMixFix(before, after, trimmed = []) {
+export function describeMixFix(before, after, trimmed = [], { restCall = "" } = {}) {
   const most = (mix) => Math.max(0, ...mix.places.map((place) => place.overDb));
   const level = (mix) => (mix.integratedLufs === null ? "too short" : mix.integratedLufs);
   const peak = (mix) => (mix.truePeakDbtp === null ? "silent" : signed(mix.truePeakDbtp));
@@ -320,11 +320,32 @@ export function describeMixFix(before, after, trimmed = []) {
   // Each place turned down (peakTrims trimmed): the layers and factors, its peak before and after.
   const places = (after.windows ? trimmed : []).slice(0, 3).map((place) => {
     const now = peakOver(after.windows, place.from, place.to);
-    return `${place.at} s ${place.layers.map((layer) => `${String(layer.name).slice(0, 24)} x${layer.factor}`).join(", ")}: ${signed(place.peakDbtp)} -> ${now === null ? "silent" : signed(now)} dBFS`;
+    return `${place.at} s ${place.layers.map((layer) => `${String(layer.name).slice(0, 24)} x${layer.factor}${layer.whole ? " whole" : ""}`).join(", ")}: ${signed(place.peakDbtp)} -> ${now === null ? "silent" : signed(now)} dBFS`;
   });
   if (trimmed.length > 3) places.push(`${trimmed.length - 3} more under fixed`);
+  // What was applied, what was not, and what is left with the one call that clears it.
+  const done = new Set(trimmed.map((place) => place.at));
+  const skipped = before.places.filter((place) => !done.has(place.at)).map((place) => `${place.at} s`);
+  const applied = `; turned down at ${done.size} of ${before.places.length} ${before.places.length === 1 ? "place" : "places"}${skipped.length ? ` (not at ${skipped.slice(0, 4).join(", ")}${skipped.length > 4 ? ", ..." : ""}: see not applied)` : ""}`;
+  const worst = after.places.reduce((high, place) => (!high || place.overDb > high.overDb ? place : high), null);
+  const left = worst ? `; left: ${after.places.length} ${after.places.length === 1 ? "place" : "places"}, worst ${placeText(worst)}${restCall ? `; clears the rest: ${restCall}` : ""}` : "; left: none";
   return `mix fix: the limiter works at ${before.places.length} -> ${after.places.length} places (most ${most(before)} -> ${most(after)} dB over); ` +
-    `${level(before)} -> ${level(after)} LUFS, true peak ${peak(before)} -> ${peak(after)} dBTP with loudness "off"${auto}${places.length ? `; places: ${places.join(" · ")}` : ""}`;
+    `${level(before)} -> ${level(after)} LUFS, true peak ${peak(before)} -> ${peak(after)} dBTP with loudness "off"${auto}${places.length ? `; places: ${places.join(" · ")}` : ""}${applied}${left}`;
+}
+
+/**
+ * The one call that clears the places left after check {fix:"auto"}: check {fix:"auto"} again when
+ * `plan` (peakTrims of the scene as it is now over those places) changes anything, else one edit
+ * that multiplies every layer playing at the worst place by its xN. "" when nothing is left.
+ */
+export function restCallFor(places, plan, layers) {
+  if (!places.length) return "";
+  if (plan?.ops?.length) return 'check {fix:"auto"}';
+  const worst = places.reduce((high, place) => (!high || place.overDb > high.overDb ? place : high), null);
+  const ids = [...new Set((worst.playing ?? []).map((clip) => clip.layerId).filter(Boolean))];
+  const ops = ids.map((id) => layers.find((layer) => layer.id === id)).filter(Boolean)
+    .map((layer) => `{op:"update_layer", layer:"${layer.name ?? layer.id}", properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
+  return ops.length ? `edit {ops:[${ops.join(", ")}]}` : "";
 }
 
 /** The loudest of `windows` ([{t, peak}] per 0.1 s) from `from` to `to` (s), or null when all are silent. */
