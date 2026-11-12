@@ -27,6 +27,9 @@ export const LIGHT_EFFECTS = [
       radius: number("Radius", 24, 0, 400, 1, "px"),
       passes: number("Passes", 1, 1, MAX_GLOW_PASSES, 1, "", { integer: true }),
       ...brightParts(),
+      // "auto" (new glows): the ramp follows the layer's own brightness (glow.js autoGlowRamp).
+      // Glows saved with a number keep it.
+      threshold: number("Threshold", "auto", 0, 1, 0.01, "", { auto: true }),
       // "behind": a halo under the layer from its whole shape, so the fill keeps its own color.
       // "spill": the halo only lightens what is darker than it, so light spills onto the dark
       // round a bright area while the lines inside it stay. Optional, so glows saved before stay the same.

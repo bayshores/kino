@@ -10,7 +10,8 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { createChromiumRasterizer } from "../../backend/chromium-raster.mjs";
 import { createEffectAnimation } from "./animation.js";
 import { effectDefaults } from "./catalog.js";
-import { glowRadii, glowWeights, renderGlow, thresholdTable } from "./glow.js";
+import { autoGlowRamp, GLOW_DEFAULTS, GLOW_LEVEL_SLOTS, glowRadii, glowWeights, renderGlow, thresholdTable } from "./glow.js";
+import { layerBrightness } from "../../backend/export.mjs";
 import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLightRays, sceneBoxInLayer } from "./lightRays.js";
 import { flareVisibility, renderLensFlare } from "./lensFlare.js";
 import { calmLightAnimations } from "./light.js";
@@ -45,7 +46,7 @@ async function draw(render, parameters, { width, height, content, under = "", la
   const canvas = createCanvas(scene.width, scene.height);
   canvas.getContext("2d").drawImage(image, 0, 0);
   const data = canvas.getContext("2d").getImageData(0, 0, scene.width, scene.height).data;
-  return { output, pixel: (x, y) => [...data.subarray((y * scene.width + x) * 4, (y * scene.width + x) * 4 + 4)] };
+  return { output, data, pixel: (x, y) => [...data.subarray((y * scene.width + x) * 4, (y * scene.width + x) * 4 + 4)] };
 }
 
 // erf, Abramowitz and Stegun 7.1.26 (error under 1.5e-7).
@@ -116,6 +117,55 @@ test("glow mode behind: an orange square keeps its orange and gets an orange hal
   const [add, spill] = glows.map((glow) => [glow.pixel(59, 60)[0], glow.pixel(73, 60)[0]]);
   assert.ok(Math.abs(spill[1] - add[1]) <= 3 && spill[1] > 20, `the same halo outside (${spill[1]} and ${add[1]})`);
   assert.ok(spill[0] < add[0] - 20, `the line inside stays darker with spill (${spill[0]} against ${add[0]})`);
+});
+
+test("glow threshold auto: a dark picture glows from its own highlights, a bright one does not blow out", async (t) => {
+  const size = 200;
+  // Four 20 px highlights (4%), a mid-tone band (10%) and the ground: mean luma 35 dark, 205 bright.
+  const SPOTS = [[30, 30], [140, 30], [30, 150], [140, 150]];
+  const picture = ([ground, band, spot]) => `<rect width="${size}" height="${size}" fill="${ground}"/><rect y="90" width="${size}" height="20" fill="${band}"/>` +
+    SPOTS.map(([x, y]) => `<rect x="${x}" y="${y}" width="20" height="20" fill="${spot}"/>`).join("");
+  const director = { ...effectDefaults("glow"), radius: 16, color: "#FF5A1F", colorMix: 0.7 };
+  const lumaOf = (data, at) => 0.2126 * data[at] + 0.7152 * data[at + 1] + 0.0722 * data[at + 2];
+  const mean = (image, boxes) => {
+    let sum = 0, count = 0;
+    for (const [x0, y0, w, h] of boxes) for (let y = y0; y < y0 + h; y += 1) for (let x = x0; x < x0 + w; x += 1) { sum += lumaOf(image.data, (y * size + x) * 4); count += 1; }
+    return sum / count;
+  };
+  const facts = async (colors) => {
+    const content = picture(colors);
+    const plain = await draw((frame) => frame.content, {}, { width: size, height: size, content, layerType: "image" });
+    const measured = layerBrightness([{ data: plain.data }]);
+    const levels = [];
+    GLOW_LEVEL_SLOTS.forEach((slot, index) => { levels[slot] = measured[index]; });
+    // Before: the old default (0.7) and the director's 0.3; after: auto with the measurement.
+    const fixed = await draw(renderGlow, { ...director, threshold: GLOW_DEFAULTS.threshold }, { width: size, height: size, content, layerType: "image" });
+    const given = await draw(renderGlow, { ...director, threshold: 0.3 }, { width: size, height: size, content, layerType: "image" });
+    const auto = await draw(renderGlow, director, { width: size, height: size, content, layerType: "image", levels });
+    const inside = SPOTS.map(([x, y]) => [x + 2, y + 2, 16, 16]), around = SPOTS.map(([x, y]) => [x, y - 10, 20, 8]);
+    const of = (image) => {
+      let changed = 0, clipped = 0;
+      for (let at = 0; at < image.data.length; at += 4) {
+        if ([0, 1, 2].some((channel) => Math.abs(image.data[at + channel] - plain.data[at + channel]) > 2)) changed += 1;
+        if ([0, 1, 2].some((channel) => image.data[at + channel] >= 255)) clipped += 1;
+      }
+      return { changed: changed / (size * size), clipped: clipped / (size * size), inside: mean(image, inside) - mean(plain, inside), around: mean(image, around) - mean(plain, around) };
+    };
+    return { meanLuma: mean(plain, [[0, 0, size, size]]), measured, plain: of(plain), fixed: of(fixed), given: of(given), auto: of(auto) };
+  };
+  const dark = await facts(["#1E1E1E", "#3C3C3C", "#5A5A5A"]);
+  t.diagnostic(`dark ${JSON.stringify(dark)}`);
+  assert.ok(Math.abs(dark.meanLuma - 35) < 2, `the dark picture's mean luma is about 35: ${dark.meanLuma}`);
+  assert.ok(dark.fixed.changed < 0.001, `the old default 0.7 changes nothing on it: ${dark.fixed.changed}`);
+  assert.ok(dark.auto.around > 10 && dark.auto.inside > 20, `auto lights the highlights and around them: ${JSON.stringify(dark.auto)}`);
+  assert.ok(dark.auto.around > 3 * dark.given.around, `auto lights around them more than 3x threshold 0.3: ${dark.auto.around} against ${dark.given.around}`);
+  const bright = await facts(["#C8C8C8", "#DCDCDC", "#F0F0F0"]);
+  t.diagnostic(`bright ${JSON.stringify(bright)}`);
+  assert.equal(bright.plain.clipped, 0);
+  assert.ok(bright.auto.clipped < 0.1 && bright.auto.clipped < bright.fixed.clipped / 4, `auto clips ${bright.auto.clipped} of the bright picture against ${bright.fixed.clipped} at 0.7`);
+  // Without a measurement (the live preview, text) auto is the old default; a black frame's grain stays out.
+  assert.deepEqual(autoGlowRamp(null), null);
+  assert.deepEqual(autoGlowRamp([0.02, 0.04]), [0.1, 0.05]);
 });
 
 test("rim light: a band on the lit side, a ring alone outside, and no rim along the frame border", async () => {

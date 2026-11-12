@@ -200,6 +200,38 @@ test("the guide's light recipes run as written and light the picture as their na
   assert.equal(largestDifference(plain, await frame("light-flare-sweep", 1.95)), 0, "it fades out when the light leaves the picture");
 });
 
+test("a glow on a dark picture without a threshold measures the picture: the receipt says the threshold and the glow shows", { timeout: 120_000 }, async (t) => {
+  // Mean luma 35: a dark ground, a mid-tone band and one 30 px highlight at (200, 60).
+  const canvas = createCanvas(WIDTH, HEIGHT);
+  const context = canvas.getContext("2d");
+  context.fillStyle = "#1E1E1E";
+  context.fillRect(0, 0, WIDTH, HEIGHT);
+  context.fillStyle = "#3C3C3C";
+  context.fillRect(0, 120, WIDTH, 20);
+  context.fillStyle = "#5A5A5A";
+  context.fillRect(200, 60, 30, 30);
+  const glow = { strength: 1, radius: 12, color: "#FF5A1F", colorMix: 0.7 };
+  const replies = {};
+  for (const [project, parameters] of [["glow-dark-fixed", { ...glow, threshold: 0.7 }], ["glow-dark-auto", glow]]) {
+    await agent("project", { action: "create", id: project, name: project, width: WIDTH, height: HEIGHT, duration: 1 });
+    const upload = await server.api(`/api/media?project=${project}`, { method: "POST", headers: { "content-type": "image/png", "x-file-name": "dark.png" }, body: canvas.toBuffer("image/png") });
+    const { src } = await upload.json();
+    replies[project] = await agent("edit", { project, ops: [
+      { op: "add_layer", layerType: "image", name: "footage", properties: { src, x: 0, y: 0, width: WIDTH, height: HEIGHT } },
+      { op: "add_animation", layer: "footage", effect: "glow", parameters } ] });
+    assert.equal(replies[project].isError, undefined, replies[project].text);
+  }
+  const notes = (project) => (replies[project].data.notes ?? []).filter((note) => note.includes("threshold auto measured"));
+  assert.equal(notes("glow-dark-fixed").length, 0, "a number is kept");
+  // The number above the picture's 99th percentile (0.35) is said with the measurement.
+  assert.ok((replies["glow-dark-fixed"].data.notes ?? []).some((note) => /threshold 0\.7 is at or above the layer's 99th luma percentile \(0\.35\)/.test(note)), JSON.stringify(replies["glow-dark-fixed"].data.notes));
+  assert.match(notes("glow-dark-auto")[0] ?? "", /threshold auto measured 0\.\d\d/);
+  const fixed = await frame("glow-dark-fixed", 0.5), auto = await frame("glow-dark-auto", 0.5);
+  t.diagnostic(`${notes("glow-dark-auto")[0]} | beside: ${change(fixed, auto, 194, 75)}, on: ${change(fixed, auto, 215, 75)}`);
+  // 6 px left of the highlight: no change at 0.7, the orange glow with auto.
+  assert.ok(gain(fixed, auto, 194, 75) > 8 && change(fixed, auto, 194, 75)[0] > change(fixed, auto, 194, 75)[2], `auto glows orange beside the highlight: ${change(fixed, auto, 194, 75)}`);
+});
+
 test("the light example in the kino skill runs as written: a glowing title with light behind it, a flare on the sun and a flash on a cue", { timeout: 120_000 }, async () => {
   const [ops] = jsonBlocks(skillSection("Light: glow, rays and flares"));
   const layers = ops.filter((entry) => entry.op === "add_layer");
