@@ -25,6 +25,7 @@ import { LIGHT_EFFECTS } from "./light.js";
 import { PARTICLE_EFFECTS } from "./particles.js";
 import { LIGHTNING_EFFECT } from "./lightning.js";
 import { FINISH_EFFECTS } from "./finish.js";
+import { DEBLOCK_EFFECT } from "./deblock.js";
 import { OVERLAY_EFFECTS } from "./overlays.js";
 import { FIELD_EFFECT } from "./field.js";
 import { MOSAIC_EFFECT } from "./mosaic.js";
@@ -246,6 +247,8 @@ const definitions = [
     parameters: { targetColor: color("Target Color", "#00FF00"), range: number("Range", 0.18, 0, 1, 0.01),
       softness: number("Softness", 0.18, 0, 1, 0.01) } },
   ...UTILITY_COPY_EFFECTS,
+  // Smooths codec block steps in flat areas (deblock.js; lift_dark adds it).
+  DEBLOCK_EFFECT,
   // Overlay generators (embers, snow, fog...): src/effects/particles.js.
   ...PARTICLE_EFFECTS,
   // Colour grading. Every default changes nothing, except keep-color (which keeps reds) and

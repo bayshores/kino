@@ -238,8 +238,8 @@ const OPERATIONS = {
     rules: 'match_references {scene?, layer? | layers?, remove?, lower?}: brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
   },
   lift_dark: {
-    fields: ["sceneId", "layerId", "layerIds", "target", "grain", "remove"],
-    rules: 'lift_dark {layer | layers, target?, grain?, remove?}: brightens dark shots with a curve read from each shot\'s own tones: the black point stays, the mids rise to target (mean luma 0 to 255; left out, the median of the scene\'s other shots), the highlights roll off; from a 1 stop lift a small grain matched to the curve breaks up compression blocks (grain:false leaves it off, a number sets its amount). Effects <layer>.lift (curves) and <layer>.lift-grain; again replaces them; remove:true takes them off. The receipt: mean and contrast (p90-p10) before and after, beside a plain gamma to the same mean.',
+    fields: ["sceneId", "layerId", "layerIds", "target", "grain", "reduced", "remove"],
+    rules: 'lift_dark {layer | layers, target?, grain?, reduced?, remove?}: brightens dark shots with a curve read from each shot\'s own tones: the black point stays, the mids rise to target (mean luma 0 to 255; left out, the median of the scene\'s other shots), the highlights roll off; from a 1 stop lift a small grain matched to the curve breaks up compression blocks (grain:false leaves it off, a number sets its amount; one grain per source pixel; still under reduced motion or reduced:true). A video whose codec block grid measures 1.5 times the steps inside the blocks gets a deblock <layer>.lift-deblock before the curve; the receipt gives the block step before and after. Effects <layer>.lift (curves) and <layer>.lift-grain; again replaces them; remove:true takes them off. The receipt: mean and contrast (p90-p10) before and after, beside a plain gamma to the same mean.',
   },
   split_image: {
     fields: ["layerId", "sceneId", "boxes"],
@@ -802,6 +802,7 @@ const TRANSLATE = {
     if (operation.target !== undefined && !(Number.isFinite(operation.target) && operation.target > 0 && operation.target <= 255)) throw problem("target is the mean luma to reach, 1 to 255 (left out: the median of the scene's other shots).");
     if (operation.grain !== undefined && operation.grain !== false && !(Number.isFinite(operation.grain) && operation.grain >= 0 && operation.grain <= 1)) throw problem("grain is false (no grain) or an amount 0 to 1 (left out: matched to the lift).");
     if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the lift effects off) or left out.");
+    if (operation.reduced !== undefined && typeof operation.reduced !== "boolean") throw problem("reduced is true (the grain holds still) or false (left out: the scene's reduced setting).");
   },
   // The board's names (music, media) are looked up when it runs: they may be layers this edit makes.
   board() {},

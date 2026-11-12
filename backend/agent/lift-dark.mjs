@@ -6,8 +6,8 @@ import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { mainScene } from "../../engine/board.js";
 import { coveredAt } from "../../engine/quality/techniques.js";
-import { area, intersection, visibleBoxAt } from "../../engine/quality/model.js";
-import { cropFrame, gammaToMean, liftGrainId, liftId, liftShot, lumaStats } from "../../engine/quality/liftDark.js";
+import { area, boxAt, intersection, visibleBoxAt } from "../../engine/quality/model.js";
+import { blockiness, blockStep, cropFrame, deblockFor, gammaToMean, liftDeblockId, liftGrainId, liftId, liftShot, lumaStats } from "../../engine/quality/liftDark.js";
 
 // 240 px wide: wider than match_references' 160, so the 2nd and 98th percentiles have pixels to stand on.
 const MEASURE_WIDTH = 240;
@@ -40,7 +40,8 @@ export function pictureShots(model) {
     if (!shown.length) continue;
     const picked = [...new Set(Array.from({ length: PER_SHOT }, (_, step) => Math.min(shown.length - 1, Math.floor(((step + 0.5) / PER_SHOT) * shown.length))))].map((index) => shown[index]);
     const share = Math.max(...picked.map((entry) => area(entry.box))) / area(frame);
-    shots.push({ layerId: item.source.layerId, name: item.name ?? item.source.layerId, times: picked.map((entry) => entry.time), boxes: picked.map((entry) => entry.box), share, first: shown[0].time });
+    // whole: the picture's own box (letterbox bars and the frame edge not cut off), where its source pixels sit.
+    shots.push({ layerId: item.source.layerId, name: item.name ?? item.source.layerId, times: picked.map((entry) => entry.time), boxes: picked.map((entry) => entry.box), whole: boxAt(item, model.times.indexOf(picked[0].time)), video: item.kind === "video", share, first: shown[0].time });
   }
   return shots.sort((a, b) => a.first - b.first);
 }
@@ -54,7 +55,7 @@ const median = (values) => {
 
 /** The lift effects in a scene on `layerIds`: [{layerId, id}]. */
 export function liftEffects(scene, layerIds) {
-  const ids = new Set(layerIds.flatMap((layerId) => [liftId(layerId), liftGrainId(layerId)]));
+  const ids = new Set(layerIds.flatMap((layerId) => [liftDeblockId(layerId), liftId(layerId), liftGrainId(layerId)]));
   return (scene?.layers ?? []).flatMap((layer) => (layer.animations ?? []).filter((animation) => ids.has(animation.id)).map((animation) => ({ layerId: layer.id, id: animation.id })));
 }
 
@@ -67,7 +68,7 @@ const seedOf = (text) => [...String(text)].reduce((sum, char) => (sum * 31 + cha
  * its amount. `render(scene, times, {width})` renders an expanded scene, `runOps(document, ops)`
  * applies ops as an edit would, `name(id)` the agent's name for an id.
  */
-export async function liftDark(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false, fonts, render, runOps, name = (id) => id }) {
+export async function liftDark(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false, reduced = null, fonts, render, runOps, sourceSize = () => null, name = (id) => id }) {
   const scene = sceneId ? document.scenes.find((entry) => entry.id === sceneId) : mainScene(document);
   if (!scene) return { document, lines: [], lifted: [] };
   const old = liftEffects(scene, layerIds);
@@ -95,16 +96,38 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const otherMean = median(others.map((shot) => lumaStats(shot.frames)?.mean));
   const aim = Number.isFinite(target) ? target / 255 : otherMean ?? FALLBACK_TARGET / 255;
   const aimLine = Number.isFinite(target) ? `target ${target}` : otherMean !== null ? `target ${levels255(otherMean)} (median of ${others.length} other shot${others.length === 1 ? "" : "s"})` : `target ${FALLBACK_TARGET} (no other shot to follow; target:<0-255> sets it)`;
+  // A video's source pixels on the scene: its own box over the file's size (null when either is unknown).
+  const grids = new Map();
+  for (const shot of own) {
+    const size = shot.video && shot.whole ? await sourceSize(shot.layerId) : null;
+    if (!(size?.width > 0 && size?.height > 0)) continue;
+    grids.set(shot.layerId, { x0: shot.whole.x0, y0: shot.whole.y0, pitchX: (shot.whole.x1 - shot.whole.x0) / size.width, pitchY: (shot.whole.y1 - shot.whole.y0) / size.height });
+  }
+  // Block steps are read at full scene size (a 240 px frame cannot show a 16 px block), inside the shot's box.
+  const gridded = own.filter((shot) => grids.has(shot.layerId));
+  const fullTimes = gridded.flatMap((shot) => shot.times);
+  const blocksOf = (frames, shot, side) => {
+    const at = gridded.slice(0, gridded.indexOf(shot)).reduce((sum, entry) => sum + entry.times.length, 0);
+    const mine = frames.slice(at, at + shot.times.length);
+    const grid = { ...grids.get(shot.layerId), box: shot.boxes?.[0] ?? null };
+    return side ? blockStep(mine, { ...grid, side }) : blockiness(mine, grid);
+  };
+  const fullBefore = fullTimes.length ? await render(expandComponents(base, scene.id, { fonts }), fullTimes, { width: model.width }) : [];
+  const still = reduced ?? Boolean(baseScene?.composition?.reduced);
   const lifted = [], skipped = [];
   for (const shot of own) {
-    const lift = liftShot(shot.frames, aim);
+    const grid = grids.get(shot.layerId);
+    const lift = liftShot(shot.frames, aim, { sourceScale: grid ? Math.max(grid.pitchX, grid.pitchY) : 1 });
     if (!lift) { skipped.push(shot); continue; }
     const amount = grain === false ? null : Number.isFinite(grain) ? grain : lift.grain?.amount ?? null;
-    lifted.push({ ...shot, ...lift, amount, size: lift.grain?.size ?? 1, gamma: gammaToMean(shot.frames, lift.after.mean) });
+    const blocks = grid ? blocksOf(fullBefore, shot) : null;
+    lifted.push({ ...shot, ...lift, amount, size: lift.grain?.size ?? 1, gamma: gammaToMean(shot.frames, lift.after.mean), blocks, deblock: deblockFor(blocks, grid ? Math.max(grid.pitchX, grid.pitchY) : 1) });
   }
   const ops = lifted.flatMap((entry) => [
+    // Before the curve, so the steps are smoothed at the source's own levels.
+    ...(entry.deblock ? [{ op: "add_animation", layerId: entry.layerId, id: liftDeblockId(entry.layerId), effect: "deblock", start: 0, duration: scene.duration, parameters: entry.deblock }] : []),
     { op: "add_animation", layerId: entry.layerId, id: liftId(entry.layerId), effect: "curves", start: 0, duration: scene.duration, parameters: { master: entry.curve } },
-    ...(entry.amount ? [{ op: "add_animation", layerId: entry.layerId, id: liftGrainId(entry.layerId), effect: "grain", start: 0, duration: scene.duration, parameters: { amount: entry.amount, size: entry.size, seed: seedOf(entry.layerId) } }] : []),
+    ...(entry.amount ? [{ op: "add_animation", layerId: entry.layerId, id: liftGrainId(entry.layerId), effect: "grain", start: 0, duration: scene.duration, parameters: { amount: entry.amount, size: entry.size, seed: seedOf(entry.layerId), ...(still ? { animated: false } : {}) } }] : []),
   ]);
   let after = base;
   if (ops.length) {
@@ -112,11 +135,16 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     // The receipt's "after" is the render (overlays and the frame finish included), not the model.
     const drawn = await render(expandComponents(after, scene.id, { fonts }), times, { width });
     for (const entry of lifted) entry.after = lumaStats(framesOf(entry, drawn)) ?? entry.after;
+    const fullAfter = lifted.some((entry) => entry.blocks) ? await render(expandComponents(after, scene.id, { fonts }), fullTimes, { width: model.width }) : [];
+    for (const entry of lifted) if (entry.blocks) entry.blocksAfter = blocksOf(fullAfter, entry, entry.blocks.side);
   }
-  const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount}` : ""}`;
+  const level = (value) => Math.round(value * 100) / 100;
+  const blockLine = (entry) => !entry.blocks ? ""
+    : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`;
+  const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
   const kept = skipped.length ? `; ${skipped.map((shot) => `${name(shot.layerId)} ${levels255(lumaStats(shot.frames)?.mean ?? 0)}`).join(", ")} already at or above it, left alone` : "";
   const lines = [lifted.length
-    ? `lift_dark ${aimLine}: ${lifted.map(shotLine).join("; ")}${kept}. Effects <layer>.lift (curves) and <layer>.lift-grain; again replaces them, remove:true takes them off.`
+    ? `lift_dark ${aimLine}: ${lifted.map(shotLine).join("; ")}${kept}. Effects ${lifted.some((entry) => entry.deblock) ? "<layer>.lift-deblock (deblock), " : ""}<layer>.lift (curves) and <layer>.lift-grain; again replaces them, remove:true takes them off.`
     : `lift_dark ${aimLine}: nothing lifted${kept || ` (no frame of ${layerIds.map(name).join(", ")} measured)`}.`];
   return { document: after, lines, lifted };
 }

@@ -955,7 +955,7 @@ test("lift_dark aims a dark shot at the other shots' median, adds a curve and gr
   };
   const first = await liftDark(document, { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
   assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.lift", "curves"], ["add_animation", "dark", "dark.lift-grain", "grain"]]);
-  assert.match(first.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 \(a plain gamma [\d.]+ to the same mean: contrast \d+, black \d+\); \+[\d.]+ stops, grain [\d.]+\./);
+  assert.match(first.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 \(a plain gamma [\d.]+ to the same mean: contrast \d+, black \d+\); \+[\d.]+ stops, grain [\d.]+ size 1\./);
   // The black point stays, the contrast grows past the gamma's.
   const [lift] = first.lifted;
   assert.ok(lift.after.contrast > lift.gamma.stats.contrast && lift.gamma.stats.p2 > lift.after.p2);
