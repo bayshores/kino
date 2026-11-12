@@ -534,7 +534,7 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   const { root, document } = await fakeOutline(t);
   // The subject moves right over the clip: the copy keeps the box around every frame and its path.
   const made = { engine: "subject", frames: 30, empty: 0, seconds: 1, cached: false, record: { id: `${randomUUID()}.webm` }, rate: "30/1",
-    boxes: { frames: [{ index: 0, box: [0.1, 0.2, 0.3, 0.9] }, { index: 29, box: [0.5, 0.2, 0.7, 0.9] }] } };
+    boxes: { frames: [{ index: 0, box: [0.1, 0.2, 0.3, 0.9], shape: { cover: 0.12, straight: 0.05 } }, { index: 29, box: [0.5, 0.2, 0.7, 0.9], shape: { cover: 0.5, straight: 0.4 } }] } };
   const cutoutMedia = { start: () => ({ done: Promise.resolve(made), progress: () => ({ fraction: 1, seconds: 0 }) }), engines: async () => [] };
   const clip = document.scenes[0].layers[0];
   clip.animations.push(createEffectAnimation("glow", clip, 0, document.scenes[0], "glow", { threshold: 0.1 }));
@@ -550,6 +550,9 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   // The clip moved 1 s later: the copy's path moves with it, so place {around} reads the same moments.
   const moved = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip", properties: { mediaStart: 1 } }]);
   assert.deepEqual(moved.scenes[0].layers.find((layer) => layer.id === "clip-cut").subjectPath.map((sample) => sample[0]), [1, 1.967]);
+  // The matte's shape per sampled frame ([t, cover, straight], impact-silhouette reads it) is kept and moves with the clip too.
+  assert.deepEqual(over.subjectShapes, [[0, 0.12, 0.05], [0.967, 0.5, 0.4]]);
+  assert.deepEqual(moved.scenes[0].layers.find((layer) => layer.id === "clip-cut").subjectShapes.map((row) => row[0]), [1, 1.967]);
   // The copy moved 0.5 s later on its own: its path moves too.
   const alone = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip-cut", properties: { mediaStart: 0.5 } }]);
   assert.deepEqual(alone.scenes[0].layers.find((layer) => layer.id === "clip-cut").subjectPath.map((sample) => sample[0]), [0.5, 1.467]);

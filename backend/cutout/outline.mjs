@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ffmpegCommand } from "../media-probe.mjs";
 import { scaleMatte } from "./cutout.mjs";
+import { matteShape } from "../../engine/blocks/moves/silhouette.js";
 
 export const OUTLINE_DEFAULTS = Object.freeze({ step: 4, points: 240, side: 640, level: 128 });
 
@@ -179,7 +180,9 @@ export function pointsBox(points, width, height) {
  */
 export async function matteBoxes({ folder, info, step = OUTLINE_DEFAULTS.step }) {
   const read = await readMatteFrames({ folder, info, step, side: 160 });
-  return { step, frames: read.frames.map(({ index, matte }) => ({ index, box: matteBox(matte, read.width, read.height) })) };
+  // shape: the share of the picture it covers and of its outline that is the frame edge or a
+  // straight line (impact-silhouette prints them before it draws).
+  return { step, frames: read.frames.map(({ index, matte }) => ({ index, box: matteBox(matte, read.width, read.height), shape: matteShape(matte, read.width, read.height, OUTLINE_DEFAULTS.level) })) };
 }
 
 /** The outline of every sampled frame of a matte: { width, height, step, frames: [{ index, points|null }] }. */

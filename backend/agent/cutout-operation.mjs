@@ -277,13 +277,21 @@ function subjectReport(layer, frames, scene) {
   return { share, path, report: { box: [x, y, width, height], at: picks.map((index) => [Math.round(shown[index].time * 100) / 100, ...px(shown[index].box)]), room } };
 }
 
+/** [[t, cover, straight]] for up to 48 sampled frames with a measured shape, spread over the clip. */
+export function shapeRows(shown) {
+  const measured = shown.filter((frame) => frame.box && frame.shape);
+  const count = Math.min(48, measured.length);
+  const picks = [...new Set(Array.from({ length: count }, (_, k) => Math.round((k * (measured.length - 1)) / Math.max(1, count - 1))))];
+  return picks.map((index) => [Math.round(measured[index].time * 1000) / 1000, measured[index].shape.cover, measured[index].shape.straight]);
+}
+
 // Subject boxes of the matte's sampled frames (media.mjs boxes) at the scene times Play shows them.
 function shownBoxes(layer, made) {
   if (!made.boxes?.frames?.length) return [];
   const rate = parseFrameRate(made.rate) || 30;
-  return made.boxes.frames.flatMap(({ index, box }) => {
+  return made.boxes.frames.flatMap(({ index, box, shape }) => {
     const time = layer.type === "image" ? 0 : mediaSceneTime(layer, (made.lead ?? 0) + index / rate);
-    return time === null ? [] : [{ time, box }];
+    return time === null ? [] : [{ time, box, ...(shape ? { shape } : {}) }];
   }).sort((a, b) => a.time - b.time);
 }
 
@@ -481,8 +489,13 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   copy.cutoutOutput = output;
   // The subject's measured box (shares of the layer, around every shown frame): type_covered
   // judges type behind the cut-out by it instead of by the whole layer box.
-  const subject = output === "matte" ? null : subjectReport(layer, shownBoxes(layer, made), scene);
+  const shown = shownBoxes(layer, made);
+  const subject = output === "matte" ? null : subjectReport(layer, shown, scene);
   if (subject) Object.assign(copy, { subjectBox: subject.share, subjectPath: subject.path });
+  // The matte's shape at each sampled time ([t, cover, straight], up to 48): impact-silhouette
+  // reads whether it is a figure (outline.mjs matteBoxes, engine/blocks/moves/silhouette.js matteShape).
+  const shapes = subject ? shapeRows(shown) : [];
+  if (shapes.length) copy.subjectShapes = shapes;
   // Made by a move for its own frames (translate.mjs moveCutouts, field cutout.own): the copy keeps
   // the clip's other effects (curves, color) but not its glow or its one-hue grade (tritone,
   // duotone); the move puts its own tone on the subject or the clip's grade back (backdrop-flash
