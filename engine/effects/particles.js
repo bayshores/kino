@@ -35,6 +35,9 @@ const MIN_ALPHA = 0.004;
 export const CLOCK_TICKS = 1200;
 
 const lerp = (a, b, t) => a + (b - a) * t;
+// Where variation 1 takes a dot look's depth ranges unless the look sets its own `deep`.
+// shade: the power on depth that leans near particles to color2 (2: only the nearest).
+const DEEP_FIELD = Object.freeze({ speedJitter: 1.5, depth: [0.45, 1.7], parallax: [0.25, null], depthAlpha: 0.35, shade: 2 });
 const smoothstep = (edge0, edge1, value) => {
   if (edge1 <= edge0) return value >= edge1 ? 1 : 0;
   const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
@@ -107,10 +110,16 @@ export const PARTICLE_LOOKS = Object.freeze({
   streaks: { label: "Streaks", shape: "dot", colorMode: "random", maxCount: 2000, size: [0.5, 16],
     lifeJitter: 0.25, sizeJitter: 0.5, speedJitter: 0.25, depth: [0.5, 1.2], parallax: [0.55, 1.1], depthAlpha: 0.45,
     fade: [0.05, 0.05], sizeOverLife: [1, 1], flickerHz: [1, 3], wanderHz: [0.3, 0.8],
+    // Where variation 1 takes this look's depth ranges (other looks use DEEP_FIELD). From the
+    // study's planes against the middle one (420 px/s): far 220 (0.52), near 800 (1.9); far
+    // brightness 0.55 is the far plane's opacity 0.7 times rain's mean depth fade (about 0.78).
+    // shade 1 (a guess tuned by eye) lifts the middle streaks toward color2, as the study's
+    // bright middle plane (#38F0A8 at 0.8) did; shade 2 left them the dim far color.
+    deep: { parallax: [0.52, 1.9], depthAlpha: 0.6, depth: [0.6, 1.5], shade: 1 },
     // count and opacity raised after the first re-run (900 and 0.75 read sparser than the reference).
-    defaults: { count: 1600, size: 2, speed: 420, direction: 180, spread: 0, gravity: 0, wind: 0, turbulence: 0,
+    defaults: { count: 1400, size: 2.5, speed: 420, direction: 180, spread: 0, gravity: 0, wind: 0, turbulence: 0,
       lifetime: 4, color: "#1C9E70", color2: "#D4FFE9", opacity: 0.9, softness: 0.3, glow: 0.6, flicker: 0.15,
-      trail: 0.45, emitter: "area", variation: 0.8, haze: 0.5 } },
+      trail: 0.45, emitter: "area", variation: 0.8, haze: 0.3 } },
   bokeh: { label: "Bokeh", shape: "dot", profile: "bokeh", colorMode: "pick", maxCount: 300, size: [4, 400],
     lifeJitter: 0.4, sizeJitter: 0.9, speedJitter: 0.6, depth: [0.5, 1.3], parallax: [0.6, 1.1], depthAlpha: 0.55,
     fade: [0.3, 0.3], sizeOverLife: [1, 1], flickerHz: [0.2, 0.6], wanderHz: [0.05, 0.2],
@@ -160,6 +169,11 @@ function lookParameters(look) {
       // A soft blurred copy of the particles under them: the haze that blooms where streaks
       // cluster. Optional the same way.
       haze: number("Haze", d.haze ?? 0, 0, 1, 0.01, "", d.haze === undefined ? { optional: true } : {}),
+      // Lines between particles closer than `links` px (a constellation; the particles are its
+      // nodes). Off unless set. Width 1.5 and opacity 0.55 are the streak-field study's hand-drawn links.
+      links: number("Links", 0, 0, 1200, 1, "px", { optional: true }),
+      linkWidth: number("Link width", 1.5, 0.25, 12, 0.25, "px", { optional: true }),
+      linkOpacity: number("Link opacity", 0.55, 0, 1, 0.01, "", { optional: true }),
       emitter: { type: "enum", label: "Emitter", default: d.emitter, options: EMITTERS, animatable: false },
       originX: number("Origin X", d.originX ?? 0.5, 0, 1, 0.01),
       originY: number("Origin Y", d.originY ?? 0.5, 0, 1, 0.01),
@@ -251,10 +265,11 @@ export function particlesAt(key, frame) {
   // the builder's 0.3 size and 0.25 brightness left the far plane too faint to read next to the
   // reference, whose far columns are dim but clearly there).
   const variation = plain.shape === "dot" ? clamp(Number.isFinite(p.variation) ? p.variation : plain.defaults.variation ?? 0, 0, 1) : 0;
-  const look = variation > 0 ? { ...plain, speedJitter: lerp(plain.speedJitter, 1.5, variation),
-    depth: [lerp(plain.depth[0], 0.45, variation), lerp(plain.depth[1], 1.7, variation)],
-    parallax: [lerp(plain.parallax[0], 0.25, variation), plain.parallax[1]],
-    depthAlpha: lerp(plain.depthAlpha, 0.35, variation) } : plain;
+  const deep = { ...DEEP_FIELD, parallax: [DEEP_FIELD.parallax[0], plain.parallax[1]], ...plain.deep };
+  const look = variation > 0 ? { ...plain, speedJitter: lerp(plain.speedJitter, deep.speedJitter, variation),
+    depth: [lerp(plain.depth[0], deep.depth[0], variation), lerp(plain.depth[1], deep.depth[1], variation)],
+    parallax: [lerp(plain.parallax[0], deep.parallax[0], variation), lerp(plain.parallax[1], deep.parallax[1], variation)],
+    depthAlpha: lerp(plain.depthAlpha, deep.depthAlpha, variation) } : plain;
   const width = frame.bounds.width, height = frame.bounds.height;
   let ticks = Math.round((Number.isFinite(frame.time) ? frame.time : 0) * CLOCK_TICKS);
   const dots = look.shape === "dot";
@@ -285,7 +300,6 @@ export function particlesAt(key, frame) {
   const fastest = t.speed.high * (1 + look.speedJitter / 2) * look.parallax[1] + Math.max(Math.abs(t.wind.low), Math.abs(t.wind.high)) +
     Math.max(Math.abs(t.gravity.low), Math.abs(t.gravity.high)) * maxAge;
   const margin = Math.ceil(radiusLimit + t.trail.high * (1 + 0.6 * variation) * fastest + 1);
-  const spanX = width + 2 * margin, spanY = height + 2 * margin;
 
   const particles = [];
   for (let slot = 0; slot < slots; slot += 1) {
@@ -307,6 +321,14 @@ export function particlesAt(key, frame) {
     const sizeFactor = (1 - look.sizeJitter / 2 + look.sizeJitter * random(base, 1)) * lerp(look.depth[0], look.depth[1], depth);
     const turn = t.spread.at(birth) * RADIANS * (random(base, 3) - 0.5);
     const cosTurn = Math.cos(turn), sinTurn = Math.sin(turn);
+    // With variation each streak's trail is its own length (0.4 to 1.6 of trail at variation 1).
+    const trailShare = variation > 0 ? 1 + variation * (1.2 * random(base, 14) - 0.6) : 1;
+    // With variation each particle wraps with its own margin (its own trail at its own speed):
+    // one shared margin sized for the fastest, longest streak left most slow far streaks off
+    // screen (a field of 2600 showed about 40% of them at 1080p).
+    const wrap = variation > 0 ? Math.ceil(radiusLimit + t.trail.high * trailShare * (t.speed.high * speedFactor +
+      parallax * Math.max(Math.abs(t.wind.low), Math.abs(t.wind.high)) + Math.max(Math.abs(t.gravity.low), Math.abs(t.gravity.high)) * maxAge) + 1) : margin;
+    const wrapX = width + 2 * wrap, wrapY = height + 2 * wrap;
 
     // How far a particle born at `at` would drift over its life with that moment's settings.
     const drift = (at) => {
@@ -324,7 +346,7 @@ export function particlesAt(key, frame) {
       x0 = (random(base, 10) * 1.2 - 0.1) * width - driftX / 2;
       y0 = (random(base, 11) * 1.2 - 0.1) * height - driftY / 2;
     } else if (emitter === "area") {
-      x0 = -margin + random(base, 10) * spanX; y0 = -margin + random(base, 11) * spanY;
+      x0 = -wrap + random(base, 10) * wrapX; y0 = -wrap + random(base, 11) * wrapY;
     } else if (emitter === "point") {
       const spot = 0.5 * t.size.at(birth) * Math.sqrt(random(base, 10)), angle = TAU * random(base, 11);
       x0 = t.originX.at(birth) * width + spot * Math.cos(angle); y0 = t.originY.at(birth) * height + spot * Math.sin(angle);
@@ -360,11 +382,10 @@ export function particlesAt(key, frame) {
     };
     let [hx, hy] = position(s);
     let tail = null;
-    // With variation each streak's trail is its own length (0.4 to 1.6 of trail at variation 1).
-    const trail = p.trail * (variation > 0 ? 1 + variation * (1.2 * random(base, 14) - 0.6) : 1);
+    const trail = p.trail * trailShare;
     if (dots && trail > 0 && age > 0) tail = position(Math.max(birth, s - trail));
     if (dots && emitter === "area") {
-      const shiftX = Math.floor((hx + margin) / spanX) * spanX, shiftY = Math.floor((hy + margin) / spanY) * spanY;
+      const shiftX = Math.floor((hx + wrap) / wrapX) * wrapX, shiftY = Math.floor((hy + wrap) / wrapY) * wrapY;
       hx -= shiftX; hy -= shiftY;
       if (tail) tail = [tail[0] - shiftX, tail[1] - shiftY];
     }
@@ -381,7 +402,7 @@ export function particlesAt(key, frame) {
     const pick = random(base, 4);
     const own = look.colorMode === "age" ? lifeShare : look.colorMode === "pick" ? (pick < 0.5 ? pick * 0.4 : 0.6 + (pick - 0.5) * 0.8) : pick;
     // With variation only the nearest particles lean to color2 (a pale core); the rest keep color.
-    const shade = variation > 0 && look.colorMode !== "age" ? lerp(own, depth * depth, variation) : own;
+    const shade = variation > 0 && look.colorMode !== "age" ? lerp(own, depth ** deep.shade, variation) : own;
     const tone = Math.round(clamp(shade, 0, 1) * (COLOR_STEPS - 1));
     const reach = dots ? radius * (p.glow > 0 ? 2 + 4 * p.glow : 1) : radius * lerp(look.aspect[0], look.aspect[1], random(base, 12));
     const left = Math.min(hx, tail?.[0] ?? hx) - reach, right = Math.max(hx, tail?.[0] ?? hx) + reach;
@@ -413,6 +434,42 @@ function gradient(id, colorValue, stops) {
     `<stop offset="${fmtAlpha(offset)}" stop-color="${colorValue}" stop-opacity="${fmtAlpha(opacity)}"/>`).join("")}</radialGradient>`;
 }
 
+// A particle joins at most this many neighbors (nearest first), so a dense field draws a web,
+// not a solid mesh. A guess: the study's hand-drawn constellation had 1 to 3 lines per node.
+const MAX_LINKS = 3;
+
+/** Lines between particles closer than p.links px, faded over the last 30% of that distance. */
+export function linkLines(particles, p, tones) {
+  const distance = Number.isFinite(p.links) ? p.links : 0;
+  if (!(distance > 0) || particles.length < 2) return [];
+  const width = Number.isFinite(p.linkWidth) ? p.linkWidth : 1.5;
+  const opacity = Number.isFinite(p.linkOpacity) ? p.linkOpacity : 0.55;
+  // A grid of cells one link long, so each particle only checks its own and the 8 cells around it.
+  const cells = new Map();
+  const cellOf = (item) => `${Math.floor(item.x / distance)},${Math.floor(item.y / distance)}`;
+  particles.forEach((item, index) => { const key = cellOf(item); if (!cells.has(key)) cells.set(key, []); cells.get(key).push(index); });
+  const pairs = [];
+  particles.forEach((a, i) => {
+    const cx = Math.floor(a.x / distance), cy = Math.floor(a.y / distance);
+    for (let dx = -1; dx <= 1; dx += 1) for (let dy = -1; dy <= 1; dy += 1) for (const j of cells.get(`${cx + dx},${cy + dy}`) ?? []) {
+      if (j <= i) continue;
+      const length = Math.hypot(particles[j].x - a.x, particles[j].y - a.y);
+      if (length < distance) pairs.push([length, i, j]);
+    }
+  });
+  pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
+  const used = new Array(particles.length).fill(0), lines = [];
+  for (const [length, i, j] of pairs) {
+    if (used[i] >= MAX_LINKS || used[j] >= MAX_LINKS) continue;
+    used[i] += 1; used[j] += 1;
+    const a = particles[i], b = particles[j];
+    const alpha = opacity * Math.min(a.alpha, b.alpha) / Math.max(p.opacity, 0.001) * (1 - smoothstep(0.7 * distance, distance, length));
+    if (alpha < MIN_ALPHA) continue;
+    lines.push(`<path d="M${fmt(a.x)} ${fmt(a.y)}L${fmt(b.x)} ${fmt(b.y)}" stroke="${tones[Math.max(a.tone, b.tone)]}" stroke-width="${fmt(width)}" stroke-linecap="round" stroke-opacity="${fmtAlpha(alpha)}" fill="none"/>`);
+  }
+  return lines;
+}
+
 /** The SVG for one frame of a generator: the layer's own paint, then its particles, clipped to the box. */
 export function renderParticles(key, frame) {
   const look = PARTICLE_LOOKS[key];
@@ -440,6 +497,7 @@ export function renderParticles(key, frame) {
   } else {
     const inner = 1 - p.softness;
     const stops = (look.profile === "bokeh" ? PROFILES.bokeh : PROFILES.dot)(inner);
+    parts.push(...linkLines(particles, p, tones));
     const glowStops = PROFILES.glow();
     for (const item of particles) {
       const r = item.radius, alpha = item.alpha, glow = item.glow ?? p.glow;

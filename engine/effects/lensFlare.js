@@ -164,8 +164,12 @@ export function renderLensFlare(frame) {
       const span = scene.width * size * heat, tall = scene.height * size;
       light.push(line(source, span, tall * 0.025, across,
         linear([[0, color, 0], [0.25, color, 0.1], [0.5, color, 0.32], [0.75, color, 0.1], [1, color, 0]])));
+      // The core is the flare color; only strength above 1 heats its middle toward white (white at
+      // 2). The reference streak's core is its own color; a white core read gray-white on a
+      // colored grade (grade-bloom-flash study, first-wave frame f-0.9).
+      const hot = `rgb(${rgb.map((channel) => Math.round(channel + (255 - channel) * clamp(strength - 1, 0, 1))).join(",")})`;
       light.push(line(source, span * 0.9, tall * 0.005, across,
-        linear([[0, color, 0], [0.2, color, 0.3], [0.45, "#FFFFFF", 0.75], [0.5, "#FFFFFF", 0.85], [0.55, "#FFFFFF", 0.75], [0.8, color, 0.3], [1, color, 0]])));
+        linear([[0, color, 0], [0.2, color, 0.3], [0.45, hot, 0.75], [0.5, hot, 0.85], [0.55, hot, 0.75], [0.8, color, 0.3], [1, color, 0]])));
     }
     if (ghosts > 0) for (const [t, radius, opacity] of ANAMORPHIC_GHOSTS) {
       const at = along(t);

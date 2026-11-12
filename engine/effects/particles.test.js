@@ -5,7 +5,7 @@ import test from "node:test";
 import { Resvg } from "@resvg/resvg-js";
 import { normalizeEffectAnimation, effectsAt } from "./animation.js";
 import { EFFECT_GROUPS, effectDefaults, effectDefinition, effectDocumentation, normalizeEffectParameters } from "./catalog.js";
-import { PARTICLE_LOOKS, particlesAt, renderParticles } from "./particles.js";
+import { PARTICLE_LOOKS, linkLines, particlesAt, renderParticles } from "./particles.js";
 import { exportFrameTime } from "../exportOptions.js";
 
 const KEYS = Object.keys(PARTICLE_LOOKS);
@@ -54,6 +54,26 @@ test("variation spreads each particle's trail, brightness, glow and color by dep
   // haze: the same particles once more, blurred, under the sharp ones; left out, rain draws as before.
   assert.match(svgAt("streaks", {}, 2), /<use href="#p-particles-field-\d+" filter="url\(#p-particles-haze-\d+\)"\/><use href="#p-particles-field-\d+"\/>/);
   assert.doesNotMatch(svgAt("rain", {}, 2), /particles-haze/);
+  // Each streak wraps with its own margin, so most of a 1080p field is on screen (one shared
+  // margin for the fastest streak left about 40% of them in view).
+  const wide = { x: 0, y: 0, width: 1920, height: 1080 };
+  const shown = particlesAt("streaks", frameAt("streaks", {}, 2, {}, wide)).particles.filter((item) => item.y >= 0 && item.y <= 1080).length;
+  assert.ok(shown > 0.55 * effectDefaults("streaks").count, `${shown} of ${effectDefaults("streaks").count} streaks in view`);
+});
+
+test("links draws a line between particles closer than links px, at most 3 per particle; off unless set", () => {
+  const nodes = [{ x: 0, y: 0, alpha: 1, tone: 0 }, { x: 100, y: 0, alpha: 1, tone: 0 }, { x: 500, y: 0, alpha: 1, tone: 0 }];
+  assert.equal(linkLines(nodes, { links: 200, opacity: 1 }, ["#FFFFFF"]).length, 1, "only the near pair is joined");
+  assert.match(linkLines(nodes, { links: 200, opacity: 1 }, ["#FFFFFF"])[0], /d="M0 0L100 0".*stroke-width="1.5".*stroke-opacity="0.55"/);
+  const star = Array.from({ length: 6 }, (_, index) => ({ x: index === 0 ? 0 : 50 * Math.cos(index), y: index === 0 ? 0 : 50 * Math.sin(index), alpha: 1, tone: 0 }));
+  const used = new Map();
+  for (const line of linkLines(star, { links: 400, opacity: 1 }, ["#FFFFFF"])) {
+    for (const [, x, y] of line.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)) used.set(`${x},${y}`, (used.get(`${x},${y}`) ?? 0) + 1);
+  }
+  assert.ok(Math.max(...used.values()) <= 3);
+  assert.equal("links" in effectDefaults("dust"), false);
+  assert.doesNotMatch(svgAt("dust", {}, 2), /stroke-width="1.5"/);
+  assert.match(svgAt("dust", { links: 300 }, 2), /<path d="M[^"]+" stroke="#[0-9A-F]{6}" stroke-width="1.5"/);
 });
 
 test("the Generate group lists nine generators, each with count, size, speed, direction, spread, wind, turbulence, color, lifetime, opacity and seed", () => {

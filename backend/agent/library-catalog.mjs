@@ -59,6 +59,8 @@ const EFFECT_LINES = {
 };
 // One entry per setting value, each with its own still ("color-look ember" is color-look with look ember).
 const EFFECT_VARIANTS = {
+  dust: [{ name: "dust links", parameters: { count: 14, links: 320 },
+    line: "particle links: a constellation, lines joining nearby dots (network, connect the dots); links px, linkWidth 1.5, linkOpacity 0.55" }],
   "color-look": COLOR_LOOK_NAMES.slice(1).map((look) => ({ name: `color-look ${look}`, parameters: { look },
     line: look === "section-grade"
       ? "color look section-grade: one-hue section grade (monochrome wash, tint, relight) that keeps skin lit: hue, keep skin, bloom 0.3, blackLift 0.04, normalize on"
