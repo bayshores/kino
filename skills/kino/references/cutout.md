@@ -42,6 +42,7 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   send instead. Undo it with `history` like any edit.
 - `check` sees layer boxes, not transparency, so cut-outs get `allowOverlap` (contrast then reads a
   title behind the subject against what is behind the title): use `look` to see that it still reads.
+  The clip it was cut from may sit under a new backdrop: `covered_layer` and `held_static` skip it.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between
   them (a title behind the subject moves with the shot), so the subject never shows twice.
 

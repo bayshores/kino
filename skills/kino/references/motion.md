@@ -7,6 +7,10 @@ judges it (the camera rules); `look` lets you see it.
 
 Camera rules read the model at 30 samples a second (no render).
 
+- `linear_motion` (gate): constant speed on a move. Let alone: a slow push of a big layer, and an
+  ambient drift (2 s or more, position or scale only, line art or a blended light layer, a corner
+  under 3% of the frame width a second: 50 px over 3 s on 1920 wide is 0.9%). Faster, or a filled
+  card, still eases.
 - `lone_zoom` (gate): a clip or picture of 8% to 90% of the frame grows 12% in 0.5 s while the
   shot behind holds still. The shot behind is a full-frame plate, or a picture under it that
   covers its box or 30% of the frame (letterboxed footage counts). Under an 85% opaque layer it

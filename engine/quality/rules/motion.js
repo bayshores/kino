@@ -54,6 +54,32 @@ export function isSlowPush(model, item, tween) {
   return Math.max(...travelled) / tween.duration <= SLOW_PUSH.speed * Math.hypot(model.width, model.height);
 }
 
+// An ambient drift: background lines or light that creep across the frame for seconds (a field of
+// streaks or links drifting 50 px over 3 s). A move of 2 s or longer that is not an entrance or exit,
+// by position and scale only, of a layer that is not text and is line art (stroke only, no fill) or
+// blended as light (any blend but normal), in which no corner travels more than 3% of the frame's
+// WIDTH a second on average (so it would take 33 s to cross the frame). Linear easing is fine there:
+// the eye reads a constant creep as air, not as a mechanical slide.
+// Numbers: the streak-field study drifted its link lines 50 px over 3 s on a 1920 px frame
+// (0.9% of the width a second) and the cutout-composite study climbed a figure 76 px over 3 s
+// (1.3%); 3% gives both more than twice the room. The limit and the 2 s are guesses beyond those.
+// A filled card (normal blend) that drifts, or any fast move, still has to ease.
+export const AMBIENT_DRIFT = { seconds: 2, speed: 0.03 };
+export function isAmbientDrift(model, item, tween) {
+  if (tween.kind === "in" || tween.kind === "out" || item.kind === "text") return false;
+  if (tween.duration < AMBIENT_DRIFT.seconds - 0.5 / model.fps || !movesPlace(tween) || tween.keys.includes("rotation")) return false;
+  const light = (item.blendMode ?? "normal") !== "normal";
+  const lines = item.fill == null && item.stroke != null;
+  if (!light && !lines) return false;
+  const [first, last] = [frameAt(model, tween.start), frameAt(model, tween.end)];
+  const travelled = [0, 0, 0, 0];
+  for (let index = first + 1; index <= last; index += 1) {
+    const [a, b] = [boxAt(item, index - 1), boxAt(item, index)];
+    [["x0", "y0"], ["x1", "y0"], ["x0", "y1"], ["x1", "y1"]].forEach(([x, y], corner) => { travelled[corner] += Math.hypot(b[x] - a[x], b[y] - a[y]); });
+  }
+  return Math.max(...travelled) / tween.duration <= AMBIENT_DRIFT.speed * model.width;
+}
+
 /**
  * A hold drift: the slow move a layer of any size (text too) makes while it holds, so the frame
  * does not stand still (held_static, and its automatic fix): not an entrance or exit, 1.2 s or
@@ -93,7 +119,7 @@ export function linearMotion(model, ctx) {
     const item = itemById(model, tween.itemId);
     if (!item || neverShown(item) || !tween.linear || tween.duration <= 0 || tween.discrete || tween.counter || !movesPlace(tween)) continue;
     // A scene's drawn drift camera (engine/camera.js) is a steady slow move on purpose, even over a short hold.
-    if (item.sceneCamera || isPerpetual(model, item) || isSlowPush(model, item, tween)) continue;
+    if (item.sceneCamera || isPerpetual(model, item) || isSlowPush(model, item, tween) || isAmbientDrift(model, item, tween)) continue;
     const easing = "smooth";
     findings.push({
       rule: "linear_motion", severity: tween.duration * model.fps <= 2 ? "info" : "error", itemId: item.id, tweenId: tween.id,

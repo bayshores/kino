@@ -225,6 +225,21 @@ test("scene drift moves the camera through every hold but a rest, slowly, and on
   assert.throws(() => card({ drift: { speed: 0.1 } }), /drift\.speed: must be/);
 });
 
+test("held_static names what is drawn, never a cut_out's source or a mask helper", async () => {
+  // A held frame: a big clip source (under its smaller cut-out copy) and the title. The largest
+  // shown layer is the source, but the finding, and the drift its fix adds, belong to the copy.
+  const copy = (source) => picture("subject", { x: 700, y: 100, width: 400, height: 500, ...(source ? { cutoutOf: source } : {}) });
+  const held = (source) => scene({ duration: 5, layers: [picture("clip", { x: 0, y: 0, width: 1200, height: 900 }), copy(source), text("title", "The end", { y: 800, animations: [fadeIn(0, 0.5)] }),
+    rect("bar", { x: 100, y: 950, width: 200, height: 100, animations: [move(3.5, 1.5, { x: 100 }, { x: 1500 })] })] });
+  assert.equal((await fires("held_static", held(null)))[0].itemId, "clip");
+  assert.equal((await fires("held_static", held("clip")))[0].itemId, "subject");
+  // A layer another layer is clipped by (a helper, not a group) is left out the same way.
+  const model = kinoTimeline(held(null), "scene", { fonts: defaultFonts });
+  model.items.find((item) => item.id === "subject").clipIds = ["clip"];
+  const { findings } = await runQuality(model, { codes: ["held_static"], pixels: false, context: {} });
+  assert.equal(findings[0].itemId, "subject");
+});
+
 test("held_static: nothing on screen moves for more than 1.5 s", async () => {
   const card = (animations) => scene({ duration: 5, layers: [text("title", "The end", { animations: [fadeIn(0, 0.5), ...animations] })] });
   const [finding] = await fires("held_static", card([]));

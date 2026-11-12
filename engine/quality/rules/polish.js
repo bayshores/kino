@@ -11,7 +11,7 @@
 //   small_on_empty (rendered)  the picture is a small island on a flat empty frame (a hint, no auto fix)
 //   render_artifact (rendered) flat saturated slabs an RGB split draws over the picture
 // The rendered ones share the frames the contrast check renders (ctx.renderFrames caches them).
-import { atFullOpacity, coversFrame, drawnSize, headlines, inRest, maxOpacity, readableFloor, readableRuns, readingTexts, sec, shownShare, wordsOf } from "../analysis.js";
+import { atFullOpacity, coversFrame, drawnSize, headlines, inRest, isHelperLayer, maxOpacity, readableFloor, readableRuns, readingTexts, sec, shownShare, wordsOf } from "../analysis.js";
 import { area, boxAt, chainOf, fillColorsAt, hexRgba, intersection, itemById, longestRun, luminance, overlapArea, roundBox, runs, tweensOf, visibleBoxAt } from "../model.js";
 import { coveredAt } from "../techniques.js";
 import { looksLikeScreen } from "../../imageFacts.js";
@@ -709,7 +709,7 @@ function cardPush(model, run) {
   const middle = Math.round((run.from + run.to) / 2);
   const start = model.times[run.from];
   const duration = model.duration - start;
-  const shown = model.items.filter((item) => !item.isMask && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3
+  const shown = model.items.filter((item) => !isHelperLayer(model, item) && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3
     && !coveredAt(model, item, middle) && (["image", "video", "text"].includes(item.kind) || !coversFrame(model, item)));
   if (!shown.length || duration < 1.2) return null;
   const union = (boxes) => boxes.reduce((all, box) => ({ x0: Math.min(all.x0, box.x0), y0: Math.min(all.y0, box.y0), x1: Math.max(all.x1, box.x1), y1: Math.max(all.y1, box.y1) }));
@@ -747,7 +747,8 @@ function heldFinding(model, ctx, still) {
   const longest = longestRun(still);
   // The largest thing shown there: what a drift or push would move.
   const middle = Math.round((longest.from + longest.to) / 2);
-  const shown = model.items.filter((item) => !item.isMask && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3 && !coveredAt(model, item, middle));
+  // Not a cut_out's source or a mask helper: the finding (and the drift it adds) belongs to what is drawn.
+  const shown = model.items.filter((item) => !isHelperLayer(model, item) && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3 && !coveredAt(model, item, middle));
   const main = shown.reduce((best, item) => (!best || area(boxAt(item, middle)) > area(boxAt(best, middle)) ? item : best), null);
   const holdText = (run) => `${sec(model.times[run.from])}s for ${sec(seconds(model, run))}s${run.to === model.times.length - 1 ? " (to the end)" : ""}`;
   const pixels = Math.round(0.01 * Math.hypot(model.width, model.height));
@@ -775,7 +776,7 @@ const TEXT_MOTIONS = ["type-kinetic", "drift"];
  */
 function holdMotion(model, run, ctx) {
   const middle = Math.round((run.from + run.to) / 2);
-  const candidates = model.items.filter((item) => ["image", "video", "text"].includes(item.kind) && !item.isMask && !["decor", "background"].includes(item.role)
+  const candidates = model.items.filter((item) => ["image", "video", "text"].includes(item.kind) && !isHelperLayer(model, item) && !["decor", "background"].includes(item.role)
     && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3 && !coveredAt(model, item, middle));
   const main = candidates.reduce((best, item) => (!best || area(boxAt(item, middle)) > area(boxAt(best, middle)) ? item : best), null);
   if (!main) return null;
