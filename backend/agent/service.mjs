@@ -163,6 +163,7 @@ import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoF
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
 import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver, restCallFor } from "../audio-levels.mjs";
+import { capLinePeak, linePeakText } from "../line-peak.mjs";
 import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
@@ -2136,7 +2137,31 @@ export function createAgentService(deps) {
     }
     const context = await operationContext(document, [operation]);
     if (work.reports) context.reports = work.reports;
-    return parseDocument(applyOperations(document, [operation], context));
+    const next = parseDocument(applyOperations(document, [operation], context));
+    if (operation.type === "keep_line") await capKeptLinePeak(next, operation, work.reports?.get(operation));
+    return next;
+  }
+
+  // A line keep_line leveled (voiceLevel) is measured in the scene's mix (line-peak.mjs): it comes
+  // down when its lift sends the mix over the limiter there, and the receipt's ways prints the peak.
+  async function capKeptLinePeak(document, operation, report) {
+    const scene = document.scenes.find((item) => item.id === operation.sceneId);
+    const layer = scene?.layers.find((item) => item.id === operation.layerId);
+    if (!deps.mediaRoot || !report || !layer || !Array.isArray(report.scene)) return;
+    let pieces;
+    try { pieces = speechPieces(scene, layer); } catch { pieces = [layer]; }
+    const ids = pieces.filter((piece) => Number.isFinite(piece.voiceLevel)).map((piece) => piece.id);
+    if (!ids.length) return;
+    let directory = null;
+    try {
+      directory = await makeTempFolder("kino-mix-");
+      const peak = await capLinePeak(scene, { layerIds: ids, start: report.scene[0], end: report.scene[1], mediaRoot: deps.mediaRoot, directory });
+      if (!peak) return;
+      report.peak = peak;
+      if (report.ways) report.ways += ` · ${linePeakText(peak)}`;
+      else (report.notes ??= []).push(linePeakText(peak));
+    } catch { /* not measured: the receipt keeps the loudness stand-in */ }
+    finally { if (directory) await removeTempFolder(directory); }
   }
 
   // A glow this edit added or changed on a video or image, said once in the receipt with the

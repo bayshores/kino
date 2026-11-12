@@ -357,6 +357,8 @@ test("a board shot keeps its clip's own sound: the answer says what each clip ho
   assert.equal(built.data.duck, undefined);
   assert.deepEqual(built.data.keepLine.map((entry) => entry.way), ["lift", "lift"]);
   assert.deepEqual(built.data.keepLine.map((entry) => entry.scene), [[1.5, 2.5], [3.333, 4.417]]);
+  // Each lifted line is measured in the scene's mix (backend/line-peak.mjs): its ways ends with the peak.
+  for (const entry of built.data.keepLine) assert.match(entry.ways, / · peak at the line -?[\d.]+ dBFS.*, measured; limiter ceiling -1\.5 dBFS/, JSON.stringify(entry));
 });
 
 test("kino checks the shots against the video, the files and the fonts: overlap, order, crop shape, the file's end, fonts and media", { skip, timeout: 60_000 }, async () => {

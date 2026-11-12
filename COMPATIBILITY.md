@@ -1118,6 +1118,14 @@ How to read it:
   removes the dip under its line unless another heard sound (a voice-over) is in it; each line's notes, duck and mix
   are rewritten after all lines in the edit. Evidence: `engine/speech.test.js`, `backend/audio-levels.test.mjs`.
   Gap: not replayed on the dm2 projects; a later plain duck_audio can join lines back to silence.
+- **Kept line evened and peak-held** (`keep_line {even}`, receipt `even`, `peak`): Rendered once in a test on
+  generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU
+  with 0.04 s "Line level" ramps (render moved them -6.0 and +4.9 dB, receipt -6 and +4.9); a leveled line that sends
+  the mix over the limiter's ceiling comes down (receipt peak -1.9 dBFS, render true peak -1.8 dBTP; line -19.2 vs
+  -19.1 LUFS). A bed-volume clip (under 0.5) is evened only with even:true. The edit's answer prints the peak
+  (board build). Evidence: `backend/audio-levels.test.mjs`, `engine/speech.test.js`, `backend/agent-board.test.mjs`.
+  Gap: not run on real speech or the dm2 projects; the "auto" gain is printed, not held; the 3 LU band and 0.04 s
+  ramps are guesses.
 - **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
   windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}
