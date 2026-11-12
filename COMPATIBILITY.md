@@ -1052,12 +1052,13 @@ How to read it:
   word over and over (also one word a sentence, as a laugh read on other runs), or tagged another language
   (no sound-alike lines); a tag about the music or the room is no voice. Evidence: `engine/speech.test.js`
   (readClipSound), `backend/footage-finder.test.mjs` (takeText). Gap: no multilingual model path yet.
-- **Lines in any language**: Test-verified with a stand-in whisper; run once on run 8's clips with the real
-  small model. A clip with voice is heard once more by ggml-small.bin (language detected, kept in `.lang-small`):
-  `heard in Japanese (ja, p 0.76): "..." (en: "...") 0.0-6.1 s`, words as said plus whisper's English, and
-  keep_line finds a line typed without spaces. No model: a clip tagged as another language starts its one
-  488 MB fetch. Evidence: `backend/speech-transcribe.test.mjs`, `engine/speech.test.js`,
-  `backend/footage-finder.test.mjs`. Gap: no rendered subtitle frame in its own script yet.
+- **Lines in any language**: Test-verified with a stand-in whisper; run once on run 8's 13 clips with the
+  real small model: 2 read as Japanese (p 0.86, 0.78), 3 lines glossed, 11 unchanged, at most 1.94 s added
+  a clip. A clip with voice is heard once more by ggml-small.bin (language kept in `.lang-small`):
+  `heard in Japanese (ja, p 0.86): "..." (en: "I'll kill you.") 1.9-2.3 s`, and keep_line finds a line
+  typed without spaces. No model: a clip tagged as another language starts its one 488 MB fetch. Evidence:
+  `backend/speech-transcribe.test.mjs`, `engine/speech.test.js`, `backend/footage-finder.test.mjs`.
+  Gaps: line times are short (a segment snaps to one onset); no rendered subtitle frame yet.
 
 ## Audio and captions
 

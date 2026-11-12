@@ -837,7 +837,9 @@ async function detectFile(filename, setup, spans) {
 
 export function createTranscriptCache({
   setup = () => whisperSetup(), transcribe = transcribeFile, now = () => Date.now(),
-  languages = () => languageSetup(), detect = detectFile, fetchModel = () => fetchLanguageModel(),
+  languages = () => languageSetup(), detect = detectFile,
+  // Never from a test process (node --test sets NODE_TEST_CONTEXT, as backend/index.mjs reads it): tests make no web requests.
+  fetchModel = () => (process.env.NODE_TEST_CONTEXT ? Promise.reject(new Error("no downloads in tests")) : fetchLanguageModel()),
 } = {}) {
   const pending = new Map();
   // A file whisper failed on is not tried again for a while: checks ask for the same transcripts
