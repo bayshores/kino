@@ -15,6 +15,8 @@
 //   narrow_window    footage filling the frame through a window under 40% of its file's width
 //                    where no face and no saliency box was found (warning: kino has nothing to
 //                    tell an eye strip from a cut face there)
+//   burned_in_mark   a layer whose window still shows a logo or site name burned into the file
+//                    (warning; the marks come from the footage finder's scan)
 //   jump_cut         back-to-back full-frame shots from one file, a little later in it and framed
 //                    alike, with no transition (warning: the trailer cut one walking take every bar)
 //   frozen_footage   a clip on screen whose picture stops: slowed to a stop, held before or after
@@ -37,6 +39,7 @@ import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourceP
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
 import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
+import { cropPast, markSpan, MARK_SECONDS, MARK_SEEN } from "../../footage/burned.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -445,6 +448,61 @@ export function narrowWindow(model, ctx) {
       required: `a full-frame window at least ${NARROW_WINDOW}% of the file wide, or a mark made after a look that the window keeps`,
       fix: frameFix(model, item, `${lookCall} at the middle of the shot: if a face is cut, move or scale it so the face is whole, or fit the file to the frame; else ${markHow}.`, false),
     });
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------- burned_in_mark
+
+/**
+ * burned_in_mark: a layer whose visible window still holds a mark burned into the file (a logo or a
+ * site name the footage finder's scan found in a corner or along an edge, footage.marks on the
+ * clip's record, ctx.burnedMarks {src: [{where, box}]}). Warns once the mark is on screen (at least
+ * MARK_SEEN of its box in the window) for MARK_SECONDS. Nothing is hidden or banned: a mark that
+ * is meant, or one a cover layer or a sticker hides, is waived or covered (covered layers are skipped).
+ */
+export function burnedInMark(model, ctx) {
+  const scene = ctx.scene ?? ctx.speechScene;
+  if (!scene || !ctx.burnedMarks) return [];
+  const findings = [];
+  const step = Math.max(1, Math.round(model.fps / 10));
+  for (const item of model.items) {
+    if (item.kind !== "video" || item.source?.componentPath) continue;
+    const marks = item.src ? ctx.burnedMarks[item.src] : null;
+    const layer = scene.layers.find((entry) => entry.id === item.source?.layerId);
+    if (!marks?.length || !layer) continue;
+    const size = sizeOf(ctx, item);
+    const worst = new Map();
+    for (let index = 0; index < model.times.length; index += step) {
+      if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
+      const time = model.times[index];
+      const crop = cropOnSource(scene, layer, time, size);
+      if (!crop) continue;
+      for (const mark of marks) {
+        const share = insideShare(mark.box.map((value) => value * 100), crop.bounds);
+        if (share < MARK_SEEN) continue;
+        const entry = worst.get(mark) ?? { count: 0, share, time };
+        entry.count += 1;
+        if (share > entry.share) { entry.share = share; entry.time = time; }
+        worst.set(mark, entry);
+      }
+    }
+    for (const [mark, found] of worst) {
+      if (found.count * step < model.fps * MARK_SECONDS - 1e-6) continue;
+      const name = ctx.name(item);
+      const plain = JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"));
+      const fit = size && heldStill(model, item) ? cropPast(marks, { width: scene.width, height: scene.height }, size) : null;
+      const call = fit
+        ? `edit {"ops":[{"op":"update_layer","layer":${plain},"properties":{"x":${fit.x},"y":${fit.y},"width":${fit.width},"height":${fit.height}}}]} crops every mark out (${fit.zoom}x zoom; look {mode:"source", layer:${name}} shows what it keeps)`
+        : `zoom or move ${name} until the mark is outside the frame`;
+      findings.push({
+        rule: "burned_in_mark", severity: "warn", itemId: item.id, at: sec(found.time),
+        message: `${name} still shows the mark burned into its ${mark.where} (${markSpan(mark.box)} of the file) at ${sec(found.time)} s.`,
+        measured: `${Math.round(found.share * 100)}% of the mark box ${boxText(mark.box.map((value) => value * 100))} (% of the file) in the frame at ${sec(found.time)} s, for ${sec((found.count * step) / model.fps)} s`,
+        required: `the mark outside the visible window (under ${Math.round(MARK_SEEN * 100)}% of its box in the frame), a cover over it, or a clean clip`,
+        fix: { kind: "hint", text: `Pick a clean clip (library {topic:"footage"} lists them first), or ${call}.` },
+      });
+    }
   }
   return findings;
 }

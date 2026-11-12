@@ -820,6 +820,11 @@ How to read it:
   on most shots never become a mark, bottom-center subtitles go last, a short flash decides no match,
   drawn footage is not ranked by faces and keeps the match bar at 2, and a miss says how close it
   came. Evidence: `backend/footage-finder.test.mjs` (drawn footage). Gap: tuned on one live anime scan.
+- **Burned-in marks** (`burned_in_mark`): Stub-verified. A mark a scan finds in a corner is said as "a mark is
+  burned into this clip's top-left" in the scan and list answers (marked videos list after clean ones), the
+  import answer gives the crop numbers or a clean clip, and the check names a layer still showing it.
+  Evidence: `backend/footage-finder.test.mjs` (library footage, import), `engine/qualityRules.test.js`.
+  Gap: only text marks are found (a logo with no letters is not), marks are per video, not per shot.
 - **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
   (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
   the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).

@@ -13,6 +13,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { RULES, blocksFinal, ruleOf, runQuality } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
+import { cropPast } from "./footage/burned.js";
 import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
@@ -1869,6 +1870,32 @@ test("crop_no_subject: a mark on a file with no faces counts only after a look; 
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), null, keeperLooked)).findings, []);
   // A face found in the file: the mark counts as before, with no look.
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), facesFound([45, 30, 10, 25]))).findings, []);
+});
+
+test("burned_in_mark: a window that still shows a mark found in the file warns with the crop that leaves it out; a nothing-hidden clip with no mark stays quiet", async () => {
+  // The scan found a logo in the file's top-left (fractions of the picture). The layer is the 16:9 file filling a 16:9 frame.
+  const marks = [{ where: "top-left", box: [0.02, 0.03, 0.18, 0.09] }];
+  const full = { ...TALL_CROP, x: 0, y: 0, width: 1920, height: 1080 };
+  const run = (layer, burnedMarks = { [TALL_CROP.src]: marks }, document = scene({ duration: 2, layers: [layer] })) =>
+    check("burned_in_mark", document, { scene: document.scenes[0], mediaSizes: keeperSizes, burnedMarks });
+  const [mark] = await fires("burned_in_mark", scene({ duration: 2, layers: [full] }), { scene: scene({ duration: 2, layers: [full] }).scenes[0], mediaSizes: keeperSizes, burnedMarks: { [TALL_CROP.src]: marks } });
+  assert.deepEqual([mark.severity, mark.itemId], ["warn", "keeper"]);
+  assert.match(mark.message, /^"keeper" still shows the mark burned into its top-left \(2 to 20% across, 3 to 12% down of the file\) at 0 s\.$/);
+  assert.match(mark.measured, /^100% of the mark box \[2, 3, 18, 9\] \(% of the file\) in the frame at 0 s, for 2(\.\d)? s$/);
+  // The fix is the layer box that puts the mark outside the frame, with the numbers; it works.
+  assert.match(mark.fix.text, /Pick a clean clip \(library \{topic:"footage"\} lists them first\), or edit \{"ops":\[\{"op":"update_layer","layer":"keeper","properties":\{"x":-131,"y":-147,"width":2182,"height":1227\}\}\]\}/);
+  assert.deepEqual((await run({ ...full, x: -131, y: -147, width: 2182, height: 1227 })).findings, []);
+  // The cheapest cut per mark: two corners cut the top and the bottom; a mark mid-frame cannot be cut off in one move.
+  const both = cropPast([...marks, { where: "bottom-right", box: [0.8, 0.88, 0.18, 0.09] }], { width: 1920, height: 1080 }, { width: 1920, height: 1080 });
+  assert.deepEqual([both.cut.top, both.cut.bottom, both.zoom], [12, 12, 1.32]);
+  assert.equal(cropPast([{ where: "middle", box: [0.4, 0.4, 0.2, 0.2] }], { width: 1920, height: 1080 }, { width: 1920, height: 1080 }), null);
+  // A 9:16 window keeps 34% to 66% of the file's width: the corner is out of it, a mark low in the middle is in it.
+  assert.deepEqual((await run(TALL_CROP, undefined, tall())).findings, []);
+  const low = { [TALL_CROP.src]: [{ where: "bottom", box: [0.4, 0.9, 0.2, 0.07] }] };
+  assert.equal((await run(TALL_CROP, low, tall())).findings.length, 1);
+  // No marks known (a clip of the person's, or one scanned clean): nothing to name; a layer a cover hides is not judged.
+  assert.deepEqual((await run(full, {})).findings, []);
+  assert.deepEqual((await run({ ...full, opacity: 0 })).findings, []);
 });
 
 test("crop_no_subject: where no face was found, the window must keep what kino sees (the largest saliency box); narrow_window goes quiet there", async () => {

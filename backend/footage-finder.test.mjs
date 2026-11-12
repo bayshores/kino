@@ -385,9 +385,9 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.ok(scan.shots.every((shot) => shot.face === null));
     assert.deepEqual([scan.matchShown, scan.shots[0].n], [true, 7]);
     const text = scanText({ code: "F1", title: "Fight", license: "unknown" }, scan);
-    assert.match(text, /\nLogo bottom-right and top-left on every shot: crop or cover it\.\nFaces: not read on drawn footage\./);
+    assert.match(text, /\nNote: a mark is burned into this clip's bottom-right and top-left \(on every shot\)\. Pick a clean clip \(marked ones list last\), or crop it out; the import answer gives the numbers\.\nFaces: not read on drawn footage\./);
     assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ match \+3\.3\n/);
-    assert.equal(text.match(/Logo/g).length, 1);
+    assert.equal(text.match(/burned into/g).length, 1);
     // The video with a logo lists after one without; a scan without the model says so; a miss says how close it came.
     assert.deepEqual(logoLast([{ code: "F1", scan: { logo: "top-left" } }, { code: "F2" }]).map((entry) => entry.code), ["F2", "F1"]);
     assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: null, shots: [] }), /The image model did not run, so "white hair" was not looked for/);
@@ -670,6 +670,7 @@ test("library footage: the person's clips lead every answer, search's next is sc
     scan: async (candidate, options) => {
       scanned.push([candidate.code, options.want]);
       return { want: options.want, windows: [{ start: 0, end: 480 }], matchShown: true, skipped: { dark: 1, text: 2, short: 0, repeats: 4 },
+        marks: [{ where: "top-left", box: [0.02, 0.03, 0.18, 0.09], share: 0.9 }],
         shots: [
           ...Array.from({ length: 14 }, (_, index) => ({ n: 37 - index, start: 197.2 + index, end: 199 + index, motion: 82, face: 40, match: 3.1, flags: [] })),
           { n: 2, start: 5, end: 7, motion: 10, face: 0, match: 0, flags: ["text"] },
@@ -702,8 +703,11 @@ test("library footage: the person's clips lead every answer, search's next is sc
   assert.ok(scan.text.length / 4 < 1500, `${scan.text.length} characters`);
   // The list remembers F1 as scanned, and the next "top" is F2.
   const list = await service.call("library", { project: "anime-edit", topic: "footage" });
-  assert.match(list.text, /F1 Big Studio .* · scanned, 15 shots/);
+  assert.match(list.text, /F1 Big Studio .* · scanned, 15 shots, a mark is burned into this clip's top-left/);
   assert.equal(list.text.split("\n").at(-1), 'next: library {"topic":"footage","scan":"F2"}');
+  // The scan answer says it once; the scanned clip with a mark lists after the clean, unscanned ones; nothing is hidden.
+  assert.match(scan.text, /\nNote: a mark is burned into this clip's top-left \(on every shot\)\. Pick a clean clip/);
+  assert.ok(list.text.search(/\nF1 Big Studio/) > list.text.search(/\nF2 Big Studio/) && list.text.search(/\nF1 Big Studio/) > 0, list.text);
 });
 
 test("library footage with an origin word and no clips of theirs: next is the footage search for the quote and the word, the finder is told the word; with their own clip: unchanged", async (t) => {
@@ -1078,7 +1082,13 @@ test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its 
   };
   const added = [];
   const addMedia = async (file, { name, mime, extra }) => { added.push({ name, mime, ...extra }); return { id: `m${added.length}.mp4`, src: `/api/media/m${added.length}.mp4`, name, mime, duration: 1.8, width: 1920, height: 1080, ...extra }; };
-  const result = await takeFootage(candidate, pieces, { addMedia, projectId: "anime-edit", run, tools, runtime: { name: "node", path: process.execPath } });
+  // The scan found a mark burned into the video's top-left: each clip's record keeps it.
+  const marks = [{ where: "top-left", box: [0.02, 0.03, 0.18, 0.09], share: 0.9 }];
+  const result = await takeFootage(candidate, pieces, { addMedia, projectId: "anime-edit", marks, run, tools, runtime: { name: "node", path: process.execPath } });
+  assert.deepEqual(added.map((each) => each.footage.marks), [0, 1, 2].map(() => [{ where: "top-left", box: [0.02, 0.03, 0.18, 0.09] }]));
+  // The import answer says so in one line with both ways out: a clean clip, or the crop that leaves the corner out, with numbers.
+  assert.match(takeText(candidate, result), /\nNote: a mark is burned into this clip's top-left \(2 to 20% across, 3 to 12% down\)\. Pick a clean clip \(library \{topic:"footage"\} lists marked ones last\), or crop it out: edit \{ops:\[\{op:"update_layer", layer:<name>, properties:\{x:-131, y:-147, width:2182, height:1227\}\}\]\} on a 1920×1080 frame \(1\.14x zoom/);
+  assert.equal(takeText(candidate, result).match(/burned into/g).length, 1);
   assert.equal(runs.length, 1);
   const args = runs[0];
   assert.equal(args[args.indexOf("-f") + 1], "bv*[height<=1080]+ba/b[height<=1080]");
