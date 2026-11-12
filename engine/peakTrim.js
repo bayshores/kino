@@ -8,13 +8,15 @@
 //   clip keeps its level.
 // When each layer's own peak at the place was measured alone (playing[].peakDbfs), only the loudest
 // layers that can clear it come down, each by its own factor (peakCauses); the others keep their level.
-// A layer whose volume moves around the place (a fade or a duck ramp there) is left alone, with the
-// reason, since a fixed level would flatten that move; so is one where another Volume animation
-// would take over from the dip. A song or bed (`bed`) that cannot dip there (its volume moves, or
-// its dips would make its level turn 3 times in 10 s: the volume_churn warning) comes down whole
-// instead, by the lowest factor its places need: one constant gain, which neither churns nor
-// flattens a fade (update_layer volume scales its Volume animations with it).
+// A layer whose volume moves around the place (a fade or a duck ramp there), or where another Volume
+// animation would take over from a plain dip, gets a dip that follows its curve (followDip: its own
+// volume times the dip, in short straight pieces until its moves there end), so the move keeps its
+// shape and every other second keeps its level; when that cannot be built it is left alone, with the
+// reason. A song or bed (`bed`) comes down whole (one constant gain, update_layer volume, which scales
+// its Volume animations with it) only when the places it is lowered at cover most of its heard time
+// (MOST_SHARE); otherwise its dips stay, and the line says the share.
 import { animatesVolume, volumeAt } from "./animation.js";
+import { enabledAnimations } from "./animationEnabled.js";
 import { churnRun, isMusicLayer } from "./quality/rules/sound.js";
 import { uid } from "./model.js";
 import { mediaPlaybackRange } from "./playback.js";
@@ -22,7 +24,7 @@ import { audibleRanges } from "./videoSound.js";
 import { round } from "./numbers.js";
 import { keepLineStretches } from "./audioDucking.js";
 
-export const PEAK_NAMES = Object.freeze({ down: "Peak down", up: "Peak up" });
+export const PEAK_NAMES = Object.freeze({ down: "Peak down", hold: "Peak hold", up: "Peak up" });
 // The ramps into and out of a dip (seconds): short, so only the peak's span changes, and long
 // enough not to click. Measured on a -6 dB dip with the smooth easing sampled at 1000 Hz: a 1 kHz
 // tone spreads energy outside 800-1200 Hz at -31 dB under the tone with a 1 ms step, -51 dB at
@@ -46,6 +48,90 @@ function steady(layer, start, end, level) {
   for (let time = start; time <= end + 1e-9; time += STEP)
     if (Math.abs(volumeAt(layer, time) - level) > 0.001 + 0.005 * level) return false;
   return true;
+}
+
+// A dip that follows a moving volume reaches at most this far (seconds) past the place's ramp to
+// end where the layer's own moves there end.
+const FOLLOW_REACH = 2;
+// The grid (seconds) the followed curve is read at before straight pieces are merged.
+const FOLLOW_GRID = STEP;
+const volumeMoves = (layer) => enabledAnimations(layer.animations ?? []).filter((animation) =>
+  Object.hasOwn(animation?.from ?? {}, "volume") || Object.hasOwn(animation?.to ?? {}, "volume"));
+
+/**
+ * A dip on a layer whose volume moves at the place: Volume animations in straight pieces that give
+ * its own volume times the dip's gain (1 down to `factor` in the PEAK_RAMP before the place, `factor`
+ * over it, back to 1 in the PEAK_RAMP after), from the ramp's start until no Volume animation of its
+ * own is in progress, so after the last piece the layer plays exactly as before. Pieces are merged
+ * while a straight line stays within 2% (0.17 dB) of the curve. Returns the animations (without
+ * ids), or null when the curve cannot be followed that way (its moves run past FOLLOW_REACH, or the
+ * result strays more than 3% from the curve anywhere).
+ */
+function followDip(layer, place, factor, duration) {
+  const start = round(Math.max(0, place.from - PEAK_RAMP));
+  const rampEnd = Math.min(duration, place.to + PEAK_RAMP);
+  const moves = volumeMoves(layer);
+  const busy = (time) => moves.some((animation) => animation.start < time - 1e-6 && animation.start + animation.duration > time + 1e-6);
+  let end = rampEnd;
+  while (end < duration && busy(end) && end <= rampEnd + FOLLOW_REACH) end = round(end + STEP, 3);
+  if (busy(end) && end < duration) return null;
+  end = round(end, 3);
+  const gain = (time) => {
+    if (time <= start || time >= rampEnd) return 1;
+    if (time < place.from) return 1 - (1 - factor) * (time - start) / Math.max(1e-6, place.from - start);
+    if (time <= place.to) return factor;
+    return factor + (1 - factor) * (time - place.to) / Math.max(1e-6, rampEnd - place.to);
+  };
+  const target = (time) => volumeAt(layer, time) * gain(time);
+  // The knots: a fine grid plus the place's edges and every own move's start and end inside.
+  const knots = new Set([start, round(place.from, 3), round(Math.min(place.to, end), 3), round(rampEnd, 3), end]);
+  for (let time = start; time < end; time += FOLLOW_GRID) knots.add(round(time, 3));
+  for (const animation of moves) for (const time of [animation.start, animation.start + animation.duration])
+    if (time > start && time < end) knots.add(round(time, 3));
+  const times = [...knots].filter((time) => time >= start && time <= end).sort((a, b) => a - b);
+  // Merge pieces while the straight line from the piece's start stays within 0.5% of the curve.
+  const kept = [times[0]];
+  for (let index = 1; index < times.length - 1; index += 1) {
+    const from = kept.at(-1), next = times[index + 1];
+    const a = target(from), b = target(next);
+    const fits = times.slice(times.indexOf(from) + 1, index + 2).every((time) => {
+      const line = a + (b - a) * (time - from) / (next - from);
+      return Math.abs(line - target(time)) <= 0.001 + 0.02 * target(time);
+    });
+    if (!fits) kept.push(times[index]);
+  }
+  kept.push(times.at(-1));
+  const pieces = [];
+  for (let index = 1; index < kept.length; index += 1) {
+    const from = kept[index - 1], to = kept[index];
+    const name = to <= place.from + 1e-6 ? PEAK_NAMES.down : from >= place.to - 1e-6 ? PEAK_NAMES.up : PEAK_NAMES.hold;
+    pieces.push({ name, kind: "custom", easing: "linear", start: from, duration: Math.max(0.001, round(to - from, 3)),
+      from: { volume: round(target(from), 3) }, to: { volume: round(target(to), 3) } });
+  }
+  // The result read back: within 1% (and 0.003) of the curve from the ramp's start to 0.2 s after the end.
+  const result = { ...layer, animations: [...(layer.animations ?? []), ...pieces.map((piece, index) => ({ ...piece, id: `follow-${index}` }))] };
+  for (let time = start; time <= Math.min(duration, end + 0.2); time += STEP)
+    if (Math.abs(volumeAt(result, time) - target(time)) > 0.003 + 0.03 * target(time)) return null;
+  return pieces;
+}
+
+// A song or bed comes down whole only when its places cover more than this share of its heard time.
+const MOST_SHARE = 0.5;
+// The share of the layer's heard time that `places` (with their PEAK_RAMP each side) cover, 0 to 1.
+function placeShare(scene, layer, places) {
+  const spans = heardSpans(scene, layer);
+  const heard = spans.reduce((sum, span) => sum + Math.max(0, span.end - span.start), 0);
+  if (!(heard > 0)) return 0;
+  const cover = places.map((place) => [place.from - PEAK_RAMP, place.to + PEAK_RAMP]).sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  for (const span of spans) {
+    let reach = span.start;
+    for (const [from, to] of cover) {
+      const low = Math.max(from, reach), high = Math.min(to, span.end);
+      if (high > low) { covered += high - low; reach = high; }
+    }
+  }
+  return Math.min(1, covered / heard);
 }
 
 // The lowest factor that turns down only the loudest layers at a place (about -10 dB): a layer that
@@ -102,8 +188,8 @@ function keptLinesAt(scene, place) {
 }
 
 /**
- * The trim at `place` taken from the layers other than `spared` (keep_line's leveled lines): songs
- * and beds first, then the loudest. With each layer's own peak measured alone, as few as clear the
+ * The trim at `place` taken from the layers other than `spared` (keep_line's leveled lines): the
+ * loudest first (within 1 dB, a placed sound or a clip before a song or bed). With each layer's own peak measured alone, as few as clear the
  * place; no peaks measured leaves them all at the place's xN.
  * The factor is their share of the measured peak, (ceiling - rest) / (mix - rest), as peakCauses
  * takes it, the rest the layers left playing summed in phase (exact for one layer). No layer goes
@@ -116,8 +202,11 @@ function sparedCauses(scene, place, spared, bed) {
   const peaks = new Map();
   for (const clip of place.playing ?? []) if (clip.layerId && !peaks.has(clip.layerId)) peaks.set(clip.layerId, clip.peakDbfs);
   const isBed = (id) => { const layer = scene.layers.find((item) => item.id === id); return layer ? bed(layer) : false; };
-  const others = [...peaks.keys()].filter((id) => !spared.has(id))
-    .sort((a, b) => Number(isBed(b)) - Number(isBed(a)) || (peaks.get(b) ?? -Infinity) - (peaks.get(a) ?? -Infinity));
+  // The loudest cause first; within 1 dB, a placed sound or a clip before a song or bed.
+  const others = [...peaks.keys()].filter((id) => !spared.has(id)).sort((a, b) => {
+    const gap = (peaks.get(b) ?? -Infinity) - (peaks.get(a) ?? -Infinity);
+    return Math.abs(gap) <= 1 ? Number(isBed(a)) - Number(isBed(b)) || gap : gap;
+  });
   if (!others.length) return { causes: new Map() };
   const all = (factor) => new Map(others.map((id) => [id, factor]));
   if (![...peaks.values()].every(Number.isFinite) || !Number.isFinite(place.peakDbtp)) return { causes: all(place.factor) };
@@ -205,11 +294,25 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
       const start = round(Math.max(0, place.from - PEAK_RAMP));
       const end = round(Math.min(scene.duration, place.to + PEAK_RAMP));
       const level = volumeAt(layer, start);
-      if (!(level > 0)) continue;
-      if (!steady(layer, start, end, level)) {
-        // A song or bed comes down whole instead (below): a constant gain keeps the fade's shape.
-        if (bed(original)) needWhole(id, place, factor, `its volume moves at ${place.at} s`);
-        else dropped.push(`mix ${place.at} s ${layer.name ?? id}: its volume moves there (a fade or a dip): lower it by hand x${factor}`);
+      // Its volume moves there, or another Volume animation would take over from a plain dip: a dip
+      // that follows its curve; when none can be built, a song or bed may come down whole (below).
+      const follow = (why, text) => {
+        const pieces = followDip(layer, place, factor, scene.duration);
+        if (!pieces) {
+          if (bed(original)) needWhole(id, place, factor, why);
+          else dropped.push(`mix ${place.at} s ${layer.name ?? id}: ${text}: lower it by hand x${factor}`);
+          return;
+        }
+        const dip = pieces.map((piece) => ({ id: uid(), ...piece }));
+        layer.animations = [...layer.animations, ...dip];
+        if (!added.has(id)) added.set(id, []);
+        added.get(id).push(...dip);
+        const last = dip.at(-1);
+        changed.push([id, `${layer.name ?? id}${tag || ` x${factor}`} ${round(volumeAt(original, place.at))}->${round(volumeAt(layer, place.at))} following its moving volume (${dip.length} pieces ${start}-${round(last.start + last.duration)} s)${alone}`, factor]);
+      };
+      if (!(level > 0) && !(volumeAt(layer, place.at) > 0)) continue;
+      if (!(level > 0) || !steady(layer, start, end, level)) {
+        follow(`its volume moves at ${place.at} s`, "its volume moves there (a fade or a dip)");
         continue;
       }
       const low = round(level * factor);
@@ -222,8 +325,7 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
       const holds = Math.abs(volumeAt(layer, place.at) - low) <= 0.002 && (end >= scene.duration - 0.001 || Math.abs(volumeAt(layer, end + STEP) - volumeAt({ ...layer, animations: before }, end + STEP)) <= 0.002);
       if (!holds) {
         layer.animations = before;
-        if (bed(original)) needWhole(id, place, factor, `another Volume animation takes over at ${place.at} s`);
-        else dropped.push(`mix ${place.at} s ${layer.name ?? id}: another Volume animation takes over there: lower it by hand x${factor}`);
+        follow(`another Volume animation takes over at ${place.at} s`, "another Volume animation takes over there");
         continue;
       }
       if (!added.has(id)) added.set(id, []);
@@ -256,6 +358,16 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
     const scales = !animatesVolume(original) || (original.animations ?? []).some((animation) =>
       ["from", "to"].some((side) => typeof animation?.[side]?.volume === "number" && Math.abs(animation[side].volume - from) < 1e-3));
     const at = all.map(({ place, factor }) => `${place.at} s x${factor}`).join(", ");
+    // Whole only when its places cover most of its heard time; else its dips stay and the rest is named.
+    const share = placeShare(scene, original, all.map(({ place }) => place));
+    const shareText = `${Math.round(100 * share)}% of its heard time`;
+    if (share <= MOST_SHARE) {
+      if (dipped.length) fixed.push(`mix ${name}: dips at ${dipped.length} ${dipped.length === 1 ? "place" : "places"} only, not whole: its places cover ${shareText} (whole past ${100 * MOST_SHARE}%)` +
+        (need.places.length ? "" : `; ${need.why.join("; ")}`));
+      for (const { place, factor } of need.places)
+        dropped.push(`mix ${place.at} s ${name}: ${need.why.filter((why) => !why.includes("volume_churn")).join("; ")}, and no dip follows it there; its places cover ${shareText}, so it is not lowered whole: lower it by hand x${factor} there`);
+      continue;
+    }
     if (!scales) {
       added.delete(id);
       for (const entry of changes) entry.changed = entry.changed.filter(([layerId]) => layerId !== id);
@@ -279,7 +391,7 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
       entry.changed.push([id, text, worst.factor, true]);
     }
     const peak = Number.isFinite(worst.place.peakDbtp) ? `, ${worst.place.peakDbtp >= 0 ? "+" : ""}${worst.place.peakDbtp} dBTP` : "";
-    wholeFixed.push(`mix ${name} x${worst.factor} whole ${round(from)}->${layer.volume}: one constant gain, sized from the ${worst.place.at} s place (the lowest factor of ${all.length}${peak}); place by place, ${need.why.join("; ")}`);
+    wholeFixed.push(`mix ${name} x${worst.factor} whole ${round(from)}->${layer.volume}: one constant gain, sized from the ${worst.place.at} s place (the lowest factor of ${all.length}${peak}); its places cover ${shareText}; place by place, ${need.why.join("; ")}`);
   }
   changes.sort((a, b) => a.place.at - b.place.at);
   // Per place changed: its span, peak and the layers turned down with their factor (describeMixFix).
