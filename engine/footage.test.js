@@ -219,6 +219,27 @@ test("title: each type card and treatment carries its own reveal, none a blur; a
   assert.deepEqual(enters, { "type-mask-rise": "lines", "type-fade": "fade", "type-blur-in": "fade", "type-slide": "fade-up", "type-pop": "scale" });
 });
 
+test("deck cards: compose places punch-in, speed-lines and a signature move one per 5 s, the rest get a ready call", () => {
+  const faces = Array.from({ length: 41 }, (_, index) => ({ t: index / 2, faces: [[0.4, 0.2, 0.2, 0.3]], subjects: [{ box: [0.4, 0.2, 0.2, 0.3], kind: "face" }] }));
+  const deck = { cards: [{ tag: "punch-in" }, { tag: "type-swap" }, { tag: "speed-lines" }], setPiece: { kind: "move", name: "smear" } };
+  const { plan, clips } = paced("promo", 30, { deck, clip: { subjectSamples: faces }, cards: ["rim-light", "finish"] });
+  const placed = Object.fromEntries(plan.cards.placed.map((entry) => [entry.card, entry]));
+  assert.deepEqual(Object.keys(placed).sort(), ["finish", "punch-in", "smear", "speed-lines"]);
+  const times = plan.cards.placed.filter((entry) => entry.layer !== "the scene").map((entry) => entry.at).sort((a, b) => a - b);
+  assert.ok(times.every((at, index) => index === 0 || at - times[index - 1] >= 5));
+  // The punch-in's shot holds still (no slow push or drift) and punches on the face.
+  const ops = footageOps(plan, clips);
+  const punch = ops.find((op) => op.op === "move" && op.name === "punch-in");
+  assert.deepEqual(punch.point, [50, 35]);
+  assert.ok(!ops.find((op) => op.name === punch.layer).animations.some((animation) => /push|drift/i.test(animation.name ?? "")));
+  // type-swap and the cut-out treatment are left to one ready call each, on a face for the rim light.
+  const missed = Object.fromEntries(plan.cards.missed.map((entry) => [entry.card, entry]));
+  assert.equal(missed["rim-light"].ops[0].op, "cut_out");
+  assert.equal(missed["type-swap"].ops[0].name, "rewrite");
+  assert.ok(plan.words.some((line) => line.startsWith("from your deck: punch-in at")));
+  assert.equal(paced("promo", 30, { deck, cards: false }).plan.cards, null);
+});
+
 test("accents: a zoom punch on every other downbeat in the open, every one in the ending, none under words", () => {
   const bars = [0, 2, 4, 6, 8, 10, 12, 14];
   assert.deepEqual(accentTimes(bars, { ending: 10, quiet: [{ start: 3.9, end: 4.2 }] }), [0, 8, 10, 12, 14]);

@@ -127,6 +127,10 @@ How to read it:
   so `duration_band` passes them); run through the agent service once on generated clips and a click
   track, not yet judged on real footage. Evidence: `engine/footage.test.js` (pace, accents),
   `engine/qualityPolish.test.js` (accent punch).
+- **Deck cards as made graphics** (`compose {footage, cards, cardGap}`): Partly verified. The deck's
+  punch-in, speed-lines, edge-lines, split-fields, overexpose, smear, shatter and finish land on the
+  drop, a face or a new section, one per 5 s; cut-out cards get a ready call. Evidence:
+  `engine/footage.test.js` (deck cards), probe in `.scratch/defaults/compose-deck`.
 - **Quiet footage defaults**: Partly verified (plan level). compose {footage} adds no effect without a
   measured reason: downbeat punches only with `accents:true`; one hit, and flash or glitch cuts, only
   on a real drop (6 dB rise), sized by the rise and the shot's brightness; no beat step or slam title;

@@ -13,6 +13,7 @@ import { barAtOrAfter, beatGrid, editBeats, snapToImpact } from "./cuts.js";
 import { faceCenter, KEEP_BAR, markedSubject, openingMoment, rankMoments, samplesIn } from "./moments.js";
 import { isScreenRecording, shapeOf, shotLayout, subjectsIn } from "./layout.js";
 import { editStyle } from "./treatments.js";
+import { CARD_GAP, cardLines, placeCards } from "./cards.js";
 import { accentTimes, burstPassages, FREE_BEAT, PACES, phrasePlan, rateAt, runsOf, songSections } from "./pace.js";
 import { round as round3 } from "../numbers.js";
 
@@ -715,6 +716,14 @@ export function planEdit(input) {
     setPiece = { name: "rgb-split-hit", shot: dropShot.n, at: dropAt };
   }
 
+  // ---- the deck's other cards as made graphics (cards.js) ---------------------------------------
+  // The cards editStyle did not build, the set piece the plan did not, then compose {cards}; none with cards:false.
+  const handled = new Set([...style.cardsUsed, ...(setPiece ? [setPiece.name] : []), "tile-ring", "rgb-split-hit"]);
+  const dealt = [...(deck?.cards ?? []).map((card) => card.tag), ...(deck?.setPiece ? [deck.setPiece.name] : [])].filter((card) => !handled.has(card));
+  const wanted = input.cards === false ? [] : [...dealt, ...(Array.isArray(input.cards) ? input.cards : [])];
+  const gap = input.cardGap ?? (accents ? CARD_GAP / 2 : CARD_GAP);
+  const cards = wanted.length ? placeCards({ shots, title, endCard, song: song ? { sections: song.sections } : null }, wanted, { drop: dropAt, gap }) : null;
+
   // ---- the plan in words -----------------------------------------------------------------------
   const describe = (shot) => {
     const clip = byKey.get(shot.clip);
@@ -726,6 +735,7 @@ export function planEdit(input) {
   if (title) lines.push(`title "${title.text}" (${title.kind}) at ${title.at} s`);
   lines.push(`end card at ${endCard.at} s${endCard.text ? `: "${endCard.text}"` : ""}`);
   if (deck) lines.push(`deck ${deck.seed}: builds ${style.cardsUsed.join(", ") || "none of its cards"}${style.setPiece ? `; set piece ${style.setPiece}${setPiece ? "" : " (no shot fits it; left out)"}` : ""}`);
+  lines.push(...cardLines(cards));
   const left = moments.filter((moment) => !used.has(moment)).length;
   lines.push(`moments: ${moments.length} over the bar (${KEEP_BAR}), ${shots.length} used, ${left} left out`);
 
@@ -747,5 +757,5 @@ export function planEdit(input) {
     if (snaps.length) lines.push(`cuts on footage impacts: ${snaps.length}${snaps.length > 4 ? ", the first 4" : ""} (${snaps.slice(0, 4).map((snap) => `shot ${snap.shot} ${snap.at} s (impact on the hit at ${snap.hit} s${snap.early ? `, ${snap.early} frames early` : ""})`).join(", ")})`);
   }
 
-  return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, words: lines, opening: opening.kind, pace, runs, song: songPlan, burst, snaps };
+  return { duration, treatment, style, frame, music: musicPlan, voice: voicePlan, shots, captions, title, endCard, hits, setPiece, cards, words: lines, opening: opening.kind, pace, runs, song: songPlan, burst, snaps };
 }

@@ -108,7 +108,8 @@ export function footageOps(plan, clips, { scene = null } = {}) {
     // A shot too short to hold still gets no camera move (it is gone before a move reads).
     const still = camTo - camFrom < 1.5;
     const cameraOn = (box, factor = 1) => {
-      if (still) return [];
+      // "hold": a deck card (a punch-in, cards.js) holds the shot's place and size.
+      if (still || cam.kind === "hold") return [];
       if (cam.kind === "drift") {
         const dx = round3(cam.direction * 0.025 * W * factor);
         return [custom("Drift", camFrom, camTo - camFrom, { x: box.x, ...scaleBy(1.06) }, { x: round3(box.x + dx), ...scaleBy(1.06) })];
@@ -257,5 +258,7 @@ export function footageOps(plan, clips, { scene = null } = {}) {
     // The title as a wordmark, with the end line under it.
     push({ op: "recipe", name: "logo-sting", id: "end-card", text: plan.endCard.text, ...(plan.endCard.sub ? { tagline: plan.endCard.sub } : {}), at: round3(plan.endCard.at + 0.1) });
   }
+  // ---- the deck's made graphics (cards.js) -----------------------------------------------------
+  for (const op of plan.cards?.ops ?? []) push(op);
   return ops;
 }
