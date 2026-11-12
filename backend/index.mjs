@@ -858,8 +858,8 @@ async function remuxUpload(bytes, uuid) {
 // upload is still kept, and the record says why.
 async function uploadShots(filename, duration) {
   try {
-    const { shots, found } = await findShots(filename, { duration });
-    return { shots, shotsFound: found };
+    const { shots, holds, found } = await findShots(filename, { duration });
+    return { shots, holds, shotsFound: found };
   } catch (error) {
     console.warn(`[kino] Could not find the shots in ${path.basename(filename)}: ${error.message}`);
     return { shotsError: firstErrorLine(error) };

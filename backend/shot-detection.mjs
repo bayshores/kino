@@ -220,6 +220,42 @@ function flashEnd(cut, frames, mad, at, flashLike) {
   return -1;
 }
 
+// Two frames in a row this alike (mean difference of their 32×18 gray copies, of 255) show one
+// held picture: drawn footage "on 3s" repeats each drawing for 3 frames; compression noise in a
+// held drawing stays under it.
+export const HOLD_DIFF = 0.5;
+// The longest run that is the drawing step (on 2s, 3s or 4s); a longer run is a held pose.
+const STEP_FRAMES = 4;
+// A held picture this long in the file is a still pose (file seconds).
+export const STILL_POSE = 0.3;
+const MOST_STILLS = 40;
+
+/**
+ * A video's held-frame pattern from its frame differences: {repeated, frames, stills}. `repeated`
+ * is the share of frames that repeat the frame before (0 for live footage, about 0.67 on 3s);
+ * `frames` the usual hold in frames (the median run of one picture among runs up to STEP_FRAMES
+ * long: 1 for live footage, 3 on 3s); `stills` the held poses of STILL_POSE or longer, [{start,
+ * end}] file seconds (at most 40). `mad(i, j)` is how much frames i and j differ (0-255), `times[i]`
+ * where frame i starts and `length` where the file ends.
+ */
+export function holdPattern(frames, mad, times, length) {
+  const runs = [];
+  let start = 0;
+  for (let frame = 1; frame <= frames; frame += 1) {
+    if (frame < frames && mad(frame - 1, frame) <= HOLD_DIFF) continue;
+    runs.push([start, frame]);
+    start = frame;
+  }
+  const repeated = frames > 1 ? (frames - runs.length) / (frames - 1) : 0;
+  const steps = runs.map(([from, to]) => to - from).filter((count) => count <= STEP_FRAMES).sort((a, b) => a - b);
+  const timeOf = (frame) => (frame < frames ? times[frame] : length);
+  const stills = runs
+    .filter(([from, to]) => Number.isFinite(timeOf(from)) && Number.isFinite(timeOf(to)) && timeOf(to) - timeOf(from) >= STILL_POSE - 1e-6)
+    .slice(0, MOST_STILLS)
+    .map(([from, to]) => ({ start: round3(from === 0 ? 0 : times[from]), end: round3(timeOf(to)) }));
+  return { repeated: Math.round(repeated * 100) / 100, frames: steps.length ? steps[Math.floor(steps.length / 2)] : 1, stills };
+}
+
 // The mean absolute difference of two 32×18 gray frames, 0 (the same) to 255.
 function meanDifference(thumbnails, first, second) {
   const a = first * THUMBNAIL_BYTES;
@@ -459,6 +495,8 @@ export async function findShots(file, { duration, signal, maxFrames = MAX_VIDEO_
   }));
   return {
     shots,
+    // How the file holds its pictures (drawn footage on 2s or 3s, held poses): holdPattern.
+    holds: { ...holdPattern(frames, mad, run.times, length), ...(span > 0 ? { fps: round3(clock[frames - 1] / span) } : {}) },
     found: { version: SHOTS_VERSION, frames, cuts: shots.length - 1, flashes, ms: Math.round(performance.now() - started) },
     flashes: flashSpans.filter((flash) => Number.isFinite(flash.start) && Number.isFinite(flash.end)),
     fps: span > 0 ? round3(clock[frames - 1] / span) : null,
@@ -527,9 +565,11 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
   const running = new Map(); // media ID → its run
 
   async function findAndSave(id, record) {
+    // Shots found before held frames were measured stay the answer when that run cannot happen.
+    const known = Array.isArray(record.shots) ? record.shots : null;
     const filters = await shotFilters();
     // Nothing is being imported here, so the message ends after what to install.
-    if (!filters.ok) return { shots: null, reason: filters.message.replace(/; nothing was imported\.$/, ".") };
+    if (!filters.ok) return known ? { shots: known } : { shots: null, reason: filters.message.replace(/; nothing was imported\.$/, ".") };
     let result;
     try {
       result = await findShots(join(mediaRoot, id), { duration: record.duration });
@@ -537,9 +577,9 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
       const line = firstErrorLine(error);
       // Saved, so later looks do not run FFmpeg on this file again.
       await saveRecord(id, { shotsError: line });
-      return { shots: null, reason: shotsErrorReason(line) };
+      return known ? { shots: known } : { shots: null, reason: shotsErrorReason(line) };
     }
-    await saveRecord(id, { shots: result.shots, shotsFound: result.found });
+    await saveRecord(id, { shots: result.shots, holds: result.holds, shotsFound: result.found });
     return { shots: result.shots };
   }
 
@@ -553,7 +593,8 @@ export function createShotFinder({ mediaRoot, saveRecord }) {
     } catch { /* no readable record: not in the library */ }
     if (!record || record.id !== id) return { shots: null, reason: "not in kino's media library" };
     if (!isVideo(record)) return { shots: null, reason: "not a video" };
-    if (Array.isArray(record.shots)) return { shots: record.shots };
+    // A video found before kino measured held frames (record.holds) is measured once more for them.
+    if (Array.isArray(record.shots) && (record.holds || saved || record.shotsError)) return { shots: record.shots };
     if (record.shotsError) return { shots: null, reason: shotsErrorReason(record.shotsError) };
     if (saved) return { shots: null, reason: "not found yet" };
     let run = running.get(id);
@@ -579,11 +620,24 @@ export function shotsLine(record, { all = false } = {}) {
   if (!Array.isArray(shots)) {
     return record.shotsError ? `shots: not found (${record.shotsError})` : "shots: not found yet (look sheet or library media finds them)";
   }
-  if (shots.length <= 1) return `shots: 1 (no cuts found)${crop}`;
+  const held = holdsLine(record.holds);
+  if (shots.length <= 1) return `shots: 1 (no cuts found)${crop}${held}`;
   const limit = all ? 200 : 12;
   const listed = shots.slice(0, limit).map((shot, index) => `${index + 1}) ${sec(shot.start)}–${sec(shot.end)} s`).join(" ");
   const more = shots.length <= limit ? ""
     : all ? ` … (${shots.length} in all)`
     : ` … (${shots.length} in all; library {topic:"media", search:${JSON.stringify(String(record.id ?? record.name ?? ""))}} lists them)`;
-  return `shots: ${shots.length}: ${listed}${more}${crop}`;
+  return `shots: ${shots.length}: ${listed}${more}${crop}${held}`;
+}
+
+/**
+ * The held-frame facts of drawn footage (holdPattern) for shotsLine: " · drawn on 3s (67% repeated
+ * frames, 10 drawings a second; slowed, nearest keeps whole drawings, blend overlays two; still
+ * poses 0–0.49 s)", or "" for live footage (a drawing step of 1 frame).
+ */
+export function holdsLine(holds) {
+  if (!(holds?.frames >= 2)) return "";
+  const stills = (holds.stills ?? []).slice(0, 4).map((still) => `${sec(still.start)}–${sec(still.end)} s`);
+  const posed = stills.length ? `; still poses ${stills.join(" ")}${holds.stills.length > 4 ? ` +${holds.stills.length - 4}` : ""}` : "";
+  return ` · drawn on ${holds.frames}s (${Math.round(holds.repeated * 100)}% repeated frames${holds.fps > 0 ? `, ${sec(holds.fps / holds.frames)} drawings a second` : ""}; slowed, nearest keeps whole drawings, blend overlays two${posed})`;
 }

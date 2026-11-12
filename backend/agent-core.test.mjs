@@ -319,6 +319,9 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   assert.equal(send({ code: "frozen_picture", target: "shot-1", reason: "the source animation holds this frame" })[0].target, "shot-1");
   assert.throws(() => send({ code: "frozen_picture", target: "*", reason: "drawn hold of 1.2 s" }), /not target:"\*"/);
   assert.equal(send({ code: "frozen_picture", target: "shot-1", reason: "anime held cel, a drawn hold of 1.2 s" })[0].target, "shot-1");
+  // frozen_footage takes the same drawn-hold reason (it then keeps only a stop on the file's own pose).
+  assert.equal(send({ code: "frozen_footage", target: "shot-1", reason: "drawn hold of the file's own pose" })[0].target, "shot-1");
+  assert.throws(() => send({ code: "frozen_footage", target: "shot-1", reason: "looks fine" }), /Only the person can keep it.*say "drawn hold" in reason/);
   // mediaStart and mediaDuration on a shape mean when it shows: a Show and a Hide, said in the fixes.
   const bandResolver = createResolver(document, assignCodes(emptyCodes(), document));
   const [band, ...timed] = translateOperations([{ op: "add_layer", layerType: "rectangle", properties: { name: "band", mediaStart: 2, mediaDuration: 1.5 } }], bandResolver, document);
@@ -853,6 +856,11 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   assert.deepEqual([one.waiver, one.used.length], [undefined, 1]);
   assert.equal(waiversFor(grouped, model, [soft("a"), soft("b"), soft("c")]).waiver?.target, "a");
   assert.equal(waiversFor(grouped, model, [soft("s1")]).waiver?.target, "s1");
+  // frozen_footage: a drawn-hold waiver keeps a stop on the file's own still pose (native) under 2 s, never a stop the edit made.
+  const drawn = { code: "frozen_footage", target: "a", reason: "drawn hold: the file holds this pose" };
+  assert.equal(waiversFor({ rule: "frozen_footage", itemId: "a", at: 0, until: 1.9, native: { start: 1, end: 1.4 } }, model, [drawn]).waiver, drawn);
+  assert.equal(waiversFor({ rule: "frozen_footage", itemId: "a", at: 0, until: 1.9 }, model, [drawn]).waiver, undefined);
+  assert.equal(waiversFor({ rule: "frozen_footage", itemId: "a", at: 0, until: 2.4, native: { start: 1, end: 1.4 } }, model, [drawn]).waiver, undefined);
 });
 
 test("match_references grades only the shot outside the references' range, replaces its own grade on a second run and takes it off with remove", async () => {

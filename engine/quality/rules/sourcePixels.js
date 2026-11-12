@@ -269,7 +269,29 @@ function movingTime(model, item) {
   return moving;
 }
 
+// Drawn footage (the file holds each drawing 2 or more frames, holdPattern on import): how many
+// new drawings a second a slowed clip shows with nearest frames, or null for live footage.
+function drawnRate(ctx, layer) {
+  const holds = layer ? ctx.mediaHolds?.[layer.src] : null;
+  if (!(holds?.frames >= 2) || mediaFrameRateOf(layer) > 0 || mediaInterpolationOf(layer) !== "nearest") return null;
+  const own = (holds.fps > 0 ? holds.fps : FILE_FPS) / holds.frames;
+  return { holds, own, shown: own * constantSpeed(layer) };
+}
+
 function lowFpsFinding(ctx, item, layer, fps, at, how) {
+  const drawn = drawnRate(ctx, layer);
+  if (drawn) {
+    // The material's own step: each drawing is whole on screen, held longer. blend would lay two
+    // drawings over each other; flow makes new in-between drawings.
+    const { holds, own, shown } = drawn;
+    return {
+      rule: "low_fps_motion", severity: "warn", itemId: item.id, at: sec(at),
+      message: `${ctx.name(item)} is drawn on ${holds.frames}s (${sec(own)} drawings a second in its file); at mediaSpeed ${constantSpeed(layer)} with nearest it shows ${sec(shown)} new drawings a second, each a whole drawing for ${sec(1 / shown)} s, while ${how}.`,
+      measured: `${Math.round(holds.repeated * 100)}% repeated frames, held ${holds.frames} frames; ${sec(shown)} new drawings a second, ${how}`,
+      required: `a large clip that moves (or whose footage moves) shows ${LOW_FPS} or more new frames a second`,
+      fix: { kind: "hint", text: `nearest (the default) keeps whole drawings; blend overlays two drawings (a double image); flow makes in-between drawings. A slow held-drawing look: waive_check low_fps_motion with that reason. Smoother: slow it less (mediaSpeed ${sec(Math.min(1, LOW_FPS / own))} or more shows ${sec(Math.min(own, LOW_FPS))} a second).` },
+    };
+  }
   const why = mediaFrameRateOf(layer) > 0 && mediaFrameRateOf(layer) <= fps + 1e-6 ? `mediaFrameRate ${mediaFrameRateOf(layer)}` : `mediaSpeed ${constantSpeed(layer)} with nearest frames`;
   return {
     rule: "low_fps_motion", severity: "warn", itemId: item.id, at: sec(at),

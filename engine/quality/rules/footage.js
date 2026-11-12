@@ -31,6 +31,7 @@
 import { boxesAt, cropOnSource, insideShare } from "../../sourceView.js";
 import { effectiveMediaDuration, mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { sec } from "../analysis.js";
+import { constantSpeed } from "../../mediaTime.js";
 import { LOW_CONFIDENCE, lowRuns } from "../../pin.js";
 import { inPicture, positionAt } from "../../recording.js";
 import { boxAt, itemById, visibleBoxAt } from "../model.js";
@@ -783,6 +784,22 @@ export function plannedFreeze(scene, layerId, from, to) {
     && from >= record.start - FREEZE_WINDOW - 0.05 && to <= record.end + 0.05);
 }
 
+// A drawn hold (a held drawing of drawn footage) kept by the agent's own waiver lasts under this
+// long on screen (2 s is a guess: a study's held drawings ran about 0.4 to 1.5 s). A longer
+// still stays the person's call. backend/agent/checks.mjs reads it.
+export const DRAWN_HOLD_SECONDS = 2;
+// Slack for file times that are rounded to a frame (seconds).
+const POSE_SLACK = 1 / 60;
+
+/**
+ * The file's still pose (holds.stills, file seconds) that holds every file time from `from` to
+ * `to`: the stop shows a drawing the file itself holds there. null when none does.
+ */
+export function nativeStill(holds, from, to) {
+  const [low, high] = from <= to ? [from, to] : [to, from];
+  return (holds?.stills ?? []).find((still) => still.start <= low + POSE_SLACK && high < still.end + POSE_SLACK) ?? null;
+}
+
 /** frozen_footage: a clip on screen whose picture stops (a speed of 0, a held first or last frame, or a still of it). */
 export function frozenFootage(model, ctx) {
   const scene = ctx.scene ?? ctx.speechScene;
@@ -808,8 +825,17 @@ export function frozenFootage(model, ctx) {
       // under the shots after it (study b/result.md 5): the ready fix hides the clip where Play ends.
       const playEnd = (layer.mediaStart ?? 0) + effectiveMediaDuration(layer);
       const heldAfter = Number.isFinite(playEnd) && !mediaFrameState(layer, model.times[from]).playing && model.times[from] >= playEnd - 1e-6;
-      const finding = frozenFinding(ctx, item, start, to, model, heldAfter ? `the clip's last frame, held after its Play ends at ${sec(playEnd)} s (mediaFreeze ${layer.mediaFreeze ?? "both"} holds it to the scene's end)` : "the clip stops: no new frames from its file", null, onCut);
+      // The file's own still pose (a drawing it holds, measured on import: holdPattern) under the
+      // whole stop: a fact of the material, waivable as a drawn hold. Past the pose, the edit froze it.
+      const pose = heldAfter ? null : nativeStill(ctx.mediaHolds?.[layer.src], sourceAt(start), sourceAt(to));
+      const finding = frozenFinding(ctx, item, start, to, model, heldAfter ? `the clip's last frame, held after its Play ends at ${sec(playEnd)} s (mediaFreeze ${layer.mediaFreeze ?? "both"} holds it to the scene's end)`
+        : pose ? `the file's own held drawing: a still pose of ${sec(pose.end - pose.start)} s in the file (${sec(pose.start)}-${sec(pose.end)} s), stretched by mediaSpeed ${sec(constantSpeed(layer))}` : "the clip stops: no new frames from its file", null, onCut);
       if (heldAfter) finding.fix = { kind: "retime", itemId: item.id, end: sec(playEnd) };
+      if (pose) {
+        finding.native = { start: pose.start, end: pose.end };
+        finding.until = sec(model.times[to] + 1 / model.fps);
+        finding.required = `${finding.required}; a drawn hold of the file's own pose under ${DRAWN_HOLD_SECONDS} s on screen is yours to keep: waive_check with a reason naming the drawn hold, on this layer`;
+      }
       findings.push(finding);
     }
   }

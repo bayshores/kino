@@ -1079,6 +1079,17 @@ test("frozen_footage: a clip whose picture stops on screen is a gate", async () 
   await silent("frozen_footage", ...footage([take({ animations: shown(0, 3) })]));
   await silent("frozen_footage", ...footage([take({ mediaFrameRate: 6, animations: shown(0, 3) })]));
   await silent("frozen_footage", ...footage([take({ mediaDuration: 2, animations: shown(0, 3) }), clip("phone", "/api/media/phone.mp4", { mediaStart: 2, mediaDuration: 1, animations: shown(2, 3) })]));
+  // Drawn footage on 3s whose file holds one pose 0.9-1.4 s: slowed to 0.175 over 1.9 s from 1 s,
+  // the stop shows the file's own held drawing: a measured fact (native) with the pose's length.
+  // Run past the pose, the edit froze moving drawings: today's finding.
+  const held = (stills) => ([document, context]) => [document, { ...context, mediaHolds: { "/api/media/walk.mp4": { repeated: 0.7, frames: 3, fps: 30, stills } } }];
+  const slowed = footage([take({ mediaOffset: 1, mediaSpeed: 0.175, mediaDuration: 1.9, animations: shown(0, 1.9) })]);
+  const [pose] = await fires("frozen_footage", ...held([{ start: 0.9, end: 1.4 }])(slowed));
+  assert.deepEqual([pose.severity, pose.native, pose.until], ["error", { start: 0.9, end: 1.4 }, 1.9]);
+  assert.match(pose.message, /the file's own held drawing: a still pose of 0\.5 s in the file \(0\.9-1\.4 s\), stretched by mediaSpeed 0\.18/);
+  const [edit] = await fires("frozen_footage", ...held([{ start: 0.9, end: 1.1 }])(slowed));
+  assert.equal(edit.native, undefined);
+  assert.match(edit.message, /the clip stops: no new frames from its file/);
 });
 
 test("jump_cut: one take cut to a little later in itself, framed alike, with no transition", async () => {
@@ -1153,4 +1164,11 @@ test("low_fps_motion: a clip at 5 frames a second that moves, or whose footage m
   const [stutter] = await pictureCheck("low_fps_motion", still, (_, time) => texture(Math.floor(time * 5) * 7));
   assert.match(stutter.fix.text, /Raise mediaFrameRate to 12/);
   assert.deepEqual(await pictureCheck("low_fps_motion", still, () => texture()), []);
+  // Slowed to 0.33: live footage reads 30 x 0.33 frames a second; drawn on 3s (measured on import)
+  // it reads the file's own drawings, and its fix keeps whole drawings (nearest), never blend.
+  const slow = (context = {}) => { const [document, base] = footage([clip("grin", "/api/media/walk.mp4", { mediaSpeed: 0.33, width: 2400, mediaDuration: 3, animations: [pan] })]); return [document, { ...base, ...context }]; };
+  assert.match((await fires("low_fps_motion", ...slow()))[0].message, /9\.9 new frames a second \(mediaSpeed 0\.33 with nearest frames\)/);
+  const [drawn] = await fires("low_fps_motion", ...slow({ mediaHolds: { "/api/media/walk.mp4": { repeated: 0.67, frames: 3, fps: 30, stills: [] } } }));
+  assert.match(drawn.message, /drawn on 3s \(10 drawings a second in its file\); at mediaSpeed 0\.33 with nearest it shows 3\.3 new drawings a second, each a whole drawing for 0\.3 s/);
+  assert.match(drawn.fix.text, /^nearest \(the default\) keeps whole drawings; blend overlays two drawings/);
 });

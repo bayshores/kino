@@ -512,10 +512,12 @@ function waiverFor(finding, model, waivers) {
   const targets = waiverTargets(finding, model);
   // A reference_range waiver keeps only the rows its reason names (checks.mjs rangeRowsOf).
   const row = finding.rule === "reference_range" ? rangeRowOf(finding) : null;
-  // A drawn-hold waiver keeps only a hold shorter than DRAWN_HOLD_SECONDS.
+  // A drawn-hold waiver keeps only a hold shorter than DRAWN_HOLD_SECONDS; on frozen_footage only
+  // a stop on the file's own still pose (finding.native), not a clip the edit froze.
   const held = finding.until != null && finding.at != null ? finding.until - finding.at : Infinity;
+  const drawnKept = (waiver) => held < DRAWN_HOLD_SECONDS && (waiver.code !== "frozen_footage" || Boolean(finding.native));
   return waivers.find((waiver) => waiver.code === finding.rule && (waiver.target === "*" || targets.has(waiver.target))
-    && (!row || rangeRowsOf(waiver.reason).includes(row)) && (!isDrawnHoldWaiver(waiver) || held < DRAWN_HOLD_SECONDS));
+    && (!row || rangeRowsOf(waiver.reason).includes(row)) && (!isDrawnHoldWaiver(waiver) || drawnKept(waiver)));
 }
 
 const RULE_BY_CODE = new Map(RULES.map((entry) => [entry.code, entry]));
@@ -646,6 +648,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const names = {};
     const burned = {};
     const shotsOf = {};
+    const holdsOf = {};
     const pending = [];
     // Which video files the document plays are found clips and which are the person's (ask_unmet).
     const foundClips = new Set(), ownClips = new Set();
@@ -687,9 +690,12 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         const marks = Array.isArray(record?.footage?.marks) ? record.footage.marks.filter((mark) => Array.isArray(mark?.box) && mark.box.length === 4) : [];
         // `shots`: the file's measured shots [{start, end}]: a source look inside the same shot counts (seenMark).
         const shots = Array.isArray(record?.shots) ? record.shots.filter((shot) => Number.isFinite(shot?.start) && Number.isFinite(shot?.end)) : [];
-        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage), marks, shots };
+        // `holds`: how the file holds its pictures (shot-detection.mjs holdPattern): drawn on 3s, held poses.
+        const holds = record?.holds && Number.isFinite(record.holds.frames) ? record.holds : null;
+        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage), marks, shots, holds };
         // Unmeasured (failed or still running): not kept, so the next check reads the saved facts.
-        if (!measured || Object.hasOwn(measured, "busy")) sizes.set(layer.src, entry);
+        // A video whose held frames are not measured yet (a look finds them) is read again next check.
+        if (!measured || Object.hasOwn(measured, "busy")) { if (layer.type !== "video" || holds) sizes.set(layer.src, entry); }
         else pending.push(layer.src);
         if (sizes.size > 4096) sizes.delete(sizes.keys().next().value);
       }
@@ -698,10 +704,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       names[layer.src] = name;
       if (layer.type === "video" && entry.marks?.length) burned[layer.src] = entry.marks;
       if (layer.type === "video" && entry.shots?.length) shotsOf[layer.src] = entry.shots;
+      if (layer.type === "video" && entry.holds) holdsOf[layer.src] = entry.holds;
       if (layer.type === "video") (entry.found ? foundClips : ownClips).add(layer.src);
     }
     // In each scene's key, so a check made before the facts came is not kept after.
-    return { sizes: found, names, burned, shots: shotsOf, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
+    return { sizes: found, names, burned, shots: shotsOf, holds: holdsOf, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
   }
 
   // A kept check, made the most recently used.
@@ -819,6 +826,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       scene, mediaSizes: media.sizes, mediaNames: media.names,
       // Logos burned into found clips (burned_in_mark): {src: [{where, box}]}.
       burnedMarks: media.burned, mediaShots: media.shots,
+      // Each clip file's held-frame pattern {src: {repeated, frames, stills}} (frozen_footage, low_fps_motion).
+      mediaHolds: media.holds ?? {},
       // Files recorded together (sync_clips): out_of_sync holds a line to the picture of its moment.
       clipLinks: document.clipLinks ?? [],
       // The storyboard's shots (cue, dur, move kind): plain_beats judges each one.
