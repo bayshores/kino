@@ -426,7 +426,7 @@ export function extendOpenEdges(matte, width, height, pixels) {
 }
 
 // edge "crisp": the soft band of a refined matte (about 4 px) is steepened this many times around
-// its middle, so it falls over about one pixel. 4 is a guess aimed at contest-b's drawn figure,
+// its middle, so it falls over about one pixel. 4 is a guess (not measured) aimed at contest-b's drawn figure,
 // whose cut edge is a hard line with no gray band (blind.md item 12: kino's edge feathered).
 const CRISP_CONTRAST = 4;
 
@@ -437,20 +437,31 @@ export function crispenMatte(matte, contrast = CRISP_CONTRAST) {
   return out;
 }
 
-// edge "auto": a picture is drawn (flat cel color) when at least DRAWN_FLAT of its neighbouring
-// pixel pairs differ by under FLAT_STEP luma levels. Measured with flatShare on the study clips
-// (see backend/cutout-matte.test.mjs): camera footage has grain, drawn footage flat fills.
-export const DRAWN_FLAT = 0.6;
-const FLAT_STEP = 2;
+// edge "auto": a clip is drawn when its drawings are held over frames (animation drawn "on 2s" or
+// "on 3s" repeats each picture), so frames that repeat the one before sit between frames that move.
+// A one-picture measure of flat color does not tell them apart: share of near-equal neighboring
+// pixels was 0.75 to 0.86 on the film-trailer's camera shots and 0.44 to 0.63 on contest-b's drawn
+// clips (measured 2026-11-11 on .scratch/recreate). Held-between-moves share over the first 48
+// frames, 96x54 gray: contest-b girl 0.44 and tree 0.50; contest-b cockpit 0.22 and fan-fast 0.23
+// (drawn, but read as unsure and kept soft); camera shots, a frozen shot and a screen recording 0 to
+// 0.02. A frame "repeats" under HELD_STEP mean luma change and "moves" over MOVE_STEP (same study).
+export const DRAWN_HELD = 0.3;
+const HELD_STEP = 0.35, MOVE_STEP = 1;
 
-/** The share of horizontally neighbouring pixels of a luma plane that differ by under FLAT_STEP. */
-export function flatShare(luma, width, height) {
-  let flat = 0, all = 0;
-  for (let y = 0; y < height; y += 1) {
-    const row = y * width;
-    for (let x = 1; x < width; x += 1) { all += 1; if (Math.abs(luma[row + x] - luma[row + x - 1]) < FLAT_STEP) flat += 1; }
+/**
+ * The share of frame steps that hold a drawing between moves: `frames` is consecutive gray frames
+ * of `size` pixels each, back to back. A still or frozen clip has no moves and scores 0.
+ */
+export function heldShare(frames, size) {
+  const count = Math.floor(frames.length / size);
+  const steps = [];
+  for (let f = 1; f < count; f += 1) {
+    let sum = 0;
+    for (let i = 0, a = f * size, b = (f - 1) * size; i < size; i += 1) sum += Math.abs(frames[a + i] - frames[b + i]);
+    steps.push(sum / size);
   }
-  return all ? flat / all : 0;
+  if (!steps.length) return 0;
+  return steps.filter((d, i) => d < HELD_STEP && (steps[i - 1] > MOVE_STEP || steps[i + 1] > MOVE_STEP)).length / steps.length;
 }
 
 // Edge clean-up defaults for every cut_out output (one cleaned matte, kept in the cache):

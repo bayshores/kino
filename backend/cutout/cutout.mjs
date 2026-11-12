@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
-import { DEFAULT_OPEN_EDGES, DRAWN_FLAT, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, crispenMatte, extendOpenEdges, fadeOpenEdges, finishMatte, flatShare, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
+import { DEFAULT_OPEN_EDGES, DRAWN_HELD, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, crispenMatte, extendOpenEdges, fadeOpenEdges, finishMatte, heldShare, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
 import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
@@ -849,6 +849,19 @@ const LOST_SHARE = 0.35;
 // How many lost frames wait for the next good one (each is a full frame in memory).
 const HOLD = 12;
 
+// Whether a clip is drawn footage: its first 48 frames, as decoded (no rate change, which would
+// repeat frames), at 96x54 gray, hold drawings between moves (matte.mjs heldShare). A failed read
+// counts as not drawn, so the edge stays soft.
+async function looksDrawn(source, signal) {
+  const size = 96 * 54;
+  const child = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn", "-frames:v", "48",
+    "-vf", "scale=96:54:flags=area", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], { stdio: ["ignore", "pipe", "ignore"], signal });
+  const parts = [];
+  child.stdout.on("data", (part) => parts.push(part));
+  const ok = await new Promise((resolve) => { child.on("error", () => resolve(false)); child.on("close", (code) => resolve(code === 0)); });
+  return ok && heldShare(Buffer.concat(parts), size) >= DRAWN_HELD;
+}
+
 async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, openEdges = 0, edge = "soft", target, signal, onFraction }) {
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
@@ -893,9 +906,9 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   // not steepen them and the subject matches the silhouette and matte outputs.
   const smooth = info.clean?.refine > 0 && plate.steady
     ? (yuv, mask) => refineEdges(mask, yuv.subarray(0, pixels), width, height, { radius: info.clean.refine / scale }) : (yuv, mask) => mask;
-  // edge "crisp" steepens the refined edge to about a pixel; "auto" does so when the first frame
-  // reads as drawn (flat fills, matte.mjs flatShare), else keeps the soft edge.
-  let crisp = edge === "crisp" ? true : edge === "auto" ? null : false;
+  // edge "crisp" steepens the refined edge to about a pixel; "auto" does so when the clip's
+  // drawings are held over frames (drawn footage, matte.mjs heldShare), else keeps the soft edge.
+  const crisp = edge === "crisp" || edge === "auto" && await looksDrawn(source, signal);
   const finish = (mask) => {
     const sharp = crisp ? crispenMatte(mask) : mask;
     const soft = feather > 0 ? finishMatte(sharp, width, height, { feather }) : sharp;
@@ -903,7 +916,6 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
     return openEdges > 0 ? fadeOpenEdges(soft, width, height, openEdges, Math.max(0, grow) + feather) : soft;
   };
   const write = (yuv, raw) => {
-    if (crisp === null) crisp = flatShare(yuv.subarray(0, pixels), width, height) >= DRAWN_FLAT;
     const mask = finish(smooth(yuv, raw));
     const out = Buffer.allocUnsafe(pixels * 4);
     out.set(yuv, 0);
@@ -956,8 +968,8 @@ async function writeImageOutput({ source, folder, info, output, grow = 0, feathe
   if (output === "subject") {
     const image = await readImage(source, null);
     if (image.width !== width || image.height !== height) throw cutoutError("The image changed size since its matte was made.", "CUTOUT_ENGINE_FAILED");
-    if (edge === "crisp" || edge === "auto" && flatShare(Uint8Array.from({ length: width * height }, (_, i) => image.rgba[i * 4 + 1]), width, height) >= DRAWN_FLAT)
-      matte = crispenMatte(matte);
+    // A still has no held drawings to read, so "auto" keeps the soft edge there; "crisp" asks for it.
+    if (edge === "crisp") matte = crispenMatte(matte);
     for (let i = 0, p = 0; i < matte.length; i += 1, p += 4) {
       rgba[p] = image.rgba[p]; rgba[p + 1] = image.rgba[p + 1]; rgba[p + 2] = image.rgba[p + 2];
       rgba[p + 3] = Math.round((image.rgba[p + 3] * matte[i]) / 255);

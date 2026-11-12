@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { openEdgePixels, scaleMatte } from "./cutout/cutout.mjs";
 import { outlinePathData, traceOutline } from "./cutout/outline.mjs";
-import { DRAWN_FLAT, createSteadier, crispenMatte, fadeOpenEdges, feather, flatShare, fillHoles, finishMatte, grow, matteMeasure, radialEdgeErrors, refineEdges, softCounts } from "./cutout/matte.mjs";
+import { DRAWN_HELD, createSteadier, crispenMatte, fadeOpenEdges, feather, heldShare, fillHoles, finishMatte, grow, matteMeasure, radialEdgeErrors, refineEdges, softCounts } from "./cutout/matte.mjs";
 
 // A disc of radius r centred at (cx, cy), anti-aliased over one pixel like a real matte.
 function disc(width, height, { cx, cy, r }) {
@@ -216,9 +216,12 @@ test("openEdges extend carries a subject that stops short of the frame out to th
   assert.equal(openEdgePixels("extend", { width: 1000, height: 400 }), -12);
   const crisp = crispenMatte(Uint8Array.from([0, 64, 100, 128, 160, 255]));
   assert.deepEqual([...crisp], [0, 0, 18, 130, 255, 255]);
-  // A flat drawn fill reads as drawn; grain does not.
-  const flat = new Uint8Array(400).fill(90), grain = Uint8Array.from({ length: 400 }, (_, i) => 90 + ((i * 7919) % 13));
-  assert.ok(flatShare(flat, 20, 20) >= DRAWN_FLAT && flatShare(grain, 20, 20) < DRAWN_FLAT);
+  // Drawings held on 2s read as drawn; camera footage that changes a little every frame, and a
+  // frozen picture, do not.
+  const clip = (values) => Uint8Array.from(values.flatMap((v) => new Array(16).fill(v)));
+  assert.ok(heldShare(clip([10, 10, 40, 40, 70, 70, 100, 100]), 16) >= DRAWN_HELD);
+  assert.ok(heldShare(clip([10, 12, 14, 16, 18, 20, 22, 24]), 16) < DRAWN_HELD);
+  assert.equal(heldShare(clip([50, 50, 50, 50]), 16), 0);
 });
 
 test("the outline tracer follows a disc's edge, keeps the biggest shape and fits its point budget", () => {
