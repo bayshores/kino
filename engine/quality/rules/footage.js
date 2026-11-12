@@ -76,6 +76,31 @@ function zoomingFast(model, item, index) {
   return (Math.abs(Math.log(width(after) / width(before))) * model.fps) / (after - before) > FAST_ZOOM;
 }
 
+/** The file pixels across the frame's width where a box drawn `magnified` screen pixels per file pixel covers it. */
+export function sourceAcross(model, box, magnified) {
+  const seen = Math.min(box.x1, model.width) - Math.max(box.x0, 0);
+  return Math.round(Math.max(0, seen) / magnified);
+}
+
+/**
+ * The samples of `item` (a picture or clip whose file is `size`) drawn bigger than `ratio` times its
+ * pixels, shown, not blurred meant, on the frame, not in a fast zoom and not covered:
+ * [{index, time, magnified, box}] (magnified: screen pixels per file pixel, the file drawn whole in
+ * its box).
+ */
+export function upscaledSamples(model, item, size, ratio = UPSCALE_MAX) {
+  const found = [];
+  model.times.forEach((time, index) => {
+    if (item.samples.opacity[index] < SHOWN || soft(item, index)) return;
+    const box = boxAt(item, index);
+    // The file is drawn inside its box at its own shape ("contain").
+    const magnified = Math.min((box.x1 - box.x0) / size.width, (box.y1 - box.y0) / size.height);
+    if (magnified <= ratio || !onFrame(model, box) || zoomingFast(model, item, index) || coveredAt(model, item, index)) return;
+    found.push({ index, time, magnified, box });
+  });
+  return found;
+}
+
 /** soft_upscale: a picture or clip drawn bigger than its file's pixels (it looks soft). */
 export function softUpscale(model, ctx) {
   if (!ctx.mediaSizes) return [];
@@ -88,16 +113,9 @@ export function softUpscale(model, ctx) {
     const size = sizeOf(ctx, item);
     if (!size) continue;
     let worst = null;
-    let over = 0;
-    model.times.forEach((time, index) => {
-      if (item.samples.opacity[index] < SHOWN || soft(item, index)) return;
-      const box = boxAt(item, index);
-      // The file is drawn inside its box at its own shape ("contain").
-      const magnified = Math.min((box.x1 - box.x0) / size.width, (box.y1 - box.y0) / size.height);
-      if (magnified <= UPSCALE_MAX || !onFrame(model, box) || zoomingFast(model, item, index) || coveredAt(model, item, index)) return;
-      over += 1;
-      if (!worst || magnified > worst.magnified) worst = { magnified, time, box };
-    });
+    const samples = upscaledSamples(model, item, size);
+    const over = samples.length;
+    for (const sample of samples) if (!worst || sample.magnified > worst.magnified) worst = sample;
     // A single sample can be a rounding at a cut; two or more is seen.
     if (!worst || over < Math.min(2, model.times.length)) continue;
     const key = `${item.src} ${sec(worst.magnified)}`;
@@ -115,7 +133,7 @@ export function softUpscale(model, ctx) {
       message: items.length > 1
         ? `${items.length} layers (${names}) draw one ${size.width}x${size.height} file ${sec(worst.magnified)}x bigger than its pixels: they look soft.`
         : `${names} is drawn ${sec(worst.magnified)}x bigger than its ${size.width}x${size.height} file at ${sec(worst.time)} s: it looks soft.`,
-      measured: `${sec(worst.magnified)}x at ${sec(worst.time)} s (the file drawn ${drawn[0]}x${drawn[1]} px), over ${UPSCALE_MAX}x for ${sec(over / model.fps)} s${items.length > 1 ? `, on ${items.length} layers` : ""}`,
+      measured: `${sec(worst.magnified)}x at ${sec(worst.time)} s (the file drawn ${drawn[0]}x${drawn[1]} px; ${sourceAcross(model, worst.box, worst.magnified)} of its ${size.width} px across the ${model.width} px frame), over ${UPSCALE_MAX}x for ${sec(over / model.fps)} s${items.length > 1 ? `, on ${items.length} layers` : ""}`,
       required: `at most ${UPSCALE_MAX} output pixels per file pixel`,
       fix: { kind: "hint", text: `Lower ${names}'s scale or zoom where it peaks to ${keep}% of it (${UPSCALE_MAX}x), or import a sharper file (at least ${Math.ceil(drawn[0] / UPSCALE_MAX)}x${Math.ceil(drawn[1] / UPSCALE_MAX)}). A blur of ${SOFT_BLUR} or more is left alone (a backdrop).` },
     });

@@ -10,7 +10,10 @@ import { join } from "node:path";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { expandComponents } from "../engine/linkedComponents.js";
 import { blockStep, lumaStats } from "../engine/quality/liftDark.js";
+import { kinoTimeline } from "../engine/quality/kinoTimeline.js";
+import { runQuality } from "../engine/quality/index.js";
 import { alone, liftDark } from "./agent/lift-dark.mjs";
+import { deblockUpscaled } from "./agent/upscale-blocks.mjs";
 import { renderSceneFrames } from "./export.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
 import { ffmpeg, run, skipWithoutMediaTools } from "./media.test.support.mjs";
@@ -121,4 +124,46 @@ test("lift_dark on dark colored footage: check-size frames read as the full size
   assert.match(lifted.lines[0], /night mean (\d+) to \d+ measured on the edit's render at 240 px wide \(6 frames over [\d.]+ to [\d.]+ s\), on top of night\.grade \(color-grade\) already there: (\d+) without it, \1 with/);
   // One small render before, one without the grade, one full-size render of the blocks, then the same after: 5.
   assert.deepEqual(widths, [240, 240, width, 240, width]);
+});
+
+// A punch-in on the same kind of clip (128x96 at a low bitrate, drawn 2.5x on a 256x192 frame): check
+// names the file pixels across the frame and the block step on the source's grid, deblock_upscaled
+// adds the deblock before the scale, and a layer under the ratio gets nothing.
+test("a punch-in's block step is measured on the source grid, check says it and deblock_upscaled smooths it", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "kino-upscale-blocks-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const mediaRoot = join(root, "media");
+  await mkdir(mediaRoot);
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${W}x${H}`, "-r", "10", "-i", "pipe:0",
+    "-c:v", "libx264", "-qp", "40", "-pix_fmt", "yuv420p", join(mediaRoot, "wall.mp4")], { input: wall() });
+  const video = (id, box) => createLayer("video", { id, name: id, src: "/api/media/wall.mp4", ...box, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1 });
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: 256, height: 192, duration: 1, background: "#000000", layers: [
+    video("punch", { x: -32, y: -24, width: 320, height: 240 }),
+    video("plain", { x: 0, y: 0, width: 128, height: 96 }),
+  ] })] }));
+  const render = (scene, times, { width }) => renderSceneFrames(scene, times, { mediaRoot, fonts, width });
+  const sourceSize = async () => ({ width: W, height: H });
+  // check, with pixels: the soft_upscale finding carries the measured fact.
+  const expanded = expandComponents(document, "main", { fonts });
+  const { findings } = await runQuality(kinoTimeline(document, "main", { fonts }), { codes: ["soft_upscale"], context: {
+    mediaSizes: { "/api/media/wall.mp4": { width: W, height: H } },
+    renderFrames: (times, { width, solo }) => render(solo ? alone(expanded, solo) : expanded, times, { width }),
+  } });
+  const finding = findings.find((entry) => entry.rule === "soft_upscale");
+  t.diagnostic(finding.measured);
+  assert.match(finding.measured, /2\.5x at [\d.]+ s \(the file drawn 320x240 px; 102 of its 128 px across the 256 px frame\)/);
+  assert.match(finding.measured, /block step \(16 px grid, levels on the grid lines over inside the blocks\) [\d.]+ \(ratio [\d.]+, deblock radius 10 threshold [\d.]+\)/);
+  // The edit: one call adds the deblock over the stretch, prints the step before and after, and leaves the 1x layer alone.
+  const sent = [];
+  const result = await deblockUpscaled(document, { layerIds: ["punch", "plain"], fonts, render, sourceSize, runOps: async (doc, ops) => { sent.push(...ops); return runOps(doc, ops); } });
+  const [shot] = result.shots;
+  assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "punch", "punch.upscale-deblock", "deblock"]]);
+  assert.equal(shot.deblock.radius, 10, "a quarter of a 16 px block at 2.5 scene pixels a source pixel");
+  assert.ok(shot.blocksAfter.step < shot.blocks.step * 0.7, `the deblock keeps under 70% of the step: ${shot.blocks.step} to ${shot.blocksAfter.step}`);
+  t.diagnostic(result.lines[0]);
+  assert.match(result.lines[0], /punch drawn 2\.5x at [\d.]+ s \(102 of its 128 px file across the 256 px frame\), block step \(16 px grid, levels on the grid lines over inside the blocks\) [\d.]+ to [\d.]+ \(ratio/);
+  assert.match(result.lines[0], /left alone: plain \(drawn at most 1x its file, not over 1\.3x\)/);
+  // Again replaces the effect; remove takes it off.
+  const removed = await deblockUpscaled(result.document, { layerIds: ["punch"], remove: true, fonts, render, sourceSize, runOps });
+  assert.equal(removed.document.scenes[0].layers[0].animations.length, 0);
 });

@@ -244,6 +244,10 @@ const OPERATIONS = {
     fields: ["sceneId", "layerId", "layerIds", "target", "grain", "reduced", "remove"],
     rules: 'lift_dark {layer | layers, target?, grain?, reduced?, remove?}: brightens dark shots with a curve read from each shot\'s own tones: the black point stays, the mids rise to target (mean luma 0 to 255; left out, the median of the scene\'s other shots), the highlights roll off; from a 1 stop lift a small grain matched to the curve breaks up compression blocks (grain:false leaves it off, a number sets its amount; one grain per source pixel; still under reduced motion or reduced:true). A video whose codec block grid measures 1.5 times the steps inside the blocks gets a deblock <layer>.lift-deblock before the curve; the receipt gives the block step before and after. Effects <layer>.lift (curves) and <layer>.lift-grain; again replaces them; remove:true takes them off. The receipt: mean and contrast (p90-p10) before and after, beside a plain gamma to the same mean.',
   },
+  deblock_upscaled: {
+    fields: ["sceneId", "layerId", "layerIds", "ratio", "remove"],
+    rules: 'deblock_upscaled {layer? | layers?, ratio?, scene?, remove?}: for video and picture layers drawn over ratio times their file (default 1.3, soft_upscale\'s line; left out: every such layer in the scene) it measures the source\'s codec block step on the source grid at the largest scale, on 3 full-size frames of the layer drawn alone, and where the steps on the grid lines are 1.5 times or more those inside the blocks adds an ordinary deblock <layer>.upscale-deblock over the stretch drawn over the ratio (radius and threshold from the measure, as lift_dark\'s). Nothing is added to a layer under the ratio or one without blocks. The receipt per layer: the scale, the file pixels across the frame, the block step before and after. Again replaces them; remove:true takes them off.',
+  },
   split_image: {
     fields: ["layerId", "sceneId", "boxes"],
     rules: 'split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}: cuts a picture layer (a screenshot, a still of a screen recording) into pieces in place, real pixels: each piece <layer>-<name> is a clipping group (rect in % of the picture\'s box) holding the picture, so nothing moves until you animate it (move build-in). The picture is replaced by its pieces; a part in no box is no longer shown, so give a box for the background too. Split before animating; warns when the picture shows above 1.3x its pixels.',
@@ -819,6 +823,16 @@ const TRANSLATE = {
     if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the lift effects off) or left out.");
     if (operation.reduced !== undefined && typeof operation.reduced !== "boolean") throw problem("reduced is true (the grain holds still) or false (left out: the scene's reduced setting).");
   },
+  deblock_upscaled(operation, resolver) {
+    if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);
+    if (operation.layerIds !== undefined && !Array.isArray(operation.layerIds)) throw problem("layers is a list of video or picture layer names or codes.");
+    const list = [...(operation.layerId !== undefined ? [operation.layerId] : []), ...(operation.layerIds ?? [])];
+    if (list.length > 50) throw problem("deblock_upscaled takes up to 50 layers (or none: every upscaled layer in the scene).");
+    operation.layerIds = [...new Set(list.map((ref) => layerRef(resolver, ref)))];
+    delete operation.layerId;
+    if (operation.ratio !== undefined && !(Number.isFinite(operation.ratio) && operation.ratio >= 1 && operation.ratio <= 8)) throw problem("ratio is the screen pixels per file pixel a layer must be drawn over to be measured, 1 to 8 (left out: 1.3).");
+    if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the deblock effects off) or left out.");
+  },
   // The board's names (music, media) are looked up when it runs: they may be layers this edit makes.
   board() {},
   source() {},
@@ -1068,7 +1082,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, boardPace = null, boardType = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, liftShots = null, deblockShots = null, boardPace = null, boardType = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget, subjectTarget, splitCopy });
   async function mediaOf(document, work) {
@@ -3024,6 +3038,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     async lift_dark(document, operation, work) {
       if (!liftShots) throw problem("lift_dark needs kino's renderer, which this server does not have.");
       const result = await liftShots(parseDocument(document), operation);
+      document.scenes = result.document.scenes;
+      work.notes.push(...result.lines);
+    },
+    // deblock_upscaled: the service measures the blocks and adds the deblock (backend/agent/upscale-blocks.mjs).
+    async deblock_upscaled(document, operation, work) {
+      if (!deblockShots) throw problem("deblock_upscaled needs kino's renderer, which this server does not have.");
+      const result = await deblockShots(parseDocument(document), operation);
       document.scenes = result.document.scenes;
       work.notes.push(...result.lines);
     },

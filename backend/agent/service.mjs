@@ -157,6 +157,7 @@ import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, mov
 import { matchReferences } from "./exposure-match.mjs";
 import { deckTechniques, labelTechniques, placeMade } from "./made-match.mjs";
 import { liftDark } from "./lift-dark.mjs";
+import { deblockUpscaled } from "./upscale-blocks.mjs";
 import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { shutterNote } from "./shutter-notes.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
@@ -594,6 +595,8 @@ export function createAgentService(deps) {
     matchExposure: (document, operation) => runMatch(document, operation),
     // lift_dark: a curve from each dark shot's own tones (lift-dark.mjs).
     liftShots: (document, operation) => runLift(document, operation),
+    // deblock_upscaled: the source's block step in punch-ins, and a deblock before the scale (upscale-blocks.mjs).
+    deblockShots: (document, operation) => runDeblock(document, operation),
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
@@ -7240,8 +7243,8 @@ export function createAgentService(deps) {
     return found;
   }
 
-  // lift_dark: the scene's frames rendered as check renders them, the lift effects as ops.
-  async function runLift(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false, reduced = null } = {}) {
+  // lift_dark and deblock_upscaled: the scene's frames rendered as check renders them, the effects as ops.
+  async function renderParts(document) {
     const fonts = await fontsFor(document);
     const codes = await syncCodes(document.id, document).catch(() => null);
     const render = deps.renderFrames ?? renderSceneFrames;
@@ -7250,9 +7253,17 @@ export function createAgentService(deps) {
       const layer = document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === layerId);
       try { const info = JSON.parse(await readFile(`${mediaFileOf(layer)}.json`, "utf8")); return { width: info.width, height: info.height }; } catch { return null; }
     };
-    return liftDark(document, { sceneId, layerIds, target, grain, remove, reduced, fonts, runOps, sourceSize,
+    return { fonts, runOps, sourceSize,
       render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),
-      name: (id) => (codes ? refName(id, codes) : id) });
+      name: (id) => (codes ? refName(id, codes) : id) };
+  }
+
+  async function runLift(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false, reduced = null } = {}) {
+    return liftDark(document, { sceneId, layerIds, target, grain, remove, reduced, ...(await renderParts(document)) });
+  }
+
+  async function runDeblock(document, { sceneId = null, layerIds = [], ratio, remove = false } = {}) {
+    return deblockUpscaled(document, { sceneId, layerIds, remove, ...(ratio ? { ratio } : {}), ...(await renderParts(document)) });
   }
 
   // Ops applied to a document as one edit would apply them, without saving (compose {footage}).
