@@ -1151,12 +1151,12 @@ function checkPlaceBroll(operation) {
     throw new Error('place_broll needs clips: {"<video layer>":"<a few words the voice says about it>"}.');
 }
 
-// keep_line {sceneId, layerId, line? | from?, to?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?}: an unknown
+// keep_line {sceneId, layerId, line? | from?, to?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?, dropout?}: an unknown
 // field is refused here, before the clip is transcribed; the engine checks the values (engine/keepLine.js).
-const KEEP_LINE_FIELDS = new Set(["type", "sceneId", "layerId", "line", "from", "to", "text", "subtitle", "look", "name", "duckId", "duckNone", "dip"]);
+const KEEP_LINE_FIELDS = new Set(["type", "sceneId", "layerId", "line", "from", "to", "text", "subtitle", "look", "name", "duckId", "duckNone", "dip", "dropout"]);
 function checkKeepLine(operation) {
   const extra = Object.keys(operation).filter((key) => !KEEP_LINE_FIELDS.has(key));
-  if (extra.length) throw Object.assign(new Error(`keep_line has no ${extra.join(", ")}; it takes layer, line or from and to, text, subtitle, look, name, duck and dip.`), { suggestions: closest(extra[0], ["line", "from", "to", "text", "subtitle", "duck", "dip"]) });
+  if (extra.length) throw Object.assign(new Error(`keep_line has no ${extra.join(", ")}; it takes layer, line or from and to, text, subtitle, look, name, duck, dip and dropout.`), { suggestions: closest(extra[0], ["line", "from", "to", "text", "subtitle", "duck", "dip", "dropout"]) });
   if (typeof operation.layerId !== "string") throw new Error("keep_line needs layer: the video or audio layer with the spoken line.");
 }
 

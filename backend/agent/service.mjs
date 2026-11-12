@@ -1857,6 +1857,18 @@ export function createAgentService(deps) {
     }
     const layerId = operation.type === "cut_speech" || operation.type === "keep_line" ? operation.layerId : operation.type === "add_captions" || operation.type === "place_broll" ? operation.speechId : null;
     const layers = document.scenes.flatMap((scene) => scene.layers);
+    // keep_line levels the line against the music around it and ends the release on a beat: the
+    // measured loudness of the scene's sound layers and the beats of its audio layers.
+    if (operation.type === "keep_line") {
+      delete operation.levels;
+      delete operation.beats;
+      const sound = (document.scenes.find((scene) => scene.layers.some((item) => item.id === layerId))?.layers ?? []).filter((item) => item.src && (item.type === "audio" || item.type === "video"));
+      operation.levels = await levelsOf(document, sound.map((item) => item.id));
+      operation.beats = {};
+      for (const item of sound.filter((entry) => entry.type === "audio")) {
+        try { operation.beats[item.id] = JSON.parse(await readFile(`${mediaFileOf(item)}.beats`, "utf8")); } catch { /* no beats: the old release */ }
+      }
+    }
     const layer = layers.find((item) => item.id === layerId);
     // place_broll starts each clip on one of its file's shots (backend/shot-detection.mjs).
     if (operation.type === "place_broll") {
