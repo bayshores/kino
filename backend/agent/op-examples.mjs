@@ -101,6 +101,8 @@ export const OP_EXAMPLES = {
   duck_audio: { op: { op: "duck_audio", layer: "music", under: ["voice"], to: 0.25, fade: 0.25 }, setup: [musicLayer, voiceLayer], media: ["music", "voice"] },
   // With from, to and text no transcript is made; with line, the clip is transcribed (agent-speech.test.mjs).
   keep_line: { op: { op: "keep_line", layer: "voice", from: 2.2, to: 3.6, text: "I will be there.", duck: "music" }, setup: [musicLayer, voiceLayer], media: ["music", "voice"] },
+  // An action id ("a2") needs a cut with moves (library sounds actions:true lists them); a time with a file runs anywhere.
+  place_sounds: { op: { op: "place_sounds", at: [{ at: 2, sound: "/api/media/<voice>.m4a" }], under: 3 }, setup: [musicLayer], media: ["music", "voice"] },
   set_font: { op: { op: "set_font", layers: ["title"], family: "Montserrat", weight: 700 } },
   isolate_voice: { op: { op: "isolate_voice", layer: "interview", keep: "both" }, setup: [{ op: "add_layer", layerType: "video", name: "interview", properties: { src: "/api/media/<video>.mp4" } }], media: ["video"] },
   cut_out: { op: { op: "cut_out", layer: "footage", above: "title" }, setup: [{ op: "add_layer", layerType: "video", name: "footage", properties: { src: "/api/media/<video>.mp4" } }, { op: "reorder_layer", layer: "footage", to: "back" }], media: ["video"] },

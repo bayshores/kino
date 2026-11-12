@@ -14,7 +14,7 @@ import { boardAsk } from "./agent/board-text.mjs";
 import { askText } from "./agent/stops.mjs";
 import { defaultSettings, mergeSettings } from "./agent/dashboard.mjs";
 import { startTestServer } from "./media.test.support.mjs";
-import { createSoundLibrary, curlBytes, musicDrop, reversedWav } from "./sound-library.mjs";
+import { actionSoundsText, createSoundLibrary, curlBytes, librarySoundsText, musicDrop, reversedWav } from "./sound-library.mjs";
 import { createSoundSearch, freesoundLicense } from "./sound-search.mjs";
 import { askedShape, junkSound, rankSounds, sfxPrompt } from "./sfx-rank.mjs";
 import { countOnsets } from "./inspire.mjs";
@@ -240,6 +240,23 @@ test("a library download that fails on the network is tried again, then names it
   } finally {
     await rm(folder, { recursive: true, force: true });
   }
+});
+
+test("the cut's visible actions each get a library sound, low sounds only on impacts, a short sound by its peak", () => {
+  const catalog = { sources: {}, music: [], sounds: [
+    { id: "swish-1", words: "swish whoosh", seconds: 0.3, lufs: -70, peak: -0.9 }, { id: "swish-2", words: "swish whoosh", seconds: 0.3, lufs: -70, peak: -2 },
+    { id: "rumble-1", words: "impact hit low rumble", seconds: 1, lufs: -14, peak: -1 }, { id: "hit-1", words: "impact hit", seconds: 0.5, lufs: -12, peak: -1 }] };
+  const lib = createSoundLibrary({ directory: "/nowhere", catalog });
+  assert.deepEqual(lib.offerSounds("swish whoosh", { seed: "p", skip: new Set(["swish-1"]) }).map((sound) => sound.id), ["swish-2"]);
+  assert.equal(lib.offerSounds("impact hit", { seed: "p" }).some((sound) => sound.id === "rumble-1"), false);
+  assert.equal(lib.offerSounds("impact hit", { seed: "p", low: true }).some((sound) => sound.id === "rumble-1"), true);
+  assert.match(librarySoundsText({ query: "swish", results: [catalog.sounds[0]] }, { actions: 2 }), /sfx:swish-1 0\.3s peak -0\.9 dB: swish whoosh[\s\S]*This cut has 2 visible actions: library \{topic:"sounds", actions:true\}/);
+  const text = actionSoundsText({ scene: "s1", actions: [{ id: "a1", at: 1.5, kind: "whoosh", tags: ["zoom-through"] }, { id: "a2", at: 5.3, kind: "glitch", tags: ["glitch-hit"], songHit: true }],
+    offers: { a1: [catalog.sounds[0], catalog.sounds[1]] }, unmeasured: 3 });
+  assert.match(text, /^2 visible actions in s1 .*clip events not measured for 3 clips.*sound effects on them now: 0/);
+  assert.match(text, /^a1 1\.50 zoom-through  sfx:swish-1 \(or sfx:swish-2\)$/m);
+  assert.match(text, /^a2 5\.30 glitch-hit    no library sound · the song hits here$/m);
+  assert.match(text, /place_sounds", at:\["a1", "a2"\]/);
 });
 
 test("the board's sound line offers files or the built-in library, never the switch", () => {

@@ -1030,6 +1030,11 @@ How to read it:
   one line of a clip's sound (every piece of a cut voice), silences the rest, subtitles it and dips the music
   to 0.7 of its volume (stated in the receipt). `line` matches case, apostrophes, repeats and a short last
   word; a miss lists the heard lines. Evidence: `engine/speech.test.js` (keep_line). Gap: no listening test of the fades.
+- **Sounds on visible actions** (`library sounds actions:true`, `place_sounds`): Engine-tested and run once through the
+  agent path on a 15 s draft with a song: 12 actions listed from kino's moves and the clips' measured impacts, each
+  with a library sound; 3 placed in one call, each effect's waveform peak 0.02 to 0.04 frames from its action in
+  the render. Level: 3 LU (a guess) under the song there. Evidence: `engine/audioDucking.test.js`,
+  `backend/sound-search.test.mjs`. Gap: short sounds are leveled from their catalog peak (a 12 dB guess).
 - **Kept line over music** (`keep_line` default, `dropout`): Engine-tested and rendered once through the agent path
   on a song plus a quiet clip, and a spoken line over a quiet bed. Over measured music the line is leveled against
   the 2 s around it (`voiceLevel`, never under -16), the dip puts the music 6 LU under it (voice_under_bed's 6), the

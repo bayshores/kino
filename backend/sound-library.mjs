@@ -35,6 +35,8 @@ const words = (text) => String(text ?? "").toLowerCase().split(/[^a-z0-9]+/).fil
 // A word matches its plural and simple stems ("whooshes" finds whoosh).
 const stem = (word) => word.replace(/(es|s|ing|ed)$/, "") || word;
 const hash = (text) => createHash("sha256").update(text).digest().readUInt32BE(0);
+// Words of low sounds, offered for impacts only.
+const LOW_WORDS = ["sub", "low", "rumble"];
 
 /** The parts of a music request: moods, energies and a bpm range from fields or free words. */
 export function musicQuery({ mood, energy, bpm, search } = {}) {
@@ -152,7 +154,21 @@ export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fet
     }
   }
 
-  return { searchSounds, listMusic, importItem, catalog: read };
+  // The sounds offered for one visible action (library sounds actions:true, place_sounds): the best
+  // matches for `text`, ties in this project's own order (seed, as listMusic), files in `skip` left
+  // out, low sounds (sub, low, rumble) only when `low` is true (impacts: never on a dim or a fade).
+  function offerSounds(text, { seed = "", skip = new Set(), low = false, count = 3, maxSeconds = 3 } = {}) {
+    let found;
+    try { found = searchSounds(text, { maxSeconds }).results; } catch { return []; }
+    const isLow = (sound) => words(`${sound.id} ${sound.words}`).some((word) => LOW_WORDS.includes(word));
+    const asked = words(text).map(stem);
+    const score = (sound) => asked.filter((word) => words(`${sound.id} ${sound.words}`).map(stem).includes(word)).length;
+    return found.filter((sound) => !skip.has(sound.id) && (low || !isLow(sound)))
+      .sort((a, b) => score(b) - score(a) || hash(`${seed}:${a.id}`) - hash(`${seed}:${b.id}`))
+      .slice(0, count);
+  }
+
+  return { searchSounds, offerSounds, listMusic, importItem, catalog: read };
 }
 
 /**
@@ -244,12 +260,39 @@ export function musicDrop(curve) {
 const sec = (value) => Math.round(value * 10) / 10;
 
 /** The lines library sounds answers with, from the built-in library. */
-export function librarySoundsText({ query, results }, { searchOn = false } = {}) {
+export function librarySoundsText({ query, results }, { searchOn = false, actions = 0 } = {}) {
   if (!results.length) return `No library sound matches "${query}". Try a plainer word (whoosh, swish, click, tap, pop, impact, boom, glitch, chime, error, zap).${searchOn ? " Or search Openverse: library {topic:\"sounds\", search, name:\"openverse\"}." : ""}`;
   return [
-    `${Math.min(results.length, 10)} of ${results.length} CC0 library sounds for "${query}" (seconds, loudness LUFS):`,
-    ...results.slice(0, 10).map((sound) => `sfx:${sound.id} ${sec(sound.seconds)}s ${sound.lufs ?? "?"} LUFS: ${sound.words}`),
+    `${Math.min(results.length, 10)} of ${results.length} CC0 library sounds for "${query}" (seconds, loudness):`,
+    ...results.slice(0, 10).map((sound) => `sfx:${sound.id} ${sec(sound.seconds)}s ${levelWords(sound)}: ${sound.words}`),
     'Import one: project {action:"import", file:"sfx:<id>"} (credit kept). Put each on a visible action only.',
+    ...(actions > 0 ? [`This cut has ${actions} visible actions: library {topic:"sounds", actions:true}.`] : []),
+  ].join("\n");
+}
+
+// A sound under 0.4 s has no momentary loudness (its 400 ms window never fills: the catalog says
+// -70 LUFS for 96 of 154); its sample peak says how loud it is instead.
+const levelWords = (sound) => (Number.isFinite(sound.lufs) && sound.lufs > -70 ? `${sound.lufs} LUFS` : Number.isFinite(sound.peak) ? `peak ${sound.peak} dB` : "? LUFS");
+
+/**
+ * The answer of library {topic:"sounds", actions:true}: the scene's visible actions (soundActions.js
+ * visibleActions), each with the sounds offered for it ({actionId: [sound]}), and how to place them.
+ */
+export function actionSoundsText({ scene, actions, more = 0, offers = {}, unmeasured = 0, placed = 0 }) {
+  const clips = unmeasured ? ` (clip events not measured for ${unmeasured} ${unmeasured === 1 ? "clip" : "clips"}: look {mode:"source", layer} measures one)` : "";
+  if (!actions.length) return `No visible actions in ${scene}: no whip, zoom-through, glitch, flash, shake, giant type or clip impact to hit${clips}. Zero sounds is a valid mix; place one anywhere: edit {ops:[{op:"place_sounds", at:[{at:<seconds>, what:"<words>"}]}]}.`;
+  const width = Math.max(...actions.map((action) => action.tags.join("+").length));
+  const lines = actions.map((action) => {
+    const [first, ...others] = offers[action.id] ?? [];
+    const offer = first ? `sfx:${first.id}${others.length ? ` (or ${others.map((sound) => `sfx:${sound.id}`).join(", ")})` : ""}` : "no library sound";
+    return `${action.id} ${action.at.toFixed(2)} ${action.tags.join("+").padEnd(width)}  ${offer}${action.songHit ? " · the song hits here" : ""}`;
+  });
+  return [
+    `${actions.length + more} visible actions in ${scene} (kino's moves and the clips' measured events)${clips}; sound effects on them now: ${placed}. Each with a CC0 sound:`,
+    ...lines,
+    ...(more ? [`${more} more after ${actions.at(-1).at.toFixed(2)} s.`] : []),
+    `Place any: edit {ops:[{op:"place_sounds", at:["${actions[0].id}"${actions[1] ? `, "${actions[1].id}"` : ""}]}]}: each lands its transient on the action, 3 LU under the song there (under).`,
+    'Other moments or files: {at:8.4, what:"door"} or {at:8.4, sound:"<file>"}. None is also a mix: 5 of 9 studied edits add no effects.',
   ].join("\n");
 }
 

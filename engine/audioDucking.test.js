@@ -7,6 +7,7 @@ import { volumeAt } from "./animation.js";
 import { duckStretches } from "./audioDucking.js";
 import { voiceUnderBed } from "./quality/rules/sound.js";
 import { levelAt, voiceLeveling } from "./mixLevels.js";
+import { soundPlacement, visibleActions } from "./soundActions.js";
 
 const sound = (id, values = {}) => createLayer("audio", { id, name: id, src: `/api/media/${id}.wav`, ...values });
 
@@ -244,4 +245,25 @@ test("duck_audio refuses layers without sound and values out of range", () => {
   assert.throws(() => duck(document, { under: ["missing"] }), /layer missing was not found/);
   assert.throws(() => duck(document, { under: ["vo1"], to: 1.2 }), /to is the volume during a dip, a number from 0 to 1/);
   assert.throws(() => duck(document, { under: ["vo1"], fade: 11 }), /fade is the seconds each fade down takes/);
+});
+
+test("an effect lands its transient on its action, under the song", () => {
+  // A whip is an action a sound can ride; a dissolve has no one frame to hit.
+  const { actions } = visibleActions({ "whip-pan": [{ at: 2 }], dissolve: [{ at: 4 }] }, [], [{ name: "onset-1", time: 2.03, kind: "onset" }]);
+  assert.deepEqual(actions, [{ id: "a1", at: 2, kind: "whip", tags: ["whip-pan"], songHit: true }]);
+  // Loudest peak at index 5 (0.05 s), the effect's curve peaks at -10 LUFS, the song is a flat -12.
+  const peaks = { peaks: [0, 0.1, 0.2, 0.4, 0.6, 1, 0.5, 0.2], secondsPerPeak: 0.01 };
+  const music = sound("music", { mediaDuration: 10 });
+  const beds = [{ layer: music, curve: { step: 0.1, momentary: Array(100).fill(-12) }, range: { start: 0, end: 10, offset: 0 } }];
+  const placed = soundPlacement({ peaks, curve: { step: 0.1, momentary: [null, -10] }, beds, at: 2 });
+  assert.equal(placed.mediaStart, 1.95);
+  assert.ok(Math.abs(placed.volume - 0.562) < 0.001);
+  assert.deepEqual([soundPlacement({ peaks, beds, at: 0.02 }).mediaStart, soundPlacement({ peaks, beds, at: 0.02 }).mediaOffset], [0, 0.03]);
+  // The op, as the service resolves it, adds one plain audio layer with those values.
+  const operation = { type: "place_sounds", sceneId: "s", sounds: [{ at: 2, kind: "whip", action: "a1", src: "/api/media/swish.wav", duration: 0.4, peaks, curve: { step: 0.1, momentary: [null, -10] } }], beds: ["music"], levels: { music: { step: 0.1, momentary: Array(100).fill(-12) } } };
+  const reports = new Map();
+  const next = applyOperations(documentWith([music]), [operation], { reports });
+  const layer = next.scenes[0].layers.find((item) => item.id === "sfx-whip-1");
+  assert.deepEqual([layer.type, layer.mediaStart, layer.mediaOffset, layer.volume], ["audio", 1.95, 0, 0.562]);
+  assert.match(reports.get(operation).summary, /sfx-whip-1 at 1\.95 \(a1, transient at 2\), volume 0\.562, 3 LU under the song \(-12 LUFS\)/);
 });

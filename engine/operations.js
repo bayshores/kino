@@ -106,7 +106,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     // Cues, captions, beats, sequences and ducking (audioCaptionOperations.js); reports go to the agent.
     if (operation.type === "set_cues" || operation.type === "add_captions" || operation.type === "detect_beats" || operation.type === "add_sequence" || operation.type === "cut_speech" || operation.type === "sync_clips" ||
-      operation.type === "duck_audio" || operation.type === "fit_music" || operation.type === "place_broll" || operation.type === "keep_line") {
+      operation.type === "duck_audio" || operation.type === "fit_music" || operation.type === "place_broll" || operation.type === "keep_line" || operation.type === "place_sounds") {
       applyAudioCaptionOperation(document, operation, { fonts, reports });
       continue;
     }

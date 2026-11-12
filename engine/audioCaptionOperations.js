@@ -9,6 +9,7 @@
 //   fit_music     {sceneId, layerId, payoff, turn?, end?, plan?, drop?, recut?, shape, analysis}  one stretch of the song, its drop on the payoff (fitMusic.js)
 //   place_broll   {sceneId, speechId, layerIds, about, lead?, transcript, shots}  B-roll where its words are said (broll.js)
 //   keep_line     {sceneId, layerId, line? | from?, to?, text?, subtitle?, duckId?, dip?, transcript}  one spoken line kept, subtitled, music dipped (keepLine.js)
+//   place_sounds  {sceneId, sounds, beds?, levels?, under?}  sound effects on visible actions, under the song (soundActions.js)
 // Each one that has something to tell the agent (pages made, beats found) puts a short report in
 // `reports` (a Map from operation to report), which the agent service adds to its answer.
 import { applySetCues } from "./cues.js";
@@ -21,8 +22,9 @@ import { applySyncClips } from "./clipSync.js";
 import { applyFitMusic } from "./fitMusic.js";
 import { applyPlaceBroll } from "./broll.js";
 import { applyKeepLine } from "./keepLine.js";
+import { applyPlaceSounds } from "./soundActions.js";
 
-export const AUDIO_CAPTION_OPERATIONS = new Set(["set_cues", "add_captions", "detect_beats", "add_sequence", "duck_audio", "cut_speech", "sync_clips", "fit_music", "place_broll", "keep_line"]);
+export const AUDIO_CAPTION_OPERATIONS = new Set(["set_cues", "add_captions", "detect_beats", "add_sequence", "duck_audio", "cut_speech", "sync_clips", "fit_music", "place_broll", "keep_line", "place_sounds"]);
 
 /** Applies one of AUDIO_CAPTION_OPERATIONS to `document` (changed in place). */
 export function applyAudioCaptionOperation(document, operation, { fonts, reports } = {}) {
@@ -37,6 +39,7 @@ export function applyAudioCaptionOperation(document, operation, { fonts, reports
   else if (operation.type === "fit_music") report = applyFitMusic(document, operation);
   else if (operation.type === "place_broll") report = applyPlaceBroll(document, operation);
   else if (operation.type === "keep_line") report = applyKeepLine(document, operation, { fonts });
+  else if (operation.type === "place_sounds") report = applyPlaceSounds(document, operation);
   else throw new Error(`Unsupported editing operation: ${operation.type}`);
   if (report && reports) reports.set(operation, report);
 }
