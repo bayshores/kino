@@ -23,6 +23,7 @@
 //                 the style spec's first signature (pickedSignature).
 // Stored as brief.treatments = { list, dropped, shown:[indexes], picked:{label, by, quote?, why?}|null }.
 import { isRecord } from "../../engine/numbers.js";
+import { onlyWords } from "./subject-edit.mjs";
 
 export const TREATMENT_COUNT = 5;
 export const SHOWN_COUNT = 3;
@@ -50,13 +51,19 @@ const EXAMPLE = '[{idea:"the crew skates the city at dawn", who:"the crew", tens
 /** The same `who` twice: trimmed, lowercased, a leading "the", "a" or "an" dropped. */
 export const whoKey = (who) => String(who ?? "").trim().toLowerCase().replace(/^(the|an?)\s+/, "");
 
-/** The problem with a treatments save, or null. `current` is the saved brief.treatments. */
-export function treatmentsProblem(value, current) {
+/**
+ * The problem with a treatments save, or null. `current` is the saved brief.treatments; `origin`
+ * (state.origin) lets a pick take KNOWN_LABEL, the dropped treatment, when it is what the ask is
+ * known for (knownDropped).
+ */
+export function treatmentsProblem(value, current, origin = null) {
   if (isRecord(value) && value.pick !== undefined) {
     const extra = Object.keys(value).filter((key) => !["pick", "quote", "why"].includes(key));
     if (extra.length) return problem(`A pick takes pick, quote and why, not ${extra.join(", ")}.`);
     if (!current?.list) return problem("Save the 5 treatments first, then the pick.");
-    if (!LABELS.includes(value.pick)) return problem(`pick is ${LABELS.join(", ")}: the letter the person chose from the 3 shown.`);
+    const known = knownDropped(current, origin);
+    if (!LABELS.includes(value.pick) && !(known && value.pick === KNOWN_LABEL))
+      return problem(`pick is ${LABELS.join(", ")}${known ? `, or ${KNOWN_LABEL} (the dropped one, what this ask is known for)` : ""}: the letter the person chose from the ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} shown.`);
     if (value.quote !== undefined && (typeof value.quote !== "string" || !value.quote.trim() || value.quote.trim().length > TREATMENT_LIMITS.quote))
       return problem(`quote is the person's words that picked it, 1 to ${TREATMENT_LIMITS.quote} characters; leave it out when it is your pick.`);
     // Your own pick says why: a pick in 1 s with no reason is the typical one.
@@ -129,7 +136,8 @@ function shownOf(list, dropped) {
  */
 export function cleanTreatments(value, current) {
   if (isRecord(value) && value.pick !== undefined) {
-    const index = current.shown[LABELS.indexOf(value.pick)];
+    // KNOWN_LABEL is the dropped one (treatmentsProblem allows it only when the ask is known for it).
+    const index = value.pick === KNOWN_LABEL ? current.dropped : current.shown[LABELS.indexOf(value.pick)];
     const why = typeof value.why === "string" && value.why.trim() ? { why: value.why.trim() } : {};
     return { ...current, picked: { label: value.pick, index, by: value.quote ? "you" : "guessed", ...(value.quote ? { quote: value.quote.trim() } : {}), ...why } };
   }
@@ -165,13 +173,17 @@ export function pickedEnding(treatments) {
 }
 
 // A source that names material, not words: a media file, a screen, footage, a shot or a sound.
-const PICTURE_WORDS = /\.(png|jpe?g|webp|gif|heic|mp4|mov|webm|m4v|mp3|wav|m4a|aiff?)\b|screen|footage|clip|shot|record|video|photo|image|picture|frame|camera|demo|\bui\b|interface|dashboard|sound|audio|voice|song|music/i;
+// A found shot's code ("F4.23", footage-finder/take.mjs labels) is footage too: run 8's source
+// "F8.20 + F4.23" read as words only and drew the screenshot line (T156).
+const PICTURE_WORDS = /\.(png|jpe?g|webp|gif|heic|mp4|mov|webm|m4v|mp3|wav|m4a|aiff?)\b|screen|footage|clip|shot|record|video|photo|image|picture|frame|camera|demo|\bui\b|interface|dashboard|sound|audio|voice|song|music|\bF\d+\.\d+\b/i;
 
 /** True when a treatment's source names only words (copy, a tagline, site text) or nothing: no picture or sound. */
 export const wordsOnly = (source) => !PICTURE_WORDS.test(String(source ?? ""));
 
-// The line a pick with a words-only source adds: the signature is built from the product's picture.
-export const PICTURE_LINE = "Its source is words only: build the signature from the product's own picture (a screenshot or footage, with a push into the part that matters), with the line over it.";
+// The line a pick with a words-only source adds: the signature is built from the product's picture,
+// or for an edit of a subject in footage (subject-edit.mjs) from the subject's own footage.
+export const pictureLine = (subject = false) => `Its source is words only: build the signature from ${onlyWords(subject).picture}, with the line over it.`;
+export const PICTURE_LINE = pictureLine();
 
 // "move (source)", or the move alone without a source.
 const moveText = (entry) => `${entry.move}${entry.source ? ` (${entry.source})` : ""}`;
@@ -189,11 +201,12 @@ export function pickedType(treatments) {
  * one before who drops "who: ", and one before tension and turn as it did:
  * "A. idea · move (source) · rhythm".
  */
-export const shownLines = (treatments) => treatments.shown.map((index, position) => {
-  const entry = treatments.list[index];
-  if (entry.tension && entry.turn) return `${LABELS[position]}. ${entry.idea} · ${entry.who ? `${entry.who}: ` : ""}${entry.tension} → ${entry.turn} · ${entry.ending ? `ends on ${entry.ending}` : entry.move}${entry.type ? ` · type: ${entry.type}` : ""}`;
-  return `${LABELS[position]}. ${entry.idea} · ${moveText(entry)} · ${entry.rhythm ?? `ends on ${entry.ending}`}`;
-});
+export const shownLines = (treatments) => treatments.shown.map((index, position) => entryLine(treatments.list[index], LABELS[position]));
+
+function entryLine(entry, label) {
+  if (entry.tension && entry.turn) return `${label}. ${entry.idea} · ${entry.who ? `${entry.who}: ` : ""}${entry.tension} → ${entry.turn} · ${entry.ending ? `ends on ${entry.ending}` : entry.move}${entry.type ? ` · type: ${entry.type}` : ""}`;
+  return `${label}. ${entry.idea} · ${moveText(entry)} · ${entry.rhythm ?? `ends on ${entry.ending}`}`;
+}
 
 // ---- the origin line --------------------------------------------------------------------------
 // kino writes it from state.origin (its own search for what the person named, kept by the origin
@@ -237,10 +250,35 @@ export function originLine(origin) {
 const wordKey = (word) => (word.length > 3 ? word.replace(/s$/, "") : word);
 const keysOf = (text) => new Set((String(text ?? "").toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).map(wordKey));
 
-/** The fields of a treatment (idea, turn, move, source) that name the origin word; [] when none does. */
+/**
+ * The fields of a treatment (idea, tension, turn, move, ending, source) that name the origin word;
+ * [] when none does. Tension and ending count: run 8's "the climb" named "stairs" only in its
+ * tension ("will he break on these stairs?", T137).
+ */
 export function namesOrigin(entry, word) {
   const want = wordKey(String(word).toLowerCase());
-  return ["idea", "turn", "move", "source"].filter((key) => keysOf(entry?.[key]).has(want));
+  return ["idea", "tension", "turn", "move", "ending", "source"].filter((key) => keysOf(entry?.[key]).has(want));
+}
+
+// The label of the dropped treatment when it is what the ask is known for: shown after the 3, still pickable.
+export const KNOWN_LABEL = "D";
+/**
+ * The origin word when the dropped (most typical) treatment names it, else null: kino's origin
+ * search found the ask is known for that thing, so the drop stays but the answer still lists it.
+ * Run 8 dropped "the climb" (p 0.55) though the origin search found "stairs" in 8 of 20 titles
+ * (T138; DESIGN-2 change 6 as the skeptic amended it: keep the drop, list it as a labeled line).
+ */
+export function knownDropped(treatments, origin) {
+  const found = originWord(origin);
+  const entry = treatments?.list?.[treatments.dropped];
+  return found && entry && namesOrigin(entry, found.word).length ? found.word : null;
+}
+
+/** The labeled extra line for the dropped treatment the ask is known for, or "" (knownDropped). */
+export function knownLine(treatments, origin) {
+  const word = knownDropped(treatments, origin);
+  if (!word) return "";
+  return `${entryLine(treatments.list[treatments.dropped], KNOWN_LABEL)} · dropped as the most typical; it is what this ask is known for ("${word}")`;
 }
 
 /** The pick line's origin part: whether the picked treatment names the origin word, or "" (no pick, no origin word). */
@@ -261,15 +299,19 @@ export function pickLines(brief, origin = null) {
   const treatments = brief?.treatments;
   if (!treatments?.list || treatments.picked) return [];
   if (/just start/i.test(brief.noPlayback?.reason ?? "")) return [];
-  return ["Pick a direction (or say your own):", ...[originLine(origin)].filter(Boolean), ...shownLines(treatments)];
+  return ["Pick a direction (or say your own):", ...[originLine(origin)].filter(Boolean), ...shownLines(treatments), ...[knownLine(treatments, origin)].filter(Boolean)];
 }
 
 // What the agent's own pick is for, and the call that saves it ("just start").
 export const OWN_PICK = "pick the one a viewer would retell tomorrow that this material can carry; say why";
 export const OWN_PICK_CALL = Object.freeze({ pick: "<A, B or C>", why: "<why a viewer would retell it>" });
 
-/** The saved treatments in a few lines for the brief's answers; `origin` (state.origin) adds what the pick does with the origin word. */
-export function treatmentsText(brief, origin = null) {
+/**
+ * The saved treatments in a few lines for the brief's answers; `origin` (state.origin) adds what
+ * the pick does with the origin word, and the dropped one as a labeled line when the ask is known
+ * for it (knownLine). `subject` (subject-edit.mjs isSubjectEdit) words the picture line for footage.
+ */
+export function treatmentsText(brief, origin = null, { subject = false } = {}) {
   const treatments = brief?.treatments;
   if (!treatments?.list) return "";
   const dropped = treatments.list[treatments.dropped];
@@ -278,12 +320,13 @@ export function treatmentsText(brief, origin = null) {
     // The pick's move and source become style.signatures[0] (the lock needs idea + a signature).
     const line = `treatments: ${treatments.picked.label} picked (${treatments.picked.by === "you" ? "by them" : "your call"}): ${entry.idea} · signature: ${moveText(entry)}${entry.type ? ` · type: ${entry.type}` : ""}`;
     const saved = brief.style?.signatures?.[0]?.source;
-    return [line, pickOriginLine(treatments, origin), wordsOnly(entry.source) && wordsOnly(saved) ? PICTURE_LINE : ""].filter(Boolean).join("\n");
+    return [line, pickOriginLine(treatments, origin), wordsOnly(entry.source) && wordsOnly(saved) ? pictureLine(subject) : ""].filter(Boolean).join("\n");
   }
   const own = /just start/i.test(brief.noPlayback?.reason ?? "");
+  const known = knownLine(treatments, origin);
   return [
-    `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${own ? "they said just start, so pick one yourself" : "the next stop's ask shows these 3 to pick"}:`,
-    ...shownLines(treatments),
+    `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
+    ...shownLines(treatments), ...(known ? [known] : []),
     own ? `${OWN_PICK}: fields:{treatments:{pick:"A", why:"<why>"}}.` : 'Their pick: fields:{treatments:{pick:"B", quote:"<their words>"}}. With no stop ahead, ask in one message.',
   ].join("\n");
 }

@@ -10,6 +10,7 @@
 // (needs_open) and, on a 15 s+ video with footage or speech, until needs were checked
 // (needs_unchecked); waive_check {code:"needs"} skips both. Saved in the agent state as
 // state.needs = { checked: {rev, at, enough} | null, items: [...], next }.
+import { viewerWho } from "./subject-edit.mjs";
 
 export const NEEDS_WAIVER = "needs";
 export const NEEDS_OPEN_LIMIT = 8;
@@ -147,10 +148,11 @@ const BLANK_NEED = { what: "<missing piece>", why: "<what the video loses>", ask
  * still lead: making it from them stays the recommended option, found clips fill the gap.
  * Returns {tool:"notes", input:{action:"needs", items}}.
  */
-export function needsCall(treatments, { search = false } = {}) {
+export function needsCall(treatments, { search = false, subject = false } = {}) {
   const entry = treatments?.picked ? treatments.list?.[treatments.picked.index] : null;
   const who = typeof entry?.who === "string" ? entry.who.trim() : "";
   const tension = typeof entry?.tension === "string" ? entry.tension.trim() : "";
+  if (subject && who) return { tool: "notes", input: { action: "needs", items: [subjectNeed(entry, who, tension, search)] } };
   const item = !who ? BLANK_NEED : {
     what: `footage of ${who}`,
     why: tension.length >= NEED_LIMITS.why[0] ? tension : BLANK_NEED.why,
@@ -165,10 +167,33 @@ export function needsCall(treatments, { search = false } = {}) {
 }
 
 // The found-footage option's do: the footage search for the who, with slots for its words.
-function findDo(who) {
-  const text = (name) => `library {topic:"footage", search:"${name} <doing what the tension needs>", want:"<visual words>"}, then scan and import`;
+function findDo(who, moment = "<doing what the tension needs>") {
+  const text = (name) => `library {topic:"footage", search:"${name} ${moment}", want:"<visual words>"}, then scan and import`;
   const plain = who.replace(/"/g, "'");
   return text(plain).length <= NEED_LIMITS.do[1] ? text(plain) : text("<who>");
+}
+
+/**
+ * The drafted need of an edit of a subject in footage (subject-edit.mjs): the person did not film
+ * it and the viewer is never on camera, so it asks which clip shows the pick's turn, not for
+ * footage "from a phone". Run 8 was drafted "footage of you, the viewer ... even from a phone?"
+ * (T222). A who that is the viewer stands for the subject; options make it from the found clips,
+ * find another clip (with search on), or tell it with what exists.
+ */
+function subjectNeed(entry, who, tension, search) {
+  const onCamera = viewerWho(who) ? "the subject" : who;
+  const turn = typeof entry?.turn === "string" ? entry.turn.trim() : "";
+  const cost = turn ? "the turn is told, not shown" : `${onCamera} is never on screen`;
+  return {
+    what: turn ? `a shot of ${onCamera}: ${turn}` : `footage of ${onCamera}`,
+    why: tension.length >= NEED_LIMITS.why[0] ? tension : BLANK_NEED.why,
+    ask: turn ? `Which clip shows it: "${turn.replace(/"/g, "'")}"?` : `Which clip shows ${onCamera}?`,
+    options: [
+      { do: "<make it now from the clips you have: the shot that shows it, a freeze or push in on it, or the line it says>", cost, recommended: true },
+      ...(search ? [{ do: findDo(viewerWho(who) ? "<the subject's name>" : who, "<the moment the turn needs>"), cost: FOUND_COST }] : []),
+      { do: "tell it with what exists, no new footage", cost: `${cost}; the clips you have carry the story` },
+    ],
+  };
 }
 
 /** The short status line: `needs: M1 "Do you have ..." (3 options) · M2 make option 2`, or "". */

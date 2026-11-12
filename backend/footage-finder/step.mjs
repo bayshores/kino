@@ -35,7 +35,11 @@ function briefWords(brief) {
 
 /** True for a brief that asks for an edit or montage of an existing subject ("anime edit of <series>"). */
 export function footageLed(brief) {
-  const words = briefWords(brief);
+  return footageLedWords(briefWords(brief));
+}
+
+/** True for words that ask for an edit or montage of an existing subject (the test footageLed runs on a brief's lines). */
+export function footageLedWords(words) {
   return ALONE.test(words) || GAME.test(words) || (FORM_WORD.test(words) && SUBJECT.test(words));
 }
 

@@ -38,6 +38,7 @@ import { majorityShape, namedShape, sizeLikeFootage } from "../../engine/quality
 import { shapeOf } from "../../engine/footage/layout.js";
 import { isRecord } from "../../engine/numbers.js";
 import { footageMove } from "../footage-finder/step.mjs";
+import { isSubjectEdit, onlyWords, viewerWho } from "./subject-edit.mjs";
 import { cleanControls, controlsLine, hasControls, questionsGo, skippedLine } from "./controls.mjs";
 
 // The skip-under length of each stop without a control (stops.mjs DEFAULT_STOP_RULES): a longer
@@ -294,9 +295,11 @@ function yoursProblem(name, current) {
  * BriefError for the first problem (all or nothing: one refused line refuses the call); with
  * several bad lines, details add lines: {name: code}. Returns { lines: [{name, line}],
  * log: [{q, a, kind, rev?, confirmed?}], noPlayback: reason | null }, where lines holds only real
- * changes (line null: removed) in the brief's order.
+ * changes (line null: removed) in the brief's order. Options: said (recorded words), origin
+ * (state.origin: a pick may take the dropped treatment the ask is known for) and subject
+ * (subject-edit.mjs isSubjectEdit: refusals ask about the subject's footage, not a product).
  */
-export function briefChanges(current, input = {}, { said: recorded = [] } = {}) {
+export function briefChanges(current, input = {}, { said: recorded = [], origin = null, subject = false } = {}) {
   const { fields, log, no_playback: noPlayback } = input;
   if (fields != null && !isRecord(fields))
     throw new BriefError("bad_input", 'fields is an object of lines: {never:{text, by:"you", quote}}; null removes a line.');
@@ -370,7 +373,7 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   // A style sent over a saved one is a partial update, merged into it (style.mjs mergeStyle).
   const merged = sentStyle ? mergeStyle(fields.style, current?.style) : null;
   if (sentStyle) {
-    let problem = merged.problem ?? styleProblem(merged.spec, current?.style);
+    let problem = merged.problem ?? styleProblem(merged.spec, current?.style, { subject });
     // The style's quote is their words too (it is how the direction lock is approved); a style
     // sent again with the quote it already has was accepted before.
     const styleQuote = merged.spec?.by === "you" && hasText(merged.spec.quote) ? merged.spec.quote.trim() : null;
@@ -379,7 +382,7 @@ export function briefChanges(current, input = {}, { said: recorded = [] } = {}) 
   }
   let treatments;
   if (sentTreatments) {
-    let problem = treatmentsProblem(fields.treatments, current?.treatments);
+    let problem = treatmentsProblem(fields.treatments, current?.treatments, origin);
     // A pick's quote is the person's words: found in what they said, like a line's.
     // (A pick sent again as it is stored was accepted before, so it is not checked again.)
     if (!problem && picking && typeof fields.treatments.quote === "string" && fields.treatments.quote.trim() !== current?.treatments?.picked?.quote)
@@ -696,7 +699,7 @@ export function nextMove(state, video = {}, stop = null) {
   // footage or speech (the service's directionFacts; left out otherwise, which skips this step).
   // The call is drafted from the pick (needs.mjs needsCall): footage of its who, for its tension;
   // with video.needs.search (web search on) finding that footage is one of its options.
-  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments, { search: video.needs.search === true }) };
+  if (video.needs && !video.needs.checked) return { step: "check material: notes needs", call: needsCall(brief.treatments, { search: video.needs.search === true, subject: isSubjectEdit(state, video) }) };
   if (stop === "board") {
     const askBoard = { tool: "notes", input: { action: "checkpoint", id: "board" } };
     if (planned) return { step: "ask board, then follow the plan", call: askBoard };
@@ -968,7 +971,10 @@ function openParts(state, video) {
   // Beats are timed over the brief's length; else the scene's, unless it is still create's
   // default (state.defaultLength, as questionLimit), which says nothing about the video.
   const sceneSeconds = video.seconds !== state.defaultLength ? video.seconds : undefined;
-  const spine = missing.length ? draftSpine(style.spine, entry, lengthTarget(brief)?.seconds ?? sceneSeconds) : null;
+  // An edit of a subject in footage is asked about the subject and its shots, not a product (subject-edit.mjs).
+  const subject = isSubjectEdit(state, video);
+  const words = onlyWords(subject);
+  const spine = missing.length ? draftSpine(style.spine, entry, lengthTarget(brief)?.seconds ?? sceneSeconds, { subject }) : null;
   // Where a saved beat moved to in the drafted spine (a signature's beat is an index).
   const beatIn = (index) => {
     const at = spine && style.spine?.length ? spine.indexOf(style.spine[index]) : -1;
@@ -978,10 +984,10 @@ function openParts(state, video) {
   if (needSignature) {
     // A source in words only (copy, a tagline) is offered the product's own picture instead:
     // video.picture, the project's largest screenshot or its clip (the service's directionFacts).
-    const source = !wordsOnly(entry.source) ? entry.source : video.picture ? `${video.picture}, <the moment>` : "<a screenshot or clip of the product, and the moment>";
+    const source = !wordsOnly(entry.source) ? entry.source : video.picture ? `${video.picture}, <the moment>` : `<${words.material}, and the moment>`;
     const beat = beatIn(-1);
     if (!style.idea) fields.idea = entry.idea;
-    fields.signatures = [{ beat: beat >= 0 ? beat : "<index of its spine beat>", what: entry.move, source, why: "<why only this product>" }];
+    fields.signatures = [{ beat: beat >= 0 ? beat : "<index of its spine beat>", what: entry.move, source, why: `<why ${words.only}>` }];
   } else if (spine) {
     // The saved signatures follow their beat into the drafted spine.
     const moved = style.signatures.map((signature) => ({ ...signature, beat: Math.max(0, beatIn(signature.beat)) }));
@@ -1008,11 +1014,14 @@ const hasPurpose = (spine, role) => (Array.isArray(spine) ? spine : []).some((be
  * "<what the end does>"). A saved spine is kept as it is, with each missing story beat put after
  * the last saved beat that comes before it in IDEA_SPINE.
  */
-function draftSpine(saved, entry, seconds) {
+function draftSpine(saved, entry, seconds, { subject = false } = {}) {
   const total = Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
   const at = (share) => Math.round(share * total * 10) / 10;
+  // In a subject edit the hook is a shot of someone in the footage: a who that is the viewer
+  // ("you, the viewer", run 8 T220) is never on camera there, so the hook asks for the subject.
+  const hook = !entry.who ? null : subject ? `<the first shot of ${viewerWho(entry.who) ? "the subject" : entry.who}'s story>` : `<the first image of ${entry.who}'s story>`;
   const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>",
-    ...(entry.who ? { hook: `<the first image of ${entry.who}'s story>` } : {}), ...(entry.ending ? { end: entry.ending } : {}) };
+    ...(hook ? { hook } : {}), ...(entry.ending ? { end: entry.ending } : {}) };
   const drafted = (role) => ({ role, from: at(SPINE_SHARES[role][0]), to: at(SPINE_SHARES[role][1]), purpose: purposes[role] ?? `<what the ${role} does>` });
   if (!Array.isArray(saved) || !saved.length) return IDEA_SPINE.map(drafted);
   const spine = [...saved];
@@ -1061,22 +1070,24 @@ export function guessedBans(brief) {
  * The approval sends only by:"you" and their quote: copied or dealt lists and guessed avoids keep their source
  * (style.mjs mergeStyle), so a copied avoid or a dealt move never becomes the person's words.
  */
-export function lockCall(state, { approve = false } = {}) {
+export function lockCall(state, { approve = false, video = null } = {}) {
   const saved = state?.brief?.style ?? {};
   const cards = (state?.deck?.cards ?? []).map((card) => card?.tag ?? card).filter((tag) => typeof tag === "string").slice(0, 3);
   const picked = pickedSignature(state?.brief?.treatments);
-  const idea = saved.idea ?? state?.brief?.fields?.idea?.text ?? (picked ? "<one sentence: what only this product can show>" : null);
+  const subject = isSubjectEdit(state, video);
+  const only = onlyWords(subject).only;
+  const idea = saved.idea ?? state?.brief?.fields?.idea?.text ?? (picked ? `<one sentence: what ${only} can show>` : null);
   // The signature beat: the saved spine's "signature" beat, else the drafted spine's.
   const beat = Math.max(0, (saved.spine ?? IDEA_SPINE.map((role) => ({ role }))).findIndex((entry) => entry.role === "signature"));
   const signatures = saved.signatures ?? [{ beat, what: picked?.what ?? "<the designed moment>",
-    source: picked?.source ?? "<the material it uses, and the moment>", why: "<why only this product can show it>" }];
+    source: picked?.source ?? "<the material it uses, and the moment>", why: `<why ${only} can show it>` }];
   // A spine and fonts are saved, the idea or its signature is missing: add just those.
   const bibleSaved = saved.spine?.length && saved.fonts && Object.keys(saved.fonts).length;
   const yours = saved.by === "you" ? { by: "you", quote: "<their words approving it>" } : {};
   if (approve) return briefCall({ style: { by: "you", quote: "<their words approving it>" } });
   if (bibleSaved || !idea) {
     // The idea first: one sentence and its signature moment from the real material, no spine yet.
-    const add = { idea: idea ?? "<one sentence: what only this product can show, from its real material>", signatures };
+    const add = { idea: idea ?? `<one sentence: what ${only} can show, from its real material>`, signatures };
     return briefCall({ style: saved.by ? { ...add, ...yours } : { ...add, by: "guessed" } });
   }
   // The picked treatment's type direction says what the fonts are for (the spec's type, else the pick's).
@@ -1091,12 +1102,13 @@ export function lockCall(state, { approve = false } = {}) {
     // Deck cards are suggestions: they stay "dealt", never the person's style, unless they ask.
     ...(cards.length ? { sources: { ...saved.sources, moves: "dealt" } } : {}),
   };
-  const logo = { asset: "<logo layer>", max: 2 };
+  // An edit of a subject in footage has no logo to place (subject-edit.mjs): the draft leaves it out.
+  const logo = subject ? null : { asset: "<logo layer>", max: 2 };
   // A spine saved before the build (the signature step) is kept: the lock asks the rest of the
   // bible (fonts, plus the moves and logo when they are not saved yet), never the spine again.
   if (saved.spine?.length)
     return briefCall({ style: { ...kept, ...(saved.idea ? {} : { idea }), ...(saved.signatures ? {} : { signatures }), fonts,
-      ...(saved.moves?.length ? {} : moves), ...(saved.logo ? {} : { logo }), ...(saved.by ? yours : { by: "guessed" }) } });
+      ...(saved.moves?.length ? {} : moves), ...(saved.logo || !logo ? {} : { logo }), ...(saved.by ? yours : { by: "guessed" }) } });
   const style = {
     ...kept,
     idea, signatures,
@@ -1105,7 +1117,7 @@ export function lockCall(state, { approve = false } = {}) {
     ...moves,
     // No `waived` in the draft: the agent asks the person. Waiving is for when no one is watching,
     // and the step says so; a drafted waiver would invite skipping the person.
-    logo, by: "guessed", ...yours,
+    ...(logo ? { logo } : {}), by: "guessed", ...yours,
   };
   return briefCall({ style });
 }
@@ -1120,7 +1132,7 @@ export function lockNeeded(state, video = {}) {
   const noIdea = !(style?.idea ?? state.brief.fields?.idea?.text ?? state.brief.treatments?.picked);
   const onlyIdea = noIdea || (style?.spine?.length && style?.fonts && Object.keys(style.fonts).length);
   return lock === "missing"
-    ? { step: `lock direction: ${onlyIdea ? "idea + signature" : style?.spine?.length ? "style bible" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state) }
+    ? { step: `lock direction: ${onlyIdea ? "idea + signature" : style?.spine?.length ? "style bible" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state, { video }) }
     : { step: "play spine + style bible back; save their approval (no one watching: style {waived:\"<why>\"} instead)", call: lockCall(state, { approve: true }) };
 }
 
@@ -1243,7 +1255,7 @@ export function briefText(state, video = {}) {
     originLine(state.origin),
     brief.style ? styleLine(brief.style) : "",
     lengthTarget(brief) ? lengthLine(lengthTarget(brief)) : "",
-    treatmentsText(brief, state.origin),
+    treatmentsText(brief, state.origin, { subject: isSubjectEdit(state, video) }),
     state.deck ? deckLine(state.deck) : "",
     ...(state.deck?.swaps ?? []).map((swap) => `deck swap: ${swap.out} → ${swap.in} (${swap.why})`),
     brief.noPlayback ? `no playback: ${brief.noPlayback.reason}` : "",
@@ -1277,7 +1289,7 @@ export function savedText(state, changes, video = {}) {
     head,
     changes.style ? styleLine(brief.style) : "",
     changes.length ? `${lengthLine(lengthTarget(brief))}; check holds the video to it` : "",
-    changes.treatments ? [originLine(state.origin), treatmentsText(brief, state.origin)].filter(Boolean).join("\n") : "",
+    changes.treatments ? [originLine(state.origin), treatmentsText(brief, state.origin, { subject: isSubjectEdit(state, video) })].filter(Boolean).join("\n") : "",
     // The receipt of a controls save: what they are now, and each step they pass without the person.
     changes.controls !== undefined ? (controlsLine(brief.controls) ?? "controls removed: the person's settings ask every stop again") : "",
     changes.controls ? skippedLine(brief.controls, video?.seconds ?? 0) ?? "" : "",

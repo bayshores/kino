@@ -28,6 +28,7 @@
 import { TECHNIQUE_TAGS } from "../../engine/techniques.js";
 import { closest } from "./refs.mjs";
 import { isRecord } from "../../engine/numbers.js";
+import { ONLY } from "./subject-edit.mjs";
 
 export const STYLE_LIMITS = Object.freeze({ tags: 16, lines: 8, text: 120, ref: 120, quote: 200, beats: 16, moves: 4, rejected: 12, idea: 120, signatures: 2, moments: 3, short: 80 });
 const SPEC_KEYS = ["wants", "avoids", "lines", "by", "quote", "spine", "fonts", "accent", "moves", "logo", "rejected", "waived", "idea", "type", "signatures", "moments", "sources"];
@@ -71,7 +72,7 @@ function tagsProblems(where, list) {
  * one's code and details, and all the messages. `spec` null removes it; the person's spec
  * (by:"you") can only be replaced by another of theirs, like a brief line.
  */
-export function styleProblem(spec, current) {
+export function styleProblem(spec, current, { subject = false } = {}) {
   if (spec === null) return current?.by === "you" ? { code: "yours", message: `style is the person's ("${current.quote}"). Ask them in the chat, then save their new words with by:"you".` } : null;
   if (!isRecord(spec)) return problem('style is {wants:[tags], avoids:[tags], lines:[{text, ref?, at?, tags?}], by:"you"|"guessed", quote?}, or null to remove it.');
   const found = [];
@@ -82,7 +83,7 @@ export function styleProblem(spec, current) {
   const tags = (list) => (Array.isArray(list) ? list : []);
   const both = tags(spec.wants).filter((tag) => tags(spec.avoids).includes(tag));
   if (both.length) add(problem(`style wants and avoids ${both.join(", ")}; keep each tag in one list.`));
-  add(...lockProblems(spec));
+  add(...lockProblems(spec, subject));
   if (!(spec.wants?.length || spec.avoids?.length || spec.moves?.length || spec.spine?.length || spec.rejected?.length || spec.idea || spec.signatures?.length || spec.moments?.length)) add(problem("style needs a tag in wants or avoids: the techniques the references use, or the ones to stay away from."));
   if (spec.lines !== undefined) {
     if (!Array.isArray(spec.lines) || spec.lines.length > STYLE_LIMITS.lines) add(problem(`style.lines is a list of up to ${STYLE_LIMITS.lines} lines {text, ref?, at?, tags?}.`));
@@ -123,7 +124,7 @@ const number = (value, low, high) => typeof value === "number" && Number.isFinit
 // The problems with the direction lock's keys (spine, fonts, accent, moves, logo, rejected,
 // waived), as a list (empty when there are none). A beat's role is one of BEAT_ROLES or another
 // short name.
-function lockProblems(spec) {
+function lockProblems(spec, subject = false) {
   const found = [];
   if (spec.spine !== undefined) {
     const how = 'style.spine is the beats in order: [{role:"hook", from:0, to:3, uses:["<layer>"], purpose:"<one sentence>"}]';
@@ -157,7 +158,7 @@ function lockProblems(spec) {
   if (spec.rejected !== undefined && (!Array.isArray(spec.rejected) || spec.rejected.length > STYLE_LIMITS.rejected || !spec.rejected.every((text) => hasText(text) && text.length <= STYLE_LIMITS.text)))
     found.push(problem(`style.rejected lists up to ${STYLE_LIMITS.rejected} texts the person turned down (each up to ${STYLE_LIMITS.text} characters).`));
   if (spec.waived !== undefined && (!hasText(spec.waived) || spec.by === "you")) found.push(problem('style.waived is why you lock it with no person to approve (by:"guessed"); with their approval send by:"you" and quote instead.'));
-  found.push(...ideaProblems(spec));
+  found.push(...ideaProblems(spec, subject));
   return found;
 }
 
@@ -165,26 +166,33 @@ const shortText = (value, most = STYLE_LIMITS.short) => hasText(value) && value.
 const SIGNATURE_EXAMPLE = '[{beat:3, what:"the note flies into a card", source:"deck.png, the review screen", why:"only this app turns notes into cards"}]';
 const SIGNATURE_KEYS = ["beat", "what", "source", "why", "at"];
 const SIGNATURE_HELP = { what: "the designed moment", source: "the material it uses (a file or screen, and the moment)", why: "why only this product can show it" };
+// The same questions for an edit of a subject in footage (subject-edit.mjs): run 8 was refused
+// with "why only this product can show it" for an edit with no product (T220).
+const SUBJECT_HELP = { ...SIGNATURE_HELP, source: "the material it uses (a clip or found shot, and the moment)", why: `why ${ONLY.subject.only} can show it` };
+const IDEA_HELP = { product: 'what only this product can show, such as "your notes turn into a deck while you watch"', subject: `what ${ONLY.subject.only} can show, such as "the rookie misses twice, then takes the last shot anyway"` };
+const SUBJECT_EXAMPLE = '[{beat:3, what:"freeze on the last shot as it drops", source:"F2.4, the final shot", why:"the miss twice, then this: only her season has it"}]';
 
 // The problems with idea, signatures and moments. A beat is the index of a spine beat.
-function ideaProblems(spec) {
+function ideaProblems(spec, subject = false) {
+  const help = subject ? SUBJECT_HELP : SIGNATURE_HELP;
+  const example = subject ? SUBJECT_EXAMPLE : SIGNATURE_EXAMPLE;
   const found = [];
   const beats = Array.isArray(spec.spine) ? spec.spine.length : 0;
   const beatOk = (beat) => Number.isInteger(beat) && beat >= 0 && (!beats || beat < beats);
   const beatHelp = beats ? `0 to ${beats - 1} (the index of a spine beat)` : "the index (0 = first) of a spine beat";
   if (spec.idea !== undefined && !shortText(spec.idea, STYLE_LIMITS.idea))
-    found.push(problem(`style.idea is one sentence, 1 to ${STYLE_LIMITS.idea} characters: what only this product can show, such as "your notes turn into a deck while you watch".`));
+    found.push(problem(`style.idea is one sentence, 1 to ${STYLE_LIMITS.idea} characters: ${IDEA_HELP[subject ? "subject" : "product"]}.`));
   if (spec.type !== undefined && !shortText(spec.type, 60))
     found.push(problem('style.type is the type direction, 1 to 60 characters: "<family class>, <size>, <case>, <how it appears>", from the references you studied.'));
   if (spec.signatures !== undefined) {
     if (!Array.isArray(spec.signatures) || !spec.signatures.length || spec.signatures.length > STYLE_LIMITS.signatures)
-      found.push(problem(`style.signatures is 1 or ${STYLE_LIMITS.signatures} designed moments: ${SIGNATURE_EXAMPLE}.`));
+      found.push(problem(`style.signatures is 1 or ${STYLE_LIMITS.signatures} designed moments: ${example}.`));
     else for (const [index, entry] of spec.signatures.entries()) {
       const where = `style.signatures[${index}]`;
       const extra = isRecord(entry) ? Object.keys(entry).filter((key) => !SIGNATURE_KEYS.includes(key)) : [];
-      if (!isRecord(entry) || extra.length) { found.push(problem(`${where} is {beat, what, source, why, at?}${extra.length ? `, not ${extra.join(", ")}` : ""}: ${SIGNATURE_EXAMPLE}.`)); continue; }
+      if (!isRecord(entry) || extra.length) { found.push(problem(`${where} is {beat, what, source, why, at?}${extra.length ? `, not ${extra.join(", ")}` : ""}: ${example}.`)); continue; }
       if (!beatOk(entry.beat)) found.push(problem(`${where}.beat is ${beatHelp}.`));
-      for (const key of ["what", "source", "why"]) if (!shortText(entry[key])) found.push(problem(`${where}.${key} is 1 to ${STYLE_LIMITS.short} characters: ${SIGNATURE_HELP[key]}.`));
+      for (const key of ["what", "source", "why"]) if (!shortText(entry[key])) found.push(problem(`${where}.${key} is 1 to ${STYLE_LIMITS.short} characters: ${help[key]}.`));
       if (entry.at !== undefined && !(Array.isArray(entry.at) && entry.at.length === 2 && number(entry.at[0], 0, 3600) && number(entry.at[1], entry.at[0] + 0.1, 3600)))
         found.push(problem(`${where}.at is [from, to] in seconds of the video, to after from, such as [12, 16].`));
     }

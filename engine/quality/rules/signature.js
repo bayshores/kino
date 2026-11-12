@@ -93,12 +93,14 @@ function setPieceHint(ctx) {
   const tags = (ctx.style?.moments ?? []).map((moment) => moment?.tag).filter(Boolean);
   if (tags.length) return `the moments' ${tags.map((tag) => (techniqueOf(tag) ? `${tag} (${techniqueOf(tag).fits})` : tag)).join(", ")}`;
   if (ctx.deck?.setPiece?.name) return `the deck's set piece ${ctx.deck.setPiece.name}`;
-  return 'a set piece (library {topic:"techniques"}) or the product\'s own picture filling the frame';
+  // Worded for any video (a product, or a subject in footage): run 8, an edit with no product, read
+  // product words at its decision points (.scratch/run8/trace/direction.md L109).
+  return 'a set piece (library {topic:"techniques"}) or the video\'s own picture (its screenshot or footage) filling the frame';
 }
 
 const signatureName = (ctx, range) => {
   const signature = range?.signature ?? (ctx.style?.signatures ?? [])[0] ?? null;
-  return { what: short(signature?.what) || "the signature moment", source: short(signature?.source) || "the product's own material" };
+  return { what: short(signature?.what) || "the signature moment", source: short(signature?.source) || "the video's own material" };
 };
 
 /** signature_missing: the idea has no signature range, or the range holds no designed moment or is shorter than a text card. */
@@ -114,7 +116,7 @@ export function signatureMissing(model, ctx) {
   };
   if (!ranges.length)
     return style.idea && !signatureRanges(style).length
-      ? [finding(0, "no signature range", 'a spine beat with role "signature" or signatures[].at', `${ctx.sceneName} has an idea ("${short(style.idea, 60)}") but no signature range: nothing in the timeline shows what only this product can.`, null)]
+      ? [finding(0, "no signature range", 'a spine beat with role "signature" or signatures[].at', `${ctx.sceneName} has an idea ("${short(style.idea, 60)}") but no signature range: nothing in the timeline shows what only this video's subject can.`, null)]
       : [];
   const findings = [];
   for (const range of ranges)

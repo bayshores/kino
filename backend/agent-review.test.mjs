@@ -15,7 +15,7 @@ import { captionSpoilers, captionWindows, directionMiss, heardLines, heardText, 
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
 import { unfilledSlot } from "./agent/next-call.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./agent/bar.mjs";
-import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, staleCritique, upLines } from "./agent/critique.mjs";
+import { CRITIQUE_PROTOCOL, critiqueProtocol, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, staleCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
 import { serviceFor } from "./agent-ask.test.support.mjs";
 import { skipBoardOn } from "./stops.test.support.mjs";
@@ -351,6 +351,14 @@ test("needs: a question with 1 to 3 options and one recommended; only the person
   assert.doesNotMatch(found[1].cost, /license|rights|private/);
   assert.deepEqual([found.length, found[0].recommended, drafted.items[0].options.some((option) => /topic:"footage"/.test(option.do))], [3, true, false], "search off: no such option");
   assert.throws(() => parseNeedItems([{ ...filled, options: [filled.options[0], found[1]] }]), /options\[1\]\.do still has <doing what the tension needs>/);
+  // An edit of a subject in footage asks which clip shows the turn, never for footage of the viewer
+  // "from a phone"; a product video with the same pick keeps the product ask.
+  const viewer = { picked: { index: 0 }, list: [{ who: "you, the viewer", tension: "how many times has he fallen?", turn: "the count stops; he does not" }] };
+  const subjectItem = needsCall(viewer, { search: true, subject: true }).input.items[0];
+  assert.deepEqual([subjectItem.what, subjectItem.ask], ["a shot of the subject: the count stops; he does not", 'Which clip shows it: "the count stops; he does not"?']);
+  assert.doesNotMatch(JSON.stringify(subjectItem), /phone|screen recording|you, the viewer/);
+  assert.equal(parseNeedItems([{ ...subjectItem, options: [{ ...subjectItem.options[0], do: "freeze on the shot where he stands" }, subjectItem.options[2]] }]).length, 1);
+  assert.equal(needsCall(viewer, { subject: false }).input.items[0].ask, "Do you have footage of you, the viewer, even from a phone?");
 });
 
 test("viewer packet text: heard lines by voice and pause, a caption's words over a misheard line, the song muffled then full; a report's open story bugs", () => {
@@ -598,6 +606,10 @@ test("critic lines: only P0|P1|P2 t= · where · problem → change · what stay
   assert.deepEqual(openCritique(round, now).lines.map((line) => line.at), [12.4, 0]);
   assert.deepEqual(staleCritique(round, now).map(({ line, why }) => `${line.at}: ${why}`), ["4.6: scarf is deleted", "14: t=14 is past the 12.5 s end now"]);
   assert.equal(openCritique(round).lines.length, 4, "without what stands now, nothing is dropped");
+  // An edit of a subject in footage asks the same question about the subject; the lines parse the same.
+  assert.match(critiqueProtocol({ subject: true }), /^First line, always: is there a moment only this subject and its footage could have/m);
+  assert.doesNotMatch(critiqueProtocol({ subject: true }), /this product/);
+  assert.equal(critiqueProtocol(), CRITIQUE_PROTOCOL);
   const polish = parseCritique(["UP t=5 · add a music drop on the scan · serves the reveal", "P0 t=5 · shot 3 · nowhere to look → cut to the reply box 0.2 s later · the voice"], 12, { signatures });
   assert.deepEqual(polish.map((entry) => [entry.ask ?? false, entry.cutsSignature ?? false]), [[false, false], [false, false]]);
   // The bar: BAR better passes, BAR worse (or same) blocks like

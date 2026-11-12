@@ -15,11 +15,12 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
+import { aboutWords, applyBrief, aspectLabel, BRIEF_FIELDS, BRIEF_LIMITS, briefChanges, briefData, briefText, compareSearch, compareStep, isSaid, directionLines, emptyBrief, guessedBans, lockCall, nextMove, orderStep, orderSteps, namedThings, PLAN_CALL, realEdit, referenceSearches, shapeLine, songTitleOf, REPLY_LIMIT, replyCount, savedText } from "./agent/brief.mjs";
 import { namedShape, shapeGuess } from "../engine/quality/rules/shape.js";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { styleContext } from "../engine/styleSpec.js";
-import { originLine, pickLines, wordsOnly } from "./agent/treatments.mjs";
+import { cleanTreatments, originLine, pickLines, pictureLine, wordsOnly } from "./agent/treatments.mjs";
+import { isSubjectEdit } from "./agent/subject-edit.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { hasMediaTools, makeToneAfterSilence, nextCallOf, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { ASK_TEXT, serviceFor, withAsk } from "./agent-ask.test.support.mjs";
@@ -1464,4 +1465,35 @@ test("controls: a bad value names the accepted ones; asking less needs the perso
   applyBrief(draft, removed);
   assert.equal(draft.brief.controls, undefined);
   assert.match(savedText(draft, removed, video), /controls removed/);
+});
+
+test("an edit of a subject in footage is asked about the subject and its shots; a product video keeps the product's words", () => {
+  const ask = (text) => ({ brief: { rev: 1, fields: { ask: [{ text }] } } });
+  const subject = ask("make the best anime edit of the keeper, use this song");
+  const product = ask("a launch promo for our notes app");
+  assert.deepEqual([isSubjectEdit(subject), isSubjectEdit(product), isSubjectEdit({ brief: { rev: 1, fields: {} } })], [true, false, false]);
+  // Found footage imported counts as a subject edit unless the words name a product.
+  const found = { candidates: [{ code: "F1", imported: true }] };
+  assert.deepEqual([isSubjectEdit({ ...ask("the keeper who never looks back"), footage: found }), isSubjectEdit({ ...product, footage: found })], [true, false]);
+  // A plain product word wins over the edit words; the person's own clip (videoFacts footage) counts like found footage.
+  const clip = { footage: true };
+  assert.deepEqual([isSubjectEdit(ask("a promo edit for our travel app")), isSubjectEdit(ask("cut my interview into a 15 second reel"), clip),
+    isSubjectEdit(ask("cut my interview into a 15 second reel")), isSubjectEdit(ask("a launch video for my notes app"), clip)], [false, true, false, false]);
+  // The lock's draft places no logo in a subject edit.
+  const withIdea = (state) => ({ brief: { ...state.brief, fields: { ...state.brief.fields, idea: { text: "x", by: "guessed" } } } });
+  assert.deepEqual([withIdea(subject), withIdea(product)].map((state) => Boolean(lockCall(state).input.fields.style.logo)), [false, true]);
+  // The picture line, the signature refusal and the drafted signature and spine follow the project.
+  assert.match(pictureLine(true), /from the subject's own footage \(the shot where it happens/);
+  assert.match(pictureLine(false), /from the product's own picture \(a screenshot or footage/);
+  assert.equal(wordsOnly("F8.20 + F4.23"), false, "a found shot's code is footage");
+  const why = { fields: { style: { by: "guessed", signatures: [{ beat: 0, what: "a freeze", source: "F4.23", why: "x".repeat(81) }] } } };
+  const refusal = (state) => { try { briefChanges(state.brief, why, { subject: isSubjectEdit(state) }); return ""; } catch (error) { return error.message; } };
+  assert.match(refusal(subject), /why is 1 to 80 characters: why only this subject and its footage can show it\.$/);
+  assert.match(refusal(product), /why is 1 to 80 characters: why only this product can show it\.$/);
+  const list = ["a", "b", "c", "d", "e"].map((idea, index) => ({ idea, who: index ? `who ${idea}` : "you, the viewer", tension: "will it land?", turn: "it lands", move: "freeze", ending: "the last shot", type: `type ${idea}`, p: [0.1, 0.5, 0.2, 0.3, 0.05][index], source: "the tagline" }));
+  const picked = cleanTreatments({ pick: "B", why: "y" }, cleanTreatments(list));
+  const signatureStep = (state) => orderStep({ ...state, brief: { ...state.brief, treatments: picked } }, { seconds: 15, treatmentsWaived: false }).call.input.fields.style;
+  const [mine, theirs] = [signatureStep(subject), signatureStep(product)];
+  assert.deepEqual([mine.signatures[0].why, mine.signatures[0].source, mine.spine[0].purpose], ["<why only this subject and its footage>", "<the shot of the subject, and the moment>", "<the first shot of the subject's story>"]);
+  assert.deepEqual([theirs.signatures[0].why, theirs.signatures[0].source, theirs.spine[0].purpose], ["<why only this product>", "<a screenshot or clip of the product, and the moment>", "<the first image of you, the viewer's story>"]);
 });
