@@ -1237,6 +1237,13 @@ How to read it:
   A no-space phrase keeps whisper's end (F4.13 line 7.83-7.91 s became 7.83-9.92 s), and a clip with only
   unsure English words is checked too (a Spanish line: no voice heard before, two Spanish lines after).
   Gap: a Chinese subtitle drew boxes in the test server's look frame (missing_glyphs warns); Japanese drew.
+- **Lines heard** (`look {mode:"motion", ref:"lines"}`): each kept line heard by whisper in the scene's mix over
+  its own stretch, with its words, p, the line's own words, language, gloss and an unsure language guess, and
+  how many words match; without ggml-small.bin it says every line was heard in English and names the call that
+  fetches it. Test-verified with a stubbed mix and listener, and through the service's look call on a 9:16 scene
+  with no music (`backend/speech-transcribe.test.mjs`); run by hand on a dm3-b clip with real FFmpeg and small.en
+  (0.64 s; heard "Heh, heh, ..." p 0.85 against a line read as "Hey, hey, ...", language guess en p 0.34).
+  Gap: a clip whose language guess is unsure (under 0.5) is still transcribed in English.
 
 ## Audio and captions
 
