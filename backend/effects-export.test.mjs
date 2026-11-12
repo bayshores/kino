@@ -8,7 +8,7 @@ import { createLayer, createScene } from "../engine/model.js";
 import { EFFECTS, effectDefaults } from "../engine/effects/catalog.js";
 import { cubeText } from "../engine/effects/colorMath.js";
 import { EFFECT_PRESET_DEFINITIONS } from "../engine/effects/presetCatalog.js";
-import { exportScene, layerEdges, lumaLevels, normalizesLevels } from "./export.mjs";
+import { exportScene, layerBrightness, layerEdges, lumaLevels, normalizesLevels, readsBrightness } from "./export.mjs";
 
 test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for grades that ask", () => {
   // Every 4th pixel is sampled; half of those are transparent and skipped, leaving the 50 lumas
@@ -24,6 +24,11 @@ test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for g
   assert.equal(normalizesLevels({ kind: "effect", effect: "tritone", to: { normalize: false } }), false);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "section-grade" } }), true);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "ember" } }), false);
+  // An auto glow reads its 90th and 99th percentile (lumas 50..148: 138 and 148); a numbered or behind one is not measured.
+  assert.deepEqual(layerBrightness([{ data }]).map((value) => Math.round(value * 255)), [138, 148]);
+  assert.equal(readsBrightness({ kind: "effect", effect: "glow", to: { threshold: "auto" } }), true);
+  assert.equal(readsBrightness({ kind: "effect", effect: "glow", to: { threshold: 0.7 } }), false, "saved glows keep their number");
+  assert.equal(readsBrightness({ kind: "effect", effect: "glow", to: { threshold: "auto", mode: "behind" } }), false);
 });
 
 test("edge-lines auto: the layer's own edge percentile and its black bars are measured; a numbered threshold is not", () => {

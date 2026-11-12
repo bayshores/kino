@@ -106,7 +106,8 @@ import { namesFamily, styleContext } from "../../engine/styleSpec.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
-import { renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { measureLayerBrightness, readsBrightness, renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
+import { autoGlowRamp, GLOW_PERCENTILES } from "../../engine/effects/glow.js";
 import { decodeMono } from "../audio-analysis.mjs";
 import { songShape } from "../song-shape.mjs";
 import { barGrid } from "../../engine/fitMusic.js";
@@ -2026,6 +2027,25 @@ export function createAgentService(deps) {
     return parseDocument(applyOperations(document, [operation], context));
   }
 
+  // A glow this edit added or changed with threshold "auto" on a video or image: the threshold the
+  // render will measure from the layer's own brightness (export.mjs measureLayerBrightness), said
+  // once in the receipt. At most 4 layers are measured per edit; a picture that cannot be read says nothing.
+  async function glowThresholdNotes(document, touched, nameOf) {
+    const ids = new Set(touched);
+    const notes = [];
+    for (const scene of document.scenes ?? []) for (const layer of scene.layers ?? []) {
+      if (notes.length >= 4 || (layer.type !== "video" && layer.type !== "image")) continue;
+      const glows = (layer.animations ?? []).filter((animation) => ids.has(animation.id) && readsBrightness(animation));
+      if (!glows.length) continue;
+      const measured = await measureLayerBrightness(scene, layer, { mediaRoot: deps.mediaRoot }).catch(() => null);
+      const ramp = autoGlowRamp(measured, Number.isFinite(glows[0].to?.softness) ? glows[0].to.softness : undefined);
+      if (!ramp) continue;
+      const percent = Math.round(GLOW_PERCENTILES[0] * 100);
+      notes.push(`glow ${glows.map((animation) => nameOf(animation.id)).join(", ")} on ${nameOf(layer.id)}: threshold auto measured ${ramp[0].toFixed(2)} (the layer's ${percent}th luma percentile), full glow from ${(ramp[0] + ramp[1]).toFixed(2)}; a number sets it by hand.`);
+    }
+    return notes;
+  }
+
   // duck_audio sets its depth from the measured loudness of the music and the voices
   // ({layerId: curve}, backend/loudness-curve.mjs); a file measured once is kept beside it.
   async function levelsOf(document, ids) {
@@ -2967,6 +2987,7 @@ export function createAgentService(deps) {
       // Motion blur: what the project's shutter does once set, or one line on a fast move while it is off.
       const shutter = shutterNote(before, after, translation.operations, changes.created);
       if (shutter) work.notes.push(shutter);
+      work.notes.push(...await glowThresholdNotes(after, [...changes.created, ...changes.changed], nameOf));
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

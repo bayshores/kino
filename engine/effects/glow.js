@@ -88,6 +88,37 @@ export function cutoutBorderSteps(width, height, result) {
     `<feGaussianBlur in="${result}Inner" stdDeviation="${fmt(fade / 3)}" result="${result}"/>`];
 }
 
+// Auto threshold (the default of a new glow): the renderer measures the layer's own brightness
+// (backend/export.mjs layerBrightness, Rec. 709 luma of opaque pixels over the same pictures as
+// normalize levels) and the soft ramp runs from its GLOW_PERCENTILES[0] to its [1], so the
+// brightest tenth of any picture feeds the glow: a dark clip (mean luma 35 of 255) gets light from
+// its own highlights instead of nothing under a fixed 0.7, and a bright picture glows only from
+// its top tenth instead of from most of it. The ramp is at least AUTO_MIN_RAMP wide and never
+// wider than `softness`. AUTO_FLOOR keeps a black frame's grain out of the glow. The percentiles
+// and both limits are guesses checked on the proof pictures (light.test.js). Without a
+// measurement (the live preview, text and shapes) auto is GLOW_DEFAULTS.threshold.
+export const GLOW_PERCENTILES = Object.freeze([0.9, 0.99]);
+const AUTO_FLOOR = 0.1;
+const AUTO_MIN_RAMP = 0.05;
+// Slots of helpers.levels (backend/export.mjs measureSceneLevels): [low, high, 6 edge-lines
+// values or nulls, glow start, glow top].
+export const GLOW_LEVEL_SLOTS = Object.freeze([8, 9]);
+
+/** [threshold, softness] for an auto glow from measured [start, top] luma (0..1), or null. */
+export function autoGlowRamp(measured, softness = GLOW_DEFAULTS.softness) {
+  if (!Array.isArray(measured) || !measured.every(Number.isFinite)) return null;
+  const threshold = Math.min(1, Math.max(AUTO_FLOOR, measured[0]));
+  return [threshold, Math.min(softness, Math.max(AUTO_MIN_RAMP, measured[1] - threshold))];
+}
+
+/** The measured [start, top] luma of a layer for an auto glow (helpers.levels), or null. */
+export function measuredGlow(frame) {
+  const levels = frame?.helpers?.levels;
+  if (!Array.isArray(levels)) return null;
+  const pair = GLOW_LEVEL_SLOTS.map((slot) => levels[slot]);
+  return pair.every(Number.isFinite) ? pair : null;
+}
+
 /** The blur radii (Gaussian standard deviations are half of each) for a glow's passes. */
 export function glowRadii(radius, passes) {
   return Array.from({ length: passes }, (_, index) => radius * 2 ** index);
@@ -107,8 +138,11 @@ export function renderGlow(frame) {
   const strength = numberParameter(frame, "strength", 1, 0, 8);
   const radius = numberParameter(frame, "radius", 24, 0, 400);
   if (strength === 0) return frame.content;
-  const threshold = numberParameter(frame, "threshold", GLOW_DEFAULTS.threshold, 0, 1);
-  const softness = numberParameter(frame, "softness", GLOW_DEFAULTS.softness, 0, 1);
+  const given = numberParameter(frame, "softness", GLOW_DEFAULTS.softness, 0, 1);
+  // A number (or a glow saved without one) keeps the fixed threshold; "auto" follows the layer.
+  const auto = frame?.parameters?.threshold === "auto" ? autoGlowRamp(measuredGlow(frame), given) : null;
+  const threshold = auto ? auto[0] : numberParameter(frame, "threshold", GLOW_DEFAULTS.threshold, 0, 1);
+  const softness = auto ? auto[1] : given;
   const colorMix = numberParameter(frame, "colorMix", 0, 0, 1);
   const passes = numberParameter(frame, "passes", 1, 1, MAX_GLOW_PASSES, { integer: true });
   const rgb = hexColor(frame, "color", "#FFFFFF");

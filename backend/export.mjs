@@ -26,7 +26,8 @@ import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mj
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { copyFile, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Resvg } from "@resvg/resvg-js";
@@ -47,6 +48,7 @@ import { isAnimationCompatible } from "../engine/animationCompatibility.js";
 import { enabledAnimations } from "../engine/animationEnabled.js";
 import { effectDefinition } from "../engine/effects/catalog.js";
 import { EDGE_PERCENTILE } from "../engine/effects/edgeLines.js";
+import { GLOW_LEVEL_SLOTS, GLOW_PERCENTILES } from "../engine/effects/glow.js";
 import { lottieShapeParts, roundedBoxMask } from "./lottie-shapes.mjs";
 import { hasSoftReveal, lottieRevealMask, revealSampleTimes } from "./lottie-reveal.mjs";
 import { isGeneralReveal } from "../engine/reveal.js";
@@ -967,6 +969,8 @@ async function prepareMedia(
   const videoPlans = [];
   const images = new Map();
   const imageSources = new Map();
+  // Still image files (layer id -> bytes) whose auto glow measures their brightness.
+  const brightImages = new Map();
   const imageFrames = new Map();
   // GIFs that raster image layers play, by the SHA-256 of the file:
   // { parsed (from parseGif), dataUrl, layers }. Layers that use the same file share one decode.
@@ -1058,6 +1062,7 @@ async function prepareMedia(
       }
       images.set(layer.id, toDataUrl(media));
       if (format === "lottie") imageSources.set(layer.id, media);
+      if ((layer.animations ?? []).some(readsBrightness)) brightImages.set(layer.id, media.buffer);
     }
     if (layer.type === "video") {
       if (format === "lottie") {
@@ -1193,7 +1198,7 @@ async function prepareMedia(
     });
   }
   const luts = await loadSceneLuts(scene, mediaRoot, renderedIds, signal);
-  const levels = await measureSceneLevels(scene, videoSources, { directory, signal, warnings });
+  const levels = await measureSceneLevels(scene, videoSources, { directory, signal, warnings, brightImages });
   // `morph` false: check and look draw morph joins as morphDissolveScene's dissolve, without the flow.
   const morphs = design || !morph ? new Map() : await morphPictures(scene, videoSources, { directory, fps, frameTimes, signal, warnings });
   return { images, imageSources, imageFrames, videos, videoPlans, audio, lottieVideoIds, lottieVideoLayerIds, luts, levels, directory, morphs };
@@ -1211,6 +1216,54 @@ export function normalizesLevels(animation) {
 // An edge-lines whose threshold is "auto" reads the layer's measured edges (engine/effects/edgeLines.js).
 const readsEdges = (animation) => animation?.kind === "effect" && animation.enabled !== false &&
   animation.effect === "edge-lines" && animation.to?.threshold === "auto";
+
+// A glow whose threshold is "auto" (here or in its from) reads the layer's brightness (glow.js autoGlowRamp).
+export const readsBrightness = (animation) => animation?.kind === "effect" && animation.enabled !== false &&
+  animation.effect === "glow" && animation.to?.mode !== "behind" && (animation.to?.threshold === "auto" || animation.from?.threshold === "auto");
+
+/** [start, top] for an auto glow: the GLOW_PERCENTILES of the pictures' luma (0..1), or null. */
+export const layerBrightness = (pictures) => lumaPercentiles(pictures, GLOW_PERCENTILES);
+
+// `measured` levels with an auto glow's [start, top] in its slots (edge-lines' slots null when absent).
+function withBrightness(measured, bright) {
+  const levels = [...measured, ...Array(Math.max(0, GLOW_LEVEL_SLOTS[0] - measured.length)).fill(null)];
+  levels[GLOW_LEVEL_SLOTS[0]] = bright[0];
+  levels[GLOW_LEVEL_SLOTS[1]] = bright[1];
+  return levels;
+}
+
+// A still image file's pixels as {width, height, data} RGBA.
+async function stillPicture(buffer) {
+  const image = await loadImage(buffer);
+  const canvas = createCanvas(image.width, image.height);
+  canvas.getContext("2d").drawImage(image, 0, 0);
+  const { width, height, data } = canvas.getContext("2d").getImageData(0, 0, image.width, image.height);
+  return { width, height, data };
+}
+
+/**
+ * The [start, top] luma an auto glow on `layer` (an image or video layer of `scene`) reads, measured
+ * as a render would (LEVEL_SAMPLES pictures over the scene for a video), or null. The edit receipt
+ * says it (backend/agent/service.mjs).
+ */
+export async function measureLayerBrightness(scene, layer, { mediaRoot, signal } = {}) {
+  if (!layer?.src || (layer.type !== "image" && layer.type !== "video")) return null;
+  const file = await resolveLocalMediaPath(layer.src, mediaRoot, `Layer “${layer.name ?? layer.id}”`);
+  if (layer.type === "image") return layerBrightness([await stillPicture(await readFile(file))]);
+  const duration = Math.max(0.001, Number(scene.duration) || 1);
+  const times = Array.from({ length: LEVEL_SAMPLES }, (_, index) => duration * (index + 0.5) / LEVEL_SAMPLES);
+  const directory = await mkdtemp(join(tmpdir(), "kino-brightness-"));
+  try {
+    const pictures = [];
+    for (const [index, entry] of videoSourceTimes(layer, times, false, layerClocks(scene.layers, layer)).entries()) {
+      if (!entry) continue;
+      const output = join(directory, `${index}.png`);
+      await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", "-ss", String(Math.max(0, entry.time)), "-i", file, "-frames:v", "1", "-vf", "scale=480:-2", "-y", output], signal);
+      pictures.push(await stillPicture(await readFile(output)));
+    }
+    return pictures.length ? layerBrightness(pictures) : null;
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
 
 const BLACK_ROW = 0.08; // a row or column whose brightest sample is under 8% gray is a black bar (a guess)
 
@@ -1249,7 +1302,10 @@ export function layerEdges(pictures, adapt = 1) {
 }
 
 // The 2nd and 98th percentile luma (0..1) of RGBA pictures, counting only opaque pixels.
-export function lumaLevels(pictures) {
+export const lumaLevels = (pictures) => lumaPercentiles(pictures, [0.02, 0.98]);
+
+// The `shares` percentiles of Rec. 709 luma (0..1) of RGBA pictures, every 4th pixel, opaque only.
+function lumaPercentiles(pictures, shares) {
   const histogram = new Uint32Array(256);
   let total = 0;
   for (const { data } of pictures) for (let index = 0; index < data.length; index += 16) {
@@ -1263,7 +1319,7 @@ export function lumaLevels(pictures) {
     for (let value = 0; value < 256; value += 1) { seen += histogram[value]; if (seen >= share * total) return value / 255; }
     return 1;
   };
-  return [at(0.02), at(0.98)];
+  return shares.map(at);
 }
 
 // Levels by video file and source times: a look at another frame measures nothing again.
@@ -1275,17 +1331,25 @@ const LEVEL_SAMPLES = 6;
  * from LEVEL_SAMPLES pictures spread over the scene and pooled, so every frame of an export and
  * every look at the layer get the same mapping: the grade does not flicker as the shot changes.
  */
-async function measureSceneLevels(scene, videoSources, { directory, signal, warnings }) {
+async function measureSceneLevels(scene, videoSources, { directory, signal, warnings, brightImages }) {
   const levels = new Map();
   let folders = 0;
   for (const layer of scene.layers) {
     const source = videoSources.get(layer.id);
-    if (!source || !(layer.animations ?? []).some(normalizesLevels)) continue;
+    const glow = (layer.animations ?? []).some(readsBrightness);
+    // A still image is measured only for an auto glow, so its grades keep drawing without normalize.
+    if (!source && glow && brightImages?.has(layer.id)) {
+      const picture = await stillPicture(brightImages.get(layer.id)).catch(() => null);
+      const bright = picture && layerBrightness([picture]);
+      if (bright) levels.set(layer.id, withBrightness([null, null], bright));
+      continue;
+    }
+    if (!source || !(layer.animations ?? []).some((animation) => normalizesLevels(animation) || readsBrightness(animation))) continue;
     const duration = Math.max(0.001, Number(scene.duration) || 1);
     const times = Array.from({ length: LEVEL_SAMPLES }, (_, index) => duration * (index + 0.5) / LEVEL_SAMPLES);
     const edgeEffect = (layer.animations ?? []).find(readsEdges);
     const adapt = Number.isFinite(edgeEffect?.to?.adapt) ? edgeEffect.to.adapt : 0;
-    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times, false, source.extraction.clocks).map((entry) => entry?.time ?? null))}${edgeEffect ? `|edges ${adapt}` : ""}`;
+    const key = `${source.videoPath}|${JSON.stringify(videoSourceTimes(layer, times, false, source.extraction.clocks).map((entry) => entry?.time ?? null))}${edgeEffect ? `|edges ${adapt}` : ""}${glow ? "|glow" : ""}`;
     if (!measuredLevels.has(key)) {
       const pictures = [];
       // extractVideoFrames makes each picture's own folder, so only the parent is made here
@@ -1300,8 +1364,12 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
       // A failed read is not remembered (the next render measures again) and is said out loud:
       // the grade then draws without normalize.
       // An auto edge-lines adds its measured edges after [low, high] (layerEdges).
+      // An auto glow adds its [start, top] in GLOW_LEVEL_SLOTS (layerBrightness).
       const edges = edgeEffect && pictures.length ? layerEdges(pictures, adapt) : null;
-      if (pictures.length) measuredLevels.set(key, edges && lumaLevels(pictures) ? [...lumaLevels(pictures), ...edges] : lumaLevels(pictures));
+      const range = pictures.length ? lumaLevels(pictures) : null;
+      const bright = glow && range ? layerBrightness(pictures) : null;
+      const measured = edges && range ? [...range, ...edges] : range;
+      if (pictures.length) measuredLevels.set(key, bright ? withBrightness(measured, bright) : measured);
       else warnings?.push({ code: "grade-levels-unmeasured", layerId: layer.id,
         // Names the file and the two ways out (friction-fields: the old note named neither).
         message: `Could not read pictures of “${layer.name ?? layer.id}” (file ${basename(String(source.videoPath ?? layer.src ?? "unknown"))}) to measure its levels; its grade is drawn without normalize. Import the clip again (project import, a 1080p mp4 copy reads best), or set normalize:false on the grade so no levels are needed.` });
