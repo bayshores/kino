@@ -60,7 +60,7 @@ export const whoKey = (who) => String(who ?? "").trim().toLowerCase().replace(/^
 export function treatmentsProblem(value, current, origin = null, asks = []) {
   if (isRecord(value) && value.pick !== undefined) {
     const extra = Object.keys(value).filter((key) => !["pick", "quote", "why"].includes(key));
-    if (extra.length) return problem(`A pick takes pick, quote and why, not ${extra.join(", ")}.`);
+    if (extra.length) return problem(`A pick takes pick, quote and why, not ${extra.join(", ")}.${extra.includes("by") ? ' Your own pick is {pick, why} (it is the agent\'s by having no quote); theirs is {pick, quote}.' : ""}`);
     if (!current?.list) return problem("Save the 5 treatments first, then the pick.");
     const known = knownDropped(current, origin, asks);
     if (!LABELS.includes(value.pick) && !(known && value.pick === KNOWN_LABEL))
@@ -337,6 +337,9 @@ export function pickLines(brief, origin = null) {
 // What the agent's own pick is for, and the call that saves it ("just start").
 export const OWN_PICK = "pick the one a viewer would retell tomorrow that this material can carry; say why";
 export const OWN_PICK_CALL = Object.freeze({ pick: "<A, B or C>", why: "<why a viewer would retell it>" });
+// The brief log's question for a treatment pick the person left to the agent ("your call",
+// stops.mjs pickToAgent): while it stands, the next call is the agent's own pick, not their quote.
+export const PICK_QUESTION = "Which treatment (A, B or C)?";
 
 /**
  * The saved treatments in a few lines for the brief's answers; `origin` (state.origin) adds what

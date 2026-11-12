@@ -12,7 +12,7 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { makeVideo, nextCallOf, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { frameSignature, nearDuplicate, newFindingsLine, reviewEvents, reviewSizes } from "./agent/review.mjs";
 import { captionSpoilers, captionWindows, directionMiss, heardLines, heardText, musicSections, openStoryBugs, packetKind, parseViewer, viewerGap, viewerTimes, writePacket } from "./agent/viewer.mjs";
-import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
+import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems, splitImported } from "./agent/needs.mjs";
 import { unfilledSlot } from "./agent/next-call.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./agent/bar.mjs";
 import { CRITIQUE_PROTOCOL, critiqueProtocol, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, staleCritique, upLines } from "./agent/critique.mjs";
@@ -331,6 +331,12 @@ test("needs: a question with 1 to 3 options and one recommended; only the person
   assert.throws(() => parseNeedItems([{ ...FACE, ask: "Get a shot of his face when he arrives" }]), /a question the person can say no to/);
   assert.throws(() => parseNeedItems([{ ...FACE, options: FACE.options.map((option) => ({ ...option, recommended: true })) }]), /exactly one recommended/);
   assert.throws(() => parseNeedItems([{ ...FACE, options: [] }]), /1 to 3 things/);
+  // A need about a clip the library already holds is not asked: file (its name, src or source address) finds the import and names what matched.
+  const library = [{ id: "ab12.mp4", src: "/api/media/ab12.mp4", name: "arrival.mp4", credit: { page: "https://www.youtube.com/watch?v=Zz9", id: "yt:Zz9" } }];
+  const [byName, bySource, byId, unknown, noFile] = [{ ...FACE, file: "Arrival.MP4" }, { ...FACE, file: "youtube.com/watch?v=Zz9" }, { ...FACE, file: "yt:Zz9" }, { ...FACE, file: "other.mp4" }, FACE]
+    .map((item) => splitImported(parseNeedItems([item]), library));
+  assert.deepEqual([byName.have[0].how, bySource.have[0].how, byId.have[0].how, byName.have[0].src, byName.ask.length], ["name", "source address", "source id", "/api/media/ab12.mp4", 0]);
+  assert.deepEqual([unknown.ask.length, unknown.have.length, noFile.ask.length, "file" in noFile.ask[0]], [1, 0, 1, false], "no match, or no file named, asks as before");
   const needs = emptyNeeds();
   const [m1, m2] = addNeeds(needs, parseNeedItems([FACE, { ...FACE, what: "a song that builds to the arrival" }]), { rev: 3, at: "t" });
   assert.deepEqual([m1.id, m1.status, needs.checked.enough], ["M1", "open", false]);
@@ -518,6 +524,12 @@ test("the viewer gate: a 16 s video with footage needs intents, a packet and a f
   const unchecked = await agent("render", start);
   assert.notEqual(unchecked.data?.error, "needs_unchecked", unchecked.text);
   if (unchecked.data?.job) await agent("render", { project: id, action: "cancel", job: unchecked.data.job });
+  // A clip the person already imported is not asked for again: the answer names the import that matched, and no need is made.
+  const have = await agent("notes", { project: id, action: "needs", items: [{ what: "a street clip of the walk", why: "the viewer never sees the street itself", file: "street.mp4",
+    ask: "Do you have footage of the street?", options: [{ do: "Use the street clip as it is", cost: "one angle only", recommended: true }] }] });
+  assert.equal(have.isError, undefined, have.text);
+  assert.match(have.text, /nothing left to ask the person\.\na street clip of the walk: already imported as street\.mp4 \(\/api\/media\/[^)]+\), matched by name, so not asked/);
+  assert.deepEqual([have.data.added, have.data.imported.length], [[], 1]);
   const asked = await agent("notes", { project: id, action: "needs", items: [{ what: "a close shot of the street sign", why: "the viewer never learns where this is",
     ask: "Do you have a photo of the street sign?", options: [{ do: "Add a title card with the street name", cost: "a card, not the place", recommended: true }] }] });
   assert.equal(asked.isError, undefined, asked.text);

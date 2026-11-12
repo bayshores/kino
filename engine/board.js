@@ -153,6 +153,9 @@ export function moveProblems(move, path, known = () => true, { shape = false, re
   }
   if (move === NONE) return [`${path} "none" says why: move {none:"<reason>"}.`];
   if (!isRecord(move)) return [`${path} is {kind, name, ref} or {none:"<reason>"}.`];
+  // A plain cut is not a designed move: it is move {none:"cut"} (the one call says so, not three field faults).
+  if (typeof move.kind === "string" && /^(?:hard |plain |straight )?cut$|^(?:none|plain)$/i.test(move.kind.trim()) && !MOVE_KINDS.includes(move.kind))
+    return [`${path}.kind "${move.kind}" is a plain cut, not a designed move: send move {none:"cut"} (any reason, 1 to ${BOARD_LIMITS.why} characters, in place of "cut"), or {kind, name, ref} with kind ${MOVE_KINDS.slice(0, -1).join(", ")} or ${MOVE_KINDS.at(-1)}.`];
   const problems = Object.keys(move).filter((key) => !MOVE_KEYS.includes(key)).map((key) => `${path}.${key} is not a field of a move (kind, name, ref, planned).`);
   if (!MOVE_KINDS.includes(move.kind)) problems.push(`${path}.kind is ${MOVE_KINDS.slice(0, -1).join(", ")} or ${MOVE_KINDS.at(-1)}.`);
   const name = typeof move.name === "string" ? move.name.trim() : "";

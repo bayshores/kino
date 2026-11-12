@@ -53,6 +53,26 @@ function moveOp(shot, layer, previous, text, cues = [], file = null, frame = nul
   return op;
 }
 
+/**
+ * Why compose from board could not place a shot's move, and the one call that places it:
+ * { reason, call } with the call as edit text, or call null when only the move's name is known
+ * (a preset, recipe or transition: the caller words that, it knows those lists).
+ */
+export function unplacedReason(shot, layer, previous, file, frame, n) {
+  const name = shot.move?.name;
+  const edit = (op) => `edit {ops:[${JSON.stringify(op)}]}`;
+  if (name === "push") {
+    if (shot.media === NONE || !layer) return { reason: "a push moves footage and this shot has no media", call: 'library {topic:"moves"} lists the moves that fit a text card' };
+    const op = pushOp(shot, layer, file, frame);
+    return { reason: `push is built as kind "camera"; this shot says kind "${shot.move.kind}"`, call: op ? edit(op) : null };
+  }
+  const definition = MOVES[name];
+  if (!definition) return { reason: `"${name}" is not a move op`, call: null };
+  const fields = definition.fields ?? {};
+  if (fields.from && fields.to && !previous) return { reason: `${name} joins the shot before it, and shot ${n} has none`, call: `put it on a later shot, or give shot ${n} move {none:"cut"} (edit board)` };
+  return { reason: `${name} needs fields only the shot's material gives`, call: edit({ op: "move", name, at: r3(shot.cue), ...(layer ? { layer } : {}) }) + `, plus the fields library {topic:"moves", name:"${name}"} lists` };
+}
+
 // What compose chose for a move it filled in itself, said in its receipt so the agent can change it.
 const SAID = new WeakMap();
 const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
@@ -160,7 +180,8 @@ export function boardBuildOps(board, frame, fileOf, cues = []) {
     }
     const own = layer ?? text;
     const move = shot.move && !shot.move.none ? moveOp(shot, own, previous, text, cues, file, frame) : null;
-    if (shot.move?.name && !shot.move.none) moves.push({ n, name: shot.move.name, op: move, ...(move && SAID.has(move) ? { said: SAID.get(move) } : {}) });
+    if (shot.move?.name && !shot.move.none) moves.push({ n, name: shot.move.name, op: move, ...(move && SAID.has(move) ? { said: SAID.get(move) } : {}),
+      ...(move ? {} : { ...unplacedReason(shot, own, previous, file, frame, n), layer: own, cue: r3(shot.cue), dur: r3(shot.dur), before: previous }) });
     previous = own;
   });
   ops.push(...onTop);
