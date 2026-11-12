@@ -34,11 +34,17 @@ const isSpace = (text) => /^\s+$/u.test(text);
  * Returns {times, length}: length is when the last letter appears.
  */
 export function keyTimes(units, { cps = 12, wordPause = 0.08, next = () => 0.5 } = {}) {
+  // The jitter moves single keystrokes but never the total: the letter gaps are scaled so they add
+  // up to exactly (letters - 1) / cps. Without this a 36-letter line at 26 a second ran 2 frames
+  // behind and one at 60 a second ended 12 frames late (recreate test GAPS item 18).
+  const jitters = units.slice(1).map(() => 1 + JITTER * (next() * 2 - 1));
+  const total = jitters.reduce((sum, value) => sum + value, 0);
+  const scale = total > 0 ? jitters.length / total : 1;
   const times = [];
   let time = 0;
   units.forEach((unit, index) => {
     if (index > 0) {
-      time += (1 / cps) * (1 + JITTER * (next() * 2 - 1));
+      time += (1 / cps) * jitters[index - 1] * scale;
       if (isSpace(units[index - 1].text)) time += wordPause;
     }
     times.push(round(time));
@@ -81,14 +87,15 @@ export const typeOn = {
   length: 2,
   fields: {
     layer: { kind: "layer", required: true, about: "your text layer to type (left-aligned types like a real field)" },
-    cps: { kind: "number", low: 2, high: 60, about: "letters a second (default 12; launch films type 10 to 20)" },
-    wordPause: { kind: "number", low: 0, high: 1, about: "extra seconds after each space (default 0.08)" },
+    cps: { kind: "number", low: 2, high: 200, about: "letters a second (default 12; launch films 10 to 20; fast lines about 100)" },
+    plain: { kind: "choice", values: [true, false], about: "plain letters: no caret, wait, hold or key cues; the text stays to the scene end" },
+    wordPause: { kind: "number", low: 0, high: 1, about: "extra seconds after each space (default 0.08, at most two keystrokes)" },
     caret: { kind: "choice", values: [true, false], about: "a thin caret after the last letter, solid while typing, blinking before and after (default true)" },
     field: { kind: "layer", about: "your box under the text (a search bar, a chat input): it widens and deepens as the text needs room" },
     keyCues: { kind: "choice", values: [true, false], about: "a cue at each word (<id>.1, <id>.2, ...) and <id>.typed at the last letter, for key sounds (default true)" },
     wait: { kind: "number", low: 0, high: 3, about: "seconds the caret blinks in the empty field before the first letter (default 0.5)" },
     hold: { kind: "number", low: 0, high: 6, about: "seconds the caret blinks after the last letter (default 1.6: solid, off, on)" },
-    until: { kind: "number", low: 0, high: 600, about: "scene seconds the typed text and caret go (default: after the hold, or sooner when a caption comes on; the scene's length keeps them)" },
+    until: { kind: "number", low: 0, high: 600, about: "scene seconds the typed text and caret go (default: the text stays, the caret goes after the hold)" },
     highlight: { kind: "color", about: "the newest letter lands in this color, then turns to its own fill after highlightFor (off by default)" },
     highlightFor: { kind: "number", low: 0.02, high: 1, about: `seconds a letter stays highlighted (default ${HIGHLIGHT_FOR})` },
   },
@@ -103,15 +110,22 @@ export const typeOn = {
     const letters = units.filter((unit) => !isSpace(unit.text)).length;
     if (!letters) throw new Error(`type-on layer: ${input.layer} has no letters to type.`);
     if (units.length > MOST_LETTERS) throw new Error(`type-on types at most ${MOST_LETTERS} letters; ${input.layer} has ${units.length}. Split the text, or show the rest at once.`);
-    const caretOn = input.caret !== false;
+    // plain:true is caret:false, wait:0, hold:0, keyCues:false in one field (friction 5: a weak agent's
+    // first try at plain letters needed all four); a field sent beside it still wins.
+    const plain = input.plain === true;
+    const caretOn = input.caret ?? !plain;
     // A dur too short for the wait shortens the wait, so the letters still type before the end.
-    const wait = caretOn ? Math.min(input.wait ?? 0.5, ctx.dur === null ? Infinity : ctx.dur * 0.25) : 0;
-    const hold = caretOn ? input.hold ?? 1.6 : 0;
+    const wait = caretOn ? Math.min(input.wait ?? (plain ? 0 : 0.5), ctx.dur === null ? Infinity : ctx.dur * 0.25) : 0;
+    const hold = caretOn ? input.hold ?? (plain ? 0 : 1.6) : 0;
 
     // When each letter appears. A dur shorter than the typing speeds the typing up to fit.
     const cps = input.cps ?? 12;
-    let keys = keyTimes(units, { cps, wordPause: input.wordPause ?? 0.08, next: ctx.rng.next });
-    const room = ctx.dur === null ? Infinity : ctx.dur - wait - LETTER_IN - 0.05;
+    // A pause after a space is two keystrokes at most: at 100 a second the fixed 0.08 s was 8 keystrokes
+    // and the line ended long after the asked end (guess: two keystrokes reads as a word gap).
+    const pause = input.wordPause ?? Math.min(0.08, 2 / cps);
+    let keys = keyTimes(units, { cps, wordPause: pause, next: ctx.rng.next });
+    // The last letter's cut ends on the asked end (no slack: it ran 2 frames behind at 26 a second).
+    const room = ctx.dur === null ? Infinity : ctx.dur - wait - LETTER_IN;
     if (keys.length > room) {
       // The pauses scale too, so the same words still read as words.
       const share = Math.max(0.05, room) / keys.length;
@@ -121,15 +135,18 @@ export const typeOn = {
     const typeAt = round(ctx.start + wait);
     const typedAt = round(typeAt + keys.length);
     let end = ctx.dur !== null ? ctx.end : round(typedAt + LETTER_IN + hold);
+    // The typed text is taken away only at until or when a caption comes on; otherwise it stays to the
+    // scene's end (it was hidden at the end of the hold: GAPS item 7, product-film spec text k150-199).
+    let goneAt = null;
     if (input.until !== undefined) {
       if (input.until <= typedAt + LETTER_IN) throw new Error(`type-on until: ${input.until} s is before the last letter is typed (${round(typedAt + LETTER_IN)} s).`);
-      end = round(Math.min(input.until, ctx.sceneDuration));
+      end = goneAt = round(Math.min(input.until, ctx.sceneDuration));
     } else {
       // The line goes when a caption comes on after it is typed (the next thing said), at the latest after the hold.
       const caption = ctx.topLayers().find((other) => other.id !== layer.id && other.type === "text" && other.role === "caption"
         && !ctx.shownAt(other.id, typedAt) && Array.from({ length: Math.ceil((end - typedAt) / 0.1) }, (_, index) => typedAt + 0.1 * (index + 1)).some((time) => time < end && ctx.shownAt(other.id, time)));
       if (caption) {
-        for (let time = typedAt; time < end; time = round(time + 0.05)) if (ctx.shownAt(caption.id, time)) { end = Math.max(round(typedAt + LETTER_IN + 0.3), time); break; }
+        for (let time = typedAt; time < end; time = round(time + 0.05)) if (ctx.shownAt(caption.id, time)) { end = goneAt = Math.max(round(typedAt + LETTER_IN + 0.3), time); break; }
         ctx.note(`the typed line goes at ${end} s, when ${caption.id} comes on`);
       }
     }
@@ -182,9 +199,9 @@ export const typeOn = {
 
     // The typed line goes with the caret (until keeps it longer; the scene's length keeps it on),
     // and the field with them: an emptied box left on screen reads as a glitch.
-    if (end < ctx.sceneDuration - 1e-6) {
-      ctx.animate(layer.id, "gone", hide(end), "text");
-      if (input.field !== undefined) ctx.animate(input.field, "gone", hide(end), "field");
+    if (goneAt !== null && goneAt < ctx.sceneDuration - 1e-6) {
+      ctx.animate(layer.id, "gone", hide(goneAt), "text");
+      if (input.field !== undefined) ctx.animate(input.field, "gone", hide(goneAt), "field");
     }
 
     // The field keeps the room it gives the text on the left on the right and below as well.
@@ -215,7 +232,7 @@ export const typeOn = {
 
     // Cues: the first letter of each word, and the last letter.
     const cues = [];
-    if (input.keyCues !== false) {
+    if (input.keyCues ?? !plain) {
       units.forEach((unit, index) => {
         if (isSpace(unit.text) || (index > 0 && !isSpace(units[index - 1].text))) return;
         cues.push({ name: `${ctx.id}.${cues.length + 1}`, time: round(typeAt + keys.times[index]) });

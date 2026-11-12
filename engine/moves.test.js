@@ -872,13 +872,24 @@ test("type-on types each letter at its keystroke, the caret steps to the last le
   const tinted = runMove(definition, { ...options, scene: gradient, input: readMoveInput(definition, { layer: "prompt" }) });
   assert.equal(tinted.added.find((entry) => entry.layer.move.part === "caret").layer.fill, "#FFB000");
   assert.throws(() => runMove(definition, { ...options, input: { layer: "phone" } }), /give a text layer/);
-  // The typed line goes with the caret after the hold, or at until.
+  // The typed line stays to the scene's end; only until takes it (and its field) away.
   const gone = (made) => made.animations.find((entry) => entry.animation.id === "type-on.text-gone")?.animation.start;
-  assert.equal(gone(quick), 1.8);
-  // The field goes with the typed line, so no emptied box stays on screen.
-  assert.equal(made.animations.find((entry) => entry.animation.id === "type-on.field-gone")?.animation.start, gone(made));
+  assert.equal(gone(quick), undefined);
+  assert.equal(made.animations.find((entry) => entry.animation.id === "type-on.field-gone"), undefined);
   const kept = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", until: 4.2 }) });
   assert.deepEqual([gone(kept), kept.end], [4.2, 4.2]);
+  const boxed = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", field: "prompt-field", until: 4.2 }) });
+  assert.equal(boxed.animations.find((entry) => entry.animation.id === "type-on.field-gone")?.animation.start, 4.2);
+  // plain: no caret, wait, hold or key cues; 200 letters a second is allowed and the last letter lands on the asked end.
+  const plain = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", plain: true, cps: 200, wordPause: 0 }) });
+  assert.ok(!plain.added.some((entry) => entry.layer.move?.part === "caret"), "no caret");
+  assert.ok(plain.cues.every((cue) => !/^type-on\.\d/.test(cue.name)), "no key cues");
+  const fast = plain.animations.find((entry) => entry.animation.id === "type-on.text-letters").animation;
+  assert.equal(fast.start, 0.3);
+  assert.ok(Math.abs(fast.delays.at(-1) - ([..."Find issues with loading"].length - 1) / 200) < 0.005, `last delay ${fast.delays.at(-1)}`);
+  const exact = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", plain: true, cps: 60 }), dur: 0.5 });
+  const exactLetters = exact.animations.find((entry) => entry.animation.id === "type-on.text-letters").animation;
+  assert.ok(exactLetters.start + exactLetters.delays.at(-1) + exactLetters.duration <= exact.end + 1e-6, "the last letter lands by the asked end");
   // highlight: the newest letter lands in the highlight color and is on its own fill after highlightFor.
   const lit = runMove(definition, { ...options, input: readMoveInput(definition, { layer: "prompt", highlight: "#FFD23F", highlightFor: 0.1 }) });
   const flash = lit.animations.find((entry) => entry.animation.id === "type-on.text-highlight").animation;
@@ -936,6 +947,12 @@ test("stream holds the hot color on the newest words and settles the rest; rewri
   const last = noise.animations.filter((entry) => entry.kind === "change-text").at(-1);
   assert.ok(last.text.startsWith("Find issues with"), "the letters settle left to right");
   assert.ok(decoded.animations.find((entry) => entry.animation.id === "decode.text-in").animation.start < decoded.end, "the layer is full before the noise hides");
+  // from:"dots": only dots, dashes and spaces grow into the letters; the default stays random letters.
+  const dotted = runMove(MOVES.decode, { id: "decode", input: readMoveInput(MOVES.decode, { layer: "prompt", from: "dots" }), scene, style, fonts: defaultFonts, start: 0.3, media });
+  const dotNoise = dotted.added.find((entry) => entry.layer.move.part === "noise").layer;
+  const dotSteps = dotNoise.animations.filter((entry) => entry.kind === "change-text");
+  assert.match(dotNoise.text, /^[ .-]+$/, "the first frame is dots, dashes and gaps");
+  assert.ok(dotSteps.some((entry) => /^[A-Za-z]+[ .-]*[.-]/.test(entry.text)) && /^Find issues w/.test(dotSteps.at(-1).text), "dots grow, then the letters settle left to right");
 });
 
 test("assemble scatters each letter by its own seeded offset, turn and size and settles them into the word; out flies them apart", () => {

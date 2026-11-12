@@ -214,6 +214,22 @@ export function scrambledText(text, settled, rng, mode = "in") {
 }
 
 /**
+ * decode from:"dots": like scrambledText, but the letters that are not settled are blank, a dot or a
+ * dash. `wakes` gives each position a fixed number in [0, 1): a position wakes (shows a dot, or a dash
+ * for about a third of them) once `progress` has passed its wake. Source: the product film's decode
+ * (GAPS item 19): a lone dash and a few dots first, more of them, then letters left to right. The
+ * dash share and the wake spread are guesses.
+ */
+export function dottedText(text, settled, progress, wakes, mode = "in") {
+  return [...text].map((character, index) => {
+    if (!character.trim()) return character;
+    if (mode === "in" ? index < settled : index >= settled) return character;
+    if (mode === "in" && wakes[index] > 0.15 + 0.85 * progress) return " ";
+    return (wakes[index] * 7) % 1 < 0.35 ? "-" : ".";
+  }).join("");
+}
+
+/**
  * The real text goes full just before the random letters hide at `end`, so no frame shows
  * neither (the decode move hands over this way).
  */
@@ -230,6 +246,7 @@ export const decode = {
   fields: {
     layer: { kind: "layer", required: true, about: "your text layer (any font; letters keep their case, so the random ones are glyphs the font has)" },
     mode: { kind: "choice", values: ["in", "out"], about: "in (default): settles into the words; out: switches off into random letters and goes" },
+    from: { kind: "choice", values: ["letters", "dots"], about: "what the unsettled letters show: letters (default, random ones) or dots (dots and dashes that grow into the letters)" },
   },
   example: { layer: "prompt", mode: "in", at: 0.3 },
   setup: "a text layer in its final place; the random letters are a decor copy above it, so the gates read your layer, not the noise",
@@ -254,9 +271,14 @@ export const decode = {
     // The random letters are decoration, not copy: a decor copy of the layer shows them and
     // hands over to the layer itself the moment the last one settles (in), or takes over from it
     // at the start (out). Auto-size text measures each step again about its alignment anchor.
-    const noise = ctx.add("noise", { ...state, role: "decor", text: scrambledText(text, 0, ctx.rng, out ? "out" : "in"), allowOverlap: true }, { above: layer.id });
+    const dots = input.from === "dots";
+    const wakes = dots ? [...text].map(() => ctx.rng.next()) : [];
+    const shown = (settled, step) => dots
+      ? dottedText(text, settled, step / steps, wakes, out ? "out" : "in")
+      : scrambledText(text, settled, ctx.rng, out ? "out" : "in");
+    const noise = ctx.add("noise", { ...state, role: "decor", text: shown(0, 0), allowOverlap: true }, { above: layer.id });
     for (let step = 1; step < steps; step += 1)
-      ctx.animate(noise, `step${step}`, { name: "Decode", kind: "change-text", start: round(ctx.start + (length * step) / steps), text: scrambledText(text, at(step), ctx.rng, out ? "out" : "in"), overlap: false, out: null, in: null });
+      ctx.animate(noise, `step${step}`, { name: "Decode", kind: "change-text", start: round(ctx.start + (length * step) / steps), text: shown(at(step), step), overlap: false, out: null, in: null });
     if (out) {
       ctx.animate(layer.id, "hide", hide(ctx.start), "text");
       ctx.animate(noise, "show", show(ctx.start));

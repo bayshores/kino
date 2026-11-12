@@ -83,6 +83,7 @@ import { boardData as boardScreenData } from "./board-data.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
+import { pivotNotes } from "./pivot-notes.mjs";
 import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
@@ -2529,6 +2530,8 @@ export function createAgentService(deps) {
       if (jumps.length) (work.warnings ??= []).push(...jumps);
       const handEdits = moveHandEdits(after, translation.operations, (id) => refName(id, afterCodes));
       if (handEdits.length) (work.warnings ??= []).push(...handEdits);
+      // A scale or turn this edit added says where it pivots (pivot-notes.mjs).
+      work.notes.push(...pivotNotes(after, translation.operations, (id) => refName(id, afterCodes), before));
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
       const waiverNote = waivedCodes.length ? waiverNotes(liveWaivers(after.checkWaivers, staleWaivers), { codes: waivedCodes }) : [];

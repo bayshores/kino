@@ -242,6 +242,32 @@ test("agents align auto-sized text by the size it is drawn at", () => {
   }
 });
 
+test("a preset entrance hides its layer until it starts, and a new text with no width sits on one line (GAPS 7, friction 5)", () => {
+  const source = createDocument(), scene = source.scenes[0];
+  const made = applyOperations(source, [
+    { type: "add_layer", sceneId: scene.id, layerType: "text", properties: { id: "ask", text: "Engine 3.0", x: 200, y: 300 } },
+    { type: "add_layer", sceneId: scene.id, layerType: "text", properties: { id: "kept", text: "Engine 3.0", width: 120 } },
+    { type: "add_animation", sceneId: scene.id, layerId: "ask", preset: "preset-blur-slide", start: 1, duration: 0.5, parameters: { direction: "right", distance: 260 } },
+    { type: "add_animation", sceneId: scene.id, layerId: "kept", preset: "preset-fade", start: 1, duration: 0.5 },
+  ]);
+  const layer = (id) => made.scenes[0].layers.find((l) => l.id === id);
+  const ask = layer("ask");
+  const show = ask.animations.find((entry) => entry.kind === "show");
+  assert.equal(show?.start, 1, "the slide's layer is hidden until its start");
+  assert.equal(evaluateLayer(ask, 0.5).visible, false);
+  assert.equal(evaluateLayer(ask, 1.2).visible, true);
+  assert.ok(!layer("kept").animations.some((entry) => entry.kind === "show"), "a fade hides itself, so it needs no Show");
+  assert.equal(layer("ask").textResize, "width-height", "no width given: sized to its words");
+  assert.ok(ask.width > 100 && ask.height < 120, `one line, ${ask.width} x ${ask.height}`);
+  assert.equal(layer("kept").width, 120, "a width sent with the add is kept");
+  // The Show keeps to its entrance: a new start moves it, a delete takes it away.
+  const entrance = ask.animations.find((entry) => entry.kind === "in");
+  const moved = applyOperations(made, [{ type: "update_animation", sceneId: scene.id, layerId: "ask", animationId: entrance.id, properties: { start: 2 } }]);
+  assert.equal(moved.scenes[0].layers.find((l) => l.id === "ask").animations.find((entry) => entry.kind === "show").start, 2);
+  const deleted = applyOperations(made, [{ type: "delete_animation", sceneId: scene.id, layerId: "ask", animationId: entrance.id }]);
+  assert.equal(deleted.scenes[0].layers.find((l) => l.id === "ask").animations.length, 0, "no Show is left behind");
+});
+
 test("agents turn a layer's fill off and back on with update_layer, keeping its paint", () => {
   const source = createDocument(), scene = source.scenes[0];
   scene.layers.push(createLayer("star", { id: "star", fill: "#ff660080" }));

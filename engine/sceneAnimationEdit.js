@@ -4,6 +4,7 @@ import { sceneAnimationProblem } from "./animationListCheck.js";
 import { patchPresetAnimation } from "./presetCatalog.js";
 import { animationTreeEntries, editAnimationTree, isComposedAnimation } from "./animationTree.js";
 import { resizeComposedAnimation } from "./animationComposition.js";
+import { followEntrance } from "./entranceHide.js";
 
 // Prepare the complete result before App commits it. A refused edit or a missing target then
 // leaves both the document and the undo history untouched, including during timeline drags.
@@ -21,11 +22,15 @@ export function editSceneAnimations(document, sceneId, changes, { fonts } = {}) 
     const list = animationListOf(next, layerId);
     if (!animationTreeEntries(list).some(({ animation }) => animation.id === animationId)) continue;
     const owner = animationOwner(next, layerId);
-    next = setAnimationList(next, layerId, editAnimationTree(list, animationId, (item) => {
-      if (!isComposedAnimation(item)) return patchPresetAnimation(item, patch, owner, { document, fonts });
+    let before = null, after = null;
+    const edited = editAnimationTree(list, animationId, (item) => {
+      before = item;
+      if (!isComposedAnimation(item)) return (after = patchPresetAnimation(item, patch, owner, { document, fonts }));
       const { duration, ...fields } = patch;
-      return { ...(duration === undefined ? item : resizeComposedAnimation(owner, item, duration, fonts)), ...fields };
-    }));
+      return (after = { ...(duration === undefined ? item : resizeComposedAnimation(owner, item, duration, fonts)), ...fields });
+    });
+    // A Show added with a preset entrance moves with the entrance's start (entranceHide.js).
+    next = setAnimationList(next, layerId, after ? followEntrance(edited, before, after) : edited);
   }
   return next === scene ? null : finish(document, scene, next);
 }

@@ -488,6 +488,12 @@ How to read it:
   tilt and lift; `outlineGlow {stroke, fill, glow}` sets hollow glowing letters; `type-on` takes `highlight`
   and `highlightFor`. Evidence: `engine/richText.test.js`, `engine/moves.test.js`,
   `backend/agent-text-loop.test.mjs`. Gap: emoji do not turn; Lottie of turned letters not checked; strokes refuse Lottie.
+- **Text on a window**: Verified (tests, frames). A non-fading entrance preset hides its layer until its
+  start (the Show moves with a new start and goes with the entrance); `type-on` keeps its text to the scene's end unless `until`, takes `plain:true` and `cps` up to 200
+  and lands its last letter on the asked end; `decode from:"dots"` grows letters from dots and dashes; a range
+  takes `scaleX`/`scaleY` (-1 mirrors a letter); a new text with no width sits on one line; a scale or turn
+  names its pivot in the receipt. Evidence: `engine/operations.test.js`, `engine/moves.test.js`,
+  `engine/richText.test.js`, `backend/agent-anchor.test.mjs`. Gaps: the dash share of the dots decode is a guess, and in a proportional font its dots do not hold each letter's width.
 - **Character fallback and emoji**: Partly verified. Each cluster stays in one font, falling back to
   Noto; a missing character gives `missing_glyphs`. Evidence: `engine/fontFallback.test.js`,
   `backend/font-fallback.test.mjs`, `engine/colorFontTables.test.js`, `tests/color-font.test.mjs`. Gaps:

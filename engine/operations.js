@@ -8,6 +8,8 @@ import { boxStylePatch } from "./boxStyles.js";
 import { nextScenePosition } from "./sceneLayout.js";
 import { duplicateSceneInDocument } from "./sceneDuplication.js";
 import { presetAnimation, resolveAnimationInitialValue } from "./animation.js";
+import { followEntrance, showBeforeEntrance } from "./entranceHide.js";
+import { fitNewText } from "./textFit.js";
 import { effectDefinition } from "./effects/catalog.js";
 import { createComponentInstance, detachComponent } from "./linkedComponents.js";
 import { createComponentFromLayers } from "./createComponent.js";
@@ -177,7 +179,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     if (operation.type === "add_layer") {
       const properties = operation.properties || {};
-      const added = createLayer(operation.layerType, properties);
+      const added = fitNewText(createLayer(operation.layerType, properties), properties, scene, fonts);
       validatePathFillRule([added], properties, "add_layer");
       validateMaskFields([added], properties, "add_layer");
       const problem = animationListProblem(added, [], scene.duration);
@@ -452,7 +454,9 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       const nextAnimations = [...layer.animations, added];
       const problem = animationListProblem({ ...layer, animations: nextAnimations }, layer.animations, scene.duration);
       if (problem) throw new Error(problem);
-      layer.animations = nextAnimations;
+      // A preset entrance that does not fade hides the layer until it starts (entranceHide.js).
+      const shown = operation.animation ? null : showBeforeEntrance(layer, added);
+      layer.animations = shown ? [...nextAnimations, shown] : nextAnimations;
       continue;
     }
     const animation = animationTreeEntries(layer.animations).find(({ animation: item }) => item.id === operation.animationId)?.animation;
@@ -470,7 +474,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       continue;
     }
     if (operation.type === "delete_animation") {
-      layer.animations = editAnimationTree(layer.animations, animation.id, () => null);
+      // A Show added with a preset entrance goes with it (entranceHide.js).
+      layer.animations = followEntrance(editAnimationTree(layer.animations, animation.id, () => null), animation, null);
       continue;
     }
     throw new Error(`Unsupported editing operation: ${operation.type}`);
