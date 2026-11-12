@@ -18,6 +18,8 @@ import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { SHOT_LAYERS } from "../engine/board.js";
+import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
+import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
@@ -120,6 +122,26 @@ async function project(id, { width = 1080, height = 1920, duration = 6, layers =
 }
 const videoLayer = () => ({ op: "add_layer", layerType: "video", name: "footage", properties: { src: clip.src } });
 const audioLayer = (name) => ({ op: "add_layer", layerType: "audio", name, properties: { src: song.src } });
+
+test("look board prints the pace on each side of the song's drop and its beat times after it; board {snap:\"beats\"} moves the cuts there", { skip, timeout: 60_000 }, async () => {
+  await project("pace", { width: 1920, height: 1080, layers: [audioLayer("song")] });
+  const saved = await editBoard("pace", [motion(0, 1.5), motion(1.5, 1.5), motion(3, 1.2), motion(4.2, 1.8)], { music: "song" });
+  assert.equal(saved.isError, undefined, saved.text);
+  const plain = (await agent("look", { project: "pace", mode: "board" })).text;
+  assert.doesNotMatch(plain, /pace:/, "no measured drop and no reference: the page reads as before");
+  // The song's saved shape (a drop at 3 s) and beats (every 0.5 s from 0.05 s), as fit_music and detect_beats keep them.
+  const file = path.join(server.dataDirectory, "media", path.basename(song.src));
+  await writeFile(`${file}.song`, JSON.stringify({ version: SONG_SHAPE_VERSION, seconds: 6, whole: true, sections: [{ at: 0, kind: "intro" }, { at: 3, kind: "drop", weight: 1 }], seams: [] }));
+  await writeFile(`${file}.beats`, JSON.stringify({ version: BEAT_ANALYSIS_VERSION, duration: 6, bpm: 120, period: 0.5, beats: Array.from({ length: 12 }, (_, index) => 0.05 + index * 0.5), onsets: [] }));
+  const text = (await agent("look", { project: "pace", mode: "board" })).text;
+  assert.ok(text.includes(plain.split("\n").slice(0, 6).join("\n")), "the header and shot lines stay as they were");
+  assert.match(text, /pace: before the drop at 3\.00 s 2 shots, median 1\.50 s, 6\.7 per 10 s; after, 2 shots, median 1\.50 s, 6\.7 per 10 s/);
+  assert.match(text, /the song's beats after the drop at 3\.00 s, every 2 beats \(1\.000 s; the section's range, no references\): 3\.05, 4\.05, 5\.05 · board \{snap:"beats"\}/);
+  const snapped = await agent("edit", { project: "pace", ops: [{ op: "board", snap: "beats" }] });
+  assert.equal(snapped.isError, undefined, snapped.text);
+  assert.match(snapped.text, /snap: 2 cuts after the drop at 3(\.00)? s moved onto the beat \(every 2 beats; most 0\.15 s\)/);
+  assert.deepEqual((await record("pace")).document.board.shots.map((shot) => shot.cue), [0, 1.5, 3.05, 4.05]);
+});
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {
   const saved = [{ id: "yt:mKIY0Pb2XHA", keys: ["phone-film"] }, { id: "yt:uXlWYZ022zU", keys: [] }];

@@ -70,6 +70,7 @@ import { CARD_NAMES, cardLines } from "../../engine/footage/cards.js";
 import { footageCues, footageOps } from "../../engine/footage/ops.js";
 import { footageBrand, guessTreatment, treatmentFromPick, treatmentNamed, TREATMENT_NAMES } from "../../engine/footage/treatments.js";
 import { PACE_NAMES } from "../../engine/footage/pace.js";
+import { cutsOnBeats } from "../../engine/cutFacts.js";
 import { isRecord } from "../../engine/numbers.js";
 
 /** A title from a project's name: "Orbit trailer v2" → "Orbit" (words that name the kind of video go). */
@@ -241,8 +242,8 @@ const OPERATIONS = {
     rules: `source {name, text}: saves material the person gave you (their message, a README, a script, a transcript), word for word: up to ${SOURCE_LIMITS.text} characters each, ${SOURCE_LIMITS.count} in all; the same name replaces it, text:null removes it. check's own_words then names on-screen text whose words are in no source.`,
   },
   board: {
-    fields: ["music", "shots", "calls", "open"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person.',
+    fields: ["music", "shots", "calls", "open", "snap"],
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} alone moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists).',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -1018,7 +1019,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null, boardPace = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget });
   async function mediaOf(document, work) {
@@ -2312,6 +2313,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // Every problem is collected, so the refusal names the first and counts the rest; nothing is
   // saved unless the whole board is right.
   async function applyBoard(document, operation, work) {
+    if (operation.snap !== undefined) return snapBoard(document, operation, work);
     const scene = mainScene(document);
     if (!scene) throw boardProblem("bad_shot", "the board needs a scene: add_scene first.");
     const problems = [];
@@ -2356,6 +2358,27 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     document.board = kept;
     const last = board.shots.at(-1);
     work.notes.push(`board r${document.board.rev}: ${board.shots.length} shot${board.shots.length === 1 ? "" : "s"}, ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s, ${span.music ? `music ${span.music}` : "no music"} · look {mode:"board"} shows it`);
+  }
+
+  // board {snap:"beats"}: only when asked, the saved board's cuts after the song's turn move onto
+  // the measured beat times look board lists (board-pace.mjs), then the board is saved as any
+  // board call (a move past the tolerances lapses an approval, and the answer says so).
+  async function snapBoard(document, operation, work) {
+    if (operation.snap !== "beats") throw boardProblem("bad_shot", 'snap is "beats": board {snap:"beats"} moves the cuts after the song\'s turn onto its measured beats.');
+    const extra = ["shots", "music", "calls", "open"].filter((field) => operation[field] !== undefined);
+    if (extra.length) throw boardProblem("bad_shot", `board {snap:"beats"} takes no ${extra.join(", ")}: it changes the saved board's cut times only. Send it alone, or send the whole board without snap.`);
+    const old = document.board;
+    if (!old?.shots?.length) throw boardProblem("bad_shot", 'There is no storyboard to snap: save one first, edit {ops:[{op:"board", music, shots}]}.');
+    const facts = await boardPace?.(document);
+    if (!facts?.times?.length) {
+      work.notes.push(`board r${old.rev}: no change (the music has no measured drop inside the board, or no measured beats: detect_beats and fit_music measure them)`);
+      return;
+    }
+    const { shots, moved } = cutsOnBeats(old.shots, { turn: facts.turn.at, times: facts.times });
+    if (!moved.length) { work.notes.push(`board r${old.rev}: no change (its cuts after ${sec(facts.turn.at)} s are on the beat times already)`); return; }
+    await applyBoard(document, { music: old.music, calls: old.calls, open: old.open, shots }, work);
+    const most = Math.max(...moved.map((entry) => Math.abs(entry.to - entry.from)));
+    work.notes.push(`snap: ${moved.length} cut${moved.length === 1 ? "" : "s"} after the ${facts.turn.kind} at ${sec(facts.turn.at)} s moved onto the beat (every ${facts.beats === 1 ? "beat" : `${facts.beats} beats`}; most ${sec(most)} s): ${moved.map((entry) => `${sec(entry.from)}→${sec(entry.to)}`).join(", ")}`);
   }
 
   // The library's videos, pictures and sounds, found by a layer (its src), id, src or name.

@@ -9,6 +9,7 @@ import { frameShot, shotLayout } from "./footage/layout.js";
 import { facePartPoint, pickFace } from "./footage/faceParts.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
+import { beatLine, cutFacts, cutsOnBeats, frameLevel, paceFacts, paceLine } from "./cutFacts.js";
 import { planEdit } from "./footage/plan.js";
 import { KINO_OWN_FAMILIES, KINO_PAIR_FAMILIES, footageBrand } from "./footage/treatments.js";
 import { footageCues, footageOps } from "./footage/ops.js";
@@ -531,4 +532,34 @@ test("brand kit: without fonts it keeps the same colors and motion, and the pair
   assert.equal(colorsOnly.motion, withFonts.motion);
   assert.ok(withFonts.fonts.every((font) => KINO_PAIR_FAMILIES.includes(font.family)));
   assert.ok(["Anton", "Inter", "Montserrat", "Noto Serif"].every((family) => KINO_OWN_FAMILIES.includes(family)), "pairs, looks and the bundled serif are all kino's own");
+});
+
+test("cut facts: pace on each side of the turn, each cut's brightness and hue jump, and cuts moved onto beats only when asked", () => {
+  // 6 shots of 1 s with a turn at 3 s: 3 start before it, 3 after.
+  const cuts = [1, 2, 3, 4, 5];
+  const pace = paceFacts({ cuts, seconds: 6, turn: 3 });
+  assert.deepEqual([pace.before.shots, pace.before.median, pace.before.per10, pace.after.shots, pace.after.per10], [3, 1, 10, 3, 10]);
+  assert.deepEqual(Object.keys(paceFacts({ cuts, seconds: 6 })), ["all"]);
+  assert.match(paceLine(pace, [paceFacts({ cuts: [0.5, 1, 4, 4.5, 5], seconds: 6, turn: 3.5 })], { kind: "drop" }),
+    /^pace: before the drop at 3\.00 s 3 shots, median 1\.00 s, 10 per 10 s; after, 3 shots, median 1\.00 s, 10 per 10 s · your 1 reference after their turn: median 0\.50 s, 12\.0 per 10 s$/);
+  assert.match(beatLine({ turn: 3, beats: 2, period: 0.5, times: [3, 4, 5], why: "a reason", kind: "drop" }), /every 2 beats \(1\.000 s; a reason\): 3\.00, 4\.00, 5\.00$/);
+  // Every frame at 30 fps; each shot one gray level, the last one tinted blue.
+  const levelOf = (index) => [40, 60, 70, 140, 150, 160][index];
+  const levels = Array.from({ length: 180 }, (_, frame) => {
+    const value = levelOf(Math.floor(frame / 30));
+    return { t: frame / 30, ...frameLevel(value, value, frame >= 150 ? 230 : value) };
+  });
+  const facts = cutFacts({ cuts, levels, turn: 3, seconds: 6 });
+  assert.equal(facts.jumps.length, 5);
+  assert.equal(facts.big10, 1.7, "one 50+ jump (70 to 140 at 3 s) in 6 s");
+  const brighter = cutFacts({ cuts, levels: levels.map((level) => (level.t >= 1 && level.t < 2 ? { ...level, y: level.y + 60 } : level)), turn: 3, seconds: 6 });
+  assert.ok(Math.abs(brighter.jumps[0].dy) > Math.abs(facts.jumps[0].dy) && brighter.big10 > facts.big10, "a brighter shot raises its jump and the 50+ count");
+  assert.deepEqual([frameLevel(255, 0, 0).hue, frameLevel(0, 0, 255).hue, frameLevel(100, 102, 101).hue], [0, 240, null]);
+  assert.equal(facts.sections.length, 2);
+  // Snap: the cuts at 4 and 5 move to the nearest beat times; the cut before the turn stays.
+  const shots = [0, 1, 2, 3, 4, 5].map((cue) => ({ id: `S${cue}`, cue, dur: 1 }));
+  const snapped = cutsOnBeats(shots, { turn: 3, times: [3.1, 3.6, 4.1, 4.6, 5.1, 5.6] });
+  assert.deepEqual(snapped.shots.map((shot) => shot.cue), [0, 1, 2, 3.1, 4.1, 5.1]);
+  assert.equal(snapped.shots.at(-1).cue + snapped.shots.at(-1).dur, 6, "the board's end stays");
+  assert.deepEqual(snapped.moved.map((entry) => entry.id), ["S3", "S4", "S5"]);
 });

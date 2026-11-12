@@ -155,6 +155,8 @@ const SEEN_AS = {
   "several times": ["look-times"], "several frames": ["look-times"], "frames at once": ["look-times"], "before during after": ["look-times"],
   // A clip's own sound kept in the edit: keep_line, or planned on a board shot as sound {keep} (engine/boardSound.js).
   "clip sound": ["keep_line"], "own sound": ["keep_line"], "original sound": ["keep_line"], "original audio": ["keep_line"], "keep sound": ["keep_line"], "scene audio": ["keep_line"], "clip audio": ["keep_line"],
+  // The board's pace beside the references and its cuts moved onto the song's beats (board {snap:"beats"}; topic beats).
+  "snap to beat": ["beats"], "snap cuts": ["beats"], "cuts on the beat": ["beats"], "cut pace": ["beats"], "pace after the drop": ["beats"], "shots per second": ["beats"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.

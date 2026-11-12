@@ -81,6 +81,7 @@ import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, s
 import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
+import { boardPaceFacts, boardPaceLines } from "./board-pace.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { BOARD_BUILD, boardBuilt } from "./board-build.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
@@ -549,6 +550,8 @@ export function createAgentService(deps) {
     matchExposure: (document, operation) => runMatch(document, operation),
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
+    // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
+    boardPace: (document) => boardPaceFor(document),
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
       const brief = (await agentState.read(document.id).catch(() => null))?.brief;
@@ -3390,7 +3393,9 @@ export function createAgentService(deps) {
       ({ image = {}, text, extra, nextCall = null } = await referenceLook(input, projectId));
     } else if (mode === "board") {
       noteLive({ sceneId: null });
-      try { ({ image, text, extra, nextCall } = await boardLook(input, { document, look, fontsFor, mediaRecord, soundFiles: await soundFilesFor(document), soundSearch: soundSearchOn() })); }
+      // Page 1 adds the pace lines (board-pace.mjs): saved files only, so a failure leaves them out.
+      const pace = (input.page ?? 1) === 1 ? boardPaceLines(await boardPaceFor(document).catch(() => null)) : [];
+      try { ({ image, text, extra, nextCall } = await boardLook(input, { document, look, fontsFor, mediaRecord, soundFiles: await soundFilesFor(document), soundSearch: soundSearchOn(), pace })); }
       catch (error) {
         if (error instanceof BoardLookError) throw new AgentError(error.code, error.message);
         throw error;
@@ -7636,6 +7641,21 @@ export function createAgentService(deps) {
         ...(marked ? { marks: marked.footage.marks } : {}) },
       nextCall: nextOf("look", { mode: "source" }) };
     return done(projectId, answer);
+  }
+
+  // The board's pace facts (board-pace.mjs): the music layer's saved .song and .beats (never a
+  // decode) and the saved references' cuts and turns. Null without a board.
+  async function boardPaceFor(document) {
+    if (!document?.board?.shots?.length) return null;
+    const layer = mainScene(document)?.layers?.find((entry) => entry.id === document.board.music);
+    let file = null;
+    try { file = layer ? mediaFileOf(layer) : null; } catch { file = null; }
+    const shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
+    const analysis = file ? await beatAnalysis.saved?.(file).catch(() => null) : null;
+    const ids = deps.inspire?.reference ? await savedIds(document.id) : [];
+    const refs = [];
+    for (const id of ids) refs.push(await deps.inspire.reference(id, { full: true }).catch(() => null));
+    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean) });
   }
 
   // The shots the video's song needs (footage-finder/needs.mjs): the first audio layer of the video
