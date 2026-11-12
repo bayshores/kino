@@ -77,7 +77,7 @@ function shownUntil(ctx, layerId, start) {
 export const wordPanel = {
   name: "word-panel",
   needsAt: true,
-  about: "your word set on a made object: a turned box, a sign with a border or a strip across the frame, sized from the word's own laid-out box, word and panel turned together as one group; with subject the group stands behind the person (the clip's cut-out, made or reused) and the receipt gives each letter's covered share",
+  about: "your word set on a made object: a turned box, a sign with a border or a strip across the frame, sized from the word's own box and turned with it as one group; with subject it stands behind the person (the clip's cut-out, made or reused) and the receipt gives each letter's covered share",
   fits: "a hook word that belongs to the shot as a thing (a sign, a label, a plate, a word behind the subject), not a caption over it",
   tags: ["type-cut"],
   length: 1.2,
