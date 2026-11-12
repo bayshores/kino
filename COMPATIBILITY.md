@@ -662,7 +662,7 @@ How to read it:
   skip its faded border. Evidence: `engine/effects/light.test.js`.
 - **Cost**: 26 to 201 ms a 1080p MP4 frame.
 - **Lens flare streak, ghosts, softness**: Verified. One soft full-width line, no ghosts; ghosts 0
-  turns reflections off. Evidence: `engine/effects/light.test.js`, grade-bloom-flash study re-run (one call for 5 ops).
+  turns reflections off; the core is the flare color, white only above strength 1. Evidence: `engine/effects/light.test.js`, grade-bloom-flash study re-run (one call for 5 ops).
 - **Neon, cap and taper strokes**: Verified. One `strokes` entry draws a neon line or a tapered,
   round-capped line. Evidence: `engine/stackedStrokes.test.js`, streak-field study re-run. Gap: not in Lottie.
 - **Reduced motion**: Verified. Light bursts under 1 s are calmed in the live preview only.
@@ -672,6 +672,9 @@ How to read it:
 
 - **Streaks, variation and haze**: Verified. `streaks`, `variation` and `haze` spread depth per particle
   and bloom where streaks cluster, so one layer replaced five in the streak-field study. Evidence: `engine/effects/particles.test.js`.
+- **Particle links**: Test-verified. `links` N joins dots closer than N px (at most 3 each), so one
+  layer replaced the hand-drawn constellation paths. Evidence: `engine/effects/particles.test.js`,
+  refusals in `backend/agent-particles.test.mjs`, streak-field study re-run.
 - **Speed-lines fade**: Verified. Lines clear toward their tails. Evidence: `engine/effects/overlays.test.js`.
 - **Generators**: Verified. Nine deterministic particle effects, so scrub, play and export match;
   nine recipes. Evidence: `engine/effects/particles.test.js`, `backend/agent-particles.test.mjs`, golden

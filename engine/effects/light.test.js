@@ -279,6 +279,11 @@ test("lens flare streak: one soft line across the whole picture, no ghosts, its 
   const steepest = (pixel) => Math.max(...Array.from({ length: 20 }, (_, step) => Math.abs(pixel(150, 103 + step)[0] - pixel(150, 104 + step)[0])));
   assert.ok(steepest(line.pixel) < steepest(hard.pixel), "softness fades the halo's edge");
   assert.ok(line.pixel(60, 100)[0] > line.pixel(240, 100)[0], "brightest near the light");
+  // The core takes the flare color; only a strength above 1 heats its middle toward white.
+  const green = await draw(renderLensFlare, { ...effectDefaults("lens-flare"), style: "streak", x: 0.5, y: 0.5, color: "#20FF40" }, { width: 300, height: 200, content: sky });
+  const hot = await draw(renderLensFlare, { ...effectDefaults("lens-flare"), style: "streak", x: 0.5, y: 0.5, color: "#20FF40", strength: 2 }, { width: 300, height: 200, content: sky });
+  assert.ok(green.pixel(150, 100)[0] < 90 && green.pixel(150, 100)[1] > 150, `green core: ${green.pixel(150, 100)}`);
+  assert.ok(hot.pixel(150, 100)[0] > green.pixel(150, 100)[0] + 60, `whiter core at strength 2: ${hot.pixel(150, 100)}`);
 });
 
 test("reduced motion: the calm preview leaves out short Light bursts and holds short one-sided changes still; exports draw them", () => {

@@ -16,7 +16,7 @@ const HINTS = {
   "color-wheels": "lift, gamma, gain by tone", "keep-color": "gray out all but one hue", "color-ranges": "shift one hue range", "color-look": "a ready-made grade",
   glow: "bloom around bright parts or edges", "light-rays": "beams from a point", "lens-flare": "ghosts, rings and an anamorphic streak",
   "directional-blur": "smear along an angle", "zoom-blur": "smear toward a point", "spin-blur": "smear around a point", "focus-band": "sharp band, blur outside it: depth of field, tilt-shift",
-  embers: "rising sparks of fire", sparks: "bright flying sparks", snow: "falling flakes", dust: "drifting specks", rain: "falling streaks", bokeh: "soft out-of-focus lights", fog: "drifting haze", "light-leaks": "warm color washes",
+  embers: "rising sparks of fire", sparks: "bright flying sparks", snow: "falling flakes", dust: "drifting specks; links joins them into a constellation or network", rain: "falling streaks", bokeh: "soft out-of-focus lights", fog: "drifting haze", "light-leaks": "warm color washes",
   bulge: "pinch or swell, a lens bump", displacement: "push pixels along an axis", "fluid-warp": "liquid wobble", "fluted-glass": "ribbed glass slices", "noise-warp": "organic wobble, heat shimmer",
   ripple: "rings spreading from a point", "edge-fill": "stretch or mirror the edge pixels outward", mirror: "reflect one half", kaleidoscope: "mirrored wedges", field: "any pattern from a math expression: dissolve, wipe, wave",
   "3d-orbit": "tilt and turn in 3D", "card-flip": "flip like a card", "color-grade": "exposure, brightness, contrast, saturation", "color-remover": "key out one color, a green screen",

@@ -19,6 +19,7 @@ leaks. No stock overlay file is needed.
 - `variation` 0..1 spreads each dot's depth: size, speed, trail length, brightness, glow and
   color (color far, color2 near); `haze` 0..1 adds a soft bloom under them. `effect:"streaks"` (add blend) is a falling streak field with
   depth in one layer (code rain, light streaks); put it under a cut-out subject.
+- `links` N joins dots closer than N px with lines (a constellation, network): dust {count:14, links:320}.
 - The picture at a time depends only on the settings, the seed and that time, so the look,
   the dashboard and every export show the same frame. `from` animates settings: count is read
   when each particle is born (lowering it lets living ones finish), speed, direction, wind and

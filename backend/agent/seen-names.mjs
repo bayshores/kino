@@ -56,7 +56,7 @@ const SEEN_AS = {
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],
   streaks: ["streaks", "speed-lines", "rain", "light-rays"], streak: ["streaks", "lens-flare", "speed-lines"],
-  "code rain": ["streaks", "rain"], "light streak": ["lens-flare", "streaks"], "light streaks": ["streaks", "lens-flare"], anamorphic: ["lens-flare"],
+  "code rain": ["streaks", "rain"], constellation: ["dust"], "connect the dots": ["dust"], "particle links": ["dust"], "light streak": ["lens-flare", "streaks"], "light streaks": ["streaks", "lens-flare"], anamorphic: ["lens-flare"],
   "zoom burst": ["zoom-blur", "radial-repeat-blur"],
   "speed lines": ["speed-lines", "impact-lines"], "motion lines": ["speed-lines"], "action lines": ["impact-lines", "speed-lines"],
   "impact lines": ["impact-lines"], "focus lines": ["impact-lines"], "radial lines": ["impact-lines"], "anime lines": ["impact-lines", "speed-lines"], "manga lines": ["impact-lines", "speed-lines"],

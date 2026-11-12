@@ -235,6 +235,8 @@ test("the effects topic points to the particles topic, and wrong settings are re
     [{ op: "add_animation", layer: "footage", effect: "fog", parameters: { trail: 0.1 } }, /trail is not a parameter of fog/],
     [{ op: "add_animation", layer: "footage", effect: "embers", from: { seed: 1 }, parameters: { seed: 2 } }, /from\.seed must equal to\.seed: embers keeps seed fixed/],
     [{ op: "add_animation", layer: "footage", effect: "rain", parameters: { emitter: "sky" } }, /area, bottom, top, left, right, point/],
+    [{ op: "add_animation", layer: "footage", effect: "dust", parameters: { links: 5000 } }, /links must be .*0 to 1200/],
+    [{ op: "add_animation", layer: "footage", effect: "fog", parameters: { links: 200 } }, /links is not a parameter of fog/],
   ];
   for (const [op, rule] of refusals) {
     const reply = await agent("edit", { project: "refusals", ops: [op] });
