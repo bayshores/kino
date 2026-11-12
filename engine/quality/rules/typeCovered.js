@@ -14,7 +14,12 @@ import { roomLine, subjectRoom } from "../../subjectRoom.js";
 export const TYPE_COVERED_SHARE = 0.4;
 export const TYPE_COVERED_TIME = 0.5;
 
+// The subject's box at a sample: kinoTimeline's samples (subjectRoom.js cutoutSubjectBox, the box
+// place {around} measures: its path at that time, through its world matrix), else the subjectBox
+// shares over the layer's box.
 function subjectAt(cover, index) {
+  const own = cover.samples.subject;
+  if (own) return { x0: own.x0[index], y0: own.y0[index], x1: own.x1[index], y1: own.y1[index] };
   const box = boxAt(cover, index), [a, b, c, d] = cover.subjectBox;
   const width = box.x1 - box.x0, height = box.y1 - box.y0;
   return { x0: box.x0 + a * width, y0: box.y0 + b * height, x1: box.x0 + c * width, y1: box.y0 + d * height };
@@ -58,7 +63,7 @@ export function typeCovered(model, ctx) {
         at: sec(model.times[worst]), bbox: roundBox(ink),
         measured: `${Math.round(worstShare * 100)}% of the type inside the subject's box for ${Math.round((100 * covered) / shown)}% of its time`,
         required: `at most ${TYPE_COVERED_SHARE * 100}% for half its time`,
-        message: `The cut-out ${ctx.name(cover)} hides most of ${ctx.name(text)} behind it (subject box x ${Math.round(subject.x0)} to ${Math.round(subject.x1)}, y ${Math.round(subject.y0)} to ${Math.round(subject.y1)}). Room clear of it: ${room}. ${around} sets the type there, shrunk to fit, and prints the share of letters still covered (no side: the one that keeps it largest; split: the line parted at a word gap on both sides). ${dx === null ? "Or raise it" : "The fix moves it beside the subject; or raise it"}: ${raise}.`,
+        message: `The cut-out ${ctx.name(cover)} hides most of ${ctx.name(text)} behind it (subject box at ${sec(model.times[worst])} s x ${Math.round(subject.x0)} to ${Math.round(subject.x1)}, y ${Math.round(subject.y0)} to ${Math.round(subject.y1)}). Room clear of it: ${room}. ${around} sets the type there, shrunk to fit, and prints the share of letters still covered (no side: the one that keeps it largest; split: the line parted at a word gap on both sides). ${dx === null ? "Or raise it" : "The fix moves it beside the subject; or raise it"}: ${raise}.`,
         fix: dx === null ? { kind: "reorder", itemId: text.id, aboveId: cover.id, auto: false }
           : { kind: "move", itemId: text.id, dx: Math.round(dx), dy: 0, auto: false, why: `moved beside the subject (${dx < 0 ? "left" : "right"})` },
       });

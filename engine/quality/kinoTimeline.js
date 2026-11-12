@@ -22,6 +22,7 @@ import { BACKGROUND_OWNER_ID, backgroundLayer, isBackgroundEnabled } from "../sc
 import { textAnimationPlan, textAnimationUnitState } from "../textAnimation.js";
 import { hasCounters, hasTextChanges } from "../textChange.js";
 import { shownTextAt } from "../textChangeDraw.js";
+import { cutoutSubjectBox } from "../subjectRoom.js";
 import { layoutText, resizeTextLayer, textUnits } from "../textLayout.js";
 import { totalUnitDelay, unitDelay } from "../textTiming.js";
 import { hexRgba, isGradient, luminance, paintColors } from "./model.js";
@@ -173,6 +174,14 @@ function writeSample(samples, index, result) {
   if (samples.colors) samples.colors[index] = result.colors;
   if (samples.textIndex) samples.textIndex[index] = result.textIndex;
   if (samples.lineSet) samples.lineSet[index] = result.lineSet;
+}
+
+// A cut_out copy's subject box at one sample, from what it drew there (its world matrix and box
+// size); the path is read at this time, so a still copy whose subject moves is not copied over.
+function writeSubject(item, index, result, time) {
+  const box = cutoutSubjectBox(item._layer, time, result.matrix, result.size) ?? { x0: 0, y0: 0, x1: 0, y1: 0 };
+  const { subject } = item.samples;
+  subject.x0[index] = box.x0; subject.y0[index] = box.y0; subject.x1[index] = box.x1; subject.y1[index] = box.y1;
 }
 
 // The stretches of a layer's own clock in which it may change: one for each animation it
@@ -357,6 +366,10 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
         colors: isTextLayer ? new Array(count) : null,
         textIndex: changes ? new Int16Array(count) : null,
         lineSet: isTextLayer ? new Int16Array(count) : null,
+        // A cut_out copy's subject box in frame pixels at each time (engine/subjectRoom.js
+        // cutoutSubjectBox, the box place {around} measures too); type_covered reads it.
+        ...(layer.cutoutOf && Array.isArray(layer.subjectBox)
+          ? { subject: { x0: new Float32Array(count), y0: new Float32Array(count), x1: new Float32Array(count), y1: new Float32Array(count) } } : {}),
       },
       _layer: layer, _plan: plan, _units: plan ? sampledUnits(plan.units.length) : null, _changes: changes,
       _windows: reuse ? changeWindows(layer) : null, _still: new Map(),
@@ -386,6 +399,7 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       const copied = still && parent.stable ? still.results?.get(parent) : undefined;
       if (copied) {
         writeSample(item.samples, index, copied);
+        if (item.samples.subject) writeSubject(item, index, copied, time);
         drawn.set(item.id, copied);
         continue;
       }
@@ -473,10 +487,12 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
         luma: rgba ? luminance(rgba) : Number.NaN,
         textIndex: item.samples.textIndex ? item.samples.textIndex[index] : 0,
         lineSet,
+        size: { width: finite(state.width), height: finite(state.height) },
         stable: key !== null && parent.stable,
       };
       if (result.stable) (evaluated.results ??= new Map()).set(parent, result);
       writeSample(item.samples, index, result);
+      if (item.samples.subject) writeSubject(item, index, result, time);
       drawn.set(item.id, result);
     }
   }

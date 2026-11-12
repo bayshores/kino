@@ -292,7 +292,7 @@ test("place {around} sets a word beside the marked subject of the shot under it 
   assert.equal((await server.api("/api/projects/around-moving", { method: "PUT", body: { document, revision } })).status, 200);
   assert.deepEqual(findLayer(await saved("around-moving"), "clip-subject").subjectPath[1], [2, 0.55, 0.2, 0.75, 1], "the document keeps the path");
   const cleared = await agent("around-moving", "edit", { ops: [{ op: "place", layers: ["word"], around: "clip-subject" }] });
-  assert.match(cleared.text, /around the measured subject of the cut-out clip-subject, over it \(subject box x 672-1056, y 216-1080 over the hold 1\.1-1\.9 s \(9 moments; the subject's box moves up to 3\d\d px\)\): (left|right) · letters inside the subject box at the worst moment \d+% at 1\.\d+ s → 0%/);
+  assert.match(cleared.text, /around the measured subject of the cut-out clip-subject, over it \(subject box at 1 s x 672-1056, y 216-1080 over the hold 1\.1-1\.9 s \(9 moments; the subject's box moves up to 3\d\d px\)\): (left|right) · letters inside the subject box at the worst moment \d+% at 1\.\d+ s → 0%/);
   const word2 = findLayer(await saved("around-moving"), "word");
   const ink = (t) => { const state = evaluateLayer(word2, t); return [state.x, state.x + state.width]; };
   for (const t of [1.1, 1.5, 1.9]) {
@@ -309,6 +309,24 @@ test("place {around} sets a word beside the marked subject of the shot under it 
   assert.doesNotMatch(followed.text, /linear_motion word/);
   const word3 = findLayer(await saved("around-moving"), "word");
   for (const t of [1.1, 1.5, 1.9]) assert.ok(evaluateLayer(word3, t).x > (0.55 + 0.2 * (t - 1)) * 1920, `right of the subject at ${t} s`);
+  // Text its group shows (the group fades in at 1 s and out at 1.8 s; the text itself stays at
+  // full opacity): the hold is the group's, not the whole scene.
+  const grouped = await agent("around-moving", "edit", { ops: [
+    { op: "add_layer", layerType: "text", name: "tag", properties: { text: "YOU", fontFamily: "Inter", fontWeight: 700, fontSize: 120, textResize: "width-height", x: 700, y: 700 } },
+    { op: "group_layers", layerIds: ["tag"], name: "band" },
+    { op: "add_animation", layer: "band", preset: "preset-fade", start: 1, duration: 0.2 },
+    { op: "add_animation", layer: "band", preset: "preset-fade", mode: "out", start: 1.8, duration: 0.2 },
+    { op: "place", layers: ["tag"], around: "clip-subject" },
+  ] });
+  assert.match(grouped.text, /over the hold 1\.1-1\.9 s/, grouped.text);
+  // A cut-out its own group hides from 1.5 s: only the moments it shows count.
+  const hidden = await agent("around-moving", "edit", { ops: [
+    { op: "group_layers", layerIds: ["clip-subject"], name: "cutband" },
+    { op: "add_animation", layer: "cutband", preset: "preset-fade", mode: "out", start: 1.4, duration: 0.1 },
+    { op: "place", layers: ["word"], around: "clip-subject" },
+  ] });
+  assert.match(hidden.text, /over the hold 1\.1-1\.9 s \(4 moments; /, hidden.text);
+  assert.doesNotMatch(hidden.text, /worst moment \d+% at 1\.[5-9] s/, hidden.text);
 });
 
 test("frame steps a camera group onto a region of a layer, then eases on, and check takes the cut as a cut", async () => {

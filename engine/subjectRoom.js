@@ -26,6 +26,38 @@ export function sharePathAt(path, t) {
   return a.slice(1).map((value, at) => value + (b[at + 1] - value) * share);
 }
 
+/**
+ * A cut_out copy's subject at scene second `t` in shares of its box ([x0, y0, x1, y1]): its
+ * subjectPath then, else its box around every frame (subjectBox). Null when it has neither.
+ */
+export function cutoutShares(layer, t) {
+  const shares = sharePathAt(layer?.subjectPath, t) ?? layer?.subjectBox;
+  return Array.isArray(shares) && shares.length === 4 ? shares : null;
+}
+
+/**
+ * The one subject box of a cut_out copy at scene second `t`, in scene pixels ({x0, y0, x1, y1}, the
+ * box around its four corners): cutoutShares drawn with the layer's world `matrix` (parents, scale
+ * and punch-ins included) over its box `size` ({width, height}) then. check's type_covered (through
+ * kinoTimeline's samples) and place {around} (cutoutOnScene) both measure it here. Null without a
+ * subject or a size.
+ */
+export function cutoutSubjectBox(layer, t, matrix, size) {
+  const shares = cutoutShares(layer, t);
+  if (!shares || !(size?.width > 0) || !(size?.height > 0)) return null;
+  const [a, b, c, d] = shares;
+  const corners = [[a, b], [c, b], [c, d], [a, d]].map(([x, y]) => point(matrix, x * size.width, y * size.height));
+  const xs = corners.map((corner) => corner.x), ys = corners.map((corner) => corner.y);
+  return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+}
+
+/** cutoutSubjectBox of `layer` in `scene` at scene second `t`, its matrix and size evaluated then. */
+export function cutoutOnScene(scene, layer, t) {
+  const evaluate = (item) => evaluateLayer(item, t);
+  const state = evaluate(layer);
+  return cutoutSubjectBox(layer, t, worldMatrix(layer, scene.layers ?? [], evaluate), state);
+}
+
 const area = (box) => Math.max(0, box.x1 - box.x0) * Math.max(0, box.y1 - box.y0);
 const overlap = (a, b) => area({ x0: Math.max(a.x0, b.x0), y0: Math.max(a.y0, b.y0), x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1) });
 const union = (boxes) => ({ x0: Math.min(...boxes.map((box) => box.x0)), y0: Math.min(...boxes.map((box) => box.y0)), x1: Math.max(...boxes.map((box) => box.x1)), y1: Math.max(...boxes.map((box) => box.y1)) });

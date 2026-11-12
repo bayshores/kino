@@ -46,9 +46,22 @@ function retimePath(animation, before, after) {
     ...(moved.length > 2 ? { keys: moved.map((key) => ({ t: Math.min(1, (key.time - start) / duration), value: { path: key.path } })) } : { keys: undefined }) };
 }
 
-/** Moves the cut-outs of clip `after` (was `before`) in `scene` with its new timing. Changes them in place. */
+// A cut-out's subject path (scene seconds, place {around} reads it) moved to the times its file
+// moments show with Play fields `after` (they showed with `before`); samples no longer shown go.
+function retimeSubjectPath(layer, before, after) {
+  const path = layer.subjectPath.map(([time, ...box]) => [mediaSceneTime(after, mediaSoundTime(before, time)), ...box])
+    .filter(([time]) => time !== null).map(([time, ...box]) => [Math.round(time * 1000) / 1000, ...box]).sort((a, b) => a[0] - b[0]);
+  if (path.length) layer.subjectPath = path;
+  else delete layer.subjectPath;
+}
+
+/**
+ * Moves the cut-outs of clip `after` (was `before`) in `scene` with its new timing, and the subject
+ * path of a cut-out copy retimed on its own. Changes them in place.
+ */
 export function followClipTiming(scene, before, after) {
   if ((after.type !== "video" && after.type !== "image") || !playChanged(before, after)) return;
+  if (after.cutoutOf && Array.isArray(after.subjectPath)) retimeSubjectPath(after, before, after);
   for (const layer of scene.layers) {
     if (layer.cutoutOf !== after.id || layer.id === after.id) continue;
     if (layer.type === "path") {
@@ -74,14 +87,8 @@ export function followClipTiming(scene, before, after) {
     // A copy that still had the clip's old timing takes the new one (one retimed on its own keeps its own).
     if (PLAY_KEYS.every((key) => same(layer[key], before[key]))) {
       for (const key of PLAY_KEYS) if (after[key] !== undefined) layer[key] = structuredClone(after[key]);
-      // Its subject's path (scene seconds, place {around} reads it) moves to the times the clip
-      // now shows the same file moments; samples it no longer shows go.
-      if (Array.isArray(layer.subjectPath)) {
-        const path = layer.subjectPath.map(([time, ...box]) => [mediaSceneTime(after, mediaSoundTime(before, time)), ...box])
-          .filter(([time]) => time !== null).map(([time, ...box]) => [Math.round(time * 1000) / 1000, ...box]).sort((a, b) => a[0] - b[0]);
-        if (path.length) layer.subjectPath = path;
-        else delete layer.subjectPath;
-      }
+      // Its subject's path moves to the times the clip now shows the same file moments.
+      if (Array.isArray(layer.subjectPath)) retimeSubjectPath(layer, before, after);
     }
   }
 }
