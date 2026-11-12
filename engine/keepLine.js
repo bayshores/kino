@@ -1,7 +1,7 @@
 // keep_line: one spoken line of a clip stays in the edit. The rest of that layer's sound is
 // silenced, a small subtitle shows the line, and the music dips under it.
 //
-//   keep_line {sceneId, layerId, line? | from?, to?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?, dropout?, transcript?, levels?, beats?}
+//   keep_line {sceneId, layerId, line? | from?, to?, text?, subtitle?, look?, name?, duckId?, duckNone?, dip?, dropout?, wait?, transcript?, levels?, beats?}
 //
 //   line      the words to keep, found in the clip's transcript as add_captions {speech} reads it
 //   from, to  or a stretch in scene seconds (works with no transcript, for speech in another language)
@@ -16,7 +16,8 @@
 //             mix under the line at that music's level (mixLevels.js lineOverMusic); unmeasured, 0.7
 //             of the music's volume (about 3 dB) and the line at -16 LUFS. The release ends on the
 //             song's next beat (beats {layerId: beat analysis}, put in by the agent service).
-//   dropout   true: the music leaves for the line and hits back on the next downbeat
+//   dropout   true: the music leaves for the line and hits back on the next downbeat within wait (default half a bar), else the next beat
+//   wait      0 to 4 s: how long the music may stay out for the downbeat (with dropout)
 // The receipt's mix {line, around, under, change} (LUFS, LU) says the total under the line next to
 // the 2 s around, for any dip, given or default: a fact, never a refusal.
 //
@@ -211,14 +212,25 @@ function lineOverMusicAt(scene, owner, musicLayer, start, end, operation) {
  * the line's fade down. `analysis` is the song file's beat analysis (operation.beats, put in by the
  * agent service). Null without beats, or when that beat is past the scene's end.
  */
-function returnTime(scene, musicLayer, analysis, end, dropout) {
+function returnTime(scene, musicLayer, analysis, end, dropout, wait) {
   if (!Array.isArray(analysis?.beats) || !analysis.beats.length) return null;
   const range = mediaPlaybackRange(musicLayer, scene.duration);
   if (!range || range.remapped) return null;
-  const times = dropout ? barLines(analysis)?.lines : analysis.beats;
+  const inScene = (time) => range.start + (time - range.offset);
+  const open = (time) => time < Math.min(scene.duration, range.end) - 0.01;
   const earliest = end + (dropout ? DOWN_PAD : MIN_RELEASE);
-  const at = (times ?? []).map((time) => range.start + (time - range.offset)).find((time) => time >= earliest);
-  return at !== undefined && at < Math.min(scene.duration, range.end) - 0.01 ? { at: round(at) } : null;
+  const nextBeat = analysis.beats.map(inScene).find((time) => time >= earliest);
+  if (!dropout) return nextBeat !== undefined && open(nextBeat) ? { at: round(nextBeat) } : null;
+  // dropout: the downbeat when it comes within `wait` of the line (default half a bar), else the next beat.
+  // The silence a human cut left before the music came back was 0.22 s (a reference edit); a downbeat
+  // 1.9 s later (run 8) left the line in a hole.
+  const down = (barLines(analysis)?.lines ?? []).map(inScene).find((time) => time >= earliest);
+  const spacing = analysis.beats.slice(1).map((time, index) => time - analysis.beats[index]).filter((gap) => gap > 0).sort((a, b) => a - b);
+  const limit = Number.isFinite(wait) ? wait : 2 * (spacing[Math.floor(spacing.length / 2)] ?? 0);
+  const downOk = down !== undefined && open(down);
+  if (downOk && down - end <= limit + 1e-6) return { at: round(down), kind: "downbeat" };
+  if (nextBeat !== undefined && open(nextBeat)) return { at: round(nextBeat), kind: "beat", downbeat: downOk ? round(down) : null };
+  return downOk ? { at: round(down), kind: "downbeat" } : null;
 }
 
 // dropout: the music stays out until `at`, then comes back in HIT_IN seconds ending on it.
@@ -318,6 +330,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
   // The music dips under the kept stretches only (the words of the other speech are silent now).
   const music = musicOf(scene, layer, operation);
   if (operation.dropout !== undefined && typeof operation.dropout !== "boolean") fail("dropout is true (the music leaves for the line and comes back on the next downbeat) or false.");
+  if (operation.wait !== undefined && (typeof operation.wait !== "number" || !(operation.wait >= 0 && operation.wait <= 4))) fail("wait is how many seconds the music may stay out for the next downbeat, 0 to 4 (default half a bar; past it the music hits back on the next beat).");
   if (operation.dropout && operation.dip !== undefined) fail("give dip or dropout:true, not both: dropout takes the music out under the line.");
   let duck = null;
   let mix = null;
@@ -344,12 +357,14 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     for (const { piece, play, ranges: stretches } of under)
       speech[piece.id] = { words: stretches.map((item) => ({ text: "line", start: round(mediaSoundTime(piece, Math.max(item.start, play.start))), end: round(mediaSoundTime(piece, Math.min(item.end, play.end))), p: 1 })) };
     // The release ends on the song's next beat (dropout: the music hits back on the next downbeat).
-    const back = returnTime(scene, music.layer, operation.beats?.[music.layer.id], end, operation.dropout);
+    const back = returnTime(scene, music.layer, operation.beats?.[music.layer.id], end, operation.dropout, operation.wait);
     const fadeUp = back ? round(back.at - end) : undefined;
     duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(fadeUp !== undefined ? { fadeUp } : {}) });
     if (operation.dropout && back) hitBack(scene, music.layer, end, back.at);
-    if (back) notes.push(operation.dropout ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
+    if (back && operation.dropout && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after: wait:${Math.min(4, Math.ceil(back.downbeat - end))} waits for it` : ""})`);
+    else if (back) notes.push(operation.dropout ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
     else if (operation.dropout) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
+    if (operation.wait !== undefined && !operation.dropout) notes.push("wait is ignored without dropout:true (it is how long the music stays out for the next downbeat)");
     if (!operation.dropout && operation.dip === undefined && over) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
   } else {
     for (const entry of kept) delete entry.piece.voiceLevel;
