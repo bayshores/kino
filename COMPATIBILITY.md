@@ -1081,8 +1081,11 @@ How to read it:
 - **Loudness**: Verified on generated audio. Renders with sound report LUFS and true peak, limit to
   -1 dBTP and warn with the loudest moment. Evidence: `backend/audio-levels.test.mjs`.
 - **Loudness targets**: Verified on generated audio. Every mp4, webm and mov render brings the mix to
-  `loudness` web -14, podcast -16 or broadcast -23 LUFS with one plain gain, so lines keep their
-  balance; a peak that would need over 6 dB of limiting holds the gain and is named. Checks warn on
+  `loudness` auto (default: a song-led mix keeps the song's own LUFS when over -14, otherwise -14; the
+  reply says which rule applied), web -14, podcast -16 or broadcast -23 LUFS with one plain gain, so
+  lines keep their balance; a peak that would need over 6 dB of limiting holds the gain and is named.
+  A kept line the +12 dB lift cannot bring to the music gets the music out under it, with the shortfall
+  in LU and the `dip:` that holds the mix in the note. Checks warn on
   peak (`audioPeak`) and target (`audioLoudness`). Volume goes to 4 (+12 dB). Evidence:
   `backend/audio-levels.test.mjs`, `engine/volumeAnimation.test.js`. Gap: the dashboard preview mix is
   not leveled and plays volume at most 1.

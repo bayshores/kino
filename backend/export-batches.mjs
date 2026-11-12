@@ -100,7 +100,7 @@ function exportOptions(value = {}) {
   if (options.draftWidth !== undefined && (!Number.isInteger(options.draftWidth) || options.draftWidth < 16 || options.draftWidth > 7680))
     throw requestError("Draft width must be a whole number of pixels from 16 to 7680.");
   if (options.loudness !== undefined && !LOUDNESS_OPTIONS.includes(options.loudness))
-    throw requestError(`Loudness is one of ${LOUDNESS_OPTIONS.join(", ")} (web -14 LUFS, podcast -16, broadcast -23, off keeps the mix's own).`);
+    throw requestError(`Loudness is one of ${LOUDNESS_OPTIONS.join(", ")} (auto: a song-led mix keeps the song's own level when over -14, otherwise web; web -14 LUFS, podcast -16, broadcast -23, off keeps the mix's own).`);
   if (options.imageDPIRatio !== undefined && options.format !== "lottie")
     throw requestError("Image resolution applies only to Lottie exports.");
   if (options.imageDPIRatio !== undefined && !["1x", "2x", "3x", "original"].includes(options.imageDPIRatio))
@@ -187,7 +187,8 @@ export function sceneOptions(options, scene) {
   };
   // Every video's sound, drafts too, is brought to the web's -14 LUFS unless told otherwise, so a
   // draft that gets shared or judged plays at the level the final will.
-  const loudness = options.loudness ?? "web";
+  // "auto" picks the song's own level for a song-led mix and web otherwise (audio-levels.mjs mixLead).
+  const loudness = options.loudness ?? "auto";
   if (loudness && ["mp4", "webm", "mov"].includes(options.format)) result.loudness = loudness;
   else delete result.loudness;
   delete result.size;
@@ -233,7 +234,9 @@ function validationOptions(job, output) {
     ...(format === "png" ? {} : { fps, frameCount, duration: frameCount / fps }),
     ...(typeof output.hasAudio === "boolean" ? { hasAudio: output.hasAudio } : {}),
     // The sound's loudness target, so the file check warns when the encoded master misses it.
-    ...(output.hasAudio && LOUDNESS_TARGETS[job.options.loudness] !== undefined ? { targetLufs: LOUDNESS_TARGETS[job.options.loudness] } : {}),
+    // The target the export used (a song-led mix's is the song's own, not in LOUDNESS_TARGETS).
+    ...(output.hasAudio && (output.loudness?.targetLufs ?? LOUDNESS_TARGETS[job.options.loudness]) !== undefined
+      ? { targetLufs: output.loudness?.targetLufs ?? LOUDNESS_TARGETS[job.options.loudness] } : {}),
   };
 }
 

@@ -65,6 +65,9 @@ export function levelGain(lufs, target = VOICE_TARGET_LUFS) {
 export const LINE_OVER_BED = VOICE_OVER_BED;
 // A dip goes no deeper than this (dB): music under -20 dB sounds switched off (audioDucking DIP_FLOOR).
 const LINE_DIP_FLOOR_DB = -20;
+// A mix within this many LU under the music around a line counts as held (1.5 LU is a guess: about
+// the smallest step of loudness a listener names; the run 8 mix under its one kept line fell 2 to 5 LU).
+export const MIX_HOLD_LU = 1.5;
 const powerSum = (...values) => 10 * Math.log10(values.filter(Number.isFinite).reduce((sum, value) => sum + 10 ** (value / 10), 0));
 
 /**
@@ -86,7 +89,18 @@ export function lineOverMusic({ line, around, under }, { dropDb, dropout = false
     : Number.isFinite(dropDb) ? Math.min(0, dropDb)
     : Math.max(LINE_DIP_FLOOR_DB, Math.min(0, heard - LINE_OVER_BED - under));
   const total = powerSum(heard, under + dipDb);
-  return { target: round1(target), gain, heard: round1(heard), dipDb: Number.isFinite(dipDb) ? round1(dipDb) : dipDb, total: round1(total) };
+  const result = { target: round1(target), gain, heard: round1(heard), dipDb: Number.isFinite(dipDb) ? round1(dipDb) : dipDb, total: round1(total) };
+  // A line the gain cap (MAX_LEVEL_DB) keeps under a target the music sets: `short` LU. Under the
+  // -16 floor the music is not the reason, so nothing is reported there.
+  const short = target > VOICE_TARGET_LUFS ? round1(target - heard) : 0;
+  if (short > 0.05) {
+    result.short = short;
+    // The dip at which the line and the dipped music still sum to MIX_HOLD_LU under the music around
+    // it (a mix that holds to within a step the ear misses); absent when the line alone is louder.
+    const room = 10 ** ((around - MIX_HOLD_LU) / 10) - 10 ** (heard / 10);
+    if (!dropout && room > 0) result.holdDb = round1(Math.min(0, 10 * Math.log10(room) - under));
+  }
+  return result;
 }
 
 // A clip whose spoken lines need leveling gains more than this apart is leveled line by line.

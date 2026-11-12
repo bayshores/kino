@@ -420,6 +420,13 @@ test("keep_line over measured music levels the line against the music around it,
   assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 7.5), volumeAt(out.music, 8.1)], [0, 0, 1]);
   assert.equal(out.clip.voiceLevel, -13, "alone, the line holds the music's level");
   assert.throws(() => run({ dropout: true, dip: 0.5 }), /dip or dropout/);
+  // A line 20 LU under the music cannot be lifted to it (+12 dB at most): with no dip or dropout given
+  // the music goes out under it, and the note gives the shortfall and the dip that would hold the mix.
+  const faint = run({ levels: { clip: flat(-33, 12), music: flat(-13, 30) } });
+  assert.deepEqual([volumeAt(faint.music, 5), volumeAt(faint.music, 8.1)], [0, 1], "music out under the line, back on the downbeat");
+  assert.ok(faint.report.notes.some((note) => /is 7(\.\d)? LU short of the music at the \+12 dB lift .*music goes out under it; dip:0\.\d+ keeps the music in and holds the mix/.test(note)), faint.report.notes.join(" | "));
+  // A given dip is kept as today (no music-out), and its mix change is printed.
+  assert.equal(Math.round(volumeAt(run({ levels: { clip: flat(-33, 12), music: flat(-13, 30) }, dip: 0.35 }).music, 5) * 100) / 100, 0.35);
   // Unmeasured: the old 0.7 dip and no line level.
   const old = run({ levels: {}, beats: {} });
   assert.equal(volumeAt(old.music, 5), 0.7);

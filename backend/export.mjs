@@ -21,7 +21,8 @@ import { renderRange } from "./render-range.mjs";
 import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTION_SAMPLES } from "./render-quality.mjs";
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
-import { fitLoudness, loudMixWarning, masterLimiter, measureMixLevels } from "./audio-levels.mjs";
+import { fitLoudness, loudMixWarning, masterLimiter, measureMixLevels, mixLead } from "./audio-levels.mjs";
+import { isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -779,6 +780,21 @@ export async function cleanedVoiceLevel(path, offset, length, { curves = exportC
   return { chain, leveling: cleanedLevels.get(key) };
 }
 
+// Whether `path` is a song: its saved .beats (never analyzed at render) has a steady tempo, and it is
+// no sound effect. Used by the "auto" loudness target (audio-levels.mjs mixLead).
+async function isSongFile(path) {
+  try {
+    if (await isSoundEffect(path)) return false;
+    return steadyBeat(JSON.parse(await readFile(`${path}.beats`, "utf8")));
+  } catch { return false; }
+}
+
+// The seconds of leveled speech a spoken clip plays: the kept stretches (keep_line) or its heard words.
+async function spokenSeconds(path, offset, length, kept) {
+  const spans = kept.spans ?? await heardWordSpans(path, offset, length);
+  return spans.reduce((sum, span) => sum + Math.max(0, span.end - span.start), 0);
+}
+
 /**
  * The function that finishes a clip with its layer's volume. A clip whose layer has Volume
  * animations gets a volume track (volume-track.mjs, written into `directory`) that the mix
@@ -807,6 +823,10 @@ function soundClipMaker(directory, sceneDuration, signal) {
     const leveling = cleaned ? cleaned.leveling : spoken ? await voiceLevelDb(clip.path, clip.offset ?? 0, length, { signal, ...kept }) : null;
     if (cleaned) clip = { ...clip, voiceChain: cleaned.chain };
     if (leveling) clip = { ...clip, ...leveling };
+    // What "auto" loudness reads (planMasterLimiter): a song is flagged from its saved .beats, and a
+    // leveled voice says how many seconds of words it plays.
+    if (await isSongFile(clip.source?.path ?? clip.path)) clip = { ...clip, song: true };
+    else if (leveling || cleaned) clip = { ...clip, voiceSeconds: await spokenSeconds(clip.path, clip.offset ?? 0, length, kept) };
     if (!animatesVolume(layer)) return { ...clip, volume };
     const track = await writeVolumeTrack(join(directory, `volume-${volumeTracks++}.f32`), layer, clip.start, length);
     return { ...clip, volume: track.peak, volumeTrack: { ...track, sampleRate: await audioSampleRate(clip.path, signal) } };
@@ -2818,6 +2838,37 @@ function audioCodecArgs(format, options) {
 }
 
 /**
+ * What loudness target "auto" means for these `clips` (audio-levels.mjs mixLead): each song file's
+ * played seconds, loudest volume and own loudness over the stretches played (its saved .lufs curve;
+ * fit_music pieces of one file count together), and the seconds of leveled speech.
+ */
+async function autoLoudness(clips, duration, start, signal) {
+  const files = new Map();
+  let voiceSeconds = 0;
+  for (const clip of clips) {
+    voiceSeconds += clip.voiceSeconds ?? 0;
+    if (!clip.song) continue;
+    // A remapped clip (speed, reverse) is a made WAV: its song is the source file, read over the same length (a close guess).
+    const path = clip.source?.path ?? clip.path;
+    const from = Math.max(clip.start, start);
+    const to = clip.start + clipLength(clip, start + duration);
+    if (!(to > from)) continue;
+    const origin = (clip.source ? clip.source.offset : clip.offset) ?? 0;
+    const file = files.get(path) ?? { seconds: 0, volume: 0, spans: [] };
+    file.seconds += to - from;
+    file.volume = Math.max(file.volume, clip.volume);
+    file.spans.push({ start: origin + from - clip.start, end: origin + to - clip.start });
+    files.set(path, file);
+  }
+  const songs = [];
+  for (const [path, file] of files) {
+    const curve = await exportCurves.get(path, signal).catch(() => null);
+    songs.push({ seconds: file.seconds, volume: file.volume, lufs: loudnessOver(curve, file.spans) });
+  }
+  return mixLead({ duration, songs, voiceSeconds });
+}
+
+/**
  * Prepares the master limiter before the export encodes its sound. It measures the mix (after
  * ducking and every Volume animation) without the limiter, brings it to the `options.loudness`
  * target when one is set, then fits the limiter's ceiling to this format's sound encoder
@@ -2831,7 +2882,9 @@ async function planMasterLimiter(audioInputs, duration, format, options, directo
   const inputs = audioInputArgs(clips);
   const graph = audioMixGraph(clips, duration, format, 0, start);
   const levels = await measureMixLevels(inputs, graph, signal);
-  const sound = await fitLoudness(inputs, graph, levels, options.loudness, { codecArgs: audioCodecArgs(format, options), format, directory, signal });
+  // "auto": a song-led mix keeps the song's own level, anything else gets the web's (mixLead).
+  const lead = options.loudness === "auto" ? await autoLoudness(clips, duration, start, signal) : null;
+  const sound = await fitLoudness(inputs, graph, levels, lead ? lead.target : options.loudness, { codecArgs: audioCodecArgs(format, options), format, directory, signal }, lead ?? {});
   const { loudness } = sound;
   // A clip with a Volume animation is named with its volume at the loudest moment.
   const sceneLevels = { ...levels, loudestAt: levels.loudestAt === null ? null : levels.loudestAt + start };
@@ -3480,8 +3533,8 @@ async function exportSceneNow(
         limiterCeiling = limiter.ceiling;
         if (limiter.loudness) {
           loudnessFilter = limiter.loudness.filter;
-          const { target, targetLufs, gainDb, held, loudestAt } = limiter.loudness;
-          exportFacts.loudness = { target, targetLufs, gainDb, held, loudestAt };
+          const { target, targetLufs, gainDb, held, loudestAt, why } = limiter.loudness;
+          exportFacts.loudness = { target, targetLufs, gainDb, held, loudestAt, ...(why ? { why } : {}) };
         }
         if (limiter.warning) warnings.push(limiter.warning);
       } catch (error) {
