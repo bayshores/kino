@@ -86,22 +86,34 @@ export function treatmentsProblem(value, current, origin = null, asks = []) {
       if (typeof text !== "string" || !text.trim()) problems.push(`${where}.${key} is 1 to ${TREATMENT_LIMITS[key]} characters${FIELD_HINTS[key] ?? ""}.`);
       else if (text.trim().length > TREATMENT_LIMITS[key]) problems.push(`${where}.${key} is ${text.trim().length} characters, limit ${TREATMENT_LIMITS[key]}.`);
     }
-    if (typeof entry.p !== "number" || !Number.isFinite(entry.p) || entry.p < 0 || entry.p > 1) problems.push(`${where}.p is 0 to 1: how typical this story is.`);
+    if (pNumber(entry.p) === null) problems.push(`${where}.p is a number 0 to 1 (${entry.p === undefined ? "missing" : `it is ${JSON.stringify(entry.p)}`}): how typical this story is.`);
   }
-  if (problems.length) return problem(problems.length > 1 ? `${problems.join(" ")} (${problems.length} problems)` : problems[0]);
-  if (new Set(value.map((entry) => entry.idea.trim().toLowerCase())).size < TREATMENT_COUNT) return problem("Each treatment needs its own idea.");
+  // The whole-list rules are checked in the same pass, on the entries that have the text, so one
+  // answer names every fault (field limits, shared ideas, whos and types) and one resend fixes all.
+  const texts = (key) => value.filter((entry) => isRecord(entry) && typeof entry[key] === "string" && entry[key].trim());
+  const ideas = texts("idea");
+  if (ideas.length > 1 && new Set(ideas.map((entry) => entry.idea.trim().toLowerCase())).size < ideas.length) problems.push("Each treatment needs its own idea.");
   // At least 3 different whos: 5 stories about one tool are one story told 5 ways.
+  const whos = texts("who");
   const counts = new Map();
-  for (const entry of value) counts.set(whoKey(entry.who), (counts.get(whoKey(entry.who)) ?? 0) + 1);
-  if (counts.size < WHO_MIN) {
+  for (const entry of whos) counts.set(whoKey(entry.who), (counts.get(whoKey(entry.who)) ?? 0) + 1);
+  if (whos.length === TREATMENT_COUNT && counts.size < WHO_MIN) {
     const [key, count] = [...counts].sort((a, b) => b[1] - a[1])[0];
-    const who = value.find((entry) => whoKey(entry.who) === key).who.trim();
-    return problem(`treatments: ${count} of ${TREATMENT_COUNT} share who "${who}"; give at least ${WHO_MIN} different whos.`);
+    const who = whos.find((entry) => whoKey(entry.who) === key).who.trim();
+    problems.push(`treatments: ${count} of ${TREATMENT_COUNT} share who "${who}"; give at least ${WHO_MIN} different whos (now ${counts.size}).`);
   }
   // At least 3 different types: picking a treatment picks its look, so 5 of one look is no choice.
-  const types = new Set(value.map((entry) => entry.type.trim().toLowerCase()));
-  if (types.size < TYPE_MIN) return problem(`treatments: only ${types.size} different type directions; give at least ${TYPE_MIN}, from different families, so a pick picks a look.`);
+  const typed = texts("type");
+  const types = new Set(typed.map((entry) => entry.type.trim().toLowerCase()));
+  if (typed.length === TREATMENT_COUNT && types.size < TYPE_MIN) problems.push(`treatments: only ${types.size} different type directions; give at least ${TYPE_MIN}, from different families, so a pick picks a look.`);
+  if (problems.length) return problem(problems.length > 1 ? `${problems.join(" ")} (${problems.length} problems) Resend all ${TREATMENT_COUNT} with these fixed.` : problems[0]);
   return null;
+}
+
+/** A treatment's p as a number from 0 to 1 (a number written as text counts), else null. */
+function pNumber(value) {
+  const number = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
+  return typeof number === "number" && Number.isFinite(number) && number >= 0 && number <= 1 ? number : null;
 }
 
 /**
@@ -146,7 +158,7 @@ export function cleanTreatments(value, current) {
   // treatmentsProblem; rhythm only for a list written before ending.
   const optional = (entry, key) => (typeof entry[key] === "string" ? { [key]: entry[key].trim() } : {});
   const list = value.map((entry) => ({ idea: entry.idea.trim(), ...optional(entry, "who"), ...optional(entry, "tension"), ...optional(entry, "turn"),
-    move: entry.move.trim(), ...optional(entry, "ending"), ...optional(entry, "type"), ...optional(entry, "rhythm"), p: Math.round(entry.p * 100) / 100, ...optional(entry, "source") }));
+    move: entry.move.trim(), ...optional(entry, "ending"), ...optional(entry, "type"), ...optional(entry, "rhythm"), p: Math.round((pNumber(entry.p) ?? entry.p) * 100) / 100, ...optional(entry, "source") }));
   const dropped = list.reduce((best, entry, index) => (entry.p > list[best].p ? index : best), 0);
   return { list, dropped, shown: shownOf(list, dropped), picked: null };
 }

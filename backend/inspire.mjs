@@ -360,8 +360,36 @@ export function fitNote(ref, plan = {}) {
 
 /** The longest take a save keeps (characters). */
 export const TAKE_LIMIT = 160;
-/** A save's take, cleaned: one line, at most TAKE_LIMIT characters, no trailing punctuation; "" when none. */
-export const cleanTake = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, TAKE_LIMIT).replace(/[\s.,;:!?]+$/, "");
+const flatTake = (text) => String(text ?? "").replace(/\s+/g, " ").trim();
+/**
+ * A save's take, cleaned: one line, at most TAKE_LIMIT characters, no trailing punctuation; "" when
+ * none. Over the limit, the words are cut and the stretch it names (two times in the reference) is
+ * kept at the end, so the cut never takes the stretch a long reference's take must name.
+ */
+export function cleanTake(text) {
+  const flat = flatTake(text);
+  const tidy = (value) => value.replace(/[\s.,;:!?]+$/, "");
+  if (flat.length <= TAKE_LIMIT) return tidy(flat);
+  const match = new RegExp(RANGE, "i").exec(flat);
+  if (!match) {
+    // At a whole word, unless one word alone is longer than the limit.
+    const whole = flat.slice(0, TAKE_LIMIT + 1).replace(/\s+\S*$/, "");
+    return tidy(whole && whole.length <= TAKE_LIMIT ? whole : flat.slice(0, TAKE_LIMIT));
+  }
+  const words = tidy(`${flat.slice(0, match.index)} ${flat.slice(match.index + match[0].length)}`.replace(/(?:[\s,;]*\b(?:from|to)\b)+[\s,;.]*$/i, "").replace(/\s+/g, " ").trim());
+  const stretch = `, from ${match[0]}`;
+  const room = Math.max(0, TAKE_LIMIT - stretch.length);
+  // The words end at a whole word.
+  const head = words.length <= room ? words : words.slice(0, room).replace(/\s+\S*$/, "");
+  return `${tidy(head)}${stretch}`;
+}
+/** What to say when cleanTake shortened a take: its length and the limit, and what was kept; "" when it fit. */
+export function takeCutNote(text) {
+  const length = flatTake(text).length;
+  if (length <= TAKE_LIMIT) return "";
+  const kept = cleanTake(text);
+  return `The take was ${length} characters and the limit is ${TAKE_LIMIT}: kept "${kept}"${takeStretch(kept) ? " (the stretch it names is kept)" : ""}.`;
+}
 
 // A time in a take: m:ss or h:mm:ss, or seconds with their unit ("62s").
 const CLOCK_TIME = "(?:\\d+:)?\\d{1,2}:\\d\\d";
@@ -1880,7 +1908,7 @@ export function createInspire(deps) {
    * for an unsaved reference, a time off the list (other kinds) or outside the reference, unknown
    * kinds or words that are empty or over 120 characters. Resolves { moments, seen, offList, frameAt }.
    */
-  async function setSeen(projectId, id, { at, kinds, words }) {
+  async function setSeen(projectId, id, { at, kinds, words, strip: shownStrip = false }) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
     if (!state.saved.includes(id)) throw new Error(`${id} is not saved in this project`);
     const record = await load(id);
@@ -1890,11 +1918,12 @@ export function createInspire(deps) {
     // The reference's length; a record without one ends at its last kept strip.
     const seconds = Number.isFinite(record?.numbers?.seconds) ? record.numbers.seconds
       : Math.max(0, ...(record?.strips ?? []).map((strip) => strip.at).filter(Number.isFinite));
-    if (moment === undefined && moments.length && new Set(kinds).has("type") && Number.isFinite(at) && at >= 0 && at <= seconds) {
-      moment = Math.round(at * 10) / 10;
+    if (moment === undefined && moments.length && (shownStrip || new Set(kinds).has("type")) && Number.isFinite(at) && at >= 0 && at <= seconds) {
+      // A strip the agent was shown keeps its own printed time; a type label is rounded to 0.1 s.
+      moment = shownStrip ? Math.round(at * 100) / 100 : Math.round(at * 10) / 10;
       offList = true;
     }
-    if (moment === undefined) throw new Error(moments.length ? `${at} s is not one of its moments (${moments.join(", ")}); kind type may be at any time from 0 to ${Math.round(seconds * 10) / 10} s` : `${id} has no frame strips to label`);
+    if (moment === undefined) throw new Error(moments.length ? `${at} s is not one of its moments (${moments.join(", ")}); kind type may be at any time from 0 to ${Math.round(seconds * 10) / 10} s, and any kind at a strip time a look of this reference printed` : `${id} has no frame strips to label`);
     const kept = [...new Set(kinds)];
     if (!kept.length || kept.some((kind) => !ONSCREEN_KINDS.includes(kind))) throw new Error(`kinds are ${ONSCREEN_KINDS.join(", ")}`);
     const text = String(words ?? "").replace(/\s+/g, " ").trim();
@@ -1917,8 +1946,8 @@ export function createInspire(deps) {
   }
 
   /**
-   * Where each saved reference stands: { [id]: { moments, labeled, open } } with its 6 moments,
-   * how many carry a label and the first without one (null when all do or it has none).
+   * Where each saved reference stands: { [id]: { moments, labeled, open, left } } with its 6 moments,
+   * how many carry a label, the first without one (null when all do or it has none) and all without.
    */
   async function seenStatus(projectId) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
@@ -1926,7 +1955,8 @@ export function createInspire(deps) {
     for (const id of state.saved) {
       const moments = await momentsOf(id);
       const have = new Set((state.seen?.[id] ?? []).map((entry) => entry.at));
-      found[id] = { moments, labeled: moments.filter((at) => have.has(at)).length, open: moments.find((at) => !have.has(at)) ?? null };
+      const left = moments.filter((at) => !have.has(at));
+      found[id] = { moments, labeled: moments.length - left.length, open: left[0] ?? null, left };
     }
     return found;
   }

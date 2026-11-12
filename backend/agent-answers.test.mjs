@@ -12,7 +12,7 @@ import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
 import { EFFECTS } from "../engine/effects/catalog.js";
 import { effectDetailText, effectsListText } from "./agent/effects-help.mjs";
 import { movesLibraryText } from "./agent/blocks.mjs";
-import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
+import { nextCallOf, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
 let server;
@@ -178,6 +178,24 @@ test("add_layer: a top-level layer field goes into properties and is reported; o
   const unknown = await agent("edit", { ops: [{ op: "add_layer", layerType: "text", name: "other", shade: "#fff", properties: { text: "x" } }] });
   assert.equal(unknown.isError, true);
   assert.match(unknown.data.reason, /"shade" is not a field of add_layer or of a layer\. Did you mean shadow/);
+  const withStart = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", properties: { y: 730 } }, { op: "add_layer", layerType: "text", name: "other", start: 1, duration: 2, properties: { text: "x" } }] });
+  assert.match(withStart.data.reason, /"start", "duration" are not fields of add_layer or of a layer\..* A layer has no start or duration: its times are animations\. The retry keeps yours as \{preset:"show", start\} and \{preset:"hide"/);
+  // The offered fix changes only the fields that were wrong: the agent's own op (its name, text) is not
+  // replaced by the example, and its times are kept as a Show and a Hide at those seconds.
+  const retryCall = nextCallOf(withStart);
+  assert.deepEqual(retryCall.input.fix, { 1: { start: null, duration: null, animations: [{ preset: "show", start: 1 }, { preset: "hide", start: 3 }] } });
+  const resent = await agent("edit", retryCall.input);
+  assert.equal(resent.isError, undefined, resent.text);
+  assert.equal(findLayer(await saved(), "other").text, "x", "the op went in as sent, without the fields that were wrong");
+  assert.deepEqual(findLayer(await saved(), "other").animations.map((entry) => [entry.kind, entry.start]), [["show", 1], ["hide", 3]], "the layer cuts in at 1 s and out at 3 s");
+  // A Hide past the scene's end (4 s) is left out of the agent's op, never swapped for an add_animation example.
+  const late = await agent("edit", { ops: [{ op: "add_layer", layerType: "text", name: "late", start: 1, duration: 9, properties: { text: "y" } }] });
+  const lateAgain = await agent("edit", nextCallOf(late).input);
+  assert.match(lateAgain.data.reason, /Hide at 10 s is outside the scene, which lasts 4 s/);
+  assert.deepEqual(nextCallOf(lateAgain).input.fix, { 0: { animations: [{ preset: "show", start: 1 }] } });
+  assert.equal((await agent("edit", nextCallOf(lateAgain).input)).isError, undefined);
+  assert.equal(findLayer(await saved(), "late").text, "y");
+  assert.equal(findLayer(await saved(), "tagline").y, 730, "the other op of the edit went in too");
   const twice = await agent("edit", { ops: [{ op: "update_layer", layer: "tagline", text: "a", properties: { text: "b" } }] });
   assert.equal(twice.isError, true);
   assert.match(twice.data.reason, /text is given twice: at the top level and in properties/);

@@ -1818,6 +1818,15 @@ How to read it:
   ask reports ran, skipped or not reported. Not verified: a real agent starting a second agent.
 - **Gaps**: 9:16 app covered areas are third-party numbers; only 3D footage tested; a real session
   building and answering a board is not verified.
+- **Gate words**: Verified (tests). The gates before the first layer list all that is still needed, with
+  counts and one call (labels 3 of 18, 5 treatments with every problem, the lock's parts, a take's faults).
+  A seen label takes a strip time a look printed, `look {mode:"reference", seen}` labels in the same call,
+  a stop answers to its name, and a retry fix changes only the wrong field of your own op (add_layer
+  start and duration become a Show and a Hide at those seconds). A take over 160 characters is cut at a
+  whole word, keeps its stretch and says its length. Evidence: `backend/agent-brief.test.mjs`,
+  `backend/agent-answers.test.mjs`, `backend/agent-checkpoint.test.mjs`, `backend/inspire.test.mjs`.
+  Gap: no real agent session measured since; read_as has no your_call value.
+
 ## Dashboard
 
 The dashboard is the app's main window (`frontend/dashboard/`, `backend/dashboard-routes.mjs`,

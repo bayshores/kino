@@ -255,6 +255,8 @@ function textProblem(where, value, limit) {
 
 // The problem with one line, as { code, message, details? }, or null.
 function lineProblem(name, line, current, said = null) {
+  if (name === "pick")
+    return { code: "bad_input", message: `pick goes inside treatments: fields:{treatments:{pick:"A", why:"<why a viewer would retell it, 1 to 80 characters>"}} for your own pick, or {pick:"A", quote:"<their words>"} for theirs.`, details: { didYouMean: ["treatments"] } };
   if (!BRIEF_FIELDS.includes(name) && name !== "about")
     return { code: "bad_input", message: `${name} is not a brief line; the lines are ${BRIEF_FIELDS.join(", ")}, about, ask (their message), style (the style spec), treatments, length (seconds) and controls.`, details: { didYouMean: closest(name, [...BRIEF_FIELDS, "about", "ask", "style", "treatments", "length", "controls"]) } };
   if (line === null) {
@@ -942,11 +944,24 @@ function openParts(state, video) {
       else if (refs.length) open.push({ step: `study ${refs[0]}${refs.length > 1 ? ` +${refs.length - 1}` : ""} (look)`, refs, call: { tool: "look", input: { mode: "reference", ref: refs[0] } } });
       // Then label what each studied one shows on screen (numbers cannot see design): `seen`, 6 moments each.
       // The first REFERENCES_WANTED studied ones are labeled (reference_kinds needs 2 labeled references).
-      const unlabeled = saved.filter((id) => video.studied.includes(id)).slice(0, REFERENCES_WANTED).filter((id) => video.seenOpen?.[id] != null);
+      const wanted = saved.filter((id) => video.studied.includes(id)).slice(0, REFERENCES_WANTED);
+      const unlabeled = wanted.filter((id) => video.seenOpen?.[id] != null);
       if (unlabeled.length) {
         // Look at the moment first (setSeen refuses a moment that was not shown), then label it.
         const at = video.seenOpen[unlabeled[0]];
-        open.push({ step: `label ${unlabeled[0]}${unlabeled.length > 1 ? ` +${unlabeled.length - 1}` : ""} on screen (seen)`, call: { tool: "look", input: { mode: "reference", ref: unlabeled[0], t: at } } });
+        // How much is still needed, in one line: labels done of all, and the moments each reference has.
+        const counts = wanted.map((id) => video.seenCount?.[id]).filter((entry) => entry?.of > 0);
+        const total = counts.reduce((sum, entry) => sum + entry.of, 0);
+        const done = counts.reduce((sum, entry) => sum + entry.labeled, 0);
+        // References with different moment counts are named one by one ("6 + 4 moments"), never as a shared count.
+        const sizes = [...new Set(counts.map((entry) => entry.of))];
+        const per = sizes.length === 1 ? sizes[0] : null;
+        const amount = !total ? ""
+          : per !== null ? `: labels ${done} of ${total}, ${per} moment${per === 1 ? "" : "s"} for ${counts.length > 1 ? `each of ${counts.length} references` : "the reference"}`
+          : `: labels ${done} of ${total}, ${counts.map((entry) => entry.of).join(" + ")} moments in ${counts.length} references`;
+        // Each reference's moments still to label, so one answer names them all (video.seenCount[id].left).
+        const left = unlabeled.map((id) => ({ ref: id, at: video.seenCount?.[id]?.left?.length ? video.seenCount[id].left : [video.seenOpen[id]] }));
+        open.push({ step: `label ${unlabeled[0]}${unlabeled.length > 1 ? ` +${unlabeled.length - 1}` : ""} on screen (seen)${amount}`, left, call: { tool: "look", input: { mode: "reference", ref: unlabeled[0], t: at } } });
       }
     }
   }
@@ -1150,9 +1165,16 @@ export function lockNeeded(state, video = {}) {
   // No idea yet, or the bible is saved: the idea and its signature come first.
   const noIdea = !(style?.idea ?? state.brief.fields?.idea?.text ?? state.brief.treatments?.picked);
   const onlyIdea = noIdea || (style?.spine?.length && style?.fonts && Object.keys(style.fonts).length);
+  // Everything the lock still needs, in one list (the refusal says it at once): the idea and its
+  // signature, the spine, the fonts, then the person's approval or a waiver with a reason.
+  const left = lock === "missing"
+    // (An idea line the brief already has is carried into the call, so only a missing one is named.)
+    ? [!hasText(style?.idea) && !hasText(state.brief.fields?.idea?.text) && "idea", (noIdea || !style?.signatures?.length) && "signature", !style?.spine?.length && "spine", !(style?.fonts && Object.keys(style.fonts).length) && "fonts"].filter(Boolean)
+    : [];
+  left.push("approval or waiver");
   return lock === "missing"
-    ? { step: `lock direction: ${onlyIdea ? "idea + signature" : style?.spine?.length ? "style bible" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state, { video }) }
-    : { step: "play spine + style bible back; save their approval (no one watching: style {waived:\"<why>\"} instead)", call: lockCall(state, { approve: true }) };
+    ? { step: `lock direction: ${onlyIdea ? "idea + signature" : style?.spine?.length ? "style bible" : "spine + style bible"} (${video.layers} layers built)`, call: lockCall(state, { video }), left }
+    : { step: "play spine + style bible back; save their approval (no one watching: style {waived:\"<why>\"} instead)", call: lockCall(state, { approve: true }), left };
 }
 
 // A video the agent built, checked and looked at: past the brief's playback and plan steps.

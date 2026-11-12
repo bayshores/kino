@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
   dropNonEdits, dropReason, droppedText, originOf, originPhrase, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
-  cannotPlayLine, cannotPlayReason, cleanTake, fingerprintLines, fitNote, measuredDoubt, quietDoubt, takeSaysWhat, takeStretch, takeWithoutStretch, heardLinesText,
+  cannotPlayLine, cannotPlayReason, cleanTake, takeCutNote, fingerprintLines, fitNote, measuredDoubt, quietDoubt, takeSaysWhat, takeStretch, takeWithoutStretch, heardLinesText,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
 import { copiedRun } from "../engine/quality/rules/reference.js";
@@ -423,6 +423,15 @@ test("clock and the agent's lines", () => {
   assert.deepEqual(takeStretch("pacing, 1:02 to 1:20", 188), { from: 62, to: 80 });
   assert.deepEqual(takeStretch("type from 62s - 80s", 188), { from: 62, to: 80 });
   assert.deepEqual([takeStretch("type: 9:16 framing", 188), takeStretch("pacing: a cut every 0.5s", 188), takeStretch("pacing, 1:20 to 1:02", 188), takeStretch("pacing, 1:02 to 9:20", 188)], [null, null, null, null]);
+  // Over the limit the words are cut at a whole word and the stretch it names is kept; the note says the length and the limit.
+  const longTake = `pacing: ${"long holds with slow pushes ".repeat(8)}from 1:02 to 1:20`;
+  assert.equal(cleanTake(longTake).length <= 160 && cleanTake(longTake).endsWith(", from 1:02 to 1:20") && /slow, from/.test(cleanTake(longTake)), true);
+  assert.deepEqual(takeStretch(cleanTake(longTake), 188), { from: 62, to: 80 });
+  assert.match(takeCutNote(longTake), /^The take was \d+ characters and the limit is 160: kept "pacing: .*, from 1:02 to 1:20" \(the stretch it names is kept\)\.$/);
+  assert.match(takeCutNote(`pacing: ${"x ".repeat(100)}`), /^The take was 207 characters and the limit is 160: kept "pacing: x x/);
+  assert.equal(takeCutNote("pacing: long holds"), "");
+  // Without a stretch the cut also ends at a whole word.
+  assert.equal(cleanTake(`pacing: ${"abcdefghi ".repeat(20)}`), `pacing: ${"abcdefghi ".repeat(14)}abcdefghi`);
   assert.equal(takeWithoutStretch("pacing: long holds, from <m:ss> to <m:ss>"), "pacing: long holds");
   assert.equal(takeWithoutStretch("pacing: long holds, from 1:20 to 1:02"), "pacing: long holds");
   assert.equal(takeWithoutStretch("<structure, pacing: what>"), "");
