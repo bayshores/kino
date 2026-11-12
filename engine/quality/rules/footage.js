@@ -137,12 +137,13 @@ function playedStretch(scene, layer) {
  * Whether the agent looked at the file stretch [from, to] (file seconds) of `layer`:
  * `sourceLooks` is {layerId: {src, at: [file seconds]}} (look {mode:"source"}); a look counts when
  * it was of this same file and one of its moments lies in the stretch, give or take LOOK_REACH.
- * A mark made without that look is a guess from the layer's position, not a seen subject.
+ * A look through another layer of the same file counts too (a copy in another scene or shape shows
+ * the file the agent already saw). A mark made without that look is a guess from the layer's
+ * position, not a seen subject.
  */
 export function seenMark(layer, sourceLooks, from, to) {
-  const look = sourceLooks?.[layer.id];
-  if (!look || look.src !== layer.src) return false;
-  return (look.at ?? []).some((at) => at >= from - LOOK_REACH && at <= to + LOOK_REACH);
+  return Object.values(sourceLooks ?? {}).some((look) => look?.src === layer.src
+    && (look.at ?? []).some((at) => at >= from - LOOK_REACH && at <= to + LOOK_REACH));
 }
 
 const hasMarks = (layer) => layer.subjectBoxes?.src === layer.src && (layer.subjectBoxes.boxes?.length ?? 0) > 0;

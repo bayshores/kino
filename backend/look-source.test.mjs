@@ -158,6 +158,8 @@ test("variants {vary:\"format\"} composes a 16:9 footage scene again in 9:16, cr
   // A narrow subject (the face kino found, 13% of the width) marked on the first shot, and a layer of your own: the
   // next 9:16 crops shot 1 around the subject to fill the frame, and the layer comes along. (Its
   // title can still fail contrast over the brighter full-frame footage: a known gap, COMPATIBILITY.md.)
+  // The mark counts because the shot's source was looked at first (the 9:16 copy plays the same file).
+  await agent("look", { project: "reformat", mode: "source", layer: "shot-1", t: 0.1 });
   const marked = await agent("edit", { project: "reformat", ops: [
     { op: "mark_subject", layer: "shot-1", t: 0.1, box: [24, 22, 14, 26] },
     { op: "add_layer", scene: "s1", layerType: "rectangle", name: "tag", properties: { x: 1600, y: 80, width: 200, height: 80, fill: "#FFFFFF" } },
