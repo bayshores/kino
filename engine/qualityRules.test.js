@@ -1506,6 +1506,12 @@ test("text_glow: no glow on text", async () => {
     assert.ok(haloOf({ shadow }, size), `size ${size} keeps the halo`);
     await silent("text_glow", titled(shadow));
   }
+  // A 9:16 frame 720 wide reads glow at 2/3 the px: the halo follows the frame's scale.
+  for (const size of [20, 40, 60, 80, 120, 200]) {
+    const shadow = { color: "#000000d9", ...haloShadow(size, 720 / 1080) };
+    assert.ok(haloOf({ shadow }, size), `size ${size} keeps the halo at 720 wide`);
+    await silent("text_glow", scene({ width: 720, height: 1280, layers: [text("title", "Hello", { shadow })] }));
+  }
 });
 
 test("stacked_label: a small label right above a headline, not a caption under it or a label beside or far from it", async () => {

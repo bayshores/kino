@@ -507,9 +507,12 @@ function loudInFinding(edge) {
   const target = before && at - before.end <= MAX_MOVE ? intoPause(before, false) : null;
   const back = target != null ? at - target : 0;
   const duration = effectiveMediaDuration(layer);
+  // mediaStart is 0 or more (update_layer refuses less), as in inFinding: what does not fit before the
+  // scene start plays later instead, and the why says so.
+  const late = Math.max(0, back - (layer.mediaStart ?? 0));
   const fix = back > 0
-    ? { kind: "layer", layerId: layer.id, auto: false, why: `starts ${sec(back)} s sooner, in a pause (${pausesText(before, after)})`,
-        properties: { mediaOffset: round3(Math.max(0, (layer.mediaOffset ?? 0) - back)), mediaStart: round3((layer.mediaStart ?? 0) - back), ...(Number.isFinite(duration) && layer.mediaDuration > 0 ? { mediaDuration: round3(duration + back) } : {}) } }
+    ? { kind: "layer", layerId: layer.id, auto: false, why: `starts ${sec(back)} s sooner, in a pause (${pausesText(before, after)})${late ? `; the layer begins ${sec(layer.mediaStart ?? 0)} s into the scene, so the sound after it plays ${sec(late)} s later` : ""}`,
+        properties: { mediaOffset: round3(Math.max(0, (layer.mediaOffset ?? 0) - back)), mediaStart: round3(Math.max(0, (layer.mediaStart ?? 0) - back)), ...(Number.isFinite(duration) && layer.mediaDuration > 0 ? { mediaDuration: round3(duration + back) } : {}) } }
     : { kind: "hint", text: `Move the start of "${layer.name}" into a pause (${pausesText(before, after)}), or waive speech_cut if the cut is on purpose.` };
   const firstWords = words ? words.filter((word) => word.end > at).slice(0, 4) : [];
   return {

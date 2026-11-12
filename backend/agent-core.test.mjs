@@ -333,6 +333,9 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   assert.throws(() => send({ code: "soft_upscale", target: "*" }), /soft_upscale names the layers .*not target:"\*"/);
   assert.throws(() => send({ code: "reference_range", target: "main", reason: "on purpose" }), /keeps only the rows its reason names/);
   assert.equal(send({ code: "reference_range", target: "main", reason: "kept dark on purpose" }).length, 1);
+  // Two reference_range findings on one scene: each waiver, sent as an agent sends it, keeps its own rows.
+  const ranged = applyOperations(document, [...send({ code: "reference_range", target: "s1", reason: "kept dark on purpose" }), ...send({ code: "reference_range", target: "s1", reason: "the text is short on purpose" })]);
+  assert.deepEqual(ranged.checkWaivers.map((waiver) => waiver.detail), ["brightness", "text"]);
   // default_font names a reference moment the agent labeled type (within 0.5 s).
   resolver.seenRefs = [{ id: "yt:AAAAAAAAAAA", seen: [{ at: 4.4, kinds: ["type"] }, { at: 12.75, kinds: ["overlay"] }, { at: 22.3, kinds: ["type", "made"] }] }];
   assert.throws(() => send({ code: "default_font", target: "shot-1", reason: "as in yt:AAAAAAAAAAA @12.75" }), (thrown) => thrown.message === 'default_font names a moment you labeled type ("as in yt:AAAAAAAAAAA @4.4"); yt:AAAAAAAAAAA @12.75 is not one (labeled: 4.4, 22.3).');

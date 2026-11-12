@@ -635,6 +635,14 @@ test("speech_cut by loudness: a cut inside the sound, and a file that ends mid-s
   assert.deepEqual(unknown.findings.map((finding) => [finding.severity, /inside loud sound/.test(finding.message)]), [["warn", true]]);
   assert.match(unknown.notes.join("\n"), /heard only the loudness of "voice"/);
   assert.deepEqual((await heardFindings([voice("voice", { mediaDuration: 2.1 })], LOUDNESS, null)).findings, []);
+  // Started inside loud sound 0.1 s into the scene: the pause is further back than that, so the fix keeps
+  // mediaStart at 0 (update_layer refuses less), names the late part, and update_layer takes it as sent.
+  const early = voice("voice", { mediaStart: 0.1, mediaOffset: 3, mediaDuration: 2 });
+  const [loudIn] = (await heardFindings([early], LOUDNESS, null)).findings;
+  assert.match(loudIn.message, /starts inside loud sound/);
+  assert.equal(loudIn.fix.properties.mediaStart, 0);
+  assert.match(loudIn.fix.why, /begins 0\.1 s into the scene, so the sound after it plays [\d.]+ s later/);
+  assert.equal(applyOperations(scene({ layers: [early] }), [{ type: "update_layer", sceneId: "scene", layerId: "voice", properties: loudIn.fix.properties }]).scenes[0].layers[0].mediaStart, 0);
   // Sound effects are no voice: a whoosh cut on both sides inside its loud sound, and a 0.35 s
   // camera shutter whose transcript is the tag "camera shutter]", pass.
   const whoops = { ...TRANSCRIPT, words: [0.1, 0.7, 1.3, 1.9].map((start) => ({ text: "whoop,", start, end: start + 0.4, cut: start, p: 0.9 })) };
