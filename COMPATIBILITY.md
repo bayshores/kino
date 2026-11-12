@@ -877,6 +877,10 @@ How to read it:
   the text above the clip and the person cut-out above it; no person found leaves it in front with
   `cutout.fallback`. Evidence: `backend/agent-cutout.test.mjs` ("refusals"). Gap: not yet run
   with Apple Vision's person engine on real footage.
+- **Tracing a picture into vector shapes** (`trace_image {layer or media, region, colors:4}`): Verified. One flat-color
+  path per region, largest first, background dropped (holes kept), in a named group later ops can use; look draws it.
+  Evidence: `backend/agent-reach-geometry.test.mjs` ("trace_image"), `engine/svgImport.test.js` ("traceImage").
+  Gap: a busy picture inside the region is traced too (posterized); no saved-reference (ref) source yet.
 
 ### Syncing two clips
 

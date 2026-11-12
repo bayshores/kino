@@ -10,6 +10,7 @@ import { assignCodes, createResolver } from "./refs.mjs";
 import { GEOMETRY_OPERATIONS, applyGeometryOperation } from "./reach-geometry.mjs";
 import { parseCsv, writeCsv } from "../../engine/csv.js";
 import { planBulkCreate, bulkCreatePlanAfterSave, bulkCreateSummary } from "../../engine/bulkCreate.js";
+import { applyTraceImage } from "./trace-image.mjs";
 
 export const REACH_HELP = {
   bulk_create: 'bulk_create {scene, csv or rows, deleteMissing?:false}: creates or updates variants atomically and returns the real result CSV in summaries. Import media first; use uploaded src values. dry_run only previews. library rules bulk-create has the full rules.',
@@ -17,6 +18,7 @@ export const REACH_HELP = {
   split_layer: 'split_layer {layer, at} or {layer, from, to}: cuts a video, audio or GIF layer in two at scene time at; the new piece "<name> 2" plays on from there, so sound and picture stay in sync. from/to also skips the file between (the clip ends to - from s sooner; other layers do not move). Each piece keeps the animations that change what it shows (both keep one that crosses the cut). Later ops can name the new piece.',
   multi_transform: 'multi_transform {layers, action:{kind:"move",dx,dy}|{kind:"scale",scaleX,scaleY,anchor?,keepAspect?}|{kind:"rotate",degrees}}: shared selection box; scale is percent; the layers\' animations go along (a slide still ends where the layer is; at 150% it slides 1.5 times as far).',
   import_svg: 'import_svg {svg,name?,x?,y?}: editable server SVG import into scene. Warnings report unsupported fidelity. External resources and scripts are refused.',
+  trace_image: 'trace_image {layer|media, time?, region?, colors?:4, smooth?:1, minArea?:16, background?, as?, name?}: region [x,y,w,h]; colors 2-12; smooth 0-2; background "auto"|"none"|"#rrggbb"; as "fill"|"outline". A region of a frame becomes a group of flat-color vector paths ("<name> 1" largest first) at the region\'s place; then stroke, roughen, trim-path or animate them. Receipt: paths, points; a warning names a better colors.',
   copy_layers: 'copy_layers {fromProject?,fromScene?,layers,scene?,replaceLayers?}: copy source names/codes across projects with component dependencies, media and fresh IDs. replaceLayers names destination layers for Paste and Replace.',
   copy_scene: 'copy_scene {fromProject?,fromScene,scene?,replace?:false}: copy an artboard across projects; replace retains destination identity.',
   copy_animations: 'copy_animations {fromProject?,fromScene?,sourceAnimations,layers,time?:0}: paste source animation names/codes onto destination layers, rebasing rest values.',
@@ -41,8 +43,9 @@ export async function sourceDocument(document, fromProject, store) {
   return record.document;
 }
 
-export async function applyReachOperation(document, op, { store, fonts, agentState, context = {} }) {
+export async function applyReachOperation(document, op, { store, fonts, agentState, context = {}, mediaRoot }) {
   if (GEOMETRY_OPERATIONS.includes(op.type)) return applyGeometryOperation(document, op, { fonts });
+  if (op.type === "trace_image") return applyTraceImage(document, op, { mediaRoot });
   if (op.type === "bulk_create") {
     // Let the engine validate all inputs and limits before constructing a result summary.
     const next = parseDocument(applyOperations(document, [op], context));

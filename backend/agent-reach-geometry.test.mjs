@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { DOMParser } from "@xmldom/xmldom";
+import { createCanvas } from "@napi-rs/canvas";
 import { evaluateLayer } from "../engine/animation.js";
 import { duplicateSelection } from "../engine/duplicate.js";
 import { applyFromStart, nudgeSelection, selectionBox, transformTargets } from "../engine/multiTransform.js";
@@ -130,6 +131,39 @@ test("server SVG import applies finite offsets, returns fidelity warnings, and r
   assert.deepEqual(record.document, expected);
   assert.equal(record.document.scenes[0].layers[0].x, 56);
   await assertAgentFrameMatchesManualRender(before.id, expected);
+});
+
+test("trace_image turns an image layer's flat colors into a named group of paths that later ops and look see", async () => {
+  const before = fixture("geometry-trace", []);
+  await createProject(before.id, before);
+  // 80x60 picture: light ground, a black ring with a see-through hole, a red square.
+  const canvas = createCanvas(80, 60), context = canvas.getContext("2d");
+  context.fillStyle = "#e0e0e0"; context.fillRect(0, 0, 80, 60);
+  context.fillStyle = "#000000"; context.fillRect(10, 10, 40, 40);
+  context.fillStyle = "#e0e0e0"; context.fillRect(20, 20, 20, 20);
+  context.fillStyle = "#dd2222"; context.fillRect(58, 20, 16, 20);
+  const upload = await server.api("/api/media", { method: "POST", headers: { "content-type": "image/png", "x-file-name": "mark.png" }, body: canvas.toBuffer("image/png") });
+  const { src } = await upload.json();
+  const reply = await agent("edit", { project: before.id, ops: [
+    { op: "add_layer", layerType: "image", name: "art", properties: { src, x: 100, y: 50, width: 80, height: 60 } },
+    { op: "trace_image", layer: "art", name: "logo" },
+    { op: "update_layer", layer: "logo", properties: { opacity: 0.9 } },
+    { op: "delete_layer", layer: "art" },
+  ] });
+  assert.equal(reply.isError, undefined, reply.text);
+  const summary = reply.data.summaries.find((item) => item.kind === "trace_image");
+  assert.equal(summary.paths, 2);
+  assert.deepEqual(summary.place, [100, 50, 80, 60]);
+  const layers = (await saved(before.id)).document.scenes[0].layers;
+  const group = layers.find((layer) => layer.name === "logo");
+  assert.equal(group.opacity, 0.9, "a later op in the same edit names the group");
+  assert.deepEqual(layers.filter((layer) => layer.parentId === group.id).map((layer) => layer.name), ["logo 1", "logo 2"]);
+  const frame = await agent("look", { project: before.id, scene: "main", mode: "frame", t: 0, width: 320 });
+  const image = await readImage(Buffer.from(frame.images[0].data, "base64"));
+  const [ring, hole, red] = [image.pixel(115, 65), image.pixel(130, 80), image.pixel(166, 80)];
+  assert.ok(ring[0] < 20 && ring[1] < 20, `ring drawn black: ${ring}`);
+  assert.ok(Math.abs(hole[0] - 0x10) < 12, `the dropped ground shows the scene through the hole: ${hole}`);
+  assert.ok(red[0] > 150 && red[1] < 80, `red square drawn: ${red}`);
 });
 
 test("multi-transform coalesces a selected group and child and refuses unresolved selected IDs", async () => {

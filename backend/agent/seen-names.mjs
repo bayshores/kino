@@ -61,7 +61,10 @@ const SEEN_AS = {
   electric: ["rim-light"],
   // Line art of footage (edge-lines) and a subject's edge as a drawn path (cut_out output "outline").
   edge: ["edge-lines", "rim-light", "cut_out"], edges: ["edge-lines", "rim-light", "cut_out"], "edge detect": ["edge-lines", "cut_out"], "find edges": ["edge-lines", "cut_out"],
-  "line art": ["edge-lines", "cut_out"], contour: ["edge-lines", "cut_out"], contours: ["edge-lines", "cut_out"], sketch: ["edge-lines"], trace: ["cut_out", "edge-lines"],
+  "line art": ["edge-lines", "cut_out"], contour: ["edge-lines", "cut_out"], contours: ["edge-lines", "cut_out"], sketch: ["edge-lines"], trace: ["trace_image", "cut_out", "edge-lines"],
+  // A picture's flat colors as vector shapes (trace_image): a drawn prop, a logo, a brush word.
+  vectorize: ["trace_image"], vector: ["trace_image"], "image trace": ["trace_image"], "trace image": ["trace_image"], wordmark: ["trace_image"],
+  "logo shape": ["trace_image"], "drawn shape": ["trace_image"], "hand drawn": ["trace_image"], "brush lettering": ["trace_image", "set_font"], posterize: ["trace_image"],
   "subject outline": ["cut_out", "rim-light"], "outline path": ["cut_out"], "trace outline": ["cut_out", "rim-light"],
   outline: ["outline_text", "rim-light", "glow", "cut_out"], outlined: ["outline_text", "rim-light", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
   "typed highlight": ["type-on"], jitter: ["text-ranges"], "hand set": ["text-ranges"],
@@ -153,7 +156,7 @@ export function seenNames(query, { ops = [], limit = 5 } = {}) {
 }
 
 /** The bare kino names of seenNames, best first, all of them (the deck reads labels with it; "cut_out" is always an op here). */
-export function seenNameList(query, { ops = ["cut_out", "keep_line"] } = {}) {
+export function seenNameList(query, { ops = ["cut_out", "keep_line", "trace_image"] } = {}) {
   // Punctuation and case do not count ("Bloom!" is bloom; "cut_out" and "cut-out" are cut out).
   const text = String(query ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   if (!text) return [];

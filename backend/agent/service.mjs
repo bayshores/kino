@@ -1509,7 +1509,7 @@ export function createAgentService(deps) {
           try {
             const fonts = fontsCache.fonts ??= await fontsFor(next);
             const context = await operationContext(next, [first.operation]);
-            const result = await applyReachOperation(next, first.operation, { store, fonts, agentState, context });
+            const result = await applyReachOperation(next, first.operation, { store, fonts, agentState, context, mediaRoot: deps.mediaRoot });
             next = parseDocument(result.document);
             (fontsCache.warnings ??= []).push(...(result.warnings ?? []));
             if (result.summary) (fontsCache.summaries ??= []).push(result.summary);

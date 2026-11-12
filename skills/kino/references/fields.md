@@ -129,3 +129,4 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `source {name, text}`
 - `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}`
 - `split_layer {layer, at} or {layer, from, to}`
+- `trace_image {layer|media, time?, region?, colors?:4, smooth?:1, minArea?:16, background?, as?, name?}`
