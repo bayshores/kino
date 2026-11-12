@@ -731,7 +731,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The saved references' lent cuts: an edit must not copy their shot lengths (reference_closeness).
       closeRefs,
       // What kino rendered in other projects, and this project's references as layouts (seen_before).
-      savedRefCount: refs.length, house: houseMoments, referenceSignatures: refs.map((ref) => referenceSignature(ref.fingerprint)).filter(Boolean),
+      savedRefCount: refs.length, savedRefIds: refs.map((ref) => ref.id), house: houseMoments, referenceSignatures: refs.map((ref) => referenceSignature(ref.fingerprint)).filter(Boolean),
       // Only the video's scene has an ending (ending_seen); another scene's tail stays seen_before.
       videoScene: isVideo,
       // The brief's style spec: the style rules follow it (engine/styleSpec.js).

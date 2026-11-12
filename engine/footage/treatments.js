@@ -14,6 +14,7 @@
 //   hits         what may land on the song's measured drop (the first one only): rgb-split
 //                (rgb-split-hit), flash
 import { seeded } from "../blocks/build.js";
+import { LOOKS } from "../blocks/looks.js";
 
 export const FOOTAGE_TREATMENTS = Object.freeze({
   calm: Object.freeze({ line: "slow and clean: long holds, soft dissolves, calm captions", transitions: ["dissolve", "blur-through", "fade-black"], density: 0.45, beats: [4, 8], camera: ["slow-push", "drift"], captions: "calm", title: "fade", hits: [] }),
@@ -33,6 +34,15 @@ const TYPE_PAIRS = {
 };
 /** Every family kino's own pairs use: check tells these from a font a reference or the person chose. */
 export const KINO_PAIR_FAMILIES = Object.freeze([...new Set(Object.values(TYPE_PAIRS).flat(2).map((font) => font.family))]);
+/**
+ * Every family kino picks by itself: its pairs, the seeded looks' fonts and push-through-type's
+ * bundled serif. With saved references, check flags each one a reference or the person did not choose.
+ */
+export const KINO_OWN_FAMILIES = Object.freeze([...new Set([
+  ...KINO_PAIR_FAMILIES,
+  ...Object.values(LOOKS).flatMap((look) => Object.values(look.fonts).map((font) => font.family)),
+  "Noto Serif", // engine/blocks/moves/type.js: the word's face when nothing set one
+])]);
 const ACCENTS = {
   calm: ["#E8D2A6", "#B9D3C2", "#D8B4A0"],
   story: ["#F2B544", "#E8846B", "#8FC1E3"],

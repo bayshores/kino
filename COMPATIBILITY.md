@@ -335,9 +335,11 @@ How to read it:
   that compose and recipes use. Evidence: `backend/agent-blocks.test.mjs`. Gap: bundled Inter triggers
   `default_font` unless the kit sets fonts; no dashboard screen for kits.
 - **Type from the references**: Verified. With saved references, compose {footage} makes a brand of colors only,
-  `default_font` flags one of kino's own pair fonts no reference line or the person's words named, and
+  `default_font` flags a font kino picked itself (pairs, looks, bundled serif) that no saved reference's
+  line or the person's words (not a "no" or "never") named, and
   `library {topic:"fonts", search:"condensed bold sans"}` lists catalog fonts by look. Evidence:
-  `backend/agent-fonts.test.mjs`, `engine/qualityRules.test.js`, `engine/footage.test.js`.
+  `backend/look-source.test.mjs` (compose then check), `backend/agent-fonts.test.mjs`,
+  `engine/qualityRules.test.js`, `engine/footage.test.js`.
 - **Recipes**: Verified. 24 layer recipes and 3 transitions (`library {topic:"blocks"}`), each a short
   fade under reduced motion; hand sweeps gave 0 errors. Evidence: `backend/blocks-gate.test.mjs`,
   `backend/blocks-polish.test.mjs`, `engine/blocksPolish.test.js`; `tests/blocks-gate.mjs` and

@@ -1431,7 +1431,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const kit = footageBrand(plan.treatment, seed, { fonts: !fromRefs });
       ops.unshift({ op: "set_brand", name: slug(titleText) || "edit", ...kit, ...(titleText ? { logos: [{ text: titleText }] } : {}) });
       work.notes.push(fromRefs
-        ? `brand ${slug(titleText) || "edit"} made for this edit: colors only, accent ${kit.colors.accent}; fonts come from your references: library {topic:"fonts", search:"<the type you labeled, e.g. condensed bold sans>"}`
+        ? `brand ${slug(titleText) || "edit"} made for this edit: colors only, accent ${kit.colors.accent}; fonts come from your references: library {topic:"fonts", search:"<the type your reference strip shows, e.g. condensed bold sans>"}`
         : `brand ${slug(titleText) || "edit"} made for this edit: ${kit.fonts.map((font) => font.family).join(" and ")}, accent ${kit.colors.accent}`);
     }
     let next;

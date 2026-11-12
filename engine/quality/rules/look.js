@@ -1,6 +1,7 @@
 // Generic-look warnings: gradient_text, neon_on_dark, pure_frame, default_font, gradient_banding.
 import { coversFrame, readingTexts } from "../analysis.js";
-import { KINO_PAIR_FAMILIES } from "../../footage/treatments.js";
+import { KINO_OWN_FAMILIES } from "../../footage/treatments.js";
+import { namesFamily } from "../../styleSpec.js";
 import { hexRgba, isGradient, luminance, paintColors } from "../model.js";
 
 // Fonts so common that a video set in them looks like a default. A choice makes it a look instead:
@@ -95,44 +96,52 @@ export function pureFrame(model, ctx) {
 
 const familyOf = (fontFamily) => String(fontFamily ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "").toLowerCase();
 
-// The families a choice names: the style spec's font per role (style.fonts), and a family a line
-// that points at a reference moment, the spec's type direction or the person's words name
-// ("white Arial captions, as in ref R1 at 12s"). Both lists of known families are searched.
-function chosenFamilies(ctx) {
+// The families a choice names: a family a line that points at a reference moment, the spec's type
+// direction or the person's words name ("white Arial captions, as in ref R1 at 12s"). The person's
+// "never" field and a negated mention name nothing. `strict` (kino's own families): a line counts only
+// when its ref is one of the project's saved references (ctx.savedRefIds), and the spec's font per
+// role (style.fonts) only when it is the person's own (an agent's guessed fonts choose nothing).
+function chosenFamilies(ctx, { strict = false } = {}) {
   const chosen = new Set();
-  for (const face of Object.values(ctx.style?.fonts ?? {})) {
-    const family = familyOf(typeof face === "string" ? face : face?.family);
-    if (family) chosen.add(family);
+  if (!strict || ctx.style?.fontsBacked) {
+    for (const face of Object.values(ctx.style?.fonts ?? {})) {
+      const family = familyOf(typeof face === "string" ? face : face?.family);
+      if (family) chosen.add(family);
+    }
   }
-  const said = [...(ctx.style?.referenceLines ?? []).map((line) => line.text), ctx.style?.type, ...(ctx.asks ?? []).map((ask) => ask.text)]
+  const saved = new Set((ctx.savedRefIds ?? []).map(String));
+  const lines = (ctx.style?.referenceLines ?? []).filter((line) => !strict || saved.has(String(line.ref).trim().split("@")[0]));
+  const said = [...lines.map((line) => line.text), ctx.style?.type, ...(ctx.asks ?? []).filter((ask) => ask.field !== "never").map((ask) => ask.text)]
     .map((text) => String(text ?? "").toLowerCase());
-  for (const family of [...DEFAULT_FONTS, ...KINO_PAIRS]) if (said.some((text) => new RegExp(`(^|[^a-z])${family}([^a-z]|$)`).test(text))) chosen.add(family);
+  for (const family of [...DEFAULT_FONTS, ...KINO_OWN]) if (said.some((text) => namesFamily(text, family))) chosen.add(family);
   return chosen;
 }
 
-const KINO_PAIRS = KINO_PAIR_FAMILIES.map((family) => family.toLowerCase());
+const KINO_OWN = KINO_OWN_FAMILIES.map((family) => family.toLowerCase());
 
 export function defaultFont(model, ctx) {
   const named = new Set([...(ctx.brandFonts ?? []).map((font) => familyOf(font)), ...chosenFamilies(ctx)]);
-  const chosen = chosenFamilies(ctx);
+  const chosen = chosenFamilies(ctx, { strict: true });
+  const withRefs = ctx.savedRefCount > 0;
   const byFamily = new Map();
   for (const item of readingTexts(model)) {
     const family = familyOf(item.fontFamily);
-    // A common default font is chosen by the brand too; one of kino's own pairs only by a reference or the person, and only matters once the project saved references.
-    const own = KINO_PAIRS.includes(family) && ctx.savedRefCount > 0;
+    // A common default font is chosen by the brand too; one of kino's own families (pairs, looks, the bundled serif) only by a reference or the person, and only matters once the project saved references.
+    const own = KINO_OWN.includes(family) && !DEFAULT_FONTS.includes(family) && withRefs;
     if (own ? chosen.has(family) : !DEFAULT_FONTS.includes(family) || named.has(family)) continue;
     if (!byFamily.has(family)) byFamily.set(family, []);
     byFamily.get(family).push(item);
   }
   return [...byFamily].map(([family, items]) => {
     const list = `${items.length} text layer${items.length === 1 ? "" : "s"} (${items.slice(0, 3).map((item) => ctx.name(item)).join(", ")}) use${items.length === 1 ? "s" : ""} ${items[0].fontFamily}`;
-    const own = KINO_PAIRS.includes(family);
+    const own = KINO_OWN.includes(family) && withRefs;
+    const name = items[0].fontFamily;
     return {
-      rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: items[0].fontFamily, required: "a chosen font",
-      message: own ? `${list} from kino's own pairs; no reference or your words chose it.` : `${list}, a common default font that no reference, style spec or brand chose.`,
+      rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: name, required: "a chosen font",
+      message: own ? `${list} from kino's own fonts; no reference or your words chose it.` : `${list}, a common default font that no reference, style spec or brand chose.`,
       fix: { kind: "hint", text: own
-        ? `library {topic:"fonts", search:"<the type you labeled, e.g. condensed bold sans>"}, then set_font {layerIds, family, weight} from your references' type; keep ${items[0].fontFamily} only if a reference line or the person's words name it.`
-        : `Take the typeface from your references (notes brief: style fonts), or set ${items[0].fontFamily} there if a reference or the brand chose it.` },
+        ? `library {topic:"fonts", search:"<the type your reference strip shows, e.g. condensed bold sans>"}, then set_font {layerIds, family, weight}; to keep ${name}: notes {action:"brief", fields:{style:{lines:[{text:"${name} titles", ref:"<saved reference id>", at:<seconds>}]}}} (a line at a moment of a saved reference that shows it).`
+        : `Take the typeface from your references (notes brief: style fonts), or set ${name} there if a reference or the brand chose it.` },
     };
   });
 }

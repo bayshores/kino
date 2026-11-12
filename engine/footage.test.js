@@ -8,7 +8,7 @@ import { shotLayout } from "./footage/layout.js";
 import { accentTimes, burstPassages, phrasePlan, songSections } from "./footage/pace.js";
 import { defaultPace, nearestBeats, shotStats } from "./footage/refPace.js";
 import { planEdit } from "./footage/plan.js";
-import { KINO_PAIR_FAMILIES, footageBrand } from "./footage/treatments.js";
+import { KINO_OWN_FAMILIES, KINO_PAIR_FAMILIES, footageBrand } from "./footage/treatments.js";
 import { footageCues, footageOps } from "./footage/ops.js";
 import { createDocument, createLayer, createScene } from "./model.js";
 import { applyOperations } from "./operations.js";
@@ -438,4 +438,5 @@ test("brand kit: without fonts it keeps the same colors and motion, and the pair
   assert.deepEqual(colorsOnly.colors, withFonts.colors);
   assert.equal(colorsOnly.motion, withFonts.motion);
   assert.ok(withFonts.fonts.every((font) => KINO_PAIR_FAMILIES.includes(font.family)));
+  assert.ok(["Anton", "Inter", "Montserrat", "Noto Serif"].every((family) => KINO_OWN_FAMILIES.includes(family)), "pairs, looks and the bundled serif are all kino's own");
 });

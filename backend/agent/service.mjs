@@ -83,7 +83,7 @@ import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mj
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
-import { styleContext } from "../../engine/styleSpec.js";
+import { namesFamily, styleContext } from "../../engine/styleSpec.js";
 import { blocksFinal, FINAL_GATES } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
@@ -727,10 +727,11 @@ export function createAgentService(deps) {
 
   // The loaded font families the brief's fields name ("captions in JetBrains Mono"), longest first.
   function briefFontFamilies(fields, fonts) {
-    const said = Object.values(fields ?? {}).map((field) => String(field?.text ?? "")).join("\n").toLowerCase();
+    // The "never" field and a negated mention ("no Space Mono") do not choose a font.
+    const said = Object.entries(fields ?? {}).filter(([name]) => name !== "never").map(([, field]) => String(field?.text ?? "")).join("\n");
     if (!said.trim()) return [];
     const families = [...new Set((fonts?.faces ?? []).map((face) => face.family).filter(Boolean))].sort((a, b) => b.length - a.length);
-    return families.filter((family) => new RegExp(`(^|[^a-z])${family.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}([^a-z]|$)`).test(said));
+    return families.filter((family) => namesFamily(said, family));
   }
 
   // Fonts as the renderer sees them: downloads catalog faces the document uses.
