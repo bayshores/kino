@@ -7,6 +7,7 @@ import { applyOperations } from "./operations.js";
 import { animatesVolume, evaluateLayer, volumeAt } from "./animation.js";
 import { isAnimationCompatible } from "./animationCompatibility.js";
 import { peakCauses, peakTrims } from "./peakTrim.js";
+import { churnRun } from "./quality/rules/sound.js";
 
 const fade = (from, to, extra = {}) => ({ kind: "custom", start: 1, duration: 1, easing: "linear", from: { volume: from }, to: { volume: to }, ...extra });
 
@@ -152,20 +153,42 @@ test("placed sounds that make the peaks come down first; the song dips only wher
   assert.deepEqual(trim.fixed, [
     "mix 7 s (7-7.3 s, 3.5 dB over): step x0.47 2->0.94 (alone 1 dBFS); kept song (alone -12 dBFS), line at the level keep_line set (line 6.37-14 s)",
     "mix 8.6 s (8.6-9 s, 8 dB over): impact x0.33 2->0.66 (alone 6 dBFS), song x0.33 1->0.33 (alone -6.5 dBFS); kept line at the level keep_line set (line 6.37-14 s)"]);
+  // The song ducked to 0.376 and coming up at 8.5-9 s: two dips would turn it 3 times, so one dip follows
+  // its duck up over both places; the song is as it was before 6.95 s and after 9.05 s, and does not churn.
+  const ramp = (name, start, duration, from, to) => ({ id: name.replace(" ", "-"), name, kind: "custom", easing: "smooth", start, duration, from: { volume: from }, to: { volume: to } });
+  const ducked = parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [{ ...document.scenes[0].layers[0],
+    animations: [ramp("Duck down", 0.15, 0.15, 1, 0.376), ramp("Duck up", 8.5, 0.5, 0.376, 1)] }, ...document.scenes[0].layers.slice(1)] }] });
+  const both = peakTrims(ducked.scenes[0], [place(7, 7.3, "step", 2, -9, 3, 0.5), place(8.6, 9, "impact", 7.5, -6, 8, 0.33)], { bed: (layer) => layer.id === "song" });
+  assert.equal(both.ops.filter((op) => op.layerId === "song" && op.op === "update_layer").length, 0, "the song is not lowered whole");
+  const scene = applyOperations(ducked, both.ops.map(({ op, ...rest }) => ({ type: op, ...rest }))).scenes[0];
+  const before = ducked.scenes[0].layers[0];
+  for (const time of [1, 6.9, 9.1, 12]) assert.equal(volumeAt(scene.layers[0], time), volumeAt(before, time), `ducked song at ${time} s`);
+  assert.ok(Math.abs(volumeAt(scene.layers[0], 8.8) - 0.3 * volumeAt(before, 8.8)) <= 0.003 + 0.03 * volumeAt(before, 8.8));
+  assert.equal(churnRun(scene.layers[0], scene), null);
+  assert.match(both.fixed[0], /^mix song: 2 places in 1 dip, not whole: 2 dips would turn its level 3 times/);
+  // A place on a fade out to silence at the scene's end: the dip follows the fade (its pieces to 0 play equal power).
+  const ending = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 10, layers: [
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10, animations: [fade(1, 0, { id: "out", name: "Fade out", start: 8, duration: 2 })] })] })] });
+  const end = peakTrims(ending.scenes[0], [{ at: 9.8, from: 9.8, to: 10, peakDbtp: 1.5, overDb: 3, factor: 0.7, playing: [{ layerId: "song", name: "song" }] }], { bed: () => true });
+  assert.deepEqual(end.dropped, []);
+  assert.match(end.fixed[0], /^mix 9\.8 s \(9\.8-10 s, 3 dB over\) x0\.7: song x0\.7 0\.156->0\.11 following its moving volume/);
 });
 const round1 = (value) => Math.round(10 * value) / 10;
 
-test("a song comes down whole only when its limiter places cover most of its time; else it keeps its dips and says the share", () => {
+test("a song comes down whole only when its limiter places cover most of its time; else dips that would churn become one dip", () => {
   const document = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 10, layers: [
     createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10,
       animations: [{ id: "in", name: "Fade in", kind: "custom", easing: "linear", start: 0, duration: 1, from: { volume: 0 }, to: { volume: 1 } }] }),
     createLayer("audio", { id: "step", name: "step", src: "/api/media/b.wav", volume: 1, mediaStart: 4, mediaSourceDuration: 0.2 })] })] });
   const place = (at, factor, ids, long = 0.2) => ({ at, from: at, to: at + long, peakDbtp: 1.5, overDb: 3, factor, playing: ids.map((layerId) => ({ layerId, name: layerId })) });
-  // Three 0.2 s places in 10 s: dips at each (they churn its level, said), every other second as it was.
+  // Three 0.2 s places in 10 s: three dips would churn its level, so they become one dip (1.95-6.25 s)
+  // that holds the lower neighbor's level between places; before and after it the song is as it was.
   const short = peakTrims(document.scenes[0], [place(2, 0.7, ["song"]), place(4, 0.58, ["song", "step"]), place(6, 0.7, ["song"])]);
   assert.equal(short.ops.filter((op) => op.op === "update_layer" && op.layerId === "song").length, 0);
-  assert.equal(short.ops.filter((op) => op.layerId === "song").length, 6);
-  assert.equal(short.fixed[0], "mix song: dips at 3 places only, not whole: its places cover 9% of its heard time (whole past 50%); 3 dips would turn its level 5 times in 4 s (volume_churn)");
+  assert.equal(short.fixed[0], "mix song: 3 places in 1 dip, not whole: 3 dips would turn its level 5 times in 4 s (volume_churn), so the nearest are one dip and its level does not churn; its places cover 9% of its heard time (whole past 50%)");
+  const dipped = applyOperations(document, short.ops.map(({ op, ...rest }) => ({ type: op, ...rest }))).scenes[0];
+  assert.equal(churnRun(dipped.layers[0], dipped), null);
+  assert.deepEqual([1.5, 2.1, 3, 4.1, 5, 6.1, 8].map((time) => volumeAt(dipped.layers[0], time)), [1, 0.7, 0.7, 0.58, 0.7, 0.7, 1]);
   // Three 1.8 s places cover 57%: one constant gain.
   const trim = peakTrims(document.scenes[0], [place(2, 0.7, ["song"], 1.8), place(4, 0.58, ["song", "step"], 1.8), place(6, 0.7, ["song"], 1.8)]);
   assert.deepEqual(trim.ops, [{ op: "update_layer", sceneId: "s", layerId: "step", properties: { volume: 0.58 } }, { op: "update_layer", sceneId: "s", layerId: "song", properties: { volume: 0.58 } }]);

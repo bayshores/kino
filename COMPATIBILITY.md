@@ -1140,7 +1140,9 @@ How to read it:
   curve in linear pieces, then plays as before (dm3-a shape: song 0.8 whole x0.3 before; now x0.36 over 3.45-3.75 s
   only, the same volume at 1, 5, 8 and 13.5 s). Causes go loudest first (dm3-b shape: the step clears its place alone,
   the song dips only at the impact, was whole x0.3). A song comes down whole only past 50% of its heard time, and the
-  line prints the share. Evidence: `engine/volumeAnimation.test.js`. Gap: not replayed on dm3 data or rendered.
+  line prints the share; dips that would churn it (volume_churn) become one dip (dm3-b shape with its duck: 0 turns,
+  was whole x0.3), and a dip on a fade to 0 follows it. Evidence: `engine/volumeAnimation.test.js`. Gap: not replayed
+  on dm3 data or rendered; follow dips use straight 0.05 s ramps, not measured for clicks.
 - **Kept line evened and peak-held** (`keep_line {even}`, receipt `even`, `peak`): Rendered once in a test on
   generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU
   with 0.04 s "Line level" ramps (render moved them -6.0 and +4.9 dB, receipt -6 and +4.9); a leveled line that sends
