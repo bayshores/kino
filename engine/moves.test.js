@@ -87,7 +87,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 57);
+  assert.equal(MOVE_NAMES.length, 58);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -296,6 +296,8 @@ test("overexpose burns the shot out with a roll-off, cuts to into on the peak an
   const [up] = pick(hand, "shot-a").filter((animation) => animation.effect === "color-grade");
   const [down] = pick(hand, "shot-b").filter((animation) => animation.effect === "color-grade");
   assert.deepEqual([up.start, up.duration, up.to.stops, up.to.shoulder], [1, 0.2, 2, 1], "rises 2 stops with a shoulder to the peak in the middle of 0.4 s");
+  assert.deepEqual([up.from.saturation, up.to.saturation, down.from.saturation, down.to.saturation], [1, 1.4, 1.4, 1], "keeps its colors at the peak instead of going milky");
+  assert.equal(pick(run({ layer: "shot-a", saturation: 1 }), "shot-a").find((animation) => animation.effect === "color-grade").to.saturation, 1, "saturation 1: the old wash");
   assert.deepEqual([down.start, down.from.stops, down.to.stops, round3(down.start + down.duration)], [1.2, 2, 0, 1.4], "the next shot settles from the peak");
   assert.ok(pick(hand, "shot-b").some((animation) => animation.effect === "glow"), "with a bloom");
   assert.ok(!visibleByOperations(pick(hand, "shot-b"), 1.1) && visibleByOperations(pick(hand, "shot-b"), 1.2), "into appears on the peak");
@@ -310,6 +312,21 @@ test("overexpose burns the shot out with a roll-off, cuts to into on the peak an
   const soft = exposureTable(8, 256, 0.8);
   assert.ok(at(soft, 0.95) - at(soft, 0.7) > 0.015 && at(soft, 0.95) < 0.99, `the shoulder keeps them apart (${at(soft, 0.7)}, ${at(soft, 0.95)})`);
   assert.equal(exposureTable(2, 256, 0), exposureTable(2), "shoulder 0 is the old hard clip");
+});
+
+test("light-shape adds a soft streak, plate or ring as light (add group) sized by the frame height", () => {
+  const scene = sceneFor(1920, 1080);
+  const run = (fields, reduced = false) => runMove(MOVES["light-shape"], { id: "light", input: readMoveInput(MOVES["light-shape"], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, dur: null, media, reduced });
+  const parts = (made) => Object.fromEntries(made.added.map(({ layer }) => [layer.move.part, layer]));
+  const streak = parts(run({}));
+  assert.equal(streak.light.blendMode, "add", "drawn as added light");
+  assert.ok(streak.halo.width >= 1920 && Math.abs(streak.halo.height - 1080 * 0.03 * 2.6) < 1 && streak.halo.blur > 0, "full width, thickness from the frame height, soft");
+  assert.ok(streak.core.animations.some((animation) => animation.name === "Light sweep"), "sweeps out from its middle");
+  const plate = parts(run({ shape: "plate", color: "#E08040" }));
+  assert.ok(plate.fill.opacity < 0.5 && plate.edge.fillEnabled === false && plate.edge.strokeWidth >= 1.5 && plate.edge.blur === 0, "see-through fill, crisp edge line");
+  const ring = parts(run({ shape: "ring" }, true));
+  assert.equal(ring.ring.width, ring.ring.height, "a round halo");
+  assert.ok(!ring.ring.animations.length, "reduced motion: no pulse, only the fade on the group");
 });
 
 test("freeze-shutter stops the clip on the beat, blinks once and plays again; masked-type fills a word with the clip or stands it behind the subject", () => {

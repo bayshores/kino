@@ -21,7 +21,10 @@ const SEEN_AS = {
   flash: ["impact-accent", "flash", "overexpose"], strobe: ["impact-accent"], "white flash": ["overexpose", "impact-accent", "flash"],
   overexposed: ["overexpose"], overexposure: ["overexpose"], "burn out": ["overexpose"], "blown out": ["overexpose"], wash: ["overexpose"], "white out": ["overexpose"], exposure: ["overexpose", "color-grade"],
   "light rays": ["light-rays"], "god rays": ["light-rays"], rays: ["light-rays"], beams: ["light-rays"],
-  "lens flare": ["lens-flare"], flare: ["lens-flare"], "light leak": ["light-leaks", "light-leak"],
+  "lens flare": ["lens-flare"], flare: ["lens-flare", "light-shape"], "light leak": ["light-leaks", "light-leak"],
+  // Made lights (light-shape): plate, streak and ring words the recreate directors used (GAPS item 4).
+  "glow plate": ["light-shape"], "light bar": ["light-shape"],
+  halo: ["light-shape", "glow"], "ring light": ["light-shape"], "light ring": ["light-shape"], bloom: ["glow", "overexpose", "light-shape"], "lit plate": ["light-shape"],
   "color grade": ["color_filter", "color-grade", "color-wheels"], grade: ["color_filter", "color-grade", "color-wheels"],
   grading: ["color_filter", "color-grade"],
   // Plain words for the settings of color-grade and hue-saturation (the ceiling studies guessed
@@ -46,7 +49,7 @@ const SEEN_AS = {
   "depth of field": ["focus-band", "lift-focus"], dof: ["focus-band", "lift-focus"], "tilt shift": ["focus-band"], tiltshift: ["focus-band"], "shallow focus": ["focus-band", "lift-focus"],
   "focus blur": ["focus-band", "lift-focus"], "lens blur": ["focus-band"], "background blur": ["focus-band", "lift-focus"], "rack focus": ["focus-band", "lift-focus"],
   rim: ["rim-light", "glow", "cut_out"], "rim light": ["rim-light", "glow", "cut_out"], "rim lighting": ["rim-light", "glow", "cut_out"], "edge light": ["rim-light", "glow", "cut_out"], backlight: ["glow", "light-rays"],
-  streak: ["speed-lines", "rain", "light-rays"], "light streak": ["lens-flare", "light-rays"], anamorphic: ["lens-flare"], "lens streak": ["lens-flare"],
+  streak: ["speed-lines", "light-shape", "rain", "light-rays"], "light streak": ["light-shape", "lens-flare", "light-rays"], anamorphic: ["lens-flare"], "lens streak": ["lens-flare"],
   "soft glow": ["glow"], dreamy: ["glow", "fog"],
   scrawl: ["text-ranges", "set_font", "outline_text"], brush: ["set_font", "outline_text"], handwritten: ["set_font", "outline_text"], handwriting: ["set_font", "outline_text"],
   "hand lettering": ["text-ranges", "set_font", "outline_text"], marker: ["set_font", "outline_text"], graffiti: ["set_font", "outline_text"], stencil: ["set_font"], blackletter: ["set_font"],
