@@ -913,7 +913,7 @@ export function createAgentService(deps) {
   }
 
   // The made line (engine/quality/madeShare.js) of a findingsFor result: "" with nothing measured.
-  const madeTextOf = (result) => (result?.made?.moments ? madeLine(result.made, { refs: result.made.refs, deck: result.made.deck }) : "");
+  const madeTextOf = (result) => (result?.made?.frames ? madeLine(result.made, { refs: result.made.refs, deck: result.made.deck }) : "");
   // status, look sheet and look review print it only with something to set it beside (a deck or labeled references).
   const madeBesideOf = (result) => (result?.made?.refs?.length || result?.made?.deck ? madeTextOf(result) : "");
 

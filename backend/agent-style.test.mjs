@@ -120,7 +120,7 @@ test("notes brief saves a style spec; check follows it and shows the techniques;
   const before = await agent("check", { project: "styled", pixels: false });
   assert.match(before.text, /\ntechniques: type-words 3.* · style: kino default/);
   assert.match(before.text, /W word_by_word/);
-  assert.match(before.text, /\nreturns: [^\n]+\nmade: 0 of 12 moments \(0%\) carry a made element \(cut-out, drawn graphic, shape, particle or designed type\)\n/, "check prints how much is designed beside the returns line");
+  assert.match(before.text, /\nreturns: [^\n]+\nmade: 82% of the time, 6% of the frame area \(181 frames at 30 fps; footage and found clips never count; by time: type 82%\)\n/, "check prints how much is designed beside the returns line");
   assert.equal(before.data.techniques["type-words"], 3);
 
   const refused = await agent("notes", { project: "styled", action: "brief", fields: { style: { wants: ["type-word"], by: "guessed" } } });

@@ -19,7 +19,7 @@ import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 import { aliveDuring } from "./quality/motionPixels.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
-import { madeLine, madeShare, referenceMade } from "./quality/madeShare.js";
+import { madeLine, madeShare, madeTime, referenceMade } from "./quality/madeShare.js";
 import { deckUse } from "./deck.js";
 import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
@@ -2442,9 +2442,29 @@ test("madeShare: the share of moments with a made element, big type but not a ca
   const deck = { cards: [{ tag: "punch-in" }, { tag: "speed-lines" }, { tag: "grain" }] };
   const refs = referenceMade([{ id: "r1", seen: [{ at: 1, kinds: ["made"] }, { at: 2, kinds: ["type"] }] }, { id: "r2", seen: [] }]);
   assert.deepEqual(refs, [{ id: "r1", made: 1, total: 2 }], "only a reference with labels has a stored measure");
-  assert.equal(madeLine(designed, { refs, deck: deckUse(deck, { "punch-in": 2 }) }),
-    "made: 8 of 8 moments (100%) carry a made element (graphic 4, type 4) · deck: 2 of 3 cards unused (speed-lines, grain) · drawn graphic: yours 4 of 8 moments, your 1 reference's made label 1 of 2");
-  assert.equal(madeLine(plain), "made: 0 of 8 moments (0%) carry a made element (cut-out, drawn graphic, shape, particle or designed type)", "no reference and no deck: only its own number");
+  const designedTime = madeTime(modelOf(scene({ layers: [footage("a"),
+    rect("box", { x: 100, y: 100, width: 600, height: 400, animations: [show(0), hide(2)] }),
+    text("title", "Go", { fontSize: 120, animations: [show(2)] })] })));
+  assert.equal(madeLine(designedTime, { refs, deck: deckUse(deck, { "punch-in": 2 }) }),
+    "made: 100% of the time, 7% of the frame area (121 frames at 30 fps; footage and found clips never count; by time: type 50%, graphic 50%) · deck: 2 of 3 cards unused (speed-lines, grain) · your 1 reference's made labels by eye: 1 of 2 moments (50%) (a time share, no area)");
+  const plainTime = madeTime(modelOf(scene({ layers: [footage("a"), text("sub", "she walks in", { role: "caption", fontSize: 120 })] })));
+  assert.equal(madeLine(plainTime), "made: 0% of the time, 0% of the frame area (121 frames at 30 fps; footage and found clips never count; no lettering, drawn graphic, cut-out on a new plate, particle or matte) · captions (not made): 100% of the time, 3% of the area", "no reference and no deck: only its own number");
+});
+
+test("madeTime: by screen time and frame area; a found clip, a caption pill and a cut-out over its own clip are not made, a cut-out on a new plate is", () => {
+  const at = (layers) => madeTime(modelOf(scene({ layers })));
+  // A found overlay clip (it may show flames) at half the frame, a caption in a painted pill group: none made.
+  const found = at([footage("a"), footage("flames", { x: 0, y: 0, width: 960, height: 540 }),
+    { type: "group", id: "pill", name: "pill", fill: "#000000B8", x: 600, y: 900, width: 720, height: 120 },
+    text("line", "she walks in", { role: "caption", parentId: "pill", x: 620, y: 910 })]);
+  assert.deepEqual([found.time, found.caption.time > 0.99], [0, true]);
+  // A cut-out over its own clip restores the same pixels; with the clip hidden from 2 s it stands on a new plate.
+  const over = at([footage("a"), footage("cut", { cutoutOf: "a" })]);
+  const plate = at([footage("a", { animations: [hide(2)] }), rect("plate", { ...FULL, fill: "#101010", animations: [hide(0), show(2)] }), footage("cut", { cutoutOf: "a" })]);
+  assert.deepEqual([over.time, Math.round(plate.kinds.cutout * 100)], [0, 50]);
+  // One small shape for a quarter second is a quarter second of made time and a small area, not a whole moment.
+  const blip = at([footage("a"), rect("dot", { x: 100, y: 100, width: 192, height: 108, animations: [show(1), hide(1.25)] })]);
+  assert.deepEqual([Math.round(blip.time * 100), Math.round(blip.area * 1000)], [7, 1]);
 });
 
 test("onscreenKinds: type, overlay, color, composite and plain are read from the layers; a gamma lift alone is no color look", () => {

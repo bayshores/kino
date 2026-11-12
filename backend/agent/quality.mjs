@@ -18,7 +18,7 @@ import { evaluateLayer } from "../../engine/animation.js";
 import { moveLayerByWorldDelta } from "../../engine/geometry.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { RULES, runQuality } from "../../engine/quality/index.js";
-import { madeShare, referenceMade } from "../../engine/quality/madeShare.js";
+import { madeTime, referenceMade } from "../../engine/quality/madeShare.js";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { askLine } from "../../engine/quality/rules/ask.js";
 import { cropCounts, heldStill } from "../../engine/quality/rules/footage.js";
@@ -965,7 +965,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (pending) measuredAll = false;
       // How much of the video scene (or the one scene asked for) is designed: a fact, with the references' own.
       // The deck part counts the cards deck_unused counts, from this scene's own techniques and made cards.
-      if (model && (isVideo || sceneId)) made = { ...madeShare(model), refs: referenceMade(listed), deck: sceneDeck ? deckUse(deckInPlay(sceneDeck, sceneStyle), used, madeNamesIn(scene)) : null };
+      if (model && (isVideo || sceneId)) made = { ...madeTime(model), refs: referenceMade(listed), deck: sceneDeck ? deckUse(deckInPlay(sceneDeck, sceneStyle), used, madeNamesIn(scene)) : null };
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {

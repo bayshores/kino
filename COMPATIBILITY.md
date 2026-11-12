@@ -611,10 +611,13 @@ How to read it:
   original unless `withMoves:true`; a copy fully under a full-frame layer above it is raised above it (or, over
   words, left with the reorder call). The receipt lists each. Evidence: `engine/duplicate.test.js`,
   `backend/agent-edit-repair.test.mjs`, `backend/agent-reach-geometry.test.mjs`.
-- **Made share and device counts**: Verified. check prints `made:` (share of moments with a cut-out,
-  drawn graphic, particle or designed type, the deck's unused cards, the references' made labels) and
-  `returns:` counts a group or a numbered stem (tread-1 to tread-4) as one device. Evidence:
-  `engine/qualityRules.test.js`, `engine/duplicate.test.js`, `backend/agent-deck.test.mjs`.
+- **Made share and device counts**: Verified. check and status print `made:` by screen time and frame area,
+  read every frame (lettering, drawn shapes, move-placed layers, cut-outs on a new plate, particles, mattes;
+  footage, found clips, a cut-out over its own clip never; captions and pills on their own line), the deck's
+  unused cards and the references' made labels; on two real test cuts it printed 15% and 29% of the time
+  against by-eye 16% and 30% (was 64% and 85% by moments). `returns:` counts a group or a numbered stem as
+  one device. Evidence: `engine/qualityRules.test.js`, `engine/duplicate.test.js`, `backend/agent-deck.test.mjs`.
+  Gap: area counts layer boxes, not drawn pixels; match_references made still counts moments.
 - **Small tool answers (round 4)**: Verified. `look {mode:"changed"}` scans the whole scene against the last look's
   revision and shows every changed span, labeled in seconds, with the spans the frame limit left out; `add_animation`
   and `update_animation` take plain numbers for `property:"volume"` / `from` / `to`; `crop_no_subject` names a mark
