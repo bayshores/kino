@@ -283,7 +283,24 @@ const RISE_WINDOW = 0.4;
 const BED_LOWEST = -40;
 // A receipt's hidden link from a line's note to its music, so a later keep_line in the same edit rewrites it.
 const RETURN = Symbol("keep_line return");
-const db = (value) => 20 * Math.log10(Math.max(1e-6, value));
+// A receipt's hidden link to its line's place on the song, so its `dips` is written after every line in the edit.
+const CHAIN = Symbol("keep_line dips");
+
+// The dips that follow on from one another (each kept line its own level) around start..end on the
+// song, as the receipt's `dips` text ("0.631 at 0.2-1.5 s · 0.562 at 1.5-3 s"); null for one dip alone.
+function dipChain(scene, musicLayer, start, end) {
+  const songHead = songOf(scene, musicLayer)[0]?.layer;
+  const pairs = songHead ? duckPairs(songHead) : [];
+  const at = pairs.findIndex((pair) => pair.start < end && pair.end > start);
+  if (at < 0) return null;
+  let first = at;
+  let last = at;
+  while (first > 0 && !pairs[first - 1].up && Math.abs(pairs[first - 1].end - pairs[first].start) < 0.01) first -= 1;
+  while (last + 1 < pairs.length && !pairs[last].up && Math.abs(pairs[last].end - pairs[last + 1].start) < 0.01) last += 1;
+  if (last === first) return null;
+  return `${musicLayer.name} under the lines: ${pairs.slice(first, last + 1).map((pair) => `${round(pair.level)} at ${round(pair.start)}-${round(Math.min(pair.end, scene.duration))} s`).join(" · ")}`;
+}
+const db =(value) => 20 * Math.log10(Math.max(1e-6, value));
 const powerSum = (...values) => 10 * Math.log10(values.filter(Number.isFinite).reduce((sum, value) => sum + 10 ** (value / 10), 0));
 
 // The song and its fit_music pieces, each with its Play range.
@@ -452,6 +469,15 @@ function bedWording(notes, bed) {
 // music comes back at another time now that later lines are placed (a later line joined its dip).
 function refreshEarlier(document, reports, current) {
   for (const report of reports?.values() ?? []) {
+    // Each line's `dips`, as the song now plays (a later line chained on, or shared its dip).
+    const chain = report?.[CHAIN];
+    const chainScene = chain && document.scenes.find((item) => item.id === chain.sceneId);
+    const chainMusic = chainScene?.layers.find((item) => item.id === chain.musicId);
+    if (chainMusic) {
+      const said = dipChain(chainScene, chainMusic, chain.start, chain.end);
+      if (said) report.dips = said;
+      else delete report.dips;
+    }
     const link = report?.[RETURN];
     if (!link || report === current) continue;
     const scene = document.scenes.find((item) => item.id === link.sceneId);
@@ -865,6 +891,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   let bedSaid = null;
   let dropSaid = null;
   let chainSaid = null;
+  let chainLink = null;
   let returnLink = null;
   let levelsLink = null;
   if (music.layer) {
@@ -1067,16 +1094,8 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
         returnLink = { sceneId: scene.id, musicId: music.layer.id, start, end, at: upAt, index: before0, under: volumeAt(music.layer, (start + end) / 2), level, bedFull: over?.measured?.under };
       if (duck && !out && operation.dip === undefined && over && !over.own) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
       // The dips that follow on from one another around this line (each kept line its own level).
-      const songHead = songOf(scene, music.layer)[0]?.layer;
-      const pairs = songHead ? duckPairs(songHead) : [];
-      const at = pairs.findIndex((pair) => pair.start < end && pair.end > start);
-      if (at >= 0) {
-        let first = at;
-        let last = at;
-        while (first > 0 && !pairs[first - 1].up && Math.abs(pairs[first - 1].end - pairs[first].start) < 0.01) first -= 1;
-        while (last + 1 < pairs.length && !pairs[last].up && Math.abs(pairs[last].end - pairs[last + 1].start) < 0.01) last += 1;
-        if (last > first) chainSaid = `${pairs.slice(first, last + 1).map((pair) => `${round(pair.level)} at ${round(pair.start)}-${round(Math.min(pair.end, scene.duration))} s`).join(" · ")}`;
-      }
+      chainSaid = dipChain(scene, music.layer, start, end);
+      chainLink = { sceneId: scene.id, musicId: music.layer.id, start, end };
     }
     // A lift (asked, the default, or the churn fallback) replaces a dip an earlier keep_line left
     // under this line: that dip goes, unless it also holds another kept line or another heard sound
@@ -1133,7 +1152,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     ...(gainSaid ? { gain: gainSaid } : {}),
     ...(waysSaid ?? {}),
     ...(bedSaid ? { bed: bedSaid } : {}),
-    ...(chainSaid ? { dips: `${music.layer?.name} under the lines: ${chainSaid}` } : {}),
+    ...(chainSaid ? { dips: chainSaid } : {}),
     ...(dropSaid ? { drop: dropSaid } : {}),
     ...(even ? { even: { median: even.median, spread: even.spread, places: even.places } } : {}),
     summary: `kept ${sound ? `${sound.label.replaceAll("_", " ")} (${sound.db} dB) ` : text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : standing ? `subtitle ${standing.name} kept as it was` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the ${sound ? "sound" : "line"} ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
@@ -1141,6 +1160,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   };
   if (returnLink && notes.length) Object.defineProperty(receipt, RETURN, { value: returnLink, enumerable: false });
   if (levelsLink) Object.defineProperty(receipt, LEVELS, { value: levelsLink, enumerable: false });
+  if (chainLink) Object.defineProperty(receipt, CHAIN, { value: chainLink, enumerable: false });
   // Every line's note in one edit is written after all the lines are placed.
   refreshEarlier(document, reports, receipt);
   return receipt;

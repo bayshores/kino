@@ -214,9 +214,11 @@ export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks 
     const down = ramps?.fade ?? fade;
     // `chain` (keep_line's own dip level): a close stretch at another level is not merged into one
     // dip at the deeper level; it follows on (`chained`), the song moving from one level to the next in the gap.
+    // Earlier dips that follow on from one another stay apart at their own levels in any call (a
+    // later duck_audio or keep_line join keeps each line's dip).
     const level = earlier ?? chain;
     // `join`: stretches this close are one dip as well (the ramps keep their own lengths).
-    if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP && chain !== undefined && Math.abs(level - last.level) > 0.001) {
+    if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP && level !== undefined && last.level !== undefined && Math.abs(level - last.level) > 0.001) {
       if (span.start < last.end) last.end = span.start;
       joined.push(last = { ...span, chained: true, ...(ramps ? { ramps } : {}) });
     } else if (last && cue == null && span.start - down < last.end + Math.max(up, join) + MIN_UP) {
@@ -226,7 +228,7 @@ export function duckStretches(spans, fade, sceneDuration, fadeUp = fade, breaks 
       if (cue != null && span.start - down <= last.end + up) { last.upBy = cue; span.downFrom = cue; }
       joined.push(last = { ...span, ...(ramps ? { ramps } : {}) });
     }
-    if (chain !== undefined) last.level = Math.min(last.level ?? Infinity, level);
+    if (level !== undefined) last.level = Math.min(last.level ?? Infinity, level);
     if (name && !(last.names ??= []).includes(name)) last.names.push(name);
     if (Number.isFinite(voice)) last.voice = Math.min(last.voice ?? Infinity, voice);
     if (Number.isFinite(unlined)) last.unlined = Math.min(last.unlined ?? Infinity, unlined);
@@ -630,7 +632,8 @@ function duckOnce(document, operation) {
   // Dips at their own depths: the headline is the deepest one this call made (a measured depth
   // under a dip's floor is never the level heard), or the given `to`.
   const made = dips.filter((dip) => !dip.earlier).map((dip) => dip.level);
-  const headline = operation.to ?? (made.length ? Math.min(...made) : to);
+  // Only earlier dips (each line's own, kept): the deepest of them, not the unmeasured default.
+  const headline = operation.to ?? (made.length ? Math.min(...made) : dips.length ? Math.min(...dips.map((dip) => dip.level)) : to);
   const quoted = (line) => `"${line.text.length > 40 ? `${line.text.slice(0, 40)}...` : line.text}" (${line.name})`;
   return {
     layer: layer.name,

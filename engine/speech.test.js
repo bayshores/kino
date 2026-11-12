@@ -689,6 +689,12 @@ test("five adjacent kept lines each keep their own dip, the song moves between t
   assert.deepEqual([0.9, 2.4, 3.9, 5.4, 6.8, 7.5].map((time) => Math.round(volumeAt(song, time) * 1000) / 1000), [0.631, 0.562, 0.2, 0.063, 0.631, 1]);
   const last = reports.get(ops[4]);
   assert.equal(last.dips, "music under the lines: 0.631 at 0.2-1.5 s · 0.562 at 1.5-3 s · 0.2 at 3-4.5 s · 0.063 at 4.5-6.3 s · 0.631 at 6.3-7.5 s");
+  // Every line's receipt gives the dips as they play after the whole edit (the first line's too).
+  assert.deepEqual(ops.map((op) => reports.get(op).dips === last.dips), [true, true, true, true, true]);
+  // A later plain duck_audio keeps each line's own dip (it merged them into one 0.063 dip, 0.2-8 s, past the drop).
+  const duck = { type: "duck_audio", sceneId: "s", layerId: "music", under: clips.map((clip) => clip.id), levels };
+  const after = parseDocument(applyOperations(documentWith([...clips, musicLayer()], 12, { cues: [{ name: "drop", time: 7.5, kind: "marker" }] }), [...ops, duck])).scenes[0].layers.find((layer) => layer.id === "music");
+  assert.deepEqual([0.9, 2.4, 3.9, 5.4, 6.8, 7.5].map((time) => Math.round(volumeAt(after, time) * 1000) / 1000), [0.631, 0.562, 0.2, 0.063, 0.631, 1]);
   assert.match(last.notes.join(" | "), /the music is back up by 7\.5 s, 0\.2 s after the line ends: the dip ends on the song's section cue there, not on the beat at 8 s/);
   assert.match(reports.get(ops[2]).notes.join(" | "), /the next line's own dip follows on: the music goes from 0\.2 to 0\.063 at 4\.5-4\.8 s instead of coming back up/);
   assert.match(reports.get(ops[3]).notes[0], /the music at a bed of 0\.063 under the line \(-24 dB: 6 LU under the line, measured\); dropout:true with dip:0 takes it out$/);
