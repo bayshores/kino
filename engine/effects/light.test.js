@@ -15,7 +15,7 @@ import { MAX_RAY_COPIES_PER_STAGE, MAX_RAY_STAGES, rayFade, rayStages, renderLig
 import { flareVisibility, renderLensFlare } from "./lensFlare.js";
 import { calmLightAnimations } from "./light.js";
 import { lobeTable, renderRimLight, rimWidth } from "./rimLight.js";
-import { renderEdgeLines } from "./edgeLines.js";
+import { measuredEdges, renderEdgeLines } from "./edgeLines.js";
 import { createLayer, createScene } from "../model.js";
 import { renderSceneSvg } from "../render.js";
 import { CPU_RASTER } from "../../tests/golden/raster.mjs";
@@ -245,6 +245,9 @@ test("edge lines auto: the measured threshold finds a faint step, letterbox edge
   assert.ok(Math.max(...[9, 10, 11].map((y) => unmeasuredBars.pixel(60, y)[3])) > 100, "a given number with no measurement keeps drawing the bar edge as before");
   const lit = (picture) => [...Array(12).keys()].filter((index) => picture.pixel(44 + index, 60)[3] > 128).length;
   assert.ok(lit(measured) <= 3, `auto width at 120 px high is thin: ${lit(measured)} px`);
+  // Pictures measured at 540 drawn on a 1080 layer: each step spreads over twice the pixels.
+  const edgesAt = (height, layer) => measuredEdges({ bounds: { height: layer }, helpers: { levels: [0, 1, 0.08, 0, 0, 0, 0, height] } })[0];
+  assert.deepEqual([edgesAt(540, 1080), edgesAt(1080, 540), edgesAt(undefined, 1080)], [0.04, 0.08, 0.08]);
 });
 
 test("light rays: the copy plan, the fade along a streak and the scene box", () => {

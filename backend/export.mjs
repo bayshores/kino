@@ -1166,7 +1166,7 @@ const readsEdges = (animation) => animation?.kind === "effect" && animation.enab
 const BLACK_ROW = 0.08; // a row or column whose brightest sample is under 8% gray is a black bar (a guess)
 
 /**
- * [threshold, top, bottom, left, right] for an auto edge-lines: the EDGE_PERCENTILE of the
+ * [threshold, top, bottom, left, right, height] for an auto edge-lines: the EDGE_PERCENTILE of the
  * pictures' one-pixel luma differences (|dx| + |dy|, after the effect's lift by `adapt`), and the
  * share of the picture taken by black bars on each side (rows or columns black in every picture,
  * at most a quarter each). Samples every 2nd pixel inside the bars.
@@ -1195,7 +1195,8 @@ export function layerEdges(pictures, adapt = 1) {
   if (!total) return null;
   let seen = 0, value = 0;
   for (; value < 511; value += 1) { seen += histogram[value]; if (seen >= EDGE_PERCENTILE * total) break; }
-  return [Math.max(0.01, value / 255), top / height, bottom / height, left / width, right / width];
+  // The pictures' height comes last: the renderer scales the threshold to the layer's own pixels.
+  return [Math.max(0.01, value / 255), top / height, bottom / height, left / width, right / width, height];
 }
 
 // The 2nd and 98th percentile luma (0..1) of RGBA pictures, counting only opaque pixels.

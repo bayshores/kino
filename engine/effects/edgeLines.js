@@ -54,16 +54,25 @@ export const EDGE_WIDTH_SHARE = 0.002;
 export const EDGE_PERCENTILE = 0.98;
 const FIXED_THRESHOLD = 0.05;
 
-/** [threshold, top, bottom, left, right] measured for the layer, or null (helpers.levels). */
+/**
+ * [threshold, top, bottom, left, right] measured for the layer, or null (helpers.levels). The
+ * measurement reads one-pixel steps of the measured pictures; a picture drawn larger than it was
+ * measured (a 540 px clip on a 1080 px layer, or a look drawn smaller than the project) spreads
+ * each step over more layer pixels, so the threshold shrinks by the pictures' height over the
+ * layer's (never grows: a sharp step keeps its size when drawn smaller). Without this a 1080 p
+ * project drew the skeptic proof's line-art frames nearly empty.
+ */
 export function measuredEdges(frame) {
   const levels = frame?.helpers?.levels;
   if (!Array.isArray(levels) || levels.length < 7 || !levels.slice(2, 7).every(Number.isFinite)) return null;
-  return levels.slice(2, 7);
+  const [threshold, ...bars] = levels.slice(2, 7);
+  const measuredHeight = levels[7], layerHeight = frame?.bounds?.height;
+  const scale = Number.isFinite(measuredHeight) && measuredHeight > 0 && layerHeight > 0 ? Math.min(1, measuredHeight / layerHeight) : 1;
+  return [threshold * scale, ...bars];
 }
 
 export function renderEdgeLines(frame) {
-  const measured = measuredEdges(frame);
-  const autoWidth = frame?.parameters?.width === "auto";
+  const measured = measuredEdges(frame);  const autoWidth = frame?.parameters?.width === "auto";
   const width = autoWidth ? Math.min(12, Math.max(0.5, (frame.bounds?.height ?? 540) * EDGE_WIDTH_SHARE)) : numberParameter(frame, "width", 3, 0.5, 12);
   const autoThreshold = frame?.parameters?.threshold === "auto";
   // The measurement reads unsmoothed pictures; the smoothing below flattens a step's slope (to
