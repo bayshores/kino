@@ -696,7 +696,7 @@ export function createAgentService(deps) {
     // A song's saved shape (.song file, never a new measure): reference_range reads its loudest change.
     const songOf = async (layer) => (await songShapes.saved?.(mediaFileOf(layer))) ?? null;
     // The lines the clips say (saved transcripts only), heard or muted: reference_range names them.
-    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, text, from, to, slowed }) => ({ layer, text, from, to, ...(slowed ? { slowed } : {}) }));
+    const clipLinesOf = async (doc, scene) => (await sceneLines(scene, doc, codes)).map(({ layer, layerId, text, from, to, slowed }) => ({ layer, layerId, text, from, to, ...(slowed ? { slowed } : {}) }));
     const asks = askedItems(saved);
     // listen:false (the dashboard's own check) never starts a reference's voice measure either.
     const checked = await quality.check(document, { fonts, codes, sceneId, pixels, listen, outputFps, styleSpec, deck, briefFonts, length, asks, transcriptOf, loudnessOf, levelsOf: levelsOfLayer, songOf, clipLines: clipLinesOf, peopleOf, soundSearch: songSearchOn(), origin: saved?.origin ?? null, playsOn: saved?.brief?.fields?.plays_on ?? null, sourceLooks: saved?.sourceLooks ?? {} });
@@ -4733,7 +4733,7 @@ export function createAgentService(deps) {
       for (const line of lines) {
         if (line.start < range.offset - 1e-6 || line.end > range.offset + range.duration + 1e-6) continue;
         const at = (file) => Math.round((range.start + file - range.offset) * 10) / 10;
-        found.push({ layer: refName(layer.id, codes), src: layer.src, text: line.text, from: at(line.start), to: at(line.end), heard, slowed: isRemapped(layer) });
+        found.push({ layer: refName(layer.id, codes), layerId: layer.id, src: layer.src, text: line.text, from: at(line.start), to: at(line.end), heard, slowed: isRemapped(layer) });
       }
     }
     return found.sort((a, b) => a.from - b.from);

@@ -89,7 +89,7 @@ export const RULES = [
   rule("text_on_busy", "warn", textOnBusy, "text is not over fine detail (under 16% edge pixels behind it, scrims included)", true),
   rule("small_on_empty", "warn", smallOnEmpty, "a picture shown on a flat frame fills 25% of it or more (over 1.5 s)", true),
   rule("render_artifact", "warn", renderArtifact, "an RGB split draws no flat saturated slabs (3% of the frame or more)", true),
-  rule("speech_captions", "warn", speechCaptions, "captions shown over a voice include every word it says"),
+  rule("speech_captions", "warn", speechCaptions, "captions shown over a voice include every word it says, and a text that shows a line a muted clip says (a full check, from saved transcripts) is heard from that clip or another sound"),
   rule("speech_quotes", "warn", speechQuotes, "captions of heard speech look different from caption-like text nobody says (quotes, another font, style or color)"),
   rule("speech_fragment", "warn", speechFragment, "a sound does not start on the tail (up to 3 words, within 1.5 s) of a sentence said before its in point, unless a voice as loud covers it or its volume is 0.25 or lower; needs a transcript"),
   rule("mute_word", "warn", muteWord, "a ramp of 0.5 s or less that ducks a voice to 35% or less ends 0.03 s before the word it hides, and the ramp back up starts after it (auto when no other word is lowered); end fades and duck_audio dips that do not mute aside"),

@@ -561,8 +561,69 @@ function captionStretches(model) {
   return list;
 }
 
-/** speech_captions: captions are shown over a voice but leave out words it says. */
+/**
+ * speech_captions: captions are shown over a voice but leave out words it says, or a text shows
+ * the line of a clip that is muted there (the viewer reads a voice they never hear).
+ */
 export function speechCaptions(model, ctx) {
+  return [...captionGaps(model, ctx), ...mutedLines(model, ctx)];
+}
+
+// A text shows this share of a line's words (2 or more words) while its clip is muted.
+const LINE_SHOWN = 0.6;
+// A muted clip's line counts as covered when this share of its words is heard from another sound.
+const LINE_HEARD = 0.6;
+
+// The layer's volume stays at 0.05 or less from `from` to `to` (scene seconds).
+function mutedBetween(layer, from, to) {
+  for (let time = from; time < to + 1e-6; time += 0.1) if (volumeAt(layer, Math.min(time, to)) > HEARD) return false;
+  return true;
+}
+
+/**
+ * A reading text whose words match 60% or more of a line a video clip says (ctx.clipLines, from the
+ * saved transcripts) while that clip plays muted under it. Nothing else says the line: the fix is
+ * keep_line, which plays only that line (and the text already shows it, so it adds no subtitle).
+ */
+function mutedLines(model, ctx) {
+  const scene = ctx.speechScene;
+  const lines = (ctx.clipLines ?? []).filter((line) => line?.layerId && line.text && Number.isFinite(line.from) && Number.isFinite(line.to));
+  if (!scene || !lines.length) return [];
+  const strings = shownStrings(model);
+  if (!strings.length) return [];
+  const heard = voices(ctx).flatMap(heardWords);
+  const findings = [];
+  for (const line of lines) {
+    const layer = scene.layers.find((other) => other.id === line.layerId);
+    if (!layer || layer.type !== "video" || layer.enabled === false || !mutedBetween(layer, line.from, line.to)) continue;
+    const words = String(line.text).split(/\s+/).map(plainWord).filter(Boolean);
+    if (words.length < 2) continue;
+    // Another sound says it: a voice clip heard in the mix with the same words.
+    const heardNow = new Set(heard.filter((word) => word.end >= line.from - 0.5 && word.start <= line.to + 0.5).map((word) => plainWord(word.text)));
+    if (words.filter((word) => heardNow.has(word)).length / words.length >= LINE_HEARD) continue;
+    const entry = strings.find((candidate) => {
+      if (!candidate.stretches.some((stretch) => stretch.start < line.to + 0.75 && stretch.end > line.from - 0.75)) return false;
+      const matched = words.filter((word) => candidate.words.includes(word)).length;
+      return matched >= 2 && matched / words.length >= LINE_SHOWN;
+    });
+    if (!entry) continue;
+    const name = line.layer ?? layer.id;
+    const call = JSON.stringify({ ops: [
+      ...(line.slowed ? [{ op: "update_layer", layer: name, properties: { mediaSpeed: 1, mediaReverse: null } }] : []),
+      { op: "keep_line", layer: name, line: line.text, subtitle: false },
+    ] });
+    findings.push({
+      rule: "speech_captions", severity: "warn", layerId: layer.id, itemId: entry.item.id, at: sec(line.from),
+      message: `"${entry.text.replaceAll('"', "'")}" shows the line ${name} says, but ${name} is muted there: the viewer reads a voice they never hear.`,
+      measured: `line "${String(line.text).replaceAll('"', "'")}" at ${sec(line.from)}-${sec(line.to)} s, ${name} volume 0.05 or less`,
+      required: "a line shown as text is heard from its clip, or from another sound",
+      fix: { kind: "hint", text: `edit ${call}${line.slowed ? " (keep_line needs speed 1, so the first op sets it)" : ""}: plays only that line and keeps your text as the subtitle. Muted on purpose: waive_check {code:"speech_captions", target:"${name}", reason:"<why it stays silent>"}.` },
+    });
+  }
+  return findings;
+}
+
+function captionGaps(model, ctx) {
   const voicesHere = voices(ctx);
   if (!voicesHere.length) return [];
   const captions = captionStretches(model);

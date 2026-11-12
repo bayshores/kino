@@ -106,8 +106,7 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    starts or ends inside a word or mid-sentence (a full stop or 0.3 s pause ends one; words cut,
    muted, over silence under -40 dB, or in a gap between same-clock clips of one take do not count), or whose cut lands in
    loud sound near a word; a file that ends loud cuts its sentence off. A deliberate cut:
-   `waive_check`. The fix moves the edge to the sentence end or start, never over a cut word (not
-   auto over a shot's cut). Warnings:
+   `waive_check`. The fix moves the edge to the sentence end or start, never over a cut word (not auto over a shot's cut). Warnings:
    `speech_fragment` (a layer opens on a sentence's tail), `mute_word` (a mute or duck lets
    part of its word through), `music_hard_stop` (a song stops loud: `fit_music` or a fade),
    `end_on_fade` (fades out mid-phrase), `no_music` (soundtrack.md); measured: `voice_under_bed` (a line under 6 LU
@@ -116,9 +115,9 @@ Cut the slips out of a voiceover, then caption the rest (local whisper.cpp). `li
    rise over 8 LU at a cut: J-cut the new bed 0.5 s early with a 0.5 s fade, or match its level),
    `volume_churn` (a song or bed turns volume 3 times in 10 s: hold one level, duck once per spoken
    stretch). A waiver on a layer lapses when its file changes or it is deleted. Renders clean lines at volume 0.5+ (rumble cut,
-   de-esser, gentle peak compressor, voice EQ), then level them to -16 LUFS (line by line in a clip whose lines differ by over 6 dB); `voiceCleanup:false` turns cleaning off.
-   `inspect {targets:["cuts"]}` lists cuts, words around them, the dB jump. `speech_captions` warns when captions leave out heard words. With no
-   speech model, check's notes say so. Sound effects are skipped.
+   de-esser, compressor, EQ), then level them to -16 LUFS (per line when lines differ over 6 dB); `voiceCleanup:false` skips it.
+   `inspect {targets:["cuts"]}` lists cuts, words near them, dB jump. `speech_captions` warns when captions leave out heard words, or a text shows a muted clip's line (fix: keep_line). With no
+   speech model, check says so. Sound effects are skipped.
 
 If whisper-cli or its model is missing, the refusal says how to install them (macOS:
 `brew install whisper-cpp`, and a model such as `ggml-small.en.bin` in `~/.kino/models/`).

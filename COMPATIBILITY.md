@@ -870,7 +870,7 @@ How to read it:
 - **Speech checks**: Verified on hand-written transcripts and a real trailer's voice-over.
   `speech_cut` gates a clip cut mid-word or mid-sentence (auto fix to the sentence end); words cut,
   muted or in a gap between same-clock clips of one take are no cut line and no fix brings them
-  back; silent files leave no note. `speech_captions` warns on heard words left out. Evidence: `engine/qualityPolish.test.js`,
+  back; silent files leave no note. `speech_captions` warns on heard words left out, and on a text that shows the line of a clip muted there (fix: keep_line). Evidence: `engine/qualityPolish.test.js`,
   `backend/quality-cache.test.mjs`.
 - **Speech quotes** (`speech_quotes`): Verified on hand-built scenes; not yet run on a real project.
   Warns when a caption of heard speech looks like an unsaid line; the fix adds quotes. Evidence:
