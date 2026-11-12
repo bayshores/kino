@@ -82,8 +82,12 @@ export function foundClipTag(item, footage = null) {
   const extra = item?.footage;
   if (!extra || typeof extra !== "object") return null;
   const said = String(extra.code ?? extra.candidate ?? extra.id ?? "").trim();
-  const entry = said ? (footage?.candidates ?? []).find((each) => each.code === said || each.id === said) : null;
-  const group = entry?.code ?? (/^F\d+$/.test(said) ? said : said.replace(/^clip:/, "") || "found");
+  // The video's id first: a clip another project cut keeps that project's code, which may name
+  // another video here (found-shared).
+  const list = footage?.candidates ?? [];
+  const clash = Boolean(extra.candidate) && list.some((each) => each.code === said && each.id !== extra.candidate);
+  const entry = (extra.candidate ? list.find((each) => each.id === extra.candidate) : null) ?? (said && !clash ? list.find((each) => each.code === said || each.id === said) : null);
+  const group = entry?.code ?? (clash ? String(extra.candidate).replace(/^clip:/, "") : /^F\d+$/.test(said) ? said : said.replace(/^clip:/, "") || "found");
   const shot = Number.isFinite(Number(extra.shot)) && extra.shot !== null && extra.shot !== "" ? Number(extra.shot) : null;
   return { group, label: shot === null ? group : `${group}.${shot}`, shot };
 }

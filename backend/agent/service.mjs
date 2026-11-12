@@ -6913,9 +6913,21 @@ export function createAgentService(deps) {
     const projectId = record.document.id;
     let state = await agentState.read(projectId);
     const file = input.file.trim();
-    const asked = parseFootageRef(file);
+    let asked = parseFootageRef(file);
     const listed = () => (asked && !asked.top ? (state.footage?.candidates ?? []).find((entry) => (asked.code ? entry.code === asked.code : entry.id === asked.id)) : null);
     let candidate = listed();
+    // An F code this project does not have is most likely another project's (a/result.md friction 1:
+    // F5 sent from the earlier project's answers). The found clips in the media library remember
+    // which video each code named: one video → it joins here below, under this project's own code;
+    // several → their ids are listed in the not_found answer.
+    let otherCode = null;
+    let otherIds = [];
+    if (!candidate && asked?.code) {
+      const library = (await deps.listMedia?.().catch(() => [])) ?? [];
+      otherIds = [...new Set(library.filter((item) => item?.footage?.code === asked.code && item.projectId !== projectId && /^clip:yt-/.test(String(item.footage.candidate ?? "")))
+        .map((item) => item.footage.candidate))];
+      if (otherIds.length === 1) { otherCode = asked.code; asked = { id: otherIds[0] }; }
+    }
     // A video another project scanned (its scan is in the data folder, keyed by the video's id) joins
     // this project's list under a new code of its own, so clip:yt-<id> imports at once (found-shared).
     if (!candidate && asked?.id?.startsWith("clip:yt-")) {
@@ -6934,9 +6946,12 @@ export function createAgentService(deps) {
       }
     }
     if (!candidate) {
-      throw Object.assign(new AgentError("not_found", `${file} is not one of this video's found videos: search and scan first, then import the scan's shots.${asked?.code ? ' F codes belong to one project; a video another project scanned joins this one with library {topic:"footage", scan:"yt:<video id>"} (a scan saved on this computer answers at once).' : ""}`),
+      const others = otherIds.length > 1 ? ` Other projects used ${asked.code} for ${otherIds.slice(0, 4).join(", ")}: import one of them by that id (file:"clip:yt-<id>").` : "";
+      throw Object.assign(new AgentError("not_found", `${file} is not one of this video's found videos: search and scan first, then import the scan's shots.${asked?.code ? ` F codes belong to one project; a video scanned on this computer imports here by its id (file:"clip:yt-<id>"), at once.${others}` : ""}`),
         { nextCall: asked?.id ? nextOf("library", { topic: "footage", scan: file }) : nextOf("library", { topic: "footage" }) });
     }
+    // Said first in the answer when another project's code was sent.
+    const joinedLine = otherCode ? `${otherCode} is another project's code: its video joined this one as ${candidate.code}.` : "";
     const options = input.options && typeof input.options === "object" ? input.options : {};
     const from = input.from ?? options.from;
     const to = input.to ?? options.to;
@@ -6965,6 +6980,10 @@ export function createAgentService(deps) {
           // reused: only the others are downloaded. The media library is the download cache.
           const library = (await deps.listMedia?.().catch(() => [])) ?? [];
           const { have, missing } = findCutClips(library, candidate, pieces, (item) => Boolean(deps.mediaRoot) && existsSync(path.join(deps.mediaRoot, item.id)));
+          // A reused clip another project cut is noted as used here too, so this project's clip sheet,
+          // shape and sharing links see it before any layer holds it, and deleting that project keeps it.
+          const foreign = have.map((each) => each.item).filter((item) => !mediaAllowedIn(item, projectId));
+          if (foreign.length) await Promise.resolve(deps.noteMediaUse?.(projectId, foreign.map((item) => item.id))).catch(() => {});
           const taken = missing.length ? await deps.footage.take(candidate, missing, { projectId, marks: scan?.marks ?? [] }) : { media: [], failed: [] };
           const result = { ...taken, media: [...have.map((each) => each.item), ...taken.media].sort((a, b) => (Number(a.footage?.start) || 0) - (Number(b.footage?.start) || 0)), reused: have.length };
           const seconds = result.media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
@@ -7008,7 +7027,7 @@ export function createAgentService(deps) {
       // and how to read its result (the same call returns the finished answer at once, nothing twice).
       const jobs = footageQueues.get(projectId)?.jobs ?? [];
       const ahead = Math.max(0, jobs.indexOf(job));
-      const where = job.running ? `running now (${job.pieces} piece${job.pieces === 1 ? "" : "s"}: download, then an exact cut and encode each)` : `queued, ${ahead} import${ahead === 1 ? "" : "s"} of this video ahead of it (${job.pieces} piece${job.pieces === 1 ? "" : "s"})`;
+      const where = job.running ? `running now (${job.pieces} piece${job.pieces === 1 ? "" : "s"}: download, then an exact cut and encode each)` : `queued, ${ahead} import${ahead === 1 ? "" : "s"} of this project ahead of it (${job.pieces} piece${job.pieces === 1 ? "" : "s"})`;
       return done(projectId, { text: `${candidate.code} import ${where}. It keeps going by itself and the clips join the media list when it ends. Read its result with this same call: it returns the finished answer at once and downloads nothing twice; look {mode:"source"} shows the clips.`,
         data: { importing: candidate.code, queued: !job.running, ahead }, nextCall: repeat });
     }
@@ -7029,7 +7048,7 @@ export function createAgentService(deps) {
     const marked = result.media.find((item) => item.footage?.marks?.length);
     const frameScene = marked ? videoScene((await store.getProject(projectId).catch(() => null))?.document ?? record.document) : null;
     const frame = frameScene ? { width: frameScene.width, height: frameScene.height } : null;
-    const answer = { text: [lead, takeText(candidate, { ...result, frame }), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
+    const answer = { text: [lead, joinedLine, takeText(candidate, { ...result, frame }), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed,
         ...(marked ? { marks: marked.footage.marks } : {}) },
       nextCall: nextOf("look", { mode: "source" }) };

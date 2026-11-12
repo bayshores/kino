@@ -1217,15 +1217,21 @@ test("found-shared: clip:yt-<id> of a video another project scanned joins this p
   const cut = { id: "m4.mp4", src: "/api/media/m4.mp4", mime: "video/mp4", duration: 2, width: 1920, height: 1080, hasAudio: false, footage: { candidate: found(1).id, code: "F7", shot: 4, start: 30, end: 32, cutAt: 30 } };
   let takes = 0;
   const finder = { readScan: async () => ({ title: "Episode 1", shots: [{ n: 4, start: 30, end: 32 }] }), take: async () => { takes += 1; return { media: [], failed: [] }; } };
+  const noted = [];
   const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
-    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [cut], footage: finder });
+    exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [], listMedia: async () => [{ ...cut, projectId: "first" }], footage: finder,
+    noteMediaUse: async (projectId, ids) => { noted.push([projectId, ...ids]); } });
   const importing = (file) => service.call("project", { project: "second", action: "import", file, options: { shots: [4] } });
-  // An F code belongs to one project: the refusal names the way in.
-  assert.match((await importing("F7")).text, /F codes belong to one project/);
-  const imported = await importing(found(1).id);
+  // A code no clip on this computer had: the refusal names the way in.
+  assert.match((await importing("F9")).text, /F codes belong to one project; a video scanned on this computer imports here by its id \(file:\\"clip:yt-<id>\\"\)/);
+  // The other project's F7 (a/result.md friction 1): its video joins under this project's own code.
+  const imported = await importing("F7");
   assert.equal(imported.isError, undefined, imported.text);
   assert.equal(takes, 0);
-  assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\) for this video; all already on this computer: reused, nothing downloaded:/);
+  assert.match(imported.text, /^F7 is another project's code: its video joined this one as F1\.\nImported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\) for this video; all already on this computer: reused, nothing downloaded:/);
+  // The reused clip is noted as this project's too, and its sheet tag follows the video, not the other project's code.
+  assert.deepEqual(noted, [["second", "m4.mp4"]]);
+  assert.equal(foundClipTag(cut, { candidates: [{ code: "F7", id: "clip:yt-other000000" }, { code: "F1", id: found(1).id }] }).label, "F1.4");
   assert.match(imported.text, /^F1\.4 2s 1920×1080 \/api\/media\/m4\.mp4 no sound$/m);
   const entry = (await agentState.read("second")).footage.candidates[0];
   assert.deepEqual([entry.code, entry.scan.shots, entry.imported], ["F1", 1, { shots: [4], seconds: 2 }]);
@@ -1252,7 +1258,7 @@ test("found-shared: imports sent one after another queue behind the running one 
   await new Promise((resolve) => setTimeout(resolve, 5));
   const [one, two] = await Promise.all([sentFirst, importing(5)]);
   assert.match(one.text, /^F1 import running now \(1 piece/);
-  assert.match(two.text, /^F1 import queued, 1 import of this video ahead of it \(1 piece\)\. It keeps going by itself/);
+  assert.match(two.text, /^F1 import queued, 1 import of this project ahead of it \(1 piece\)\. It keeps going by itself/);
   assert.deepEqual(two.data, { importing: "F1", queued: true, ahead: 1 });
   // Only the first runs: the second has not started its download.
   assert.deepEqual(started, [4]);

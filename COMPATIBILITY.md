@@ -881,8 +881,9 @@ How to read it:
   run live in CI; the image model does not know character names.
 - **Found video shared by all projects**: Stub-verified. A scan saved by video id answers any project at
   once ("already on this computer: reused", other `want` words re-rank its saved vectors, no download),
-  `clip:yt-<id>` joins it under a new F code, and cut clips already in the media library import with no
-  download. Evidence: `backend/footage-finder.test.mjs` (reuse). Gap: a deleted clip downloads again.
+  `clip:yt-<id>` or another project's F code joins it under a new F code, and cut clips already in the
+  media library import with no download (noted as used by the new project). Evidence:
+  `backend/footage-finder.test.mjs` (reuse). Gap: a deleted clip downloads again.
 - **Imports queue**: Stub-verified. Three imports at once run one after another; each answers when done
   (waits up to 60 s, a guess, else says queued and to repeat the call). Evidence: `backend/footage-finder.test.mjs` (queue).
 - **One line per imported clip**: Stub-verified. Each line gives the `clip:` reference and what it says or

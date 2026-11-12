@@ -35,12 +35,13 @@ Contents: Three calls · Visual words, not names · Reading a scan · What is sa
    `says` or `heard`, or why none.
 
 Scans and cut clips are kept by video id: ones another project made are reused ("already on this
-computer: reused"), nothing downloaded. F codes stay per project; `scan:"yt:<id>"` joins a video.
+computer: reused"), nothing downloaded. Another project's F code or `clip:yt-<id>` imports
+that video under this project's own code.
 
 The `kino` command sends `file=F1`, `file=F1.15` and `clip:` ids as typed.
 
 `library {topic:"footage"}` lists the found videos again. `look {mode:"source", ref:"F1"}`
-shows a scan's stills labeled `F1.<shot>`; look before you pick.
+shows a scan's stills (`F1.<shot>`); look before you pick.
 
 ## Visual words, not names
 
