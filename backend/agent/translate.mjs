@@ -244,11 +244,25 @@ function sameOpWith(operation, properties) {
   return which ? { op: operation.type, ...which, properties: operation.type === "add_layer" ? rest : properties } : null;
 }
 
+// The font size an outlineGlow on this op scales for when its properties name none.
+function outlineGlowFontSize(operation, resolver, document) {
+  if (operation.type === "add_layer") return createLayer("text").fontSize;
+  const names = operation.type === "update_layers" && Array.isArray(operation.layerIds) ? operation.layerIds : [operation.layerId];
+  for (const name of names) {
+    let id = null;
+    try { if (typeof name === "string") id = resolver.resolve(name, "layer"); } catch { /* refused later */ }
+    const layer = id && document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === id);
+    if (typeof layer?.fontSize === "number") return layer.fontSize;
+  }
+  return undefined;
+}
+
 function checkLayerProperties(operation, fixes, resolver, document) {
   let properties = operation.properties;
   if (!LAYER_PROPERTY_OPS.has(operation.type) || !properties || typeof properties !== "object" || Array.isArray(properties)) return;
   // outlineGlow {stroke, fill, glow, width} is a shorthand for the fill, strokes and shadows of the hollow glowing look.
-  if (properties.outlineGlow !== undefined) properties = withOutlineGlow(properties);
+  // Width and halo scale with the font: the layer's own size on an update, a new text layer's 48 on add.
+  if (properties.outlineGlow !== undefined) properties = withOutlineGlow(properties, outlineGlowFontSize(operation, resolver, document));
   operation.properties = fixLayerProperties(properties, fixes, { ...layerContext(operation, resolver, document), known: LAYER_PROPERTIES,
     exampleOp: (changes) => sameOpWith(operation, changes) });
   for (const alias of CORNER_ALIASES) {

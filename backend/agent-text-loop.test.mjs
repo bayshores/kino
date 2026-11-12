@@ -55,7 +55,11 @@ test("edit sets jitter, a range rotation and the outlineGlow shorthand in one ca
   assert.equal(fixed.isError, undefined, fixed.text);
   const scrawl = (await (await server.api("/api/projects/hand")).json()).document.scenes[0].layers.find((layer) => layer.name === "Scrawl");
   assert.deepEqual(scrawl.jitter, { rotation: 4, seed: 3 });
-  assert.deepEqual([scrawl.strokes[0].color, scrawl.strokes[0].width, scrawl.shadows[0].color, scrawl.fill], ["#FF4DD2", 2.5, "#FF2BD6", "#0A260E"]);
+  assert.deepEqual([scrawl.strokes[0].color, scrawl.strokes[0].width, scrawl.shadows[0].color, scrawl.fill], ["#FF4DD2", 2.5, "#FF2BD6", "#0A1F0C"]);
   assert.deepEqual(scrawl.textStyleRanges[0].style, { rotation: 6, baselineShift: -4 });
   assert.equal(Object.hasOwn(scrawl, "outlineGlow"), false);
+  // On update_layer with no fontSize, the outline scales for the layer's own 87.5 px, not 175.
+  assert.equal((await agent("edit", { project: "hand", ops: [{ op: "update_layer", layer: "Scrawl", properties: { outlineGlow: true } }] })).isError, undefined);
+  const updated = (await (await server.api("/api/projects/hand")).json()).document.scenes[0].layers.find((layer) => layer.name === "Scrawl");
+  assert.deepEqual([updated.strokes[0].width, updated.strokes[0].color], [2.5, "#1F7A29"]);
 });

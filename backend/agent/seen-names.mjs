@@ -35,6 +35,8 @@ const SEEN_AS = {
   typed: ["type-on"], typing: ["type-on"], typewriter: ["type-on"], "typed highlight": ["type-on"], highlight: ["type-on", "caption-words"],
   jitter: ["text-ranges"], "hand set": ["text-ranges"], "hand lettering": ["text-ranges", "set_font"], scrawl: ["text-ranges"],
   hollow: ["layer-style"], "outline glow": ["layer-style", "glow"], "glow outline": ["layer-style", "glow"],
+  "glowing outline": ["layer-style", "glow"], "neon text": ["layer-style", "glow"], "neon outline": ["layer-style", "glow"],
+  "baseline shift": ["text-ranges"], "letter rotation": ["text-ranges"], "rotated letters": ["text-ranges"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],

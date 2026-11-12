@@ -257,6 +257,7 @@ test("library search turns what a reference shows into the kino name and the cal
     "split screen": ["split-screen", 'library {topic:"moves", name:"split-screen"}'], "side by side": ["split-screen", 'name:"split-screen"'],
     "picture in picture": ["picture-in-picture", 'library {topic:"moves", name:"picture-in-picture"}'], pip: ["picture-in-picture", 'name:"picture-in-picture"'],
     typed: ["type-on", 'library {topic:"moves", name:"type-on"}'], jitter: ["text-ranges", 'name:"text-ranges"'], "outline glow": ["layer-style", 'name:"layer-style"'],
+    "neon text": ["layer-style", 'name:"layer-style"'], "baseline shift": ["text-ranges", 'name:"text-ranges"'],
   };
   for (const [query, [name, call]] of Object.entries(cases)) {
     const lines = searchGuide(query).split("\n");

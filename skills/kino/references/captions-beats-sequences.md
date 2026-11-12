@@ -38,7 +38,7 @@ played as one.
     "#hex", `highlightFor` 0.07 s) lights the newest letter, then each letter settles to its own
     range fill: color one word with `style_text_range {text:"AGAIN", style:{fill}}`, not a layer.
   - `textStyleRanges` style also takes `rotation` (deg) and `baselineShift` (% of font size, up).
-  - `jitter:{rotation:3, baseline:3, seed:1}` (or `true`): a fixed hand-set tilt and lift per
+  - `jitter:{rotation:6, baseline:5, seed:1}` (or `true`): a fixed hand-set tilt and lift per
     letter, same for the same seed, not animated (`textLoop` jitter is the moving one).
   - `outlineGlow:{stroke, fill, glow, width}` or `true` in add_layer or update_layer properties:
     hollow letters, a bright outline, a halo from the outline only (sets fill, strokes, shadows).

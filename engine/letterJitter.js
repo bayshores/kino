@@ -4,13 +4,14 @@
 // an export and a re-render always agree. It only turns and lifts the drawn letter; spacing and
 // line breaks stay as they were. A textStyleRanges rotation or baselineShift adds to it.
 //
-//   rotation  most degrees a letter turns either way (0..45, default 3)
-//   baseline  most percent of the font size a letter sits above or below the baseline (0..50, default 3)
+//   rotation  most degrees a letter turns either way (0..45, default 6)
+//   baseline  most percent of the font size a letter sits above or below the baseline (0..50, default 5)
 //   seed      picks the pattern (whole number, 1 by default)
-// The defaults are a guess at "visibly hand-set, still legible"; a call can change them freely.
+// The defaults are the values that rebuilt the hand-lettering study's per-letter irregularity
+// (.scratch/studies/hand-lettering, after-letter-type: rotation 6, baseline 5). A call can change them freely.
 import { noise } from "./textLoop.js";
 
-export const LETTER_JITTER_DEFAULTS = Object.freeze({ rotation: 3, baseline: 3, seed: 1 });
+export const LETTER_JITTER_DEFAULTS = Object.freeze({ rotation: 6, baseline: 5, seed: 1 });
 const LIMITS = Object.freeze({ rotation: [0, 45], baseline: [0, 50], seed: [0, 4294967295] });
 const FIELDS = Object.freeze(["rotation", "baseline", "seed"]);
 

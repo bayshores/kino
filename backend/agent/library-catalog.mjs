@@ -124,7 +124,7 @@ const STROKE_STACKS = {
     fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A" },
   // engine/outlineGlow.js: outlineGlow({stroke, fill, glow, width, fontSize}) gives these fields for any colors.
   "outline-glow": { line: "outline glow, hollow letters (outline, neon, rim, glow): fill is the dark interior, strokes one bright outline, shadows a halo from the outline only; swap the three colors (stroke, fill, glow) and keep the rest",
-    ...outlineGlow({ fontSize: 150 }), ground: "#0A260E" },
+    ...outlineGlow({ fontSize: 150 }), ground: "#050B06" },
 };
 
 // Shape modifiers (engine/shapeModifiers.js): layer fields that change a shape's outline. Each

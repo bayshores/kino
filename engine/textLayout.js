@@ -46,8 +46,8 @@ export function glyphContours(glyph) {
 }
 
 // A glyph's SVG path data where it sits, and that path's bounds, remembered on frozen glyph
-// objects. A frozen glyph cannot change its outline (`path`) or placement (`x`, `y`, `scale`),
-// the only inputs of glyphContours, so what is remembered for it is never out of date. render.js
+// objects. A frozen glyph cannot change its outline (`path`) or placement (`x`, `y`, `scale`,
+// `rotation`, `shift`), the only inputs of glyphContours, so what is remembered for it is never out of date. render.js
 // freezes the glyphs it keeps from frame to frame (textSvgCache.js), so drawing them again, and
 // measuring them for bounds, reuses one path instead of rebuilding and re-measuring it each time.
 // Entries go away with their glyph objects (a WeakMap). Other glyphs are worked out every time.
