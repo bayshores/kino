@@ -234,8 +234,8 @@ const OPERATIONS = {
     rules: 'frame_shot {layer | layers}: kino\'s own framing for video layers placed by hand: a crop on the subject marked (mark_subject), else on the faces kino found in the file, or the whole shot as a card over a blurred copy of itself when no crop keeps them. kino reads the file\'s size and the faces a full check saved (none yet: the receipt says so). mark_subject first to aim it; a layer in a group is refused.',
   },
   match_references: {
-    fields: ["sceneId", "layerId", "layerIds", "remove", "lower"],
-    rules: 'match_references {scene?, layer? | layers?, remove?, lower?}: brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
+    fields: ["sceneId", "layerId", "layerIds", "remove", "lower", "made"],
+    rules: 'match_references {scene?, layer? | layers?, remove?, lower?, made?}: places the made techniques your references\' labels name (else your deck\'s unused cards) on song cues and subject shots, each value printed, with the made share before and after (made:false none, made:[names] your own); and brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
   },
   lift_dark: {
     fields: ["sceneId", "layerId", "layerIds", "target", "grain", "reduced", "remove"],
@@ -797,6 +797,10 @@ const TRANSLATE = {
     delete operation.layerId;
     if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the match grades off) or left out.");
     if (operation.lower !== undefined && typeof operation.lower !== "boolean") throw problem("lower is true (also bring shots brighter than every reference down) or left out.");
+    // made (made-match.mjs): left out or true places the references' made techniques, false none, a list those names.
+    if (operation.made === undefined) operation.made = true;
+    else if (typeof operation.made !== "boolean" && !(Array.isArray(operation.made) && operation.made.length && operation.made.every((entry) => typeof entry === "string" && entry.trim())))
+      throw problem('made is true (the default: the references\' made techniques), false (exposure only) or a list of names such as ["embers", "glow"].');
   },
   lift_dark(operation, resolver) {
     if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);

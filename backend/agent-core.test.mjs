@@ -16,6 +16,11 @@ import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waivedRefs, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
+import { labelTechniques, madeIds, placeMade, shotSpans } from "./agent/made-match.mjs";
+import { kinoTimeline } from "../engine/quality/kinoTimeline.js";
+import { renderSceneFrames } from "./export.mjs";
+import { expandComponents } from "../engine/linkedComponents.js";
+import { createCanvas } from "@napi-rs/canvas";
 import { liftDark } from "./agent/lift-dark.mjs";
 import { applyTables } from "../engine/quality/liftDark.js";
 import { curvesTables } from "../engine/effects/colorMath.js";
@@ -923,6 +928,59 @@ test("match_references grades only the shot outside the references' range, repla
   // layer (one) works as layers does, the way a first guess sends it.
   const [picked] = translateOperations([{ op: "match_references", layer: "dark", lower: true }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.layerId, picked.lower], [["dark"], undefined, true]);
+});
+
+test("match_references made: places the labeled references' made techniques on the song cue and the face shot, prints made share before and after, and the placed elements draw", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "kino-made-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const canvas = createCanvas(64, 36), context = canvas.getContext("2d");
+  context.fillStyle = "rgb(90,90,90)";
+  context.fillRect(0, 0, 64, 36);
+  await writeFile(path.join(root, "gray.png"), await canvas.encode("png"));
+  // shot-a shows until 2 s, shot-b from 2 s (a Hide and a Show).
+  const shot = (id, start) => createLayer("image", { id, name: id, src: "/api/media/gray.png", x: 0, y: 0, width: 640, height: 360,
+    animations: [{ id: `${id}.cut`, name: "Cut", kind: start ? "show" : "hide", start: 2 }] });
+  const document = parseDocument({ ...createDocument({ scenes: [createScene({ id: "main", width: 640, height: 360, duration: 4, layers: [shot("shot-a", 0), shot("shot-b", 2)] })] }),
+    cues: [{ name: "song-drop-1", time: 2, kind: "marker" }] });
+  const runOps = async (doc, ops) => parseDocument(applyOperations(doc, translateOperations(ops, createResolver(doc), doc).map((op) => ({ sceneId: "main", ...op }))));
+  // A stub reference: three made labels (embers, a splatter, a cut-out) and one plain moment.
+  const refs = [{ id: "yt:stub", seen: [{ at: 1, kinds: ["made", "overlay"], words: "embers rise round him" }, { at: 3, kinds: ["made"], words: "paint splatter on a white ground" },
+    { at: 5, kinds: ["made", "composite"], words: "a figure cut out on clouds" }, { at: 7, kinds: ["plain"], words: "the footage alone" }] }];
+  assert.deepEqual(labelTechniques(refs).map((entry) => entry.name), ["cut_out", "embers", "splatter"]);
+  const run = await placeMade(document, { refs, faces: ["shot-a"], fonts: defaultFonts, runOps });
+  assert.deepEqual(run.placed.map((entry) => [entry.name, entry.op.layer ?? entry.op.properties.id, entry.why]), [["embers", "shot-b", "song-drop-1"], ["splatter", "match-made-2", "face found"]]);
+  assert.match(run.lines[0], /^match_references made, from your references' labels: embers on shot-b at 2 s for 2 s \(match-made-1\) \[song-drop-1; 1 reference\], match-made-2 \(splatter splat, fill #ffffff, 120x120 at 51,36\) at 0\.5 s for 1\.5 s/);
+  assert.match(run.lines[1], /^not placed: cut_out \(a cut-out takes up to a minute, so it gets its own call\): edit \{"ops":\[\{"op":"cut_out","layer":"shot-a"\}\]\}/);
+  assert.match(run.lines[2], /^made share 0 of 8 moments \(0%\) before, 7 of 8 \(88%\) after; your 1 reference's made labels 3 of 4 \(75%\)/);
+  assert.ok(run.after.made > run.before.made && run.after.parts.particle > 0 && run.after.parts.graphic > 0, JSON.stringify(run.after));
+  // The placed splatter and embers draw: white pixels where there were none.
+  const draw = async (doc, time) => (await renderSceneFrames(expandComponents(doc, "main", { fonts: defaultFonts }), [time], { fonts: defaultFonts, width: 160, mediaRoot: root }))[0];
+  const bright = (frame) => { let count = 0; for (let index = 0; index < frame.pixels.length; index += 4) if (frame.pixels[index] > 160) count += 1; return count; };
+  const [plainA, madeA, plainB, madeB] = [await draw(document, 1), await draw(run.document, 1), await draw(document, 3), await draw(run.document, 3)];
+  assert.ok(bright(plainA) === 0 && bright(madeA) > 50, `splatter frame: ${bright(plainA)} to ${bright(madeA)} bright pixels`);
+  assert.ok(madeB.pixels.some((value, index) => Math.abs(value - plainB.pixels[index]) > 30), "the embers change the frame");
+  // Sent again it replaces its own; remove takes them off; with no labeled reference the deck's unused cards are placed.
+  const again = await placeMade(run.document, { refs, faces: ["shot-a"], fonts: defaultFonts, runOps });
+  assert.equal(madeIds(again.document.scenes[0]).animations.length + madeIds(again.document.scenes[0]).layers.length, 2);
+  const removed = await placeMade(again.document, { remove: true, fonts: defaultFonts, runOps });
+  assert.deepEqual([madeIds(removed.document.scenes[0]), removed.lines], [{ moves: [], layers: [], animations: [] }, ["match_references: took off 2 made elements"]]);
+  const deck = { cards: [{ tag: "vignette" }, { tag: "speed-lines" }, { tag: "drift" }], used: ["drift"] };
+  const dealt = await placeMade(document, { deck, fonts: defaultFonts, runOps });
+  assert.deepEqual(dealt.placed.map((entry) => [entry.name, entry.op.layer]), [["vignette", "shot-b"], ["speed-lines", "shot-a"]]);
+  assert.match(dealt.lines[0], /from your deck's unused cards/);
+  // An op the scene refuses is left out and named; the rest still land (no refusal of the whole call).
+  const picky = async (doc, ops) => { if (ops.some((op) => op.op === "add_layer")) throw new Error("No room for a path here"); return runOps(doc, ops); };
+  const partial = await placeMade(document, { refs, faces: ["shot-a"], fonts: defaultFonts, runOps: picky });
+  assert.deepEqual(partial.placed.map((entry) => entry.name), ["embers"]);
+  assert.match(partial.lines[1], /splatter \(No room for a path here\)/);
+  // In 9:16 a 16:9 card over its blurred copy takes the effect, not the copy under it.
+  const tall = parseDocument(createDocument({ scenes: [createScene({ id: "tall", width: 360, height: 640, duration: 2, layers: [
+    createLayer("image", { id: "s1-blur", name: "s1-blur", src: "/api/media/gray.png", x: 0, y: 0, width: 360, height: 640 }),
+    createLayer("image", { id: "s1", name: "s1", src: "/api/media/gray.png", x: 0, y: 219, width: 360, height: 202 })] })] }));
+  assert.deepEqual(shotSpans(kinoTimeline(tall, "tall", { fonts: defaultFonts })).map((span) => span.layerId), ["s1"]);
+  // A placed move goes with its own remove (madeIds names it once, not its layers and animations).
+  assert.deepEqual(madeIds({ moves: [{ id: "match-made-1", name: "light-sweep" }], layers: [{ id: "match-made-1.sweep", move: { instance: "match-made-1" } }, { id: "a", animations: [{ id: "match-made-1.in" }, { id: "match-made-2" }] }] }),
+    { moves: [{ id: "match-made-1", name: "light-sweep" }], layers: [], animations: ["match-made-2"] });
 });
 
 test("lift_dark aims a dark shot at the other shots' median, adds a curve and grain, reports the render's numbers and replaces its own effects", async () => {

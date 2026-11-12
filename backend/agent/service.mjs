@@ -153,6 +153,7 @@ import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
 import { matchReferences } from "./exposure-match.mjs";
+import { placeMade } from "./made-match.mjs";
 import { liftDark } from "./lift-dark.mjs";
 import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { shutterNote } from "./shutter-notes.mjs";
@@ -6985,16 +6986,36 @@ export function createAgentService(deps) {
 
   // match_references (the op, compose {footage} and check's auto fix): the saved references'
   // fingerprints, the scene's frames rendered as check renders them, and the grades as ops.
-  async function runMatch(document, { sceneId = null, layerIds = null, remove = false, lower = false } = {}) {
+  // made (the op's default, never compose's or check's): also the references' made techniques (made-match.mjs).
+  async function runMatch(document, { sceneId = null, layerIds = null, remove = false, lower = false, made = false } = {}) {
     const fonts = await fontsFor(document);
     const refs = deps.inspire?.savedFingerprints ? await deps.inspire.savedFingerprints(document.id).catch(() => []) : [];
     // The document may be an edit in progress (earlier ops applied, nothing saved): its codes are
     // read, never saved, or the animations that edit deleted would lose their codes.
-    const codes = await agentState.read(document.id).then((state) => assignCodes(state.codes, document)).catch(() => null);
+    const state = await agentState.read(document.id).catch(() => null);
+    const codes = state ? (() => { try { return assignCodes(state.codes, document); } catch { return null; } })() : null;
     const render = deps.renderFrames ?? renderSceneFrames;
-    return matchReferences(document, { sceneId, layerIds, remove, lower, refs, fonts, runOps,
+    const exposure = await matchReferences(document, { sceneId, layerIds, remove, lower, refs, fonts, runOps,
       render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),
       name: (id) => (codes ? refName(id, codes) : id) });
+    if (made === false) return exposure;
+    const labeled = (await deps.inspire?.savedFingerprints?.(document.id, { labeled: true }).catch(() => [])) ?? [];
+    const placed = await placeMade(exposure.document, { sceneId, remove, refs: labeled, deck: state?.deck ?? null, names: Array.isArray(made) ? made : null,
+      faces: await faceLayers(exposure.document, sceneId), fonts, runOps });
+    return { ...exposure, document: placed.document, lines: [...exposure.lines, ...placed.lines], made: placed.placed };
+  }
+
+  // The video layers whose file has a face kino found (saved people scans only; never a new scan).
+  async function faceLayers(document, sceneId) {
+    const scene = sceneId ? document.scenes.find((entry) => entry.id === sceneId) : mainScene(document);
+    const found = [];
+    for (const layer of (scene?.layers ?? []).filter((entry) => entry.type === "video" && entry.src)) {
+      try {
+        const saved = await peopleCache.saved(mediaFileOf({ src: layer.src }));
+        if ((saved?.samples ?? []).some((sample) => sample.faces?.length)) found.push(layer.id);
+      } catch { /* not measured: no face counted */ }
+    }
+    return found;
   }
 
   // lift_dark: the scene's frames rendered as check renders them, the lift effects as ops.
