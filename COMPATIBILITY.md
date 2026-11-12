@@ -696,7 +696,9 @@ How to read it:
   motion drops speed-ups, growth and flips. Evidence: `engine/moves.test.js`. Not rendered or judged yet.
 - **split-screen and picture-in-picture moves**: Partly verified. 2 to 4 clips in panes (side, stacked, slanted
   dividers) over a gap color, each cropped on its marked subject or measured face, staggered in; or one clip as a
-  bordered, rounded corner inset that pops in. `library {topic:"search"}` finds both. Evidence: `engine/moves.test.js`,
+  bordered, rounded corner inset that pops in (the border and inset are one group at the safe area's edge). A clip in a
+  frame camera group works; a crop on no mark says so first with the `mark_subject` call; a clip that starts mid-move
+  is muted at its own layer. `library {topic:"search"}` finds both. Evidence: `engine/moves.test.js`,
   `backend/agent-answers.test.mjs`; rendered by hand through look frames. Not judged on real footage.
 - **Anime edit guidance and proof**: Partly verified. The skill says every effect needs a cue that motivates it,
   reference counts are ceilings and none of a device is fine; a title 0.1 to 0.3 s after a cut counts as on it.

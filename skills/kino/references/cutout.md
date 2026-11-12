@@ -140,4 +140,5 @@ so the track follows the steady picture.
 
 Mark each clip's subject first (framing): panes and insets crop on it, else on a face.
 `move {name:"split-screen", layers:[2-4], at}` (side, stacked or slant panes) or
-`move {name:"picture-in-picture", layer, at}` (a corner inset); library {topic:"moves", name} has every default.
+`move {name:"picture-in-picture", layer, at}` (a corner inset); library {topic:"moves", name} has every default. A framed clip works as is.
+A crop aimed at no mark or face says so first, with the mark_subject call.

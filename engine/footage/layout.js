@@ -94,7 +94,11 @@ export function subjectsIn(samples, from, to) {
   if (faces.length) {
     let x = 0, y = 0, weight = 0;
     for (const { box: [left, top, w, h] } of faces) { const size = w * h; x += (left + w / 2) * size; y += (top + h / 2) * size; weight += size; }
-    return { face: [x / weight, y / weight], salient: null };
+    // faceBox: the union of the face boxes (a crop that cuts one of them cuts a face).
+    const lefts = faces.map(({ box }) => box[0]), tops = faces.map(({ box }) => box[1]);
+    const rights = faces.map(({ box }) => box[0] + box[2]), bottoms = faces.map(({ box }) => box[1] + box[3]);
+    const faceBox = [Math.min(...lefts), Math.min(...tops), Math.max(...rights) - Math.min(...lefts), Math.max(...bottoms) - Math.min(...tops)];
+    return { face: [x / weight, y / weight], faceBox, salient: null };
   }
   const eye = entries.filter((entry) => entry.kind === "saliency").map((entry) => entry.box);
   if (!eye.length) return { face: null, salient: null };
