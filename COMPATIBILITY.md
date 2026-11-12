@@ -1123,10 +1123,11 @@ How to read it:
   generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU
   with 0.04 s "Line level" ramps (render moved them -6.0 and +4.9 dB, receipt -6 and +4.9); a leveled line that sends
   the mix over the limiter's ceiling comes down (receipt peak -1.9 dBFS, render true peak -1.8 dBTP; line -19.2 vs
-  -19.1 LUFS). A bed-volume clip (under 0.5) is evened only with even:true. The edit's answer prints the peak
-  (board build). Evidence: `backend/audio-levels.test.mjs`, `engine/speech.test.js`, `backend/agent-board.test.mjs`.
-  Gap: not run on real speech or the dm2 projects; the "auto" gain is printed, not held; the 3 LU band and 0.04 s
-  ramps are guesses.
+  -19.1 LUFS). A bed-volume clip (under 0.5) is evened only with even:true, and a line kept on it renders at its
+  voiceLevel (test at volume 0.38: receipt -17.8, render -17.6 LUFS; before, -25.7 against -16, as dm2-a board-s7
+  rendered 10 LU under its receipt). The edit's answer prints the peak (board build). Evidence:
+  `backend/audio-levels.test.mjs`, `engine/speech.test.js`, `backend/agent-board.test.mjs`.
+  Gap: not run on real speech; the "auto" gain is printed, not held; the 3 LU band and 0.04 s ramps are guesses.
 - **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
   windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}

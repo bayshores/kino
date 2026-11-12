@@ -612,13 +612,13 @@ test("keep_line evens the line's loud and quiet words toward its median word wit
   assert.equal(plain.report.even, undefined);
   assert.equal(plain.clip.animations.some((animation) => animation.name === "Line level"), false);
   assert.ok(evened.clip.voiceLevel > plain.clip.voiceLevel, `${evened.clip.voiceLevel} vs ${plain.clip.voiceLevel}`);
-  // A clip played as a bed (volume 0.3, not leveled by the export) keeps its words as said, and the
-  // note gives what even:true would do (evening it made volume_churn warn on the clip).
+  // A clip played as a bed (volume 0.3) keeps its words as said, and the note gives what even:true
+  // would do (evening it made volume_churn warn on the clip). Its kept line is still leveled to its voiceLevel.
   const bedDocument = documentWith([createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12, volume: 0.3 }), musicLayer()], 12);
   const bed = run({}, bedDocument);
   assert.equal(bed.clip.animations.some((animation) => animation.name === "Line level"), false);
   assert.deepEqual(bed.report.even, { median: -24, spread: 22, places: [] });
-  assert.match(bed.report.notes.join(" | "), /not evened: clip\.wav plays at volume 0\.3, under 0\.5, a bed the export does not level; its words spread 22 LU \(measured\) and 2 places are over 3 LU off its median word; even:true evens them/);
+  assert.match(bed.report.notes.join(" | "), /not evened: clip\.wav plays at volume 0\.3, under 0\.5, a bed; the export levels the line to its voiceLevel -5\.5; its words spread 22 LU \(measured\) and 2 places are over 3 LU off its median word; even:true evens them/);
   assert.equal(run({ even: true }, bedDocument).clip.animations.filter((animation) => animation.name === "Line level").length, 4);
 });
 

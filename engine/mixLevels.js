@@ -14,8 +14,12 @@ export const MAX_LEVEL_DB = 12;
 // A layer turned down under this volume is a bed or background sound (street sound, chatter on
 // footage), not a line: the export does not level it and the voice rules leave it out.
 export const BED_VOLUME = 0.5;
-/** Whether the export levels `layer`'s words (when its file has a transcript). */
-export const leveledVoice = (layer) => Number(layer?.volume ?? 1) >= BED_VOLUME;
+/**
+ * Whether the export levels `layer`'s words (when its file has a transcript). A line keep_line
+ * leveled (voiceLevel) is leveled at any volume: its voiceLevel already counts the volume (measured
+ * on dm2-a 2026-11-12: a kept line at volume 0.38 rendered 10 LU under its receipt, unleveled).
+ */
+export const leveledVoice = (layer) => Number.isFinite(layer?.voiceLevel) || Number(layer?.volume ?? 1) >= BED_VOLUME;
 // duck_audio sets the music this far under the voice during a dip.
 export const VOICE_OVER_MUSIC = 9;
 // A spoken line is heard at least this many LU over the music under it (voice_under_bed).
