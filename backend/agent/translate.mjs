@@ -24,6 +24,8 @@ import { defaultHold, restsAtZero, SHORT_EFFECT } from "../../engine/effects/ani
 import { copyName, MAX_COPIES } from "../../engine/duplicate.js";
 import { BACKDROP_STYLE_KEYS } from "../../engine/backdropStyles.js";
 import { REACH_OPERATIONS } from "./reach-operations.mjs";
+import { moveRetry } from "./move-retry.mjs";
+import { unknownFieldsNote } from "./unknown-fields.mjs";
 import { LAYER_ROLES } from "../../engine/qualityFields.js";
 import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
@@ -53,6 +55,11 @@ export class OperationError extends Error {
     if (typeof layer === "string") this.layer = layer;
     // A move's refusal shows that move's own example.
     if (this.type === "move" && typeof operation?.name === "string") this.moveName = operation.name;
+    // And the retry is the agent's own op with the failing field fixed (or named), not that example.
+    if (this.type === "move" && this.example === undefined && !this.noExample && !(error instanceof ReferenceError)) {
+      const own = moveRetry(operation, error.message, error.suggestions);
+      if (own) this.example = own;
+    }
     this.cause = error;
   }
 }
@@ -729,6 +736,9 @@ function translateOne(raw, resolver, document) {
     if (type === "track" || type === "pin") checkTrackOrPin(operation, type);
     if (type === "stabilize") checkStabilize(operation);
     if (type === "duplicate_layers" || type === "split_layer") copyNames(operation, type, resolver);
+    // A field the op does not have would be ignored: the receipt says so (unknown-fields.mjs).
+    const unknownNote = unknownFieldsNote(raw, operation);
+    if (unknownNote) resolver.notes.push(unknownNote);
     // A new name given in this edit names the object for the operations after it.
     if ((type === "update_scene" || type === "update_layer") && typeof operation.properties?.name === "string")
       resolver.rename(type === "update_scene" ? "scene" : "layer", type === "update_scene" ? operation.sceneId : operation.layerId, operation.properties.name);

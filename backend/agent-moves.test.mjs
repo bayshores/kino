@@ -256,6 +256,19 @@ test("a bad move op saves nothing and says what to change", async () => {
     const shown = answer.example ?? JSON.parse(answer.next.replace(/^edit /, "")).fix?.["0"];
     assert.deepEqual([shown?.op, shown?.name], ["move", op.name], reply.text);
   }
+  // The retry is the agent's own op: the fix kino knows (flash under one frame is frames:1, a
+  // number out of range is the nearest end of the range, a missing field is named in words).
+  const retryOf = async (op) => {
+    const reply = await api.agent("bad", "edit", { ops: [op] });
+    assert.equal(reply.isError, true, reply.text);
+    const answer = JSON.parse(reply.text);
+    return answer.example ?? JSON.parse(answer.next.replace(/^edit /, "")).fix?.["0"];
+  };
+  const flash = { op: "move", name: "flash", from: "shot-a", to: "shot-b", at: 1, dur: 0.033 };
+  assert.deepEqual(await retryOf(flash), { op: "move", name: "flash", from: "shot-a", to: "shot-b", at: 1, frames: 1 });
+  const sent = { op: "move", name: "rgb-split-hit", layer: "shot-a", at: 1, strength: 3 };
+  assert.deepEqual(await retryOf(sent), { ...sent, strength: MOVES["rgb-split-hit"].fields.strength.high });
+  assert.deepEqual(await retryOf({ op: "move", name: "zoom-through", from: "shot-a", at: 1 }), { op: "move", name: "zoom-through", from: "shot-a", at: 1, to: "<your to>" });
   assert.equal(JSON.stringify((await saved("bad")).document), before, "nothing was saved");
 });
 

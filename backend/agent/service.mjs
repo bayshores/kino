@@ -61,6 +61,7 @@ import { callLabel, callTarget, pointingText } from "./labels.mjs";
 import { knownAgent, touchedLayers } from "./live.mjs";
 import { AGENT_OPERATION_TYPES, createdIds, plainLayer, referencedIds, translateAll } from "./translate.mjs";
 import { exampleFor, moreExamplesFor, signatureFor } from "./op-examples.mjs";
+import { moveRetry } from "./move-retry.mjs";
 import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from "./common-mistakes.mjs";
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
@@ -2617,7 +2618,9 @@ export function createAgentService(deps) {
     const soundFade = type === "add_animation" && operation && typeof operation === "object" && /on a sound layer only preset-fade works/.test(reason)
       ? (({ parameters: _parameters, ...rest }) => ({ ...rest, preset: "preset-fade", mode: operation.mode === "in" ? "in" : "out" }))(operation) : null;
     // An op that works once one field is added (move_layers mask:true): that op is the example.
-    const example = index == null ? undefined : soundFade ?? (error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
+    // A refused move: the agent's own op with the failing field fixed or named (move-retry.mjs).
+    const ownMove = type === "move" && !error?.example && !error?.noExample && !error?.retryWith ? moveRetry(operation, reason, error?.suggestions) : null;
+    const example = index == null ? undefined : soundFade ?? ownMove ?? (error?.retryWith && operation && typeof operation === "object" ? { ...operation, ...error.retryWith }
       : (!error?.example && !error?.noExample && effectSettingRetry(type, operation, error))
         || exampleOf(type, error, typeof operation?.layer === "string" ? operation.layer : undefined, operation?.name));
     if (example) details.example = example;
