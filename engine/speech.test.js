@@ -565,10 +565,18 @@ test("two music-out lines 0.6 s apart share a low bed, not silence, and the song
     const reports = new Map();
     const first = { type: "keep_line", sceneId: "s", layerId: "clip", from: 1.9, to: 2.9, subtitle: false, levels, beats, ...extra };
     const second = { ...first, from: 3.5, to: 5.8 };
-    const music = parseDocument(applyOperations(document, [first, second], { reports })).scenes[0].layers.find((layer) => layer.id === "music");
-    return { music, first: reports.get(first), second: reports.get(second) };
+    const kept = parseDocument(applyOperations(document, [first, second], { reports }));
+    const music = kept.scenes[0].layers.find((layer) => layer.id === "music");
+    return { kept, music, first: reports.get(first), second: reports.get(second) };
   };
-  const { music, first, second } = run();
+  const { kept, music, first, second } = run();
+  // A plain duck_audio sent after keep_line keeps the bed it measured (it rebuilt the dips: 0.063 became 0.1 and 0.56).
+  const transcript = { words: [{ text: "one", start: 1.9, end: 2.9, p: 1 }, { text: "two", start: 3.5, end: 5.8, p: 1 }] };
+  const plainDuck = { type: "duck_audio", sceneId: "s", layerId: "music", under: ["clip"], speech: { clip: transcript }, levels };
+  const duckReports = new Map();
+  const ducked = applyOperations(kept, [plainDuck], { reports: duckReports }).scenes[0].layers.find((layer) => layer.id === "music");
+  assert.deepEqual([2.5, 3.2, 5, 6.04].map((time) => Math.round(volumeAt(ducked, time) * 1000) / 1000), [0.063, 0.063, 0.063, 1]);
+  assert.equal(duckReports.get(plainDuck).keptLines, "keep_line set the music under clip.wav 1.9-2.9 s (music at 0.063), clip.wav 3.5-5.8 s (music at 0.063), measured: kept; keep_line on that line again, or duck_audio {replace:true}, changes it");
   // The gap holds the bed (0.063: -24 dB, 6 LU under the -31 LUFS lines), never 0; the song is back at full on the drop, not before.
   assert.deepEqual([2.5, 3.2, 5, 6.0, 6.04].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.063, 0.063, 0.063, 0.063, 1]);
   assert.deepEqual(second.bed, { at: [2.9, 3.5], bed: 0.063 });

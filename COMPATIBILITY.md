@@ -1125,7 +1125,16 @@ How to read it:
   a section cue in reach, with the rise printed (`drop`); a churning dip shares the nearest earlier one; a lift
   removes the dip under its line unless another heard sound (a voice-over) is in it; each line's notes, duck and mix
   are rewritten after all lines in the edit. Evidence: `engine/speech.test.js`, `backend/audio-levels.test.mjs`.
-  Gap: not replayed on the dm2 projects; a later plain duck_audio can join lines back to silence.
+  Gap: not replayed on the dm2 projects.
+- **duck_audio and check fix:auto keep keep_line's levels** (receipt `keptLines`, `clear`, `payoff`): Engine-tested on
+  generated curves, not rendered. A plain duck_audio after keep_line keeps the measured bed (0.063 stays 0.063; it
+  became 0.1); a line already 6 LU over the song gets no default dip (+7 LU: no dip, was 0.794); a dip starting on a
+  section cue counts as covering it; a last word past the drop holds the dip to its end with the rise printed (+15 LU);
+  check fix:auto takes a limiter place's trim from the song, not the kept line (song x0.3, was line x0.36), never
+  under x0.3, printing the dB left (0.2) and the line factor that clears it; the rest call names a kept line it lowers.
+  Evidence: `engine/audioDucking.test.js`, `engine/speech.test.js`, `engine/volumeAnimation.test.js`,
+  `backend/audio-levels.test.mjs`. Gap: not replayed on the dm2 projects; the in-phase rest over two or more other
+  layers is a worst case; a song whose volume moves at the place still comes down whole (to x0.3 at most).
 - **Kept line evened and peak-held** (`keep_line {even}`, receipt `even`, `peak`): Rendered once in a test on
   generated stereo speech-like audio over pink noise. Words over 3 LU off the line's median word come back to 3 LU
   with 0.04 s "Line level" ramps (render moved them -6.0 and +4.9 dB, receipt -6 and +4.9); a leveled line that sends

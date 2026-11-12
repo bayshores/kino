@@ -3,6 +3,7 @@
 // define them, with FFmpeg's ebur128 filter.
 import { join } from "node:path";
 import { BED_VOLUME } from "../engine/mixLevels.js";
+import { keepLineStretches } from "../engine/audioDucking.js";
 import { runExportProcess } from "./export-process.mjs";
 
 const ffmpeg = () => process.env.KINO_FFMPEG ?? process.env.OPEN_MOTION_FFMPEG ?? "ffmpeg";
@@ -343,9 +344,11 @@ export function restCallFor(places, plan, layers) {
   if (plan?.ops?.length) return 'check {fix:"auto"}';
   const worst = places.reduce((high, place) => (!high || place.overDb > high.overDb ? place : high), null);
   const ids = [...new Set((worst.playing ?? []).map((clip) => clip.layerId).filter(Boolean))];
-  const ops = ids.map((id) => layers.find((layer) => layer.id === id)).filter(Boolean)
-    .map((layer) => `{op:"update_layer", layer:${JSON.stringify(String(layer.name ?? layer.id))}, properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
-  return ops.length ? `edit {ops:[${ops.join(", ")}]}` : "";
+  const found = ids.map((id) => layers.find((layer) => layer.id === id)).filter(Boolean);
+  const ops = found.map((layer) => `{op:"update_layer", layer:${JSON.stringify(String(layer.name ?? layer.id))}, properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
+  // A line keep_line leveled and kept there comes down with the rest: said, so the agent decides.
+  const kept = found.filter((layer) => Number.isFinite(layer.voiceLevel) && keepLineStretches(layer).some((line) => line.start < worst.to && line.end > worst.from));
+  return ops.length ? `edit {ops:[${ops.join(", ")}]}${kept.length ? ` (it lowers ${kept.map((layer) => String(layer.name ?? layer.id)).join(", ")} under the level keep_line set)` : ""}` : "";
 }
 
 /** The loudest of `windows` ([{t, peak}] per 0.1 s) from `from` to `to` (s), or null when all are silent. */

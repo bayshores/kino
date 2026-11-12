@@ -82,6 +82,8 @@ export const SPEECH_GAP = 1.2;
 // A fade back up never takes less than this (seconds): kino's bed_jump reads a volume step shorter
 // than its 0.3 s window as a jump (a dip cut short at a drop jumped 17.4 LU in 0.14 s).
 export const RAMP_MIN = 0.3;
+// A rise in the song is read over this long on each side (seconds): one momentary window.
+const RISE_WINDOW = 0.4;
 // The music comes back up between two dips whenever the two ramps fit in the gap and leave it up
 // RAMP_MIN, a moment the ear hears (a 0.05 s touch at full is a blip). It was 3 s: a 2 s gap between
 // two lines stayed ducked and left a hole in the song (.scratch dm2 a, FRICTION 8).
@@ -144,10 +146,12 @@ function spokenSpans(scene, layer, transcript, spans) {
   const runs = [];
   for (const word of said) {
     const last = runs.at(-1);
-    if (last && word.start - last.end < SPEECH_GAP) last.end = Math.max(last.end, word.end);
-    else runs.push({ start: word.start, end: word.end });
+    if (last && word.start - last.end < SPEECH_GAP) { last.end = Math.max(last.end, word.end); last.word = word; }
+    else runs.push({ start: word.start, end: word.end, word });
   }
-  return runs.flatMap((run) => spans.map((span) => ({ ...span, start: Math.max(span.start, run.start), end: Math.min(span.end, run.end) }))).filter((span) => span.end > span.start);
+  // Each span keeps its run's last word (a dip held to the end of a word that runs past the drop).
+  return runs.flatMap((run) => spans.map((span) => ({ ...span, start: Math.max(span.start, run.start), end: Math.min(span.end, run.end),
+    ...(run.end <= span.end ? { lastWord: { text: String(run.word.text).trim(), start: run.word.start, end: run.word.end } } : {}) }))).filter((span) => span.end > span.start);
 }
 
 // Ducking for any trigger, ported from ArtCraft FilmCraft, filmcraft/crates/audio-dsp/src/ducking.rs
@@ -274,6 +278,21 @@ function heardElsewhere(scene, own, part) {
     }));
 }
 
+// The stretches keep_line kept on `layer` ([{start, end}], scene s), read from its "Line up"/"Sound up"
+// and "Line down"/"Sound down" Volume animations (keepLine.js LINE_NAMES; read here to keep the
+// import one way). Empty for a layer keep_line never touched.
+export function keepLineStretches(layer) {
+  const marks = (layer.animations ?? []).filter((animation) => /^(?:Line|Sound) (?:up|down)$/.test(animation?.name ?? "")).sort((a, b) => a.start - b.start);
+  const stretches = [];
+  let open = null;
+  for (const mark of marks) {
+    if (/ up$/.test(mark.name)) open = mark.start + mark.duration;
+    else { stretches.push({ start: open ?? 0, end: mark.start }); open = null; }
+  }
+  if (open !== null) stretches.push({ start: open, end: Infinity });
+  return stretches.filter((stretch) => stretch.end > stretch.start);
+}
+
 // The same numbers as `times` (milliseconds), so the words never say a dip ends before it does:
 // toFixed(1) wrote 6.85 as "6.8" and 11.35 as "11.3".
 const seconds = (value) => String(round(value));
@@ -356,6 +375,8 @@ function duckOnce(document, operation) {
   const byWords = [];
   // Under layers without words ducked while they are loud (their measured loudness).
   const byLoudness = [];
+  // Stretches keep_line kept on an under layer: [{start, end, layer}], left as keep_line set them.
+  const keptLines = [];
   for (const id of new Set(operation.under)) {
     const other = scene.layers.find((item) => item.id === id);
     if (!other) fail(`under: layer ${id} was not found in scene ${scene.id}.`);
@@ -363,6 +384,11 @@ function duckOnce(document, operation) {
     if (!SOUND_TYPES.has(other.type)) fail(`under: "${other.name}" is a ${other.type} layer and has no sound.`);
     // A layer at volume 0 with no Volume animation is never heard.
     if ((other.volume ?? 1) === 0 && !animatesVolume(other)) continue;
+    // keep_line already set the music under this layer's kept lines from its measurements (a dip, a
+    // shared bed, a lift or a return on a cue), and the rest of the layer is silent: a plain
+    // duck_audio keeps what it set (replace:true rebuilds it).
+    const keptHere = operation.ownLine || operation.replace === true ? [] : keepLineStretches(other);
+    if (keptHere.length) { keptLines.push(...keptHere.map((stretch) => ({ ...stretch, layer: other }))); continue; }
     const heard = soundSpans(scene.layers, other, scene.duration).map((span) => ({ ...span, name: other.name }));
     const transcript = operation.speech?.[other.id];
     const spoken = Array.isArray(transcript?.words) ? spokenSpans(scene, other, transcript, heard) : null;
@@ -401,11 +427,32 @@ function duckOnce(document, operation) {
   // full: a span that runs into it stops there, and its fade up is done by it.
   const stop = operation.to === undefined || operation.payoffStop === true;
   const drops = stop ? sections.filter((cue) => DROP.test(String(cue.name))).map((cue) => cue.time) : [];
+  // The song as it plays without duck_audio's dips (the first piece's file; fit_music's pieces are one song).
+  const first = { ...layer, animations: (layer.animations ?? []).filter((animation) => !isDuck(animation) && !isFitFade(animation)) };
+  const own = mediaPlaybackRange(layer, scene.duration);
+  const songCurve = operation.levels?.[layer.id];
+  const ceiling = own ? loudestHeard(songCurve, first, own) : null;
+  // Without `to`: a measured line already VOICE_OVER_BED LU or more over the song as it plays there,
+  // at its own level (lineWays: no dip needed and no lift), gets no dip.
+  const clear = [];
+  const audible = [];
+  for (const span of spans) {
+    if (operation.to === undefined && !operation.ownLine && own && Number.isFinite(span.lineLevel)) {
+      const under = heardLoudness(songCurve, first, own, span.start, span.end);
+      const way = lineWays({ line: span.lineLevel, under, ceiling });
+      if (way && way.lift.short === 0 && way.lift.db <= 0) { clear.push({ span, over: round(span.lineLevel - under, 1) }); continue; }
+    }
+    audible.push(span);
+  }
   const crossed = [];
   const ducked = [];
-  for (const span of spans) {
+  // Lines whose last word runs past the drop: the dip holds to that word's end, then rises in RAMP_MIN.
+  const heldPast = [];
+  for (const span of audible) {
     const cue = drops.find((time) => time > span.start && time < span.end);
     if (cue === undefined) { ducked.push(span); continue; }
+    const word = span.lastWord;
+    if (word && word.start < cue && word.end > cue && Math.abs(word.end - span.end) < 1e-6) { ducked.push(span); heldPast.push({ span, cue }); continue; }
     crossed.push({ span, cue });
     if (cue - span.start >= RAMP_MIN + 0.1) ducked.push({ ...span, end: cue });
   }
@@ -426,11 +473,11 @@ function duckOnce(document, operation) {
   for (const stretch of stretches) {
     const cue = stretch.onlyEarlier ? undefined : drops.find((time) => time >= stretch.end - 1e-6 && time < stretch.end + fadeUp);
     if (cue !== undefined) stretch.upBy = Math.min(stretch.upBy ?? Infinity, cue);
+    // Held to the end of a last word past the drop: back up RAMP_MIN after it.
+    if (!stretch.onlyEarlier && heldPast.some(({ span }) => Math.abs(span.end - stretch.end) < 1e-6)) stretch.upBy = Math.min(stretch.upBy ?? Infinity, stretch.end + RAMP_MIN);
   }
   // Without `to`: each dip puts the music VOICE_OVER_MUSIC LU under the quietest voice in it, from
-  // the music's measured loudness under that dip (the first piece's file; fit_music's pieces are one song).
-  const first = { ...layer, animations: (layer.animations ?? []).filter((animation) => !isDuck(animation) && !isFitFade(animation)) };
-  const own = mediaPlaybackRange(layer, scene.duration);
+  // the music's measured loudness under that dip.
   const musicUnder = (stretch) => (own && operation.to === undefined
     ? loudnessOver(operation.levels?.[layer.id], [{ start: own.offset + (stretch.start - own.start), end: own.offset + (stretch.end - own.start) }])
     : null);
@@ -442,7 +489,6 @@ function duckOnce(document, operation) {
   const toFor = (stretch) => (stretch.onlyEarlier ? stretch.earlier : operation.to ?? depths.get(stretch) ?? depth ?? 0.25);
   // The loudest each dip may stay for every measured line in it to be heard VOICE_OVER_BED LU
   // over the music (only without `to`: a given `to` is the agent's choice).
-  const songCurve = operation.levels?.[layer.id];
   const songPieces = pieces.map((piece) => ({ layer: piece, range: mediaPlaybackRange(piece, scene.duration) })).filter((piece) => piece.range);
   // {clear, needs: [{line, volume}]}: the volume, and what each measured line in the dip needs.
   const clearFor = (stretch) => {
@@ -505,7 +551,7 @@ function duckOnce(document, operation) {
         });
       }
       if (index === 0) {
-        dips.push({ start: downStart, end: round(end), names: stretch.names ?? (stretch.onlyEarlier ? ["earlier"] : undefined), level, earlier: stretch.onlyEarlier === true, held: !stretch.onlyEarlier && level > target, deeper: !stretch.onlyEarlier && level < gentle && !under.length });
+        dips.push({ start: downStart, end: round(end), hold: stretch.end, names: stretch.names ?? (stretch.onlyEarlier ? ["earlier"] : undefined), level, earlier: stretch.onlyEarlier === true, held: !stretch.onlyEarlier && level > target, deeper: !stretch.onlyEarlier && level < gentle && !under.length });
         for (const line of under) if (!buried.includes(line)) buried.push(line);
         if (clears[number].clear < level) floored = true;
       }
@@ -518,9 +564,11 @@ function duckOnce(document, operation) {
     }), ...added];
   }
   // A section change of the song (a cue named drop, break, chorus..., or fit_music's song-drop-1) heard under a dip.
-  const covered = sections.filter((cue) => stretches.some((stretch) => cue.time > stretch.start && cue.time < stretch.end));
-  // Section cues that kept two dips apart, so the song's change is heard at full.
-  const apart = sections.filter((cue) => stretches.some((stretch) => stretch.upBy === cue.time));
+  // A dip whose fade down starts on the cue covers it too (the change lands as the music goes down);
+  // a cue a held last word runs past is reported with its rise in payoff instead.
+  const covered = sections.filter((cue) => !heldPast.some((item) => item.cue === cue.time) && dips.some((dip) => dip.start <= cue.time + 1e-6 && cue.time < dip.hold));
+  // Section cues that kept two dips apart, so the song's change is heard at full (not one a dip starts on).
+  const apart = sections.filter((cue) => !covered.includes(cue) && stretches.some((stretch) => stretch.upBy === cue.time));
   // A line that runs into the drop: its dip ended before it. Measured: the line over the song there
   // (at full), and the volume that would lift the line VOICE_OVER_BED LU over it instead.
   const payoff = [];
@@ -534,11 +582,19 @@ function duckOnce(document, operation) {
       + (factor === null ? "" : `: volume ${round((span.layer.volume ?? 1) * factor, 2)} on ${name} (x${round(factor, 2)}) lifts it ${VOICE_OVER_BED} LU over`);
     if (!payoff.includes(text)) payoff.push(text);
   }
+  // A last word that runs past the drop holds the dip to its end; the rise after it, measured on the
+  // song as it now plays (RISE_WINDOW each side of the fade up).
+  for (const { span, cue } of heldPast) {
+    const before = own ? heardLoudness(songCurve, layer, own, span.end - RISE_WINDOW, span.end) : null;
+    const after = own ? heardLoudness(songCurve, layer, own, span.end + RAMP_MIN, span.end + RAMP_MIN + RISE_WINDOW) : null;
+    const rise = before !== null && after !== null ? round(after - before, 1) : null;
+    payoff.push(`the dip under ${span.layer.name} holds to the end of its last word "${span.lastWord.text}" at ${seconds(span.end)} s, ${round(span.end - cue, 2)} s past the song's drop at ${seconds(cue)} s, then comes up in ${RAMP_MIN} s`
+      + (rise === null ? " (not measured)" : `: ${rise >= 0 ? "+" : ""}${rise} LU (${round(before, 1)} to ${round(after, 1)} LUFS, ${RISE_WINDOW} s each side, measured)`));
+  }
   // Each line over the song each way kino can do it (mixLevels.js lineWays), measured with the song untouched.
-  const ceiling = own ? loudestHeard(songCurve, first, own) : null;
   const ways = [];
   // A line cut at the drop is measured over its whole length (the drop included): crossed spans first.
-  for (const span of [...crossed.map((item) => item.span), ...ducked].sort((a, b) => a.start - b.start)) {
+  for (const span of [...crossed.map((item) => item.span), ...ducked, ...clear.map((item) => item.span)].sort((a, b) => a.start - b.start)) {
     if (!own || !Number.isFinite(span.lineLevel) || ways.some((way) => way.span.layer === span.layer && way.span.start === span.start)) continue;
     const under = heardLoudness(songCurve, first, own, span.start, span.end);
     const text = waysText(lineWays({ line: span.lineLevel, under, ceiling }), round(volumeAt(first, span.start)));
@@ -557,7 +613,7 @@ function duckOnce(document, operation) {
     layer: layer.name,
     to: dips.length && dips.every((dip) => dip.level === dips[0].level) ? dips[0].level : headline,
     dips: dips.length,
-    summary: duckSummary(layer.name, headline, dips),
+    summary: !dips.length && (clear.length || keptLines.length) ? `${layer.name} is not ducked: ${keptLines.length ? "keep_line already set it under the kept lines" : ""}${keptLines.length && clear.length ? "; " : ""}${clear.length ? "every line is clear of it as it plays" : ""}` : duckSummary(layer.name, headline, dips),
     ...(pieces.length > 1 ? { pieces: pieces.length } : {}),
     ...(dips.length ? { times: dips.slice(0, MAX_REPORTED).map((dip) => [dip.start, dip.end]) } : {}),
     ...(dips.length > MAX_REPORTED ? { more: dips.length - MAX_REPORTED } : {}),
@@ -568,6 +624,13 @@ function duckOnce(document, operation) {
     ...(deeper ? { deeper: `${plural(deeper, "dip")} ${deeper === 1 ? "goes" : "go"} deeper so each line in ${deeper === 1 ? "it" : "them"} is ${VOICE_OVER_BED} LU or more over the music (measured)` } : {}),
     ...(buried.length ? { quiet: `${buried.slice(0, 2).map(quoted).join(", ")}${buried.length > 2 ? ` +${buried.length - 2}` : ""} ${buried.length === 1 ? "stays" : "stay"} under ${VOICE_OVER_BED} LU over the music with the dip at its floor (${DIP_FLOOR} of the music's level): raise that voice's volume, or split the line into its own clip so the export levels it alone` } : {}),
     ...(payoff.length ? { payoff: payoff.slice(0, 2).join(" · ") } : {}),
+    ...(clear.length ? { clear: `no dip under ${clear.slice(0, 3).map(({ span, over }) => `${span.layer.name} ${seconds(span.start)}-${seconds(span.end)} s (${over >= 0 ? "+" : ""}${over} LU)`).join(", ")}${clear.length > 3 ? ` +${clear.length - 3}` : ""}: already ${VOICE_OVER_BED} LU or more over the song as it plays there (measured; ways: no dip needed); to:<volume> dips anyway` } : {}),
+    ...(keptLines.length ? { keptLines: `keep_line set the music under ${keptLines.slice(0, 3).map(({ start, end, layer: other }) => {
+      const at = (start + Math.min(end, scene.duration)) / 2;
+      const now = round(volumeAt(layer, at));
+      const how = now <= 0.001 ? "music out" : now >= round(volumeAt(first, at)) - 0.001 ? (Number.isFinite(other.voiceLevel) ? "song untouched, line lifted" : "song untouched") : `music at ${now}`;
+      return `${other.name} ${seconds(start)}-${seconds(Math.min(end, scene.duration))} s (${how})`;
+    }).join(", ")}${keptLines.length > 3 ? ` +${keptLines.length - 3}` : ""}, measured: kept; keep_line on that line again, or duck_audio {replace:true}, changes it` } : {}),
     ...(ways.length && !operation.ownLine ? { ways: [...ways.slice(0, 3).map((way) => way.text), ...(ways.length > 3 ? [`+${ways.length - 3} more`] : [])] } : {}),
     ...(apart.length ? { sections: `dips kept apart at the song's ${apart.slice(0, 3).map((cue) => `${cue.name} at ${seconds(cue.time)} s`).join(", ")}, so it is heard at full` } : {}),
     ...(covered.length ? { warning: `a dip covers the song's ${covered.slice(0, 3).map((cue) => `${cue.name} at ${seconds(cue.time)} s`).join(", ")}: the change is heard muffled under the voice; move the line off it, or end the line before it` } : {}),

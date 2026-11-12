@@ -20,6 +20,7 @@ import { uid } from "./model.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { audibleRanges } from "./videoSound.js";
 import { round } from "./numbers.js";
+import { keepLineStretches } from "./audioDucking.js";
 
 export const PEAK_NAMES = Object.freeze({ down: "Peak down", up: "Peak up" });
 // The ramps into and out of a dip (seconds): short, so only the peak's span changes, and long
@@ -88,6 +89,56 @@ export function peakCauses(place) {
   return null;
 }
 
+// The layers playing at `place` whose line keep_line leveled (voiceLevel) and kept there: Map id -> "a-b".
+function keptLinesAt(scene, place) {
+  const spared = new Map();
+  for (const id of new Set((place.playing ?? []).map((clip) => clip.layerId).filter(Boolean))) {
+    const layer = scene.layers.find((item) => item.id === id);
+    if (!layer || !Number.isFinite(layer.voiceLevel)) continue;
+    const line = keepLineStretches(layer).find((stretch) => stretch.start < place.to && stretch.end > place.from);
+    if (line) spared.set(id, `${round(line.start, 2)}-${round(Math.min(line.end, scene.duration), 2)}`);
+  }
+  return spared;
+}
+
+/**
+ * The trim at `place` taken from the layers other than `spared` (keep_line's leveled lines): songs
+ * and beds first, then the loudest. With each layer's own peak measured alone, as few as clear the
+ * place; no peaks measured leaves them all at the place's xN.
+ * The factor is their share of the measured peak, (ceiling - rest) / (mix - rest), as peakCauses
+ * takes it, the rest the layers left playing summed in phase (exact for one layer). No layer goes
+ * under MIN_CAUSE_FACTOR: when the kept line alone holds the peak over the ceiling even then, the
+ * others stop there and `left` gives the dB still over (in phase) and `line`, the factor on the kept
+ * line that would clear it (a song cut to x0.14, or whole when its volume moved there, was the price).
+ * Returns {causes: Map layerId -> factor (empty when only spared layers play there), left?, line?}.
+ */
+function sparedCauses(scene, place, spared, bed) {
+  const peaks = new Map();
+  for (const clip of place.playing ?? []) if (clip.layerId && !peaks.has(clip.layerId)) peaks.set(clip.layerId, clip.peakDbfs);
+  const isBed = (id) => { const layer = scene.layers.find((item) => item.id === id); return layer ? bed(layer) : false; };
+  const others = [...peaks.keys()].filter((id) => !spared.has(id))
+    .sort((a, b) => Number(isBed(b)) - Number(isBed(a)) || (peaks.get(b) ?? -Infinity) - (peaks.get(a) ?? -Infinity));
+  if (!others.length) return { causes: new Map() };
+  const all = (factor) => new Map(others.map((id) => [id, factor]));
+  if (![...peaks.values()].every(Number.isFinite) || !Number.isFinite(place.peakDbtp)) return { causes: all(place.factor) };
+  const mix = linear(place.peakDbtp);
+  const target = mix * place.factor;
+  const sum = (ids) => ids.reduce((total, id) => total + linear(peaks.get(id)), 0);
+  for (let count = 1; count <= others.length; count += 1) {
+    const cut = others.slice(0, count);
+    const rest = sum([...peaks.keys()].filter((id) => !cut.includes(id)));
+    if (!(mix - rest > 0)) continue;
+    const factor = Math.floor(100 * (target - rest) / (mix - rest)) / 100;
+    if (factor >= MIN_CAUSE_FACTOR) return { causes: new Map(cut.map((id) => [id, Math.min(factor, 1)])) };
+  }
+  // Every other layer at MIN_CAUSE_FACTOR, the kept line as it is: what stays over the ceiling.
+  const kept = sum([...spared.keys()].filter((id) => peaks.has(id)));
+  const lowered = Math.max(0, mix - kept) * MIN_CAUSE_FACTOR;
+  const left = round(20 * Math.log10(Math.max(1e-9, kept + lowered) / target), 1);
+  const line = kept > 0 ? Math.floor(100 * (target - lowered) / kept) / 100 : 0;
+  return { causes: all(MIN_CAUSE_FACTOR), ...(left > 0 ? { left, ...(line > 0 && line < 1 ? { line } : {}) } : {}) };
+}
+
 /**
  * The changes that clear `places` ([{at, from, to, factor, playing: [{layerId, name}]}], measured
  * on `scene`'s mix) by turning each playing layer down by the place's factor over its span.
@@ -118,12 +169,21 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
   };
   for (const place of places) {
     if (!(place.factor > 0 && place.factor < 1)) continue;
+    // A line keep_line leveled here keeps that level: the trim comes from the others (sparedCauses).
+    const spared = keptLinesAt(scene, place);
     // Measured alone, the layers that make the peak come down by their own factor; the rest keep their level.
-    const causes = peakCauses(place);
+    const sparing = spared.size ? sparedCauses(scene, place, spared, bed) : null;
+    const causes = sparing ? sparing.causes : peakCauses(place);
+    if (sparing?.left) {
+      const lines = [...spared.keys()].map((id) => scene.layers.find((layer) => layer.id === id)?.name ?? id).join(", ");
+      dropped.push(`mix ${place.at} s: the others come down to x${MIN_CAUSE_FACTOR} at most, so with ${lines} at the level keep_line set about ${sparing.left} dB stays over for the limiter (each layer's peak alone, summed in phase)` +
+        (sparing.line ? `; volume x${sparing.line} on ${lines} clears it` : ""));
+    }
     const ids = causes ? [...causes.keys()] : [...new Set((place.playing ?? []).map((clip) => clip.layerId).filter(Boolean))];
     const ownPeak = (id) => place.playing.find((clip) => clip.layerId === id)?.peakDbfs;
     const kept = causes ? [...new Set(place.playing.map((clip) => clip.layerId))].filter((id) => !causes.has(id))
-      .map((id) => `${scene.layers.find((layer) => layer.id === id)?.name ?? id} (alone ${ownPeak(id)} dBFS)`) : [];
+      .map((id) => `${scene.layers.find((layer) => layer.id === id)?.name ?? id} ${spared.has(id) ? `at the level keep_line set (line ${spared.get(id)} s)` : `(alone ${ownPeak(id)} dBFS)`}`) : [];
+    if (spared.size && !ids.length) dropped.push(`mix ${place.at} s: only the line keep_line leveled plays there; lower it by hand x${place.factor}`);
     const changed = [];
     for (const id of ids) {
       const original = scene.layers.find((layer) => layer.id === id);
@@ -131,7 +191,7 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
       const factor = causes?.get(id) ?? place.factor;
       if (!(factor < 1)) continue;
       const tag = causes ? ` x${factor}` : "";
-      const alone = causes ? ` (alone ${ownPeak(id)} dBFS)` : "";
+      const alone = causes && Number.isFinite(ownPeak(id)) ? ` (alone ${ownPeak(id)} dBFS)` : "";
       const layer = copyOf(original);
       const spans = heardSpans(scene, layer);
       // Heard only around this place: the whole clip comes down (no Volume animation to keep in shape).
