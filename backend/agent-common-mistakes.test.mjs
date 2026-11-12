@@ -827,6 +827,23 @@ test("the name given with from/to or a property preset with values is the animat
   assert.match(shown.text, /glide 'Glide' custom/);
 });
 
+// dm4 round 4: add_animation {property:"volume", from:1, to:0.2} was refused ("property" is not a
+// field), and update_animation {from:0.5} was refused (from must be an object).
+test("a property with plain numbers is its from and to, in add_animation and update_animation", async () => {
+  await project("plain");
+  const made = await agent("edit", { project: "plain", ops: [{ op: "add_animation", layer: "clip", property: "volume", from: 1, to: 0.2, start: 1, duration: 0.5 }] });
+  assert.equal(made.isError, undefined, made.text);
+  assert.ok(made.data.fixed.some((line) => /^property "volume" with numbers → from \{"volume":1\}, to \{"volume":0\.2\}$/.test(line)), JSON.stringify(made.data.fixed));
+  const [fade] = layerNamed(await saved("plain"), "clip").animations;
+  assert.deepEqual([fade.id, fade.kind, fade.from, fade.to, fade.start, fade.duration], ["volume", "custom", { volume: 1 }, { volume: 0.2 }, 1, 0.5]);
+  const nested = await agent("edit", { project: "plain", ops: [{ op: "add_animation", layer: "clip", animation: { kind: "custom", name: "Duck", property: "volume", to: 0, start: 3, duration: 0.5 } }] });
+  assert.equal(nested.isError, undefined, nested.text);
+  const updated = await agent("edit", { project: "plain", ops: [{ op: "update_animation", animation: "clip.volume", properties: { from: 0.8, to: 0.5 } }] });
+  assert.equal(updated.isError, undefined, updated.text);
+  const [first, second] = layerNamed(await saved("plain"), "clip").animations;
+  assert.deepEqual([first.from, first.to, second.to], [{ volume: 0.8 }, { volume: 0.5 }, { volume: 0 }]);
+});
+
 // A layer with two custom animations: edit said `"dot2.custom" could be any of 2 animations: A5
 // Out, A6 Back`, but inspect answered `No layer, animation or scene "dot2.custom". Did you mean
 // dot2, …?`, and the receipt listed them only as createdCodes "A5-A6", without their names.

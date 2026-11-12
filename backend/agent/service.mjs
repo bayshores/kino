@@ -4325,12 +4325,30 @@ export function createAgentService(deps) {
         if (!preparedScenes.has(id)) preparedScenes.set(id, await prepare(document, id, fonts));
         return preparedScenes.get(id);
       };
-      image = await look.changedImage(preparedFor, previous);
+      // The version the last look drew, so changed also finds the spans it did not draw.
+      const lastRecord = Number.isSafeInteger(previous.rev) && previous.rev !== record.revision ? await store.getProjectRevision(projectId, previous.rev).catch(() => null) : null;
+      const lastFonts = lastRecord ? await fontsFor(lastRecord) : null;
+      const beforeFor = lastRecord && (async (entry) => {
+        const id = entry.scene ?? scene.id;
+        const was = lastRecord.scenes.find((item) => item.id === id);
+        const now = document.scenes.find((item) => item.id === id);
+        return was && now && JSON.stringify(was) !== JSON.stringify(now) ? prepare(lastRecord, id, lastFonts) : null;
+      });
+      image = await look.changedImage(preparedFor, previous, { before: beforeFor || undefined, sceneName: all ? (entry) => refName(entry.scene, codes) : undefined });
       lookKey = all ? "all" : scene.id;
       const compared = all ? document.scenes : [scene];
       noteLive({ sceneId: all ? null : scene.id, ...(all ? {} : { range: [0, scene.duration] }) }, compared.map((item) => ({ sceneId: item.id, range: [0, item.duration] })));
       const where = all ? "the scenes" : refName(scene.id, codes);
       text = image.png ? `changed since your last look at ${where}: ${image.labels.join(", ")}` : `nothing visible changed in ${where} since your last look (${plural(previous.frames.length, "frame")} compared)`;
+      if (image.spans) {
+        text += `\n${plural(image.spans.length, "changed span")} (scanned the whole scene against rev ${previous.rev})`;
+        if (image.left.length) {
+          const first = image.left[0];
+          const sameScene = image.left.filter((item) => item.scene === first.scene);
+          const sceneField = all && first.scene ? `, scene:"${refName(first.scene, codes)}"` : "";
+          text += `; ${plural(image.left.length, "span")} left out (the frame limit): look {mode:"frames"${sceneField}, from:${first.from}, to:${sameScene.at(-1).to}} shows ${sameScene.length === image.left.length ? "them" : "the first of them"}`;
+        }
+      }
     } else if (mode === "variants") {
       // One row per variant (the original first), five moments across each.
       const latest = document.scenes.filter((item) => item.variant).at(-1);

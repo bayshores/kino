@@ -2065,6 +2065,10 @@ test("crop_no_subject: where no face was found, the window must keep what kino s
   // A mark nobody looked at does not count, but frame_shot would crop on it: the look comes first, never a frame_shot loop.
   const [unlooked] = (await cropRun("crop_no_subject", keeperMarked([60, 40, 10, 20]), sees([25, 20, 30, 50]))).findings;
   assert.deepEqual([unlooked.fix.kind, /never looked at: look \{mode:"source", layer:"keeper", t:0\} first/.test(unlooked.message)], ["hint", true]);
+  // A mark made on another file does not count, and the finding says which file it is on (dm4 round 4: a copy moved to a re-encoded file kept the old file's mark).
+  const staleMarked = tall({ ...TALL_CROP, subjectBoxes: { src: "/api/media/old.mp4", boxes: [{ at: 1, box: [40, 40, 8, 8], by: "agent", part: "mouth" }] } });
+  const [stale] = (await cropRun("crop_no_subject", staleMarked, sees([25, 20, 30, 50]), keeperLooked)).findings;
+  assert.match(stale.message, / Its mark is on another file \(old\.mp4\) and does not count here: mark_subject again on this file\.$/);
   // A face found anywhere in the shot makes it face-led (as frame_shot aims): saliency is not judged.
   const faceLed = sees([25, 20, 30, 50]);
   faceLed[TALL_CROP.src].samples[4] = { t: 2, faces: [[0.45, 0.3, 0.1, 0.2]], people: [], subjects: [{ box: [0.45, 0.3, 0.1, 0.2], kind: "face" }] };

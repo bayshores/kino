@@ -381,6 +381,9 @@ export function cropNoSubject(model, ctx) {
       if (!cropped || sides[side] > cropped.cut) cropped = { cut: sides[side], side, time };
     }
     const look = `look {mode:"source", layer:${ctx.name(item)}, t}`;
+    // A mark made on another file (before replace_media or a re-encode) is not this file's subject: say so, with the file.
+    const staleMark = layer.subjectBoxes?.boxes?.length && layer.subjectBoxes.src !== layer.src
+      ? ` Its mark is on another file (${String(layer.subjectBoxes.src).split("/").pop()}) and does not count here: mark_subject again on this file.` : "";
     const seen = (tally) => tally.worst && tally.count * step >= model.fps * FACE_CUT_SECONDS - 1e-6;
     if (seen(faceCut)) {
       const cut = faceCut.worst;
@@ -406,7 +409,7 @@ export function cropNoSubject(model, ctx) {
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
         message: unlooked
           ? `${cutText}, and its mark was never looked at: ${lookCall} first, then mark what the shot is about.`
-          : `${cutText}. ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.`,
+          : `${cutText}. ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.${staleMark}`,
         measured: `${Math.round(cut.share * 100)}% of the saliency box ${boxText(cut.box)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((salientCut.count * step) / model.fps)} s, no face found${held}${unlooked ? ", marked without a look" : ""}`,
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of what kino sees (the largest saliency box where no face is found) in the frame, or a mark that holds it (part:"<name>" for a deliberate part)`,
         fix: unlooked
@@ -437,7 +440,7 @@ export function cropNoSubject(model, ctx) {
     } else if (cropped && croppedCount * step >= model.fps * 0.5) {
       findings.push({
         rule: "crop_no_subject", severity: "warn", itemId: item.id, at: sec(cropped.time),
-        message: `${ctx.name(item)} is drawn past the frame with no subject marked${unlooked ? " (marked without a look)" : ""}: ${Math.round(cropped.cut)}% of the file is cut off at the ${cropped.side}, so the crop is arbitrary.`,
+        message: `${ctx.name(item)} is drawn past the frame with no subject marked${unlooked ? " (marked without a look)" : ""}: ${Math.round(cropped.cut)}% of the file is cut off at the ${cropped.side}, so the crop is arbitrary.${staleMark}`,
         measured: `${Math.round(cropped.cut)}% of the ${size.width}x${size.height} file cut off at the ${cropped.side} at ${sec(cropped.time)} s, no subject marked`,
         required: `at most ${CROP_MAX}% cut off a side, or a subject marked (mark_subject) that stays in the frame`,
         fix: { kind: "hint", text: `Fit ${ctx.name(item)} to the frame (zoom less), or ${look} and mark_subject the subject, then frame the crop on it (library guide framing).` },

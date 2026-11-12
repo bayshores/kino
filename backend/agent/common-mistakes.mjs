@@ -727,6 +727,21 @@ function fixScaleValues(target, fixes, prefix, layer) {
 
 // start, duration, end and delay as numbers ("0.5s" → 0.5), in place; the field names are
 // reported as given.
+// property:"volume" with from and/or to as plain numbers: a custom animation of that one number
+// ({from:{volume:1}, to:{volume:0.2}}). Changes `holder` and returns the property name, else null.
+function plainPropertyValues(holder, fixes, prefix) {
+  const key = holder.property;
+  if (typeof key !== "string" || !key.trim()) return null;
+  const number = (value) => typeof value === "number" && Number.isFinite(value);
+  const ends = ["from", "to"].filter((end) => holder[end] !== undefined);
+  if (!ends.length || !ends.every((end) => number(holder[end]) || isRecord(holder[end]))) return null;
+  if (!ends.some((end) => number(holder[end]))) return null;
+  for (const end of ["from", "to"]) holder[end] = number(holder[end]) ? { [key]: holder[end] } : isRecord(holder[end]) ? holder[end] : {};
+  delete holder.property;
+  fixes.push(`${prefix}property ${quote(key)} with numbers → from ${JSON.stringify(holder.from)}, to ${JSON.stringify(holder.to)}`);
+  return key;
+}
+
 function fixTimes(target, fixes, prefix = "") {
   for (const field of ["start", "duration", "end", "delay", "time"]) {
     const seconds = timeFromText(target[field]);
@@ -916,7 +931,17 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
     fixes.push(`preset {id:${quote(operation.preset)}} → preset ${quote(operation.preset)}${mode !== undefined ? `, mode ${quote(mode)}` : ""}`);
   }
   // The name the op gives ({name:"Push", from, to}) is the animation's name too, not only its ID.
-  const givenName = typeof operation.name === "string" && operation.name.trim() ? operation.name : undefined;
+  let givenName = typeof operation.name === "string" && operation.name.trim() ? operation.name : undefined;
+  // {property:"volume", from:1, to:0.2}: numbers for one property are its from and to values.
+  if (operation.animation === undefined && operation.preset === undefined && operation.effect === undefined) {
+    const key = plainPropertyValues(operation, fixes, "");
+    if (key) givenName ??= operation.name = key[0].toUpperCase() + key.slice(1);
+  }
+  if (isRecord(operation.animation) && operation.animation.property !== undefined) {
+    operation.animation = { ...operation.animation };
+    const key = plainPropertyValues(operation.animation, fixes, "animation.");
+    if (key) operation.animation.name ??= givenName ?? key[0].toUpperCase() + key.slice(1);
+  }
   if (typeof operation.effect === "string") operation.effect = fixEffectName(operation.effect, fixes, "effect", layer, operation.parameters);
   fixEffectPoints(operation, fixes, layer);
   if (typeof operation.preset === "string" && operation.preset.startsWith("effect:")) {
@@ -1551,6 +1576,17 @@ export function fixOperation(operation, fixes, context) {
     if (isRecord(operation.properties)) {
       fixTimes(operation.properties, fixes, "properties.");
       fixEase(operation.properties, fixes, "properties.");
+      // from or to as a number, on an animation of one property: that property's value.
+      if (["from", "to"].some((end) => typeof operation.properties[end] === "number")) {
+        const targets = targetAnimations(operation, resolver) ?? [];
+        const keys = targets.map((animation) => [...new Set([...Object.keys(animation?.from ?? {}), ...Object.keys(animation?.to ?? {})])]);
+        const only = keys[0]?.length === 1 && keys.every((list) => list.length === 1 && list[0] === keys[0][0]) ? keys[0][0] : null;
+        if (only) {
+          operation.properties = { ...operation.properties };
+          for (const end of ["from", "to"]) if (typeof operation.properties[end] === "number") operation.properties[end] = { [only]: operation.properties[end] };
+          fixes.push(`properties from/to number → ${only} value`);
+        }
+      }
       refuseNoPreset(operation, targetAnimations(operation, resolver), resolver);
       refuseUnknownUpdateFields(operation, targetAnimations(operation, resolver), fixes);
     }

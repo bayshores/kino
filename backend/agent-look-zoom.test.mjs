@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { readImage, startTestServer } from "./media.test.support.mjs";
 import { traceText } from "./agent/motion-graph.mjs";
-import { everyNth, PAGE_PIXELS, PAGE_WIDTH, PAGES_MOST, timesEdge, timesLabel, timesPlan } from "./agent/look.mjs";
+import { everyNth, PAGE_PIXELS, PAGE_WIDTH, PAGES_MOST, probeTimes, spanPicks, spansOfFlags, timesEdge, timesLabel, timesPlan } from "./agent/look.mjs";
 
 let server;
 after(async () => { await server?.stop(); });
@@ -252,4 +252,29 @@ test("look motion: the trace measures each 0.5 s and notes the camera rules' fin
   assert.match(text, /^0\.5 .*E lone_zoom 0\.6-0\.9s: phone grows x1\.40 from 0\.6 to 0\.9 s$/m, text);
   assert.doesNotMatch(text, /edge card/, text);
   assert.match(traceText(trace(30, 6)).text, /edge card 1\.0% of frame for 0\.20s/);
+});
+
+test("look changed shows every span an edit changed, even where the last look drew no frame", async () => {
+  await agent("look", { mode: "sheet" });
+  const made = await agent("edit", { ops: [0.45, 1.15, 3.0].map((start, index) => ({ op: "add_layer", layerType: "rectangle", name: `flash-${index}`, properties: { x: 300, y: 700, width: 480, height: 480, fill: "#ff00ff" }, animations: [{ preset: "show", start }, { preset: "hide", start: start + 0.2 }] })) });
+  assert.equal(made.isError, undefined, made.text);
+  const reply = await agent("look", { mode: "changed" });
+  assert.equal(reply.isError, undefined, reply.text);
+  const labels = reply.text.split("\n")[0];
+  for (const span of [/ in 0\.\d+-0\.\d+s/, / in 1\.\d+-1\.\d+s/, / in 3\.\d+-3\.\d+s/]) assert.match(labels, span, reply.text);
+  const frames = labels.split(" in ").length - 1;
+  assert.match(reply.text, /^3 changed spans \(scanned the whole scene against rev \d+\)$/m, reply.text);
+  // Nothing more changed: the next look is quiet, and the spans are remembered as frames.
+  assert.match((await agent("look", { mode: "changed" })).text, new RegExp(`^nothing visible changed in s1 since your last look \\(${12 + frames} frames compared\\)`), "12 sheet frames and those of the spans");
+});
+
+test("spanPicks gives every span a frame, spreads the rest by length and reports the spans the limit cuts", () => {
+  const spans = [{ from: 4.3, to: 5.5 }, { from: 8, to: 8.2 }, { from: 9, to: 9.4 }];
+  const { picks, left } = spanPicks(spans, 6);
+  assert.deepEqual(left, []);
+  assert.deepEqual(picks.map((pick) => pick.from), [4.3, 4.3, 4.3, 8, 9, 9], "the long span gets the spare frames");
+  const cut = spanPicks(spans, 2);
+  assert.deepEqual([cut.picks.map((pick) => pick.time), cut.left], [[4.9, 8.1], [{ from: 9, to: 9.4 }]]);
+  const probes = probeTimes(14);
+  assert.equal(spansOfFlags(probes.times, probes.times.map((time) => time > 4 && time < 4.5), probes.step, probes.last).length, 1);
 });
