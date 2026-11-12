@@ -1929,7 +1929,11 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       // The refusal names the layer's own span in scene seconds, so the next call can be sent as it is.
       const range = mediaPlaybackRange(layer, scene.duration);
       const [from, to] = [round(range?.start ?? 0), round(range?.end ?? scene.duration)];
-      throw problem(`t is scene seconds, from 0 to ${round(scene.duration)}. ${name} shows from ${from} to ${to} s (look {mode:"source", layer:"${name}", t:${round((from + to) / 2)}} first, then mark_subject {layer:"${name}", t:${round((from + to) / 2)}, box}; without t kino uses your last look at ${name}).`);
+      const middle = round((from + to) / 2);
+      const said = t === undefined ? `No t and no look at ${name} yet: t is scene seconds` : "t is scene seconds";
+      // retryWith: the answer's next resends this op with t in the layer's span (not the op's generic
+      // example on a layer named "footage", which a weak agent sends as it is and fails again).
+      throw Object.assign(problem(`${said}, from 0 to ${round(scene.duration)}. ${name} shows from ${from} to ${to} s (look {mode:"source", layer:"${name}", t:${middle}} first, then mark_subject {layer:"${name}", t:${middle}, box}; without t kino uses your last look at ${name}).`), { retryWith: { t: middle } });
     }
     const at = looked !== null ? round(looked) : round(mediaFrameState(layer, t).sourceTime);
     if (looked !== null) work.notes.push(`mark_subject ${name}: no t, so at your last look (file ${Number(at.toFixed(2))} s)`);

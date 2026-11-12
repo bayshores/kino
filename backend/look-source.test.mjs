@@ -317,15 +317,17 @@ test("look source and mark_subject refuse what they cannot do, in words", { skip
   assert.ok(unknownMode.didYouMean.includes("source"), JSON.stringify(unknownMode));
 
   const mark = async (op) => (await agent("edit", { project: "refusals", ops: [{ op: "mark_subject", ...op }] }));
-  const refused = async (op, start) => {
+  const refused = async (op, start, example = { op: "mark_subject", layer: "footage", t: 1, box: [30, 10, 40, 80] }) => {
     const reply = await mark(op);
     assert.equal(reply.isError, true, reply.text);
     assert.ok(reply.data.reason.startsWith(`Operation 0 (mark_subject) was refused: ${start}`), reply.data.reason);
-    assert.deepEqual(reply.data.example, { op: "mark_subject", layer: "footage", t: 1, box: [30, 10, 40, 80] });
+    assert.deepEqual(reply.data.example, example);
   };
   await refused({ layer: "title", t: 1, box: [1, 1, 5, 5] }, "mark_subject needs a video layer; title is a text layer.");
-  await refused({ layer: "footage", t: 9, box: [1, 1, 5, 5] }, "t is scene seconds, from 0 to 4.4.");
-  await refused({ layer: "footage", t: "1", box: [1, 1, 5, 5] }, "t is scene seconds, from 0 to 4.4.");
+  // A t outside the scene: the retry keeps the sent op with t in the middle of the layer's span.
+  await refused({ layer: "footage", t: 9, box: [1, 1, 5, 5] }, "t is scene seconds, from 0 to 4.4.", { op: "mark_subject", layer: "footage", t: 2.2, box: [1, 1, 5, 5] });
+  await refused({ layer: "footage", t: "1", box: [1, 1, 5, 5] }, "t is scene seconds, from 0 to 4.4.", { op: "mark_subject", layer: "footage", t: 2.2, box: [1, 1, 5, 5] });
+  await refused({ layer: "footage", box: [1, 1, 5, 5] }, "No t and no look at footage yet: t is scene seconds, from 0 to 4.4. footage shows from 0 to 4.4 s", { op: "mark_subject", layer: "footage", t: 2.2, box: [1, 1, 5, 5] });
   const boxRule = 'box is [x, y, w, h] in % of the source frame (look {mode:"source"} draws the grid), such as [40, 10, 25, 80]: each from 0 to 100, w and h above 0, x + w and y + h at most 100.';
   for (const box of [[60, 0, 50, 10], [10, 10, 0, 10], [10, 10, 10], "center", undefined]) await refused({ layer: "footage", t: 1, box }, boxRule);
   // A box in 0–1 fractions, as many vision tools give, is refused, not kept as a speck in the corner.

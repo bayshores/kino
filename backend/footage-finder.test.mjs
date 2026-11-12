@@ -328,6 +328,9 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     const ranked = rankShots(ten, { wantVector: Float32Array.from([1, 0, 0, 0]) });
     assert.equal(ranked.matchShown, true);
     assert.deepEqual([ranked.shots[0].start, ranked.shots[0].match], [7, 3]);
+    // The matching shot is dark (a night scene the person asked for): it still decides and leads.
+    const night = rankShots(ten.map((shot, index) => (index === 7 ? { ...shot, luma: 0.05 } : shot)), { wantVector: Float32Array.from([1, 0, 0, 0]) });
+    assert.deepEqual([night.matchShown, night.shots[0].start, night.shots[0].flags], [true, 7, ["dark"]]);
     // 150 shots of noise: the best z-score tops 2 by chance, but not the bar for 150 shots.
     let seed = 12345;
     const noise = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };

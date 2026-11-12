@@ -267,8 +267,8 @@ export function matchBar(count, { drawn = false } = {}) {
  * scan of a video when a rescan joins them): shots with {vector (normalized, or null), flags,
  * base (the score without a match)}. Answers {matches (z-score of each shot's closeness to
  * `wantVector` among these shots, null without a vector or a want), scores (base plus 10 a
- * z-score, the boost only when matchShown), matchShown (the best clean shot, one without dark,
- * text, subtitles or short, reaches matchBar), matchBest, matchBar}.
+ * z-score, the boost only when matchShown), matchShown (the best clean shot, one without text,
+ * subtitles or short (a logo or dark tag is clean), reaches matchBar), matchBest, matchBar}.
  */
 export function matchShots(shots, { wantVector = null, drawn = false } = {}) {
   const closeness = wantVector ? shots.map((shot) => (shot.vector ? dot(wantVector, shot.vector) : null)) : [];
@@ -278,7 +278,9 @@ export function matchShots(shots, { wantVector = null, drawn = false } = {}) {
   const matches = shots.map((_, index) => (wantVector && closeness[index] !== null ? round1(z[next++]) : null));
   // A title card that spells the searched name can match best, and a short shot sorts last and is
   // too short to import: only clean shots decide.
-  const clean = matches.filter((value, index) => value !== null && shots[index].flags.every((flag) => flag === "logo"));
+  // A dark shot decides too (cleanShot): the night scene a person asked for is often all dark shots,
+  // and without them the match was never shown (.scratch/ceiling/trace-run6.md, 18 dark shots).
+  const clean = matches.filter((value, index) => value !== null && cleanShot(shots[index]));
   const bar = matchBar(known.length, { drawn });
   const matchBest = clean.length ? Math.max(...clean) : null;
   const matchShown = matchBest !== null && matchBest >= bar;
@@ -287,9 +289,9 @@ export function matchShots(shots, { wantVector = null, drawn = false } = {}) {
 }
 
 /**
- * The shots best first, each with {flags, base, score, match}. flags: "dark", "text", "subtitles",
- * "short" (these go last), "logo" (a small cost). base: the score before any match. match and
- * score: matchShots'. Answers {shots, matchShown, matchBest (that best z-score, or null),
+ * The shots best first, each with {flags, base, score, match}. flags: "text", "subtitles",
+ * "short" (these go last), "logo" (a small cost), "dark" (a tag: kept in its place). base: the
+ * score before any match. match and score: matchShots'. Answers {shots, matchShown, matchBest (that best z-score, or null),
  * matchBar, skipped: {dark, text, subtitles, short}}.
  */
 export function rankShots(shots, { wantVector = null, drawn = false } = {}) {
