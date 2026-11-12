@@ -83,7 +83,8 @@ test("a custom animation that moves the layer leaves the safe_zone fix to the ag
 // A slide-up entrance that holds below the zone before it starts, then a drift that ends below
 // it: the fix covered only the longest stretch (3.8 s to 6 s), so after sending it check found
 // the held first frame (0 s to 0.2 s) and gave a second, different move. Now one fix covers every
-// stretch, and the message names each one.
+// stretch, and the message names each one. (The layer is now hidden until its entrance starts,
+// so the first stretch is the entrance's first frame at 0.2 s.)
 test("one safe_zone fix covers every stretch outside the zone, and the message names each", async () => {
   await agent("project", { action: "create", id: "spans", name: "Spans", width: 1080, height: 1920, duration: 6, background: "#202830" });
   const made = await agent("edit", { project: "spans", ops: [
@@ -95,7 +96,7 @@ test("one safe_zone fix covers every stretch outside the zone, and the message n
   const check = await agent("check", { project: "spans", pixels: false });
   const [finding] = safeZone(check, "cap2");
   assert.ok(finding, check.text);
-  assert.match(finding.message, /outside the safe zone \(.*\) from 0s to 0\.2s(, .*)? and from 3\.8s to 6s,/, finding.message);
+  assert.match(finding.message, /outside the safe zone \(.*\) at 0\.2s(, .*)? and from 3\.8s to 6s,/, finding.message);
   const sent = await agent("edit", { project: "spans", ops: finding.fix });
   assert.equal(sent.isError, undefined, sent.text);
   const again = await agent("check", { project: "spans", pixels: false });

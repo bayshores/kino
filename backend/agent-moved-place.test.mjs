@@ -425,7 +425,10 @@ test("an exit that starts at the layer's old place moves with the layer, even af
   const ops = advice(line);
   assert.deepEqual(ops, [{ op: "update_animation", animation: "leave.custom", properties: { from: { y: 500 }, to: { y: 460 } } }]);
   await edit(ops);
-  await noJump("y", [0.1, 2]);
+  // The layer is hidden until its entrance starts at 0.1 s (entranceHide.js), so the entrance is
+  // checked by its first place: 40 px under the new place.
+  assert.ok(Math.abs((await boxAt(0.12)).y - 540) < 8, "the entrance starts 40 px under the new place");
+  await noJump("y", [2]);
   const [before, after] = [await boxAt(4.98), await boxAt(5.02)];
   assert.ok(Math.abs(before.y - 460) < 4, `the drift ends 40 px above the new place: ${before.y}`);
   assert.ok(Math.abs(after.y - before.y - jump) < 8, `the jump at 5 s is still ${jump} px, not ${after.y - before.y}`);

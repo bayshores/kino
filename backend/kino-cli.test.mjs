@@ -199,7 +199,7 @@ describe("parseCommand", () => {
       [["notes", "add", "-t", "3", "Fix", "this"], 'Unknown option "-t". kino takes fields as key=value: kino notes add t=3 Fix this (kino help)'],
       [["history", "--limit", "5"], 'Unknown option "--limit". kino takes fields as key=value, and the fields of history are action, turn and rev. (kino help)'],
       [["inspect", "-logo"], 'Unknown option "-logo". kino takes fields as key=value, and the fields of inspect are targets and fields. (kino help)'],
-      [["look", "--type", "zoom"], 'Unknown option "--type". kino takes fields as key=value, and the fields of look are mode, scene, t, from, to, layer, anim, every, ref, rev, width and page. (kino help)'],
+      [["look", "--type", "zoom"], 'Unknown option "--type". kino takes fields as key=value, and the fields of look are mode, scene, t, from, to, layer, anim, ref, rev, width and page. (kino help)'],
       [["look", "frame", "--you=true"], 'Unknown option "--you=true" (--you takes no value). kino takes fields as key=value: kino look frame --you (kino help)'],
       [["look", "frame", "--"], 'Unknown option "--" (not needed). kino takes fields as key=value: kino look frame (kino help)'],
       [["look", "--mode", "--layer", "logo"], 'Unknown options "--mode", "--layer". kino takes fields as key=value: kino look mode=<value> layer=logo (kino help)'],

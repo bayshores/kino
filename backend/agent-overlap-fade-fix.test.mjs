@@ -74,7 +74,9 @@ test("a blur entrance that waits on screen loses its blur and fades in plainly (
     await agent("project", { action: "create", id, name: id, width: 1920, height: 1080, duration: 6, background: "#101010" });
     await agent("edit", { project: id, ops: [
       title("first", "It watches cameras", [{ preset: "preset-fade", start: 0, duration: 0.4 }, { preset: "preset-fade", mode: "out", start: 2, duration: 0.4 }]),
-      title("second", "all night long", [{ preset, start: 2.6, duration: 0.5 }]),
+      // The layer's own Show at 0 keeps it on screen before its entrance (a new preset entrance
+      // alone now hides the layer until it starts, entranceHide.js).
+      title("second", "all night long", [{ preset: "show", start: 0 }, { preset, start: 2.6, duration: 0.5 }]),
     ] });
     const check = await agent("check", { project: id, pixels: false });
     const [finding] = overlaps(check);

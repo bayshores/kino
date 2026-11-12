@@ -31,7 +31,7 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 - `duck_audio` dips music under the `under` layers (voices): by default 9 LU under the voice
   as measured, a transcribed voice for its words. List every voice-over in one `under` (a
   second run replaces the dips) and rerun after moving one; the receipt's `duck.summary` says
-  where it dips. Depth, fades and section cues: `library {topic:"op", name:"duck_audio"}`.
+  where it dips. Several layers in one edit: `duck` is a list of reports (`duck[0].summary`). Depth, fades and section cues: `library {topic:"op", name:"duck_audio"}`.
   Without `to` a dip over 2 s stays within 8 dB (`held`) unless a line needs it deeper to stay
   6 LU over the music (`deeper`), down to 0.1 (`quiet` names lines still under); dips keep apart
   at a section cue (`sections`).
@@ -68,7 +68,8 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 - `isolate_voice` splits a layer's sound on this computer (nothing is uploaded). `keep:"voice"`
   (default), `"background"`, or `"both"`: the voice plus an audio layer `<layer>-background`
   you can turn down. A video keeps its picture. `amount` 0–1 leaves some background in.
-- It does not duck music: send `duck_audio` in the same edit.
+- It does not duck music: send `duck_audio` in the same edit
+  (`duck[n].summary` when it ducks several layers).
 
 ```json
 {"op":"add_layer","layerType":"video","name":"interview","properties":{"src":"/api/media/<interview>.mp4"}}

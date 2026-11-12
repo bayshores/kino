@@ -133,15 +133,10 @@ test("media Play maps scene time to source time and Freeze controls visibility o
   assert.deepEqual(at(gif, 0.5), { visible: false, playing: false, sourceTime: 0.5 });
   assert.deepEqual(at(gif, 1), { visible: true, playing: true, sourceTime: 0.5 });
   assert.equal(at(gif, 2).sourceTime, 1.5);
-  // Play ends on its end time (the next shot's frame), a frame time drifting 1 ms early too; the
-  // frame held afterward is the one just before the end.
-  assert.equal(at(gif, 2.99).visible, true);
-  assert.equal(at(gif, 3).visible, false);
-  assert.equal(at(gif, 2.9995).visible, false);
-  assert.ok(Math.abs(at({ ...gif, mediaFreeze: "last" }, 3).sourceTime - 2.498) < 1e-9);
-  // A clip from 0.30 s lasting 0.10 s is gone on the 0.40 s frame (25 fps), where the next shot starts.
-  const short = createLayer("video", { mediaStart: 0.3, mediaDuration: 0.1, mediaFreeze: "none" });
-  assert.deepEqual([0.36, 0.4].map((time) => at(short, time).visible), [true, false]);
+  // The end time is part of Play; the frame shown there and held afterward is the one just before the end.
+  assert.equal(at(gif, 3).visible, true);
+  assert.ok(Math.abs(at(gif, 3).sourceTime - 2.498) < 1e-9);
+  assert.equal(at(gif, 3.000004).visible, false);
   for (const [freeze, before, after] of [["none", false, false], ["first", true, false], ["last", false, true], ["both", true, true]]) {
     const layer = { ...gif, mediaFreeze: freeze };
     assert.equal(at(layer, 0.99).visible, before, `${freeze} before`);
@@ -229,8 +224,7 @@ test("video and audio Play ends where the source ends, even when open or stored 
   assert.equal(effectiveMediaDuration({ ...open, mediaDuration: 2 }), 2);
   assert.equal(effectiveMediaDuration({ ...open, mediaSourceDuration: 0 }), Infinity, "unknown source length stays open");
   assert.equal(effectiveMediaDuration(createLayer("image", { mediaSourceDuration: 1, mediaDuration: 5 })), 5, "GIFs loop");
-  assert.equal(mediaFrameState(open, 2.99).visible, true, "the last frame before the end is part of Play");
-  assert.equal(mediaFrameState(open, 3).visible, false, "the end is not");
+  assert.equal(mediaFrameState(open, 3).visible, true, "the end is part of Play");
   assert.deepEqual(mediaFrameState(open, 3.5), { visible: false, playing: false, sourceTime: 3.998 }, "Freeze none hides the layer after Play");
   assert.equal(mediaFrameState({ ...open, mediaDuration: 10, mediaFreeze: "last" }, 5).sourceTime, 3.998, "the last frame before the source end is held");
   assert.equal(mediaPlaybackRange({ ...open, type: "audio", mediaDuration: 10 }, 8).end, 3);

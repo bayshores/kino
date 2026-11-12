@@ -434,7 +434,10 @@ test("library search answers one short line per topic, not the topics' text", as
   assert.ok(reply.text.length < 3000, `search answer is ${reply.text.length} characters`);
   // A phrase is split into words; the topics holding the most of them come first.
   const phrase = await agent("library", { topic: "search", search: "crop video layer and word by word text reveal synced to speech" });
-  const shown = phrase.text.split("\n").slice(2, 8).map((line) => line.split(" ")[0]);
+  // Moves and effects named by the phrase come first ("kino names for it:"), then ops, then topics.
+  const lines = phrase.text.split("\n");
+  const first = lines.findIndex((line) => line.startsWith("topics (")) + 1;
+  const shown = lines.slice(first, first + 6).map((line) => line.split(" ")[0]);
   for (const id of ["captions", "text-animation", "speech"]) assert.ok(shown.includes(id), `${id} is near the top: ${shown}`);
   // A move is found by the words an agent types for what it does.
   assert.match((await agent("library", { topic: "search", search: "color flash behind subject" })).text, /backdrop-flash/);
