@@ -10,7 +10,7 @@ import { ruleTopicOf, seenNames } from "./seen-names.mjs";
 // What each effect is, in a few words (one line each; the fields come from the catalog itself).
 const HINTS = {
   grain: "film grain", vignette: "darker edges", duotone: "two-color grade, dark to light", tritone: "three-color grade: shadows, mids, highlights",
-  "luma-highlight": "tint or boost the brightest parts", "rgb-shift": "red, green and blue split apart", "speed-lines": "thin streaks racing across",
+  "luma-highlight": "tint or boost the brightest parts", "rgb-shift": "red, green and blue split apart; where:edges fringes only the lines", "speed-lines": "thin streaks racing across",
   "impact-lines": "wedges pointing in from the edges", "film-burn": "hot glow eating in from an edge", dithering: "retro dot-pattern posterize",
   "dot-grid": "picture drawn as a grid of dots", "noise-mask": "noise holes, a dissolve", pixelate: "big square pixels", "threshold-color": "hard two-tone cut at a brightness",
   invert: "negative", curves: "tone curves per channel", lut: "a .cube grade file", "hue-saturation": "turn hue, saturate, lighten", "white-balance": "warmer or cooler, tint",
@@ -19,7 +19,7 @@ const HINTS = {
   "directional-blur": "smear along an angle", "zoom-blur": "smear toward a point", "spin-blur": "smear around a point", "focus-band": "sharp band, blur outside it: depth of field, tilt-shift",
   embers: "rising sparks of fire", sparks: "bright flying sparks", snow: "falling flakes", dust: "drifting specks; links joins them into a constellation or network", rain: "falling streaks", bokeh: "soft out-of-focus lights", fog: "drifting haze", "light-leaks": "warm color washes",
   bulge: "pinch or swell, a lens bump", displacement: "push pixels along an axis", "fluid-warp": "liquid wobble", "fluted-glass": "ribbed glass slices", "noise-warp": "organic wobble, heat shimmer",
-  ripple: "rings spreading from a point", "edge-fill": "stretch or mirror the edge pixels outward", mirror: "reflect one half", kaleidoscope: "mirrored wedges", field: "any pattern from a math expression: dissolve, wipe, wave",
+  ripple: "rings spreading from a point", twirl: "swirl the middle, the outside stays", "edge-fill": "stretch or mirror the edge pixels outward", mirror: "reflect one half", kaleidoscope: "mirrored wedges", field: "any pattern from a math expression: dissolve, wipe, wave",
   "3d-orbit": "tilt and turn in 3D", "card-flip": "flip like a card", "color-grade": "exposure, brightness, contrast, saturation", "color-remover": "key out one color, a green screen",
   "grid-scroll-x": "tiled copies scrolling sideways", "grid-scroll-y": "tiled copies scrolling up or down", "inward-echoes": "shrinking echoes toward a point", "noise-tile": "tiled drifting noise cutouts",
   "radial-repeat-blur": "repeated spinning smear from a point", wiggle: "random shake",

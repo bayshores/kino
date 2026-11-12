@@ -57,6 +57,12 @@ const registry = [
     falloff: ["number", 1.2, 0, 8, 0.1, ""],
     sharpness: ["number", 1, 1, 16, 0.1, ""],
   }],
+  ["twirl", "Twirl", "Distortion", "value", {
+    angle: ["number", 180, -720, 720, 1, "°", 0],
+    radius: ["number", 0.5, 0.05, 2, 0.01, ""],
+    centerX: ["number", 0.5, 0, 1, 0.01, ""],
+    centerY: ["number", 0.5, 0, 1, 0.01, ""],
+  }],
 ];
 
 function compactField(field) {

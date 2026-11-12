@@ -139,6 +139,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "fluted-glass": { columns: 8, strength: 0.9, glowStrength: 0.35, glowWidth: 0.8 },
   "noise-warp": { amount: 72, noiseScale: 1.4, speed: 0.8, contain: false },
   ripple: { speed: 1.1, strength: 0.45, frequency: 5, centerX: 0.43, centerY: 0.57, falloff: 1.6, sharpness: 5 },
+  twirl: { angle: 240, radius: 0.6, centerX: 0.45, centerY: 0.55 },
   dithering: { darkColor: "#03045E", lightColor: "#CAF0F8", subdivisions: 8, contrast: 2.2 },
   "dot-grid": { gridRepetition: 10, dotScale: 7, contrast: 2, shadowColor: "#03045E", highlightColor: "#F77F00", invertDetection: false },
   duotone: { midpoint: 0.42, contrast: 1.8, shadowColor: "#03045E", highlightColor: "#F77F00" },
@@ -186,7 +187,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   invert: { amount: 0.8, keepHue: true },
 };
 
-assert.equal(EFFECTS.length, 61, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 62, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

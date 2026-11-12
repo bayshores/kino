@@ -164,6 +164,32 @@ test("a directional blur smears a small shape evenly on both sides, with no step
     assert.ok(Math.abs(row[index] - row[index - 1]) <= 4, `no step at x=${80 + index}: ${row.join(" ")}`);
 });
 
+// The look (Chromium) and the reference renderer draw a twirl and an edges-only RGB split alike;
+// the twirl turns the middle and leaves the corners where they were.
+test("twirl and an edges-only rgb-shift match the reference renderer", async () => {
+  const plain = await drawResvg(card({ parts: 20 }));
+  for (const effects of [[["twirl", { angle: 180 }]], [["rgb-shift", { where: "edges", colors: "green-magenta" }]]]) {
+    const scene = card({ parts: 20, effects });
+    const [browser, reference] = [await drawChromium(scene), await drawResvg(scene)];
+    assert.ok(meanDifference(browser, reference) < 1.5, `${effects[0][0]}: mean difference ${meanDifference(browser, reference).toFixed(2)}`);
+    assert.ok(meanDifference(reference, plain) > 1, `${effects[0][0]} changes the picture`);
+    if (effects[0][0] === "twirl") assert.equal(reference.red(3, 3), plain.red(3, 3), "the corner stays");
+  }
+});
+
+// Dark type on a light card: an edges-only split on the type layer alone fringes in color and
+// keeps the letters solid in the look (Chromium) as in the reference renderer.
+test("an edges-only rgb-shift on a dark shape over transparency keeps it solid and matches the reference renderer", async () => {
+  const mark = createLayer("rectangle", { id: "mark", name: "Mark", x: 220, y: 120, width: 200, height: 120, fill: "#0A0A0A", radius: 0, strokeWidth: 0 });
+  mark.animations = [{ id: "fx", name: "rgb-shift", kind: "effect", effect: "rgb-shift", start: 0, duration: 2, easing: "linear",
+    from: { amount: 0.5, where: "edges" }, to: { amount: 0.5, where: "edges" } }];
+  const scene = parseDocument(createDocument({ id: "mark", name: "Mark",
+    scenes: [createScene({ id: "main", name: "Main", width: 640, height: 360, duration: 2, background: "#DCDCDC", layers: [mark] })] })).scenes[0];
+  const [browser, reference] = [await drawChromium(scene), await drawResvg(scene)];
+  assert.ok(meanDifference(browser, reference) < 1.5, `mean difference ${meanDifference(browser, reference).toFixed(2)}`);
+  for (const image of [browser, reference]) assert.ok(image.red(320, 180) < 30, `the middle stays dark: ${image.red(320, 180)}`);
+});
+
 test("edge fill and kaleidoscope on a group with many parts match the reference renderer", async () => {
   for (const effects of [[["edge-fill", { mode: "tile", extend: 3 }]], [["kaleidoscope", { segments: 32, angle: 0, centerX: 0.5, centerY: 0.5 }]]]) {
     const scene = card({ parts: 60, effects });

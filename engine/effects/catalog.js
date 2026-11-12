@@ -7,7 +7,8 @@ import { renderFlutedGlass } from "./flutedGlass.js";
 import { renderNoiseWarp } from "./noiseWarp.js";
 import { renderRipple } from "./ripple.js";
 import { renderDithering, renderDotGrid, renderDuotone, renderLumaHighlight, renderNoiseMask,
-  renderPixelate, renderThresholdColor, renderTritone, renderRgbShift } from "./postFx.js";
+  renderPixelate, renderThresholdColor, renderTritone, renderRgbShift, RGB_SHIFT_COLORS } from "./postFx.js";
+import { renderTwirl } from "./twirl.js";
 import { renderOrbit, renderCardFlip } from "./projection.js";
 import { renderColorGrade, renderColorRemover } from "./colorUtility.js";
 import { renderColorWheels, renderCurves, renderHueSaturation, renderKeepColor, renderLut, renderWhiteBalance } from "./colorGrading.js";
@@ -95,6 +96,16 @@ const definitions = [
       centerX: number("Center X", 0.5, 0, 1, 0.01), centerY: number("Center Y", 0.5, 0, 1, 0.01),
       falloff: number("Falloff", 1.2, 0, 8, 0.1), sharpness: number("Sharpness", 1, 1, 16, 0.1),
     } },
+  // Pixels turn about a center by an angle that falls to 0 at the radius (twirl.js).
+  { key: "twirl", label: "Twirl", group: "Distortion", kind: "value", render: renderTwirl,
+    parameters: {
+      // 180 at the peak: a guess from contest-a f864-867 (the middle turned about half a turn).
+      angle: number("Angle", 180, -720, 720, 1, "°", { neutral: 0 }),
+      // A share of the layer's shorter side. 0.5 touches the short edges, so the frame's edges
+      // stay where they are and the outside stays readable (GAPS item 15).
+      radius: number("Radius", 0.5, 0.05, 2, 0.01),
+      centerX: number("Center X", 0.5, 0, 1, 0.01), centerY: number("Center Y", 0.5, 0, 1, 0.01),
+    } },
   { key: "dithering", label: "Dithering", group: "Post FX", kind: "ranged", render: renderDithering,
     parameters: {
       darkColor: color("Dark Color", "#000000"), lightColor: color("Light Color", "#FFFFFF"),
@@ -163,6 +174,15 @@ const definitions = [
     parameters: {
       amount: number("Amount", 0.25, 0, 1, 0.01), direction: number("Direction", 0, -360, 360, 1, "°"),
       overflow: boolean("Overflow", false),
+      // The two fringe colors and where the split shows (postFx.js RGB_SHIFT_COLORS). Optional:
+      // left out, a saved effect draws as before (red-blue over the whole layer).
+      colors: { type: "enum", label: "Colors", default: "red-blue", optional: true,
+        options: Object.keys(RGB_SHIFT_COLORS).map((value) => [value, value]) },
+      where: { type: "enum", label: "Where", default: "all", optional: true, options: [["all", "All"], ["edges", "Edges"]] },
+      // where:"edges": the luma or alpha step that counts as an edge (0.1 from GAPS item 10) and
+      // how far around it the fringe may show (0 follows the shift distance).
+      edgeThreshold: number("Edge Threshold", 0.1, 0, 1, 0.01, "", { optional: true }),
+      edgeWidth: number("Edge Width", 0, 0, 64, 0.5, "px", { optional: true }),
     } },
   // The layer's contours as thin lines (edgeLines.js says how, and where each default comes from).
   { key: "edge-lines", label: "Edge Lines", group: "Post FX", kind: "ranged", render: renderEdgeLines,

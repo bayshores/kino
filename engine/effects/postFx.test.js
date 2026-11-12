@@ -53,6 +53,7 @@ function makeFrame(render, parameters = {}, options = {}) {
       defs,
       raster: options.raster ?? false,
       transform: options.transform,
+      layerType: options.layerType,
     },
   };
   const output = render(frame);
@@ -458,6 +459,27 @@ test("RGB Shift adds visible channel fringes, respects overflow clipping, and pr
   assert.equal(offsets.length, 2);
   assert.match(offsets[0], /dx="0" dy="2\.4"/);
   assert.match(offsets[1], /dx="0" dy="-2\.4"/);
+});
+
+test("RGB Shift on a picture paints no bars at its box, and where:edges fringes only the lines in the chosen colors", () => {
+  // A flat gray picture with a 4 px black line down the middle and a soft step (below the edge
+  // threshold) on the right.
+  const source = '<rect width="64" height="48" fill="#B0B0B0"/><rect x="48" width="16" height="48" fill="#B8B8B8"/><rect x="30" width="4" height="48" fill="#000"/>';
+  const options = { source, layerType: "image" };
+  const plain = pixels((frame) => frame.content, {}, options);
+  const whole = pixels(renderRgbShift, { amount: 0.5 }, options);
+  for (const x of [0, 1, 62, 63]) assert.deepEqual(pixelAt(whole, WIDTH, x, 24), pixelAt(plain, WIDTH, x, 24), `no bar at x=${x}`);
+  assert.ok(changedPixelCount(plain, whole) > 100, "the line still splits");
+  const edges = pixels(renderRgbShift, { amount: 0.5, where: "edges", colors: "green-magenta" }, options);
+  assert.deepEqual(pixelAt(edges, WIDTH, 12, 24), pixelAt(plain, WIDTH, 12, 24), "flat picture stays");
+  assert.deepEqual(pixelAt(edges, WIDTH, 50, 24), pixelAt(plain, WIDTH, 50, 24), "a weak step stays");
+  const [left, right] = [pixelAt(edges, WIDTH, 29, 24), pixelAt(edges, WIDTH, 34, 24)];
+  assert.ok(left[1] > left[0] + 40 && right[0] > right[1] + 40, `green on one side, magenta on the other: ${left} ${right}`);
+  // Dark type on a transparent layer fringes in color too (cyan after, yellow before), not black.
+  const type = { source: '<rect x="30" width="4" height="48" fill="#000"/>' };
+  const [before, after] = [29, 34].map((x) => pixelAt(pixels(renderRgbShift, { amount: 0.5, where: "edges" }, type), WIDTH, x, 24));
+  assert.ok(after[3] > 100 && after[1] > after[0] + 80 && after[2] > after[0] + 80, `cyan after the stroke: ${after}`);
+  assert.ok(before[3] > 100 && before[0] > before[2] + 80 && before[1] > before[2] + 80, `yellow before it: ${before}`);
 });
 
 test("all Post FX filters produce stable definitions and use safe embedded maps", () => {
