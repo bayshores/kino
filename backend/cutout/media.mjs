@@ -68,13 +68,13 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
   }
 
   // Where media.json keeps the library file of one output of a matte.
-  function outputSlot({ output: kind, grow, feather, openEdges, color, invert }) {
-    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, openEdges, ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
+  function outputSlot({ output: kind, grow, feather, openEdges, edge, color, invert }) {
+    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, openEdges, ...(edge && edge !== "soft" ? { edge } : {}), ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
   }
 
   // The library file for one output of one matte, made the first time.
   async function makeOutput({ matte, file, name, settings, onFraction }) {
-    const { output: kind, grow, feather, openEdges, color, invert } = settings;
+    const { output: kind, grow, feather, openEdges, edge, color, invert } = settings;
     const slot = outputSlot(settings);
     const reused = await libraryRecord((await remembered(matte.folder))[slot]);
     if (reused) return { record: reused, made: false };
@@ -84,7 +84,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
       const extension = matte.info.kind === "video" ? (kind === "matte" ? "mp4" : "webm") : "png";
       const target = join(work, `out.${extension}`);
       const { mime } = await writeCutoutOutput({ source: file, folder: matte.folder, info: matte.info, output: kind,
-        grow, feather, openEdges, color, invert, target, onFraction });
+        grow, feather, openEdges, edge, color, invert, target, onFraction });
       const record = await addMedia(target, { name: `${mediaBaseName(name)} (${kind}).${extension}`, mime });
       // Read again just before writing: another output of this matte may have been added meanwhile.
       const list = { ...(await remembered(matte.folder)), [slot]: record.id };
@@ -105,8 +105,8 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
    * clean ({refine, holes}: cutout.mjs makeMatte). A cut-out made before resolves at
    * once; one that needs Vision or FFmpeg first waits for the ones started before it.
    */
-  function start({ file, name, kind, output = "subject", engine = "auto", grow = 0, feather = 0, openEdges = "fade", color = "#ffffff", invert = false, pick, clean, outline }) {
-    const settings = { output, engine, grow, feather, openEdges, color, invert };
+  function start({ file, name, kind, output = "subject", engine = "auto", grow = 0, feather = 0, openEdges = "fade", edge = "soft", color = "#ffffff", invert = false, pick, clean, outline }) {
+    const settings = { output, engine, grow, feather, openEdges, edge, color, invert };
     const key = JSON.stringify({ file, kind, ...settings, ...(pick ? { pick } : {}), ...(clean ? { clean } : {}), ...(output === "outline" ? { outline } : {}) });
     if (jobs.has(key)) return jobs.get(key).handle;
     const state = { fraction: 0, started: performance.now() };

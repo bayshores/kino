@@ -13,7 +13,7 @@ const SEEN_AS = {
   ash: ["embers", "dust"], fire: ["embers", "sparks"], smoke: ["fog"], haze: ["fog"],
   subtitles: ["add_captions", "caption-words"], subtitle: ["add_captions", "caption-words"], captions: ["add_captions", "caption-words"],
   caption: ["add_captions", "caption-words"], lyrics: ["add_captions", "caption-words"],
-  "cut out": ["cut_out"], cutout: ["cut_out"], silhouette: ["cut_out"], matte: ["cut_out"], "background removal": ["cut_out"],
+  "cut out": ["cut_out"], cutout: ["cut_out"], "crisp cutout": ["cut_out"], "cutout edge": ["cut_out"], "hard matte edge": ["cut_out"], silhouette: ["cut_out"], matte: ["cut_out"], "background removal": ["cut_out"],
   "speed ramp": ["speed-ramp", "clip-speed"], ramp: ["speed-ramp", "clip-speed"], "slow motion": ["speed-ramp", "clip-speed"],
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],

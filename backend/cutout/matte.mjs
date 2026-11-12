@@ -334,6 +334,8 @@ export function feather(matte, width, height, pixels) {
  * (everything outside stays empty); a subject that fills a third of the frame costs a third.
  */
 export function finishMatte(matte, width, height, { grow: growBy = 0, feather: featherBy = 0, openEdges = 0 } = {}) {
+  // A negative openEdges carries the subject out to the borders instead (extendOpenEdges).
+  if (openEdges < 0) return extendOpenEdges(growBy || featherBy ? finishBox(matte, width, height, growBy, featherBy) : matte, width, height, -openEdges);
   if (!growBy && !featherBy) return openEdges > 0 ? fadeOpenEdges(matte, width, height, openEdges) : matte;
   const finished = finishBox(matte, width, height, growBy, featherBy);
   // A grown or feathered matte (a rim or outline behind the subject) reaches grow + feather past
@@ -394,6 +396,61 @@ export function fadeOpenEdges(matte, width, height, pixels, start = 0) {
     }
   }
   return out;
+}
+
+/**
+ * Carries the subject out to the picture's borders: each pixel within `pixels` of a border takes
+ * the larger of its own value and the value `pixels` further in, so a subject cut by the frame (legs
+ * past the bottom) reaches the edge solid instead of stopping short. Vision's upscaled mask often
+ * stops a few pixels inside the frame: contest-b left a pale strip 8 px tall at the frame bottom
+ * (y 432-440 mean 177-192 against the reference's 61-118, GAPS item 14). Returns a new matte.
+ */
+export function extendOpenEdges(matte, width, height, pixels) {
+  checkSize(width, height);
+  const out = Uint8Array.from(matte);
+  const reach = Math.min(Math.floor(pixels), Math.floor((Math.min(width, height) - 1) / 2));
+  if (!(reach > 0)) return out;
+  for (let d = 0; d < reach; d += 1) {
+    const top = d * width, bottom = (height - 1 - d) * width, topIn = reach * width, bottomIn = (height - 1 - reach) * width;
+    for (let x = 0; x < width; x += 1) {
+      if (matte[topIn + x] > out[top + x]) out[top + x] = matte[topIn + x];
+      if (matte[bottomIn + x] > out[bottom + x]) out[bottom + x] = matte[bottomIn + x];
+    }
+    for (let y = 0; y < height; y += 1) {
+      const row = y * width;
+      if (matte[row + reach] > out[row + d]) out[row + d] = matte[row + reach];
+      if (matte[row + width - 1 - reach] > out[row + width - 1 - d]) out[row + width - 1 - d] = matte[row + width - 1 - reach];
+    }
+  }
+  return out;
+}
+
+// edge "crisp": the soft band of a refined matte (about 4 px) is steepened this many times around
+// its middle, so it falls over about one pixel. 4 is a guess aimed at contest-b's drawn figure,
+// whose cut edge is a hard line with no gray band (blind.md item 12: kino's edge feathered).
+const CRISP_CONTRAST = 4;
+
+/** Steepens the matte's edge ramp around half (contrast 1 leaves it). Returns a new matte. */
+export function crispenMatte(matte, contrast = CRISP_CONTRAST) {
+  const out = new Uint8Array(matte.length);
+  for (let i = 0; i < matte.length; i += 1) out[i] = Math.max(0, Math.min(255, Math.round((matte[i] - 127.5) * contrast + 127.5)));
+  return out;
+}
+
+// edge "auto": a picture is drawn (flat cel color) when at least DRAWN_FLAT of its neighbouring
+// pixel pairs differ by under FLAT_STEP luma levels. Measured with flatShare on the study clips
+// (see backend/cutout-matte.test.mjs): camera footage has grain, drawn footage flat fills.
+export const DRAWN_FLAT = 0.6;
+const FLAT_STEP = 2;
+
+/** The share of horizontally neighbouring pixels of a luma plane that differ by under FLAT_STEP. */
+export function flatShare(luma, width, height) {
+  let flat = 0, all = 0;
+  for (let y = 0; y < height; y += 1) {
+    const row = y * width;
+    for (let x = 1; x < width; x += 1) { all += 1; if (Math.abs(luma[row + x] - luma[row + x - 1]) < FLAT_STEP) flat += 1; }
+  }
+  return all ? flat / all : 0;
 }
 
 // Edge clean-up defaults for every cut_out output (one cleaned matte, kept in the cache):
