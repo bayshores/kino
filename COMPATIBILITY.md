@@ -1233,9 +1233,12 @@ How to read it:
   stays the shared bed (0.15 asked on two lines gave 0.386 before, 0.15 now); `song` prints the factor under each
   line once the edit is placed and names the dip that holds it when it differs; the peak cap rewrites `level` so it
   matches `mix`; `clipSound` gives the clip's own floor under the words and its share; `cut` names words past the
-  layer's end and how much longer it plays. Evidence: `engine/speech.test.js`. Gap: a second keep_line making a
-  second subtitle group was not reproduced; the listener (look ref=lines) still hears a quiet line differently when
-  neighbor clips go silent.
+  layer's end and how much longer it plays (not for a transcript piece spanning the line or a next line). A given or
+  kept level reads the same in level, mix, ways and the leveling note (-17.8 in all five on the real line, was -9.8
+  and -25.8 beside -17.8); bed gives the given dip (0.15, was 0); level.over reads the song under the line (+17.9 LU,
+  was "music out" beside song 0.15). Evidence: `engine/speech.test.js`. Gap: a second keep_line making a second
+  subtitle group was not reproduced; the listener (look ref=lines) hears nothing on a quiet line between silent clips
+  (rev 17) and hears it with a 0.15 bed (same line, same level).
 - **duck_audio and check fix:auto keep keep_line's levels** (receipt `keptLines`, `clear`, `payoff`): Engine-tested on
   generated curves, not rendered. A plain duck_audio after keep_line keeps the measured bed (0.063 stays 0.063; it
   became 0.1); a line already 6 LU over the song gets no default dip (+7 LU: no dip, was 0.794); a dip starting on a
