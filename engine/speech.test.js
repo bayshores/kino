@@ -8,7 +8,7 @@ import { voiceLines } from "./mixLevels.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
 import { clipSoundsText, SOUND_LISTED, soundEvents } from "./speech.js";
-import { findLine, keptRanges } from "./keepLine.js";
+import { findLine, keptRanges, lowerKeptLine } from "./keepLine.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
@@ -347,6 +347,20 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   const reportsSame = new Map();
   applyOperations(document, [sameWords], { reports: reportsSame, fonts: defaultFonts });
   assert.ok(!(reportsSame.get(sameWords).notes ?? []).some((note) => /kino heard/.test(note)));
+  // The same stretch sent again without words keeps the typed subtitle and names it (the transcript's words would replace chosen ones).
+  const againOp = { type: "keep_line", sceneId: "s", layerId: "clip", from: 2.3, to: 3.2, transcript };
+  const reportsAgain = new Map();
+  const againScene = parseDocument(applyOperations(parseDocument(applyOperations(document, [typedOver], { fonts: defaultFonts })), [againOp], { reports: reportsAgain, fonts: defaultFonts })).scenes[0];
+  assert.deepEqual(againScene.layers.filter((layer) => layer.role === "caption").map((layer) => layer.text), ["Where do you say?"]);
+  assert.deepEqual(reportsAgain.get(againOp).subtitle, { name: "line-at-2.3s", kept: true });
+  assert.match(reportsAgain.get(againOp).notes[0], /^the subtitle line-at-2\.3s \("Where do you say\?"\) already shows over this line, so it stays and no new one is made; text:"<the words said>" with name:"line-at-2\.3s" replaces it$/);
+  // One heard word ("try." at 3.8-4.1 s) in a stretch from 3.5 s: its page stays inside the line and its fade down (to 4.22 s,
+  // not 4.63 s), starting earlier to be read; the receipt prints the word and how sure the transcript was.
+  const oneWord = { type: "keep_line", sceneId: "s", layerId: "clip", from: 3.5, to: 4.1, transcript };
+  const reportsOne = new Map();
+  applyOperations(document, [oneWord], { reports: reportsOne, fonts: defaultFonts });
+  assert.deepEqual(reportsOne.get(oneWord).subtitle.at, [3.5, 4.22]);
+  assert.ok(reportsOne.get(oneWord).notes.includes('the subtitle shows the 1 word the transcript heard there (try. p 0.95; a clip line needs 2 or more words at mean p 0.5); if the clip says other words, text:"<the words said>" puts them on the subtitle'));
   // A clip heard in another language: the subtitle is the words as said, never whisper's English gloss.
   const foreign = { language: "ja", words: [{ text: "殺してやる。", start: 1.3, end: 2.2, p: 0.9 }], english: [{ start: 1.2, end: 2.3, text: "I'll kill you." }] };
   const foreignDoc = parseDocument(applyOperations(document, [{ type: "keep_line", sceneId: "s", layerId: "clip", from: 2.3, to: 3.2, transcript: foreign }], { fonts: defaultFonts }));
@@ -471,6 +485,12 @@ test("keep_line over measured music levels the line against the music around it,
   const quiet = run({ levels: { clip: flat(-24, 12), music: flat(-30, 30) } });
   assert.deepEqual([quiet.clip.voiceLevel, quiet.report.way, volumeAt(quiet.music, 5), quiet.report.duck], [-16, "lift", 1, "none"]);
   assert.ok(quiet.report.mix.change > 10, "the receipt says the mix rises under the line");
+  // The peak cap (backend/line-peak.mjs) lowers the line 3.2 dB: the ways, the mix, the summary and the way note follow it.
+  assert.equal(lowerKeptLine(quiet.report, -3.2), true);
+  assert.deepEqual(quiet.report.mix, { line: -19.2, around: -30, under: -18.8, change: 11.2 });
+  assert.match(quiet.report.ways, /^song untouched, line x1\.74 \(\+4\.8 dB\): \+10\.8 LU over it, 8\.8 dB under the song's loudest moment · no dip needed/);
+  assert.match(quiet.report.summary, /mix under the line -18\.8 vs -30 LUFS in the 2 s around \(\+11\.2 LU\)$/);
+  assert.equal(quiet.report.notes[0], "song untouched: the line is lifted x1.74 to -19.2 LUFS, +10.8 LU over the song, 8.8 dB under the song's loudest moment");
   // dropout: the music is out under the line and, the downbeat (8 s) being past the default wait (half a bar, 1 s), hits back on the next beat (6.5 s).
   const out = run({ dropout: true });
   assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 6.4), volumeAt(out.music, 6.6)], [0, 0, 1]);
@@ -581,6 +601,11 @@ test("two music-out lines 0.6 s apart share a low bed, not silence, and the song
   assert.match(first.notes[0], /; the music at its bed \(0\.063\) under the line$/);
   assert.deepEqual([first.duck.to, first.mix.under], [0.063, -30]);
   assert.match(first.summary, /mix under the line -30 vs -13 LUFS in the 2 s around \(-17 LU\)$/);
+  // Its dip as it now plays (line 2 moved its end to the drop and raised it to the bed), in duck and summary; no note says the music goes out.
+  assert.equal(first.duck.summary, "music ducked to 0.063 at 1.75-6.04 s (clip.wav)");
+  assert.match(first.summary, /; music ducked to 0\.063 at 1\.75-6\.04 s \(clip\.wav\);/);
+  for (const report of [first, second]) assert.ok(!report.notes.some((note) => /music goes out under it/.test(note)), report.notes.join(" | "));
+  assert.match(first.notes[1], /, so a dip cannot hold it: the music sits at a bed of 0\.063 under it, shared with another line's dip; dip:/);
   // dropout:true asked for the music out: the gap stays silent, and the receipt says so.
   const asked = run({ dropout: true });
   assert.equal(volumeAt(asked.music, 3.2), 0);

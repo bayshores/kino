@@ -1127,6 +1127,14 @@ How to read it:
   (board build). Evidence: `backend/audio-levels.test.mjs`, `engine/speech.test.js`, `backend/agent-board.test.mjs`.
   Gap: not run on real speech or the dm2 projects; the "auto" gain is printed, not held; the 3 LU band and 0.04 s
   ramps are guesses.
+- **Kept line's subtitle and receipt as heard** (`keep_line` subtitle, unsure words, peak cap, later lines):
+  Engine-tested on word lists and measured curves, not rendered. A one-word line's page stays inside the line and its
+  0.12 s fade (3.5-4.22 s, was to 4.63 s), starting earlier to be read; a subtitle already over the line stays when
+  no text or name is given, named in the receipt; under 2 words or unsure ones (mean p under 0.5) print each word's
+  p and `text:`; after the peak cap lowers a line, ways, mix, the way note and summary follow it; a later line that
+  moves a shared dip rewrites the earlier line's duck summary and its "goes out" note. Evidence: `engine/speech.test.js`.
+  Gap: the peak-cap rewrite is tested on the engine function, not through a render; evening shifts are still one
+  voiceLevel per layer, so a second line on the layer resets the first's.
 - **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
   windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}
