@@ -61,6 +61,27 @@ test("texture stays inside the letters and the print sits under them at its offs
   assert.ok(red > 1000, `red ${red}`);
 });
 
+test("letters animated one by one with outside strokes wear and print like the whole word, and a blur keeps the print", async () => {
+  const colors = async (properties) => {
+    const { frame } = await lit(scene({ strokes: [{ color: "#FF0000", width: 10, align: "outside" }],
+      material: { wear: { amount: 0.6, seed: 4 }, print: { x: 24, y: 90, color: "#0000FF" } }, ...properties }));
+    let red = 0, blue = 0;
+    for (let i = 0; i < frame.pixels.length; i += 4) {
+      const [r, g, b] = frame.pixels.subarray(i, i + 3);
+      red += r > 200 && g < 60 ? 1 : 0;
+      blue += b > 150 && r < 90 ? 1 : 0;
+    }
+    return { red, blue };
+  };
+  const whole = await colors({});
+  // Finished by 0.5 s: the outside strokes are drawn in a pass of their own under the letters.
+  const letters = await colors({ animations: [{ id: "in", kind: "custom", unit: "letters", stagger: 0.02, order: "forward", start: 0, duration: 0.1, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } }] });
+  assert.ok(Math.abs(letters.red - whole.red) < whole.red * 0.05 && Math.abs(letters.blue - whole.blue) < whole.blue * 0.05, JSON.stringify({ whole, letters }));
+  const blurred = await colors({ blur: 2 });
+  // The blur softens the print's edges (about 0.89 of the pixels stay); a clipped print kept about 0.3.
+  assert.ok(blurred.blue > whole.blue * 0.8, JSON.stringify({ whole, blurred }));
+});
+
 test("fill and stroke scale as one: the outline's center follows the fill's under a 2.5x scale", async () => {
   const center = async (properties, color) => {
     const { frame } = await lit(scene({ ...properties, scaleX: 2.5, scaleY: 2.5, text: "O" }));

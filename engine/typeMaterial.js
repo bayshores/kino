@@ -65,16 +65,31 @@ export function normalizeMaterial(value, path = "material") {
   return Object.keys(output).length ? output : null;
 }
 
-// The parts that draw something: amount (or the print's opacity) above 0.
+// The parts that draw something: amount (or the print's opacity) above 0. A part left without a
+// field (a layer not yet checked by normalizeMaterial) takes the same defaults the check gives.
 function activeParts(material) {
   if (!material || typeof material !== "object") return null;
-  const wear = material.wear?.amount > 0 ? material.wear : null;
-  const texture = material.texture?.amount > 0 ? material.texture : null;
-  const print = material.print?.opacity > 0 && (material.print.x || material.print.y) ? material.print : null;
-  return wear || texture || print ? { wear, texture, print } : null;
+  const filled = (part, defaults) => (part && typeof part === "object" ? { ...defaults, ...part } : null);
+  const wear = filled(material.wear, { amount: 0.5, seed: 1 });
+  const texture = filled(material.texture, { amount: 0.5, seed: 1, color: "#000000" });
+  const print = filled(material.print, { x: 0, y: 0, color: "#000000", opacity: 1 });
+  const parts = {
+    wear: wear?.amount > 0 ? wear : null,
+    texture: texture?.amount > 0 && MATERIAL_TEXTURES.includes(texture.kind) ? texture : null,
+    print: print?.opacity > 0 && (print.x || print.y) ? print : null,
+  };
+  return parts.wear || parts.texture || parts.print ? parts : null;
 }
 
 export const hasMaterial = (state) => activeParts(state?.material) !== null;
+
+/** `bounds` (the letters' paint box) grown to hold the second print, so a blur or shadow keeps it. */
+export function withPrintBounds(bounds, state) {
+  const print = bounds && activeParts(state?.material)?.print;
+  if (!print) return bounds;
+  return { x: bounds.x + Math.min(0, print.x), y: bounds.y + Math.min(0, print.y),
+    width: bounds.width + Math.abs(print.x), height: bounds.height + Math.abs(print.y) };
+}
 
 // ---- tiles: seamless PNGs, alpha only matters (kino draws them once per seed and setting) ----
 
@@ -160,14 +175,16 @@ function textureTile(kind, seed, color) {
  * `content` (the letters as drawn: fill and strokes) with the material of `state` on it, or
  * `content` itself when no part draws anything. `outline` is the letters' outline path data,
  * `bounds` their box, `reach` how far strokes reach past the outline, all in the content's own
- * units; `defs` and `id(kind)` add definitions.
+ * units; `defs` and `id(kind)` add definitions. `only` names the parts drawn in this pass
+ * (letters drawn in two passes, outside strokes first: render.js unitsSvg).
  */
-export function drawMaterial(content, { material, outline, bounds, fontSize = 100, reach = 0, defs, id }) {
-  const parts = activeParts(material);
-  if (!parts || !outline || !bounds) return content;
-  const { wear, texture, print } = parts;
-  let under = "", over = "";
-  if (print) under = `<path d="${outline}" transform="translate(${fmt(print.x)} ${fmt(print.y)})" fill="${print.color}"${print.opacity < 1 ? ` fill-opacity="${fmt(print.opacity)}"` : ""}/>`;
+export function drawMaterial(content, { material, outline, bounds, fontSize = 100, reach = 0, defs, id, only = null }) {
+  const active = activeParts(material);
+  if (!active || !outline || !bounds) return content;
+  const pick = (part) => (!only || only.includes(part) ? active[part] : null);
+  const wear = pick("wear"), texture = pick("texture"), print = pick("print");
+  if (!wear && !texture && !print) return content;
+  let over = "";
   if (texture) {
     const tile = textureTile(texture.kind, texture.seed, texture.color);
     // The tile's cell is `size` layer units (a starting guess of the font size when left out).
@@ -179,7 +196,7 @@ export function drawMaterial(content, { material, outline, bounds, fontSize = 10
       `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse"><path d="${outline}"/></clipPath>`);
     over = `<g clip-path="url(#${clipId})"><rect x="${fmt(bounds.x)}" y="${fmt(bounds.y)}" width="${fmt(bounds.width)}" height="${fmt(bounds.height)}" fill="url(#${patternId})"${texture.amount < 1 ? ` opacity="${fmt(texture.amount)}"` : ""}/></g>`;
   }
-  let drawn = `${under}${content}${over}`;
+  let maskId = null;
   if (wear) {
     // Three bands along the outline, the narrowest removing the most: at the very edge a share
     // `amount` of the paint goes, a third of the depth in two thirds of that, at the full depth a
@@ -192,13 +209,17 @@ export function drawMaterial(content, { material, outline, bounds, fontSize = 10
       defs.push(`<pattern id="${patternId}" patternUnits="userSpaceOnUse" x="${fmt(offset)}" y="${fmt(offset)}" width="${fmt(side)}" height="${fmt(side)}"><image href="${wearTile(wear.seed, wear.amount * (4 - step) / 3)}" width="${fmt(side)}" height="${fmt(side)}" preserveAspectRatio="none"/></pattern>`);
       return `<path d="${outline}" fill="none" stroke="url(#${patternId})" stroke-width="${fmt(2 * (reach + depth * step / 3))}" stroke-linejoin="round"/>`;
     }).reverse();
-    const margin = reach + depth + Math.abs(print?.x ?? 0) + Math.abs(print?.y ?? 0) + 2;
+    const margin = reach + depth + 2;
     const area = `x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}"`;
-    const maskId = id("material-wear-mask");
+    maskId = id("material-wear-mask");
     defs.push(`<mask id="${maskId}" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" ${area}><rect ${area} fill="white"/>${bands.join("")}</mask>`);
-    drawn = `<g mask="url(#${maskId})">${drawn}</g>`;
   }
-  return `<g>${drawn}</g>`;
+  const worn = (markup) => (maskId ? `<g mask="url(#${maskId})">${markup}</g>` : markup);
+  // The print is the same worn letters moved by its offset: the mask moves with it, so its own
+  // edges wear the same way and the letters' worn band never cuts holes in it.
+  const under = print ? `<g transform="translate(${fmt(print.x)} ${fmt(print.y)})">${worn(`<path d="${outline}" fill="${print.color}"${print.opacity < 1 ? ` fill-opacity="${fmt(print.opacity)}"` : ""}/>`)}</g>` : "";
+  const letters = content || over ? worn(`${content}${over}`) : "";
+  return `<g>${under}${letters}</g>`;
 }
 
 /** One line for a receipt: what the material draws, with sizes left out marked as starting guesses. */
