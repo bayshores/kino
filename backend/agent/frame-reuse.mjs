@@ -52,9 +52,12 @@ const laneOf = (scene, width) => `${width}|${scene.layers.filter((layer) => laye
 
 // True when a changed layer is a mask, is hidden (it may be the next visible layer of a mask), or has
 // a mask as its nearest visible neighbor on either side in either scene: the mask would paint it.
+// Changed layers are top-level here (changedBetween gives up on a layer in a group), so neighbors are
+// counted among the top-level layers only: a group's children can sit anywhere in the flat list (run 8's
+// smear group at 7 had its children at 18 to 21).
 function touchesMask(old, now, changed) {
   for (const entry of [old, now]) {
-    const layers = entry.order.map((id) => entry.layers.get(id).layer);
+    const layers = entry.order.map((id) => entry.layers.get(id).layer).filter((layer) => !layer.parentId);
     for (let at = 0; at < layers.length; at += 1) {
       if (!changed.has(layers[at].id)) continue;
       if (layers[at].isMask || layers[at].visible === false) return true;
