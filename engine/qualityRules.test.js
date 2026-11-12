@@ -2465,6 +2465,14 @@ test("madeTime: by screen time and frame area; a found clip, a caption pill and 
   // One small shape for a quarter second is a quarter second of made time and a small area, not a whole moment.
   const blip = at([footage("a"), rect("dot", { x: 100, y: 100, width: 192, height: 108, animations: [show(1), hide(1.25)] })]);
   assert.deepEqual([Math.round(blip.time * 100), Math.round(blip.area * 1000)], [7, 1]);
+  // A band turned 12 degrees covers its own turned rectangle (about 18% of the frame), not its upright box (about 55%).
+  const band = at([footage("a"), rect("band", { x: 0, y: 440, width: 1920, height: 200, rotation: 12 })]);
+  assert.ok(band.area > 0.12 && band.area < 0.22, `turned band area ${band.area}`);
+  // A rim on a cut-out over its own clip is made time, but the figure inside is the source's pixels:
+  // its area counts at the guessed quarter, and the line says the area holds a guess.
+  const rim = at([footage("a"), footage("cut", { cutoutOf: "a", animations: [{ kind: "effect", effect: "rim-light", start: 0, duration: 4, easing: "linear", keepStill: "both", to: {} }] })]);
+  assert.deepEqual([rim.time, rim.kinds.cutout, Math.round(rim.area * 100), rim.guessed], [1, 1, 25, true]);
+  assert.match(madeLine(rim), /^made: 100% of the time, 25% of the frame area \(thin ink at a guessed quarter of its box\) \(121 frames/);
 });
 
 test("onscreenKinds: type, overlay, color, composite and plain are read from the layers; a gamma lift alone is no color look", () => {

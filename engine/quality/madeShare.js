@@ -10,6 +10,7 @@
 import { PARTICLE_LOOKS } from "../effects/particles.js";
 import { designedTexts, drawnSize, speechTimed } from "./analysis.js";
 import { area, frameAt, intersection, visibleBoxAt } from "./model.js";
+import { turnedBox } from "./pixels.js";
 import { onscreenKinds } from "./rules/referenceKinds.js";
 
 const SHOWN = 0.5;
@@ -71,7 +72,9 @@ const percent = (made, total) => (total ? Math.round((made / total) * 100) : 0);
 // cells whose centers it holds (48 by 27 cells: 40 px at 1920 wide).
 const GRID_X = 48, GRID_Y = 27;
 // A guess, not measured: particles and drawn lines (speed lines, impact lines) ink about a quarter of the
-// layer box they are drawn over. Their time counts in full; only their area is weighed by this.
+// layer box they are drawn over, and so does a look on a cut-out over its own clip (a rim, a glow, an
+// aura's tongues: the figure inside is the source's pixels). Their time counts in full; only their area
+// is weighed by this, and the line says so when it did.
 const SPARSE_INK = 0.25;
 // Effects that grade or clean a picture: a cut-out carrying only these still shows its source as it was.
 const CLEANUP = new Set(["deblock", "grain", "sharpen", "denoise", "curves", "lut", "color-grade", "color-look", "white-balance", "hue-saturation", "color-wheels", "exposure"]);
@@ -121,12 +124,22 @@ export function madeTime(model) {
   const byId = new Map(model.items.map((item) => [item.id, item]));
   const cellW = model.width / GRID_X, cellH = model.height / GRID_Y;
   const made = new Float32Array(GRID_X * GRID_Y), said = new Float32Array(GRID_X * GRID_Y);
-  const paint = (grid, box, weight) => {
+  // A turned layer (a slanted word panel) covers the cells inside its own turned rectangle, not its
+  // upright bounding box: a band turned 12 degrees across the frame has a box several times its area.
+  const paint = (grid, box, weight, turn = 0) => {
     if (!box) return;
+    const turned = turnedBox(box, turn);
     const fromX = Math.max(0, Math.ceil(box.x0 / cellW - 0.5)), toX = Math.min(GRID_X - 1, Math.floor(box.x1 / cellW - 0.5));
     const fromY = Math.max(0, Math.ceil(box.y0 / cellH - 0.5)), toY = Math.min(GRID_Y - 1, Math.floor(box.y1 / cellH - 0.5));
-    for (let y = fromY; y <= toY; y += 1) for (let x = fromX; x <= toX; x += 1) grid[y * GRID_X + x] = Math.max(grid[y * GRID_X + x], weight);
+    for (let y = fromY; y <= toY; y += 1) for (let x = fromX; x <= toX; x += 1) {
+      if (turned) {
+        const dx = (x + 0.5) * cellW - turned.cx, dy = (y + 0.5) * cellH - turned.cy;
+        if (Math.abs(dx * turned.cos + dy * turned.sin) > turned.w / 2 || Math.abs(dy * turned.cos - dx * turned.sin) > turned.h / 2) continue;
+      }
+      grid[y * GRID_X + x] = Math.max(grid[y * GRID_X + x], weight);
+    }
   };
+  let guessed = false;
   const sum = (grid) => grid.reduce((total, value) => total + value, 0) / grid.length;
   const counts = Object.fromEntries(MADE_KINDS.map((kind) => [kind, 0]));
   let madeFrames = 0, madeArea = 0, captionFrames = 0, captionArea = 0;
@@ -145,18 +158,23 @@ export function madeTime(model) {
       }
       const live = fxOn(item);
       const sparse = live.find((entry) => PARTICLES.has(entry.effect)) ? "particle" : live.find((entry) => DRAWN.has(entry.effect)) ? "graphic" : null;
-      if (sparse) { has.add(sparse); paint(made, box, SPARSE_INK); }
+      if (sparse) { has.add(sparse); paint(made, box, SPARSE_INK); guessed = true; }
       const placed = item.move && item.role === "decor";
-      let kind = null, own = box;
+      const turn = item.samples.turn?.[index] ?? 0;
+      let kind = null, own = box, weight = 1;
       if (item.kind === "text") kind = "type";
       else if (item.kind === "video" || item.kind === "image") {
         if (item.cutoutOf) {
           const source = byId.get(item.cutoutOf);
           const newPlate = !source || (source.samples.opacity[index] ?? 0) <= 0.05;
-          if (placed || newPlate || live.some((entry) => !CLEANUP.has(entry.effect))) { kind = "cutout"; own = subjectBoxAt(item, index) ?? box; }
+          if (placed || newPlate || live.some((entry) => !CLEANUP.has(entry.effect))) {
+            kind = "cutout"; own = subjectBoxAt(item, index) ?? box;
+            // Over its own clip the figure is the source's pixels: only its look (a rim, the tongues) is made.
+            if (!newPlate) { weight = SPARSE_INK; guessed = true; }
+          }
         } else if (item.maskId && byId.get(item.maskId)?.kind === "text") kind = "matte";
       } else if (item.painted && (placed || (area(intersection(box, { x0: 0, y0: 0, x1: model.width, y1: model.height })) < 0.9 * model.width * model.height && !isBar(model, box)))) kind = "graphic";
-      if (kind) { has.add(kind); paint(made, own, 1); }
+      if (kind) { has.add(kind); paint(made, own, weight, turn); }
     }
     if (has.size) madeFrames += 1;
     for (const kind of has) counts[kind] += 1;
@@ -168,6 +186,7 @@ export function madeTime(model) {
   out.area = madeArea / frames;
   for (const kind of MADE_KINDS) out.kinds[kind] = counts[kind] / frames;
   out.caption = { time: captionFrames / frames, area: captionArea / frames };
+  out.guessed = guessed;
   return out;
 }
 
@@ -183,7 +202,7 @@ const pct = (share) => `${Math.round(share * 100)}%`;
 export function madeLine(own, { refs = [], deck = null } = {}) {
   if (!own?.frames) return "";
   const kinds = MADE_KINDS.filter((kind) => own.kinds[kind] > 0).map((kind) => `${kind} ${pct(own.kinds[kind])}`);
-  const head = `made: ${pct(own.time)} of the time, ${pct(own.area)} of the frame area (${own.frames} frames at ${own.fps} fps; footage and found clips never count; ${kinds.length ? `by time: ${kinds.join(", ")}` : "no lettering, drawn graphic, cut-out on a new plate, particle or matte"})`;
+  const head = `made: ${pct(own.time)} of the time, ${pct(own.area)} of the frame area${own.guessed ? " (thin ink at a guessed quarter of its box)" : ""} (${own.frames} frames at ${own.fps} fps; footage and found clips never count; ${kinds.length ? `by time: ${kinds.join(", ")}` : "no lettering, drawn graphic, cut-out on a new plate, particle or matte"})`;
   const said = own.caption.time > 0 ? ` · captions (not made): ${pct(own.caption.time)} of the time, ${pct(own.caption.area)} of the area` : "";
   const used = deck?.used ?? [], unused = deck?.unused ?? [];
   const cards = used.length + unused.length ? ` · deck: ${unused.length} of ${used.length + unused.length} cards unused${unused.length ? ` (${unused.slice(0, 8).join(", ")}${unused.length > 8 ? ", ..." : ""})` : ""}` : "";
