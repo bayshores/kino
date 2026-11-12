@@ -326,6 +326,8 @@ export function kinoTimeline(document, sceneId, { fonts, fps, reuse = true } = {
       overlay: layer.move?.part === "overlay",
       // The clip this layer was cut out of (cut_out): type between the two stands behind the subject.
       ...(layer.cutoutOf ? { cutoutOf: layer.cutoutOf } : {}),
+      // The subject's measured box in shares of the layer (cut_out), for type_covered.
+      ...(layer.cutoutOf && Array.isArray(layer.subjectBox) ? { subjectBox: layer.subjectBox } : {}),
       z, parentId: byId.has(layer.parentId) ? layer.parentId : null, clipIds, maskId: groupMaskOf.get(layer.id) ?? null, isMask: layer.isMask === true,
       ...(invertedMasks.has(layer.id) ? { maskInvert: true } : {}),
       text: isTextLayer ? String(layer.text ?? "") : null, texts: null,

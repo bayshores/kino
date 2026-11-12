@@ -25,7 +25,7 @@ import { dirname, join } from "node:path";
 import { makeStabilized } from "./stabilize.mjs";
 import { mediaBaseName } from "../voice/media.mjs";
 import { cutoutEngines, cutoutError, findMatte, makeMatte, writeCutoutOutput } from "./cutout.mjs";
-import { outlineOfMatte } from "./outline.mjs";
+import { matteBoxes, outlineOfMatte } from "./outline.mjs";
 
 // Bump when an output made from the same matte and settings would change (subject 2: a clip's
 // edge is cleaned of its background, cutout/edges.mjs).
@@ -39,8 +39,10 @@ const OUTPUT_FORMAT = { subject: 3, matte: 1, silhouette: 1 };
  *              it moves `file` into the library (backend/index.mjs)
  *   waitSeconds  how long an edit waits for its cut-outs, all of them together, before answering
  *              CUTOUT_RUNNING (default 50, under the 60 seconds some agents give a tool call)
+ *   graceSeconds  past that wait, how much longer a cut_out waits when it says it is that close
+ *              to done (default 0 here; the server passes 30, see backend/index.mjs)
  */
-export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds = 50 }) {
+export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds = 50, graceSeconds = 0 }) {
   const jobs = new Map();
   let turn = Promise.resolve();
   // Cut-outs start once the work folders a stopped server left behind are gone.
@@ -128,12 +130,16 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
           return { ...result(matte, null), outline: { ...traced, lead: matte.info.source?.lead ?? 0, rate: matte.info.source?.rate } };
         });
       }
+      // The subject's box over time (outline.mjs matteBoxes), for the receipt and type_covered; a
+      // matte that cannot be read back gives none (the cut-out itself is still made).
+      const boxed = async (matte, record) => ({ ...result(matte, record),
+        boxes: await matteBoxes({ folder: matte.folder, info: matte.info }).catch(() => null), rate: matte.info.source?.rate, lead: matte.info.source?.lead ?? 0 });
       if (kept) {
         if (kept.info.empty === kept.info.frames) throw noSubject(kept);
         const record = await libraryRecord((await remembered(kept.folder))[outputSlot(settings)]);
         if (record) {
           state.fraction = 1;
-          return result(kept, record);
+          return boxed(kept, record);
         }
       }
       return inTurn(async () => {
@@ -142,7 +148,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
         if (matte.info.empty === matte.info.frames) throw noSubject(matte);
         const made = await makeOutput({ matte, file, name, settings, onFraction: (fraction) => { state.fraction = 0.8 + 0.2 * fraction; } });
         state.fraction = 1;
-        return result(matte, made.record);
+        return boxed(matte, made.record);
       });
     })();
     const handle = {
@@ -177,7 +183,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
   }
 
   // The track op keeps its tracks beside the mattes (backend/cutout/track.mjs).
-  return { start, stabilize, engines: cutoutEngines, waitSeconds, trackCacheDir: join(cacheDir, "tracks") };
+  return { start, stabilize, engines: cutoutEngines, waitSeconds, graceSeconds, trackCacheDir: join(cacheDir, "tracks") };
 }
 
 function noSubject(matte) {

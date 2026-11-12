@@ -1604,7 +1604,7 @@ export function createAgentService(deps) {
       if (first.operation.type === "cut_out") {
         if (!dependsOnFailure(first)) {
           fontsCache.cutoutDeadline ??= performance.now() + (deps.cutoutMedia?.waitSeconds ?? 50) * 1000;
-          try { next = await runCutOut(next, first.operation, { mediaRoot: deps.mediaRoot, cutoutMedia: deps.cutoutMedia, operationContext, reports: fontsCache.reports, deadline: fontsCache.cutoutDeadline }); }
+          try { next = await runCutOut(next, first.operation, { mediaRoot: deps.mediaRoot, cutoutMedia: deps.cutoutMedia, operationContext, reports: fontsCache.reports, deadline: fontsCache.cutoutDeadline, graceSeconds: deps.cutoutMedia?.graceSeconds }); }
           catch (error) { refuse(first, operationFailed(first.index, raw[first.index], "cut_out", error)); }
         }
         position += 1;

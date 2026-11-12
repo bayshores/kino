@@ -36,13 +36,13 @@ titles behind the subject, outlines and glows, a new or blurred background, matt
   macOS 13). Other systems have no engine: the edit is refused (`CUTOUT_ENGINE_UNAVAILABLE`), so
   mask with a shape there. A missing or old helper: `npm run desktop:cutout` builds it.
 - It takes about 1.5 s per second of 1080p video, one cut-out at a time. An edit waits up to 50 s
-  in all, however many cut_outs it has; a longer one answers `CUTOUT_RUNNING` with how far it got,
+  in all (30 s more when nearly done); a longer one answers `CUTOUT_RUNNING` with how far it got,
   changes nothing and keeps going. Send the same edit again later: the finished cut-out is kept,
   so it answers at once (`cached:true`), even while another one is being made.
-- The receipt's `cutout` gives the engine, frames, seconds, `cached`, and a `note` when some
-  frames had no subject. A refusal's `cutoutError` says what to send instead. Undo: `history`.
-- `check` sees layer boxes, not transparency, so cut-outs get `allowOverlap`: `look` to see that
-  a title behind the subject still reads. `covered_layer` and `held_static` skip the source clip.
+- The receipt's `cutout` gives engine, frames, seconds, `cached`, `subject` (its box over time
+  and the `room` beside it, scene px) and a `note` for frames with no subject. Undo: `history`.
+- Cut-outs get `allowOverlap`; `type_covered` warns when the subject's box hides most of a title
+  behind it. `covered_layer` and `held_static` skip the source clip.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between
   them (a title behind the subject moves with the shot), so the subject never shows twice.
 

@@ -20,6 +20,8 @@ import { createAgentClient } from "./agent/client.mjs";
 import { runCutOut } from "./agent/cutout-operation.mjs";
 import { EXAMPLE_PROJECT, OP_EXAMPLES } from "./agent/op-examples.mjs";
 import { createCutoutMedia } from "./cutout/media.mjs";
+import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
+import { applyOperations } from "../engine/operations.js";
 import { cutoutHelperPath } from "./cutout/cutout.mjs";
 import { makeBallClip, skipWithoutVision, standInHelper, visionHelper } from "./cutout.test.support.mjs";
 import { ffmpeg, ffprobe, makeAnimatedGif, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
@@ -56,7 +58,7 @@ after(async () => {
 // whose edits wait 2 s: each clip takes longer than an edit waits, as a long one does at 50 s.
 let queued;
 async function queuedServer() {
-  queued ??= await startTestServer({ env: { KINO_CUTOUT_HELPER: await standInHelper({ KINO_STAND_IN_DELAY_MS: 40 }), KINO_CUTOUT_WAIT_S: "2" } });
+  queued ??= await startTestServer({ env: { KINO_CUTOUT_HELPER: await standInHelper({ KINO_STAND_IN_DELAY_MS: 40 }), KINO_CUTOUT_WAIT_S: "2", KINO_CUTOUT_GRACE_S: "0" } });
   return queued;
 }
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -475,6 +477,55 @@ test("a finished cut-out answers at once while another one is being made", { ski
   const { layers } = await sceneLayers(busy, "photo");
   assert.equal(byName(layers, "again").src, byName(layers, "photo-subject").src, "the same library file");
   assert.equal(JSON.parse((await clipReply).text).cutoutError, "CUTOUT_RUNNING", "the clip was still being made all along");
+});
+
+// A made outline as media.mjs gives it: a 64 x 36 matte, 30 frames at 30 fps, a square subject
+// moving right in frames 0 to 4 and none after (or, with `slow`, a job that takes `slow` ms).
+async function fakeOutline(t, { slow = 0, progress = 0.9 } = {}) {
+  const root = await mkdtemp(path.join(tmpdir(), "kino-cutout-outline-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const id = `${randomUUID()}.mp4`;
+  await writeFile(path.join(root, id), "a clip");
+  const square = (x) => [[x, 10], [x + 10, 10], [x + 10, 20], [x, 20]];
+  const made = { engine: "subject", frames: 30, empty: 25, seconds: 1, cached: false,
+    outline: { width: 64, height: 36, step: 1, rate: "30/1", lead: 0, frames: Array.from({ length: 30 }, (_, index) => ({ index, points: index < 5 ? square(10 + index * 4) : null })) } };
+  const started = performance.now();
+  const cutoutMedia = { start: () => ({ done: new Promise((resolve) => setTimeout(() => resolve(made), slow)), progress: () => ({ fraction: progress, seconds: (performance.now() - started) / 1000 }) }), engines: async () => [] };
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "scene", duration: 3, layers: [createLayer("video", { id: "clip", name: "clip", src: `/api/media/${id}`,
+    x: 0, y: 0, width: 640, height: 360, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1 })] })] }));
+  const operation = { type: "cut_out", sceneId: "scene", layerId: "clip", output: "outline", cutoutId: "clip-line", cutoutName: "clip-outline" };
+  return { root, cutoutMedia, document, operation };
+}
+
+test("cut_out outline: with no subject it holds 0.5 s then fades, states the subject's box, and follows its clip when retimed", async (t) => {
+  const { root, cutoutMedia, document, operation } = await fakeOutline(t);
+  const reports = new Map();
+  const next = await runCutOut(document, operation, { mediaRoot: root, cutoutMedia, reports, operationContext: async () => ({}) });
+  const line = next.scenes[0].layers.find((layer) => layer.id === "clip-line");
+  // The subject is last seen at frame 4 (0.133 s), lost from 0.167 s: faded out 0.5 s later.
+  const out = line.animations.find((animation) => animation.kind === "out");
+  assert.equal(out.start, 0.667);
+  const receipt = reports.get(operation);
+  assert.match(receipt.note, /^no subject in 25 of 30 traced frames Play shows: held 0\.5 s or faded \(faded out at 0\.67 s\)$/);
+  // The box in scene pixels (10x scale), at up to 4 times, and the room on each side.
+  assert.deepEqual(receipt.subject.box, [100, 100, 270, 110]);
+  assert.deepEqual(receipt.subject.at[0], [0, 100, 100, 110, 110]);
+  assert.equal(receipt.subject.room.right, 270);
+  // The clip moved 1 s later: the line's shapes and its fade move with it (study c's offset).
+  const moved = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip", properties: { mediaStart: 1 } }]);
+  const after = moved.scenes[0].layers.find((layer) => layer.id === "clip-line");
+  const shapes = (layer) => layer.animations.find((animation) => animation.kind === "custom");
+  assert.equal(shapes(after).start, shapes(line).start + 1);
+  assert.equal(after.animations.find((animation) => animation.kind === "out").start, 1.667);
+});
+
+test("a cut_out close to done past the edit's wait is waited for, not refused (graceSeconds)", async (t) => {
+  const { root, cutoutMedia, document, operation } = await fakeOutline(t, { slow: 300 });
+  const options = { mediaRoot: root, cutoutMedia, operationContext: async () => ({}), waitSeconds: 0.05 };
+  const refused = await runCutOut(document, operation, options).then(() => null, (error) => error);
+  assert.equal(refused?.cutoutError, "CUTOUT_RUNNING");
+  const next = await runCutOut(document, operation, { ...options, graceSeconds: 2 });
+  assert.ok(next.scenes[0].layers.some((layer) => layer.id === "clip-line"));
 });
 
 test("without an engine, cut_out says to build the helper on a Mac, and to mask with a shape elsewhere", async (t) => {
