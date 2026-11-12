@@ -9,7 +9,7 @@ import { EFFECTS } from "../../engine/effects/catalog.js";
 import { mainScene } from "../../engine/board.js";
 import { coveredAt } from "../../engine/quality/techniques.js";
 import { area, boxAt, intersection, visibleBoxAt } from "../../engine/quality/model.js";
-import { blockiness, blockStep, cropFrame, deblockFor, gammaToMean, liftDeblockId, liftGrainId, liftId, liftShot, lumaStats, MAX_STOPS, sourceGrid } from "../../engine/quality/liftDark.js";
+import { blockiness, blockStep, cropFrame, DEBLOCK_TRIES, deblockFor, gammaToMean, largestLift, liftDeblockId, liftedMean, liftGrainId, liftId, liftShot, lumaStats, MAX_STOPS, shadowLevels, sourceGrid, strongerDeblock } from "../../engine/quality/liftDark.js";
 
 // 240 px wide: wider than match_references' 160, so the 2nd and 98th percentiles have pixels to stand on.
 const MEASURE_WIDTH = 240;
@@ -26,6 +26,12 @@ const BLOCK_FRAMES = 3;
 // Another picture counts as a shot to follow when it covers a fifth of the frame or more: a 16:9 clip
 // across a 9:16 frame covers 32%; a small inset or a logo does not set the brightness.
 const OTHER_SHARE = 0.2;
+// The block step bar: the median step (levels, grain off) of up to BRIGHT_SHOTS of the scene's
+// bright shots, at least BAR_FLOOR; with no bright shot measured, FALLBACK_BAR (a starting guess:
+// a quarter of a level, under the 0.27 the unlifted stair shot measured on its 16 px grid).
+const BRIGHT_SHOTS = 3;
+const BAR_FLOOR = 0.1;
+const FALLBACK_BAR = 0.25;
 
 const isPicture = (item) => item.kind === "video" || item.kind === "image";
 
@@ -127,7 +133,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     });
     if (!placed.length || !placed.every(Boolean)) continue;
     shot.boxes = placed.map((entry) => entry.box);
-    if (own.includes(shot)) grids.set(shot.layerId, placed);
+    grids.set(shot.layerId, placed);
   }
   const times = all.flatMap((shot) => shot.times);
   const width = Math.min(MEASURE_WIDTH, model.width);
@@ -169,6 +175,10 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   // The shots are drawn together in one full-size render (each at its own times) unless another
   // named shot shows over its box at one of them; such a shot gets a render of its own.
   const gridded = own.filter((shot) => grids.has(shot.layerId));
+  // The bar for the step after the lift: the scene's bright shots (other pictures at or above the
+  // target), up to BRIGHT_SHOTS of the brightest, measured on their own grids the same way.
+  const brights = others.filter((shot) => grids.has(shot.layerId) && shot.frames.length && lumaStats(shot.frames).mean >= aim)
+    .sort((a, b) => lumaStats(b.frames).mean - lumaStats(a.frames).mean).slice(0, BRIGHT_SHOTS);
   const itemOf = (layerId) => model.items.find((item) => item.source?.layerId === layerId && !item.source.componentPath);
   // BLOCK_FRAMES of the shot's sampled times, spread over them (full-size frames are the slow part).
   const blockPicks = (shot) => [...new Set(Array.from({ length: Math.min(BLOCK_FRAMES, shot.times.length) }, (_, step) => Math.floor(((step + 0.5) / Math.min(BLOCK_FRAMES, shot.times.length)) * shot.times.length)))];
@@ -176,24 +186,32 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     const item = itemOf(other.layerId), at = model.times.indexOf(time);
     return item && at >= 0 && item.samples.opacity[at] > 0.001 && area(intersection(visibleBoxAt(model, item, at), shot.boxes[index])) > 0;
   });
-  const together = gridded.filter((shot) => !gridded.some((other) => other !== shot && meets(shot, other)));
-  const renderGroups = [...(together.length ? [together] : []), ...gridded.filter((shot) => !together.includes(shot)).map((shot) => [shot])];
-  // sides: layer id → the block side to measure (null: find it), for the shots to measure.
+  const measuredShots = [...gridded, ...brights];
+  const together = measuredShots.filter((shot) => !measuredShots.some((other) => other !== shot && meets(shot, other)));
+  const renderGroups = [...(together.length ? [together] : []), ...measuredShots.filter((shot) => !together.includes(shot)).map((shot) => [shot])];
+  // sides: layer id → the block side to measure (null: find it), for the shots to measure. Each is
+  // drawn with its grain left off: a grain adds a step at every pixel and hides the blocks (a lifted
+  // stair shot: 16 px step 0.81 with its grain off, 0.37 through it). Returns layer id → {blocks, frames}.
   const blocksAll = async (document, sides) => {
     const found = new Map();
     const drawn = expandComponents(document, scene.id, { fonts });
     for (const group of renderGroups.map((shots) => shots.filter((shot) => sides.has(shot.layerId))).filter((shots) => shots.length)) {
-      const frames = await render(alone(drawn, group.map((shot) => shot.layerId)), group.flatMap((shot) => blockPicks(shot).map((index) => shot.times[index])), { width: model.width });
+      const frames = await render(withoutGrain(alone(drawn, group.map((shot) => shot.layerId)), group.map((shot) => shot.layerId)), group.flatMap((shot) => blockPicks(shot).map((index) => shot.times[index])), { width: model.width });
       let at = 0;
       for (const shot of group) {
         const picks = blockPicks(shot), shotFrames = frames.slice(at, at + picks.length), grid = picks.map((index) => grids.get(shot.layerId)[index]), side = sides.get(shot.layerId);
         at += picks.length;
-        found.set(shot.layerId, side ? blockStep(shotFrames, grid.map((entry) => ({ ...entry, side }))) : blockiness(shotFrames, grid));
+        found.set(shot.layerId, { blocks: side ? blockStep(shotFrames, grid.map((entry) => ({ ...entry, side }))) : blockiness(shotFrames, grid), frames: shotFrames.map((frame, index) => cropFrame(frame, grid[index]?.box)) });
       }
     }
     return found;
   };
-  const blocksBefore = await blocksAll(base, new Map(gridded.map((shot) => [shot.layerId, null])));
+  const measuredBefore = await blocksAll(base, new Map(measuredShots.map((shot) => [shot.layerId, null])));
+  const blocksBefore = new Map([...measuredBefore].map(([layerId, entry]) => [layerId, entry.blocks]));
+  const brightSteps = brights.map((shot) => blocksBefore.get(shot.layerId)?.step).filter(Number.isFinite);
+  const bar = brightSteps.length
+    ? { step: Math.max(BAR_FLOOR, median(brightSteps)), from: `median of ${brightSteps.length} bright shot${brightSteps.length === 1 ? "" : "s"} (${brights.map((shot) => name(shot.layerId)).join(", ")})` }
+    : { step: FALLBACK_BAR, from: "a starting guess: no bright shot measured" };
   const still = reduced ?? Boolean(baseScene?.composition?.reduced);
   const lifted = [], skipped = [];
   const amountOf = (lift) => grain === false ? null : Number.isFinite(grain) ? grain : lift.grain?.amount ?? null;
@@ -240,8 +258,48 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
       }
       after = await runOps(base, opsFor(lifted));
     }
-    const blocksAfter = await blocksAll(after, new Map(lifted.filter((entry) => entry.blocks).map((entry) => [entry.layerId, entry.blocks.side])));
-    for (const entry of lifted) if (blocksAfter.has(entry.layerId)) entry.blocksAfter = blocksAfter.get(entry.layerId);
+    const sidesOf = (entries) => new Map(entries.map((entry) => [entry.layerId, entry.blocks.side]));
+    const take = (found) => {
+      for (const entry of lifted) {
+        const measured = found.get(entry.layerId);
+        if (!measured?.blocks) continue;
+        entry.blocksAfter = measured.blocks;
+        entry.levels = { before: shadowLevels(measuredBefore.get(entry.layerId)?.frames), after: shadowLevels(measured.frames, measuredBefore.get(entry.layerId)?.frames) };
+      }
+    };
+    take(await blocksAll(after, sidesOf(lifted.filter((entry) => entry.blocks))));
+    // The deblock fitted again (the brightness fit's second-pass idea): a shot whose step after the
+    // lift is over the bar gets a stronger deblock, up to DEBLOCK_TRIES, and keeps the try that drew
+    // the smallest step.
+    const over = () => lifted.filter((entry) => entry.deblock && entry.blocksAfter && entry.blocksAfter.step > bar.step && (entry.tries ?? 0) < DEBLOCK_TRIES);
+    for (let tries = 1; tries <= DEBLOCK_TRIES && over().length; tries += 1) {
+      const trying = over();
+      const kept = new Map(trying.map((entry) => [entry.layerId, { deblock: entry.deblock, blocksAfter: entry.blocksAfter, levels: entry.levels }]));
+      for (const entry of trying) {
+        entry.firstDeblock ??= { ...entry.deblock, step: entry.blocksAfter.step };
+        entry.tries = tries;
+        entry.deblock = strongerDeblock(entry.firstDeblock, tries, entry.blocks.side, pitchOf(entry.layerId));
+      }
+      const found = await blocksAll(await runOps(base, opsFor(lifted)), sidesOf(trying));
+      for (const entry of trying) {
+        const now = found.get(entry.layerId)?.blocks;
+        if (now && now.step < kept.get(entry.layerId).blocksAfter.step) {
+          entry.blocksAfter = now;
+          entry.levels = { before: entry.levels?.before ?? null, after: shadowLevels(found.get(entry.layerId).frames, measuredBefore.get(entry.layerId)?.frames) };
+        } else Object.assign(entry, kept.get(entry.layerId), { tries: DEBLOCK_TRIES });
+      }
+    }
+    if (lifted.some((entry) => entry.firstDeblock)) after = await runOps(base, opsFor(lifted));
+    // Still over the bar: the largest lift that keeps the step under it (the step grows with the
+    // curve's slope); the lift asked for is applied all the same.
+    for (const entry of lifted) {
+      if (!entry.blocksAfter || entry.blocksAfter.step <= bar.step) continue;
+      const stops = largestLift(entry.before, entry.stops, entry.blocksAfter.step, bar.step);
+      // Its mean: the curve on the measured frames, moved by what the render drew over that model at
+      // the lift applied (a replay at the stair shot's +1.88: the bare model said 28; +1.48 renders 28).
+      const miss = entry.after.mean - (liftedMean(entry.frames, entry.before, entry.stops) ?? entry.after.mean);
+      if (stops !== null) entry.largest = { stops, mean: Math.min(1, Math.max(0, liftedMean(entry.frames, entry.before, stops) + miss)) };
+    }
   }
   const seconds = (value) => Math.round(value * 100) / 100;
   const span = (entry) => entry.times.length > 1 ? ` over ${seconds(entry.times[0])} to ${seconds(entry.times.at(-1))} s` : entry.times.length ? ` at ${seconds(entry.times[0])} s` : "";
@@ -252,7 +310,11 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const gradeNote = (entry) => moves(entry) ? `, on top of ${entry.grades.map((grade) => `${grade.id} (${grade.effect})`).join(", ")} already there: ${levels255(entry.bare.mean)} without ${entry.grades.length === 1 ? "it" : "them"}, ${levels255(entry.before.mean)} with` : "";
   const level = (value) => Math.round(value * 100) / 100;
   const blockLine = (entry) => !entry.blocks ? ""
-    : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`;
+    : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks, grain off) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`
+      + (entry.firstDeblock ? ` (fitted again: radius ${entry.firstDeblock.radius} threshold ${entry.firstDeblock.threshold} drew ${level(entry.firstDeblock.step)}; kept the try that drew least${entry.deblock.radius === entry.firstDeblock.radius && entry.deblock.threshold === entry.firstDeblock.threshold ? ", the first" : ""})` : "")
+      + `, bar ${level(bar.step)} (${bar.from})`
+      + (entry.largest ? `, still over it: the largest lift that keeps the step under is about +${entry.largest.stops} stops (mean about ${levels255(entry.largest.mean)}; an estimate from the curve's slope at the shot's median), the +${entry.stops} asked is applied` : "")
+      + (entry.levels?.before !== null && entry.levels?.after != null ? `, shadow levels (distinct, darker half) ${entry.levels.before} to ${entry.levels.after}` : "");
   const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)} ${measured(entry)}${gradeNote(entry)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.firstLanded === undefined ? "" : ` (fitted twice: the first fit drew ${levels255(entry.firstLanded)})`}${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
   const keptGrade = (shot) => moves(shot) ? ` (${levels255(shot.bare.mean)} without ${shot.grades.map((grade) => grade.id).join(", ")})` : "";
   const kept = skipped.length ? `; ${skipped.map((shot) => `${name(shot.layerId)} ${levels255(lumaStats(shot.frames)?.mean ?? 0)}${keptGrade(shot)}`).join(", ")} already at or above it, left alone` : "";
@@ -273,6 +335,12 @@ export function alone(scene, layerId) {
   }
   if (!keep.size) return scene;
   return { ...scene, layers: scene.layers.map((layer) => (keep.has(layer.id) ? layer : { ...layer, visible: false })) };
+}
+
+// An expanded scene with the grain effects on `layerIds` left off (the block step is measured without them).
+function withoutGrain(scene, layerIds) {
+  const ids = new Set(layerIds);
+  return { ...scene, layers: scene.layers.map((layer) => (ids.has(layer.id) ? { ...layer, animations: (layer.animations ?? []).filter((animation) => !(animation.kind === "effect" && animation.effect === "grain")) } : layer)) };
 }
 
 // PER_SHOT scene times spread over a layer's own time in the scene, or null.

@@ -23,7 +23,7 @@ import { madeLine, madeShare, referenceMade } from "./quality/madeShare.js";
 import { deckUse } from "./deck.js";
 import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
-import { gammaToMean, liftShot, lumaStats, sourceGrid } from "./quality/liftDark.js";
+import { gammaToMean, largestLift, liftShot, lumaStats, shadowLevels, sourceGrid, strongerDeblock } from "./quality/liftDark.js";
 
 // ---------------------------------------------------------------- builders
 
@@ -2591,6 +2591,18 @@ test("liftShot: a dark frame lifted to a mean keeps its black point and gains mo
   // A small lift adds no grain; a shot at or above the target is left alone.
   assert.equal(liftShot([frame], 40 / 255).grain, null);
   assert.equal(liftShot([frame], 30 / 255), null);
+  // The deblock fitted again: each try wider and with a higher threshold, within half a block and 12 levels.
+  assert.deepEqual([1, 2].map((tries) => strongerDeblock({ radius: 4, threshold: 0.006 }, tries, 16, 1)), [{ radius: 6, threshold: 0.015 }, { radius: 8, threshold: 0.024 }]);
+  assert.deepEqual(strongerDeblock({ radius: 4, threshold: 0.03 }, 2, 8, 1), { radius: 4, threshold: 0.047 });
+  // The largest lift under a block step bar: none when under it, less than asked when over, 0 when even no lift is over.
+  const stats = lumaStats([frame]);
+  assert.equal(largestLift(stats, 2.5, 0.2, 0.25), null);
+  const largest = largestLift(stats, 2.5, 0.5, 0.4);
+  assert.ok(largest > 0 && largest < 2.5 && largestLift(stats, 2.5, 0.5, 0.45) > largest, `${largest}`);
+  assert.equal(largestLift(stats, 2.5, 0.5, 0.001), 0);
+  // Shadow levels: the darker half of the frame on its own levels, and fewer once those levels are posterized to steps of 4.
+  const poster = { ...frame, pixels: frame.pixels.map((value, at) => (at % 4 === 3 ? value : value - (value % 4))) };
+  assert.ok(shadowLevels([poster], [frame]) < shadowLevels([frame]), `${shadowLevels([poster], [frame])} against ${shadowLevels([frame])}`);
   // Drawn footage: flat fills (60% at 25, 30% at 40, 10% at 90) with no darker toe. The darkest
   // fill is not a black point to keep, so it rises with the rest and the mean reaches the target.
   const fills = { width: 10, height: 10, pixels: new Uint8ClampedArray(400).map((_, at) => (at % 4 === 3 ? 255 : at < 240 ? 25 : at < 360 ? 40 : 90)) };

@@ -65,8 +65,8 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   assert.equal(entry.blocks.side, 16);
   assert.ok(Math.round(entry.before.p2 * 255) > 0, "the bars above and below the clip are not measured as its black");
   assert.ok(entry.blocks.ratio >= 1.5, `the clip's block grid stands out: ${JSON.stringify(entry.blocks)}`);
-  assert.deepEqual(sent.map((op) => op.effect), ["deblock", "curves"], "the deblock goes before the curve");
-  assert.equal(entry.deblock.radius, 8, "a quarter of a 16 px block, at 2 scene pixels a source pixel");
+  assert.deepEqual(sent.slice(-2).map((op) => op.effect), ["deblock", "curves"], "the deblock goes before the curve");
+  assert.equal((entry.firstDeblock ?? entry.deblock).radius, 8, "first a quarter of a 16 px block, at 2 scene pixels a source pixel");
   // The same lift without the deblock (the old lift), the clip drawn alone at full size.
   const old = structuredClone(lifted.document);
   old.scenes[0].layers[0].animations = old.scenes[0].layers[0].animations.filter((animation) => animation.effect !== "deblock");
@@ -75,7 +75,14 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   t.diagnostic(`block step before ${entry.blocks.step.toFixed(2)} (ratio ${entry.blocks.ratio.toFixed(2)}), old lift ${oldStep.step.toFixed(2)} (ratio ${oldStep.ratio.toFixed(2)}), new lift ${entry.blocksAfter.step.toFixed(2)} (ratio ${entry.blocksAfter.ratio.toFixed(2)}); ${lifted.lines[0]}`);
   assert.ok(oldStep.step > entry.blocks.step, "the plain lift makes the block steps larger");
   assert.ok(entry.blocksAfter.step < oldStep.step * 0.6, `the deblocked lift keeps under 60% of them: ${entry.blocksAfter.step} vs ${oldStep.step}`);
-  assert.match(lifted.lines[0], /block step \(16 px grid, levels on the grid lines over inside the blocks\) [\d.]+ to [\d.]+, deblock radius 8 threshold [\d.]+/);
+  assert.match(lifted.lines[0], /block step \(16 px grid, levels on the grid lines over inside the blocks, grain off\) [\d.]+ to [\d.]+, deblock radius [\d.]+ threshold [\d.]+/);
+  // The step after is measured and the deblock fitted again while it is over the bar (no bright shot here: a stated guess);
+  // a stronger try is kept only when it drew less; still over it, the largest lift under it is a number; shadow levels do not fall.
+  assert.match(lifted.lines[0], /, bar 0\.25 \(a starting guess: no bright shot measured\)/);
+  if (entry.firstDeblock) assert.ok(entry.blocksAfter.step <= entry.firstDeblock.step, `${entry.blocksAfter.step} against the first fit's ${entry.firstDeblock.step}`);
+  if (entry.blocksAfter.step > 0.25) assert.match(lifted.lines[0], /still over it: the largest lift that keeps the step under is about \+[\d.]+ stops \(mean about \d+; an estimate from the curve's slope at the shot's median\), the \+4 asked is applied/);
+  const [, levelsBefore, levelsAfter] = lifted.lines[0].match(/shadow levels \(distinct, darker half\) (\d+) to (\d+)/).map(Number);
+  assert.ok(levelsAfter >= levelsBefore, `shadow levels ${levelsBefore} to ${levelsAfter}`);
   // The target and the means are in one range (full, 0 to 255), and the rendered mean after the lift is within 2 levels of it.
   assert.match(lifted.lines[0], /^lift_dark target 90 \(full range 0-255; video range 16-235: 93\): wall mean \d+ to \d+ measured on the edit's render at 240 px wide \(6 frames/);
   // 90 needs more than the 4-stop cap (76 on the render). A reachable 60: the first fit draws 58 (the
