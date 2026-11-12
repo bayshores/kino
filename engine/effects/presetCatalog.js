@@ -64,8 +64,14 @@ export function normalizeEffectPresetValue(value) {
   return { id: value.id, parameters: normalizeEffectPresetParameters(value.id, value.parameters), progress: value.progress };
 }
 
+// What a preset shows when its name could mislead. preset-pixel was taken for a pixelation and
+// showed none (.scratch/recreate/product-film result.md FRICTION): its cells show the clean picture.
+const ABOUT = Object.freeze({
+  pixel: "square cells of the clean picture appear at random (no pixelation; flat-colored cells: move mosaic-reveal, a still blocky look: effect pixelate)",
+});
+
 export function effectPresetDocumentation() {
-  return Object.values(EFFECT_PRESET_DEFINITIONS).map(({ id, easing, fields }) => `preset-${id} (1s, ${easing}): ` +
+  return Object.values(EFFECT_PRESET_DEFINITIONS).map(({ id, easing, fields }) => `preset-${id} (1s, ${easing}${ABOUT[id] ? `; ${ABOUT[id]}` : ""}): ` +
     Object.entries(fields).map(([key, field]) => `${key} ` + (field.type === "enum"
       ? field.options.map(([option]) => option).join("/") : `${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}`) +
       ` default ${JSON.stringify(field.default)}`).join("; ")).join(". ");

@@ -331,6 +331,18 @@ test("light-shape adds a soft streak, plate or ring as light (add group) sized b
   assert.ok(!ring.ring.animations.length, "reduced motion: no pulse, only the fade on the group");
 });
 
+test("mosaic-reveal sizes its cells to the frame's short side and keeps a size that is sent", () => {
+  const cells = (width, height, fields = {}) => {
+    const made = runMove(MOVES["mosaic-reveal"], { id: "m", input: readMoveInput(MOVES["mosaic-reveal"], { layer: "shot-a", ...fields }), scene: sceneFor(width, height), style: styleFor({ look: "crisp", frame: { width, height } }), fonts: defaultFonts, start: 1, media });
+    const { to } = made.animations[0].animation;
+    return [to.cell, to.gap, to.radius];
+  };
+  assert.deepEqual(cells(1920, 1080), [30, 9, 2], "the measured 1080p sizes");
+  assert.deepEqual(cells(1080, 1920), [30, 9, 2], "a vertical frame keeps them");
+  assert.deepEqual(cells(1280, 720), [20, 6, 1.5], "720p scales them");
+  assert.deepEqual(cells(1280, 720, { cell: 30, gap: 9 }), [30, 9, 1.5], "sent sizes stay");
+});
+
 test("freeze-shutter stops the clip on the beat, blinks once and plays again; masked-type fills a word with the clip or stands it behind the subject", () => {
   const scene = sceneFor(1920, 1080);
   const run = (name, fields, at, dur = null, reduced = false) => runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: at, dur, media, reduced });

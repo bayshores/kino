@@ -15,6 +15,26 @@ import {
   renderTritone,
 } from "./postFx.js";
 import { fractalNoise } from "./maps.js";
+import { mosaicPlan, mosaicStates, renderMosaic } from "./mosaic.js";
+
+test("mosaic shows flat cells with gaps that arrive in a seeded order and resolve to the picture", () => {
+  const plan = mosaicPlan({ width: 300, height: 240, cell: 30, merges: 2, order: "clusters", angle: 0, seed: 4 });
+  const shown = (p) => mosaicStates(plan, p).filter((state) => state !== "none" && state !== "dots").length;
+  assert.equal(shown(0), 0);
+  assert.ok(shown(0.2) < shown(0.4) && shown(0.6) === 80, `${shown(0.2)}, ${shown(0.4)}, ${shown(0.6)} of 80 cells`);
+  assert.ok(mosaicStates(plan, 1).every((state) => state === "clean"));
+  assert.deepEqual(mosaicPlan({ width: 300, height: 240, cell: 30, merges: 2, order: "clusters", angle: 0, seed: 4 }), plan);
+  // Half red, half blue: a cell is one flat color, its gap is empty, and progress 1 is the layer as it was.
+  const source = '<rect width="32" height="48" fill="#FF0000"/><rect x="32" width="32" height="48" fill="#0000FF"/>';
+  const data = pixels(renderMosaic, { progress: 0.6, cell: 16, gap: 4, radius: 0, merges: 0, dots: 0 }, { source, raster: true });
+  assertColorNear(pixelAt(data, WIDTH, 4, 4), [255, 0, 0], 40, "red cell");
+  assertColorNear(pixelAt(data, WIDTH, 13, 13), pixelAt(data, WIDTH, 4, 4), 2, "same cell, same color");
+  assert.equal(pixelAt(data, WIDTH, 1, 1)[3], 0, "the gap shows what is behind");
+  // Resolved blocks join each other and the layer edge with no gap: the picture reads whole.
+  const resolved = pixels(renderMosaic, { progress: 0.98, cell: 16, gap: 4, radius: 0, merges: 0, dots: 0 }, { source, raster: true });
+  for (const [px, py] of [[1, 1], [32, 33], [16, 32]]) assert.equal(pixelAt(resolved, WIDTH, px, py)[3], 255, `opaque at ${px},${py}`);
+  assert.equal(makeFrame(renderMosaic, { progress: 1 }, { source }).output, source);
+});
 
 const WIDTH = 64;
 const HEIGHT = 48;

@@ -186,6 +186,7 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "film-burn": { amount: 0.8, edge: "right", reach: 0.6, speed: 0.5, seed: 9 },
   invert: { amount: 0.8, keepHue: true },
   lightning: { bolts: 2, branches: 4, startX: 0.2, startY: 0.1, endX: 0.8, endY: 0.9, thickness: 14, color: "#FFD36B", seed: 5 },
+  mosaic: { cell: 16, gap: 4, order: "sweep", angle: 45, outline: 1, outlineColor: "#000000", seed: 3 },
 };
 
 assert.equal(EFFECTS.length, 62,"the A5 evidence covers the current catalog size");

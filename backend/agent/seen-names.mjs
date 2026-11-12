@@ -41,6 +41,8 @@ const SEEN_AS = {
   "short blur": ["directional-blur", "zoom-blur", "spin-blur"], "quick blur": ["directional-blur", "zoom-blur", "spin-blur"], "blur flash": ["directional-blur", "zoom-blur"], "one frame blur": ["directional-blur"], "blur pulse": ["directional-blur", "zoom-blur"], drag: ["smear"], "pixel drag": ["smear"], datamosh: ["smear"], mosh: ["smear"],
   // The project's shutter (update_project {shutterAngle}) smears every move in look and drafts.
   "motion blur": ["update_project", "directional-blur"], motionblur: ["update_project", "directional-blur"], shutter: ["update_project"], "shutter angle": ["update_project"],
+  mosaic: ["mosaic-reveal", "mosaic"], "pixel grid": ["mosaic-reveal"], cells: ["mosaic-reveal"], blocks: ["mosaic-reveal"], tiles: ["mosaic-reveal"],
+  "pixelate reveal": ["mosaic-reveal"], "pixel reveal": ["mosaic-reveal"], "mosaic reveal": ["mosaic-reveal"],
   shatter: ["shatter"], shattered: ["shatter"], glass: ["shatter", "fluted-glass"], "broken glass": ["shatter"], break: ["shatter"], shards: ["shatter"],
   "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
   "color fringe": ["rgb-shift"], fringe: ["rgb-shift"], "edge fringe": ["rgb-shift"],
