@@ -1330,7 +1330,8 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   const needsSent = await agent(needsNext.tool, { project: id, ...filled });
   assert.equal(needsSent.isError, undefined, needsSent.text);
   assert.match(needsSent.text, /^needs saved: M1/);
-  assert.deepEqual(filled.items[0].options.map((option) => option.recommended === true), needsNext.input.items[0].options.map((option) => option.recommended === true), "only its slots were filled");  const offer = await refused("save the signature and spine");
+  assert.deepEqual(filled.items[0].options.map((option) => option.recommended === true), needsNext.input.items[0].options.map((option) => option.recommended === true), "only its slots were filled");
+  const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");
   // The same call drafts the spine from the pick, so it keeps the pick's story: the hook opens on
   // its who, the problem is its tension, the turn its turn and the end its ending.
@@ -1346,8 +1347,18 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   // A long file name is cut at a word so the offered signature source fits the 80 characters it is saved under.
   const longName = "Screen Recording 2026-11-03 at 4.52.17 PM of the whole skate crew clip final.mov";
   const offered = orderStep(state, { seconds: 24, treatmentsWaived: false, picture: longName }).call.input.fields.style.signatures[0].source;
-  assert.ok(offered.length <= 80 && offered.endsWith("..., <the moment>"), `${offered.length}: ${offered}`);
-  assert.ok(longName.startsWith(offered.replace("..., <the moment>", "")), "a cut of the name, never a rewrite");
+  assert.ok(offered.length <= 80 && offered.endsWith("....mov, <the moment>"), `${offered.length}: ${offered}`);
+  assert.ok(longName.startsWith(offered.replace("....mov, <the moment>", "")), "a cut of the name, never a rewrite");
+  assert.equal(wordsOnly(offered), false, "the cut keeps the extension, so it still names a file");
+  // A pick the person left to the agent ("your call" in the log) is next offered as the agent's own pick, not their quote.
+  // The log holds the "your call" the notes answer above recorded; without it the next call asks for their quote.
+  const yourCall = state.brief.log.filter((entry) => entry.q === "Which treatment (A, B or C)?");
+  assert.deepEqual(yourCall.map((entry) => entry.a), ["Your call, pick whichever you like."]);
+  const unpicked = { ...state.brief, noPlayback: null, treatments: { ...state.brief.treatments, picked: undefined } };
+  const leftPick = orderStep({ brief: unpicked }, { seconds: 24, treatmentsWaived: false });
+  assert.deepEqual([leftPick.step, leftPick.call.input.fields.treatments], ["pick a treatment, with why", { pick: "<A, B or C>", why: "<why a viewer would retell it>" }]);
+  const asked = orderStep({ brief: { ...unpicked, log: state.brief.log.filter((entry) => !yourCall.includes(entry)) } }, { seconds: 24, treatmentsWaived: false });
+  assert.deepEqual([asked.step, asked.call.input.fields.treatments], ["ask their treatment pick", { pick: "<A, B or C>", quote: "<their words>" }]);
   // The beats are timed over the brief's length, not create's 5 s default scene.
   const timed = orderStep({ ...state, defaultLength: 5, brief: { ...state.brief, length: { seconds: 30 } } }, { seconds: 5, treatmentsWaived: false }).call.input.fields.style.spine;
   assert.deepEqual([timed[4].role, timed[4].from, timed[4].to], ["payoff", 21, 27]);

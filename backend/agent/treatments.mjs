@@ -337,6 +337,9 @@ export function pickLines(brief, origin = null) {
 // What the agent's own pick is for, and the call that saves it ("just start").
 export const OWN_PICK = "pick the one a viewer would retell tomorrow that this material can carry; say why";
 export const OWN_PICK_CALL = Object.freeze({ pick: "<A, B or C>", why: "<why a viewer would retell it>" });
+// The brief log's question for a treatment pick the person left to the agent ("your call",
+// stops.mjs pickToAgent): while it stands, the next call is the agent's own pick, not their quote.
+export const PICK_QUESTION = "Which treatment (A, B or C)?";
 
 /**
  * The saved treatments in a few lines for the brief's answers; `origin` (state.origin) adds what

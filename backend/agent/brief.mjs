@@ -31,7 +31,8 @@
 import { needsCall } from "./needs.mjs";
 import { closest } from "./refs.mjs";
 import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, styleProblem } from "./style.mjs";
-import { OWN_PICK_CALL, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
+import { leavesItToYou } from "./board.mjs";
+import { OWN_PICK_CALL, PICK_QUESTION, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
 import { majorityShape, namedShape, sizeLikeFootage } from "../../engine/quality/rules/shape.js";
@@ -982,7 +983,9 @@ function openParts(state, video) {
   }
   const picked = treatments.picked;
   // Under "just start" the pick is the agent's own, with why (treatmentsText says what to pick).
-  if (!picked && /just start/i.test(brief.noPlayback?.reason ?? "")) return [...open, { step: "pick a treatment, with why", call: briefCall({ treatments: { ...OWN_PICK_CALL } }) }];
+  // So is a pick the person left to the agent ("your call" recorded by notes answer).
+  const leftToAgent = (brief.log ?? []).some((entry) => entry?.q === PICK_QUESTION && leavesItToYou(String(entry.a ?? "")));
+  if (!picked && (leftToAgent || /just start/i.test(brief.noPlayback?.reason ?? ""))) return [...open, { step: "pick a treatment, with why", call: briefCall({ treatments: { ...OWN_PICK_CALL } }) }];
   if (!picked) return [...open, { step: "ask their treatment pick", call: briefCall({ treatments: { pick: "<A, B or C>", quote: "<their words>" } }) }];
   // The pick's idea is copied into style.idea when it is saved (briefChanges); its move and
   // material are offered as the first signature. A pick that carries its story (tension and
@@ -1028,14 +1031,17 @@ function openParts(state, video) {
 
 // A file name in a signature source (at most STYLE_LIMITS.short, 80): the offered text keeps 30
 // characters free for the moment, so the name is cut at a word (space, dash, underscore or dot)
-// with "..." when it is longer than the rest.
+// with "..." when it is longer than the rest. Its extension stays (".mov"), so the source still
+// names a file and is never read as words only (treatments.mjs wordsOnly).
 const SOURCE_ROOM = STYLE_LIMITS.short - ", <the moment>".length - 30;
 function shortName(name) {
   const text = String(name).replace(/\s+/g, " ").trim();
   if (text.length <= SOURCE_ROOM) return text;
-  const cut = text.slice(0, SOURCE_ROOM - 3);
+  const ext = /\.[a-z0-9]{1,5}$/i.exec(text)?.[0] ?? "";
+  const room = SOURCE_ROOM - 3 - ext.length;
+  const cut = text.slice(0, room);
   const at = cut.search(/[\s._-][^\s._-]*$/);
-  return `${(at > SOURCE_ROOM / 2 ? cut.slice(0, at) : cut).trimEnd()}...`;
+  return `${(at > room / 2 ? cut.slice(0, at) : cut).trimEnd()}...${ext}`;
 }
 
 // The beats the build waits for: what the story is about, where it flips, what it pays off.

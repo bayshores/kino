@@ -822,7 +822,7 @@ test("compose from a board says, for each move it did not place, why and the one
   assert.deepEqual([probe.moves[0].reason, probe.moves[0].call, probe.moves[1].op.name, probe.moves[1].reason], ['"dolly-x" is not a move op', null, "whip-pan", undefined]);
 });
 
-test("compose from a board keeps the shot before under a shot's move fade:the receipt names the Hide it moved and check shows no bare background", { skip, timeout: 60_000 }, async () => {
+test("compose from a board keeps the shot before under a shot's move fade: the receipt names the Hide it moved and check shows no bare background", { skip, timeout: 60_000 }, async () => {
   const id = "board-join";
   await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [videoLayer()] });
   const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [60, 30, 20, 40] } };

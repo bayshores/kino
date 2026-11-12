@@ -29,7 +29,7 @@ import { namedShape } from "../../engine/quality/rules/shape.js";
 import { activeApproval, boardSummary, freezeBoard, keepAnswered, lapsedChanges, leavesItToYou, namedShots, shotChanges } from "./board.mjs";
 import { boardAsk, unheardLinesLine } from "./board-text.mjs";
 import { movesNeeded } from "../../engine/board.js";
-import { pickLines } from "./treatments.mjs";
+import { PICK_QUESTION, pickLines } from "./treatments.mjs";
 import { withControls } from "./controls.mjs";
 
 export const STOP_KINDS = Object.freeze(["board", "rough", "color", "sound"]);
@@ -601,7 +601,7 @@ function leftToAgent(draft, open, theirs, { now, client }) {
 // The treatment pick left to the agent ("your call" through notes answer): their words are a
 // reply (counted); the pick is the agent's own, with why, so no quote is asked for.
 function pickToAgent(draft, theirs, { now, client }) {
-  applyBrief(draft, { lines: [], log: [{ q: "Which treatment (A, B or C)?", a: theirs, kind: "question" }], noPlayback: null }, { now, client });
+  applyBrief(draft, { lines: [], log: [{ q: PICK_QUESTION, a: theirs, kind: "question" }], noPlayback: null }, { now, client });
   const next = 'pick one yourself and say why a viewer would retell it (1 to 80 characters): notes brief fields.treatments {pick:"A", why}.';
   return { text: ['recorded: they left the treatment pick to you ("your call").', `step: ${next}`].join("\n"),
     data: { status: "your_call", open: ["treatment pick"], next }, nextCall: { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } } };
