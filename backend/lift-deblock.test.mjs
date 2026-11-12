@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { expandComponents } from "../engine/linkedComponents.js";
-import { blockStep } from "../engine/quality/liftDark.js";
+import { blockStep, lumaStats } from "../engine/quality/liftDark.js";
 import { alone, liftDark } from "./agent/lift-dark.mjs";
 import { renderSceneFrames } from "./export.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
@@ -73,7 +73,7 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   assert.ok(entry.blocksAfter.step < oldStep.step * 0.6, `the deblocked lift keeps under 60% of them: ${entry.blocksAfter.step} vs ${oldStep.step}`);
   assert.match(lifted.lines[0], /block step \(16 px grid, levels on the grid lines over inside the blocks\) [\d.]+ to [\d.]+, deblock radius 8 threshold [\d.]+/);
   // The target and the means are in one range (full, 0 to 255), and the rendered mean after the lift is within 2 levels of it.
-  assert.match(lifted.lines[0], /^lift_dark target 90 \(full range 0-255; video range 16-235: 93\): wall mean \d+ to \d+ measured on the render/);
+  assert.match(lifted.lines[0], /^lift_dark target 90 \(full range 0-255; video range 16-235: 93\): wall mean \d+ to \d+ measured on the edit's render at 240 px wide \(6 frames/);
   // 90 needs more than the 4-stop cap (76 on the render); a reachable 60 lands within 2 levels.
   const reach = await liftDark(document, { ...options, target: 60, grain: false });
   t.diagnostic(reach.lines[0].split(", contrast")[0]);
@@ -83,4 +83,40 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   await liftDark(document, { ...options, reduced: true });
   const grain = sent.find((op) => op.effect === "grain");
   assert.deepEqual([grain.parameters.size, grain.parameters.animated], [2, false]);
+});
+
+// A flat dark blue night clip (6, 12, 44 of 255) at the scene's own size, under a grade already on it.
+test("lift_dark on dark colored footage: check-size frames read as the full size, the grain is in the receipt and an earlier grade is named", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "kino-lift-night-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const mediaRoot = join(root, "media");
+  await mkdir(mediaRoot);
+  const [width, height] = [512, 288];
+  const raw = Buffer.alloc(width * height * 3 * 5);
+  for (let at = 0; at < raw.length; at += 3) raw.set([6, 12, 44], at);
+  await run(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${width}x${height}`, "-r", "5", "-i", "pipe:0",
+    "-c:v", "libx264", "-qp", "20", "-pix_fmt", "yuv420p", join(mediaRoot, "night.mp4")], { input: raw });
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width, height, duration: 1, background: "#000000", layers: [
+    createLayer("video", { id: "night", name: "night", src: "/api/media/night.mp4", x: 0, y: 0, width, height, mediaStart: 0, mediaDuration: 1, mediaSourceDuration: 1,
+      animations: [{ id: "night.grade", name: "night.grade", kind: "effect", effect: "color-grade", start: 0, duration: 1, easing: "linear", to: { stops: 0.5 }, keepStill: "both" }] }),
+  ] })] }));
+  const widths = [];
+  const render = (scene, times, options) => { widths.push(options.width); return renderSceneFrames(scene, times, { mediaRoot, fonts, width: options.width }); };
+  const mean = (frames) => lumaStats(frames).mean * 255;
+  // The picture decoded for a 240 px check frame reads as at the scene's own 512 (the old scaler read 1.3 levels darker).
+  const expanded = expandComponents(document, "main", { fonts });
+  const bare = { ...expanded, layers: expanded.layers.map((layer) => ({ ...layer, animations: [] })) };
+  const [small, full] = [await render(bare, [0.5], { width: 240 }), await render(bare, [0.5], { width })];
+  assert.ok(Math.abs(mean(small) - mean(full)) <= 0.3, `240 px ${mean(small).toFixed(2)} against ${width} px ${mean(full).toFixed(2)}`);
+  widths.length = 0;
+  const lifted = await liftDark(document, { layerIds: ["night"], target: 60, fonts, render, runOps, sourceSize: async () => ({ width, height }) });
+  const [entry] = lifted.lifted;
+  // The receipt (default grain on) equals the full-size render of the edit at its frames within 1 level.
+  const drawn = mean(await renderSceneFrames(expandComponents(lifted.document, "main", { fonts }), entry.times, { mediaRoot, fonts, width }));
+  t.diagnostic(`${lifted.lines[0].split(", contrast")[0]}; full size ${drawn.toFixed(2)}; renders at ${widths.join(", ")}`);
+  assert.ok(entry.amount > 0, "the default grain is on");
+  assert.ok(Math.abs(entry.after.mean * 255 - drawn) <= 1, `receipt ${(entry.after.mean * 255).toFixed(2)} against the full-size render ${drawn.toFixed(2)}`);
+  assert.match(lifted.lines[0], /night mean (\d+) to \d+ measured on the edit's render at 240 px wide \(6 frames over [\d.]+ to [\d.]+ s\), on top of night\.grade \(color-grade\) already there: (\d+) without it, \1 with/);
+  // One small render before, one without the grade, one full-size render of the blocks, then the same after: 5.
+  assert.deepEqual(widths, [240, 240, width, 240, width]);
 });

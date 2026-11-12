@@ -337,6 +337,14 @@ export const PICTURE_COLOR_FILTERS = [
   "setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown",
 ];
 
+// A video picture scaled to `width` x `height` (kept inside, its own shape). FFmpeg's default scaler
+// reads the chroma at the scaled size without exact rounding, which darkened dark colored footage
+// at check sizes: a night stair frame whose Y plane reads 15.0 of 255 drew 13.1 at 240 and 960 px
+// wide and 14.8 at its own 1920, and a 3-stop lift raised that gap to 5 to 8 levels. Full chroma
+// and exact rounding draw 15.0 at every width, so check, look and the export read the same picture.
+export const pictureScale = (width, height) =>
+  `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=bicubic+accurate_rnd+full_chroma_int`;
+
 /**
  * FFmpeg arguments that write `count` PNG pictures of a video, one per 1/fps seconds.
  * Picture k is the latest video frame whose start time is at or before firstTime + k / fps
