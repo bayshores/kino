@@ -1561,6 +1561,9 @@ How to read it:
   beside the saved references' (facts, no rule) and the measured beat times after it; `board {snap:"beats"}` moves
   only the cuts after the drop onto them, when asked (cut times only; sent with shots it saves them first; a cut
   whose move would run a shot past its clip file stays and is named). Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
+- **What plays on the drop**: Test-verified. The board answer, look board and check print, per strong song cue, the shot
+  on it and `new` or how much of its file stretch was shown before (speed and reverse counted), with unused scanned
+  shots that differ most, and a file filling over half the edit. Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
 - **Cut facts in the render answer**: Test-verified. A draft or final mp4, webm or mov is decoded to 32x18 frames
   (drafts without a verdict); `render wait` lists each cut's brightness and hue jump and each section's brightness
   range, beside the saved references' (`numbers.picture`, saved when a reference is measured; older ones are counted

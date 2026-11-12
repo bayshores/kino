@@ -13,6 +13,7 @@ import { beatLine, cutFacts, cutLines, cutsOnBeats, frameLevel, paceFacts, paceL
 import { planEdit } from "./footage/plan.js";
 import { KINO_OWN_FAMILIES, KINO_PAIR_FAMILIES, footageBrand } from "./footage/treatments.js";
 import { footageCues, footageOps } from "./footage/ops.js";
+import { boardSpans, cueShowLines, cueShows } from "./footage/cueShows.js";
 import { createDocument, createLayer, createScene } from "./model.js";
 import { applyOperations } from "./operations.js";
 
@@ -572,4 +573,27 @@ test("cut facts: pace on each side of the turn, each cut's brightness and hue ju
   assert.match(lines[1], /^per cut: 1\.00 \+\d+ -, 2\.00 \+\d+ -, \.\.\. \(18 more\)$/);
   assert.deepEqual(cutLines({ jumps: [] }, []), [], "a file with no cuts has no lines");
   assert.match(cutLines(facts, [], { older: 2 })[0], / · 2 saved references measured before cut facts were kept \(library \{topic:"inspire", name:"measure <id>"\} reads one again\)$/);
+});
+
+test("cueShows: a drop on a rewound repeat of a shown span says so with unused scanned shots; a drop on an unseen shot says new", () => {
+  const shot = (cue, dur, media, inPoint, tags) => ({ cue, dur, media, in: inPoint, tags });
+  const door = { light: 30, size: 10, face: false }, climb = { light: 40, size: 20, face: true };
+  const pool = [{ label: "F2 shot 9", tags: { light: 45, size: 22, face: true } }, { label: "F2 shot 4", tags: { light: 200, size: 60, face: false } }, { label: "F2 shot 7", tags: {} }];
+  const cues = [{ at: 7, kind: "drop" }];
+  // The climb plays file 0-4 s at 3-7 s; on the drop it comes back from file 3.5 s (0.5 s rewound).
+  const repeat = boardSpans([shot(0, 3, "door.mp4", 0, door), shot(3, 4, "climb.mp4", 0, climb), shot(7, 1, "climb.mp4", 3.5, climb)]);
+  const lines = cueShowLines(cueShows({ spans: repeat, cues, seconds: 8, pool }));
+  assert.deepEqual(lines, [
+    "on the drop at 7.00 s: shot 3 (climb.mp4) repeats 0.5 s of file 3.5-4.5 s shown at 3-7 s; unused scanned shots that differ most: F2 shot 4 (light 200, no face, 60%), F2 shot 9 (light 45, face, 22%)",
+    "one take fills 63% of the edit: climb.mp4 (5 s)",
+  ]);
+  // A reversed clip on the drop playing file 4 s back to 3 s shares 1 s; speed counts the same way.
+  const reversed = [...repeat.slice(0, 2), { ...repeat[2], fileAt: (time) => 4 - (time - 7) }];
+  assert.equal(cueShows({ spans: reversed, cues, seconds: 8 }).cues[0].shared, 1);
+  // A shot that picks up 0.4 s after where the climb stopped continues it (within 1 s).
+  assert.match(cueShowLines(cueShows({ spans: boardSpans([shot(0, 3, "door.mp4", 0), shot(3, 4, "climb.mp4", 0), shot(7, 1, "climb.mp4", 4.4)]), cues, seconds: 8 }))[0], /shot 3 \(climb\.mp4\) continues the file 0\.4 s from what played at 3-7 s$/);
+  // A drop on a file not shown before is new; a shot with no footage is new too.
+  const fresh = boardSpans([shot(0, 3, "door.mp4", 0), shot(3, 4, "climb.mp4", 0), shot(7, 1, "stairs.mp4", 2)]);
+  assert.deepEqual(cueShowLines(cueShows({ spans: fresh, cues, seconds: 8 })), ["on the drop at 7.00 s: shot 3 (stairs.mp4) new"]);
+  assert.equal(cueShowLines(cueShows({ spans: boardSpans([shot(0, 7, "door.mp4", 0), { cue: 7, dur: 1, media: "none", in: "none" }]), cues, seconds: 8 }))[0], "on the drop at 7.00 s: shot 2 new (no footage)");
 });

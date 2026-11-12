@@ -24,6 +24,7 @@ import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } f
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
 import { isSubjectEdit } from "./subject-edit.mjs";
 import { shotsNeeded } from "../footage-finder/needs.mjs";
+import { cleanShot } from "../footage-finder/score.mjs";
 import { SAYS_MIN_SECONDS, saysOf } from "../footage-finder/words.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
@@ -86,7 +87,7 @@ import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js"
 import { cutFacts, cutLines } from "../../engine/cutFacts.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
-import { boardPaceFacts, boardPaceLines } from "./board-pace.mjs";
+import { boardCueLines, boardPaceFacts, boardPaceLines, sceneCueShows } from "./board-pace.mjs";
 import { spanCutNotes } from "./span-cuts.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { BOARD_BUILD, boardBuilt } from "./board-build.mjs";
@@ -3376,6 +3377,8 @@ export function createAgentService(deps) {
     // And how much of it is designed, with the deck's unused cards and the references' own share.
     const madeText = returnsScene ? madeLine(result.made, { refs: result.made?.refs, deck: result.made?.deck }) : "";
     if (madeText) lines.push(madeText);
+    // What plays on the song's drop and section starts, and whether it was shown before: facts.
+    if (returnsScene) lines.push(...await sceneCueLinesFor(record.document, returnsScene).catch(() => []));
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
     if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + (mix.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held) ? "; check {fix:\"auto\"} applies each xN over its place" : ""));
@@ -8243,7 +8246,48 @@ export function createAgentService(deps) {
     const ids = deps.inspire?.reference ? await savedIds(document.id) : [];
     const refs = [];
     for (const id of ids) refs.push(await deps.inspire.reference(id, { full: true }).catch(() => null));
-    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean) });
+    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean), media: await cueMediaFor(document) });
+  }
+
+  // check's cue lines for a built scene: its song is the board's music layer, else its first
+  // audio layer with a saved song shape (fit_music measures one).
+  async function sceneCueLinesFor(document, scene) {
+    const audio = (scene.layers ?? []).filter((layer) => layer.type === "audio");
+    const ordered = [...audio.filter((layer) => layer.id === document.board?.music), ...audio.filter((layer) => layer.id !== document.board?.music)];
+    for (const music of ordered) {
+      let file = null;
+      try { file = mediaFileOf(music); } catch { file = null; }
+      const shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
+      if (shape) return boardCueLines(sceneShowsFacts(scene, music, shape, await cueMediaFor(document)));
+    }
+    return [];
+  }
+  const sceneShowsFacts = (scene, music, shape, media) => ({ shows: sceneCueShows({ scene, music, shape, media }) });
+
+  // For the cue lines (engine/footage/cueShows.js): each file's name, the scan tags of the shot a
+  // found clip was imported from, and the scanned shots of this video's found videos that no file
+  // of the board or the main scene plays (saved scans only, never a scan).
+  async function cueMediaFor(document) {
+    const library = (await deps.listMedia?.().catch(() => [])) ?? [];
+    const find = (ref) => library.find((item) => (item.src ?? `/api/media/${item.id}`) === ref || item.id === ref || item.name === ref) ?? null;
+    const used = new Set([...(document.board?.shots ?? []).map((shot) => shot.media), ...(mainScene(document)?.layers ?? []).filter((layer) => layer.type === "video").map((layer) => layer.src)]
+      .map(find).filter((item) => item?.footage).map((item) => `${item.footage.candidate}#${item.footage.shot}`));
+    const state = deps.footage?.readScan ? await agentState.read(document.id).catch(() => null) : null;
+    const scans = new Map();
+    for (const candidate of (state?.footage?.candidates ?? []).filter((entry) => entry.scan)) {
+      const scan = await deps.footage.readScan(scanIdOf(candidate)).catch(() => null);
+      if (scan?.shots?.length) scans.set(candidate.id, { code: candidate.code, shots: scan.shots });
+    }
+    const tags = (shot) => ({ light: Number.isFinite(shot.luma) ? Math.round(shot.luma * 255) : null, size: shot.subject ? shot.subject.share * 100 : null,
+      face: Number.isFinite(shot.face) || shot.subject?.kind === "face" ? shot.face > 0 || shot.subject?.kind === "face" : null });
+    const tagsOf = (ref) => {
+      const footage = find(ref)?.footage;
+      const shot = footage ? scans.get(footage.candidate)?.shots.find((entry) => entry.n === footage.shot) : null;
+      return shot ? tags(shot) : null;
+    };
+    const pool = [...scans].flatMap(([id, scan]) => scan.shots.filter((shot) => !used.has(`${id}#${shot.n}`) && cleanShot(shot))
+      .map((shot) => ({ label: `${scan.code} shot ${shot.n}`, tags: tags(shot) })));
+    return { nameOf: (ref) => find(ref)?.name ?? String(ref).split("/").pop(), tagsOf, pool };
   }
 
   // The shots the video's song needs (footage-finder/needs.mjs): the first audio layer of the video

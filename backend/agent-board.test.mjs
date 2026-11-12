@@ -154,6 +154,22 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   assert.equal(past.isError, undefined, past.text);
   assert.deepEqual((await record("pace")).document.board.shots.map((shot) => shot.cue), [0, 1.5, 3.05, 4.2], past.text);
   assert.match(past.text, /1 cut stayed because a shot would run past the end of its clip file: 4\.2 s \(the beat at 4\.05 s\)/);
+  // What plays on the drop: a title is new; the clip rewound 0.5 s is a repeat (board answer, look
+  // board), and the same two layers built say so in check.
+  assert.match(text, /^on the drop at 3\.00 s: shot 3 new \(no footage\)$/m);
+  const repeat = await editBoard("pace", [footage(0, 3, 0, 0, whole), footage(3, 1.2, 2.5, 0, whole), motion(4.2, 1.8)], { music: "song" });
+  assert.equal(repeat.isError, undefined, repeat.text);
+  assert.match(repeat.text, /on the drop at 3\.00 s: shot 2 \(sintel-village-dragon\.mp4\) repeats 0\.5 s of file 2\.5-3\.7 s shown at 0-3 s/);
+  assert.match(repeat.text, /one take fills 70% of the edit: sintel-village-dragon\.mp4 \(4\.2 s\)/);
+  // A board with footage measures the song in the background, which replaces the test's shape: write it again.
+  const shape = JSON.stringify({ version: SONG_SHAPE_VERSION, seconds: 6, whole: true, sections: [{ at: 0, kind: "intro" }, { at: 3, kind: "drop", weight: 1 }], seams: [] });
+  await writeFile(`${file}.song`, shape);
+  assert.match((await agent("look", { project: "pace", mode: "board" })).text, /on the drop at 3\.00 s: shot 2 \(sintel-village-dragon\.mp4\) repeats 0\.5 s/);
+  const take = (name, mediaStart, mediaOffset, mediaDuration) => ({ op: "add_layer", layerType: "video", name, properties: { src: clip.src, mediaStart, mediaOffset, mediaDuration } });
+  assert.equal((await agent("edit", { project: "pace", ops: [take("climb", 0, 0, 3), take("again", 3, 2.5, 1.2)] })).isError, undefined);
+  assert.match((await agent("check", { project: "pace" })).text, /on the drop at 3\.00 s: layer again \(sintel-village-dragon\.mp4\) repeats 0\.5 s of file 2\.5-3\.7 s shown at 0-3 s/);
+  // The other tests share this song with no drop measured.
+  await rm(`${file}.song`, { force: true });
 });
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {
