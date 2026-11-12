@@ -14,6 +14,7 @@ import { CUTOUT_ENGINES, CUTOUT_OUTPUTS } from "../cutout/cutout.mjs";
 import { RULES } from "../../engine/quality/index.js";
 import { closest, nearMiss, ReferenceError } from "./refs.mjs";
 import { refId } from "../inspire.mjs";
+import { RANGE_ROW_WORDS, rangeRowsOf } from "./checks.mjs";
 import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOperation, translateBlock } from "./blocks.mjs";
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
 import { createLayer } from "../../engine/model.js";
@@ -660,6 +661,32 @@ function nameAnimation(operation, resolver) {
 // Names and codes become IDs, in place.
 // A refused waiver, with its code and the video layers it named (a layer, a list, a glob, "*", or
 // the layers of a scene), as layer IDs. The service answers with the fix for them.
+// Waivers whose reason must name a reference moment the agent labeled type (library inspire "seen").
+const TYPE_EVIDENCE_WAIVERS = new Set(["default_font", "type_seen"]);
+// How near (seconds) the named moment must be to a labeled one.
+const TYPE_MOMENT_GAP = 0.5;
+/**
+ * default_font or type_seen: throws unless the reason names "yt:<id> @<seconds>" where <id> is a
+ * saved reference (seenRefs: [{id, seen:[{at, kinds}]}], inspire savedFingerprints labeled) with a
+ * moment labeled kind type within TYPE_MOMENT_GAP. The refusal lists the labeled moments to pick from.
+ */
+function typeMomentProblem(operation, seenRefs) {
+  const code = operation.code;
+  const typed = seenRefs.map((ref) => ({ id: refId(ref.id) ?? ref.id, at: (ref.seen ?? []).filter((entry) => (entry?.kinds ?? []).includes("type") && Number.isFinite(entry.at)).map((entry) => entry.at) }));
+  const anyTyped = typed.find((ref) => ref.at.length);
+  const example = anyTyped ? `"as in ${anyTyped.id} @${anyTyped.at[0]}"` : '"as in yt:<id> @<seconds>"';
+  const label = 'library {topic:"inspire", name:"seen yt:<id> @<seconds> type: <what the type is>"}';
+  const named = [...String(operation.reason ?? "").matchAll(/\byt:([\w-]{6,})\s*@\s*(\d+(?:\.\d+)?)/gi)].map((match) => ({ id: refId(`yt:${match[1]}`), at: Number(match[2]) }));
+  if (named.some((pair) => typed.some((ref) => ref.id === pair.id && ref.at.some((at) => Math.abs(at - pair.at) <= TYPE_MOMENT_GAP)))) return;
+  if (!anyTyped) throw new Error(`${code} names a moment you labeled type ("as in yt:<id> @<seconds>"); none of your saved references has one. Label what you see first: ${label}.`);
+  if (!named.length) throw new Error(`${code} names a moment you labeled type (${example}) in its reason.`);
+  const [first] = named;
+  const ref = typed.find((entry) => entry.id === first.id);
+  const where = !ref ? `${first.id} is not a saved reference (labeled type: ${anyTyped.id} @${anyTyped.at.join(", ")})`
+    : `${first.id} @${first.at} is not one (labeled: ${ref.at.length ? ref.at.join(", ") : `none; label it with ${label}`})`;
+  throw new Error(`${code} names a moment you labeled type (${example}); ${where}.`);
+}
+
 function refusedWaiver(error, operation, resolver, document) {
   const ids = new Set();
   for (const ref of [operation.target].flat()) {
@@ -742,6 +769,16 @@ function resolveReferences(operation, type, resolver, document) {
     const suggestions = closest(operation.code, [...KNOWN_WAIVER_CODES]);
     throw Object.assign(new Error(`waive_check: "${operation.code}" is not a check rule or a gate. Did you mean ${suggestions.join(", ")}? library {topic:"rules"} lists the rules.`), { suggestions });
   }
+  // shape_guess: only the person naming a shape keeps one (brief plays_on), so no waiver ever does,
+  // whatever its quote or target. Without their words kino follows the footage.
+  if (type === "waive_check" && operation.code === "shape_guess")
+    throw new Error(`shape_guess is kept only by the person naming a shape: notes {action:"brief", fields:{plays_on:{text:"<the shape>", by:"you", quote:"<their words naming it>"}}}. Else kino follows the footage.`);
+  // A reference_range waiver keeps only the rows its reason names (brightness, dark, contrast, text, voice).
+  if (type === "waive_check" && operation.code === "reference_range" && !rangeRowsOf(operation.reason).length)
+    throw new Error(`waive_check reference_range keeps only the rows its reason names: say which (${RANGE_ROW_WORDS}) and why; the others stay open.`);
+  // default_font and type_seen: the reason names a moment of a saved reference the agent labeled type.
+  // With no saved reference there is nothing to point at (the reference gate asks for them first).
+  if (type === "waive_check" && TYPE_EVIDENCE_WAIVERS.has(operation.code) && resolver.seenRefs?.length) typeMomentProblem(operation, resolver.seenRefs);
   const targetsStar = operation.target === "*" || (Array.isArray(operation.target) && operation.target.includes("*"));
   if (type === "waive_check" && VIEWER_WAIVERS.has(operation.code)) {
     const quote = typeof operation.quote === "string" ? operation.quote.trim() : "";
@@ -756,6 +793,9 @@ function resolveReferences(operation, type, resolver, document) {
   // layer at a time: a waiver on "*" or a scene would cover shots nobody looked at (scenes: below).
   if (type === "waive_check" && SUBJECT_WAIVERS.has(operation.code) && targetsStar)
     throw refusedWaiver(new Error(`waive_check ${operation.code} names the layers whose cut is meant (look {mode:"source"} shows each), not target:"*".`), operation, resolver, document);
+  // soft_upscale: a picture blown up past 2x is per layer too; one "*" would keep every soft shot.
+  if (type === "waive_check" && operation.code === "soft_upscale" && targetsStar)
+    throw refusedWaiver(new Error(`waive_check soft_upscale names the layers whose softness is meant (look {mode:"source"} shows each), not target:"*".`), operation, resolver, document);
   // ask_unmet: the video never shows what the person's subject search found everyone calls it. A
   // waiver says which word it is about, so it cannot be a stock reason (resolver.origin: state.origin).
   if (type === "waive_check" && operation.code === "ask_unmet") {
@@ -833,6 +873,12 @@ function resolveReferences(operation, type, resolver, document) {
         }
         return matched;
       }
+      // A name that is both a layer and a scene (a shot layer named "s1" in scene s1): a scene-wide
+      // finding is waived on its scene; any other waiver must say which, so it is never saved on
+      // the wrong one and left matching nothing.
+      let sceneToo = null;
+      if (type === "waive_check" && typeof ref === "string") { try { sceneToo = resolve(ref, "scene"); } catch { sceneToo = null; } }
+      if (sceneToo && (sceneOnly || SCENE_WIDE_WAIVERS.has(operation.code) || WHOLE_VIDEO_GATES.includes(operation.code))) return [sceneToo];
       let layerId;
       try { layerId = resolve(ref, "layer"); } catch (error) {
         let scene;
@@ -843,6 +889,8 @@ function resolveReferences(operation, type, resolver, document) {
         return [scene];
       }
       if (sceneOnly) throw needsScene();
+      if (sceneToo && sceneToo !== layerId)
+        throw new Error(`waive_check ${operation.code}: "${ref}" names both a layer and a scene. Name the layer by its code (${resolver.codeOf?.(layerId) ?? layerId}) or the scene by its name (${resolver.nameOf?.("scene", sceneToo) ?? sceneToo}), whichever its finding names.`);
       return [layerId];
     };
     if (!operation.target.length || (Array.isArray(operation.target) && operation.target.includes("*")))

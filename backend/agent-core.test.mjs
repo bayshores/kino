@@ -265,8 +265,28 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   const resolver = createResolver(document, assignCodes(emptyCodes(), document));
   const send = (op) => translateOperations([{ op: "waive_check", reason: "meant", ...op }], resolver, document);
   const said = "keep the tight crop on the eyes";
-  // crop_no_subject and shape_guess: the person's quote, on layers only.
-  for (const code of ["crop_no_subject", "shape_guess"]) {
+  // shape_guess: never a waiver, whatever the quote or target; the call that keeps a shape is named.
+  for (const target of ["shot-1", "s1", "*"]) assert.throws(() => send({ code: "shape_guess", target, quote: said }), /kept only by the person naming a shape: notes .*plays_on/);
+  // soft_upscale names its layers, never "*"; reference_range names the rows it keeps.
+  assert.throws(() => send({ code: "soft_upscale", target: "*" }), /soft_upscale names the layers .*not target:"\*"/);
+  assert.throws(() => send({ code: "reference_range", target: "main", reason: "on purpose" }), /keeps only the rows its reason names/);
+  assert.equal(send({ code: "reference_range", target: "main", reason: "kept dark on purpose" }).length, 1);
+  // default_font names a reference moment the agent labeled type (within 0.5 s).
+  resolver.seenRefs = [{ id: "yt:AAAAAAAAAAA", seen: [{ at: 4.4, kinds: ["type"] }, { at: 12.75, kinds: ["overlay"] }, { at: 22.3, kinds: ["type", "made"] }] }];
+  assert.throws(() => send({ code: "default_font", target: "shot-1", reason: "as in yt:AAAAAAAAAAA @12.75" }), (thrown) => thrown.message === 'default_font names a moment you labeled type ("as in yt:AAAAAAAAAAA @4.4"); yt:AAAAAAAAAAA @12.75 is not one (labeled: 4.4, 22.3).');
+  assert.throws(() => send({ code: "default_font", target: "shot-1", reason: "I like it" }), /names a moment you labeled type/);
+  assert.equal(send({ code: "default_font", target: "shot-1", reason: "as in yt:AAAAAAAAAAA @22.5" }).length, 1);
+  resolver.seenRefs = [{ id: "yt:AAAAAAAAAAA", seen: [{ at: 4.4, kinds: ["overlay"] }] }];
+  assert.throws(() => send({ code: "default_font", target: "shot-1", reason: "as in yt:AAAAAAAAAAA @4.4" }), /none of your saved references has one\. Label what you see first: library/);
+  delete resolver.seenRefs;
+  // A name that is a layer and a scene: a scene-wide finding takes the scene; any other code must say which.
+  const twin = sceneDocument([rectangle("s1"), rectangle("shot-2")]);
+  const twinResolver = createResolver(twin, assignCodes(emptyCodes(), twin));
+  const twinSend = (op) => translateOperations([{ op: "waive_check", reason: "meant", ...op }], twinResolver, twin);
+  assert.equal(twinSend({ code: "held_static", target: "s1", quote: "keep the long still hold" })[0].target, "main");
+  assert.throws(() => twinSend({ code: "overlap", target: "s1" }), /"s1" names both a layer and a scene/);
+  // crop_no_subject: the person's quote, on layers only.
+  for (const code of ["crop_no_subject"]) {
     assert.throws(() => send({ code, target: "shot-1" }), /Only the person can keep it/);
     assert.throws(() => send({ code, target: "shot-1", quote: "your call" }), /Only the person can keep it/);
     assert.throws(() => send({ code, target: "*", quote: said }), /not target:"\*"/);

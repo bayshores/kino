@@ -711,7 +711,8 @@ export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_ST
   // An approved storyboard: kino keeps the board it showed (`board` is boardFacts(document)).
   if (round.kind === "board" && (readAs === "approve" || readAs === "approve with notes")) freezeBoard(draft, round, { board, by: "chat", now });
   // The ask also put the footage's shape to the person: their answer is the plays_on line.
-  const shapeSaid = round.shape ? saveShape(draft, round, words.trim(), { now, client }) : "";
+  const shaped = round.shape ? saveShape(draft, round, words.trim(), { now, client }) : null;
+  const shapeSaid = shaped?.line ?? "";
   const replies = replyCount(draft);
   const next = {
     approve: 'say "Read as: approve" in one line, then go on.',
@@ -733,6 +734,8 @@ export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_ST
     ].filter(Boolean).join("\n"),
     data: { id: round.id, kind: round.kind, rev: round.rev, read_as: readAs, passed: PASSING_READS.includes(readAs), afterSeconds, replies, next: said, ...(silent ? { silent: SILENT } : {}) },
     ...(REDONE_READS.includes(readAs) || readAs === "redo" ? { nextCall: fixCall } : {}),
+    // The shape the scene takes now (the service runs it: update_scene plus frame_shot), not sent to the agent.
+    ...(shaped?.follow ? { shapeFollow: shaped.follow } : {}),
   };
 }
 
@@ -754,8 +757,11 @@ function saveShape(draft, round, words, { now, client }) {
   const confirmed = draft.brief?.rev > 0 && draft.brief.confirmedRev === draft.brief.rev;
   if (!same) applyBrief(draft, { lines: [{ name: "plays_on", line }], log: [], noPlayback: null }, { now, client });
   if (!same && confirmed) draft.brief.confirmedRev = draft.brief.rev;
-  return shape ? `shape: they named ${shape}; saved as plays_on (brief r${draft.brief.rev})`
-    : `shape: no shape named: kino follows the footage (${round.shape.footage}); next: edit update_scene + frame_shot`;
+  // follow: the shape the service then gives the scene (the named one, or null: the footage's),
+  // so a reply with no shape word never leaves the frame a guess for the agent to fix.
+  if (shape) return { line: `shape: they named ${shape}; saved as plays_on (brief r${draft.brief.rev})`, follow: { shape } };
+  if (round.shape.followed) return { line: `shape: no shape named: it stays ${round.shape.footage} like the footage; saved as plays_on (brief r${draft.brief.rev})`, follow: null };
+  return { line: `shape: no shape named: kino follows the footage (${round.shape.footage})`, follow: { shape: null } };
 }
 
 /**

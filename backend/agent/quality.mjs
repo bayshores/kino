@@ -25,6 +25,7 @@ import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { SCREEN_NAME } from "../../engine/movePicks.js";
 import { BACKGROUND_OWNER_ID } from "../../engine/sceneBackground.js";
 import { refName, sec } from "./describe.mjs";
+import { rangeRowOf, rangeRowsOf } from "./checks.mjs";
 import { keyedProperties } from "./overridden-values.mjs";
 import { createFrameReuse } from "./frame-reuse.mjs";
 import { sceneKey } from "./look.mjs";
@@ -492,7 +493,10 @@ function waiverTargets(finding, model) {
 
 function waiverFor(finding, model, waivers) {
   const targets = waiverTargets(finding, model);
-  return waivers.find((waiver) => waiver.code === finding.rule && (waiver.target === "*" || targets.has(waiver.target)));
+  // A reference_range waiver keeps only the rows its reason names (checks.mjs rangeRowsOf).
+  const row = finding.rule === "reference_range" ? rangeRowOf(finding) : null;
+  return waivers.find((waiver) => waiver.code === finding.rule && (waiver.target === "*" || targets.has(waiver.target))
+    && (!row || rangeRowsOf(waiver.reason).includes(row)));
 }
 
 const RULE_BY_CODE = new Map(RULES.map((entry) => [entry.code, entry]));

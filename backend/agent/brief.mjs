@@ -34,7 +34,7 @@ import { IDEA_SPINE, STYLE_LIMITS, addRejected, cleanStyle, mergeStyle, stylePro
 import { OWN_PICK_CALL, cleanTreatments, originLine, pickedIdea, pickedSignature, pickedType, treatmentsProblem, treatmentsText, wordsOnly } from "./treatments.mjs";
 import { directionLock, styleContext, styleLine } from "../../engine/styleSpec.js";
 import { deckLine } from "../../engine/deck.js";
-import { namedShape, sizeLikeFootage } from "../../engine/quality/rules/shape.js";
+import { majorityShape, namedShape, sizeLikeFootage } from "../../engine/quality/rules/shape.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { isRecord } from "../../engine/numbers.js";
 import { footageMove } from "../footage-finder/step.mjs";
@@ -1202,14 +1202,23 @@ export function shapeAsk(brief, video = {}) {
   // A line saved before kino stored `named` is read from its quote.
   if (plays?.by === "you" && (plays.named === undefined ? namedShape(plays.quote) : plays.named)) return null;
   const own = shapeOf(video.width, video.height);
-  const majority = ["landscape", "portrait", "square"].find((shape) => shape !== own && sizes.filter((size) => shapeOf(size.width, size.height) === shape).length * 2 > sizes.length);
+  // The footage's shape and its most common aspect (shape.js majorityShape): the same size the finding names.
+  const majority = majorityShape(sizes);
   if (!majority) return null;
-  const same = sizes.filter((size) => shapeOf(size.width, size.height) === majority);
   const scene = aspectLabel(video.width, video.height);
-  const footage = aspectLabel(same[0].width, same[0].height);
-  const { width, height } = sizeLikeFootage(video, same[0]);
+  const footage = aspectLabel(majority.example.width, majority.example.height);
+  // kino set the scene to the footage's shape at the first import (video.shapeFollowed): the ask
+  // says so until the person answers once (plays_on by "you").
+  if (majority.shape === own) {
+    if (!video.shapeFollowed || plays?.by === "you") return null;
+    return {
+      line: `Shape: ${footage} like your footage (${majority.count} of ${majority.of}). Name a shape or a place if it plays somewhere else.`,
+      round: { scene, footage, size: [Math.round(video.width), Math.round(video.height)], followed: true },
+    };
+  }
+  const { width, height } = sizeLikeFootage(video, majority.example);
   return {
-    line: `Shape: ${scene} (${Math.round(video.width)}x${Math.round(video.height)}) is my guess; your footage is ${footage} (${same.length} of ${sizes.length}). Name a shape or a place to keep ${scene}; any other reply makes it ${footage} like the footage.`,
+    line: `Shape: ${scene} (${Math.round(video.width)}x${Math.round(video.height)}) is my guess; your footage is ${footage} (${majority.count} of ${majority.of}). Name a shape or a place to keep ${scene}; any other reply makes it ${footage} like the footage.`,
     round: { scene, footage, size: [width, height] },
   };
 }

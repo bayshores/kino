@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -109,7 +109,7 @@ import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "../../engine/playback.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
-import { namedShape } from "../../engine/quality/rules/shape.js";
+import { followOps, majorityShape, namedShape, sizeLikeFootage, sizeOfShape } from "../../engine/quality/rules/shape.js";
 import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
@@ -993,9 +993,11 @@ export function createAgentService(deps) {
   }
 
   async function videoFactsFor(document) {
-    const facts = videoFacts(document);
+    // shapeFollowed: kino gave the scene its footage's shape at the first import (shapeAtImport), so the stops ask about it.
+    const followed = (await agentState.read(document.id).catch(() => null))?.shapeFollowed ? { shapeFollowed: true } : {};
+    const facts = { ...videoFacts(document), ...followed };
     if (facts.footage || !notBuilt(document)) return facts;
-    return videoFacts(document, (await deps.listMedia?.().catch(() => [])) ?? []);
+    return { ...videoFacts(document, (await deps.listMedia?.().catch(() => [])) ?? []), ...followed };
   }
 
   // The song this video is about, in the person's words or the song's own title: the song the
@@ -1115,6 +1117,9 @@ export function createAgentService(deps) {
       resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote, saidElsewhere(state));
       resolver.plainQuoteProblem = (quote) => plainWordsProblem(brief, quote);
     }
+    // default_font and type_seen name a reference moment labeled type: the saved references' labels.
+    if (deps.inspire?.savedFingerprints && list.some((op) => op?.code === "type_seen" || op?.code === "default_font"))
+      resolver.seenRefs = await deps.inspire.savedFingerprints(document.id, { labeled: true }).catch(() => []);
     if (!list.some((op) => op?.code === "type_seen")) return resolver;
     const lines = (await agentState.read(document.id).catch(() => null))?.brief?.style?.lines ?? [];
     resolver.references = [...lines.map((line) => line?.ref).filter((ref) => typeof ref === "string"), ...(await savedIds(document.id))];
@@ -5438,6 +5443,20 @@ export function createAgentService(deps) {
       const approval = /^Q\d+$/i.test(id) ? await deps.approvals?.get?.(id.toUpperCase()) : null;
       if (approval) return answerApproval(projectId, approval, input);
     }
+    const reply = await stopTurn(projectId, input, meta, checkpoint);
+    if (!reply.shapeFollow) return reply;
+    // The person's answer settled the shape: kino gives the scene that shape itself, in one revision
+    // (after the stop line ends, since the edit saves through it), then says what is left.
+    const { shapeFollow, ...answer } = reply;
+    const line = await followShape(projectId, shapeFollow.shape).catch((error) => `shape: kino could not change the scene (${String(error?.message ?? error).split("\n")[0].slice(0, 160)}); next: the check's shape_guess fix.`);
+    const record = await store.getProject(projectId);
+    const gates = answer.data?.passed && hasLayers(record.document) && !openStops(await agentState.read(projectId), await directionFacts(record.document), stopRulesNow()).length
+      ? await finalGates(record).then(toFinalLine, () => "") : "";
+    return { ...answer, text: [answer.text, line, gates].filter(Boolean).join("\n") };
+  }
+
+  // The FIFO part of notesStop: a checkpoint or answer recorded under the project's stop line.
+  async function stopTurn(projectId, input, meta, checkpoint) {
     return oneAtATime(projectId, async () => {
       const steady = steadyNow();
       const record = await store.getProject(projectId);
@@ -5490,7 +5509,7 @@ export function createAgentService(deps) {
         }
       } });
       // The last stop answered on a built video: every gate left before the final render, at once.
-      if (!checkpoint && !refused && answer?.data?.passed && hasLayers(record.document)) {
+      if (!checkpoint && !refused && answer?.data?.passed && !answer.shapeFollow && hasLayers(record.document)) {
         const after = await agentState.read(projectId);
         const line = openStops(after, video, rules).length ? "" : await finalGates(await store.getProject(projectId)).then(toFinalLine, () => "");
         if (line) answer = { ...answer, text: `${answer.text}\n${line}` };
@@ -5502,6 +5521,55 @@ export function createAgentService(deps) {
       }
       return { ...finished, ...(refused ? errorReply(refused) : answer) };
     });
+  }
+
+  /**
+   * The scene takes `named` (a shape the person named) or, with null, the shape most of its footage
+   * has (shape.js majorityShape), plus frame_shot on every footage layer, as one edit. Returns the
+   * receipt line, or "" when the scene already has that shape.
+   */
+  async function followShape(projectId, named) {
+    const record = await store.getProject(projectId);
+    const scene = videoScene(record.document);
+    if (!scene) return "";
+    const footage = majorityShape(await footageSizesOf(record.document));
+    const target = named ?? footage?.shape;
+    if (!target || shapeOf(scene.width, scene.height) === target) return "";
+    // Back to the shape kino moved away from at the import: its own size again.
+    const before = (await agentState.read(projectId)).shapeFollowed?.from;
+    const size = !named || named === footage?.shape ? sizeLikeFootage(scene, footage.example)
+      : before && shapeOf(before[0], before[1]) === named ? { width: before[0], height: before[1] } : sizeOfShape(scene, named);
+    const codes = await syncCodes(projectId, record.document);
+    const ops = followOps(scene, size, record.document.scenes.length > 1 ? { sceneId: refName(scene.id, codes) } : {});
+    const receipt = await edit({ project: projectId, ops });
+    const name = refName(scene.id, codes);
+    const shots = ops[1]?.layers.length ?? 0;
+    const what = `${name} ${aspectLabel(size.width, size.height)} (${size.width}x${size.height})${named ? "" : " like the footage"}`;
+    return `shape: ${named ? `they named ${named}: kino made` : "no shape named: kino made"} ${what}${shots ? ` and re-framed ${shots} shot${shots === 1 ? "" : "s"} (frame_shot)` : ""}, rev ${receipt.data?.rev ?? "?"}. Undo: history.`;
+  }
+
+  /**
+   * The first footage of a video whose scene has no video layer yet: unless the person named the
+   * scene's shape (plays_on by "you"), the scene takes the shape most of the project's clips have,
+   * once, and the import's receipt says so. "" when nothing changed.
+   */
+  async function shapeAtImport(projectId) {
+    const record = await store.getProject(projectId);
+    const scene = videoScene(record.document);
+    if (!scene || scene.layers.some((layer) => layer.type === "video")) return "";
+    const state = await agentState.read(projectId);
+    if (state.shapeFollowed) return "";
+    const plays = state.brief?.fields?.plays_on;
+    if (plays?.by === "you" && (plays.named === undefined ? namedShape(plays.quote) : plays.named)) return "";
+    const footage = majorityShape(await footageSizesOf(record.document));
+    const own = shapeOf(scene.width, scene.height);
+    if (!footage || footage.shape === own) return "";
+    const size = sizeLikeFootage(scene, footage.example);
+    const codes = await syncCodes(projectId, record.document);
+    const name = refName(scene.id, codes);
+    await edit({ project: projectId, ops: followOps(scene, size, record.document.scenes.length > 1 ? { sceneId: name } : {}) });
+    await agentState.update(projectId, (draft) => { draft.shapeFollowed = { from: [scene.width, scene.height], to: [size.width, size.height], at: new Date(now()).toISOString() }; });
+    return `shape: ${name} is now ${aspectLabel(size.width, size.height)} (${size.width}x${size.height}) like your footage (${footage.count} of ${footage.of}); it stays ${aspectLabel(scene.width, scene.height)} only if the person names it (the storyboard stop asks).`;
   }
 
   // The storyboard ask's style frame (board-look.mjs): { facts, png } of the picked type direction
@@ -6754,7 +6822,9 @@ export function createAgentService(deps) {
     if (!result.media.length) throw new AgentError("failed", takeText(candidate, result));
     const media = (await deps.listMedia?.().catch(() => [])) ?? [];
     const lead = personClipsLine(personClipCount(record.document, media));
-    const answer = { text: [lead, takeText(candidate, result)].filter(Boolean).join("\n"),
+    // The first footage settles the frame shape (no video layer yet, the person named none).
+    const shaped = await shapeAtImport(projectId).catch(() => "");
+    const answer = { text: [lead, takeText(candidate, result), shaped].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed },
       nextCall: nextOf("look", { mode: "source" }) };
     return done(projectId, answer);

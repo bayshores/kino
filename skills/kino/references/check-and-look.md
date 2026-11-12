@@ -27,15 +27,15 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - Contrast: failing under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
 - Errors, and in a real edit warnings, block final. On purpose:
-  `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or
-  glob (`"arch-*"`) waives each matching layer. These need `quote` (the person's words) and
-  named layers, never `*`: what viewers see (small screens, frozen pictures, template ends),
-  `crop_no_subject`, `shape_guess`; whole-scene `held_static`, `text_slides`, `ending_seen`,
-  `music_stall` take the scene (`"s1"`). `head_cut_off`, `narrow_window`: named layers, no
-  quote. `ask_unmet`: the reason names the origin word.
+  `{"op":"waive_check","code":"overlap","target":"*","reason":"meant"}`; a list or glob
+  waives each match. `quote` (the person's words) and named layers, never `*`:
+  what viewers see, `crop_no_subject`; whole-scene `held_static`, `text_slides`, `ending_seen`,
+  `music_stall` the scene. `head_cut_off`, `narrow_window`, `soft_upscale`: named layers.
+  Reason names: `ask_unmet` the origin word; `default_font`, `type_seen` a moment you
+  labeled type (`yt:<id> @4.4`); `reference_range` its rows (dark, text...). `shape_guess`: never.
 - AI tells warn: `own_words` (no `source`), `stock_copy`,
   `same_entrance`, `word_by_word`, `soft_cuts`, `blurred_backdrop`, `text_glow`, `page_chrome`,
-  `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references; waive naming `yt:<id>`).
+  `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references).
 - Set `role` on layers (headline, cta, logo, hero, decor, `ui`: product text, contrast only)
   and `videoType` (`library {topic:"rules", name:"quality-settings"}`).
 

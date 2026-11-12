@@ -23,7 +23,7 @@ import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 // A viewer-facing finding is kept only on the person's words, on named layers: not "*", not a scene,
 // not a glob that reaches every layer. The test cards here are the layers named dot*.
-const viewerWaiver = (code) => (VIEWER_WAIVERS.has(code) ? { target: ["ending_seen", "text_slides"].includes(code) ? "s1" : "dot*", quote: "keep the still test card as it is" } : { target: "*" });
+const viewerWaiver = (code) => (VIEWER_WAIVERS.has(code) ? { target: ["ending_seen", "text_slides"].includes(code) ? "s1" : "dot*", quote: "keep the still test card as it is" } : { target: code === "soft_upscale" ? "street" : "*" });
 
 // A 1280×720 scene: a title fades in at 0.2–0.6 s, a box flies across at 1–2 s, a caption comes
 // in at 4 s, and nothing happens after 4.4 s (a quiet stretch to 8 s).
@@ -465,9 +465,9 @@ test("the viewer gate: a 16 s video with footage needs intents, a packet and a f
   const built = await agent("edit", { project: id, ops: [
     { op: "waive_check", code: "reference", target: "*", reason: "a viewer test" },
     { op: "waive_check", code: "review", target: "*", reason: "a viewer test" },
-    { op: "waive_check", code: "soft_upscale", target: "*", reason: "a tiny test clip" },
     { op: "waive_check", code: "plain_beats", target: "s1", reason: "test fixture" },
     { op: "add_layer", layerType: "video", name: "street", properties: { src: media.src ?? media.media?.src, x: 0, y: 0, width: 320, height: 180 } },
+    { op: "waive_check", code: "soft_upscale", target: "street", reason: "a tiny test clip" },
   ] });
   assert.equal(built.isError, undefined, built.text);
   const start = { project: id, action: "start", quality: "final", format: "gif" };

@@ -100,7 +100,24 @@ test("a board ask names a guessed shape against the footage's; an answer that na
   assert.equal(asked.data.ask.split("\n")[2], pointed, "the board says what the ask points to, right after the shape");
   assert.deepEqual(state.stops[0].shape, { scene: "9:16", footage: "16:9", size: [1920, 1080] });
   const answered = answerStep(state, { input: { id: "C1", rev: 4, words: "looks good, keep going", read_as: "approve" }, video, rev: 4, now: T0 + 30_000, board: BOARD });
-  assert.match(answered.text, /shape: no shape named: kino follows the footage \(16:9\); next: edit update_scene \+ frame_shot/);
+  assert.match(answered.text, /shape: no shape named: kino follows the footage \(16:9\)/);
+  assert.deepEqual(answered.shapeFollow, { shape: null }, "the service then makes the scene the footage's shape itself");
+  // The label is the most common aspect of the majority shape, and its size is the one the finding names.
+  const mixed = ready(4);
+  mixed.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };
+  const ultra = { width: 1280, height: 588 };
+  const mixedAsk = checkpointStep(mixed, { kind: "board", video: { ...video, footageSizes: [ultra, ultra, wide, wide, wide] }, rev: 4, now: T0, board: BOARD });
+  assert.match(mixedAsk.data.ask, /your footage is 16:9 \(5 of 5\)/);
+  assert.deepEqual(mixed.stops[0].shape.size, [1920, 1080]);
+  // kino already followed the footage at the import: the ask says so, once, and how to name another.
+  const followed = ready(4);
+  followed.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };
+  const wideVideo = { ...video, width: 1920, height: 1080, shapeFollowed: true };
+  const followAsk = checkpointStep(followed, { kind: "board", video: wideVideo, rev: 4, now: T0, board: BOARD });
+  assert.match(followAsk.data.ask, /^Shape: 16:9 like your footage \(3 of 3\)\. Name a shape or a place if it plays somewhere else\.$/m);
+  const followAnswer = answerStep(followed, { input: { id: "C1", rev: 4, words: "looks good", read_as: "approve" }, video: wideVideo, rev: 4, now: T0 + 30_000, board: BOARD });
+  assert.equal(followAnswer.shapeFollow, undefined, "nothing to change: the scene has the footage's shape");
+  assert.equal(followed.brief.fields.plays_on.by, "you");
   const plays = state.brief.fields.plays_on;
   assert.deepEqual([plays.by, plays.named, plays.quote], ["you", false, "looks good, keep going"]);
   assert.match(plays.text, /16:9, like the footage/);

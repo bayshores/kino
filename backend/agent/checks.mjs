@@ -281,6 +281,22 @@ export function waiverNotes(waivers = [], { codes = null } = {}) {
       : `${code} is waived ${count} times here: likely a kino false positive, not taste. Tell the kino maintainers what it flagged and why it was right.`);
 }
 
+// reference_range has a row per measure (engine/quality/rules/reference.js). A waiver keeps only
+// the rows its reason names by one of these words, so "kept dark on purpose" leaves the text row open.
+const RANGE_ROWS = { brightness: /\b(?:bright\w*|dark\w*)\b/i, contrast: /\bcontrast\w*\b/i, text: /\btexts?\b/i, voice: /\b(?:voice\w*|speech|spoken)\b/i };
+export const RANGE_ROW_WORDS = "brightness, dark, contrast, text or voice";
+/** The reference_range rows a waiver's reason names: ["brightness", "text"], or []. */
+export const rangeRowsOf = (reason) => Object.keys(RANGE_ROWS).filter((row) => RANGE_ROWS[row].test(String(reason ?? "")));
+/** The row of a reference_range finding, read from its measured line ("median brightness ...": brightness), or null. */
+export function rangeRowOf(finding) {
+  const measured = String(finding?.measured ?? "");
+  if (/^median brightness/.test(measured)) return "brightness";
+  if (/^median contrast/.test(measured)) return "contrast";
+  if (/text entrances/.test(measured)) return "text";
+  if (/speech|voice/.test(measured)) return "voice";
+  return null;
+}
+
 /** The waivers that still count: all but the stale ones (a full check's `stale`, quality.mjs staleWaivers). */
 export const liveWaivers = (waivers = [], stale = []) => waivers.filter((waiver) => !stale.includes(waiver));
 

@@ -12,6 +12,25 @@ import { sec } from "../analysis.js";
 
 const size = (width, height) => `${Math.round(width)}x${Math.round(height)}`;
 
+/**
+ * The shape more than half of the footage files share: {shape, count, of, example} or null (a tie
+ * or a three-way split is no shape). `example` is a size of the most common aspect among those
+ * files, so every message names the same size (an ask, a finding, a receipt).
+ */
+export function majorityShape(sizes = []) {
+  const list = sizes.filter((size) => size?.width > 0 && size?.height > 0).map((size) => ({ shape: shapeOf(size.width, size.height), width: size.width, height: size.height }));
+  const counts = new Map();
+  for (const entry of list) counts.set(entry.shape, (counts.get(entry.shape) ?? 0) + 1);
+  const [shape, count] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!shape || count * 2 <= list.length) return null;
+  const same = list.filter((entry) => entry.shape === shape);
+  const ratios = new Map();
+  for (const entry of same) { const key = (entry.width / entry.height).toFixed(2); ratios.set(key, (ratios.get(key) ?? 0) + 1); }
+  const [ratio] = [...ratios].sort((a, b) => b[1] - a[1])[0];
+  const example = same.find((entry) => (entry.width / entry.height).toFixed(2) === ratio);
+  return { shape, count, of: list.length, example: { width: example.width, height: example.height } };
+}
+
 /** The shape most of the scene's footage files share, with how many files: {shape, count, of, example} or null. */
 function footageShape(scene, mediaSizes) {
   const files = new Map();
@@ -20,15 +39,9 @@ function footageShape(scene, mediaSizes) {
     const found = mediaSizes?.[layer.src];
     // A screen recording is shaped by the screen, not by how the video is filmed.
     if (!(found?.width > 0 && found?.height > 0) || found.screen || found.named || layer.recording) continue;
-    files.set(layer.src, { shape: shapeOf(found.width, found.height), width: found.width, height: found.height });
+    files.set(layer.src, { width: found.width, height: found.height });
   }
-  const counts = new Map();
-  for (const entry of files.values()) counts.set(entry.shape, (counts.get(entry.shape) ?? 0) + 1);
-  const [shape, count] = [...counts].sort((a, b) => b[1] - a[1])[0] ?? [];
-  // "Most": more than half of the files, so a tie or a three-way split is no shape.
-  if (!shape || count * 2 <= files.size) return null;
-  const example = [...files.values()].find((entry) => entry.shape === shape);
-  return { shape, count, of: files.size, example };
+  return majorityShape([...files.values()]);
 }
 
 // The words that name a shape. Matched as whole words, any case; no brand or platform names.
@@ -71,12 +84,30 @@ export function sizeLikeFootage(own, example) {
   return { width: Math.round(example.width * scale), height: Math.round(example.height * scale) };
 }
 
+// A frame of `shape` at the scene's long edge: portrait 9:16, landscape 16:9, square 1:1.
+export function sizeOfShape(own, shape) {
+  const long = Math.max(own.width, own.height);
+  const short = Math.round(long * 9 / 16);
+  return shape === "portrait" ? { width: short, height: long } : shape === "landscape" ? { width: long, height: short } : { width: long, height: long };
+}
+
+/**
+ * The ops that give the scene `size` and re-frame each of its footage shots (frame_shot keeps the
+ * subject in the new frame): [update_scene, frame_shot] or [update_scene] with no video layer.
+ * `sceneId` names the scene when the project has several.
+ */
+export function followOps(scene, size, { sceneId } = {}) {
+  const layers = (scene.layers ?? []).filter((layer) => layer.type === "video" && layer.enabled !== false).map((layer) => layer.name || layer.id);
+  return [{ op: "update_scene", ...(sceneId ? { sceneId } : {}), properties: { width: size.width, height: size.height } },
+    ...(layers.length ? [{ op: "frame_shot", layers }] : [])];
+}
+
 // The call that turns the scene into the footage's shape and re-frames each footage shot.
 function followCall(scene, model, footage) {
-  const names = (scene.layers ?? []).filter((layer) => layer.type === "video" && layer.name).map((layer) => layer.name);
-  const layers = names.length > 8 ? [...names.slice(0, 8), "..."] : names;
-  const { width, height } = sizeLikeFootage(model, footage.example);
-  return `edit ${JSON.stringify({ ops: [{ op: "update_scene", properties: { width, height } }, { op: "frame_shot", layers }] })}`;
+  const [update, frame] = followOps(scene, sizeLikeFootage(model, footage.example));
+  const layers = frame?.layers ?? [];
+  const shown = layers.length > 8 ? [...layers.slice(0, 8), "..."] : layers;
+  return `edit ${JSON.stringify({ ops: [update, ...(frame ? [{ ...frame, layers: shown }] : [])] })}`;
 }
 
 /**
