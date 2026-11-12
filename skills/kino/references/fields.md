@@ -59,7 +59,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `add_animation {scene?, layer, preset, start?, mode?, parameters?, duration?, easing?, intensity?, unit?, stagger?, anchor?, ...} or {scene?, layer, animation} or {scene?, layer, keys}`
 - `update_animation {scene?, layer, animation, properties}`
 - `update_animations {scene?, animationIds, properties}`
-- `delete_animation {scene?, layer, animation}`
+- `delete_animation {scene?, layer, animation, pair?}`
 - `rename_animation {scene?, animation, name, layer?}`
 - `stagger_animations {scene?, items, delay, order?, seed?}`
 - `group_animations {scene?, animationIds, name?}`
@@ -127,8 +127,9 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `mark_subject {layer, t, box, part?, shows?}`
 - `match_references {scene?, layer? | layers?, remove?, lower?, made?}`
 - `lift_dark {layer | layers, target?, grain?, reduced?, remove?}`
+- `deblock_upscaled {layer? | layers?, ratio?, scene?, remove?}`
 - `split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}`
 - `source {name, text}`
-- `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, alts?, id?}], calls?, open?} or {snap:"beats"}`
+- `board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, lift?, drop?, alts?, id?}], calls?, open?} or {snap:"beats"}`
 - `split_layer {layer, at} or {layer, from, to}`
 - `trace_image {layer|media, time?, region?, colors?:4, smooth?:1, minArea?:16, background?, as?, name?}`
