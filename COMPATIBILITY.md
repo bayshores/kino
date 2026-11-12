@@ -1395,6 +1395,16 @@ How to read it:
   `engine/qualityPolish.test.js`, `backend/audio-levels.test.mjs`. Gap: no saved reference keeps a drop rise;
   the dip clause reads the song layer's own volume only (dm5-a's hole at 8.0-8.5 s comes from another
   music layer, not named), and a WebM or MOV render's sound encode is not modeled.
+- **Cuts and the ending on song events**: Verified on a generated click track and a replayed real project.
+  `retime {snap:"song", from, to, reach?}` moves each picture cut in the span to the nearest strong
+  onset (else beat) within reach (default half the median shot), each layer keeping its file time; a
+  cut that would cut a kept line or overrun a file stays, named. The ending line names the strong
+  onsets within 2 s of the end and the one edit that rings the song out on the first; a presence
+  line gives the song's out and under-half time over the runtime with the layers heard then.
+  A later end plays the last shots on to it (to their file's next saved shot change, then held).
+  Evidence: `engine/songEvents.test.js`. Gap: the strong weight 0.5 is a guess; no saved reference
+  carries a presence share; audio layers starting on a cut do not move; a cut-in the shot finder
+  missed still plays (a replayed project showed 2 frames of another angle in the 0.31 s added).
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the
