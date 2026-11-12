@@ -141,6 +141,7 @@ import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { changedStretches, findingsAt, frameSignature, nearDuplicate, newFindingsLine, rememberReviewed, REVIEW_COMPACT_EDGE, REVIEW_FULL_EDGE, REVIEW_IMAGE_BUDGET, REVIEW_SKIP_UNDER, REVIEW_WAIVER, reviewEvents, reviewKey, reviewSizes, unreviewed } from "./review.mjs";
 import { missingDocumentFonts } from "../../engine/fontRecovery.js";
 import { sceneShots, shotTiles } from "../../engine/sceneShots.js";
+import { edgeSpans } from "../../engine/spanCuts.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "../../engine/playback.js";
 import { shapeOf } from "../../engine/footage/layout.js";
@@ -6077,14 +6078,19 @@ export function createAgentService(deps) {
       layers: [createLayer("video", { id: "source", name: "source", src, x: 0, y: 0, width: record.width, height: record.height,
         mediaStart: 0, mediaOffset: 0, mediaSourceDuration: record.duration, volume: 0 })],
     })] })).scenes[0];
-    const image = await look.sheetImage({ scene, fonts, key: sceneKey(scene, fonts) }, { times, labels: times.map((time, index) => `${index + 1} · ${time}s`) });
+    // A shot's edge frames (a whip, flash, black or card frame the shot finder marks): a tile on one says edge.
+    const edges = edgeSpans(record.shots);
+    const onEdge = (time) => edges.some((edge) => time >= edge.from - 1e-3 && time < edge.to - 1e-3);
+    const image = await look.sheetImage({ scene, fonts, key: sceneKey(scene, fonts) }, { times, labels: times.map((time, index) => `${index + 1} · ${time}s${onEdge(time) ? " · edge" : ""}`) });
+    const edgeLine = edges.length ? `edge frames (file s; whip, flash, black or card frames at a shot's start or end, which imports and boards leave out): ${edges.slice(0, 8).map((edge) => `${sec(edge.from)}-${sec(edge.to)} (${edge.frames} at a shot's ${edge.where})`).join(" · ")}${edges.length > 8 ? ` +${edges.length - 8}` : ""}.` : null;
     // The clip's own sound, as a layer of this file shows it (heard lines, language, sounds).
     const heard = document ? await clipSoundLine(src, document) : null;
     const soundLine = heard?.text ? `sound: ${heard.text} (file s)` : null;
     const text = asked
-      ? [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`, ...(soundLine ? [soundLine] : [])].join("\n")
+      ? [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`, ...(edgeLine ? [edgeLine] : []), ...(soundLine ? [soundLine] : [])].join("\n")
       : [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): the whole clip in ${count} frames, labeled with file seconds.`,
         await clipEventsLine(src, record),
+        ...(edgeLine ? [edgeLine] : []),
         ...(soundLine ? [soundLine] : []),
         `Exact frames: times:[…] (file seconds). For a crop, add it as a layer and look {mode:"source", layer, t}.`].join("\n");
     return { image, text, extra: { ...(heard?.said.length ? { heard: heard.said } : {}), file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };

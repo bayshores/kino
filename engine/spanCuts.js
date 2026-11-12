@@ -65,6 +65,34 @@ export function fileCuts(fileShots) {
 }
 
 /**
+ * The edge frames of a file's shots (shot.edge from the shot finder), in file seconds:
+ * [{from, to, frames, where: "start" | "end"}], sorted. [] when none are marked.
+ */
+export function edgeSpans(fileShots) {
+  if (!Array.isArray(fileShots)) return [];
+  const spans = [];
+  for (const shot of fileShots) {
+    const edge = shot?.edge;
+    if (!edge || !Number.isFinite(shot.start) || !Number.isFinite(shot.end)) continue;
+    if (edge.head > 0 && Number.isFinite(edge.start)) spans.push({ from: shot.start, to: edge.start, frames: edge.head, where: "start" });
+    if (edge.tail > 0 && Number.isFinite(edge.end)) spans.push({ from: edge.end, to: shot.end, frames: edge.tail, where: "end" });
+  }
+  return spans.sort((a, b) => a.from - b.from);
+}
+
+/**
+ * The cut whose trim leaves out every short crossing on one side of a span: of the cut with the
+ * least leak and the other cuts on its side under NEAR_CUT (a cut and the edge frames beside it),
+ * the one with the most leak. null for no cuts.
+ */
+export function farthestCut(cuts) {
+  if (!cuts?.length) return null;
+  const least = cuts.reduce((top, cut) => (cut.leak < top.leak ? cut : top));
+  return cuts.filter((cut) => cut === least || (cut.side === least.side && cut.leak < NEAR_CUT))
+    .reduce((top, cut) => (cut.leak > top.leak ? cut : top));
+}
+
+/**
  * The cuts inside what a video layer plays: { cuts, fields } where `fields` (per cut, only for a
  * forward clip at a constant speed) are the layer fields that apply the trim, keeping the layer's
  * start (end side) or its end (start side). [] when the file's cuts are not known.
@@ -117,9 +145,12 @@ export function slideOffCut(shot, fileShots, { fileDuration = 0, near = NEAR_CUT
   const cuts = shotSpanCuts(shot, fileShots);
   const short = cuts.filter((cut) => cut.leak < near);
   if (!short.length) return { shot: null, cuts };
-  if (cuts.length > 1) return { shot: null, cuts, why: "more than one cut" };
+  // A cut and the edge frames next to it (a whip or black frames at the next shot's head) are one
+  // short crossing on one side: the shot slides past the farthest of them.
+  const oneSide = short.length === cuts.length && short.every((cut) => cut.side === short[0].side);
+  if (cuts.length > 1 && !oneSide) return { shot: null, cuts, why: "more than one cut" };
   if (Array.isArray(shot.sound?.keep)) return { shot: null, cuts, why: "sound" };
-  const [cut] = cuts;
+  const cut = farthestCut(cuts);
   const length = shot.dur * (shot.speed > 0 ? shot.speed : 1);
   const slid = round(cut.trim.in !== undefined ? cut.trim.in : cut.trim.out - length);
   if (slid < 0 || (fileDuration > 0 && slid + length > fileDuration + 1e-6)) return { shot: null, cuts, why: "file" };

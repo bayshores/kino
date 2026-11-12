@@ -12,7 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeMedia } from "./media-probe.mjs";
-import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
+import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotEdges, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -197,6 +197,14 @@ describe("shotsFromCuts", () => {
     const pictures = [...Array(28).fill(0), 200, 200, 200, ...Array(30).fill(40)];
     const mad = (first, second) => Math.abs(pictures[first] - pictures[second]) + (pictures[first] === pictures[second] ? 1 : 0);
     assert.deepEqual(shotsFromCuts([28, 31], pictures.length, mad), { starts: [0, 28], flashes: 0 });
+  });
+
+  test("shotEdges: dropped cuts by a shot's ends are edge frames only when those frames are apart from its body", () => {
+    // Shots start at 0 and 20 of 40 frames; dropped cuts at 22 (2 frames in) and 38 (2 frames from the end).
+    const apart = (frame) => frame < 22 || frame >= 38;
+    assert.deepEqual(shotEdges([20, 22, 38], [0, 20], 40, { apart }), [{ head: 0, tail: 0 }, { head: 2, tail: 2 }]);
+    // A drawn pose change at 22 (frames 20-21 alike the body) stays in the shot.
+    assert.deepEqual(shotEdges([20, 22, 38], [0, 20], 40, { apart: (frame) => frame >= 38 }), [{ head: 0, tail: 0 }, { head: 0, tail: 2 }]);
   });
 });
 

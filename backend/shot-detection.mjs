@@ -220,15 +220,17 @@ export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashL
  * [[cut, back]] frame spans of flashes (their cuts are not edges). Returns [{head, tail}] per
  * shot, in frames: how many frames at its start and its end show another picture (0 for none).
  */
-export function shotEdges(cuts, starts, frames, { at = (frame) => frame, flashes = [] } = {}) {
+export function shotEdges(cuts, starts, frames, { at = (frame) => frame, flashes = [], apart = () => true } = {}) {
   const inFlash = (cut) => flashes.some(([from, to]) => cut >= from && cut <= to);
+  // Every frame from `from` to `to` (exclusive) shows another picture than the body's frame `body`.
+  const away = (from, to, body) => { for (let frame = from; frame < to; frame += 1) if (!apart(frame, body)) return false; return true; };
   return starts.map((start, index) => {
     const next = starts[index + 1] ?? frames;
     const dropped = cuts.filter((cut) => cut > start && cut < next && !inFlash(cut));
     let head = 0, tail = 0;
     for (const cut of dropped) {
-      if (at(cut) - at(start) < MIN_SHOT_FRAMES - EPSILON) head = cut - start;
-      else if (at(next) - at(cut) < MIN_SHOT_FRAMES - EPSILON && !tail) tail = next - cut;
+      if (at(cut) - at(start) < MIN_SHOT_FRAMES - EPSILON) { if (away(start, cut, cut)) head = cut - start; }
+      else if (at(next) - at(cut) < MIN_SHOT_FRAMES - EPSILON && !tail && away(cut, next, cut - 1)) tail = next - cut;
     }
     // The body between the edges must stay a shot; else the edges are not told apart from it.
     if (next - start - head - tail < MIN_SHOT_FRAMES) return { head: 0, tail: 0 };
@@ -584,14 +586,15 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
     const flashSpans = [], flashFrames = [];
     const onFlash = (cut, back) => { flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) }); flashFrames.push([cut, back]); };
     const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
-    const edges = shotEdges(cuts, starts, frames, { at, flashes: flashFrames });
+    // An edge frame is flat (black, white, a blur) or not alike the body's nearest frame: a drawn
+    // pose change at a shot's start (the same picture, redrawn) is body, not an edge.
+    const edges = shotEdges(cuts, starts, frames, { at, flashes: flashFrames, apart: (frame, body) => flat(frame) || !alike(frame, body) });
     return { starts, flashes, flashSpans, edges, holds: holdPattern(frames, mad, run.times, length, starts) };
   };
   // Drawn footage (each drawing held 2 frames or more in the shots found without it) is looked at
   // once more for cuts between dim drawn shots (UNLIKE_JUMP).
   let found = find(false);
-  if (found.holds.frames >= 2) found = find(true);
-  const { starts, flashes, flashSpans, edges } = found;
+  if (found.holds.frames >= 2) found = find(true);  const { starts, flashes, flashSpans, edges } = found;
   const span = run.times[frames - 1] - run.times[0];
   const times = starts.map((frame) => (frame === 0 ? 0 : run.times[frame]));
   const shots = times.map((start, index) => {

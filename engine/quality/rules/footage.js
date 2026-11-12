@@ -31,7 +31,7 @@
 import { boxesAt, cropOnSource, insideShare } from "../../sourceView.js";
 import { effectiveMediaDuration, mediaFrameState, mediaPlaybackRange } from "../../playback.js";
 import { sec } from "../analysis.js";
-import { constantSpeed } from "../../mediaTime.js";
+import { constantSpeed, isReversed } from "../../mediaTime.js";
 import { LOW_CONFIDENCE, lowRuns } from "../../pin.js";
 import { inPicture, positionAt } from "../../recording.js";
 import { boxAt, itemById, visibleBoxAt } from "../model.js";
@@ -41,7 +41,7 @@ import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
 import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
 import { cropPast, markSpan, markWays, MARK_SECONDS, MARK_SEEN, MARK_ZOOM_MOST } from "../../footage/burned.js";
-import { layerSpanCuts } from "../../spanCuts.js";
+import { farthestCut, layerSpanCuts } from "../../spanCuts.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -886,7 +886,10 @@ export function frozenFootage(model, ctx) {
  * or one-frame card the shot finder marks, shot.edge): frames of another picture show. Any layer,
  * on the board or not, at any speed or reversed (spanCuts.js maps the cut through the clip's time).
  * One finding per layer: the cut's scene second, its file second, how many frames show past it,
- * and the trim (mediaOffset, mediaStart, mediaDuration) that keeps the longer side.
+ * and the trim (mediaOffset, mediaStart, mediaDuration) that keeps the longer side. A cut and the
+ * edge frames beside it are one crossing (farthestCut). The frames are counted on the checked
+ * frames where the layer is on screen, so a first or last frame held by mediaFreeze from past the
+ * cut counts for as long as it is held.
  */
 export function sourceCut(model, ctx) {
   const scene = ctx.scene;
@@ -898,18 +901,35 @@ export function sourceCut(model, ctx) {
     if (!cuts.length) continue;
     const item = model.items.find((entry) => entry.source?.layerId === layer.id && !entry.source?.componentPath);
     const name = item ? ctx.name(item) : layer.name ?? layer.id;
-    const [cut] = [...cuts].sort((a, b) => a.leak - b.leak);
-    const frames = Math.max(1, Math.round(cut.leak * model.fps));
+    const cut = farthestCut(cuts);
+    const crossed = cuts.filter((each) => each === cut || (each.side === cut.side && (cut.side === "start" ? each.file < cut.file : each.file > cut.file)));
+    // The checked frames that show the file on the leak side of the cut, held frames included.
+    const past = (source) => (cut.side === "start" ? source < cut.file - 1e-3 : source >= cut.file - 1e-3);
+    let shown = 0, held = 0;
+    if (item) {
+      model.times.forEach((time, index) => {
+        if (!onScreen(model, item, index)) return;
+        const state = mediaFrameState(layer, time);
+        if (!state.visible || !past(state.sourceTime)) return;
+        shown += 1;
+        if (!state.playing) held += 1;
+      });
+    }
+    const frames = shown || Math.max(1, Math.round(cut.leak * model.fps));
+    const heldText = held ? ` (${held} of them a frame mediaFreeze holds)` : "";
     const what = cut.edge ? `${cut.edge} edge frame${cut.edge === 1 ? "" : "s"} of its shot (a whip, flash, black or card frame)` : "a cut of its file";
     const trim = cut.fields ? Object.entries(cut.fields).map(([key, value]) => `${key}:${value}`).join(", ") : null;
+    const more = cuts.length - crossed.length;
+    // The leak is before the cut in the scene when it is the file's start side of a forward clip.
+    const leakFirst = (cut.side === "start") !== isReversed(layer);
     findings.push({
       rule: "source_cut", severity: "info", ...(item ? { itemId: item.id } : {}), at: sec(cut.at),
-      message: `${name} plays across ${what} at ${sec(cut.at)} s (file ${sec(cut.file)} s): ${frames} frame${frames === 1 ? "" : "s"} of the other picture show${cuts.length > 1 ? `; ${cuts.length - 1} more in its span` : ""}.`,
-      measured: `file ${sec(cut.file)} s lands at ${sec(cut.at)} s; ${sec(cut.early)} s before it and ${sec(cut.late)} s after it in the scene (${frames} frames at ${model.fps} fps on the short side)`,
+      message: `${name} plays across ${what} at ${sec(cut.at)} s (file ${sec(cut.file)} s): ${frames} frame${frames === 1 ? "" : "s"} of the other picture show${heldText}${crossed.length > 1 ? `, past ${crossed.length} cuts` : ""}${more > 0 ? `; ${more} more in its span` : ""}.`,
+      measured: `file ${sec(cut.file)} s lands at ${sec(cut.at)} s; ${sec(cut.early)} s before it and ${sec(cut.late)} s after it in the scene; ${frames} frames at ${model.fps} fps on the short side`,
       required: "a shown span inside one shot of its file, unless the source cut is meant",
       fix: trim
         ? { kind: "layer", layerId: layer.id, properties: cut.fields, auto: false, why: `${trim} keeps the longer side of file ${sec(cut.file)} s` }
-        : { kind: "hint", text: `Move ${name}'s mediaOffset so file ${sec(cut.file)} s is not in its shown span (look {mode:"source", layer:${name}} shows the cut), or hide it from ${sec(cut.at)} s.` },
+        : { kind: "hint", text: `Move ${name}'s mediaOffset so file ${sec(cut.file)} s is not in its shown span (look {mode:"source", layer:${name}} shows the cut), or ${leakFirst ? "show" : "hide"} it from ${sec(cut.at)} s (add_animation preset "${leakFirst ? "show" : "hide"}").` },
     });
   }
   return findings;

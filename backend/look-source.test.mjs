@@ -307,7 +307,15 @@ test("look source and mark_subject refuse what they cannot do, in words", { skip
   assert.match(overview.text, /^source: \d+ files?\./m);
   // An imported clip's file name (no layer yet) shows the whole clip in one sheet, in file seconds.
   const whole = await look({ layer: "sintel-village-dragon.mp4" });
-  assert.match(whole.text, /^source sintel-village-dragon\.mp4 \(\d+×\d+, 4\.4\d* s\): the whole clip in 12 frames, labeled with file seconds\.$/m);
+  // With its second shot given 2 edge frames at its end (2.5-3.333 s here), the answer lists them
+  // and the tiles at 2.76 and 3.13 s are labeled edge.
+  const recordFile = path.join(server.dataDirectory, "media", `${clip.id}.json`);
+  const kept = JSON.parse(await readFile(recordFile, "utf8"));
+  await writeFile(recordFile, JSON.stringify({ ...kept, shots: kept.shots.map((shot, index) => (index === 1 ? { ...shot, edge: { head: 0, tail: 2, start: shot.start, end: 2.5 } } : shot)) }));
+  const edged = await look({ layer: clip.id });
+  await writeFile(recordFile, JSON.stringify(kept));
+  assert.match(edged.text, /^edge frames \(file s; whip, flash, black or card frames at a shot's start or end, which imports and boards leave out\): 2\.5-3\.33 \(2 at a shot's end\)\.$/m, edged.text);
+  assert.doesNotMatch(whole.text, /^edge frames/m, "a clip with no edge frames has no edge line");  assert.match(whole.text, /^source sintel-village-dragon\.mp4 \(\d+×\d+, 4\.4\d* s\): the whole clip in 12 frames, labeled with file seconds\.$/m);
   assert.equal(whole.data.times.length, 12);
   // It names the clip's events (impacts, light, motion at the frame, drawing rate): footage/events.mjs.
   assert.match(whole.text, /^events \(file s\)[^:]*: .+\.$/m, whole.text);
