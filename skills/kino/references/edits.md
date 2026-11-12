@@ -99,9 +99,7 @@ A second scene (from then on every op names its `scene`):
   `properties:{visible:false}`, not `opacity:0`.
 - Moving a layer moves its presets too; for custom x and y, starts away from where a layer is
   drawn, or ends using an old value, the receipt gives the `update_animation` ops that fix them.
-- `preset` also takes `{id, mode, parameters}`, the shape a layer's animation keeps. Animation
-  codes (A12) stay the same between reads: deleting one and then `match_references` in the same
-  edit no longer renumbers the deleted ones.
+- `preset` also takes `{id, mode, parameters}`. Animation codes (A12) stay the same between reads.
 
 ## Fonts
 
