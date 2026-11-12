@@ -218,6 +218,57 @@ export function doubtOf({ title = "", description = "", views, verified = false,
   return doubts.join(", ");
 }
 
+// Measured doubts (kino's own numbers of the video, not its title): a patch or line that stays in
+// place this share of the video or more, fewer cuts a second than RAW_CUTS over RAW_SECONDS or
+// more, text on screen this share with this share of it on a plain background, and a length.
+export const STAYS_SHARE = 0.6;
+export const RAW_CUTS = 0.08;
+export const RAW_SECONDS = 15;
+export const PLAIN_TEXT = { share: 0.5, onPlain: 0.6 };
+export const COMPILATION_SECONDS = 600;
+
+/**
+ * Why a measured reference is doubtful from its own frames, or "": "a patch stays in place 92%
+ * (a watermark or another app's frame?)", "almost no cuts (a raw clip, not an edit?)", "mostly text
+ * on a plain background", "compilation length". Each is a reason to look before saving, never a
+ * ban: an edit may keep a frame or hold one shot on purpose.
+ */
+export function measuredDoubt(ref) {
+  const doubts = [];
+  const fp = ref?.fingerprint;
+  const stays = (fp?.persistent ?? []).filter((item) => item.share >= STAYS_SHARE).sort((a, b) => b.share - a.share)[0];
+  if (stays) doubts.push(`${stays.kind === "text" ? `"${String(stays.text).slice(0, 20)}"` : "a patch"} stays in place ${Math.round(stays.share * 100)}% (a watermark or another app's frame?)`);
+  const numbers = ref?.numbers;
+  if (numbers?.seconds >= RAW_SECONDS && (numbers.shots <= 2 || numbers.cutsPerSecond < RAW_CUTS)) doubts.push("almost no cuts (a raw clip, not an edit?)");
+  if (fp?.text?.share >= PLAIN_TEXT.share && fp.text.onPlain >= PLAIN_TEXT.onPlain) doubts.push("mostly text on a plain background");
+  if (ref?.duration >= COMPILATION_SECONDS) doubts.push("compilation length");
+  return doubts.join(", ");
+}
+
+/**
+ * How a result fits the video being made (`plan`: {seconds, vertical}), or "": "3:08 for a 20 s
+ * edit: name the stretch you take" (over 3 times as long), "0:05 for a 30 s edit: one moment, not
+ * the whole" (under a third), "wide for a 9:16 edit: take pacing or type, not framing" (and the
+ * other way round). Nothing when the plan's length and shape are unknown.
+ */
+export function fitNote(ref, plan = {}) {
+  const notes = [];
+  const seconds = Number(plan.seconds);
+  const length = Number(ref?.duration);
+  if (seconds > 0 && length > 0) {
+    if (length > 3 * seconds && length - seconds >= 20) notes.push(`${clock(length)} for a ${Math.round(seconds)} s edit: name the stretch you take`);
+    else if (length < seconds / 3) notes.push(`${clock(length)} for a ${Math.round(seconds)} s edit: one moment, not the whole`);
+  }
+  if (plan.vertical === true && !ref?.vertical) notes.push("wide for a 9:16 edit: take pacing or type, not framing");
+  else if (plan.vertical === false && ref?.vertical) notes.push("9:16 for a wide edit: take pacing or type, not framing");
+  return notes.join("; ");
+}
+
+/** The longest take a save keeps (characters). */
+export const TAKE_LIMIT = 160;
+/** A save's take, cleaned: one line, at most TAKE_LIMIT characters; "" when none. */
+export const cleanTake = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, TAKE_LIMIT);
+
 /**
  * Search results best first, at most `wanted`. Clean results come first, then doubtful ones, and
  * ones made with AI last, so a doubtful one shows only when too few clean ones were found. Within
@@ -1082,11 +1133,12 @@ export function createInspire(deps) {
   function summary(record, { full = false } = {}) {
     if (!record) return null;
     const waiting = queue.indexOf(record.id);
+    const measured = record.state === "measured" ? measuredDoubt(record) : "";
     return {
       id: record.id, title: record.title, channel: record.channel, duration: record.duration, url: record.url,
       thumb: Boolean(record.thumb), kind: isSound(record) ? "sound" : "video", ...(record.vertical ? { vertical: true } : {}),
       ...(record.views != null ? { views: record.views } : {}), ...(record.verified ? { verified: true } : {}), ...(record.followers != null ? { followers: record.followers } : {}),
-      ...(record.doubt ? { doubt: record.doubt } : {}), ...(record.same ? { same: true } : {}), ...(record.copies?.length ? { copies: record.copies } : {}),
+      ...(record.doubt ? { doubt: record.doubt } : {}), ...(measured ? { measuredDoubt: measured } : {}), ...(record.same ? { same: true } : {}), ...(record.copies?.length ? { copies: record.copies } : {}),
       state: running?.id === record.id ? "measuring" : waiting >= 0 ? "queued" : isSound(record) && !record.sound && record.state === "measured" ? "found" : record.state,
       ...(running?.id === record.id ? { phase: running.phase, ...(running.partial ? { partial: running.partial } : {}) } : {}),
       ...(waiting >= 0 ? { place: waiting + 1 } : {}),
@@ -1635,6 +1687,24 @@ export function createInspire(deps) {
   async function savedCount(projectId) {
     return (await savedIds(projectId)).length;
   }
+  /**
+   * What the edit takes from a saved reference (a save's take: "pacing: cuts on every beat in the
+   * chorus"), kept beside the saved list in the project's state.takes {id: text}. "" removes it.
+   */
+  async function setTake(projectId, id, text) {
+    const take = cleanTake(text);
+    return updateProject(projectId, (state) => {
+      const takes = { ...(state.takes ?? {}) };
+      if (take) takes[id] = take; else delete takes[id];
+      state.takes = takes;
+      return take;
+    });
+  }
+  /** The takes of the saved references: {id: text}; a saved reference with none is left out. */
+  async function savedTakes(projectId) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    return Object.fromEntries(Object.entries(state.takes ?? {}).filter(([id]) => state.saved.includes(id)));
+  }
 
   /**
    * Saves (or with `on` false, unsaves) a reference in a project. A saved one not measured yet goes
@@ -1848,7 +1918,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, setTake, savedTakes, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**
@@ -2075,7 +2145,9 @@ export function viewsShort(views) {
 }
 
 // " · 12k views · verified · doubt: few views": who made it and why it may be slop, when known.
-const sourceWords = (ref) => `${ref?.views != null ? ` · ${viewsShort(ref.views)} views` : ""}${ref?.followers != null ? ` · ${viewsShort(ref.followers)} subs` : ""}${ref?.verified ? " · verified" : ""}${ref?.doubt ? ` · doubt: ${ref.doubt}` : ""}${ref?.same ? " · same frames (ai or a still? look first)" : ""}${ref?.copies?.length ? ` · ${ref.copies.length} cop${ref.copies.length === 1 ? "y" : "ies"} hidden` : ""}`;
+// Doubts from its title and from kino's own measure of it (measuredDoubt) are one list.
+const doubtWords = (ref) => [ref?.doubt, ref?.measuredDoubt].filter(Boolean).join(", ");
+const sourceWords = (ref) => `${ref?.views != null ? ` · ${viewsShort(ref.views)} views` : ""}${ref?.followers != null ? ` · ${viewsShort(ref.followers)} subs` : ""}${ref?.verified ? " · verified" : ""}${doubtWords(ref) ? ` · doubt: ${doubtWords(ref)}` : ""}${ref?.same ? " · same frames (ai or a still? look first)" : ""}${ref?.copies?.length ? ` · ${ref.copies.length} cop${ref.copies.length === 1 ? "y" : "ies"} hidden` : ""}`;
 
 /**
  * A search's answer: one line per result, then what to do next. dropped: {reason: count} from the
@@ -2083,7 +2155,7 @@ const sourceWords = (ref) => `${ref?.views != null ? ` · ${viewsShort(ref.views
  * person's named things without the song), offered when the first search was the filled one.
  * droppedItems: the dropped results' {id, title}, a few of which the Dropped line names.
  */
-export function searchText(query, results, { kind = "videos", collapsed = [], dropped = {}, droppedItems = [], alsoTry = "" } = {}) {
+export function searchText(query, results, { kind = "videos", collapsed = [], dropped = {}, droppedItems = [], alsoTry = "", plan = {} } = {}) {
   const dropLine = droppedText(dropped, droppedItems);
   if (!results.length) return `inspire "${query}": nothing found on YouTube${kind === "sounds" ? ` (sound effects of ${MAX_SOUND_SECONDS} s or less)` : kind === "shorts" ? " Shorts" : ""}. Try other words${kind === "shorts" ? ', or the same words without kind:"shorts"' : ""}.${dropLine ? ` ${dropLine}` : ""}${alsoTry ? ` Without the song: library {topic:"inspire", search:"${alsoTry}"}.` : ""}`;
   if (kind === "sounds") {
@@ -2091,11 +2163,14 @@ export function searchText(query, results, { kind = "videos", collapsed = [], dr
       ...results.map((ref, index) => `${index + 1}) ${soundResultLine(ref)} · ${ref.channel || "?"}`),
       `Ranked by how each sounds against the words, once measured: library {topic:"inspire", name:"sounds <search n>"}. One sound (waits for its measure): library {topic:"inspire", name:"${results[0].id}"}. Use one: project {action:"import", source:"${results[0].id}"} (credit kept).`].join("\n");
   }
-  const lines = results.map((ref, index) => `${index + 1}) ${ref.id} ${quoted(ref.title)} · ${ref.channel || "?"} · ${clock(ref.duration)}${shapeWords(ref)}${sourceWords(ref)} · ${numbersLine(ref)}`);
+  // plan ({seconds, vertical}: the video being made) adds each result's fit (fitNote).
+  const fit = (ref) => { const note = fitNote(ref, plan); return note ? ` · fit: ${note}` : ""; };
+  const lines = results.map((ref, index) => `${index + 1}) ${ref.id} ${quoted(ref.title)} · ${ref.channel || "?"} · ${clock(ref.duration)}${shapeWords(ref)}${sourceWords(ref)}${fit(ref)} · ${numbersLine(ref)}`);
   return [
     `inspire ${kind === "shorts" ? "shorts " : ""}"${query}": ${results.length} found on YouTube${kind === "shorts" ? ` (Shorts, and videos of ${SHORT_SECONDS} s or less; "Short 9:16" marks a vertical one)` : ""}, best first (views, verified channel, how the frames match the words and the saved references; doubt: likely slop, vet it before saving)${collapsed.length ? `; ${collapsed.length} near-identical cop${collapsed.length === 1 ? "y" : "ies"} hidden (${collapsed.map((copy) => `${copy.id} = ${copy.into}`).join(", ")})` : ""}. kino measures the first ${MEASURE_SECONDS} s of each, one at a time (from a 360p copy it deletes after).`,
     ...lines,
     ...[dropLine, sharedLine(results, query, droppedItems), alsoTry ? `Without the song: library {topic:"inspire", search:"${alsoTry}"}.` : ""].filter(Boolean),
+    `Compare before saving: read ${results.length > 2 ? 3 : results.length} (name:"<id>"), then save the 2 that fit, each with what this edit takes from it: library {topic:"inspire", name:"save <id>", take:"<structure, pacing, type, transitions or sound: what, and the stretch>"}.`,
     `One ref's cuts (waits for its numbers): library {topic:"inspire", name:"${results[0].id}"}. Borrow its rhythm as cue marks: edit {ops:[{op:"borrow_rhythm", ref:"${results[0].id}", fit:true}]}.`,
   ].join("\n");
 }

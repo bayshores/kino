@@ -246,8 +246,12 @@ test("the reference gate: with no saved reference a final render is refused; wit
   for (const n of [1, 2, 3]) await writeFile(path.join(folder, "stills", "kinoTest001", `${n}.jpg`), still.toBuffer("image/jpeg"));
   await writeFile(path.join(folder, "kinoTest001.json"), JSON.stringify({ id: "yt:kinoTest001", title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
     stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })) }));
-  const saved = await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest001" });
+  // A save without a take is refused, with the ready call first; with one, versus shows it back.
+  const bare = await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest001" });
+  assert.match(bare.data.reason, /^library \{"topic":"inspire","name":"save yt:kinoTest001","take":"<structure, pacing, type, transitions or sound: what this edit takes>"\}: a save says what this edit takes from it/, bare.text);
+  const saved = await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest001", take: "type: one word a cut" });
   assert.equal(saved.isError, undefined, saved.text);
+  assert.match(saved.text, /\(1 saved\)\. Takes: type: one word a cut\./);
 
   const refused = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
   assert.equal(refused.data.error, "reference_needed", refused.text);
@@ -256,6 +260,7 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.equal(versus.isError, undefined, versus.text);
   assert.match(versus.text, /^versus rev \d+: 3 rows, yours \(left\) beside a saved reference/);
   assert.match(versus.text, /no judge round for rev \d+/);
+  assert.match(versus.text, /^you take from yt:kinoTest001 \(promo\): type: one word a cut\. Is it on screen\?$/m);
   // The reference is only black stills (an end card); the edit's frames are cards mid-story: no fair match, no gaps.
   assert.deepEqual(versus.data.rows.map((row) => [row.match, row.ref]), [["none", null], ["none", null], ["none", null]], versus.text);
   const page = await loadImage(Buffer.from(versus.images[0].data, "base64"));
@@ -268,7 +273,7 @@ test("the reference gate: with no saved reference a final render is refused; wit
     await writeFile(path.join(folder, `${key}.json`), JSON.stringify({ id: `yt:${key}`, title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
       stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })),
       fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0, contrast }, text: { counts: { a: 8, b: 8 } } }, heard: { change: { at: 10, kind: "drop" }, voice: [[1, 4]], by: "whisper" } }));
-    assert.equal((await agent("library", { project: id, topic: "inspire", name: `save yt:${key}` })).isError, undefined);
+    assert.equal((await agent("library", { project: id, topic: "inspire", name: `save yt:${key}`, take: "sound: a voice before the drop" })).isError, undefined);
   }
   // check lists it as a warning with its fix; versus measures it itself and says it in one line.
   const checked = await agent("check", { project: id });
@@ -292,7 +297,7 @@ test("the reference gate: with no saved reference a final render is refused; wit
   await writeFile(path.join(folder, "kinoTest004.json"), JSON.stringify({ id: "yt:kinoTest004", title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
     stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })),
     fingerprint: { seconds: 20, look: { brightness: 0.95, darkShare: 0 } } }));
-  assert.equal((await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest004" })).isError, undefined);
+  assert.equal((await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest004", take: "pacing: long holds" })).isError, undefined);
   const inside = await agent("check", { project: id });
   assert.match(inside.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references/, "the brightness row is still there");
   assert.doesNotMatch(inside.text, /contrast than its saved references/, inside.text);

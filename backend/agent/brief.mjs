@@ -778,6 +778,49 @@ export function referenceSearches(brief, songTitle) {
   return { search: join(true), withoutSong: song ? join(false) : null };
 }
 
+/** Results of the one search that must be read (a study or a look) before the first save. */
+export const COMPARE_READ = 3;
+// Words that name the kind of edit in the person's message ("a fan edit", "a launch trailer").
+const EDIT_KINDS = /\b(?:fan edit|edit|amv|mmv|montage|trailer|teaser|tribute|promo|reel|lyric video|music video|explainer|recap|highlights?)\b/i;
+
+/**
+ * The second search, built from the brief, as library input {topic, search, kind?}: the filled
+ * search without the song, or with it, then the subject with the kind of edit the person's message
+ * names, then the first search as Shorts for a vertical video; the first not run yet (`ran`:
+ * [{query, kind}]). With every one run, words to fill in.
+ */
+export function compareSearch(brief, songTitle, ran = [], { vertical = false } = {}) {
+  const done = new Set(ran.map((one) => `${one.kind ?? "videos"}|${String(one.query ?? "").trim().toLowerCase()}`));
+  const found = referenceSearches(brief, songTitle);
+  const subject = namedThings(brief)[0] ?? aboutWords(brief);
+  const kind = EDIT_KINDS.exec(String(brief?.fields?.message?.text ?? ""))?.[0]?.toLowerCase();
+  const first = ran[0]?.query ?? found?.search;
+  const options = [
+    found?.withoutSong && { search: found.withoutSong },
+    found?.search && !found.search.includes(SUBJECT_SLOT) && { search: found.search },
+    subject && kind && { search: `${subject} ${kind}` },
+    vertical && first && { search: first, kind: "shorts" },
+  ].filter(Boolean);
+  const next = options.find((one) => !done.has(`${one.kind ?? "videos"}|${one.search.toLowerCase()}`));
+  return { topic: "inspire", ...(next ?? { search: `<${subject || "the subject"} plus other words: the song, the kind of edit, or where its makers post>` }) };
+}
+
+/**
+ * The compare part of the order, before the first save: while the project ran one search (a link
+ * the person gave does not count) and read fewer than COMPARE_READ of its results (state.read: the
+ * studies read; studied: the strips looked at), a second search with other words, as a ready call.
+ * [] otherwise, and for a project from before kino kept its searches (no state.refSearches).
+ */
+export function compareStep(state, video = {}) {
+  const searches = (state?.refSearches ?? []).filter((one) => one.kind !== "sounds" && !LINK_OR_ID.test(String(one.query ?? "")));
+  if (video.references !== 0 || searches.length !== 1) return [];
+  const read = new Set([...(state.read ?? []), ...(video.studied ?? state.studied ?? [])]);
+  const count = (searches[0].ids ?? []).filter((id) => read.has(id)).length;
+  if (count >= COMPARE_READ) return [];
+  const input = compareSearch(state.brief, video.songTitle, searches, { vertical: video.height > video.width });
+  return [{ step: `compare: search again (${count} of ${COMPARE_READ} read)`, call: { tool: "library", input } }];
+}
+
 /**
  * Every part of the order (orderStep) still open, in order: [{step, call}], [] when none. The
  * order_needed refusal names them all, so a build finds every gate in one answer. The find step's
@@ -804,6 +847,7 @@ function openParts(state, video) {
   const open = [];
   if (Number.isFinite(video.references) && !video.referenceWaived) {
     // Short words: status's two lines stay within 40 tokens (the call says how).
+    open.push(...compareStep(state, video));
     if (video.references < REFERENCES_WANTED) {
       const left = REFERENCES_WANTED - video.references;
       const found = referenceSearches(brief, video.songTitle);

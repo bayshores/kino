@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
   dropNonEdits, dropReason, droppedText, originOf, originPhrase, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
-  cannotPlayLine, cannotPlayReason, fingerprintLines,
+  cannotPlayLine, cannotPlayReason, fingerprintLines, fitNote, measuredDoubt,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
 import { copiedRun } from "../engine/quality/rules/reference.js";
@@ -403,6 +403,17 @@ test("clock and the agent's lines", () => {
   assert.match(text, /cuts \(s\): 2\* 4\* 4\.5 9\* \(\* on the beat\)/);
   assert.match(text, /\ncuts 4 · 75% within 1 frame of a beat \(random \d+%\) · frames off the beat \(- early\) 0:3 more:1\n/);
   assert.match(searchText("walk", [ref]), /^inspire "walk": 1 found on YouTube/);
+  // Fit against the video being made, and doubts from kino's own measure, join the result's line.
+  assert.equal(fitNote(ref, { seconds: 20, vertical: true }), "4:19 for a 20 s edit: name the stretch you take; wide for a 9:16 edit: take pacing or type, not framing");
+  assert.equal(fitNote({ duration: 5 }, { seconds: 30 }), "0:05 for a 30 s edit: one moment, not the whole");
+  assert.equal(fitNote(ref, {}), "", "no plan, no note");
+  assert.equal(measuredDoubt(ref), "almost no cuts (a raw clip, not an edit?)");
+  assert.equal(measuredDoubt({ duration: 700, fingerprint: { persistent: [{ kind: "patch", box: [0.3, 0.9], share: 1 }], text: { share: 0.7, onPlain: 0.8 } } }),
+    "a patch stays in place 100% (a watermark or another app's frame?), mostly text on a plain background, compilation length");
+  assert.equal(measuredDoubt({ duration: 30, numbers: { seconds: 30, shots: 20, cutsPerSecond: 0.6 }, fingerprint: { persistent: [{ kind: "text", text: "tag", share: 0.38 }] } }), "", "an edit with a small mark part of the time");
+  const fitted = searchText("walk", [{ ...ref, measuredDoubt: measuredDoubt(ref) }], { plan: { seconds: 20 } });
+  assert.match(fitted, /^1\) yt:tgEWNHVbk3U 'Fast' · Brandon Li · 4:19 · doubt: almost no cuts \(a raw clip, not an edit\?\) · fit: 4:19 for a 20 s edit: name the stretch you take · /m);
+  assert.match(fitted, /^Compare before saving: read 1 \(name:"<id>"\), then save the 2 that fit, each with what this edit takes from it: library \{topic:"inspire", name:"save <id>", take:"<structure, pacing, type, transitions or sound: what, and the stretch>"\}\.$/m);
   assert.match(projectText({ searches: [{ query: "walk", state: "done", count: 6, by: { name: "juno" } }], saved: [ref.id], refs: { [ref.id]: ref }, queue: {} }), /"walk" 6 found · by juno/);
 });
 

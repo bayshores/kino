@@ -75,6 +75,10 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   assert.equal(strips.text.split("\n")[1], REFERENCE_LOOKUP);
   assert.equal(strips.images.length, 1);
   assert.equal((await agent("look", { project: "insp", mode: "reference", ref: "yt:dQw4w9WgXcQ" })).isError, true);
+  // One search and 1 of its results read: a save waits for a comparison; the refusal leads with a second search.
+  const unread = await agent("library", { topic: "inspire", project: "insp", name: `save ${LAST}`, take: "pacing: short shots" });
+  assert.match(unread.data.reason, /^library \{"topic":"inspire","search":"<the subject plus other words: .*>"\} first: one search ran and 1 of its results were read, so nothing was compared\. Search again with other words, or read 3 of its results \(library \{topic:"inspire", name:"yt:/, unread.text);
+  assert.equal(JSON.parse(unread.text).next.startsWith('library {"topic":"inspire","search":'), true);
 
   const borrowed = await agent("edit", { project: "insp", ops: [{ op: "borrow_rhythm", ref: FIRST, fit: true }] });
   assert.notEqual(borrowed.isError, true, borrowed.text);
