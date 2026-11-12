@@ -216,6 +216,33 @@ test("layout ops move layers into slots, line them up and keep them inside", asy
   assert.equal(findLayer(moved, "c").x, findLayer(moved, "a").x + 200 + 40);
 });
 
+test("place {on, of} centers a line on a face part: refused with the mark call when no face, estimated from a head mark, exact on a part mark", async () => {
+  await create("face-place");
+  await agent("face-place", "edit", { ops: [
+    { op: "add_layer", layerType: "video", name: "face", properties: { src: "/api/media/00000000-0000-4000-8000-000000000000.mp4", x: 0, y: 0, width: 1920, height: 1080 } },
+    { op: "add_layer", layerType: "text", name: "shout", properties: { text: "GET AWAY!", x: 0, y: 0, width: 420, height: 100, fontSize: 80 } },
+  ] });
+  const center = (layer) => [layer.x + layer.width / 2, layer.y + layer.height / 2];
+  const none = await agent("face-place", "edit", { ops: [{ op: "place", layers: ["shout"], on: "mouth", of: "face", at: 0.3 }] });
+  assert.equal(none.isError, true);
+  assert.match(none.text, /mark_subject \{layer:\\"face\\", t:0\.3, box:\[x, y, w, h\], part:\\"face\\"\}/);
+  assert.doesNotMatch(none.text, /"slot"/, "the retry does not place on a slot instead");
+  const head = await agent("face-place", "edit", { ops: [
+    { op: "mark_subject", layer: "face", t: 0.3, box: [30, 5, 40, 90], part: "face" },
+    { op: "place", layers: ["shout"], on: "mouth", of: "face", at: 0.3 },
+  ] });
+  assert.equal(head.isError, undefined, head.text);
+  assert.match(head.text, /an estimate from the box \(mouth at 81% of its height\)/);
+  const [x, y] = center(findLayer(await saved("face-place"), "shout"));
+  assert.ok(Math.abs(x - 960) <= 1 && Math.abs(y - (0.05 + 0.81 * 0.9) * 1080) <= 1, `centered on the estimated mouth (${x}, ${y})`);
+  const exact = await agent("face-place", "edit", { ops: [
+    { op: "mark_subject", layer: "face", t: 0.3, box: [10, 60, 20, 10], part: "mouth" },
+    { op: "place", layers: ["shout"], on: "mouth", of: "face", at: 0.3 },
+  ] });
+  assert.match(exact.text, /your mouth mark at file 0\.3 s \(exact\)/);
+  assert.deepEqual(center(findLayer(await saved("face-place"), "shout")), [0.2 * 1920, 0.65 * 1080]);
+});
+
 test("frame steps a camera group onto a region of a layer, then eases on, and check takes the cut as a cut", async () => {
   await create("camera");
   const made = await agent("camera", "edit", { ops: [

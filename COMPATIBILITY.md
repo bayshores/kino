@@ -771,6 +771,9 @@ How to read it:
   subject boxes; `mark_subject` stores boxes (guide `skills/kino/references/framing.md`). Evidence:
   `backend/look-source.test.mjs`, `engine/sourceView.test.js`, `engine/sceneShots.test.js`,
   `tests/look-source-frames.test.mjs` (goldens in `tests/golden/look-source/`).
+- **place on a face part**: Verified. `place {layers, on:"mouth", of}` centers layers on a mouth, the eyes, between
+  the eyes, the face or above the head: exact on a part mark, an estimate from a head mark or found face, refused
+  with the mark call when none. Evidence: `backend/agent-blocks.test.mjs`, `engine/footage.test.js`.
 - **Apple Vision subject boxes**: Not verified. Mac only; tested with the stand-in helper.
 - **Agent boxes against hand-marked boxes** (about 20 frames marked by hand): Not verified.
 

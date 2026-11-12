@@ -120,6 +120,8 @@ ops: align_layers
 
 align_layers (sceneId, layerIds, align: "left", "center", "right", "top", "middle", or "bottom"; center and middle are the horizontal and vertical centers). align_layers lines up one layer with its parent group, or with the scene when it is not in a group, and lines up several layers with the box around all of them. It uses each layer's on-canvas box after rotation, scale, and parent groups (auto-sized text is measured the way it is drawn), changes only x and y, and shifts animated x and y values by the same amount so motion keeps its shape.
 
+Text or a line on a face (a word in a mouth, between the eyes, above the head): place {layers, on: mouth|eyes|between-eyes|face|above-head, of: <video layer>, at?, offset?: [x, y]} centers the layers on that part of the face the footage shows at `at` (default their first entrance). A mark_subject box with that part is exact; a head mark (part "face") or a face kino found is an estimate from the box (mouth at 81%, eyes at 43% of a head box's height) the receipt names, so look at the frame and nudge with offset (% of the face box). No face near that moment: refused with the mark_subject call to make. It places once; it does not follow the face over time.
+
 ## group-layers: Grouping and ungrouping layers
 ops: group_layers, ungroup_layer
 

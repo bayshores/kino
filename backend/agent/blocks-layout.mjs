@@ -12,9 +12,10 @@ export const isSlot = (value) => { try { parseSlot(String(value).replace(/^slot:
 
 /**
  * The five layout ops, each (document, operation, work). `fontsOf(document, work)` gives the
- * fonts that measure text; `problem` and `sceneOf` are blocks.mjs's error helpers.
+ * fonts that measure text; `problem` and `sceneOf` are blocks.mjs's error helpers; `faceTarget`
+ * (blocks.mjs) finds the point place {on, of} puts the layers on.
  */
-export function createLayoutOps({ fontsOf, problem, sceneOf }) {
+export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null }) {
   // The layers an op names, all in one scene.
   function layoutTargets(document, operation, work) {
     const find = (ref) => {
@@ -64,6 +65,15 @@ export function createLayoutOps({ fontsOf, problem, sceneOf }) {
     const width = group.right - group.left;
     const height = group.bottom - group.top;
     let dx = 0, dy = 0, where;
+    if (operation.on !== undefined) {
+      // On a face part: the group's center on the point, or its bottom a gap above the head.
+      const target = await faceTarget(document, scene, operation, work, layers);
+      dx = target.x - (group.left + group.right) / 2;
+      dy = target.edge === "bottom" ? target.y - gapOf(operation, scene) - group.bottom : target.y - (group.top + group.bottom) / 2;
+      for (const layer of layers) move(scene, layer, dx, dy);
+      work.notes.push(`place ${operation.layerIds.join(", ")} ${target.line} · face ${target.faceWidth} px wide, the group ${Math.round(width)} px`);
+      return;
+    }
     if (operation.slot !== undefined) {
       const slot = fromRect(slotBox({ width: scene.width, height: scene.height }, operation.slot));
       const align = operation.align ?? "center";
