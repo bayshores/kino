@@ -586,6 +586,15 @@ test("opaque full-frame footage added or moved over words that show at the same 
   assert.equal(liftFootage(old, added, { seeThrough: new Set(["/api/media/shot2.mp4"]) }).ops.length, 0);
   assert.equal(liftFootage(old, doc(video("shot1", 0, 3), title, video("shot2", 3, 6, { blendMode: "screen" }))).ops.length, 0);
   assert.equal(liftFootage(old, added, { kept: new Set(["title"]) }).ops.length, 0);
+  assert.equal(liftFootage(old, added, { kept: new Set(["shot2"]) }).ops.length, 0, "footage an order op named stays");
+  // A plate under the title is still covered by the lifted shot: its cover note does not say nothing was reordered.
+  const plate = { id: "plate", type: "rectangle", parentId: null, x: 80, y: 190, width: 640, height: 120, opacity: 1, animations: [] };
+  const [plateNote] = coverNotes(old, doc(video("shot1", 0, 3), plate, video("shot2", 3, 6), title), ["shot2"], (id) => id, { lifted: new Set(["shot2"]) });
+  assert.match(plateNote.note, /draws over plate .*kino moved it under the words only\./);
+  // Footage playing through a mask word (masked-type's fill) stays on its mask; a mask word is not words to lift over.
+  const word = { ...title, id: "word", isMask: true };
+  assert.equal(liftFootage(old, doc(video("shot1", 0, 3), title, word, video("fill", 0, 3))).ops.length, 0, "fill stays on its mask");
+  assert.equal(liftFootage(old, doc(video("shot1", 0, 3), word, title, video("shot2", 0, 3))).ops.length, 0, "a title a mask cuts stays on its mask");
   const sandwich = doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" }));
   assert.equal(liftFootage(doc(video("clip", 0, 8)), sandwich).ops.length, 0, "the cut-out copy is not lifted");
   assert.equal(liftFootage(doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" })), doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" }), video("late", 2, 5))).ops.length, 0, "title behind a subject stays");

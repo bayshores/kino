@@ -3059,6 +3059,7 @@ export function createAgentService(deps) {
       }
       // Opaque full-frame footage this edit added over words that show at the same time goes under them
       // (silent-receipts.mjs liftFootage); a layer an order op of this edit names stays where it put it.
+      const lifted = new Set();
       {
         const kept = new Set(translation.operations.filter((operation) => ["move_layers", "reorder_layer"].includes(operation.type))
           .flatMap((operation) => [...(operation.layerIds ?? []), operation.layerId, operation.referenceId]).filter(Boolean));
@@ -3067,8 +3068,19 @@ export function createAgentService(deps) {
         const clearFiles = new Set();
         for (const src of unread) if (await seeThrough(deps.mediaRoot, src).catch(() => false)) clearFiles.add(src);
         if (clearFiles.size) lift = liftFootage(before, after, { kept, seeThrough: clearFiles });
+        // A default never fails the edit: a reorder the engine refuses (a mask that would stop
+        // masking its layer) is left out, and the cover notes still name the pair with the call.
+        let moved = null;
         if (lift.ops.length) {
-          after = parseDocument(applyOperations(after, lift.ops, await operationContext(after, lift.ops)));
+          try {
+            moved = parseDocument(applyOperations(after, lift.ops, await operationContext(after, lift.ops)));
+          } catch {
+            moved = null;
+          }
+        }
+        if (moved) {
+          after = moved;
+          for (const move of lift.moves) lifted.add(move.footage);
           const liftCodes = assignCodes(codes, after, resolver.reserved);
           work.notes.push(...liftNotes(lift.moves, (id) => refName(id, liftCodes)));
         }
@@ -3130,7 +3142,7 @@ export function createAgentService(deps) {
       const madeFiles = [...new Set((after.scenes ?? []).flatMap((scene) => scene.layers ?? []).filter((layer) => madeIds.has(layer.id) && (layer.type === "video" || layer.type === "image") && layer.src).map((layer) => layer.src))];
       const clear = new Set();
       for (const src of madeFiles.slice(0, 12)) if (await seeThrough(deps.mediaRoot, src).catch(() => false)) clear.add(src);
-      for (const { note } of coverNotes(before, after, changes.created, nameOf, { seeThrough: clear })) (work.notes ??= []).push(note);
+      for (const { note } of coverNotes(before, after, changes.created, nameOf, { seeThrough: clear, lifted })) (work.notes ??= []).push(note);
       // Words this edit made or gave a new span, under footage that was already there (the fact and the one call).
       let under = textUnderNotes(before, after, changes.created, nameOf, { seeThrough: clear });
       const unread = [...new Set(under.flatMap((entry) => entry.sources))].filter((src) => src && !clear.has(src)).slice(0, 12);
