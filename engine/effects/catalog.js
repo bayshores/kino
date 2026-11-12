@@ -13,6 +13,7 @@ import { renderColorGrade, renderColorRemover } from "./colorUtility.js";
 import { renderColorWheels, renderCurves, renderHueSaturation, renderKeepColor, renderLut, renderWhiteBalance } from "./colorGrading.js";
 import { colorRangesFields, renderColorRanges } from "./colorRanges.js";
 import { colorLookFields, renderColorLook } from "./colorLook.js";
+import { keepFields } from "./relight.js";
 import { IDENTITY_CURVE, MAX_CURVE_POINTS, normalizeCurve } from "./colorMath.js";
 import { UTILITY_COPY_EFFECTS } from "./utilityCopies.js";
 import { BLUR_EFFECTS } from "./motionBlurs.js";
@@ -106,6 +107,9 @@ const definitions = [
     parameters: {
       midpoint: number("Midpoint", 0.5, 0, 1, 0.01), contrast: number("Contrast", 0.9, 0, 4, 0.05),
       shadowColor: color("Shadow Color", "#1400FF"), highlightColor: color("Highlight Color", "#FFE4E4"),
+      // Stretch the layer's own 2nd..98th percentile luma to 0..1 first; keep: a hue range that
+      // stays partly in its own color (relight.js says where both come from).
+      normalize: boolean("Normalize", true), ...keepFields(number, color),
     } },
   { key: "luma-highlight", label: "Luma Highlight", group: "Post FX", kind: "ranged", render: renderLumaHighlight,
     parameters: {
@@ -147,6 +151,7 @@ const definitions = [
       softness: number("Softness", 0.35, 0, 1, 0.01), contrast: number("Contrast", 1, 0, 4, 0.05),
       shadowColor: color("Shadow Color", "#1A1033"), midtoneColor: color("Midtone Color", "#E94F64"),
       highlightColor: color("Highlight Color", "#FFE9B0"),
+      normalize: boolean("Normalize", true), ...keepFields(number, color),
     } },
   { key: "rgb-shift", label: "RGB Shift", group: "Post FX", kind: "ranged", render: renderRgbShift,
     parameters: {
@@ -202,10 +207,13 @@ const definitions = [
   { key: "white-balance", label: "White Balance", group: "Color", kind: "ranged", render: renderWhiteBalance,
     parameters: { temperature: number("Temperature", 0, -100, 100, 1), tint: number("Tint", 0, -100, 100, 1) } },
   { key: "color-wheels", label: "Color Wheels", group: "Color", kind: "ranged", render: renderColorWheels,
-    parameters: Object.fromEntries([["lift", 0, -1, 1], ["gamma", 1, 0.1, 4], ["gain", 1, 0, 4]].flatMap(([wheel, value, min, max]) => {
+    // One scale for every gain field: the multiplier of white (1 unchanged). A channel field adds
+    // to gain for its channel (gain 1 with gainBlue 0.8 is blue white at 1.8, clamped to 0..4), so
+    // its range is -4..4 like gain's reach; documents saved with -1..1 values draw the same.
+    parameters: Object.fromEntries([["lift", 0, -1, 1, 1], ["gamma", 1, 0.1, 4, 1], ["gain", 1, 0, 4, 4]].flatMap(([wheel, value, min, max, reach]) => {
       const label = wheel[0].toUpperCase() + wheel.slice(1);
       return [[wheel, number(label, value, min, max, 0.01)],
-        ...["Red", "Green", "Blue"].map((channel) => [`${wheel}${channel}`, number(`${label} ${channel}`, 0, -1, 1, 0.01)])];
+        ...["Red", "Green", "Blue"].map((channel) => [`${wheel}${channel}`, number(`${label} ${channel}`, 0, -reach, reach, 0.01)])];
     })) },
   { key: "keep-color", label: "Keep Color", group: "Color", kind: "ranged", render: renderKeepColor,
     parameters: {
@@ -217,7 +225,7 @@ const definitions = [
     parameters: colorRangesFields(number) },
   // Eight ready-made looks with an amount (colorLook.js).
   { key: "color-look", label: "Color Look", group: "Color", kind: "ranged", render: renderColorLook,
-    parameters: colorLookFields(number) },
+    parameters: colorLookFields(number, color, boolean) },
   // Directional, zoom and spin blur (motionBlurs.js); edge fill, mirror, kaleidoscope (edges.js).
   ...BLUR_EFFECTS, FOCUS_BAND_EFFECT, ...EDGE_EFFECTS,
   // A math expression per point that displaces, cuts or tints (field.js).

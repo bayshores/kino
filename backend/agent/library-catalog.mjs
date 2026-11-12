@@ -59,7 +59,9 @@ const EFFECT_LINES = {
 // One entry per setting value, each with its own still ("color-look ember" is color-look with look ember).
 const EFFECT_VARIANTS = {
   "color-look": COLOR_LOOK_NAMES.slice(1).map((look) => ({ name: `color-look ${look}`, parameters: { look },
-    line: `color look ${look}: color-look with look "${look}" (amount 0..1)` })),
+    line: look === "section-grade"
+      ? "color look section-grade: one-hue section grade (monochrome wash, tint, relight) that keeps skin lit: hue, keep skin, bloom 0.3, blackLift 0.04, normalize on"
+      : `color look ${look}: color-look with look "${look}" (amount 0..1)` })),
   field: [
     { name: "field rings", parameters: { use: "color", expression: "0.5 + 0.5*sin(length((u - 0.5)*1.78, v - 0.5)*tau*6 - t*4)", color: "#FF7D3D" },
       line: "field rings: field with use color, rings of color moving out from the middle (expression of length and t)" },

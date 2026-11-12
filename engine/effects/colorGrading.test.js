@@ -9,12 +9,12 @@ import test, { after, before } from "node:test";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { createChromiumRasterizer } from "../../backend/chromium-raster.mjs";
 import {
-  IDENTITY_CURVE, KEEP_COLOR_FLOOR, colorWheelTables, cubeText, curveFunction, curvesTables, hueAngle, hueRotationMatrix,
+  IDENTITY_CURVE, KEEP_COLOR_FLOOR, colorWheelChannels, colorWheelTables, cubeText, curveFunction, curvesTables, hueAngle, hueRotationMatrix,
   hueSaturationMatrix, applyMatrix, keepColor, keepColorMask, liftGammaGain, luma, lutIsSeparable, normalizeCurve, parseCubeLut,
   sampleLut, whiteBalanceGains, whiteBalanceTables,
 } from "./colorMath.js";
 import { renderColorWheels, renderCurves, renderHueSaturation, renderKeepColor, renderLut, renderWhiteBalance } from "./colorGrading.js";
-import { effectDefaults } from "./catalog.js";
+import { effectDefaults, normalizeEffectParameters } from "./catalog.js";
 
 const LUT_SOURCE = "/api/media/00000000-0000-4000-8000-000000000001.cube";
 
@@ -226,6 +226,11 @@ test("color-wheels: lift 0, gamma 1, gain 1 changes nothing; each wheel moves th
   const teal = (await draw(renderColorWheels, { ...effectDefaults("color-wheels"), liftBlue: 0.1 }, [[0, 0, 0], [255, 255, 255]])).pixels;
   assert.ok(Math.abs(teal[0][2] - 25.5) <= 1 && teal[0][0] === 0, `teal black is ${teal[0]}`);
   assert.deepEqual(teal[1].slice(0, 3), [255, 255, 255]);
+  // One gain scale: a channel field adds to gain in the same unit, up to gain's own reach, and a
+  // value saved in the old -1..1 range draws the same table.
+  assert.equal(normalizeEffectParameters("color-wheels", { gain: 0.7, gainBlue: 1.8 }).gainBlue, 1.8);
+  assert.ok(Math.abs(colorWheelChannels({ gain: 0.7, gainBlue: 1.8 })[2].gain - 2.5) < 1e-9);
+  assert.ok(Math.abs(colorWheelChannels({ gain: 1, gainRed: -0.35 })[0].gain - 0.65) < 1e-9);
 });
 
 test("keep-color keeps the target hue and greys the others", async () => {

@@ -2,6 +2,8 @@ import { effectMapImage } from "./mapImage.js";
 import { cachedMap, fractalNoise } from "./maps.js";
 import { filterEffect } from "./svg.js";
 import { clamp, smoothstep } from "../numbers.js";
+import { renderFunctionLut } from "./colorGrading.js";
+import { hexRgb01, keepOf, levelsFor, luma as lumaOf, normalizeLuma, withKeep } from "./relight.js";
 
 const LUMA = [0.2126, 0.7152, 0.0722];
 const fmt = (value) => {
@@ -66,11 +68,13 @@ function grayFor(frame, { opaque = false } = {}) {
   return `<feColorMatrix in="SourceGraphic" type="matrix" values="${grayMatrix({ opaque })}" result="postFxGray"/>`;
 }
 
-function colorRamp(frame, { shadow, highlight, midpoint = 0.5, contrast = 1, input = "SourceGraphic", result = "postFxColorRamp" }) {
+function colorRamp(frame, { shadow, highlight, midpoint = 0.5, contrast = 1, levels = null, input = "SourceGraphic", result = "postFxColorRamp" }) {
+  // A stretched luma range needs a finer table; 33 entries keep older drawings exact.
+  const size = levels ? 65 : 33;
   const channels = [shadow[0], shadow[1], shadow[2]].map((start, channelIndex) => {
     const end = highlight[channelIndex];
-    return Array.from({ length: 33 }, (_, index) => {
-      const luma = index / 32;
+    return Array.from({ length: size }, (_, index) => {
+      const luma = normalizeLuma(index / (size - 1), levels);
       const adjusted = clamp((luma - midpoint) * contrast + midpoint, 0, 1);
       return (start + (end - start) * adjusted) / 255;
     });
@@ -265,7 +269,34 @@ export function renderDuotone(frame) {
   const contrast = number(frame, "contrast", 0.9, 0, 4);
   const shadow = color(frame?.parameters?.shadowColor, "#1400FF");
   const highlight = color(frame?.parameters?.highlightColor, "#FFE4E4");
-  return filterEffect(frame, colorRamp(frame, { shadow, highlight, midpoint, contrast }), { padding: 0, contain: true });
+  const levels = levelsFor(frame);
+  const keep = keepOf(frame?.parameters, hexRgb01);
+  if (keep) {
+    const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
+      const adjusted = clamp((index / 64 - midpoint) * contrast + midpoint, 0, 1);
+      return (shadow[channel] + (highlight[channel] - shadow[channel]) * adjusted) / 255;
+    }));
+    return keptGrade(frame, "duotone-keep", tables, levels, keep);
+  }
+  return filterEffect(frame, colorRamp(frame, { shadow, highlight, midpoint, contrast, levels }), { padding: 0, contain: true });
+}
+
+// A luma grade given as three 65-entry tables (normalized luma -> 0..1 color), drawn as a 3D LUT
+// so pixels in the keep range stay partly in their own color (relight.js).
+function tableAt(column, value) {
+  const at = clamp(value, 0, 1) * (column.length - 1);
+  const index = Math.min(column.length - 2, Math.floor(at));
+  return column[index] + (column[index + 1] - column[index]) * (at - index);
+}
+
+function keptGradeColor(r, g, b, { tables, levels, keep }) {
+  const source = [r, g, b];
+  const normalized = normalizeLuma(lumaOf(source), levels);
+  return withKeep(source, tables.map((column) => tableAt(column, normalized)), keep, normalized);
+}
+
+function keptGrade(frame, name, tables, levels, keep) {
+  return renderFunctionLut(frame, { name, color: keptGradeColor, parameters: { tables, levels, keep }, size: 33 });
 }
 
 /**
@@ -499,8 +530,11 @@ export function renderTritone(frame) {
   const highlight = color(frame?.parameters?.highlightColor, "#FFE9B0");
   const [low, high] = threshold1 <= threshold2 ? [threshold1, threshold2] : [threshold2, threshold1];
   const colors = [shadow, midtone, highlight];
+  const levels = levelsFor(frame);
+  const keep = keepOf(frame?.parameters, hexRgb01);
   const tables = [0, 1, 2].map((channel) => Array.from({ length: 65 }, (_, index) => {
-    const input = index / 64;
+    // Kept grades normalize inside their 3D LUT (keptGradeColor), so their tables stay plain.
+    const input = keep ? index / 64 : normalizeLuma(index / 64, levels);
     const adjusted = clamp((input - 0.5) * contrast + 0.5, 0, 1);
     const mix = tritoneAt(adjusted, [low, high], softness);
     const firstStart = low - Math.min(softness, high - low) / 2;
@@ -513,6 +547,7 @@ export function renderTritone(frame) {
     else value = colors[1][channel] + (colors[2][channel] - colors[1][channel]) * (mix - 0.5) * 2;
     return value / 255;
   }));
+  if (keep) return keptGrade(frame, "tritone-keep", tables, levels, keep);
   return filterEffect(frame, [
     `<feColorMatrix in="SourceGraphic" type="matrix" values="${grayMatrix()}" result="postFxTritoneLuma"/>`,
     `<feComponentTransfer in="postFxTritoneLuma"><feFuncR type="table" tableValues="${table(tables[0])}"/><feFuncG type="table" tableValues="${table(tables[1])}"/><feFuncB type="table" tableValues="${table(tables[2])}"/></feComponentTransfer>`,
