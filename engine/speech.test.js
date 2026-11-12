@@ -361,6 +361,29 @@ test("keep_line keeps the named words audible, silences the rest, subtitles the 
   applyOperations(document, [oneWord], { reports: reportsOne, fonts: defaultFonts });
   assert.deepEqual(reportsOne.get(oneWord).subtitle.at, [3.5, 4.22]);
   assert.ok(reportsOne.get(oneWord).notes.includes('the subtitle shows the 1 word the transcript heard there (try. p 0.95; a clip line needs 2 or more words at mean p 0.5); if the clip says other words, text:"<the words said>" puts them on the subtitle'));
+  // Another voice's caption track of other words over the line, and a credit text of role caption, are not this
+  // line's subtitle: the line gets its own, the track is named and kept whole.
+  const track = { type: "add_captions", sceneId: "s", words: [{ text: "Our", start: 0.5, end: 0.8 }, { text: "city.", start: 0.8, end: 1.2 }, { text: "And", start: 2.2, end: 2.5 }, { text: "tonight.", start: 2.5, end: 3.4 }] };
+  const credit = createLayer("text", { id: "credit", name: "credit", text: "Filmed on location", role: "caption" });
+  const overTrack = { ...operation, subtitle: undefined };
+  const reportsTrack = new Map();
+  const trackDoc = parseDocument(applyOperations(documentWith([clip, musicLayer(), credit], 12), [track, overTrack], { reports: reportsTrack, fonts: defaultFonts }));
+  assert.equal(reportsTrack.get(overTrack).subtitle.name, "line-at-2.3s");
+  assert.deepEqual(trackDoc.scenes[0].layers.filter((layer) => layer.role === "caption").map((layer) => layer.text), ["Filmed on location", "Our city.", "And tonight.", "we will, we will"]);
+  assert.ok(reportsTrack.get(overTrack).notes.includes('the caption group captions ("And tonight.", other words than heard here) also show over this line; subtitle:false keeps them alone'));
+  // A page of a longer track that shows this line's words stays; its call changes that page only.
+  const ownTrack = { type: "add_captions", sceneId: "s", words: [{ text: "So", start: 2, end: 2.3 }, { text: "we", start: 2.3, end: 2.45 }, { text: "will.", start: 2.45, end: 3.2 }, { text: "Like", start: 7, end: 7.4 }, { text: "this.", start: 7.4, end: 7.9 }] };
+  const reportsOwn = new Map();
+  applyOperations(document, [ownTrack, overTrack], { reports: reportsOwn, fonts: defaultFonts });
+  assert.deepEqual(reportsOwn.get(overTrack).subtitle, { name: "captions", kept: true });
+  assert.match(reportsOwn.get(overTrack).notes[0], /already shows over this line, so it stays and no new one is made; update_layer \{layer:"captions-1-text", properties:\{text:"<the words said>"\}\} changes its words, the rest of captions stays$/);
+  // The one-word line just before another kept line (4.2 s, joined to it by the fades): its page is down 2 frames
+  // before that line (4.133 s), not at 4.22 s.
+  const later = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4.2, to: 5, transcript, subtitle: false };
+  const before = { ...oneWord };
+  const reportsBefore = new Map();
+  applyOperations(document, [later, before], { reports: reportsBefore, fonts: defaultFonts });
+  assert.deepEqual(reportsBefore.get(before).subtitle.at, [3.5, 4.133]);
   // A clip heard in another language: the subtitle is the words as said, never whisper's English gloss.
   const foreign = { language: "ja", words: [{ text: "殺してやる。", start: 1.3, end: 2.2, p: 0.9 }], english: [{ start: 1.2, end: 2.3, text: "I'll kill you." }] };
   const foreignDoc = parseDocument(applyOperations(document, [{ type: "keep_line", sceneId: "s", layerId: "clip", from: 2.3, to: 3.2, transcript: foreign }], { fonts: defaultFonts }));

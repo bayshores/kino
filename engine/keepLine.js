@@ -45,7 +45,7 @@ import { sectionCues } from "./mixLevels.js";
 import { audibleRanges } from "./videoSound.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { LINE_SURE, LOW_CONFIDENCE, SOUND_SURE, soundMoments } from "./speech.js";
-import { visibleByOperations } from "./visibilityOps.js";
+import { hiddenRanges } from "./visibilityOps.js";
 import { energyMean, heardLoudness, lineOverMusic, lineWays, loudestHeard, loudnessOver, MAX_LEVEL_DB, waysText } from "./mixLevels.js";
 import { BED_VOLUME, EVEN_RAMP, LINE_EVEN_LU, LINE_OVER_BED, leveledVoice, lineEvening } from "./mixLevels.js";
 import { churnRun } from "./quality/rules/sound.js";
@@ -192,21 +192,61 @@ function silenceAround(ranges, volume, sceneDuration) {
 // Two frames at 30 fps: the gap a subtitle page leaves before the next one (captionPaging gapFrames).
 const CAPTION_GAP = 2 / 30;
 
-// The caption groups (top-level groups holding a role "caption" text) shown at some moment of
-// [start, end] (sampled every 0.05 s, with the eye and Show/Hide of the text and every group over it): [{name, text}].
-function captionsOver(scene, start, end) {
+// The stretches [{start, end}] a layer shows in, with the eye and Show/Hide of it and every group over it.
+function shownStretches(chain, duration) {
+  if (chain.some((item) => item.visible === false)) return [];
+  const hidden = chain.flatMap((item) => hiddenRanges(item.animations ?? [], duration)).sort((a, b) => a.start - b.start);
+  const shown = [];
+  let at = 0;
+  for (const range of hidden) {
+    if (range.start > at) shown.push({ start: at, end: range.start });
+    at = Math.max(at, range.end);
+  }
+  if (at < duration) shown.push({ start: at, end: duration });
+  return shown;
+}
+
+// The caption groups (top-level layers holding role "caption" texts) in the scene, for a kept line at
+// [start, end]: [{name, group (a top-level group, which add_captions name replaces), starts (when its
+// texts come on), over (its texts shown over the line: [{name, text}]), own (all of it comes on during the
+// line: that line's subtitle, typed or made)}].
+function captionGroups(scene, start, end) {
   const byId = new Map(scene.layers.map((item) => [item.id, item]));
-  const found = new Map();
+  const groups = new Map();
   for (const text of scene.layers.filter((item) => item.type === "text" && item.role === "caption")) {
     const chain = [];
     for (let at = text; at && !chain.includes(at); at = at.parentId ? byId.get(at.parentId) : null) chain.push(at);
     const root = chain.at(-1);
-    if (found.has(root.id)) continue;
-    let shown = false;
-    for (let time = start; time < end && !shown; time += 0.05) shown = chain.every((item) => item.visible !== false && visibleByOperations(item.animations ?? [], time));
-    if (shown) found.set(root.id, { name: root.name, text: String(text.text ?? "").replace(/\s+/g, " ").trim() });
+    const group = groups.get(root.id) ?? { name: root.name, group: root.type === "group" && !root.parentId, starts: [], over: [] };
+    groups.set(root.id, group);
+    const shown = shownStretches(chain, scene.duration);
+    group.starts.push(...shown.map((item) => item.start));
+    if (shown.some((item) => item.start < end - 0.01 && item.end > start + 0.01))
+      group.over.push({ name: text.name, text: String(text.text ?? "").replace(/\s+/g, " ").trim() });
   }
-  return [...found.values()];
+  return [...groups.values()].map((group) => ({ ...group, own: group.starts.length > 0 && group.starts.every((time) => time >= start - 0.05 && time <= end) }));
+}
+
+// The words of a text, lowercase letters and digits only: ["ill", "kill", "you"].
+const wordsOf = (text) => String(text).toLowerCase().split(/\s+/).map((item) => item.replace(/[^\p{L}\p{N}]/gu, "")).filter(Boolean);
+
+// The subtitles shown over the kept line whose words `said` are heard there: a group that all comes on
+// during the line (that line's own subtitle, typed or made), or one whose texts over the line share at
+// least half of the words heard (a caption track of this voice). Captions of other words (a credit,
+// another voice's track) are not this line's subtitle. Each with the call that changes it: name replaces
+// the line's own group; a page of a longer track gets update_layer on its text, so the rest stays.
+function subtitlesOver(groups, said) {
+  const heard = new Set(said.flatMap((item) => wordsOf(item.text)));
+  return groups.filter((group) => group.over.length).filter((group) => {
+    if (group.own) return true;
+    const shared = new Set(group.over.flatMap((item) => wordsOf(item.text)).filter((item) => heard.has(item)));
+    return heard.size > 0 && shared.size >= Math.ceil(heard.size / 2);
+  }).map((group) => ({
+    name: group.name,
+    text: group.over.map((item) => item.text).join(" "),
+    change: group.own && group.group ? `text:"<the words said>" with name:"${group.name}" replaces it`
+      : `update_layer {layer:"${group.over[0].name}", properties:{text:"<the words said>"}} changes its words${group.own ? "" : `, the rest of ${group.name} stays`}`,
+  }));
 }
 
 // The music layer to dip, or null with the reason.
@@ -711,6 +751,9 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   start = round(start);
   end = round(end);
 
+  // When the next kept line in the scene starts (before this one joins a close one): its subtitle's limit.
+  const nextLine = Math.min(Infinity, ...scene.layers.flatMap((item) => ((item.animations ?? []).some(isLineMark) ? keptRanges(item) : []))
+    .map((item) => item.start).filter((time) => time > end + 0.001));
   // The sound: only the kept stretches (an earlier keep_line's too) at the layer's own volume.
   // Each piece keeps the part of the line it plays; a piece that plays none is silent.
   const kept = plays.map(({ piece, play }) => {
@@ -741,28 +784,34 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   const name = operation.name ?? `line-at-${round(start, 1)}s`;
   // A subtitle already shown over the line (made by hand, or by an earlier keep_line with text) stays
   // when no words are given: the transcript's words would replace words someone chose.
-  const shownOver = operation.subtitle !== false && !(sound && operation.text === undefined) ? captionsOver(scene, start, end) : [];
+  const titled = operation.subtitle !== false && !(sound && operation.text === undefined);
+  const groups = titled ? captionGroups(scene, start, end) : [];
+  const shownOver = subtitlesOver(groups, said);
   const asIs = operation.text === undefined && operation.name === undefined ? shownOver[0] : null;
   if (asIs) {
     standing = asIs;
     const quote = asIs.text.length > 60 ? `${asIs.text.slice(0, 60)}...` : asIs.text;
-    notes.push(`the subtitle ${asIs.name} ("${quote}") already shows over this line, so it stays and no new one is made; text:"<the words said>" with name:"${asIs.name}" replaces it`);
-  } else if (operation.subtitle !== false && !(sound && operation.text === undefined)) {
+    notes.push(`the subtitle ${asIs.name} ("${quote}") already shows over this line, so it stays and no new one is made; ${asIs.change}`);
+  } else if (titled) {
     const look = operation.look ?? "subtitle";
     const others = shownOver.filter((item) => item.name !== name);
-    if (others.length) notes.push(`the subtitle ${others[0].name} also shows over this line; name:"${others[0].name}" replaces it instead`);
+    if (others.length) notes.push(`the subtitle ${others[0].name} ("${others[0].text.slice(0, 60)}") also shows over this line; ${others[0].change} instead`);
+    // Captions of other words (another voice's track) on screen at the same time: named, left as they are.
+    const track = groups.find((group) => group.over.length && group.group && group.name !== name && !shownOver.some((item) => item.name === group.name));
+    if (track) notes.push(`the caption group ${track.name} ("${track.over.map((item) => item.text).join(" ").slice(0, 60)}", other words than heard here) also show over this line; subtitle:false keeps them alone`);
+    // The next line or another subtitle that comes on after this line: this subtitle is down 2 frames before it.
+    const nextOn = Math.min(nextLine, ...groups.filter((group) => group.name !== name).flatMap((group) => group.starts).filter((time) => time > end + 0.001));
     if (operation.text !== undefined) {
       // A page stays up long enough to read (20 characters a second, 5/6 s at least), past the line when it is short.
       const readEnd = Math.min(scene.duration, round(Math.max(end, start + Math.max(operation.text.length / 20, 5 / 6) + 0.02)));
-      if (readEnd > end) notes.push(`the subtitle stays up to ${readEnd} s so it can be read`);
+      const into = readEnd > nextOn - CAPTION_GAP + 0.001 ? `, into what comes on at ${round(nextOn)} s (the next line or subtitle)` : "";
+      if (readEnd > end) notes.push(`the subtitle stays up to ${readEnd} s so it can be read${into}`);
       subtitle = applyAddCaptions(document, { type: "add_captions", sceneId: scene.id, text: operation.text, format: "text", start, end: readEnd, look, name }, { fonts });
     }
     else if (said.length) {
       // The pages stay inside the kept stretch: past its end only through the line's fade down, and
-      // not into the next kept line; a page too short to read starts earlier instead (captionPaging pageWords).
-      const next = scene.layers.flatMap((item) => ((item.animations ?? []).some(isLineMark) ? keptRanges(item) : []))
-        .map((item) => item.start).filter((time) => time > end + 0.001);
-      const until = round(Math.min(scene.duration, Math.max(end, Math.min(end + DOWN_PAD, ...next.map((time) => time - CAPTION_GAP)))));
+      // not into the next kept line or subtitle; a page too short to read starts earlier instead (captionPaging pageWords).
+      const until = round(Math.min(scene.duration, Math.max(end, Math.min(end + DOWN_PAD, nextOn - CAPTION_GAP))));
       subtitle = applyAddCaptions(document, { type: "add_captions", sceneId: scene.id, words: said, look, name }, { fonts, span: { start, end: until } });
       // Few or unsure words (the clip readout's own bar for a line: LINE_SURE, LOW_CONFIDENCE): the words used and how sure.
       const mean = said.reduce((sum, item) => sum + (item.p ?? 1), 0) / said.length;
