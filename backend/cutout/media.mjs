@@ -28,8 +28,9 @@ import { cutoutEngines, cutoutError, findMatte, makeMatte, writeCutoutOutput } f
 import { matteBoxes, outlineOfMatte } from "./outline.mjs";
 
 // Bump when an output made from the same matte and settings would change (subject 2: a clip's
-// edge is cleaned of its background, cutout/edges.mjs).
-const OUTPUT_FORMAT = { subject: 3, matte: 1, silhouette: 1 };
+// edge is cleaned of its background, cutout/edges.mjs; subject 4, matte 2, silhouette 2: a late
+// picture's frames sit at its exact lead, cutout.mjs leadPad).
+const OUTPUT_FORMAT = { subject: 4, matte: 2, silhouette: 2 };
 
 /**
  * Makes library media from subject mattes. Options:

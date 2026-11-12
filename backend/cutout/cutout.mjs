@@ -720,6 +720,28 @@ function encoderArgs(output, colour, keyEvery) {
 }
 
 /**
+ * The filter that puts a cut-out's frames at the times its file shows them: `frames` copies of the
+ * first picture from 0 s, then picture k at exactly lead + k / rate. FFmpeg times a file from its
+ * first stream, so a picture that starts `lead` seconds after the sound is drawn at lead + k / rate.
+ * Rounding the lead to whole frames put every picture of the cut-out up to half a frame off its
+ * clip's: dm3 run a's clip had a 0.021 s lead at 30 fps, and for 12 ms of each 33 ms a player that
+ * shows frames by their file time (the live view) drew the cut-out's drawing before the clip's.
+ * Export reads both files on one 1/fps grid and showed the same drawing either way (measured on
+ * run a at 0.2x: 1.4 to 1.7 levels apart inside the subject, before and after). Returns
+ * { pad: "" or ",tpad=…,settb=…,setpts=…", frames, encoder: the encoder's time base arguments }:
+ * the times are kept in milliseconds (WebM's own unit), since an encoder timed in frames rounds
+ * them back to the frame grid.
+ */
+export function leadPad(lead, rate) {
+  const fps = parseFrameRate(rate);
+  if (!(lead > 0.0005) || !(fps > 0)) return { pad: "", frames: 0, encoder: [] };
+  const frames = Math.max(1, Math.ceil(lead * fps - 0.001));
+  const at = Math.round(lead * 1e6) / 1e6;
+  return { pad: `,tpad=start=${frames}:start_mode=clone,settb=1/1000,setpts=round(if(lt(N\\,${frames})\\,N/(${rate})\\,${at}+(N-${frames})/(${rate}))/TB)`,
+    frames, encoder: ["-enc_time_base:v", "1:1000"] };
+}
+
+/**
  * Writes one output of a video matte to `target`. grow and feather are in the file's pixels.
  * Returns the file's extension and MIME type.
  */
@@ -739,8 +761,7 @@ async function writeVideoOutput({ source, folder, info, output, grow = 0, feathe
   const matteChain = `${frameTimes},format=gray,scale=${outWidth}:${outHeight}:flags=bicubic${invert ? ",negate" : ""}`;
   // A picture that starts after the file does (lead seconds) gets that many copies of its first
   // frame in front, so the output lines up with the file from its start, as the layer plays it.
-  const leadFrames = Math.round(lead * parseFrameRate(rate));
-  const pad = leadFrames > 0 ? `,tpad=start=${leadFrames}:start_mode=clone,${frameTimes}` : "";
+  const { pad, frames: leadFrames, encoder: leadTimes } = leadPad(lead, rate);
   // Exactly one output frame for each matte frame: alphamerge would otherwise repeat the last one.
   const total = info.frames + leadFrames;
   const inputs = [], graph = [];
@@ -759,7 +780,7 @@ async function writeVideoOutput({ source, folder, info, output, grow = 0, feathe
     graph.push(`[paint][matte]alphamerge,format=yuva420p${pad}[out]`);
   }
   const encode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-y", ...inputs, "-filter_complex", graph.join(";"),
-    "-map", "[out]", "-an", "-sn", "-fps_mode", "passthrough", "-frames:v", String(total), ...encoderArgs(output, info.source.colour, Math.max(1, Math.round(parseFrameRate(rate)))), target],
+    "-map", "[out]", "-an", "-sn", "-fps_mode", "passthrough", ...leadTimes, "-frames:v", String(total), ...encoderArgs(output, info.source.colour, Math.max(1, Math.round(parseFrameRate(rate)))), target],
   { stdio: [finishing ? "pipe" : "ignore", "ignore", "pipe"] });
   const children = [encode];
   let decode = null;
@@ -882,11 +903,10 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
     children: [smallPicture, smallMatte], signal, onPair: (yuv, mask) => { builder.add(yuv, mask); } });
   const plate = builder.finish();
   // 2. Every frame, cleaned, into the encoder.
-  const leadFrames = Math.round(lead * parseFrameRate(rate));
-  const pad = leadFrames > 0 ? `,tpad=start=${leadFrames}:start_mode=clone,${frameTimes}` : "";
+  const { pad, frames: leadFrames, encoder: leadTimes } = leadPad(lead, rate);
   const total = info.frames + leadFrames;
   const encode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "yuva444p", "-s", `${width}x${height}`, "-r", rate, "-i", "pipe:0",
-    "-filter_complex", `[0:v]format=yuva420p${pad}[out]`, "-map", "[out]", "-an", "-sn", "-fps_mode", "passthrough", "-frames:v", String(total),
+    "-filter_complex", `[0:v]format=yuva420p${pad}[out]`, "-map", "[out]", "-an", "-sn", "-fps_mode", "passthrough", ...leadTimes, "-frames:v", String(total),
     ...encoderArgs("subject", info.source.colour, Math.max(1, Math.round(parseFrameRate(rate)))), target], { stdio: ["pipe", "ignore", "pipe"] });
   encode.stdin.on("error", () => {});
   const refiner = createEdgeRefiner({ width, height, plate: plate.steady ? plate : null });

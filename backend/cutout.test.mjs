@@ -277,6 +277,23 @@ test("a clip whose picture starts late keeps its place, and a cancelled or faile
   const alphaAt = (frame, where) => frame[Math.round(where.cy) * 160 + Math.round(where.cx)];
   assert.ok(alphaAt(frames[0], first) > 250 && alphaAt(frames[59], last) > 250 && alphaAt(frames[59], first) < 5,
     "frame 0 shows where the subject first is, the last frame where it ends");
+  // A lead that is not whole frames (0.41 s at 25 fps): each picture of the cut-out starts when the
+  // same picture of the file does, not up to half a frame off (dm3 run a: two heads at 0.2x).
+  const odd = join(root, "odd.mp4");
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2.4", "-itsoffset", "0.41", "-i", clip.path,
+    "-map", "1:v", "-map", "0:a", "-c:v", "copy", "-c:a", "aac", odd]);
+  const oddMatte = await makeMatte({ source: odd, kind: "video", cacheDir });
+  const oddSubject = join(root, "odd.webm");
+  await writeCutoutOutput({ source: odd, folder: oddMatte.folder, info: oddMatte.info, output: "subject", target: oddSubject });
+  const times = async (file) => String(await run(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "frame=pts_time", "-of", "csv=p=0", file]))
+    .trim().split("\n").map((line) => Number.parseFloat(line)).filter(Number.isFinite);
+  // FFmpeg times both files from their first stream, as check, look and export read them.
+  const [fileStart, webmStart] = await Promise.all([odd, oddSubject].map(async (file) => Number(String(await run(ffprobe, ["-v", "error", "-show_entries", "format=start_time", "-of", "csv=p=0", file])))));
+  const picture = (await times(odd)).map((time) => time - fileStart), cut = (await times(oddSubject)).map((time) => time - webmStart);
+  const leadCopies = cut.length - picture.length;
+  assert.ok(leadCopies >= 1, `${cut.length} cut-out frames for ${picture.length} pictures`);
+  const off = picture.map((time, k) => Math.abs(cut[k + leadCopies] - time));
+  assert.ok(Math.max(...off) <= 0.0015, `the largest gap between a picture and its cut-out is ${Math.max(...off).toFixed(4)} s (${picture.slice(0, 3)} / ${cut.slice(0, 4)}; starts ${fileStart}, ${webmStart})`);
 
   // Cancelling stops the helper and FFmpeg and removes the half-made matte.
   setEnv(t, "KINO_CUTOUT_HELPER", await standInHelper({ KINO_STAND_IN_DELAY_MS: 40 }));

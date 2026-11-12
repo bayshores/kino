@@ -240,6 +240,39 @@ function shownBoxes(layer, made) {
 }
 
 /**
+ * Where Play shows sampled matte frames with no subject, in scene seconds: { lost: [[from, to], …]
+ * (up to 4 stretches, `to` is the next sample with a subject or the last empty one), found: [from, to],
+ * the longest stretch with a subject in every sample }, or null when every sample has one. Read from
+ * the matte's own boxes (every `step`-th frame, outline.mjs matteBoxes), so a move or a trim can be
+ * put on the stretch the subject is really there (dm3 run a: 10 of 24 frames empty, the aura drew
+ * over them and the receipt gave only the count).
+ */
+export function subjectGaps(layer, made) {
+  const samples = shownBoxes(layer, made);
+  if (!samples.some((sample) => !sample.box)) return null;
+  const at = (time) => Math.round(time * 100) / 100;
+  const lost = [], runs = [];
+  let gap = null, run = null;
+  samples.forEach((sample) => {
+    if (!sample.box) {
+      gap ??= [sample.time, sample.time];
+      gap[1] = sample.time;
+      if (run) { runs.push(run); run = null; }
+      return;
+    }
+    if (gap) { lost.push([at(gap[0]), at(sample.time)]); gap = null; }
+    run ??= [sample.time, sample.time];
+    run[1] = sample.time;
+  });
+  if (gap) lost.push([at(gap[0]), at(gap[1])]);
+  if (run) runs.push(run);
+  // A stretch of one sample has no length: no move fits on it, so no found is given (a dur of 0).
+  const longest = runs.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0];
+  const found = longest?.map(at);
+  return { lost: lost.slice(0, 4), ...(lost.length > 4 ? { moreLost: lost.length - 4 } : {}), ...(found && found[1] > found[0] ? { found } : {}) };
+}
+
+/**
  * Runs one cut_out operation on `document` (as the operations before it in the edit left it) and
  * returns the new document. Options: mediaRoot, cutoutMedia (createCutoutMedia), operationContext
  * (as for applyOperations), reports (the edit's report Map: this adds the receipt's `cutout`),
@@ -440,11 +473,16 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   // The person engine can leave a silhouette or a dark figure half see-through (gray over a title
   // behind it); the subject engine gives it a solid body.
   if (made.engine === "person" && made.soft > PERSON_SOFT) notes.push(`${Math.round(made.soft * 100)}% of the person is see-through (a silhouette or a dark figure?): engine:"subject" may give a solid one`);
-  if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
+  const gaps = made.empty > 0 ? subjectGaps(layer, made) : null;
+  if (made.empty > 0) {
+    const where = gaps?.lost.length ? ` (Play shows them at ${gaps.lost.map(([from, to]) => (from === to ? `${from}` : `${from}-${to}`)).join(", ")} s)` : "";
+    const found = gaps?.found ? `; the subject is in every sampled frame from ${gaps.found[0]} to ${gaps.found[1]} s: a move on it fits there (at:${gaps.found[0]}, dur:${Math.round((gaps.found[1] - gaps.found[0]) * 100) / 100})` : "";
+    notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames${where}; the layer is empty there${found}`);
+  }
   if (glowKept) notes.push(`the glow on "${layer.name}" now sits behind the subject (the cut-out has none); add a glow to "${operation.cutoutName}" to bloom the subject too`);
   const picked = made.picked && pickedReport(made.picked, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId));
   if (picked?.lost?.length) notes.push(`the picked object is lost in ${picked.lost.length} span(s) of the file (picked.lost)${picked.seeAt ? "; look at the times in picked.seeAt" : ""}`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
-    cached: made.cached, ...(tried.length > 1 ? { tried } : {}), ...(subject ? { subject: subject.report } : {}), ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+    cached: made.cached, ...(tried.length > 1 ? { tried } : {}), ...(subject ? { subject: subject.report } : {}), ...(gaps ? { gaps } : {}), ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }

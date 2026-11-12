@@ -947,6 +947,16 @@ How to read it:
   A retimed clip retimes its outline and copies; an outline takes the clip's push and fades, holds 0.5 s where no subject is found,
   then fades; receipts give `subject {box, at, room}`; a nearly done cut-out is waited for 30 s more.
   Evidence: `backend/agent-cutout.test.mjs` ("cut_out outline", "close to done").
+- **Cut-out true to its clip on slowed and drawn footage**: Test-verified. A copy whose file length differs
+  from the clip's still takes a new speed or trim; a picture that starts after the sound keeps each cut-out
+  frame at its picture's file time (0.41 s lead at 25 fps: 0.010 s off before, at most 0.0015 s after);
+  the receipt names where Play shows empty matte frames and the stretch the subject is in (`gaps`);
+  energy-aura works on a clip and cut-out inside a camera group. Evidence: `backend/cutout.test.mjs`
+  ("starts late"), `backend/agent-cutout.test.mjs` ("leaves the clip's glow", "refusals"),
+  `engine/moves.test.js` ("energy-aura"). Gap: no measure yet of a matte edge that sits off the picture's
+  edges; check and look review do not name empty-matte stretches; backdrop-flash and masked-type still
+  refuse a layer inside a group; export already showed the same drawing before the frame-time change
+  (run a at 0.2x), so the double head at its last frame has another cause.
 - **Outline shows only while its clip is drawn**: Test-verified. It takes the clip's Hide and Show and a
   playback window for a clip not frozen both ways; update_layer and update_layers move it.
   Evidence: `backend/agent-cutout.test.mjs` ("shows only while its clip is drawn").

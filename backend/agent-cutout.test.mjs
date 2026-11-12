@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import { createAgentClient } from "./agent/client.mjs";
-import { runCutOut } from "./agent/cutout-operation.mjs";
+import { runCutOut, subjectGaps } from "./agent/cutout-operation.mjs";
 import { EXAMPLE_PROJECT, OP_EXAMPLES } from "./agent/op-examples.mjs";
 import { createCutoutMedia } from "./cutout/media.mjs";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
@@ -370,7 +370,9 @@ test("cut_out refusals say what is wrong and what to send, and change nothing", 
   const partial = await agent("edit", { project: "refusals", ops: [{ op: "cut_out", layer: "entrance" }] });
   assert.equal(partial.isError, undefined, partial.text);
   assert.equal(partial.data.cutout.frames, 90);
-  assert.equal(partial.data.cutout.note, "no subject was found in 30 of 90 frames; the layer is empty there");
+  // The empty frames are the first second; the note names where Play shows them and the stretch the subject is in.
+  assert.equal(partial.data.cutout.note, "no subject was found in 30 of 90 frames (Play shows them at 0-1.07 s); the layer is empty there; the subject is in every sampled frame from 1.07 to 2.93 s: a move on it fits there (at:1.07, dur:1.86)");
+  assert.deepEqual(partial.data.cutout.gaps, { lost: [[0, 1.07]], found: [1.07, 2.93] });
 
   // behind: the text goes right above the clip and its person matte above the text; a clip with
   // no person keeps the text in front and says so (fallback), changing nothing else.
@@ -549,6 +551,23 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   // The copy moved 0.5 s later on its own: its path moves too.
   const alone = applyOperations(next, [{ type: "update_layer", sceneId: "scene", layerId: "clip-cut", properties: { mediaStart: 0.5 } }]);
   assert.deepEqual(alone.scenes[0].layers.find((layer) => layer.id === "clip-cut").subjectPath.map((sample) => sample[0]), [0.5, 1.467]);
+  // The cut-out file is longer than the clip (its lead frames): a new speed still reaches the copy
+  // (dm3 run b: the copy kept 0.38x after the clip went to 1x, its file length differed).
+  const longer = await runCutOut(document, { ...operation }, { mediaRoot: root, cutoutMedia, operationContext: async () => ({ mediaById: { [record.id]: { ...record, duration: 1.2 } } }) });
+  assert.notEqual(longer.scenes[0].layers.find((layer) => layer.id === "clip-cut").mediaSourceDuration, 1);
+  const slowed = applyOperations(longer, [{ type: "update_layer", sceneId: "scene", layerId: "clip", properties: { mediaSpeed: 0.5, mediaOffset: 0.2 } }]);
+  const copy = slowed.scenes[0].layers.find((layer) => layer.id === "clip-cut");
+  assert.deepEqual([copy.mediaSpeed, copy.mediaOffset], [0.5, 0.2]);
+  // Empty matte frames are named at the scene times Play shows them, with the stretch the subject is in.
+  const sampled = { ...made, empty: 12, boxes: { step: 4, frames: Array.from({ length: 8 }, (_, k) => ({ index: k * 4, box: k >= 2 && k < 5 ? null : [0.1, 0.2, 0.3, 0.9] })) } };
+  assert.deepEqual(subjectGaps(clip, sampled), { lost: [[0.27, 0.67]], found: [0.67, 0.93] });
+  // A subject in every other sample only: no stretch has length, so no found (no move of dur 0).
+  const flicker = { ...sampled, boxes: { step: 4, frames: Array.from({ length: 4 }, (_, k) => ({ index: k * 4, box: k % 2 ? null : [0.1, 0.2, 0.3, 0.9] })) } };
+  assert.equal(subjectGaps(clip, flicker).found, undefined);
+  const gapReports = new Map();
+  await runCutOut(document, operation, { mediaRoot: root, reports: gapReports, cutoutMedia: { ...cutoutMedia, start: () => ({ done: Promise.resolve(sampled), progress: () => ({ fraction: 1, seconds: 0 }) }) },
+    operationContext: async () => ({ mediaById: { [record.id]: record } }) });
+  assert.match(gapReports.get(operation).note, /no subject was found in 12 of 30 frames \(Play shows them at 0\.27-0\.67 s\); the layer is empty there; the subject is in every sampled frame from 0\.67 to 0\.93 s: a move on it fits there \(at:0\.67, dur:0\.26\)/);
 });
 
 test("behind picks the engine from the clip's people scan, and a person pass that finds no one tries the subject engine", async (t) => {

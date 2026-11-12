@@ -48,6 +48,9 @@ export const energyAura = {
   tags: ["particles"],
   length: 2,
   shortest: 0.2,
+  // A clip and its cut-out inside a group (frame's <layer>-camera) work as themselves: the energy
+  // group and the embers go beside them in that group, so the camera's push carries them too.
+  nested: ["layer", "subject"],
   fields: {
     layer: { kind: "layer", required: true, about: "the clip or picture (full frame); its subject cut-out is made or reused in the same edit" },
     subject: { kind: "layer", cutout: { of: "layer", auto: true, own: true }, about: "the subject cut-out (default: kino makes one, shown only during the aura, or reuses a cut_out of layer)" },
