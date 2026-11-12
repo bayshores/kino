@@ -9,10 +9,13 @@ import { EFFECTS } from "../../engine/effects/catalog.js";
 import { mainScene } from "../../engine/board.js";
 import { coveredAt } from "../../engine/quality/techniques.js";
 import { area, boxAt, intersection, visibleBoxAt } from "../../engine/quality/model.js";
-import { blockiness, blockStep, cropFrame, deblockFor, gammaToMean, liftDeblockId, liftGrainId, liftId, liftShot, lumaStats, sourceGrid } from "../../engine/quality/liftDark.js";
+import { blockiness, blockStep, cropFrame, deblockFor, gammaToMean, liftDeblockId, liftGrainId, liftId, liftShot, lumaStats, MAX_STOPS, sourceGrid } from "../../engine/quality/liftDark.js";
 
 // 240 px wide: wider than match_references' 160, so the 2nd and 98th percentiles have pixels to stand on.
 const MEASURE_WIDTH = 240;
+// A lift that draws more than this many levels (of 255) off its target is fitted a second time (a
+// guess: a level is the smallest step the receipt prints).
+const SECOND_PASS = 1;
 // With no other shot to follow and no target: about the middle of a lit video's mean luma (a guess).
 const FALLBACK_TARGET = 100;
 // Frames a shot's tones are read from: on six lifted night shots, 3 frames read up to 3.0 levels off
@@ -193,25 +196,50 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const blocksBefore = await blocksAll(base, new Map(gridded.map((shot) => [shot.layerId, null])));
   const still = reduced ?? Boolean(baseScene?.composition?.reduced);
   const lifted = [], skipped = [];
+  const amountOf = (lift) => grain === false ? null : Number.isFinite(grain) ? grain : lift.grain?.amount ?? null;
   for (const shot of own) {
     const lift = liftShot(shot.frames, aim, { sourceScale: pitchOf(shot.layerId) });
     if (!lift) { skipped.push(shot); continue; }
-    const amount = grain === false ? null : Number.isFinite(grain) ? grain : lift.grain?.amount ?? null;
+    const amount = amountOf(lift);
     const blocks = blocksBefore.get(shot.layerId) ?? null;
     lifted.push({ ...shot, ...lift, amount, size: lift.grain?.size ?? 1, gamma: gammaToMean(shot.frames, lift.after.mean), blocks, deblock: deblockFor(blocks, pitchOf(shot.layerId)) });
   }
-  const ops = lifted.flatMap((entry) => [
+  const opsFor = (entries) => entries.flatMap((entry) => [
     // Before the curve, so the steps are smoothed at the source's own levels.
     ...(entry.deblock ? [{ op: "add_animation", layerId: entry.layerId, id: liftDeblockId(entry.layerId), effect: "deblock", start: 0, duration: scene.duration, parameters: entry.deblock }] : []),
     { op: "add_animation", layerId: entry.layerId, id: liftId(entry.layerId), effect: "curves", start: 0, duration: scene.duration, parameters: { master: entry.curve } },
     ...(entry.amount ? [{ op: "add_animation", layerId: entry.layerId, id: liftGrainId(entry.layerId), effect: "grain", start: 0, duration: scene.duration, parameters: { amount: entry.amount, size: entry.size, seed: seedOf(entry.layerId), ...(still ? { animated: false } : {}) } }] : []),
   ]);
+  // The receipt's "after" is the render (overlays and the frame finish included), not the model.
+  const landed = async (document) => {
+    const drawn = await render(expandComponents(document, scene.id, { fonts }), times, { width });
+    return new Map(lifted.map((entry) => [entry.layerId, lumaStats(framesOf(entry, drawn))]));
+  };
   let after = base;
-  if (ops.length) {
-    after = await runOps(base, ops);
-    // The receipt's "after" is the render (overlays and the frame finish included), not the model.
-    const drawn = await render(expandComponents(after, scene.id, { fonts }), times, { width });
-    for (const entry of lifted) entry.after = lumaStats(framesOf(entry, drawn)) ?? entry.after;
+  if (lifted.length) {
+    after = await runOps(base, opsFor(lifted));
+    const first = await landed(after);
+    for (const entry of lifted) entry.after = first.get(entry.layerId) ?? entry.after;
+    // The curve is fitted on the small measured frames, where text or a graphic over the shot is
+    // mixed into its edge pixels: the render then lands under the target (a caption over a dark
+    // wall: 58.1 for 60). A shot more than SECOND_PASS levels off, and not held by the stop cap,
+    // is fitted once more at the target plus its miss, and keeps that fit when it lands closer.
+    const again = lifted.map((entry) => {
+      const miss = aim - entry.after.mean;
+      if (Math.abs(miss) * 255 <= SECOND_PASS || (miss > 0 && entry.stops >= MAX_STOPS)) return null;
+      const lift = liftShot(entry.frames, aim + miss, { sourceScale: pitchOf(entry.layerId) });
+      return lift && { entry, lift, kept: { stops: entry.stops, curve: entry.curve, amount: entry.amount, size: entry.size, gamma: entry.gamma, after: entry.after } };
+    }).filter(Boolean);
+    if (again.length) {
+      for (const { entry, lift } of again) Object.assign(entry, { stops: lift.stops, curve: lift.curve, amount: amountOf(lift), size: lift.grain?.size ?? 1, gamma: gammaToMean(entry.frames, lift.after.mean) });
+      const second = await landed(await runOps(base, opsFor(lifted)));
+      for (const { entry, kept } of again) {
+        const now = second.get(entry.layerId);
+        if (now && Math.abs(aim - now.mean) < Math.abs(aim - kept.after.mean)) Object.assign(entry, { after: now, firstLanded: kept.after.mean });
+        else Object.assign(entry, kept);
+      }
+      after = await runOps(base, opsFor(lifted));
+    }
     const blocksAfter = await blocksAll(after, new Map(lifted.filter((entry) => entry.blocks).map((entry) => [entry.layerId, entry.blocks.side])));
     for (const entry of lifted) if (blocksAfter.has(entry.layerId)) entry.blocksAfter = blocksAfter.get(entry.layerId);
   }
@@ -225,7 +253,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
   const level = (value) => Math.round(value * 100) / 100;
   const blockLine = (entry) => !entry.blocks ? ""
     : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`;
-  const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)} ${measured(entry)}${gradeNote(entry)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
+  const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)} ${measured(entry)}${gradeNote(entry)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.firstLanded === undefined ? "" : ` (fitted twice: the first fit drew ${levels255(entry.firstLanded)})`}${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
   const keptGrade = (shot) => moves(shot) ? ` (${levels255(shot.bare.mean)} without ${shot.grades.map((grade) => grade.id).join(", ")})` : "";
   const kept = skipped.length ? `; ${skipped.map((shot) => `${name(shot.layerId)} ${levels255(lumaStats(shot.frames)?.mean ?? 0)}${keptGrade(shot)}`).join(", ")} already at or above it, left alone` : "";
   const lines = [lifted.length

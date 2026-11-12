@@ -24,7 +24,7 @@ export const LIFT_DEBLOCK_SUFFIX = ".lift-deblock";
 export const liftDeblockId = (layerId) => `${layerId}${LIFT_DEBLOCK_SUFFIX}`;
 
 // The largest lift: 4 stops on the mids (16 times the light), a guess past the 3 match_references uses.
-const MAX_STOPS = 4;
+export const MAX_STOPS = 4;
 // Points on the curve between the black point and white (the curves effect takes 16 at most).
 const CURVE_STEPS = 13;
 // Grain goes on from a lift of 1 stop (the mids twice as bright); its amount is clamped to a fine

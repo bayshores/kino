@@ -461,8 +461,9 @@ process.exit(result.status ?? 1);
     await assert.rejects(exportScene(scene, { profile: "mp4.alt", fps: 30, width, height, renderQuality: "final" },
       { mediaRoot, outputPath: join(directory, "late-final.mp4") }), (error) => {
       // The shift check names the fault. A few of the late frames may also be over the mean limit
-      // (3 here: testsrc2's color columns, see the test above), which adds one sentence before it.
-      assert.match(error.message, /^Rendered file differs from its intended frames: rendererMatch\. (Decoded frames differ from their renderer references at \d+ frame\(s\)\. )?From frame 1 \(0\.033 s\) to frame 14 \(0\.467 s\), 14 decoded frames look like the renderer frame just before their own: the file runs a frame late there, as if a frame was repeated\. This is a fault in encoding the file, not in your scene\. Render again; if it fails again, report it with this message and the scene\.$/);
+      // (3 here: testsrc2's color columns, see the test above), which adds one sentence before it
+      // and, on some FFmpeg builds, starts the late run at frame 3 (12 frames) instead of frame 1.
+      assert.match(error.message, /^Rendered file differs from its intended frames: rendererMatch\. (Decoded frames differ from their renderer references at \d+ frame\(s\)\. )?From frame [1-3] \(0\.\d+ s\) to frame 14 \(0\.467 s\), 1[2-4] decoded frames look like the renderer frame just before their own: the file runs a frame late there, as if a frame was repeated\. This is a fault in encoding the file, not in your scene\. Render again; if it fails again, report it with this message and the scene\.$/);
       return true;
     });
   } finally {

@@ -1682,7 +1682,7 @@ How to read it:
   the new one). Smooths compression block edges when the measured step is high; grain size follows the source scale. The target
   and means print in one range (full 0-255, with the target's video-range level); rendered mean 58 for target 60. Evidence:
   `backend/lift-deblock.test.mjs`. Gap: the means come from 6 rendered frames a shot (the next bullet), not every frame.
-- **lift_dark receipt equals the render on real footage**: Verified on a copy of a real night project (6 lifted shots: receipt
+- **lift_dark receipt equals the render on real footage**: Verified on a copy of a real night project (6 lifted shots: receipt A lift drawn more than a level off its target is fitted a second time (a caption over a dark wall: 58 to 60 for a target of 60).
   48.3 to 49.2 against a 1920 px render of 12 frames across each shot, 48.3 to 49.6; it was 47 to 48 against 50 to 56). Cause: the
   scaled video decode read dark colored footage up to 2 levels dark; video pictures now decode alike at every width. The receipt
   reads 6 frames at 240 px, prints the width and span, names color effects already on the shot that move its mean (a grade, a
