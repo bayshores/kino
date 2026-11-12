@@ -2,11 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createLayer, createScene } from "./model.js";
 import { sceneShots, shotTiles } from "./sceneShots.js";
+import { layerSpanCuts, shotSpanCuts, slideOffCut, spanCutLine } from "./spanCuts.js";
 
 const video = (overrides) => createLayer("video", { id: "clip", name: "clip", src: "/api/media/a.mp4", width: 1920, height: 1080, ...overrides });
 const sceneOf = (layers, duration = 6) => createScene({ id: "s1", duration, layers });
 // File shots of a 10 s file with cuts at 3 s and 5 s.
 const threeShots = [{ start: 0, end: 3 }, { start: 3, end: 5 }, { start: 5, end: 10 }];
+const oneCut = [{ start: 0, end: 5 }, { start: 5, end: 10 }];
 
 test("file cuts move onto the scene through mediaStart and mediaOffset; the Play range start is a cut too", () => {
   const scene = sceneOf([video({ mediaStart: 1, mediaOffset: 2, mediaSourceDuration: 10 })]);
@@ -72,4 +74,45 @@ test("shotTiles shares 12 tiles among the shots by length, at least one each, cl
   const most = shotTiles(many);
   assert.deepEqual([most.total, most.shown, most.tiles.length], [40, 24, 24]);
   assert.deepEqual(most.tiles.at(-1), { n: 24, start: 11.5, end: 12, time: 11.75 });
+});
+
+// ---- spanCuts: a span that runs across the file's own cut ----
+
+test("a layer's span across a file cut: the file second, the scene second and the trim that ends it before the cut", () => {
+  // Plays file 2–5.07 s from scene 1 s; the file cuts at 5 s: 2 frames (0.07 s) of the next shot.
+  const layer = video({ mediaStart: 1, mediaOffset: 2, mediaDuration: 3.07, mediaSourceDuration: 10 });
+  const [cut] = layerSpanCuts(layer, oneCut, 6);
+  assert.deepEqual([cut.file, cut.at, cut.side, cut.leak, cut.trim], [5, 4, "end", 0.07, { out: 4.99 }]);
+  assert.deepEqual(cut.fields, { mediaDuration: 2.99 });
+  assert.match(spanCutLine("clip", [cut]), /clip plays across a cut of its file.*file 5 s lands at 4 s of the scene \(3 s of the shot before it, 0\.07 s of the next\): out 4\.99 s ends before it \(mediaDuration 2\.99\)/);
+  // A span that stops at the cut crosses nothing.
+  assert.deepEqual(layerSpanCuts(video({ mediaOffset: 2, mediaDuration: 3, mediaSourceDuration: 10 }), oneCut, 6), []);
+});
+
+test("a slowed span lands its file cut later on the scene, and a reversed one from the other end", () => {
+  // Speed 0.33 from file 4.6: file 5 s is 1.212 scene seconds in; the span (2.4 s of scene) shows 1.188 s of the next shot.
+  const slow = video({ mediaOffset: 4.6, mediaSpeed: 0.33, mediaDuration: 2.4, mediaSourceDuration: 10 });
+  const [cut] = layerSpanCuts(slow, threeShots, 6);
+  assert.deepEqual([cut.file, cut.at, cut.early, cut.late, cut.side], [5, 1.212, 1.212, 1.188, "end"]);
+  assert.equal(cut.trim.out, 4.99);
+  // Played backwards over file 4–6 s: file 5 s is half way, and the scene second counts from the end of the stretch.
+  const back = video({ mediaReverse: true, mediaOffset: 4.5, mediaDuration: 1, mediaSourceDuration: 10 });
+  const [reversed] = layerSpanCuts(back, threeShots, 6);
+  assert.deepEqual([reversed.file, reversed.at, reversed.fields], [5, 0.5, undefined]);
+});
+
+test("a board shot that crosses a cut by 2 frames slides off it; 1.4 s at speed 0.33 is stated and left as given", () => {
+  const shot = { cue: 4, dur: 2.5, in: 2.57, speed: 1, sound: "none" };
+  // File 2.57–5.07 s: the cut at 5 s is 0.07 s from the end.
+  assert.equal(shotSpanCuts(shot, oneCut)[0].leak, 0.07);
+  const slid = slideOffCut(shot, oneCut, { fileDuration: 10 });
+  assert.deepEqual([slid.shot.in, slid.shot.cue, slid.shot.dur, slid.cuts], [2.49, 4, 2.5, []]);
+  // At speed 0.33 a 4 s shot reads 1.32 file seconds from 4.31: the cut at 5 s lands at scene 6.091 s, 1.909 s from the end.
+  const long = { cue: 4, dur: 4, in: 4.31, speed: 0.33 };
+  const [cut] = shotSpanCuts(long, threeShots);
+  assert.deepEqual([cut.file, cut.at, cut.early, cut.late, cut.leak], [5, 6.091, 2.091, 1.909, 1.909]);
+  assert.equal(slideOffCut(long, threeShots, { fileDuration: 10 }).shot, null);
+  // A cut just inside the span's start slides the span after it; one at the end that would slide before file second 0 is left, with the reason.
+  assert.equal(slideOffCut({ cue: 0, dur: 1, in: 2.9, sound: "none" }, [{ start: 0, end: 3 }, { start: 3, end: 5 }], { fileDuration: 5 }).shot.in, 3.01);
+  assert.equal(slideOffCut({ cue: 0, dur: 3.05, in: 0.03, sound: "none" }, [{ start: 0, end: 3.05 }, { start: 3.05, end: 5 }], { fileDuration: 5 }).why, "file");
 });

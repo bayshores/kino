@@ -56,6 +56,7 @@ import { evaluateLayer } from "../../engine/animation.js";
 import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { sec } from "./describe.mjs";
+import { slideOffCut, spanCutLine } from "../../engine/spanCuts.js";
 import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps } from "./board-build.mjs";
 import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
@@ -2368,6 +2369,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
         ids.set(shot.id, index + 1);
       });
     }
+    // A shot whose span of its file runs across the file's own cut shows frames of another shot:
+    // under a quarter second at either end the span is slid off the cut; longer is stated.
+    const cutNotes = problems.length ? [] : moveOffFileCuts(shots, media);
     const board = { music, calls: lists.calls, open: lists.open, shots: shots.map(({ id, ...shot }) => ({ id, ...shot })) };
     const span = problems.length ? null : boardSpan(document, board);
     const gap = span ? boardCoverage(board, span) : null;
@@ -2391,6 +2395,31 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     document.board = kept;
     const last = board.shots.at(-1);
     work.notes.push(`board r${document.board.rev}: ${board.shots.length} shot${board.shots.length === 1 ? "" : "s"}, ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s, ${span.music ? `music ${span.music}` : "no music"} · look {mode:"board"} shows it`);
+    work.notes.push(...cutNotes);
+  }
+
+  // The shots (mutated) moved off a file cut they cross by under NEAR_CUT, and the receipt lines:
+  // what moved, and every crossing left as given with the cut's file second, its scene second and
+  // the trim that would end the span before it (engine/spanCuts.js). Saved cuts only.
+  function moveOffFileCuts(shots, media) {
+    const moved = [], stated = [];
+    const left = { "more than one cut": "it crosses more than one cut", sound: "it keeps a range of the clip's own sound, in file seconds", file: "the slide would leave the file", cut: "the slid span would cross another cut" };
+    shots.forEach((shot, index) => {
+      if (typeof shot?.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return;
+      const file = media(shot.media, ["video"]);
+      if (!file.shots) return;
+      const result = slideOffCut(shot, file.shots, { fileDuration: file.duration });
+      const n = index + 1;
+      if (result.shot) {
+        shots[index] = result.shot;
+        moved.push(`board shot ${n}: its span of ${file.name} crossed a cut by ${sec(result.was.leak)} s (file ${sec(result.was.file)} s lands at ${sec(result.was.at)} s), so in moved ${sec(shot.in)}→${sec(result.shot.in)} s and the span ${result.was.trim.out !== undefined ? "ends before" : "begins after"} it; cue and length stay`);
+      } else if (result.cuts.length) {
+        const why = result.why ? ` (not moved: ${left[result.why]})` : "";
+        stated.push(`${spanCutLine(`board shot ${n} (${file.name})`, result.cuts)}${why}`);
+      }
+    });
+    return [...moved.slice(0, 4), ...(moved.length > 4 ? [`board: ${moved.length - 4} more shots moved off a file cut`] : []),
+      ...stated.slice(0, 4), ...(stated.length > 4 ? [`board: ${stated.length - 4} more shots play across a cut of their file`] : [])];
   }
 
   // board {snap:"beats"}: only when asked, the saved board's cuts after the song's turn move onto
@@ -2457,7 +2486,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
           ?? list.find((item) => bare(item.name) === bare(text));
       const kind = String(found?.mime ?? "").split("/")[0];
       if (!found || !kinds.includes(kind)) return { suggestions: closest(text, list.filter((item) => kinds.includes(String(item.mime).split("/")[0])).map((item) => item.name)) };
-      return { src: found.src ?? `/api/media/${found.id}`, id: found.id, kind, width: found.width, height: found.height, duration: Number(found.duration) || 0, name: found.name ?? found.id };
+      return { src: found.src ?? `/api/media/${found.id}`, id: found.id, kind, width: found.width, height: found.height, duration: Number(found.duration) || 0, name: found.name ?? found.id,
+        shots: Array.isArray(found.shots) ? found.shots : null };
     };
   }
 

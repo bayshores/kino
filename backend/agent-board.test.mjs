@@ -882,3 +882,23 @@ test("with a clip imported, the first compose hint cuts it, at the brief's lengt
   await agent("notes", { project: "board-hint", action: "brief", fields: { length: 30 } });
   assert.equal(await next(), 'edit {"ops":[{"op":"compose","footage":["dragon.mp4"],"format":"9:16","duration":30}]}');
 });
+
+test("a shot or layer whose span of its file runs across the file's own cut: a crossing under 0.25 s is slid off, a longer one is stated with the scene second", { skip, timeout: 60_000 }, async () => {
+  await project("board-cut", { duration: 6, layers: [videoLayer()] });
+  // The clip cuts at 1.25 s and 3.333 s. Shot 1 plays file 0.1-1.3 s (0.05 s of the next shot at its end);
+  // shot 3 plays 2.7-3.789 s at speed 0.33, so file 3.333 s lands at scene 4.62 s and 1.38 s of the next shot shows.
+  const saved = await editBoard("board-cut", [footage(0, 1.2, 0.1, 30), footage(1.2, 1.5, 1.4, 30), footage(2.7, 3.3, 2.7, 30, { speed: 0.33 })]);
+  assert.equal(saved.isError, undefined, saved.text);
+  const shots = (await record("board-cut")).document.board.shots;
+  assert.deepEqual(shots.map((shot) => [shot.cue, shot.dur, shot.in]), [[0, 1.2, 0.04], [1.2, 1.5, 1.4], [2.7, 3.3, 2.7]]);
+  const notes = saved.data.notes.join("\n");
+  assert.match(notes, /board shot 1: its span of sintel-village-dragon\.mp4 crossed a cut by 0\.05 s \(file 1\.25 s lands at 1\.15 s\), so in moved 0\.1→0\.04 s and the span ends before it; cue and length stay/);
+  assert.match(notes, /board shot 3 \(sintel-village-dragon\.mp4\) plays across a cut of its file.*file 3\.33 s lands at 4\.62 s of the scene \(1\.92 s of the shot before it, 1\.38 s of the next\): out 3\.323 s ends before it/);
+  assert.doesNotMatch(notes, /board shot 2/);
+  // A layer given a span across the cut says so in its receipt; moving its offset off the cut says nothing.
+  const layer = await agent("edit", { project: "board-cut", ops: [{ op: "update_layer", layer: "footage", properties: { mediaStart: 1, mediaOffset: 2.2, mediaDuration: 1.2 } }] });
+  assert.equal(layer.isError, undefined, layer.text);
+  assert.match(layer.data.notes.join("\n"), /footage plays across a cut of its file.*file 3\.33 s lands at 2\.13 s of the scene \(1\.13 s of the shot before it, 0\.07 s of the next\): out 3\.323 s ends before it \(mediaDuration 1\.123\)/);
+  const off = await agent("edit", { project: "board-cut", ops: [{ op: "update_layer", layer: "footage", properties: { mediaDuration: 1.1 } }] });
+  assert.doesNotMatch((off.data.notes ?? []).join("\n"), /across a cut/);
+});
