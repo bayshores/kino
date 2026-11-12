@@ -304,6 +304,15 @@ test("place_sounds what:\"footstep\" places four steps against the bed; an unkno
   const held = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5, what: "marimba" }] }] });
   assert.equal(held.isError, undefined, held.text);
   assert.match(held.data.sounds.summary, /sfx-marimba-1 at 5/);
+  // The person's import named for the word comes before the library's own footstep; the bed (a
+  // short file the scene already plays) is never taken for an effect.
+  const ownStep = await importTone("footstep gravel.wav", 300, 0.3);
+  const own = await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5.5, what: "footsteps" }] }] });
+  const ownLayer = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers.find((layer) => layer.id === "sfx-footsteps-1");
+  assert.equal(ownLayer?.src, ownStep, own.text);
+  await agent("edit", { project: "steps", ops: [{ op: "place_sounds", sceneId: scene, at: [{ at: 5, what: "bed" }] }] });
+  const after = (await (await server.api("/api/projects/steps")).json()).document.scenes[0].layers;
+  assert.equal(after.filter((layer) => layer.id.startsWith("sfx-") && layer.src === music).length, 0);
   // library sounds with no match says the same, with the nearest kinds.
   const none = await agent("library", { project: "steps", topic: "sounds", search: "marimba" });
   assert.match(none.text, /No library sound matches \"marimba\"\. Nearest kinds: .*library \{topic:"inspire", search:"marimba", kind:"sounds"\}/);

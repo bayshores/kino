@@ -2262,16 +2262,19 @@ export function createAgentService(deps) {
       } else {
         const words = entry.what ?? (kind ? SOUND_KIND_WORDS[kind] : null);
         if (!words) throw new AgentError("bad_input", `place_sounds at ${at}: say what the sound is ({at:${at}, what:"whoosh"}) or give sound (sfx:<id> or a file).`);
-        const pool = entry.what !== undefined
+        // The person's own import whose name or credit has every word comes before the library.
+        const played = new Set(scene.layers.filter((layer) => !/^sfx-/.test(layer.id)).map((layer) => mediaIdFromSource(layer.src)).filter(Boolean));
+        file = entry.what !== undefined ? heldSoundFor(words, media, { skip: played, all: true }) : null;
+        const pool = file ? [] : entry.what !== undefined
           ? deps.soundLibrary?.offerSounds?.(entry.what, { seed: document.id, low: true, count: 6 }) ?? []
           : action ? [...(offered[action.id] ?? []), ...offersFor(kind, document, scene, media, 6)] : offersFor(kind, document, scene, media, 6);
         const pick = pool.find((sound) => !taken.has(sound.id)) ?? pool[0];
         if (pick) {
           taken.add(pick.id);
           file = await librarySoundMedia(`sfx:${pick.id}`, media);
-        } else {
-          // Not in the library: a sound the project already holds whose name or credit has the words, else the finder call.
-          file = heldSoundFor(words, media);
+        } else if (!file) {
+          // Not in the library: a held sound with some of the words, else the finder call.
+          file = heldSoundFor(words, media, { skip: played });
           if (!file) throw new AgentError("not_found", missingSoundText(String(words), deps.soundLibrary?.nearestKinds?.(words) ?? [], soundSearchOn()));
         }
         kind ??= String(entry.what ?? words).split(/\s+/)[0];
