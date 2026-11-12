@@ -804,6 +804,10 @@ How to read it:
   teeth fixed per seed that boil at their rate (engine/shapeModifiers.test.js); `move split-fields {layer}` builds two
   normalized duotone copies and a rough drifting mask (engine/moves.test.js). Rendered through the agent path with the
   required field only: green and magenta fields of one shot along a ragged edge. Gap: boil is not exported to Lottie.
+- **Torn and dry-brush roughen**: Verified. `roughenStyle "torn"` (the default of a layer's first roughen) has lobes and fibers with no
+  one-point spikes, `"brush"` streaks along `roughenAngle` (engine/shapeModifiers.test.js, backend/agent-shape-modifiers.test.mjs).
+- **Splatter paths**: Verified. `add_layer {layerType:"path", properties:{splatter:true}}` draws a seeded splat (body,
+  drops shrinking with distance, streaks; splash, drip, spray) as plain path data (engine/shapes.test.js, agent-shape-modifiers).
 - **backdrop-flash**: Verified. One move puts a color field (auto hue from the shot's grade or picture, turned -35°,
   streaks, subject tone, rim-light, punch 1.06) between a clip and its subject on frames [1,1,0,1]; the edit makes or
   reuses the cut_out itself, shown on those frames only, and tints the shot where no cut-out can be made

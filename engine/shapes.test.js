@@ -4,6 +4,7 @@ import { resolvedCornerRadii, shapeContours, shapePath } from "./shapes.js";
 import { parsePath } from "./vectorPath.js";
 import { createLayer } from "./model.js";
 import { evaluateLayer } from "./animation.js";
+import { splatterPath } from "./splatter.js";
 
 function closeTo(actual, expected, epsilon = 1e-8) {
   assert.ok(Math.abs(actual - expected) <= epsilon, `${actual} is not near ${expected}`);
@@ -232,4 +233,28 @@ test("degenerate dimensions stay finite and invalid values fail clearly", () => 
   assert.throws(() => shapeContours("ellipse", { width: 10, height: 10, startAngle: Number.NaN }), /angle/i);
   assert.throws(() => shapeContours("star", { width: 10, height: 10, spikes: Number.POSITIVE_INFINITY }), /spikes/i);
   assert.throws(() => shapeContours("triangle", { width: 10, height: 10 }), /unsupported/i);
+});
+
+test("a splatter is a seeded path: a body, drops that shrink with distance, streaks, and a thrown splash", () => {
+  const splat = parsePath(splatterPath({ seed: 3 }, 400, 400));
+  assert.equal(splatterPath({ seed: 3 }, 400, 400), splatterPath({ seed: 3 }, 400, 400));
+  assert.notEqual(splatterPath({ seed: 4 }, 400, 400), splatterPath({ seed: 3 }, 400, 400));
+  const parts = splat.map((contour) => {
+    const points = [contour.start, ...contour.segments.map(({ end }) => end)];
+    const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    return { size: Math.max(...xs) - Math.min(...xs), far: Math.hypot(cx - 200, cy - 200), xs, ys };
+  });
+  // The body first, then a drop past some arms, 12 drops and 2 streaks, all inside the box.
+  assert.ok(parts.length >= 1 + 12 + 2 && parts[0].size > 140, String(parts.length));
+  assert.ok(parts.every(({ xs, ys }) => Math.min(...xs, ...ys) >= -1 && Math.max(...xs, ...ys) <= 401));
+  const drops = parts.slice(1).filter(({ size }) => size < 60).sort((a, b) => a.far - b.far);
+  const half = Math.floor(drops.length / 2), mean = (list) => list.reduce((sum, { size }) => sum + size, 0) / list.length;
+  assert.ok(mean(drops.slice(0, half)) > mean(drops.slice(half)), "near drops are bigger");
+  // A splash thrown right puts most of its ink right of the middle.
+  const ink = parsePath(splatterPath({ style: "splash", seed: 3 }, 400, 400)).flatMap((contour) => contour.segments.map(({ end }) => end[0]));
+  assert.ok(ink.filter((x) => x > 200).length > ink.length * 0.6);
+  assert.equal(parsePath(splatterPath({ style: "drip", seed: 1, drips: 3, count: 0 }, 400, 400)).length >= 4, true);
+  assert.throws(() => splatterPath({ style: "blob" }), /splat/);
+  assert.throws(() => splatterPath({ count: 500 }), /count/);
 });

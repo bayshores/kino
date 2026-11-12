@@ -46,4 +46,24 @@ test("edit sets and animates zig zag and offset fields, and refuses them on text
   const radius = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Swirl", properties: { radius: 9 } }] });
   assert.equal(radius.isError, undefined, radius.text);
   assert.equal((await layers()).find((layer) => layer.name === "Swirl").roundCorners, 9);
+  // A splatter is a plain path layer; a roughen added without a style is torn paper.
+  const splat = await agent("edit", { project: "badge", ops: [
+    { op: "add_layer", layerType: "ellipse", name: "Ink", splatter: { seed: 2 }, properties: { x: 10, y: 10, width: 100, height: 100 } },
+    { op: "add_layer", layerType: "path", name: "Ink2", generate: "splatter", properties: { color: "#E8358F" } },
+    { op: "add_layer", layerType: "rectangle", name: "Tear", properties: { width: 160, height: 30, roughenSize: 8 } }] });
+  assert.equal(splat.isError, undefined, splat.text);
+  const [ink, ink2, tear] = ["Ink", "Ink2", "Tear"].map(async (name) => (await layers()).find((layer) => layer.name === name));
+  assert.deepEqual([(await ink).type, (await ink).fill, (await ink2).fill.toLowerCase(), (await ink2).width, (await tear).roughenStyle], ["path", "#111111", "#e8358f", 360, "torn"]);
+  assert.match((await ink).path, /^M[\d.]+/);
+  const reseed = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Ink", properties: { splatter: { seed: 3, style: "splash" } } }] });
+  assert.equal(reseed.isError, undefined, reseed.text);
+  assert.notEqual((await layers()).find((layer) => layer.name === "Ink").path, (await ink).path);
+  const wrong = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Swirl", properties: { splatter: true } }] });
+  // The refusal's next call is that add_layer, not an update of the star.
+  assert.match(wrong.text, /path layer/);
+  assert.match(JSON.parse(wrong.text).next, /"op":"add_layer","layerType":"path","name":"Swirl splat"/);
+  // The first roughen an update gives a saved layer is torn too; one that has a roughen keeps its look.
+  const ragged = await agent("edit", { project: "badge", ops: [{ op: "update_layer", layer: "Badge", properties: { roughenSize: 5 } }] });
+  assert.equal(ragged.isError, undefined, ragged.text);
+  assert.equal((await layers()).find((layer) => layer.name === "Badge").roughenStyle, "torn");
 });

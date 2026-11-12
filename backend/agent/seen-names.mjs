@@ -101,6 +101,12 @@ const SEEN_AS = {
   "torn edge": ["shape-modifiers", "shape-wipe"], "jagged edge": ["shape-modifiers", "shape-wipe"], "dry brush": ["shape-modifiers", "split-fields"], "brush wipe": ["shape-wipe", "split-fields"], "brush mask": ["shape-modifiers", "shape-wipe"],
   // The project's frame rate (update_project {fps}, project create {fps}).
   "frame rate": ["update_project"], framerate: ["update_project"], fps: ["update_project"], "frames per second": ["update_project"], "23.976": ["update_project"], "on frame": ["update_project"],
+  // roughenStyle torn and brush (GAPS item 12: "torn paper edge texture" found edge-lines).
+  torn: ["shape-modifiers"], ragged: ["shape-modifiers"], ripped: ["shape-modifiers"], tear: ["shape-modifiers"], "torn paper": ["shape-modifiers"], "ripped paper": ["shape-modifiers"],
+  "paper edge": ["shape-modifiers"], "paper tear": ["shape-modifiers"], "brush stroke": ["shape-modifiers", "shape-wipe"], "brush streaks": ["shape-modifiers"],
+  // A splatter path (GAPS item 11: "paint splatter splash shapes" found no name).
+  splatter: ["splatter"], splat: ["splatter"], splats: ["splatter"], splash: ["splatter"], splashes: ["splatter"], "ink splash": ["splatter"], "paint splash": ["splatter"],
+  "paint splatter": ["splatter"], "ink splatter": ["splatter"], blot: ["splatter"], "ink blot": ["splatter"], drips: ["splatter"], "paint drips": ["splatter"], "spray paint": ["splatter"],
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
@@ -138,7 +144,8 @@ export const ruleTopicOf = (group) => GROUP_TOPIC[group] ?? "effects";
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
 const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations",
   "text-ranges": "textStyleRanges (rotation, baselineShift, scaleX -1 mirrors, fill) and the layer field jitter",
-  "shape-modifiers": "layer property roughenSize on a mask shape or path (a rough dry-brush edge; roughenDetail, roughenSeed, roughenBoil)",
+  "shape-modifiers": 'layer properties roughenSize and roughenStyle "torn" (torn paper) or "brush" (dry-brush streaks along roughenAngle) on a shape or path',
+  splatter: 'add_layer {layerType:"path", properties:{splatter:{style:"splat"|"splash"|"drip"|"spray", seed}, width, height, fill}}',
   "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
   "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
 // An op whose call needs a lookup first: a font is picked by its look.

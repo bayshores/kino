@@ -374,7 +374,9 @@ test("every look word an agent can search names an effect, move or op that exist
   assert.ok(seenNames("split screen", { ops }).some((line) => line.startsWith("split-screen (")));
   assert.ok(seenNames("duotone", { ops }).some((line) => line.startsWith("duotone (effect")));
   assert.match(seenNames("two-color split", { ops })[0], /^split-fields \(move/);
-  assert.match(seenNames("rough brush edge mask", { ops })[0], /^shape-modifiers \(topic: layer property roughenSize/);
+  assert.match(seenNames("rough brush edge mask", { ops })[0], /^shape-modifiers \(topic: layer properties roughenSize/);
+  assert.match(seenNames("torn paper edge texture", { ops })[0], /^shape-modifiers \(.*"torn"/);
+  assert.match(seenNames("paint splatter splash shapes", { ops })[0], /^splatter \(topic: add_layer \{layerType:"path"/);
   assert.equal(noMakerLine("Dirt texture!"), 'no kino name for "dirt texture" yet: build it from shapes and draw-on, or say it is missing');
   assert.equal(searchGuide("dirt texture").split("\n")[0], noMakerLine("dirt texture"));
   for (const word of ["halftone dots", "screen tone", "comic dots"]) assert.match(seenNames(word, { ops })[0], /^dot-grid \(effect/, word);
