@@ -180,22 +180,37 @@ export function springOnFade(model, ctx) {
   return findings;
 }
 
+// A copy returns when it shows where the one before it showed, or after that one is gone. Copies
+// seen together in different places (a staggered row, grid or ring) do not.
+function returnsAfter(model, earlier, later) {
+  if (later.start - earlier.start < SAME_PLACE - 1e-6) return false;
+  const at = frameAt(model, later.end);
+  const before = earlier.item.samples.opacity[at] ?? 0;
+  const now = later.item.samples.opacity[at] ?? 0;
+  if (before <= 0.05 || now <= 0.05) return true;
+  const center = (box) => [(box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2];
+  const [ax, ay] = center(boxAt(earlier.item, frameAt(model, earlier.end)));
+  const [bx, by] = center(boxAt(later.item, at));
+  return Math.hypot(ax - bx, ay - by) <= 0.02 * Math.hypot(model.width, model.height);
+}
+
 // The movers: copies of one element (one name, words or file, as duplicate_layers {at} makes them)
-// that each start at a different place are one mover, since a returning element keeps its motion
-// on purpose. Copies that start together (a row) stay separate.
+// that each return (returnsAfter) are one mover, since a returning element keeps its motion on
+// purpose. Copies that start together or stand together in a row stay separate.
 function moverCount(model, list) {
-  const starts = new Map();
-  for (const motion of list) starts.set(motion.itemId, Math.min(starts.get(motion.itemId) ?? Infinity, motion.start));
+  const firsts = new Map();
+  for (const motion of list) if (!firsts.has(motion.itemId) || motion.start < firsts.get(motion.itemId).start) firsts.set(motion.itemId, motion);
   const byElement = new Map();
-  for (const [id, start] of starts) {
+  for (const [id, motion] of firsts) {
     const item = itemById(model, id);
     const key = item ? elementKey({ type: item.kind, name: item.name, text: item.text, src: item.src }) : id;
-    byElement.set(key, [...(byElement.get(key) ?? []), start]);
+    byElement.set(key, [...(byElement.get(key) ?? []), { item, start: motion.start, end: motion.end }]);
   }
   let count = 0;
-  for (const times of byElement.values()) {
-    times.sort((a, b) => a - b);
-    count += times.every((time, index) => index === 0 || time - times[index - 1] >= SAME_PLACE - 1e-6) ? 1 : times.length;
+  for (const copies of byElement.values()) {
+    copies.sort((a, b) => a.start - b.start);
+    const returning = copies[0].item && copies.every((copy, index) => index === 0 || (copy.item && returnsAfter(model, copies[index - 1], copy)));
+    count += returning ? 1 : copies.length;
   }
   return count;
 }

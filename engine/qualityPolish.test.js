@@ -941,7 +941,7 @@ test("no_music: a 10 s video with no song under it", async () => {
 
 test("sfx_restraint: more than one sound effect every 4 s, or one sound on every repeat", async () => {
   const hit = (id, at, src = `/api/media/${id}.wav`) => voice(id, { src, mediaStart: at, mediaDuration: 0.5 });
-  const run = (layers) => { const document = scene({ duration: 20, layers }); return check("sfx_restraint", document, { speechScene: document.scenes[0] }); };
+  const run = (layers, fields = {}) => { const document = scene({ duration: 20, layers, ...fields }); return check("sfx_restraint", document, { speechScene: document.scenes[0] }); };
   // 5 different hits in 8 s: too many; the same 3 at 0, 6 and 12 s: under the rate, but a repeat.
   const [busy] = (await run([0, 2, 4, 6, 8].map((at, i) => hit(`s${i}`, at)))).findings;
   assert.match(busy.measured, /^5 sound effects in 16 s/);
@@ -949,10 +949,19 @@ test("sfx_restraint: more than one sound effect every 4 s, or one sound on every
   assert.match(repeat.measured, /^one sound 3 times \(0s, 6s, 12s\)/);
   // 4 different hits spread out, and a long bed under them: fine.
   assert.deepEqual((await run([...[0, 5, 10, 15].map((at, i) => hit(`ok${i}`, at)), voice("bed", { mediaDuration: 20 })])).findings, []);
-  // One footstep on each cut back to the same stairs file (the file returns at 1, 3, 6, 8 and 9 s):
-  // the sound marks the return, so neither the repeat nor the rate counts it.
-  const stairs = [1, 3, 6, 8, 9].map((at, i) => ({ type: "video", id: `climb${i}`, name: `climb-${i}`, src: "/api/media/stairs.mp4", mediaSourceDuration: 10, mediaStart: at, mediaOffset: i, mediaDuration: 0.5, x: 0, y: 0, width: 1920, height: 1080 }));
-  assert.deepEqual((await run([...stairs, ...[1.05, 3, 6.1, 8, 9].map((at, i) => hit(`step${i}`, at, "/api/media/step.wav"))])).findings, []);
+  // One footstep on each cut back to the same stairs file (the file returns at 1, 3, 6, 8 and 9 s,
+  // a face between): the sound marks the return, so neither the repeat nor the rate counts it.
+  const clip = (id, src, at, offset) => ({ type: "video", id, name: id, src, mediaSourceDuration: 600, mediaStart: at, mediaOffset: offset, mediaDuration: 0.5, x: 0, y: 0, width: 1920, height: 1080 });
+  const stairs = [1, 3, 6, 8, 9].map((at, i) => clip(`climb${i}`, "/api/media/stairs.mp4", at, i));
+  const faces = [2, 4, 7, 8.6].map((at, i) => clip(`face${i}`, "/api/media/face.mp4", at, i));
+  const steps = [1.05, 3, 6.1, 8, 9].map((at, i) => hit(`step${i}`, at, "/api/media/step.wav"));
+  assert.deepEqual((await run([...stairs, ...faces, ...steps])).findings, []);
+  // The same cuts from all over one long file (a minute apart in it), or with nothing cut in between, are not one returning shot: still a repeat.
+  assert.match((await run([...[1, 3, 6, 8, 9].map((at, i) => clip(`cut${i}`, "/api/media/stairs.mp4", at, i * 60)), ...faces, ...steps])).findings[0].measured, /^5 sound effects in 16 s/);
+  assert.match((await run([...stairs, ...steps])).findings[0].measured, /^5 sound effects in 16 s/);
+  // A whoosh that place_sounds starts 0.6 s before its flash (its transient lands on the cut) is on that action.
+  const flashes = [2, 5, 8, 11, 14].map((at, i) => ({ id: `flash${i}`, name: "flash", settings: { frames: 1 }, tags: ["flash"], start: at, end: at + 0.033 }));
+  assert.deepEqual((await run([2, 5, 8, 11, 14].map((at, i) => voice(`sfx-flash-${i}`, { src: "/api/media/zap.wav", mediaStart: at - 0.6, mediaDuration: 1 })), { moves: flashes })).findings, []);
 });
 
 test("speech_quotes: spoken captions that look like a line nobody says", async () => {

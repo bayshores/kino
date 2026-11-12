@@ -56,20 +56,41 @@ export function elementKey(layer) {
  */
 export function elementPlaces(scene) {
   const layers = scene?.layers ?? [];
-  const byKey = new Map();
-  for (const layer of layers) {
-    if (layer.type === "audio" || layer.enabled === false || layer.move?.name) continue;
-    if (layer.parentId && !((layer.type === "video" || layer.type === "image") && layer.src)) continue;
-    const key = elementKey(layer);
-    byKey.set(key, [...(byKey.get(key) ?? []), { time: placeOf(layers, layer) }]);
+  const used = layers.filter((layer) => layer.type !== "audio" && layer.enabled !== false && !layer.move?.name
+    && (!layer.parentId || ((layer.type === "video" || layer.type === "image") && layer.src)));
+  const isClip = (layer) => layer.type === "video" && Boolean(layer.src);
+  // A clip's uses are one element when they come from one stretch of its file: cuts from all over
+  // one long file are different shots, not one returning shot.
+  const offset = (layer) => (Number.isFinite(layer.mediaOffset) ? layer.mediaOffset : 0);
+  const stretchStarts = new Map();
+  const stretchOf = new Map();
+  for (const layer of used.filter(isClip).sort((a, b) => offset(a) - offset(b))) {
+    const starts = stretchStarts.get(layer.src) ?? [];
+    if (!starts.length || offset(layer) - starts[starts.length - 1] > SAME_STRETCH) starts.push(offset(layer));
+    stretchStarts.set(layer.src, starts);
+    stretchOf.set(layer, starts.length - 1);
   }
+  const uses = used.map((layer) => ({ key: isClip(layer) ? `${elementKey(layer)}#${stretchOf.get(layer)}` : elementKey(layer), time: placeOf(layers, layer), clip: isClip(layer) }));
+  const byKey = new Map();
+  for (const use of uses) byKey.set(use.key, [...(byKey.get(use.key) ?? []), use]);
   const returning = new Map();
-  for (const [key, uses] of byKey) {
-    const places = placesOf(uses.sort((a, b) => a.time - b.time)).map((use) => use.time);
+  for (const [key, list] of byKey) {
+    const places = [];
+    for (const { time } of placesOf(list.sort((a, b) => a.time - b.time))) {
+      // A shot returns after a cut away: another clip starts between two of its places. Without one
+      // it plays on, so the later place is the same showing.
+      const last = places[places.length - 1];
+      const cutAway = !list[0].clip || last === undefined || uses.some((other) => other.clip && other.key !== key && other.time > last + 1e-6 && other.time < time - 1e-6);
+      if (cutAway) places.push(time);
+    }
     if (places.length >= 2) returning.set(key, places);
   }
   return returning;
 }
+
+// File seconds that one stretch of a clip spans from its first use (a guess: longer than the
+// shots the studied edits cut from one file, shorter than a scene of a long recording).
+const SAME_STRETCH = 10;
 
 /** Two places of one element closer than this are one place (a layer and its plate). */
 export { SAME_PLACE };

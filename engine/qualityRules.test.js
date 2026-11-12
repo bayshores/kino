@@ -462,6 +462,8 @@ test("same_motion: four animated layers must not all share one easing and durati
   await silent("same_motion", four(1));
   // One ring and its copies at 1, 2 and 3 s (duplicate_layers {at}) are one returning element, so one mover.
   await silent("same_motion", scene({ layers: ["ring", "ring 2", "ring 3", "ring 4"].map((name, i) => rect(`ring${i}`, { name, animations: [fadeIn(i)] })) }));
+  // Copies staggered into a row (duplicate_layers {count, stagger, layout:"line"}) stand together in four places: four movers.
+  await fires("same_motion", scene({ layers: ["card", "card 2", "card 3", "card 4"].map((name, i) => rect(`card${i}`, { name, x: 40 + i * 440, animations: [fadeIn(i * 0.5)] })) }));
 });
 
 test("easing_repeat: at most two separate motions share an easing and duration", async () => {

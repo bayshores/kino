@@ -651,7 +651,7 @@ export function soundEffectsOf(ctx) {
     if (layer.type !== "audio" || !layer.src || layer.enabled === false || isMusicLayer(layer, scene, heard.get(layer.id))) continue;
     if (heard.get(layer.id)?.transcript?.words?.length) continue;
     const range = mediaPlaybackRange(layer, scene.duration);
-    if (range && range.duration < SFX_SECONDS) effects.push({ layer, at: range.start });
+    if (range && range.duration < SFX_SECONDS) effects.push({ layer, at: range.start, duration: range.duration });
   }
   return effects.sort((a, b) => a.at - b.at);
 }
@@ -660,6 +660,9 @@ export function soundEffectsOf(ctx) {
 // lands a little after its start (place_sounds), or a hand-placed sound sits beside the cut (the
 // returns' SAME_PLACE, a guess).
 const ON_PLACE = SAME_PLACE;
+// place_sounds starts a sound its transient before the action (soundPlacement), so a sound whose
+// first second plays over an action is on it too (a guess: the build-up of a whoosh or riser).
+const LEAD_IN = 1;
 
 /**
  * The sound effects that mark something the viewer sees, so they are not excess: one on a visible
@@ -669,7 +672,8 @@ const ON_PLACE = SAME_PLACE;
 function soundsOnPurpose(model, scene, effects) {
   const near = (at, times) => times.some((time) => Math.abs(time - at) <= ON_PLACE + 1e-6);
   const actions = Object.entries(techniquesUsed(model)).filter(([tag]) => ACTION_KINDS[tag]).flatMap(([, uses]) => uses.map((use) => use.at)).filter(Number.isFinite);
-  const kept = new Set(effects.filter((item) => near(item.at, actions)));
+  const onAction = (item) => actions.some((time) => time - item.at >= -ON_PLACE - 1e-6 && time - item.at <= Math.max(ON_PLACE, Math.min(item.duration ?? 0, LEAD_IN)) + 1e-6);
+  const kept = new Set(effects.filter(onAction));
   const returns = [...elementPlaces(scene).values()];
   const bySource = new Map();
   for (const item of effects) bySource.set(item.layer.src, [...(bySource.get(item.layer.src) ?? []), item]);
