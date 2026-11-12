@@ -10,6 +10,7 @@ import { logoMatchMove, parallaxStack, rgbSplitHit, speedLinesPhone, swipeCards,
 import { cardIntoDevice, liftFocus, windowPunchIn } from "./product.js";
 import { drawOn } from "./lines.js";
 import { perceiveInsert, voiceType } from "./footage.js";
+import { pictureInPicture, splitScreen } from "./composite.js";
 import { freezeShutter, maskedType } from "./freeze.js";
 import { roll } from "./roll.js";
 import { typeOn } from "./typing.js";
@@ -22,7 +23,7 @@ import { impactAccent } from "./impact.js";
 import { cursor } from "./cursor.js";
 import { screenRecording } from "./recording.js";
 import { beatRepeat, speedRamp } from "./musicTime.js";
-const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, headlineWrite, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, impactAccent, cursor, assemble, ...CUTS, screenRecording, speedRamp, beatRepeat];
+const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, headlineWrite, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, impactAccent, cursor, assemble, ...CUTS, screenRecording, speedRamp, beatRepeat, splitScreen, pictureInPicture];
 
 // Old names saved projects and agents may still send, each to the move that took its place. They
 // work everywhere a name does but are not listed (kicker-headline lost its label over the headline).

@@ -1,6 +1,6 @@
 # Subject cut-out
 
-Contents: Subject cut-out (title behind, outline, background, matte), Follow an object (track, pin), Steady shaky footage (stabilize).
+Contents: Subject cut-out (title behind, outline, background, matte), Follow an object (track, pin), Steady shaky footage (stabilize), Two pictures at once.
 
 Putting the subject of a video or photo (a person, an animal, an object) in a layer of its own:
 titles behind the subject, outlines and glows, a new or blurred background, mattes for masks.
@@ -135,3 +135,10 @@ so the track follows the steady picture.
 {"op":"add_layer","layerType":"video","name":"walk","properties":{"src":"/api/media/<walk>.mp4"}}
 {"op":"stabilize","layer":"walk","smooth":1}
 ```
+
+## Two pictures at once
+
+Mark each clip's subject first (framing): panes and insets crop on it, else on a face.
+`move {name:"split-screen", layers:[2-4], at}` (side, stacked or slant panes) or
+`move {name:"picture-in-picture", layer, at}` (a corner inset); library {topic:"moves", name} has every default. A framed clip works as is.
+A crop aimed at no mark or face says so first, with the mark_subject call.

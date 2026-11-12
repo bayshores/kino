@@ -1236,6 +1236,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const style = styleFor({ look, brand, frame, faces, feel: settings.feel ?? composition.feel ?? null });
     const start = resolveAt(settings.at ?? "auto", timeLookup(document, scene, fonts, work));
     const alphas = await alphasOf(scene, input);
+    // The faces measured in each named clip's file, so a pane or an inset is cropped on them.
+    const subjects = new Map();
+    const namedIds = Object.values(input).flatMap((value) => (Array.isArray(value) ? value : [value])).filter((value) => typeof value === "string");
+    for (const layer of scene.layers) if (layer.type === "video" && namedIds.includes(layer.id) && subjectSamples) subjects.set(layer.id, (await subjectSamples(layer).catch(() => null)) ?? []);
     // font (push-through-type, a display face at 700) or fontFamily (caption-words, body text at
     // 600); a fontWeight alone loads that weight of the body font the move would use.
     const weightFamily = typeof input.fontFamily === "string" ? input.fontFamily
@@ -1249,7 +1253,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
         cueFacts,
         id: operation.id, input, scene, style, fonts, start, align: settings.align ?? "start", dur: settings.dur ?? null, media, logo: logoOf(brand, media),
         reduced: settings.reduced ?? composition.reduced ?? false, seed: settings.seed ?? 1, brandFonts: Boolean(faces), bpm: document.rhythm?.bpm ?? null,
-        alpha: (src) => alphas.get(src) ?? null, fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),
+        alpha: (src) => alphas.get(src) ?? null, samples: (layerId) => subjects.get(layerId) ?? [], fontFaces: Object.fromEntries(Object.entries(fontFaces).filter(([, face]) => face)),
         fileSize: (src) => {
           const item = work.mediaList?.find((entry) => entry.src === src || `/api/media/${entry.id}` === src);
           return item?.width > 0 && item?.height > 0 ? { width: item.width, height: item.height } : null;

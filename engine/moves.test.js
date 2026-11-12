@@ -11,7 +11,7 @@ import { defaultFonts } from "./fonts.js";
 import { styleFor } from "./blocks/looks.js";
 import { placeMove, readMoveInput, removeMove, runMove } from "./blocks/move.js";
 import { applyOperations } from "./operations.js";
-import { evaluateLayer, presetAnimation } from "./animation.js";
+import { evaluateLayer, presetAnimation, volumeAt } from "./animation.js";
 import { layoutText } from "./textLayout.js";
 import { MOVES, MOVE_NAMES, moveOf } from "./blocks/moves/index.js";
 import { captionGroups, wordKeys } from "./blocks/moves/type.js";
@@ -85,7 +85,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 47);
+  assert.equal(MOVE_NAMES.length, 49);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -492,6 +492,139 @@ test("perceive-insert cuts to the marked subject of the same footage, in sync an
   assert.deepEqual(pushed.added[0].layer.subjectBoxes.boxes[0].box, [40, 40, 50, 50]);
   assert.ok(pushed.added.some(({ layer }) => layer.text === "bus 42"));
   assert.throws(() => run({ layer: "shot-a" }), /give region/);
+});
+
+// Two 1920 × 1080 clips: one with a person marked at the right, one with a face measured at the left.
+function compositeScene(width, height) {
+  const scene = sceneFor(width, height, 6);
+  scene.layers.push(
+    createLayer("video", { id: "talk", name: "talk", src: "/api/media/talk.mp4", x: 0, y: 0, width, height, mediaStart: 0, mediaDuration: 6, mediaSourceDuration: 8,
+      subjectBoxes: { src: "/api/media/talk.mp4", boxes: [{ at: 1.5, box: [70, 20, 15, 30], by: "agent" }] } }),
+    createLayer("video", { id: "react", name: "react", src: "/api/media/react.mp4", x: 0, y: 0, width, height, mediaStart: 5, mediaDuration: 1, mediaOffset: 2, mediaSourceDuration: 8 }));
+  return scene;
+}
+function runComposite(name, fields, scene, extra = {}) {
+  const frame = { width: scene.width, height: scene.height };
+  return runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], fields), scene, style: styleFor({ look: "crisp", frame }), fonts: defaultFonts, start: 1, media,
+    fileSize: () => ({ width: 1920, height: 1080 }), samples: (layerId) => (layerId === "react" ? [{ t: 2.5, faces: [[0.1, 0.2, 0.1, 0.2]] }] : []), ...extra });
+}
+const part = (made, name) => made.added.find((entry) => entry.layer.move.part === name)?.layer;
+
+test("split-screen crops each pane on its clip's marked or measured subject, with a gap of the divider color, the panes arriving one after another", () => {
+  const made = runComposite("split-screen", { layers: ["talk", "react"] }, compositeScene(1920, 1080));
+  // The plate fills the frame in the divider color; two panes 954.5 px wide with an 11 px gap.
+  assert.deepEqual([part(made, "plate").width, part(made, "plate").fill], [1920, "#0B0B0C"]);
+  assert.deepEqual([part(made, "pane-1").x, part(made, "pane-1").width, part(made, "pane-2").x], [0, 954.5, 965.5]);
+  // talk's marked person (70 to 85% across) stays whole inside its pane; react's measured face pulls its crop left.
+  const talk = part(made, "clip-1");
+  assert.equal(talk.x, -965);
+  assert.ok(talk.x + 0.7 * talk.width >= 0 && talk.x + 0.85 * talk.width <= 954.5, "the marked subject is whole");
+  assert.equal(part(made, "clip-2").x, 0);
+  // Each copy plays its file from where it is at the start, muted (talk plays underneath with its sound).
+  assert.deepEqual([talk.mediaStart, talk.mediaOffset, talk.volume, talk.parentId], [1, 1, 0, "split-screen-pane-1"]);
+  assert.equal(part(made, "clip-2").mediaOffset, 2);
+  // The second pane shows 0.12 s after the first and slides in from the other side.
+  const shows = ["pane-1", "pane-2"].map((name) => part(made, name).animations.find((animation) => animation.kind === "show").start);
+  assert.deepEqual(shows, [1, 1.12]);
+  const slides = ["pane-1", "pane-2"].map((name) => part(made, name).animations.find((animation) => animation.id.endsWith(".in")).from.y);
+  assert.ok(slides[0] < 0 && slides[1] > 0, JSON.stringify(slides));
+  // sound:2 lets react's pane be heard (react does not play under the panes then).
+  assert.equal(part(runComposite("split-screen", { layers: ["talk", "react"], sound: 2 }, compositeScene(1920, 1080)), "clip-2").volume, 1);
+});
+
+test("split-screen slant masks each pane with a leaning outline; a tall frame stacks the panes", () => {
+  const made = runComposite("split-screen", { layers: ["talk", "react", "shot-a"], layout: "slant", slant: 10 }, compositeScene(1920, 1080));
+  const masks = [1, 2, 3].map((number) => part(made, `mask-${number}`));
+  assert.ok(masks.every((mask) => mask.isMask && mask.type === "path" && /^M.* Z$/.test(mask.path)));
+  assert.ok(["pane-1", "pane-2", "pane-3"].every((name) => part(made, name).isMaskGroup === true));
+  // The middle pane's top edge sits right of its bottom edge (the dividers lean).
+  const [[topLeft], , , [bottomLeft]] = masks[1].path.split(/[MLZ]/).filter((piece) => piece.trim()).map((piece) => piece.trim().split(" ").map(Number));
+  assert.ok(topLeft > bottomLeft, masks[1].path);
+  const tall = runComposite("split-screen", { layers: ["talk", "react"] }, compositeScene(1080, 1920));
+  assert.deepEqual([part(tall, "pane-1").width, part(tall, "pane-2").y > part(tall, "pane-1").y], [1080, true]);
+});
+
+test("picture-in-picture puts the clip in a bordered, rounded inset in the safe corner over the full shot, cropped on its face, and pops it in", () => {
+  const made = runComposite("picture-in-picture", { layer: "react" }, compositeScene(1920, 1080));
+  // One holder (pip) carries the border and the inset, so a move or a fix keeps them together.
+  const pip = part(made, "pip");
+  const inset = part(made, "inset");
+  const border = part(made, "border");
+  // 30% of the width at the clip's 16:9, at the top right: the 5 px border's outer edge sits on the safe area's edge (96 px right, 54 px top).
+  assert.deepEqual([inset.width, inset.height, inset.clipContent, inset.radius > 0], [576, 324, true, true]);
+  assert.deepEqual([pip.x + pip.width, pip.y, pip.width, border.parentId, inset.parentId], [1920 - 96, 54, 586, pip.id, pip.id]);
+  assert.deepEqual([border.x, border.width, border.fill, inset.x], [0, pip.width, "#FFFFFF", 5]);
+  assert.equal(part(made, "clip").parentId, inset.id);
+  const pop = pip.animations.find((animation) => animation.id.endsWith(".in"));
+  assert.deepEqual([pop.from.scaleX, pop.to.scaleX, pop.duration], [0.88, 1, 0.35]);
+  const square = runComposite("picture-in-picture", { layer: "react", corner: "bottom-left", rounded: false, border: 0, shape: "square" }, compositeScene(1920, 1080));
+  assert.deepEqual([part(square, "inset").width, part(square, "inset").height, part(square, "inset").radius, part(square, "pip").x], [576, 576, 0, 96]);
+});
+
+// The scene's layers with `talk` wrapped in a camera group, the way frame leaves a clip.
+function cameraScene(width, height) {
+  const scene = compositeScene(width, height);
+  scene.layers.push(createLayer("group", { id: "talk-camera", name: "talk-camera", x: 0, y: 0, width, height }));
+  scene.layers.find((layer) => layer.id === "talk").parentId = "talk-camera";
+  return scene;
+}
+
+test("split-screen and picture-in-picture take a clip frame wrapped in a camera group, and say which clips are cropped on a guess", () => {
+  const split = runComposite("split-screen", { layers: ["talk", "react"] }, cameraScene(1920, 1080));
+  assert.equal(part(split, "clip-1").src, "/api/media/talk.mp4");
+  assert.match(split.notes.join(" "), /1 talk-camera on its marked subject/);
+  const inset = runComposite("picture-in-picture", { layer: "talk" }, cameraScene(1920, 1080));
+  assert.equal(part(inset, "clip").src, "/api/media/talk.mp4");
+  assert.throws(() => runComposite("split-screen", { layers: ["react", "react"] }, cameraScene(1920, 1080)), /once/);
+  // A clip with no mark and no measured face is cropped on its center: the note opens with the call that fixes it.
+  const scene = compositeScene(1920, 1080);
+  scene.layers.push(createLayer("video", { id: "plain", name: "plain", src: "/api/media/plain.mp4", x: 0, y: 0, width: 1920, height: 1080, mediaStart: 0, mediaDuration: 6, mediaSourceDuration: 8 }));
+  assert.match(runComposite("split-screen", { layers: ["talk", "plain"] }, scene).notes.join(" "), /^look \{mode:"source", layer:"plain"\} then mark_subject \{layer:"plain", t:1, box:\[x,y,w,h\]\}: pane 2 is cropped on its center/);
+  assert.match(runComposite("picture-in-picture", { layer: "plain" }, scene).notes.join(" "), /look \{mode:"source", layer:"plain"\} then mark_subject .*: the inset is cropped on its center/);
+  assert.throws(() => runComposite("split-screen", { layers: ["talk", "react"], sound: 3 }, compositeScene(1920, 1080)), /sound 1 to 2, or 0 for none/);
+});
+
+test("a pane's clip that starts mid-move is muted at its own layer, and a copy never runs past its file", () => {
+  const scene = compositeScene(1920, 1080);
+  // react starts at 2.5 s, inside the move (1 to 4 s); its file has 3 s left from offset 5.
+  Object.assign(scene.layers.find((layer) => layer.id === "react"), { mediaStart: 2.5, mediaDuration: 1.5, mediaOffset: 5, mediaSourceDuration: 8 });
+  Object.assign(scene.layers.find((layer) => layer.id === "talk"), { mediaDuration: 2.5 });
+  const made = runComposite("split-screen", { layers: ["talk", "react"] }, scene);
+  const sound = made.animations.filter((entry) => entry.layerId === "react").map((entry) => [entry.animation.start, entry.animation.to.volume]);
+  assert.deepEqual(sound, [[2.5, 0], [4, 1]]);
+  const heard = { ...scene.layers.find((layer) => layer.id === "react"), animations: made.animations.filter((entry) => entry.layerId === "react").map((entry) => entry.animation) };
+  assert.deepEqual([2.6, 3.5, 4.2].map((time) => volumeAt(heard, time)), [0, 0, 1]);
+  assert.match(made.notes.join(" "), /talk plays under the panes with its own sound until 2.5 s, then silence; react muted from 2.5 s/);
+  // A copy of a clip whose file ends 1 s after its offset holds the last frame instead of running on.
+  scene.layers.find((layer) => layer.id === "talk").mediaSourceDuration = 2;
+  const ends = runComposite("split-screen", { layers: ["talk", "react"] }, scene);
+  assert.deepEqual([part(ends, "clip-1").mediaDuration, part(ends, "clip-1").mediaFreeze], [1, "last"]);
+});
+
+test("four panes and the default inset pass same_motion and cut_off_at_rest, and a pane margin is held to the safe area", async () => {
+  const build = (name, fields) => {
+    const scene = compositeScene(1280, 720);
+    const made = runComposite(name, fields, scene);
+    placeMove(scene, { id: name, name, settings: {} }, made);
+    return { scene, made };
+  };
+  const check = async (scene) => {
+    const document = parseDocument(createDocument({ id: "d", name: "composite", scenes: [{ ...scene, id: "scene" }] }));
+    const { findings } = await runQuality(kinoTimeline(document, "scene", { fonts: defaultFonts }), { codes: ["same_motion", "cut_off_at_rest"], pixels: false });
+    return findings.map((finding) => `${finding.rule} ${finding.itemId}`);
+  };
+  const four = build("split-screen", { layers: ["talk", "react", "shot-a", "shot-b"] });
+  assert.deepEqual(await check(four.scene), []);
+  const framed = build("split-screen", { layers: ["talk", "react"], margin: 24, radius: 16 });
+  assert.deepEqual(await check(framed.scene), []);
+  assert.match(framed.made.notes.join(" "), /margin 24px raised to the safe area/);
+  assert.equal(part(framed.made, "pane-1").x, 64);
+  const inset = build("picture-in-picture", { layer: "shot-a" });
+  assert.deepEqual(await check(inset.scene), []);
+  // The clip that already fills the frame above the main shot: the note opens with the call that puts it below.
+  const scene = compositeScene(1280, 720);
+  scene.layers.push(createLayer("video", { id: "far", name: "far", src: "/api/media/far.mp4", x: 0, y: 0, width: 1280, height: 720, mediaStart: 0, mediaDuration: 6, mediaSourceDuration: 8 }));
+  assert.match(runComposite("picture-in-picture", { layer: "far" }, scene).notes.join(" "), /^move_layers \{layers:\["far"\], position:"bottom"\}/);
 });
 
 test("voice-type sets a spoken line from the transcript, each word on as it is said, held after the last", async () => {
