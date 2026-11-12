@@ -83,11 +83,31 @@ export function createVisibilityOperation(kind, start, id) {
  */
 export function orderedVisibilityOperations(animations) {
   if (!Array.isArray(animations)) return [];
-  return flattenAnimations(animations)
+  const all = flattenAnimations(animations);
+  const byId = new Map(all.map((animation) => [animation?.id, animation]));
+  return all
     .map((animation, index) => ({ animation, index }))
     .filter(({ animation }) => isVisibilityOperation(animation) && Number.isFinite(animation.start) && isAnimationEnabled(animation))
-    .map(({ animation, index }) => ({ kind: animation.kind, start: animation.start, index }))
+    .map(({ animation, index }) => ({ kind: animation.kind, start: keptStart(animation, byId), index }))
+    .filter((operation) => operation.start !== null)
     .sort((left, right) => left.start - right.start || left.index - right.index);
+}
+
+// A Show a move adds to keep a held card (animation.keeps names the card's own Hide, until the
+// move's Hide, lead how long before that Hide the move starts) follows that Hide's current time:
+// it counts only while the Hide falls inside the move, so a hold edited later neither hides the
+// card early nor shows it again. The move's start is read off its Hide, so a retime that moves
+// both keeps them together. A copy with fresh animation IDs (duplicate_scene, a pasted layer)
+// names IDs it no longer has: its Show plays at its own second, as a plain Show.
+function keptStart(animation, byId) {
+  if (typeof animation.keeps !== "string") return animation.start;
+  const hold = byId.get(animation.keeps);
+  const move = byId.get(animation.until);
+  if (!hold && !move) return animation.start;
+  if (hold?.kind !== "hide" || !isAnimationEnabled(hold) || !Number.isFinite(hold.start)) return null;
+  const end = move && isAnimationEnabled(move) && Number.isFinite(move.start) ? move.start : Infinity;
+  const since = Number.isFinite(end) && Number.isFinite(animation.lead) ? end - animation.lead : 0;
+  return hold.start >= since - 1e-6 && hold.start < end - 1e-6 ? hold.start : null;
 }
 
 /**

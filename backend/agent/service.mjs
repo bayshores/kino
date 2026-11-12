@@ -88,6 +88,7 @@ import { cutFacts, cutLines } from "../../engine/cutFacts.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardCueLines, boardPaceFacts, boardPaceLines, boardStoryCues, builtBoard, sceneCueShows } from "./board-pace.mjs";
+import { cueDisagreement } from "../../engine/footage/cueShows.js";
 import { spanCutNotes } from "./span-cuts.mjs";
 import { drawnSpeedNotes } from "./drawn-speed.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
@@ -8589,7 +8590,13 @@ export function createAgentService(deps) {
     const beat = Array.isArray(spine) ? spine.filter((entry) => entry?.role === "payoff" && Number.isFinite(entry.from)).at(-1) : null;
     const story = fromBoard.length ? fromBoard : beat ? [{ at: beat.from, kind: "payoff beat" }] : [];
     if (!song && !story.length) return [];
-    return boardCueLines({ shows: sceneCueShows({ scene, music: song?.layer ?? null, shape: song?.shape ?? null, media: await cueMediaFor(document), document, story }) });
+    const shows = sceneCueShows({ scene, music: song?.layer ?? null, shape: song?.shape ?? null, media: await cueMediaFor(document), document, story });
+    const lines = boardCueLines({ shows });
+    // The saved board and the built scene can say different things about one cue (the scene was edited
+    // after compose): one line names both and the call that builds the scene from the board again.
+    const saved = fromBoard.length && shows ? await boardPaceFor(document, { cuesOnly: true }).catch(() => null) : null;
+    const apart = saved?.shows ? cueDisagreement(saved.shows, shows) : null;
+    return apart ? [...lines, apart] : lines;
   }
 
   // For the cue lines (engine/footage/cueShows.js): each file's name, the scan tags of the shot a

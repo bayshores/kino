@@ -264,6 +264,62 @@ test("a text card held to 6 s that a transition leaves at 1 s is untouched until
   assert.ok(late >= 10, `${late} late transitions checked`);
 });
 
+test("a held card's keep follows its hold when it is edited later, its fade-out ends where the move hides it, and carry with toRect keeps the card to the carry's end", () => {
+  const style = styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } });
+  const fadeOut = { id: "card.out", name: "Fade out", kind: "out", start: 5.7, duration: 0.3, easing: [0.33, 0, 0.67, 1], unit: "layer", stagger: 0, order: "forward", from: { opacity: 1 }, to: { opacity: 0 } };
+  const card = createLayer("text", { id: "card", name: "card", x: 200, y: 400, width: 1200, height: 200, text: "Held words", fontSize: 120, animations: [fadeOut, { id: "card.hide", kind: "hide", start: 6 }] });
+  const scene = createScene({ id: "s", name: "Scene", width: 1920, height: 1080, duration: 8, layers: [
+    createLayer("image", { id: "shot-b", name: "shot-b", src: "/api/media/wall.png", x: 0, y: 0, width: 1920, height: 1080 }), card] });
+  const definition = MOVES["zoom-through"];
+  const { at: _at, dur = null, ...fields } = definition.example;
+  const made = runMove(definition, { id: "zt", input: readMoveInput(definition, { ...fields, from: "card", to: "shot-b" }), scene, style, fonts: defaultFonts, start: 5.5, dur, media });
+  const own = made.animations.filter((entry) => entry.layerId === "card").map((entry) => entry.animation);
+  const hideAt = own.find((animation) => animation.id === "zt.from-hide").start;
+  const withHold = (start) => [...card.animations.map((animation) => (animation.id === "card.hide" ? { ...animation, start } : animation)), ...own];
+  // The hold moves from 6 s to 5.8 s (still inside the move): the card shows until the move hides it.
+  assert.ok(visibleByOperations(withHold(5.8), hideAt - 0.02) && !visibleByOperations(withHold(5.8), hideAt + 0.02), "an edited hold inside the move still keeps the card");
+  // Shortened to 5 s, before the move: the card goes at 5 s and the old keep does not show it again.
+  assert.ok(visibleByOperations(withHold(5), 4.95) && !visibleByOperations(withHold(5), 5.05) && !visibleByOperations(withHold(5), 5.9), "a hold shortened to before the move hides the card at its new second");
+  // Lengthened past the move's hide: no show comes back after the move hides it.
+  assert.ok(!visibleByOperations(withHold(hideAt + 1), hideAt + 0.5), "a hold past the move does not bring the card back");
+  // A retime that moves the hold and the move 2 s earlier together keeps the card to the move's hide.
+  const earlier = withHold(5.8).map((animation) => ({ ...animation, start: animation.start - 2 }));
+  assert.ok(visibleByOperations(earlier, hideAt - 2.02) && !visibleByOperations(earlier, hideAt - 1.98), "a retimed move still keeps the card");
+  // A copy with fresh animation IDs (duplicate_scene) keeps the card to the move's hide too.
+  const copied = withHold(5.8).map((animation, index) => ({ ...animation, id: `copy-${index}` }));
+  assert.ok(visibleByOperations(copied, hideAt - 0.02) && !visibleByOperations(copied, hideAt + 0.02), "a duplicated scene still keeps the card");
+  // Its own fade-out (5.7 to 6 s) is held at full opacity until the move takes the card off: by the
+  // move's own fade, or, for a move with none on the card, by the same fade played again ending at its hide.
+  let waits = 0;
+  let replays = 0;
+  for (const name of SWEPT) {
+    const other = MOVES[name];
+    if (!other.fields.from || !other.fields.to || ["smear", "shatter", "cursor"].includes(name)) continue;
+    const { at: _start, dur: length = null, ...rest } = other.example;
+    const run = runMove(other, { id: name, input: readMoveInput(other, { ...rest, from: "card", to: "shot-b" }), scene, style, fonts: defaultFonts, start: 5.5, dur: length, media });
+    const ends = run.animations.filter((entry) => entry.layerId === "card" && entry.animation.kind === "hide").map((entry) => entry.animation.start);
+    const notes = run.notes.join(" ");
+    if (!/own fade-out/.test(notes) || !ends.length) continue;
+    const shown = { ...card, animations: [...card.animations, ...run.animations.filter((entry) => entry.layerId === "card").map((entry) => entry.animation)] };
+    assert.equal(evaluateLayer(shown, 5.75).opacity, 1, `${name}: the card's own fade does not run inside the move`);
+    if (/plays at/.test(notes)) {
+      assert.ok(evaluateLayer(shown, Math.max(...ends) - 0.01).opacity < 0.1, `${name}: the fade ends at the move's hide`);
+      replays += 1;
+    } else waits += 1;
+  }
+  assert.ok(waits >= 1 && replays >= 1, `${waits} moves wait for their own fade, ${replays} replay the card's`);
+  // carry with toRect: the card shows until the carry ends (it ran only to 5.99 of a carry to 6.2).
+  const phone = sceneFor(1920, 1080, 8);
+  const heldCard = phone.layers.find((layer) => layer.id === "app-card");
+  heldCard.animations.push({ id: "app-card.hold", kind: "hide", start: 0.8 });
+  const carried = runMove(MOVES.carry, { id: "carry", input: readMoveInput(MOVES.carry, { from: "app-card", to: "phone", toRect: [6, 12, 88, 40] }), scene: phone, style, fonts: defaultFonts, start: 0.5, dur: 0.5, media });
+  const states = [...heldCard.animations, ...carried.animations.filter((entry) => entry.layerId === "app-card").map((entry) => entry.animation)];
+  assert.ok(visibleByOperations(states, 0.95) && !visibleByOperations(states, 1.05), "the card stays to the end of the carry at 1 s");
+  heldCard.animations[0].start = 2;
+  const later = runMove(MOVES.carry, { id: "carry", input: readMoveInput(MOVES.carry, { from: "app-card", to: "phone", toRect: [6, 12, 88, 40] }), scene: phone, style, fonts: defaultFonts, start: 0.5, dur: 0.5, media });
+  assert.ok(!later.animations.some((entry) => entry.layerId === "app-card" && entry.animation.kind === "hide"), "a hold after the carry adds nothing");
+});
+
 test("every example builds at 16:9 and 9:16 and in reduced motion, the same way for the same seed", () => {
   for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
     for (const name of SWEPT) {

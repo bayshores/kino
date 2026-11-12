@@ -11,6 +11,7 @@
 // With toRect the first stays inside the target (a card in a phone's screen), on top of it.
 // A later carry out of that target takes the landed card along (it rides the same box), so the
 // card never stays behind at full size.
+import { enabledAnimations } from "../../animationEnabled.js";
 import { CURVES, hide, motion, round } from "./kit.js";
 
 const SHAPES = new Set(["rectangle", "ellipse"]);
@@ -118,12 +119,14 @@ export const carry = {
     const bTop = holder ?? b;
     if (stays && ctx.order(a.id) < ctx.order(bTop.id)) ctx.raise(a.id, bTop.id);
     if (!stays && ctx.order(bTop.id) < ctx.order(a.id)) ctx.raise(bTop.id, a.id);
+    const heldInside = (layer) => enabledAnimations(layer.animations).some((step) => step?.kind === "hide" && step.start >= t0 - 1e-6 && step.start < ctx.end - 1e-6);
     if (ctx.reduced) {
       ctx.animate(b.id, "in", motion({ name: "Fade in", kind: "in", start: t0, duration: d, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: bOpacity } }), "to");
       if (!stays) {
         ctx.animate(a.id, "out", motion({ name: "Fade out", start: t0, duration: d, easing: CURVES.fade, from: { opacity: aState.opacity ?? 1 }, to: { opacity: 0 } }), "from");
         ctx.animate(a.id, "hide", hide(ctx.end), "from");
       }
+      else if (heldInside(a)) ctx.animate(a.id, "hide", hide(ctx.end), "from");
       return { end: ctx.end };
     }
     // The look that travels: the corner radius, fill and turn go from the first to the second.
@@ -173,6 +176,13 @@ export const carry = {
     }
     if (riders.length) ctx.note(`${riders.map((layer) => layer.id).join(", ")} ride${riders.length === 1 ? "s" : ""} along (landed in ${a.id} by an earlier carry)`);
     path(b, bState, input.toRect, "to", holder ? offset : null);
+    // With toRect the card stays, but a hold of its own that ends inside the carry would take it off
+    // mid-carry: it stays to the carry's end instead (the hide keeps it shown until then, as for the
+    // other moves), and a card whose hold ends later or earlier gets nothing.
+    if (stays) {
+      if (heldInside(a)) ctx.animate(a.id, "hide", hide(ctx.end), "from");
+      for (const rider of riders) if (heldInside(rider)) ctx.animate(rider.id, "ride-hide", hide(ctx.end), "from");
+    }
     // Contents crossfade in the middle third: the second fades in over (or under) the first.
     ctx.animate(b.id, "in", motion({ name: "Crossfade in", kind: "in", start: t0 + d / 3, duration: d / 3, easing: CURVES.fade, from: { opacity: 0 }, to: { opacity: bOpacity } }), "to");
     if (!stays) {

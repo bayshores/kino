@@ -24,7 +24,7 @@ import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
 import { boardBuildOps } from "./agent/board-build.mjs";
 import { boardCueLines, boardPaceFacts, boardStoryCues, builtBoard, sceneCueShows } from "./agent/board-pace.mjs";
-import { cueShowLines } from "../engine/footage/cueShows.js";
+import { cueDisagreement, cueShowLines } from "../engine/footage/cueShows.js";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 
@@ -218,6 +218,23 @@ test("the payoff's cue line reads the scene's song when the board names none, an
   const shown = (id, from, to) => ({ id, name: id, type: "image", src: "/api/media/p.png", animations: [{ kind: "show", start: from }, ...(to < 8 ? [{ kind: "hide", start: to }] : [])] });
   assert.deepEqual(checked([shown("pic", 3, 4), shown("pic2", 6, 8)]).filter((line) => /p\.png/.test(line)),
     ["on the drop at 3.00 s: layer pic (p.png) new", "on the payoff beat at 6.00 s: layer pic2 (p.png) shows again the still shown at 3-4 s"]);
+  // An animated GIF (it has a Play range) moves: the second showing reads by file time, not as the same still.
+  const gif = (id, mediaStart, mediaOffset, mediaDuration) => ({ id, name: id, type: "image", src: "/api/media/g.gif", mediaStart, mediaOffset, mediaDuration, mediaSourceDuration: 6 });
+  const moving = checked([gif("g1", 3, 0, 1), gif("g2", 6, 0, 2)]).filter((line) => /g\.gif/.test(line));
+  assert.ok(moving.every((line) => !/still/.test(line)), moving.join(" "));
+  assert.ok(checked([gif("g1", 3, 0, 1), gif("g2", 6, 3, 2)]).some((line) => /layer g2 \(g\.gif\) new/.test(line)), "a later part of the GIF is new, not the same still");
+  // The saved board says the payoff repeats the opening file; the scene was edited so it plays new file time: one line names both.
+  const rebuilt = { ...scene, layers: scene.layers.map((layer) => (layer.id === "board-s3" ? video("board-s3", "/api/media/a.mp4", 6, 7, 2) : layer)) };
+  const edited = sceneCueShows({ scene: rebuilt, music, shape, media: { nameOf }, document: { ...document, scenes: [rebuilt] }, story: boardStoryCues(builtBoard(board, rebuilt), { spine }) });
+  const apart = cueDisagreement(facts.shows, edited);
+  assert.match(apart, /disagree on the payoff beat: the saved board has shot 3 repeating file time at 6\.00 s, the built scene has layer board-s3 new at 6\.00 s; compose \{from:"board"\} builds the scene from the board again/);
+  assert.equal(cueDisagreement(facts.shows, sceneCueShows({ scene, music, shape, media: { nameOf }, document, story })), null, "the same plan says nothing");
+  // A drawn board shot on the drop (no footage) that compose built as a text card: both have no file there, so nothing is said.
+  const drawnBoard = { ...board, shots: board.shots.map((entry) => (entry.id === "S2" ? { ...entry, media: "none", in: null } : entry)) };
+  const drawnScene = { ...scene, layers: [music, video("board-s1", "/api/media/a.mp4", 0, 1, 3), { id: "board-s2", name: "board-S2", type: "text", text: "Words", animations: [{ kind: "show", start: 3 }, { kind: "hide", start: 6 }] }, video("board-s3", "/api/media/a.mp4", 6, 2, 2)] };
+  const drawnDocument = { ...document, board: drawnBoard, scenes: [drawnScene] };
+  assert.equal(cueDisagreement(boardPaceFacts({ document: drawnDocument, shape, media: { nameOf }, music, spine }).shows,
+    sceneCueShows({ scene: drawnScene, music, shape, media: { nameOf }, document: drawnDocument, story: boardStoryCues(builtBoard(drawnBoard, drawnScene), { spine }) })), null, "a drawn shot built as a card agrees with its board shot");
   // check reads the story's times off the layers compose built: board-s3 starts at 4.5 s after a later edit.
   const moved = { ...scene, layers: scene.layers.map((layer) => (layer.id === "board-s3" ? { ...layer, mediaStart: 4.5, mediaDuration: 3.5 } : layer)) };
   assert.deepEqual(boardStoryCues(builtBoard(board, moved), { spine }), [{ at: 4.5, kind: "payoff beat, the longest shot (3.5 s)" }]);
