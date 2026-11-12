@@ -33,6 +33,7 @@ import { withCues } from "../../engine/cues.js";
 import { footageCueTime } from "../../engine/footageCues.js";
 import { MAX_TIME } from "../../engine/schema.js";
 import { MOVES, MOVE_NAMES, moveOf } from "../../engine/blocks/moves/index.js";
+import { EFFECTS } from "../../engine/effects/catalog.js";
 import { describeRecipes, recipeOf, RECIPE_NAMES, TRANSITIONS, TRANSITION_NAMES } from "../../engine/blocks/recipes/index.js";
 import { applyTransition } from "../../engine/blocks/recipes/transitions.js";
 import { LOOKS, LOOK_NAMES, lookOf, seededLook, styleFor } from "../../engine/blocks/looks.js";
@@ -401,7 +402,14 @@ const TRANSLATE = {
       throw problem('move needs name, such as zoom-through (library {topic:"moves"} lists them). To move a layer on the canvas, use update_layer, or add_animation {preset:"move"}.');
     let definition;
     try { definition = moveOf(operation.name); }
-    catch (error) { throw problem(error.message, error.suggestions ?? []); }
+    catch (error) {
+      // A catalog effect named as a move (move {name:"lightning"}): say so, with the add_animation
+      // call that makes it, its at and dur as start and duration.
+      const effect = EFFECTS.find((entry) => entry.key === operation.name);
+      if (effect) throw Object.assign(problem(`${effect.key} is an effect, not a move: add_animation {layer, effect:"${effect.key}", start, duration}.`), {
+        example: { op: "add_animation", layer: operation.layer ?? operation.layerId ?? "<layer>", effect: effect.key, start: Number.isFinite(operation.at) ? operation.at : 0, duration: Number.isFinite(operation.dur) ? operation.dur : 0.3 } });
+      throw problem(error.message, error.suggestions ?? []);
+    }
     const own = Object.keys(definition.fields).map(moveFieldKey);
     for (const key of MOVE_FIELDS)
       if (operation[key] !== undefined && !own.includes(key)) throw problem(`move ${definition.name} has no field "${key === "layerId" ? "layer" : key === "layerIds" ? "layers" : key}". Its fields: ${Object.keys(definition.fields).join(", ")}.`, closest(key, Object.keys(definition.fields)));

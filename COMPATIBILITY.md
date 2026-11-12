@@ -774,9 +774,11 @@ How to read it:
   (edit, then look): 3 frames each, 0 check errors; streaks, wedges, a warm edge glow, a flipped picture, a 1.3x snap
   that returns to 1x, an edge-covered shake.
 - **Lightning**: Verified. Effect `lightning` draws jagged bolts (midpoint displacement) with branches, a white core and
-  a soft glow, new shapes 12 times a second on a seed, from the middle out or between set points; flash off unless set;
-  search finds it by lightning, electric arc, bolt, thunder (engine/effects/overlays.test.js,
-  backend/agent-reach-effects.test.mjs). Rendered through the agent path (edit, then look) on a 960x540 clip.
+  a soft glow, new shapes 12 times a second on a seed, from the middle out or between set points (from/to [x,y] read as
+  them); flash off unless set; breaks cuts brushed dashes; search finds it by lightning, electric arc, bolt, thunder; a
+  move named lightning answers with the add_animation call (engine/effects/overlays.test.js,
+  backend/agent-reach-effects.test.mjs, backend/agent-common-mistakes.test.mjs). Rendered through the agent path (edit,
+  then look) on a 960x540 and a 1920x1080 clip.
 - **Roughen edge and split-fields**: Verified. Shape modifier `roughenSize` (detail, seed, boil) draws irregular
   teeth fixed per seed that boil at their rate (engine/shapeModifiers.test.js); `move split-fields {layer}` builds two
   normalized duotone copies and a rough drifting mask (engine/moves.test.js). Rendered through the agent path with the

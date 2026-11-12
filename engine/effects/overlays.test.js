@@ -79,6 +79,11 @@ test("lightning: jagged bolts from the middle out with branches, re-drawn at rat
   assert.equal(first.flash, 0, "no flash unless set");
   assert.equal(at(0, { flash: 0.8 }).flash, 0.8);
   assert.equal(at(0.1, { flash: 0.8 }).flash, 0, "the flash lasts one re-draw");
+  // breaks cuts each line into dashes along the same path, about that share of it empty.
+  const broken = at(0, { breaks: 0.4, branches: 0, bolts: 1 }).lines, whole = at(0, { branches: 0, bolts: 1 }).lines[0].points;
+  assert.ok(broken.length > 5 && broken.every((dash) => whole.some(([px, py]) => px === dash.points[0][0] && py === dash.points[0][1])), "dashes on the bolt's own path");
+  const drawn = broken.reduce((sum, dash) => sum + dash.points.length - 1, 0) / (whole.length - 1);
+  assert.ok(drawn > 0.45 && drawn < 0.75, `about 60% drawn: ${drawn}`);
   const { pixels } = draw("lightning", { thickness: 40 });
   assert.ok(lit(pixels, () => true) > 60, "bright lines show over the layer");
   assert.equal(draw("lightning", { opacity: 0 }).output, GRAY);
@@ -90,4 +95,6 @@ test("search finds them by the words a person uses", () => {
   // Common words inside a longer query lead nowhere: subtitles are not a burn, a pyramid is not an invert.
   for (const [words, name] of [["burn in subtitles", "film-burn"], ["slow zoom in", "punch-in"], ["inverted pyramid", "invert"], ["negative space", "invert"]])
     assert.ok(!seenNames(words).some((line) => line.startsWith(name)), `${words}: ${seenNames(words)}`);
+  // A bare arc is also the ellipse sweep preset and a curved path, so it does not lead to lightning.
+  assert.ok(!seenNames("arc shape").some((line) => line.startsWith("lightning")), `${seenNames("arc shape")}`);
 });

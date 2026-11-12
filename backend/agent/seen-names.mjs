@@ -58,7 +58,8 @@ const SEEN_AS = {
   soften: ["scene-background"], diffusion: ["scene-background"], "soft focus": ["scene-background"], haze: ["scene-background", "fog"], hazy: ["scene-background", "fog"], mist: ["scene-background", "fog"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
-  electric: ["lightning", "rim-light"], lightning: ["lightning"], "lightning bolt": ["lightning"], "electric arc": ["lightning"], arc: ["lightning"], arcs: ["lightning"],
+  // A bare "arc" is left out: it is also the ellipse sweep preset and a curved motion path.
+  electric: ["lightning", "rim-light"], lightning: ["lightning"], "lightning bolt": ["lightning"], "electric arc": ["lightning"], "electric arcs": ["lightning"],
   bolt: ["lightning"], bolts: ["lightning"], thunder: ["lightning"], zap: ["lightning"], electricity: ["lightning"], spark: ["sparks", "lightning"],
   // Line art of footage (edge-lines) and a subject's edge as a drawn path (cut_out output "outline").
   edge: ["edge-lines", "rim-light", "cut_out"], edges: ["edge-lines", "rim-light", "cut_out"], "edge detect": ["edge-lines", "cut_out"], "find edges": ["edge-lines", "cut_out"],

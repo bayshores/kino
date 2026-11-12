@@ -63,6 +63,11 @@ export const LIGHTNING_FIELDS = Object.freeze({
   // A strike flash: the box filled with the core color at this opacity on the first re-draw only
   // (1/rate s: one or two frames). Off by default: a flash is a separate choice.
   flash: number("Flash", 0, 0, 1, 0.01),
+  // 0 draws each line whole; above 0 cuts it into short dashes of uneven width with gaps (this
+  // share of the line empty): a drawn, brushed arc. The fan-fast f150 arcs are chains of dashes
+  // with about a third of each arc empty (by eye), so 0.35 matches that; 0 stays the default
+  // because a whole bolt is the common look (a guess).
+  breaks: number("Breaks", 0, 0, 0.9, 0.01),
   seed: number("Seed", 0, 0, 1_000_000, 1, "", { integer: true, animatable: false }),
   blend: choice("Blend", "screen", LIGHTNING_BLENDS),
 });
@@ -172,8 +177,30 @@ export function lightningAt(frame) {
       lines.push({ points: displace([sx, sy], end, jag * reach, finest, random), width: thick * own * 0.7, alpha: bright * own * 0.9, taper: 1, fade: true });
     }
   }
+  const breaks = get("breaks");
+  if (breaks > 0) {
+    // Its own sequence, so the bolts keep the shapes they have without breaks.
+    const random = sequence(seed, step, -1);
+    return { lines: lines.flatMap((line) => dashes(line, breaks, random)), flash: get("flash") > 0 && step === 0 ? get("flash") : 0 };
+  }
   const flash = get("flash") > 0 && step === 0 ? get("flash") : 0;
   return { lines, flash };
+}
+
+// A line cut into dashes of 3 to 12 steps (about 25 to 100 px at 1080p, the reference's dashes
+// measured at 960 px wide), each its own width (0.7 to 1.3 of the line there) and narrowing to its
+// end like a brush stroke, with gaps so that about `breaks` of the line is empty.
+function dashes(line, breaks, random) {
+  const out = [], last = line.points.length - 1;
+  let index = 0;
+  while (index < last) {
+    const end = Math.min(last, index + 3 + Math.floor(random() * 10));
+    const share = (index + end) / 2 / last;
+    out.push({ points: line.points.slice(index, end + 1), width: line.width * (1 - line.taper * share) * (0.7 + 0.6 * random()),
+      alpha: line.alpha * (line.fade ? 1 - 0.7 * share : 1), taper: 0.6 });
+    index = end + Math.max(1, Math.round((end - index) * breaks / (1 - breaks) * (0.5 + random())));
+  }
+  return out;
 }
 
 // A line as a few strokes, each narrower (and for branches fainter) than the one before, so the
