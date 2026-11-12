@@ -162,7 +162,7 @@ test("the voiceover example in the kino skill runs as written", { skip: skipWith
   t.diagnostic(`keep_line: ${JSON.stringify(kept.data.keepLine)}`);
   assert.ok(Math.abs(kept.data.keepLine.scene[0] - 5.45) < 0.1 && Math.abs(kept.data.keepLine.scene[1] - 6.6) < 0.1, JSON.stringify(kept.data.keepLine.scene));
   const voice = (await sceneOf(server, "vo")).scene.layers.find((layer) => layer.name === "vo");
-  assert.deepEqual(voice.animations.filter((animation) => /^Line /.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
+  assert.deepEqual(voice.animations.filter((animation) => /^Line (mute|up|down)$/.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
   assert.equal(kept.data.keepLine.duck, "none", "no music layer in this project: no dip");
 });
 
@@ -192,7 +192,7 @@ test("a muted clip's spoken lines are named once in an edit receipt and in statu
   const { scene } = await sceneOf(server, "lines");
   const voice = scene.layers.find((layer) => layer.name === "vo");
   assert.notEqual(voice.src, media.src, "the layer plays the voice-only file now");
-  assert.deepEqual(voice.animations.filter((animation) => /^Line /.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
+  assert.deepEqual(voice.animations.filter((animation) => /^Line (mute|up|down)$/.test(animation.name)).map((animation) => animation.name), ["Line mute", "Line up", "Line down"]);
   const after = (await client.call("status", { project: "lines" })).text;
   assert.doesNotMatch(after, /your clips say|speech_unplayed/);
 });

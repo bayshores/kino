@@ -152,6 +152,64 @@ export function lineWays({ line, under, ceiling: loudest, around }) {
   };
 }
 
+// keep_line evens a kept line's own words: a word more than LINE_EVEN_LU over or under the line's
+// median word is brought back to that edge (3 LU is a guess, twice MIX_HOLD_LU; the dm2 checkers
+// heard kept lines whose loud words stood out of the mix).
+export const LINE_EVEN_LU = 3;
+// Each ramp into and out of an evened word lasts this long (s), centered on the word's edge (a guess:
+// short enough to stay in the gap or the edge of the next word, long enough not to click).
+export const EVEN_RAMP = 0.04;
+// A word moves at most this far (dB) either way.
+const MAX_EVEN_DB = 9;
+const medianOf = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+};
+
+/**
+ * How keep_line evens a line whose words are `words` ([{start, end}], file seconds) on its loudness
+ * `curve`. Null with fewer than 3 measured words, else {median (LUFS, the median word), spread (LU,
+ * loudest word less quietest), places: [{start, end, lufs, db}] (file seconds; outlying words closer
+ * than two ramps joined and measured together), shift (dB the line's loudness moves with them)}.
+ */
+export function lineEvening(curve, words, band = LINE_EVEN_LU) {
+  // A word is read from the 400 ms windows that sit inside it (centered 0.2 s in from each edge), or
+  // the one centered on it when it is shorter: a window over its edge hears the next word too.
+  const wordLufs = (word) => {
+    const inner = { start: word.start + 0.2, end: word.end - 0.2 };
+    if (inner.end - inner.start >= curve.step) return loudnessOver(curve, [inner]);
+    const value = curve.momentary?.[Math.round((word.start + word.end) / 2 / curve.step)];
+    return Number.isFinite(value) && value > SILENCE ? value : loudnessOver(curve, [word]);
+  };
+  const measured = words.map((word) => ({ start: word.start, end: word.end, lufs: wordLufs(word) })).filter((word) => word.lufs !== null);
+  if (measured.length < 3) return null;
+  const median = medianOf(measured.map((word) => word.lufs));
+  const gainFor = (lufs) => {
+    const off = lufs - median;
+    return Math.abs(off) <= band ? 0 : round1(Math.max(-MAX_EVEN_DB, Math.min(MAX_EVEN_DB, Math.sign(off) * band - off)));
+  };
+  const places = [];
+  for (const word of measured) {
+    const db = gainFor(word.lufs);
+    if (!db) continue;
+    const last = places.at(-1);
+    if (last && Math.sign(last.db) === Math.sign(db) && word.start - last.end < 2 * EVEN_RAMP) {
+      last.end = word.end;
+      last.lufs = wordLufs(last);
+      last.db = gainFor(last.lufs) || last.db;
+    } else places.push({ ...word });
+    places.at(-1).db ??= db;
+  }
+  for (const place of places) place.lufs = round1(place.lufs);
+  // The line's loudness before and with the gains: each word's own reading, weighted by its length
+  // (the curve itself smears a loud word into its neighbors' windows).
+  const energy = (gain) => measured.reduce((sum, word) => sum + (word.end - word.start) * 10 ** ((word.lufs + gain(word)) / 10), 0);
+  const placeOf = (word) => places.find((place) => word.start >= place.start - 1e-6 && word.end <= place.end + 1e-6)?.db ?? 0;
+  const lufs = measured.map((word) => word.lufs);
+  return { median: round1(median), spread: round1(Math.max(...lufs) - Math.min(...lufs)), places, shift: round1(10 * Math.log10(energy(placeOf) / energy(() => 0))) };
+}
+
 /** The ways of lineWays in a few words, `level` the music's volume (for a dip's volume). */
 export function waysText(ways, level = 1) {
   if (!ways) return null;

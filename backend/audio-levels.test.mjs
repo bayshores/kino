@@ -8,11 +8,14 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLayer, createScene } from "../engine/model.js";
+import { createDocument, createLayer, createScene } from "../engine/model.js";
+import { applyKeepLine } from "../engine/keepLine.js";
+import { energyMean } from "../engine/mixLevels.js";
+import { capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { describeLevels, describeMixPeaks, limiterPlaces, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
-import { exportScene, measureMixPeaks, sceneSoundClips } from "./export.mjs";
+import { exportScene, measureMixPeaks, sceneSoundClips, soundMixArgs } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
 
@@ -560,4 +563,81 @@ test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky
   // Its clicks are a steady beat: the render finds that song itself (no beat op, no saved .beats
   // needed) and says why the web's target stands.
   await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web: the song \(-\d+(\.\d)?\) is under -14, held under by the peak at [\d.]+ s/, true);
+});
+
+// keep_line evens a kept line's own words and keeps its lift under the limiter (engine/keepLine.js
+// evenLine, line-peak.mjs): the receipt's numbers against the mix the render plays (soundMixArgs, the
+// master limiter included), metered by ebur128 (loudness, true peak) and sample RMS per word.
+test("keep_line evens a line's loud and quiet words and its lifted line stays under the limiter: receipt against render", { skip: skipWithoutMediaTools, timeout: 30_000 }, async (t) => {
+  const { root, mediaRoot } = await setup(t);
+  // Speech-like: a 120 Hz pulse (10 harmonics, crest about 13 dB) in six 0.4 s words; the third 9 dB
+  // loud, the fifth 8 dB quiet. The song: seeded pink noise.
+  const words = [[0.3, 0.7, 1], [0.8, 1.2, 1], [1.3, 1.7, 2.82], [1.8, 2.2, 1], [2.3, 2.7, 0.4], [2.8, 3.2, 1]];
+  const envelope = words.map(([from, to, gain]) => `${gain}*between(t,${from},${to})`).join("+");
+  const pulse = Array.from({ length: 10 }, (_, k) => `sin(2*PI*${120 * (k + 1)}*t)`).join("+");
+  const voice = join(mediaRoot, "voice.wav"), song = join(mediaRoot, "song.wav");
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", `aevalsrc=${`0.05*(${envelope})*(${pulse})`.replaceAll(",", "\\,")}:s=48000:d=3.6`, "-ac", "2", voice]);
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=color=pink:sample_rate=48000:amplitude=0.25:duration=5:seed=3", "-ac", "2", song]);
+  const transcript = { words: words.map(([start, end], index) => ({ text: ["one", "two", "three", "four", "five", "six"][index], start, end, p: 1 })) };
+  await writeFile(`${voice}.words-test`, JSON.stringify(transcript));
+  const levels = { voice: await measureLoudnessCurve(voice), music: await measureLoudnessCurve(song) };
+  const directory = join(root, "clips");
+  await mkdir(directory);
+  const sceneWith = () => createScene({ id: "s", name: "S", width: 32, height: 32, duration: 4.5, background: "#000000", layers: [
+    createLayer("audio", { id: "music", name: "music", src: "/api/media/song.wav", mediaSourceDuration: 5 }),
+    createLayer("audio", { id: "voice", name: "voice", src: "/api/media/voice.wav", mediaStart: 0.5, mediaSourceDuration: 3.6, voiceCleanup: false })] });
+  const keep = (even) => {
+    const document = createDocument({ id: "line", name: "line", scenes: [sceneWith()] });
+    const receipt = applyKeepLine(document, { type: "keep_line", sceneId: "s", layerId: "voice", line: "one two three four five six", subtitle: false, transcript, levels, beats: {}, ...(even === false ? { even } : {}) });
+    return { scene: document.scenes[0], receipt };
+  };
+  // The render's mix of `scene` (music hidden: the voice alone) as samples, and its ebur128 summary over the line.
+  let renders = 0;
+  const render = async (scene, [from, to]) => {
+    const out = join(root, `mix-${++renders}.wav`), cut = join(root, `cut-${renders}.wav`);
+    await run(ffmpeg, soundMixArgs(await sceneSoundClips(scene, { mediaRoot, directory, duration: scene.duration }), scene.duration, out));
+    await run(ffmpeg, ["-v", "error", "-y", "-ss", String(from), "-t", String(to - from), "-i", out, cut]);
+    // The line's loudness as kino meters it (ebur128 momentary, energy mean over the line).
+    const curve = await measureLoudnessCurve(out);
+    const lineLufs = Math.round(10 * energyMean(curve.momentary.slice(Math.floor(from * 10), Math.ceil(to * 10)))) / 10;
+    return { samples: await samples(out), lineLufs, ...(await summary(cut)) };
+  };
+  const wordDb = (sound, [from, to], shift) => {
+    let sum = 0;
+    const [a, b] = [Math.round((from + shift + 0.06) * 48000), Math.round((to + shift - 0.06) * 48000)];
+    for (let index = a; index < b; index += 1) sum += sound[index] ** 2;
+    return 10 * Math.log10(sum / (b - a));
+  };
+  const relative = (sound, shift) => { const db = words.map((word) => wordDb(sound, word, shift)); return db.map((value) => value - db[0]); };
+
+  const { scene, receipt } = keep(true);
+  assert.equal(receipt.way, "lift", receipt.ways);
+  // The loud and the quiet word are evened, each by the dB the receipt prints.
+  assert.equal(receipt.even.places.length, 2, JSON.stringify(receipt.even));
+  const peak = await capLinePeak(scene, { layerIds: ["voice"], start: receipt.scene[0], end: receipt.scene[1], mediaRoot, directory });
+  const hidden = structuredClone(scene);
+  hidden.layers[0].visible = false;
+  const alone = await render(hidden, receipt.scene), mixed = await render(scene, receipt.scene);
+  const before = relative(await samples(voice), 0), after = relative(alone.samples, 0.5);
+  for (const [from, , db] of receipt.even.places) {
+    const index = words.findIndex(([start]) => Math.abs(start + 0.5 - from) < 0.01);
+    const moved = after[index] - before[index];
+    t.diagnostic(`word ${index + 1}: receipt ${db} dB, render ${moved.toFixed(2)} dB`);
+    assert.ok(Math.abs(moved - db) <= 1, `word ${index + 1} moved ${moved.toFixed(2)} dB in the render, the receipt says ${db}`);
+  }
+  // The line as a whole is heard where the receipt set it (mix.line, LUFS), less a lowering the peak asked for.
+  const line = receipt.mix.line + (peak.lowered?.db ?? 0);
+  t.diagnostic(`line: receipt ${line} LUFS, render ${alone.lineLufs} LUFS (momentary energy mean; integrated ${alone.lufs}); peak ${JSON.stringify(peak)}; peak at the line: receipt ${peak.peakDbfs} dBFS, render true peak ${mixed.peak} dBTP; ${receipt.ways}`);
+  assert.ok(Math.abs(alone.lineLufs - line) <= 1, `the voice alone is ${alone.lineLufs} LUFS, the receipt says ${line}`);
+  assert.ok(Math.abs(mixed.peak - peak.peakDbfs) <= 1, `the render's true peak over the line ${mixed.peak}, the receipt's ${peak.peakDbfs}`);
+  assert.ok(peak.peakDbfs <= peak.ceilingDbfs + 0.1, `the line's peak ${peak.peakDbfs} dBFS stays under the limiter's ${peak.ceilingDbfs}`);
+
+  // even:false keeps the words as said; its lift is measured and held under the ceiling the same way.
+  const plain = keep(false);
+  assert.equal(plain.receipt.even, undefined);
+  const plainPeak = await capLinePeak(plain.scene, { layerIds: ["voice"], start: plain.receipt.scene[0], end: plain.receipt.scene[1], mediaRoot, directory });
+  const plainMix = await render(plain.scene, plain.receipt.scene);
+  t.diagnostic(`even:false: receipt peak ${JSON.stringify(plainPeak)}, render true peak ${plainMix.peak} dBTP`);
+  assert.ok(Math.abs(plainMix.peak - plainPeak.peakDbfs) <= 1, `the render's true peak ${plainMix.peak}, the receipt's ${plainPeak.peakDbfs}`);
+  assert.ok(plainPeak.peakDbfs <= plainPeak.ceilingDbfs + 0.1);
 });

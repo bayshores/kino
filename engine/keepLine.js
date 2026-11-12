@@ -42,14 +42,15 @@ import { applyDuckAudio, DUCK_NAMES, RAMP_MIN, withoutDips } from "./audioDuckin
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { SOUND_SURE, soundMoments } from "./speech.js";
 import { energyMean, heardLoudness, lineOverMusic, lineWays, loudestHeard, loudnessOver, MAX_LEVEL_DB, waysText } from "./mixLevels.js";
-import { LINE_OVER_BED } from "./mixLevels.js";
+import { EVEN_RAMP, LINE_EVEN_LU, LINE_OVER_BED, lineEvening } from "./mixLevels.js";
 import { churnRun } from "./quality/rules/sound.js";
 import { barLines } from "./songBars.js";
 import { round } from "./numbers.js";
 
 // A sound kept by keep_line {sound} (not a line: never leveled) fades with "Sound up" and "Sound down",
 // so a layer that keeps a line and a sound keeps both levels (the export levels only the lines).
-export const LINE_NAMES = Object.freeze({ mute: "Line mute", up: "Line up", down: "Line down", soundUp: "Sound up", soundDown: "Sound down" });
+// "Line level" ramps even the line's own loud and quiet words (mixLevels.js lineEvening).
+export const LINE_NAMES = Object.freeze({ mute: "Line mute", up: "Line up", down: "Line down", soundUp: "Sound up", soundDown: "Sound down", level: "Line level" });
 // The music's volume under the line, as a share of its own volume. 0.7 is about 3 dB down. It was
 // 0.5 (6 dB): a director keeping lines over a song's drop reported the song sank to 0.4 and raised
 // it to dip 0.8 by hand to keep the drop's energy (.scratch/ceiling/a/result.md, FRICTION 10).
@@ -327,6 +328,39 @@ function soundRoom({ line, under }) {
   return round(Math.max(-20, Math.min(0, line - LINE_OVER_BED - under)), 1);
 }
 
+/**
+ * keep_line evens the line's own loud and quiet words toward its median word (mixLevels.js
+ * lineEvening, measured on the clip's curve): "Line level" Volume ramps of EVEN_RAMP s on the owner
+ * piece, and a leveled line's voiceLevel moves by the shift so the line as a whole stays where it was
+ * set. Returns {median, spread, places: [[start, end, dB]] (scene s)} or null (fewer than 3 measured words).
+ */
+function evenLine(scene, owner, said, start, end, curve) {
+  const { piece, play, volume } = owner;
+  const inPiece = said.filter((word) => word.start >= play.start - 0.001 && word.end <= play.end + 0.001 && word.end > word.start);
+  if (!curve || inPiece.length < 3) return null;
+  const shift = inPiece[0].start - mediaSoundTime(piece, inPiece[0].start);
+  const evening = lineEvening(curve, inPiece.map((word) => ({ start: mediaSoundTime(piece, word.start), end: mediaSoundTime(piece, word.end) })));
+  if (!evening) return null;
+  const ranges = keptRanges(piece);
+  const opens = ranges.some((range) => Math.abs(range.start - start) < 0.002);
+  const closes = ranges.some((range) => Math.abs(range.end - end) < 0.002) && end + DOWN_PAD < scene.duration - 0.002;
+  const ramp = (from, to, a, b) => piece.animations.push({ id: uid(), name: LINE_NAMES.level, kind: "custom", easing: "smooth", start: round(from), duration: Math.max(SHORTEST, round(to - from)), from: { volume: a }, to: { volume: b } });
+  const places = [];
+  for (const place of evening.places) {
+    const [from, to] = [round(place.start + shift), round(place.end + shift)];
+    const level = round(volume * 10 ** (place.db / 20), 3);
+    // A word at the line's start rises from silence to its own level in the Line up's time (the ramp starts just after it, so it wins).
+    if (opens && from - EVEN_RAMP / 2 <= start + 0.001) ramp(Math.max(0, start - UP_PAD) + 0.001, start, 0, level);
+    else ramp(from - EVEN_RAMP / 2, from + EVEN_RAMP / 2, volume, level);
+    if (closes && to + EVEN_RAMP / 2 >= end - 0.001) ramp(end + 0.001, end + DOWN_PAD, level, 0);
+    else if (to + EVEN_RAMP / 2 < end - 0.001 || !closes) ramp(to - EVEN_RAMP / 2, to + EVEN_RAMP / 2, level, volume);
+    places.push([from, to, place.db]);
+  }
+  // The export levels the line from its raw curve: the target moves by the shift so the line's loudness stays.
+  if (places.length && Number.isFinite(piece.voiceLevel)) piece.voiceLevel = round(Math.max(-60, Math.min(0, piece.voiceLevel - evening.shift)), 1);
+  return { median: evening.median, spread: evening.spread, places, shift: evening.shift };
+}
+
 /** Applies keep_line to `document` (changed in place). Returns the receipt. */
 export function applyKeepLine(document, operation, { fonts } = {}) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
@@ -389,7 +423,9 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     const volume = piece.volume > 0 ? piece.volume : 1;
     const ranges = merged([...keptRanges(piece), ...(to - from > SHORTEST ? [{ start: from, end: to, ...(sound ? { sound: true } : {}) }] : [])]);
     piece.volume = volume;
-    piece.animations = [...(piece.animations ?? []).filter((animation) => !isLineMark(animation)), ...silenceAround(ranges, volume, scene.duration)];
+    // An earlier line's "Line level" ramps stay; this line's are made again below.
+    const earlierLevel = (animation) => animation.name === LINE_NAMES.level && (animation.start + animation.duration < start - UP_PAD - 0.01 || animation.start > end + DOWN_PAD + 0.01);
+    piece.animations = [...(piece.animations ?? []).filter((animation) => !isLineMark(animation) || earlierLevel(animation)), ...silenceAround(ranges, volume, scene.duration)];
     return { piece, play, ranges, volume };
   });
   const owner = kept.find((entry) => entry.play.start <= start + 0.001 && start < entry.play.end) ?? kept.find((entry) => entry.ranges.length) ?? kept[0];
@@ -555,6 +591,13 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     notes.push(`the music does not dip: ${music.reason}`);
   }
 
+  // The line's own loud and quiet words, evened toward its median word (on unless even:false; a kept sound keeps its own level).
+  if (operation.even !== undefined && typeof operation.even !== "boolean") fail("even is true (the line's loud and quiet words come toward its median word) or false (kept as said).");
+  const even = !sound && operation.even !== false ? evenLine(scene, owner, said, start, end, operation.levels?.[owner.piece.id]) : null;
+  if (even?.places.length) {
+    const shown = even.places.slice(0, 3).map(([from, to, db]) => `${round(from, 2)}-${round(to, 2)} s ${db > 0 ? "+" : ""}${db} dB`).join(", ");
+    notes.push(`evened ${even.places.length} ${even.places.length === 1 ? "place" : "places"} toward the line's median word (${even.median} LUFS; its words spread ${even.spread} LU, measured; a word over ${LINE_EVEN_LU} LU off it comes back to ${LINE_EVEN_LU}, a guess): ${shown}${even.places.length > 3 ? `, +${even.places.length - 3} more` : ""}; even:false keeps them as said`);
+  }
   const text = operation.text ?? (said.length ? said.map((item) => item.text).join(" ") : null);
   const fileFrom = round(mediaSoundTime(owner.piece, Math.max(start, owner.play.start)));
   const fileTo = round(mediaSoundTime(owner.piece, Math.min(end, owner.play.end)));
@@ -571,6 +614,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     duck: duck ? { layer: duck.layer, to: duck.to, summary: duck.summary } : "none",
     ...(mix ? { mix } : {}),
     ...(waysSaid ?? {}),
+    ...(even ? { even: { median: even.median, spread: even.spread, places: even.places } } : {}),
     summary: `kept ${sound ? `${sound.label.replaceAll("_", " ")} (${sound.db} dB) ` : text ? `"${text.length > 60 ? `${text.slice(0, 60)}...` : text}" ` : ""}of ${layer.name} at ${start}-${end} s (file ${fileFrom}-${fileTo} s), the rest of its sound silenced; ${subtitle ? `subtitle ${subtitle.name}` : "no subtitle"}; ${duck ? duck.summary : "no music dip"}${mix ? `; mix under the ${sound ? "sound" : "line"} ${mix.under} vs ${mix.around} LUFS in the 2 s around (${mix.change >= 0 ? "+" : ""}${mix.change} LU)` : ""}`,
     ...(notes.length ? { notes } : {}),
   };

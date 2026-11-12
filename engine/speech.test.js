@@ -514,6 +514,33 @@ test("keep_line over measured music levels the line against the music around it,
   assert.match(loud.report.notes[0], /, 4\.1 dB over the song's loudest moment$/);
 });
 
+test("keep_line evens the line's loud and quiet words toward its median word with short ramps; even:false keeps them as said", () => {
+  // Four words at -24, -24, -12 (loud) and -34 LUFS (quiet) over a steady -13 LUFS song.
+  const momentary = new Array(120).fill(null);
+  [[40, -24], [45, -24], [50, -12], [55, -34]].forEach(([at, lufs]) => momentary.fill(lufs, at, at + 4));
+  const levels = { clip: { step: 0.1, momentary }, music: { step: 0.1, momentary: new Array(300).fill(-13) } };
+  const transcript = { words: ["alpha", "bravo", "charlie", "delta"].map((text, index) => ({ text, start: 4 + index * 0.5, end: 4.4 + index * 0.5, p: 1 })) };
+  const clip = createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 12 });
+  const document = documentWith([clip, musicLayer()], 12);
+  const run = (extra) => {
+    const reports = new Map();
+    const operation = { type: "keep_line", sceneId: "s", layerId: "clip", line: "alpha bravo charlie delta", subtitle: false, transcript, levels, beats: {}, ...extra };
+    const scene = parseDocument(applyOperations(document, [operation], { reports })).scenes[0];
+    return { report: reports.get(operation), clip: scene.layers.find((layer) => layer.id === "clip") };
+  };
+  const evened = run({});
+  // Median -24: the loud word comes down to 3 LU over it (-9 dB), the quiet one up to 3 LU under (+7 dB).
+  assert.deepEqual(evened.report.even, { median: -24, spread: 22, places: [[5, 5.4, -9], [5.5, 5.9, 7]] });
+  assert.equal(evened.clip.animations.filter((animation) => animation.name === "Line level").length, 4);
+  assert.deepEqual([4.2, 5.2, 5.7].map((time) => Math.round(volumeAt(evened.clip, time) * 1000) / 1000), [1, 0.355, 2.239]);
+  assert.match(evened.report.notes.join(" | "), /evened 2 places toward the line's median word \(-24 LUFS; its words spread 22 LU, measured; .*\): 5-5\.4 s -9 dB, 5\.5-5\.9 s \+7 dB; even:false keeps them as said/);
+  // The leveling target moves by the line's shift, so the line as a whole stays where the way set it.
+  const plain = run({ even: false });
+  assert.equal(plain.report.even, undefined);
+  assert.equal(plain.clip.animations.some((animation) => animation.name === "Line level"), false);
+  assert.ok(evened.clip.voiceLevel > plain.clip.voiceLevel, `${evened.clip.voiceLevel} vs ${plain.clip.voiceLevel}`);
+});
+
 test("keep_line {sound} keeps the loudest matching scene sound at its own level, with no subtitle, and the music makes room only when masked", () => {
   // Six 1 s windows, half overlapped: music in all, a laugh at -30 dB and a louder one at -18/-17 dB.
   const windows = [0, 0.5, 1, 1.5, 2, 2.5].map((t) => ({ t, d: 1, db: t === 0 ? -30 : t >= 2 ? (t === 2 ? -18 : -17) : -35,
