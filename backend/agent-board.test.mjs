@@ -216,8 +216,9 @@ test("a board shot keeps its clip's own sound: the answer says what each clip ho
   assert.equal(named("shot-2").volume, 1);
   assert.deepEqual(named("shot-2").animations.filter((animation) => animation.name.startsWith("Line")).map((animation) => [animation.name, animation.start]), [["Line mute", 0], ["Line up", 1.42], ["Line down", 2.5]]);
   assert.equal(named("shot-3").volume, 1);
-  // One dip under both kept stretches (each keep_line's own dip would replace the one before).
-  assert.equal(built.data.duck.summary, "song ducked to 0.7 at 1.35-4.417 s (shot-2, shot-3)");
+  // One dip under both kept stretches (each keep_line's own dip would replace the one before), at
+  // the level keep_line measured: this quiet tone needs no dip under a line leveled against it.
+  assert.equal(built.data.duck.summary, "song ducked to 1 at 1.35-4.417 s (shot-2, shot-3)");
   assert.deepEqual(built.data.keepLine.map((entry) => entry.scene), [[1.5, 2.5], [3.333, 4.417]]);
 });
 

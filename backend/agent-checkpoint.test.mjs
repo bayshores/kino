@@ -644,7 +644,7 @@ test("\"stop asking\" in answer to the first stop allows rough, color and sound 
     "rough, color and sound are set to allow for this video (set in chat, recorded by the agent; the person can undo it in kino).",
     `step: ${ANSWER_NEXT["stop asking"]}`,
     // The last stop passed on a built video: every gate left before the final render, at once.
-    "to final: 1) look review (6 of 6 moments) 2) render final",
+    "to final: 1) render final",
   ]);
   const { stopAsking } = await savedState(project);
   assert.match(stopAsking.at, ISO);
