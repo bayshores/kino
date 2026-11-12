@@ -589,7 +589,7 @@ export function createdIds(operation) {
   const ids = [];
   if (MAKES_ONE.has(type)) ids.push(operation.properties?.id);
   if (type === "add_animation") ids.push(operation.id ?? operation.animation?.id);
-  if (type === "group_layers" || type === "create_mask") ids.push(operation.groupId);
+  if (type === "group_layers" || type === "create_mask" || type === "trace_image") ids.push(operation.groupId);
   if (type === "create_component_from_layers") ids.push(operation.componentSceneId, operation.instanceId);
   if (type === "isolate_voice") ids.push(operation.backgroundId);
   if (type === "cut_out") ids.push(operation.cutoutId);
@@ -644,7 +644,9 @@ function translateOne(raw, resolver, document) {
     operation.properties = { ...(operation.properties ?? {}), id };
   }
   // A group's name becomes its ID the same way, so later operations can use it.
-  if ((type === "group_layers" || type === "create_mask") && operation.groupId === undefined && typeof operation.name === "string") {
+  // trace_image makes a group too, named "trace" when no name is given.
+  if (type === "trace_image" && operation.name === undefined) operation.name = "trace";
+  if ((type === "group_layers" || type === "create_mask" || type === "trace_image") && operation.groupId === undefined && typeof operation.name === "string") {
     const id = idFromName(operation.name, "layer", resolver);
     if (id) operation.groupId = id;
   }
@@ -692,7 +694,7 @@ function translateOne(raw, resolver, document) {
       if (!failure && operation.id === undefined && operation.animation?.id === undefined) operation.id = randomUUID();
       resolver.declare("animation", operation.id ?? operation.animation?.id, { sceneId, layerId: operation.layerId, kind: animationKind(operation), animationName: operation.animation?.name ?? operation.name });
     }
-    if (type === "group_layers" || type === "create_mask") resolver.declare("layer", operation.groupId, { sceneId, name: operation.name, type: "group" });
+    if (type === "group_layers" || type === "create_mask" || type === "trace_image") resolver.declare("layer", operation.groupId, { sceneId, name: operation.name, type: "group" });
     if (type === "isolate_voice") resolver.declare("layer", operation.backgroundId, { sceneId, name: operation.backgroundName, type: "audio" });
     // A cut-out is a copy of its layer.
     if (type === "cut_out") resolver.declare("layer", operation.cutoutId, { sceneId, name: operation.cutoutName, type: typeof operation.layerId === "string" ? resolver.layerTypeOf(operation.layerId) : null });

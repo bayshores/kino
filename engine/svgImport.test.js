@@ -5,6 +5,7 @@ import { worldMatrix, point, multiply } from "./geometry.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { parsePath, pathBounds } from "./vectorPath.js";
 import { importSvg, moveRootLayers } from "./svgImport.js";
+import { traceImage, traceSvg } from "./traceImage.js";
 import { renderSceneSvg } from "./render.js";
 import { Resvg } from "@resvg/resvg-js";
 
@@ -378,4 +379,41 @@ test("a dropped SVG moves its top-level layers and keeps children relative to th
   assert.deepEqual(moved.map((layer) => [layer.id, layer.x, layer.y]), [["g", 110, 10], ["c", 5, 5], ["r", 100, -10]]);
   assert.equal(group.x, 10, "the imported layers are not changed in place");
   assert.equal(moveRootLayers([group], 0, 0)[0], group);
+});
+
+test("traceImage turns flat color regions into paths, largest first, with background holes and a colors hint for photos", () => {
+  // 40x30: gray ground, a black ring (16x16 hole showing the ground), a small red square.
+  const width = 40, height = 30, data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    const ring = x >= 2 && x < 26 && y >= 2 && y < 26 && !(x >= 6 && x < 22 && y >= 6 && y < 22);
+    const red = x >= 30 && x < 38 && y >= 10 && y < 18;
+    data.set(ring ? [0, 0, 0, 255] : red ? [220, 20, 20, 255] : [200, 200, 200, 255], (y * width + x) * 4);
+  }
+  const traced = traceImage(data, width, height, { colors: 3, scale: 2 });
+  assert.equal(traced.background, "#c8c8c8");
+  assert.deepEqual(traced.paths.map((path) => path.color), ["#000000", "#dc1414"]);
+  assert.equal(traced.paths[0].d.match(/M/g).length, 2, "the ring keeps its hole");
+  assert.ok(traced.paths[0].area > traced.paths[1].area);
+  assert.equal(traced.suggest, null);
+  const bounds = pathBounds(traced.paths[1].d);
+  assert.ok(Math.abs(bounds.x - 60) < 2 && Math.abs(bounds.width - 16) < 2, "scale maps the red square to output pixels");
+  const layers = parse(traceSvg(traced, 80, 60, { name: "mark" })).layers;
+  assert.deepEqual(layers.map((layer) => layer.type), ["group", "path", "path"]);
+  assert.equal(layers[1].fillRule, "evenodd");
+  // Noise does not read as flat art: the hint says so.
+  const noise = new Uint8ClampedArray(width * height * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 7919) % 251));
+  assert.ok(traceImage(noise, width, height, { colors: 2 }).suggest !== null);
+});
+
+test("traceImage's auto ground skips letterbox bars: the gray card is the ground, the black word is kept, the bars are dropped", () => {
+  const width = 40, height = 30, data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    const dark = y < 4 || y >= 26 || (x >= 14 && x < 26 && y >= 12 && y < 18);
+    data.set(dark ? [0, 0, 0, 255] : [220, 220, 220, 255], (y * width + x) * 4);
+  }
+  const traced = traceImage(data, width, height, { colors: 2 });
+  assert.equal(traced.background, "#dcdcdc");
+  assert.equal(traced.paths.length, 1);
+  assert.ok(Math.abs(traced.paths[0].area - 72) < 8, `only the word is left: ${traced.paths[0].area}`);
+  assert.equal(traceImage(data, width, height, { colors: 2, background: "#dcdcdc" }).paths.length, 3, "a named ground keeps the bars");
 });
