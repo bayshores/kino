@@ -484,7 +484,8 @@ export function letteringBoxes(image) {
     const pad = Math.max(1, Math.round(h * 0.1));
     const x = Math.max(0, box.x0 - pad), y = Math.max(0, box.y0 - pad);
     const right = Math.min(width, box.x1 + 1 + pad), bottom = Math.min(height, box.y1 + 1 + pad);
-    found.push({ x: Math.round(x / factor), y: Math.round(y / factor), width: Math.round((right - x) / factor), height: Math.round((bottom - y) / factor) });
+    // letters: the columns of ink split by gaps (touching letters count as one).
+    found.push({ x: Math.round(x / factor), y: Math.round(y / factor), width: Math.round((right - x) / factor), height: Math.round((bottom - y) / factor), letters: letters.length });
   }
   return found.sort((a, b) => b.width * b.height - a.width * a.height).slice(0, BOXES_KEPT);
 }
@@ -622,22 +623,60 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
 }
 
 /**
+ * The lettering a type label names in its words: quoted text, else its words in capitals ("the
+ * lyric word KNOW in white" gives ["KNOW"]). [] when the words name none.
+ */
+export function letteringWords(words) {
+  const text = String(words ?? "");
+  const quoted = [...text.matchAll(/["“]([^"”]{1,60})["”]/g)].map((match) => match[1].trim()).filter(Boolean);
+  if (quoted.length) return quoted;
+  return [...text.matchAll(/\b[A-Z][A-Z']{1,}\b/g)].map((match) => match[0]);
+}
+
+const lettersOnly = (text) => String(text ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/**
  * The saved type labels as measured type for the text defaults (engine/typeRoles.js):
- * [{ref, at, family, weight, share, fill}], the nearest installed face and the lettering's own fill and
- * height share. A label kino cannot measure is left out, and so is one whose frame shows no lettering
- * box (the whole picture would be measured: on busy footage that read 85% and 100% of the height).
- * Nothing is downloaded (deps without lookFamilies). `found.retry` is true when a label could not be
- * read at all (its frames not kept yet), so a caller does not keep the answer.
+ * [{ref, at, labelAt, frame, read, family, weight, share, fill}], the nearest installed face and the
+ * lettering's own fill and height share. Each label is measured on the kept frame within 0.5 s of its
+ * time (`referenceFrames(id, at)`: [{bytes, at, kind}], nearest first) whose text reader
+ * (`readText(bytes)`: [{box, s}] in fractions, or null without one) reads the lettering the label's
+ * words name (letteringWords), inside the box the reader gives. A label kino cannot confirm that way
+ * is left out and listed in `found.skipped` ([{ref, at, why}]): before, the largest edgy box was
+ * measured, and on run b's strip frames that was a character's hair. Nothing is downloaded.
+ * `found.retry` is true when a label's frames could not be read at all (not kept yet), so a caller
+ * does not keep the answer.
  */
 export async function labelTypes(labels, deps) {
   const found = [];
   found.retry = false;
+  found.skipped = [];
+  const framesOf = deps.referenceFrames ?? (async (id, at) => [{ bytes: await deps.referenceFrame(id, at), at, kind: "frame" }]);
   for (const label of (labels ?? []).slice(0, LABELS_MEASURED)) {
-    let answer;
-    try { answer = await fontsLikeText({ like: label.id, t: label.at, count: 1 }, { ...deps, lookFamilies: null }); }
-    catch (error) { if (!/no lettering found/.test(error.message)) found.retry = true; continue; }
-    const { fonts: ranked, look, box } = answer;
-    if (ranked[0] && look && box?.found) found.push({ ref: label.id, at: label.at, family: ranked[0].family, weight: ranked[0].weight, share: look.share, fill: look.fill });
+    const skip = (why) => found.skipped.push({ ref: label.id, at: label.at, why });
+    const wanted = letteringWords(label.words);
+    if (!wanted.length) { skip("its words name no lettering (quote it or write it in capitals)"); continue; }
+    let frames;
+    try { frames = await framesOf(label.id, label.at); } catch { found.retry = true; continue; }
+    let measured = null, readAny = false;
+    for (const frame of frames) {
+      const lines = deps.readText ? await deps.readText(frame.bytes).catch(() => null) : null;
+      if (lines === null) continue;
+      readAny = true;
+      const line = lines.find((entry) => wanted.some((word) => lettersOnly(word).length >= 2 && lettersOnly(entry.s).includes(lettersOnly(word))));
+      if (!line) continue;
+      const image = await loadImage(frame.bytes);
+      const [x, y, w, h] = line.box;
+      const region = [x * image.width, y * image.height, w * image.width, h * image.height];
+      const word = wanted.find((entry) => lettersOnly(line.s).includes(lettersOnly(entry)));
+      try {
+        const { fonts: ranked, look } = await fontsLikeText({ like: label.id, t: frame.at, region, text: word, count: 1 }, { ...deps, lookFamilies: null, referenceFrame: async () => frame.bytes });
+        if (ranked[0] && look) measured = { ref: label.id, at: frame.at, labelAt: label.at, frame: `${frame.kind} ${image.width}x${image.height}`, read: word, family: ranked[0].family, weight: ranked[0].weight, share: look.share, fill: look.fill };
+      } catch { /* the reader's box held no measurable ink: try the next frame */ }
+      if (measured) break;
+    }
+    if (measured) found.push(measured);
+    else skip(!readAny ? "no text reader here to confirm its lettering" : `"${wanted.join(" ")}" was not read in its ${frames.length} frame${frames.length === 1 ? "" : "s"} within 0.5 s`);
   }
   return found;
 }

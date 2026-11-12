@@ -76,6 +76,25 @@ export async function referenceStripFrame(folder, strips, t) {
   return canvas.toBuffer("image/png");
 }
 
+/** Every frame of the kept strips within `within` s of `t`: [{bytes (PNG), at}], nearest first (type labels). */
+export async function referenceStripFrames(folder, strips, t, within = 0.5) {
+  const frames = [];
+  for (const strip of strips ?? []) {
+    const start = Math.max(0, strip.at - STRIP_LEAD);
+    const times = Array.from({ length: STRIP_FRAMES }, (_, index) => start + index / 12);
+    if (!times.some((at) => Math.abs(at - t) <= within)) continue;
+    const image = await loadImage(path.join(folder, strip.file));
+    const width = image.width / STRIP_FRAMES;
+    times.forEach((at, index) => {
+      if (Math.abs(at - t) > within) return;
+      const canvas = createCanvas(Math.round(width), image.height);
+      canvas.getContext("2d").drawImage(image, index * width, 0, width, image.height, 0, 0, canvas.width, canvas.height);
+      frames.push({ bytes: canvas.toBuffer("image/png"), at: round(at) });
+    });
+  }
+  return frames.sort((a, b) => Math.abs(a.at - t) - Math.abs(b.at - t));
+}
+
 function runFfmpeg(args, signal) {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegCommand(), ffmpegArgs(args), { stdio: ["ignore", "ignore", "pipe"], signal });

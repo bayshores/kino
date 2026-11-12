@@ -1586,7 +1586,10 @@ How to read it:
   `backend/agent-core.test.mjs`. Gap: sizes, colors and positions are fixed starting values, not measured from the references.
 - **Type by job** (`add_layer` text with `role`): Test-verified. Caption and label text get a subtitle treatment, headline, hero and
   cta a payoff one, from saved type labels when usable, else the scene's colors; a payoff's letters enter on a song cue. Evidence:
-  `backend/agent-fonts.test.mjs`. Gap: labels are measured on small strip frames and can box the wrong area; board shot text is not covered.
+  `backend/agent-fonts.test.mjs`. A label counts only where a text reader reads its own words in a kept frame within 0.5 s;
+  board shot text left without family, weight, size or fill takes the same treatment; fit widths come from the chosen face.
+  Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`. Gap: only 640 px stills and 240 px strip frames are kept,
+  and on run b's 3 real labels the reader read none (all 3 left out); the reader is macOS only.
 - **Text around a moving subject** (`place {around, follow?}`): Verified on rendered frames of a generated clip. The subject is
   measured over the whole hold; `follow:true` writes a path that keeps the text beside it. Evidence: `engine/subjectRoom.test.js`,
   `backend/subject-room-render.test.mjs`. Gap: check measures the subject box its own way, so the two can differ.

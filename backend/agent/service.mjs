@@ -596,6 +596,11 @@ export function createAgentService(deps) {
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
     boardPace: (document, options) => boardPaceFor(document, options),
+    // board text with no family, weight, size or fill: the measured type labels, the spine (its payoff beat) and face widths.
+    boardType: async (document) => {
+      const { measured, skipped } = await measuredTypeLabels(document.id);
+      return { labels: measured, skipped, spine: (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null, advance: await faceAdvance() };
+    },
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
       const brief = (await agentState.read(document.id).catch(() => null))?.brief;
@@ -3050,6 +3055,44 @@ export function createAgentService(deps) {
   // colors; a payoff word with no entrance gets a letter entrance by the cue it lands on. Fills the
   // ops in place and returns the receipt lines.
   const labelTypeCache = new Map();
+  // The project's saved type labels measured on their kept frames (font-like.mjs labelTypes), kept per
+  // label set: { measured, skipped }. A label whose frames are not kept yet is read again next time.
+  async function measuredTypeLabels(projectId, labels = null) {
+    labels ??= await deps.inspire?.typeLabels?.(projectId).catch(() => []) ?? [];
+    if (!labels.length) return { measured: [], skipped: [] };
+    const key = JSON.stringify(labels.map((label) => [label.id, label.at, label.words]));
+    if (labelTypeCache.has(key)) return labelTypeCache.get(key);
+    const { labelTypes } = await import("../font-like.mjs");
+    const { referenceStripFrames } = await import("../measure/strips.mjs");
+    const { readPictureText } = await import("../measure/measure.mjs");
+    // The saved stills (640 px) and the strip frames (240 px) within 0.5 s of the label, nearest first.
+    const referenceFrames = async (id, t) => {
+      const frames = [];
+      const [stills] = await deps.inspire?.savedStills?.(projectId, { ids: [id] }).catch(() => []) ?? [];
+      for (const still of stills?.stills ?? []) if (Math.abs(still.at - t) <= 0.5) frames.push({ bytes: await readFile(path.join(stills.folder, still.file)), at: still.at, kind: "still" });
+      const kept = await deps.inspire?.stripsFor?.(id);
+      if (kept) for (const frame of await referenceStripFrames(kept.folder, kept.strips, t)) frames.push({ ...frame, kind: "strip frame" });
+      if (!stills && !kept) throw new Error(`${id} has no kept frames`);
+      return frames.sort((a, b) => Math.abs(a.at - t) - Math.abs(b.at - t));
+    };
+    const found = await labelTypes(labels, { fonts: await loadFonts(), catalog: fontCatalog, referenceFrames, readText: deps.readPictureText ?? readPictureText })
+      .catch(() => Object.assign([], { retry: true, skipped: [] }));
+    const answer = { measured: [...found], skipped: found.skipped ?? [] };
+    if (!found.retry) labelTypeCache.set(key, answer);
+    return answer;
+  }
+  // The labels left out, one line each (at most 3): why kino did not take their type.
+  const skippedLabelLines = (skipped) => skipped.slice(0, 3).map((entry) => `type label ${entry.ref} @${entry.at} not used: ${entry.why}`);
+  // A face's advance in ems for a line of words: the installed face nearest the family and weight (typeRoles fit).
+  async function faceAdvance() {
+    const fonts = await loadFonts();
+    return (line, family = "Inter", weight = 400) => {
+      const faces = fonts.faces.filter((face) => face.style === "normal" && face.family.toLowerCase() === String(family).toLowerCase());
+      const face = faces.sort((a, b) => Math.abs(a.weight - weight) - Math.abs(b.weight - weight))[0];
+      if (!face?.font?.layout) return null;
+      try { return { em: face.font.layout(line).advanceWidth / face.font.unitsPerEm, face: `${face.family} ${face.weight}` }; } catch { return null; }
+    };
+  }
   async function typeByJob(ops, document, projectId) {
     const list = (Array.isArray(ops) ? ops : [ops]).filter((op) => op && typeof op === "object" && (op.op ?? op.type) === "add_layer"
       && (op.layerType === "text" || (op.op === "add_layer" && op.type === "text")));
@@ -3075,23 +3118,9 @@ export function createAgentService(deps) {
     // Without saved type labels only a text that names its role (its job) is filled; other text keeps the plain defaults.
     const bare = labels.length ? open : open.filter((op) => viewOf(op).role);
     if (!bare.length) return [];
-    const key = JSON.stringify(labels.map((label) => [label.id, label.at]));
-    let measuredNow = [];
-    if (labels.length && !labelTypeCache.has(key)) {
-      const { labelTypes } = await import("../font-like.mjs");
-      const { referenceStripFrame } = await import("../measure/strips.mjs");
-      const referenceFrame = async (id, t) => {
-        const kept = await deps.inspire?.stripsFor?.(id);
-        if (!kept) throw new Error(`${id} has no frame strips`);
-        return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
-      };
-      const found = await labelTypes(labels, { fonts: await loadFonts(), catalog: fontCatalog, referenceFrame }).catch(() => Object.assign([], { retry: true }));
-      // A label whose frames are not kept yet is read again on the next edit.
-      if (found.retry) measuredNow = found;
-      else labelTypeCache.set(key, found);
-    }
-    const measured = labels.length ? labelTypeCache.get(key) ?? measuredNow : [];
-    const lines = [];
+    const { measured, skipped } = await measuredTypeLabels(projectId, labels);
+    const advance = await faceAdvance();
+    const lines = skippedLabelLines(skipped);
     // A show's time as seconds: a number, or "cue:<name>" read from the project's cues; else null.
     const secondsOf = (value) => {
       if (Number.isFinite(Number(value)) && value !== null && value !== "") return Number(value);
@@ -3103,7 +3132,7 @@ export function createAgentService(deps) {
       const named = namedFields(view);
       const job = textJob(wordsOf(view), view.role);
       const scene = document.scenes.find((one) => one.id === op.sceneId || one.name === (op.scene ?? op.sceneId)) ?? document.scenes[0];
-      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured, text: wordsOf(view) });
+      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured, text: wordsOf(view), advance });
       // Only fields the op left out are filled: every value the agent gave stays.
       const filled = Object.fromEntries(Object.entries(chosen).filter(([field]) => !named.has(field)));
       op.properties = { ...filled, ...(op.properties ?? {}) };

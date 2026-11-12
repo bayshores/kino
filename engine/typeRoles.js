@@ -73,7 +73,7 @@ export function labelsByJob(labels) {
  * they came from: { properties, from }. `labels` are the project's measured type labels; `text` (its
  * words) keeps the size inside the box: a payoff on one line, a subtitle on two.
  */
-export function jobTreatment(job, { scene, labels = [], text } = {}) {
+export function jobTreatment(job, { scene, labels = [], text, advance = null } = {}) {
   const height = scene?.height ?? 1080;
   const width = scene?.width ?? 1920;
   const label = labelsByJob(labels)[job];
@@ -81,8 +81,16 @@ export function jobTreatment(job, { scene, labels = [], text } = {}) {
   const boxWidth = Math.round(width * (job === "subtitle" ? 0.84 : job === "payoff" ? 0.9 : 0.4));
   // The longest line the words make at the job's line count, in letters.
   const letters = String(text ?? "").trim().length;
-  const longest = job === "payoff" ? Math.max(0, ...String(text ?? "").split("\n").map((line) => line.trim().length)) : Math.ceil(letters / LINES[job]);
-  const fit = longest ? Math.floor(boxWidth / (longest * ADVANCE[job])) : Infinity;
+  const longestLine = job === "payoff" ? String(text ?? "").split("\n").map((line) => line.trim()).sort((a, b) => b.length - a.length)[0] ?? "" : String(text ?? "").trim();
+  const longest = job === "payoff" ? longestLine.length : Math.ceil(letters / LINES[job]);
+  // The line's width in ems, measured from the face it will be set in (`advance(line, family, weight)`:
+  // {em, face} or null), else the GUESS above; the job's case is applied first.
+  const weight = label?.weight ?? { subtitle: 600, payoff: 900, label: 500 }[job];
+  const cased = job === "label" ? longestLine.toUpperCase() : longestLine;
+  const measuredWidth = longest && advance ? advance(cased, label?.family ?? "Inter", weight) : null;
+  // A label's letter spacing (0.08 of the size a letter) is added to its measured width.
+  const ems = measuredWidth?.em > 0 ? measuredWidth.em / (job === "payoff" ? 1 : LINES[job]) + (job === "label" ? longest * 0.08 : 0) : longest * ADVANCE[job];
+  const fit = longest ? Math.floor(boxWidth / ems) : Infinity;
   const wanted = Math.round(share * height);
   const size = Math.max(12, Math.min(wanted, fit));
   const { background: plainBackground, shapes } = sceneColors(scene);
@@ -106,10 +114,11 @@ export function jobTreatment(job, { scene, labels = [], text } = {}) {
     if (!label) properties.fontWeight = 500;
   }
   const notes = [
-    size < wanted ? `size fit to ${longest} letters a line (${wanted} px wanted)` : "",
+    size < wanted ? `size fit to ${longest} letters a line (${wanted} px wanted; widths ${measuredWidth?.em > 0 ? `measured from ${measuredWidth.face}` : `a guess, ${ADVANCE[job]} of the size a letter`})` : "",
     label?.fill && !measuredFill ? `measured fill ${label.fill} under ${MIN_CONTRAST}:1 on ${background}, plain fill used` : "",
   ].filter(Boolean).join("; ");
-  const from = (label ? `label ${label.ref} @${label.at} (${label.family} ${label.weight}, letters ${Math.round(label.share * 1000) / 10}% of the height${label.fill ? `, fill ${label.fill}` : ""})`
+  const where = label?.frame ? ` (read "${label.read}" in its ${label.frame} at ${label.at} s)` : "";
+  const from = (label ? `label ${label.ref} @${label.labelAt ?? label.at}${where} (${label.family} ${label.weight}, letters ${Math.round(label.share * 1000) / 10}% of the height${label.fill ? `, fill ${label.fill}` : ""})`
     : `scene colors (background ${plainBackground ?? `${background}, not one plain color`}${job === "payoff" && accent ? `, accent ${accent}` : ""}; no measured type label for this job)`) + (notes ? ` [${notes}]` : "");
   return { properties, from };
 }

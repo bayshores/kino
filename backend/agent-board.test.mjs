@@ -230,13 +230,16 @@ test("the shots cover the music when there is a music layer, else the whole vide
   assertRefused(await editBoard("board-music", [motion(0, 6)], { music: "title" }), "bad_shot", 'music is an audio layer\'s name or code, an imported sound\'s src or id, or "none"; title is a text layer.');
   const saved = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.equal(saved.isError, undefined, saved.text);
-  assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it', "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
+  // Words sent with a family only take the subtitle treatment, printed with the fields that change them.
+  const typed = "from scene colors (background #101114; no measured type label for this job): weight 600, size 86 px, fill #ffffff, y 86 % (text.weight, text.size, text.fill, text.y change them)";
+  assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`, `board shot 2 text as subtitle ${typed}`,
+    "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal(saved.data.board, undefined, "no approval yet, so no board field in the answer");
   const { document } = await record("board-music");
   const songLayer = document.scenes[0].layers.find((layer) => layer.name === "song");
   assert.equal(document.board.music, songLayer.id, "music keeps the layer's id");
   assert.deepEqual(document.board.shots.map((shot) => [shot.id, shot.cue, shot.dur]), [["S1", 0, 2], ["S2", 2, 4]]);
-  assert.deepEqual(document.board.shots[0].text, { text: "The dragon is back", family: "Inter", weight: 700, size: 96, y: 20, fill: "#ffffff" }, "kino's text defaults: 5% of 1920 px");
+  assert.deepEqual(document.board.shots[0].text, { text: "The dragon is back", family: "Inter", weight: 600, size: 86, y: 86, fill: "#ffffff" }, "a subtitle line: 4.5% of 1920 px");
   const again = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.deepEqual(again.data.notes, ["board r1: no change", "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal((await record("board-music")).document.board.rev, 1, "the same board keeps its rev");
@@ -279,7 +282,8 @@ test("the shots cover the music when there is a music layer, else the whole vide
   await project("board-voice", { layers: [audioLayer("voice")] });
   const voice = await editBoard("board-voice", [motion(0, 3), motion(3, 3, { text: { text: "Out now", family: "Inter", weight: 800, size: 120, y: 50, fill: "#ffd23f" } })]);
   assert.equal(voice.isError, undefined, voice.text);
-  assert.deepEqual(voice.data.notes, ['board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it']);
+  // Shot 2 names every field, so only shot 1's words are filled and printed.
+  assert.deepEqual(voice.data.notes, ['board r1: 2 shots, 0–6 s, no music · look {mode:"board"} shows it', `board shot 1 text as subtitle ${typed}`]);
   assert.equal((await record("board-voice")).document.board.music, "none");
 });
 
@@ -550,7 +554,8 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   assert.equal(again.data.id, "C2");
   assert.ok(again.data.ask.startsWith("The storyboard changed since you approved it (C1); asking again (C2): shot 4 text changed.\n"), again.data.ask);
   assert.equal(again.data.board.listed, 1, again.data.ask);
-  assert.ok(again.data.ask.includes('Shot 4, 4.42–8.8 s: no footage; "The dragon returns" in Inter 700.'), again.data.ask);
+  // The last short line, sent with a family only, takes the payoff weight (engine/typeRoles.js).
+  assert.ok(again.data.ask.includes('Shot 4, 4.42–8.8 s: no footage; "The dragon returns" in Inter 900.'), again.data.ask);
   assert.ok(!again.data.ask.includes("Shot 1,"), "the unchanged shots are not listed again");
   await gap(again.at);
   const second = await answer(id, { id: "C2", rev: again.data.rev, words: "yes, better", read_as: "approve" });

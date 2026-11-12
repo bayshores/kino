@@ -177,6 +177,34 @@ export function helperSession(helper, { width, height, signal, onAnswer }) {
   };
 }
 
+/**
+ * The words Vision reads in one picture (PNG or JPEG bytes): [{box: [x, y, w, h] fractions from the
+ * top left, s: the words, c: confidence}], or null when this computer has no text reader (not macOS,
+ * no helper, Vision off). Used to confirm a saved type label's lettering box (font-like.mjs labelTypes).
+ */
+// GUESS: the long side a frame is read at, at least.
+const READ_SIDE = 1280;
+export async function readPictureText(bytes) {
+  const abilities = await measureAbilities();
+  if (abilities.text !== true) return null;
+  const { createCanvas, loadImage } = await import("@napi-rs/canvas");
+  const image = await loadImage(bytes);
+  // A small frame (a 240 px strip frame) is drawn larger first: Vision's fast reader finds no line in it as it is.
+  const scale = Math.max(1, READ_SIDE / Math.max(image.width, image.height));
+  const width = 2 * Math.round((image.width * scale) / 2), height = 2 * Math.round((image.height * scale) / 2);
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+  const rgba = context.getImageData(0, 0, width, height).data;
+  const bgra = Buffer.alloc(rgba.length);
+  for (let i = 0; i < rgba.length; i += 4) { bgra[i] = rgba[i + 2]; bgra[i + 1] = rgba[i + 1]; bgra[i + 2] = rgba[i]; bgra[i + 3] = 255; }
+  const session = helperSession(abilities.helper, { width, height });
+  await session.send(JOBS.text, bgra);
+  const { answers, error } = await session.finish();
+  if (error) return null;
+  return Array.isArray(answers[0]?.text) ? answers[0].text : [];
+}
+
 /** Folds the helper's answers into the records, and says which jobs could not run and why. */
 function joinAnswers(records, answers, abilities, error) {
   const vision = {};
