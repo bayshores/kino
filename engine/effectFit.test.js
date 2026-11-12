@@ -50,6 +50,10 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   const both = await runQuality(kinoTimeline(edit([shake(5), ...punch(5)]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
   assert.deepEqual(both.findings.map((finding) => finding.reason), ["untriggered"]);
   assert.deepEqual(both.findings[0].fix.animationIds, ["shot.1", "shot.2", "shot.3"]);
+  // The shake move's own timing: its scale comes back 0.3 s after the grow, inside the shake; the fix takes that off too (no pop).
+  const [grow, back] = punch(5);
+  const late = await runQuality(kinoTimeline(edit([shake(5, { frames: 15 }), grow, { ...back, start: 5.3, duration: 0.2 }]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
+  assert.deepEqual(late.findings[0].fix.animationIds.sort(), ["shot.1", "shot.2", "shot.3"]);
   // A title sliding in 0.1 to 0.3 s after the start (first_entrance's delay) is on that cut; at 1 s it is on nothing.
   const title = (start) => ({ type: "text", id: "title", name: "title", text: "Hi", x: 200, y: 200, width: 800, height: 200, fontSize: 120,
     animations: [{ id: "title.in", name: "Slide in", kind: "in", start, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] });

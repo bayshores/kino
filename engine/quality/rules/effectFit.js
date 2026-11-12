@@ -109,7 +109,14 @@ function removal(model, use) {
   let ids = use.animationIds ?? [];
   if (!ids.length && use.tag === "shake" && item) ids = (model.effects ?? []).filter((effect) => effect.itemId === item.id && effect.effect === "wiggle" && Math.abs(effect.start - use.at) < 0.02).map((effect) => effect.animationId).filter(Boolean);
   // Its own zoom punch goes with it (loudEffects counts the two as one effect).
-  if (ids.length && use.tag !== "beat-kick" && item) ids = [...new Set([...ids, ...punches(model).filter((punch) => punch.itemId === item.id && Math.abs(sec(punch.at) - use.at) < 0.1).flatMap((punch) => punch.animationIds ?? [])])];
+  if (ids.length && use.tag !== "beat-kick" && item) {
+    // And every scale animation of that layer inside the shake's own time: the shake move's
+    // "cover back" starts 0.3 s after its grow (measured on director c's copy: grow 7.99, settle
+    // 8.29 to 8.49, shake 7.99 to 8.49), so taking only the grow off left a scale pop at 8.29.
+    const end = Math.max(use.at, ...[...model.tweens, ...(model.effects ?? [])].filter((entry) => ids.includes(entry.source?.animationId ?? entry.animationId)).map((entry) => entry.end));
+    const cover = model.tweens.filter((tween) => tween.itemId === item.id && tween.keys.some((key) => key === "scaleX" || key === "scaleY") && tween.start >= use.at - 0.05 && tween.end <= end + 0.05);
+    ids = [...new Set([...ids, ...punches(model).filter((punch) => punch.itemId === item.id && Math.abs(sec(punch.at) - use.at) < 0.1).flatMap((punch) => punch.animationIds ?? []), ...cover.map((tween) => tween.source?.animationId).filter(Boolean)])];
+  }
   return ids.length ? { kind: "remove", animationIds: ids, auto: true } : null;
 }
 
