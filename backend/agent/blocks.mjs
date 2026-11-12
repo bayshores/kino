@@ -2003,7 +2003,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       catch (error) { throw problem(error.message); }
       document.scenes = next.scenes;
       const box = `${shot.patch.width}×${shot.patch.height} at ${shot.patch.x}, ${shot.patch.y}`;
-      const on = { mark: "the marked subject", face: "the face", salient: "where the eye goes" }[shot.on];
+      const on = { mark: "the marked subject", "mark-salient": "the mark and what kino sees around it", face: "the face", salient: "what kino sees (a saliency box)" }[shot.on];
       work.notes.push(shot.kind === "fill"
         ? `frame_shot ${name}: ${on ? `cropped to ${on}` : "filled the frame"} (${box})`
         : `frame_shot ${name}: whole shot as a card (${box}), blurred backdrop ${shot.backdrop.id} added under it`);

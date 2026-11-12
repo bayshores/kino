@@ -74,6 +74,25 @@ export function sampleBoxes(sample) {
   return (Array.isArray(sample?.subjects) ? sample.subjects : sample?.faces ?? []).map(boxEntry).filter(Boolean);
 }
 
+// The least of a subject a crop keeps in the frame (crop_no_subject reads it too).
+export const SUBJECT_KEPT = 0.85;
+
+// The share of box `a` inside box `b`, both [x, y, w, h] in the same units.
+function shareIn(a, b) {
+  const width = Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0]));
+  const height = Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
+  return a[2] > 0 && a[3] > 0 ? (width * height) / (a[2] * a[3]) : 0;
+}
+
+/**
+ * Whether a mark without a part ([x, y, w, h]) stands for the saliency box it is near (same units):
+ * it holds SUBJECT_KEPT of that box, or does not touch it (a subject elsewhere in the picture). A
+ * mark inside it (a mouth in a face) stands for less than what kino sees there.
+ */
+export function markHoldsSalient(mark, salient) {
+  return shareIn(mark, salient) === 0 || shareIn(salient, mark) >= SUBJECT_KEPT;
+}
+
 /**
  * What a file's measured subjects (subjects-v1 samples, or people-v1: [{t, faces}]) show in the file
  * time stretch [from, to] (a sample within half a second stands in when none falls inside):
@@ -193,7 +212,8 @@ function backdropAnimation(animation, opacity) {
  * kino's own shot layout for a video layer that was placed by hand: the same choice compose
  * {footage} makes (shotLayout), from the file's size, the subject marked on the layer (mark_subject)
  * and the subjects measured in the file (`samples`, subjects-v1 or people-v1). Returns
- *   {kind, on, patch, backdrop}  on: "mark", "face", "salient" or null (what the layout aimed at);
+ *   {kind, on, patch, backdrop}  on: "mark", "mark-salient" (a mark widened to the saliency box it
+ *                            sits in), "face", "salient" or null (what the layout aimed at);
  *                            patch: the layer's new box (and, for blur-fill, radius and shadow);
  *                            backdrop: a blurred copy to put right under the layer (blur-fill), or null.
  * `taken` is the set of layer ids in use. Throws a plain sentence when the layer cannot be framed.
@@ -212,13 +232,24 @@ export function frameShot(scene, layer, { size, samples = [], taken = new Set() 
   const from = mediaFrameState(layer, range?.start ?? 0).sourceTime;
   const to = Math.max(from, mediaFrameState(layer, range?.end ?? scene.duration).sourceTime);
   const marks = layer.subjectBoxes?.src === layer.src ? layer.subjectBoxes.boxes ?? [] : [];
-  const marked = markedSubject({ subjects: marks.map(({ at, box }) => ({ at, box })) }, from, to);
-  const seen = marked ? { face: null, salient: null } : subjectsIn(samples, from, to);
+  let marked = markedSubject({ subjects: marks.map(({ at, box }) => ({ at, box })) }, from, to);
+  const measured = subjectsIn(samples, from, to);
+  // A mark without a part that holds only a piece of what kino sees (a mouth in a face) widens to
+  // hold both, as crop_no_subject judges it; a part mark ({part:"eyes"}) stays a deliberate part crop.
+  const part = marks.some((entry) => entry.part && entry.at >= from - SAMPLE_REACH && entry.at <= to + SAMPLE_REACH);
+  const widened = Boolean(marked && !part && measured.salient && !markHoldsSalient(marked.box, measured.salient.box));
+  if (widened) {
+    const [a, b] = [marked.box, measured.salient.box];
+    const left = Math.min(a[0], b[0]), top = Math.min(a[1], b[1]);
+    const right = Math.max(a[0] + a[2], b[0] + b[2]), bottom = Math.max(a[1] + a[3], b[1] + b[3]);
+    marked = { box: [left, top, right - left, bottom - top], center: [(left + right) / 2, (top + bottom) / 2] };
+  }
+  const seen = marked ? { face: null, salient: null } : measured;
   const screen = Boolean(layer.recording);
   const layout = shotLayout({ width: size.width, height: size.height, name: layer.name, kind: screen ? "screen" : "camera" }, frame,
     { focus: marked?.center ?? seen.face, subject: marked?.box ?? null, salient: seen.salient });
   // What the crop was aimed at, for the agent's receipt.
-  const on = marked ? "mark" : seen.face ? "face" : seen.salient ? "salient" : null;
+  const on = widened ? "mark-salient" : marked ? "mark" : seen.face ? "face" : seen.salient ? "salient" : null;
   if (layout.kind === "fill") return { kind: "fill", on, patch: { ...layout.main }, backdrop: null };
   const patch = { ...layout.main, radius: layout.radius, shadow: { color: "#000000B3", x: 0, y: Math.round(0.02 * frame.height), blur: Math.round(0.05 * frame.height) } };
   const back = layout.backdrop;

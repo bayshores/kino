@@ -1384,6 +1384,10 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Marks count after a look**: Test-verified. `narrow_window` and `crop_no_subject` clear only on a mark made
   after `look {mode:"source"}` on that layer that the crop keeps; a waiver on an unlooked layer answers `look_first`.
   Evidence: `engine/qualityRules.test.js`, `backend/agent-core.test.mjs`.
+- **Crops keep what kino sees**: Test-verified. In a shot with no face found, a window keeping under 85% of the
+  largest saliency box is a `crop_no_subject` gate fixed by `frame_shot` (a mouth mark inside it does not clear it;
+  a `part` mark does; an unlooked mark asks for the look); `narrow_window` is quiet there. Evidence:
+  `engine/qualityRules.test.js`, `engine/footage.test.js`, `backend/look-source.test.mjs` (check, then fix:auto).
 - **Quotes kino recorded, asks met on screen, open rules named**: Test-verified. A brief quote by the person counts
   only from an ask, a stop answer or a note they typed in the app, never a `log` reply or an agent's `notes add --you`;
   `ask_unmet` clears only on `mark_subject {shows}` (kept in `askShows`, apart from the subject boxes, so the crop

@@ -267,6 +267,15 @@ test("frame_shot frames a hand-placed crop from the file's size and found faces;
   const moving = await agent("edit", { project: "keeper-moving", ops: [{ op: "waive_check", code: "crop_no_subject", target: "keeper", reason: "meant" }] });
   assert.equal(moving.isError, true, moving.text);
   assert.match(JSON.parse(moving.text).next, /^edit \{"ops":\[\{"op":"mark_subject","layer":"keeper"/, moving.text);
+
+  // No face found, saliency saved (subjects-v1): the 9:16 window cuts what kino sees; fix:auto crops on it.
+  const seen = [0, 0.5, 1, 1.5, 2].map((t) => ({ t, faces: [], people: [], subjects: [{ box: [0.2, 0.2, 0.2, 0.5], kind: "saliency" }] }));
+  await writeFile(path.join(server.dataDirectory, "media", `${plain.id}.subjects-v1`), JSON.stringify({ version: 1, fps: 2, saliency: true, samples: seen }));
+  await agent("project", { action: "create", id: "plain-tall", name: "Plain tall", width: 1080, height: 1920, duration: 2 });
+  await agent("edit", { project: "plain-tall", ops: [{ op: "add_layer", layerType: "video", name: "plain", properties: { ...placed, src: plain.src } }] });
+  const salient = await agent("check", { project: "plain-tall", ...cropOnly });
+  assert.match(salient.text, /^E crop_no_subject \S+ @0: plain cuts what kino sees in its file at the left .*\(a saliency box, not a face\).* fix\(auto\): .*"op":"frame_shot"/m, salient.text);
+  assert.doesNotMatch((await agent("check", { project: "plain-tall", fix: "auto", ...cropOnly })).text, /^[EW] crop_no_subject/m);
 });
 
 test("library media lists every shot of one video by its id when two uploads share a name", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {

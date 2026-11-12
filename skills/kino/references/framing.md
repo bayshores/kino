@@ -6,7 +6,8 @@
   `part:"eyes"`. An unlooked mark clears neither `narrow_window` nor `crop_no_subject`.
   Waive `narrow_window` or `head_cut_off` only on a looked-at layer.
   `ask_unmet`: `mark_subject {layer, t, shows:"<word>"}` (no box) at a looked-at second.
-- Then `frame_shot {layer | layers}` (the fix crop findings offer): crops on the mark or a found face (a full check finds them), else the whole shot over a blurred copy.
+- Then `frame_shot {layer | layers}`: crops on the mark, a face or the saliency box, else a card.
+  No face: keep 85% of that box; a mark inside it needs `part`.
 - Mark each shot's start, middle and end (end − 0.05 s, never the end), every 0.5 s it moves over 10%.
   A mark beats a found face.
 - `library {topic:"media", search:"<id>"}` lists a video's shots in file seconds.
