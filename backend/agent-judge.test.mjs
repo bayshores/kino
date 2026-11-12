@@ -128,22 +128,26 @@ const frameOf = (width, height, paint) => {
 const checker = (x, y) => { const v = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 ? 230 : 25; return [v, v, v]; };
 
 test("versus reads softness and accent from a fixed-size copy and names a call only outside the references' range", () => {
-  const sharp = frameOf(640, 360, checker);
-  const blurred = frameOf(640, 360, (x, y) => { let sum = 0; for (let dy = -4; dy <= 4; dy += 1) for (let dx = -4; dx <= 4; dx += 1) sum += checker(x + dx, y + dy)[0]; const v = sum / 81; return [v, v, v]; });
-  const sharpStats = frameStats(sharp, 640, 360), blurStats = frameStats(blurred, 640, 360);
-  assert.ok(sharpStats.edge > 2 * blurStats.edge, `${sharpStats.edge} against ${blurStats.edge}`);
-  // The same picture at twice the size reads about the same (the copy has a fixed size).
-  const double = frameStats(frameOf(1280, 720, (x, y) => checker(x / 2, y / 2)), 1280, 720);
-  assert.ok(Math.abs(double.edge - sharpStats.edge) < 0.25 * sharpStats.edge, `${double.edge} against ${sharpStats.edge}`);
-  // A bright saturated patch (a tenth of the frame) is accent; a gray frame has none.
+  // A 1 px blur of the checker (3x3 box) keeps every edge but spreads it: softness, not less detail.
+  const blurred = frameOf(640, 360, (x, y) => { let sum = 0; for (let dy = -1; dy <= 1; dy += 1) for (let dx = -1; dx <= 1; dx += 1) sum += checker(x + dx, y + dy)[0]; const v = sum / 9; return [v, v, v]; });
+  const sharpStats = frameStats(frameOf(640, 360, checker), 640, 360), blurStats = frameStats(blurred, 640, 360);
+  assert.ok(sharpStats.edge > blurStats.edge + 0.15, `${sharpStats.edge} against ${blurStats.edge}`);
+  // The same picture at twice the size, or as a tall frame, reads the same (a fixed pixel count, its own shape).
+  const double = frameStats(frameOf(1280, 720, (x, y) => checker(x / 2, y / 2)), 1280, 720), tall = frameStats(frameOf(360, 640, checker), 360, 640);
+  assert.deepEqual([Math.abs(double.edge - sharpStats.edge) < 0.02, Math.abs(tall.edge - sharpStats.edge) < 0.02], [true, true], `${double.edge}, ${tall.edge} against ${sharpStats.edge}`);
+  // A bright saturated patch (a sixth of the frame) is accent; a gray frame has none, and no edges (edge null).
   const patch = frameStats(frameOf(640, 360, (x, y) => (x < 200 && y < 180 ? [255, 20, 200] : [90, 90, 90])), 640, 360);
   assert.deepEqual([patch.accent > 0.15 && patch.accent < 0.2, patch.peak], [true, 255]);
-  assert.deepEqual([blurStats.accent, blurStats.peak], [0, 0]);
-  // Against soft references the sharp edit is told one call; inside the range, none; no references, no lines.
   const gray = frameStats(frameOf(640, 360, () => [90, 90, 90]), 640, 360);
+  assert.deepEqual([gray.accent, gray.peak, gray.edge], [0, 0, null]);
+  // Against soft references the sharp edit is told one call; inside the range, none; no references, no lines.
   const lines = softAccentLines([sharpStats, patch], [[blurStats, gray], [blurStats]]);
-  assert.match(lines[0], /^softness: edge sharpness .* your 2 saved references .*: sharper than theirs\. One call: edit .*halation/);
+  assert.match(lines[0], /^softness: edge sharpness 0\.\d\d .* your 2 saved references 0\.\d\d: sharper than theirs\. One call: .*"update_layer", layer:"<picture layer>", properties:\{blur:3\}/);
   assert.match(lines[1], /^accent: .* of the frame bright and saturated, brightest saturated region 255 of 255; your 2 saved references 0%, region 0: brighter than theirs\. One call: lower the glow's strength/);
+  // Only the region brighter (the same share): the accent color itself, not the glow.
+  const colorOnly = softAccentLines([patch], [[{ ...patch, peak: 150 }]]);
+  assert.match(colorOnly[0], /^softness: not compared, your frames have no edges/);
+  assert.match(colorOnly[1], /brighter than theirs\. One call: a darker accent color/);
   const inside = softAccentLines([blurStats], [[blurStats], [sharpStats]]);
   assert.match(inside[0], /inside their range\.$/);
   assert.doesNotMatch(inside.join(" "), /One call/);

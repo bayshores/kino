@@ -102,7 +102,7 @@ import { rendererIsProcessor } from "../render-devices.mjs";
 import { plannedFrameCount } from "../export-batches.mjs";
 import { planClips } from "./clips-sheet.mjs";
 import { evenTimes, everyFrame, FRAMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
-import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest, softAccentLines } from "./versus.mjs";
+import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, imageSoftAccent, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest, SOFT_EDGE, softAccentLines } from "./versus.mjs";
 import { CAMERA_RULES, motionGraphImage, motionTrace, traceText } from "./motion-graph.mjs";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { changedStretches, findingsAt, frameSignature, nearDuplicate, newFindingsLine, rememberReviewed, REVIEW_COMPACT_EDGE, REVIEW_FULL_EDGE, REVIEW_IMAGE_BUDGET, REVIEW_SKIP_UNDER, REVIEW_WAIVER, reviewEvents, reviewKey, reviewSizes, unreviewed } from "./review.mjs";
@@ -4025,7 +4025,7 @@ export function createAgentService(deps) {
     if (!refs.length && !pinned.pairs.length) throw Object.assign(new AgentError("not_ready", 'The saved references have no stills yet: kino is measuring them again, one at a time. look {mode:"versus"} again in a minute.'), { nextCall: nextOf("look", { mode: "versus" }) });
     const prepared = new Map();
     const preparedOf = async (sceneId) => { if (!prepared.has(sceneId)) prepared.set(sceneId, await prepare(document, sceneId, fonts)); return prepared.get(sceneId); };
-    // Each frame of the edit is drawn and read once (the kind, the gaps, softness and accent all use it).
+    // Each frame of the edit is drawn and read once at the tile size (the kind and the gaps use it).
     const editStatsKept = new Map();
     const editStats = async (sceneId, t) => {
       const key = `${sceneId}@${t}`;
@@ -4111,7 +4111,14 @@ export function createAgentService(deps) {
     if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, contrast, dark share, text per 10 s, voice.`);
     // Softness and accent: the frames of these rows against every saved reference's stills (read when
     // versus runs, so references saved before these measures need no new save). A measure, not a check.
-    const softLines = softAccentLines(await Promise.all(pairs.map((pair) => editStats(pair.sceneId, pair.t))), pool.map((ref) => ref.moments.map((moment) => moment.stats)));
+    // Each row's frame is drawn once more at SOFT_EDGE (640 px, like the stills): the 320 px tiles are
+    // too small to see a 1080p blur of a few pixels.
+    const softStats = [];
+    for (const pair of pairs) {
+      const scene = await preparedOf(pair.sceneId);
+      softStats.push(await imageSoftAccent((await look.frame(scene, pair.t, tileSize(scene.scene, SOFT_EDGE).width)).png));
+    }
+    const softLines = softAccentLines(softStats, pool.map((ref) => ref.moments.map((moment) => moment.stats)));
     const same = pairs.filter((pair) => pair.still && pair.same).length, other = pairs.filter((pair) => pair.still && !pair.same).length;
     const lines = [
       `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) at the same place (${peak === null ? "opening, ending" : "opening, loudest change, ending"}, the rest by position): ${same} of the same kind of shot${other ? `, ${other} of another kind` : ""}${pairs.length - same - other ? `, ${pairs.length - same - other} with no reference still` : ""}. Compare craft (hero size, type, overlays, graphics, motion, holds, contrast), not content or footage colors.`,
