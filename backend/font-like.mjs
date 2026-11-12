@@ -651,8 +651,9 @@ export async function labelTypes(labels, deps) {
   found.retry = false;
   found.skipped = [];
   const framesOf = deps.referenceFrames ?? (async (id, at) => [{ bytes: await deps.referenceFrame(id, at), at, kind: "frame" }]);
-  for (const label of (labels ?? []).slice(0, LABELS_MEASURED)) {
+  for (const [index, label] of (labels ?? []).entries()) {
     const skip = (why) => found.skipped.push({ ref: label.id, at: label.at, why });
+    if (index >= LABELS_TRIED) { skip(`past the first ${LABELS_TRIED} saved labels kino tries`); continue; }
     const wanted = letteringWords(label.words);
     if (!wanted.length) { skip("its words name no lettering (quote it or write it in capitals)"); continue; }
     let frames;
@@ -683,6 +684,9 @@ export async function labelTypes(labels, deps) {
 // How many saved type labels the fonts answer measures, and how many faces it lists for each.
 // GUESS: 2 labels keep the answer small and the downloads few; run 8 saved 3 type labels on 2 references.
 const LABELS_MEASURED = 2;
+// How many saved type labels the type-by-job defaults try (labelTypes). GUESS: 6, each about 40 ms a
+// kept frame read; run b saved 3 and its third (the only payoff-sized one) was never tried at 2.
+const LABELS_TRIED = 6;
 const LABEL_FACES = 4;
 
 /**

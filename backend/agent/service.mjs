@@ -54,7 +54,7 @@ import { mediaAllowedIn } from "../media-use.mjs";
 import { assignCodes, closest, createResolver, documentObjects, nearMiss, ReferenceError } from "./refs.mjs";
 import { SAMPLE_FRAME, sampleOps } from "./library-catalog.mjs";
 import { pictureAlpha, seeThrough } from "./picture-alpha.mjs";
-import { filePalette, shotColor, shotPalette } from "./shot-color.mjs";
+import { boxColor, filePalette, shotColor, shotPalette } from "./shot-color.mjs";
 import { libraryMedia, stripPng } from "./library-media.mjs";
 import { currentTurn, turnOver } from "./state.mjs";
 import { editFocus } from "./dashboard.mjs";
@@ -110,7 +110,7 @@ import { footageCueTime } from "../../engine/footageCues.js";
 import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
-import { jobTreatment, payoffEntrance, textJob } from "../../engine/typeRoles.js";
+import { jobFace, jobTreatment, payoffEntrance, pictureUnder, skipsSaidOnce, textJob } from "../../engine/typeRoles.js";
 import { TYPE_VERSION } from "../../engine/quality/typeSignature.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
@@ -600,7 +600,10 @@ export function createAgentService(deps) {
     // board text with no family, weight, size or fill: the measured type labels, the spine (its payoff beat) and face widths.
     boardType: async (document) => {
       const { measured, skipped } = await measuredTypeLabels(document.id);
-      return { labels: measured, skipped, spine: (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null, advance: await faceAdvance() };
+      const faces = (await loadFonts()).faces ?? [];
+      const layers = (document.scenes ?? []).flatMap((scene) => scene.layers ?? []);
+      return { labels: measured, skipped: unsaidSkips(document.id, skipped), spine: (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null, advance: await faceAdvance(),
+        follow: (job) => jobFace(job, { layers, faces }) };
     },
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
@@ -3106,8 +3109,24 @@ export function createAgentService(deps) {
     if (!found.retry) labelTypeCache.set(key, answer);
     return answer;
   }
-  // The labels left out, one line each (at most 3): why kino did not take their type.
+  // The labels left out, one line each (at most 3): why kino did not take their type. Each is said
+  // once per project while kino runs (the same label for the same reason is not said on every edit).
+  const unsaidSkips = skipsSaidOnce();
   const skippedLabelLines = (skipped) => skipped.slice(0, 3).map((entry) => `type label ${entry.ref} @${entry.at} not used: ${entry.why}`);
+  // The face a job takes with no measured label (engine/typeRoles.js jobFace): the project's own text
+  // for that job, else an installed face with the job's weight.
+  async function followFace(document, scene, job, role) {
+    const layers = [...(scene?.layers ?? []), ...(document.scenes ?? []).filter((one) => one !== scene).flatMap((one) => one.layers ?? [])];
+    return jobFace(job, { layers, role, faces: (await loadFonts()).faces ?? [] });
+  }
+  // The picture behind a text box at its time (engine/typeRoles.js pictureUnder), its mean color
+  // measured on one small frame (shot-color.mjs boxColor): {color, from} or null when nothing covers it.
+  async function colorBehind(scene, box, time) {
+    const layer = pictureUnder(scene, box, time);
+    if (!layer) return null;
+    const color = await boxColor(deps.mediaRoot, layer, time, box).catch(() => null);
+    return color ? { color, from: `${layer.name ?? layer.id} at ${Math.round(time * 100) / 100} s` } : null;
+  }
   // A face's advance in ems for a line of words: the installed face nearest the family and weight (typeRoles fit).
   async function faceAdvance() {
     const fonts = await loadFonts();
@@ -3118,7 +3137,7 @@ export function createAgentService(deps) {
       try { return { em: face.font.layout(line).advanceWidth / face.font.unitsPerEm, face: `${face.family} ${face.weight}` }; } catch { return null; }
     };
   }
-  async function typeByJob(ops, document, projectId) {
+  async function typeByJob(ops, document, projectId, { dryRun = false } = {}) {
     const list = (Array.isArray(ops) ? ops : [ops]).filter((op) => op && typeof op === "object" && (op.op ?? op.type) === "add_layer"
       && (op.layerType === "text" || (op.op === "add_layer" && op.type === "text")));
     // What the op says, at the top level or in properties, and every layer field it names under its
@@ -3145,7 +3164,7 @@ export function createAgentService(deps) {
     if (!bare.length) return [];
     const { measured, skipped } = await measuredTypeLabels(projectId, labels);
     const advance = await faceAdvance();
-    const lines = skippedLabelLines(skipped);
+    const lines = skippedLabelLines(unsaidSkips(projectId, skipped, { mark: !dryRun }));
     // A show's time as seconds: a number, or "cue:<name>" read from the project's cues; else null.
     const secondsOf = (value) => {
       if (Number.isFinite(Number(value)) && value !== null && value !== "") return Number(value);
@@ -3157,20 +3176,29 @@ export function createAgentService(deps) {
       const named = namedFields(view);
       const job = textJob(wordsOf(view), view.role);
       const scene = document.scenes.find((one) => one.id === op.sceneId || one.name === (op.scene ?? op.sceneId)) ?? document.scenes[0];
-      const { properties: chosen, from } = jobTreatment(job, { scene, labels: measured, text: wordsOf(view), advance });
+      const timed = Array.isArray(op.animations) ? op.animations : [];
+      // When it shows: its show animation, else its mediaStart (or startTime, playStart), else the scene's start.
+      const showStarts = timed.filter((entry) => /show/.test(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""))).map((entry) => secondsOf(entry.start ?? entry.at));
+      const windowStart = [view.mediaStart, view.startTime, view.playStart].find((value) => value !== undefined);
+      const starts = [...showStarts, ...(windowStart !== undefined ? [secondsOf(windowStart)] : [])];
+      const shownAt = starts.filter((value) => value !== null).length ? Math.min(...starts.filter((value) => value !== null)) : 0;
+      const follow = await followFace(document, scene, job, view.role);
+      const base = { scene, labels: measured, text: wordsOf(view), advance, follow };
+      let { properties: chosen, from } = jobTreatment(job, base);
+      // The fill (and a subtitle's edge) against the picture behind the box at the text's own time.
+      if (!named.has("fill")) {
+        const box = Object.fromEntries(["x", "y", "width", "height"].map((field) => [field, Number.isFinite(Number(view[field])) && view[field] !== "" ? Number(view[field]) : chosen[field]]));
+        const behind = Object.values(box).every(Number.isFinite) ? await colorBehind(scene, box, shownAt) : null;
+        if (behind) ({ properties: chosen, from } = jobTreatment(job, { ...base, behind }));
+      }
       // Only fields the op left out are filled: every value the agent gave stays.
       const filled = Object.fromEntries(Object.entries(chosen).filter(([field]) => !named.has(field)));
       op.properties = { ...filled, ...(op.properties ?? {}) };
       const name = op.name ?? view.name ?? view.id ?? "text";
       let entrance = "";
       if (job === "payoff") {
-        const timed = Array.isArray(op.animations) ? op.animations : [];
         const isShow = (entry) => ["show", "hide", "preset-show", "preset-hide"].includes(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""));
         const entranceNamed = timed.some((entry) => !isShow(entry) && (entry?.preset?.mode ?? entry?.mode ?? "in") !== "out");
-        // When it shows: its show animation, else its mediaStart (or startTime, playStart), else the scene's start.
-        const showStarts = timed.filter((entry) => /show/.test(String(entry?.kind ?? entry?.preset?.id ?? entry?.preset ?? ""))).map((entry) => secondsOf(entry.start ?? entry.at));
-        const windowStart = [view.mediaStart, view.startTime, view.playStart].find((value) => value !== undefined);
-        const starts = [...showStarts, ...(windowStart !== undefined ? [secondsOf(windowStart)] : [])];
         // A show at a time kino cannot read here ("after:x") gets no entrance rather than one at the wrong time.
         if (!entranceNamed && !starts.includes(null)) {
           const { animation, why } = payoffEntrance(starts.length ? Math.min(...starts) : 0, document.cues ?? []);
@@ -3189,7 +3217,7 @@ export function createAgentService(deps) {
     let record = await projectFor(input);
     const projectId = record.document.id;
     const ops = await withBorrowedRhythm(editOperations(input, projectId), record.document, { dryRun: input.dry_run === true });
-    const typeLines = await typeByJob(ops, record.document, projectId);
+    const typeLines = await typeByJob(ops, record.document, projectId, { dryRun: input.dry_run === true });
     // Deleting a scene needs your approval (D3). bulk_create with deleteMissing:true deletes the
     // variants its CSV leaves out, so that edit asks once it knows which scenes go (below).
     const opList = Array.isArray(ops) ? ops : [ops];

@@ -6,6 +6,7 @@
 // receipt names where each came from. A payoff word with no entrance gets a letter-level entrance
 // picked by the song cue it lands on.
 
+import { mediaFrameState } from "./playback.js";
 import { SAFE_ZONES } from "./quality/rules/layout.js";
 
 // Only the roles that name one of the three jobs; body, subhead and ui text keep the plain defaults
@@ -71,12 +72,92 @@ export function labelsByJob(labels) {
 }
 
 /**
+ * Says each skipped type label once per project: the returned function takes (projectId, skipped,
+ * {mark}) and gives back only the entries ({ref, at, why}) not said before; mark false (a dry run)
+ * leaves them unsaid.
+ */
+export function skipsSaidOnce() {
+  const saidByProject = new Map();
+  return (projectId, skipped, { mark = true } = {}) => {
+    if (!saidByProject.has(projectId)) saidByProject.set(projectId, new Set());
+    const said = saidByProject.get(projectId);
+    const key = (entry) => `${entry.ref}@${entry.at}:${entry.why}`;
+    const fresh = (skipped ?? []).filter((entry) => !said.has(key(entry)));
+    if (mark) for (const entry of fresh) said.add(key(entry));
+    return fresh;
+  };
+}
+
+// The weight each job asks for when nothing measured gives one.
+const JOB_WEIGHT = { subtitle: 600, payoff: 900, label: 500 };
+
+/**
+ * The face a job takes when no measured label gives one: the project's own text that already does
+ * that job (the same role, else the largest text for a payoff and the smallest reading line for a
+ * subtitle), else an installed face that really has the job's weight (`faces`: [{family, weight,
+ * style}], Inter first), else Inter at the nearest weight it has. Never a weight the family lacks.
+ * Returns {family, weight, fontSource?, from} or null with no faces at all.
+ */
+export function jobFace(job, { layers = [], role = null, faces = [] } = {}) {
+  const texts = layers.filter((layer) => layer?.type === "text" && layer.fontFamily && String(layer.text ?? "").trim());
+  const size = (layer) => Number(layer.fontSize) || 0;
+  const same = role ? texts.find((layer) => layer.role === role) : null;
+  const reading = texts.filter((layer) => textJob(layer.text) === "subtitle").sort((a, b) => size(a) - size(b));
+  const [layer, why] = same ? [same, `role ${role}`]
+    : job === "payoff" && texts.length ? [[...texts].sort((a, b) => size(b) - size(a))[0], "the largest text"]
+      : job === "subtitle" && reading.length ? [reading[0], "the smallest reading line"] : [null, ""];
+  if (layer) {
+    const weight = Number(layer.fontWeight) || 400;
+    return { family: layer.fontFamily, weight, ...(layer.fontSource ? { fontSource: layer.fontSource } : {}), from: `the project's text ${layer.name ?? layer.id} (${layer.fontFamily} ${weight}, ${why})` };
+  }
+  const wanted = JOB_WEIGHT[job] ?? 400;
+  const normal = faces.filter((face) => face?.family && (face.style ?? "normal") === "normal");
+  const isInter = (face) => face.family.toLowerCase() === "inter";
+  const exact = normal.filter((face) => face.weight === wanted).sort((a, b) => Number(isInter(b)) - Number(isInter(a)) || a.family.localeCompare(b.family))[0];
+  if (exact) return { family: exact.family, weight: wanted, from: `installed ${exact.family} ${wanted} (no project text does this job)` };
+  const inter = normal.filter(isInter).sort((a, b) => Math.abs(a.weight - wanted) - Math.abs(b.weight - wanted))[0];
+  return inter ? { family: inter.family, weight: inter.weight, from: `Inter ${inter.weight}, the nearest weight installed (no face has ${wanted}; no project text does this job)` } : null;
+}
+
+// When a layer is on screen at `time`: its show and hide animations, and a clip's own play window.
+function shownAt(layer, time) {
+  const animations = layer.animations ?? [];
+  const show = animations.find((entry) => entry?.kind === "show");
+  const hide = animations.find((entry) => entry?.kind === "hide");
+  if (show && Number(show.start) > time) return false;
+  if (hide && Number.isFinite(Number(hide.start)) && Number(hide.start) <= time) return false;
+  return layer.type !== "video" || mediaFrameState(layer, time).visible;
+}
+
+/**
+ * The topmost picture (video or image) of `scene` drawn behind a text box ({x, y, width, height})
+ * at `time`: on screen then, plain (normal blend, nearly opaque, not in a group) and covering at
+ * least half of the box. null when nothing covers it (the scene's background shows).
+ */
+export function pictureUnder(scene, box, time) {
+  const layers = (scene?.layers ?? []).filter((layer) => ["video", "image"].includes(layer.type) && layer.src && !layer.parentId && layer.visible !== false
+    && !(Number(layer.opacity) < 0.98) && (layer.blendMode ?? "normal") === "normal" && shownAt(layer, time));
+  const area = Math.max(1, box.width * box.height);
+  const covers = (layer) => {
+    const width = Math.abs((layer.width ?? 0) * (layer.scaleX ?? 1)), height = Math.abs((layer.height ?? 0) * (layer.scaleY ?? 1));
+    const overlapX = Math.max(0, Math.min(layer.x + width, box.x + box.width) - Math.max(layer.x, box.x));
+    const overlapY = Math.max(0, Math.min(layer.y + height, box.y + box.height) - Math.max(layer.y, box.y));
+    return (overlapX * overlapY) / area >= 0.5;
+  };
+  // Layers are drawn in list order, so the last one that covers the box is the one seen.
+  return layers.filter(covers).at(-1) ?? null;
+}
+
+/**
  * The fields a text layer of `job` gets on `scene` ({width, height, background, layers}) and where
  * they came from: { properties, from }. `labels` are the project's measured type labels; `text` (its
  * words) keeps the size inside the box: a payoff on one line, a subtitle on two. `face` ({family?,
  * weight?}) is the face the agent already named (board text): the widths are measured from it.
+ * `follow` (jobFace) is the face taken when no label gives one; `behind` ({color, from}) is the
+ * picture measured behind the box at the text's time: the fill and edge are chosen against it
+ * instead of the scene's background.
  */
-export function jobTreatment(job, { scene, labels = [], text, advance = null, face = null } = {}) {
+export function jobTreatment(job, { scene, labels = [], text, advance = null, face = null, follow = null, behind = null } = {}) {
   const height = scene?.height ?? 1080;
   const width = scene?.width ?? 1920;
   const label = labelsByJob(labels)[job];
@@ -88,16 +169,22 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null, fa
   const longest = job === "payoff" ? longestLine.length : Math.ceil(letters / LINES[job]);
   // The line's width in ems, measured from the face it will be set in (`advance(line, family, weight)`:
   // {em, face} or null), else the GUESS above; the job's case is applied first.
-  const weight = label?.weight ?? { subtitle: 600, payoff: 900, label: 500 }[job];
+  // A family the agent named (board text) keeps the job's weight unless the followed face is that family.
+  const own = label || !follow || (face?.family && String(face.family).toLowerCase() !== String(follow.family).toLowerCase()) ? null : follow;
+  // Inter at the job's own weight is the plain default: its source is not printed.
+  const ownNote = own && !(own.family === "Inter" && own.weight === JOB_WEIGHT[job] && /^installed /.test(own.from)) ? `; face from ${own.from}` : "";
+  const weight = label?.weight ?? own?.weight ?? JOB_WEIGHT[job];
   const cased = job === "label" ? longestLine.toUpperCase() : longestLine;
-  const measuredWidth = longest && advance ? advance(cased, face?.family ?? label?.family ?? "Inter", face?.weight ?? weight) : null;
+  const measuredWidth = longest && advance ? advance(cased, face?.family ?? label?.family ?? own?.family ?? "Inter", face?.weight ?? weight) : null;
   // A label's letter spacing (0.08 of the size a letter) is added to its measured width.
   const ems = measuredWidth?.em > 0 ? measuredWidth.em / (job === "payoff" ? 1 : LINES[job]) + (job === "label" ? longest * 0.08 : 0) : longest * ADVANCE[job];
   const fit = longest ? Math.floor(boxWidth / ems) : Infinity;
   const wanted = Math.round(share * height);
   const size = Math.max(12, Math.min(wanted, fit));
   const { background: plainBackground, shapes } = sceneColors(scene);
-  const background = plainBackground ?? "#000000";
+  // The picture measured behind the box wins over the scene's background, which it covers.
+  const behindColor = hex(behind?.color);
+  const background = behindColor ?? plainBackground ?? "#000000";
   const light = luma(background) < 0.5;
   const plain = light ? "#ffffff" : "#111111";
   const accent = shapes.filter((color) => saturation(color) > 0.35 && contrast(color, background) >= MIN_CONTRAST).sort((a, b) => saturation(b) - saturation(a))[0] ?? null;
@@ -105,18 +192,19 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null, fa
   const measuredFill = label?.fill && hex(label.fill) && contrast(hex(label.fill), background) >= MIN_CONTRAST ? hex(label.fill) : null;
   const properties = { fontSize: size, textAlign: "center" };
   if (label) Object.assign(properties, { fontFamily: label.family, fontWeight: label.weight });
+  else if (own) Object.assign(properties, { fontFamily: own.family, ...(own.fontSource ? { fontSource: own.fontSource } : {}) });
   // On a 9:16 video the phone app's own captions cover the bottom (SAFE_ZONES.portrait): a subtitle sits just above them.
   const portrait = Math.abs(width / height / (9 / 16) - 1) <= 0.02;
   if (job === "subtitle") {
     // A line read over footage: the reference's fill (else the plain color for the background) with a thin dark edge.
     Object.assign(properties, { fill: measuredFill ?? plain, stroke: light ? "#000000" : "#ffffff", strokeWidth: Math.max(2, Math.round(size * 0.06)), strokeAlign: "outside", lineHeight: 1.15, x: Math.round(width * 0.08), width: boxWidth, height: Math.round(size * 2.6), y: Math.round(portrait ? height * (1 - SAFE_ZONES.portrait.bottom) - size * 2.6 : height * 0.86 - size * 1.3) });
-    if (!label) properties.fontWeight = 600;
+    if (!label) properties.fontWeight = weight;
   } else if (job === "payoff") {
     Object.assign(properties, { fill: measuredFill ?? accent ?? plain, lineHeight: 1, x: Math.round(width * 0.05), width: boxWidth, height: Math.round(size * 1.3), y: Math.round(height * 0.5 - size * 0.65) });
-    if (!label) properties.fontWeight = 900;
+    if (!label) properties.fontWeight = weight;
   } else {
     Object.assign(properties, { fill: measuredFill ?? plain, letterSpacing: Math.round(size * 0.08), textCase: "upper", width: boxWidth, height: Math.round(size * 1.4) });
-    if (!label) properties.fontWeight = 500;
+    if (!label) properties.fontWeight = weight;
   }
   const notes = [
     size < wanted ? `size fit to ${longest} letters a line (${wanted} px wanted; widths ${measuredWidth?.em > 0 ? `measured from ${measuredWidth.face}` : `a guess, ${ADVANCE[job]} of the size a letter`})` : "",
@@ -124,7 +212,9 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null, fa
   ].filter(Boolean).join("; ");
   const where = label?.frame ? ` (read "${label.read}" in its ${label.frame} at ${label.at} s)` : "";
   const from = (label ? `label ${label.ref} @${label.labelAt ?? label.at}${where} (${label.family} ${label.weight}, letters ${Math.round(label.share * 1000) / 10}% of the height${label.fill ? `, fill ${label.fill}` : ""})`
-    : `scene colors (background ${plainBackground ?? `${background}, not one plain color`}${job === "payoff" && accent ? `, accent ${accent}` : ""}; no measured type label for this job)`) + (notes ? ` [${notes}]` : "");
+    : `${behindColor ? `the picture behind (${behindColor} measured from ${behind.from})` : `scene colors (background ${plainBackground ?? `${background}, not one plain color`}`}${job === "payoff" && accent ? `, accent ${accent}` : ""}; no measured type label for this job${behindColor ? "" : ")"}`)
+    + (behindColor ? `; fill ${properties.fill} at ${Math.round(contrast(properties.fill, background) * 10) / 10}:1 on ${background}` : "")
+    + ownNote + (notes ? ` [${notes}]` : "");
   return { properties, from };
 }
 

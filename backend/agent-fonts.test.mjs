@@ -481,6 +481,50 @@ test("type by job: two measured type labels give a subtitle line and a payoff wo
   assert.ok(advance("WWWWWWWW", "Montserrat", 600).em * named.properties.fontSize <= named.properties.width, "the named face's line fits its box");
 });
 
+// Replay of run b (rev 16): role hero with no label asked for Inter 900 (Inter has no 900: font_fallback)
+// while the project's display face was another family, and took #111111 from the scene's #fafaf7
+// background under full-frame dark footage. Now the face follows the project's own text (else a face
+// that has the weight), the fill is measured behind the box, and every saved label up to 6 is tried.
+test("type by job: the face follows the project's text, the fill the picture behind, and skipped labels are said once", async () => {
+  const { jobFace, jobTreatment, pictureUnder, skipsSaidOnce } = await import("../engine/typeRoles.js");
+  const { labelTypes } = await import("./font-like.mjs");
+  const faces = (await loadBundledFonts()).faces;
+  const display = { type: "text", id: "t1", name: "title", text: "STAND", fontFamily: "Montserrat", fontWeight: 700, fontSize: 160 };
+  const line = { type: "text", id: "t2", name: "sub", text: "we walk into the night", fontFamily: "Noto Serif", fontWeight: 400, fontSize: 40 };
+  const hero = jobFace("payoff", { layers: [line, display], faces });
+  assert.deepEqual([hero.family, hero.weight, hero.from], ["Montserrat", 700, "the project's text title (Montserrat 700, the largest text)"]);
+  assert.equal(jobFace("subtitle", { layers: [line, display], faces }).family, "Noto Serif", "the smallest reading line");
+  assert.equal(jobFace("payoff", { layers: [line, display], role: "caption", faces: [] }).family, "Montserrat", "no text with that role: the job's own rule");
+  // No project text: a bundled face that really has the weight (Inter 600), else Inter's nearest real weight (700, not 900).
+  assert.deepEqual([jobFace("subtitle", { faces }).family, jobFace("subtitle", { faces }).weight], ["Inter", 600]);
+  const bare = jobFace("payoff", { faces });
+  assert.deepEqual([bare.family, bare.weight], ["Inter", 700]);
+  assert.match(bare.from, /no face has 900/);
+  const scene = { width: 1920, height: 1080, background: "#fafaf7", layers: [] };
+  const plain = jobTreatment("payoff", { scene, text: "STAND", follow: bare });
+  assert.deepEqual([plain.properties.fontFamily, plain.properties.fontWeight, plain.properties.fill], ["Inter", 700, "#111111"]);
+  // Full-frame footage shown from 1 s covers the light background: the fill is chosen against the measured picture.
+  const clip = { type: "video", id: "v1", name: "night", src: "/api/media/night.mp4", x: 0, y: 0, width: 1920, height: 1080, opacity: 1, animations: [{ kind: "show", start: 1 }] };
+  const box = { x: plain.properties.x, y: plain.properties.y, width: plain.properties.width, height: plain.properties.height };
+  assert.equal(pictureUnder({ ...scene, layers: [clip] }, box, 0.5), null, "not on screen yet: the background shows");
+  assert.equal(pictureUnder({ ...scene, layers: [clip] }, box, 2)?.id, "v1");
+  const over = jobTreatment("subtitle", { scene, text: "we walk into the night", follow: bare, behind: { color: "#16181c", from: "night at 2 s" } });
+  assert.deepEqual([over.properties.fill, over.properties.stroke], ["#ffffff", "#000000"]);
+  assert.match(over.from, /^the picture behind \(#16181c measured from night at 2 s\); no measured type label for this job; fill #ffffff at 17\.\d:1 on #16181c; face from Inter 700/);
+  // Seven saved labels: all six up to the limit are tried, the seventh says why it was not.
+  const seven = Array.from({ length: 7 }, (_, index) => ({ id: `yt:lbl${index}000000`, at: index, words: `word "W${index}X"` }));
+  const tried = [];
+  const found = await labelTypes(seven, { fonts: { faces }, catalog: {}, readText: async () => [], referenceFrames: async (id, at) => { tried.push(id); return [{ bytes: Buffer.from([]), at, kind: "still" }]; } });
+  assert.equal(tried.length, 6);
+  assert.equal(found.skipped.at(-1).why, "past the first 6 saved labels kino tries");
+  // A skipped label is said once per project, and a dry run leaves it unsaid.
+  const unsaid = skipsSaidOnce();
+  assert.equal(unsaid("p", found.skipped, { mark: false }).length, 7);
+  assert.equal(unsaid("p", found.skipped).length, 7);
+  assert.equal(unsaid("p", found.skipped).length, 0);
+  assert.equal(unsaid("q", found.skipped).length, 7);
+});
+
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
   const { server, agent } = await startFontServer(t);
   await agent("project", { action: "create", id: "jobs", name: "Jobs", width: 1280, height: 720, duration: 4 });
@@ -499,12 +543,13 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   const notes = (added.data.notes ?? []).join("\n");
   assert.doesNotMatch(notes, /type: (top|alias) /);
   assert.match(notes, /type: late as payoff[^\n]*letters rise in at 1 s/);
-  assert.match(notes, /type: line as subtitle from scene colors \(background #[0-9a-f]{6}; no measured type label for this job\): weight 600, 32 px, fill #[0-9a-f]{6}, edge 2 px/);
-  assert.match(notes, /type: word as payoff from scene colors[^\n]*weight 900, 101 px[^\n]*; entrance: letters slam in on cue:song-drop-1 \(2 s\)/);
+  assert.match(notes, /type: line as subtitle from scene colors \(background #[0-9a-f]{6}; no measured type label for this job\): Inter 600, 32 px, fill #[0-9a-f]{6}, edge 2 px/);
+  // Bundled Inter has no 900: the payoff takes the nearest weight Inter really has (no font_fallback).
+  assert.match(notes, /type: word as payoff from scene colors[^\n]*face from Inter 700, the nearest weight installed \(no face has 900[^\n]*: Inter 700, 101 px[^\n]*; entrance: letters slam in on cue:song-drop-1 \(2 s\)/);
   assert.doesNotMatch(notes, /type: mine/, "a text that names its face and fill keeps them");
   const layers = (await (await server.api("/api/projects/jobs")).json()).document.scenes[0].layers;
   const word = layers.find((layer) => layer.name === "word");
-  assert.equal(word.fontWeight, 900);
+  assert.deepEqual([word.fontFamily, word.fontWeight], ["Inter", 700]);
   assert.ok(word.animations.some((animation) => animation.preset?.id === "custom-text" && animation.start === 2 && animation.unit === "letters"), JSON.stringify(word.animations.map((a) => a.preset)));
   assert.equal(layers.find((layer) => layer.name === "mine").fontSize, 48);
   assert.deepEqual(["top", "alias"].map((name) => layers.find((layer) => layer.name === name).fill), ["#00ff00", "#ff00ff"]);
@@ -516,9 +561,20 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   assert.equal(board.isError, undefined, board.text);
   const boardNotes = board.data.notes.join("\n");
   assert.match(boardNotes, /board shot 1 text as subtitle from scene colors \([^\n]*\): family Inter, weight 600, size 32 px, fill #111111, y 86 % \(text\.family, text\.weight, text\.size, text\.fill, text\.y change them\)/);
-  assert.match(boardNotes, /board shot 2 text as payoff from scene colors[^\n]*: family Inter, weight 900, size 101 px, y 50 % \(text\.family, text\.weight, text\.size, text\.y change them\)/);
+  assert.match(boardNotes, /board shot 2 text as payoff from scene colors[^\n]*face from the project's text (word|late) \(Inter 700, the largest text\): family Inter, weight 700, size 101 px, y 50 % \(text\.family, text\.weight, text\.size, text\.y change them\)/);
   const shots = (await (await server.api("/api/projects/jobs")).json()).document.board.shots;
-  assert.deepEqual(shots.map((shot) => [shot.text.weight, shot.text.size, shot.text.fill, shot.text.y]), [[600, 32, "#111111", 86], [900, 101, "#ff00ff", 50]]);
+  assert.deepEqual(shots.map((shot) => [shot.text.weight, shot.text.size, shot.text.fill, shot.text.y]), [[600, 32, "#111111", 86], [700, 101, "#ff00ff", 50]]);
+  // A caption over a full-frame dark picture: the fill and edge are chosen against the picture, not the white background.
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const canvas = createCanvas(64, 36);
+  canvas.getContext("2d").fillStyle = "#14161a";
+  canvas.getContext("2d").fillRect(0, 0, 64, 36);
+  const upload = await server.api("/api/media", { method: "POST", headers: { "content-type": "image/png", "x-file-name": "night.png" }, body: canvas.toBuffer("image/png") });
+  const media = await upload.json();
+  const pictured = await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "image", name: "night", properties: { src: media.src ?? media.media?.src, x: 0, y: 0, width: 1280, height: 720 } }] });
+  assert.equal(pictured.isError, undefined, pictured.text);
+  const over = await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "over", properties: { text: "We walk on, into the night.", role: "caption" } }] });
+  assert.match((over.data.notes ?? []).join("\n"), /type: over as subtitle from the picture behind \(#14161a measured from night at 0 s\); no measured type label for this job; fill #ffffff at 1\d\.\d:1 on #14161a; face from the project's text line \(Inter 600, role caption\): Inter 600, 32 px, fill #ffffff, edge 2 px/);
 });
 
 // Measured on the benchmark crops: a dotted lettering read dots 0.43 and lost to solid condensed faces,
