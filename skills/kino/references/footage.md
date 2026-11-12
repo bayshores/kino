@@ -102,7 +102,7 @@ own words (a moment you did not look at is refused), such as
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
 The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
 The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
-until all its moments are labeled; each label reply names the next look. A reference with no frame strips has none to label.
+until all its moments are labeled (one with no frame strips has none); each label reply names the next look.
 Then ask what your edit shows that these do not: build toward the labels, not a template.
 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
