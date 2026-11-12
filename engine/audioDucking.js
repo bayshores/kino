@@ -102,6 +102,21 @@ function fail(message) {
 const isDuck = (animation) => animation?.name === DUCK_NAMES.down || animation?.name === DUCK_NAMES.up;
 const isFitFade = (animation) => animation?.name === FIT_NAMES.in || animation?.name === FIT_NAMES.out;
 
+/**
+ * `layer` as it plays without duck_audio's dips: its Duck animations left out, and fit_music's Fit in
+ * and Fit out, which a dip over them set to the dipped level, set back to the level they meet
+ * (as applyDuckAudio rebuilds them). keep_line measures the music it dips from this.
+ */
+export function withoutDips(layer) {
+  const kept = (layer.animations ?? []).filter((animation) => !isDuck(animation));
+  const bare = { ...layer, animations: kept.filter((animation) => !isFitFade(animation)) };
+  return { ...layer, animations: kept.map((animation) => {
+    if (animation.name === FIT_NAMES.in) return { ...animation, to: { ...animation.to, volume: round(volumeAt(bare, animation.start + animation.duration)) } };
+    if (animation.name === FIT_NAMES.out) return { ...animation, from: { ...animation.from, volume: round(volumeAt(bare, animation.start)) } };
+    return animation;
+  }) };
+}
+
 // A song cut by fit_music is several pieces (fitMusic.js): <layer>, <layer>-2, ... They duck
 // together, so ducking any one of them ducks them all.
 function fitPieces(scene, layer) {

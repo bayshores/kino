@@ -38,7 +38,7 @@
 import { uid } from "./model.js";
 import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { applyAddCaptions } from "./captionLayers.js";
-import { applyDuckAudio, DUCK_NAMES, RAMP_MIN } from "./audioDucking.js";
+import { applyDuckAudio, DUCK_NAMES, RAMP_MIN, withoutDips } from "./audioDucking.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { SOUND_SURE, soundMoments } from "./speech.js";
 import { energyMean, heardLoudness, lineOverMusic, loudnessOver, MAX_LEVEL_DB } from "./mixLevels.js";
@@ -219,8 +219,9 @@ function lineOverMusicAt(scene, owner, musicLayer, start, end, operation) {
   if (!lineCurve || !musicCurve || !range) return null;
   const raw = loudnessOver(lineCurve, [{ start: mediaSoundTime(owner.piece, start), end: mediaSoundTime(owner.piece, end) }]);
   if (raw === null) return null;
-  // The music as it plays without the dips duck_audio is about to replace.
-  const base = { ...musicLayer, animations: (musicLayer.animations ?? []).filter((animation) => animation.name !== DUCK_NAMES.down && animation.name !== DUCK_NAMES.up) };
+  // The music as it plays without the dips duck_audio is about to replace (fit_music's fades too,
+  // which an earlier dip set to its level).
+  const base = withoutDips(musicLayer);
   const sides = [heardLoudness(musicCurve, base, range, start - AROUND, start), heardLoudness(musicCurve, base, range, end, end + AROUND)].filter((value) => value !== null);
   const measured = {
     line: round(raw + 20 * Math.log10(Math.max(1e-6, owner.volume)), 1),
