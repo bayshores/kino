@@ -1334,7 +1334,16 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
     return runMove(definition, { id: "hit", input: readMoveInput(definition, { kind, layer: "clip" }), scene: shots, align, dur,
       style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media, cueFacts: { at, cues, events } });
   };
-  assert.throws(() => run("shake", 2, 2), /at 2 is a time, not a reason\. An accent needs a cue that motivates it .*try at "cue:hit-1"/);
+  // A time in seconds takes the reason measured within 3 frames (the cue before the bare footage
+  // event), and sits on it; with none near, a small accent whose receipt gives the distance.
+  const late = run("shake", 2.07, 2.07);
+  assert.deepEqual(late.trigger, { cue: "hit-1", at: 2, motive: "impact", weight: 0.8, kind: "shake" });
+  assert.ok(late.animations.every(({ animation }) => animation.start >= 2 - 1e-6 && animation.start < 2.01), "it starts on the cue's frame, not 2 frames late");
+  assert.match(late.notes.join(" "), /at 2\.07 s → cue:hit-1 at 2 s \(0\.07 s earlier, an impact in the footage\)/);
+  const far = run("flash", 1.4, 1.4);
+  assert.equal(far.trigger, undefined);
+  assert.match(far.notes.join(" "), /at 1\.4 s: no measured reason within 3 frames, a small flash \(weight 0\.3\); the nearest flash reason, cue:song-drop-1 \(a song seam\), is 1\.6 s later/);
+  assert.throws(() => run("dip", 2, 2), /at 2 is a time, not a reason/);
   assert.throws(() => run("shake", "cue:beat-5", 2), /beat number, not a reason.*cue:hit-1/);
   assert.throws(() => run("flash", "cue:hit-1", 2), /an impact in the footage; flash needs .*try at "cue:song-drop-1"/);
   assert.throws(() => run("shake", "cue:hit-1+0.1", 2.1), /never late/);
