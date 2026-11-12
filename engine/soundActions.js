@@ -105,8 +105,12 @@ export function soundPlacement({ peaks = null, curve = null, peak = null, beds =
   const mediaStart = start >= 0 ? round3(start) : 0;
   const mediaOffset = start >= 0 ? 0 : round3(-start);
   const momentary = Array.isArray(curve?.momentary) ? curve.momentary : [];
+  // Only the windows the scene plays: a head trimmed before 0 is never heard, and a loudest window
+  // there put the bed's reading before the scene (no bed: volume 0.6, 3.3 LU over the bed instead of
+  // under it, in the skeptic's swell placed at 0.3 s).
+  const step = curve?.step > 0 ? curve.step : 0;
   let loudest = -1;
-  momentary.forEach((value, index) => { if (Number.isFinite(value) && value > -70 && (loudest < 0 || value > momentary[loudest])) loudest = index; });
+  momentary.forEach((value, index) => { if (Number.isFinite(value) && value > -70 && index * step >= mediaOffset - step / 2 && (loudest < 0 || value > momentary[loudest])) loudest = index; });
   const effect = loudest >= 0 ? momentary[loudest] : Number.isFinite(peak) ? peak - PEAK_OVER_MOMENTARY : null;
   // The bed is measured over the 0.4 s window where the effect's own loudest momentary value falls
   // (its middle, in scene seconds), so the two numbers compared are the same moment: measured at the
@@ -114,9 +118,10 @@ export function soundPlacement({ peaks = null, curve = null, peak = null, beds =
   // With a measured loudest window, the bed is its one momentary value there (the same 400 ms): an
   // energy mean of the values 0.2 s either side reads 0.8 s of the bed, and a riser into a drop read
   // the quiet build before it (7.9 LU under in the synthesized proof instead of 3).
-  const middle = loudest >= 0 && curve.step > 0 ? at - transient + loudest * curve.step : at;
+  const middle = loudest >= 0 && step > 0 ? Math.max(0, at - transient + loudest * step) : at;
   const sample = Math.round(middle * 10) / 10;
-  const bed = loudest >= 0 ? bedLoudness(beds ?? [], sample + 0.001, sample + 0.002) : bedLoudness(beds ?? [], at - 0.2, at + 0.2);
+  // A bed silent at that one window (a stop on the action) falls back to the 0.4 s around the action.
+  const bed = (loudest >= 0 ? bedLoudness(beds ?? [], sample + 0.001, sample + 0.002) : null) ?? bedLoudness(beds ?? [], at - 0.2, at + 0.2);
   if (bed === null || effect === null) return { mediaStart, mediaOffset, transient, volume: UNMEASURED_VOLUME, level: "unmeasured", bed, effect };
   const volume = Math.max(MIN_VOLUME, Math.min(MAX_VOLUME, 10 ** ((bed - under - effect) / 20)));
   return { mediaStart, mediaOffset, transient, volume: Math.round(volume * 1000) / 1000, level: loudest >= 0 ? "measured" : "peak", bed: round1(bed), effect: round1(effect), loudestAt: round3(middle) };
@@ -177,7 +182,7 @@ export function applyPlaceSounds(document, operation) {
     }));
     // At the volume limit and still under its aim: the next louder sound of its kind, as one edit call.
     const louder = louderSound(where, under, Number.isFinite(sound.level) ? sound.level : where.effect, sound.pool);
-    const call = louder ? `edit {ops:[{op:"delete_layer", layer:"${id}"}, {op:"place_sounds", scene:"${scene.id}", at:[{at:${sound.action ? `"${sound.action}"` : sound.at}, sound:"sfx:${louder.id}"${Number.isFinite(sound.under) ? `, under:${sound.under}` : ""}}]}]}` : null;
+    const call = louder ? `edit {ops:[{op:"delete_layer", layer:"${id}"}, {op:"place_sounds", scene:"${scene.id}", at:[{at:${sound.action ? `"${sound.action}"` : sound.at}, sound:"sfx:${louder.id}"${under !== UNDER_BED ? `, under:${under}` : ""}}]}]}` : null;
     placed.push({ layer: id, at: sound.at, ...(sound.action ? { action: sound.action } : {}), ...(sound.tags ? { tags: sound.tags } : {}), file: sound.name ?? sound.src, ...where, ...(louder ? { louder: { ...louder, call } } : {}) });
   }
   // The scene's sound effects after this (layers named sfx-*), so the receipt says how many it now has.

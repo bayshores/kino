@@ -274,6 +274,12 @@ test("an effect's bed is measured where its own loudest window falls, not at the
   const beds = [{ layer: music, curve: { step: 0.1, momentary: Array.from({ length: 100 }, (_, index) => (index < 25 ? -20 : -10)) }, range: { start: 0, end: 10, offset: 0 } }];
   const placed = soundPlacement({ peaks: { peaks: [1, 0.5, 0.2], secondsPerPeak: 0.01 }, curve: { step: 0.1, momentary: [-20, -15, -12, -10, -9, -8, -7, -6, -5, -9] }, beds, at: 2 });
   assert.deepEqual([placed.loudestAt, placed.bed, placed.effect], [2.8, -10, -5]);
+  // Its head trimmed (transient 1 s in, placed at 0.3 s): only the windows the scene plays count.
+  const trimmed = soundPlacement({ peaks: { peaks: [...Array(100).fill(0.1), 1], secondsPerPeak: 0.01 }, curve: { step: 0.1, momentary: [-20, -15, -5, -20, -20, -20, -20, -12, -11, -10] }, beds, at: 0.3 });
+  assert.deepEqual([trimmed.mediaOffset, trimmed.loudestAt, trimmed.bed, trimmed.effect, trimmed.level], [0.7, 0.2, -20, -10, "measured"]);
+  // A bed silent at that one window (a stop on the action) is read around the action instead.
+  const stop = [{ ...beds[0], curve: { step: 0.1, momentary: beds[0].curve.momentary.map((value, index) => (index === 28 ? null : value)) } }];
+  assert.equal(soundPlacement({ peaks: { peaks: [1, 0.5, 0.2], secondsPerPeak: 0.01 }, curve: { step: 0.1, momentary: [-20, -15, -12, -10, -9, -8, -7, -6, -5, -9] }, beds: stop, at: 2 }).bed, -20);
 });
 
 test("a sound at the volume limit short of its aim is offered the next louder sound of its kind, one call", () => {
@@ -288,6 +294,11 @@ test("a sound at the volume limit short of its aim is offered the next louder so
   assert.match(report.summary, /volume 2, 12 LU under the song .*at the volume limit, 9 LU short of the aim: sfx:loud measures 15 dB louder/);
   // Within reach of the limit: no offer.
   assert.equal(louderSound({ level: "measured", volume: 1.5, bed: -12, effect: -18 }, 3, -20, pool), null);
+  // The call keeps an under the agent set on the whole op (6 LU under: 6 LU short, so the +8 dB one).
+  const reports2 = new Map();
+  const deeper = { ...operation, under: 6 };
+  applyOperations(documentWith([music]), [deeper], { reports: reports2 });
+  assert.match(reports2.get(deeper).louder[0].call, /sound:"sfx:mid", under:6\}/);
 });
 
 test("a sound kept at its own level stays at 0 dB inside a leveled voice", () => {
