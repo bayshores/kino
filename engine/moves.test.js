@@ -85,7 +85,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 47);
+  assert.equal(MOVE_NAMES.length, 49);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -492,6 +492,71 @@ test("perceive-insert cuts to the marked subject of the same footage, in sync an
   assert.deepEqual(pushed.added[0].layer.subjectBoxes.boxes[0].box, [40, 40, 50, 50]);
   assert.ok(pushed.added.some(({ layer }) => layer.text === "bus 42"));
   assert.throws(() => run({ layer: "shot-a" }), /give region/);
+});
+
+// Two 1920 × 1080 clips: one with a person marked at the right, one with a face measured at the left.
+function compositeScene(width, height) {
+  const scene = sceneFor(width, height, 6);
+  scene.layers.push(
+    createLayer("video", { id: "talk", name: "talk", src: "/api/media/talk.mp4", x: 0, y: 0, width, height, mediaStart: 0, mediaDuration: 6, mediaSourceDuration: 8,
+      subjectBoxes: { src: "/api/media/talk.mp4", boxes: [{ at: 1.5, box: [70, 20, 15, 30], by: "agent" }] } }),
+    createLayer("video", { id: "react", name: "react", src: "/api/media/react.mp4", x: 0, y: 0, width, height, mediaStart: 5, mediaDuration: 1, mediaOffset: 2, mediaSourceDuration: 8 }));
+  return scene;
+}
+function runComposite(name, fields, scene, extra = {}) {
+  const frame = { width: scene.width, height: scene.height };
+  return runMove(MOVES[name], { id: name, input: readMoveInput(MOVES[name], fields), scene, style: styleFor({ look: "crisp", frame }), fonts: defaultFonts, start: 1, media,
+    fileSize: () => ({ width: 1920, height: 1080 }), samples: (layerId) => (layerId === "react" ? [{ t: 2.5, faces: [[0.1, 0.2, 0.1, 0.2]] }] : []), ...extra });
+}
+const part = (made, name) => made.added.find((entry) => entry.layer.move.part === name)?.layer;
+
+test("split-screen crops each pane on its clip's marked or measured subject, with a gap of the divider color, the panes arriving one after another", () => {
+  const made = runComposite("split-screen", { layers: ["talk", "react"] }, compositeScene(1920, 1080));
+  // The plate fills the frame in the divider color; two panes 954.5 px wide with an 11 px gap.
+  assert.deepEqual([part(made, "plate").width, part(made, "plate").fill], [1920, "#0B0B0C"]);
+  assert.deepEqual([part(made, "pane-1").x, part(made, "pane-1").width, part(made, "pane-2").x], [0, 954.5, 965.5]);
+  // talk's marked person (70 to 85% across) stays whole inside its pane; react's measured face pulls its crop left.
+  const talk = part(made, "clip-1");
+  assert.equal(talk.x, -965);
+  assert.ok(talk.x + 0.7 * talk.width >= 0 && talk.x + 0.85 * talk.width <= 954.5, "the marked subject is whole");
+  assert.equal(part(made, "clip-2").x, 0);
+  // Each copy plays its file from where it is at the start, muted (talk plays underneath with its sound).
+  assert.deepEqual([talk.mediaStart, talk.mediaOffset, talk.volume, talk.parentId], [1, 1, 0, "split-screen-pane-1"]);
+  assert.equal(part(made, "clip-2").mediaOffset, 2);
+  // The second pane shows 0.12 s after the first and slides in from the other side.
+  const shows = ["pane-1", "pane-2"].map((name) => part(made, name).animations.find((animation) => animation.kind === "show").start);
+  assert.deepEqual(shows, [1, 1.12]);
+  const slides = ["pane-1", "pane-2"].map((name) => part(made, name).animations.find((animation) => animation.id.endsWith(".in")).from.y);
+  assert.ok(slides[0] < 0 && slides[1] > 0, JSON.stringify(slides));
+  // sound:2 lets react's pane be heard (react does not play under the panes then).
+  assert.equal(part(runComposite("split-screen", { layers: ["talk", "react"], sound: 2 }, compositeScene(1920, 1080)), "clip-2").volume, 1);
+});
+
+test("split-screen slant masks each pane with a leaning outline; a tall frame stacks the panes", () => {
+  const made = runComposite("split-screen", { layers: ["talk", "react", "shot-a"], layout: "slant", slant: 10 }, compositeScene(1920, 1080));
+  const masks = [1, 2, 3].map((number) => part(made, `mask-${number}`));
+  assert.ok(masks.every((mask) => mask.isMask && mask.type === "path" && /^M.* Z$/.test(mask.path)));
+  assert.ok(["pane-1", "pane-2", "pane-3"].every((name) => part(made, name).isMaskGroup === true));
+  // The middle pane's top edge sits right of its bottom edge (the dividers lean).
+  const [[topLeft], , , [bottomLeft]] = masks[1].path.split(/[MLZ]/).filter((piece) => piece.trim()).map((piece) => piece.trim().split(" ").map(Number));
+  assert.ok(topLeft > bottomLeft, masks[1].path);
+  const tall = runComposite("split-screen", { layers: ["talk", "react"] }, compositeScene(1080, 1920));
+  assert.deepEqual([part(tall, "pane-1").width, part(tall, "pane-2").y > part(tall, "pane-1").y], [1080, true]);
+});
+
+test("picture-in-picture puts the clip in a bordered, rounded inset in the safe corner over the full shot, cropped on its face, and pops it in", () => {
+  const made = runComposite("picture-in-picture", { layer: "react" }, compositeScene(1920, 1080));
+  const inset = part(made, "inset");
+  const border = part(made, "border");
+  // 30% of the width at the clip's 16:9, at the top right inside the safe area; a 5 px white border around it.
+  assert.deepEqual([inset.width, inset.height, inset.clipContent, inset.radius > 0], [576, 324, true, true]);
+  assert.ok(inset.x + inset.width < 1920 - 60 && inset.y > 30, JSON.stringify(inset));
+  assert.deepEqual([border.x, border.width, border.fill], [inset.x - 5, inset.width + 10, "#FFFFFF"]);
+  assert.equal(part(made, "clip").parentId, inset.id);
+  const pop = inset.animations.find((animation) => animation.id.endsWith(".in"));
+  assert.deepEqual([pop.from.scaleX, pop.to.scaleX, pop.duration], [0.88, 1, 0.35]);
+  const square = runComposite("picture-in-picture", { layer: "react", corner: "bottom-left", rounded: false, border: 0, shape: "square" }, compositeScene(1920, 1080));
+  assert.deepEqual([part(square, "inset").width, part(square, "inset").height, part(square, "inset").radius, part(square, "inset").x < 200], [576, 576, 0, true]);
 });
 
 test("voice-type sets a spoken line from the transcript, each word on as it is said, held after the last", async () => {

@@ -223,11 +223,12 @@ export function alignedStart(at, duration, align = "start", name = "move") {
  *   brandFonts true when the brand chose its own fonts (moves then use them, not their own pick)
  *   bpm       the music's tempo (document.rhythm.bpm), or null
  *   fileSize  src → {width, height} of a library file (a video too), or null
+ *   samples   layer ID → the subjects measured in that video layer's file ([] when none)
  *   cueFacts  for a move that needs a cue: {at (as given), cues, events: footage events in scene s}
  * Returns {added: [{layer, place}], animations: [{layerId, animation}], start, end, notes}.
  */
 export function runMove(definition, options) {
-  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, fontFaces = {}, cueFacts = null } = options;
+  const { id, input, scene, style, fonts, start: at, align = "start", dur = null, media, logo = null, reduced = false, seed = 1, brandFonts = false, bpm = null, fileSize = () => null, alpha = () => null, samples = () => [], fontFaces = {}, cueFacts = null } = options;
   const frame = { width: scene.width, height: scene.height };
   const added = [];
   const animations = [];
@@ -295,6 +296,8 @@ export function runMove(definition, options) {
     fileSize(src) { return fileSize(src); },
     /** A picture's alpha grid by its src ({columns, rows, solid: 1 where mostly opaque}), or null when unknown. */
     alpha(src) { return alpha(src); },
+    /** The subjects measured in a named video layer's file (subjects-v1 samples), or [] when none are saved. */
+    samples(layerId) { return samples(layerId) ?? []; },
     /** A font family the op asked for (a move's font field), ready to draw, or null when kino has none by that name. */
     fontFace(family) { return fontFaces[family] ?? null; },
     /** Every layer of the scene (groups' parts too), as they are now. */
