@@ -8,7 +8,7 @@ import { MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 // one space. A key of several words matches where the query holds those words in a row; a key of
 // one word matches the whole query or one of its words, except a LOOSE word.
 const SEEN_AS = {
-  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow"], halation: ["glow"],
+  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow", "outline_text"], halation: ["glow"],
   particles: ["embers", "sparks", "dust"], particle: ["embers", "sparks", "dust"], sparkles: ["sparks", "embers"],
   ash: ["embers", "dust"], fire: ["embers", "sparks"], smoke: ["fog"], haze: ["fog"],
   subtitles: ["add_captions", "caption-words"], subtitle: ["add_captions", "caption-words"], captions: ["add_captions", "caption-words"],
@@ -29,6 +29,18 @@ const SEEN_AS = {
   "split screen": ["split-screen"], splitscreen: ["split-screen"], "side by side": ["split-screen"], panes: ["split-screen"], composite: ["split-screen", "picture-in-picture"],
   "picture in picture": ["picture-in-picture"], pip: ["picture-in-picture"], inset: ["picture-in-picture"],
   grain: ["grain"], vignette: ["vignette"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
+  // Words for the effects that reports called missing (finish, depth, rim, streaks, highlight, typed
+  // text); each leads to a name kino has (the test checks) or, with no maker, to NO_MAKER below.
+  "film grain": ["grain"], "dark edges": ["vignette"], "darken edges": ["vignette"], edges: ["vignette"], "dark corners": ["vignette"], corners: ["vignette"], tunnel: ["vignette"],
+  "depth of field": ["focus-band", "lift-focus"], dof: ["focus-band", "lift-focus"], "tilt shift": ["focus-band"], tiltshift: ["focus-band"], "shallow focus": ["focus-band", "lift-focus"],
+  "focus blur": ["focus-band", "lift-focus"], "lens blur": ["focus-band"], "background blur": ["focus-band", "lift-focus"], "rack focus": ["focus-band", "lift-focus"],
+  rim: ["glow", "cut_out"], "rim light": ["glow", "cut_out"], "rim lighting": ["glow", "cut_out"], "edge light": ["glow", "cut_out"], backlight: ["glow", "light-rays"],
+  streak: ["speed-lines", "rain", "light-rays"], "light streak": ["lens-flare", "light-rays"], anamorphic: ["lens-flare"], "lens streak": ["lens-flare"],
+  "soft glow": ["glow"], dreamy: ["glow", "fog"],
+  scrawl: ["set_font", "outline_text"], brush: ["set_font", "outline_text"], handwritten: ["set_font", "outline_text"], handwriting: ["set_font", "outline_text"],
+  "hand lettering": ["set_font", "outline_text"], marker: ["set_font", "outline_text"], graffiti: ["set_font", "outline_text"], stencil: ["set_font"], blackletter: ["set_font"],
+  typed: ["type-on", "voice-type"], typing: ["type-on", "voice-type"], typewriter: ["type-on", "set_font"], "type on": ["type-on"],
+  highlight: ["accent-hit", "luma-highlight"], highlighter: ["accent-hit", "luma-highlight"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
@@ -45,7 +57,15 @@ const SEEN_AS = {
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
-const NO_MAKER = ["halftone", "dirt texture", "paper texture"];
+const NO_MAKER = ["halftone", "dirt texture", "paper texture", "letterbox", "black bars", "cinema bars", "lightning", "electric arc"];
+// Looks with no maker of their own that still have a way to build them from kino's parts.
+const NO_MAKER_HOW = {
+  letterbox: "two black rectangle layers over everything, each (frame height minus frame width / ratio) / 2 tall (ratio 2.35 for cinema), at the top and bottom edges",
+  "black bars": "two black rectangle layers over everything, at the top and bottom edges",
+  "cinema bars": "two black rectangle layers over everything, each (frame height minus frame width / 2.35) / 2 tall",
+  lightning: "a jagged path layer (add_layer path) with the glow effect and a few quick opacity steps; sparks adds the specks",
+  "electric arc": "a jagged path layer (add_layer path) with the glow effect and a few quick opacity steps",
+};
 export { SEEN_AS };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.
@@ -65,22 +85,24 @@ export function originReferenceLine(found, title) {
 
 // Guide topics that hold each effect group's rules.
 const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blur: "blur" };
+/** The guide topic that holds the rules of an effect group (effects for the groups without their own). */
+export const ruleTopicOf = (group) => GROUP_TOPIC[group] ?? "effects";
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
 const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations" };
 // An op whose call needs a lookup first: a font is picked by its look.
-const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look, e.g. condensed bold sans>"} then set_font {layerIds, family, weight}' };
+const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} then set_font {layerIds, family, weight}' };
 
 /** The line for a look kino has no maker for yet ("speed lines"), else "". */
 export function noMakerLine(query) {
   const text = ` ${String(query ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
   const phrase = NO_MAKER.find((entry) => text.includes(` ${entry} `));
-  return phrase ? `no kino name for "${phrase}" yet: build it from shapes and draw-on, or say it is missing` : "";
+  return phrase ? `no kino name for "${phrase}" yet: ${NO_MAKER_HOW[phrase] ? `build it from ${NO_MAKER_HOW[phrase]}` : "build it from shapes and draw-on"}, or say it is missing` : "";
 }
 
 /** The call that reads a name's rules, and what the name is; null for a name kino does not have. */
 export function readCallFor(name, { ops = [] } = {}) {
   const effect = EFFECTS.find((entry) => entry.key === name);
-  if (effect) return { kind: "effect", use: `add_animation {layer, effect:"${name}"}`, read: `library {topic:"rules", name:"${GROUP_TOPIC[effect.group] ?? "effects"}"}` };
+  if (effect) return { kind: "effect", use: `add_animation {layer, effect:"${name}"}`, read: `fields: library {topic:"effects", name:"${name}"}; rules: library {topic:"rules", name:"${ruleTopicOf(effect.group)}"}` };
   if (MOVE_NAMES.includes(name)) return { kind: "move", use: `move {name:"${name}", …}`, read: `library {topic:"moves", name:"${name}"}` };
   if (ops.includes(name)) return { kind: "op", use: OP_USE[name] ?? `${name} {…}`, read: `library {topic:"op", name:"${name}"}` };
   if (TOPICS[name]) return { kind: "topic", use: TOPICS[name], read: `library {topic:"rules", name:"${name}"}` };

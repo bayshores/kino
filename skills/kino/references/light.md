@@ -3,6 +3,8 @@
 Glow and bloom, light rays (god rays) and lens flares. Each is an effect you put on a layer.
 The accent-hit and light-sweep moves use glow to light one word.
 
+Related effects that are not light: `vignette` and `grain` (finish), `duotone` and `tritone` (grade), `focus-band` (depth of field). Rim light: `glow` on a cut-out, or `light-rays`. Fields: `library {topic:"effects", name:"<effect>"}`.
+
 ## Stacked shadows and strokes
 
 - A layer's `shadows` list draws more drop shadows after `shadow`, later ones on top: up to

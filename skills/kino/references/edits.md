@@ -110,10 +110,10 @@ A second scene (from then on every op names its `scene`):
 
 ## Fonts
 
-- `library {topic:"fonts", search:"Roboto"}` finds a font (`"∞"`: by character; `"condensed bold sans"`: by look);
-  `set_font` downloads it.
-- `set_font` refuses a font that lacks a character. Its `instead` (`edit {retry, fix:{"<n>":
-  <instead>}}`) draws just those in another font (check's `missing_glyphs` fix).
+- `library {topic:"fonts", search:"Roboto"}` finds a font (`"∞"`: by character; `"brush"`, `"slab"`,
+  `"japanese"`, `"bold sans"`: by look); `set_font` downloads it.
+- `set_font` refuses a font lacking a character; its `instead` (`edit {retry, fix:{"<n>":
+  <instead>}}`) draws just those in another font.
 - Variable fonts: text `axes:{wght, wdth, slnt, opsz}` (merged per axis, `{wdth:null}` drops
   one), animated by `animation:{kind:"custom", from:{axes:{wght:100}}, to:{axes:{wght:900}}}`.
 - `outline_text {layer}`: letters become path layers in a group; the text is hidden.

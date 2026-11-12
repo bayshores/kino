@@ -268,6 +268,10 @@ Nine recipes, each the ops of one edit: library {topic:"rules", name:"particle-r
 
 Drawn overlays on any layer (Post FX): `speed-lines` (streaks along `angle`, sliding at `speed`), `impact-lines` (wedges in toward `centerX`/`centerY`, a clear `inner` middle, redrawn `rate` times a second) and `film-burn` (a hot edge, `edge`/`reach`/`scale`, deep/mid/hot colors, screen). Lines take count, thickness, taper, variation, color, opacity, seed and blend. `invert` (Color) flips colors; keepHue swaps only light and dark. These four default to keepStill "off" (the effect shows only while it plays; send keepStill "both" to hold its first or last look). Example: {"op":"add_animation","layer":"footage","effect":"impact-lines","start":1,"duration":0.4}. Moves `punch-in` (snap closer on a point) and `shake` (on a cue in a music edit) are the agent's own accents; a layer that moves its own place or size meanwhile is refused with the window to use.
 
+## effects: The effects catalog, by name
+
+library {topic:"effects"} lists every effect once, grouped as the catalog groups them (Post FX, Color, Light, Blur, Generate, Distortion, Utility), with a few words each and a * on the timed (value) ones. With a name, library {topic:"effects", name:"vignette"} gives that effect's fields with type, range, default and (for timed effects) the starting value; a spelling with spaces or underscores, or a plain word ("depth of field", "neon"), reaches the effect it means, and a misspelling answers with the closest names. Add one with add_animation {layer, effect, parameters}. Finish and grade effects in Post FX: `grain` (film grain: amount, size, animated), `vignette` (darker edges: amount, midpoint, roundness, feather, color), `duotone` (two colors from dark to light) and `tritone` (shadows, mids, highlights); `focus-band` (Blur) is depth of field and tilt-shift. Saved text effects moved to library {topic:"text-effects"}. A look with no catalog effect (letterbox bars, a lightning bolt) is built from shapes: search says how.
+
 ## particle-recipes: Particle overlay recipes
 ops: -
 
@@ -302,7 +306,7 @@ Ordinary timed text animations accept textAnchor (layer, letters, words, lines) 
 ## text-effect-library: Saved text effects
 ops: -
 
-The owner-only text-effect library is managed by list_text_effects, save_text_effect, rename_text_effect and delete_text_effect. Records copy portable animation settings and numeric rest values, without source text/media/font files or project references; applied animations stay independent after library rename/delete. Clipped text with blur/shadow exports native Lottie masks and effects with a warning about player edge differences.
+library {topic:"text-effects"} lists the saved ones (library {topic:"effects"} is the effects catalog). The owner-only text-effect library is managed by list_text_effects, save_text_effect, rename_text_effect and delete_text_effect. Records copy portable animation settings and numeric rest values, without source text/media/font files or project references; applied animations stay independent after library rename/delete. Clipped text with blur/shadow exports native Lottie masks and effects with a warning about player edge differences.
 
 ## smoothing: Text unit delay smoothing
 ops: add_animation, update_animation
