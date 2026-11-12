@@ -148,6 +148,28 @@ export function matchShot(frames, levels, { lower = false } = {}) {
   };
 }
 
+/** A shot's level (0 to 1): the median brightness of its frames, as matchShot reads it. */
+export const shotLevel = (frames) => levelOf((frames ?? []).filter((frame) => frame?.pixels?.length));
+
+/**
+ * One secant step on the real render. The grade sits on the shot's layer, under whatever is drawn
+ * above it (text, overlays, the scene's frame finish with its lifted blacks and grain), so the
+ * composite moves less than matchShot's model of it. Measured on the run 6 copy: a shot at 8 of 255
+ * was predicted to reach 22 at +2 stops and rendered 15. With the level before (no grade) and after
+ * (`stops`), read in linear light as content x 2^stops + a floor, this returns the stops that reach
+ * `target`, or `stops` when the two points do not say (no change, or a darker result).
+ */
+export function correctStops({ before, after, stops, target }) {
+  const linear = (value) => toLinear(Math.min(1, Math.max(0, value)));
+  const gain = 2 ** stops - 1;
+  if (!(Math.abs(gain) > 1e-3)) return stops;
+  const content = (linear(after) - linear(before)) / gain;
+  if (!(content > 0)) return stops;
+  const want = (linear(target) - (linear(before) - content)) / content;
+  if (!(want > 0)) return stops;
+  return Math.min(MAX_STOPS, Math.max(-MAX_STOPS, Math.round(Math.log2(want) * 20) / 20));
+}
+
 /** The color-grade parameters of a match (contrast only when it changes). */
 export function matchParameters(match) {
   return { stops: match.stops, shoulder: match.shoulder, ...(match.contrast !== 1 ? { contrast: match.contrast } : {}) };

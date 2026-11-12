@@ -821,29 +821,44 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
 test("match_references grades only the shot outside the references' range, replaces its own grade on a second run and takes it off with remove", async () => {
   const shot = (id, start) => createLayer("video", { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y: 0, width: 1920, height: 1080, start, duration: 5, mediaStart: start, mediaDuration: 5, mediaSourceDuration: 20 });
   const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: 1920, height: 1080, duration: 10, layers: [shot("dark", 0), shot("lit", 5)] })] }));
-  // The dark shot renders at 30 of 255, the lit one at 110; the references span 84 to 131.
+  // The dark shot renders at 60 of 255, the lit one at 110; the references span 84 to 131. Graded,
+  // the dark shot renders 75 at the stops the model asks for (something drawn above it) and 92 from 2 stops.
+  const gradeOf = (scene) => scene.layers.find((layer) => layer.id === "dark")?.animations.find((animation) => animation.id === "dark.match-ref");
   const render = async (scene, times, { width }) => times.map((time) => {
     const height = Math.round((width * 9) / 16);
-    const pixels = new Uint8ClampedArray(width * height * 4).fill(time < 5 ? 30 : 110);
+    const stops = gradeOf(scene)?.parameters?.stops;
+    const pixels = new Uint8ClampedArray(width * height * 4).fill(time >= 5 ? 110 : stops === undefined ? 60 : stops >= 2 ? 92 : 75);
     return { width, height, pixels };
   });
   const refs = [84, 131, 100].map((level) => ({ fingerprint: { look: { brightness: level / 255 } } }));
   const sent = [];
-  const runOps = async (doc, ops) => { sent.push(...ops); return doc; };
+  const runOps = async (doc, ops) => {
+    sent.push(...ops);
+    const next = structuredClone(doc);
+    for (const op of ops) for (const layer of next.scenes[0].layers) {
+      if (op.op === "delete_animation") layer.animations = layer.animations.filter((animation) => animation.id !== op.animationId);
+      if (op.op === "add_animation" && layer.id === op.layerId) layer.animations.push({ id: op.id, effect: { key: op.effect }, parameters: op.parameters });
+    }
+    return next;
+  };
   const first = await matchReferences(document, { refs, fonts: defaultFonts, render, runOps });
-  assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.match-ref", "color-grade"]]);
-  assert.ok(sent[0].parameters.stops > 0 && sent[0].parameters.shoulder === 1);
-  assert.match(first.lines[0], /your 3 references 84 to 131 \(median 100\): dark 30 to 9\d \(\+[\d.]+ stops\); 1 shot already inside, left alone/);
+  // Drawn short of its aim (75, not 92), the grade is worked out again from the render: a second, stronger one.
+  assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.match-ref", "color-grade"], ["add_animation", "dark", "dark.match-ref", "color-grade"]]);
+  assert.ok(sent[0].parameters.stops > 0 && sent[0].parameters.shoulder === 1 && sent[1].parameters.stops > sent[0].parameters.stops);
+  assert.match(first.lines[0], /your 3 references 84 to 131 \(median 100\): dark 60 to 92 \(\+[\d.]+ stops\); 1 shot already inside, left alone/);
   // Sent again (the grade is in the document now): the old grade goes first, then the new one.
   const graded = structuredClone(document);
   graded.scenes[0].layers[0].animations.push({ id: "dark.match-ref", effect: { key: "color-grade" } });
   sent.length = 0;
   await matchReferences(graded, { refs, fonts: defaultFonts, render, runOps });
-  assert.deepEqual(sent.map((op) => op.op), ["delete_animation", "add_animation"]);
+  assert.deepEqual(sent.map((op) => op.op), ["delete_animation", "add_animation", "add_animation"]);
   sent.length = 0;
   const removed = await matchReferences(graded, { remove: true, refs, fonts: defaultFonts, render, runOps });
   assert.deepEqual([sent.map((op) => op.animationId), removed.lines[0]], [["dark.match-ref"], "match_references main: took off 1 match grade"]);
   // One reference is no range: nothing changes and the line says why.
   const one = await matchReferences(document, { refs: refs.slice(0, 1), fonts: defaultFonts, render, runOps });
   assert.equal(one.skipped, true);
+  // layer (one) works as layers does, the way a first guess sends it.
+  const [picked] = translateOperations([{ op: "match_references", layer: "dark", lower: true }], createResolver(document), document);
+  assert.deepEqual([picked.layerIds, picked.layerId, picked.lower], [["dark"], undefined, true]);
 });

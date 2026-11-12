@@ -7,7 +7,7 @@ import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { plates } from "../../engine/quality/techniques.js";
 import { mainScene } from "../../engine/board.js";
-import { MATCH_SUFFIX, matchId, matchParameters, matchShot, referenceLevels } from "../../engine/quality/exposureMatch.js";
+import { MATCH_SUFFIX, correctStops, matchId, matchParameters, matchShot, referenceLevels, shotLevel } from "../../engine/quality/exposureMatch.js";
 
 // Frames per shot and their width: 3 spread over the shot (a guess: enough to see a fade or a flash
 // without one frame deciding), 160 px wide (the check reads brightness at 64; more pixels steady the
@@ -71,7 +71,6 @@ export async function matchReferences(document, { sceneId = null, layerIds = nul
   const shots = sceneShots(model, layerIds);
   const times = shots.flatMap((shot) => shot.times);
   const frames = times.length ? await render(expandComponents(base, scene.id, { fonts }), times, { width: Math.min(MEASURE_WIDTH, model.width) }) : [];
-  const ops = [];
   const matched = [];
   let offset = 0;
   const brighter = [];
@@ -83,10 +82,31 @@ export async function matchReferences(document, { sceneId = null, layerIds = nul
       if (!lower && shotFrames.length && matchShot(shotFrames, levels, { lower: true })) brighter.push(shot);
       continue;
     }
-    matched.push({ ...shot, ...match });
-    ops.push({ op: "add_animation", layerId: shot.layerId, id: matchId(shot.layerId), effect: "color-grade", start: 0, duration: scene.duration, parameters: matchParameters(match) });
+    matched.push({ ...shot, ...match, at: offset - shot.times.length });
   }
-  const after = ops.length ? await runOps(base, ops) : base;
+  const gradeOps = () => matched.map((entry) => ({ op: "add_animation", layerId: entry.layerId, id: matchId(entry.layerId), effect: "color-grade", start: 0, duration: scene.duration, parameters: matchParameters(entry) }));
+  // The real render: each matched shot's level as drawn with its grade (correctStops says why), one
+  // correction where it misses its aim by more than 2 levels of 255 (a guess: under luma_jump's step
+  // of 8), and the receipt's "after" is what the render shows, not the model.
+  const rendered = async (doc) => {
+    const drawn = await render(expandComponents(doc, scene.id, { fonts }), times, { width: Math.min(MEASURE_WIDTH, model.width) });
+    for (const entry of matched) entry.after = shotLevel(entry.times.map((_, index) => drawn?.[entry.at + index]).filter(Boolean)) ?? entry.after;
+  };
+  let after = base;
+  if (matched.length) {
+    after = await runOps(base, gradeOps());
+    await rendered(after);
+    let changed = false;
+    for (const entry of matched) {
+      if (Math.abs(entry.after - entry.target) * 255 <= 2) continue;
+      const stops = correctStops({ before: entry.before, after: entry.after, stops: entry.stops, target: entry.target });
+      if (stops !== entry.stops) { entry.stops = stops; changed = true; }
+    }
+    if (changed) {
+      after = await runOps(base, gradeOps());
+      await rendered(after);
+    }
+  }
   const range = levels.brightness;
   const refsLine = `your ${range.n} references ${levels255(range.low)} to ${levels255(range.high)} (median ${levels255(range.median)})`;
   const shotLine = (entry) => `${name(entry.layerId)} ${levels255(entry.before)} to ${levels255(entry.after)} (${entry.stops > 0 ? "+" : ""}${entry.stops} stops${entry.contrast !== 1 ? `, contrast ${entry.contrast}` : ""})`;

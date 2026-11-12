@@ -2262,6 +2262,10 @@ test("reference_range: a video darker than its saved references warns with the d
   // check {fix:"auto"} grades each shot toward the range: match_references.
   assert.equal(dark.fix.kind, "match_references");
   assert.equal(dark.fix.auto, true);
+  // Brighter than the references: a ready call with lower:true, never an auto fix (no auto darkening).
+  const [bright] = await rangeRun(120);
+  assert.deepEqual([bright.fix.auto, bright.fix.lower], [false, true]);
+  assert.match(bright.fix.text, /\{op:"match_references", lower:true\}/);
   assert.deepEqual(await rangeRun(52), []);
   // The fix names every clip in the dark stretch, not only the first.
   const two = scene({ duration: 10, layers: [footage("a", { duration: 5, mediaDuration: 5 }), footage("b", { start: 5, duration: 5, mediaDuration: 5 })] });
