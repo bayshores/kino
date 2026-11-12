@@ -177,6 +177,39 @@ test("align puts a move's span starting at, centered on or ending at its at (Fil
   assert.throws(() => runMove(MOVES.flash, { id: "flash", input: readMoveInput(MOVES.flash, { from: "shot-a", to: "shot-b" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.1, dur: 0.4, align: "end", media }), /would start at -0.3 s/);
 });
 
+test("flash frames:1 is one flat frame with the cut under it; four of them close together are one run for the flashing check", () => {
+  const scene = sceneFor(1920, 1080);
+  const style = styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } });
+  const flat = (id, at, fields = {}, into = scene) => runMove(MOVES.flash, { id, input: readMoveInput(MOVES.flash, { from: "shot-a", to: "shot-b", frames: 1, ...fields }), scene: into, style, fonts: defaultFonts, start: at, media });
+  const one = flat("flash1", 2);
+  assert.equal(one.end, 2.033);
+  const placed = sceneFor(1920, 1080);
+  placeMove(placed, { id: "flash1", name: "flash", settings: {} }, one);
+  const seen = (id, time) => {
+    const layer = placed.layers.find((entry) => entry.id === id);
+    return visibleByOperations(layer.animations, time) ? evaluateLayer(layer, time).opacity : 0;
+  };
+  assert.deepEqual([1.967, 2, 2.033].map((time) => seen("flash1-flash", time)), [0, 1, 0]);
+  assert.deepEqual([1.967, 2].map((time) => seen("shot-b", time)), [0, 1]);
+  assert.deepEqual([2, 2.033].map((time) => seen("shot-a", time)), [1, 0]);
+  assert.match(one.notes.join("; "), /1 flat frame at 2 s \(#FFFFFF\), the cut under it; flash frames within 1 s: 1 \(the flashing check allows 3 a second\)/);
+  // Four, 0.2 s apart: the receipt counts them, and each layer alone is under the rate but together they are a candidate.
+  const four = sceneFor(1920, 1080);
+  const last = [1.4, 1.6, 1.8, 2].map((at, index) => {
+    const made = flat(`flash${index + 1}`, at);
+    placeMove(four, { id: `flash${index + 1}`, name: "flash", settings: {} }, made);
+    return made;
+  });
+  const alone = flat("flash5", 2.2, {}, four);
+  assert.match(alone.notes.join("; "), /flash frames within 1 s: 5 \(1\.4, 1\.6, 1\.8, 2, 2\.2\), more than the 3 a second/);
+  assert.equal(last.length, 4);
+  const model = kinoTimeline(parseDocument(createDocument({ id: "d", name: "flat", scenes: [four] })), "s", { fonts: defaultFonts });
+  assert.equal(flashCandidates(model).length, 1);
+  // Reduced motion is a plain cut; "auto" with no measured hue is white and says so.
+  assert.match(flat("flash6", 3, { color: "auto" }).notes.join("; "), /color #FFFFFF: no hue measured on shot-b/);
+  assert.match(runMove(MOVES.flash, { id: "flash7", input: readMoveInput(MOVES.flash, { from: "shot-a", to: "shot-b", frames: 1 }), scene, style, fonts: defaultFonts, start: 3, media, reduced: true }).notes.join("; "), /reduced motion, a plain cut/);
+});
+
 test("readMoveInput refuses missing, unknown-shaped and out-of-range fields", () => {
   const zoom = MOVES["zoom-through"];
   assert.throws(() => readMoveInput(zoom, { from: "shot-a" }), /to/);

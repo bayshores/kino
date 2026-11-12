@@ -8,6 +8,7 @@ import { createLayer } from "../../model.js";
 import { boxOf, effect, hide, motion, pointIn, round, scaledAbout, show } from "./kit.js";
 import { crossFade, paced, startClips } from "./transitions.js";
 import { shared } from "../move.js";
+import { shotTint } from "./backdrop.js";
 
 // defaults:start (the only place cuts.js names a color or a curve; a guard test checks)
 const DEFAULTS = Object.freeze({
@@ -103,6 +104,79 @@ export const zoomBlur = {
   },
 };
 
+// A flat flash lasts up to this many frames (12 covers a half-second black hold seen in cut-to-the-beat edits).
+const FLAT_FRAMES = 12;
+// The flashing check allows 3 flashes a second over 2.8% of the frame (engine/quality/pixels.js).
+const FLASHES_A_SECOND = 3;
+
+/** The flash color: the field's hex, "auto" (a pale tint of the next shot's hue), else white. */
+function flashColor(ctx, input, to) {
+  if (input.color !== "auto") return ctx.color("color", COLORS.flash);
+  const { color, found } = shotTint(ctx, to);
+  ctx.note(color ? `color ${color}: ${to.id}'s hue from ${found.from} (${Math.round(found.hue)}°), pale` : `color ${COLORS.flash}: no hue measured on ${to.id}`);
+  return color ?? COLORS.flash;
+}
+
+/**
+ * Flash onsets near the move's span: the full-frame layers that are not clips or pictures (flat
+ * plates, other flashes) shown at 50% or more, sampled every frame from 1 s before to 1 s after,
+ * plus this one at `start`. Returns the times (in the best 1 s window holding this flash) of the most onsets.
+ */
+function flashOnsets(ctx, start, end) {
+  const area = ctx.frame.width * ctx.frame.height;
+  const layers = ctx.topLayers().filter((layer) => layer.type !== "video" && layer.type !== "image" && layer.type !== "group");
+  const onsets = [start];
+  const first = Math.max(0, Math.floor((start - 1) * ctx.fps));
+  const last = Math.ceil((end + 1) * ctx.fps);
+  for (const layer of layers) {
+    let was = false;
+    for (let index = first; index <= last; index += 1) {
+      const time = index / ctx.fps;
+      const box = ctx.boxAt(layer.id, time);
+      const is = box.width * box.height >= 0.97 * area && ctx.shownAt(layer.id, time) && (ctx.partStateAt(layer.id, time).opacity ?? 1) >= 0.5;
+      if (is && !was) onsets.push(round(time));
+      was = is;
+    }
+  }
+  onsets.sort((a, b) => a - b);
+  let best = [start];
+  for (const first of onsets) {
+    const window = onsets.filter((time) => time >= first && time - first < 1);
+    if (window.includes(start) && window.length > best.length) best = window;
+  }
+  return best;
+}
+
+/** frames:n, a flat frame: full opacity for n frames, the cut under the first, nothing eased. */
+function flatFlash(ctx, input, from, to) {
+  const fill = flashColor(ctx, input, to);
+  if (input.ease !== undefined || input.speed !== undefined) ctx.note("flash frames: ease and speed are ignored (a flat frame has no ramp)");
+  startClips(ctx, to.id, ctx.start);
+  ctx.animate(to.id, "show", show(ctx.start), "to");
+  if (ctx.reduced) {
+    ctx.animate(from.id, "hide", hide(ctx.start), "from");
+    ctx.note("flash: reduced motion, a plain cut");
+    return { end: ctx.start };
+  }
+  // Ends a hair before the last frame boundary, so a rounded time never keeps one frame too many.
+  const end = ctx.start + input.frames / ctx.fps - 0.0005;
+  const layer = cover(ctx, "flash", "Flash", fill, { opacity: 1 });
+  ctx.animate(layer, "show", show(ctx.start));
+  ctx.animate(layer, "hide", hide(end));
+  ctx.animate(from.id, "hide", hide(end), "from");
+  const times = flashOnsets(ctx, ctx.start, end);
+  const text = (time) => String(round(time));
+  ctx.note(`${input.frames} flat frame${input.frames === 1 ? "" : "s"} at ${text(ctx.start)} s (${fill}), the cut under ${input.frames === 1 ? "it" : "the first"}`);
+  ctx.note(times.length > FLASHES_A_SECOND
+    ? `flash frames within 1 s: ${times.length} (${times.map(text).join(", ")}), more than the ${FLASHES_A_SECOND} a second the flashing check allows over 2.8% of the frame; check judges the rendered frames`
+    : `flash frames within 1 s: ${times.length} (${times.length > 1 ? `${times.map(text).join(", ")}; ` : ""}the flashing check allows ${FLASHES_A_SECOND} a second)`);
+  return { end: round(ctx.start + input.frames / ctx.fps) };
+}
+
+const FLASH_SHARED = shared({ color: `the flash color, hex (default ${COLORS.flash}), or "auto": a pale tint of the next shot's hue`, ease: "the curve of the flash's fall and the settle (default a strong ease-out)" });
+// "asked": color "auto" is read only when given (backdrop-flash measures the hue by default).
+FLASH_SHARED.color = { ...FLASH_SHARED.color, auto: "asked" };
+
 export const flash = {
   name: "flash",
   needsAt: true,
@@ -111,12 +185,18 @@ export const flash = {
   tags: ["flash"],
   length: 0.3,
   shortest: 0.15,
-  fields: { ...shots, ...shared({ color: `the flash color, hex (default ${COLORS.flash})`, ease: "the curve of the flash's fall and the settle (default a strong ease-out)" }), ...SPEED },
+  fields: {
+    ...shots,
+    frames: { kind: "number", low: 1, high: FLAT_FRAMES, whole: true, knob: true, about: "flat frames at full opacity, no ramp, in the project's rate: 1 = one frame; the cut sits under the first (default: the ramp)" },
+    ...FLASH_SHARED, ...SPEED,
+  },
+  timing: (input, { fps }) => (input.frames !== undefined ? { shortest: 1 / fps, length: input.frames / fps } : {}),
   example: { from: "shot-a", to: "shot-b", at: 1 },
   setup: SETUP,
   build(ctx, input) {
     const { from, to } = pair(ctx, input, "flash");
-    const fill = ctx.color("color", COLORS.flash);
+    if (input.frames !== undefined) return flatFlash(ctx, input, from, to);
+    const fill = flashColor(ctx, input, to);
     if (ctx.reduced) return crossFade(ctx, from.id, to.id);
     // Up fast to full (a third of the move), the cut at the peak, then a longer fall.
     const peak = ctx.start + ctx.duration * 0.35;

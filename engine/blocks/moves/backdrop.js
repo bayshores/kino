@@ -65,6 +65,18 @@ export function shotHue(ctx, layer) {
   return null;
 }
 
+/**
+ * A pale tint of a shot's own hue for a flat frame on a cut (flash color "auto"): the hue shotHue
+ * finds at saturation 0.6 and lightness 0.9, as {color, found} (color null when no hue is measured;
+ * the caller then keeps its own default). The two numbers are guesses (no frame was measured):
+ * pale enough to read as a flash, tinted enough to belong to the shot. Shared by every move whose
+ * "auto" color is a tint of the shot.
+ */
+export function shotTint(ctx, layer, { saturation = 0.6, lightness = 0.9 } = {}) {
+  const found = shotHue(ctx, layer);
+  return found ? { color: hslToHex({ h: found.hue, s: saturation, l: lightness }), found } : { color: null, found: null };
+}
+
 /** On and off runs of a frame pattern: [{start, frames}] for each run of 1s. */
 function onRuns(pattern) {
   const runs = [];

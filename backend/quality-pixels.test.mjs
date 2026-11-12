@@ -411,6 +411,13 @@ test("flashing: at most 3 flashes a second over a large area", async () => {
   assert.equal(finding.fix.kind, "hint");
   assert.match(finding.required, /^at most 3 a second over \d+(\.\d)?%$/);
   await silent("flashing", blinking(0.3));
+  // Flat frames made by separate layers (each plate alone changes twice) are one run: four white
+  // frames 0.15 s apart are 8 changes in a second, although no one layer is over the rate.
+  const plates = (gap) => scene({ background: "#111111", layers: [0, 1, 2, 3].map((index) =>
+    rect(`plate-${index}`, { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", animations: [show(1 + index * gap), hide(1 + index * gap + 1 / 30)] })) });
+  const [run] = await fires("flashing", plates(0.15));
+  assert.match(run.itemId, /^plate-/);
+  await silent("flashing", plates(0.5));
 });
 
 test("flashing: particles that twinkle fast over a large area flash although their layer holds still", async () => {

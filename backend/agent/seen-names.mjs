@@ -25,7 +25,7 @@ const SEEN_AS = {
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],
   shake: ["shake", "impact-accent", "wiggle"], "camera shake": ["shake", "impact-accent", "wiggle"], handheld: ["shake"], jolt: ["shake", "impact-accent"], hit: ["impact-accent", "punch-in"],
   // A flash or wash of light over a shot is overexpose; over a plate or the frame, a gradient fill (layer-style) (GAPS: directors built flat rectangles).
-  flash: ["impact-accent", "flash", "overexpose", "layer-style"], strobe: ["impact-accent"], "white flash": ["overexpose", "flash", "impact-accent", "layer-style"],
+  flash: ["impact-accent", "flash", "overexpose", "layer-style"], strobe: ["impact-accent"], "white flash": ["overexpose", "flash", "impact-accent", "layer-style"], "flash frame": ["flash", "impact-accent"], "flat frame": ["flash"], "white frame": ["flash"], "one frame flash": ["flash"], "single frame flash": ["flash"],
   overexposed: ["overexpose"], overexposure: ["overexpose"], "burn out": ["overexpose"], "blown out": ["overexpose"], wash: ["overexpose", "layer-style"], "white out": ["overexpose"], exposure: ["overexpose", "color-grade"],
   "light wash": ["overexpose", "layer-style"], "color wash": ["overexpose", "layer-style", "light-leaks"], "gradient wash": ["layer-style", "overexpose"], gradient: ["layer-style", "scene-background"], "gradient fill": ["layer-style"],
   "light rays": ["light-rays"], "god rays": ["light-rays"], rays: ["light-rays"], beams: ["light-rays"],

@@ -617,7 +617,15 @@ const mostInOneSecond = (indexes, fps) => {
 export function flashCandidates(model) {
   const frame = model.width * model.height;
   const windows = [];
+  // Opacity changes of every big layer that is not a clip or a picture, merged: flat frames made by
+  // separate layers or moves (each alone under the rate) are one run when they are close together.
+  const merged = new Map();
   for (const item of model.items) {
+    if (!item.isMask && item.kind !== "group" && item.kind !== "video" && item.kind !== "image") {
+      const bigAt = (index) => item.samples.opacity[index] > 0.05 && area(boxAt(item, index)) * insideShare(model, boxAt(item, index)) >= FLASH_AREA * frame;
+      if (item.samples.opacity.some((_, index) => bigAt(index)))
+        for (const index of transitions(Array.from(item.samples.opacity, (value, at) => (bigAt(at) ? value : 0)))) if (!merged.has(index)) merged.set(index, item.id);
+    }
     if (item.isMask || item.kind === "group") continue;
     const big = (index) => item.samples.opacity[index] > 0.05 && area(boxAt(item, index)) * insideShare(model, boxAt(item, index)) >= FLASH_AREA * frame;
     if (!item.samples.opacity.some((_, index) => big(index))) continue;
@@ -638,6 +646,19 @@ export function flashCandidates(model) {
       if (mostInOneSecond(changes, model.fps) <= 2 * MAX_FLASHES) continue;
       windows.push({ from: Math.max(0, changes[0] - 1), to: Math.min(model.times.length - 1, changes.at(-1) + 1), itemId: item.id });
     }
+  }
+  // The merged run, added when it is over the rate and no window of one layer already covers it.
+  const changes = [...merged.keys()].sort((a, b) => a - b);
+  // Only the first second that holds more than 6 changes is scanned (the pixel scan judges it).
+  for (let first = 0; first + 2 * MAX_FLASHES < changes.length; first += 1) {
+    const last = first + 2 * MAX_FLASHES;
+    if (changes[last] - changes[first] >= model.fps) continue;
+    let end = last;
+    while (end + 1 < changes.length && changes[end + 1] - changes[first] < model.fps) end += 1;
+    const from = Math.max(0, changes[first] - 1);
+    const to = Math.min(model.times.length - 1, changes[end] + 1);
+    if (!windows.some((window) => window.from <= from && window.to >= to)) windows.push({ from, to, itemId: merged.get(changes[first]) });
+    break;
   }
   return windows;
 }
