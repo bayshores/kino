@@ -630,7 +630,7 @@ How to read it:
   `light`. Gaps: a flare cannot follow another layer; no HDR bloom.
 - **Cost**: 26 to 201 ms a 1080p MP4 frame.
 - **Lens flare streak, ghosts, softness**: Verified. One soft full-width line, no ghosts; ghosts 0
-  turns reflections off. Evidence: `engine/effects/light.test.js`. Proof by frames: none yet.
+  turns reflections off. Evidence: `engine/effects/light.test.js`, grade-bloom-flash study re-run (one call for 5 ops).
 - **Neon, cap and taper strokes**: Verified. One `strokes` entry draws a neon line or a tapered,
   round-capped line. Evidence: `engine/stackedStrokes.test.js`, streak-field study re-run. Gap: not in Lottie.
 - **Reduced motion**: Verified. Light bursts under 1 s are calmed in the live preview only.
@@ -638,8 +638,8 @@ How to read it:
 
 ### Particle overlays
 
-- **Streaks and variation**: Verified. `streaks` and `variation` spread depth per particle, so one
-  layer replaced five in the streak-field study. Evidence: `engine/effects/particles.test.js`.
+- **Streaks, variation and haze**: Verified. `streaks`, `variation` and `haze` spread depth per particle
+  and bloom where streaks cluster, so one layer replaced five in the streak-field study. Evidence: `engine/effects/particles.test.js`.
 - **Speed-lines fade**: Verified. Lines clear toward their tails. Evidence: `engine/effects/overlays.test.js`.
 - **Generators**: Verified. Nine deterministic particle effects, so scrub, play and export match;
   nine recipes. Evidence: `engine/effects/particles.test.js`, `backend/agent-particles.test.mjs`, golden
