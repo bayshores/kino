@@ -26,7 +26,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `update_layer {scene?, layer, properties}`
 - `update_layers {scene?, layers, properties}`
 - `delete_layer {scene?, layer}`
-- `duplicate_layers {layers, offset?:24, count?:1..50, layout?:line|grid|radial, spacing?:{x,y}, columns?, radius?, stagger?:s, at?:[s or "cue:x"], vary?:{key:[first,last] or one per place}}`
+- `duplicate_layers {layers, offset?:24, count?:1..50, layout?:line|grid|radial, spacing?:{x,y}, columns?, radius?, stagger?:s, at?:[s or "cue:x"], withMoves?:true, vary?:{key:[first,last] or one per place}}`
 - `convert_to_shape {scene?, layer}`
 - `outline_text {scene?, layer}`
 - `group_layers {scene?, layers, name?, groupId?}`
@@ -114,7 +114,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `fit_music {scene?, layer, payoff?, turn?, end?, plan?, drop?, recut?}`
 - `place_broll {scene?, speech, clips, lead?}`
 - `color_filter {scene?, layer | layers, filter, strength?}`
-- `keep_line {scene?, layer, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duck?, dip?, lift?, dropout?, wait?, even?}`
+- `keep_line {scene?, layer, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duck?, dip?, lift?, dropout?, wait?, even?, level?}`
 - `frame_shot {layer | layers}`
 - `place_sounds {scene?, at, under?}`
 - `match_color {scene?, layer | layers, to, at?}`
