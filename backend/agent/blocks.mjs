@@ -1751,8 +1751,15 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     catch (error) { throw Object.assign(problem(`compose {from:"board"} could not build the board: ${error.message} Fix that shot (edit board), then send compose {from:"board"} again.`), { noExample: true }); }
     const placed = [];
     const unplaced = [];
-    for (const { n, name, op, said } of built.moves) {
-      if (!op) { unplaced.push(`shot ${n} ${name}: library {topic:"op", name:"move"} for its fields`); continue; }
+    for (const { n, name, op, said, reason, call, layer, cue, dur, before } of built.moves) {
+      if (!op) {
+        // The reason and the one call that places it; a name that is no move op is a preset, a transition or a recipe.
+        const how = call ?? (PRESET_DEFINITIONS[name] ? `edit {ops:[{op:"add_animation",layer:"${layer}",preset:"${name}",start:${cue},duration:${dur}}]}`
+          : TRANSITION_NAMES.includes(name) ? (before ? `edit {ops:[{op:"recipe",name:"${name}",out:"${before}",in:"${layer}"}]}` : `give shot ${n} move {none:"cut"} (edit board): a transition joins the shot before it`)
+            : `library {topic:"moves", name:"${name}"} for its fields`);
+        unplaced.push(`shot ${n} ${name}: ${reason ?? "no move op of that name"}: ${how}`);
+        continue;
+      }
       // A move compose filled in itself says what it chose and the op that changes it.
       try { next = await runOps(next, [{ ...op, ...where }]); placed.push(said ? `${name} (shot ${n}: ${said}; ${JSON.stringify(op)} changes it)` : `${name} (shot ${n})`); }
       catch (error) { unplaced.push(`shot ${n} ${name}: ${String(error.message).slice(0, 120)} edit {ops:[${JSON.stringify(op)}]}`); }
@@ -2888,7 +2895,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       if (!FOLLOW.includes(shot.follow)) add("bad_shot", `shot ${n} is a video: follow is steady, track or sweep.`);
     }
     if (footage.file?.kind === "image" && shot.in !== NONE) add("bad_shot", `shot ${n} is a picture: in is "none".`);
-    if (footage.file && shot.crop === NONE) add("bad_shot", `shot ${n} shows ${footage.file.name}, so crop is [x, y, w, h] in % of the source, or "whole" when it shows whole.`);
+    if (footage.file && shot.crop === NONE) add("bad_shot", `shot ${n} shows ${footage.file.name}, so crop "none" is not accepted: send crop "whole" (no crop, the whole frame of the file shows), or [x, y, w, h] in % of the source.`);
     Object.assign(result, footage.fields, { follow: shot.follow });
     result.text = await boardText(document, scene, shot.text, `shot ${n}`, { add, work, type, footage: { file: footage.file, crop: result.crop, in: result.in } });
     result.sound = boardSound(shot.sound, `shot ${n}`, { media, add, shot, speed, video: footage.file?.kind === "video" });

@@ -198,6 +198,13 @@ function saidBy(current, sentAsks, sentNone, entries, extra) {
 
 // The refusal for a quote the person did not say, with the closest sentence they did.
 function notSaid(where, quote, said) {
+  const refused = notSaidAbout(where, quote, said);
+  if (where !== "treatments.quote") return refused;
+  // A pick has no by: its fix is the agent's own pick (pick, why), or their "your call" recorded as an answer.
+  const fix = ` For a pick, by:"guessed" is not a field (a pick takes pick, quote and why): send your own pick {pick:"A", why:"<why a viewer would retell it, 1 to 80 characters>"}. If they said "your call", record it first: notes {action:"answer", id:"treatments", words:"<their words>", read_as:"your call"}.`;
+  return { ...refused, message: refused.message + fix };
+}
+function notSaidAbout(where, quote, said) {
   // Found only in a log reply: the fix comes first, as agents cut long lines.
   if (said.logged?.length && isSaid(quote, said.logged)) {
     const line = where.replace(/\.quote$/, "");
@@ -1003,7 +1010,7 @@ function openParts(state, video) {
   if (needSignature) {
     // A source in words only (copy, a tagline) is offered the product's own picture instead:
     // video.picture, the project's largest screenshot or its clip (the service's directionFacts).
-    const source = !wordsOnly(entry.source) ? entry.source : video.picture ? `${video.picture}, <the moment>` : `<${words.material}, and the moment>`;
+    const source = !wordsOnly(entry.source) ? entry.source : video.picture ? `${shortName(video.picture)}, <the moment>` : `<${words.material}, and the moment>`;
     const beat = beatIn(-1);
     if (!style.idea) fields.idea = entry.idea;
     fields.signatures = [{ beat: beat >= 0 ? beat : "<index of its spine beat>", what: entry.move, source, why: `<why ${words.only}>` }];
@@ -1017,6 +1024,18 @@ function openParts(state, video) {
   const onDrop = drop > 0 ? ` (the payoff on the song's drop at ${Math.round(drop * 10) / 10} s)` : "";
   const step = !needSignature ? `add the spine's ${missing.join(", ").replace(/, (\w+)$/, " and $1")} (notes brief style.spine)${onDrop}` : spine ? `save the signature and spine${onDrop}` : "save the signature";
   return [...open, { step, call: briefCall({ style: fields }) }];
+}
+
+// A file name in a signature source (at most STYLE_LIMITS.short, 80): the offered text keeps 30
+// characters free for the moment, so the name is cut at a word (space, dash, underscore or dot)
+// with "..." when it is longer than the rest.
+const SOURCE_ROOM = STYLE_LIMITS.short - ", <the moment>".length - 30;
+function shortName(name) {
+  const text = String(name).replace(/\s+/g, " ").trim();
+  if (text.length <= SOURCE_ROOM) return text;
+  const cut = text.slice(0, SOURCE_ROOM - 3);
+  const at = cut.search(/[\s._-][^\s._-]*$/);
+  return `${(at > SOURCE_ROOM / 2 ? cut.slice(0, at) : cut).trimEnd()}...`;
 }
 
 // The beats the build waits for: what the story is about, where it flips, what it pays off.

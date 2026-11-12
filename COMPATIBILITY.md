@@ -1826,6 +1826,14 @@ How to read it:
   whole word, keeps its stretch and says its length. Evidence: `backend/agent-brief.test.mjs`,
   `backend/agent-answers.test.mjs`, `backend/agent-checkpoint.test.mjs`, `backend/inspire.test.mjs`.
   Gap: no real agent session measured since; read_as has no your_call value.
+- **Next lines as written, refusals that name the problem, "your call"**: Test-verified, no network.
+  The brief, treatment, board and needs `next` lines run as sent; a signature source is cut at a word
+  to 80 characters; a seen label with strip times, crop "none" and move kind "cut" are refused with the
+  accepted form; `read_as: "your call"` on the treatment pick or board stop records the decisions now the
+  agent's with no quote and is never `too_fast`; a needs item with `file` is not asked when the library
+  already holds it and names the import that matched (no content hash is kept); compose from board
+  prints each unplaced move's reason and the call that places it. Evidence: `backend/agent-brief.test.mjs`,
+  `backend/agent-board.test.mjs`, `backend/agent-answers.test.mjs`. Gap: not run on a live agent.
 
 ## Dashboard
 

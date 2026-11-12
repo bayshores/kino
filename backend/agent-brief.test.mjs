@@ -1304,13 +1304,33 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   assert.equal((await brief(id, { fields: { treatments: treatments.map((entry) => ({ ...entry, p: String(entry.p) })) } })).isError, undefined);
   // Under "just start" the pick is the agent's own, and says why.
   await refused("pick a treatment, with why", { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } });
+  // "Your call" from the person on the pick: no quote asked or invented, the answer says it is the agent's, and it is never too_fast.
+  const yours = await agent("notes", { project: id, action: "answer", id: "treatments", words: "Your call, pick whichever you like.", read_as: "your call" });
+  assert.equal(yours.isError, undefined, yours.text);
+  assert.deepEqual([yours.data.status, yours.data.open], ["your_call", ["treatment pick"]]);
+  assert.deepEqual(nextCallOf(yours), { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } });
+  // An invented quote on the pick is refused, and the refusal names the fix: the agent's own pick, or their "your call" as an answer.
+  const invented = await brief(id, { fields: { treatments: { pick: "A", why: "the sound is what a skater retells", quote: "pick the wheels one, it is the best" } } });
+  assert.equal(invented.data.error, "quote_not_said", invented.text);
+  assert.match(invented.data.reason, /send your own pick \{pick:"A", why:.*read_as:"your call"\}\.$/, invented.data.reason);
+  const notYours = await agent("notes", { project: id, action: "answer", id: "treatments", words: "the kickflip one", read_as: "your call" });
+  assert.equal(notYours.data.error, "bad_input", "words that do not say your call are not read as it");
   // The pick's idea becomes style.idea; its move is offered as the first signature.
   const picked = await brief(id, { fields: { treatments: { pick: "A", why: "the sound is what a skater retells" } } });
   assert.equal(picked.data.brief.style.idea, "the wheels' sound leads");
   assert.equal(picked.data.brief.style.type, "type 4, cut on", "the pick saves its type into the style spec");
   // The service drafts its needs call from the saved pick (the same state the needs gates read).
-  assert.equal(nextCallOf(await agent("notes", { project: id, action: "needs" })).input.items[0].what, "footage of a viewer");
-  const offer = await refused("save the signature and spine");
+  const needsNext = nextCallOf(await agent("notes", { project: id, action: "needs" }));
+  assert.equal(needsNext.input.items[0].what, "footage of a viewer");
+  // Kino's own needs line, sent as written, is refused only for its <slot>, which it names; with the slot filled in words, the rest is accepted unchanged.
+  const unfilled = await agent(needsNext.tool, { project: id, ...needsNext.input });
+  assert.equal(unfilled.data.slot, "items[0].options[0].do", unfilled.text);
+  assert.match(unfilled.data.reason, /a slot in kino's next call: replace it with your own words and send the call again\. Nothing was saved\.$/);
+  const filled = JSON.parse(JSON.stringify(needsNext.input).replace(/<([^<>"]+)>/g, "$1"));
+  const needsSent = await agent(needsNext.tool, { project: id, ...filled });
+  assert.equal(needsSent.isError, undefined, needsSent.text);
+  assert.match(needsSent.text, /^needs saved: M1/);
+  assert.deepEqual(filled.items[0].options.map((option) => option.recommended === true), needsNext.input.items[0].options.map((option) => option.recommended === true), "only its slots were filled");  const offer = await refused("save the signature and spine");
   assert.deepEqual(offer.input.fields.style.signatures[0].what, "move 4");
   // The same call drafts the spine from the pick, so it keeps the pick's story: the hook opens on
   // its who, the problem is its tension, the turn its turn and the end its ending.
@@ -1323,6 +1343,11 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   assert.deepEqual(["the tagline", "the founder's voice memo", "app.png"].map(wordsOnly), [true, false, false]);
   const state = { brief: (await savedState(id)).brief };
   assert.equal(orderStep(state, { seconds: 24, treatmentsWaived: false, picture: "inbox.png" }).call.input.fields.style.signatures[0].source, "inbox.png, <the moment>");
+  // A long file name is cut at a word so the offered signature source fits the 80 characters it is saved under.
+  const longName = "Screen Recording 2026-11-03 at 4.52.17 PM of the whole skate crew clip final.mov";
+  const offered = orderStep(state, { seconds: 24, treatmentsWaived: false, picture: longName }).call.input.fields.style.signatures[0].source;
+  assert.ok(offered.length <= 80 && offered.endsWith("..., <the moment>"), `${offered.length}: ${offered}`);
+  assert.ok(longName.startsWith(offered.replace("..., <the moment>", "")), "a cut of the name, never a rewrite");
   // The beats are timed over the brief's length, not create's 5 s default scene.
   const timed = orderStep({ ...state, defaultLength: 5, brief: { ...state.brief, length: { seconds: 30 } } }, { seconds: 5, treatmentsWaived: false }).call.input.fields.style.spine;
   assert.deepEqual([timed[4].role, timed[4].from, timed[4].to], ["payoff", 21, 27]);
@@ -1405,7 +1430,7 @@ test("the order labels what each studied reference shows on screen (seen) before
   // The strip is at 1 s: every sixth of the 9 s points to it, so there is one moment. 5 s is off the list.
   const off = await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @5 overlay: smoke over the face" });
   assert.equal(off.data.error, "bad_input");
-  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s, and any kind at a strip time a look of this reference printed\)/);
+  assert.match(off.data.reason, /^seen needs a saved reference, a time from its on-screen list and kinds: library \{topic:"inspire", name:"seen yt:X @1\.8 overlay, made: green outline traced on the figure"\}\. \(5 s is not one of its moments \(1\); kind type may be at any time from 0 to 9 s, and any kind at a strip time a look of this reference printed; strip times a look of yt:kinoSeen001 printed: 1\)/);
   assert.match((await agent("library", { project: id, topic: "inspire", name: "seen yt:kinoSeen001 @1 glitter: smoke" })).data.reason, /kinds are type, overlay/);
   // A line that does not parse names the part that broke it (it was refused with no reason before).
   const faulty = async (name) => (await agent("library", { project: id, topic: "inspire", name })).data.reason;

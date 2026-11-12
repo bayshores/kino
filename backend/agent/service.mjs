@@ -15,7 +15,7 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
 import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/animation.js";
-import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
+import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems, splitImported } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { addCandidates, createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, isFoundClip, markPlaces, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
 import { elsewhereLine, knownEdits, withStudies } from "../footage-finder/search.mjs";
@@ -5148,14 +5148,19 @@ export function createAgentService(deps) {
     if (input.id === undefined) {
       let items;
       try { items = parseNeedItems(input.items); } catch (error) { throw Object.assign(new AgentError("bad_input", error.message), { nextCall: needsAskCall() }); }
+      // A clip already in the media library is not asked for: file on an item names it (name, src or source address).
+      const library = ((await deps.listMedia?.().catch(() => [])) ?? []).filter((item) => mediaAllowedIn(item, projectId));
+      const { ask: toAsk, have } = splitImported(items, library);
+      const imported = have.map((item) => `${item.what}: already imported as ${item.name} (${item.src}), matched by ${item.how}, so not asked`);
       let added;
-      try { added = await agentState.update(projectId, (draft) => addNeeds(draft.needs ??= emptyNeeds(), items, { rev: record.revision, at })); }
+      try { added = await agentState.update(projectId, (draft) => (!toAsk.length && have.length && openNeeds(draft.needs).length ? [] : addNeeds(draft.needs ??= emptyNeeds(), toAsk, { rev: record.revision, at }))); }
       catch (error) { throw new AgentError("bad_input", error.message); }
-      const text = added.length
+      const text = [added.length
         ? [`needs saved: ${added.map((need) => need.id).join(", ")}. Ask the person each question with its options now (they may not have it); save their answer with by:"you" and quote. A final render waits until each is answered and done.`,
           ...added.flatMap((need) => [`${need.id}: ${need.ask}`, ...optionLines(need)])].join("\n")
-        : `material checked at rev ${record.revision}: enough. Ask later if the story shows a gap.`;
-      return done(projectId, { text, nextCall: added.length ? needNextCall(added[0]) : null, data: { added } });
+        : have.length ? "nothing left to ask the person."
+          : `material checked at rev ${record.revision}: enough. Ask later if the story shows a gap.`, ...imported].join("\n");
+      return done(projectId, { text, nextCall: added.length ? needNextCall(added[0]) : null, data: { added, imported: have } });
     }
     let need;
     try {
@@ -8326,7 +8331,11 @@ export function createAgentService(deps) {
       const strip = moment === undefined && status?.moments?.length && shownTimes.some((shown) => Math.abs(shown - at) < 0.01);
       let done;
       try { done = await deps.inspire.setSeen(projectId, id, { at: Number(parts[2]), kinds: parts[3].toLowerCase().split(/[\s,;+&/]+/).filter(Boolean), words: parts[4], ...(strip ? { strip: true } : {}) }); }
-      catch (error) { throw refuse(error.message); }
+      catch (error) {
+        // A time that is neither a moment nor a strip a look printed: say which strip times this reference has shown.
+        const listed = /is not one of its moments/.test(error.message) ? `; strip times a look of ${id} printed: ${shownTimes.length ? shownTimes.join(", ") : `none yet, look {mode:"reference", ref:"${id}"} prints them`}` : "";
+        throw refuse(`${error.message}${listed}`);
+      }
       const counts = {};
       for (const entry of done.seen) for (const kind of entry.kinds) counts[kind] = (counts[kind] ?? 0) + 1;
       const tally = Object.entries(counts).map(([kind, n]) => `${kind} ${n}`).join(", ");

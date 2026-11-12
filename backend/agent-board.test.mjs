@@ -442,6 +442,13 @@ test("kino checks the shots against the video, the files and the fonts: overlap,
   assert.equal(refused.data.boardError, "bad_shot", refused.text);
   assert.match(refused.data.reason, /shot 1 move\.ref is "<reference key>@<seconds>".* No reference is saved in this project: save one with library \{topic:"inspire", name:"save yt:<id> as <key>", take:"<what this edit takes from it>"\}.* Also: shot 2 move\.ref is "<reference key>@<seconds>", the reference moment it copies \(e\.g\. "app-trailer@3\.2"\)\.$/);
   assertRefused(await editBoard("board-checks", [motion(0, 4.417, { crop: [0, 0, 50, 50] })]), "bad_shot", 'shot 1 has no media, so in, crop, subject and follow are "none".');
+  // A footage shot's crop "none" and a move kind "cut" are refused with the form kino accepts.
+  const noCrop = await editBoard("board-checks", [footage(0, 4.417, 0, 30, { crop: "none" })]);
+  assert.equal(noCrop.data.boardError, "bad_shot", noCrop.text);
+  assert.match(noCrop.data.reason, /so crop "none" is not accepted: send crop "whole" \(no crop, the whole frame of the file shows\), or \[x, y, w, h\] in % of the source/, noCrop.data.reason);
+  const cutKind = await editBoard("board-checks", [footage(0, 4.417, 0, 30, { move: { kind: "cut", name: "cut", ref: "phone-film@7.27" } })]);
+  assert.equal(cutKind.data.boardError, "bad_shot", cutKind.text);
+  assert.match(cutKind.data.reason, /kind "cut" is a plain cut, not a designed move: send move \{none:"cut"\}/, cutKind.data.reason);
   assertRefused(await editBoard("board-checks", [motion(undefined, 4.417)]), "bad_shot", "shot 1 has no cue: its start in seconds.");
   assertRefused(await editBoard("board-checks", [motion(0, 4.417, { why: "" })]), "bad_shot", "shot 1 has no why: one line on why this shot.");
   // Every field over its limit at once, by name, length and limit.
@@ -567,7 +574,7 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   const decide = 'decide each, write your decisions in calls and empty open (edit board), then ask again: notes checkpoint {id:"board", fresh}.';
   const left = await checkpoint(id, { words: "Your call on both." });
   assert.deepEqual(left.data, { status: "your_call", open: OPEN, next: decide }, left.text);
-  assert.equal(withoutNext(left.text), `recorded: they left 2 open items to you ("your call").\nstep: ${decide}`);
+  assert.equal(withoutNext(left.text), `recorded: they left 2 open items to you ("your call"): 1. ${OPEN[0]} · 2. ${OPEN[1]}\nstep: ${decide}`);
   let state = await savedState(id);
   const { q, a, kind } = state.brief.log.at(-1);
   assert.deepEqual({ q, a, kind }, { q: `Open: ${OPEN.join(" · ")}`, a: "Your call on both.", kind: "question" }, "their words are logged word for word");
@@ -664,6 +671,20 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   assert.deepEqual(reverted.data.board, { rev: 3, approval: "C2", lapsed: ["shot 4 text changed"], next: LAPSE_NEXT("C2") });
   assert.deepEqual(await statusLines(id), ["direction: C2 board lapsed · replies 3/10", "step: ask board again (changed shots)"]);
   assert.deepEqual((await savedState(id)).boards[1].copy, state.boards[1].copy, "the revert leaves the copy alone");
+});
+
+test("their \"your call\" through notes answer leaves the board's open items to the agent: no quote, no too_fast, and the decisions now the agent's are listed", { skip, timeout: 60_000 }, async () => {
+  const id = "board-your-call";
+  await stopProject(id);
+  assert.equal((await editBoard(id, STOP_SHOTS(), { open: OPEN })).isError, undefined);
+  const decide = 'decide each, write your decisions in calls and empty open (edit board), then ask again: notes checkpoint {id:"board", fresh}.';
+  const said = await answer(id, { id: "board", words: "Your call on both.", read_as: "your call" });
+  assert.deepEqual(said.data, { status: "your_call", open: OPEN, next: decide }, said.text);
+  assert.match(said.text, /^recorded: they left 2 open items to you \("your call"\): 1\. Which ending: the dragon or the title\? · 2\. Music, or the village sound\?\nstep: decide each/);
+  // Again at once is not too_fast: nothing is approved by it. Words that do not say it are not read as it.
+  assert.equal((await answer(id, { id: "board", words: "Your call on both.", read_as: "your call" })).data.status, "your_call");
+  const notSaid = await answer(id, { id: "board", words: "end on the dragon", read_as: "your call" });
+  assert.equal(notSaid.data.error, "bad_input", notSaid.text);
 });
 
 test("after the approval, next: is compose {from:\"board\"}: it builds the shots in board order, and a footage compose refusal offers it, never an unrelated promo", { skip, timeout: 60_000 }, async () => {
@@ -782,7 +803,26 @@ test("a board move named slow-push is a push; compose places a camera push towar
   assert.ok(Math.abs((width * 1920) / (height * 1080) - 1080 / 1920) < 0.001, `the end rect has the frame's shape (${width} x ${height})`);
 });
 
-test("compose from a board keeps the shot before under a shot's move fade: the receipt names the Hide it moved and check shows no bare background", { skip, timeout: 60_000 }, async () => {
+test("compose from a board says, for each move it did not place, why and the one call that places it", { skip, timeout: 60_000 }, async () => {
+  const id = "board-unplaced";
+  await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [videoLayer()] });
+  const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [60, 30, 20, 40] } };
+  const saved = await editBoard(id, [
+    footage(0, 2, 0, 0, { ...whole, move: { kind: "transition", name: "whip-pan", ref: "phone-film@7.27" } }),
+    footage(2, 2.417, 2, 0, { ...whole, move: { kind: "camera", name: "slow-push", ref: "phone-film@7.27" } }),
+  ]);
+  assert.equal(saved.isError, undefined, saved.text);
+  const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(built.isError, undefined, built.text);
+  const not = built.data.notes.find((note) => note.startsWith("move not placed: "));
+  assert.equal(not, 'move not placed: shot 1 whip-pan: whip-pan joins the shot before it, and shot 1 has none: put it on a later shot, or give shot 1 move {none:"cut"} (edit board)');
+  // The unit: a name that is no move op says so and the lookup that gives its fields; a placed move has no reason.
+  const shot = (cue, move) => ({ cue, dur: 2, media: "/m.mp4", in: 0, crop: [0, 0, 100, 100], text: "none", move });
+  const probe = boardBuildOps({ music: "none", shots: [shot(0, { kind: "camera", name: "dolly-x" }), shot(2, { kind: "transition", name: "whip-pan" })] }, { width: 1920, height: 1080, duration: 4 }, () => ({ width: 1920, height: 1080, duration: 5, kind: "video" }));
+  assert.deepEqual([probe.moves[0].reason, probe.moves[0].call, probe.moves[1].op.name, probe.moves[1].reason], ['"dolly-x" is not a move op', null, "whip-pan", undefined]);
+});
+
+test("compose from a board keeps the shot before under a shot's move fade:the receipt names the Hide it moved and check shows no bare background", { skip, timeout: 60_000 }, async () => {
   const id = "board-join";
   await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [videoLayer()] });
   const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [60, 30, 20, 40] } };

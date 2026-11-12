@@ -60,7 +60,7 @@ export const whoKey = (who) => String(who ?? "").trim().toLowerCase().replace(/^
 export function treatmentsProblem(value, current, origin = null, asks = []) {
   if (isRecord(value) && value.pick !== undefined) {
     const extra = Object.keys(value).filter((key) => !["pick", "quote", "why"].includes(key));
-    if (extra.length) return problem(`A pick takes pick, quote and why, not ${extra.join(", ")}.`);
+    if (extra.length) return problem(`A pick takes pick, quote and why, not ${extra.join(", ")}.${extra.includes("by") ? ' Your own pick is {pick, why} (it is the agent\'s by having no quote); theirs is {pick, quote}.' : ""}`);
     if (!current?.list) return problem("Save the 5 treatments first, then the pick.");
     const known = knownDropped(current, origin, asks);
     if (!LABELS.includes(value.pick) && !(known && value.pick === KNOWN_LABEL))

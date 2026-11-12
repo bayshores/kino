@@ -51,8 +51,43 @@ export function parseNeedItems(items) {
     if (parsed.filter((option) => option.recommended).length !== 1) throw new Error(`${at}.options marks exactly one recommended:true: the one you would pick.`);
     const from = item?.from == null ? null : String(item.from);
     if (from && !NEED_FROM.includes(from)) throw new Error(`${at}.from is "you", "agent" or "music" (optional).`);
-    return { what: words(item?.what, `${at}.what`, NEED_LIMITS.what), why: words(item?.why, `${at}.why`, NEED_LIMITS.why), ask, options: parsed, ...(from ? { from } : {}) };
+    // file: the clip this need is about, if the project may already have it (its name, src or source address).
+    const file = item?.file == null ? null : words(item.file, `${at}.file`, [1, 300]);
+    return { what: words(item?.what, `${at}.what`, NEED_LIMITS.what), why: words(item?.why, `${at}.why`, NEED_LIMITS.why), ask, options: parsed, ...(from ? { from } : {}), ...(file ? { file } : {}) };
   });
+}
+
+// A name, src or address to compare: lowercase, no scheme or "www.", no "/api/media/" folder.
+const sameKey = (value) => String(value ?? "").trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/^\/api\/media\//, "");
+
+/**
+ * The library item a need's `file` names, as {src, name, how}, or null. `media` is the library
+ * list. Matched by src or id, by the address it was fetched from (credit.page, credit.id), or by
+ * its name; `how` says which. The library keeps no content hash, so a renamed copy of the same
+ * bytes is not matched.
+ */
+export function importedAs(media, file) {
+  const want = sameKey(file);
+  if (!want) return null;
+  const tests = [["src", (item) => item.src ?? (item.id ? `/api/media/${item.id}` : null)], ["id", (item) => item.id], ["source address", (item) => item.credit?.page], ["source id", (item) => item.credit?.id], ["name", (item) => item.name]];
+  for (const [how, read] of tests) {
+    const found = (media ?? []).find((item) => typeof read(item) === "string" && sameKey(read(item)) === want);
+    if (found) return { src: found.src ?? `/api/media/${found.id}`, name: found.name ?? found.id, how };
+  }
+  return null;
+}
+
+/** Splits parsed need items into those still to ask and those the library already holds. */
+export function splitImported(items, media) {
+  const ask = [];
+  const have = [];
+  for (const item of items) {
+    const { file, ...need } = item;
+    const found = file ? importedAs(media, file) : null;
+    if (found) have.push({ what: need.what, ...found });
+    else ask.push(need);
+  }
+  return { ask, have };
 }
 
 /**

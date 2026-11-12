@@ -553,12 +553,7 @@ function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, wor
   // Each "ask again" names fresh: the round kino makes then is the one the person sees, and an
   // ask without it says "Fresh-eyes check: not reported" on the video's first storyboard ask.
   const decide = 'decide each, write your decisions in calls and empty open (edit board), then ask again: notes checkpoint {id:"board", fresh}.';
-  if (open.length && theirs && leavesItToYou(theirs)) {
-    applyBrief(draft, { lines: [], log: [{ q: `Open: ${open.join(" · ")}`.slice(0, 300), a: theirs, kind: "question" }], noPlayback: null }, { now, client });
-    draft.leftToAgent = { open, words: theirs, at };
-    return { text: [`recorded: they left ${plural(open.length, "open item")} to you ("your call").`, `step: ${decide}`].join("\n"),
-      data: { status: "your_call", open, next: decide }, nextCall: { tool: "library", input: { topic: "op", name: "board" } } };
-  }
+  if (open.length && theirs && leavesItToYou(theirs)) return leftToAgent(draft, open, theirs, { now, client });
   if (open.length) {
     const left = JSON.stringify(draft.leftToAgent?.open) === JSON.stringify(open);
     const message = left ? `They left these to you ("your call"): ${decide}`
@@ -589,6 +584,43 @@ function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, wor
   draft.nextStop += 1;
   draft.stops.push(round);
   return boardWaiting(draft, round, facts, { all, soundFiles, soundSearch, video });
+}
+
+// "your call" on the board's open items: the person's words are a reply (counted), the agent
+// decides each open item, and the answer lists them. Not a stop that passes, so no too_fast.
+const DECIDE_BOARD = 'decide each, write your decisions in calls and empty open (edit board), then ask again: notes checkpoint {id:"board", fresh}.';
+function leftToAgent(draft, open, theirs, { now, client }) {
+  const at = new Date(now).toISOString();
+  applyBrief(draft, { lines: [], log: [{ q: `Open: ${open.join(" · ")}`.slice(0, 300), a: theirs, kind: "question" }], noPlayback: null }, { now, client });
+  draft.leftToAgent = { open, words: theirs, at };
+  const items = open.map((item, index) => `${index + 1}. ${item}`).join(" · ");
+  return { text: [`recorded: they left ${plural(open.length, "open item")} to you ("your call"): ${items}`, `step: ${DECIDE_BOARD}`].join("\n"),
+    data: { status: "your_call", open, next: DECIDE_BOARD }, nextCall: { tool: "library", input: { topic: "op", name: "board" } } };
+}
+
+// The treatment pick left to the agent ("your call" through notes answer): their words are a
+// reply (counted); the pick is the agent's own, with why, so no quote is asked for.
+function pickToAgent(draft, theirs, { now, client }) {
+  applyBrief(draft, { lines: [], log: [{ q: "Which treatment (A, B or C)?", a: theirs, kind: "question" }], noPlayback: null }, { now, client });
+  const next = 'pick one yourself and say why a viewer would retell it (1 to 80 characters): notes brief fields.treatments {pick:"A", why}.';
+  return { text: ['recorded: they left the treatment pick to you ("your call").', `step: ${next}`].join("\n"),
+    data: { status: "your_call", open: ["treatment pick"], next }, nextCall: { tool: "notes", input: { action: "brief", fields: { treatments: { pick: "<A, B or C>", why: "<why a viewer would retell it>" } } } } };
+}
+
+// notes answer with read_as "your call": the open items of the board, or the treatment pick,
+// become the agent's. A stop that waits for an approval is not left this way (it needs approve).
+function yourCallAnswer(draft, input, { board, now, client }) {
+  const asked = String(input.id ?? "").trim().toLowerCase();
+  const theirs = typeof input.words === "string" ? input.words.trim() : "";
+  if (!theirs || theirs.length > WORDS_LIMIT) throw new StopError("bad_input", `words is the person's reply, word for word (1-${WORDS_LIMIT} characters).`);
+  if (!leavesItToYou(theirs)) throw new StopError("bad_input", `Their words do not say "your call": read them as approve, approve with notes or redo, or record what they said.`);
+  if (["treatments", "treatment", "pick"].includes(asked)) {
+    if (!draft.brief?.treatments?.list) throw new StopError("bad_input", "Save the 5 treatments first (notes brief fields.treatments), then the pick.");
+    return pickToAgent(draft, theirs, { now, client });
+  }
+  const open = board?.board?.open ?? [];
+  if (asked === "board" && open.length) return leftToAgent(draft, open, theirs, { now, client });
+  throw new StopError("bad_input", `"your call" leaves the board's open items (${asked === "board" ? "this board has none" : 'id "board"'}) or the treatment pick (id "treatments") to you. A stop that waits for an approval passes on approve, approve with notes or redo: record their words with one of those.`);
 }
 
 // The video's facts for the shape line of a board ask: the service's video, with the board's frame when it has no size.
@@ -680,6 +712,8 @@ const readAsWords = (value) => (typeof value === "string" ? value.trim().toLower
 export function answerStep(draft, { input = {}, video = null, rules = DEFAULT_STOP_RULES, rev, work = null, now = Date.now(), client = null, waited: measured = null, board = null }) {
   const asked = String(input.id ?? "").trim();
   const stops = draft.stops ?? [];
+  // "your call": the person leaves the board's open items or the treatment pick to the agent.
+  if (readAsWords(input.read_as) === "your call") return yourCallAnswer(draft, input, { board, now, client });
   // The id (C1), or the stop's name as the docs write it (board): the one waiting, else the latest asked.
   const ofKind = stops.filter((entry) => entry.kind === asked.toLowerCase());
   const round = stops.find((entry) => entry.id.toLowerCase() === asked.toLowerCase()) ?? ofKind.findLast((entry) => entry.status === "waiting") ?? ofKind.at(-1);
