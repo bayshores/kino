@@ -928,10 +928,13 @@ How to read it:
 - **Speed and memory**: about 1.6 s per second of 1080p30; memory does not grow with length.
 - **Gaps**: not run on real footage or people; Safari VP9 alpha, HDR, variable frame rate and 4K
   memory not checked; the person engine needs macOS 12 in code but the helper is built for macOS 13.
-- **Text behind the subject**: Verified with the stand-in helper. `cut_out {behind:"<text>"}` moves
-  the text above the clip and the person cut-out above it; no person found leaves it in front with
-  `cutout.fallback`. Evidence: `backend/agent-cutout.test.mjs` ("refusals"). Gap: not yet run
-  with Apple Vision's person engine on real footage.
+- **Text behind the subject**: Verified with the stand-in helper and a fake engine. `cut_out
+  {behind:"<text>"}` moves the text above the clip and its cut-out above it; the engine follows the
+  clip's people scan (few people: subject engine; else person, then subject when it finds no one;
+  receipt `tried`); none found leaves it in front with `cutout.fallback`. Evidence:
+  `backend/agent-cutout.test.mjs`. Measured on 3 drawn clips (Apple Vision): subject in 43 of 53,
+  110 of 111 and 188 of 196 frames with the scan (main: none, 99 and 8). Gap: with no scan a
+  person pass that finds a partial figure in over half the frames is kept (99 of 111, patchy).
 - **Tracing a picture into vector shapes** (`trace_image {layer or media, region, colors:4}`): Verified. One flat-color
   path per region, largest first, background dropped (holes kept), in a named group later ops can use; look draws it.
   Evidence: `backend/agent-reach-geometry.test.mjs` ("trace_image"), `engine/svgImport.test.js` ("traceImage").

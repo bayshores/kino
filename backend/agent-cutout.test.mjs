@@ -382,7 +382,7 @@ test("cut_out refusals say what is wrong and what to send, and change nothing", 
   assert.deepEqual(order.slice(order.indexOf("clip"), order.indexOf("clip") + 3), ["clip", "words", "clip-subject"]);
   const front = await agent("edit", { project: "refusals", ops: [{ op: "cut_out", layer: "sky", behind: "words" }] });
   assert.equal(front.isError, undefined, front.text);
-  assert.match(front.data.cutout.fallback, /no person was found in "sky", so "words" stays in front/);
+  assert.match(front.data.cutout.fallback, /no person or subject was found in "sky", so "words" stays in front/);
   assert.deepEqual(names((await sceneLayers(server, "refusals")).layers), order);
 });
 
@@ -539,6 +539,45 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   assert.ok(under.animations.some((animation) => animation.effect === "glow"));
   assert.ok(!over.animations.some((animation) => animation.effect === "glow") && over.animations.some((animation) => animation.id === "push" || animation.to?.scaleX === 1.15));
   assert.match(reports.get(operation).note, /the glow on "clip" now sits behind the subject/);
+});
+
+test("behind picks the engine from the clip's people scan, and a person pass that finds no one tries the subject engine", async (t) => {
+  const { root, document } = await fakeOutline(t);
+  const scene = document.scenes[0];
+  scene.layers.push(createLayer("text", { id: "title", name: "title", text: "TITLE", x: 0, y: 0, width: 600, height: 200 }));
+  const clip = scene.layers[0], file = path.join(root, clip.src.split("/").pop());
+  const record = { id: `${randomUUID()}.webm`, kind: "video", mime: "video/webm", width: 64, height: 36, duration: 1 };
+  record.src = `/api/media/${record.id}`;
+  const started = [];
+  // The person engine finds no one (media.mjs throws CUTOUT_NO_SUBJECT); the subject engine makes a cut-out.
+  const cutoutMedia = { engines: async () => [],
+    start: ({ engine }) => { started.push(engine); return { progress: () => ({ fraction: 1, seconds: 0 }),
+      done: engine === "person" ? Promise.reject(Object.assign(new Error("no one"), { code: "CUTOUT_NO_SUBJECT" })) : Promise.resolve({ engine, frames: 30, empty: 0, seconds: 1, cached: false, record }) }; } };
+  const operation = () => ({ type: "cut_out", sceneId: "scene", layerId: "clip", output: "subject", cutoutId: "clip-cut", cutoutName: "clip-subject", referenceId: "title", behindText: true });
+  const run = async () => {
+    const reports = new Map(), op = operation();
+    const next = await runCutOut(document, op, { mediaRoot: root, cutoutMedia, reports, operationContext: async () => ({ mediaById: { [record.id]: record } }) });
+    return { receipt: reports.get(op), order: next.scenes[0].layers.map((layer) => layer.id) };
+  };
+  // No scan: person first, then the subject engine; the title ends between the clip and its cut-out.
+  const unscanned = await run();
+  assert.deepEqual(started, ["person", "subject"]);
+  assert.deepEqual(unscanned.receipt.tried, ["person", "subject"]);
+  assert.equal(unscanned.receipt.engine, "subject");
+  assert.match(unscanned.receipt.note, /person engine found no one in "clip".*behind used the subject engine \(one more pass/);
+  assert.deepEqual(unscanned.order.slice(0, 3), ["clip", "title", "clip-cut"]);
+  // A scan with no person in its samples: the subject engine alone.
+  started.length = 0;
+  await writeFile(`${file}.people-v1`, JSON.stringify({ version: 1, samples: [0, 1, 2, 3].map((t) => ({ t, faces: [], people: [] })) }));
+  const drawn = await run();
+  assert.deepEqual(started, ["subject"]);
+  assert.equal(drawn.receipt.tried, undefined);
+  assert.match(drawn.receipt.note, /behind used the subject engine: the people scan found a person or face in 0 of 4 samples of "clip"/);
+  // A scan with people in most samples keeps the person engine first.
+  started.length = 0;
+  await writeFile(`${file}.people-v1`, JSON.stringify({ version: 1, samples: [0, 1, 2].map((t) => ({ t, faces: [], people: [[0, 0, 1, 1]] })) }));
+  await run();
+  assert.equal(started[0], "person");
 });
 
 test("cut_out outline shows only while its clip is drawn: its Play window and Hide go on the line, and move when the clip is retimed", async (t) => {

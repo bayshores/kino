@@ -147,7 +147,7 @@ function applyAliases(operation, fixes) {
     operation.referenceId = operation.above;
     delete operation.above;
   }
-  // cut_out {behind}: the text that goes behind the person; the cut-out goes above it.
+  // cut_out {behind}: the text that goes behind the subject; the cut-out goes above it.
   if (operation.type === "cut_out" && operation.behind !== undefined && operation.referenceId === undefined) {
     operation.referenceId = operation.behind;
     operation.behindText = true;
@@ -1249,7 +1249,7 @@ function checkCutOut(operation, resolver) {
   if (operation.openEdges !== undefined && !(["fade", "keep", "extend"].includes(operation.openEdges) || (typeof operation.openEdges === "number" && operation.openEdges >= 0 && operation.openEdges <= 400)))
     throw new Error(`openEdges must be "extend" (a subject's default: it reaches the frame's edge where the clip cuts it), "fade" (a silhouette's or matte's default: it fades out there, so a glow skips that edge), "keep" or a fade width from 0 to 400 pixels, not ${JSON.stringify(operation.openEdges)}.`);
   if (typeof operation.layerId !== "string") throw new Error("cut_out needs layer: the video or image layer whose subject to cut out.");
-  if (operation.behindText && (operation.output ?? "subject") !== "subject") throw new Error('behind puts a layer behind the person, so it takes output "subject" (the default).');
+  if (operation.behindText && (operation.output ?? "subject") !== "subject") throw new Error('behind puts a layer behind the subject, so it takes output "subject" (the default).');
   const output = operation.output ?? "subject";
   if (!CUTOUT_OUTPUTS.includes(output))
     throw Object.assign(new Error(`output must be ${CUTOUT_OUTPUTS.map((name) => `"${name}"`).join(", ")}, not ${JSON.stringify(operation.output)}.`), { suggestions: closest(String(operation.output), CUTOUT_OUTPUTS) });
