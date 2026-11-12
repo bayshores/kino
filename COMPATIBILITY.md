@@ -155,6 +155,7 @@ How to read it:
 - **Waivers, assertions, auto-fix, final-render gate**: Verified. `waive_check`, scene `assertions` and
   `check {fix:"auto"}` work, and a final render is refused while errors remain. Evidence:
   `backend/quality-broken-scenes.test.mjs` (12 broken copies all caught, through the agent service).
+- **Blocks shown early**: Verified (tests). Status, edit receipts and check count the warnings a final render would stop on ("2 warn stop a final render (text_glow x2)", by `blocksFinal`); auto fixes that would raise one are dropped and named; the contrast halo hint no longer trips text_glow; a speech_cut start fix names the words it delays; a second waiver of one code on one target keeps the first (`detail`; reference_range reads its rows); `delete_animation` by code names what the code was. Evidence: `backend/agent-core.test.mjs`, `engine/qualityPolish.test.js`, `engine/qualityRules.test.js`, `engine/operations.test.js`.
 - **Weak-agent finish loop**: Partly verified. One `check {fix:"auto"}` loops up to 3 rounds
   (`engine/qualityRules.test.js`, `backend/agent-polish-fix.test.mjs`, `backend/agent-overlap-fade-fix.test.mjs`).
   The hand-run `tests/weak-agent-script.mjs` passes 10 of 13 cases; clip-02 and explainer-04 keep

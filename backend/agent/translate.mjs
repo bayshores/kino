@@ -727,7 +727,10 @@ function translateOne(raw, resolver, document) {
     checkMediaSource(operation, resolver, document);
     operation = normalizeValues(operation, resolver.fixes);
     resolveReferences(operation, type, resolver, document);
-    if (type === "delete_animation") paired = pairedNote(operation, resolver);
+    if (type === "delete_animation") {
+      paired = pairedNote(operation, resolver);
+      deletedCodeNote(raw, operation, resolver);
+    }
     if (type === "delete_layer") moveLeftNote(operation, resolver);
     checkStepsCount(operation, type, document);
     if (type === "add_animation") effectEndDefault(operation, resolver);
@@ -803,6 +806,17 @@ function pairedNote(operation, resolver) {
     ? `delete_animation ${operation.animationId}: pair:true also took ${list}, made by the same move on ${layer}`
     : `delete_animation ${operation.animationId}: ${list}, made by the same move, ${partners.length === 1 ? "stays" : "stay"} on ${layer}; {op:"delete_animation", animation:"${operation.animationId}", pair:true} takes ${partners.length === 1 ? "it" : "them"} too`);
   return partners;
+}
+
+// delete_animation by a code (A83): the receipt names what that code was, so a wrong code is seen
+// at once (the animation, its kind and its layer), before the next edit leans on the deletion.
+function deletedCodeNote(raw, operation, resolver) {
+  const given = raw.animation ?? raw.animationId;
+  if (typeof given !== "string" || !/^A\d+$/i.test(given)) return;
+  const entry = resolver.objects.animations.find((item) => item.id === operation.animationId);
+  if (!entry?.animation) return;
+  const label = entry.animation.name ?? entry.animation.kind ?? "animation";
+  resolver.notes.push(`delete_animation ${given.toUpperCase()}: took ${label} (${entry.animation.kind}) at ${entry.animation.start ?? 0} s on ${entry.layer?.name || entry.layer?.id || "its layer"}`);
 }
 
 // delete_layer of a move's own layer (a flash's plate) whose move made nothing else left in the
@@ -1063,6 +1077,10 @@ function resolveReferences(operation, type, resolver, document) {
     operation.reason = `${String(operation.reason ?? "").trim() || "the person asked for it plain"} (the person: "${quote.slice(0, 200)}")`;
   }
   if (type === "waive_check") delete operation.quote;
+  // A second waiver of the same code on the same target keeps the first when it says what it is about:
+  // reference_range takes the rows its reason names, any other code takes the agent's own `detail` word.
+  if (type === "waive_check" && operation.code === "reference_range") operation.detail = rangeRowsOf(operation.reason).join("+");
+  else if (type === "waive_check" && operation.detail !== undefined && typeof operation.detail !== "string") delete operation.detail;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and
   // scenes, or a glob such as "arch-*" for the layers whose names match now (layers added later
   // are not covered). One target stays a string; several become a list of IDs.

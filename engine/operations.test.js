@@ -423,6 +423,18 @@ test("a waiver on a layer lapses when the layer is deleted or its file changes",
   assert.deepEqual(targets(applyOperations(deleted, [{ type: "add_layer", sceneId: "s", layerType: "audio", properties: { id: "music", src: "/api/media/b.wav" } }])), []);
 });
 
+test("a second waiver of one code on one target keeps the first when it has its own detail", () => {
+  const source = createDocument({ scenes: [createScene({ id: "s", layers: [createLayer("audio", { id: "music", name: "music", src: "/api/media/a.wav" })] })] });
+  const waive = (document, detail, reason) => applyOperations(document, [{ type: "waive_check", code: "reference_range", target: "s", reason, ...(detail ? { detail } : {}) }]).checkWaivers;
+  const first = applyOperations(source, [{ type: "waive_check", code: "reference_range", target: "s", reason: "dark on purpose", detail: "brightness" }]);
+  const both = applyOperations(first, [{ type: "waive_check", code: "reference_range", target: "s", reason: "text is short", detail: "text" }]);
+  assert.deepEqual(both.checkWaivers.map((waiver) => waiver.detail), ["brightness", "text"]);
+  // The same detail replaces its own waiver; no detail is the one slot of old and replaces both.
+  assert.deepEqual(waive(both, "text", "text is brief").map((waiver) => waiver.reason), ["dark on purpose", "text is brief"]);
+  assert.equal(waive(both, "", "all fine").length, 1);
+  assert.equal(parseDocument(both).checkWaivers.length, 2);
+});
+
 test("update_scene duration lengthens whole-scene animations and the board's last shot, and lists them", () => {
   const effect = (id, start, duration) => ({ id, kind: "custom", name: id, start, duration, easing: "linear", from: { opacity: 0.5 }, to: { opacity: 1 } });
   const shot = (id, cue, dur) => ({ id, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text: "none", sound: "none", why: "a line" });

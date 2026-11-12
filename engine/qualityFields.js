@@ -12,7 +12,7 @@
 // Document:
 //   videoType     promo, ad, clip, explainer, sting or other (sets the length and pacing checks)
 //   rhythm        {bpm, offset}: the music beat, so the checker can compare motion to it
-//   checkWaivers  [{code, target, reason}]: a check finding the author accepted on purpose
+//   checkWaivers  [{code, target, reason, detail?}]: a check finding the author accepted on purpose (detail tells two findings of one code on one target apart)
 //   cues          [{name, time, kind}]: named moments in seconds that timing can point at ("cue:drop").
 //                 kind is marker (placed by hand), beat, onset or accent (found in the music), word or line
 //                 (from a voice-over or caption file). detect_beats adds, from a weighted analysis:
@@ -101,10 +101,11 @@ export function normalizeQualityDocumentFields(document, maxTime) {
       if (typeof waiver.code !== "string" || !CODE_PATTERN.test(waiver.code)) fail(`${path}.code`, "must be a check rule name such as reading_time");
       if (typeof waiver.target !== "string" || !TARGET_PATTERN.test(waiver.target)) fail(`${path}.target`, "must be a layer ID, a scene ID or *");
       if (typeof waiver.reason !== "string" || !waiver.reason.trim() || waiver.reason.length > 500) fail(`${path}.reason`, "must say why, in 1 to 500 characters");
-      const key = `${waiver.code} ${waiver.target}`;
+      const detail = typeof waiver.detail === "string" && waiver.detail.trim() ? waiver.detail.trim().toLowerCase().slice(0, 80) : "";
+      const key = `${waiver.code} ${waiver.target} ${detail}`;
       if (seen.has(key)) fail(path, `repeats the waiver for ${waiver.code} on ${waiver.target}`);
       seen.add(key);
-      return { code: waiver.code, target: waiver.target, reason: waiver.reason.trim() };
+      return { code: waiver.code, target: waiver.target, reason: waiver.reason.trim(), ...(detail ? { detail } : {}) };
     });
     if (!document.checkWaivers.length) delete document.checkWaivers;
   }

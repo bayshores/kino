@@ -12,6 +12,7 @@ import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { RULES, blocksFinal, ruleOf, runQuality, tasteNotes } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
+import { haloOf, haloShadow } from "./quality/pixels.js";
 import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
 import { cropPast } from "./footage/burned.js";
 import { askLine } from "./quality/rules/ask.js";
@@ -1498,6 +1499,13 @@ test("text_glow: no glow on text", async () => {
   assert.equal(finding.fix.properties.shadow, null);
   await silent("text_glow", titled({ color: "#00000066", blur: 12, x: 0, y: 8 }));
   await silent("text_glow", titled(null));
+  // The halo shadow contrast offers is a halo (haloOf reads it) and never this glow, at every size (1080 tall).
+  for (let size = 20; size <= 400; size += 10) {
+    const { x, y, blur } = haloShadow(size);
+    const shadow = { color: "#000000d9", x, y, blur };
+    assert.ok(haloOf({ shadow }, size), `size ${size} keeps the halo`);
+    await silent("text_glow", titled(shadow));
+  }
 });
 
 test("stacked_label: a small label right above a headline, not a caption under it or a label beside or far from it", async () => {

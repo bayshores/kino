@@ -60,11 +60,17 @@ function waiverTargets({ code, target }) {
   return targets;
 }
 
-/** waive_check {code, target, reason}: accepts a check finding on purpose, on one target or a list. Replaces an earlier waiver of the same finding. */
-export function withWaiver(waivers = [], { code, target, reason }) {
+/**
+ * waive_check {code, target, reason, detail?}: accepts a check finding on purpose, on one target or a list.
+ * Replaces an earlier waiver of the same finding. Two findings of one code on one target each keep a
+ * waiver by giving each its own detail (a word of the finding, or for reference_range its rows); a
+ * waiver without a detail is the one slot of old, and replaces every waiver of that code and target.
+ */
+export function withWaiver(waivers = [], { code, target, reason, detail }) {
+  const slot = typeof detail === "string" ? detail.trim().toLowerCase().slice(0, 80) : "";
   const targets = new Set(waiverTargets({ code, target }));
   if (typeof reason !== "string" || !reason.trim()) throw new Error("waive_check needs reason: why this finding is fine in this video.");
-  const next = [...waivers.filter((waiver) => waiver.code !== code || !targets.has(waiver.target)), ...[...targets].map((each) => ({ code, target: each, reason }))];
+  const next = [...waivers.filter((waiver) => waiver.code !== code || !targets.has(waiver.target) || (slot && (waiver.detail ?? "") !== slot)), ...[...targets].map((each) => ({ code, target: each, reason, ...(slot ? { detail: slot } : {}) }))];
   // A glob or list is saved as one waiver per layer, so a broad one ("word-*") can pass the limit.
   if (next.length > MAX_WAIVERS)
     throw new Error(`waive_check would make ${next.length} waivers (${targets.size} from this target); a project keeps at most ${MAX_WAIVERS}. Name fewer layers, or the scene when the rule allows a scene waiver (face, crop and viewer rules name layers only).`);

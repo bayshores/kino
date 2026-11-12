@@ -390,6 +390,16 @@ export function haloOf(item, size) {
 const through = (behind, layer) => (layer ? behind.map((pixel) => [0, 1, 2].map((channel) => layer.rgb[channel] * layer.alpha + pixel[channel] * (1 - layer.alpha))) : behind);
 const SCRIM_ALPHAS = [0.35, 0.5, 0.65, 0.8];
 const HALO = { color: "#000000d9", alpha: 0.85 };
+// The halo shadow that stays a halo (haloOf) and is not a glow (text_glow: blur of 12 px at 1080 or more with
+// an offset of 3 px or less): the 25% blur, kept under the glow blur, or for very large type a 4 px drop.
+export function haloShadow(size, scale = 1) {
+  const blur = Math.round(size * 0.25);
+  const glowAt = 12 * scale;
+  if (blur < glowAt) return { x: 0, y: 0, blur };
+  const under = Math.ceil(glowAt) - 1;
+  if (under >= 0.1 * size) return { x: 0, y: 0, blur: under };
+  return { x: 0, y: Math.floor(3 * scale) + 1, blur };
+}
 const alphaHex = (alpha) => Math.round(alpha * 255).toString(16).padStart(2, "0");
 
 // The fixes for a text no scene colour can rescue, in the order a designer tries them (FRICTION
@@ -417,7 +427,10 @@ function contrastFixes(model, item, worst, required, frame, name) {
     found.push(`a scrim gradient: ${JSON.stringify([{ op: "add_layer", layerType: "rectangle", name: `${text}-scrim`, properties: { x: 0, y, width: model.width, height, fill: { type: "linear", angle: 90, stops } } }, { op: "move_layers", layers: [`${text}-scrim`], position: "below", referenceId: text }])}`);
   }
   if (passes(through(worst.behind, { rgb: [0, 0, 0], alpha: HALO.alpha * HALO_COVER })))
-    found.push(`a halo shadow: update_layer ${text} {shadow:{color:"${HALO.color}", x:0, y:0, blur:${Math.round(size * 0.25)}}}`);
+    {
+    const { x, y, blur } = haloShadow(size, scaleOf(model));
+    found.push(`a halo shadow: update_layer ${text} {shadow:{color:"${HALO.color}", x:${x}, y:${y}, blur:${blur}}}`);
+  }
   if (frame) {
     // The nearest height (same x) where what is behind passes, at most the frame's middle 80%.
     const height = box.y1 - box.y0;

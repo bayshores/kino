@@ -13,7 +13,7 @@ import { plainWordsProblem, storedQuoteProblem } from "./agent/brief.mjs";
 import { createBlockRunner, translateBlock } from "./agent/blocks.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
-import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waivedRefs, waiverNotes } from "./agent/checks.mjs";
+import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, stopsNote, waivedRefs, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
 import { besideSubject, labelColors, labelTechniques, madeIds, placeMade, shotSpans, splatterSpot, subjectBoxAt } from "./agent/made-match.mjs";
@@ -217,6 +217,11 @@ test("delete_animation of one animation a move made names the partner it leaves;
   assert.match(both.notes[0], /^delete_animation flash\.to-in: pair:true also took A\d+ \(Settle\), made by the same move on Rectangle$/);
   assert.equal(both.translated.pair, true);
   assert.deepEqual(run({ op: "delete_animation", animation: "mine" }).notes, []);
+  // Given by its code, the receipt names what the code was: its name, kind, start and layer.
+  const codeResolver = createResolver(document, assignCodes(emptyCodes(), document));
+  const mineCode = codeResolver.codeOf("mine");
+  assert.match(mineCode, /^A\d+$/);
+  assert.equal(run({ op: "delete_animation", animation: mineCode }).notes[0], `delete_animation ${mineCode}: took Mine (custom) at 1 s on Rectangle`);
   // kino's own <layer>.lift-* ids look like a move's but no move made them: no partner, pair:true takes only that one.
   assert.deepEqual(run({ op: "delete_animation", animation: "shot.lift-deblock" }).notes, []);
   const lift = run({ op: "delete_animation", animation: "shot.lift-deblock", pair: true }).translated;
@@ -780,6 +785,12 @@ test("an animation past the scene end is a warning when cut off and an error whe
   assert.equal(checkSummary([], { unchecked: "all" }), "0 err · 0 warn · unchecked: contrast, flashing, luma_jump, frozen_picture");
   assert.equal(checkSummary([], { unchecked: ["s2"] }), "0 err · 0 warn · unchecked in s2: contrast, flashing, luma_jump, frozen_picture");
   assert.equal(checkSummary([], { unchecked: ["s2", "s3", "s4", "s5", "s6"] }), "0 err · 0 warn · unchecked in s2, s3, s4 +2: contrast, flashing, luma_jump, frozen_picture");
+  // In a real edit a warning stops a final render: the summary says so, by the function the render asks.
+  // A sketch (real false), a taste warning, a waived one and an unknown `real` say nothing.
+  assert.equal(checkSummary(findings, { real: true }), "1 err · 1 warn (past_scene_end A2, past_scene_end A1) · 1 warn stops a final render (past_scene_end)");
+  assert.equal(checkSummary([late, { ...late, ref: "A3" }], { real: true }), "0 err · 2 warn (past_scene_end A1, past_scene_end A3) · 2 warn stop a final render (past_scene_end x2)");
+  assert.equal(checkSummary(findings, { real: false }), "1 err · 1 warn (past_scene_end A2, past_scene_end A1)");
+  assert.equal(stopsNote([{ ...late, rule: "off_beat" }, { ...late, waived: "ok" }], true), "");
 });
 
 test("a layer that rests outside the scene and never moves in is reported with a centring fix", () => {
