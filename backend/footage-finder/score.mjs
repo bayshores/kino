@@ -37,8 +37,15 @@ import { heavyDecodeSlot } from "../process-slots.mjs";
 import { removeTempFolder } from "../temp-folders.mjs";
 import { WHOLE_MAX_SECONDS } from "./scan.mjs";
 
-/** 2: marks, subtitles and drawn footage. A saved scan of another version is scanned again. */
-export const SCAN_VERSION = 2;
+/**
+ * 2: marks, subtitles and drawn footage. 3: each shot's figure (whole-body box) and how it moves
+ * (still, subject, camera). A saved scan of another version is scanned again.
+ */
+export const SCAN_VERSION = 3;
+/** A shot whose picture moves slower than this (frame widths a second, flow) is still. */
+export const STILL_SPEED = 0.02;
+/** A moving shot is a camera move when the frame's median flow is at least this share of its mean. */
+export const CAMERA_SHARE = 0.5;
 /** A shot shorter than this is too short to cut to. */
 export const SHORT_SECONDS = 0.4;
 /** Neighbor shots at least this alike (SigLIP cosine) are one shot. */
@@ -178,12 +185,28 @@ export function isDrawn(vectors = [], drawnVector, photoVector) {
 }
 
 /**
- * One shot's facts from measureFootage samples ({t, luma, change, motion, faces, text}), with
- * start and end in the same (file) seconds: {motion 0 to 100, face 0 to 100 or null when faces
- * were not measured, luma 0 to 1, text (share of frames with text that is no fixed element or
- * mark), subs (share of frames with such a line at the bottom center), logo (share of frames
- * showing a fixed text element that is no mark)}. persistent: persistentElements' answer for
- * this stretch; marks: scanMarks' answer for the whole scan.
+ * How a shot moves, from the flow of its frames (after the first): "still" under STILL_SPEED,
+ * "camera" when the frame's median flow (camera) is CAMERA_SHARE of the mean or more (a pan, a
+ * push, a tracking shot), else "subject" (something moves over a still frame). null without flow.
+ */
+export function movingOf(frames) {
+  const flowing = frames.filter((sample) => Number.isFinite(sample.motion));
+  if (!flowing.length) return null;
+  const speed = mean(flowing.map((sample) => sample.motion));
+  if (speed < STILL_SPEED) return "still";
+  const camera = mean(flowing.map((sample) => sample.camera).filter((value) => Number.isFinite(value)));
+  if (camera === null) return null;
+  return camera >= CAMERA_SHARE * speed ? "camera" : "subject";
+}
+
+/**
+ * One shot's facts from measureFootage samples ({t, luma, change, motion, camera, faces, people,
+ * text}), with start and end in the same (file) seconds: {motion 0 to 100, face 0 to 100 or null
+ * when faces were not measured, luma 0 to 1, text (share of frames with text that is no fixed
+ * element or mark), subs (share of frames with such a line at the bottom center), logo (share of
+ * frames showing a fixed text element that is no mark), subject (face, else saliency box), figure
+ * (the largest whole-body box, subjectOf), moving (movingOf)}. persistent: persistentElements'
+ * answer for this stretch; marks: scanMarks' answer for the whole scan.
  */
 export function shotFacts(start, end, samples = [], persistent = [], marks = []) {
   let inside = samples.filter((sample) => sample.t >= start - 0.01 && sample.t < end);
@@ -214,7 +237,24 @@ export function shotFacts(start, end, samples = [], persistent = [], marks = [])
     logo: share((sample) => sample.text.some(isFixed)),
     subject: subjectOf(inside, "faces", "face") ?? subjectOf(inside, "saliency", "saliency"),
     salient: subjectOf(inside, "saliency", "saliency"),
+    figure: figureOf(inside),
+    moving: movingOf(moving),
   };
+}
+
+/**
+ * A figure is the shot's when Vision found a whole body on at least this share of the frames it
+ * read. On drawn footage it finds one on 1 or 2 of 20 frames (measured on 4 stair clips), a
+ * sighting the shot's framing should not rest on.
+ */
+export const FIGURE_SEEN = 0.25;
+
+/** The shot's figure (subjectOf over the people boxes) with seen (its share of the frames read), or null. */
+function figureOf(samples) {
+  const read = samples.filter((sample) => Array.isArray(sample.people));
+  const seen = read.length ? read.filter((sample) => sample.people.length).length / read.length : 0;
+  const figure = seen >= FIGURE_SEEN ? subjectOf(read, "people", "figure") : null;
+  return figure ? { ...figure, seen: round3(seen) } : null;
 }
 
 /**
@@ -253,6 +293,7 @@ export function mergeAlike(shots) {
       out[out.length - 1] = {
         ...last, end: shot.end, still: longer.still, vector: longer.vector,
         subject: longer.subject ?? last.subject ?? shot.subject ?? null, salient: longer.salient ?? last.salient ?? shot.salient ?? null,
+        figure: longer.figure ?? last.figure ?? shot.figure ?? null, moving: longer.moving ?? last.moving ?? shot.moving ?? null,
         motion: Math.round(blend("motion")), face: last.face === null && shot.face === null ? null : Math.round(blend("face")),
         luma: blend("luma"), text: blend("text"), subs: blend("subs"), logo: blend("logo"),
       };
@@ -563,7 +604,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const use = tools ?? await defaultTools();
     onProgress?.(measuringLine({ modelReady }));
     const stretches = [];
-    const vision = { faces: false, text: false, flow: false };
+    const vision = { faces: false, text: false, flow: false, people: false };
     let count = 0;
     for (const window of copy.files) {
       const facts = await use.probe(window.file, { signal });
@@ -634,6 +675,9 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       // narrowed by them (library footage filter, actions.mjs) without looking at each still.
       ...(Number.isFinite(shot.luma) ? { luma: shot.luma } : {}),
       ...(shot.subject ? { subject: shot.subject } : {}),
+      // The figure (whole-body box) and how the shot moves: the framing filters (actions.mjs).
+      ...(shot.figure ? { figure: { box: shot.figure.box, share: shot.figure.share, seen: shot.figure.seen } } : {}),
+      ...(shot.moving ? { moving: shot.moving } : {}),
       ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
     }));
     // The shots of earlier scans stay under their numbers, and every shot of the video is then

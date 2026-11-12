@@ -166,21 +166,50 @@ const lightOf = (shot) => (Number.isFinite(shot.luma) ? Math.round(shot.luma * 2
 /** "(middle, 6% of frame)": where a shot's subject box sits and its part of the frame. */
 const subjectPlace = (subject) => `(${placeName(subject.box)}, ${Math.max(1, Math.round(subject.share * 100))}% of frame)`;
 
+/** A face at least this tall (part of the frame's height) is a close shot. */
+export const CLOSE_FACE = 0.25;
+/** A face at least this tall, or a figure at least FIGURE_MEDIUM tall, is a medium shot; shorter is wide. */
+export const MEDIUM_FACE = 0.08;
+export const FIGURE_MEDIUM = 0.6;
+
+/**
+ * A shot's framing from its boxes: {by: "figure" or "face", height (the box's part of the frame's
+ * height), room (the part of the frame outside the box), place, scale}. The figure (whole-body box)
+ * when one was found, else the face box; null with neither (a salient box says where the eye goes,
+ * never that someone is there). scale: close for a face CLOSE_FACE tall or more; medium for a face
+ * MEDIUM_FACE tall or more, or a figure FIGURE_MEDIUM tall or more; else wide.
+ */
+export function framingOf(shot) {
+  const face = shot.subject?.kind === "face" ? shot.subject.box : null;
+  const box = shot.figure?.box ?? face;
+  if (!box) return null;
+  const faceHeight = face ? face[3] : 0;
+  const scale = faceHeight >= CLOSE_FACE ? "close" : faceHeight >= MEDIUM_FACE || (shot.figure && box[3] >= FIGURE_MEDIUM) ? "medium" : "wide";
+  return { by: shot.figure ? "figure" : "face", height: box[3], room: 1 - box[2] * box[3], place: placeName(box), scale };
+}
+
+/** "wide (figure 19% high, left, room 96%)": a shot's framing in the shots line. */
+const framingWords = ({ by, height, room, place, scale }) => `${scale} (${by} ${Math.max(1, Math.round(height * 100))}% high, ${place}, room ${Math.round(room * 100)}%)`;
+
 /**
  * One shot's line: `F1.37 3:17.2-3:19.0 1.8s motion 82 light 140 face 40 (middle, 6% of frame)
  * match +3.1`, flags after. light is the mean of 255. face is left out when faces were not read
  * (no face detector, or drawn footage); a shot without a face names where the eye goes instead
  * (`salient (left, 30% of frame)`, Vision saliency) when that was measured. Saliency gives a box
  * on nearly every picture, a flat dark one too (measured: 31% of a near-black frame), so it says
- * where, never that something was found.
+ * where, never that something was found. How the shot moves follows motion (`motion 40 camera`:
+ * still, subject or camera), and its framing (framingOf) the boxes: `wide (figure 19% high, left,
+ * room 96%)`.
  */
 export function shotLine(code, shot, { matchShown = false } = {}) {
-  const parts = [`${code}.${shot.n}`, `${stamp(shot.start)}-${stamp(shot.end)}`, `${(shot.end - shot.start).toFixed(1)}s`, `motion ${Math.round(shot.motion ?? 0)}`];
+  const parts = [`${code}.${shot.n}`, `${stamp(shot.start)}-${stamp(shot.end)}`, `${(shot.end - shot.start).toFixed(1)}s`, `motion ${Math.round(shot.motion ?? 0)}${shot.moving ? ` ${shot.moving}` : ""}`];
   const light = lightOf(shot);
   if (light !== null) parts.push(`light ${light}`);
   const face = shot.subject?.kind === "face" ? shot.subject : null;
   if (Number.isFinite(shot.face)) parts.push(`face ${Math.round(shot.face)}${face ? ` ${subjectPlace(face)}` : ""}`);
   if (shot.subject && !(face && Number.isFinite(shot.face))) parts.push(`${shot.subject.kind === "face" ? "face" : "salient"} ${subjectPlace(shot.subject)}`);
+  const framing = framingOf(shot);
+  if (framing) parts.push(framingWords(framing));
   if (matchShown && Number.isFinite(shot.match)) parts.push(`match ${shot.match >= 0 ? "+" : ""}${shot.match.toFixed(1)}`);
   if (shot.flags?.length) parts.push(shot.flags.join(" "));
   if (shot.hasSubs) parts.push("has subtitles");
@@ -203,11 +232,29 @@ const over = (measure, above) => (value) => {
 };
 const lengthOf = (shot) => shot.end - shot.start;
 const sizeOf = (shot) => (shot.subject ? shot.subject.share * 100 : null);
+// The framing's height and room in percent (framingOf), or null without a figure or face box.
+const heightOf = (shot) => { const framing = framingOf(shot); return framing ? framing.height * 100 : null; };
+const roomOf = (shot) => { const framing = framingOf(shot); return framing ? framing.room * 100 : null; };
+// One word or a list of words ("wide", ["wide", "medium"]) that a shot's measure must be.
+const oneOf = (measure, words) => (value) => {
+  const asked = (Array.isArray(value) ? value : [value]).map((word) => String(word).toLowerCase());
+  if (!asked.length || !asked.every((word) => words.includes(word))) return null;
+  return (shot) => asked.includes(measure(shot));
+};
+// height: N (taller than N percent of the frame) or [low, high] (between them).
+const heightBetween = (value) => {
+  const [low, high] = Array.isArray(value) ? value.map(asNumber) : [asNumber(value), Infinity];
+  if (!Number.isFinite(low) || Number.isNaN(high) || (Array.isArray(value) && value.length !== 2)) return null;
+  return (shot) => { const known = heightOf(shot); return known !== null && known >= low && known <= high; };
+};
 
 /**
  * library footage scan's `filter`: each key narrows the listed shots. light is the mean of 255,
  * bigger the face (else salient) box's percent of the frame, speech a line said in the shot
- * (captions or listening). A shot whose scan did not keep a measure (light from an older scan) is
+ * (captions or listening). The framing keys read the figure (whole-body box), else the face box
+ * (framingOf): figure (one was found), scale (wide, medium, close), height (percent of the frame's
+ * height, N or [low, high]), room (more than N percent of the frame outside the box). moving:
+ * still, subject or camera. A shot whose scan did not keep a measure (light from an older scan) is
  * left out by it.
  */
 export const SHOT_FILTERS = {
@@ -218,6 +265,11 @@ export const SHOT_FILTERS = {
   longer: over(lengthOf, true),
   shorter: over(lengthOf, false),
   bigger: over(sizeOf, true),
+  figure: yesNo((shot) => Boolean(shot.figure)),
+  scale: oneOf((shot) => framingOf(shot)?.scale ?? null, ["wide", "medium", "close"]),
+  height: heightBetween,
+  room: over(roomOf, true),
+  moving: oneOf((shot) => shot.moving ?? null, ["still", "subject", "camera"]),
 };
 
 /** library footage scan's `sort`: each orders the listed shots, the first named first. */
@@ -228,6 +280,10 @@ export const SHOT_SORTS = {
   size: (shot) => -(sizeOf(shot) ?? -1),
   motion: (shot) => -(shot.motion ?? 0),
   time: (shot) => shot.start,
+  // The framing's height: wide puts the smallest figure or face first, close the tallest; room the most room.
+  wide: (shot) => heightOf(shot) ?? 101,
+  close: (shot) => -(heightOf(shot) ?? -1),
+  room: (shot) => -(roomOf(shot) ?? -1),
 };
 
 /**
@@ -247,7 +303,7 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined, { 
   for (const [key, value] of Object.entries(asked)) {
     if (Object.hasOwn(SHOT_FILTERS, key) && why[key]) { unknown.push(`${key} (${why[key]})`); continue; }
     const test = Object.hasOwn(SHOT_FILTERS, key) ? SHOT_FILTERS[key](value) : null;
-    if (test) { tests.push(test); used.push(`${key}:${value}`); } else ignored.push(`${key}:${short(oneLine(JSON.stringify(value)), 20)}`);
+    if (test) { tests.push(test); used.push(`${key}:${value && typeof value === "object" ? JSON.stringify(value) : value}`); } else ignored.push(`${key}:${short(oneLine(JSON.stringify(value)), 20)}`);
   }
   if (filter !== undefined && (!filter || typeof filter !== "object" || Array.isArray(filter))) ignored.push(`filter ${short(oneLine(JSON.stringify(filter)), 30)}`);
   let out = shots.filter((shot) => tests.every((test) => test(shot)));
@@ -258,10 +314,12 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined, { 
   // it; size: no face or saliency box) are left out by it, and the line counts them.
   const lightless = used.some((part) => /^(brighter|darker):/.test(part)) ? shots.filter((shot) => lightOf(shot) === null).length : 0;
   const boxless = used.some((part) => part.startsWith("bigger:")) ? shots.filter((shot) => sizeOf(shot) === null).length : 0;
+  const unframed = used.some((part) => /^(scale|height|room):/.test(part)) ? shots.filter((shot) => !framingOf(shot)).length : 0;
   const parts = [
     `${used.length ? `Filter ${used.join(" ")}` : "No filter"}${order ? `, sorted by ${sort}` : ""}: ${out.length} of ${shots.length} shot${shots.length === 1 ? "" : "s"}.`,
     lightless ? `${lightless} kept no light (an older scan) and are left out.` : "",
     boxless ? `${boxless} have no face or salient box and are left out.` : "",
+    unframed ? `${unframed} have no figure or face box and are left out.` : "",
     unknown.length ? `Not measured, left out: ${unknown.join(", ")}.` : "",
     ignored.length ? `Not known, left out: ${ignored.join(", ")} (filter: ${Object.keys(SHOT_FILTERS).join(", ")}; sort: ${Object.keys(SHOT_SORTS).join(", ")}).` : "",
   ];
@@ -575,7 +633,12 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const heard = answer ? { ...answer, said, hits: applied.hits, noCaptionsKnown: Boolean(candidate.noCaptions), refLines: known?.lines } : null;
     // filter and sort narrow the listing (and so the import call) to the shots asked for.
     // With no line heard (no captions, no listening), speech is unknown, never "nobody speaks".
-    const view = narrowShots(result.shots, input.filter, input.sort, { unmeasured: lines.length ? {} : { speech: "no captions or listening in this scan" } });
+    const view = narrowShots(result.shots, input.filter, input.sort, { unmeasured: {
+      ...(lines.length ? {} : { speech: "no captions or listening in this scan" }),
+      // Figures (whole-body boxes) and how shots move need Vision's people and flow on this computer.
+      ...(result.vision?.people === true ? {} : { figure: "figures not read in this scan" }),
+      ...(result.vision?.flow === true ? {} : { moving: "no optical flow in this scan" }),
+    } });
     const picks = importPicks({ shots: view.shots }, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const spoken = lines.length ? spokenLines(lines, result.shots, said) : [];
     const firstHit = spoken.find((line) => line.hit);
@@ -596,8 +659,10 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     // After this scan: someone else's edit says so once; and when fewer than half of the last search is scanned, how many.
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
     return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard, view), elsewhereLine(candidate, known), scannedLine(listed, known)]),
-      data: { code: candidate.code, id, ...(view.line ? { listed: view.shots.length } : {}), shots: view.shots.slice(0, FOOTAGE_SHOTS_SHOWN).map(({ n, start, end, motion, face, match, flags, says, said: hit, hasSubs, luma, subject }) => ({ n, start, end, motion, face, match, flags,
+      data: { code: candidate.code, id, ...(view.line ? { listed: view.shots.length } : {}), shots: view.shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => [shot, framingOf(shot)]).map(([{ n, start, end, motion, moving, face, match, flags, says, said: hit, hasSubs, luma, subject, figure }, framing]) => ({ n, start, end, motion, face, match, flags,
         ...(Number.isFinite(luma) ? { light: Math.round(luma * 255) } : {}), ...(subject ? { subject } : {}),
+        ...(moving ? { moving } : {}), ...(figure ? { figure: figure.box } : {}),
+        ...(framing ? { scale: framing.scale, height: Math.round(framing.height * 100), room: Math.round(framing.room * 100) } : {}),
         ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),
         ...(elsewhere ? { edit: true, ...(importNext ? { import: importNext } : {}) } : {}),

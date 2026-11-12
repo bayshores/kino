@@ -58,6 +58,7 @@ import { foundClipTag, groupClips, groupLine } from "./footage-finder/sheet.mjs"
 import { shotsNeeded, wantBySection } from "./footage-finder/needs.mjs";
 import { joinStretches, planTake, takeCredit, takeFootage, takeText } from "./footage-finder/take.mjs";
 import { writeFileSync } from "node:fs";
+import { flowCamera } from "./footage/analyze.mjs";
 import { fileURLToPath } from "node:url";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
@@ -288,7 +289,8 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     // A has a small face (and a smaller one on some frames); B has where the eye goes, no face.
     return { t, luma: shot === "D" ? 0.05 : 0.5, change: shot === "B" || shot === "C" ? 0.01 : 0.1, motion: null,
       faces: shot === "A" ? [[0.4, 0.3, 0.2, 0.3], ...(index % 2 ? [[0.8, 0.1, 0.05, 0.05]] : [])] : [],
-      ...(shot === "B" ? { saliency: [[0.1, 0.2, 0.5, 0.6]] } : {}), text: shot === "E" ? [{ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" }] : [] };
+      ...(shot === "B" ? { saliency: [[0.1, 0.2, 0.5, 0.6]] } : {}), ...(shot === "D" ? { people: [[0.1, 0.5, 0.08, 0.19]] } : {}),
+      text: shot === "E" ? [{ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" }] : [] };
   });
   let sheetStills = null;
   const tools = {
@@ -297,7 +299,7 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
       assert.equal(maxSeconds, 1800);
       return { shots: [0, 2, 4, 6, 8].map((start) => ({ start, end: start + 2 })) };
     },
-    measure: async (file, options) => { assert.equal(options.subjects, true); return { samples, vision: { faces: true, text: true, flow: false } }; },
+    measure: async (file, options) => { assert.equal(options.subjects, true); return { samples, vision: { faces: true, text: true, flow: false, people: true } }; },
     stills: async (file, times) => times.map((time) => `still-${shotAt(time)}`),
     sheet: async (stills, out) => { sheetStills = stills; await writeFile(out, "jpg"); },
   };
@@ -318,8 +320,10 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     assert.deepEqual(scan.shots.map((shot) => [shot.start, shot.end]), [[60, 62], [66, 68], [62, 66], [68, 70]]);
     assert.deepEqual([scan.shots[1].flags, scan.shots[3].flags], [["dark"], ["text"]]);
     // Each shot says its light (mean of 255) and where its face or subject is, and can be narrowed by them.
-    assert.match(shotLine("F1", scan.shots[1]), /^F1\.3 1:06\.0-1:08\.0 2\.0s motion \d+ light 13 face 0 dark$/);
-    assert.match(shotLine("F1", scan.shots[0]), /^F1\.1 1:00\.0-1:02\.0 2\.0s motion \d+ light 128 face 100 \(middle, 6% of frame\)$/);
+    assert.match(shotLine("F1", scan.shots[1]), /^F1\.3 1:06\.0-1:08\.0 2\.0s motion \d+ light 13 face 0 wide \(figure 19% high, left, room 98%\) dark$/);
+    // The figure (whole-body box) is saved with the shot, and the scan says people were read.
+    assert.deepEqual([scan.shots[1].figure, scan.vision.people], [{ box: [0.1, 0.5, 0.08, 0.19], share: 0.015, seen: 1 }, true]);
+    assert.match(shotLine("F1", scan.shots[0]), /^F1\.1 1:00\.0-1:02\.0 2\.0s motion \d+ light 128 face 100 \(middle, 6% of frame\) close \(face 30% high, middle, room 94%\)$/);
     assert.match(shotLine("F1", scan.shots[2]), / light 128 face 0 salient \(middle, 30% of frame\)$/);
     assert.deepEqual(scan.shots[0].subject, { kind: "face", box: [0.4, 0.3, 0.2, 0.3], share: 0.06 });
     assert.deepEqual(narrowShots(scan.shots, { face: false, darker: 50 }).shots.map((shot) => shot.n), [3]);
@@ -329,7 +333,7 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     // "true" reads as true; a shot with no box is counted, not silently dropped by bigger.
     assert.deepEqual(narrowShots(scan.shots, { face: "true" }).shots.map((shot) => shot.n), [1]);
     assert.match(narrowShots(scan.shots, { bigger: 1 }).line, /^Filter bigger:1: 2 of 4 shots\. 2 have no face or salient box and are left out\.$/);
-    assert.equal(narrowShots(scan.shots, { face: true, tint: "red" }).line, "Filter face:true: 1 of 4 shots. Not known, left out: tint:\"red\" (filter: face, speech, brighter, darker, longer, shorter, bigger; sort: light, dark, length, size, motion, time).");
+    assert.equal(narrowShots(scan.shots, { face: true, tint: "red" }).line, "Filter face:true: 1 of 4 shots. Not known, left out: tint:\"red\" (filter: face, speech, brighter, darker, longer, shorter, bigger, figure, scale, height, room, moving; sort: light, dark, length, size, motion, time, wide, close, room).");
     assert.equal(scan.shots[0].face, 100);
     // Closeness 0, 0, 0, 1 as z-scores; only the title card matches, and a flagged shot never shows a match.
     assert.deepEqual(scan.shots.map((shot) => shot.match), [-0.6, -0.6, -0.6, 1.7]);
@@ -362,6 +366,47 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
   // Without the footage finder's allowance, a 25 min file is still too long to look in.
   await assert.rejects(findShots("none.webm", { duration: 1500 }), { code: "TOO_LONG" });
   await assert.rejects(findShots("none.webm", { duration: 2000, maxSeconds: 1800 }), /up to 30 min/);
+});
+
+test("framing facts: a small figure in a wide frame, a pan, a close face; filter and sort by scale, height, room, figure and moving", () => {
+  // Four 2 s shots at 4 frames a second: 1 a figure 19% high walks over a still frame; 2 a pan past a
+  // figure with its face 15% high; 3 a still close face 50% high; 4 only where the eye goes.
+  const frames = Array.from({ length: 32 }, (_, index) => {
+    const t = index / 4, shot = Math.floor(t / 2) + 1;
+    const flow = { 1: [0.1, 0.004], 2: [0.3, 0.28], 3: [0.005, 0.004], 4: [0.01, 0.01] }[shot];
+    return { t, luma: 0.5, change: 0.02, motion: flow[0], camera: flow[1], text: [],
+      faces: shot === 2 ? [[0.42, 0.15, 0.12, 0.15]] : shot === 3 ? [[0.3, 0.1, 0.4, 0.5]] : [],
+      people: shot === 1 ? [[0.1, 0.5, 0.08, 0.19]] : shot === 2 ? [[0.3, 0.1, 0.4, 0.9]] : [],
+      ...(shot === 4 ? { saliency: [[0.2, 0.2, 0.5, 0.5]] } : {}) };
+  });
+  const shots = [1, 2, 3, 4].map((n) => {
+    const facts = shotFacts((n - 1) * 2, n * 2, frames);
+    return { n, start: (n - 1) * 2, end: n * 2, ...facts, subject: facts.subject };
+  });
+  assert.deepEqual(shots.map((shot) => shot.moving), ["subject", "camera", "still", "still"]);
+  assert.equal(shots[3].figure, null);
+  // A body found on 1 of 8 frames (Vision on drawn footage) is no figure of the shot.
+  assert.equal(shotFacts(0, 2, frames.map((frame, index) => (index === 1 ? frame : { ...frame, people: [] }))).figure, null);
+  assert.match(shotLine("F1", shots[0]), / motion \d+ subject .* wide \(figure 19% high, left, room 98%\)$/);
+  assert.match(shotLine("F1", shots[1]), / motion \d+ camera .* medium \(figure 90% high, middle, room 64%\)$/);
+  assert.match(shotLine("F1", shots[2]), / close \(face 50% high, middle, room 80%\)$/);
+  assert.doesNotMatch(shotLine("F1", shots[3]), /wide|medium|close/);
+  const ns = (filter, sort) => narrowShots(shots, filter, sort).shots.map((shot) => shot.n);
+  assert.deepEqual(ns({ figure: true, scale: "wide" }), [1]);
+  assert.deepEqual(ns({ room: 90 }), [1]);
+  assert.deepEqual(ns({ height: [10, 30] }), [1]);
+  assert.deepEqual(ns({ height: 40 }), [2, 3]);
+  assert.deepEqual(ns({ moving: "camera" }), [2]);
+  assert.deepEqual(ns({ moving: ["still", "subject"] }), [1, 3, 4]);
+  assert.deepEqual(ns(undefined, "wide"), [1, 3, 2, 4]);
+  assert.deepEqual(ns(undefined, "close"), [2, 3, 1, 4]);
+  assert.equal(narrowShots(shots, { room: 70 }).line, "Filter room:70: 2 of 4 shots. 1 have no figure or face box and are left out.");
+  assert.match(narrowShots(shots, { scale: "far" }).line, /Not known, left out: scale:"far"/);
+  // A scan that never read figures says so and does not apply figure.
+  assert.match(narrowShots(shots, { figure: true }, undefined, { unmeasured: { figure: "figures not read in this scan" } }).line, /^No filter: 4 of 4 shots\. Not measured, left out: figure \(figures not read in this scan\)\.$/);
+  // The camera measure: a pan moves every cell alike (median = mean); one moving cell leaves the median at 0.
+  const grid = (moving) => ({ u: Array.from({ length: 144 }, (_, index) => (moving === "all" || index === 0 ? 8 : 0)), v: new Array(144).fill(0) });
+  assert.deepEqual([flowCamera(grid("all"), 480), flowCamera(grid("one"), 480)].map((value) => Math.round(value * 1000) / 1000), [0.067, 0]);
 });
 
 test("drawn footage: a logo on every shot is said once and is no text, subtitles go last, faces are not read, and a 2.4 match shows", async () => {
