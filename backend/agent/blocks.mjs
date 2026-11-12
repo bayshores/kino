@@ -244,7 +244,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open", "snap"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none"; music may be an imported sound\'s src or id (kino adds its audio layer). While the board stop waits, a board edit saves and refreshes its ask. Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -2348,7 +2348,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     const problems = [];
     const add = (code, message, suggestions = []) => problems.push({ code, message, suggestions });
     const media = await boardMedia(document, work);
-    const music = boardMusic(document, scene, operation.music, work, add);
+    const music = boardMusic(document, scene, operation.music, work, add, { media, shotsEnd: shotsEndOf(operation.shots) });
     const lists = {
       calls: boardList(operation.calls, `calls is at most ${BOARD_LIMITS.calls} of your own calls, each up to ${BOARD_LIMITS.call} characters.`, BOARD_LIMITS.calls, BOARD_LIMITS.call, add, "calls"),
       open: boardList(operation.open, `open is at most ${BOARD_LIMITS.open} questions for the person, each up to ${BOARD_LIMITS.item} characters.`, BOARD_LIMITS.open, BOARD_LIMITS.item, add, "open"),
@@ -2443,27 +2443,64 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
           ?? list.find((item) => bare(item.name) === bare(text));
       const kind = String(found?.mime ?? "").split("/")[0];
       if (!found || !kinds.includes(kind)) return { suggestions: closest(text, list.filter((item) => kinds.includes(String(item.mime).split("/")[0])).map((item) => item.name)) };
-      return { src: found.src ?? `/api/media/${found.id}`, kind, width: found.width, height: found.height, duration: Number(found.duration) || 0, name: found.name ?? found.id };
+      return { src: found.src ?? `/api/media/${found.id}`, id: found.id, kind, width: found.width, height: found.height, duration: Number(found.duration) || 0, name: found.name ?? found.id };
     };
   }
 
-  // music: "none", or an audio layer that plays in the main scene (its id is kept).
-  function boardMusic(document, scene, ref, work, add) {
+  // The end of the sent shots (the latest cue + dur), or null when none has numbers.
+  function shotsEndOf(shots) {
+    const ends = (Array.isArray(shots) ? shots : []).map((shot) => Number(shot?.cue) + Number(shot?.dur)).filter((end) => Number.isFinite(end) && end > 0);
+    return ends.length ? Math.max(...ends) : null;
+  }
+
+  // music: "none", an audio layer that plays in the main scene (its id is kept), or an imported
+  // sound that is no layer yet (its src or id): the board adds its audio layer to the main
+  // scene from 0 s for as long as the shots run (at most the file's length), and the scene grows
+  // to hold it, so a board can carry the song's cues before anything is built. The same sound
+  // sent again reuses the layer it added.
+  function boardMusic(document, scene, ref, work, add, { media = null, shotsEnd = null } = {}) {
     if (ref === undefined || ref === null) {
       add("missing_layer", 'the board has no music: name the music layer, or say "none" if there is no music.');
       return NONE;
     }
     if (ref === NONE) return NONE;
-    const rule = 'music is an audio layer\'s name or code, or "none"';
+    const rule = 'music is an audio layer\'s name or code, an imported sound\'s src or id, or "none"';
     let id = null, suggestions = [];
     try { id = typeof ref === "string" && work.resolver ? work.resolver.resolve(ref, "layer") : null; }
     catch (error) { suggestions = error.suggestions ?? []; }
-    const layer = id ? document.scenes.flatMap((item) => item.layers).find((entry) => entry.id === id) : null;
-    if (!layer) { add("bad_shot", `${rule}; there is no layer ${JSON.stringify(ref)}.`, suggestions); return NONE; }
+    let layer = id ? document.scenes.flatMap((item) => item.layers).find((entry) => entry.id === id) : null;
+    // Only the file's own src or id adds a layer: a name stays a layer's name (a deleted layer's
+    // name is refused, not quietly replaced by a file of the same name).
+    if (!layer && typeof ref === "string" && media) {
+      const file = media(ref, ["audio"]);
+      if (file.src && [file.src, file.id, `/api/media/${file.id}`].includes(ref)) layer = songLayer(scene, file, shotsEnd, work);
+    }
+    if (!layer) { add("bad_shot", `${rule}; there is no layer or imported sound ${JSON.stringify(ref)}.`, suggestions); return NONE; }
     const name = layer.name || layer.id;
     if (layer.type !== "audio") { add("bad_shot", `${rule}; ${name} is ${/^[aeiou]/.test(layer.type) ? "an" : "a"} ${layer.type} layer.`); return NONE; }
     if (!scene.layers.includes(layer) || !mediaPlaybackRange(layer, scene.duration)) add("bad_shot", `music layer ${name} does not play in the video.`);
     return layer.id;
+  }
+
+  // The audio layer of board {music:"<imported sound>"}: the main scene's own layer of that file
+  // when it has one, else a new one from 0 s, as long as the shots (or the scene) and at most the
+  // file. A scene shorter than that grows to it; the receipt says both.
+  function songLayer(scene, file, shotsEnd, work) {
+    const placed = scene.layers.find((layer) => layer.type === "audio" && layer.src === file.src);
+    if (placed) return placed;
+    const fileLength = file.duration > 0 ? file.duration : null;
+    const wanted = shotsEnd ?? scene.duration;
+    const length = Math.round(Math.min(wanted, fileLength ?? wanted, MAX_TIME) * 1000) / 1000;
+    const taken = new Set(scene.layers.map((layer) => layer.id));
+    let id = `${scene.id}-song`;
+    for (let count = 2; taken.has(id); count += 1) id = `${scene.id}-song-${count}`;
+    const name = String(file.name ?? "song").replace(/\.[a-z0-9]{2,5}$/i, "").slice(0, 80) || "song";
+    const layer = createLayer("audio", { id, name, src: file.src, ...(fileLength ? { mediaSourceDuration: fileLength } : {}), mediaDuration: length, volume: 0.8 });
+    scene.layers.push(layer);
+    const grown = length > scene.duration + 1e-6;
+    if (grown) scene.duration = length;
+    work.notes.push(`board music: added ${name} as an audio layer, 0–${sec(length)} s${grown ? `; the scene grew to ${sec(length)} s to hold it` : ""}`);
+    return layer;
   }
 
   function boardList(value, rule, count, limit, add, name) {

@@ -634,6 +634,20 @@ function boardWaiting(draft, round, facts, { all = false, soundFiles = false, so
   return waitingAnswer(round, shown.text, { ...round.board, listed: shown.listed, flagged: shown.flagged });
 }
 
+/**
+ * A revised storyboard saved while its board round waits (the service lets only board ops
+ * through then): the same round now shows the new revision. Its rev and work move to the saved
+ * one (so it does not lapse as "moved on") and its ask is written again from the new board, so the
+ * person answers once, on the board they see. Returns the waiting_for_you answer, or null when no
+ * board round waits. `facts` is boardFacts(document) of the saved revision.
+ */
+export function reviseWaitingBoard(draft, { facts, rev, work = null, now = Date.now(), soundFiles = false, soundSearch = false, video = {} }) {
+  const round = waitingStop(draft);
+  if (!round || round.kind !== "board" || !facts?.board) return null;
+  Object.assign(round, { rev, revisedAt: new Date(now).toISOString(), revisions: (round.revisions ?? 0) + 1, ...(work ? { work } : {}) });
+  return boardWaiting(draft, round, facts, { soundFiles, soundSearch, video });
+}
+
 // "shot 3", "shots 3 and 5", "shots 2, 3, 4, and 2 more": the places in `shown` of the named ids.
 function namedWords(named, shown = []) {
   const places = named.map((id) => shown.indexOf(id) + 1).filter((place) => place > 0);

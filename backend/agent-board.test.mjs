@@ -189,7 +189,7 @@ test("the shots cover the music when there is a music layer, else the whole vide
   await project("board-music", { layers: [audioLayer("song"), { op: "add_layer", layerType: "text", name: "title", properties: { text: "Title", x: 100, y: 100, width: 800, height: 200 } }] });
   assertRefused(await editBoard("board-music", [motion(0, 2), motion(2.5, 3.5)], { music: "song" }), "gap",
     "the shots leave a gap in the music from 2 to 2.5 s (after shot 1): make shot 1 longer or start shot 2 at 2 s.");
-  assertRefused(await editBoard("board-music", [motion(0, 6)], { music: "title" }), "bad_shot", 'music is an audio layer\'s name or code, or "none"; title is a text layer.');
+  assertRefused(await editBoard("board-music", [motion(0, 6)], { music: "title" }), "bad_shot", 'music is an audio layer\'s name or code, an imported sound\'s src or id, or "none"; title is a text layer.');
   const saved = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.equal(saved.isError, undefined, saved.text);
   assert.deepEqual(saved.data.notes, ['board r1: 2 shots, 0–6 s, music song · look {mode:"board"} shows it', "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
@@ -202,6 +202,21 @@ test("the shots cover the music when there is a music layer, else the whole vide
   const again = await editBoard("board-music", [motion(0, 2), motion(2, 4)], { music: "song" });
   assert.deepEqual(again.data.notes, ["board r1: no change", "board music: kept as laid (the song has no drop measured; update_layer mediaOffset places it)"]);
   assert.equal((await record("board-music")).document.board.rev, 1, "the same board keeps its rev");
+
+  // A song that is no layer yet, named by its media src: the board adds its audio layer (0 s to
+  // the shots' end) and the 3 s scene grows to 5 s; the same song by its id reuses that layer.
+  await project("board-song", { width: 1920, height: 1080, duration: 3 });
+  const bySrc = await editBoard("board-song", [motion(0, 2), motion(2, 3)], { music: song.src });
+  assert.equal(bySrc.isError, undefined, bySrc.text);
+  assert.ok(bySrc.data.notes.includes("board music: added song as an audio layer, 0–5 s; the scene grew to 5 s to hold it"), bySrc.text);
+  const songScene = (await record("board-song")).document.scenes[0];
+  const added = songScene.layers.filter((layer) => layer.type === "audio");
+  assert.deepEqual(added.map((layer) => [layer.name, layer.src, layer.mediaDuration]), [["song", song.src, 5]]);
+  assert.equal(songScene.duration, 5);
+  assert.equal((await record("board-song")).document.board.music, added[0].id);
+  const byId = await editBoard("board-song", [motion(0, 2.5), motion(2.5, 2.5)], { music: song.id });
+  assert.equal(byId.isError, undefined, byId.text);
+  assert.equal((await record("board-song")).document.scenes[0].layers.filter((layer) => layer.type === "audio").length, 1, "the same song reuses its layer");
 
   await project("board-whole");
   assertRefused(await editBoard("board-whole", [motion(0, 2), motion(2, 3)]), "gap", "the shots end at 5 s, before the video ends (6 s): make the last shot 1 s longer.");

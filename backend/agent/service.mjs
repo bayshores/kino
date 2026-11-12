@@ -73,7 +73,7 @@ import { createPeopleCache } from "../footage/people.mjs";
 import { createSoundsCache } from "../footage/sounds.mjs";
 import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
 import { madeNamesIn } from "../../engine/deck.js";
-import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, reviseWaitingBoard, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
@@ -1340,14 +1340,37 @@ export function createAgentService(deps) {
     }
     return oneAtATime(projectId, async () => {
       const round = waitingStop(await agentState.read(projectId)) ? await liveStop(await store.getProject(projectId)) : null;
-      if (round) throw new StopWaits({ projectId, round });
+      // A revised storyboard (only board ops, answer() checked) saves while its board round waits.
+      const revising = round && round.kind === "board" && meta.boardRevise?.id === round.id;
+      if (round && !revising) throw new StopWaits({ projectId, round });
       // The crew (crew.mjs): this agent now holds the parts it changed, unless another agent
       // holds one of them; then nothing is saved and it waits.
       if (deps.crew && meta.live?.agent && !meta.live.replay) {
         const wait = deps.crew.claim(meta.live.agent, projectId, changedParts(rest[0], rest[1]));
         if (wait) throw new LockWaits(projectId, wait);
       }
-      return noteSave(await deps.saveDocument(projectId, ...rest));
+      const saved = noteSave(await deps.saveDocument(projectId, ...rest));
+      // The waiting round shows the saved revision at once, before anything settles it as moved on.
+      if (revising && saved?.document) meta.boardRevise.answer = await reviseBoardStop(projectId, saved);
+      return saved;
+    });
+  }
+
+  // The waiting board round after a revised board saved (stops.mjs reviseWaitingBoard): its ask
+  // written again from the new board, with the facts a board checkpoint uses. The waiting answer.
+  async function reviseBoardStop(projectId, saved) {
+    const document = saved.document;
+    const video = { ...(await directionFacts(document)), waivers: await waiversInUse(document) };
+    const talking = videoScene(document);
+    if (talking) video.clipLines = (await sceneLines(talking, document, await syncCodes(projectId, document))).map(({ layer, text, from, heard }) => ({ layer, text, from, heard }));
+    const facts = boardFacts(document);
+    const soundFiles = await soundFilesFor(document);
+    const steady = { at: steadyNow(), boot: bootedAt };
+    return agentState.update(projectId, (draft) => {
+      const answer = reviseWaitingBoard(draft, { facts, rev: saved.revision, work: workPrint(document), now: now(), soundFiles, soundSearch: soundSearchOn(), video });
+      // The person reads the new ask: an answer under 5 s after it is too fast again.
+      if (answer) waitingStop(draft).steady = steady;
+      return answer;
     });
   }
 
@@ -1529,6 +1552,22 @@ export function createAgentService(deps) {
       super(waitingData(waiting.round).next);
       this.waiting = waiting;
     }
+  }
+
+  // While a board round waits, an edit of board ops only (no dry run) is a revised storyboard: it
+  // saves, and the round shows it (saveDocument, reviseBoardStop). Every other write stays held.
+  function revisesBoard(verb, input, round) {
+    if (verb !== "edit" || round?.kind !== "board" || input.dry_run === true) return false;
+    const ops = Array.isArray(input.ops) ? input.ops : input.ops && typeof input.ops === "object" ? [input.ops] : [];
+    return ops.length > 0 && ops.every((op) => (op?.op ?? op?.type) === "board");
+  }
+
+  // The edit's receipt with the refreshed ask of the waiting board round: stop {status, id, rev,
+  // ask, board, next}, and the round's answer call as the next call (send the new ask, end the turn).
+  function withRevisedAsk(reply, waited) {
+    const stop = { ...waited.data, revised: true };
+    if (reply.receipt) return { ...reply, data: { ...reply.data, stop }, nextCall: waited.nextCall };
+    return { ...reply, text: `${reply.text}\n${waited.text}`, data: { ...(reply.data ?? {}), stop }, nextCall: waited.nextCall };
   }
 
   // A refused write while a stop waits: nothing changes, and the call counts in the turn.
@@ -4839,8 +4878,12 @@ export function createAgentService(deps) {
     // the board and cut in one call is refused whole, so nothing it holds is saved.
     const gate = await boardGate(projectId, after, before);
     if (!gate) return;
+    // Clips placed to see and hear them: the source look does that with no layer.
+    const placed = new Set(before.scenes.flatMap((scene) => scene.layers.map((layer) => layer.id)));
+    const clips = after.scenes.some((scene) => scene.layers.some((layer) => layer.type === "video" && !placed.has(layer.id)));
+    const hear = clips ? ' To see a clip with its sound before the board, no layer needed: look {mode:"source", layer:"<clip code>"}.' : "";
     throw Object.assign(new AgentError("board_needed", `Nothing was built: the storyboard comes before the cut, so the person can still change it. Next: ${gate.step}.`, {
-      next: "Importing media, the board op, library, look, notes and inspect work now.",
+      next: `Importing media, the board op, library, look, notes and inspect work now.${hear}`,
     }), { nextCall: gate.call });
   }
   async function refuseDraftBeforeBoard(record) {
@@ -9026,7 +9069,13 @@ export function createAgentService(deps) {
         // The crew's limits for this agent come first (crew.mjs): a stopped agent stays stopped.
         let crewAnswer = await crewGate(verb, safeInput, meta);
         held = gated && !crewAnswer && Boolean(deps.hold?.().on);
-        const waiting = gated && !held && !crewAnswer ? await waitingFor(verb, safeInput) : null;
+        let waiting = gated && !held && !crewAnswer ? await waitingFor(verb, safeInput) : null;
+        // A revised storyboard goes through while its board round waits; the round shows it.
+        const boardRevise = waiting && revisesBoard(verb, safeInput, waiting.round) ? { id: waiting.round.id, answer: null } : null;
+        if (boardRevise) {
+          meta = { ...meta, boardRevise };
+          waiting = null;
+        }
         refusedFor = waiting?.round.id ?? null;
         if (!crewAnswer && !held && !waiting) {
           const claimed = await renderClaim(verb, safeInput, meta);
@@ -9038,6 +9087,7 @@ export function createAgentService(deps) {
         // status, library, notes) of another project leaves the agent's open project as it was.
         const keepCurrent = meta.keepCurrent || !opensProject(verb, safeInput);
         reply = await caller.run({ ...meta, keepCurrent }, () => (crewAnswer ? crewReply(crewAnswer, safeInput) : held ? heldReply(safeInput) : waiting ? waitingReply(waiting) : handlers[verb](safeInput, meta)));
+        if (boardRevise?.answer && !reply.isError) reply = withRevisedAsk(reply, boardRevise.answer);
       } catch (error) {
         // A stop asked while this write ran refused its save (saveDocument).
         if (error instanceof StopWaits) {

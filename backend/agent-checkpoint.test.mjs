@@ -896,6 +896,8 @@ test("a cut waits for the storyboard, so does a draft; the approved board lets t
     assertRefused(refused, "board_needed", /^Nothing was built: the storyboard comes before the cut, so the person can still change it\. Next: save the storyboard\.$/);
     assert.equal(nextCallOf(refused).tool, "edit");
     assert.equal(nextCallOf(refused).input.ops[0].op, "board");
+    // Clips placed to see and hear them: the answer names the look that does it with no layer.
+    assert.match(refused.data.next, /To see a clip with its sound before the board, no layer needed: look \{mode:"source", layer:"<clip code>"\}\.$/);
     assert.equal(await revision(project), rev, "nothing was saved");
     // The second clip placed on top of an untrimmed first one (both run to the end) is a cut too.
     const stacked = CUT.map(({ properties: { mediaDuration, ...rest }, ...op }) => ({ ...op, properties: rest }));
@@ -913,7 +915,21 @@ test("a cut waits for the storyboard, so does a draft; the approved board lets t
     // Approved: the same edit saves.
     const asked = await checkpoint(project, "board");
     assert.equal(asked.data.status, "waiting_for_you", asked.text);
-    const approved = await dashboard("stops", { body: { project, action: "answer", id: asked.data.id, rev: asked.data.rev, read_as: "approve" } });
+
+    // While it waits, a revised board saves and the same stop shows it; every other write waits.
+    const retitled = { ...BOARD, shots: [{ ...BOARD.shots[0], text: { text: "Park reopens Sunday", family: "Inter" } }] };
+    const revised = await agent("edit", { project, ops: [retitled] });
+    assert.equal(revised.isError, undefined, revised.text);
+    assert.equal(revised.data.rev, asked.data.rev + 1, revised.text);
+    assert.deepEqual([revised.data.stop.status, revised.data.stop.id, revised.data.stop.rev, revised.data.stop.revised], ["waiting_for_you", asked.data.id, revised.data.rev, true]);
+    assert.ok(revised.data.stop.ask.includes("Park reopens Sunday"), revised.data.stop.ask);
+    assert.deepEqual(nextCallOf(revised).input, { action: "answer", id: asked.data.id, rev: revised.data.rev, words: "<their reply, word for word>", read_as: "approve" });
+    const stillAsks = await checkpoint(project, "board");
+    assert.deepEqual([stillAsks.data.status, stillAsks.data.id, stillAsks.data.rev], ["waiting_for_you", asked.data.id, revised.data.rev], "one stop, now on the revised board");
+    assert.equal((await agent("edit", { project, ops: CUT })).data.waiting, asked.data.id, "a cut still waits for the answer");
+    assert.equal(await revision(project), revised.data.rev);
+
+    const approved = await dashboard("stops", { body: { project, action: "answer", id: asked.data.id, rev: revised.data.rev, read_as: "approve" } });
     assert.equal(approved.status, 200, JSON.stringify(approved.body));
     const built = await agent("edit", { project, ops: CUT });
     assert.equal(built.isError, undefined, built.text);
