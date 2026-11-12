@@ -289,6 +289,8 @@ test("the mix fix line says which places were turned down, which were not, what 
   assert.equal(edit, 'edit {ops:[{op:"update_layer", layer:"Song", properties:{volume:0.557}}]}');
   assert.equal(restCallFor(after.places, { ops: [{}] }, layers), 'check {fix:"auto"}');
   assert.equal(restCallFor([], null, layers), "");
+  // A name with a quote mark stays one string in the call.
+  assert.equal(restCallFor(after.places, { ops: [] }, [{ id: "song", name: 'the "big" one', volume: 1 }]), 'edit {ops:[{op:"update_layer", layer:"the \\"big\\" one", properties:{volume:0.96}}]}');
   const line = describeMixFix(before, after, trimmed, { restCall: edit });
   assert.match(line, /; places: 9\.6 s Song x0\.58 whole: \+3\.1 -> -1\.8 dBFS; turned down at 1 of 2 places \(not at 1\.7 s: see not applied\); left: 1 place, worst 6\.4 s -1\.2 dBTP, 0\.3 dB over \(Song 1\) x0\.96; clears the rest: edit \{ops:\[\{op:"update_layer", layer:"Song", properties:\{volume:0\.557\}\}\]\}$/);
   assert.match(describeMixFix(before, { ...after, places: [] }, trimmed), /; left: none$/);

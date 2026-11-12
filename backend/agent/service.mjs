@@ -3568,13 +3568,14 @@ export function createAgentService(deps) {
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
     // What check {fix:"auto"} would turn down (peakTrims planned on the places as measured; its own
-    // run measures each layer alone first, so it may pick fewer layers at a place).
+    // run measures each layer alone first, so it may pick fewer layers at a place and other factors:
+    // a whole-song factor is named only by the fix, never guessed here).
     let mixTail = "";
     if (mix?.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held)) {
       const plan = await mixPlan(returnsScene, record.document, mix.places);
-      const wholes = [...new Map(plan.trimmed.flatMap((place) => place.layers.filter((layer) => layer.whole)).map((layer) => [layer.name, layer.factor]))];
+      const wholes = [...new Set(plan.trimmed.flatMap((place) => place.layers.filter((layer) => layer.whole).map((layer) => String(layer.name).slice(0, 24))))];
       mixTail = `; check {fix:"auto"} turns down ${plan.trimmed.length} of ${mix.places.length} ${mix.places.length === 1 ? "place" : "places"}` +
-        (wholes.length ? ` (${wholes.map(([name, factor]) => `${String(name).slice(0, 24)} whole x${factor}: its dips would churn or meet a fade`).join(", ")})` : "");
+        (wholes.length ? ` (${wholes.map((name) => `${name} whole`).join(", ")}: its dips would churn or meet a fade; the fix sizes it from each layer measured alone)` : "");
     }
     if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + mixTail);
     for (const note of result.notes) lines.push(`note: ${note}`);

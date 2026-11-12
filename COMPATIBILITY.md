@@ -1176,9 +1176,10 @@ How to read it:
   turned down, what is left and the one call that clears it; a mix the "auto" gain already clears is
   left alone. `place_sounds` keeps a new sound's peak plus the mix's under the limiter. Evidence:
   `backend/audio-levels.test.mjs`, `backend/agent-volume.test.mjs`, `engine/volumeAnimation.test.js`;
-  replayed on a real 14 s project: 3 -> 1 places, +3.1 -> -1.4 dBTP. Gap: there the whole-song trim
-  (x0.36) also moved "auto" from the song's level to -14 web; MIN_CAUSE_FACTOR and the 0.3 s whole-clip
-  margin are not measured.
+  replayed on a real 14 s project: 3 -> 1 places, +3.1 -> -1.4 dBTP, and the call it named for the rest
+  cleared it (1 -> 0). Gap: there the whole-song trim (x0.36) also moved "auto" from the song's level to
+  -14 web, where the limiter still works at 5 places (most 1.5 dB) and no call is offered for them;
+  MIN_CAUSE_FACTOR and the 0.3 s whole-clip margin are not measured.
 - **Waveform peaks**: Verified. `project manage media peaks` caches peaks beside the file; the
   dashboard draws them. Evidence: `backend/audio-peaks.test.mjs`, `engine/audioPeaks.test.js`. Partly
   verified: recovery from a corrupt cache.

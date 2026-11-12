@@ -229,7 +229,8 @@ export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, 
     if (!changed.length) continue;
     const head = `mix ${place.at} s (${place.from}-${place.to} s, ${place.overDb} dB over)`;
     fixed.push(causes ? `${head}: ${changed.map(([, text]) => text).join(", ")}${kept.length ? `; kept ${kept.join(", ")}` : ""}`
-      : `${head} x${place.factor}: ${changed.map(([, text]) => text).join(", ")}`);
+      // The place's xN only when a layer took it (a whole song names its own factor).
+      : `${head}${changed.some(([, , , isWhole]) => !isWhole) ? ` x${place.factor}` : ""}: ${changed.map(([, text]) => text).join(", ")}`);
     trimmed.push({ at: place.at, from: place.from, to: place.to, peakDbtp: place.peakDbtp,
       layers: changed.map(([id, , factor, isWhole]) => ({ name: scene.layers.find((layer) => layer.id === id)?.name ?? id, factor, ...(isWhole ? { whole: true } : {}) })) });
   }

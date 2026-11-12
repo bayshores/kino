@@ -117,7 +117,7 @@ test("a song whose limiter dips would churn its level comes down whole by its wo
   assert.deepEqual(trim.ops, [{ op: "update_layer", sceneId: "s", layerId: "step", properties: { volume: 0.58 } }, { op: "update_layer", sceneId: "s", layerId: "song", properties: { volume: 0.58 } }]);
   assert.deepEqual(trim.dropped, []);
   assert.equal(trim.fixed[0], "mix song x0.58 whole 1->0.58: one constant gain, sized from the 4 s place (the lowest factor of 3, +1.5 dBTP); place by place, 3 dips would turn its level 5 times in 4 s (volume_churn)");
-  assert.deepEqual(trim.fixed.slice(1), ["mix 2 s (2-2.2 s, 3 dB over) x0.7: song x0.58 whole 1->0.58", "mix 4 s (4-4.2 s, 3 dB over) x0.58: step 0.58, song x0.58 whole 1->0.58", "mix 6 s (6-6.2 s, 3 dB over) x0.7: song x0.58 whole 1->0.58"]);
+  assert.deepEqual(trim.fixed.slice(1), ["mix 2 s (2-2.2 s, 3 dB over): song x0.58 whole 1->0.58", "mix 4 s (4-4.2 s, 3 dB over) x0.58: step 0.58, song x0.58 whole 1->0.58", "mix 6 s (6-6.2 s, 3 dB over): song x0.58 whole 1->0.58"]);
   assert.deepEqual(trim.trimmed.map((entry) => entry.layers.map((layer) => [layer.name, layer.factor, layer.whole ?? false])), [[["song", 0.58, true]], [["step", 0.58, false], ["song", 0.58, true]], [["song", 0.58, true]]]);
   // Applied, the fade in keeps its shape at the new level: a constant gain.
   const after = applyOperations(document, trim.ops.map(({ op, ...rest }) => ({ type: op, ...rest })));

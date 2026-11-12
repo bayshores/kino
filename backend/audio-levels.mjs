@@ -344,7 +344,7 @@ export function restCallFor(places, plan, layers) {
   const worst = places.reduce((high, place) => (!high || place.overDb > high.overDb ? place : high), null);
   const ids = [...new Set((worst.playing ?? []).map((clip) => clip.layerId).filter(Boolean))];
   const ops = ids.map((id) => layers.find((layer) => layer.id === id)).filter(Boolean)
-    .map((layer) => `{op:"update_layer", layer:"${layer.name ?? layer.id}", properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
+    .map((layer) => `{op:"update_layer", layer:${JSON.stringify(String(layer.name ?? layer.id))}, properties:{volume:${Math.round(1000 * (layer.volume ?? 1) * worst.factor) / 1000}}}`);
   return ops.length ? `edit {ops:[${ops.join(", ")}]}` : "";
 }
 
