@@ -10018,7 +10018,23 @@ export function createAgentService(deps) {
       const screen = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
       if (!screen || fonts[key]) continue;
       fonts[key] = { family: screen };
-      ops.push(...sets);
+      // The rule reads each caption track as its own voice (round 5: three keep_line lines, one
+      // finding naming the first only), so setting back only the named layers left the other lines
+      // in the new face. The layers with the same role field, in the same face and within a quarter of
+      // a named layer's size go back with them, each beside a named layer of its weight (else its own
+      // weight: set_font takes the nearest).
+      const same = (a, b) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+      const named = ids.map((id) => byCode.get(id)).filter(Boolean);
+      const alike = (layer) => named.some((other) => other.role && other.role === layer.role && Math.abs((layer.fontSize ?? 0) - (other.fontSize ?? 0)) <= 0.25 * (other.fontSize ?? 0));
+      const back = sets.map((op) => ({ ...op, layerIds: [...(op.layerIds ?? [])] }));
+      for (const [code, layer] of byCode) {
+        if (ids.includes(code) || layer.type !== "text" || !alike(layer) || !same(layer.fontFamily, screen)) continue;
+        const twin = back.find((op) => op.layerIds.some((id) => byCode.get(id)?.fontWeight === layer.fontWeight));
+        if (twin) twin.layerIds.push(code);
+        else back.push({ op: "set_font", layerIds: [code], family: sets[0].family, ...(layer.fontWeight ? { weight: Number(layer.fontWeight) } : {}) });
+        ids.push(code);
+      }
+      ops.push(...back);
       names.push(...ids);
       parts.push(`${key} ${ids.slice(0, 3).join(" ")}${ids.length > 3 ? ` +${ids.length - 3}` : ""} in ${screen} (bible ${sets[0].family})`);
     }
