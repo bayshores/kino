@@ -13,6 +13,7 @@ import { DOCUMENT_VERSION, MAX_MEDIA_SECONDS, MAX_TIME, MAX_UPLOAD_BYTES } from 
 import { normalizeEasing as canonicalEasing, normalizeIntensity } from "./easing.js";
 import { TEXT_UNIT_ORDERS, normalizeSmoothing, normalizeTextRange } from "./textTiming.js";
 import { normalizeTextLoop } from "./textLoop.js";
+import { normalizeLetterJitter } from "./letterJitter.js";
 import { isMoveAnimation, normalizeMotionPath } from "./motionPath.js";
 import { behaviorKeys, normalizeBehavior } from "./behavior.js";
 import { normalizePreset, normalizeDiscrete } from "./presetCatalog.js";
@@ -1351,6 +1352,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
   else {
     try { layer.textLoop = normalizeTextLoop(layer.textLoop); }
     catch (error) { const [, key = "", why] = /^(\.\w+)? ?(.*)$/.exec(error.message); fail(`${path}.textLoop${key}`, why); }
+  }
+  // Optional fixed per-letter tilt and lift (letterJitter.js); null clears it.
+  if (layer.jitter == null || layer.jitter === false) delete layer.jitter;
+  else if (type !== "text") fail(`${path}.jitter`, "only text layers jitter their letters");
+  else {
+    try { layer.jitter = normalizeLetterJitter(layer.jitter); }
+    catch (error) { const [, key = "", why] = /^(\.\w+)? ?(.*)$/.exec(error.message); fail(`${path}.jitter${key}`, why); }
   }
   // Optional variable font axes {wght, wdth, slnt, opsz} (fontAxes.js); null clears them.
   if (layer.axes === null) delete layer.axes;

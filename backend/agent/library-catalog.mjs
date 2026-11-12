@@ -11,6 +11,7 @@ import { VIDEO_FORMATS } from "../../engine/blocks/videoFormats.js";
 import { EFFECTS, effectDefaults } from "../../engine/effects/catalog.js";
 import { COLOR_LOOK_NAMES } from "../../engine/effects/colorLook.js";
 import { TECHNIQUES, TECHNIQUE_GROUPS, techniqueOf } from "../../engine/techniques.js";
+import { outlineGlow } from "../../engine/outlineGlow.js";
 
 export const SAMPLE_FRAME = Object.freeze({ width: 960, height: 540 });
 
@@ -121,6 +122,9 @@ const STROKE_STACKS = {
   "stroke-neon": { line: "neon tube: fill off, the layer field strokes in one color from wide and faint to a thin white core",
     strokes: [{ color: "#26F0FF", width: 16, opacity: 0.25, join: "round" }, { color: "#26F0FF", width: 8, opacity: 0.6, join: "round" }, { color: "#E8FFFF", width: 2.5, join: "round" }],
     fillEnabled: false, shadows: [{ color: "#26F0FF", blur: 24, opacity: 0.7 }], ground: "#05121A" },
+  // engine/outlineGlow.js: outlineGlow({stroke, fill, glow, width, fontSize}) gives these fields for any colors.
+  "outline-glow": { line: "outline glow, hollow letters (outline, neon, rim, glow): fill is the dark interior, strokes one bright outline, shadows a halo from the outline only; swap the three colors (stroke, fill, glow) and keep the rest",
+    ...outlineGlow({ fontSize: 150 }), ground: "#0A260E" },
 };
 
 // Shape modifiers (engine/shapeModifiers.js): layer fields that change a shape's outline. Each

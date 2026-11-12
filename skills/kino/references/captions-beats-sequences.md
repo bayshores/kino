@@ -33,6 +33,15 @@ played as one.
   (a box behind the said word).
 - Text that stays alive between its in and out: layer field `textLoop:{style: wave | float | pulse
   | jitter, amount?, speed?, stagger?, unit?, seed?, ramp?}` (operations section text-loop).
+- Letter type, one text layer each (no layer per word or letter):
+  - A color entrance on letters (`preset-custom-text` color, or `move type-on` with `highlight`
+    "#hex", `highlightFor` 0.07 s) lights the newest letter, then each letter settles to its own
+    range fill: color one word with `style_text_range {text:"AGAIN", style:{fill}}`, not a layer.
+  - `textStyleRanges` style also takes `rotation` (deg) and `baselineShift` (% of font size, up).
+  - `jitter:{rotation:3, baseline:3, seed:1}` (or `true`): a fixed hand-set tilt and lift per
+    letter, same for the same seed, not animated (`textLoop` jitter is the moving one).
+  - `outlineGlow:{stroke, fill, glow, width}` or `true` in add_layer or update_layer properties:
+    hollow letters, a bright outline, a halo from the outline only (sets fill, strokes, shadows).
 - One animation, every letter timed (a range selector): `range` on an add_animation
   with a `unit`, in place of `stagger`. `"typewriter"` (soft, one after another), `"center-out"`
   and `"random"` (`{preset:"random", seed}`) work on an in or out; `"wave"` lifts each unit to

@@ -32,6 +32,9 @@ const SEEN_AS = {
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
+  typed: ["type-on"], typing: ["type-on"], typewriter: ["type-on"], "typed highlight": ["type-on"], highlight: ["type-on", "caption-words"],
+  jitter: ["text-ranges"], "hand set": ["text-ranges"], "hand lettering": ["text-ranges", "set_font"], scrawl: ["text-ranges"],
+  hollow: ["layer-style"], "outline glow": ["layer-style", "glow"], "glow outline": ["layer-style", "glow"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
   "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],
@@ -66,7 +69,11 @@ export function originReferenceLine(found, title) {
 // Guide topics that hold each effect group's rules.
 const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blur: "blur" };
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
-const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations" };
+const TOPICS = {
+  "clip-speed": "layer properties mediaSpeed and speed animations",
+  "text-ranges": "textStyleRanges (rotation, baselineShift, fill) and the layer field jitter",
+  "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
+};
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look, e.g. condensed bold sans>"} then set_font {layerIds, family, weight}' };
 

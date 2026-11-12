@@ -24,6 +24,7 @@ import { REACH_OPERATIONS } from "./reach-operations.mjs";
 import { LAYER_ROLES } from "../../engine/qualityFields.js";
 import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
+import { withOutlineGlow } from "../../engine/outlineGlow.js";
 import { REPEAT_KEYS } from "../../engine/repeater.js";
 import { MODIFIER_CHOICE_KEYS, MODIFIER_KEYS } from "../../engine/shapeModifiers.js";
 import { bezierFromCss, fixLayerProperties, fixOperation, gradientFromCss, hexFromHsl, isLayerFieldAlias, reshapeOperation, timeFromText } from "./common-mistakes.mjs";
@@ -204,7 +205,7 @@ export const LAYER_PROPERTY_NAMES = [...new Set([
   ...Object.keys(MEDIA_TIMING_TYPES), "lowpass", "voiceCleanup", "morphIn", "log",
   ...BACKDROP_STYLE_KEYS, "reveal", "effectPreset", "fillRule", "textStyleRanges", "inactiveBoxStyles", "convertedFrom",
   "componentSceneId", "componentStart", "componentVisibility", "componentBackgroundEnabled", "componentOverrides",
-  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "textLoop", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, ...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS, "maskInvert", "maskMode",
+  "role", "perpetual", "allowOverlap", "recipe", "tabularNumbers", "textLoop", "jitter", "axes", "rotateX", "rotateY", "perspective", "skewY", "anchor", "shadows", "strokes", ...TRIM_KEYS, ...REPEAT_KEYS, ...MODIFIER_KEYS, ...MODIFIER_CHOICE_KEYS, "maskInvert", "maskMode",
 ])];
 const LAYER_PROPERTIES = new Set(LAYER_PROPERTY_NAMES);
 // Operations whose `properties` are layer fields.
@@ -244,8 +245,10 @@ function sameOpWith(operation, properties) {
 }
 
 function checkLayerProperties(operation, fixes, resolver, document) {
-  const properties = operation.properties;
+  let properties = operation.properties;
   if (!LAYER_PROPERTY_OPS.has(operation.type) || !properties || typeof properties !== "object" || Array.isArray(properties)) return;
+  // outlineGlow {stroke, fill, glow, width} is a shorthand for the fill, strokes and shadows of the hollow glowing look.
+  if (properties.outlineGlow !== undefined) properties = withOutlineGlow(properties);
   operation.properties = fixLayerProperties(properties, fixes, { ...layerContext(operation, resolver, document), known: LAYER_PROPERTIES,
     exampleOp: (changes) => sameOpWith(operation, changes) });
   for (const alias of CORNER_ALIASES) {

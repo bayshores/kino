@@ -11,7 +11,11 @@ export const TEXT_STYLE_KEYS = Object.freeze([
   "letterSpacing",
 ]);
 
-const STYLE_KEY_SET = new Set(TEXT_STYLE_KEYS);
+// Range-only keys: a letter can turn (degrees) or sit above or below the baseline (percent of its font
+// size, up is positive). The layer has no such style (its own rotation turns the whole box).
+export const RANGE_ONLY_KEYS = Object.freeze(["rotation", "baselineShift"]);
+const ALL_RANGE_KEYS = Object.freeze([...TEXT_STYLE_KEYS, ...RANGE_ONLY_KEYS]);
+const STYLE_KEY_SET = new Set(ALL_RANGE_KEYS);
 const FONT_SOURCE_PATTERN =
   /^\/api\/(?:(?:media\/[a-f0-9-]{36})|(?:fonts\/[a-z0-9_-][a-z0-9._-]*))\.(?:ttf|otf|woff|woff2)$/iu;
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -85,6 +89,10 @@ function normalizeStyleValue(key, value, path) {
       return normalizeFill(value, path);
     case "letterSpacing":
       return requireNumber(value, -LETTER_SPACING_LIMIT, LETTER_SPACING_LIMIT, path);
+    case "rotation":
+      return requireNumber(value, -360, 360, path);
+    case "baselineShift":
+      return requireNumber(value, -200, 200, path);
     default:
       fail(path, "is not a supported text style field");
   }
@@ -96,7 +104,7 @@ function readStyle(style, path, { allowRemoval = false } = {}) {
     if (!STYLE_KEY_SET.has(key)) fail(`${path}.${key}`, "is not a supported text style field");
   }
   const normalized = {};
-  for (const key of TEXT_STYLE_KEYS) {
+  for (const key of ALL_RANGE_KEYS) {
     if (!Object.hasOwn(style, key)) continue;
     const value = ownValue(style, key, `${path}.${key}`);
     if (allowRemoval && value === undefined) normalized[key] = REMOVE;
@@ -321,7 +329,7 @@ function patchRanges(text, ranges, start, end, patch) {
 function applyStylePatch(originalStyle, patch, changesFontFace, suppliesFontSource) {
   const style = { ...originalStyle };
   if (changesFontFace && !suppliesFontSource) delete style.fontSource;
-  for (const key of TEXT_STYLE_KEYS) {
+  for (const key of ALL_RANGE_KEYS) {
     if (!Object.hasOwn(patch, key)) continue;
     if (patch[key] === REMOVE) delete style[key];
     else style[key] = patch[key];

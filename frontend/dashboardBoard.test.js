@@ -357,6 +357,6 @@ test("the library: a group, a kind or a search; what this video uses and on whic
   assert.equal(askNote([], "just words"), "just words");
   // Shadow and stroke stacks are static layer fields, not animations, and the note names the field.
   const sticker = catalog.entries.find((entry) => entry.name === "stroke-double");
-  assert.deepEqual([sticker.kind, catalog.entries.filter((entry) => entry.kind === "style").map((entry) => entry.name)], ["style", ["shadow-long", "shadow-neon", "stroke-double", "stroke-neon", "zigzag-badge", "offset-outline", "round-corners", "bloat-flower", "twist-swirl"]]);
+  assert.deepEqual([sticker.kind, catalog.entries.filter((entry) => entry.kind === "style").map((entry) => entry.name)], ["style", ["shadow-long", "shadow-neon", "stroke-double", "stroke-neon", "outline-glow", "zigzag-badge", "offset-outline", "round-corners", "bloat-flower", "twist-swirl"]]);
   assert.equal(askNote(withAsk([], sticker)), "From the library, use: layer style stroke-double (layer field strokes).");
 });

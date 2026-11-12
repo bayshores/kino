@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
-import { layoutText, resizeTextLayer, shapeText, textUnits } from "./textLayout.js";
+import { glyphPath, layoutText, resizeTextLayer, shapeText, textUnits } from "./textLayout.js";
 import { textSourceMap } from "./textSource.js";
 import { renderSceneSvg } from "./render.js";
 import { evaluateLayer } from "./animation.js";
@@ -84,6 +84,35 @@ test("converging animated paints preserve glyph boundaries and tracking can over
   assert.equal(layoutText(end, fonts).lines[0].glyphs.length, 2);
   end.textStyleRanges[0].style.letterSpacing = 12_000_000;
   assert.ok(Number.isFinite(layoutText(end, fonts).naturalWidth));
+});
+
+test("a color entrance ends each styled range on its own fill, and an unstyled letter on the layer fill", () => {
+  const layer = text({ text: "Yo", textStyleRanges: [{ start: 0, end: 1, style: { fill: "#00aa00" } }],
+    animations: [{ id: "enter", kind: "in", start: 0, duration: 1, easing: "linear", from: { fill: "#ff0000" }, to: { fill: "#204080" } }] });
+  const end = evaluateLayer(layer, 1, { fonts });
+  assert.equal(end.textStyleRanges[0].style.fill, "#00aa00");
+  assert.equal(end.fill, "#204080");
+  assert.equal(evaluateLayer(layer, 0, { fonts }).textStyleRanges[0].style.fill, "#ff0000");
+});
+
+test("a range rotation and baseline shift move one letter's drawing, never the spacing", () => {
+  const plain = layoutText(text({ text: "Yo" }), fonts);
+  const turned = layoutText(text({ text: "Yo", textStyleRanges: [{ start: 1, end: 2, style: { rotation: 20, baselineShift: 10 } }] }), fonts);
+  assert.equal(turned.lines[0].width, plain.lines[0].width);
+  assert.equal(glyphPath(turned.lines[0].glyphs[0]), glyphPath(plain.lines[0].glyphs[0]), "the other letter is untouched");
+  assert.notEqual(glyphPath(turned.lines[0].glyphs[1]), glyphPath(plain.lines[0].glyphs[1]));
+  assert.throws(() => doc(text({ textStyleRanges: [{ start: 0, end: 1, style: { rotation: 400 } }] })), /rotation/);
+});
+
+test("jitter is fixed per seed, differs between seeds, keeps the spacing and is refused off text", () => {
+  const paths = (jitter) => layoutText(text({ text: "Yo hand", width: 400, jitter }), fonts).lines[0].glyphs.map(glyphPath);
+  const plain = layoutText(text({ text: "Yo hand", width: 400 }), fonts);
+  const first = paths({ seed: 1 });
+  assert.deepEqual(first, paths({ seed: 1 }), "the same seed gives the same letters");
+  assert.notDeepEqual(first, paths({ seed: 2 }));
+  assert.notDeepEqual(first, plain.lines[0].glyphs.map(glyphPath));
+  assert.equal(layoutText(text({ text: "Yo hand", width: 400, jitter: true }), fonts).lines[0].width, plain.lines[0].width);
+  assert.throws(() => parseDocument(createDocument({ id: "j", scenes: [createScene({ id: "s", layers: [createLayer("rectangle", { id: "r", jitter: true })] })] })), /jitter/);
 });
 
 test("changed strings use base styles while identical component text retains ranges", () => {

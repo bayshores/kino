@@ -464,6 +464,11 @@ How to read it:
 - **Rich text inside one layer**: Verified. `textStyleRanges` override font, size, paint and spacing;
   Change Text, Counter and Bulk Create use the base style. Evidence: `engine/textStyleRanges.test.js`,
   `engine/richText.test.js`, `backend/rich-text.integration.test.mjs`.
+- **Letter type in one layer**: Verified (tests, frames). A color entrance ends each range on its own
+  fill; ranges take `rotation` and `baselineShift`; `jitter {rotation, baseline, seed}` is a fixed hand-set
+  tilt and lift; `outlineGlow {stroke, fill, glow}` sets hollow glowing letters; `type-on` takes `highlight`
+  and `highlightFor`. Evidence: `engine/richText.test.js`, `engine/moves.test.js`,
+  `backend/agent-text-loop.test.mjs`. Gap: emoji do not turn; Lottie of turned letters not checked; strokes refuse Lottie.
 - **Character fallback and emoji**: Partly verified. Each cluster stays in one font, falling back to
   Noto; a missing character gives `missing_glyphs`. Evidence: `engine/fontFallback.test.js`,
   `backend/font-fallback.test.mjs`, `engine/colorFontTables.test.js`, `tests/color-font.test.mjs`. Gaps:

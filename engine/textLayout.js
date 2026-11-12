@@ -6,6 +6,7 @@ import { lineHeightPixels } from "./lineHeight.js";
 import { textGraphemes } from "./textSource.js";
 import { itemizeText, textStyleRuns } from "./textItemization.js";
 import { prepareTextBidi } from "./textBidi.js";
+import { letterJitterAt } from "./letterJitter.js";
 export { displayText, textGraphemes } from "./textSource.js";
 
 const cache = new WeakMap();
@@ -31,7 +32,16 @@ export function glyphContours(glyph) {
     outlineCache.set(glyph.path, contours);
     if (outlineCache.size > 2048) outlineCache.delete(outlineCache.keys().next().value);
   }
-  const point = ([x, y]) => [glyph.x + x * glyph.scale, glyph.y - y * glyph.scale];
+  // A letter that sits above or below the baseline (glyph.shift, pixels up) or turns about the
+  // middle of its own ink (glyph.rotation, degrees, clockwise) is drawn there; its layout is unchanged.
+  const lift = glyph.shift || 0, turn = (glyph.rotation || 0) * Math.PI / 180;
+  const flat = ([x, y]) => [glyph.x + x * glyph.scale, glyph.y - lift - y * glyph.scale];
+  let point = flat;
+  if (turn && glyph.bounds) {
+    const cx = glyph.x + glyph.bounds.x + glyph.bounds.width / 2, cy = glyph.y - lift + glyph.bounds.y + glyph.bounds.height / 2;
+    const cos = Math.cos(turn), sin = Math.sin(turn);
+    point = (pair) => { const [px, py] = flat(pair); return [cx + (px - cx) * cos - (py - cy) * sin, cy + (px - cx) * sin + (py - cy) * cos]; };
+  }
   return contours.map((contour) => ({ ...contour, start: point(contour.start), segments: contour.segments.map((segment) => ({ c1: point(segment.c1), c2: point(segment.c2), end: point(segment.end) })) }));
 }
 
@@ -64,6 +74,13 @@ export function glyphDrawBounds(glyph) {
   if (glyph.color) return { x: glyph.x + glyph.bounds.x, y: glyph.y + glyph.bounds.y,
     width: glyph.bounds.width, height: glyph.bounds.height };
   return glyph.path ? { ...glyphPathBounds(glyph) } : null;
+}
+
+// A styled run that turns its letters or lifts them off the baseline (textStyleRanges rotation and
+// baselineShift) puts "rotation" (degrees) and "shift" (pixels up) on each of its glyphs; glyphContours draws them.
+function turnedGlyph(style) {
+  const turn = Number(style._textRangeRotation) || 0, lift = (Number(style._textRangeShift) || 0) / 100 * layoutFontSize(style.fontSize);
+  return { ...(turn ? { rotation: turn } : {}), ...(lift ? { shift: lift } : {}) };
 }
 
 function sameShapingStyle(left, right) {
@@ -104,9 +121,10 @@ function shapeItemRuns(runs) {
     if (combined.glyphs.some((glyph) => first.start + glyph.end > rangeAt(first.start + glyph.start).end))
       return group.map(shape);
     combined.glyphs = combined.glyphs.map((glyph) => {
-      const { fill: ignoredFill, ...rest } = glyph;
-      const fill = rangeAt(first.start + glyph.start).style._textRangeFill;
-      return fill === undefined ? rest : { ...rest, fill };
+      const { fill: ignoredFill, rotation: ignoredTurn, shift: ignoredShift, ...rest } = glyph;
+      const { style } = rangeAt(first.start + glyph.start);
+      const fill = style._textRangeFill;
+      return { ...rest, ...(fill === undefined ? {} : { fill }), ...turnedGlyph(style) };
     });
     return [combined];
   });
@@ -169,7 +187,7 @@ function missingRun(text, layer, face, options = {}) {
     x: cursor, y: 0, advance: hidden ? 0 : fontSize * 0.8,
     path: /^[\s\p{Default_Ignorable_Code_Point}\p{Control}]*$/u.test(part.text) ? "" : path, scale,
     ...(/^[\s\p{Default_Ignorable_Code_Point}\p{Control}]*$/u.test(part.text) ? {} : { missing: part.text, missingFamily: face.missingFor ?? face.family }),
-    ...(layer._textRangeFill === undefined ? {} : { fill: layer._textRangeFill }),
+    ...(layer._textRangeFill === undefined ? {} : { fill: layer._textRangeFill }), ...turnedGlyph(layer),
     bounds: { x: fontSize * 0.1, y: -fontSize * 0.8, width: fontSize * 0.6, height: fontSize * 0.8 } };
     cursor += glyph.advance;
     return glyph;
@@ -303,7 +321,7 @@ function shapeFaceRun(text, layer, face, options = {}) {
     if (invisible) { color = null; path = ""; bounds = { x: 0, y: 0, width: 0, height: 0 }; }
     const item = {
       id: glyph.id, start, end, cluster, direction: options.direction ?? run.direction, level: options.level ?? 0, hidden: Boolean(hidden),
-      ...(layer._textRangeFill === undefined ? {} : { fill: layer._textRangeFill }),
+      ...(layer._textRangeFill === undefined ? {} : { fill: layer._textRangeFill }), ...turnedGlyph(layer),
       x: position.xOffset * scale,
       y: -position.yOffset * scale,
       advance: hidden ? 0 : position.xAdvance * scale,
@@ -378,10 +396,21 @@ function wrapParagraph(paragraph, width, layer, fonts, paragraphStart, runs, bid
   return lines;
 }
 
+// The layer's fixed letter jitter (letterJitter.js): each glyph turns and lifts a little more.
+function jitteredLine(line, start, layer) {
+  if (!layer.jitter) return line;
+  const size = layoutFontSize(layer.fontSize);
+  return { ...line, glyphs: line.glyphs.map((glyph) => {
+    if (!glyph.path) return glyph;
+    const { rotation, shift } = letterJitterAt(layer.jitter, start + glyph.start);
+    return { ...glyph, rotation: (glyph.rotation || 0) + rotation, shift: (glyph.shift || 0) + shift / 100 * size };
+  }) };
+}
+
 export function layoutText(layer, fonts = defaultFonts) {
   let entries = cache.get(fonts);
   if (!entries) { entries = new Map(); cache.set(fonts, entries); }
-  const key = JSON.stringify([fonts.version, layer.text, layer.width, layer.height, layer.fontFamily, layer.fontSource, layer.fontSize, layer.fontWeight, layer.axes, layer.fontStyle, layer.letterSpacing, layer.lineHeight, layer.textAlign, layer.verticalAlign, layer.textResize, layer.textCase, layer.kerning, layer.ligatures, layer.tabularNumbers === true, layer.textStyleRanges]);
+  const key = JSON.stringify([fonts.version, layer.text, layer.width, layer.height, layer.fontFamily, layer.fontSource, layer.fontSize, layer.fontWeight, layer.axes, layer.fontStyle, layer.letterSpacing, layer.lineHeight, layer.textAlign, layer.verticalAlign, layer.textResize, layer.textCase, layer.kerning, layer.ligatures, layer.tabularNumbers === true, layer.textStyleRanges, layer.jitter]);
   if (entries.has(key)) return entries.get(key);
   // NFC, as shapeText shapes each line, so a line's `start` and its glyphs' `start` count the same text.
   const { text, runs } = textStyleRuns(layer);
@@ -397,7 +426,7 @@ export function layoutText(layer, fonts = defaultFonts) {
   const shaped = text.split("\n").flatMap((paragraph) => {
     const lines = wrapParagraph(paragraph, limit, layer, fonts, paragraphStart, runs, bidi).map((line) => {
       const start = paragraphStart + line.start;
-      const shapedLine = shapeText(line.text, layer, fonts, { start, runs, bidi });
+      const shapedLine = jitteredLine(shapeText(line.text, layer, fonts, { start, runs, bidi }), start, layer);
       const nominalHeight = lineHeightPixels(layer.lineHeight, shapedLine.fontSize);
       return { ...shapedLine, start, lineHeight: shapedLine.hasFallback
         ? Math.max(nominalHeight, shapedLine.ascent + shapedLine.descent) : nominalHeight };

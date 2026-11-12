@@ -39,3 +39,23 @@ test("edit sets a text loop and the new unit orders, and refuses a loop on a sha
   assert.equal((await agent("edit", { project: "loop", ops: [{ op: "update_layer", layer: "Title", properties: { textLoop: null } }] })).isError, undefined);
   assert.equal(Object.hasOwn((await layers()).find((layer) => layer.name === "Title"), "textLoop"), false);
 });
+
+test("edit sets jitter, a range rotation and the outlineGlow shorthand in one call each", async () => {
+  const document = parseDocument(createDocument({ id: "hand", name: "hand", scenes: [createScene({ id: "main", name: "Main", width: 640, height: 360, duration: 4 })] }));
+  assert.equal((await server.api("/api/projects", { method: "POST", body: { document } })).status, 201);
+  const made = await agent("edit", { project: "hand", ops: [
+    { op: "add_layer", layerType: "text", name: "Scrawl", properties: { text: "NOT AGAIN", x: 40, y: 100, width: 500, height: 120, fontSize: 87.5, jitter: { rotation: 4, seed: 3 }, outlineGlow: { stroke: "#FF4DD2", glow: "#FF2BD6" } } },
+    { op: "add_layer", layerType: "rectangle", name: "Box", properties: { x: 0, y: 0, width: 40, height: 40, jitter: true } },
+    { op: "style_text_range", layer: "Scrawl", text: "AGAIN", style: { rotation: 6, baselineShift: -4 } }] });
+  assert.equal(made.isError, true, "jitter on a shape is refused");
+  assert.match(made.text, /only text layers/);
+  const fixed = await agent("edit", { project: "hand", ops: [
+    { op: "add_layer", layerType: "text", name: "Scrawl", properties: { text: "NOT AGAIN", x: 40, y: 100, width: 500, height: 120, fontSize: 87.5, jitter: { rotation: 4, seed: 3 }, outlineGlow: { stroke: "#FF4DD2", glow: "#FF2BD6" } } },
+    { op: "style_text_range", layer: "Scrawl", text: "AGAIN", style: { rotation: 6, baselineShift: -4 } }] });
+  assert.equal(fixed.isError, undefined, fixed.text);
+  const scrawl = (await (await server.api("/api/projects/hand")).json()).document.scenes[0].layers.find((layer) => layer.name === "Scrawl");
+  assert.deepEqual(scrawl.jitter, { rotation: 4, seed: 3 });
+  assert.deepEqual([scrawl.strokes[0].color, scrawl.strokes[0].width, scrawl.shadows[0].color, scrawl.fill], ["#FF4DD2", 2.5, "#FF2BD6", "#0A260E"]);
+  assert.deepEqual(scrawl.textStyleRanges[0].style, { rotation: 6, baselineShift: -4 });
+  assert.equal(Object.hasOwn(scrawl, "outlineGlow"), false);
+});

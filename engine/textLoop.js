@@ -61,7 +61,7 @@ function envelope(time, from, to, ramp) {
 const smooth = (t) => t * t * (3 - 2 * t);
 
 /** A number from -1 to 1 for the seed, unit, step and channel: integer hashing, the same everywhere. */
-function noise(seed, index, step, channel) {
+export function noise(seed, index, step, channel) {
   let hash = 0x9e3779b9;
   for (const value of [seed, index, step, channel]) {
     hash = Math.imul(hash ^ (value >>> 0), 0x7feb352d);
