@@ -26,7 +26,9 @@ import path from "node:path";
 import { aliasClipLinks } from "../../engine/clipSync.js";
 import { duplicateLayers } from "../../engine/layerClipboard.js";
 import { createLayer, parseDocument } from "../../engine/model.js";
-import { outlinePathData } from "../cutout/outline.mjs";
+import { outlinePathData, pointsBox } from "../cutout/outline.mjs";
+import { presetAnimation } from "../../engine/animation.js";
+import { clipShowWindow, LOST_FADE } from "../../engine/cutoutTiming.js";
 import { parseFrameRate } from "../media-probe.mjs";
 import { applyOperations } from "../../engine/operations.js";
 import { mediaSceneTime } from "../../engine/playback.js";
@@ -85,12 +87,17 @@ function pickedReport(picked, layer) {
 }
 
 // output "outline": a path layer of the subject's edge instead of a media copy. It takes the
-// clip's place, size and turn (not its animations: a clip that is scaled or moved by an animation
-// needs the same one added to the outline), and its path morphs through the traced shapes at the
+// clip's place, size and turn, and the clip's animations of those (MOVE_KEYS), and its path morphs through the traced shapes at the
 // scene times those frames show (custom animations of up to OUTLINE_KEYS keys each, one closed
 // path per frame, so the shapes always match). Strokes, neon, taper and roughen work on it as on
 // any path. Defaults: stroke color white, width 3 px (guesses).
 const OUTLINE_KEYS = 48;
+// Where no subject is found: the line holds its last shape this long, then fades out over
+// OUTLINE_FADE_OUT, and fades back in over OUTLINE_FADE_IN when the subject is back (all guesses:
+// half a second reads as the same moment, a fade under a fifth of a second as a cut).
+const OUTLINE_HOLD = 0.5, OUTLINE_FADE_OUT = 0.15, OUTLINE_FADE_IN = 0.08;
+// The animated values an outline takes over from its clip (place, size, turn, fade).
+const MOVE_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation", "skewX", "skewY", "opacity", "anchorX", "anchorY"]);
 const PLACE_KEYS = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY", "anchor", "opacity", "blendMode",
   "playbackWindows", "anchorX", "anchorY", "rotateX", "rotateY", "perspective"];
 
@@ -99,19 +106,41 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
   const { outline } = made;
   const scaleX = layer.width / outline.width, scaleY = layer.height / outline.height;
   const rate = parseFrameRate(outline.rate) || 30;
-  // Each traced frame at the scene time Play shows it; frames Play never shows or with no subject are left out.
-  let empty = 0;
-  const shapes = outline.frames.flatMap((frame) => {
-    if (!frame.points) { empty += 1; return []; }
+  // Each traced frame at the scene time Play shows it (frames Play never shows are left out); a
+  // frame with no subject keeps its time, with no path.
+  const sampled = outline.frames.flatMap((frame) => {
     const time = layer.type === "image" ? 0 : mediaSceneTime(layer, outline.lead + frame.index / rate);
-    return time === null ? [] : [{ time: Math.round(time * 1000) / 1000, path: outlinePathData(frame.points, scaleX, scaleY) }];
+    return time === null ? [] : [{ time: Math.round(time * 1000) / 1000, path: frame.points ? outlinePathData(frame.points, scaleX, scaleY) : null,
+      box: frame.points ? pointsBox(frame.points, outline.width, outline.height) : null }];
   }).sort((a, b) => a.time - b.time).filter((shape, index, all) => index === 0 || shape.time > all[index - 1].time);
-  if (!shapes.length) throw new Error(`no outline could be traced for "${layer.name}": no sampled frame has a subject that Play shows.`);
+  const found = sampled.filter((shape) => shape.path);
+  if (!found.length) throw new Error(`no outline could be traced for "${layer.name}": no sampled frame has a subject that Play shows.`);
+  // Where no subject is found the line holds its last shape (a key just before the next found one,
+  // so it does not morph across the gap), and after OUTLINE_HOLD seconds it fades out until the
+  // subject is back; before the first found shape it is hidden. Study c: an outline drawn over the
+  // door shot before the subject came in.
+  const shapes = [], gaps = [];
+  let lost = null;
+  for (const shape of sampled) {
+    if (!shape.path) { if (shapes.length && lost === null) lost = shape.time; continue; }
+    if (lost !== null) {
+      const held = Math.round((shape.time - 0.001) * 1000) / 1000;
+      if (held > shapes.at(-1).time) shapes.push({ time: held, path: shapes.at(-1).path });
+      gaps.push({ lost, back: shape.time });
+      lost = null;
+    }
+    shapes.push(shape);
+  }
+  if (lost !== null) gaps.push({ lost, back: null });
+  const empty = sampled.length - found.length;
 
   const outlineLayer = createLayer("path", { id: operation.cutoutId, name: operation.cutoutName, cutoutOf: layerId, allowOverlap: true,
     ...Object.fromEntries(PLACE_KEYS.filter((key) => layer[key] !== undefined).map((key) => [key, structuredClone(layer[key])])),
     path: shapes[0].path, pathBounds: { x: 0, y: 0, width: layer.width, height: layer.height }, fillEnabled: false,
     stroke: operation.color ?? "#ffffff", strokeWidth: operation.width ?? 3 });
+  // The line shows only while its clip is drawn (a clip with Freeze "none" is not drawn outside Play).
+  const shows = clipShowWindow(layer, scene.duration);
+  if (shows) outlineLayer.playbackWindows = [...(outlineLayer.playbackWindows ?? []), shows];
   let next = parseDocument({ ...document, scenes: document.scenes.map((item) => item.id === sceneId ? { ...item, layers: [...item.layers, outlineLayer] } : item) });
   const steps = [{ type: "move_layers", sceneId, layerIds: [operation.cutoutId], position: "above", referenceId: operation.referenceId ?? layerId }];
   // One custom animation per run of shapes, each ending where the next begins.
@@ -122,15 +151,62 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
       from: { path: run[0].path }, to: { path: run.at(-1).path },
       ...(run.length > 2 ? { keys: run.map((shape) => ({ t: Math.min(1, (shape.time - start) / duration), value: { path: shape.path } })) } : {}) } });
   }
+  // The clip's moves (a push, a slide, a turn, its fades) go on the line too, or a pushed clip's
+  // subject grows away from its outline (probe on run 6: "final" pushed 1 to 1.15, line 60 px off).
+  // Its Hide and Show go on the line too (study b hid each clip with them).
+  const moves = (layer.animations ?? []).filter((animation) => ["custom", "in", "out", "hide", "show"].includes(animation.kind)
+    && [animation.from, animation.to, ...(animation.keys ?? []).map((key) => key.value)].every((values) => Object.keys(values ?? {}).every((key) => MOVE_KEYS.has(key))));
+  for (const animation of moves) {
+    const { id, ...copy } = structuredClone(animation);
+    steps.push({ type: "add_animation", sceneId, layerId: operation.cutoutId, animation: copy });
+  }
+  // Their ids say they mark lost frames, so a retimed clip moves them too (engine/cutoutTiming.js).
+  let fades = 0;
+  const fade = (mode, start, duration) => ({ type: "add_animation", sceneId, layerId: operation.cutoutId,
+    animation: { ...presetAnimation("preset-fade", outlineLayer, Math.max(0, Math.round(start * 1000) / 1000), scene, { mode }), duration, id: `${operation.cutoutId}.${LOST_FADE}${(fades += 1)}` } });
+  if (found[0].time > sampled[0].time) steps.push(fade("in", found[0].time, OUTLINE_FADE_IN));
+  const faded = [];
+  for (const { lost, back } of gaps) {
+    if (back !== null && back - lost <= OUTLINE_HOLD) continue;
+    steps.push(fade("out", lost + OUTLINE_HOLD, OUTLINE_FADE_OUT));
+    if (back !== null) steps.push(fade("in", back, OUTLINE_FADE_IN));
+    faded.push(Math.round((lost + OUTLINE_HOLD) * 100) / 100);
+  }
   next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
   const notes = made.note ? [made.note] : [];
-  if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; their outline holds the shape before it`);
-  if (empty > 0) notes.push(`${empty} sampled frame(s) had no subject and were skipped`);
-  if (layer.animations?.some((animation) => animation.kind !== "effect")) notes.push(`"${layer.name}" has animations that move or scale it; the outline layer does not copy them, so add the same ones to it`);
+  if (empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} in ${empty} of ${sampled.length} traced frames Play shows: held ${OUTLINE_HOLD} s or faded${faded.length ? ` (faded out at ${faded.join(", ")} s)` : ""}`);
+  if (layer.animations?.some((animation) => animation.kind !== "effect" && !moves.includes(animation))) notes.push(`"${layer.name}" has animations the outline does not copy (only its moves, scales, turns, fades, shows and hides); add the same ones to it if they change its place`);
+  const subject = subjectReport(layer, found.map(({ time, box }) => ({ time, box })), scene);
   reports?.set(operation, { engine: made.engine, output: "outline", frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
     cached: made.cached, outline: { shapes: shapes.length, step: outline.step, points: Math.max(...outline.frames.map((frame) => frame.points?.length ?? 0)) },
-    ...(notes.length ? { note: notes.join("; ") } : {}) });
+    ...(subject ? { subject: subject.report } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
+}
+
+// The subject's box over time for the receipt, so an agent can place type beside it without a look:
+// box [x, y, width, height] in scene pixels around every shown frame, at [[t, x, y, width, height]]
+// at up to 4 times spread over the clip, and room {left, right, top, bottom}: the scene's pixels
+// clear of the box on each side. Boxes are at the layer's own place (its animations aside). `share`
+// is the same box in shares of the layer (type_covered reads it from the layer's subjectBox).
+function subjectReport(layer, frames, scene) {
+  const shown = frames.filter((frame) => frame.box);
+  if (!shown.length) return null;
+  const px = ([x0, y0, x1, y1]) => [layer.x + x0 * layer.width, layer.y + y0 * layer.height, (x1 - x0) * layer.width, (y1 - y0) * layer.height].map(Math.round);
+  const share = [0, 1, 2, 3].map((i) => (i < 2 ? Math.min : Math.max)(...shown.map(({ box }) => box[i])));
+  const picks = [...new Set([0, 1, 2, 3].map((k) => Math.round((k * (shown.length - 1)) / 3)))];
+  const [x, y, width, height] = px(share);
+  const room = { left: Math.max(0, x), right: Math.max(0, Math.round((scene?.width ?? 0) - x - width)), top: Math.max(0, y), bottom: Math.max(0, Math.round((scene?.height ?? 0) - y - height)) };
+  return { share, report: { box: [x, y, width, height], at: picks.map((index) => [Math.round(shown[index].time * 100) / 100, ...px(shown[index].box)]), room } };
+}
+
+// Subject boxes of the matte's sampled frames (media.mjs boxes) at the scene times Play shows them.
+function shownBoxes(layer, made) {
+  if (!made.boxes?.frames?.length) return [];
+  const rate = parseFrameRate(made.rate) || 30;
+  return made.boxes.frames.flatMap(({ index, box }) => {
+    const time = layer.type === "image" ? 0 : mediaSceneTime(layer, (made.lead ?? 0) + index / rate);
+    return time === null ? [] : [{ time, box }];
+  }).sort((a, b) => a.time - b.time);
 }
 
 /**
@@ -139,7 +215,8 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
  * (as for applyOperations), reports (the edit's report Map: this adds the receipt's `cutout`),
  * waitSeconds (how long to wait for a cut-out still being made; default 50) or deadline (the
  * performance.now() time to stop waiting, shared by the cut_outs of one edit; it replaces
- * waitSeconds). Refusals are thrown as errors; a cut-out error says what to send instead and
+ * waitSeconds), graceSeconds (past that, how long to keep waiting for one whose progress says it
+ * is that close to done; default 0, the server passes 30). Refusals are thrown as errors; a cut-out error says what to send instead and
  * carries its code as `cutoutError`.
  */
 export async function runCutOut(document, operation, options) {
@@ -161,7 +238,7 @@ export const MOVE_DROPS = Object.freeze(["glow", "tritone", "duotone"]);
 
 const cutoutMediaMissing =(error) => /cut-out is not set up/.test(error?.message ?? "");
 
-async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline }) {
+async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationContext, reports, waitSeconds = 50, deadline, graceSeconds = 0 }) {
   const { sceneId, layerId } = operation;
   // behind: a person matte by default, and the text moves right above the clip first (below).
   // points pick among the subject engine's objects, so they need it.
@@ -203,6 +280,13 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   let made;
   try {
     made = await within(job.done, left);
+    // A cut-out that says it is within graceSeconds of done is waited for here instead of asking
+    // for a resend (study c: refused at 50 s with "about 10 seconds" left).
+    if (made === STILL_RUNNING && graceSeconds > 0) {
+      const { fraction, seconds } = job.progress();
+      const more = fraction > 0.02 ? seconds / fraction - seconds : Infinity;
+      if (more <= graceSeconds) made = await within(job.done, graceSeconds);
+    }
   } catch (error) {
     // behind with no person anywhere in the clip: the text stays in front, and the receipt says so.
     if (operation.behindText && error.code === "CUTOUT_NO_SUBJECT") {
@@ -230,6 +314,10 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   copy.cutoutOf = layerId;
   // Which output it shows, so a move that needs the subject reuses this one (translate.mjs moveCutouts).
   copy.cutoutOutput = output;
+  // The subject's measured box (shares of the layer, around every shown frame): type_covered
+  // judges type behind the cut-out by it instead of by the whole layer box.
+  const subject = output === "matte" ? null : subjectReport(layer, shownBoxes(layer, made), scene);
+  if (subject) copy.subjectBox = subject.share;
   // Made by a move for its own frames (translate.mjs moveCutouts, field cutout.own): the copy keeps
   // the clip's other effects (curves, color) but not its glow or its one-hue grade (tritone,
   // duotone); the move puts its own tone on the subject or the clip's grade back (backdrop-flash
@@ -265,6 +353,6 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   const picked = made.picked && pickedReport(made.picked, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId));
   if (picked?.lost?.length) notes.push(`the picked object is lost in ${picked.lost.length} span(s) of the file (picked.lost)${picked.seeAt ? "; look at the times in picked.seeAt" : ""}`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
-    cached: made.cached, ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+    cached: made.cached, ...(subject ? { subject: subject.report } : {}), ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }

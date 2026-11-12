@@ -152,6 +152,36 @@ export async function readMatteFrames({ folder, info, step = OUTLINE_DEFAULTS.st
   return { width, height, frames };
 }
 
+/** The box of a one-byte-a-pixel matte's subject (pixels at `level` or more), in shares of the picture [x0, y0, x1, y1], or null. */
+export function matteBox(matte, width, height, level = OUTLINE_DEFAULTS.level) {
+  let x0 = width, y0 = height, x1 = -1, y1 = -1;
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    if (matte[y * width + x] < level) continue;
+    if (x < x0) x0 = x;
+    if (x > x1) x1 = x;
+    if (y < y0) y0 = y;
+    if (y > y1) y1 = y;
+  }
+  return x1 < 0 ? null : [x0 / width, y0 / height, (x1 + 1) / width, (y1 + 1) / height].map((value) => Math.round(value * 1000) / 1000);
+}
+
+/** The box of a points loop (matte pixels) in shares of the picture, kept inside it. */
+export function pointsBox(points, width, height) {
+  const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
+  const share = (value, size) => Math.round(Math.min(1, Math.max(0, value / size)) * 1000) / 1000;
+  return [share(Math.min(...xs), width), share(Math.min(...ys), height), share(Math.max(...xs) + 1, width), share(Math.max(...ys) + 1, height)];
+}
+
+/**
+ * The subject's box in every `step`-th frame of a matte, small (160 px on the long side: a box
+ * needs no detail, and it reads in about a second for a minute of video; a guess): { step, frames:
+ * [{ index, box|null }] }. cut_out's receipt and the type_covered check read it.
+ */
+export async function matteBoxes({ folder, info, step = OUTLINE_DEFAULTS.step }) {
+  const read = await readMatteFrames({ folder, info, step, side: 160 });
+  return { step, frames: read.frames.map(({ index, matte }) => ({ index, box: matteBox(matte, read.width, read.height) })) };
+}
+
 /** The outline of every sampled frame of a matte: { width, height, step, frames: [{ index, points|null }] }. */
 export async function outlineOfMatte({ folder, info, step = OUTLINE_DEFAULTS.step, points = OUTLINE_DEFAULTS.points }) {
   const read = await readMatteFrames({ folder, info, step });

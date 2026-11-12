@@ -2169,6 +2169,18 @@ test("covered_layer: the source of a cut_out under the backdrop is left alone; a
   await silent("covered_layer", scene({ layers: [footage("clip", { x: 0, y: 0, width: 1200, height: 700 }), ground, cutoutOf("clip")] }));
 });
 
+test("type_covered: big type behind a cut-out's measured subject warns with a move beside it; type clear of the subject does not", async () => {
+  // The subject fills x 700 to 1300 of a full-frame clip; the type sits across it, behind the copy.
+  const subject = { ...footage("clip-subject", { src: "/api/media/clip-subject.webm" }), cutoutOf: "clip", allowOverlap: true, subjectBox: [700 / 1920, 0.1, 1300 / 1920, 1] };
+  const title = (x) => text("kill", "KILL", { x, y: 300, width: 500, height: 300, fontSize: 240 });
+  const [found] = await fires("type_covered", scene({ layers: [footage("clip"), title(760), subject] }));
+  assert.equal(found.severity, "warn");
+  assert.deepEqual([found.itemId, found.otherId, found.fix.kind], ["kill", "clip-subject", "move"]);
+  assert.match(found.message, /hides most of "kill" .*move_layers \{layerIds:\["kill"\], position:"above", referenceId:"clip-subject"\}/);
+  // Moved by the fix, the type sits beside the subject and the warning is gone.
+  await silent("type_covered", scene({ layers: [footage("clip"), title(760 + found.fix.dx), subject] }));
+});
+
 // ---------------------------------------------------------------- reference_kinds
 
 const seenRef = (id, moments) => ({ id, seen: moments.map(([at, kinds, words]) => ({ at, kinds, words })) });

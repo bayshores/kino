@@ -277,9 +277,12 @@ const agentService = createAgentService({
     addMedia: addGeneratedMedia, download: process.env.KINO_VOICE_DOWNLOAD !== "0" }),
   // cut_out: mattes are cached in <data>/cutout (work folders a stopped server left there are
   // removed now) and their outputs become library media. An edit waits KINO_CUTOUT_WAIT_S seconds
-  // in all (default 50) before answering that a cut-out is still running.
+  // in all (default 50) before answering that a cut-out is still running; one that says it is
+  // within KINO_CUTOUT_GRACE_S (default 30) of done is waited for that much longer. Study c: a
+  // 51.3 s cut-out was refused with "about 10 seconds" left and the same edit sent again.
   cutoutMedia: createCutoutMedia({ mediaRoot, cacheDir: path.join(dataRoot, "cutout"), addMedia: addGeneratedMedia,
-    waitSeconds: Number.isFinite(Number(process.env.KINO_CUTOUT_WAIT_S)) && process.env.KINO_CUTOUT_WAIT_S !== "" ? Math.max(0, Number(process.env.KINO_CUTOUT_WAIT_S)) : 50 }),
+    waitSeconds: Number.isFinite(Number(process.env.KINO_CUTOUT_WAIT_S)) && process.env.KINO_CUTOUT_WAIT_S !== "" ? Math.max(0, Number(process.env.KINO_CUTOUT_WAIT_S)) : 50,
+    graceSeconds: Number.isFinite(Number(process.env.KINO_CUTOUT_GRACE_S)) && process.env.KINO_CUTOUT_GRACE_S !== "" ? Math.max(0, Number(process.env.KINO_CUTOUT_GRACE_S)) : 30 }),
   fontCatalog,
   exportBatches,
   // Sound effects from Openverse, behind the Settings switch (backend/sound-search.mjs).

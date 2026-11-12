@@ -19,6 +19,7 @@ import { createMask, removeMasks } from "./masking.js";
 import { moveLayers, ORDER_MOVES, reorderLayers, setLayerFlags } from "./layerOrder.js";
 import { editLayers, updateLayersEdit } from "./multiEdit.js";
 import { movePresetAnimations } from "./presetMove.js";
+import { followClipTiming } from "./cutoutTiming.js";
 import { MAX_VOLUME } from "./mediaTime.js";
 import { animationListProblem, sceneAnimationProblem } from "./animationListCheck.js";
 import { animationTreeEntries, editAnimationTree } from "./animationTree.js";
@@ -368,6 +369,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       if (!Object.hasOwn(operation.properties ?? {}, "animations")) reportMoved(reports, operation, [...carryPresets(before, layer, { document, fonts }), ...carryVolume(before, layer)]);
       const problem = animationListProblem(layer, previousAnimations, scene.duration);
       if (problem) throw new Error(problem);
+      // Its cut-outs (cut_out) stay on the same frames of the clip (cutoutTiming.js).
+      followClipTiming(scene, before, layer);
       continue;
     }
     if (operation.type === "delete_layer") {
@@ -651,6 +654,8 @@ function updateSceneLayers(document, scene, operation, fonts, reports) {
   const old = new Map(layers.map((layer) => [layer.id, layer]));
   const moved = scene.layers.filter((layer) => old.has(layer.id)).flatMap((layer) => [...carryPresets(old.get(layer.id), layer, { document, fonts }), ...(Object.hasOwn(properties ?? {}, "animations") ? [] : carryVolume(old.get(layer.id), layer))]);
   reportMoved(reports, operation, moved);
+  // Cut-outs of a retimed clip stay on the same frames of it (cutoutTiming.js), as with update_layer.
+  for (const layer of scene.layers) if (old.has(layer.id)) followClipTiming(scene, old.get(layer.id), layer);
 }
 
 // update_layer and update_layers: a moved or resized layer's presets move with it

@@ -824,6 +824,16 @@ How to read it:
   makes a subject, matte or silhouette locally; off macOS it answers CUTOUT_ENGINE_UNAVAILABLE.
   Evidence: `backend/agent-cutout.test.mjs`, `backend/cutout.test.mjs`,
   `skills/kino/references/cutout.md`, golden `cutout-pop`.
+- **Cut-out follows its clip, holds through lost frames, states the subject's box**: Test-verified.
+  A retimed clip retimes its outline and copies; an outline takes the clip's push and fades, holds 0.5 s where no subject is found,
+  then fades; receipts give `subject {box, at, room}`; a nearly done cut-out is waited for 30 s more.
+  Evidence: `backend/agent-cutout.test.mjs` ("cut_out outline", "close to done").
+- **Outline shows only while its clip is drawn**: Test-verified. It takes the clip's Hide and Show and a
+  playback window for a clip not frozen both ways; update_layer and update_layers move it.
+  Evidence: `backend/agent-cutout.test.mjs` ("shows only while its clip is drawn").
+- **type_covered**: Test-verified. Type behind a cut-out whose measured subject box hides over 40%
+  of it for over half its time warns, with a move beside the subject. Evidence:
+  `engine/qualityRules.test.js` ("type_covered").
 - **Object tracking** (`track`): Verified with the stand-in helper and on a real walk clip with Apple Vision
   (VNTrackObjectRequest in `kino-cutout --track`, forward and back, cached by file hash). Evidence:
   `backend/agent-cutout.test.mjs` ("track follows"). Gap: one object a track; macOS only.
