@@ -351,7 +351,7 @@ function mixOver(curve, pieces, line, from, to) {
  * starting guess. `silent` (dropout:true given) keeps the music out and only reports the silence.
  * Returns {note, at, gap} or null when the line's dip holds no other line.
  */
-function shareBed(scene, musicLayer, levels, start, end, own, silent) {
+function shareBed(scene, musicLayer, levels, start, end, own, silent, given = false) {
   const curve = levels?.[musicLayer.id];
   const pieces = songOf(scene, musicLayer);
   if (!pieces.length) return null;
@@ -373,6 +373,10 @@ function shareBed(scene, musicLayer, levels, start, end, own, silent) {
   const spans = `${lines.map((line) => `${round(line.start, 1)}-${round(line.end, 1)}`).join(", ")} s`;
   if (silent) {
     return { gap, note: `the lines at ${spans} share one dip with the music out (dip:0)${gap ? `: no music in the ${round(gap.end - gap.start, 1)} s between them at ${gap.start}-${gap.end} s` : ""}; without dip:0 the music holds a measured bed there` };
+  }
+  // A dip given with dropout is the bed as asked: the shared dip keeps it (a measured bed is only the default).
+  if (given) {
+    return { gap, bed: round(pair.level), note: `the lines at ${spans} share one dip at the dip given, ${round(pair.level)}${gap ? `, through the ${round(gap.end - gap.start, 1)} s between them at ${gap.start}-${gap.end} s` : ""}; without dip the music holds a measured bed there` };
   }
   // The quietest line as the export levels it (voiceLevel, at most MAX_LEVEL_DB over the file's own
   // level), its volume applied, and the music under the dip untouched.
@@ -465,10 +469,75 @@ function bedWording(notes, bed) {
     .replace(/, so the music goes out under it(;|$)/, `, so a dip cannot hold it: the music sits at a bed of ${bed} under it, shared with another line's dip$1`));
 }
 
+// Words closer than this (seconds) are one run of speech: a word this soon after the layer stops goes on the line.
+const RUN_GAP = 0.3;
+
+/**
+ * When the kept stretch ends where its piece stops playing and the transcript's words run on past
+ * that (file seconds): {stops, words, wordEnd, longer, until} (scene seconds; `longer` the extra
+ * seconds the piece plays to keep the last word, with the line's fade down), else null. A word that
+ * began before the kept stretch spans all of it (a transcript that reads a long stretch as one piece
+ * does not place where this line ends), and a word after the stop with no word ending near the stop
+ * starts the next line: neither is named.
+ */
+function lineCutOff(plays, start, end, words) {
+  if (!Array.isArray(words) || !words.length) return null;
+  const entry = plays.find(({ play }) => play.start < end - 0.001 && end >= play.end - 0.05);
+  if (!entry || entry.play.remapped) return null;
+  const fileEnd = entry.play.offset + entry.play.duration;
+  const fileStart = entry.play.offset + Math.max(0, start - entry.play.start);
+  const sorted = words.filter((word) => Number.isFinite(word.start) && Number.isFinite(word.end)).sort((a, b) => a.start - b.start);
+  const run = [];
+  let reach = fileEnd;
+  for (const word of sorted) {
+    if (word.end <= fileEnd + 0.02) continue;
+    if (word.start > reach + RUN_GAP) break;
+    run.push(word);
+    reach = Math.max(reach, word.end);
+  }
+  if (!run.length || run[0].start < fileStart - 0.02) return null;
+  const spokenToStop = sorted.some((word) => word.start >= fileStart - 0.02 && word.end <= fileEnd + 0.02 && word.end >= fileEnd - RUN_GAP);
+  if (run[0].start >= fileEnd && !spokenToStop) return null;
+  const wordEnd = round(entry.play.end + (reach - fileEnd));
+  return { layer: entry.piece.name, stops: round(entry.play.end), words: run.map((word) => String(word.text).trim()).join(" "), wordEnd, longer: round(reach - fileEnd + DOWN_PAD), until: round(wordEnd + DOWN_PAD) };
+}
+
+// A receipt's hidden link to the song under its line, so `song` is written after every line in the edit.
+const SONG = Symbol("keep_line song");
+
+/**
+ * Writes the receipt's `song`: the music's volume factor under the line as it plays now (sampled every
+ * 0.05 s inside the line, the fades at its ends left out): {under} or {low, high}, with {asked} for a
+ * given dip, and a note naming what holds the song elsewhere when it is not what was asked.
+ */
+function songUnder(document, receipt) {
+  const link = receipt?.[SONG];
+  const scene = link && document.scenes.find((item) => item.id === link.sceneId);
+  const musicLayer = scene?.layers.find((item) => item.id === link.musicId);
+  if (!musicLayer) return;
+  const inner = Math.min(0.1, (link.end - link.start) / 4);
+  const samples = [];
+  for (let time = link.start + inner; time <= link.end - inner + 1e-9; time += 0.05) samples.push(round(volumeAt(musicLayer, time)));
+  if (!samples.length) samples.push(round(volumeAt(musicLayer, (link.start + link.end) / 2)));
+  const low = Math.min(...samples), high = Math.max(...samples);
+  const song = { layer: musicLayer.name, ...(high - low <= 0.002 ? { under: low } : { low, high }), ...(link.asked !== undefined ? { asked: link.asked } : {}) };
+  if (link.asked !== undefined && (Math.abs(low - link.asked) > 0.002 || Math.abs(high - link.asked) > 0.002)) {
+    // What holds the song there: a dip at another level over part of the line and the other kept lines inside it.
+    const pair = duckPairs(musicLayer).find((item) => item.start < link.end && item.end > link.start && Math.abs(item.level - link.asked) > 0.002);
+    const others = pair ? sceneLines(scene, [musicLayer]).filter((line) => line.layer.id !== link.layerId && line.start < pair.end && line.end > pair.start) : [];
+    const names = [...new Set(others.map((line) => line.layer.name))];
+    song.note = names.length
+      ? `${musicLayer.name} plays x${low}${high !== low ? `-${high}` : ""} under this line, not the dip ${link.asked} asked: the dip at ${round(pair.start)}-${round(Math.min(pair.end, scene.duration))} s (x${round(pair.level)}) holds ${names.join(", ")} too; keep_line ${names[0]} with dip:${link.asked} sets that dip to it`
+      : `${musicLayer.name} plays x${low}${high !== low ? `-${high}` : ""} under this line, not the dip ${link.asked} asked: a fade or another dip on ${musicLayer.name} covers it (inspect ${musicLayer.name} lists them)`;
+  }
+  receipt.song = song;
+}
+
 // Rewrites the music-return note (and the mix) of each earlier keep_line receipt in `reports` whose
 // music comes back at another time now that later lines are placed (a later line joined its dip).
 function refreshEarlier(document, reports, current) {
   for (const report of reports?.values() ?? []) {
+    if (report !== current) songUnder(document, report);
     // Each line's `dips`, as the song now plays (a later line chained on, or shared its dip).
     const chain = report?.[CHAIN];
     const chainScene = chain && document.scenes.find((item) => item.id === chain.sceneId);
@@ -703,16 +772,34 @@ export function lowerKeptLine(receipt, db) {
     const line = round(receipt.mix.line + db, 1);
     const under = round(10 * Math.log10(10 ** (line / 10) + bedEnergy), 1);
     const change = Number.isFinite(receipt.mix.around) ? round(under - receipt.mix.around, 1) : receipt.mix.change;
+    // The leveling note gives the line as it plays: a level:<dB> moved it after the leveling, then the cap.
+    const shifted = Number.isFinite(receipt.level?.db) && receipt.level.db !== 0 ? `level ${signed(receipt.level.db)} dB and ` : "";
+    if (Array.isArray(receipt.notes)) receipt.notes = receipt.notes.map((note) => (typeof note === "string" ? note.replace(/^line leveled to (-?[\d.]+) LUFS/, (said, at) => (Number(at) === receipt.mix.line ? `line leveled to ${line} LUFS (the peak cap took ${round(db, 1)} dB)` : `${said} (it plays at ${line} LUFS after ${shifted}the peak cap took ${round(db, 1)} dB)`)) : note));
     receipt.mix = { ...receipt.mix, line, under, change };
     if (typeof receipt.summary === "string") receipt.summary = receipt.summary.replace(MIX_TAIL, (_, what) => `mix under the ${what} ${under} vs ${receipt.mix.around} LUFS in the 2 s around (${signed(change)} LU)`);
     changed = true;
   }
+  // level:<dB> said where the line played before the cap: its numbers and note now give the line as it plays.
+  if (receipt.level && Number.isFinite(receipt.level.line)) {
+    const was = receipt.level;
+    const now = { ...was, line: round(was.line + db, 1), voiceLevel: round(was.voiceLevel + db, 1), peakCap: round(db, 1) };
+    if (typeof was.over === "number") now.over = round(was.over + db, 1);
+    receipt.level = now;
+    const at = (receipt.notes ?? []).findIndex((note) => typeof note === "string" && /^level [+-]?[\d.]+ dB on this line only/.test(note));
+    if (at >= 0) receipt.notes[at] = receipt.notes[at].replace(`it plays at ${was.line} LUFS`, `it plays at ${now.line} LUFS after the peak cap took ${round(db, 1)} dB`)
+      .replace(typeof was.over === "number" ? `${signed(was.over)} LU over the song` : /^$^/, typeof now.over === "number" ? `${signed(now.over)} LU over the song` : "")
+      .replace(`stored as voiceLevel ${was.voiceLevel}`, `stored as voiceLevel ${now.voiceLevel}`);
+    changed = true;
+  }
+  if (Number.isFinite(receipt.voiceLevel?.after)) receipt.voiceLevel = { ...receipt.voiceLevel, after: round(receipt.voiceLevel.after + db, 1) };
   const link = receipt[LEVELS];
   if (link?.ways && typeof receipt.ways === "string") {
     const key = link.way === "lift" ? "lift" : link.way === "dip" || link.way === "shared" ? "dip" : link.way === "out" ? "out" : null;
     const taken = key ? link.ways[key] : null;
     if (taken) {
-      const lowered = { ...taken, reach: round(taken.reach + db, 1) };
+      // A level:<dB> moved the line after the way was measured: the way taken gives it as it plays.
+      const shift = Number.isFinite(receipt.level?.db) ? receipt.level.db : 0;
+      const lowered = { ...taken, reach: round(taken.reach + shift + db, 1) };
       // Headroom is the song's loudest moment over the line and the bed together: the bed's share stays.
       const headroom = () => {
         if (taken.headroom === null || taken.headroom === undefined) return taken.headroom ?? null;
@@ -721,7 +808,7 @@ export function lowerKeptLine(receipt, db) {
         const after = 10 * Math.log10(10 ** (lowered.reach / 10) + 10 ** (bed / 10));
         return round(taken.headroom + before - after, 1);
       };
-      if (key !== "out") Object.assign(lowered, { db: round(taken.db + db, 1), over: round(taken.over + db, 1), headroom: headroom() });
+      if (key !== "out") Object.assign(lowered, { db: round(taken.db + shift + db, 1), over: round(taken.over + shift + db, 1), headroom: headroom() });
       if (key === "lift") Object.assign(lowered, { factor: Math.round(10 ** (lowered.db / 20) * 100) / 100, short: round(Math.max(0, LINE_OVER_BED - lowered.over), 1) });
       const note = Number.isInteger(link.note) ? receipt.notes?.[link.note] : null;
       if (typeof note === "string" && key !== "out")
@@ -744,6 +831,9 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   const layer = scene.layers.find((item) => item.id === operation.layerId);
   if (!layer) fail(`layer ${operation.layerId} was not found.`);
   if ((layer.type !== "audio" && layer.type !== "video") || !layer.src) fail(`"${layer.name}" is a ${layer.type} layer; give the audio or video layer that plays the clip.`);
+  // Every layer's level before this call, so the receipt says this line's level before and after and
+  // names any other line whose level moved.
+  const levelsBefore = new Map(scene.layers.map((item) => [item.id, Number.isFinite(item.voiceLevel) ? item.voiceLevel : null]));
   const timed = operation.from !== undefined || operation.to !== undefined;
   const bySound = operation.sound !== undefined;
   if (bySound && (operation.line !== undefined || timed)) fail("give one of sound (a sound the clip readout lists), line, or from and to.");
@@ -793,6 +883,9 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   }
   start = round(start);
   end = round(end);
+  // The line runs on past where the layer stops playing (its Hide, duration or trim): the words cut off,
+  // the last word's end and how much longer the layer plays to keep the whole line.
+  const cutSaid = bySound ? null : lineCutOff(plays, start, end, operation.transcript?.words);
 
   // When the next kept line in the scene starts (before this one joins a close one): its subtitle's limit.
   const nextLine = Math.min(Infinity, ...scene.layers.flatMap((item) => ((item.animations ?? []).some(isLineMark) ? keptRanges(item) : []))
@@ -1054,7 +1147,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       if (duck?.payoff) notes.push(duck.payoff);
       if (out && back) hitBack(scene, music.layer, end, back.at);
       // Lines that share one music-out dip: a low bed between them, not silence (shareBed).
-      const shared = out && duck ? shareBed(scene, music.layer, operation.levels, start, end, kept.map((entry) => entry.piece), dip <= 0.001) : null;
+      const shared = out && duck ? shareBed(scene, music.layer, operation.levels, start, end, kept.map((entry) => entry.piece), dip <= 0.001, operation.dip !== undefined) : null;
       if (shared) {
         notes.push(shared.note);
         if (shared.gap) bedSaid = { at: [shared.gap.start, shared.gap.end], bed: shared.bed ?? 0 };
@@ -1156,7 +1249,11 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       let over = null;
       let bed = null;
       if (mix && Number.isFinite(mix.line) && Number.isFinite(mix.under)) {
-        const bedEnergy = Math.max(0, 10 ** (mix.under / 10) - 10 ** (mix.line / 10));
+        // The song as it plays under the line, measured on its own (the mix's rounded total minus a line
+        // 20 LU over a bed reads as no music at all).
+        const songCurve = music.layer ? operation.levels?.[music.layer.id] : null;
+        const songLevel = songCurve ? mixOver(songCurve, songOf(scene, music.layer), null, start, end) : null;
+        const bedEnergy = songCurve ? (songLevel === null ? 0 : 10 ** (songLevel / 10)) : Math.max(0, 10 ** (mix.under / 10) - 10 ** (mix.line / 10));
         bed = bedEnergy > 1e-9 ? round(10 * Math.log10(bedEnergy), 1) : null;
         const under = round(10 * Math.log10(10 ** (heard / 10) + bedEnergy), 1);
         mix = { ...mix, line: heard, under, change: Number.isFinite(mix.around) ? round(under - mix.around, 1) : mix.change };
@@ -1178,6 +1275,22 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     const shown = even.places.slice(0, 3).map(([from, to, db]) => `${round(from, 2)}-${round(to, 2)} s ${db > 0 ? "+" : ""}${db} dB`).join(", ");
     notes.push(`evened ${even.places.length} ${even.places.length === 1 ? "place" : "places"} toward the line's median word (${even.median} LUFS; its words spread ${even.spread} LU, measured; a word over ${LINE_EVEN_LU} LU off it comes back to ${LINE_EVEN_LU}, a guess): ${shown}${even.places.length > 3 ? `, +${even.places.length - 3} more` : ""}; even:false keeps them as said`);
   }
+  // This line's level before and after the call, and any other line whose level moved with it.
+  const pieceIds = new Set(kept.map((entry) => entry.piece.id));
+  const levelNow = (item) => (Number.isFinite(item.voiceLevel) ? item.voiceLevel : null);
+  const voiceLevelSaid = { before: levelsBefore.get(owner.piece.id) ?? null, after: levelNow(owner.piece) };
+  const othersMoved = scene.layers.filter((item) => !pieceIds.has(item.id) && levelsBefore.has(item.id) && levelsBefore.get(item.id) !== levelNow(item));
+  if (othersMoved.length) voiceLevelSaid.others = Object.fromEntries(othersMoved.map((item) => [item.name, [levelsBefore.get(item.id), levelNow(item)]]));
+  // The clip's own sound under the words (its quietest tenth over the line, the readings mixLevels noiseUnder
+  // takes): a found clip's score or room is inside the line's measured level, and its share says how much.
+  const ownCurve = !sound ? operation.levels?.[owner.piece.id] : null;
+  const ownSpan = [{ start: mediaSoundTime(owner.piece, start), end: mediaSoundTime(owner.piece, end) }];
+  const ownLine = ownCurve ? loudnessOver(ownCurve, ownSpan) : null;
+  const ownFloor = ownCurve ? noiseUnder(ownCurve, ownSpan) : null;
+  const clipSound = Number.isFinite(ownLine) && Number.isFinite(ownFloor)
+    ? { line: round(ownLine, 1), floor: ownFloor, under: round(ownLine - ownFloor, 1), share: Math.round(100 * 10 ** ((ownFloor - ownLine) / 10)) } : null;
+  // The song's factor under this line as it plays (rewritten when a later line in the edit moves it).
+  const songLink = music.layer ? { sceneId: scene.id, musicId: music.layer.id, layerId: owner.piece.id, start, end, asked: operation.dip } : null;
   const text = operation.text ?? (said.length ? said.map((item) => item.text).join(" ") : null);
   const fileFrom = round(mediaSoundTime(owner.piece, Math.max(start, owner.play.start)));
   const fileTo = round(mediaSoundTime(owner.piece, Math.min(end, owner.play.end)));
@@ -1196,6 +1309,9 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     ...(mix ? { mix } : {}),
     ...(gainSaid ? { gain: gainSaid } : {}),
     ...(levelSaid ? { level: levelSaid } : {}),
+    ...(voiceLevelSaid.before !== null || voiceLevelSaid.after !== null || voiceLevelSaid.others ? { voiceLevel: voiceLevelSaid } : {}),
+    ...(clipSound ? { clipSound } : {}),
+    ...(cutSaid ? { cut: { ...cutSaid, note: `the line runs on past where ${cutSaid.layer} stops at ${cutSaid.stops} s: "${cutSaid.words.slice(0, 60)}" ends at ${cutSaid.wordEnd} s; ${cutSaid.layer} playing ${cutSaid.longer} s longer (to ${cutSaid.until} s, its Hide, duration or trim moved there) keeps the whole line` } } : {}),
     ...(waysSaid ?? {}),
     ...(bedSaid ? { bed: bedSaid } : {}),
     ...(chainSaid ? { dips: chainSaid } : {}),
@@ -1207,6 +1323,8 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   if (returnLink && notes.length) Object.defineProperty(receipt, RETURN, { value: returnLink, enumerable: false });
   if (levelsLink) Object.defineProperty(receipt, LEVELS, { value: levelsLink, enumerable: false });
   if (chainLink) Object.defineProperty(receipt, CHAIN, { value: chainLink, enumerable: false });
+  if (songLink) Object.defineProperty(receipt, SONG, { value: songLink, enumerable: false });
+  songUnder(document, receipt);
   // Every line's note in one edit is written after all the lines are placed.
   refreshEarlier(document, reports, receipt);
   return receipt;

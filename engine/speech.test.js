@@ -692,6 +692,45 @@ test("two music-out lines 0.6 s apart share a low bed, not silence, and the song
   const asked = run({ dropout: true, dip: 0 });
   assert.equal(volumeAt(asked.music, 3.2), 0);
   assert.match(asked.second.notes.join(" | "), /share one dip with the music out \(dip:0\): no music in the 0\.6 s between them at 2\.9-3\.5 s/);
+  // A dip given with dropout is the bed under both lines (dm5 a asked 0.15 and got a measured 0.398), and each receipt prints it.
+  const given = run({ dropout: true, dip: 0.15 });
+  assert.deepEqual([2.5, 3.2, 5].map((time) => Math.round(volumeAt(given.music, time) * 1000) / 1000), [0.15, 0.15, 0.15]);
+  assert.deepEqual([given.first.song, given.second.song], [{ layer: "music", under: 0.15, asked: 0.15 }, { layer: "music", under: 0.15, asked: 0.15 }]);
+  assert.match(given.second.notes.join(" | "), /share one dip at the dip given, 0\.15, through the 0\.6 s between them at 2\.9-3\.5 s/);
+  assert.deepEqual(given.second.bed, { at: [2.9, 3.5], bed: 0.15 });
+  // Each receipt says its line's level before and after; the clip's own sound under the words is measured (flat: the floor is the line).
+  assert.deepEqual(given.first.voiceLevel.before, null);
+  assert.equal(given.second.voiceLevel.after, given.kept.scenes[0].layers.find((layer) => layer.id === "clip").voiceLevel);
+  assert.deepEqual(given.first.clipSound, { line: -43, floor: -43, under: 0, share: 100 });
+});
+
+test("keep_line names the last word cut off where the layer stops, and the peak cap rewrites the level it printed", () => {
+  // The layer plays file 0-2.4 s; the transcript's "you" runs to 2.7 s (dm5 b's closing line).
+  const clip = createLayer("audio", { id: "clip", name: "end-line", src: "/api/media/clip.wav", mediaSourceDuration: 4, mediaDuration: 2.4 });
+  const transcript = { words: [{ text: "gonna", start: 1.6, end: 2.1, p: 1 }, { text: "kill", start: 2.1, end: 2.35, p: 1 }, { text: "you", start: 2.45, end: 2.7, p: 1 }] };
+  const reports = new Map();
+  const operation = { type: "keep_line", sceneId: "s", layerId: "clip", from: 1.5, to: 2.4, subtitle: false, duckNone: true, transcript };
+  applyOperations(documentWith([clip], 6), [operation], { reports });
+  const { cut } = reports.get(operation);
+  assert.deepEqual([cut.stops, cut.words, cut.wordEnd, cut.longer, cut.until], [2.4, "you", 2.7, 0.42, 2.82]);
+  // A level printed before the peak cap gives the line as it plays after it.
+  const receipt = { mix: { line: -2, around: -10, under: -1.9, change: 8.1 }, level: { db: 8, line: -2, over: 14, voiceLevel: -2 }, voiceLevel: { before: -10, after: -2 },
+    notes: ["level +8 dB on this line only: it plays at -2 LUFS, +14 LU over the song (-16 LUFS under it); stored as voiceLevel -2", "line leveled to -2 LUFS against the music around it (-10); music out under the line"] };
+  lowerKeptLine(receipt, -16);
+  assert.deepEqual([receipt.level.line, receipt.level.over, receipt.level.peakCap, receipt.voiceLevel.after, receipt.mix.line], [-18, -2, -16, -18, -18]);
+  assert.equal(receipt.notes[0], "level +8 dB on this line only: it plays at -18 LUFS after the peak cap took -16 dB, -2 LU over the song (-16 LUFS under it); stored as voiceLevel -18");
+  assert.equal(receipt.notes[1], "line leveled to -18 LUFS (the peak cap took -16 dB) against the music around it (-10); music out under the line");
+  // The leveling note printed before level:+8 says where the line plays after it and the cap (dm5 a: -9.8 said, -17.8 played).
+  const shifted = { mix: { line: -1.8, around: -9.8, under: -1.8, change: 8 }, level: { db: 8, line: -1.8, voiceLevel: -1.8 }, notes: ["line leveled to -9.8 LUFS against the music around it (-9.8)"] };
+  lowerKeptLine(shifted, -16);
+  assert.equal(shifted.notes[0], "line leveled to -9.8 LUFS (it plays at -17.8 LUFS after level +8 dB and the peak cap took -16 dB) against the music around it (-9.8)");
+  // A transcript piece that began before the kept stretch spans it (dm5 a: one 0.06-7.54 s piece), and a word after a
+  // stop that ends no spoken word starts the next line: neither is a cut-off line.
+  const spans = { ...operation, transcript: { words: [{ text: "one long piece", start: 0.2, end: 3.5, p: 0.8 }] } };
+  const next = { ...operation, from: 0.5, to: 2.4, transcript: { words: [{ text: "next", start: 2.45, end: 2.9, p: 1 }] } };
+  applyOperations(documentWith([clip], 6), [spans], { reports });
+  applyOperations(documentWith([clip], 6), [next], { reports });
+  assert.deepEqual([reports.get(spans).cut, reports.get(next).cut], [undefined, undefined]);
 });
 
 test("five adjacent kept lines each keep their own dip, the song moves between their levels in the gaps and is full on the drop", () => {
