@@ -28,8 +28,7 @@ const EDGE = 0.01;
 export function spanCuts(span, fileShots) {
   if (!Array.isArray(fileShots)) return [];
   const found = [];
-  for (const shot of fileShots.slice(1)) {
-    const file = shot?.start;
+  for (const { file, edge } of fileCuts(fileShots)) {
     if (!Number.isFinite(file) || file <= span.from + EDGE || file >= span.to - EDGE) continue;
     const at = span.sceneAt(file);
     if (!Number.isFinite(at)) continue;
@@ -41,9 +40,56 @@ export function spanCuts(span, fileShots) {
     const keepStart = { out: round(file - TRIM_MARGIN) }, keepEnd = { in: round(file + TRIM_MARGIN) };
     const leak = round(Math.min(early, late));
     found.push({ file: round(file), at: round(at), early: round(early), late: round(late), side, leak,
-      trim: side === "start" ? keepEnd : keepStart, ...(leak >= NEAR_CUT ? { other: side === "start" ? keepStart : keepEnd } : {}) });
+      trim: side === "start" ? keepEnd : keepStart, ...(leak >= NEAR_CUT ? { other: side === "start" ? keepStart : keepEnd } : {}),
+      ...(edge ? { edge } : {}) });
   }
   return found;
+}
+
+/**
+ * Where a file's picture changes, sorted, in file seconds: [{file, edge?}]. Each shot's start
+ * after the first, and the bounds of a shot's edge frames (shot.edge {head, tail, start, end}
+ * from the shot finder: a whip, a flash frame, a black frame or a one-frame card at a shot's start
+ * or end); `edge` is how many frames lie on the far side of that bound.
+ */
+export function fileCuts(fileShots) {
+  if (!Array.isArray(fileShots)) return [];
+  const cuts = fileShots.slice(1).map((shot) => ({ file: shot?.start }));
+  for (const shot of fileShots) {
+    const edge = shot?.edge;
+    if (!edge) continue;
+    if (edge.head > 0 && Number.isFinite(edge.start)) cuts.push({ file: edge.start, edge: edge.head });
+    if (edge.tail > 0 && Number.isFinite(edge.end)) cuts.push({ file: edge.end, edge: edge.tail });
+  }
+  return cuts.filter((cut) => Number.isFinite(cut.file)).sort((a, b) => a.file - b.file);
+}
+
+/**
+ * The edge frames of a file's shots (shot.edge from the shot finder), in file seconds:
+ * [{from, to, frames, where: "start" | "end"}], sorted. [] when none are marked.
+ */
+export function edgeSpans(fileShots) {
+  if (!Array.isArray(fileShots)) return [];
+  const spans = [];
+  for (const shot of fileShots) {
+    const edge = shot?.edge;
+    if (!edge || !Number.isFinite(shot.start) || !Number.isFinite(shot.end)) continue;
+    if (edge.head > 0 && Number.isFinite(edge.start)) spans.push({ from: shot.start, to: edge.start, frames: edge.head, where: "start" });
+    if (edge.tail > 0 && Number.isFinite(edge.end)) spans.push({ from: edge.end, to: shot.end, frames: edge.tail, where: "end" });
+  }
+  return spans.sort((a, b) => a.from - b.from);
+}
+
+/**
+ * The cut whose trim leaves out every short crossing on one side of a span: of the cut with the
+ * least leak and the other cuts on its side under NEAR_CUT (a cut and the edge frames beside it),
+ * the one with the most leak. null for no cuts.
+ */
+export function farthestCut(cuts) {
+  if (!cuts?.length) return null;
+  const least = cuts.reduce((top, cut) => (cut.leak < top.leak ? cut : top));
+  return cuts.filter((cut) => cut === least || (cut.side === least.side && cut.leak < NEAR_CUT))
+    .reduce((top, cut) => (cut.leak > top.leak ? cut : top));
 }
 
 /**
@@ -99,9 +145,12 @@ export function slideOffCut(shot, fileShots, { fileDuration = 0, near = NEAR_CUT
   const cuts = shotSpanCuts(shot, fileShots);
   const short = cuts.filter((cut) => cut.leak < near);
   if (!short.length) return { shot: null, cuts };
-  if (cuts.length > 1) return { shot: null, cuts, why: "more than one cut" };
+  // A cut and the edge frames next to it (a whip or black frames at the next shot's head) are one
+  // short crossing on one side: the shot slides past the farthest of them.
+  const oneSide = short.length === cuts.length && short.every((cut) => cut.side === short[0].side);
+  if (cuts.length > 1 && !oneSide) return { shot: null, cuts, why: "more than one cut" };
   if (Array.isArray(shot.sound?.keep)) return { shot: null, cuts, why: "sound" };
-  const [cut] = cuts;
+  const cut = farthestCut(cuts);
   const length = shot.dur * (shot.speed > 0 ? shot.speed : 1);
   const slid = round(cut.trim.in !== undefined ? cut.trim.in : cut.trim.out - length);
   if (slid < 0 || (fileDuration > 0 && slid + length > fileDuration + 1e-6)) return { shot: null, cuts, why: "file" };
@@ -122,7 +171,8 @@ export function spanCutLine(name, cuts) {
   const trimText = (trim, fields) => `${trim.in !== undefined ? `in ${trim.in} s begins after it` : `out ${trim.out} s ends before it`}${fields ? ` (${Object.entries(fields).map(([key, value]) => `${key} ${value}`).join(", ")})` : ""}`;
   const parts = cuts.slice(0, 3).map((cut) => {
     const other = cut.other ? `, or ${trimText(cut.other, cut.otherFields)}` : "";
-    return `file ${sec(cut.file)} s lands at ${sec(cut.at)} s of the scene (${sec(cut.early)} s of the shot before it, ${sec(cut.late)} s of the next): ${trimText(cut.trim, cut.fields)}${other}`;
+    const edge = cut.edge ? ` (${cut.edge} edge frame${cut.edge === 1 ? "" : "s"} of a whip, flash, black or card past it)` : "";
+    return `file ${sec(cut.file)} s${edge} lands at ${sec(cut.at)} s of the scene (${sec(cut.early)} s of the shot before it, ${sec(cut.late)} s of the next): ${trimText(cut.trim, cut.fields)}${other}`;
   });
   const more = cuts.length > 3 ? `; ${cuts.length - 3} more` : "";
   return `${name} plays across ${cuts.length === 1 ? "a cut" : `${cuts.length} cuts`} of its file, so frames of the other shot show: ${parts.join("; ")}${more}`;

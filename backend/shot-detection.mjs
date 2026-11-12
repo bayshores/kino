@@ -82,8 +82,9 @@ export const MAX_VIDEO_SECONDS = 20 * 60;
 export const MAX_VIDEO_FRAMES = 72_000;
 const TOO_LONG = "too long to look for shots in";
 // Saved with the shots (shotsFound.version), so a better finder can tell old results apart. 2: cuts
-// between dim drawn shots (UNLIKE_JUMP) and held drawings under a camera drift (DRIFT_MAX).
-export const SHOTS_VERSION = 2;
+// between dim drawn shots (UNLIKE_JUMP) and held drawings under a camera drift (DRIFT_MAX). 3: a
+// shot's edge frames (shotEdges), so a file found before them is measured once more.
+export const SHOTS_VERSION = 3;
 // What kino keeps of FFmpeg's messages for an error: the end, where FFmpeg says what went wrong.
 const MAX_ERROR_LENGTH = 4000;
 // Each frame as the metadata filter prints it: "frame:30   pts:15360   pts_time:1.25", then
@@ -209,6 +210,32 @@ export function shotsFromCuts(cuts, frames, mad, { at = (frame) => frame, flashL
   for (const cut of kept) if (long(starts.at(-1), cut)) starts.push(cut);
   if (starts.length > 1 && !long(starts.at(-1), frames)) starts.pop();
   return { starts, flashes };
+}
+
+/**
+ * The edge frames of each shot: a cut the shot rules dropped (a sliver under MIN_SHOT_FRAMES, or a
+ * last stretch too short to be a shot) that lies within MIN_SHOT_FRAMES of a shot's start or end
+ * leaves frames of another picture at that edge (a whip, a flash frame, a black frame, a one-frame
+ * card). `cuts` are every cut found, `starts` the shots' first frames (shotsFromCuts), `flashes`
+ * [[cut, back]] frame spans of flashes (their cuts are not edges). Returns [{head, tail}] per
+ * shot, in frames: how many frames at its start and its end show another picture (0 for none).
+ */
+export function shotEdges(cuts, starts, frames, { at = (frame) => frame, flashes = [], apart = () => true } = {}) {
+  const inFlash = (cut) => flashes.some(([from, to]) => cut >= from && cut <= to);
+  // Every frame from `from` to `to` (exclusive) shows another picture than the body's frame `body`.
+  const away = (from, to, body) => { for (let frame = from; frame < to; frame += 1) if (!apart(frame, body)) return false; return true; };
+  return starts.map((start, index) => {
+    const next = starts[index + 1] ?? frames;
+    const dropped = cuts.filter((cut) => cut > start && cut < next && !inFlash(cut));
+    let head = 0, tail = 0;
+    for (const cut of dropped) {
+      if (at(cut) - at(start) < MIN_SHOT_FRAMES - EPSILON) { if (away(start, cut, cut)) head = cut - start; }
+      else if (at(next) - at(cut) < MIN_SHOT_FRAMES - EPSILON && !tail && away(cut, next, cut - 1)) tail = next - cut;
+    }
+    // The body between the edges must stay a shot; else the edges are not told apart from it.
+    if (next - start - head - tail < MIN_SHOT_FRAMES) return { head: 0, tail: 0 };
+    return { head, tail };
+  });
 }
 
 // The first frame after `cut` (within FLASH_FRAMES) that shows the picture from before it, or -1.
@@ -556,22 +583,29 @@ export function shotsFromRun(run, { duration, length, minShotFrames = MIN_SHOT_F
   const find = (drawn) => {
     // A frame FFmpeg printed no time for cannot start a shot.
     const cuts = cutsFromScores(run.scores, frames, mad, stats.brightness, { at, flat, alike, drawn }).filter((frame) => Number.isFinite(run.times[frame]));
-    const flashSpans = [];
-    const onFlash = (cut, back) => flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) });
+    const flashSpans = [], flashFrames = [];
+    const onFlash = (cut, back) => { flashSpans.push({ start: round3(run.times[cut]), end: round3(run.times[back]) }); flashFrames.push([cut, back]); };
     const { starts, flashes } = shotsFromCuts(cuts, frames, mad, { at, flashLike, minShotFrames, onFlash });
-    return { starts, flashes, flashSpans, holds: holdPattern(frames, mad, run.times, length, starts) };
+    // An edge frame is flat (black, white, a blur) or not alike the body's nearest frame: a drawn
+    // pose change at a shot's start (the same picture, redrawn) is body, not an edge.
+    const edges = shotEdges(cuts, starts, frames, { at, flashes: flashFrames, apart: (frame, body) => flat(frame) || !alike(frame, body) });
+    return { starts, flashes, flashSpans, edges, holds: holdPattern(frames, mad, run.times, length, starts) };
   };
   // Drawn footage (each drawing held 2 frames or more in the shots found without it) is looked at
   // once more for cuts between dim drawn shots (UNLIKE_JUMP).
   let found = find(false);
-  if (found.holds.frames >= 2) found = find(true);
-  const { starts, flashes, flashSpans } = found;
+  if (found.holds.frames >= 2) found = find(true);  const { starts, flashes, flashSpans, edges } = found;
   const span = run.times[frames - 1] - run.times[0];
   const times = starts.map((frame) => (frame === 0 ? 0 : run.times[frame]));
-  const shots = times.map((start, index) => ({
-    start: round3(start),
-    end: round3(Math.max(start, times[index + 1] ?? length)),
-  }));
+  const shots = times.map((start, index) => {
+    const end = Math.max(start, times[index + 1] ?? length);
+    const { head = 0, tail = 0 } = edges[index] ?? {};
+    // A shot's edge frames (shotEdges): edge {head, tail} frames and the body between them,
+    // {start, end} file seconds, which imports and board shots keep to by default.
+    const inner = (frame) => run.times[frame];
+    const edge = head || tail ? { head, tail, start: round3(head ? inner(starts[index] + head) : start), end: round3(tail ? inner((starts[index + 1] ?? frames) - tail) : end) } : null;
+    return { start: round3(start), end: round3(end), ...(edge && Number.isFinite(edge.start) && Number.isFinite(edge.end) ? { edge } : {}) };
+  });
   return {
     shots,
     // How the file holds its pictures (drawn footage on 2s or 3s, held poses): holdPattern.

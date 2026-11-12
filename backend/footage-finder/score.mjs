@@ -685,6 +685,8 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const marks = scanMarks(stretches.flatMap(({ shots, samples }) => shots.map((shot) => linesOf(shot, samples))));
     const all = stretches.flatMap(({ at, shots, samples, persistent, stills }) => shots.map((shot, index) => ({
       start: round3(Math.max(0, at + shot.start)), end: round3(at + shot.end),
+      // Its edge frames (a whip, flash, black frame or card at its start or end): imports keep to the body.
+      ...(shot.edge ? { edge: { head: shot.edge.head, tail: shot.edge.tail, start: round3(Math.max(0, at + shot.edge.start)), end: round3(at + shot.edge.end) } } : {}),
       ...shotFacts(shot.start, shot.end, samples, persistent, marks), still: stills[index] ?? null,
     })));
     // Every still through the embedder at once; `want` and the drawn-or-photo words through its text half.

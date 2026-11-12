@@ -2026,6 +2026,35 @@ test("crop_no_subject: a mark on a file with no faces counts only after a look; 
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([45, 20, 20, 60]), facesFound([45, 30, 10, 25]))).findings, []);
 });
 
+test("source_cut: a layer whose shown span holds its file's cut or a shot's edge frames is named with the trim; a span inside one shot is quiet", async () => {
+  // The file cuts at 1.5 s, and its second shot's last 2 frames (2.917-3) are a card.
+  const shots = [{ start: 0, end: 1.5 }, { start: 1.5, end: 3, edge: { head: 0, tail: 2, start: 1.5, end: 2.917 } }];
+  const full = { ...TALL_CROP, x: 0, y: 0, width: 1920, height: 1080, mediaSourceDuration: 3 };
+  const run = (layer) => { const document = scene({ duration: 2, layers: [layer] }); return check("source_cut", document, { scene: document.scenes[0], mediaShots: { [TALL_CROP.src]: shots } }); };
+  // File 1.6-3 s from scene 0: the card frames show at the end.
+  const document = scene({ duration: 2, layers: [{ ...full, mediaOffset: 1.6, mediaDuration: 1.4 }] });
+  const [card] = await fires("source_cut", document, { scene: document.scenes[0], mediaShots: { [TALL_CROP.src]: shots } });
+  assert.deepEqual([card.severity, card.at, card.fix.kind, card.fix.properties], ["info", 1.32, "layer", { mediaDuration: 1.307 }]);
+  // Counted on the checked frames: 1.333, 1.367 and 1.4 s show file 2.917 s or later.
+  assert.match(card.message, /^"keeper" plays across 2 edge frames of its shot \(a whip, flash, black or card frame\) at 1\.32 s \(file 2\.92 s\): 3 frames of the other picture show\.$/);
+  // The same span with its last frame held to the scene's end: the held card counts too.
+  const [heldCard] = (await run({ ...full, mediaOffset: 1.6, mediaDuration: 1.4, mediaFreeze: "last" })).findings;
+  assert.match(heldCard.message, /: 21 frames of the other picture show \(18 of them a frame mediaFreeze holds\)\.$/);
+  // A cut followed by 2 black frames at the next shot's head is one crossing: the trim begins after both.
+  const blacks = [{ start: 0, end: 1.5 }, { start: 1.5, end: 3, edge: { head: 2, tail: 0, start: 1.567, end: 3 } }];
+  const [pair] = (await check("source_cut", scene({ duration: 2, layers: [{ ...full, mediaOffset: 1.45, mediaDuration: 1.5 }] }),
+    { scene: scene({ duration: 2, layers: [{ ...full, mediaOffset: 1.45, mediaDuration: 1.5 }] }).scenes[0], mediaShots: { [TALL_CROP.src]: blacks } })).findings;
+  assert.match(pair.message, /2 edge frames .* at 0\.12 s \(file 1\.57 s\): 4 frames of the other picture show, past 2 cuts\.$/);
+  assert.deepEqual(pair.fix.properties, { mediaOffset: 1.577, mediaStart: 0.127, mediaDuration: 1.373 });
+  // File 1.3-2.9 s: the cut at 1.5 s, 0.2 s in (6 frames at 30 fps), and no card.
+  const [cut] = (await run({ ...full, mediaOffset: 1.3, mediaDuration: 1.6 })).findings;
+  assert.match(cut.message, /a cut of its file at 0\.2 s \(file 1\.5 s\): 6 frames of the other picture show\.$/);
+  // File 1.4-3 s: the cut (0.1 s in) and the card (0.08 s at the end): the shorter is named, the other counted.
+  const [both] = (await run({ ...full, mediaOffset: 1.4, mediaDuration: 1.6 })).findings;
+  assert.match(both.message, /2 edge frames .* at 1\.52 s \(file 2\.92 s\): 3 frames of the other picture show; 1 more in its span\.$/);
+  assert.deepEqual((await run({ ...full, mediaOffset: 1.6, mediaDuration: 1.3 })).findings, [], "file 1.6-2.9 s: inside the body");
+});
+
 test("burned_in_mark: a window that still shows a mark found in the file warns with the crop that leaves it out; a clip with no mark stays quiet", async () => {
   // The scan found a logo in the file's top-left (fractions of the picture). The layer is the 16:9 file filling a 16:9 frame.
   const marks = [{ where: "top-left", box: [0.02, 0.03, 0.18, 0.09] }];

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createLayer, createScene } from "./model.js";
 import { sceneShots, shotTiles } from "./sceneShots.js";
-import { layerSpanCuts, shotSpanCuts, slideOffCut, spanCutLine } from "./spanCuts.js";
+import { edgeSpans, layerSpanCuts, shotSpanCuts, slideOffCut, spanCutLine } from "./spanCuts.js";
 
 const video = (overrides) => createLayer("video", { id: "clip", name: "clip", src: "/api/media/a.mp4", width: 1920, height: 1080, ...overrides });
 const sceneOf = (layers, duration = 6) => createScene({ id: "s1", duration, layers });
@@ -104,6 +104,20 @@ test("a slowed span lands its file cut later on the scene, and a reversed one fr
   const back = video({ mediaReverse: true, mediaOffset: 4.5, mediaDuration: 1, mediaSourceDuration: 10 });
   const [reversed] = layerSpanCuts(back, threeShots, 6);
   assert.deepEqual([reversed.file, reversed.at, reversed.fields], [5, 0.5, undefined]);
+});
+
+test("a shot's edge frames count as a cut: a span into a 2-frame tail card is named and a board shot slides off it", () => {
+  // File 0–5 s is one shot whose last 2 frames (4.92–5) are a card: its body ends at 4.92.
+  const carded = [{ start: 0, end: 5, edge: { head: 0, tail: 2, start: 0, end: 4.92 } }, { start: 5, end: 10 }];
+  const [cut] = layerSpanCuts(video({ mediaOffset: 2, mediaDuration: 2.97, mediaSourceDuration: 10 }), carded, 6);
+  assert.deepEqual([cut.file, cut.edge, cut.trim, cut.fields], [4.92, 2, { out: 4.91 }, { mediaDuration: 2.91 }]);
+  assert.match(spanCutLine("clip", [cut]), /file 4\.92 s \(2 edge frames of a whip, flash, black or card past it\) lands at 2\.92 s/);
+  assert.equal(slideOffCut({ cue: 0, dur: 2, in: 2.95, sound: "none" }, carded, { fileDuration: 10 }).shot.in, 2.91);
+  // A cut at 5 s and 2 black frames at the next shot's head (5-5.083): one crossing, slid past both.
+  const blacks = [{ start: 0, end: 5 }, { start: 5, end: 10, edge: { head: 2, tail: 0, start: 5.083, end: 10 } }];
+  const slid = slideOffCut({ cue: 0, dur: 2, in: 4.95, sound: "none" }, blacks, { fileDuration: 10 });
+  assert.deepEqual([slid.shot.in, slid.was.file, slid.was.edge], [5.093, 5.083, 2]);
+  assert.deepEqual(edgeSpans([...carded.slice(0, 1), blacks[1]]), [{ from: 4.92, to: 5, frames: 2, where: "end" }, { from: 5, to: 5.083, frames: 2, where: "start" }]);
 });
 
 test("a board shot that crosses a cut by 2 frames slides off it; 1.4 s at speed 0.33 is stated and left as given", () => {

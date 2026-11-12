@@ -12,7 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeMedia } from "./media-probe.mjs";
-import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
+import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, shotEdges, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -198,6 +198,14 @@ describe("shotsFromCuts", () => {
     const mad = (first, second) => Math.abs(pictures[first] - pictures[second]) + (pictures[first] === pictures[second] ? 1 : 0);
     assert.deepEqual(shotsFromCuts([28, 31], pictures.length, mad), { starts: [0, 28], flashes: 0 });
   });
+
+  test("shotEdges: dropped cuts by a shot's ends are edge frames only when those frames are apart from its body", () => {
+    // Shots start at 0 and 20 of 40 frames; dropped cuts at 22 (2 frames in) and 38 (2 frames from the end).
+    const apart = (frame) => frame < 22 || frame >= 38;
+    assert.deepEqual(shotEdges([20, 22, 38], [0, 20], 40, { apart }), [{ head: 0, tail: 0 }, { head: 2, tail: 2 }]);
+    // A drawn pose change at 22 (frames 20-21 alike the body) stays in the shot.
+    assert.deepEqual(shotEdges([20, 22, 38], [0, 20], 40, { apart: (frame) => frame >= 38 }), [{ head: 0, tail: 0 }, { head: 0, tail: 2 }]);
+  });
 });
 
 describe("cutsFromScores", () => {
@@ -341,9 +349,22 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
     const clip = await makeCutsClip(path.join(folder, "cuts.mp4"));
     const { shots, found: { ms, ...found }, flashes, fps } = await findShots(clip, { duration: (await probeMedia(clip)).duration });
     assert.deepEqual(shots, [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }]);
-    assert.deepEqual(found, { version: 2, frames: 111, cuts: 2, flashes: 1 });
+    assert.deepEqual(found, { version: 3, frames: 111, cuts: 2, flashes: 1 });
     assert.deepEqual([flashes, fps], [[{ start: 2.25, end: 2.375 }], 24], "the flash's times and the frame rate, not saved with the record");
     assert.ok(Number.isInteger(ms) && ms >= 0);
+  });
+
+  test("a one-frame card and two black frames at a cut, and a one-frame card at the end: the shot's edge frames", async () => {
+    // 24 fps: testsrc2 36 frames, a yellow card 1 frame, black 2 frames, bars 24 frames, a white card 1 frame.
+    const clip = path.join(folder, "edges.mp4");
+    const source = (name, frames, options = "") => ["-f", "lavfi", "-t", String(frames / 24), "-i", `${name}=s=320x180:r=24${options}`];
+    await run(ffmpeg, ["-hide_banner", "-v", "error", "-y", ...source("testsrc2", 36), ...source("color", 1, ":c=yellow"), ...source("color", 2, ":c=black"),
+      ...source("smptebars", 24), ...source("color", 1, ":c=white"), "-filter_complex", "[0][1][2][3][4]concat=n=5:v=1:a=0,format=yuv420p",
+      "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", clip]);
+    const { shots } = await findShots(clip, { duration: (await probeMedia(clip)).duration });
+    assert.deepEqual(shots.map((shot) => shot.start), [0, 1.5]);
+    assert.equal(shots[0].edge, undefined);
+    assert.deepEqual(shots[1].edge, { head: 3, tail: 1, start: 1.625, end: 2.625 }, "card + 2 black frames at its head, the end card at its tail");
   });
 
   test("levels:true adds one { t, y, hue } per frame and finds the same shots as the default run", async () => {
@@ -580,7 +601,7 @@ describe("createShotFinder", { skip: skipWithoutMediaTools }, () => {
     assert.deepEqual(saved.map((save) => save.id), [record.id, record.id]);
     const updated = await readRecord(record.id);
     assert.deepEqual(updated.shots, shots);
-    assert.deepEqual({ ...updated.shotsFound, ms: 0 }, { version: 2, frames: 111, cuts: 2, flashes: 1, ms: 0 });
+    assert.deepEqual({ ...updated.shotsFound, ms: 0 }, { version: 3, frames: 111, cuts: 2, flashes: 1, ms: 0 });
     assert.equal(shotsLine(updated), CUTS_LINE);
   });
 
@@ -644,7 +665,7 @@ describe("video import on a real server", { skip: skipWithoutMediaTools }, () =>
       const media = await response.json();
       const shots = [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }];
       assert.deepEqual(media.shots, shots);
-      assert.deepEqual({ ...media.shotsFound, ms: 0 }, { version: 2, frames: 111, cuts: 2, flashes: 1, ms: 0 });
+      assert.deepEqual({ ...media.shotsFound, ms: 0 }, { version: 3, frames: 111, cuts: 2, flashes: 1, ms: 0 });
       const record = JSON.parse(await readFile(path.join(server.dataDirectory, "media", `${media.id}.json`), "utf8"));
       assert.deepEqual(record.shots, shots);
       assert.deepEqual(record.shotsFound, media.shotsFound);
