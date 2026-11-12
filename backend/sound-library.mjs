@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
+import { synthEntries, synthWav } from "./sound-synth.mjs";
 
 const run = promisify(execFile);
 
@@ -65,7 +66,15 @@ export async function curlBytes(url) {
 /** deps: directory (the download folder), addMedia(file, {name, mime, extra}), fetch, catalog, curl(url) → bytes, retryWaits (ms). */
 export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fetch, catalog = null, curl = fetch === globalThis.fetch ? curlBytes : null, retryWaits = [1000, 3000] } = {}) {
   let data = catalog;
-  const read = () => (data ??= JSON.parse(readFileSync(CATALOG_FILE, "utf8")));
+  // The catalog's downloaded sounds, then the ones kino makes itself (sound-synth.mjs: footsteps, cloth).
+  const read = () => {
+    if (!data) data = JSON.parse(readFileSync(CATALOG_FILE, "utf8"));
+    if (!data.withSynth) {
+      const have = new Set(data.sounds.map((sound) => sound.id));
+      data = { ...data, withSynth: true, sounds: [...data.sounds, ...synthEntries().filter((sound) => !have.has(sound.id))] };
+    }
+    return data;
+  };
 
   function searchSounds(text, { maxSeconds = 10 } = {}) {
     const asked = words(text).map(stem);
@@ -135,6 +144,10 @@ export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fet
       name = `${item.title}${path.extname(new URL(item.url).pathname) || ".mp3"}`;
       bytes = await readFile(await sourceFile(`music-${id}`, { url: item.url, sha256: item.sha256, name }));
       credit = { source: "kino library", id: value.trim(), title: item.title, creator: "Kevin MacLeod", page: item.page, license: item.license, licenseUrl: item.licenseUrl, line: item.credit };
+    } else if (item.synth) {
+      bytes = synthWav(item.synth);
+      name = `${id}.wav`;
+      credit = { source: "kino library", id: value.trim(), title: id, creator: "kino", page: "", license: "made by kino", licenseUrl: "", line: `"${id}" made by kino (synthesized, no source file)` };
     } else {
       const source = catalogData.sources[item.source];
       const packed = await sourceFile(item.source, { url: source.url, sha256: source.sha256, name: path.basename(new URL(source.url).pathname) });
@@ -168,7 +181,22 @@ export function createSoundLibrary({ directory, addMedia, fetch = globalThis.fet
       .slice(0, count);
   }
 
-  return { searchSounds, offerSounds, listMusic, importItem, catalog: read };
+  // The library's kinds (sound ids without their number) closest to some words: ones that share a
+  // word or three or more starting letters with them; with none, the everyday kinds.
+  function nearestKinds(text, count = 3) {
+    const asked = words(text).filter((word) => word.length >= 3).map(stem);
+    const kinds = [...new Set(read().sounds.map((sound) => sound.id.replace(/-\d+$/, "")))];
+    const share = (kind) => Math.max(0, ...kind.split("-").flatMap((part) => asked.map((word) => {
+      if (part.length >= 3 && (part.startsWith(word) || word.startsWith(part))) return 10;
+      let n = 0;
+      while (n < part.length && n < word.length && part[n] === word[n]) n++;
+      return n >= 3 ? n : 0;
+    })));
+    const near = kinds.map((kind) => ({ kind, score: share(kind) })).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || a.kind.localeCompare(b.kind)).map((entry) => entry.kind);
+    return (near.length ? near : ["swish", "click", "impact"]).slice(0, count);
+  }
+
+  return { searchSounds, offerSounds, nearestKinds, listMusic, importItem, catalog: read };
 }
 
 /**
@@ -260,8 +288,12 @@ export function musicDrop(curve) {
 const sec = (value) => Math.round(value * 10) / 10;
 
 /** The lines library sounds answers with, from the built-in library. */
-export function librarySoundsText({ query, results }, { searchOn = false, actions = 0 } = {}) {
-  if (!results.length) return `No library sound matches "${query}". Try a plainer word (whoosh, swish, click, tap, pop, impact, boom, glitch, chime, error, zap).${searchOn ? " Or search Openverse: library {topic:\"sounds\", search, name:\"openverse\"}." : ""}`;
+export function librarySoundsText({ query, results }, { searchOn = false, actions = 0, nearest = [] } = {}) {
+  if (!results.length) {
+    const asked = JSON.stringify(query);
+    const near = nearest.length ? `Nearest kinds: ${nearest.join(", ")}. ` : "";
+    return `No library sound matches ${asked}. ${near}Find one: library {topic:"inspire", search:${asked}, kind:"sounds"}${searchOn ? ` or library {topic:"sounds", name:"openverse", search:${asked}}` : ""}, then project {action:"import", file:"<its id>"}. Or try a plainer word (whoosh, swish, click, tap, pop, impact, boom, glitch, chime, error, zap, footstep).`;
+  }
   return [
     `${Math.min(results.length, 10)} of ${results.length} CC0 library sounds for "${query}" (seconds, loudness):`,
     ...results.slice(0, 10).map((sound) => `sfx:${sound.id} ${sec(sound.seconds)}s ${levelWords(sound)}: ${sound.words}`),
