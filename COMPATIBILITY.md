@@ -1376,6 +1376,11 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   and `look versus` says it in one line. Evidence: `engine/qualityRules.test.js`, `backend/inspire.test.mjs`,
   `backend/agent-review.test.mjs`. Gap: the reference voice is whisper's (sung and spoken alike, agreed with hand
   notes on 3 of 5 measured edits); the real listen is not run in tests.
+- **Pacing rules follow the references**: Test-verified on synthetic scenes and stubbed references. With 2+ saved
+  references that have measured cuts, `transitions_dense`, `technique_repeat`'s flash budget and `even_shot_lengths`
+  loosen to the references' own cut rate, flash rate and shot length spread, and a finding names their numbers; with
+  fewer the house bounds hold. Evidence: `engine/qualityRules.test.js`, `engine/qualityStyle.test.js`,
+  `backend/inspire.test.mjs`. Gap: not replayed on a real edit's saved references.
 - **Shape and crops in the stop asks**: Test-verified. A stop's ask shows the video's shape against its footage and
   how many shots are narrow crops (marked after a look, part crops, not looked at); `shape_guess` clears only on a
   shape the person named. Evidence: `backend/agent-stops.test.mjs`, `engine/qualityRules.test.js`.

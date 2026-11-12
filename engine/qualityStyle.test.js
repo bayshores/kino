@@ -445,6 +445,17 @@ test("technique_repeat: one transition at most shot changes, a loud accent past 
   // A loud accent past its budget counts even when the person's words want it.
   const shaken = scene({ duration: 10, layers: [clip("shot", { animations: [1, 3, 5, 7].map((at) => effect("wiggle", at, 0.1, { wiggleX: 10 })) })] });
   assert.match((await fires("technique_repeat", shaken, { styleSpec: { wants: ["shake"], by: "you", quote: "shake it on every hit" } }))[0].measured, /shake 4 times/);
+  // Four flashes in 10 s pass the house budget of 3 only when 2 or more measured references flash as often.
+  const flashed = scene({ duration: 10, layers: [...[0, 1, 2, 3, 4].map((index) => clip(`shot${index}`, { animations: [...(index ? [show(index * 2 + 0.2)] : []), ...(index < 4 ? [hide(index * 2 + 2)] : [])] })),
+    ...[1, 2, 3, 4].map((index) => rect(`white${index}`, { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", animations: [hide(0), show(index * 2), hide(index * 2 + 0.2)] }))] });
+  const flashRef = (id, flashes) => ({ id, seconds: 30, allCuts: [5, 10, 15, 20], cuts: [5, 10, 15, 20], flashes });
+  // (The flashes also make "no plain cut" findings; only the accent budget is read here.)
+  const overBudget = async (closeRefs) => (await run("technique_repeat", flashed, { closeRefs })).findings.filter((found) => /^flash \d+ times/.test(found.measured));
+  assert.equal((await overBudget([])).length, 1);
+  assert.equal((await overBudget([flashRef("yt:AAAA", 30)])).length, 1);
+  assert.equal((await overBudget([flashRef("yt:AAAA", 30), flashRef("yt:BBBB", 12)])).length, 0);
+  const [flashFix] = await overBudget([flashRef("yt:AAAA", 3), flashRef("yt:BBBB", 6)]);
+  assert.match(flashFix.message, /your references \(yt:AAAA, yt:BBBB\) show 1 to 2 in a video this long/);
   // A moment (style.moments) is a designed set piece: neither technique_repeat nor
   // vocabulary_budget counts it, and a taste warning inside a signature range is dropped.
   const moment = { moves: [{ tag: "drift", where: "every shot" }], moments: [{ tag: "dissolve", beat: 0, what: "the shots melt" }], by: "guessed" };

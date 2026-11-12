@@ -74,6 +74,46 @@ export function referenceRanges(references) {
   };
 }
 
+// The pace of the saved references, for the pacing rules (transitions_dense, technique_repeat's
+// flash budget, even_shot_lengths). Needs this many measured references; fewer and the rules keep
+// their own house bounds.
+export const PACE_REFS = 2;
+// A reference needs this many shots before its shot length spread means anything.
+const PACE_MIN_SHOTS = 4;
+
+/**
+ * What the saved references' own cutting spans, from their lent rhythms (inspire savedRhythms:
+ * [{id, seconds, allCuts, flashes}], allCuts every measured cut time): per fact {low, high, ids}
+ * over the references that measured it, or null with fewer than PACE_REFS of them. cut and flash are
+ * per 10 s; spread is the shot lengths' stdev / mean (the number even_shot_lengths judges). Returns
+ * null unless 2 or more references have cuts, so no bound moves on one reference's say-so.
+ */
+export function referencePace(rhythms) {
+  const facts = { cut: [], flash: [], spread: [] };
+  for (const ref of rhythms ?? []) {
+    const seconds = Number(ref.seconds);
+    if (!(seconds > 0) || !Array.isArray(ref.allCuts) || !ref.allCuts.length) continue;
+    facts.cut.push({ id: ref.id, value: (ref.allCuts.length / seconds) * 10 });
+    if (Number.isFinite(ref.flashes)) facts.flash.push({ id: ref.id, value: (ref.flashes / seconds) * 10 });
+    const edges = [0, ...ref.allCuts.filter((time) => time > 0 && time < seconds), seconds];
+    const lengths = edges.slice(1).map((time, index) => time - edges[index]);
+    const average = lengths.reduce((sum, value) => sum + value, 0) / lengths.length;
+    if (lengths.length >= PACE_MIN_SHOTS && average > 0) {
+      facts.spread.push({ id: ref.id, value: Math.sqrt(lengths.reduce((sum, value) => sum + (value - average) ** 2, 0) / lengths.length) / average });
+    }
+  }
+  const span = (list) => (list.length >= PACE_REFS
+    ? { low: Math.min(...list.map((entry) => entry.value)), high: Math.max(...list.map((entry) => entry.value)), ids: list.map((entry) => entry.id) }
+    : null);
+  const cut = span(facts.cut);
+  return cut ? { cut, flash: span(facts.flash), spread: span(facts.spread) } : null;
+}
+
+/** A per-10-s span turned into counts over `seconds`: {low, high} whole numbers (low rounded, high rounded up). */
+export function paceCounts(span, seconds) {
+  return { low: Math.round((span.low * seconds) / 10), high: Math.ceil((span.high * seconds) / 10 - 1e-6) };
+}
+
 /**
  * The render against the references, as rows: [{key, label, value, low, high, off, drives, line}].
  * `render` and each reference's `fingerprint` come from fingerprint.mjs; `renderPrints` and each

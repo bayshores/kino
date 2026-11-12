@@ -25,6 +25,7 @@ Camera rules read the model at 30 samples a second (no render).
   on the incoming layer's first frame is begun by the cut and passes.
 - `transitions_dense` (warning): over 2 large transitions in 6 beats. A full-frame shot's move
   from its own cut, and an effect (a glow) on a layer that stays on screen, are not transitions.
+  With 2+ saved references that have measured cuts, the bound is how often they cut in that time.
 - `speed_jump` (warning): where one move hands off to the next, the on-screen speed (place,
   scale at the corners, rotation) jumps over 5%. A still move or a gap between is a hold, not a
   jump, and an instant step (a `frame` cut) is a jump on purpose. Auto fix: same way on, it roves the pair (time shared by distance, one speed at the join);

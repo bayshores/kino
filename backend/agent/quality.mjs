@@ -876,7 +876,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         const waived = waivers.find((waiver) => waiver.code === "ask_unmet" && (waiver.target === "*" || waiver.target === scene.id || waiver.target === scene.name || waiver.target === refName(scene.id, codes)));
         ask = askLine(scene, origin, sourceLooks, { board: document.board?.shots ?? null, own: Boolean(media.ownFootage), waived: waived?.reason ?? null });
       }
-      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\nlines:${linesStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
+      const base = `${sceneBase(document, scene, { fonts, codes, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks })}\n${refStamp}${closeRefs.length ? `\nlent:${closeRefs.map((ref) => `${ref.id}:${ref.cuts.length}:${ref.allCuts?.length ?? 0}:${ref.flashes ?? ""}`).join(",")}` : ""}\nhouse:${houseStamp}\nvideo:${isVideo}\n${speechStamp}\nlines:${linesStamp}\n${peopleStamp}\nsearch:${soundSearch}${media.pending ? `\nunmeasured:${media.pending}` : ""}\nsubject:${askStamp}`;
       const latestFps = fullCheckFps.get(baseKey(base));
       const full = !pixels && renderFrames
         ? kept(keyOf(base, { pixels: true, outputFps })) ?? (latestFps != null ? kept(keyOf(base, { pixels: true, outputFps: latestFps })) : null) ?? null

@@ -1991,8 +1991,9 @@ export function createInspire(deps) {
   }
 
   /**
-   * The lent cuts of a project's saved, measured references: [{id, seconds, cuts, fps}] (for the
-   * reference_closeness check: their shot lengths in order are what an edit must not copy).
+   * The lent cuts of a project's saved, measured references: [{id, seconds, cuts, fps, allCuts, flashes}]
+   * (for the reference_closeness check: their shot lengths in order are what an edit must not copy;
+   * allCuts and flashes give the pacing rules the references' cut and flash rate and shot spread).
    */
   async function savedRhythms(projectId) {
     const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
@@ -2000,7 +2001,8 @@ export function createInspire(deps) {
     for (const id of state.saved) {
       const numbers = (await load(id))?.numbers;
       if (!numbers?.cuts?.length) continue;
-      found.push({ id, seconds: numbers.seconds, cuts: lentCuts(numbers).map((index) => numbers.cuts[index]), fps: numbers.fps ?? 24 });
+      // allCuts and flashes feed the pacing rules (referencePace): every measured cut, not only the lent ones.
+      found.push({ id, seconds: numbers.seconds, cuts: lentCuts(numbers).map((index) => numbers.cuts[index]), fps: numbers.fps ?? 24, allCuts: numbers.cuts, ...(Number.isFinite(numbers.flashes) ? { flashes: numbers.flashes } : {}) });
     }
     return found;
   }
