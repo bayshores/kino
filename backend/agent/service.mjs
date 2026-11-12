@@ -94,7 +94,7 @@ import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
 import { pivotNotes } from "./pivot-notes.mjs";
-import { coverNotes, importedNames, textUnderNotes, unseenPresetNotes } from "./silent-receipts.mjs";
+import { coverNotes, importedNames, liftFootage, liftNotes, textUnderNotes, unseenPresetNotes } from "./silent-receipts.mjs";
 import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waivedRefs, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
@@ -3056,6 +3056,22 @@ export function createAgentService(deps) {
           });
         }
         throw error;
+      }
+      // Opaque full-frame footage this edit added over words that show at the same time goes under them
+      // (silent-receipts.mjs liftFootage); a layer an order op of this edit names stays where it put it.
+      {
+        const kept = new Set(translation.operations.filter((operation) => ["move_layers", "reorder_layer"].includes(operation.type))
+          .flatMap((operation) => [...(operation.layerIds ?? []), operation.layerId, operation.referenceId]).filter(Boolean));
+        let lift = liftFootage(before, after, { kept });
+        const unread = lift.sources.slice(0, 12);
+        const clearFiles = new Set();
+        for (const src of unread) if (await seeThrough(deps.mediaRoot, src).catch(() => false)) clearFiles.add(src);
+        if (clearFiles.size) lift = liftFootage(before, after, { kept, seeThrough: clearFiles });
+        if (lift.ops.length) {
+          after = parseDocument(applyOperations(after, lift.ops, await operationContext(after, lift.ops)));
+          const liftCodes = assignCodes(codes, after, resolver.reserved);
+          work.notes.push(...liftNotes(lift.moves, (id) => refName(id, liftCodes)));
+        }
       }
       // The idea before the template (brief.mjs orderStep): on a briefed video, an edit that adds
       // visual layers or animations waits for the references, the treatments and the signature.

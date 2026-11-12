@@ -227,6 +227,27 @@ test("readMoveInput refuses missing, unknown-shaped and out-of-range fields", ()
   assert.deepEqual(readMoveInput(zoom, { from: "shot-a", to: "shot-b" }).from, "shot-a");
 });
 
+test("a text card held to 6 s that a transition leaves at 1 s is untouched until the move starts, and its own hold is kept", () => {
+  const card = createLayer("text", { id: "card", name: "card", x: 200, y: 400, width: 1200, height: 200, text: "Held words", fontSize: 120, animations: [{ id: "card.hide", kind: "hide", start: 6 }] });
+  const scene = createScene({ id: "s", name: "Scene", width: 1920, height: 1080, duration: 8, layers: [
+    createLayer("image", { id: "shot-b", name: "shot-b", src: "/api/media/wall.png", x: 0, y: 0, width: 1920, height: 1080 }), card] });
+  let checked = 0;
+  for (const name of SWEPT) {
+    const definition = MOVES[name];
+    if (!definition.fields.from || !definition.fields.to || ["smear", "shatter"].includes(name)) continue;
+    const { at: _at, dur = null, ...fields } = definition.example;
+    const made = runMove(definition, { id: name, input: readMoveInput(definition, { ...fields, from: "card", to: "shot-b" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 1, dur, media });
+    const own = made.animations.filter((entry) => entry.layerId === "card").map((entry) => entry.animation);
+    assert.ok(own.every((animation) => animation.start >= 1 - 1e-6), `${name}: nothing on the card starts before the move`);
+    const drawn = { ...card, animations: [...card.animations, ...own] };
+    const before = evaluateLayer(drawn, 0.95);
+    assert.ok(before.visible && before.opacity === 1, `${name}: the card shows in full until the move starts`);
+    assert.ok(!made.removed?.length, `${name}: the move removes none of the card's animations`);
+    checked += 1;
+  }
+  assert.ok(checked >= 10, `${checked} transitions checked`);
+});
+
 test("every example builds at 16:9 and 9:16 and in reduced motion, the same way for the same seed", () => {
   for (const [width, height] of [[1920, 1080], [1080, 1920]]) {
     for (const name of SWEPT) {

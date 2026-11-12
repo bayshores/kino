@@ -48,7 +48,11 @@ test("describe_operation answers by type, topic and search, and suggests close n
     const answer = describeOperation({ topic: id });
     assert.ok(answer.startsWith(`## ${id}: `) && answer.length <= 17_000, `${id} reads by name (${answer.length} characters)`);
   }
-  assert.match(describeOperation({ topic: "quality-settings" }), /\(\d+ more lines of quality-settings: describe_operation \{topic\} with search:"<word>" reads/);
+  // The checker's facts are two topics that each read whole and name the other.
+  const settings = describeOperation({ topic: "quality-settings" }), references = describeOperation({ topic: "quality-references" });
+  assert.ok(settings.length < 14_000 && references.length < 14_000 && !/more lines of/.test(settings + references), `${settings.length} and ${references.length} characters`);
+  assert.match(settings, /quality-references/);
+  assert.match(references, /quality-settings/);
   // A by-type answer is about 2.5k tokens at most; any answer stays under the 8k-token limit.
   for (const type of OPERATION_TYPES)
     assert.ok(describeOperation({ type }).length <= 9_000, `${type} answer is short`);
