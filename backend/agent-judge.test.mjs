@@ -10,7 +10,7 @@ import { createAgentStateStore } from "./agent/state.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, judgeView, pairSize, pinnedPairs, planPairs, resultText } from "./agent/judge.mjs";
 import { createPicks, pickRecord, readPairs, SITTING_GAP_MS, SITTING_PICKS, sittingLeft } from "./agent/picks.mjs";
 import { stillTimes } from "./measure/stills.mjs";
-import { boardShotKind, craftRow, editLoudest, gapWords, imageStats, pairRows, pickRows, pixelKind, placeMoment, referenceMoments, seenAt, shapeLoudest } from "./agent/versus.mjs";
+import { boardShotKind, craftRow, editLoudest, frameStats, gapWords, imageStats, pairRows, pickRows, pixelKind, placeMoment, referenceMoments, seenAt, shapeLoudest, softAccentLines } from "./agent/versus.mjs";
 
 let folder;
 before(async () => { folder = await mkdtemp(path.join(tmpdir(), "kino-judge-")); });
@@ -117,6 +117,37 @@ test("versus puts like next to like: the same place in the video, its own kind f
   assert.deepEqual(gapWords({ fill: 0.2, contrast: 0.1 }, { fill: 0.7, contrast: 0.3 }), ["hero fills 20% of the frame, theirs 70%", "contrast 0.1, theirs 0.3"]);
   assert.deepEqual(gapWords({ fill: 0.5, contrast: 0.2 }, { fill: 0.6, contrast: 0.22 }), []);
   assert.deepEqual(["big type on screen 10% (references 30% to 40%)", "text on screen 90% (reference 40%)", "nearest reference shot 1.20 (reference shots 0.40 to 0.60 apart)", "longest still hold 4 s (reference 1 s)"].map(craftRow), [true, false, false, true]);
+});
+
+// A square wave of 4 px cells in gray (sharp), or the same blurred by a box average (soft); a gray frame with an optional patch.
+const frameOf = (width, height, paint) => {
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) rgba.set([...paint(x, y), 255], (y * width + x) * 4);
+  return rgba;
+};
+const checker = (x, y) => { const v = (Math.floor(x / 4) + Math.floor(y / 4)) % 2 ? 230 : 25; return [v, v, v]; };
+
+test("versus reads softness and accent from a fixed-size copy and names a call only outside the references' range", () => {
+  const sharp = frameOf(640, 360, checker);
+  const blurred = frameOf(640, 360, (x, y) => { let sum = 0; for (let dy = -4; dy <= 4; dy += 1) for (let dx = -4; dx <= 4; dx += 1) sum += checker(x + dx, y + dy)[0]; const v = sum / 81; return [v, v, v]; });
+  const sharpStats = frameStats(sharp, 640, 360), blurStats = frameStats(blurred, 640, 360);
+  assert.ok(sharpStats.edge > 2 * blurStats.edge, `${sharpStats.edge} against ${blurStats.edge}`);
+  // The same picture at twice the size reads about the same (the copy has a fixed size).
+  const double = frameStats(frameOf(1280, 720, (x, y) => checker(x / 2, y / 2)), 1280, 720);
+  assert.ok(Math.abs(double.edge - sharpStats.edge) < 0.25 * sharpStats.edge, `${double.edge} against ${sharpStats.edge}`);
+  // A bright saturated patch (a tenth of the frame) is accent; a gray frame has none.
+  const patch = frameStats(frameOf(640, 360, (x, y) => (x < 200 && y < 180 ? [255, 20, 200] : [90, 90, 90])), 640, 360);
+  assert.deepEqual([patch.accent > 0.15 && patch.accent < 0.2, patch.peak], [true, 255]);
+  assert.deepEqual([blurStats.accent, blurStats.peak], [0, 0]);
+  // Against soft references the sharp edit is told one call; inside the range, none; no references, no lines.
+  const gray = frameStats(frameOf(640, 360, () => [90, 90, 90]), 640, 360);
+  const lines = softAccentLines([sharpStats, patch], [[blurStats, gray], [blurStats]]);
+  assert.match(lines[0], /^softness: edge sharpness .* your 2 saved references .*: sharper than theirs\. One call: edit .*halation/);
+  assert.match(lines[1], /^accent: .* of the frame bright and saturated, brightest saturated region 255 of 255; your 2 saved references 0%, region 0: brighter than theirs\. One call: lower the glow's strength/);
+  const inside = softAccentLines([blurStats], [[blurStats], [sharpStats]]);
+  assert.match(inside[0], /inside their range\.$/);
+  assert.doesNotMatch(inside.join(" "), /One call/);
+  assert.deepEqual(softAccentLines([sharpStats], []), []);
 });
 
 test("a round is made in the background, picked only blind, and its counts reach the inbox", async () => {

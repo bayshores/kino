@@ -260,6 +260,8 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.equal(versus.isError, undefined, versus.text);
   assert.match(versus.text, /^versus rev \d+: 3 rows, yours \(left\) beside a saved reference/);
   assert.match(versus.text, /no judge round for rev \d+/);
+  assert.match(versus.text, /^softness: edge sharpness [\d.]+ .*your 1 saved reference [\d.]+/m);
+  assert.match(versus.text, /^accent: [\d.]+% of the frame .*your 1 saved reference [\d.]+%/m);
   assert.match(versus.text, /^you take from yt:kinoTest001 \(promo\): type: one word a cut\. Is it on screen\?$/m);
   // The reference is only black stills (an end card); the edit's frames are cards: each row sits at
   // the same place (opening, middle, ending) beside another kind, with no gap numbers.

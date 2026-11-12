@@ -102,7 +102,7 @@ import { rendererIsProcessor } from "../render-devices.mjs";
 import { plannedFrameCount } from "../export-batches.mjs";
 import { planClips } from "./clips-sheet.mjs";
 import { evenTimes, everyFrame, FRAMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
-import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest } from "./versus.mjs";
+import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest, softAccentLines } from "./versus.mjs";
 import { CAMERA_RULES, motionGraphImage, motionTrace, traceText } from "./motion-graph.mjs";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { changedStretches, findingsAt, frameSignature, nearDuplicate, newFindingsLine, rememberReviewed, REVIEW_COMPACT_EDGE, REVIEW_FULL_EDGE, REVIEW_IMAGE_BUDGET, REVIEW_SKIP_UNDER, REVIEW_WAIVER, reviewEvents, reviewKey, reviewSizes, unreviewed } from "./review.mjs";
@@ -4025,9 +4025,15 @@ export function createAgentService(deps) {
     if (!refs.length && !pinned.pairs.length) throw Object.assign(new AgentError("not_ready", 'The saved references have no stills yet: kino is measuring them again, one at a time. look {mode:"versus"} again in a minute.'), { nextCall: nextOf("look", { mode: "versus" }) });
     const prepared = new Map();
     const preparedOf = async (sceneId) => { if (!prepared.has(sceneId)) prepared.set(sceneId, await prepare(document, sceneId, fonts)); return prepared.get(sceneId); };
+    // Each frame of the edit is drawn and read once (the kind, the gaps, softness and accent all use it).
+    const editStatsKept = new Map();
     const editStats = async (sceneId, t) => {
-      const scene = await preparedOf(sceneId);
-      return imageStats((await look.frame(scene, t, tileSize(scene.scene, VERSUS_EDGE).width)).png);
+      const key = `${sceneId}@${t}`;
+      if (!editStatsKept.has(key)) {
+        const scene = await preparedOf(sceneId);
+        editStatsKept.set(key, await imageStats((await look.frame(scene, t, tileSize(scene.scene, VERSUS_EDGE).width)).png));
+      }
+      return editStatsKept.get(key);
     };
     const pool = known.filter((ref) => ref.stills?.length);
     for (const ref of pool) ref.moments = await referenceMoments(ref, versusStatsCache);
@@ -4103,6 +4109,9 @@ export function createAgentService(deps) {
       for (const finding of findings) range.push(`${where}outside your ${measuredRefs} references: ${finding.measured} (theirs: ${String(finding.required).replace(/^inside your \d+ saved references: /, "")}). check lists each fix.`);
     }
     if (measuredRefs >= 2 && !range.length) range.push(`inside your ${measuredRefs} references in brightness, contrast, dark share, text per 10 s, voice.`);
+    // Softness and accent: the frames of these rows against every saved reference's stills (read when
+    // versus runs, so references saved before these measures need no new save). A measure, not a check.
+    const softLines = softAccentLines(await Promise.all(pairs.map((pair) => editStats(pair.sceneId, pair.t))), pool.map((ref) => ref.moments.map((moment) => moment.stats)));
     const same = pairs.filter((pair) => pair.still && pair.same).length, other = pairs.filter((pair) => pair.still && !pair.same).length;
     const lines = [
       `versus rev ${record.revision}: ${pairs.length} rows, yours (left) beside a saved reference (right) at the same place (${peak === null ? "opening, ending" : "opening, loudest change, ending"}, the rest by position): ${same} of the same kind of shot${other ? `, ${other} of another kind` : ""}${pairs.length - same - other ? `, ${pairs.length - same - other} with no reference still` : ""}. Compare craft (hero size, type, overlays, graphics, motion, holds, contrast), not content or footage colors.`,
@@ -4115,6 +4124,7 @@ export function createAgentService(deps) {
       ...(pinned.waiting.length ? [`not pinned yet, that reference is saved but not measured yet: ${pinned.waiting.join(", ")} (look {mode:"versus"} again in a minute).`] : []),
       ...(drift.length ? drift : ["reference_drift: near the references in the craft measured."]),
       ...range,
+      ...softLines,
       judgeLine(state, record.revision),
       `image ${file}`,
     ];

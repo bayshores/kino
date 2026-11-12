@@ -116,7 +116,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
    skip: `waive_check {code:"review", target:"s1", reason}`.
 6. Saved references: final needs `look {mode:"versus"}` in the last 10 revs (`reference_needed`):
    rows by place (opening, loudest change, ending, rest by position), same kind first; a pin
-   on its shot; a still on 2 rows at most; their labels. Gaps: fill, contrast, drift, range. A lost
+   on its shot; 2 rows a still; labels. Gaps: fill, contrast, drift, range, softness, accent. A lost
    judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
 
 ## Building in order

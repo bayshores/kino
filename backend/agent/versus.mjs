@@ -45,7 +45,98 @@ const FILL_GAP = 0.2;
 const round = (value) => Math.round(value * 100) / 100;
 const percent = (value) => `${Math.round(value * 100)}%`;
 
-/** Plain numbers from an image's RGBA pixels: {plain, skin, flat, sharp, fill, contrast}. */
+// ---- softness and accent ------------------------------------------------------------------
+// Both are read from one fixed-size copy of the frame (SOFT_W x SOFT_H, each copy pixel the box
+// average of the source pixels it covers), so a 320 px edit frame and a 640 px reference still
+// read alike. The studies found our frames sharper and our accent brighter than the references.
+//   edge    mean gradient magnitude of the luma copy, x100: per pixel, sqrt(gx^2 + gy^2) with
+//           gx = (L[x+1] - L[x-1]) / 2 (luma 0 to 1). A sharp checker reads high, a blur low.
+//   accent  share of copy pixels that are bright (max channel at least ACCENT_LEVEL) and
+//           saturated ((max - min) / max at least ACCENT_SATURATION).
+//   peak    the brightest saturated region: the copy is cut into 16 x 9 cells, a cell with at
+//           least ACCENT_CELL of its pixels saturated (any brightness) is a region, and its level
+//           is the mean max channel of those pixels; peak is the best cell, 0 to 255 (0 when none).
+// The levels are guesses from the studies' frames (a neon accent near 0.8 and up), not measurements.
+const SOFT_W = 320;
+const SOFT_H = 180;
+const ACCENT_LEVEL = 0.8;
+const ACCENT_SATURATION = 0.5;
+const ACCENT_CELL = 0.25;
+
+/** {edge, accent, peak} of an image's RGBA pixels (see above); resolution does not change them much. */
+export function softAccent(rgba, width, height) {
+  const luma = new Float32Array(SOFT_W * SOFT_H);
+  let bright = 0;
+  const cellCols = 16, cellRows = 9, cellW = SOFT_W / cellCols, cellH = SOFT_H / cellRows;
+  const saturated = new Uint16Array(cellCols * cellRows), levels = new Float32Array(cellCols * cellRows);
+  for (let y = 0; y < SOFT_H; y += 1) {
+    const y0 = Math.floor((y * height) / SOFT_H), y1 = Math.max(y0 + 1, Math.floor(((y + 1) * height) / SOFT_H));
+    for (let x = 0; x < SOFT_W; x += 1) {
+      const x0 = Math.floor((x * width) / SOFT_W), x1 = Math.max(x0 + 1, Math.floor(((x + 1) * width) / SOFT_W));
+      let r = 0, g = 0, b = 0, n = 0;
+      for (let sy = y0; sy < y1 && sy < height; sy += 1)
+        for (let sx = x0; sx < x1 && sx < width; sx += 1) { const at = (sy * width + sx) * 4; r += rgba[at]; g += rgba[at + 1]; b += rgba[at + 2]; n += 1; }
+      if (!n) continue;
+      r /= n * 255; g /= n * 255; b /= n * 255;
+      luma[y * SOFT_W + x] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const high = Math.max(r, g, b), spread = high - Math.min(r, g, b);
+      if (high > 0.2 && spread / high >= ACCENT_SATURATION) {
+        const cell = Math.floor(y / cellH) * cellCols + Math.floor(x / cellW);
+        saturated[cell] += 1; levels[cell] += high;
+        if (high >= ACCENT_LEVEL) bright += 1;
+      }
+    }
+  }
+  let sum = 0;
+  for (let y = 1; y < SOFT_H - 1; y += 1)
+    for (let x = 1; x < SOFT_W - 1; x += 1) {
+      const at = y * SOFT_W + x;
+      sum += Math.hypot((luma[at + 1] - luma[at - 1]) / 2, (luma[at + SOFT_W] - luma[at - SOFT_W]) / 2);
+    }
+  let peak = 0;
+  for (let cell = 0; cell < saturated.length; cell += 1) if (saturated[cell] >= ACCENT_CELL * cellW * cellH) peak = Math.max(peak, levels[cell] / saturated[cell]);
+  return { edge: Math.round((sum / ((SOFT_W - 2) * (SOFT_H - 2))) * 1000) / 10, accent: Math.round((bright / (SOFT_W * SOFT_H)) * 10000) / 10000, peak: Math.round(peak * 255) };
+}
+
+// Outside the references' range by more than: a share of the bound plus a floor for edge (0.15 x
+// the bound + 0.1), 0.5% of the frame for accent, 16 of 255 for the brightest region (guesses).
+const EDGE_SHARE = 0.15;
+const EDGE_FLOOR = 0.1;
+const ACCENT_GAP = 0.005;
+const PEAK_GAP = 16;
+const middle = (values) => { const list = values.filter(Number.isFinite).sort((a, b) => a - b); return list.length ? list[Math.floor(list.length / 2)] : null; };
+const spanOf = (values) => ({ low: Math.min(...values), high: Math.max(...values) });
+const spanText = (low, high, show) => (low === high ? show(low) : `${show(low)} to ${show(high)}`);
+
+/**
+ * The softness and accent lines of look versus: the edit's frames (`mine`, stats with edge, accent
+ * and peak) against each reference's (`refs`: arrays of stats, one array per reference; its median
+ * counts). Each line shows the edit's number next to the references' range. Only when the edit is
+ * outside the range does the line name the one call that moves it (too sharp: scene finish
+ * halation; too bright an accent: a lower glow strength). A measure, never a gate. [] when either side has no frames.
+ */
+export function softAccentLines(mine, refs) {
+  const own = mine.filter((stats) => Number.isFinite(stats?.edge));
+  const theirs = refs.map((list) => list.filter((stats) => Number.isFinite(stats?.edge))).filter((list) => list.length);
+  if (!own.length || !theirs.length) return [];
+  const pick = (list, key) => middle(list.map((stats) => stats[key]));
+  const ours = { edge: pick(own, "edge"), accent: pick(own, "accent"), peak: pick(own, "peak") };
+  const range = (key) => spanOf(theirs.map((list) => pick(list, key)));
+  const [edge, accent, peak] = [range("edge"), range("accent"), range("peak")];
+  const n = theirs.length, whose = `${n} saved reference${n === 1 ? "" : "s"}`;
+  const lines = [];
+  const sharper = ours.edge > edge.high * (1 + EDGE_SHARE) + EDGE_FLOOR, softer = ours.edge < edge.low * (1 - EDGE_SHARE) - EDGE_FLOOR;
+  lines.push(`softness: edge sharpness ${ours.edge} (mean gradient x100 of a 320x180 luma copy), your ${whose} ${spanText(edge.low, edge.high, String)}${sharper ? `: sharper than theirs. One call: edit {ops:[{op:"update_scene", properties:{finish:{halation:0.3}}}]} (a soft glow round bright spots; a layer's blur softens one layer).`
+    : softer ? ": softer than theirs." : ": inside their range."}`);
+  const brighter = ours.accent > accent.high + ACCENT_GAP || ours.peak > peak.high + PEAK_GAP;
+  const dimmer = ours.accent < accent.low - ACCENT_GAP && ours.peak < peak.low - PEAK_GAP;
+  const pct = (value) => `${Math.round(value * 1000) / 10}%`;
+  lines.push(`accent: ${pct(ours.accent)} of the frame bright and saturated, brightest saturated region ${ours.peak} of 255; your ${whose} ${spanText(accent.low, accent.high, pct)}, region ${spanText(peak.low, peak.high, String)}${brighter ? ': brighter than theirs. One call: lower the glow\'s strength, edit {ops:[{op:"update_animation", animation:"<layer>.effect", properties:{to:{strength:0.6}}}]} (or tone the accent color down).'
+    : dimmer ? ": quieter than theirs." : ": inside their range."}`);
+  return lines;
+}
+
+/** Plain numbers from an image's RGBA pixels: {plain, skin, flat, sharp, fill, contrast, edge, accent, peak}. */
 export function frameStats(rgba, width, height) {
   const stats = pixelStats(rgba, width, height, { order: "rgba" });
   const count = CELL_COLS * CELL_ROWS;
@@ -72,7 +163,7 @@ export function frameStats(rgba, width, height) {
     if (r > 95 && g > 40 && b > 20 && r > g && r > b && r - g > 15 && r - Math.min(g, b) > 15) skin += 1;
   }
   return { plain: busyRows.size <= PLAIN_ROWS || flat / count >= PLAIN_SHARE, skin: round(skin / Math.max(1, sampled)), flat: round(flat / count),
-    sharp: Math.round(stats.sharp), fill: round(hero / count), contrast: cellContrast(means) };
+    sharp: Math.round(stats.sharp), fill: round(hero / count), contrast: cellContrast(means), ...softAccent(rgba, width, height) };
 }
 
 /** A frame's kind from its stats: type (plain), footage (people) or app; "end" is decided by its place. */
