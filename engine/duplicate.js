@@ -19,8 +19,15 @@
 // line, a grid or a ring, Cavalry-duplicator style, each a normal layer that every check, look
 // and export sees exactly. Copy n is named "<name> n+1" (the original is 1), and its animations
 // may start n * stagger seconds later.
+//
+// With `at` (seconds) copy n shows at the n-th time instead: every time of the copy (animations,
+// footage play time, a component's clock, play windows) moves by at[n-1] minus the selection's
+// first time, and copies sit in place unless an offset or layout is given. `vary` gives each
+// place (the original and its copies, in time order) its own value of a layer field.
 import { moveLayerByWorldDelta } from "./arrange.js";
-import { duplicateLayers } from "./layerClipboard.js";
+import { flattenAnimations, mapAnimationTree } from "./animationTree.js";
+import { duplicateLayers, rebaseValues } from "./layerClipboard.js";
+import { hasMediaPlay } from "./playback.js";
 import { selectionBox, transformTargets } from "./multiTransform.js";
 
 /** How far (in scene pixels, right and down) each copy lands from its original. */
@@ -134,8 +141,12 @@ export function copyOffsets({ count, layout, offset = DUPLICATE_OFFSET, spacing,
 const FIELD_LAYOUTS = { offset: [undefined], spacing: ["line", "grid"], columns: ["grid"], radius: ["radial"] };
 
 export function duplicateRepeated(document, sceneId, layerIds, options = {}, { fonts } = {}) {
-  const { count = 1, layout, stagger = 0 } = options;
+  const { layout, stagger = 0, at } = options;
+  const count = options.count ?? (Array.isArray(at) ? at.length : 1);
   if (!Number.isInteger(count) || count < 1 || count > MAX_COPIES) throw new Error(`count must be a whole number from 1 to ${MAX_COPIES}.`);
+  const scene0 = document.scenes.find((item) => item.id === sceneId);
+  const timed = at === undefined ? null : copyTimes(scene0, layerIds, at, count, options);
+  if (timed && options.offset === undefined && layout === undefined) options = { ...options, offset: 0 }; // in place
   if (typeof stagger !== "number" || !Number.isFinite(stagger) || stagger < 0 || stagger > MAX_STAGGER)
     throw new Error(`stagger must be seconds from 0 to ${MAX_STAGGER} between copies.`);
   if (layout !== undefined && !DUPLICATE_LAYOUTS.includes(layout)) throw new Error(`layout must be one of ${DUPLICATE_LAYOUTS.join(", ")}.`);
@@ -155,7 +166,7 @@ export function duplicateRepeated(document, sceneId, layerIds, options = {}, { f
   const offsets = copyOffsets({ ...options, count }, box);
   // Numbered names only when count is given, so a plain duplicate stays "<name> copy". Copy n
   // takes the n-th number from 2 that no layer in the scene has yet, so names stay unique.
-  const numbered = options.count !== undefined;
+  const numbered = options.count !== undefined || at !== undefined;
   const taken = new Set(scene.layers.map((layer) => layer.name));
   const free = new Map();
   const numberedName = (n) => (name) => {
@@ -171,20 +182,154 @@ export function duplicateRepeated(document, sceneId, layerIds, options = {}, { f
   // reads "<name>, <name> 2, <name> 3".
   let next = document;
   const copies = [];
+  const roots = [];
   for (let n = count; n >= 1; n -= 1) {
     const [dx, dy] = offsets[n - 1];
     const chosen = options.copies?.[n - 1];
     const result = duplicateSelection(next, sceneId, layerIds, dx, { dy, name: numbered ? numberedName(n) : copyName, ids: chosen?.ids, names: chosen?.names });
-    next = stagger > 0 ? delayLayers(result.document, sceneId, new Set(result.copyIds), round(n * stagger)) : result.document;
+    const delay = timed ? round(timed.at[n - 1] - timed.first) : round(n * stagger);
+    next = delay !== 0 ? delayLayers(result.document, sceneId, new Set(result.copyIds), delay) : result.document;
     copies.unshift(result.copyIds);
+    roots.unshift(result.rootIds);
   }
-  return { document: next, copyIds: copies.flat() };
+  if (options.vary !== undefined) {
+    if (!timed) throw new Error("vary works with at: give the times of the copies.");
+    next = varyPlaces(next, sceneId, [topSelected(scene0.layers, layerIds), ...roots], [timed.first, ...timed.at], options.vary);
+  }
+  return { document: next, copyIds: copies.flat(), ...(timed ? { first: timed.first } : {}) };
 }
 
-// The document with every animation of the named layers starting `delay` seconds later.
+// ---- at: copies at chosen times ---------------------------------------------------------------
+// The selected layers and everything inside them.
+function subtreeOf(layers, layerIds) {
+  const ids = new Set(layerIds);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const layer of layers) if (ids.has(layer.parentId) && !ids.has(layer.id)) { ids.add(layer.id); grew = true; }
+  }
+  return layers.filter((layer) => ids.has(layer.id));
+}
+
+// The selected layers that no other selected layer holds (the roots the copies are made of).
+function topSelected(layers, layerIds) {
+  const byId = new Map(layers.map((layer) => [layer.id, layer]));
+  const chosen = new Set(layerIds);
+  const held = (layer) => { for (let up = byId.get(layer.parentId); up; up = byId.get(up.parentId)) if (chosen.has(up.id)) return true; return false; };
+  return layerIds.filter((id) => byId.has(id) && !held(byId.get(id)));
+}
+
+// Effects (a grade or blur that runs the whole clip, often from 0) and Hides do not say when a
+// layer shows: run 8's footage all carried effects at 0 s (measured in its store.json).
+const shows = (animation) => Number.isFinite(animation?.start) && animation.kind !== "effect" && animation.kind !== "hide";
+
+/**
+ * The earliest time the selection shows or plays: its Shows and animation starts (not effects or
+ * Hides), a video's or audio's play time (mediaStart) and a component instance's clock
+ * (componentStart). Null when it has none.
+ */
+export function selectionStart(layers) {
+  const times = [];
+  for (const layer of layers) {
+    for (const animation of flattenAnimations(layer.animations ?? [])) if (shows(animation)) times.push(animation.start);
+    if (hasMediaPlay(layer)) times.push(Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0);
+    if (layer.type === "component" && Number.isFinite(layer.componentStart)) times.push(layer.componentStart);
+  }
+  return times.length ? Math.min(...times) : null;
+}
+
+function copyTimes(scene, layerIds, at, count, options) {
+  if (!Array.isArray(at) || !at.length || at.length > MAX_COPIES || !at.every((time) => Number.isFinite(time) && time >= 0))
+    throw new Error(`at must list 1 to ${MAX_COPIES} times in seconds (or cues), one per copy.`);
+  // A copy placed after the end would never be seen.
+  const past = at.find((time) => Number.isFinite(scene?.duration) && time >= scene.duration);
+  if (past !== undefined) throw new Error(`at ${past} s is past the scene's end (${scene.duration} s): give a time inside the scene, or make the scene longer first.`);
+  if (options.count !== undefined && options.count !== at.length) throw new Error(`at lists ${at.length} time${at.length === 1 ? "" : "s"}, count says ${options.count}: drop count or make them match.`);
+  if (options.stagger !== undefined) throw new Error("at and stagger are two timings: give at (a time per copy) or stagger (seconds between copies), not both.");
+  const layers = subtreeOf(scene.layers, layerIds);
+  const moved = layers.find((layer) => layer.move);
+  if (moved) throw new Error(`${label(moved)} was made by move ${moved.move.name}: a move rebuilds its own parts, so send {op:"move", name:"${moved.move.name}", at} again for each place.`);
+  const first = selectionStart(layers);
+  if (first === null) {
+    const name = layers.find((layer) => layerIds.includes(layer.id)) ?? layers[0];
+    throw new Error(`give ${label(name)} a Show, an animation or a play time first, so its copies have a time to move.`);
+  }
+  return { first, at: at.slice(0, count) };
+}
+
+// The document with every time of the named layers `delay` seconds later: animation starts, the
+// play time of videos and audio, a component's clock and play windows (the four time fields
+// speech.js rippleScene moves), so a footage or component copy plays at its own time.
+// A Hide or Show pushed past the scene's end stops at the end: it draws the same, and the saved
+// point stays inside the scene (add_animation refuses one past it).
 function delayLayers(document, sceneId, ids, delay) {
-  const later = (animation) => (typeof animation?.start === "number" ? { ...animation, start: round(animation.start + delay) } : animation);
+  const end = document.scenes.find((scene) => scene.id === sceneId)?.duration ?? Infinity;
+  const later = (animation) => {
+    if (typeof animation?.start !== "number") return animation;
+    const start = round(Math.max(0, animation.start + delay));
+    const point = animation.kind === "hide" || animation.kind === "show";
+    return { ...animation, start: point ? Math.min(start, end) : start };
+  };
+  const shifted = (layer) => {
+    const next = { ...layer };
+    if (Array.isArray(layer.animations)) next.animations = layer.animations.map(later);
+    if (hasMediaPlay(layer)) next.mediaStart = round(Math.max(0, (Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0) + delay));
+    if (layer.type === "component" && Number.isFinite(layer.componentStart)) next.componentStart = round(Math.max(0, layer.componentStart + delay));
+    if (Array.isArray(layer.playbackWindows))
+      next.playbackWindows = layer.playbackWindows.map((window) => ({ ...window, start: round(Math.max(0, window.start + delay)), end: round(Math.max(0, window.end + delay)) }));
+    return next;
+  };
   return { ...document, scenes: document.scenes.map((scene) => scene.id !== sceneId ? scene : {
-    ...scene, layers: scene.layers.map((layer) => ids.has(layer.id) && Array.isArray(layer.animations) ? { ...layer, animations: layer.animations.map(later) } : layer),
+    ...scene, layers: scene.layers.map((layer) => (ids.has(layer.id) ? shifted(layer) : layer)),
+  }) };
+}
+
+// ---- vary: one value per place ----------------------------------------------------------------
+// Fields vary leaves alone: what makes a layer itself, its place in the tree and its timing.
+const FIXED_FIELDS = new Set(["id", "type", "name", "parentId", "animations", "move", "recipe", "componentSceneId", "mediaStart", "componentStart", "playbackWindows"]);
+const HEX = /^#[0-9a-f]{6}$/i;
+
+function mixHex(a, b, t) {
+  const channel = (hex, at) => parseInt(hex.slice(at, at + 2), 16);
+  return `#${[1, 3, 5].map((at) => Math.round(channel(a, at) + (channel(b, at) - channel(a, at)) * t).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * The values of one vary key for `places` places in time order: two numbers step evenly
+ * (rounded to 3 decimals), two #rrggbb colors step evenly in RGB, and a list of exactly `places`
+ * values gives one per place.
+ */
+export function varyValues(key, values, places) {
+  if (!Array.isArray(values)) throw new Error(`vary.${key} must be a list: [first, last] or one value per place (${places}).`);
+  if (values.length === places) return values;
+  if (values.length === 2) {
+    const [a, b] = values;
+    if (Number.isFinite(a) && Number.isFinite(b)) return Array.from({ length: places }, (_, i) => round(a + ((b - a) * i) / (places - 1)));
+    if (HEX.test(a) && HEX.test(b)) return Array.from({ length: places }, (_, i) => mixHex(a, b, i / (places - 1)));
+  }
+  throw new Error(`vary.${key} needs 2 numbers or 2 #rrggbb colors (first to last), or ${places} values, one per place (the original and ${places - 1} cop${places === 2 ? "y" : "ies"}).`);
+}
+
+// Sets each place's value on its root layers. `rootsByPlace[0]` is the original; places run in
+// time order, so the original takes the first value only when it shows first. A key that
+// rebaseValues moves (scale, opacity, x, y, rotation, ...) takes the layer's animations along,
+// so a grow ends at the copy's own scale.
+function varyPlaces(document, sceneId, rootsByPlace, times, vary) {
+  if (!vary || typeof vary !== "object" || Array.isArray(vary) || !Object.keys(vary).length) throw new Error("vary is {field: [first, last]} or {field: [one value per place]}.");
+  const order = times.map((time, index) => ({ time, index })).sort((a, b) => a.time - b.time || a.index - b.index);
+  const rank = new Map(order.map((place, position) => [place.index, position]));
+  const lists = Object.entries(vary).map(([key, values]) => {
+    if (FIXED_FIELDS.has(key)) throw new Error(`vary cannot change ${key}.`);
+    return [key, varyValues(key, values, times.length)];
+  });
+  const valueFor = new Map();
+  rootsByPlace.forEach((ids, place) => { for (const id of ids) valueFor.set(id, Object.fromEntries(lists.map(([key, list]) => [key, list[rank.get(place)]]))); });
+  return { ...document, scenes: document.scenes.map((scene) => scene.id !== sceneId ? scene : {
+    ...scene, layers: scene.layers.map((layer) => {
+      const values = valueFor.get(layer.id);
+      if (!values) return layer;
+      const source = Object.fromEntries(Object.keys(values).map((key) => [key, layer[key]]));
+      const rebase = (animation) => ({ ...animation, ...(animation.from ? { from: rebaseValues(animation.from, source, values) } : {}), ...(animation.to ? { to: rebaseValues(animation.to, source, values) } : {}) });
+      return { ...layer, ...values, ...(Array.isArray(layer.animations) ? { animations: mapAnimationTree(layer.animations, rebase) } : {}) };
+    }),
   }) };
 }

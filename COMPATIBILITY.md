@@ -575,6 +575,10 @@ How to read it:
   `engine/animation.test.js`, `engine/duplicate.test.js`, `engine/qualityTimelineReuse.test.js`,
   `backend/lottie-discrete-opacity.test.mjs`, `backend/agent-reach-geometry.test.mjs`. Gap: no
   `continue` or `follow`; a parent's cycle restart is not held in its children's Lottie keys.
+- **Copies at chosen times** (`duplicate_layers {at, vary}`): Verified. One copy per time or cue,
+  footage and component play times moving too; `vary` steps a field per place and rebases a grow.
+  look's sheet and review, and check, print a `returns:` line of what comes back. Evidence:
+  `engine/duplicate.test.js`, `backend/agent-reach-geometry.test.mjs`. Gap: vary sets layer fields only.
 - **Motion paths**: Verified. `motionPath` on a Move, up to 64 points with `alignToPath`. Evidence:
   `engine/motionPath.test.js`, `engine/motionPathTransforms.test.js`, `backend/motion-path-export.test.mjs`,
   golden `motion-paths`. Gap: inserting a point does not keep the exact curve.

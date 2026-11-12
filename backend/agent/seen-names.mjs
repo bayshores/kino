@@ -22,6 +22,8 @@ const SEEN_AS = {
   "line over music": ["keep_line", "duck_audio"], "dialogue over music": ["keep_line", "duck_audio"], dropout: ["keep_line"], "music comes back late": ["keep_line"], "music returns on the beat": ["keep_line"], "music drops out": ["keep_line"], "music cuts out": ["keep_line"],
   // A line in another language, kept as said with its English (look source prints both).
   translation: ["keep_line", "add_captions"], "foreign language": ["keep_line"], "english subtitles": ["keep_line", "add_captions"], "original language": ["keep_line"],
+  // A made element that comes back at chosen times, a little different (duplicate_layers at + vary).
+  motif: ["duplicate_layers"], callback: ["duplicate_layers"], "comes back": ["duplicate_layers"], recurring: ["duplicate_layers"], "returning element": ["duplicate_layers"],
   "speed ramp": ["speed-ramp", "clip-speed"], ramp: ["speed-ramp", "clip-speed"], "slow motion": ["speed-ramp", "clip-speed"],
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],

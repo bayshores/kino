@@ -97,6 +97,7 @@ import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGa
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
+import { sceneReturnsLine } from "../../engine/quality/returns.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
@@ -1600,7 +1601,8 @@ export function createAgentService(deps) {
     let position = 0;
     while (position < usable.length) {
       const first = usable[position];
-      if (REACH_OPERATIONS.includes(first.operation.type)) {
+      // A reach op the block runner times (duplicate_layers {at}) goes there, so its cues resolve.
+      if (REACH_OPERATIONS.includes(first.operation.type) && !blocks.handles(first.operation)) {
         if (!dependsOnFailure(first)) {
           try {
             const fonts = fontsCache.fonts ??= await fontsFor(next);
@@ -3021,6 +3023,9 @@ export function createAgentService(deps) {
     if (applied) for (const line of applied.fixed) lines.push(`  fixed ${line}`);
     // What the video uses (engine/quality/techniques.js), and whose style the style rules follow.
     lines.push(`techniques: ${techniquesLine(result.techniques, 8)} · style: ${result.styleSpec ? "spec" : "kino default"}`);
+    // What comes back in the checked (or main) scene: a fact beside techniques, never a finding.
+    const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
+    if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     for (const note of result.notes) lines.push(`note: ${note}`);
     // The rules line comes with the agent's first check of a project since kino started, and
     // with {rules:true}. The dashboard's own checks (by you) do not count.
@@ -3441,6 +3446,7 @@ export function createAgentService(deps) {
           text = `sheet ${refName(scene.id, codes)}: ${times.map((time, index) => `${index + 1}=${time}s`).join(" ")}${!stretch && apart > SHEET_GAP_HINT ? ` (${apart}s apart; look {mode:"sheet", from, to} spreads 12 over a stretch)` : ""}`;
         }
         for (const line of cuts.unknownLines) text += `\n${line}`;
+        text += `\n${sceneReturnsLine(scene, { scenes: document.scenes })}`; // the saved scene: instances stay instances
       }
     } else if (mode === "zoom") {
       if (!input.layer) throw new AgentError("bad_input", "zoom needs layer (a name or code).");
@@ -4906,6 +4912,7 @@ export function createAgentService(deps) {
     const first = [
       ...(wide.length ? [`whole scene: ${wide.map(findingWords).join(", ")}`] : []),
       left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.",
+      sceneReturnsLine(scene, { scenes: document.scenes }),
     ];
     const keys = covered.map((event) => event.key);
     const nextCall = left ? { tool: "look", input: { mode: "review", ...sceneField, ...rangeFields } } : null;

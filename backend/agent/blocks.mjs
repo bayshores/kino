@@ -40,6 +40,7 @@ import { LOOKS, LOOK_NAMES, lookOf, seededLook, styleFor } from "../../engine/bl
 import { FORMATS, NAMED_SLOTS, parseFormat, slotBox } from "../../engine/blocks/formats.js";
 import { animationWindow, entranceWindow, lastEntranceEnd, parseAt, resolveAt } from "../../engine/blocks/timing.js";
 import { projectFps } from "../../engine/frameRate.js";
+import { applyGeometryOperation } from "./reach-geometry.mjs";
 import { DURATIONS, EASING_TOKENS, FEELS } from "../../engine/blocks/tokens.js";
 import { MOTION_FEELS, VARY_KINDS } from "../../engine/blockFields.js";
 import { EXAMPLES } from "../../engine/blocks/examples.js";
@@ -265,6 +266,8 @@ export function needsTiming(operation) {
   if (operation?.type === "add_animation")
     return operation.at !== undefined || typeof operation.start === "string" || typeof operation.animation?.start === "string";
   if (operation?.type === "update_animation") return typeof operation.properties?.start === "string";
+  // duplicate_layers {at:[times or cues]}: its times resolve here, then reach-geometry copies.
+  if (operation?.type === "duplicate_layers") return operation.at !== undefined;
   return false;
 }
 
@@ -1165,6 +1168,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // ---- relative times in add_animation and update_animation ---------------------------------
   async function applyTiming(document, raw, work) {
     const operation = structuredClone(raw);
+    if (operation.type === "duplicate_layers") return applyDuplicateAt(document, operation, work);
     const scene = document.scenes.find((item) => item.layers.some((layer) => layer.id === operation.layerId))
       ?? (operation.sceneId ? sceneOf(document, operation.sceneId) : null);
     if (!scene) throw problem(`No layer "${operation.layerId}".`);
@@ -1181,6 +1185,25 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     }
     const context = await operationContext(document, [operation]);
     return parseDocument(applyOperations(document, [operation], context));
+  }
+
+  // duplicate_layers {at, vary?}: copy n at the n-th time (seconds, cue:x, f12, after:x ...).
+  async function applyDuplicateAt(document, operation, work) {
+    const ids = Array.isArray(operation.layerIds) ? operation.layerIds : [];
+    const scene = (operation.sceneId ? document.scenes.find((item) => item.id === operation.sceneId) : null)
+      ?? document.scenes.find((item) => item.layers.some((layer) => layer.id === ids[0]));
+    if (!scene) throw problem(`No layer "${ids[0]}".`);
+    // One time (at:8 or at:"cue:drop") is one copy, as at:[8].
+    const written = Array.isArray(operation.at) ? operation.at : [operation.at];
+    const fonts = await fontsOf(document, work);
+    const lookup = timeLookup(document, scene, fonts, work);
+    operation.at = written.map((value) => round(resolveAt(value, lookup)));
+    const made = await applyGeometryOperation(document, { ...operation, sceneId: scene.id }, { fonts });
+    const root = scene.layers.find((layer) => layer.id === ids[0]);
+    const cues = written.map((value, index) => (typeof value === "string" ? `${value.replace(/^cue:/, "")} at ${operation.at[index]}` : null)).filter(Boolean);
+    const varied = Object.entries(operation.vary ?? {}).map(([key, values]) => `${key} ${values[0]} to ${values[values.length - 1]}`);
+    work.notes.push(`${root?.name ?? ids[0]}: the original at ${round(made.first)} s, copies at ${operation.at.join(" ")} s${cues.length ? ` (${cues.join(", ")})` : ""}${varied.length ? `; ${varied.join(", ")} in time order` : ""}`);
+    return made.document;
   }
 
   // ---- recipe -------------------------------------------------------------------------------

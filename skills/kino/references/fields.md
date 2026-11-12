@@ -26,7 +26,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `update_layer {scene?, layer, properties}`
 - `update_layers {scene?, layers, properties}`
 - `delete_layer {scene?, layer}`
-- `duplicate_layers {layers, offset?:24, count?:1..50, layout?:line|grid|radial, spacing?:{x,y}, columns?, radius?, stagger?:s}`
+- `duplicate_layers {layers, offset?:24, count?:1..50, layout?:line|grid|radial, spacing?:{x,y}, columns?, radius?, stagger?:s, at?:[s or "cue:x"], vary?:{key:[first,last] or one per place}}`
 - `convert_to_shape {scene?, layer}`
 - `outline_text {scene?, layer}`
 - `group_layers {scene?, layers, name?, groupId?}`

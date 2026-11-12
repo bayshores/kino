@@ -591,8 +591,10 @@ function idFromName(name, kind, resolver) {
 function copyNames(operation, type, resolver) {
   const originals = type === "split_layer" ? [operation.layerId] : operation.layerIds;
   if (!Array.isArray(originals) || !originals.every((id) => typeof id === "string")) return;
-  const counted = type === "duplicate_layers" && operation.count !== undefined;
-  const count = counted && Number.isInteger(operation.count) && operation.count >= 1 && operation.count <= MAX_COPIES ? operation.count : 1;
+  const counted = type === "duplicate_layers" && (operation.count !== undefined || operation.at !== undefined);
+  // With at and no count, there is one copy per time (one time alone is one copy).
+  const wanted = operation.count ?? (Array.isArray(operation.at) ? operation.at.length : 1);
+  const count = counted && Number.isInteger(wanted) && wanted >= 1 && wanted <= MAX_COPIES ? wanted : 1;
   const copies = Array.from({ length: count }, () => ({}));
   for (const original of originals) {
     const name = String(resolver.nameOf("layer", original) ?? "");
