@@ -332,6 +332,11 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
     copy.cutoutFor = operation.forMove;
     copy.animations = (copy.animations ?? []).filter((animation) => !(animation.kind === "effect" && MOVE_DROPS.includes(animation.effect)));
   }
+  // Any subject cut-out leaves the clip's glow on the clip, so the glow sits behind the subject
+  // instead of blooming the face (run 8: threshold 0.1 turned the face flat; the human edits' halo
+  // sits behind the head, .scratch/run8/trace/effects.md section 3). Add a glow to the cut-out to bloom it too.
+  const glowKept = output === "subject" && !operation.forMove && (copy.animations ?? []).some((animation) => animation.kind === "effect" && animation.effect === "glow");
+  if (glowKept) copy.animations = copy.animations.filter((animation) => !(animation.kind === "effect" && animation.effect === "glow"));
   let next = parseDocument(copied.document);
   const steps = [
     { type: "replace_media", sceneId, layerId: operation.cutoutId, mediaId: made.record.id },
@@ -355,6 +360,7 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   // behind it); the subject engine gives it a solid body.
   if (made.engine === "person" && made.soft > PERSON_SOFT) notes.push(`${Math.round(made.soft * 100)}% of the person is see-through (a silhouette or a dark figure?): engine:"subject" may give a solid one`);
   if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; the layer is empty there`);
+  if (glowKept) notes.push(`the glow on "${layer.name}" now sits behind the subject (the cut-out has none); add a glow to "${operation.cutoutName}" to bloom the subject too`);
   const picked = made.picked && pickedReport(made.picked, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId));
   if (picked?.lost?.length) notes.push(`the picked object is lost in ${picked.lost.length} span(s) of the file (picked.lost)${picked.seeAt ? "; look at the times in picked.seeAt" : ""}`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,

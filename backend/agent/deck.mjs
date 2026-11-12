@@ -17,6 +17,7 @@ import { applySwap, cardNames, dealableTags, dealDeck, DECK_GROUPS, deckLine, ma
 import { styleContext } from "../../engine/styleSpec.js";
 import { techniqueOf } from "../../engine/techniques.js";
 import { seenNameList } from "./seen-names.mjs";
+import { askLine, askMatches } from "../../engine/askWords.js";
 
 export const DECK_KEYS = Object.freeze(["action", "project", "reroll", "swap"]);
 // How many of this machine's last projects the deal steers away from.
@@ -30,7 +31,7 @@ let moving = null;
 export function loadMoves() {
   moving ??= import("../../engine/blocks/moves/index.js")
     // A move marked deal: false (impact-accent: only where a cue motivates it) is never dealt.
-    .then((module) => Object.values(module.MOVES ?? {}).filter((move) => move.deal !== false).map((move) => ({ name: move.name, tags: [...(move.tags ?? [])], needs: [...(move.needs ?? [])], fits: move.fits ?? "" })))
+    .then((module) => Object.values(module.MOVES ?? {}).filter((move) => move.deal !== false).map((move) => ({ name: move.name, tags: [...(move.tags ?? [])], needs: [...(move.needs ?? [])], fits: move.fits ?? "", about: move.about ?? "" })))
     .catch((error) => {
       if (error?.code !== "ERR_MODULE_NOT_FOUND") console.warn(`kino: the moves library could not be read, so the deck deals techniques only: ${error.message}`);
       return [];
@@ -90,9 +91,17 @@ export async function deckInputs(state, document, { facts = {}, refs = [], slots
   const { fromLayers, ...kinds } = material;
   // A new signature (moments or signatures saved) deals again around it.
   const signature = style?.moments?.length ? style.moments[0].tag : style?.signatures?.length ? "set piece" : null;
+  // The moves the person's own words name (their stored ask against each move's about and fits).
+  const asked = askedMoves(state?.brief, moves);
   const basis = JSON.stringify({ kinds, backed: style?.backed ?? [], guessed: style?.guessed ?? [], avoids: style?.avoids ?? [], moves: moves.map((move) => move.name), ...(signature ? { signature } : {}),
-    ...(evidence.length ? { seen: evidence.map((entry) => `${entry.name}:${entry.refs.length}`) } : {}) });
-  return { style, material, moves, evidence, labeledRefs, ...(slots ? { slots } : {}), basis, media: mediaKeys(document), story: storyOf(state?.brief) };
+    ...(evidence.length ? { seen: evidence.map((entry) => `${entry.name}:${entry.refs.length}`) } : {}), ...(asked.length ? { asked: asked.map((entry) => entry.name) } : {}) });
+  return { style, material, moves, evidence, labeledRefs, ...(slots ? { slots } : {}), ...(asked.length ? { asked } : {}), basis, media: mediaKeys(document), story: storyOf(state?.brief) };
+}
+
+/** The moves the brief's stored ask names: [{word, name}] (engine/askWords.js); [] without an ask. */
+export function askedMoves(brief, moves) {
+  const asks = (Array.isArray(brief?.fields?.ask) ? brief.fields.ask : []).map((entry) => entry?.text ?? "").join(" ");
+  return asks.trim() ? askMatches(asks, moves.map((move) => ({ name: move.name, text: `${move.about ?? ""} ${move.fits ?? ""}` }))) : [];
 }
 
 /** True when a card of the deck was used: check recorded it (deck.used) or the document holds it (`holds`: madeNamesIn names). */
@@ -120,13 +129,13 @@ export function newDeal({ projectId, reroll = 0, inputs, recent = [], now = Date
   const own = { media: inputs.media ?? [], story: inputs.story ?? "" };
   const away = recent.filter((entry) => !sharesMaterial(entry, own));
   const tags = [...new Set(away.flatMap((entry) => [...entry.cards, ...entry.used]))];
-  const dealt = dealDeck({ projectId, reroll, style: inputs.style, material: inputs.material, recent: tags, moves: inputs.moves, evidence: inputs.evidence ?? [] });
+  const dealt = dealDeck({ projectId, reroll, style: inputs.style, material: inputs.material, recent: tags, moves: inputs.moves, evidence: inputs.evidence ?? [], asked: inputs.asked ?? [] });
   const { lines, subjectClips, dark } = inputs.material ?? {};
   const seenRefs = Math.max(new Set((inputs.evidence ?? []).flatMap((entry) => entry.refs)).size, inputs.labeledRefs ?? 0);
   // The real names a made card's call is filled with (cardCall), when the service found them.
   const slots = inputs.slots && Object.keys(inputs.slots).length ? inputs.slots : null;
   return {
-    ...dealt, swaps: [], basis: inputs.basis,
+    ...dealt, swaps: [], basis: inputs.basis, ...(inputs.asked?.length ? { asked: inputs.asked } : {}),
     material: materialWords(inputs.material), awayFrom: away.map((entry) => entry.projectId), dealtAt: new Date(now).toISOString(), used: [],
     media: own.media, story: own.story,
     // The facts and labels the deal read, for each card's why (cardWhy); absent when none.
@@ -190,7 +199,8 @@ function cardText(card, moves, deck) {
   const made = madeCardOf(name);
   if (made) return `- ${name} (made, ${made.kind}): ${made.line}; ${cardCall(name, moves, deck?.facts?.slots)}${tail}`;
   const move = moves.find((item) => item.name === name);
-  return `- ${name} (set piece, move {name:"${name}"}): ${move?.fits ?? "a move"}`;
+  const word = deck?.setPiece?.name === name && deck.setPiece.word ? ` · your words: "${deck.setPiece.word}"` : "";
+  return `- ${name} (set piece, move {name:"${name}"}): ${move?.fits ?? "a move"}${word}`;
 }
 
 /** The answer of notes {action:"deck"}: the hand, each card in a line, and how to change it. */
@@ -206,6 +216,8 @@ export function deckText(deck, { moves = [], said = "" } = {}) {
     `for: ${deck.material ?? "no material yet"}${steer ? ` · ${steer}` : ""}`,
     ...deck.cards.map((card) => cardText(card, moves, deck)),
     ...(deck.setPiece ? [cardText(deck.setPiece.name, moves, deck)] : []),
+    // Every move the ask's words name, dealt or not (run 8: "aura" named energy-aura, never offered).
+    askLine(deck.asked ?? []),
     ...(deck.swaps ?? []).map((swap) => `swapped: ${swap.out} → ${swap.in} (${swap.why})`),
     `Build each card where it fits (deck_unused warns under half). ${left ? `swap {out, in, why} (${left} left)` : "No swaps left"}; reroll:true deals again.`,
   ].filter(Boolean).join("\n");

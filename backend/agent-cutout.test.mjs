@@ -22,6 +22,7 @@ import { EXAMPLE_PROJECT, OP_EXAMPLES } from "./agent/op-examples.mjs";
 import { createCutoutMedia } from "./cutout/media.mjs";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { applyOperations } from "../engine/operations.js";
+import { createEffectAnimation } from "../engine/effects/animation.js";
 import { cutoutHelperPath } from "./cutout/cutout.mjs";
 import { makeBallClip, skipWithoutVision, standInHelper, visionHelper } from "./cutout.test.support.mjs";
 import { ffmpeg, ffprobe, makeAnimatedGif, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
@@ -522,6 +523,22 @@ test("cut_out outline: with no subject it holds 0.5 s then fades, states the sub
   const shapes = (layer) => layer.animations.find((animation) => animation.kind === "custom" && animation.from?.path);
   assert.equal(shapes(after).start, shapes(line).start + 1);
   assert.equal(after.animations.find((animation) => animation.kind === "out").start, 1.667);
+});
+
+test("a subject cut-out leaves the clip's glow on the clip, so the glow sits behind the subject", async (t) => {
+  const { root, document } = await fakeOutline(t);
+  const made = { engine: "subject", frames: 30, empty: 0, seconds: 1, cached: false, record: { id: `${randomUUID()}.webm` } };
+  const cutoutMedia = { start: () => ({ done: Promise.resolve(made), progress: () => ({ fraction: 1, seconds: 0 }) }), engines: async () => [] };
+  const clip = document.scenes[0].layers[0];
+  clip.animations.push(createEffectAnimation("glow", clip, 0, document.scenes[0], "glow", { threshold: 0.1 }));
+  const operation = { type: "cut_out", sceneId: "scene", layerId: "clip", output: "subject", cutoutId: "clip-cut", cutoutName: "clip-subject" };
+  const reports = new Map();
+  const record = { ...made.record, kind: "video", mime: "video/webm", src: `/api/media/${made.record.id}`, width: 64, height: 36, duration: 1 };
+  const next = await runCutOut(document, operation, { mediaRoot: root, cutoutMedia, reports, operationContext: async () => ({ mediaById: { [record.id]: record } }) });
+  const [under, over] = ["clip", "clip-cut"].map((id) => next.scenes[0].layers.find((layer) => layer.id === id));
+  assert.ok(under.animations.some((animation) => animation.effect === "glow"));
+  assert.ok(!over.animations.some((animation) => animation.effect === "glow") && over.animations.some((animation) => animation.id === "push" || animation.to?.scaleX === 1.15));
+  assert.match(reports.get(operation).note, /the glow on "clip" now sits behind the subject/);
 });
 
 test("cut_out outline shows only while its clip is drawn: its Play window and Hide go on the line, and move when the clip is retimed", async (t) => {

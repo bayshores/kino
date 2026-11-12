@@ -261,7 +261,7 @@ export const dealableTags = (group) => TECHNIQUES.filter((entry) => entry.group 
  * exists, engine/blocks/moves). Returns { seed, reroll, cards:[{tag, group, why}], setPiece:{kind, name, tags, why?}|null }.
  * why: "spec" (a backed wanted tag), "deal" (drawn), "signature" (dealt first for the signature).
  */
-export function dealDeck({ projectId, reroll = 0, style = null, material = { known: false }, recent = [], moves = [], evidence = [] }) {
+export function dealDeck({ projectId, reroll = 0, style = null, material = { known: false }, recent = [], moves = [], evidence = [], asked = [] }) {
   const seed = dealSeed(projectId, reroll);
   const rng = seeded(scramble(seed));
   const avoids = new Set(style?.avoids ?? []);
@@ -366,6 +366,14 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
   function drawSetPiece(force) {
     // A set piece built on a loud accent is never dealt either (engine/techniques.js LOUD_TAGS).
     const usable = moves.filter((move) => moveFits(move, material) && !(move.tags ?? []).some((tag) => avoids.has(tag) || LOUD_TAGS.includes(tag)));
+    // asked: [{word, name}], the moves the person's own words name (engine/askWords.js). One of
+    // them that fits the material is the set piece, so a word in the ask finds its move.
+    const named = asked.filter((entry) => usable.some((move) => move.name === entry.name));
+    if (named.length) {
+      const entry = named[Math.floor(rng.next() * named.length) % named.length];
+      const move = usable.find((item) => item.name === entry.name);
+      return { kind: "move", name: move.name, tags: [...(move.tags ?? [])], word: entry.word };
+    }
     if (usable.length) {
       const name = pickWeighted(rng, usable.map((move) => ({
         value: move.name,

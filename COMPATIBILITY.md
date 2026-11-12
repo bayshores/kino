@@ -272,6 +272,9 @@ How to read it:
   techniques labeled references show, deal made cards (cut_out, keep_line, one-call treatments) with a why;
   labels give at most half the hand and 2 per reference; an unused deck deals again when they arrive; check's
   advice names unused cards with a call. Evidence: `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: dark footage not read yet.
+- **Deck from the ask's words**: Verified (tests). A move whose about or fits text says a word of the stored ask
+  is the set piece (`your words: "aura"`), and the deck answer lists every such match (`engine/askWords.js`).
+  Evidence: `engine/deck.test.js`. Gap: effects match by label only; library search does not add the line yet.
 - **Treatments**: Verified (tests). Brief field `treatments` (5 stories, each with a required tension,
   turn and source): kino drops the most typical and asks
   the person to pick from 3, which becomes the idea. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`. Gap: no run
@@ -612,6 +615,10 @@ How to read it:
 
 - **Catalog**: Verified. 58 effects in 7 groups (`engine/effects/catalog.js`), documented through
   `library`. Evidence: `backend/agent-reach-effects.test.mjs`, `backend/effects-export.test.mjs`.
+- **New dot particles vary by depth**: Verified (tests). A new embers, sparks, snow, dust, rain or bokeh effect
+  starts at variation 0.6; a saved one without it draws as before. Evidence: `engine/effects/particles.test.js`.
+- **Glow behind a cut-out subject**: Verified (tests). A subject cut_out leaves the clip's glow on the clip, so
+  it sits behind the subject; the receipt note says so. Evidence: `backend/agent-cutout.test.mjs`.
 - **Timing and order**: Verified. Same-key value effects replace, ranged effects stack; settings go in
   `to`. Evidence: `engine/effects/animation.test.js`, `engine/effects/presets.test.js`.
 - **Limits**: Verified. Distortion up to 128 local px; meshes up to 64 triangles; copies up to 128.
