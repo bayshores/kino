@@ -35,6 +35,27 @@ const KEPT_WHEN_MOVED = 0.8;
 const HELD_LEAST = 0.75;
 /** A frame "holds" the overlay when this share of its pixels show the overlay's edge. */
 const FRAME_HOLDS = 0.5;
+/** A black bar (letterbox or pillarbox): rows or columns from a frame edge whose pixels never pass this gray level ... */
+const BAR_DARK = 16;
+/** ... on at least this share of the row or column (a site name written inside a bar leaves the rest dark). */
+const BAR_SHARE = 0.6;
+/** Pixels this close to a bar's inner edge are the bar's edge, not a mark (the edge is measured over 2 px on a shrunk frame). */
+const BAR_NEAR = 3;
+
+/**
+ * The black bars of a clip from each pixel's largest gray level over the frames: how many rows from the
+ * top and bottom, and columns from the left and right, stay dark on every frame: {top, bottom, left, right}.
+ * Measured on a 2.35:1 film in a 16:9 file (2026-11-12): bar rows never passed 14, the first picture row reached 65.
+ */
+export function blackBars(most, { width: W, height: H }) {
+  const darkRow = (y) => { let dark = 0; for (let x = 0; x < W; x += 1) if (most[y * W + x] <= BAR_DARK) dark += 1; return dark >= BAR_SHARE * W; };
+  const darkColumn = (x) => { let dark = 0; for (let y = 0; y < H; y += 1) if (most[y * W + x] <= BAR_DARK) dark += 1; return dark >= BAR_SHARE * H; };
+  const run = (length, dark, at) => { let count = 0; while (count < length / 2 && dark(at(count))) count += 1; return count; };
+  return {
+    top: run(H, darkRow, (index) => index), bottom: run(H, darkRow, (index) => H - 1 - index),
+    left: run(W, darkColumn, (index) => index), right: run(W, darkColumn, (index) => W - 1 - index),
+  };
+}
 
 /**
  * Shrinks one BGRA frame (width x height) to gray at `out` size (box average): a Uint8Array.
@@ -77,6 +98,7 @@ export function staticOverlays(frames, size) {
   const count = W * H;
   const sumX = new Float64Array(count), sumY = new Float64Array(count), sumMag2 = new Float64Array(count), sumMag = new Float64Array(count);
   const sumI = new Float64Array(count), sumI2 = new Float64Array(count);
+  const most = new Uint8Array(count);
   for (const gray of frames) {
     for (let y = 1; y < H - 1; y += 1) for (let x = 1; x < W - 1; x += 1) {
       const at = y * W + x;
@@ -85,7 +107,7 @@ export function staticOverlays(frames, size) {
       const mag2 = gx * gx + gy * gy;
       sumMag2[at] += mag2; sumMag[at] += Math.sqrt(mag2);
     }
-    for (let at = 0; at < count; at += 1) { sumI[at] += gray[at]; sumI2[at] += gray[at] * gray[at]; }
+    for (let at = 0; at < count; at += 1) { sumI[at] += gray[at]; sumI2[at] += gray[at] * gray[at]; if (gray[at] > most[at]) most[at] = gray[at]; }
   }
   const change = new Float32Array(count);
   for (let at = 0; at < count; at += 1) { const mean = sumI[at] / n; change[at] = Math.sqrt(Math.max(0, sumI2[at] / n - mean * mean)); }
@@ -105,8 +127,13 @@ export function staticOverlays(frames, size) {
   const mask = new Uint8Array(count);
   let steadyPixels = 0;
   const candidates = [];
+  // A black bar's inner edge holds still over a changing picture exactly as a mark does: it is left out.
+  const bars = blackBars(most, size);
+  const atBar = (x, y) => (bars.top && Math.abs(y - bars.top) <= BAR_NEAR) || (bars.bottom && Math.abs(y - (H - 1 - bars.bottom)) <= BAR_NEAR)
+    || (bars.left && Math.abs(x - bars.left) <= BAR_NEAR) || (bars.right && Math.abs(x - (W - 1 - bars.right)) <= BAR_NEAR);
   for (let y = 2; y < H - 2; y += 1) for (let x = 2; x < W - 2; x += 1) {
     const at = y * W + x;
+    if (atBar(x, y)) continue;
     if (sumMag[at] / n < EDGE_LEAST || !(sumMag2[at] > 0)) continue;
     const steady = (sumX[at] * sumX[at] + sumY[at] * sumY[at]) / (n * sumMag2[at]);
     if (steady < STEADY_LEAST) continue;

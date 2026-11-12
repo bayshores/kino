@@ -75,7 +75,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `update_scene {scene?, properties}`
 - `duplicate_scene {scene}`
 - `delete_scene {scene}`
-- `retime {scene, duration}`
+- `retime {scene, duration} or {scene, snap:"song", from, to, reach?}`
 - `add_sequence {properties: {id?, name}, scenes, transition?, transitions?, background?}`
 
 ## Components

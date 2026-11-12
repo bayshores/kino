@@ -177,6 +177,9 @@ test("static overlay: a translucent mark over a changing picture is boxed withou
   assert.equal(found.overlays[0].frames, 8);
   // The same picture standing still: nothing changes behind, so nothing is named.
   assert.deepEqual(staticOverlays(Array.from({ length: 8 }, () => frame(0)), size).overlays, []);
+  // Black bars above and below a changing picture (a wide film in a 16:9 file): their inner edges are not a mark.
+  const barred = (shift) => frame(shift, false).map((value, at) => (at < 11 * size.width || at >= 79 * size.width ? 0 : value));
+  assert.deepEqual(staticOverlays(Array.from({ length: 8 }, (_, index) => barred(index)), size).overlays, []);
   // Through the reader (frames stubbed): on a computer with no text reader the overlay is still on the line.
   const readGray = async () => ({ frames: Array.from({ length: 8 }, (_, index) => frame(index)), size });
   const unread = await readBurnedText("clip.mp4", { width: 1920, height: 1080, duration: 2 }, { readFrames: async () => null, readGray });
