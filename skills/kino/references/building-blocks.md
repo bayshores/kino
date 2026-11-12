@@ -28,8 +28,8 @@ Contents: Building blocks · Timing and slots · Variants and templates · Compo
   transcript, faces and motion (opening on a face or the hook line), lays each shot out for the
   format (face crop, card over a blurred copy, screen over a camera shot), cuts at word edges and
   on the music's beats, and adds captions, a title, an end card and ducked music. `treatment`
-  (calm, story, punchy, loud) and the deck's seed set the transitions, camera and captions; it
-  ends with `check {fix:"auto"}` and the receipt's `finished`. `dry_run` gives the plan in words.
+  (calm, story, punchy, loud) and the deck set transitions, camera, captions and made graphics
+  (`cards`, one per `cardGap` 5 s); it ends with `check {fix:"auto"}`. `dry_run` gives the plan.
 - Change one beat with `recipe` and the beat's `id` (the scene is composed again); change the
   look, duration or beats with `compose {scene, …}` (only the fields you give).
 - Recipes come out clean: lines are balanced (no one-word last line; a short title fits one
