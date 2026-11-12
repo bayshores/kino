@@ -28,8 +28,6 @@ const KIND_ORDER = ["impact", "flash", "glitch", "whip", "whoosh", "text-hit", "
 // The library words each kind searches (backend/sound-library.mjs searchSounds). Builder's choice:
 // flash "zap" (the library's word for a short bright electric hit).
 export const KIND_WORDS = Object.freeze({ whip: "swish whoosh", whoosh: "whoosh", glitch: "glitch", flash: "zap", impact: "impact hit", "text-hit": "tap pop", click: "click" });
-// Low sounds are offered for impacts only, never on a dim or a fade (lead decision).
-export const LOW_WORDS = ["sub", "low", "rumble", "boom"];
 // Two actions this close are one moment (0.15 s: under 5 frames at 30 fps; a guess).
 const MERGE = 0.15;
 // A song onset or accent this close to an action means the song already hits there (60 ms: about
@@ -82,7 +80,9 @@ const MIN_VOLUME = 0.05;
 const MAX_VOLUME = 2;
 // With no bed to measure against: the middle of the old hand rule (volume 0.4 to 0.7, sound.md).
 export const UNMEASURED_VOLUME = 0.6;
-// A sound under 0.4 s has no momentary reading; its sample peak stands in, less this many dB. Set
+// The service measures each effect with 0.4 s of silence after it (backend/loudness-curve.mjs pad),
+// so a short sound has a momentary reading. Only when that fails (no curve value) does its sample
+// peak stand in, less this many dB. Set
 // from the proof render (.scratch/barwave/wave/sounds-on-actions/RESULT.md): placed by peak alone, a
 // pluck and a metal hit raised the song's momentary 0.0 to 0.1 LU, about 13 dB quieter than meant.
 // A guess for other short sounds.
@@ -154,7 +154,7 @@ export function applyPlaceSounds(document, operation) {
 
 const tagsOf = (entry) => (entry.action ? ` (${entry.action}${entry.tags?.length ? ` ${entry.tags.join("+")}` : ""}, transient at ${entry.at})` : ` (transient at ${entry.at})`);
 function placedLine(entry) {
-  const level = entry.level === "unmeasured" ? `volume ${entry.volume} (no song measured there)`
+  const level = entry.level === "unmeasured" ? `volume ${entry.volume} (${entry.bed === null ? "no song measured there" : "the sound's loudness was not measured"})`
     : `volume ${entry.volume}, ${round1(entry.bed - entry.effect - 20 * Math.log10(entry.volume))} LU under the song (${entry.bed} LUFS)${entry.level === "peak" ? ", level from peak" : ""}`;
   return `${entry.layer} at ${round3(entry.mediaStart)}${entry.mediaOffset ? ` (head trimmed ${entry.mediaOffset} s)` : ""}${tagsOf(entry)}, ${level}`;
 }

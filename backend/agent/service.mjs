@@ -149,7 +149,7 @@ import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
 import { createSongShapeCache } from "../song-shape.mjs";
 import { createAudioPeaksCache } from "../audio-peaks.mjs";
-import { createLoudnessCurves } from "../loudness-curve.mjs";
+import { createLoudnessCurves, measureLoudnessCurve } from "../loudness-curve.mjs";
 import { captionEvents, writeCaptionFiles } from "./caption-export.mjs";
 import { renderRange, rangeCaptions, fastPreviewOptions } from "../render-range.mjs";
 import { cueListText, isCueTarget } from "./cue-list.mjs";
@@ -2008,6 +2008,18 @@ export function createAgentService(deps) {
     return { ...found, unmeasured };
   }
 
+  // The sound stop's fact line (lead decision): effects placed against the visible actions found, in
+  // the video's scene. A fact, never a finding: zero effects stays a valid mix. Empty when nothing is known.
+  async function effectsLineOf(document) {
+    const scene = videoScene(document) ?? document.scenes?.[0];
+    if (!scene) return "";
+    const found = await sceneSoundActions(document, scene).catch(() => null);
+    if (!found) return "";
+    const placed = scene.layers.filter((layer) => layer.type === "audio" && /^sfx-/.test(layer.id)).length;
+    if (!placed && !found.all.length) return "";
+    return `Sound effects: ${placed} on ${found.all.length} visible ${found.all.length === 1 ? "action" : "actions"}.`;
+  }
+
   // The library sounds offered for one action kind, in this project's order, skipping files the scene plays.
   function offersFor(kind, document, scene, media, count = 3) {
     const played = new Set(scene.layers.map((layer) => mediaIdFromSource(layer.src)).filter(Boolean));
@@ -2070,7 +2082,13 @@ export function createAgentService(deps) {
       const src = file.src ?? `/api/media/${file.id}`;
       const fileOnDisk = mediaFileOf({ src });
       const peaks = await audioPeaks.get(fileOnDisk).catch(() => null);
-      const curve = await loudnessCurves.get(fileOnDisk).catch(() => null);
+      // An effect (3 s or shorter) is measured with 0.4 s of silence after it, so its loudest 400 ms
+      // window is read even when the sound is shorter than one. The plain curve misses that window
+      // (a 0.3 s file reads [null, null, -12.5]), and the catalog peak less a guessed 12 dB stood in:
+      // the run 8 render then heard the effects 0 to 0.7 LU over the song's momentary reading
+      // (.scratch/barwave/wave/sounds-on-actions-review/RESULT.md has the before and after).
+      const curve = await (!(Number(file.duration) > 3) ? measureLoudnessCurve(fileOnDisk, undefined, { pad: 0.4 }) : Promise.reject(new Error("long")))
+        .catch(() => loudnessCurves.get(fileOnDisk)).catch(() => null);
       const libraryId = String(file.credit?.id ?? "").replace(/^sfx:/, "");
       const catalogPeak = libraryId ? deps.soundLibrary?.catalog?.().sounds?.find((sound) => sound.id === libraryId)?.peak : undefined;
       sounds.push({ at, kind: kind ?? "hit", ...(action ? { action: action.id, tags } : {}), src, name: file.name, duration: file.duration, peaks, curve, peak: catalogPeak, ...(Number.isFinite(entry.under) ? { under: entry.under } : {}) });
@@ -6086,7 +6104,7 @@ export function createAgentService(deps) {
       const steady = steadyNow();
       const record = await store.getProject(projectId);
       // The document's waivers in use go in the facts so a stop's ask says how many findings were waived.
-      const video = { ...(await directionFacts(record.document)), waivers: checkpoint ? await waiversInUse(record.document) : record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document) } : { credits: [] }) };
+      const video = { ...(await directionFacts(record.document)), waivers: checkpoint ? await waiversInUse(record.document) : record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document), effectsLine: await effectsLineOf(record.document) } : { credits: [] }) };
       const rules = stopRulesNow();
       const board = boardFacts(record.document);
       // Each shot's file name: move_needed offers a screen recording UI moves (engine/movePicks.js).
@@ -7171,9 +7189,10 @@ export function createAgentService(deps) {
     if (topic === "sounds" && names[0] !== "openverse") {
       if (!deps.soundLibrary) throw new AgentError("failed", "The sound library is not available here.");
       // actions:true: the scene's visible actions, a library sound offered for each (engine/soundActions.js).
-      const record = input.actions === true || !(search || input.name) ? null : await projectFor(input).catch(() => null);
-      if (input.actions === true) {
-        const opened = await projectFor(input);
+      const record = input.actions === true ? null : await projectFor(input).catch(() => null);
+      // No words with a project open (the first call an agent sends): the cut's actions, as actions:true.
+      if (input.actions === true || (!(search || input.name) && record?.document?.scenes?.length)) {
+        const opened = record ?? await projectFor(input);
         const state = await agentState.read(opened.document.id);
         const scene = sceneFor(opened.document, state.codes, input.scene, state.focus) ?? opened.document.scenes[0];
         if (!scene) throw new AgentError("not_found", `No scene ${input.scene}.`);

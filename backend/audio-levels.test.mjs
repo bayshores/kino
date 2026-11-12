@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { createLayer, createScene } from "../engine/model.js";
 import { createAgentClient } from "./agent/client.mjs";
 import { describeLevels, loudMixWarning, loudnessGain, readLevels } from "./audio-levels.mjs";
-import { createLoudnessCurves, readMomentary } from "./loudness-curve.mjs";
+import { createLoudnessCurves, measureLoudnessCurve, readMomentary } from "./loudness-curve.mjs";
 import { exportScene } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
@@ -109,6 +109,18 @@ test("the loudness curve puts each momentary value at its 400 ms window's middle
   const curve = readMomentary(printed);
   assert.deepEqual(curve.momentary.slice(18), [null, -29, -26, -24.3, -23, null]);
   assert.equal(curve.step, 0.1);
+});
+
+test("a sound shorter than a loudness window is read once silence pads it (place_sounds)", { skip: skipWithoutMediaTools }, async (t) => {
+  const folder = await mkdtemp(join(tmpdir(), "kino-pad-"));
+  t.after(() => rm(folder, { recursive: true, force: true }));
+  const file = join(folder, "click.wav");
+  await makeToneAfterSilence(file, { silence: 0, tone: 0.1 });
+  const loudest = (curve) => Math.max(-Infinity, ...curve.momentary.filter(Number.isFinite));
+  const padded = loudest(await measureLoudnessCurve(file, undefined, { pad: 0.4 }));
+  // 0.1 s of a -6 dBFS tone in a 400 ms window: about 6 LU under the tone's own level (-9 LUFS).
+  assert.ok(padded > -20 && padded < -10, `padded ${padded}`);
+  assert.ok(!(loudest(await measureLoudnessCurve(file)) >= padded));
 });
 
 test("one caller cancelling a loudness measurement stops only its own wait; the last one cancelling stops the measurement", async () => {

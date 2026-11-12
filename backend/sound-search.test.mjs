@@ -257,6 +257,10 @@ test("the cut's visible actions each get a library sound, low sounds only on imp
   assert.match(text, /^a1 1\.50 zoom-through  sfx:swish-1 \(or sfx:swish-2\)$/m);
   assert.match(text, /^a2 5\.30 glitch-hit    no library sound · the song hits here$/m);
   assert.match(text, /place_sounds", at:\["a1", "a2"\]/);
+  // The sound stop says the fact (effects on the actions found), only on the sound stop.
+  const line = "Sound effects: 0 on 2 visible actions.";
+  assert.match(askText({ id: "C4", kind: "sound", video: { seconds: 15, effectsLine: line }, checked: { errors: 0, warnings: 0 } }), /Sound effects: 0 on 2 visible actions\./);
+  assert.doesNotMatch(askText({ id: "C3", kind: "color", video: { seconds: 15, effectsLine: line }, checked: { errors: 0, warnings: 0 } }), /Sound effects/);
 });
 
 test("the board's sound line offers files or the built-in library, never the switch", () => {
