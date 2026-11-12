@@ -6,7 +6,7 @@ import { applyOperations } from "./operations.js";
 import { volumeAt } from "./animation.js";
 import { duckStretches } from "./audioDucking.js";
 import { voiceUnderBed, volumeChurn } from "./quality/rules/sound.js";
-import { levelAt, lineWays, voiceLeveling, withOwnLevel } from "./mixLevels.js";
+import { leveledVoice, levelAt, lineWays, voiceLeveling, withOwnLevel } from "./mixLevels.js";
 import { louderSound, soundPlacement, visibleActions } from "./soundActions.js";
 
 const sound = (id, values = {}) => createLayer("audio", { id, name: id, src: `/api/media/${id}.wav`, ...values });
@@ -279,6 +279,10 @@ test("voiceLeveling levels one clip line by line when its lines need gains over 
   // Lines within 6 dB keep one gain.
   const close = { step: 0.1, momentary: Array.from({ length: 50 }, (_, index) => (index < 20 ? -20 : index < 30 ? null : -18)) };
   assert.equal(voiceLeveling(close, [{ start: 0, end: 2 }, { start: 3, end: 5 }]).lines, undefined);
+  // A bed (volume under 0.5) is leveled only while it keeps a line keep_line leveled; a stale
+  // voiceLevel with no Line marks (dm2-b board-s4, a copy of a kept clip) stays a bed.
+  const lineUp = { name: "Line up", start: 1, duration: 0.08 };
+  assert.deepEqual([leveledVoice({ volume: 0.6 }), leveledVoice({ volume: 0.38, voiceLevel: -8.4, animations: [lineUp] }), leveledVoice({ volume: 0.3, voiceLevel: -11.5 }), leveledVoice({ volume: 0.3 })], [true, true, false, false]);
 });
 
 test("duck_audio refuses layers without sound and values out of range", () => {

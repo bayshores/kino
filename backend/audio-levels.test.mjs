@@ -12,7 +12,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "../engi
 import { applyOperations } from "../engine/operations.js";
 import { applyKeepLine } from "../engine/keepLine.js";
 import { energyMean } from "../engine/mixLevels.js";
-import { capLinePeak } from "./line-peak.mjs";
+import { applyLinePeak, capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
@@ -689,8 +689,11 @@ test("keep_line evens a line's loud and quiet words and its lifted line stays un
     t.diagnostic(`word ${index + 1}: receipt ${db} dB, render ${moved.toFixed(2)} dB`);
     assert.ok(Math.abs(moved - db) <= 1, `word ${index + 1} moved ${moved.toFixed(2)} dB in the render, the receipt says ${db}`);
   }
-  // The line as a whole is heard where the receipt set it (mix.line, LUFS), less a lowering the peak asked for.
-  const line = receipt.mix.line + (peak.lowered?.db ?? 0);
+  // The line as a whole is heard where the receipt says (mix.line, LUFS, moved by a lowering the peak asked for).
+  const lifted = receipt.mix.line;
+  applyLinePeak(receipt, peak);
+  assert.equal(receipt.mix.line, Math.round((lifted + (peak.lowered?.db ?? 0)) * 10) / 10);
+  const line = receipt.mix.line;
   t.diagnostic(`line: receipt ${line} LUFS, render ${alone.lineLufs} LUFS (momentary energy mean; integrated ${alone.lufs}); peak ${JSON.stringify(peak)}; peak at the line: receipt ${peak.peakDbfs} dBFS, render true peak ${mixed.peak} dBTP; ${receipt.ways}`);
   assert.ok(Math.abs(alone.lineLufs - line) <= 1, `the voice alone is ${alone.lineLufs} LUFS, the receipt says ${line}`);
   assert.ok(Math.abs(mixed.peak - peak.peakDbfs) <= 1, `the render's true peak over the line ${mixed.peak}, the receipt's ${peak.peakDbfs}`);
@@ -711,7 +714,8 @@ test("keep_line evens a line's loud and quiet words and its lifted line stays un
   const bedHidden = structuredClone(bed.scene);
   bedHidden.layers[0].visible = false;
   const bedAlone = await render(bedHidden, bed.receipt.scene);
-  const bedLine = bed.receipt.mix.line + (bedPeak.lowered?.db ?? 0);
+  applyLinePeak(bed.receipt, bedPeak);
+  const bedLine = bed.receipt.mix.line;
   t.diagnostic(`volume 0.38: receipt ${bedLine} LUFS, render ${bedAlone.lineLufs} LUFS; ${bed.receipt.ways}`);
   assert.ok(Math.abs(bedAlone.lineLufs - bedLine) <= 1, `the kept line at volume 0.38 is ${bedAlone.lineLufs} LUFS, the receipt says ${bedLine}`);
 });

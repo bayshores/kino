@@ -44,6 +44,18 @@ export async function capLinePeak(scene, { layerIds, start, end, mediaRoot, dire
   return { peakDbfs: after.peak ?? first.peak, autoDb: after.auto, ceilingDbfs: LIMITER_CEILING_DB, lowered: { db, from, to: layers[0].voiceLevel, beforeDbfs: first.peak } };
 }
 
+/**
+ * Writes `peak` (capLinePeak) into keep_line's receipt: peak, the ways line (or a note), and mix.line
+ * moved by a lowering, so the line's level printed is the level it renders at (measured on dm2-b
+ * 2026-11-12: board-S5's receipt said -12.5 LUFS after its line came down 2.2 dB).
+ */
+export function applyLinePeak(report, peak) {
+  report.peak = peak;
+  if (report.ways) report.ways += ` · ${linePeakText(peak)}`;
+  else (report.notes ??= []).push(linePeakText(peak));
+  if (peak.lowered && Number.isFinite(report.mix?.line)) report.mix.line = round1(report.mix.line + peak.lowered.db);
+}
+
 /** The peak in a few words, for keep_line's ways line. */
 export function linePeakText(peak) {
   const signed = (value) => `${value > 0 ? "+" : ""}${value}`;
