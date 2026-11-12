@@ -1587,7 +1587,8 @@ export function createAgentService(deps) {
             await voiceLine(next, first.operation);
             next = await blocks.apply(next, first.operation, fontsCache);
             if (first.operation.formatName && first.operation.formatMusic) next = await fitFormatMusic(next, first.operation, fontsCache);
-            if (first.operation.type === "board") next = await fitBoardMusic(next, fontsCache);
+            // A snap puts the cuts on the song's beats as it plays now: fitting the song after it would move them off.
+            if (first.operation.type === "board" && first.operation.snap === undefined) next = await fitBoardMusic(next, fontsCache);
           }
           catch (error) { refuse(first, error instanceof AgentError ? error : operationFailed(first.index, raw[first.index], first.operation.type, error)); }
         }

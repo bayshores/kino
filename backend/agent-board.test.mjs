@@ -141,6 +141,10 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   assert.equal(snapped.isError, undefined, snapped.text);
   assert.match(snapped.text, /snap: 2 cuts after the drop at 3(\.00)? s moved onto the beat \(every 2 beats; most 0\.15 s\)/);
   assert.deepEqual((await record("pace")).document.board.shots.map((shot) => shot.cue), [0, 1.5, 3.05, 4.05]);
+  // The words an agent guesses first (snap:true), sent with a whole board: saved, then snapped, in one call.
+  const both = await agent("edit", { project: "pace", ops: [boardOp([motion(0, 1.5), motion(1.5, 1.5), motion(3, 1.2), motion(4.2, 1.8)], { music: "song", snap: true })] });
+  assert.equal(both.isError, undefined, both.text);
+  assert.deepEqual((await record("pace")).document.board.shots.map((shot) => shot.cue), [0, 1.5, 3.05, 4.05], both.text);
 });
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {

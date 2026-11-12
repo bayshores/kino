@@ -1484,7 +1484,7 @@ How to read it:
   `engine/boardMeasure.test.js`, `tests/look-board-frames.test.mjs`.
 - **Board pace and beat times**: Test-verified. look board page 1 prints the pace before and after the song's drop
   beside the saved references' (facts, no rule) and the measured beat times after it; `board {snap:"beats"}` moves
-  only the cuts after the drop onto them, when asked. Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
+  only the cuts after the drop onto them, when asked (cut times only; sent with shots it saves them first). Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
   Gap: the per-cut brightness and hue facts are pure functions (`engine/cutFacts.js`), not yet in the render answer.
 - **look chosen times**: Verified (temp server, real frames). `look {mode:"frames", times:[...]}` draws up to 60 chosen times as labeled pages (time and frame, `layer` crops and look changed keeps the crop, `every:n`; with no width, few times get bigger tiles while all stay on one page), `frame` with 2 to 4 times goes side by side, and a move receipt names its start, middle and end as a ready call. Proof: a product-film rebuild's 28 looks (28 calls, 5.3 MB of PNG) became 1 call, 0.29 MB (`.scratch/recreate/wave/look-times`). Evidence: `backend/agent-look-zoom.test.mjs`, `backend/agent-moves.test.mjs`. Gap: frame labels use a 30 fps grid, not the project's; the move's middle is a guess at its peak.
 - **Approval and lapses**: Verified. An approval freezes the board; a changed text, media, sound, move, music,

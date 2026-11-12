@@ -243,7 +243,7 @@ const OPERATIONS = {
   },
   board: {
     fields: ["music", "shots", "calls", "open", "snap"],
-    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} alone moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists).',
+    rules: 'board {music, shots:[{cue, dur, pacing, media, in, crop, subject, follow, text, sound, move, why, speed?, alts?, id?}], calls?, open?}: the storyboard (undo and rev as any edit); each call replaces it. Shots in time order, no gaps: over the music layer, or the whole video when music is "none". Every layer given, "none" when empty: media (an imported video or picture, or a video layer), in (file seconds), speed (the clip\'s playback speed, default 1: a shot uses dur × speed seconds of the file), crop [x, y, w, h] (% of the source, the video\'s shape) or "whole" (shown whole, such as a phone screen beside other things), subject {what, box, eyes?} (% of the source; eyes: the eye line\'s y), follow steady|track|sweep, text {text, family, weight?, size?, y?, fill?} (y: center, % from the top), sound {media, what} (a sound to add) and/or {keep:"all" | [from, to]} (the clip\'s own sound, file seconds: the layer you place for the shot keeps it, keep_line). move: the designed move {kind type|transition|camera|ui, name (a move, transition, recipe or preset; planned:true for a craft-plan move not built yet), ref "<reference key>@<seconds>"}, or {none:"<reason>"}; without one the shot is plain (footage plus words). pacing beat_cut|phrase_flow|free; why: one line; calls: your own calls and your decisions on open items left to you (≤ 6); open: questions for the person (≤ 3). A shot sent without id keeps the id of the shot it continues (same clip and nearest in, or same text). look {mode:"board"} shows it; notes checkpoint {id:"board"} asks the person. board {snap:"beats"} moves the saved board\'s cuts after the song\'s turn onto its measured beats (the times look board lists); sent with shots, it saves them first.',
   },
 };
 const FIELD_ALIASES = [["scene", "sceneId"], ["layer", "layerId"], ["layers", "layerIds"]];
@@ -2364,19 +2364,31 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
   // the measured beat times look board lists (board-pace.mjs), then the board is saved as any
   // board call (a move past the tolerances lapses an approval, and the answer says so).
   async function snapBoard(document, operation, work) {
-    if (operation.snap !== "beats") throw boardProblem("bad_shot", 'snap is "beats": board {snap:"beats"} moves the cuts after the song\'s turn onto its measured beats.');
-    const extra = ["shots", "music", "calls", "open"].filter((field) => operation[field] !== undefined);
-    if (extra.length) throw boardProblem("bad_shot", `board {snap:"beats"} takes no ${extra.join(", ")}: it changes the saved board's cut times only. Send it alone, or send the whole board without snap.`);
+    // true and "beat" are the words an agent guesses first: they mean the same as "beats".
+    if (![true, "beat", "beats"].includes(operation.snap)) throw boardProblem("bad_shot", 'snap is "beats": board {snap:"beats"} moves the cuts after the song\'s turn onto its measured beats.');
+    // Sent with a whole board: that board is saved first, then its cuts are snapped (one call).
+    if (operation.shots !== undefined) {
+      const { snap: _snap, ...whole } = operation;
+      await applyBoard(document, whole, work);
+    }
     const old = document.board;
     if (!old?.shots?.length) throw boardProblem("bad_shot", 'There is no storyboard to snap: save one first, edit {ops:[{op:"board", music, shots}]}.');
     const facts = await boardPace?.(document);
     if (!facts?.times?.length) {
-      work.notes.push(`board r${old.rev}: no change (the music has no measured drop inside the board, or no measured beats: detect_beats and fit_music measure them)`);
+      const why = !facts?.turn ? "the music has no measured drop inside the board; fit_music measures its sections" : "the music has no measured beats; detect_beats measures them";
+      work.notes.push(`board r${old.rev}: no change (${why})`);
       return;
     }
     const { shots, moved } = cutsOnBeats(old.shots, { turn: facts.turn.at, times: facts.times });
     if (!moved.length) { work.notes.push(`board r${old.rev}: no change (its cuts after ${sec(facts.turn.at)} s are on the beat times already)`); return; }
-    await applyBoard(document, { music: old.music, calls: old.calls, open: old.open, shots }, work);
+    // Only the cut times change, so the saved shots are not checked again (a font or file that
+    // changed since would refuse a call that touches neither; run 8's copy did). The board still
+    // covers the music with no gap.
+    const board = { ...old, shots };
+    const gap = boardCoverage(board, boardSpan(document, board));
+    if (gap) throw boardProblem(gap.code, gap.message);
+    document.board = normalizeBoard({ board: { ...board, rev: old.rev + 1 } }).board;
+    work.notes.push(`board r${document.board.rev}: ${shots.length} shots, cut times only`);
     const most = Math.max(...moved.map((entry) => Math.abs(entry.to - entry.from)));
     work.notes.push(`snap: ${moved.length} cut${moved.length === 1 ? "" : "s"} after the ${facts.turn.kind} at ${sec(facts.turn.at)} s moved onto the beat (every ${facts.beats === 1 ? "beat" : `${facts.beats} beats`}; most ${sec(most)} s): ${moved.map((entry) => `${sec(entry.from)}→${sec(entry.to)}`).join(", ")}`);
   }
