@@ -293,7 +293,9 @@ export async function splatterSpot(scene, layer, slot, { subjectAt = null, detai
   const size = Math.round(Math.min(scene.width, scene.height) / 3);
   const [first] = found;
   const spot = first ? besideSubject(first.box, scene.width, scene.height) : null;
-  if (spot) return { size: spot.size, x: spot.x, y: spot.y, where: `${spot.side} of ${first.by} ${first.box.join(",")}` };
+  // "right of the face ...", "below the face ..." (above and below take no "of").
+  const side = spot && (spot.side === "left" || spot.side === "right" ? `${spot.side} of` : spot.side);
+  if (spot) return { size: spot.size, x: spot.x, y: spot.y, where: `${side} ${first.by} ${first.box.join(",")}` };
   const [corner, cx, cy] = CORNERS[order % CORNERS.length];
   const x = Math.round(Math.min(Math.max(0, scene.width * cx - (cx > 0.5 ? size : 0)), scene.width - size));
   const y = Math.round(Math.min(Math.max(0, scene.height * cy - (cy > 0.5 ? size : 0)), scene.height - size));

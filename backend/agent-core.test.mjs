@@ -1,7 +1,7 @@
 // Milestone A2, pure parts of the agent service: short codes and name lookup (refs), operation
 // translation (translate), the status outline, inspect selectors and the check rules.
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,7 +17,7 @@ import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, li
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
 import { besideSubject, labelColors, labelTechniques, madeIds, placeMade, shotSpans, splatterSpot, subjectBoxAt } from "./agent/made-match.mjs";
-import { detailBox } from "./agent/shot-color.mjs";
+import { detailBox, shotDetail, shotPalette } from "./agent/shot-color.mjs";
 import { referenceMade } from "../engine/quality/madeShare.js";
 import { kinoTimeline } from "../engine/quality/kinoTimeline.js";
 import { renderSceneFrames } from "./export.mjs";
@@ -1025,6 +1025,8 @@ test("match_references made: hand-offs go on cuts, recolor and split-fields take
   assert.deepEqual(await splatterSpot(scene, layerA, slot, { subjectAt: async () => face }), { size: 180, x: 422, y: 90, where: "right of the people scan's face at 1 s of the file 256,36,128,288" });
   assert.deepEqual(await splatterSpot(scene, layerA, slot, { detailAt: async () => ({ box: [0, 0, 0.5, 1] }) }),
     { size: 180, x: 390, y: 90, where: "right of the busiest part of shot-a's own frame at 1 s 0,0,320,360" });
+  const wide = { ...face, box: [0, 0.05, 1, 0.3] };
+  assert.match((await splatterSpot(scene, layerA, slot, { subjectAt: async () => wide })).where, /^below the people scan's face at 1 s of the file 0,18,640,108$/);
   const guesses = await Promise.all([0, 1].map((order) => splatterSpot(scene, layerA, slot, {}, order)));
   assert.deepEqual(guesses.map((spot) => [spot.x, spot.y]), [[51, 36], [469, 204]]);
   // The busiest part of a small frame: a white square on the left half of a black one.
@@ -1033,6 +1035,16 @@ test("match_references made: hand-offs go on cuts, recolor and split-fields take
   const busy = detailBox(pixels, 48);
   assert.ok(busy[0] + busy[2] <= 0.5 && busy[2] > 0.2, JSON.stringify(busy));
   assert.equal(detailBox(new Uint8ClampedArray(48 * 27 * 4).fill(90), 48), null, "a flat frame has no busy part");
+  // A video whose saved size is over 1920 px is never decoded (the same 384 px clip is when its saved size says so).
+  const clips = await mkdtemp(path.join(os.tmpdir(), "kino-shot-size-"));
+  try {
+    await copyFile(new URL("../tests/fixtures/footage/sintel-village-dragon.mp4", import.meta.url), path.join(clips, "clip.mp4"));
+    const clip = createLayer("video", { id: "clip", src: "/api/media/clip.mp4", width: 640, height: 360, mediaSourceDuration: 4.4 });
+    await writeFile(path.join(clips, "clip.mp4.json"), JSON.stringify({ width: 384, height: 216 }));
+    assert.ok((await shotPalette(clips, clip, 0.5))?.length, "a 384 px clip is read");
+    await writeFile(path.join(clips, "clip.mp4.json"), JSON.stringify({ width: 3840, height: 2160 }));
+    assert.deepEqual([await shotPalette(clips, clip, 0.5), await shotDetail(clips, clip, 0.5)], [null, null]);
+  } finally { await rm(clips, { recursive: true, force: true }); }
   // A reference whose only made labels are composite counts them in the made share.
   assert.deepEqual(referenceMade([{ id: "c", seen: [{ at: 1, kinds: ["composite"] }] }], { composite: true }), [{ id: "c", made: 1, total: 1 }]);
   // A shot whose cut-out is already made gets its background now, right under the cut-out (no ready call).

@@ -958,8 +958,8 @@ test("match_references {made:true} through the edit tool: the references' moves 
     footage: { readScan: async () => ({ shots: [{ n: 4, figure: { box: [0.05, 0.1, 0.3, 0.8], share: 0.24, seen: 1, by: "mask" } }] }) } });
   const spots = await wired.call("edit", { ops: [{ op: "match_references", made: true }] });
   assert.equal(spots.isError, undefined, spots.text);
-  assert.match(spots.text, /of the people scan's face at 0\.5 s of the file/, spots.text);
-  assert.match(spots.text, /of the footage scan's figure \(by mask\) of F1 shot 4/, spots.text);
+  assert.match(spots.text, /, below the people scan's face at 0\.5 s of the file 256,36,128,108\)/, spots.text);
+  assert.match(spots.text, /, right of the footage scan's figure \(by mask\) of F1 shot 4 32,36,192,288\)/, spots.text);
   assert.match(spots.text, /a starting guess \((top left|bottom right|top right|bottom left), by shot order\)/, spots.text);
   const splats = (await wired.store.getProject("made-clips")).document.scenes[0].layers.filter((layer) => layer.id.startsWith("match-made-"));
   assert.equal(new Set(splats.map((layer) => `${layer.x},${layer.y}`)).size, 3, JSON.stringify(splats.map((layer) => [layer.x, layer.y])));
