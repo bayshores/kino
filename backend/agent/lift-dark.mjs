@@ -295,7 +295,10 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     for (const entry of lifted) {
       if (!entry.blocksAfter || entry.blocksAfter.step <= bar.step) continue;
       const stops = largestLift(entry.before, entry.stops, entry.blocksAfter.step, bar.step);
-      if (stops !== null) entry.largest = { stops, mean: liftedMean(entry.frames, entry.before, stops) };
+      // Its mean: the curve on the measured frames, moved by what the render drew over that model at
+      // the lift applied (a replay at the stair shot's +1.88: the bare model said 28; +1.48 renders 28).
+      const miss = entry.after.mean - (liftedMean(entry.frames, entry.before, entry.stops) ?? entry.after.mean);
+      if (stops !== null) entry.largest = { stops, mean: Math.min(1, Math.max(0, liftedMean(entry.frames, entry.before, stops) + miss)) };
     }
   }
   const seconds = (value) => Math.round(value * 100) / 100;
@@ -310,7 +313,7 @@ export async function liftDark(document, { sceneId = null, layerIds = [], target
     : `, block step (${entry.blocks.side} px grid, levels on the grid lines over inside the blocks, grain off) ${level(entry.blocks.step)} to ${entry.blocksAfter ? level(entry.blocksAfter.step) : "?"}${entry.deblock ? `, deblock radius ${entry.deblock.radius} threshold ${entry.deblock.threshold}` : " (no deblock: under the 1.5x line)"}`
       + (entry.firstDeblock ? ` (fitted again: radius ${entry.firstDeblock.radius} threshold ${entry.firstDeblock.threshold} drew ${level(entry.firstDeblock.step)}; kept the try that drew least${entry.deblock.radius === entry.firstDeblock.radius && entry.deblock.threshold === entry.firstDeblock.threshold ? ", the first" : ""})` : "")
       + `, bar ${level(bar.step)} (${bar.from})`
-      + (entry.largest ? `, still over it: the largest lift that keeps the step under is +${entry.largest.stops} stops (mean ${levels255(entry.largest.mean)}), the +${entry.stops} asked is applied` : "")
+      + (entry.largest ? `, still over it: the largest lift that keeps the step under is about +${entry.largest.stops} stops (mean about ${levels255(entry.largest.mean)}; an estimate from the curve's slope at the shot's median), the +${entry.stops} asked is applied` : "")
       + (entry.levels?.before !== null && entry.levels?.after != null ? `, shadow levels (distinct, darker half) ${entry.levels.before} to ${entry.levels.after}` : "");
   const shotLine = (entry) => `${name(entry.layerId)} mean ${levels255(entry.before.mean)} to ${levels255(entry.after.mean)} ${measured(entry)}${gradeNote(entry)}, contrast (p90-p10) ${levels255(entry.before.contrast)} to ${levels255(entry.after.contrast)}, black ${levels255(entry.before.p2)} to ${levels255(entry.after.p2)} (a plain gamma ${entry.gamma.gamma} to the same mean: contrast ${levels255(entry.gamma.stats.contrast)}, black ${levels255(entry.gamma.stats.p2)}); +${entry.stops} stops${entry.firstLanded === undefined ? "" : ` (fitted twice: the first fit drew ${levels255(entry.firstLanded)})`}${entry.amount ? `, grain ${entry.amount} size ${entry.size}${still ? " still" : ""}` : ""}${blockLine(entry)}`;
   const keptGrade = (shot) => moves(shot) ? ` (${levels255(shot.bare.mean)} without ${shot.grades.map((grade) => grade.id).join(", ")})` : "";

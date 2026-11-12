@@ -80,7 +80,7 @@ test("lift_dark measures the block step on the source's grid, deblocks before th
   // a stronger try is kept only when it drew less; still over it, the largest lift under it is a number; shadow levels do not fall.
   assert.match(lifted.lines[0], /, bar 0\.25 \(a starting guess: no bright shot measured\)/);
   if (entry.firstDeblock) assert.ok(entry.blocksAfter.step <= entry.firstDeblock.step, `${entry.blocksAfter.step} against the first fit's ${entry.firstDeblock.step}`);
-  if (entry.blocksAfter.step > 0.25) assert.match(lifted.lines[0], /still over it: the largest lift that keeps the step under is \+[\d.]+ stops \(mean \d+\), the \+4 asked is applied/);
+  if (entry.blocksAfter.step > 0.25) assert.match(lifted.lines[0], /still over it: the largest lift that keeps the step under is about \+[\d.]+ stops \(mean about \d+; an estimate from the curve's slope at the shot's median\), the \+4 asked is applied/);
   const [, levelsBefore, levelsAfter] = lifted.lines[0].match(/shadow levels \(distinct, darker half\) (\d+) to (\d+)/).map(Number);
   assert.ok(levelsAfter >= levelsBefore, `shadow levels ${levelsBefore} to ${levelsAfter}`);
   // The target and the means are in one range (full, 0 to 255), and the rendered mean after the lift is within 2 levels of it.
