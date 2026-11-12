@@ -81,13 +81,15 @@ export const CARD_NAMES = Object.freeze(Object.keys(CARDS));
 /** The moments a card may go on, by kind (see the top of this file). */
 function slotsOf(plan, drop) {
   const quiet = (at) => (plan.title && at >= plan.title.at - 0.05 && at < plan.title.at + plan.title.dur) || at >= plan.endCard.at - 0.3;
-  const shots = plan.shots.filter((shot) => shot.role !== "end");
+  // The end shot counts until its end card starts (quiet() leaves out the card's own time).
+  const shots = plan.shots;
   const slot = (shot, at) => ({ shot, at: round3(at), prev: Math.abs(at - shot.start) < 1e-3 ? plan.shots[shot.n - 2] ?? null : null });
   const keep = (list) => list.filter((entry) => entry && !quiet(entry.at));
   const under = (at) => shots.find((shot) => at >= shot.start - 1e-3 && at < shot.end - 0.3);
-  const sections = (plan.song?.sections ?? []).map((part) => shots.find((shot) => Math.abs(shot.start - part.from) <= 0.05)).filter(Boolean);
+  // A section that starts the edit is no change of section.
+  const sections = (plan.song?.sections ?? []).map((part) => shots.find((shot) => shot.n > 1 && Math.abs(shot.start - part.from) <= 0.05)).filter(Boolean);
   const cuts = sections.length ? sections : shots.filter((shot) => shot.n > 1 && shot.transition?.kind === "cut");
-  const body = shots.filter((shot) => shot.role === "body");
+  const body = shots.filter((shot) => shot.role === "body" || shot.role === "end");
   return {
     drop: keep([drop !== null && under(drop) ? slot(under(drop), drop) : null]),
     section: keep(cuts.map((shot) => slot(shot, shot.start))),
@@ -107,7 +109,9 @@ export function placeCards(plan, names, { drop = null, gap = CARD_GAP } = {}) {
   const ops = [], placed = [], missed = [];
   const taken = [];
   const spaced = (at) => taken.every((time) => Math.abs(time - at) >= gap - 1e-6);
-  const firstSlot = Object.values(slots).flat()[0] ?? null;
+  // Where a ready call points when no moment fits: the first moment, else the longest shot.
+  const longest = [...plan.shots].sort((a, b) => (b.end - b.start) - (a.end - a.start))[0];
+  const firstSlot = Object.values(slots).flat()[0] ?? (longest ? { shot: longest, at: round3(longest.start + Math.min(0.5, (longest.end - longest.start) * 0.25)), prev: null } : null);
   for (const card of [...new Set(names)]) {
     const entry = CARDS[card];
     if (!entry) {
@@ -122,7 +126,7 @@ export function placeCards(plan, names, { drop = null, gap = CARD_GAP } = {}) {
     const fitting = entry.wants.flatMap((kind) => slots[kind]).filter((slot) => entry.fits(slot, plan));
     if (entry.hand) {
       const at = fitting[0] ?? null;
-      missed.push({ card, why: at ? entry.hand : `${entry.hand}, and no shot shows a face or a marked subject (mark_subject first)`, ops: at || !entry.wants.includes("face") ? entry.ops(at ?? firstSlot ?? { shot: plan.shots[0], at: 0 }) : null });
+      missed.push({ card, why: at || !entry.wants.includes("face") ? entry.hand : `${entry.hand}, and no shot shows a face or a marked subject (mark_subject first)`, ops: at || !entry.wants.includes("face") ? entry.ops(at ?? firstSlot ?? { shot: plan.shots[0], at: 0 }) : null });
       continue;
     }
     const slot = fitting.find((entry2) => spaced(entry2.at));
