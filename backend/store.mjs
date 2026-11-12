@@ -800,13 +800,15 @@ export async function openStore(root) {
       });
     },
 
-    async duplicateProject(id) {
+    // name (optional) is the copy's name; without it the copy is "<old> [copy]".
+    async duplicateProject(id, name) {
       validateId(id, "Project ID");
+      const copyName = name == null ? undefined : validateName(name, "Project name", MAX_PROJECT_NAME);
       return mutate((state) => {
         const source = commentProject(state, id);
         const now = new Date().toISOString();
         const project = {
-          document: copyProjectDocument(source.document, randomUUID()),
+          document: copyProjectDocument(source.document, randomUUID(), copyName),
           revision: 1, folderId: source.folderId, createdAt: now, updatedAt: now,
           historyId: randomUUID(), historyRevisions: [], operationReceipts: [],
           comments: [], trashedAt: null,

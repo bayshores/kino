@@ -29,7 +29,7 @@ import { mergeDocuments } from "../engine/documentMerge.js";
 import { createOperationRequest } from "./operation-request.mjs";
 import { accessFor, openShareStore, sameSecret } from "./shares.mjs";
 import { probeMedia, runMediaTool, videoFrameFacts } from "./media-probe.mjs";
-import { REMUX_MIMES, remuxToMp4 } from "./media-remux.mjs";
+import { REMUX_MIMES, alphaToWebm, probePicture, remuxToMp4 } from "./media-remux.mjs";
 import { createShotFinder, findShots, firstErrorLine, shotFilters } from "./shot-detection.mjs";
 import { createGifFrameCache } from "./gif-frame-cache.mjs";
 import { createMediaPosterCache } from "./media-posters.mjs";
@@ -317,10 +317,10 @@ const agentService = createAgentService({
       return created;
     } finally { release(); }
   },
-  async duplicateProject(id) {
+  async duplicateProject(id, name) {
     const release = await acquireFileMutation();
     try {
-      const duplicate = await store.duplicateProject(id);
+      const duplicate = await store.duplicateProject(id, name);
       await rememberMediaUse(duplicate.document.id, [duplicate.document], OWNER_ACCESS);
       dashboard.publish({ type: "projects" });
       return duplicate;
@@ -825,12 +825,23 @@ function saveMediaRecord(id, fields) {
 }
 // Writes an uploaded .mov or .m4v to `target` as an MP4 (media-remux.mjs). The upload itself is
 // kept only in a temporary folder while FFmpeg copies it.
-async function remuxUpload(bytes, target) {
+// A .mov with an alpha channel (ProRes 4444) becomes a transparent VP9 WebM instead (the file id
+// then ends in .webm). Resolves with { id, mime, converted }; converted is the line the import
+// answer shows, or null for the MP4 copy.
+async function remuxUpload(bytes, uuid) {
   const folder = await makeTempFolder("kino-remux-");
+  let target = path.join(mediaRoot, `${uuid}.mp4`);
   try {
     const source = path.join(folder, "upload.mov");
     await writeFile(source, bytes, { mode: 0o600 });
+    const picture = await probePicture(source).catch(() => null);
+    if (picture?.alpha) {
+      target = path.join(mediaRoot, `${uuid}.webm`);
+      const { line } = await alphaToWebm(source, target, picture);
+      return { id: `${uuid}.webm`, mime: "video/webm", converted: line };
+    }
     await remuxToMp4(source, target);
+    return { id: `${uuid}.mp4`, mime: "video/mp4", converted: null };
   } catch (error) {
     await rm(target, { force: true });
     if (error.status) throw error;
@@ -1576,11 +1587,11 @@ const server = http.createServer(async (req, res) => {
         // A LUT is checked now, so a broken file is refused here with the line that is wrong
         // instead of failing later in the preview or an export.
         const lut = mime === LUT_MIME ? parseCubeLut(bytes.toString("utf8")) : null;
-        const id = `${randomUUID()}.${extension}`;
+        let id = `${randomUUID()}.${extension}`;
+        let converted = null;
         if (remux) {
-          await remuxUpload(bytes, path.join(mediaRoot, id));
+          ({ id, mime, converted } = await remuxUpload(bytes, id.slice(0, -".mp4".length)));
           bytes = await readFile(path.join(mediaRoot, id));
-          mime = "video/mp4";
         } else {
           await writeFile(path.join(mediaRoot, id), bytes, {
             mode: 0o600,
@@ -1604,6 +1615,7 @@ const server = http.createServer(async (req, res) => {
           name: name.slice(0, 200),
           mime,
           size: bytes.length,
+          ...(converted ? { converted } : {}),
           ...measurements,
           ...shots,
           ...(lut ? { lut: { type: lut.type, size: lut.size, ...(lut.title ? { title: lut.title.slice(0, 200) } : {}) } } : {}),

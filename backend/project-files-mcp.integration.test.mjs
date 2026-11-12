@@ -63,6 +63,10 @@ test("the project tool copies projects, moves them to Trash, restores them, and 
   assert.equal(copy.document.name, "Launch motion [copy]");
   assert.equal(copy.revision, 1);
   assert.equal(copy.folderId, folder.id);
+  // duplicate with a name: the copy takes it instead of "<old> [copy]".
+  const named = (await agent({ action: "duplicate", id: "mcp-files-original", name: "Launch motion v2" })).data.project;
+  assert.equal((await expectStatus(await server.api(`/api/projects/${named}`), 200, "read named copy")).document.name, "Launch motion v2");
+  await agent({ action: "archive", id: named });
   const expectedDocument = structuredClone(original.document);
   expectedDocument.id = copyId;
   expectedDocument.name = "Launch motion [copy]";
@@ -88,6 +92,7 @@ test("the project tool copies projects, moves them to Trash, restores them, and 
     await expectStatus(await server.api(`/api/projects/${copyId}`), 200, "refusal leaves the trashed project stored");
   }
 
+  await trash("delete", { id: named, confirm: true });
   await trash("restore", { id: copyId });
   assert.equal((await expectStatus(await server.api(`/api/projects/${copyId}`), 200, "read restored copy")).folderId, folder.id,
     "restore puts the project back in its previous folder");
