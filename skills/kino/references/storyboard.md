@@ -4,7 +4,7 @@ Read before building from footage (the `board` stop) or planning shot by shot.
 
 ## Build it
 
-- Put the clip in the scene first, one video layer from 0 s, so scene time is file time (`look source` needs it). Building the shots, delete it (or make it shot 1): its sound plays once.
+- Put the clip in the scene first, one video layer from 0 s, so scene time is file time (`look source` needs it). When you build the shots, delete it (or make it shot 1): its sound plays once.
 - One `board` op holds the whole storyboard; each call replaces it. Shots in time order, no gap, no overlap: the music layer's span, or the whole video when `music` is `"none"`. `music:"<imported sound's src or id>"` adds the song's audio layer itself (0 s to the shots' end), so the board has its cues before anything is built (`fit_music` after a board: sound-library reference); it saves on a briefed video even when `fit_music` fades the song.
 - A shot whose file span crosses a cut of that file by under 0.25 s is slid off it (`in` moves; cue, length and speed stay; the answer says `in a to b`). A longer crossing, or a shot sent as the saved board has it, is only stated (the cut's file second, scene second, trim).
 - A shot needing more clip than the file has is refused with fixes: speed S (slower), in I when the file is long enough, or dur D with the next shot starting earlier and running longer.
