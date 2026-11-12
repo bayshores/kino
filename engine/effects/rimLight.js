@@ -71,6 +71,19 @@ export function autoColorMatrix(saturation = 1.8, gain = 1.3, lift = 0.08) {
   return [...rows.flatMap((row) => [...row, 0, lift]), 0, 0, 0, 0, 1];
 }
 
+/**
+ * How far (blur radius, px) the layer's edge is smoothed before the rim follows it. "auto": 4 on
+ * pixel layers (video, image: a cut-out matte steps in 6 to 12 px blocks at 1080p, seen in the
+ * glow-outline and grade-bloom-flash studies; 4 rounds those off, a guess tuned on that re-run),
+ * 0 on drawn layers (text, shapes), whose edges are already smooth and whose thin strokes a blur
+ * would erase.
+ */
+export function smoothRadius(frame) {
+  const value = frame?.parameters?.smooth;
+  if (Number.isFinite(value)) return Math.max(0, Math.min(50, value));
+  return ["video", "image"].includes(frame?.helpers?.layerType) ? 4 : 0;
+}
+
 function choiceParameter(frame, key, options, fallback) {
   const value = frame?.parameters?.[key];
   return options.includes(value) ? value : fallback;
@@ -91,33 +104,52 @@ export function renderRimLight(frame) {
   const rawAngle = frame?.parameters?.angle;
   const angle = Number.isFinite(rawAngle) ? rawAngle : "auto";
   const autoColor = !(typeof frame?.parameters?.color === "string" && /^#[0-9a-f]{6}$/i.test(frame.parameters.color));
+  const smooth = smoothRadius(frame);
+  const core = numberParameter(frame, "core", 0.3, 0, 1);
   const region = openRegion(frame, openEdges);
   const area = region ? ` x="${fmt(region.x)}" y="${fmt(region.y)}" width="${fmt(region.width)}" height="${fmt(region.height)}"` : "";
-  const steps = [
-    // 1. Outside: see-through parts inside the open region.
-    `<feFlood flood-color="#fff" flood-opacity="1"${area} result="rimRegion"/>`,
-    `<feComposite in="rimRegion" in2="SourceAlpha" operator="out" result="rimOutside"/>`,
-  ];
+  const steps = [`<feFlood flood-color="#fff" flood-opacity="1"${area} result="rimRegion"/>`];
+  // 0. Shape: the layer's alpha, with stair-stepped matte edges rounded off (blur, then cut back
+  // at half). In a strip 2 x smooth wide along the open region's border the alpha stays as it is:
+  // a blur there would see the empty beyond and pull a subject cut by the frame off the border,
+  // which would light the border.
+  let shape = "SourceAlpha";
+  if (smooth > 0) {
+    steps.push(`<feGaussianBlur in="SourceAlpha" stdDeviation="${fmt(smooth)}" result="rimShapeBlur"/>`,
+      `<feComponentTransfer in="rimShapeBlur" result="rimShape"><feFuncA type="linear" slope="4" intercept="-1.5"/></feComponentTransfer>`);
+    shape = "rimShape";
+    const margin = 2 * smooth;
+    if (region && region.width > 2 * margin && region.height > 2 * margin) {
+      steps.push(`<feFlood flood-color="#fff" flood-opacity="1" x="${fmt(region.x + margin)}" y="${fmt(region.y + margin)}" width="${fmt(region.width - 2 * margin)}" height="${fmt(region.height - 2 * margin)}" result="rimInner"/>`,
+        `<feComposite in="rimShape" in2="rimInner" operator="in" result="rimShapeInner"/>`,
+        `<feComposite in="SourceAlpha" in2="rimInner" operator="out" result="rimShapeBorder"/>`,
+        `<feMerge result="rimShapeBoth"><feMergeNode in="rimShapeInner"/><feMergeNode in="rimShapeBorder"/></feMerge>`);
+      shape = "rimShapeBoth";
+    } else if (region) shape = "SourceAlpha";
+  }
+  // 1. Outside: see-through parts inside the open region.
+  steps.push(`<feComposite in="rimRegion" in2="${shape}" operator="out" result="rimOutside"/>`);
   const toLight = typeof angle === "number" ? lightVector(angle) : null;
   // 2. Band.
   if (edge === "inside") {
     steps.push(toLight
       ? `<feOffset in="rimOutside" dx="${fmt(-toLight.x * width)}" dy="${fmt(-toLight.y * width)}" result="rimReach"/>`
       : `<feMorphology in="rimOutside" operator="dilate" radius="${fmt(width)}" result="rimReach"/>`,
-    `<feComposite in="rimReach" in2="SourceAlpha" operator="in" result="rimBand"/>`);
+    `<feComposite in="rimReach" in2="${shape}" operator="in" result="rimBand"/>`);
   } else {
     steps.push(toLight
-      ? `<feOffset in="SourceAlpha" dx="${fmt(toLight.x * width)}" dy="${fmt(toLight.y * width)}" result="rimReach"/>`
-      : `<feMorphology in="SourceAlpha" operator="dilate" radius="${fmt(width)}" result="rimReach"/>`,
+      ? `<feOffset in="${shape}" dx="${fmt(toLight.x * width)}" dy="${fmt(toLight.y * width)}" result="rimReach"/>`
+      : `<feMorphology in="${shape}" operator="dilate" radius="${fmt(width)}" result="rimReach"/>`,
     `<feComposite in="rimReach" in2="rimOutside" operator="in" result="rimBand"/>`);
   }
   // 3. Soften: about a third of the width, at least half a pixel (a guess that hides 6 to 10 px
   // matte steps at width 8 without blurring a thin line away).
   steps.push(`<feGaussianBlur in="rimBand" stdDeviation="${fmt(Math.max(0.5, width * 0.3))}" result="rimSoft"/>`);
   let band = "rimSoft";
-  // Edge "outside" keeps the softened ring off the layer itself.
+  // Edge "outside" keeps the softened ring off the (smoothed) layer itself; where the smoothed
+  // shape cuts a matte step, the ring covers that step.
   if (edge === "outside") {
-    steps.push(`<feComposite in="${band}" in2="SourceAlpha" operator="out" result="rimRing"/>`);
+    steps.push(`<feComposite in="${band}" in2="${shape}" operator="out" result="rimRing"/>`);
     band = "rimRing";
   }
   // 4. Brightness weight with the "auto" angle on the inside edge (guess: 0.35 on dark parts,
@@ -139,15 +171,22 @@ export function renderRimLight(frame) {
     steps.push(`<feTurbulence type="fractalNoise" baseFrequency="${fmt(1 / lobeSize)}" numOctaves="2" seed="${seed}" x="${fmt(reach.x - pad - shift)}" y="${fmt(reach.y - pad - shift)}" width="${fmt(reach.width + 2 * pad + shift)}" height="${fmt(reach.height + 2 * pad + shift)}" result="rimNoise"/>`,
       `<feOffset in="rimNoise" dx="${fmt(shift)}" dy="${fmt(shift * 0.6)}" result="rimNoiseMoved"/>`,
       `<feColorMatrix in="rimNoiseMoved" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0" result="rimNoiseAlpha"/>`,
-      `<feComponentTransfer in="rimNoiseAlpha" result="rimLobes"><feFuncA type="table" tableValues="0.08 0.08 0.15 0.9 1 1"/></feComponentTransfer>`,
+      // Dim gaps keep a fifth of the light and most of the edge is lit: the first table (0.08 at
+      // the floor, lit only above mid noise) left long dark stretches in the glow-outline re-run,
+      // dimmer than the reference, where the bright lobes cover most of the edge (a tuned guess).
+      `<feComponentTransfer in="rimNoiseAlpha" result="rimLobes"><feFuncA type="table" tableValues="0.2 0.25 0.6 1 1 1"/></feComponentTransfer>`,
       `<feComposite in="${band}" in2="rimLobes" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" result="rimLobed"/>`);
     band = "rimLobed";
   }
-  // 6. Glow: the band blurred by spread, added to it.
+  // 6. Glow: the band blurred by spread, added to it. A thin band blurred far spreads thin, so the
+  // glow's gain grows with spread / width (its edge stays about half as bright as the line, at
+  // least 1.5 and at most 6 times): width 4 with spread 30 gets a haze that reaches, not a faint
+  // tint (seen in the glow-outline re-run; the 0.625 factor and the limits are guesses).
   const glow = spread > 0;
+  const glowGain = Math.min(6, Math.max(1.5, 0.625 * spread / width));
   if (glow) steps.push(`<feGaussianBlur in="${band}" stdDeviation="${fmt(spread / 2)}" result="rimGlow"/>`);
   steps.push(glow
-    ? `<feComposite in="${band}" in2="rimGlow" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="${fmt(intensity * 1.5)}" k4="0" result="rimLight"/>`
+    ? `<feComposite in="${band}" in2="rimGlow" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="${fmt(intensity * glowGain)}" k4="0" result="rimLight"/>`
     : `<feComposite in="${band}" in2="${band}" operator="arithmetic" k1="0" k2="${fmt(intensity)}" k3="0" k4="0" result="rimLight"/>`);
   // 7. Color.
   if (autoColor) {
@@ -157,7 +196,13 @@ export function renderRimLight(frame) {
     const rgb = hexColor(frame, "color", "#FFFFFF");
     steps.push(`<feFlood flood-color="rgb(${rgb.join(",")})" result="rimColor"/>`);
   }
-  steps.push(`<feComposite in="rimColor" in2="rimLight" operator="in" result="rimPaint"/>`);
+  steps.push(`<feComposite in="rimColor" in2="rimLight" operator="in" result="rimColored"/>`);
+  // 7b. Core: the line itself (not its glow) mixed toward white, the pale core of a neon edge.
+  // Default 0.3 is a guess from the glow-outline reference (core #e0c8ff inside a #7a2cff glow).
+  if (core > 0) steps.push(`<feFlood flood-color="#fff" result="rimWhite"/>`,
+    `<feComposite in="rimWhite" in2="${band}" operator="in" result="rimCore"/>`,
+    `<feComposite in="rimColored" in2="rimCore" operator="arithmetic" k1="0" k2="1" k3="${fmt(core * Math.min(1, intensity))}" k4="0" result="rimPaint"/>`);
+  else steps.push(`<feMerge result="rimPaint"><feMergeNode in="rimColored"/></feMerge>`);
   // 8. Added on top of the layer, or alone (lightOnly; a parameter named fill would read as a Fill animation).
   steps.push(fill ? `<feComposite in="SourceGraphic" in2="rimPaint" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>`
     : `<feMerge><feMergeNode in="rimPaint"/></feMerge>`);

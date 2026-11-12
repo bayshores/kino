@@ -21,6 +21,8 @@ The accent-hit and light-sweep moves use glow to light one word.
 - `rim-light` lights the edge of a layer's own shape (cut-out subject, text, shape) in one
   call: `color` "auto" (the layer's edge hue), `width` 8, `angle` "auto" or degrees (0 above),
   `spread` 20; `edge:"outside"` is a ring outline alone, `style:"lobes"` uneven electric lobes.
+  `smooth` rounds a video matte's stair steps (auto: 4 px on video and image, 0 on text);
+  `core` 0.3 mixes the line toward white (0 for a flat color line).
 - `light-rays` streaks light out from `centerX`/`centerY` (fractions of the layer's box).
   `source:"bright"` streaks the bright parts (sun through trees); `source:"behind"` puts a light
   of `lightSize` behind the layer, so its shapes cast shadows between the rays. `length` and

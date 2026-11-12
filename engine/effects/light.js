@@ -64,6 +64,8 @@ export const LIGHT_EFFECTS = [
       lobeSize: number("Lobe Size", 100, 8, 1000, 1, "px"),
       crawl: number("Crawl", 40, -1000, 1000, 1, "px/s"),
       seed: number("Seed", 0, 0, 1_000_000, 1, "", { integer: true, animatable: false, optional: true }),
+      smooth: number("Smooth", "auto", 0, 50, 0.5, "px", { auto: true }),
+      core: number("Core", 0.3, 0, 1, 0.05),
       lightOnly: { type: "boolean", label: "Light Only", default: false },
       openEdges: choice("Open Edges", "frame", RIM_OPEN_EDGES.map((value) => [value, value[0].toUpperCase() + value.slice(1)])),
     } },

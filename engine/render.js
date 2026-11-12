@@ -854,7 +854,8 @@ function effectContent(content, layer, state, context, paintBounds, drawnBounds 
     content = frame.effect.render({ content, bounds, paintBounds: extent, drawnBounds: drawn,
       // The operation lets an effect read its settings at other moments (particle births).
       parameters: frame.parameters, time: frame.time, progress: frame.progress, operation: frame.operation,
-      helpers: { defs: context.defs, id: (kind) => idFor(context, `effect-${kind}`), raster: context.raster, scene,
+      // layerType: pixel layers (video, image) have stair-stepped mattes that rim-light smooths.
+      helpers: { defs: context.defs, id: (kind) => idFor(context, `effect-${kind}`), raster: context.raster, scene, layerType: state.type ?? layer.type,
         transform: multiply(context.rasterMatrix, multiply(parentWorldMatrix(state.parentId, context), layerMatrix(state))),
         clipSentinel: (matrix) => rasterClipBounds(state, context, matrix),
         // Loaded .cube LUTs by src, for the lut effect (see the `luts` option of renderSceneSvg).

@@ -8,7 +8,7 @@ import { MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 // one space. A key of several words matches where the query holds those words in a row; a key of
 // one word matches the whole query or one of its words, except a LOOSE word.
 const SEEN_AS = {
-  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow"], halation: ["glow"],
+  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow", "rim-light"], halation: ["glow"],
   particles: ["embers", "sparks", "dust"], particle: ["embers", "sparks", "dust"], sparkles: ["sparks", "embers"],
   ash: ["embers", "dust"], fire: ["embers", "sparks"], smoke: ["fog"], haze: ["fog"],
   subtitles: ["add_captions", "caption-words"], subtitle: ["add_captions", "caption-words"], captions: ["add_captions", "caption-words"],
