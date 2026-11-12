@@ -1263,6 +1263,10 @@ How to read it:
 - **Status lines**: Verified. Every `status` has `direction:` and `next:` lines (at most 100
   characters, 40 tokens); `next:` never reads the chat. Evidence: `backend/agent-stops.test.mjs`,
   `backend/agent-brief.test.mjs`.
+- **Answers lead with what decides the next call**: Verified. In the first 8 lines of `check` (errors,
+  advice with unused deck cards), `look` versus and review (drift, `whole scene:`) and `status` (checks,
+  inbox) come the lines that decide the next call; long answers also carry a short `next:` there. Evidence:
+  `backend/agent-service.test.mjs`, `backend/next-call.test.mjs`, `backend/agent-core.test.mjs`.
 - **Playback**: Verified. Confirmed only with `confirmed:true` and the played `rev`;
   `no_playback:"just start"` skips it. Evidence: `backend/agent-brief.test.mjs`.
 - **Read size**: Over the plan's limit (flagged). The plan sets 300 tokens; a typical brief reads in

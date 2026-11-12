@@ -31,6 +31,18 @@ test("answerText: a text answer ends with one next line after its inbox; a JSON 
   assert.deepEqual(refused, { error: "op_failed", reason: "no such preset", retry: "E1", hint: "Nothing was saved. The next call resends the edit with the fix.", next: callText(retry) });
 });
 
+test("answerText early: the inbox and a short next sit at the early line; a long call is named, not printed twice", () => {
+  const text = "rev 3\nadvice\ntail 1\ntail 2";
+  assert.equal(answerText({ text, early: { at: 2, next: true } }, LOOK, ["N1 note"]),
+    'rev 3\nadvice\ninbox ◆1\n  N1 note\nnext: look {"mode":"review"}\ntail 1\ntail 2\nnext: look {"mode":"review"}');
+  const long = { tool: "edit", input: { ops: [{ op: "add_layer", layerType: "text", name: "a-very-long-layer-name", properties: { text: "a long headline that fills the call" } }] } };
+  const lines = answerText({ text, early: { at: 2, next: true } }, long).split("\n");
+  assert.equal(lines[2], "next: edit (the exact call is on the last line)");
+  assert.equal(lines.at(-1), `next: ${callText(long)}`);
+  // Without an early place, or for a JSON answer, nothing moves.
+  assert.equal(answerText({ text, early: {} }, LOOK), `${text}\nnext: look {"mode":"review"}`);
+});
+
 test("the fixed call for a refusal: the suggestion in place of the misspelled field or name; unfilled slots are found", () => {
   assert.deepEqual(withSuggestion({ mode: "sheeet", t: 2, why: "see it" }, "sheet"), { mode: "sheet", t: 2, why: "see it" });
   assert.equal(withSuggestion({ t: 2 }, "sheet"), null);

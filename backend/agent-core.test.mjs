@@ -509,7 +509,7 @@ test("each page of a full:true listing is remembered: a later status repeats non
   assert.deepEqual(removed, ids, after.text);
 });
 
-test("other scenes are folded to one line; plan, inbox, pointing and checks get their own lines", () => {
+test("other scenes are folded to one line; pointing, checks and inbox come before the plan and the layer rows", () => {
   const base = sceneDocument([text("title")]);
   const document = parseDocument(applyOperations(base, [{ type: "add_scene", properties: { id: "outro", name: "Outro", width: 320, height: 180, duration: 2 } }, { type: "add_layer", sceneId: "outro", layerType: "rectangle", properties: { id: "logo" } }]));
   const codes = assignCodes(emptyCodes(), document);
@@ -520,17 +520,17 @@ test("other scenes are folded to one line; plan, inbox, pointing and checks get 
   });
   assert.deepEqual(outline.split("\n"), [
     "Demo (demo) rev 4 · 2 scenes · 2 layers · 0 anims",
+    "pointing L2 (you selected it in the editor)",
+    "checks 0 err · 0 warn",
+    "inbox ◆1",
+    '  N1 note "Bigger logo"',
     "plan ▸ Animate (1/2)",
     "s1 main 'Main' 640×360 4s bg #ffffff · 1 layer · 0 anims",
     "s2 outro 'Outro' 320×180 2s bg #ffffff · 1 layer · 0 anims",
-    outline.split("\n")[4],
+    outline.split("\n")[8],
     "status {scene} lists another scene's layers",
-    "inbox ◆1",
-    '  N1 note "Bigger logo"',
-    "pointing L2 (you selected it in the editor)",
-    "checks 0 err · 0 warn",
   ]);
-  assert.match(outline.split("\n")[4], /^ {2}L2 logo rectangle /);
+  assert.match(outline.split("\n")[8], /^ {2}L2 logo rectangle /);
   assert.deepEqual(Object.keys(shown), ["outro"], "only the focus scene's layers count as read");
 });
 

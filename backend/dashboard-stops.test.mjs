@@ -55,8 +55,13 @@ const savedState = async (project, folder = server.dataDirectory) => JSON.parse(
 const ISO = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/;
 // The inbox lines an agent answer carries (service.mjs call(), next-call.mjs answerText()): a JSON
 // answer keeps them in its inbox field; a text answer lists them indented, then its next: line.
-const inboxOf = (reply) => reply.text.startsWith("{") ? JSON.parse(reply.text).inbox ?? []
-  : reply.text.split("\ninbox ◆")[1]?.split("\n").slice(1).filter((line) => line.startsWith("  ")).map((line) => line.trim()) ?? [];
+const inboxOf = (reply) => {
+  if (reply.text.startsWith("{")) return JSON.parse(reply.text).inbox ?? [];
+  // The indented lines right after "inbox ◆n" end at the next line that is not indented (a scene row).
+  const lines = reply.text.split("\ninbox ◆")[1]?.split("\n").slice(1) ?? [];
+  const end = lines.findIndex((line) => !line.startsWith("  "));
+  return lines.slice(0, end < 0 ? lines.length : end).map((line) => line.trim());
+};
 
 // The B2a fixture: a 24 s 1080×1920 card with one 96 px title passes check with 0 errors.
 const TITLE = { op: "add_layer", layerType: "text", name: "title", properties: { text: "Park reopens Saturday", x: 140, y: 760, width: 800, height: 240, fontSize: 96, fill: "#ffffff" } };

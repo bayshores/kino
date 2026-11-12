@@ -199,6 +199,11 @@ test("check and inspect answer about the saved project", async () => {
   assert.ok(lines.some((line) => /^W past_scene_end A\d+ @2\.8: A\d+ runs 2\.8–3\.8s but s1 ends at 3s, so it is cut off\. fix: \{"op":"update_animation","animationId":"A\d+","properties":\{"duration":0\.2\}\}$/.test(line)));
   assert.equal(check.data.errors, 1);
   assert.equal(check.data.warnings, 4);
+  // Order (answers-first): the counts, the errors, then the advice and the fix hint, then the warnings.
+  assert.ok(lines.findIndex((line) => line.startsWith("advice (does not block)")) < lines.findIndex((line) => line.startsWith("W ")), check.text);
+  // The next call ends the answer; a long answer also carries it early, as a short next, within the first 8 lines.
+  assert.match(lines.at(-1), /^next: /);
+  assert.ok(lines.slice(0, 8).some((line) => line.startsWith("next: ")), check.text);
   // The same check again on the same revision answers in one line; rules:true lists them again.
   const again = await agent("check", { project: "alpha", why: "again" });
   assert.match(withoutNext(again.text), /^rev \d+ · 1 err · 4 warn · 1 info · \d+ ms\nUnchanged since your same check \d+ s ago at this rev: the same findings\. check \{rules:true\} lists them again\.$/);
@@ -277,7 +282,8 @@ test("a revert you make arrives in the agent's next reply", async () => {
   assert.equal(reverted.data.reverted, "T1");
   assert.doesNotMatch(reverted.text, /inbox/, "your own reply does not take the agent's inbox");
   const next = await agent("status", { project: "you-revert" });
-  assert.match(withoutNext(next.text), /\ninbox ◆1\n {2}you reverted T1 \(rev 1→2\); now rev 3$/);
+  // The inbox sits right after the checks line, before the layer rows (answers-first).
+  assert.match(withoutNext(next.text), /\nchecks [^\n]*\ninbox ◆1\n {2}you reverted T1 \(rev 1→2\); now rev 3\ns1 /);
 });
 
 test("a call you make leaves the agent's inbox for the agent", async () => {
@@ -286,7 +292,7 @@ test("a call you make leaves the agent's inbox for the agent", async () => {
   const yours = await agent("notes", { project: "you-read", action: "list", by: "you" });
   assert.doesNotMatch(yours.text, /inbox/);
   const next = await agent("status", { project: "you-read" });
-  assert.match(withoutNext(next.text), /\ninbox ◆1\n {2}N1 note "Slower intro" · when done: notes \{action:"reply", id:"N1", text\}$/);
+  assert.match(withoutNext(next.text), /\ninbox ◆1\n {2}N1 note "Slower intro" · when done: notes \{action:"reply", id:"N1", text\}\ns1 /);
 });
 
 test("a note you send arrives once in the agent's next reply, then can be replied to and resolved", async () => {
@@ -296,7 +302,7 @@ test("a note you send arrives once in the agent's next reply, then can be replie
   assert.equal(added.data.note.status, "new");
 
   const status = await agent("status", { project: "noted" });
-  assert.match(withoutNext(status.text), /\ninbox ◆1\n {2}N1 note @1\.5 "Make the logo bigger" · when done: notes \{action:"reply", id:"N1", text\}$/);
+  assert.match(withoutNext(status.text), /\ninbox ◆1\n {2}N1 note @1\.5 "Make the logo bigger" · when done: notes \{action:"reply", id:"N1", text\}\ns1 /);
   const again = await agent("status", { project: "noted" });
   assert.doesNotMatch(again.text, /inbox/, "the inbox is handed over once");
 

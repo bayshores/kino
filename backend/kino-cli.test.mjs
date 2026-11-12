@@ -364,11 +364,12 @@ describe("commands against a running kino", () => {
       "direction: no brief · replies 0/10",
       // It has a layer already: a change to an existing video, not a new one.
       "step: a change to this video needs no brief",
-      "s1 'Scene 1' 320×180 2s bg #ffffff · 1 layer · 0 anims",
-      "  L1 box rectangle 40,30 80×60 #ff0000",
       // The new project's white background is pure #ffffff, which the quality checker warns about.
       // status renders no frames, so it says contrast and flashing are not in its count.
+      // The checks line comes before the layer rows so a short read still sees it.
       "checks 0 err · 1 warn (pure_frame s1.background) · unchecked: contrast, flashing, luma_jump, frozen_picture",
+      "s1 'Scene 1' 320×180 2s bg #ffffff · 1 layer · 0 anims",
+      "  L1 box rectangle 40,30 80×60 #ff0000",
       'next: check {"fix":"auto"}',
       "",
     ].join("\n"));
@@ -404,7 +405,7 @@ describe("commands against a running kino", () => {
     const sent = await runKino(["notes", "add", "Make the box blue", "--you"], { env });
     assert.equal(sent.code, 0, sent.stderr);
     const next = await runKino(["status"], { env });
-    assert.match(next.stdout, /\ninbox ◆1\n {2}N1 note "Make the box blue" · when done: notes \{action:"reply", id:"N1", text\}\nnext: [^\n]*\n$/);
+    assert.match(next.stdout, /\ninbox ◆1\n {2}N1 note "Make the box blue" · when done: notes \{action:"reply", id:"N1", text\}\ns1 [^\n]*\n[^\n]*\nnext: [^\n]*\n$/);
   });
 
   test("project import uploads a file and says how to add it", async () => {
