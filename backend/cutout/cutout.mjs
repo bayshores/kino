@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
-import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, finishMatte, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
+import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, fadeOpenEdges, finishMatte, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
 import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
@@ -850,7 +850,7 @@ const HOLD = 12;
 async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, openEdges = 0, target, signal, onFraction }) {
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
-  const growBy = grow * scale, featherBy = feather * scale, openBy = openEdges * scale;
+  const growBy = grow * scale;
   const matteFile = join(folder, info.file);
   const frameTimes = `setpts=N/(${rate})/TB`;
   const picture = (extra) => spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn",
@@ -886,9 +886,17 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   let ok = true;
   // The edge refiner keys against a plate sampled from 384 px, so its drops come in blocks of
   // about 5 px at 1080p: the same edge-aware smoothing runs again on its result (Y is the luma).
-  const smooth = info.clean?.refine > 0 ? (yuv, mask) => refineEdges(mask, yuv.subarray(0, pixels), width, height, { radius: info.clean.refine / scale }) : (yuv, mask) => mask;
+  // Without a steady plate nothing was keyed, and the matte is already the refined one the other
+  // outputs use. Feather and the open-edge fade come after, so the smoothing's contrast curve does
+  // not steepen them and the subject matches the silhouette and matte outputs.
+  const smooth = info.clean?.refine > 0 && plate.steady
+    ? (yuv, mask) => refineEdges(mask, yuv.subarray(0, pixels), width, height, { radius: info.clean.refine / scale }) : (yuv, mask) => mask;
+  const finish = (mask) => {
+    const soft = feather > 0 ? finishMatte(mask, width, height, { feather }) : mask;
+    return openEdges > 0 ? fadeOpenEdges(soft, width, height, openEdges, Math.max(0, grow) + feather) : soft;
+  };
   const write = (yuv, raw) => {
-    const mask = smooth(yuv, raw);
+    const mask = finish(smooth(yuv, raw));
     const out = Buffer.allocUnsafe(pixels * 4);
     out.set(yuv, 0);
     out.set(mask, pixels * 3);
@@ -907,7 +915,7 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   await pairFrames({ a: full, aSize: pixels * 3, b: mattes, bSize: info.width * info.height, children: [full, mattes, encode], signal,
     onPair: (yuv, raw, index, resume) => {
       if (index >= info.frames) return true;
-      let mask = finishMatte(raw, info.width, info.height, { grow: growBy, feather: featherBy, openEdges: openBy });
+      let mask = finishMatte(raw, info.width, info.height, { grow: growBy });
       if (info.width !== width || info.height !== height) mask = scaleMatte(mask, info.width, info.height, width, height);
       else if (mask === raw) mask = Uint8Array.from(raw);
       const size = area(mask);

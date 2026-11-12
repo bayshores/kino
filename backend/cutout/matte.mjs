@@ -336,7 +336,10 @@ export function feather(matte, width, height, pixels) {
 export function finishMatte(matte, width, height, { grow: growBy = 0, feather: featherBy = 0, openEdges = 0 } = {}) {
   if (!growBy && !featherBy) return openEdges > 0 ? fadeOpenEdges(matte, width, height, openEdges) : matte;
   const finished = finishBox(matte, width, height, growBy, featherBy);
-  return openEdges > 0 ? fadeOpenEdges(finished, width, height, openEdges) : finished;
+  // A grown or feathered matte (a rim or outline behind the subject) reaches grow + feather past
+  // the subject, so its fade starts that far in: it is gone wherever the subject itself is still
+  // fading, and no rim line runs along the frame's cut (seen in the cut-out study at 0.4 and 2.6 s).
+  return openEdges > 0 ? fadeOpenEdges(finished, width, height, openEdges, Math.max(0, growBy) + Math.max(0, featherBy)) : finished;
 }
 
 function finishBox(matte, width, height, growBy, featherBy) {
@@ -371,14 +374,15 @@ function finishBox(matte, width, height, growBy, featherBy) {
  * Fades the matte to 0 over `pixels` pixels toward the picture's four borders (smoothstep), so a
  * subject cut by the frame (a bust at the bottom, a head past the side) has no straight edge there:
  * a rim, outline or glow made from it then follows only the subject's real outline. Returns a new
- * matte. The cut_out default is DEFAULT_OPEN_EDGES of the short side.
+ * matte. The cut_out default is DEFAULT_OPEN_EDGES of the short side. `start` pixels next to the
+ * border are cleared before the fade begins.
  */
-export function fadeOpenEdges(matte, width, height, pixels) {
+export function fadeOpenEdges(matte, width, height, pixels, start = 0) {
   checkSize(width, height);
   const out = Uint8Array.from(matte);
   if (!(pixels > 0)) return out;
-  const ramp = new Float32Array(Math.ceil(pixels) + 1);
-  for (let d = 0; d < ramp.length; d += 1) { const t = Math.min(1, (d + 0.5) / pixels); ramp[d] = t * t * (3 - 2 * t); }
+  const ramp = new Float32Array(Math.ceil(pixels + start) + 1);
+  for (let d = 0; d < ramp.length; d += 1) { const t = Math.max(0, Math.min(1, (d + 0.5 - start) / pixels)); ramp[d] = t * t * (3 - 2 * t); }
   const reach = ramp.length - 1;
   for (let y = 0; y < height; y += 1) {
     const dy = Math.min(y, height - 1 - y);

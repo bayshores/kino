@@ -760,8 +760,9 @@ How to read it:
 - **Steady edges**: Verified. A five-frame temporal median (`backend/cutout/matte.mjs`). Evidence:
   `backend/cutout-matte.test.mjs`. Gap: a small fast subject can lose up to 2 px of edge.
 - **Clean cut-out edges** (`cut_out {refine, fillHoles, openEdges}`, on by default): Verified. One cleaned matte for every
-  output: guided filter against the picture's luma, hole fill, border fade. Evidence: `backend/cutout-matte.test.mjs`
-  (8 px stairs to under 1.5 px), study frames `.scratch/studies/cutout-composite/after-cutout-edges.jpg`.
+  output: guided filter against the picture's luma, hole fill, border fade (a grown rim fades from further in, so it
+  does not trace the cut). Evidence: `backend/cutout-matte.test.mjs` (8 px stairs to under 1.5 px), study frames
+  `.scratch/studies/cutout-composite/after-cutout-edges-v2.jpg` and `-zoom.jpg`.
 - **Stale helper**: Verified with the stand-in. The newer local build is used; an old one gets the rebuild command
   for points and track. Evidence: `backend/cutout.test.mjs` ("without an engine").
 - **Speed and memory**: about 1.6 s per second of 1080p30; memory does not grow with length.

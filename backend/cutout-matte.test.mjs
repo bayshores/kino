@@ -160,14 +160,14 @@ test("softCounts tells a half see-through body from a clean edge", () => {
 });
 
 test("refineEdges turns an 8-pixel stair-stepped matte back into the picture's round edge", () => {
-  const width = 160, height = 120, centre = { cx: 80, cy: 60, r: 40 };
-  const truth = disc(width, height, centre);
+  const width = 160, height = 120, center = { cx: 80, cy: 60, r: 40 };
+  const truth = disc(width, height, center);
   // Vision's way: a mask found at 1/8 size, near-binary, scaled up with hard steps.
   const blocky = new Uint8Array(width * height);
   for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1)
     blocky[y * width + x] = truth[(Math.floor(y / 8) * 8 + 4) * width + Math.floor(x / 8) * 8 + 4] >= 128 ? 255 : 0;
   const guide = Uint8Array.from(truth, (value) => 30 + Math.round(value * 0.7));
-  const worst = (matte) => Math.max(...radialEdgeErrors(matte, width, height, centre, 64).map((ray) => Math.abs(ray.error)));
+  const worst = (matte) => Math.max(...radialEdgeErrors(matte, width, height, center, 64).map((ray) => Math.abs(ray.error)));
   const refined = refineEdges(blocky, guide, width, height);
   assert.ok(worst(blocky) > 3, `the blocky edge is off by ${worst(blocky)} px`);
   assert.ok(worst(refined) < 1.5, `the refined edge is off by ${worst(refined)} px at most`);
@@ -197,4 +197,8 @@ test("fadeOpenEdges fades a subject cut by the frame to 0 at the border only", (
   assert.ok(faded[35 * width + 20] > 20 && faded[35 * width + 20] < 255, "it fades in over the width");
   assert.equal(faded[20 * width + 20], 255, "the subject away from the border is untouched");
   assert.deepEqual(finishMatte(matte, width, height, { openEdges: 8 }), faded);
+  // A grown rim fades from grow pixels further in, so it is clear wherever the subject is fading.
+  const rim = finishMatte(matte, width, height, { grow: 3, openEdges: 8 });
+  for (let y = 32; y < height; y += 1) assert.ok(rim[y * width + 20] <= faded[y * width + 20], `row ${y}: rim ${rim[y * width + 20]} over subject ${faded[y * width + 20]}`);
+  assert.equal(rim[37 * width + 20], 0, "the rim is clear next to the border");
 });
