@@ -149,6 +149,28 @@ test("a move animates your layers, is made again with the same id and taken away
   assert.deepEqual(await cueNames(), ["zoom-through.hit"]);
 });
 
+test("a move sent again with the same layer and time replaces the first and the receipt says so; another time adds one", { timeout: 60_000 }, async () => {
+  await setUpProject(api, "resend", { width: 640, height: 360 });
+  const send = (at) => api.agent("resend", "edit", { ops: [{ op: "move", name: "rgb-split-hit", layer: "shot-b", at }] });
+  const ids = async () => (await saved("resend")).document.scenes[0].moves.map((entry) => entry.id);
+  assert.equal((await send(1)).isError, undefined);
+  const again = await send(1);
+  assert.equal(again.isError, undefined, again.text);
+  assert.match(again.text, /move rgb-split-hit \(replaced: the same move on the same layers at the same time\)/);
+  assert.deepEqual(await ids(), ["rgb-split-hit"]);
+  const later = await send(2.5);
+  assert.equal(later.isError, undefined, later.text);
+  assert.deepEqual(await ids(), ["rgb-split-hit", "rgb-split-hit-2"]);
+  // The receipt names the first copy and the call that moves it instead (ceiling study a meant to move it).
+  assert.match(later.text, /rgb-split-hit on the same layers stays at 1 \(to move it instead: \{op:\\?"move\\?", name:\\?"rgb-split-hit\\?", id:\\?"rgb-split-hit\\?", at:2\.5\}/);
+  // The receipt names the layers a move made; a move with no layer field is never taken for a repeat.
+  const roll = await api.agent("resend", "edit", { ops: [{ op: "move", name: "roll", items: ["a", "b"], at: 0.2 }] });
+  assert.equal(roll.isError, undefined, roll.text);
+  assert.match(roll.text, /\d+ new layers? \(roll-item1/);
+  await api.agent("resend", "edit", { ops: [{ op: "move", name: "roll", items: ["c", "d"], at: 0.2 }] });
+  assert.ok((await ids()).includes("roll-2"), "a second roll at the same time is its own move");
+});
+
 test("the skill's moves example runs as written and passes every gate", { timeout: 120_000 }, async () => {
   const created = await api.agent("skill", "project", { action: "create", id: "skill", name: "skill", width: 1920, height: 1080, duration: 6, background: "#0B0B0D" });
   assert.equal(created.isError, undefined, created.text);

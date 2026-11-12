@@ -10,6 +10,7 @@ or changing one color, plus the `add` blend mode.
   grade its layers.
   `library {topic:"rules", name:"color"}` has their fields, the color space (sRGB 0–1, Rec.709
   luma) and recipes: teal-orange, bleach-bypass, noir-keep-red.
+- `exposure` and `saturation` run 0..4, 1 = unchanged (0.5 is half as bright, not half a stop up): write `"+0.5 stop"` or `"-0.7"` as text for a relative change.
 - Not in that list but also color: `duotone` and `tritone` (two or three colors by brightness), and the finish `grain` and `vignette`; `focus-band` is depth of field (blur.md). `library {topic:"effects"}` lists all effects, `{topic:"effects", name}` gives one's fields.
 - A ready-made grade: `color-look` with `look` matte, ember, frost, ink, dusk, meadow, harbor or
   punch and `amount` 0 to 1 (e.g. `{look:"harbor", amount:0.6}`).

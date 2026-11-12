@@ -220,6 +220,9 @@ const REFUSED = [
   ["motion-blur as an effect", { op: "add_animation", layer: "box", effect: "motion-blur" }, "render option"],
   ["radial-blur as an effect", { op: "add_animation", layer: "box", effect: "radial blur" }, "zoom-blur"],
   ["an unknown effect", { op: "add_animation", layer: "box", effect: "sparkle" }, 'unknown effect "sparkle". Did you mean sparks'],
+  // Effect names guessed from plain words lead to the real grading effects (ceiling study a, FRICTION 5).
+  ["color-correct as an effect", { op: "add_animation", layer: "box", effect: "color-correct" }, "color-grade"],
+  ["brightness as an effect", { op: "add_animation", layer: "box", effect: "brightness" }, "color-grade"],
   ["a bare file name as src", { op: "add_layer", layerType: "image", name: "logo2", properties: { src: "logo.png." } }, 'src "logo.png" is not an imported file'],
   ["a web address as src", { op: "add_layer", layerType: "image", name: "logo3", properties: { src: "https://example.com/logo.png" } }, "is on the web"],
   ["kind custom with a preset", { op: "add_animation", layer: "box", preset: "preset-fade", kind: "custom" }, 'kind "custom" does not go with a preset. A preset takes mode'],
@@ -249,6 +252,13 @@ test("any other mistake is refused with one short example that works", { timeout
   // set the title's color and size, which nobody asked for).
   const unknown = await agent("edit", { project: "refused", ops: [{ op: "update_layer", layer: "box", properties: { x: 250, glowiness: 3 } }], dry_run: true });
   assert.deepEqual(unknown.data.example, { op: "update_layer", layer: "box", properties: { x: 250 } });
+  // A guessed effect name keeps the settings the real effect has; a negative "1 = unchanged"
+  // setting comes back as its relative text, which is taken (ceiling studies a and c).
+  const guessed = await agent("edit", { project: "refused", ops: [{ op: "add_animation", layer: "box", effect: "brightness", parameters: { brightness: 1.3 } }], dry_run: true });
+  assert.deepEqual(guessed.data.example, { op: "add_animation", layer: "box", effect: "color-grade", parameters: { brightness: 1.3 } });
+  const negative = await agent("edit", { project: "refused", ops: [{ op: "add_animation", layer: "box", effect: "hue-saturation", parameters: { saturation: -0.7 } }], dry_run: true });
+  assert.deepEqual(negative.data.example.parameters, { saturation: "-0.7" });
+  assert.equal((await agent("edit", { project: "refused", ops: [negative.data.example], dry_run: true })).isError, undefined);
 });
 
 test("update_layer cannot clear a media layer's src; other layers and other fields are not affected", async () => {
@@ -936,4 +946,19 @@ test("a size or scale sent beside its own field with another value is refused, n
     const tried = await agent("edit", { project: "pairs3", ops: [reply.data.example], dry_run: true });
     assert.equal(tried.isError, undefined, tried.text);
   }
+});
+
+test("a setting where 1 is unchanged: the receipt says what the value did, and a relative text is read (ceiling study c)", async () => {
+  await project("unchanged");
+  const send = (effect, parameters) => agent("edit", { project: "unchanged", ops: [{ op: "add_animation", layer: "box", effect, parameters }] });
+  const notes = async (effect, parameters) => {
+    const reply = await send(effect, parameters);
+    assert.equal(reply.isError, undefined, reply.text);
+    return JSON.parse(reply.text).notes.join("\n");
+  };
+  assert.match(await notes("color-grade", { exposure: 0.5 }), /color-grade exposure 0\.5: half as bright \(1 = unchanged/);
+  assert.match(await notes("color-grade", { exposure: "+0.5 stop" }), /exposure "\+0\.5 stop": stops 0\.5, 0\.5 stops brighter/);
+  assert.match(await notes("hue-saturation", { saturation: "-0.7" }), /saturation "-0\.7": 0\.3, less color/);
+  const effects = layerNamed(await saved("unchanged"), "box").animations.filter((animation) => animation.kind === "effect");
+  assert.deepEqual(effects.map((animation) => animation.to.exposure ?? animation.to.stops ?? animation.to.saturation), [0.5, 0.5, 0.3]);
 });
