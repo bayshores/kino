@@ -146,7 +146,7 @@ import { edgeSpans } from "../../engine/spanCuts.js";
 import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSceneTime, mediaSoundTime } from "../../engine/playback.js";
 import { CUES_READ, cueRise, cueRiseText, endingText, keptLinesOf, presenceText, quietShare, quietText, songEnding, songPresence } from "../../engine/mixReadout.js";
-import { endOnHitOps, hitsAround, hitsText } from "../../engine/songEvents.js";
+import { endOnHitOps, hitsAround, hitsText, holdsText, ringingHit, RING_MIN } from "../../engine/songEvents.js";
 import { songSections } from "../../engine/footage/pace.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
@@ -9100,8 +9100,19 @@ export function createAgentService(deps) {
     if (ending) {
       // The strong onsets around the end, phrase and bar lines first, and the one edit that ends on the first.
       const hits = found.grid ? hitsAround(found.grid, scene.duration, { playsTo: songPlaysTo(layer, fileSeconds) }) : [];
-      const call = hits.length ? endOnHitOps({ scene, song: layer, hit: hits[0], volume: layer.volume ?? 1 }) : null;
-      const how = !call ? "" : call.rings ? `; ${name} rings from the hit at ${hits[0].at} s to the end` : `; end on ${hits[0].at} (rings to ${call.end} s, fit_music's ring): edit {ops:${JSON.stringify(call.ops)}}`;
+      // Once it rings from one of them (an end moved later brings new hits into the 2 s), it says so.
+      const rung = ringingHit(layer, hits, scene.duration);
+      // The saved shot starts of the videos that end with the scene: a later end plays them on only to their next shot change.
+      const seams = new Map();
+      if (hits.length && !rung && hits[0].at + RING_MIN > scene.duration + 0.005) {
+        for (const picture of scene.layers) {
+          if (picture.type !== "video" || !picture.src || !(Math.abs((picture.mediaStart ?? 0) + (picture.mediaDuration ?? 0) - scene.duration) <= 0.02)) continue;
+          const { shots } = await fileShots(picture.src, { saved: true });
+          if (Array.isArray(shots)) seams.set(picture.id, shots.map((shot) => shot.start).filter((time) => time > 0));
+        }
+      }
+      const call = hits.length && !rung ? endOnHitOps({ scene, song: layer, hit: hits[0], volume: layer.volume ?? 1, seams }) : null;
+      const how = rung ? `; ${name} rings from the hit at ${rung.at} s to the end` : !call ? "" : `; end on ${hits[0].at} (rings to ${call.end} s, fit_music's ring)${holdsText(call.holds)}: edit {ops:${JSON.stringify(call.ops)}}`;
       lines.push(`${endingText(name, ending)}${hits.length ? `; ${hitsText(hits)}${how}` : ""}`);
     }
     lines.push(presenceText(name, songPresence(layer, scene, (entry) => String(entry.name ?? entry.id).slice(0, 24))));

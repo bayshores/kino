@@ -6,6 +6,8 @@
 // starts later (or sooner) from the matching file second.
 import { isVisibilityOperation } from "./visibilityOps.js";
 import { keptLinesOf } from "./mixReadout.js";
+import { followClipTiming } from "./cutoutTiming.js";
+import { volumeAt } from "./animation.js";
 
 /** An onset this heavy (0 to 1, detect_beats' weight against the song's hardest hits) is strong: a starting guess. */
 export const STRONG_WEIGHT = 0.5;
@@ -50,23 +52,74 @@ export function hitsAround(grid, end, { playsTo = Infinity, count = 3 } = {}) {
  * the end clamped to RING_MIN to RING_MAX after the hit; Volume animations of the song that start
  * after the hit are removed so the ring is the last move. Returns {end, ops}.
  */
-export function endOnHitOps({ scene, song, hit, volume = 1 }) {
+/** The hit of `hits` the song already rings from to the scene's end (a "Ring" from it), or null. */
+export function ringingHit(song, hits, duration) {
+  return hits.find((hit) => (song.animations ?? []).some((animation) => animation.name === "Ring" && Math.abs(animation.start - hit.at - RING_HOLD) <= 0.01 && Math.abs(animation.start + animation.duration - duration) <= 0.01)) ?? null;
+}
+
+// The scene second a picture's file reaches its next shot change after what plays at `fileAt`
+// (`seams`: the file's shot starts in file seconds), or Infinity.
+const nextSeam = (seams, fileAt) => Math.min(Infinity, ...(seams ?? []).filter((time) => time > fileAt + 0.001));
+
+export function endOnHitOps({ scene, song, hit, volume = 1, seams = null }) {
   // Already ringing from this hit to the end: nothing to send.
-  if ((song.animations ?? []).some((animation) => animation.name === "Ring" && Math.abs(animation.start - hit.at - RING_HOLD) <= 0.01 && Math.abs(animation.start + animation.duration - scene.duration) <= 0.01)) return { end: scene.duration, ops: [], rings: true };
+  if (ringingHit(song, [hit], scene.duration)) return { end: scene.duration, ops: [], rings: true, holds: [] };
   const end = r2(Math.min(hit.at + RING_MAX, Math.max(hit.at + RING_MIN, scene.duration)));
   const layer = song.name ?? song.id;
-  const ops = [];
+  const ops = [], holds = [];
   if (Math.abs(end - scene.duration) > 0.005) ops.push({ op: "update_scene", sceneId: scene.id, properties: { duration: end } });
   const playsTo = (song.mediaStart ?? 0) + (song.mediaDuration ?? Infinity);
   if (Number.isFinite(playsTo) && playsTo < end - 0.005) ops.push({ op: "update_layer", layer, properties: { mediaDuration: r3(end - (song.mediaStart ?? 0)) } });
+  // A later end: the pictures that end with the video play on to the new end (their Play and
+  // Hide), so the ring does not run over bare frames (dm5-b: 13 to 13.31 s showed the background).
+  // A video plays on only up to its file's next shot change (`seams.get(id)`, its saved shots) and
+  // holds the frame before it after that (dm5-b: playing on showed 2 frames of another shot).
+  if (end > scene.duration + 0.005) {
+    const at = (time) => Math.abs(time - scene.duration) <= 0.02;
+    for (const picture of scene.layers ?? []) {
+      if (picture === song || (picture.type !== "video" && picture.type !== "image")) continue;
+      if (Number.isFinite(picture.mediaStart) && picture.mediaDuration > 0 && at(picture.mediaStart + picture.mediaDuration)) {
+        const speed = speedOf(picture);
+        const fileAt = (picture.mediaOffset ?? 0) + picture.mediaDuration * speed;
+        const seam = picture.type === "video" ? nextSeam(seams?.get(picture.id), fileAt) : Infinity;
+        const room = Number.isFinite(seam) ? Math.max(0, (seam - fileAt) / speed - 0.034) : Infinity;
+        const plays = Math.min(end - picture.mediaStart, picture.mediaDuration + room);
+        const properties = { mediaDuration: r3(plays) };
+        const held = plays < end - picture.mediaStart - 0.005;
+        if (held && (picture.mediaFreeze === "none" || picture.mediaFreeze === "first")) properties.mediaFreeze = "both";
+        if (picture.type === "video") holds.push({ layer: picture.name ?? picture.id, held, from: r2(picture.mediaStart + plays), fileFrom: r2(fileAt), fileTo: r2(fileAt + (plays - picture.mediaDuration) * speed) });
+        ops.push({ op: "update_layer", layer: picture.id, properties });
+      }
+      for (const animation of picture.animations ?? []) if (animation.kind === "hide" && at(animation.start)) ops.push({ op: "update_animation", animation: animation.id, properties: { start: end } });
+    }
+  }
+  // Song Volume moves past the hit go, and so does a fade to silence at the old end when the end
+  // moves later (it would leave the song out before the hit).
+  const gone = new Set();
   for (const animation of song.animations ?? []) {
     const moves = Object.hasOwn(animation.from ?? {}, "volume") || Object.hasOwn(animation.to ?? {}, "volume");
-    if (moves && animation.start + (animation.duration ?? 0) > hit.at + 0.005) ops.push({ op: "delete_animation", layer, animation: animation.id });
+    const stops = animation.start + (animation.duration ?? 0);
+    const fadesOut = typeof animation.to?.volume === "number" && animation.to.volume <= 0.02 && stops >= scene.duration - 0.02;
+    if (moves && (stops > hit.at + 0.005 || fadesOut)) { ops.push({ op: "delete_animation", layer, animation: animation.id }); gone.add(animation); }
   }
-  ops.push({ op: "add_animation", layer, animation: { kind: "out", name: "Ring", start: r3(hit.at + RING_HOLD), duration: r3(end - hit.at - RING_HOLD), easing: "quart-out", from: { volume }, to: { volume: 0 } } });
+  // The ring starts from the level the song plays at the hit once those are gone (a song still
+  // ducked there rings from its ducked level instead of jumping up); `volume` when it has no moves.
+  const kept = { ...song, animations: (song.animations ?? []).filter((animation) => !gone.has(animation)) };
+  const from = (kept.animations.length ? r3(volumeAt(kept, hit.at + RING_HOLD)) : volume);
+  ops.push({ op: "add_animation", layer, animation: { kind: "out", name: "Ring", start: r3(hit.at + RING_HOLD), duration: r3(end - hit.at - RING_HOLD), easing: "quart-out", from: { volume: from }, to: { volume: 0 } } });
   // end_on_fade reads a song-ring cue as a finished ending (fit_music names its ring so).
   ops.push({ op: "set_cues", cues: [{ name: "song-ring-1", time: r3(hit.at) }] });
-  return { end, ops };
+  return { end, ops, holds };
+}
+
+/**
+ * What the pictures play over a later end: " (top-a plays on in its file 1.85-2.16 s, no shot change
+ * saved there)" or "(last plays to its file's next shot change (its saved shots) at 13.77 s, then
+ * holds that frame)", or "".
+ */
+export function holdsText(holds) {
+  if (!holds?.length) return "";
+  return ` (${holds.map((hold) => (hold.held ? `${hold.layer} plays to its file's next shot change (its saved shots) at ${hold.from} s, then holds that frame` : `${hold.layer} plays on in its file ${hold.fileFrom}-${hold.fileTo} s, no shot change saved there`)).join("; ")})`;
 }
 
 /** "nearest hits: 12.75 (bar line, 0.84, strongest in 2 s), 14.89 (bar line, 0.73)". */
@@ -87,7 +140,10 @@ function edgesOf(layer) {
 }
 const near = (list, at) => list.some((time) => Math.abs(time - at) <= EDGE);
 const speedOf = (layer) => (layer.mediaSpeed > 0 ? layer.mediaSpeed : 1);
-const hasSpeedAnimation = (layer) => (layer.animations ?? []).some((animation) => Object.hasOwn(animation.from ?? {}, "speed") || Object.hasOwn(animation.to ?? {}, "speed"));
+// A Speed animation changes the clip's playback speed; an effect's own "speed" field (a noise
+// warp's drift) does not (dm5-a: the aura's cut-outs carry one and must keep their clip's file time).
+const isEffect = (animation) => animation.kind === "effect" || typeof animation.effect === "string";
+const hasSpeedAnimation = (layer) => (layer.animations ?? []).some((animation) => !isEffect(animation) && (Object.hasOwn(animation.from ?? {}, "speed") || Object.hasOwn(animation.to ?? {}, "speed")));
 
 /**
  * The picture cuts from `from` to `to` (scene s, both ends counted): times where one video or image
@@ -156,8 +212,11 @@ export function moveCutsToEvents(scene, { from, to, reach = null, grid }) {
     const starting = scene.layers.filter((layer) => near(edgesOf(layer).starts, at) && !near(edgesOf(layer).ends, at));
     const why = blocked({ ending, starting, at, target, by, kept });
     if (why) { stayed.push({ at, why }); floor = at; continue; }
+    const clips = [...ending, ...starting].filter((layer) => layer.type === "video" || layer.type === "image").map((layer) => [layer, { ...layer }]);
     for (const layer of ending) moveEnd(layer, at, by);
     for (const layer of starting) moveStart(layer, at, by);
+    // Their cut-outs follow (an outline's show window, a copy that did not start on the cut).
+    for (const [layer, before] of clips) followClipTiming(scene, before, layer);
     used.add(event.at);
     moved.push({ from: at, to: target, event: `${event.kind}${event.weight !== undefined ? ` ${event.weight}` : ""}`, layers: [...ending, ...starting].filter((layer) => layer.type === "video" || layer.type === "image").map((layer) => layer.name ?? layer.id) });
     floor = target;
@@ -193,15 +252,18 @@ function moveEnd(layer, at, by) {
   for (const animation of layer.animations ?? []) if (animation.kind === "hide" && Math.abs(animation.start - at) <= EDGE) animation.start = r3(at + by);
 }
 
-// The layer that starts on the cut starts at the new time from the matching file second; one with a
-// Speed animation (a made move riding on the shot) moves whole: its start, its file mapping and every
-// animation from the cut on shift together, so its own motion keeps its shape.
+// The layer that starts on the cut starts at the new time from the matching file second. A part of a
+// made move (layer.move) or one with a Speed animation moves its animations whole (every one from
+// the cut on shifts, so its own motion keeps its shape: dm5-a's aura tongues chain rise loops); a
+// Speed-animated one also keeps its file mapping, while a move part's cut-out keeps its clip's file
+// time (it sits on the clip's frames).
 function moveStart(layer, at, by) {
-  const whole = hasSpeedAnimation(layer);
+  const speed = hasSpeedAnimation(layer);
+  const whole = speed || Boolean(layer.move && typeof layer.move === "object");
   if ((layer.type === "video" || layer.type === "image") && Math.abs(layer.mediaStart - at) <= EDGE) {
     layer.mediaStart = r3(at + by);
     layer.mediaDuration = r3(layer.mediaDuration - by);
-    if (layer.type === "video" && !whole) layer.mediaOffset = r3((layer.mediaOffset ?? 0) + by * speedOf(layer));
+    if (layer.type === "video" && !speed) layer.mediaOffset = r3((layer.mediaOffset ?? 0) + by * speedOf(layer));
   }
   for (const animation of layer.animations ?? []) {
     if (Math.abs(animation.start - at) <= EDGE || (whole && animation.start > at && !(animation.kind === "hide"))) animation.start = r3(animation.start + by);

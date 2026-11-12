@@ -3274,11 +3274,6 @@ function composedBeats(scene) {
   return beats.map((beat, index) => ({ id: beat.id, start: starts[index], end: index + 1 < beats.length ? starts[index + 1] : scene.duration }));
 }
 
-/**
- * Changes a scene's length. Times in the first `intro` seconds stay, times in the last `outro`
- * seconds move with the end, and the middle stretches. Short animations (1 s or less) keep
- * their length, and an exit stays tied to its end.
- */
 // After retime {snap:"song"} moved cuts of the board's main scene: the saved board's shots on those
 // cuts move the same way (the shot after starts later from the matching file second, the shot
 // before ends there), so the board and the built scene keep agreeing.
@@ -3301,6 +3296,11 @@ function followBoardCuts(document, scene, moved) {
   if (changed) document.board = { ...board, shots, rev: board.rev + 1 };
 }
 
+/**
+ * Changes a scene's length. Times in the first `intro` seconds stay, times in the last `outro`
+ * seconds move with the end, and the middle stretches. Short animations (1 s or less) keep
+ * their length, and an exit stays tied to its end.
+ */
 function retimeScene(document, scene, duration, work, { newScene = false } = {}) {
   const length = scene.duration;
   const starts = new Map(scene.layers.map((layer) => [layer, layer.mediaStart]));

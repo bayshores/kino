@@ -2,7 +2,7 @@
 // hits named around the end with the call that ends on one, and the song's out and quiet time.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { cutsIn, endOnHitOps, hitsAround, hitsText, moveCutsToEvents, snapText } from "./songEvents.js";
+import { cutsIn, endOnHitOps, hitsAround, hitsText, holdsText, moveCutsToEvents, ringingHit, snapText } from "./songEvents.js";
 import { presenceText, songPresence } from "./mixReadout.js";
 
 // A click track at 120 bpm: a beat every 0.5 s, every 4th click (a bar line) hard, the rest soft.
@@ -19,8 +19,12 @@ test("retime snap: each cut moves to the nearest strong onset in reach, the file
   // c keeps a spoken line from 2.5 s to its end at 3.1 s (keep_line's Line up and Line down marks).
   const line = { id: "c-line", name: "Line up", kind: "custom", easing: "linear", start: 2.4, duration: 0.1, from: { volume: 0.2 }, to: { volume: 1 } };
   const lineDown = { id: "c-down", name: "Line down", kind: "custom", easing: "linear", start: 3.1, duration: 0.1, from: { volume: 1 }, to: { volume: 0.2 } };
-  const scene = { id: "s1", duration: 6, layers: [shot("a", 0, 1.1), shot("b", 1.1, 2.1), shot("c", 2.1, 3.1, { volume: 1 }), shot("d", 3.1, 4.1), shot("e", 4.1, 6)] };
-  scene.layers[2].animations.push(line, lineDown);
+  // b's cut-out copy, a part of a made move, carries a noise warp whose own "speed" field is not a
+  // clip Speed animation, and a second rise chained after its first.
+  const copy = { ...shot("b", 1.1, 2.1), id: "b-cut", name: "b-cut", cutoutOf: "b", move: { name: "energy-aura", part: "tongue-1" },
+    animations: [{ id: "warp", kind: "effect", effect: "noise-warp", start: 1.1, duration: 0.5, to: { amount: 40, speed: 2 } }, { id: "rise-2", kind: "custom", start: 1.4, duration: 0.3, to: { y: -10 } }] };
+  const scene = { id: "s1", duration: 6, layers: [shot("a", 0, 1.1), shot("b", 1.1, 2.1), copy, shot("c", 2.1, 3.1, { volume: 1 }), shot("d", 3.1, 4.1), shot("e", 4.1, 6)] };
+  scene.layers[3].animations.push(line, lineDown);
   assert.deepEqual(cutsIn(scene, 1, 4.2), [1.1, 2.1, 3.1, 4.1]);
   const result = moveCutsToEvents(scene, { from: 1, to: 4.2, grid: clicks(6) });
   assert.equal(result.reach, 0.5);
@@ -30,9 +34,11 @@ test("retime snap: each cut moves to the nearest strong onset in reach, the file
   assert.deepEqual(result.stayed.map((entry) => entry.at), [3.1]);
   assert.match(result.stayed[0].why, /kept line on c \(2\.5-3\.1 s\)/);
   // The shot after a cut starts at the new time from the matching file second; the shot before ends there.
-  const [a, b, , d, e] = scene.layers;
+  const [a, b, bCut, , d, e] = scene.layers;
   assert.deepEqual([a.mediaDuration, a.animations[1].start], [1, 1]);
   assert.deepEqual([b.mediaStart, b.mediaOffset, b.mediaDuration, b.animations[0].start], [1, 4.9, 1, 1]);
+  // The copy keeps its clip's file time; its own motion moves whole (the chained rise too).
+  assert.deepEqual([bCut.mediaStart, bCut.mediaOffset, bCut.mediaDuration, bCut.animations[0].start, bCut.animations[1].start], [1, 4.9, 1, 1, 1.3]);
   assert.deepEqual([d.mediaDuration, e.mediaStart, e.mediaOffset, e.animations[0].start], [0.9, 4, 4.9, 4]);
   assert.match(snapText(result), /^snap to song: 3 cuts moved, reach 0\.5 s .*1\.1→1 \(beat\), 2\.1→2 .* stayed: 3\.1 s \(it would cut the kept line on c/);
   // A clip that would play past its file's end keeps its cut.
@@ -56,6 +62,9 @@ test("hits around the end: bar lines first with the call that rings the song out
   assert.deepEqual(early.ops.map((op) => op.op), ["update_scene", "delete_animation", "add_animation", "set_cues"]);
   assert.deepEqual(early.ops[3].cues, [{ name: "song-ring-1", time: 12 }]);
   assert.deepEqual(early.ops[2].animation, { kind: "out", name: "Ring", start: 12.04, duration: 1.16, easing: "quart-out", from: { volume: 1 }, to: { volume: 0 } });
+  // A song ducked to 0.4 before the hit rings from 0.4 (no jump up at the ring).
+  const ducked = { ...song, animations: [{ id: "duck", kind: "custom", easing: "linear", start: 10, duration: 0.5, from: { volume: 1 }, to: { volume: 0.4 } }, song.animations[0]] };
+  assert.deepEqual(endOnHitOps({ scene: { id: "s1", duration: 13.6 }, song: ducked, hit: hits[1] }).ops[2].animation.from, { volume: 0.4 });
   // Once it rings from that hit to the end, there is nothing to send.
   const ringing = { ...song, animations: [{ id: "r", ...early.ops[2].animation }] };
   assert.deepEqual(endOnHitOps({ scene: { id: "s1", duration: 13.2 }, song: ringing, hit: hits[1] }).ops, []);
@@ -63,6 +72,19 @@ test("hits around the end: bar lines first with the call that rings the song out
   const late = endOnHitOps({ scene: { id: "s1", duration: 13.6 }, song, hit: hits[0] });
   assert.equal(late.end, 14.3);
   assert.deepEqual(late.ops.slice(0, 2), [{ op: "update_scene", sceneId: "s1", properties: { duration: 14.3 } }, { op: "update_layer", layer: "song", properties: { mediaDuration: 14.3 } }]);
+  // The last shot plays on to the new end (its Play and Hide), so no bare frames follow it.
+  const lastShot = endOnHitOps({ scene: { id: "s1", duration: 13.6, layers: [song, shot("last", 12, 13.6)] }, song, hit: hits[0] });
+  assert.deepEqual(lastShot.ops.slice(2, 4), [{ op: "update_layer", layer: "last", properties: { mediaDuration: 2.3 } }, { op: "update_animation", animation: "last-hide", properties: { start: 14.3 } }]);
+  assert.equal(holdsText(lastShot.holds), " (last plays on in its file 6.6-7.3 s, no shot change saved there)");
+  // Its fade to silence at the old end goes (the song would be out before the hit).
+  assert.ok(late.ops.some((op) => op.op === "delete_animation" && op.animation === "fade"));
+  // With its file's next shot change 0.2 s on (file 6.8 s), it plays to just before it and holds that frame.
+  const held = endOnHitOps({ scene: { id: "s1", duration: 13.6, layers: [song, shot("last", 12, 13.6, { mediaFreeze: "none" })] }, song, hit: hits[0], seams: new Map([["last", [2, 6.8]]]) });
+  assert.deepEqual(held.ops[2].properties, { mediaDuration: 1.766, mediaFreeze: "both" });
+  assert.equal(holdsText(held.holds), " (last plays to its file's next shot change (its saved shots) at 13.77 s, then holds that frame)");
+  // Once the song rings from one of the hits to the end, ringingHit names it.
+  const rung = { ...song, animations: [{ id: "r", ...late.ops.find((op) => op.op === "add_animation").animation }] };
+  assert.equal(ringingHit(rung, hits, 14.3)?.at, 14);
   // Out 0-4 s (it starts at 4 s), under half 4-6 s, while a clip plays its own sound 1-5 s.
   const quietSong = { ...song, mediaStart: 4, mediaDuration: 6, animations: [{ id: "q", kind: "custom", easing: "linear", start: 4, duration: 0.01, from: { volume: 0.3 }, to: { volume: 0.3 } }, { id: "u", kind: "custom", easing: "linear", start: 6, duration: 0.01, from: { volume: 0.3 }, to: { volume: 1 } }] };
   const clip = shot("talk", 1, 5, { volume: 1 });

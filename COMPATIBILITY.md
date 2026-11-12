@@ -1379,8 +1379,10 @@ How to read it:
   cut that would cut a kept line or overrun a file stays, named. The ending line names the strong
   onsets within 2 s of the end and the one edit that rings the song out on the first; a presence
   line gives the song's out and under-half time over the runtime with the layers heard then.
+  A later end plays the last shots on to it (to their file's next saved shot change, then held).
   Evidence: `engine/songEvents.test.js`. Gap: the strong weight 0.5 is a guess; no saved reference
-  carries a presence share; audio layers starting on a cut do not move.
+  carries a presence share; audio layers starting on a cut do not move; a cut-in the shot finder
+  missed still plays (a replayed project showed 2 frames of another angle in the 0.31 s added).
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the
