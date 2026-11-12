@@ -1,11 +1,16 @@
 // The saved shape of a scene's `finish` and `letterbox` fields (drawn by engine/sceneFinish.js).
 // Kept apart so engine/model.js can check them without importing the layer builder.
 
-export const FINISH_KEYS = ["grain", "blackLift", "halation", "vignette"];
+export const FINISH_KEYS = ["grain", "blackLift", "halation", "vignette", "soften", "haze"];
 // The documented starting point `finish: true` stands for. Values are the synthesis table's
 // "frame finish" row (grain 0.15, blackLift 0.04, halation 0.2, vignette 0.3): a guess, not a
 // measurement. The type-on study's heavy vignette (nearly black corners) is vignette 0.9.
-export const FINISH_START = { grain: 0.15, blackLift: 0.04, halation: 0.2, vignette: 0.3 };
+// soften: edge softness S = mean|I - box1(I)| / mean|I - box4(I)| on edge pixels of luma at 854 px
+// wide (lower is softer). Seven vetted reference stills: 0.21 to 0.34 (median about 0.29); the
+// transitions study face frame with finish but no soften: 0.335; with soften 0.35: 0.314. A
+// restrained start that moves toward the references without blurring the frame. haze stays off.
+export const SOFTEN_START = 0.35;
+export const FINISH_START = { grain: 0.15, blackLift: 0.04, halation: 0.2, vignette: 0.3, soften: SOFTEN_START };
 export const LETTERBOX_MIN = 1.2;
 export const LETTERBOX_MAX = 6;
 
@@ -14,7 +19,7 @@ export function normalizeSceneFinish(value, path, fail) {
   if (value === undefined || value === null || value === false) return undefined;
   if (value === true) return { ...FINISH_START };
   if (typeof value !== "object" || Array.isArray(value))
-    fail(path, "must be true or {grain, blackLift, halation, vignette}, each 0 to 1, such as {grain:0.15, vignette:0.3}");
+    fail(path, "must be true or {grain, blackLift, halation, vignette, soften, haze}, each 0 to 1, such as {grain:0.15, vignette:0.3}");
   const finish = {};
   for (const key of Object.keys(value)) {
     if (!FINISH_KEYS.includes(key)) fail(`${path}.${key}`, `is not a finish part; use ${FINISH_KEYS.join(", ")}`);

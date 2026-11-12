@@ -9,10 +9,25 @@ const number = (value) => Number(value.toFixed(8));
 const toLinear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
 const toSrgb = (value) => value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
 
-/** Exposure as a table: each sRGB value turned to linear light, multiplied, turned back. */
-export function exposureTable(gain, samples = 256) {
+/**
+ * A highlight roll-off (soft shoulder) in linear light: values up to the knee pass unchanged,
+ * values above it bend toward white (slope 1 at the knee, never quite reaching 1), so a
+ * pushed exposure keeps light skin, eyes and a mouth apart instead of clipping them to one white.
+ * shoulder 0 is the old hard clip; 1 starts the bend at 0.25 linear (about 54% sRGB).
+ */
+export function rollOff(value, shoulder) {
+  if (!(shoulder > 0)) return Math.min(1, value);
+  const knee = 1 - 0.75 * shoulder;
+  if (value <= knee) return value;
+  // A Reinhard curve above the knee: slow enough that 3 stops over keeps tones apart.
+  const over = (value - knee) / (1 - knee);
+  return knee + (1 - knee) * (over / (1 + over));
+}
+
+/** Exposure as a table: each sRGB value turned to linear light, multiplied, rolled off (or clipped), turned back. */
+export function exposureTable(gain, samples = 256, shoulder = 0) {
   return Array.from({ length: samples }, (_, index) =>
-    number(clamp(toSrgb(Math.min(1, gain * toLinear(index / (samples - 1)))), 0, 1))).join(" ");
+    number(clamp(toSrgb(rollOff(gain * toLinear(index / (samples - 1)), shoulder)), 0, 1))).join(" ");
 }
 
 /**
@@ -24,6 +39,8 @@ export function exposureTable(gain, samples = 256) {
  */
 export function renderColorGrade(frame) {
   const stops = numberParameter(frame, "stops", 0, -5, 5);
+  // Shoulder: a highlight roll-off for stops (0, the hard clip, unless given).
+  const shoulder = numberParameter(frame, "shoulder", 0, 0, 1);
   const exposure = numberParameter(frame, "exposure", 1, 0, 4);
   const brightness = numberParameter(frame, "brightness", 1, 0, 4);
   const contrast = numberParameter(frame, "contrast", 1, 0, 4);
@@ -33,7 +50,7 @@ export function renderColorGrade(frame) {
 
   const primitives = [];
   if (stops !== 0) {
-    const values = exposureTable(2 ** stops);
+    const values = exposureTable(2 ** stops, 256, shoulder);
     primitives.push(`<feComponentTransfer><feFuncR type="table" tableValues="${values}"/><feFuncG type="table" tableValues="${values}"/><feFuncB type="table" tableValues="${values}"/></feComponentTransfer>`);
   }
   if (plain) return filterEffect(frame, primitives, { padding: 0 });

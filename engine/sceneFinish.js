@@ -2,17 +2,19 @@
 // and in every export kino draws with its own renderer (Lottie keeps editable vector layers and
 // cannot carry them; the export says so). Fields and limits: engine/sceneFinishFields.js.
 //
-//   finish {grain, blackLift, halation, vignette}  each 0 to 1, a part left out is off
+//   finish {grain, blackLift, halation, vignette, soften, haze}  each 0 to 1, a part left out is off
 //   letterbox 2.35                                 bars so the picture is that wide (width : height)
 //
 // Both are drawn as ordinary full-scene layers added when the scene is drawn (never stored in
 // scene.layers), so the quality checks, the layer list and the agent's edits never see them:
+//   soften       the picture blurred a little and lightened back over itself (diffusion)
+//   haze         the picture blurred wide, lifted, low in contrast and warm, screened over it
 //   black lift   a gray layer screened over the picture (blacks rise to that gray)
 //   halation     the picture blurred, cut to its highlights, tinted red-orange and screened back
 //   vignette     a white layer multiplied over the picture with the vignette effect (engine/effects/finish.js)
 //   grain        a 50% gray layer hard-lit with the grain effect (its amount is finish.grain, seed 0)
 //   bars         two black rectangles on top; a root layer with aboveLetterbox true is drawn after them
-// Order, bottom to top: the scene's layers, lift, halation, vignette, grain, bars, aboveLetterbox layers.
+// Order, bottom to top: the scene's layers, soften, haze, lift, halation, vignette, grain, bars, aboveLetterbox layers.
 import { createLayer } from "./model.js";
 import { clamp } from "./numbers.js";
 import { letterboxBar, normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
@@ -34,6 +36,27 @@ export function sceneFinishLayers(scene) {
   const duration = Number.isFinite(scene.duration) && scene.duration > 0 ? scene.duration : 1;
   const finish = normalizeSceneFinish(scene.finish, "finish", throwing);
   const layers = [];
+  if (finish?.soften) {
+    // Diffusion: the picture blurred and laid back over itself at part strength (lighten, so the
+    // light side of every edge spreads over the dark side: edges glow and fine line work softens
+    // while large dark areas stay deep and the frame stays in focus). Radius 0.6% of the height
+    // (about 6 px at 1080p) and opacity 1.6 x soften: set by measuring edge softness, see SOFTEN_START.
+    layers.push(plate("soften", scene, {
+      fillEnabled: false, blendMode: "lighten", opacity: clamp(finish.soften * 1.6, 0, 1),
+      backgroundBlur: { enabled: true, radius: clamp(Math.round(height * 0.006), 1, 100), blend: 100 } }));
+  }
+  if (finish?.haze) {
+    // Haze: a wide blur of the picture, lifted and low in contrast, strongest in the highlights
+    // and tinted a little warm, screened over it (a veil of scattered light). Radius 3% of the
+    // height and the curve and tint are guesses tuned by eye on the study frames.
+    layers.push(plate("haze", scene, {
+      fillEnabled: false, blendMode: "screen", opacity: clamp(finish.haze, 0, 1),
+      backgroundBlur: { enabled: true, radius: clamp(Math.round(height * 0.03), 2, 100), blend: 100 },
+      animations: [
+        fx("haze-curve", "curves", { master: [[0, 0.05], [0.45, 0.12], [1, 0.62]] }, duration),
+        fx("haze-tint", "color-wheels", { gainBlue: -0.12, gainGreen: -0.04 }, duration),
+      ] }));
+  }
   if (finish?.blackLift) layers.push(plate("lift", scene, { fill: gray(finish.blackLift), blendMode: "screen" }));
   if (finish?.halation) {
     // Blur radius is a share of the scene height (a guess: 1.2%, about 13 px at 1080p; the layer maximum is 100).

@@ -18,7 +18,8 @@ const SEEN_AS = {
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],
   shake: ["shake", "impact-accent", "wiggle"], "camera shake": ["shake", "impact-accent", "wiggle"], handheld: ["shake"], jolt: ["shake", "impact-accent"], hit: ["impact-accent", "punch-in"],
-  flash: ["impact-accent", "flash"], strobe: ["impact-accent"], "white flash": ["impact-accent", "flash"],
+  flash: ["impact-accent", "flash", "overexpose"], strobe: ["impact-accent"], "white flash": ["overexpose", "impact-accent", "flash"],
+  overexposed: ["overexpose"], overexposure: ["overexpose"], "burn out": ["overexpose"], "blown out": ["overexpose"], wash: ["overexpose"], "white out": ["overexpose"], exposure: ["overexpose", "color-grade"],
   "light rays": ["light-rays"], "god rays": ["light-rays"], rays: ["light-rays"], beams: ["light-rays"],
   "lens flare": ["lens-flare"], flare: ["lens-flare"], "light leak": ["light-leaks", "light-leak"],
   "color grade": ["color_filter", "color-grade", "color-wheels"], grade: ["color_filter", "color-grade", "color-wheels"],
@@ -44,6 +45,7 @@ const SEEN_AS = {
   // A look over the whole frame is one scene field (finish, letterbox); the effect does one layer.
   letterbox: ["scene-background"], letterboxed: ["scene-background"], "black bars": ["scene-background"], "cinema bars": ["scene-background"], "cinematic bars": ["scene-background"],
   "lifted blacks": ["scene-background", "color-look"], "film look": ["scene-background", "color-look"], "frame finish": ["scene-background"],
+  soften: ["scene-background"], diffusion: ["scene-background"], "soft focus": ["scene-background"], haze: ["scene-background", "fog"], hazy: ["scene-background", "fog"], mist: ["scene-background", "fog"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   electric: ["rim-light"],
