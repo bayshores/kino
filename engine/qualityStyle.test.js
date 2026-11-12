@@ -446,12 +446,16 @@ test("technique_repeat: one transition at most shot changes, a loud accent past 
   const shaken = scene({ duration: 10, layers: [clip("shot", { animations: [1, 3, 5, 7].map((at) => effect("wiggle", at, 0.1, { wiggleX: 10 })) })] });
   assert.match((await fires("technique_repeat", shaken, { styleSpec: { wants: ["shake"], by: "you", quote: "shake it on every hit" } }))[0].measured, /shake 4 times/);
   // Four flashes in 10 s pass the house budget of 3 only when 2 or more measured references flash as often.
-  const flashed = scene({ duration: 10, layers: [...[0, 1, 2, 3, 4].map((index) => clip(`shot${index}`, { animations: [...(index ? [show(index * 2 + 0.2)] : []), ...(index < 4 ? [hide(index * 2 + 2)] : [])] })),
-    ...[1, 2, 3, 4].map((index) => rect(`white${index}`, { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", animations: [hide(0), show(index * 2), hide(index * 2 + 0.2)] }))] });
+  // The white frames sit inside the shots (1 s before each cut); at offset 0 they are flat frames on the cuts.
+  const whites = (offset) => scene({ duration: 10, layers: [...[0, 1, 2, 3, 4].map((index) => clip(`shot${index}`, { animations: [...(index ? [show(index * 2 + 0.2)] : []), ...(index < 4 ? [hide(index * 2 + 2)] : [])] })),
+    ...[1, 2, 3, 4].map((index) => rect(`white${index}`, { x: 0, y: 0, width: 1920, height: 1080, fill: "#ffffff", animations: [hide(0), show(index * 2 + offset), hide(index * 2 + offset + 0.2)] }))] });
+  const flashed = whites(-1);
   const flashRef = (id, flashes) => ({ id, seconds: 30, allCuts: [5, 10, 15, 20], cuts: [5, 10, 15, 20], flashes });
   // (The flashes also make "no plain cut" findings; only the accent budget is read here.)
-  const overBudget = async (closeRefs) => (await run("technique_repeat", flashed, { closeRefs })).findings.filter((found) => /^flash \d+ times/.test(found.measured));
+  const overBudget = async (closeRefs, video = flashed) => (await run("technique_repeat", video, { closeRefs })).findings.filter((found) => /^flash \d+ times/.test(found.measured));
   assert.equal((await overBudget([])).length, 1);
+  // Flat frames on the cuts are part of the join: the house budget does not count them.
+  assert.equal((await overBudget([], whites(0))).length, 0);
   assert.equal((await overBudget([flashRef("yt:AAAA", 30)])).length, 1);
   assert.equal((await overBudget([flashRef("yt:AAAA", 30), flashRef("yt:BBBB", 12)])).length, 0);
   const [flashFix] = await overBudget([flashRef("yt:AAAA", 3), flashRef("yt:BBBB", 6)]);

@@ -71,7 +71,8 @@ export function songSections(cues, duration) {
 // The loud effects, each with its trigger: [{tag, at, itemId, strength, frames, shape, rate, cue, weight, motive}].
 // `motivated` is every cue with its strongest reason, worked out once: [{cue, best}].
 function loudEffects(model, cues, motivated) {
-  const used = techniquesUsed(model);
+  // A flat frame on a cut (techniques.js flatJoins) is part of the join, as a cut is: not a loud effect.
+  const used = Object.fromEntries(Object.entries(techniquesUsed(model)).map(([tag, list]) => [tag, list.filter((use) => !use.join)]));
   // Zoom punches one at a time, of any size, timed from where they start to rise; a punch a move
   // names its cue for is read from the move's record.
   const named = (used["beat-kick"] ?? []).filter((use) => use.cue);

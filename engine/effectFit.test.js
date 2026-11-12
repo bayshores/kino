@@ -102,6 +102,12 @@ test("effect_fit: hand-made flashes, shakes, impact frames and punches are asked
   const fixes = async (document) => (await runQuality(kinoTimeline(document, "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: cues } })).findings.map((finding) => finding.fix);
   assert.deepEqual(await fixes(cases["red card"]), [{ kind: "remove", layerItemId: "red", auto: true }]);
   assert.deepEqual(await fixes(edit(punch(5))), [{ kind: "remove", animationIds: ["shot.1", "shot.2"], auto: true }]);
+  // A flat frame on a cut (move flash frames:1) is part of the join, as the cut is; the same frame over one shot is a flash.
+  const next = { type: "video", id: "shot2", name: "shot2", src: "/api/media/shot2.mp4", mediaSourceDuration: 30, x: 0, y: 0, width: 1920, height: 1080, animations: [{ id: "shot2.show", name: "Show", kind: "show", start: 5 }] };
+  const flat = { type: "rectangle", id: "flat", name: "flat", x: 0, y: 0, width: 1920, height: 1080, fill: "#FFFFFF", animations: [
+    { id: "flat.show", name: "Show", kind: "show", start: 5 }, { id: "flat.hide", name: "Hide", kind: "hide", start: 5 + 1 / 30 - 0.0005 }] };
+  assert.deepEqual(await reasons(edit([], [next, flat]), cues), []);
+  assert.deepEqual(await reasons(edit([], [flat]), cues), ["untriggered"]);
 });
 
 test("effect_fit: strength ranks with the trigger's weight", async () => {

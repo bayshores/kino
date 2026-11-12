@@ -390,7 +390,7 @@ How to read it:
   cross-fade under reduced motion; `align` start, center or end on any move and `spring`, `back-out` easings (ArtCraft
   FilmCraft ports). Evidence: `engine/moves.test.js`, `engine/easing.test.js`, one golden sheet of all eight at their peak
   (`tests/golden/frames/move-cut-transitions@peaks.png`).
-- **Flat flash frame**: Verified. `move flash {from, to, frames:1}` (1 to 12) is a flat frame at full opacity, the cut under the first; color hex or "auto" (pale tint of the next shot's hue, a guess); the receipt counts flash frames within 1 s; `flashing` scans flats from separate layers as one run. Evidence: `engine/moves.test.js`, `backend/quality-pixels.test.mjs`.
+- **Flat flash frame**: Verified. `move flash {from, to, frames:1}` (1 to 12) is a flat frame at full opacity, the cut under the first; color hex or "auto" (pale tint of the next shot's hue, a guess); the receipt counts flash frames within 1 s; `flashing` scans flats from separate layers as one run; a flat frame on a cut is part of the join for effect_fit and the house flash budget. Evidence: `engine/moves.test.js`, `backend/quality-pixels.test.mjs`, `engine/effectFit.test.js`, `engine/qualityStyle.test.js`.
 - **Karaoke and word-pop captions**: Verified. `caption-words` takes `highlight:"active"` and
   `entrance:"pop"`, keyed by per-unit `delays`; reading-time, contrast and spring gates still pass.
   Captions and status lines add a dark box only when their halo-shadowed words could fail contrast over

@@ -384,8 +384,10 @@ export function techniqueRepeat(model, ctx) {
   const pace = referencePace(ctx.closeRefs)?.flash ?? null;
   const theirs = pace ? paceCounts(pace, model.duration) : null;
   for (const tag of ACCENTS) {
-    const list = counted(tag, used[tag] ?? []);
     const refs = tag === "flash" && theirs ? theirs : null;
+    // The house budget leaves out flat frames on a cut (part of the join, techniques.js flatJoins);
+    // a budget from the references counts them, as the references' own flash rate does.
+    const list = counted(tag, (used[tag] ?? []).filter((use) => refs || !use.join));
     const budget = Math.max(house, refs?.high ?? 0);
     // A style spec that wants the accent does not lift the budget: loud accents wear out however
     // they were chosen (effect_fit asks each one for its reason).

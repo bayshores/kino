@@ -621,14 +621,11 @@ export function flashCandidates(model) {
   // separate layers or moves (each alone under the rate) are one run when they are close together.
   const merged = new Map();
   for (const item of model.items) {
-    if (!item.isMask && item.kind !== "group" && item.kind !== "video" && item.kind !== "image") {
-      const bigAt = (index) => item.samples.opacity[index] > 0.05 && area(boxAt(item, index)) * insideShare(model, boxAt(item, index)) >= FLASH_AREA * frame;
-      if (item.samples.opacity.some((_, index) => bigAt(index)))
-        for (const index of transitions(Array.from(item.samples.opacity, (value, at) => (bigAt(at) ? value : 0)))) if (!merged.has(index)) merged.set(index, item.id);
-    }
     if (item.isMask || item.kind === "group") continue;
     const big = (index) => item.samples.opacity[index] > 0.05 && area(boxAt(item, index)) * insideShare(model, boxAt(item, index)) >= FLASH_AREA * frame;
     if (!item.samples.opacity.some((_, index) => big(index))) continue;
+    if (item.kind !== "video" && item.kind !== "image")
+      for (const index of transitions(Array.from(item.samples.opacity, (value, at) => (big(at) ? value : 0)))) if (!merged.has(index)) merged.set(index, item.id);
     // Particles that twinkle faster than 3 times a second (samples.flickerHz) can flash while
     // their layer holds still. Their twinkle is steady, so one second where it is strongest is
     // scanned (about 1.3 s of rendering at 30 fps instead of 2.3 s for three).
@@ -647,9 +644,9 @@ export function flashCandidates(model) {
       windows.push({ from: Math.max(0, changes[0] - 1), to: Math.min(model.times.length - 1, changes.at(-1) + 1), itemId: item.id });
     }
   }
-  // The merged run, added when it is over the rate and no window of one layer already covers it.
+  // Each merged run over the rate (more than 6 changes in a second), added when no window of one
+  // layer already covers it; the scan goes on after a run, so a second run later is seen too.
   const changes = [...merged.keys()].sort((a, b) => a - b);
-  // Only the first second that holds more than 6 changes is scanned (the pixel scan judges it).
   for (let first = 0; first + 2 * MAX_FLASHES < changes.length; first += 1) {
     const last = first + 2 * MAX_FLASHES;
     if (changes[last] - changes[first] >= model.fps) continue;
@@ -658,7 +655,7 @@ export function flashCandidates(model) {
     const from = Math.max(0, changes[first] - 1);
     const to = Math.min(model.times.length - 1, changes[end] + 1);
     if (!windows.some((window) => window.from <= from && window.to >= to)) windows.push({ from, to, itemId: merged.get(changes[first]) });
-    break;
+    first = end;
   }
   return windows;
 }

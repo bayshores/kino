@@ -119,7 +119,7 @@ function flashColor(ctx, input, to) {
 
 /**
  * Flash onsets near the move's span: the full-frame layers that are not clips or pictures (flat
- * plates, other flashes) shown at 50% or more, sampled every frame from 1 s before to 1 s after,
+ * plates, other flashes) shown at 50% or more for at most FLAT_FRAMES, sampled every frame from 1 s before to 1 s after,
  * plus this one at `start`. Returns the times (in the best 1 s window holding this flash) of the most onsets.
  */
 function flashOnsets(ctx, start, end) {
@@ -129,12 +129,18 @@ function flashOnsets(ctx, start, end) {
   const first = Math.max(0, Math.floor((start - 1) * ctx.fps));
   const last = Math.ceil((end + 1) * ctx.fps);
   for (const layer of layers) {
-    let was = false;
-    for (let index = first; index <= last; index += 1) {
+    const isAt = (index) => {
       const time = index / ctx.fps;
       const box = ctx.boxAt(layer.id, time);
-      const is = box.width * box.height >= 0.97 * area && ctx.shownAt(layer.id, time) && (ctx.partStateAt(layer.id, time).opacity ?? 1) >= 0.5;
-      if (is && !was) onsets.push(round(time));
+      return box.width * box.height >= 0.97 * area && ctx.shownAt(layer.id, time) && (ctx.partStateAt(layer.id, time).opacity ?? 1) >= 0.5;
+    };
+    let was = false;
+    for (let index = first; index <= last; index += 1) {
+      const is = isAt(index);
+      // A flash is gone within FLAT_FRAMES; a plate held longer (a backdrop) is not one.
+      let held = 1;
+      if (is && !was) while (held <= FLAT_FRAMES && isAt(index + held)) held += 1;
+      if (is && !was && held <= FLAT_FRAMES) onsets.push(round(index / ctx.fps));
       was = is;
     }
   }

@@ -193,6 +193,10 @@ test("flash frames:1 is one flat frame with the cut under it; four of them close
   assert.deepEqual([1.967, 2].map((time) => seen("shot-b", time)), [0, 1]);
   assert.deepEqual([2, 2.033].map((time) => seen("shot-a", time)), [1, 0]);
   assert.match(one.notes.join("; "), /1 flat frame at 2 s \(#FFFFFF\), the cut under it; flash frames within 1 s: 1 \(the flashing check allows 3 a second\)/);
+  // A full-frame plate that comes on 0.5 s before and stays (a backdrop) is not a flash frame.
+  const backed = sceneFor(1920, 1080);
+  backed.layers.unshift(createLayer("rectangle", { id: "backdrop", name: "backdrop", x: 0, y: 0, width: 1920, height: 1080, fill: "#202020", animations: [{ id: "backdrop.show", name: "Show", kind: "show", start: 1.5 }] }));
+  assert.match(flat("flash0", 2, {}, backed).notes.join("; "), /flash frames within 1 s: 1 \(/);
   // Four, 0.2 s apart: the receipt counts them, and each layer alone is under the rate but together they are a candidate.
   const four = sceneFor(1920, 1080);
   const last = [1.4, 1.6, 1.8, 2].map((at, index) => {

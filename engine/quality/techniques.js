@@ -233,6 +233,34 @@ function darkUnder(model, change) {
   return backgroundLuma(model, index) <= 0.15;
 }
 
+// A flat frame lasts at most this long: 12 frames at 30 fps, the longest move flash frames:n
+// (a half-second black hold between shots measured in a cut-to-the-beat reference, 0.42 s).
+const FLAT_SECONDS = 0.4;
+
+/**
+ * The onsets (seconds) of flat frames on a cut: a full-frame plate that is not a clip or picture,
+ * up at once (under 0.1 one sample, 0.9 or more the next) and gone within FLAT_SECONDS, with one
+ * picture on top before it and another after it. A ramped flash, or a flat frame over one shot, is not one.
+ */
+export function flatJoins(model) {
+  return memo(model, "flatJoins", () => {
+    const found = [];
+    for (const item of plates(model)) {
+      if (item.kind === "video" || item.kind === "image") continue;
+      const { opacity } = item.samples;
+      for (let index = 1; index < opacity.length; index += 1) {
+        if (!(opacity[index] >= 0.9 && opacity[index - 1] < 0.1)) continue;
+        let length = 0;
+        while (index + length < opacity.length && opacity[index + length] >= 0.5) length += 1;
+        const before = topPlate(model, index - 1);
+        const after = topPlate(model, Math.min(opacity.length - 1, index + length));
+        if (length / model.fps <= FLAT_SECONDS + 0.001 && before && after && before.id !== after.id && after.id !== item.id) found.push(model.times[index]);
+      }
+    }
+    return found;
+  });
+}
+
 function flashNear(model, time) {
   return plates(model).some((item) => {
     const [from, to] = windowAround(model, time, 0.3, 0.3);
@@ -528,6 +556,10 @@ export function techniquesUsed(model) {
           add("flash", model.times[index], item.id, { strength: round2(peak), frames: Math.max(1, Math.round((length / model.fps) * 30)), shape: "card" });
       }
     }
+    // A flat frame on a cut is part of the join (move flash frames:n, or a plate with a Show and a
+    // Hide): marked join, so effect_fit and the house flash budget read it as the cut.
+    const joins = flatJoins(model);
+    for (const entry of found.flash ?? []) if (joins.some((time) => Math.abs(time - entry.at) <= step + 0.001)) entry.join = true;
 
     // The cuts the shot changes do not cover: most of what was on screen gone at once.
     const cutTimes = changes.filter((change) => change.tag === "cut").map((change) => change.at);
