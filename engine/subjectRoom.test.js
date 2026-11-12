@@ -30,6 +30,12 @@ test("place around a subject: a word moves beside it with no letter inside; a li
   assert.equal(placed.after, 0);
   assert.equal(placed.scale, 1, "it fits beside the subject at its size");
 
+  // A word already clear of the subject is not pulled up against it: the shortest move is none.
+  const clear = sceneOf(word("HI", 100));
+  Object.assign(clear.layers[0], { textAlign: "left", x: 200, y: 440 });
+  const kept = placeAroundSubject(clear, [clear.layers[0]], SUBJECT, { gap: 24, bounds: BOUNDS, least: 36, split: copyOf(clear) });
+  assert.deepEqual([kept.side, kept.after, clear.layers[0].x, clear.layers[0].y], ["left", 0, 200, 440]);
+
   // Two words at 260 px are wider than either side's 640 px: split keeps them larger than one shrunk line.
   const two = sceneOf(word("KILL YOU", 260));
   const split = placeAroundSubject(two, [two.layers[0]], SUBJECT, { gap: 24, bounds: BOUNDS, least: 36, split: copyOf(two) });

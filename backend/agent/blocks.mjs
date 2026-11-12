@@ -2312,20 +2312,24 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     let size = null;
     try { const file = (await mediaOf(document, work))(pick.src); if (file?.width > 0 && file?.height > 0) size = { width: file.width, height: file.height }; } catch { /* drawn as the box's shape */ }
     const marks = marksOf(pick);
-    let boxes = [], how;
+    let boxes = [], how, face = false;
     if (marks.length) {
       const nearest = marks.reduce((best, entry) => (Math.abs(entry.at - sourceTime) < Math.abs(best.at - sourceTime) ? entry : best));
       const moment = marks.filter((entry) => Math.abs(entry.at - nearest.at) <= SAME_MOMENT + 1e-9);
-      boxes = (moment.some((entry) => !entry.part) ? moment.filter((entry) => !entry.part) : moment).map((entry) => entry.box);
+      face = !moment.some((entry) => !entry.part);
+      boxes = (face ? moment : moment.filter((entry) => !entry.part)).map((entry) => entry.box);
       how = `your mark at file ${round(nearest.at)} s`;
     } else {
       const samples = (await subjectSamples?.(pick).catch(() => null)) ?? [];
       const found = pickFace({ marks: [], samples, sourceTime, on: "face", size });
-      if (found) { boxes = [found.box]; how = `the face kino found at file ${round(found.at)} s`; }
+      if (found) { boxes = [found.box]; how = `the face kino found at file ${round(found.at)} s`; face = true; }
     }
     if (!boxes.length) throw Object.assign(problem(`No subject marked on ${name} (look {mode:"source", layer:"${name}", t:${t}}, then mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} and place again).`), { noExample: true });
     const x0 = Math.min(...boxes.map((box) => box[0])), y0 = Math.min(...boxes.map((box) => box[1]));
-    const x1 = Math.max(...boxes.map((box) => box[0] + box[2])), y1 = Math.max(...boxes.map((box) => box[1] + box[3]));
+    // A face (part marks or a found face) has its body under it: the box runs to the picture's
+    // bottom, so text set "below" does not land on the chest.
+    const x1 = Math.max(...boxes.map((box) => box[0] + box[2])), y1 = face ? 100 : Math.max(...boxes.map((box) => box[1] + box[3]));
+    if (face) how += ", a face taken down to the picture's bottom for the body under it";
     const box = subjectOnScene(scene, pick, time, [x0, y0, x1 - x0, y1 - y0], size);
     if (!box) throw problem(`${name} has no size at ${t} s.`);
     return { box, name, behind, line: `the subject of ${name} at ${t} s (${how})` };

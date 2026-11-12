@@ -61,9 +61,10 @@ export function roomLine(room) {
 const clamp = (value, low, high) => (high < low ? low : Math.min(high, Math.max(low, value)));
 const sizeOf = (box) => ({ width: box.x1 - box.x0, height: box.y1 - box.y0 });
 
-// Where the ink box goes on one side (a gap from the subject, its other axis kept and pulled
-// inside the bounds) and how much it must shrink to fit that side's room (1 when it fits).
-function sideSpot(side, ink, room, subject, bounds, gap) {
+// Where the ink box goes on one side (the shortest move into that side's room: text already
+// clear of the subject stays put, text over it stops a gap from it) and how much it must shrink
+// to fit that room (1 when it fits).
+function sideSpot(side, ink, room) {
   if (!room) return null;
   const { width, height } = sizeOf(ink);
   const space = sizeOf(room);
@@ -71,14 +72,7 @@ function sideSpot(side, ink, room, subject, bounds, gap) {
   const fit = Math.min(1, scale);
   const w = width * fit, h = height * fit;
   const cx = (ink.x0 + ink.x1) / 2, cy = (ink.y0 + ink.y1) / 2;
-  let x0, y0;
-  if (side === "left" || side === "right") {
-    x0 = side === "left" ? subject.x0 - gap - w : subject.x1 + gap;
-    y0 = clamp(cy - h / 2, bounds.y0, bounds.y1 - h);
-  } else {
-    y0 = side === "above" ? subject.y0 - gap - h : subject.y1 + gap;
-    x0 = clamp(cx - w / 2, bounds.x0, bounds.x1 - w);
-  }
+  const x0 = clamp(cx - w / 2, room.x0, room.x1 - w), y0 = clamp(cy - h / 2, room.y0, room.y1 - h);
   return { side, scale, target: { x0, y0, x1: x0 + w, y1: y0 + h } };
 }
 
@@ -92,10 +86,10 @@ function sideSpot(side, ink, room, subject, bounds, gap) {
  */
 export function planAround({ ink, gaps = [], subject, bounds, gap, side }) {
   const room = subjectRoom(bounds, subject, gap);
-  const whole = ["left", "right", "above", "below"].map((name) => sideSpot(name, ink, room[name], subject, bounds, gap)).filter(Boolean);
+  const whole = ["left", "right", "above", "below"].map((name) => sideSpot(name, ink, room[name])).filter(Boolean);
   const splits = room.left && room.right ? gaps.map((cut) => {
-    const left = sideSpot("left", cut.left, room.left, subject, bounds, gap);
-    const right = sideSpot("right", cut.right, room.right, subject, bounds, gap);
+    const left = sideSpot("left", cut.left, room.left);
+    const right = sideSpot("right", cut.right, room.right);
     const scale = Math.min(left.scale, right.scale);
     // One size for both parts: each part's box is shrunk by the smaller scale; one baseline.
     const fit = Math.min(1, scale);
@@ -190,8 +184,8 @@ export function placeAroundSubject(scene, layers, subject, options) {
     placed = [only, second];
   } else {
     const now = union(lettersOf(layers));
-    const spot = sideSpot(chosen.side, now, room[chosen.side], subject, bounds, gap);
-    // Pulled inside the bounds when the floor size still does not fit the room.
+    const spot = sideSpot(chosen.side, now, room[chosen.side]);
+      // Pulled inside the bounds when the floor size still does not fit the room.
     const { width, height } = sizeOf(now);
     moveTo(layers, { x0: clamp(spot.target.x0, bounds.x0, bounds.x1 - width), y0: clamp(spot.target.y0, bounds.y0, bounds.y1 - height) });
   }
