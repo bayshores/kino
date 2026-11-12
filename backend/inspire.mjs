@@ -2092,6 +2092,20 @@ export function createInspire(deps) {
   }
 
   /**
+   * The integrated loudness (LUFS) of a project's saved references whose sound was measured with it
+   * (heard.lufs): [{id, lufs}]. A reference measured before kino kept it has none (never guessed).
+   */
+  async function savedLoudness(projectId) {
+    const state = { ...emptyProject(), ...(await projectState.read(projectId)) };
+    const found = [];
+    for (const id of state.saved) {
+      const lufs = (await load(id))?.heard?.lufs;
+      if (Number.isFinite(lufs)) found.push({ id, lufs });
+    }
+    return found;
+  }
+
+  /**
    * The lent cuts of a project's saved, measured references: [{id, seconds, cuts, fps, allCuts, flashes}]
    * (for the reference_closeness check: their shot lengths in order are what an edit must not copy;
    * allCuts and flashes give the pacing rules the references' cut and flash rate and shot spread).
@@ -2119,7 +2133,7 @@ export function createInspire(deps) {
     catch { return []; }
   }
 
-  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, setSeen, typeLabels, seenStatus, setTake, savedTakes, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, cachedIds, summary: (id) => summary(refs.get(id)) };
+  return { start, search, origin, searchView, soundTasteEntry, add, forget, importSound, soundFile, reference, remeasure, cancel, setSaved, setSeen, typeLabels, seenStatus, setTake, savedTakes, savedCount, savedIds, savedKeys, setLooking, setIdeas, toggleIdea, answerIdeas, projectView, thumbFile, stripsFor, savedStills, savedFingerprints, savedRhythms, savedLoudness, cachedIds, summary: (id) => summary(refs.get(id)) };
 }
 
 /**
@@ -2237,8 +2251,11 @@ export async function inspireTools({ command } = {}) {
       let voice = null;
       let lines = [];
       if (whisperModelReady()) { try { ({ spans: voice, lines } = await songVoice(file, { seconds })); } catch { voice = null; } }
+      // Its integrated loudness on the same copy (render loudness "auto" follows the saved references' median).
+      const lufs = await measureFileLevels(file).then((levels) => levels.integratedLufs, () => null);
       // The words whisper wrote for those spans stay too (no extra run): library inspire lists them.
-      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none", ...(lines.length ? { lines: lines.slice(0, HEARD_LINES_KEPT) } : {}) };
+      return { change: top ? { at: top.at, kind: top.kind } : null, voice, by: voice ? "whisper" : "none", ...(lines.length ? { lines: lines.slice(0, HEARD_LINES_KEPT) } : {}),
+        ...(Number.isFinite(lufs) ? { lufs } : {}) };
     },
     // steady: kino's own test of whether the beat grid is a song's (a voice scores low).
     findBeats: async (file) => { const analysis = await analyzeAudioFile(file); return { ...analysis, steady: steadyBeat(analysis) }; },

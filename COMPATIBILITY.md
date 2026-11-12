@@ -1227,6 +1227,12 @@ How to read it:
   peak (`audioPeak`) and target (`audioLoudness`). Volume goes to 4 (+12 dB). Evidence:
   `backend/audio-levels.test.mjs`, `engine/volumeAnimation.test.js`. Gap: the dashboard preview mix is
   not leveled and plays volume at most 1.
+- **Loudness from references and by number**: Verified on generated tones with stubbed reference
+  measures. `loudness` takes a number of LUFS (-30 to -6, target "asked"); auto follows the median of
+  the saved references' measured LUFS (`heard.lufs`, read where a reference's sound is measured) and
+  names them; check's mix line adds the level after the limiter (tones: 0.4 before, -3.1 after, file -3.1).
+  Evidence: `backend/audio-levels.test.mjs`. Gap: references measured before this keep no LUFS until
+  measured again; the encoder's ceiling fit is not simulated in check (a dense mix: -11.7 vs file -12.2).
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the

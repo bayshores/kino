@@ -20,8 +20,17 @@ const TRIAL_ENCODES = 4;
 // Platform loudness targets in LUFS (integrated): the render option `loudness` picks one, and
 // "off" keeps the mix's own loudness. Every mp4, webm and mov render, drafts too, uses "web" unless told otherwise.
 export const LOUDNESS_TARGETS = { web: -14, podcast: -16, broadcast: -23 };
-// "auto" (the default) picks web or a song's own level: see mixLead. LOUDNESS_TARGETS stays the fixed ones.
+// "auto" (the default) follows the saved references' measured loudness (referenceLead), else picks
+// web or a song's own level (mixLead). LOUDNESS_TARGETS stays the fixed ones.
 export const LOUDNESS_OPTIONS = ["auto", ...Object.keys(LOUDNESS_TARGETS), "off"];
+// A number in LUFS is a target too, within this range: broadcast's -23 and quieter to a loud edit's -6.
+export const LOUDNESS_RANGE = [-30, -6];
+
+/** Whether `value` is a render loudness option: a LOUDNESS_OPTIONS name or a number in LOUDNESS_RANGE. */
+export function loudnessOption(value) {
+  if (typeof value === "number") return Number.isFinite(value) && value >= LOUDNESS_RANGE[0] && value <= LOUDNESS_RANGE[1];
+  return LOUDNESS_OPTIONS.includes(value);
+}
 // Plain gain raises a quiet mix by at most this much, so near silence is not turned into hiss.
 const MAX_GAIN_DB = 20;
 // The limiter takes peaks down by at most this much. When reaching the target would take more, the
@@ -145,6 +154,27 @@ export function mixLead({ duration, songs = [], voiceSeconds = 0 }) {
   const own = round1(Math.max(...led.map((song) => song.lufs)));
   if (own <= web) return { target: "web", targetLufs: web, why: `the song (${own}) is under ${web}` };
   return { target: "song", targetLufs: own, why: "the song's own level, no voice leads" };
+}
+
+/**
+ * What "auto" means when the project's saved references have measured sound: the median of their
+ * integrated loudness, kept inside LOUDNESS_RANGE. `refs` are [{id, lufs}]. Returns { target:
+ * "references", targetLufs, why } naming each reference and its LUFS, or null when none has one.
+ */
+export function referenceLead(refs = []) {
+  const measured = refs.filter((ref) => Number.isFinite(ref?.lufs)).sort((a, b) => a.lufs - b.lufs);
+  if (!measured.length) return null;
+  const middle = Math.floor(measured.length / 2);
+  const median = round1(measured.length % 2 ? measured[middle].lufs : (measured[middle - 1].lufs + measured[middle].lufs) / 2);
+  const targetLufs = Math.min(LOUDNESS_RANGE[1], Math.max(LOUDNESS_RANGE[0], median));
+  const named = measured.slice(0, 4).map((ref) => `${ref.id} ${ref.lufs}`).join(", ") + (measured.length > 4 ? `, ${measured.length - 4} more` : "");
+  const kept = targetLufs === median ? "" : ` (${median} kept inside ${LOUDNESS_RANGE[0]} to ${LOUDNESS_RANGE[1]})`;
+  return { target: "references", targetLufs, why: `median of ${measured.length} saved ${measured.length === 1 ? "reference" : "references"} (${named})${kept}` };
+}
+
+/** The lead for a render loudness given as a number in LUFS. */
+export function askedLead(lufs) {
+  return { target: "asked", targetLufs: lufs, why: "the number in render options" };
 }
 
 /**
@@ -294,10 +324,13 @@ const placeText = (place) => {
  * `limit` how many of the worst places are named, `tail` what follows them.
  */
 export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = {}) {
-  const level = `${label}: ${mix.integratedLufs === null ? "too short to measure LUFS" : `${mix.integratedLufs} LUFS`}, true peak ${mix.truePeakDbtp === null ? "silent" : `${signed(mix.truePeakDbtp)} dBTP`} with render loudness "off"`;
+  // Both are before the limiter; `limitedLufs` is the same mix after it, the level a render at "off" writes.
+  const limited = Number.isFinite(mix.limitedLufs) && mix.integratedLufs !== null
+    ? ` (after the limiter ${mix.limitedLufs} LUFS, the file's level at "off" unless the encode pushes peaks over -1 dBTP and the ceiling drops: the render receipt measures the file)` : "";
+  const level = `${label}: ${mix.integratedLufs === null ? "too short to measure LUFS" : `${mix.integratedLufs} LUFS`}, true peak ${mix.truePeakDbtp === null ? "silent" : `${signed(mix.truePeakDbtp)} dBTP`} with render loudness "off"${limited}`;
   // What the default "auto" target's gain does to the same peaks (measureMixPeaks `auto`).
   const auto = mix.auto;
-  const autoText = auto ? `; loudness "auto" (the render default, target ${auto.targetLufs} ${auto.target}) adds ${signed(auto.gainDb)} dB first${auto.held ? " (held by the peaks)" : ""}, then the limiter ` +
+  const autoText = auto ? `; loudness "auto" (the render default, target ${auto.targetLufs} ${auto.target}${auto.why && auto.target === "references" ? `: ${auto.why}` : ""}) adds ${signed(auto.gainDb)} dB first${auto.held ? " (held by the peaks)" : ""}, then the limiter ` +
     (auto.places ? `works at ${auto.places} ${auto.places === 1 ? "place" : "places"}, most ${auto.worst.overDb} dB at ${auto.worst.at} s` : "never works") : "";
   if (!mix.places.length) return `${level}; the limiter (ceiling ${LIMITER_CEILING_DB} dBFS) never works${autoText}`;
   // All of them in time order when they fit, else the worst first.

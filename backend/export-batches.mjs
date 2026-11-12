@@ -13,14 +13,14 @@ import { archiveFiles } from "./zip.mjs";
 import { createSegmentCache } from "./render-segment-cache.mjs";
 import { graphicsCacheInput } from "./render-devices.mjs";
 import { validateRenderFile } from "./render-validation.mjs";
-import { LOUDNESS_OPTIONS, LOUDNESS_TARGETS } from "./audio-levels.mjs";
+import { LOUDNESS_OPTIONS, LOUDNESS_RANGE, LOUDNESS_TARGETS, loudnessOption } from "./audio-levels.mjs";
 import { normalizeRenderQuality } from "./render-quality.mjs";
 import { LOOK_MOTION_SAMPLES } from "../engine/previewBlur.js";
 import { renderRange } from "./render-range.mjs";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 
 const TERMINAL = new Set(["completed", "failed", "canceled"]);
-const OPTION_KEYS = new Set(["format", "profile", "size", "fps", "width", "height", "quality", "gifEncoder", "mp4Encoder", "videoEncoder", "videoQuality", "loop", "playbackDirection", "transparent", "time", "design", "duration", "from", "to", "imageDPIRatio", "motionBlur", "shutterAngle", "motionSamples", "dither", "renderQuality", "sequenceArchive", "draftWidth", "draftFps", "loudness"]);
+const OPTION_KEYS = new Set(["format", "profile", "size", "fps", "width", "height", "quality", "gifEncoder", "mp4Encoder", "videoEncoder", "videoQuality", "loop", "playbackDirection", "transparent", "time", "design", "duration", "from", "to", "imageDPIRatio", "motionBlur", "shutterAngle", "motionSamples", "dither", "renderQuality", "sequenceArchive", "draftWidth", "draftFps", "loudness", "referenceLoudness"]);
 
 function createExportSemaphore(limit) {
   let active = 0;
@@ -99,8 +99,12 @@ function exportOptions(value = {}) {
   if (options.draftFps !== undefined) options.draftFps = parseFps(options.draftFps);
   if (options.draftWidth !== undefined && (!Number.isInteger(options.draftWidth) || options.draftWidth < 16 || options.draftWidth > 7680))
     throw requestError("Draft width must be a whole number of pixels from 16 to 7680.");
-  if (options.loudness !== undefined && !LOUDNESS_OPTIONS.includes(options.loudness))
-    throw requestError(`Loudness is one of ${LOUDNESS_OPTIONS.join(", ")} (auto: a song-led mix keeps the song's own level when over -14, otherwise web; web -14 LUFS, podcast -16, broadcast -23, off keeps the mix's own).`);
+  if (options.loudness !== undefined && !loudnessOption(options.loudness))
+    throw requestError(`Loudness is a number of LUFS from ${LOUDNESS_RANGE[0]} to ${LOUDNESS_RANGE[1]} or one of ${LOUDNESS_OPTIONS.join(", ")} (auto: the median of the saved references' measured LUFS, else a song-led mix keeps the song's own level when over -14, otherwise web; web -14 LUFS, podcast -16, broadcast -23, off keeps the mix's own).`);
+  // Read by the service from the saved references (never typed by an agent): [{id, lufs}].
+  if (options.referenceLoudness !== undefined && (!Array.isArray(options.referenceLoudness) || options.referenceLoudness.length > 50
+    || options.referenceLoudness.some((ref) => typeof ref?.id !== "string" || !Number.isFinite(ref?.lufs))))
+    throw requestError("referenceLoudness is a list of {id, lufs}.");
   if (options.imageDPIRatio !== undefined && options.format !== "lottie")
     throw requestError("Image resolution applies only to Lottie exports.");
   if (options.imageDPIRatio !== undefined && !["1x", "2x", "3x", "original"].includes(options.imageDPIRatio))
@@ -207,6 +211,7 @@ export function sceneOptions(options, scene) {
   const loudness = options.loudness ?? "auto";
   if (loudness && ["mp4", "webm", "mov"].includes(options.format)) result.loudness = loudness;
   else delete result.loudness;
+  if (result.loudness !== "auto" || !options.referenceLoudness?.length) delete result.referenceLoudness;
   delete result.size;
   delete result.draftWidth;
   delete result.draftFps;

@@ -14,7 +14,7 @@ import { applyKeepLine } from "../engine/keepLine.js";
 import { energyMean } from "../engine/mixLevels.js";
 import { applyLinePeak, capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
-import { describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
+import { askedLead, describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, loudnessOption, measureFileLevels, mixLead, readLevels, readPeakWindows, referenceLead } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
 import { exportScene, measureMixPeaks, sceneSoundClips, soundMixArgs } from "./export.mjs";
 import { ffmpeg, makeToneAfterSilence, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
@@ -225,6 +225,16 @@ test("the meter reads loudness, true peak and the loudest moment from FFmpeg's p
   assert.equal(mixLead({ duration: 20, songs: [{ ...song, seconds: 6 }] }).target, "web", "a song under half the video does not lead");
   assert.match(mixLead({ duration: 20, songs: [{ ...song, volume: 0.3 }] }).why, /a bed/, "a bed is not a song-led mix");
   assert.deepEqual(mixLead({ duration: 20, voiceSeconds: 12 }), { target: "web", targetLufs: -14 });
+  // "auto" with saved references that carry measured sound: their median, each named with its LUFS.
+  assert.deepEqual(referenceLead([{ id: "yt:a", lufs: -8.8 }, { id: "yt:b", lufs: -12.9 }, { id: "yt:c", lufs: -10.1 }, { id: "yt:d" }]),
+    { target: "references", targetLufs: -10.1, why: "median of 3 saved references (yt:b -12.9, yt:c -10.1, yt:a -8.8)" });
+  assert.equal(referenceLead([{ id: "yt:a", lufs: -9 }, { id: "yt:b", lufs: -12 }]).targetLufs, -10.5, "an even count takes the middle two");
+  assert.match(referenceLead([{ id: "yt:a", lufs: -4.2 }]).why, /\(-4\.2 kept inside -30 to -6\)$/);
+  assert.equal(referenceLead([{ id: "yt:a" }]), null, "no measured reference: auto stays as it was");
+  // A number in LUFS is a render loudness inside the stated range; names stay as they were.
+  assert.deepEqual([-10, -30, -6, "web", "auto", -5, -31, Number.NaN, "-10"].map(loudnessOption), [true, true, true, true, true, false, false, false, false]);
+  assert.equal(describeLevels({ integratedLufs: -10.1, truePeakDbtp: -1 }, { ...loudnessGain({ integratedLufs: -12, truePeakDbtp: -4 }, "asked", 0, -10, askedLead(-10).why), held: false }),
+    "-10.1 LUFS (target -10 asked: the number in render options), true peak -1 dBTP");
   // Fitting aims at the song's own level and says why; the gain, cap and hold are the web's.
   assert.deepEqual(loudnessGain({ integratedLufs: -14.1, truePeakDbtp: -3 }, "song", 0, -11.7, "the song's own level, no voice leads"),
     { target: "song", targetLufs: -11.7, gainDb: 2.4, correction: 0, capped: false, held: false, loudestAt: null, filter: "volume=2.4dB", why: "the song's own level, no voice leads" });
@@ -280,6 +290,10 @@ test("the limiter places: each 0.1 s peak over the ceiling, near ones joined, ti
   // The default "auto" target's gain moves every peak: a quiet mix raised 8 dB is limited where "off" is not.
   const auto = { target: "web", targetLufs: -14, gainDb: 8, held: true, places: 1, worst: { at: 2, overDb: 6 } };
   assert.match(describeMixPeaks({ ...mix, places: [], auto }), /never works; loudness "auto" \(the render default, target -14 web\) adds \+8 dB first \(held by the peaks\), then the limiter works at 1 place, most 6 dB at 2 s$/);
+  // The level after the limiter (what a render at "off" writes) beside the one before it, and auto's references.
+  assert.match(describeMixPeaks({ ...mix, places: [], limitedLufs: -12.2 }), /^mix: -11\.2 LUFS, true peak \+3\.1 dBTP with render loudness "off" \(after the limiter -12\.2 LUFS, the file's level at "off"/);
+  const fromRefs = { ...auto, target: "references", targetLufs: -10.1, why: "median of 2 saved references (yt:a -12, yt:b -8.2)" };
+  assert.match(describeMixPeaks({ ...mix, places: [], auto: fromRefs }), /target -10\.1 references: median of 2 saved references \(yt:a -12, yt:b -8\.2\)\) adds/);
 });
 
 test("the mix fix line says which places were turned down, which were not, what is left and the one call that clears it", () => {
@@ -366,6 +380,24 @@ test("measuring the mix finds every limiter place, and the loudest matches the r
   const leveled = await exportScene(scene, { profile: "mp4.alt", fps: 10, loudness: "auto" }, { mediaRoot, outputPath: join(root, "auto.mp4") });
   assert.equal(mix.auto.target, leveled.loudness.target);
   assert.ok(Math.abs(mix.auto.gainDb - leveled.loudness.gainDb) <= 0.5, `measured ${mix.auto.gainDb}, render ${leveled.loudness.gainDb}`);
+  // The mix line's level after the limiter is the file's at loudness "off" (before it reads louder).
+  const off = (await measureFileLevels(join(root, "loud.mp4"))).integratedLufs;
+  t.diagnostic(`before the limiter ${mix.integratedLufs}, after ${mix.limitedLufs}, file at "off" ${off} LUFS`);
+  assert.ok(Math.abs(mix.limitedLufs - off) <= 0.5 && mix.integratedLufs > mix.limitedLufs, `after ${mix.limitedLufs} vs file ${off}`);
+  // A number in LUFS is the target, and "auto" follows the saved references' measured median (stubbed here).
+  const asked = await exportScene(scene, { profile: "mp4.alt", fps: 10, loudness: -20 }, { mediaRoot, outputPath: join(root, "asked.mp4") });
+  const askedFile = (await measureFileLevels(join(root, "asked.mp4"))).integratedLufs;
+  assert.deepEqual([asked.loudness.target, asked.loudness.targetLufs], ["asked", -20]);
+  assert.ok(Math.abs(askedFile + 20) <= 0.5, `asked -20, file ${askedFile}`);
+  const references = [{ id: "yt:a", lufs: -17 }, { id: "yt:b", lufs: -22 }, { id: "yt:c", lufs: -18 }];
+  const followed = await exportScene(scene, { profile: "mp4.alt", fps: 10, loudness: "auto", referenceLoudness: references }, { mediaRoot, outputPath: join(root, "refs.mp4") });
+  const followedFile = (await measureFileLevels(join(root, "refs.mp4"))).integratedLufs;
+  assert.deepEqual([followed.loudness.target, followed.loudness.targetLufs], ["references", -18]);
+  assert.match(followed.loudness.why, /median of 3 saved references \(yt:b -22, yt:c -18, yt:a -17\)/);
+  assert.ok(Math.abs(followedFile + 18) <= 0.5, `references -18, file ${followedFile}`);
+  assert.match(leveled.loudness.why, /no saved reference with measured loudness/, "auto without references says so");
+  const withRefs = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4, undefined, { references });
+  assert.deepEqual([withRefs.auto.target, withRefs.auto.targetLufs], ["references", -18], "check's auto reads the same references");
 });
 
 test("a loud mix is limited to about -1 dBTP in MP4, WebM and MOV, and the export warns with the loudest moment", {
@@ -514,7 +546,7 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   // A draft is leveled to the web's -14 LUFS by default too, so the gain, not a warning, handles the loud mix.
   const leveled = await agent("render", { project, action: "start", quality: "draft", format: "webm" });
   const draft = await agent("render", { project, action: "wait", job: leveled.data.job, timeout_s: 60 });
-  assert.match(draft.text, /sound: -1[34]\.?\d* LUFS \(target -14 web\)/);
+  assert.match(draft.text, /sound: -1[34]\.?\d* LUFS \(target -14 web: no saved reference with measured loudness\)/);
   assert.equal(draft.data.files[0].validation.checks.audioLoudness, "pass");
   assert.doesNotMatch(draft.text, /The sound mix peaked/);
 
@@ -620,7 +652,7 @@ test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky
   await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=220:sample_rate=48000:duration=4.5",
     "-f", "lavfi", "-i", "anoisesrc=color=pink:sample_rate=48000:amplitude=0.05:duration=4.5:seed=7",
     "-filter_complex", "[0]volume=0.2[s];[s][1]amix=inputs=2:normalize=0,pan=stereo|c0=c0|c1=c0", quiet]);
-  const before = await finalRender("quiet", quiet, 4.5, "webm", /sound: -1[34]\.?\d* LUFS \(target -14 web\), range [\d.]+ LU, true peak -\d+(\.\d)? dBTP/);
+  const before = await finalRender("quiet", quiet, 4.5, "webm", /sound: -1[34]\.?\d* LUFS \(target -14 web: no saved reference with measured loudness\), range [\d.]+ LU, true peak -\d+(\.\d)? dBTP/);
   assert.ok(before.lufs < -24, `the track starts quiet (${before.lufs} LUFS)`);
   // A soft bed with a loud 20 ms click every second: plain gain would need far more than 6 dB of
   // limiting, so the gain holds and the file comes out quieter, naming the click that held it.
@@ -629,7 +661,7 @@ test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky
     "aevalsrc=0.05*sin(2*PI*220*t)+if(lt(mod(t\\,1)\\,0.02)\\,0.6*sin(2*PI*440*t)\\,0):s=48000:d=6", "-ac", "2", peaky]);
   // Its clicks are a steady beat: the render finds that song itself (no beat op, no saved .beats
   // needed) and says why the web's target stands.
-  await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web: the song \(-\d+(\.\d)?\) is under -14, held under by the peak at [\d.]+ s/, true);
+  await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web: the song \(-\d+(\.\d)?\) is under -14; no saved reference with measured loudness, held under by the peak at [\d.]+ s/, true);
 });
 
 // keep_line evens a kept line's own words and keeps its lift under the limiter (engine/keepLine.js

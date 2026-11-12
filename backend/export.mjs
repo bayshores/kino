@@ -22,7 +22,7 @@ import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTIO
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectMotion, inspectRenderedOutput } from "./render-output-audit.mjs";
 import { cuts as modelCuts } from "../engine/quality/analysis.js";
-import { LIMITER_CEILING_DB, PEAK_METER, PEAK_WINDOWS, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, peakOver, readPeakWindows } from "./audio-levels.mjs";
+import { LIMITER_CEILING_DB, PEAK_METER, PEAK_WINDOWS, askedLead, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, peakOver, readPeakWindows, referenceLead } from "./audio-levels.mjs";
 import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -975,12 +975,17 @@ export async function soundCurve(clips, duration, signal) {
  * `windows` are the mix's 0.1 s peaks ([{t, peak}], dBFS). With perLayer, each playing entry at a
  * place shared by two or more layers gets peakDbfs: that layer's own peak over the place, alone.
  */
-export async function measureMixPeaks(clips, duration, signal, { perLayer = false } = {}) {
+export async function measureMixPeaks(clips, duration, signal, { perLayer = false, references = [] } = {}) {
   const heard = audibleClips(clips, duration);
   if (!heard.length) return null;
   const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
     "-filter_complex", `${audioMixGraph(heard, duration, "mp4", 0)},${PEAK_METER}`, "-f", "null", "-"], signal);
   const { integratedLufs, truePeakDbtp, windows } = readPeakWindows(printed);
+  // The same mix after the master limiter at its starting ceiling: the level a render at loudness
+  // "off" writes (a dense mix measured -10.7 before it and -11.7 after; its file read -12.2, the
+  // last 0.5 LU from the ceiling the AAC trial encode lowered). One more FFmpeg run.
+  const limitedLufs = truePeakDbtp === null ? null
+    : (await measureMixLevels(audioInputArgs(heard), `${audioMixGraph(heard, duration, "mp4", 0)},${masterLimiter()}`, signal)).integratedLufs;
   const places = limiterPlaces(windows).map((place) => ({ ...place,
     playing: heard.filter((clip) => clip.start < place.at + 0.1 && clip.end > place.at)
       .map((clip) => ({ name: clip.name, layerId: clip.layerId, volume: clip.volumeTrack ? trackVolumeAt(clip, place.at) : clip.volume })) }));
@@ -1013,17 +1018,18 @@ export async function measureMixPeaks(clips, duration, signal, { perLayer = fals
       }
     }
   }
-  const lead = await autoLoudness(heard, duration, 0, signal);
-  const gain = loudnessGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, 0, lead.targetLufs);
+  // "auto" as a render reads it: the saved references' measured loudness first (`references`, [{id, lufs}]).
+  const lead = referenceLead(references) ?? await autoLoudness(heard, duration, 0, signal);
+  const gain = loudnessGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, 0, lead.targetLufs, lead.why);
   let auto = null;
   if (gain) {
     // A gain of g dB puts each peak g dB higher, so the limiter works where the peak passes ceiling - g.
     const shifted = limiterPlaces(windows, { ceiling: LIMITER_CEILING_DB - gain.gainDb });
     const worst = shifted.reduce((most, place) => (!most || place.overDb > most.overDb ? place : most), null);
     auto = { target: gain.target, targetLufs: gain.targetLufs, gainDb: gain.gainDb, held: gain.held, places: shifted.length,
-      worst: worst ? { at: worst.at, overDb: worst.overDb } : null };
+      worst: worst ? { at: worst.at, overDb: worst.overDb } : null, ...(gain.why ? { why: gain.why } : {}) };
   }
-  return { integratedLufs, truePeakDbtp, places, auto, windows };
+  return { integratedLufs, truePeakDbtp, limitedLufs, places, auto, windows };
 }
 
 /**
@@ -3018,6 +3024,11 @@ function audioCodecArgs(format, options) {
  * played seconds, loudest volume and own loudness over the stretches played (its saved .lufs curve;
  * fit_music pieces of one file count together), and the seconds of leveled speech.
  */
+// "auto" without a measured reference says so, so the receipt shows where its target came from.
+function withoutReferences(lead) {
+  return { ...lead, why: [lead.why, "no saved reference with measured loudness"].filter(Boolean).join("; ") };
+}
+
 async function autoLoudness(clips, duration, start, signal) {
   const files = new Map();
   let voiceSeconds = 0;
@@ -3058,8 +3069,11 @@ async function planMasterLimiter(audioInputs, duration, format, options, directo
   const inputs = audioInputArgs(clips);
   const graph = audioMixGraph(clips, duration, format, 0, start);
   const levels = await measureMixLevels(inputs, graph, signal);
-  // "auto": a song-led mix keeps the song's own level, anything else gets the web's (mixLead).
-  const lead = options.loudness === "auto" ? await autoLoudness(clips, duration, start, signal) : null;
+  // A number is the target in LUFS; "auto" follows the saved references' measured loudness
+  // (options.referenceLoudness, the service reads it), else a song-led mix keeps the song's own
+  // level and anything else gets the web's (mixLead).
+  const lead = typeof options.loudness === "number" ? askedLead(options.loudness)
+    : options.loudness === "auto" ? referenceLead(options.referenceLoudness) ?? withoutReferences(await autoLoudness(clips, duration, start, signal)) : null;
   const sound = await fitLoudness(inputs, graph, levels, lead ? lead.target : options.loudness, { codecArgs: audioCodecArgs(format, options), format, directory, signal }, lead ?? {});
   const { loudness } = sound;
   // A clip with a Volume animation is named with its volume at the loudest moment.
