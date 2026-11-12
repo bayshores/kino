@@ -10,6 +10,7 @@ import { boardSpans, cueShowLines, cueShows, storyCues } from "../../engine/foot
 import { shotRoles } from "../../engine/movePicks.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
+import { isGifLayer } from "../../engine/mediaPlay.js";
 import { hiddenRanges } from "../../engine/visibilityOps.js";
 import { round } from "../../engine/numbers.js";
 
@@ -130,9 +131,10 @@ export function sceneCueShows({ scene, music, shape, media = {}, document = null
   let layers = scene.layers ?? [];
   if (document && scene.id) { try { layers = expandComponents(document, scene.id, { camera: false }).layers ?? layers; } catch { layers = scene.layers ?? []; } }
   // A cut-out (cutoutOf) shows its clip's own pixels on top of it: the clip below is the shot. A
-  // picture (image layer) is a still: shown again is the fact.
+  // picture (image layer, an animated GIF excepted) is a still: shown again is the fact.
   const spans = layers.filter((layer) => (layer.type === "video" || layer.type === "image") && layer.visible !== false && layer.src && !layer.cutoutOf).flatMap((layer) => {
-    const still = layer.type === "image";
+    // An animated GIF (it has a Play range) moves: its file time counts like a clip's.
+    const still = layer.type === "image" && !(isGifLayer(layer) && layer.mediaDuration > 0);
     // Each stretch the layer is on screen: its Play range less the times its Hide and Show hide it.
     return shownParts(layer, seconds).map((range) => ({ at: range.start, end: range.end, label: `layer ${layer.name || layer.id}`, file: layer.src, name: nameOf(layer.src),
       fileAt: still ? () => 0 : (time) => mediaSoundTime(layer, time), tags: tagsOf(layer.src), ...(still ? { still: true } : {}) }));

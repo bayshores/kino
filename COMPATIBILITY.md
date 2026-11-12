@@ -910,10 +910,11 @@ How to read it:
   and its sound, once; the move's receipt for a raw time says so. Evidence: `engine/effectFit.test.js`,
   `engine/moves.test.js`. Gap: other hand-made effects still need a cue.
 - **Held card stays through a transition**: Unit-verified. A move that carries a card out (`from`, carry's riders too)
-  shows it again at the card's own hide second when the move hides it later, one show per layer; a duplicated
-  scene keeps its source scene's layer order for the footage-under-words default. Evidence: `engine/moves.test.js`,
-  `backend/agent-edit-repair.test.mjs`. Gaps: cursor takes `from` as the pointer's start, so it carries no card; carry
-  with toRect keeps the card, so its own hold still ends it mid-carry.
+  shows it again at the card's own hide second when the move hides it later, one show per layer, which follows
+  the hold when it is edited later; the card's own fade-out that ends there waits or plays again ending at the move's
+  hide; carry with toRect hides such a card at the carry's end; a duplicated scene keeps its source scene's layer order for the footage-under-words default. Evidence: `engine/moves.test.js`,
+  `backend/agent-edit-repair.test.mjs`. Gaps: cursor takes `from` as the pointer's start, so it carries no card; a move's own fade that starts before the
+  card's fade-out is left as it is.
 - **FFmpeg requirement**: Partly verified. Video uploads need FFmpeg 5.1+, else refused (422).
   Tested with a stand-in FFmpeg only.
 - **look source and mark_subject**: Verified. `look {mode:"source"}` shows the whole frame, crop and
@@ -1616,8 +1617,9 @@ How to read it:
   shots that differ most, and a file filling over half the edit. The same line comes for the spine's payoff beat (else the
   last shot) and the longest shot wherever they fall, with or without a song; the song is the scene's when the board names
   none; image layers, stills, grouped layers on their clock and reversed built shots count, each only while its Show and
-  Hide leave it on screen, and check takes the story's times from the built layers. Evidence:
-  `backend/agent-board.test.mjs`, `engine/footage.test.js`, `backend/look-board.test.mjs`. Gap: a GIF counts as a still.
+  Hide leave it on screen, and check takes the story's times from the built layers; an animated GIF counts by its file time; when the saved board and the built scene
+  disagree on a cue, check adds one line naming both and `compose {from:"board"}`. Evidence:
+  `backend/agent-board.test.mjs`, `engine/footage.test.js`, `backend/look-board.test.mjs`.
 - **Made techniques from references** (`match_references {made:true}` or `made:[names]`): Test-verified on a stub reference. Places
   the made techniques the saved references' labels name (else the deck's unused cards) on song cues and subject shots, prints each
   value and the made share before and after; left out, the receipt only names what it would place. Overexpose and smear go on cuts,

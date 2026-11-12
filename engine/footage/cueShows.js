@@ -159,6 +159,33 @@ export function cueShowLines(facts) {
   return lines;
 }
 
+// What a cue row says about its shot, as the cue line does: { key, words }.
+function cueState(row) {
+  if (row.shot === null) return { key: "none", words: "no shot" };
+  if (row.file && row.seenAt.length) return { key: "seen", words: row.still ? "showing a still again" : row.shared > 0 ? "repeating file time" : "continuing the file" };
+  if (row.since !== null) return { key: "since", words: `on screen since ${s1(row.since)} s` };
+  return { key: "new", words: row.file ? "new" : "new (no footage)" };
+}
+
+/**
+ * One line when the saved board's cue rows (boardShows) and the built scene's (sceneShows) say
+ * different things about the same cue (matched by name; the length in a name is left out): the
+ * board's shot and the scene's layer differ, or the scene was edited after compose. Null when they
+ * agree, or share no cue. `call` is what builds the scene from the board again.
+ */
+export function cueDisagreement(boardShows, sceneShows, { call = 'compose {from:"board"}' } = {}) {
+  const nameOf = (row) => row.kind.replace(/ \([^)]*\)/g, "");
+  const found = [];
+  for (const built of sceneShows?.cues ?? []) {
+    const saved = (boardShows?.cues ?? []).find((row) => nameOf(row) === nameOf(built));
+    if (!saved) continue;
+    const [was, now] = [cueState(saved), cueState(built)];
+    if (was.key !== now.key) found.push(`the ${nameOf(built)}: the saved board has ${saved.shot ?? "no shot"} ${was.words} at ${s2(saved.at)} s, the built scene has ${built.shot ?? "no shot"} ${now.words} at ${s2(built.at)} s`);
+  }
+  if (!found.length) return null;
+  return `the saved board and the built scene disagree on ${found.slice(0, 3).join("; ")}; ${call} builds the scene from the board again`;
+}
+
 const IMAGE = /\.(png|jpe?g|webp|gif|heic|avif|bmp|tiff?)$/i;
 
 /**

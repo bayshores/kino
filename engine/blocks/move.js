@@ -12,7 +12,7 @@ import { frameScale, isPortraitFrame } from "./formats.js";
 import { evaluateLayer } from "../animation.js";
 import { enabledAnimations } from "../animationEnabled.js";
 import { visibleByOperations } from "../visibilityOps.js";
-import { CURVES, round } from "./moves/kit.js";
+import { CURVES, motion, round } from "./moves/kit.js";
 import { RESTORED } from "../blockFields.js";
 import { subjectOf } from "./subject.js";
 
@@ -404,12 +404,38 @@ export function runMove(definition, options) {
       // A card the move carries out stays until the move hides it: a hold that ends while the move
       // still runs (a hide step of the card's own inside the move) is shown again at that time. The
       // show is named after the move's hide, so two layers the move carries out (carry's riders) keep apart.
+      // The show names the hold it keeps (keeps), when the move starts (since) and the move's hide
+      // (until), so a hold edited later still counts only while it falls inside the move
+      // (visibilityOps.js): shortened to before the move, the card goes at its new hold.
       if (role === "from" && animation.kind === "hide") {
-        const holds = enabledAnimations(ctx.layer(target).animations).filter((step) => step?.kind === "hide" && step.start >= ctx.start - 1e-6 && step.start < animation.start - 1e-6);
+        const own = enabledAnimations(ctx.layer(target).animations);
+        const holds = own.filter((step) => step?.kind === "hide" && step.start >= ctx.start - 1e-6 && step.start < animation.start - 1e-6);
         holds.forEach((step, index) => {
           const keep = `${animationId}-keep${holds.length > 1 ? index + 1 : ""}`;
           keys.add(keep);
-          animations.push({ layerId: target, animation: { id: keep, name: "Show", kind: "show", start: step.start } });
+          animations.push({ layerId: target, animation: { id: keep, name: "Show", kind: "show", start: step.start, keeps: step.id, since: round(ctx.start), until: animationId } });
+        });
+        // The card's own fade-out that ends at a kept hold would play inside the move (the card is
+        // shown again at opacity 0). It is held at its full opacity until the move takes the card off:
+        // by the move's own fade when it has one on the card, else by the same fade played again so
+        // that it ends where the move hides the card. A move fade that starts before it is left as it is.
+        const moveFades = animations.filter((entry) => entry.layerId === target && (entry.animation.from?.opacity !== undefined || entry.animation.to?.opacity !== undefined)).map((entry) => entry.animation.start);
+        const fades = own.filter((step) => step?.kind === "out" && step.to?.opacity === 0 && step.start >= ctx.start - 1e-6 && moveFades.every((start) => start >= step.start - 1e-6)
+          && holds.some((hold) => Math.abs(step.start + step.duration - hold.start) < 0.05));
+        fades.forEach((fade, index) => {
+          const suffix = fades.length > 1 ? index + 1 : "";
+          const begins = moveFades.length ? animation.start : round(animation.start - fade.duration);
+          if (!(begins > fade.start + 1e-6)) return;
+          const full = fade.from?.opacity ?? evaluateLayer(ctx.layer(target), Math.max(0, fade.start - 1e-3)).opacity ?? 1;
+          const pin = `${animationId}-fade-hold${suffix}`;
+          keys.add(pin);
+          animations.push({ layerId: target, animation: { id: pin, ...motion({ name: "Hold", start: fade.start, duration: begins - fade.start, easing: CURVES.fade, from: { opacity: full }, to: { opacity: full } }) } });
+          if (moveFades.length) return notes.push(`${target}'s own fade-out (it ends at ${round(fade.start + fade.duration, 2)} s) waits: the move's own fade takes it off`);
+          const again = `${animationId}-fade${suffix}`;
+          keys.add(again);
+          const { id: _id, ...copy } = structuredClone(fade);
+          animations.push({ layerId: target, animation: { ...copy, id: again, start: begins, from: { ...copy.from, opacity: full } } });
+          notes.push(`${target}'s own fade-out (it ends at ${round(fade.start + fade.duration, 2)} s) plays at ${begins} s instead, ending where the move hides it`);
         });
       }
     },
