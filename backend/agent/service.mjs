@@ -3051,6 +3051,8 @@ export function createAgentService(deps) {
     // answer only said "@10s", easy to miss. Now the time is read, and the answer says so.
     const misnamed = input.t == null ? ["time", "at"].find((key) => typeof input[key] === "number") : undefined;
     if (misnamed) input = { ...input, t: input[misnamed] };
+    // times as text ("1, 1.5, 2", as `kino look times=1,1.5,2` sends it): a list of seconds.
+    if (typeof input.times === "string" && /^[\d.,\s]+$/.test(input.times)) input = { ...input, times: input.times.split(/[\s,]+/).filter(Boolean).map(Number) };
     // frame with one time in times: that time.
     if ((input.mode ?? "sheet") === "frame" && input.t == null && Array.isArray(input.times) && input.times.length === 1) input = { ...input, t: input.times[0] };
     const record = await projectFor(input);
@@ -3172,7 +3174,7 @@ export function createAgentService(deps) {
     } else if (mode === "frames") {
       // Every output frame (30 fps) of a stretch, 6 to a row (0.2 s), at most FRAMES_MOST.
       const from = input.from ?? input.t;
-      if (from == null) throw new AgentError("bad_input", `frames needs from (seconds); to defaults to ${sec((FRAMES_MOST - 1) / 30)} s later.`);
+      if (from == null) throw new AgentError("bad_input", `frames needs from (seconds; to defaults to ${sec((FRAMES_MOST - 1) / 30)} s later), or times:[1, 1.5, 2] (up to ${TIMES_MOST} chosen times).`);
       const { from: start, to: end } = stretchBounds({ from, to: input.to ?? from + (FRAMES_MOST - 1) / 30 }, scene);
       const { times, rest } = everyFrame(start, end);
       const longEdge = Math.round(Math.min(480, Math.max(96, input.width ?? 240)));
@@ -5234,14 +5236,18 @@ export function createAgentService(deps) {
     if (sideBySide) {
       // As wide as look frame draws one (480 px by default, at most 1,280), narrowed only so the
       // row fits one page.
-      const asked = Math.round(Math.max(64, input.width ?? Math.min(480, scene.width)));
+      const asked = Math.round(Math.max(64, input.width ?? Math.min(480, sceneNow.width)));
       const fit = Math.floor((PAGE_WIDTH - 4 * (times.length - 1)) / times.length);
       const width = Math.min(asked, fit, 1280);
       if (width < asked) widthNote = ` (${width} px each: ${times.length} must fit ${PAGE_WIDTH} px)`;
       options = { width, crop, labels };
-    } else options = { longEdge: Math.round(Math.min(480, Math.max(96, input.width ?? 240))), crop, labels };
+    } else {
+      // No width: the largest tile (480 to 240 px) that keeps every time on one page (look.mjs timesEdge).
+      options = { ...(input.width != null ? { longEdge: Math.round(Math.min(480, Math.max(96, input.width))) } : {}), crop, labels };
+    }
     const drawn = await look.timesImages(prepared, times, options);
-    const shown = times.slice(0, drawn.plan.shown);
+    // every:<n> times are frame / 30 (4.0666...): the answer says them to the hundredth.
+    const shown = times.slice(0, drawn.plan.shown).map(sec);
     const left = times.slice(drawn.plan.shown);
     const range = [Math.min(...shown), Math.max(...shown)];
     noteLive({ sceneId: sceneNow.id, ...(layerId ? { layerIds: [layerId] } : {}), range }, [{ sceneId: sceneNow.id, ...(layerId ? { layerIds: [layerId] } : {}), range }]);

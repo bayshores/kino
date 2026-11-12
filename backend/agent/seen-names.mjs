@@ -84,6 +84,7 @@ const SEEN_AS = {
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
   // Words for seeing many frames at once (the look tool, not an effect); look-times is its topic.
   "contact sheet": ["look-times"], "many frames": ["look-times"], "chosen times": ["look-times"], "every nth frame": ["look-times"], "frame strip": ["look-times"], "side by side frames": ["look-times"],
+  "several times": ["look-times"], "several frames": ["look-times"], "frames at once": ["look-times"], "before during after": ["look-times"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.

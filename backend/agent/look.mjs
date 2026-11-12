@@ -237,7 +237,39 @@ export function timesPlan(count, tile, { pageWidth = PAGE_WIDTH, pagePixels = PA
   const shown = Math.max(0, Math.min(count, fit * rows * pagesMost));
   const pages = Math.max(1, Math.ceil(shown / (fit * rows)));
   const perPage = Math.max(1, Math.ceil(shown / pages));
-  return { columns: Math.min(fit, perPage), perPage, pages, shown };
+  // Rows evenly filled, as columnsFor spreads a sheet: 4 tiles that fit 3 a row come 2 and 2.
+  return { columns: Math.ceil(perPage / Math.ceil(perPage / fit)), perPage, pages, shown };
+}
+
+// The tile a times look draws for a scene (or a layer's `crop`): `width` px wide, else `longEdge`
+// on its long edge. A whole frame is drawn at most at the scene's size; a crop at most 2x (as zoom
+// draws it). Returns { tile, scale }.
+export function timesTile(scene, crop, { longEdge = TILE_LONG_EDGE, width } = {}) {
+  const box = crop ?? { width: scene.width, height: scene.height };
+  const wanted = width ? width / box.width : longEdge / Math.max(box.width, box.height);
+  const scale = Math.min(wanted, crop ? 2 : 1, 4096 / Math.max(scene.width, scene.height));
+  return { tile: { width: Math.max(2, Math.round(box.width * scale)), height: Math.max(2, Math.round(box.height * scale)) }, scale };
+}
+
+// The default long edge of a times look's tiles when no width is asked: the largest of 480 down
+// to 240 px (in 40 px steps) that still draws all `count` times on one page. A 1920 px frame's 60
+// px headline is 7.5 px tall in a 240 px tile, too small to read letters (seen on the product-film
+// proof sheet, 2026-11-11), so a few times get bigger tiles; 25 or more of a 16:9 frame stay at
+// 240 (the frames look's tile). The steps are a guess.
+export function timesEdge(count, scene, crop = null) {
+  for (let edge = 480; edge > TILE_LONG_EDGE; edge -= 40) {
+    const plan = timesPlan(count, timesTile(scene, crop, { longEdge: edge }).tile);
+    if (plan.pages === 1 && plan.shown >= count) return edge;
+  }
+  return TILE_LONG_EDGE;
+}
+
+// The largest label of a times page, in px. Measured on a review sheet (2026-11-11): a title
+// cropped to a 475x480 tile got a 43 px label whose 65 px bar hid the bottom of its last line,
+// while the crop's own margin (24 scene px) was 31 px there. So a label is at most 18 px (a
+// guess that still reads at full size) and, on a crop, its bar fits inside the margin.
+export function timesLabel(scale, cropped) {
+  return cropped ? Math.max(10, Math.min(18, Math.floor((24 * scale) / 1.5))) : 18;
 }
 
 // Sheet times: evenly spread, but never exactly at the end (the last frame is just before it).
@@ -491,7 +523,8 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
   }
 
   // Lays tiles out in a grid with a number and time drawn on each.
-  async function sheet(tiles, { columns, tile }) {
+  // `labelMost` caps the label's size in px (times pages: timesLabel).
+  async function sheet(tiles, { columns, tile, labelMost = Infinity }) {
     ensureLabelFont();
     const gap = 4;
     const rows = Math.ceil(tiles.length / columns);
@@ -499,7 +532,7 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
     const context = canvas.getContext("2d");
     context.fillStyle = "#101114";
     context.fillRect(0, 0, canvas.width, canvas.height);
-    const labelSize = Math.max(10, Math.round(Math.min(tile.width, tile.height) / 11));
+    const labelSize = Math.max(10, Math.min(labelMost, Math.round(Math.min(tile.width, tile.height) / 11)));
     context.font = `${labelSize}px kino-label, sans-serif`;
     for (const [index, entry] of tiles.entries()) {
       const x = (index % columns) * (tile.width + gap);
@@ -546,26 +579,26 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
 
     // look frames with `times` (or every:<n>): the frames at those times as pages of labeled tiles
     // (timesPlan says how many fit a page and how many pages one call draws). `width` is the
-    // tile's width in px, else `longEdge` its long edge; a `crop` ({x, y, width, height,
+    // tile's width in px, else `longEdge` its long edge (default timesEdge); a `crop` ({x, y, width, height,
     // sceneWidth}: layerCrop) shows only that part of each frame, in tiles of its shape. Returns
     // { pages: [{png, frames}], tile, plan }; plan.shown of the times were drawn, in order.
-    async timesImages(prepared, times, { longEdge = TILE_LONG_EDGE, width, crop = null, labels } = {}) {
+    async timesImages(prepared, times, { longEdge, width, crop = null, labels } = {}) {
       const scene = prepared.scene;
-      const box = crop ?? { width: scene.width, height: scene.height };
-      const wanted = width ? width / box.width : longEdge / Math.max(box.width, box.height);
-      // A whole frame is drawn at most at the scene's size; a crop at most 2x (as zoom draws it).
-      const scale = Math.min(wanted, crop ? 2 : 1, 4096 / Math.max(scene.width, scene.height));
-      const tile = { width: Math.max(2, Math.round(box.width * scale)), height: Math.max(2, Math.round(box.height * scale)) };
+      const edge = width || longEdge ? longEdge : timesEdge(times.length, scene, crop);
+      const { tile, scale } = timesTile(scene, crop, { longEdge: edge, width });
       const plan = timesPlan(times.length, tile);
       const chosen = times.slice(0, plan.shown);
       const renderWidth = Math.max(2, Math.round(scene.width * scale));
-      const drawn = await frames(prepared, chosen, renderWidth, crop ? Math.max(2, Math.round(scene.height * scale)) : undefined);
+      const renderHeight = crop ? Math.max(2, Math.round(scene.height * scale)) : undefined;
+      const labelMost = timesLabel(scale, Boolean(crop));
+      const drawn = await frames(prepared, chosen, renderWidth, renderHeight);
       const tiles = chosen.map((time, index) => ({ ...drawn[index], time, label: labels?.[index] ?? `${time}s`, ...(crop ? { crop } : {}) }));
       const pages = [];
       for (let first = 0; first < tiles.length; first += plan.perPage) {
         const chunk = tiles.slice(first, first + plan.perPage);
-        const png = await sheet(chunk, { columns: Math.min(plan.columns, chunk.length), tile });
-        pages.push({ png, frames: chunk.map(({ time, key, label }) => ({ time, key, width: renderWidth, label })) });
+        const png = await sheet(chunk, { columns: Math.min(plan.columns, chunk.length), tile, labelMost });
+        // A cropped frame keeps its crop, so look changed redraws the same part (changedImage).
+        pages.push({ png, frames: chunk.map(({ time, key, label }) => ({ time, key, width: renderWidth, label, ...(crop ? { height: renderHeight, crop, tile, labelMost } : {}) })) });
       }
       return { pages, tile, plan };
     },
@@ -968,16 +1001,17 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       for (const entry of previous.frames) {
         const current = await preparedFor(entry);
         if (!current) continue;
-        tile ??= tileSize(current.scene, TILE_LONG_EDGE);
-        const rendered = await frame(current, entry.time, entry.width);
+        // A layer-cropped look (look frames with layer) keeps its crop and tile shape.
+        tile ??= entry.tile ?? tileSize(current.scene, TILE_LONG_EDGE);
+        const rendered = await frame(current, entry.time, entry.width, entry.height);
         const old = rendered.key === entry.key ? null : await cache.get(entry.key);
         if (rendered.key === entry.key || (old && (await changedPixels(old, rendered.png)) < CHANGED_PIXELS)) { frames.push(entry); continue; }
         const label = entry.label ?? `${entry.time}s`;
-        changed.push({ ...rendered, time: entry.time, width: entry.width, label });
+        changed.push({ ...rendered, time: entry.time, width: entry.width, label, ...(entry.crop ? { crop: entry.crop } : {}) });
         frames.push({ ...entry, key: rendered.key });
       }
       if (!changed.length) return { png: null, changed: [], labels: [], frames };
-      const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile });
+      const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile, labelMost: previous.frames[0]?.labelMost });
       return { png, changed: changed.map((entry) => entry.time), labels: changed.map((entry) => entry.label), frames };
     },
 
