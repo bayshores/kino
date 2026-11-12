@@ -13,6 +13,7 @@
 // them, sending the op again replaces them and remove:true takes them off.
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
 import { plates } from "../../engine/quality/techniques.js";
+import { area, insideShare, visibleBoxAt } from "../../engine/quality/model.js";
 import { madeShare, referenceMade } from "../../engine/quality/madeShare.js";
 import { mainScene } from "../../engine/board.js";
 import { madeNamesIn } from "../../engine/deck.js";
@@ -69,14 +70,20 @@ export function deckTechniques(deck, scene) {
   return names.filter((name) => !shown.has(name)).map((name) => ({ name, refs: 0, labels: 1, words: "", deck: true }));
 }
 
-/** The top full-frame picture's runs in the scene: [{layerId, name, start, end}] in time order. */
+// A picture counts as the shot while it fills this share of the frame or more: a 16:9 card over its
+// blurred copy in a 9:16 frame fills about a third, so the card, not the copy under it, takes the effect.
+const SHOT_SHARE = 0.25;
+const frameShare = (model, item, index) => insideShare(model, visibleBoxAt(model, item, index)) * area(visibleBoxAt(model, item, index)) / (model.width * model.height);
+
+/** The top picture's runs in the scene (the highest one filling a quarter of the frame or more): [{layerId, name, start, end}] in time order. */
 export function shotSpans(model) {
-  const pictures = plates(model).filter((item) => (item.kind === "video" || item.kind === "image") && item.source?.layerId && !item.source.componentPath);
+  const full = new Set(plates(model));
+  const pictures = model.items.filter((item) => (item.kind === "video" || item.kind === "image") && item.source?.layerId && !item.source.componentPath && !item.isMask);
   const spans = [];
   let open = null;
   model.times.forEach((time, index) => {
     let top = null;
-    for (const item of pictures) if (item.samples.opacity[index] >= 0.9 && (!top || item.z > top.z)) top = item;
+    for (const item of pictures) if (item.samples.opacity[index] >= 0.9 && (!top || item.z > top.z) && (full.has(item) || frameShare(model, item, index) >= SHOT_SHARE)) top = item;
     if (open && open.item === top) { open.end = time; return; }
     if (open) spans.push(open);
     open = top ? { item: top, start: time, end: time } : null;
@@ -121,12 +128,28 @@ const valuesOf = (op) => (op.op === "add_layer"
 
 const percent = (made, total) => (total ? Math.round((made / total) * 100) : 0);
 
-/** The ids this module placed in a scene: {layers, animations}. */
+/** The ids this module placed in a scene: {moves, layers, animations} (a move's own layers and animations go with its move). */
 export function madeIds(scene) {
-  const layers = (scene?.layers ?? []).filter((layer) => String(layer.id).startsWith(MADE_PREFIX)).map((layer) => layer.id);
-  const animations = (scene?.layers ?? []).filter((layer) => !layers.includes(layer.id))
-    .flatMap((layer) => (layer.animations ?? []).filter((animation) => String(animation.id ?? "").startsWith(MADE_PREFIX)).map((animation) => animation.id));
-  return { layers, animations };
+  const moves = (scene?.moves ?? []).filter((entry) => String(entry.id).startsWith(MADE_PREFIX)).map((entry) => ({ id: entry.id, name: entry.name }));
+  const moveIds = new Set(moves.map((entry) => entry.id));
+  const ofMove = (id) => [...moveIds].some((moveId) => id === moveId || String(id).startsWith(`${moveId}.`));
+  const layers = (scene?.layers ?? []).filter((layer) => String(layer.id).startsWith(MADE_PREFIX) && !moveIds.has(layer.move?.instance) && !ofMove(layer.id)).map((layer) => layer.id);
+  const animations = (scene?.layers ?? []).filter((layer) => !layers.includes(layer.id) && !moveIds.has(layer.move?.instance))
+    .flatMap((layer) => (layer.animations ?? []).filter((animation) => String(animation.id ?? "").startsWith(MADE_PREFIX) && !ofMove(animation.id)).map((animation) => animation.id));
+  return { moves, layers, animations };
+}
+
+// Applies `ops` together, else one by one (an op the scene cannot take, such as a layer in a group,
+// is left out and named, so the exposure match and the other placements still land): {document, failed}.
+async function applyEach(document, ops, runOps) {
+  if (!ops.length) return { document, failed: [] };
+  try { return { document: await runOps(document, ops), failed: [] }; } catch { /* one op at a time below */ }
+  let current = document;
+  const failed = [];
+  for (const op of ops) {
+    try { current = await runOps(current, [op]); } catch (error) { failed.push({ op, why: String(error?.message ?? error).split("\n")[0].slice(0, 120) }); }
+  }
+  return { document: current, failed };
 }
 
 /**
@@ -139,9 +162,12 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
   const scene = sceneId ? document.scenes.find((entry) => entry.id === sceneId) : mainScene(document);
   if (!scene) return { document, lines: [], placed: [] };
   const old = madeIds(scene);
-  const deletes = [...old.layers.map((layerId) => ({ op: "delete_layer", layerId })), ...old.animations.map((animationId) => ({ op: "delete_animation", animationId }))];
-  const base = deletes.length ? await runOps(document, deletes) : document;
-  if (remove) return { document: base, lines: old.layers.length + old.animations.length ? [`match_references: took off ${old.layers.length + old.animations.length} made element${old.layers.length + old.animations.length === 1 ? "" : "s"}`] : [], placed: [] };
+  // A move goes with its own remove (it puts back the clip timing it changed), then the rest.
+  const deletes = [...old.moves.map((entry) => ({ op: "move", name: entry.name, id: entry.id, remove: true, scene: scene.id })),
+    ...old.layers.map((layerId) => ({ op: "delete_layer", layerId })), ...old.animations.map((animationId) => ({ op: "delete_animation", animationId }))];
+  const base = (await applyEach(document, deletes, runOps)).document;
+  const gone = deletes.length;
+  if (remove) return { document: base, lines: gone ? [`match_references: took off ${gone} made element${gone === 1 ? "" : "s"}`] : [], placed: [] };
   const baseScene = base.scenes.find((entry) => entry.id === scene.id);
   const labeled = (refs ?? []).filter((ref) => ref?.seen?.length);
   const from = Array.isArray(names) ? "your list" : labeled.length ? "your references' labels" : "your deck's unused cards";
@@ -176,8 +202,13 @@ export async function placeMade(document, { sceneId = null, refs = [], deck = nu
       : `library {topic:"search", search:"${technique.name.replace(/[-_]/g, " ")}"}`;
     left.push(`${technique.name} (${CUTOUT.has(technique.name) ? "a cut-out takes up to a minute, so it gets its own call" : "no one-op maker here"}): ${call}`);
   }
-  const after = ops.length ? await runOps(base, ops) : base;
-  const now = ops.length ? madeShare(kinoTimeline(after, scene.id, { fonts })) : before;
+  const { document: after, failed } = await applyEach(base, ops, runOps);
+  for (const miss of failed) {
+    const index = placed.findIndex((entry) => entry.op === miss.op);
+    if (index >= 0) left.push(`${placed[index].name} (${miss.why}): ${JSON.stringify(miss.op)}`);
+    if (index >= 0) placed.splice(index, 1);
+  }
+  const now = placed.length ? madeShare(kinoTimeline(after, scene.id, { fonts })) : before;
   const theirs = referenceMade(labeled);
   const share = `made share ${before.made} of ${before.moments} moments (${percent(before.made, before.moments)}%) before, ${now.made} of ${now.moments} (${percent(now.made, now.moments)}%) after${theirs.length ? `; your ${theirs.length} reference${theirs.length === 1 ? "'s" : "s'"} made labels ${theirs.map((ref) => `${ref.made} of ${ref.total} (${percent(ref.made, ref.total)}%)`).join(", ")}` : ""}`;
   const lines = [];
