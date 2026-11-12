@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDocument, createLayer, createScene } from "./model.js";
+import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
 import { applyOperations } from "./operations.js";
 import { presetAnimation, evaluateLayer } from "./animation.js";
 import { resizeTextLayer } from "./textLayout.js";
@@ -421,4 +421,27 @@ test("a waiver on a layer lapses when the layer is deleted or its file changes",
   const deleted = applyOperations(waived, [{ type: "delete_layer", sceneId: "s", layerId: "music" }]);
   assert.deepEqual(targets(deleted), []);
   assert.deepEqual(targets(applyOperations(deleted, [{ type: "add_layer", sceneId: "s", layerType: "audio", properties: { id: "music", src: "/api/media/b.wav" } }])), []);
+});
+
+test("update_scene duration lengthens whole-scene animations and the board's last shot, and lists them", () => {
+  const effect = (id, start, duration) => ({ id, kind: "custom", name: id, start, duration, easing: "linear", from: { opacity: 0.5 }, to: { opacity: 1 } });
+  const shot = (id, cue, dur) => ({ id, cue, dur, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text: "none", sound: "none", why: "a line" });
+  const clip = createLayer("rectangle", { id: "clip", animations: [effect("grade", 0, 14), effect("fade", 12, 2), effect("short", 0, 6)] });
+  const source = parseDocument(createDocument({
+    id: "len", name: "len", board: { rev: 1, music: "none", shots: [shot("a", 0, 6), shot("b", 6, 8)] },
+    scenes: [createScene({ id: "s", duration: 14, layers: [clip], backgroundAnimations: [{ id: "bg", name: "Color", kind: "custom", start: 0, duration: 14, easing: "linear", from: { fill: "#000000" }, to: { fill: "#ffffff" } }] })],
+  }));
+  const operation = { type: "update_scene", sceneId: "s", properties: { duration: 14.333 } };
+  const reports = new Map();
+  const next = applyOperations(source, [operation], { reports });
+  const animations = next.scenes[0].layers[0].animations;
+  assert.deepEqual(animations.map((item) => [item.id, item.start, item.duration]), [["grade", 0, 14.333], ["fade", 12, 2], ["short", 0, 6]], "only the animation that ran the whole scene follows");
+  assert.equal(next.scenes[0].backgroundAnimations[0].duration, 14.333);
+  assert.deepEqual(reports.get(operation).sceneLength.animations.map((item) => [item.layerId, item.animationId]), [["background", "bg"], ["clip", "grade"]]);
+  assert.deepEqual([next.board.shots[1].dur, next.board.rev], [8.333, 2], "the board's last shot ends where the scene does");
+  // A change over a second is a different cut: the board stays, and the receipt says so.
+  const far = new Map();
+  const longer = applyOperations(source, [{ ...operation, properties: { duration: 16 } }], { reports: far });
+  assert.equal(longer.board.shots[1].dur, 8);
+  assert.equal([...far.values()][0].sceneLength.board.refused, "too long");
 });

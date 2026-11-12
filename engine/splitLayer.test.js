@@ -44,6 +44,17 @@ test("split_layer cuts a clip in two that play and look the same as the whole cl
   assert.equal(mediaFrameState(second, 2.5).visible, false, "the new piece is hidden before it");
 });
 
+test("split_layer gives each piece Show and Hide for its own span", () => {
+  const operations = [{ id: "on", name: "Show", kind: "show", start: 1 }, { id: "off", name: "Hide", kind: "hide", start: 5 }];
+  const { document } = splitLayer(clipDocument({ animations: operations }), "main", "clip", { at: 3, copy: { id: "clip-2", name: "clip 2" } });
+  const [first, second] = document.scenes[0].layers;
+  const times = (layer) => layer.animations.map((item) => [item.kind, item.start]);
+  assert.deepEqual(times(first), [["show", 1], ["hide", 3]], "the first piece hides where it is cut");
+  assert.deepEqual(times(second), [["show", 3], ["hide", 5]], "the new piece shows from the cut and hides at the end it had");
+  const late = splitLayer(clipDocument({ animations: [{ id: "off", name: "Hide", kind: "hide", start: 5.5 }] }), "main", "clip", { at: 3 }).document.scenes[0].layers;
+  assert.deepEqual(late[1].animations.map((item) => item.start), [5], "a Hide past the piece's end (file seconds 1 to 5) moves to its end");
+});
+
 test("split_layer from/to skips the file between and refuses what it can't cut", () => {
   const { document } = splitLayer(clipDocument(), "main", "clip", { at: 2, to: 2.3, copy: { name: "clip 2" } });
   const [first, second] = document.scenes[0].layers;

@@ -505,11 +505,12 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   assert.equal(first.data.reason, 'Save the storyboard first: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}; library guide storyboard).');
 
   assert.equal((await editBoard(id, STOP_SHOTS(), { open: OPEN })).isError, undefined);
-  assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 9.5 } }] })).isError, undefined);
+  // A change of more than a second is not followed by the last shot: the board stop names the gap and the one call that closes it.
+  assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 12 } }] })).isError, undefined);
   const gapped = await checkpoint(id);
   assert.equal(gapped.data.error, "board_gap", gapped.text);
-  assert.equal(gapped.data.reason, "the shots end at 8.8 s, before the video ends (9.5 s): make the last shot 0.7 s longer. Fix the board (edit board), then ask again.");
-  assert.deepEqual(gapped.data.at.map((time) => Number(time.toFixed(3))), [8.8, 9.5]);
+  assert.equal(gapped.data.reason, 'the shots end at 8.8 s, before the video ends (12 s): make the last shot 3.2 s longer. One call that does it: edit {ops:[{op:"board", end:12}]}, then ask again.');
+  assert.deepEqual(gapped.data.at.map((time) => Number(time.toFixed(3))), [8.8, 12]);
   assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 8.8 } }] })).isError, undefined);
 
   // Open items: the person answers them first, or leaves them to the agent ("your call").
@@ -876,18 +877,18 @@ test("a gap the video made lapses the approval only while it lasts, and an edit 
   assert.equal((await editBoard(id, STOP_SHOTS())).isError, undefined);
   await allowBoard(async () => assert.equal((await checkpoint(id)).data.status, "allowed"));
   const longer = await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 8.9 } }] });
-  assert.deepEqual(longer.data.board, { rev: 1, approval: "C1", lapsed: ["a gap at 8.8–8.9 s"], next: LAPSE_NEXT("C1") });
-  assert.deepEqual(await statusLines(id), ["direction: C1 board lapsed · replies 0/10", "step: ask board again (changed shots)"]);
-  // The last shot 3 frames longer covers the video again: within the tolerances, so it is logged
-  // and the approval stands, as if both changes were one edit.
-  const covered = await editBoard(id, withShot(STOP_SHOTS(), 3, { dur: 4.483 }));
-  assert.deepEqual(covered.data.board, { rev: 2, approval: "C1", revisions: ["revision: shot 4 end moved 3 frames"],
-    next: "the board covers the video again within kino's tolerances: C1 stands; no need to ask again." });
+  // 0.1 s longer: the last shot follows, 3 frames is within the tolerances, so it is logged and the approval stands.
+  assert.deepEqual(longer.data.board, { rev: 2, approval: "C1", revisions: ["revision: shot 4 end moved 3 frames"] });
+  assert.equal(longer.data.sceneLength.board, "shot 4 now ends at 8.9 s (was 8.8 s); the board is one revision newer");
   assert.equal((await savedState(id)).boards[0].lapsed, null);
   assert.equal((await checkpoint(id)).data.status, "passed");
   // A video made much longer: the edit's answer says the approval lapsed.
   const far = await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 20 } }] });
   assert.deepEqual(far.data.board.lapsed, ["a gap at 8.9–20 s"]);
+  assert.match(far.data.sceneLength.board, /edit \{ops:\[\{op:"board", end:20\}\]\}/, "the receipt gives the one call that extends the last shot");
+  // board {end} moves only the last shot's end, so the gap closes.
+  assert.equal((await agent("edit", { project: id, ops: [{ op: "board", end: 20 }] })).isError, undefined);
+  assert.deepEqual((await record(id)).document.board.shots.map((shot) => shot.dur), [1.25, 2.083, 1.084, 15.583]);
 });
 
 test("the music layer's file is part of the approval: another file or no music layer lapses it", { skip, timeout: 60_000 }, async () => {

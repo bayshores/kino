@@ -525,7 +525,11 @@ function critiqueCheckpoint(draft, { critique, video, rev, at, client, work }) {
 function boardCheckpoint(draft, { facts, rules, rev, work, now, client, all, words, soundFiles, soundSearch, fresh, styleFrame, video = {} }) {
   const board = facts?.board;
   if (!board) throw new StopError("board_first", 'Save the storyboard first: edit {ops:[{op:"board", music, shots}]} (library {topic:"op", name:"board"}; library guide storyboard).');
-  if (facts.coverage) throw new StopError("board_gap", `${facts.coverage.message} Fix the board (edit board), then ask again.`, { at: facts.coverage.at });
+  if (facts.coverage) {
+    // A gap at the end is closed by one call that moves only the last shot's end (blocks.mjs endBoard).
+    const call = facts.coverage.end === undefined ? null : `edit {ops:[{op:"board", end:${facts.coverage.end}}]}`;
+    throw new StopError("board_gap", `${facts.coverage.message} ${call ? `One call that does it: ${call}, then ask again.` : "Fix the board (edit board), then ask again."}`, { at: facts.coverage.at, ...(call ? { call } : {}) });
+  }
   const approval = activeApproval(draft);
   if (approval && !approval.lapsed) {
     const round = draft.stops.find((entry) => entry.id === approval.stop);

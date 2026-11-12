@@ -46,6 +46,7 @@ import { RESIZE_ANCHORS } from "./resizeAnchor.js";
 import { refreshBehaviorLinks } from "./behaviorLinks.js";
 import { frameShot } from "./footage/layout.js";
 import { normalizeLetterbox, normalizeSceneFinish } from "./sceneFinishFields.js";
+import { boardSpanBefore, followBoardLength, followSceneLength } from "./sceneLength.js";
 
 // A Color animation (`fill` in from or to) only draws on a layer that has a Fill (paints.js).
 // Every operation that adds one or changes its fill values refuses it on a layer without a Fill:
@@ -138,6 +139,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     if (operation.type === "update_scene") {
       const previous = { ...scene };
       const previousLayers = scene.layers;
+      const boardBefore = boardSpanBefore(document, scene);
       Object.assign(scene, operation.properties, { id: scene.id });
       // finish and letterbox are checked now and saved in their plain form (true is the starting
       // point's numbers; false, null or 0 removes them), so a wrong value is refused on this call.
@@ -155,6 +157,12 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
         try { normalizeShutterAngle(scene); } catch (error) { refuse("properties.shutterAngle", error.message.replace(/^shutterAngle /, "")); }
       const problem = backgroundAnimationProblem(scene, previous) || sceneAnimationProblem(scene, previousLayers);
       if (problem) throw new Error(problem);
+      // A new length: whole-scene animations end at it, and the board's last shot follows a small change (sceneLength.js).
+      if (operation.properties && Object.hasOwn(operation.properties, "duration") && scene.duration !== previous.duration) {
+        const animations = followSceneLength(scene, previous.duration, { fps: document.fps });
+        const board = followBoardLength(document, boardBefore);
+        if ((animations.length || board) && reports) reports.set(operation, { sceneLength: { was: previous.duration, now: scene.duration, animations, ...(board ? { board } : {}) } });
+      }
       continue;
     }
     if (operation.type === "create_component") {
