@@ -39,9 +39,10 @@ import { WHOLE_MAX_SECONDS } from "./scan.mjs";
 
 /**
  * 2: marks, subtitles and drawn footage. 3: each shot's figure (whole-body box) and how it moves
- * (still, subject, camera). A saved scan of another version is scanned again.
+ * (still, subject, camera). 4: the subject mask's figure on drawn footage, and figure null when
+ * read and not found. A saved scan of another version is scanned again.
  */
-export const SCAN_VERSION = 3;
+export const SCAN_VERSION = 4;
 /** A shot whose picture moves slower than this (frame widths a second, flow) is still. */
 export const STILL_SPEED = 0.02;
 /** A moving shot is a camera move when the frame's median flow is at least this share of its mean. */
@@ -205,7 +206,9 @@ export function movingOf(frames) {
  * when faces were not measured, luma 0 to 1, text (share of frames with text that is no fixed
  * element or mark), subs (share of frames with such a line at the bottom center), logo (share of
  * frames showing a fixed text element that is no mark), subject (face, else saliency box), figure
- * (the largest whole-body box, subjectOf), moving (movingOf)}. persistent: persistentElements'
+ * (the largest whole-body box, subjectOf), mask (the same from the subject mask's boxes; the scan
+ * uses it on drawn footage only, drawnFigure), moving (movingOf)}. figure and mask are null when
+ * read and not found, undefined when not read. persistent: persistentElements'
  * answer for this stretch; marks: scanMarks' answer for the whole scan.
  */
 export function shotFacts(start, end, samples = [], persistent = [], marks = []) {
@@ -238,6 +241,7 @@ export function shotFacts(start, end, samples = [], persistent = [], marks = [])
     subject: subjectOf(inside, "faces", "face") ?? subjectOf(inside, "saliency", "saliency"),
     salient: subjectOf(inside, "saliency", "saliency"),
     figure: figureOf(inside),
+    mask: figureOf(inside, "foreground"),
     moving: movingOf(moving),
   };
 }
@@ -249,12 +253,29 @@ export function shotFacts(start, end, samples = [], persistent = [], marks = [])
  */
 export const FIGURE_SEEN = 0.25;
 
-/** The shot's figure (subjectOf over the people boxes) with seen (its share of the frames read), or null. */
-function figureOf(samples) {
-  const read = samples.filter((sample) => Array.isArray(sample.people));
-  const seen = read.length ? read.filter((sample) => sample.people.length).length / read.length : 0;
-  const figure = seen >= FIGURE_SEEN ? subjectOf(read, "people", "figure") : null;
+/**
+ * The shot's figure (subjectOf over the `key` boxes: people, the body detector's; foreground, the
+ * subject mask's) with seen (its share of the frames read), or null. undefined when no frame of
+ * the shot read `key`.
+ */
+function figureOf(samples, key = "people") {
+  const read = samples.filter((sample) => Array.isArray(sample[key]));
+  if (!read.length) return undefined;
+  const seen = read.filter((sample) => sample[key].length).length / read.length;
+  const figure = seen >= FIGURE_SEEN ? subjectOf(read, key, "figure") : null;
   return figure ? { ...figure, seen: round3(seen) } : null;
+}
+
+/**
+ * The figure a drawn shot gets: the body detector's when it saw one, else the subject mask's
+ * (by "mask"). Measured on the 5 drawn stair clips: bodies on 0 to 6 of 7 to 21 frames read, the
+ * mask on 6 to 21 (every frame but a black one). The mask boxes whatever stands out, so live
+ * footage keeps the body detector alone. undefined when neither was read on the shot.
+ */
+export function drawnFigure(shot) {
+  if (shot.figure) return shot.figure;
+  if (shot.mask) return { ...shot.mask, by: "mask" };
+  return shot.figure === null || shot.mask === null ? null : undefined;
 }
 
 /**
@@ -293,7 +314,8 @@ export function mergeAlike(shots) {
       out[out.length - 1] = {
         ...last, end: shot.end, still: longer.still, vector: longer.vector,
         subject: longer.subject ?? last.subject ?? shot.subject ?? null, salient: longer.salient ?? last.salient ?? shot.salient ?? null,
-        figure: longer.figure ?? last.figure ?? shot.figure ?? null, moving: longer.moving ?? last.moving ?? shot.moving ?? null,
+        // A figure found wins; else null when either was read (none found), else unread (undefined).
+        figure: [longer.figure, last.figure, shot.figure].find(Boolean) ?? (last.figure === null || shot.figure === null ? null : undefined), moving: longer.moving ?? last.moving ?? shot.moving ?? null,
         motion: Math.round(blend("motion")), face: last.face === null && shot.face === null ? null : Math.round(blend("face")),
         luma: blend("luma"), text: blend("text"), subs: blend("subs"), logo: blend("logo"),
       };
@@ -604,7 +626,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const use = tools ?? await defaultTools();
     onProgress?.(measuringLine({ modelReady }));
     const stretches = [];
-    const vision = { faces: false, text: false, flow: false, people: false };
+    const vision = { faces: false, text: false, flow: false, people: false, foreground: false };
     let count = 0;
     for (const window of copy.files) {
       const facts = await use.probe(window.file, { signal });
@@ -644,10 +666,12 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     const [drawnVector, photoVector] = texts.slice(words ? 1 : 0).map((vector) => (vector ? normalize(vector) : null));
     // The face detector is made for photos: on drawn footage it reads nothing, so faces do not rank.
     const drawn = isDrawn(withStill.map((shot) => shot.vector), drawnVector, photoVector);
-    // There the subject is where the eye goes (saliency), never a face box.
+    // There the subject is where the eye goes (saliency), never a face box, and the figure is the
+    // subject mask's when the body detector (made for photos) found none.
     for (const shot of all) {
-      if (drawn) { shot.face = null; shot.subject = shot.salient ?? null; }
+      if (drawn) { shot.face = null; shot.subject = shot.salient ?? null; shot.figure = drawnFigure(shot); }
       delete shot.salient;
+      delete shot.mask;
     }
     const { shots: joined, repeats } = mergeAlike(all);
     const ranked = rankShots(joined, { wantVector: wantVector ? normalize(wantVector) : null, drawn });
@@ -675,8 +699,11 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       // narrowed by them (library footage filter, actions.mjs) without looking at each still.
       ...(Number.isFinite(shot.luma) ? { luma: shot.luma } : {}),
       ...(shot.subject ? { subject: shot.subject } : {}),
-      // The figure (whole-body box) and how the shot moves: the framing filters (actions.mjs).
-      ...(shot.figure ? { figure: { box: shot.figure.box, share: shot.figure.share, seen: shot.figure.seen } } : {}),
+      // The figure (whole-body box, or on drawn footage the subject mask's, by "mask") and how the
+      // shot moves: the framing filters (actions.mjs). null: figures were read and none was found;
+      // left out: not read (a shot kept from an older scan has no figure key either).
+      ...(shot.figure ? { figure: { box: shot.figure.box, share: shot.figure.share, seen: shot.figure.seen, ...(shot.figure.by ? { by: shot.figure.by } : {}) } }
+        : shot.figure === null ? { figure: null } : {}),
       ...(shot.moving ? { moving: shot.moving } : {}),
       ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
     }));

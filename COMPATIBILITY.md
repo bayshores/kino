@@ -1056,8 +1056,12 @@ How to read it:
 - **Shot framing and movement**: Stub-verified; measured by hand on 5 local clips. A scan reads each
   person's whole-body box (Vision) and the flow's median: a shot line says `motion N still|subject|camera`
   and `wide|medium|close (figure N% high, place, room N%)`; `filter {figure, scale, height, room, moving}`
-  and `sort wide|close|room` narrow it. Gap: on drawn footage Vision finds a body on 1 or 2 of 20 frames,
-  under the 25% a figure needs, so drawn stair shots get no framing. Evidence: `backend/footage-finder.test.mjs` (framing facts).
+  and `sort wide|close|room` narrow it. On drawn footage the body detector finds a body on 0 to 6 of 7 to
+  21 frames, so the shot takes Vision's subject mask box (`figure mask N% high`): measured on 5 drawn
+  clips, the mask boxes something on 78 of 79 frames read. A shot kept from an older scan reads as
+  unmeasured for `figure`, never as "no figure". Gap: the mask boxes whatever stands out (a 0.5 s opening
+  shot with no figure read as one on 3 clips), and with no drawn face a close shot reads `medium`; live footage keeps
+  the body detector only. Evidence: `backend/footage-finder.test.mjs` (framing facts, drawn footage).
 - **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
   (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
   the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).

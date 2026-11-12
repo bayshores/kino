@@ -84,6 +84,26 @@ test("Apple Vision measures the pan, the still card, the words appearing one at 
   assert.equal(prints.length, 2, "one feature print a shot");
 });
 
+test("the helper's foreground job boxes a drawn figure standing on a step, from the subject mask", { skip: skipWithoutVision }, async (t) => {
+  const abilities = await measureAbilities();
+  if (abilities.foreground !== true) return t.skip(`subject mask: ${abilities.foreground}`);
+  const [width, height] = [480, 270];
+  const context = createCanvas(width, height).getContext("2d");
+  // A flat wall and step, and a flat-colored figure on the step: x 200 to 240, y 80 to 230 px.
+  context.fillStyle = "#2a3a48"; context.fillRect(0, 0, width, height);
+  context.fillStyle = "#1c2630"; context.fillRect(0, 230, width, 40);
+  context.fillStyle = "#f2c9a0"; context.beginPath(); context.arc(220, 95, 15, 0, Math.PI * 2); context.fill();
+  context.fillStyle = "#d24a2a"; context.fillRect(203, 110, 34, 65);
+  context.fillStyle = "#30302c"; context.fillRect(205, 175, 12, 55); context.fillRect(223, 175, 12, 55);
+  const rgba = context.getImageData(0, 0, width, height).data;
+  const bgra = Buffer.alloc(rgba.length);
+  for (let i = 0; i < rgba.length; i += 4) { bgra[i] = rgba[i + 2]; bgra[i + 1] = rgba[i + 1]; bgra[i + 2] = rgba[i]; bgra[i + 3] = 255; }
+  const run = spawnSync(abilities.helper, ["--width", String(width), "--height", String(height)], { input: Buffer.concat([Buffer.from([64]), bgra]), encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  const [box] = JSON.parse(run.stdout).foreground;
+  [200 / width, 80 / height, 40 / width, 150 / height].forEach((want, index) => assert.ok(Math.abs(box[index] - want) < 0.03, `box ${box}`));
+});
+
 test("the helper's --sounds mode classifies 1 s windows, half overlapped, each with its labels and level", { skip: skipWithoutVision }, async () => {
   const { helper, why } = await soundHelper();
   assert.ok(helper, why);
