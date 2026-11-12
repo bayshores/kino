@@ -29,13 +29,13 @@ const SEEN_AS = {
   grain: ["grain"], vignette: ["vignette"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
   "speed lines": ["speed-lines", "impact-lines"], "motion lines": ["speed-lines"], streaks: ["speed-lines"], "action lines": ["impact-lines", "speed-lines"],
   "impact lines": ["impact-lines"], "focus lines": ["impact-lines"], "radial lines": ["impact-lines"], "anime lines": ["impact-lines", "speed-lines"], "manga lines": ["impact-lines", "speed-lines"],
-  "punch in": ["punch-in"], punchin: ["punch-in"], "zoom in": ["punch-in", "zoom-through"], "zoom punch": ["punch-in"], "snap zoom": ["punch-in"], "crash zoom": ["punch-in"],
+  "punch in": ["punch-in"], punchin: ["punch-in"], "zoom punch": ["punch-in"], "snap zoom": ["punch-in"], "crash zoom": ["punch-in"],
   invert: ["invert"], inverted: ["invert"], negative: ["invert"], "inverted colors": ["invert"],
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
 };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.
-const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain"]);
+const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
 export const REFERENCE_LOOKUP = 'to make what you see: library {topic:"search", search:"<what you saw: glow, particles, subtitles, cut-out, speed ramp, shake>"}';

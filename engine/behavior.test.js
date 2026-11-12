@@ -75,6 +75,15 @@ test("behaviors move effect settings, clamped to the setting's range, and are re
   assert.throws(() => checked([custom({ bounce: {} }, { from: { x: 0 }, to: { x: 1 } })]), /has no bounce/);
 });
 
+test("a wiggle decay dies the shake down by e^(-decay * seconds) and is refused when out of range", () => {
+  const even = { amount: 10, rate: 3, seed: 7 }, dying = { ...even, decay: 2 };
+  assert.equal(wiggleOffset(dying, "x", 0, 2), wiggleOffset(even, "x", 0, 2), "starts at full size");
+  assert.ok(Math.abs(wiggleOffset(dying, "x", 1.3, 2) - wiggleOffset(even, "x", 1.3, 2) * Math.exp(-2.6)) < 1e-9);
+  const layer = checked([custom({ wiggle: { amount: { x: 10 }, rate: 3, seed: 7, decay: 4 } }, { duration: 2 })]);
+  assert.equal(layer.animations[0].behavior.wiggle.decay, 4);
+  assert.throws(() => checked([custom({ wiggle: { amount: { x: 10 }, decay: 1000 } }, { duration: 2 })]), /decay/);
+});
+
 test("old wiggle and loop values are unchanged", () => {
   const drift = { amount: 10, rate: 3, seed: 7 };
   assert.deepEqual([0.4, 0.9, 1.3].map((t) => wiggleOffset(drift, "x", t, 2)), [-5.865964155701615, -2.5489275617523144, -5.185164013637042]);

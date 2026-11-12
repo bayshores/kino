@@ -1,8 +1,8 @@
 # Moves
 
 A move is a designed set piece built in one op from your layers, pictures, brand.
-Most shots need none (a plain cut). Pick one or two as the signature, repeat them at alike
-moments, spend them on the hook, reveal and payoff.
+Most shots need none (a plain cut). Pick one or two as the signature, spend them
+on the hook, reveal and payoff.
 
 Contents: The move op · The moves · Moves example · Trim paths and dashes
 
@@ -29,7 +29,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **zoom-through**: pushes into a point of one shot and comes out in the next.
   `target:{layer, rect?}`: until a layer in `from` or its `rect` [x, y, w, h] % fills the
   frame; no `to`: it stays. `reverse:true` pulls back from it (or an earlier push) to the whole
-  shot, 0.4 s expo-out, `title` landing. `blur:false`; `flash:"white"` (`color`).
+  shot, 0.4 s expo-out, `title` landing. `flash:"white"`.
 - **whip-pan**: both shots slide a frame width, smeared (`smear`, `angle`).
 - **push-through-type**: a big glossy word (or `layer`: your text, picture logo, path, shape or
   group) fades in (`entrance:"sharpen"`: blur); the camera speeds into a letter (or the logo)
@@ -42,7 +42,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   cut (`swap:"blur"` to blur); `size`. Moves off text (or refuses); later footage
   goes under it; leaves before a dip to black or lone logo already there (else `dur`).
 - **swipe-cards**: the top card of a stack drags aside, tilts, fills with the brand color,
-  says YES or NO, flies off. `ramp:"expo"` shrinks gaps from `every` to `last` (1 s); answers hold 0.75 s.
+  says YES or NO, flies off. `ramp:"expo"` shrinks gaps from `every` to `last` (1 s).
 - **roll**: `items` (words, or uploaded pictures by name) or your `layers` cut one to the next in
   place, each shorter (`first` 1.4 s to `last` 0.1 s along `ramp` expo, linear or none), then
   `land` holds `hold` 2 s (with `dur`, it lands at dur minus hold); each clip plays from its show
@@ -57,7 +57,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **ui-plane**: UI tilted in a dark void; `flat` lays it flat (tilt.md).
 - **window-punch-in**: a product window grows from 60% to 92% of frame width (by 0.8 s),
   then pushes in 2%/s (`beats:[…]`: 1.5x steps);
-  `glow` 0-1 adds an accent glow. Start it as the window shows.
+  `glow` 0-1 adds an accent glow.
 - **lift-focus**: `detail:{layer, rect?}` (a layer, or part of a picture in %) lifts to a third
   of the frame's width in the middle while the rest dims and blurs, then goes back.
 - **card-into-device**: a big leaning card (`picture` or `card`) turns flat, then shrinks into
@@ -75,19 +75,20 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - **masked-type**: one big word made of the footage as the shot falls away around it; `subject`
   (a cut_out layer) stands it behind the person; `reveal`: `rise` (default) or `cut`.
 - **perceive-insert**: `layer` (a clip), `at`, `region` [x,y,w,h] % (default: marked subject)
-  fills the frame 1s (`dur` 0.6-1.4), hard cuts, muted; `entry:"push"`, `of`, `label`.
+  fills the frame 1s (`dur` 0.6-1.4), hard cuts, muted; `entry:"push"`.
 - **voice-type**: a spoken line set big word by word; `speech`+`line` or `words`.
 - **type-on**: your text `layer` (left-aligned, `role:"ui"`) types at `cps` 12, `wordPause` 0.08;
   a caret trails the last letter; `field` (the box under it) grows. Cues `<id>.1` per word,
-  `<id>.typed`. All go after `hold`, as a caption comes on, or at `until`.
-- **stream** (any text `layer`): words arrive `rate` 4/s (`unit:"letters"` 30), the newest two
-  in `from` (accent, accent2, dim, #hex), then settle. A `dur` past 12 words/s (80 letters) is refused.
-  **rewrite**: the layer, once read, blurs out; `new` streams in its place (`old` first). Hidden
+  `<id>.typed`.- **stream** (any text `layer`): words arrive `rate` 4/s (`unit:"letters"` 30), the newest two
+  in `from` (accent, accent2, dim, #hex), then settle.  **rewrite**: the layer, once read, blurs out; `new` streams in its place (`old` first). Hidden
   at `at` (type-on's hold over): `new` streams at once.
   **decode**: random same-case letters settle in left to right. **assemble**: letters fly
   together from a seeded `spread` {x, y, angle, scale}. `mode:"out"` reverses either.
 - **draw-on**: a line, outline or route (`layer`: a stroked rectangle, ellipse, star or path)
   draws on, 0.4-1.2 s by length; a fill fades in last.
+- **punch-in**: the frame snaps closer on a `point` (`scale`, `hold`, `out`). **shake**: a
+  random shake that dies down (`strength`, `frequency`, `decay`), `at` a cue in a music edit.
+  Both refuse a layer moving its own place or size meanwhile.
 
 Launch-video type (words arrive faint, then darken):
 
@@ -97,8 +98,7 @@ Launch-video type (words arrive faint, then darken):
 - **count-up**: an accent number counts to `value` ("98%", "$1.2M") in steady-width digits,
   most of it early; a `label` writes on under it.
 
-Moves write in the brand's fonts, else the project's text font, leave no blur or split on, and
-add a dark box under words only where they could fail contrast (`scrim`).
+Moves write in the brand's fonts (else the project's text font) and add a dark box under words only where they could fail contrast (`scrim`).
 
 ## Moves example
 

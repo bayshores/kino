@@ -56,4 +56,7 @@ test("invert flips light and dark; keepHue keeps a red red", () => {
 test("search finds them by the words a person uses", () => {
   for (const [words, name] of [["speed lines", "speed-lines"], ["focus lines", "impact-lines"], ["film burn", "film-burn"], ["negative", "invert"], ["punch in", "punch-in"], ["camera shake", "shake"]])
     assert.ok(seenNames(words)[0]?.startsWith(name), `${words}: ${seenNames(words)[0]}`);
+  // Common words inside a longer query lead nowhere: subtitles are not a burn, a pyramid is not an invert.
+  for (const [words, name] of [["burn in subtitles", "film-burn"], ["slow zoom in", "punch-in"], ["inverted pyramid", "invert"], ["negative space", "invert"]])
+    assert.ok(!seenNames(words).some((line) => line.startsWith(name)), `${words}: ${seenNames(words)}`);
 });

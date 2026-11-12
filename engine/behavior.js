@@ -2,7 +2,8 @@
 //
 // An in, out, custom or effect animation may have `behavior: { wiggle?, oscillate?, ramp?,
 // randomize?, loop? }` (loop not on an effect). Each adds an offset to the animated numbers:
-//   wiggle { amount, rate?: 2, seed?: 0 }  adds smooth random drift to the animated numbers.
+//   wiggle { amount, rate?: 2, seed?: 0, decay?: 0 }  adds smooth random drift to the animated
+//     numbers; decay per second dies it down (the drift is times e^(-decay t)).
 //     amount is a number (the same for every numeric key) or { key: number } (only those keys,
 //     added to the animation's from and to at the layer's own value when it leaves them out).
 //     rate is about how many drifts a second; seed picks another random pattern.
@@ -108,7 +109,9 @@ export function wiggleOffset(wiggle, key, local, duration) {
   // The taper: 0 with no speed at the pass's start and end, full strength one drift (1/rate s) in.
   const edge = Math.min(1 / rate, duration / 2);
   const taper = fade(Math.min(1, time / edge)) * fade(Math.min(1, (duration - time) / edge));
-  return amount * drift * taper;
+  // decay per second dies the drift down by e^(-decay t): a shake that settles (a hit's aftershock).
+  const dying = finiteNumber(wiggle.decay) && wiggle.decay > 0 ? Math.exp(-wiggle.decay * time) : 1;
+  return amount * drift * taper * dying;
 }
 
 export const WIGGLE_OCTAVES = 3;
@@ -479,13 +482,14 @@ function normalizeRandomize(raw, isKey, options) {
 }
 
 function normalizeWiggle(raw, isKey, options = {}) {
-  if (!isRecord(raw)) throw new Error("wiggle must be {amount, rate?, seed?}");
-  const unknown = Object.keys(raw).filter((key) => !["amount", "rate", "seed"].includes(key));
-  if (unknown.length) throw new Error(`wiggle has no ${unknown.join(", ")}: use amount, rate and seed`);
+  if (!isRecord(raw)) throw new Error("wiggle must be {amount, rate?, seed?, decay?}");
+  const unknown = Object.keys(raw).filter((key) => !["amount", "rate", "seed", "decay"].includes(key));
+  if (unknown.length) throw new Error(`wiggle has no ${unknown.join(", ")}: use amount, rate, seed and decay`);
   const amount = amountSpec(raw.amount, "wiggle.amount", isKey, options, { verb: "wiggle" });
   const rate = raw.rate === undefined ? WIGGLE_RATE : raw.rate;
   if (!finiteNumber(rate) || rate <= 0 || rate > MAX_RATE) throw new Error(`wiggle.rate must be above 0 and at most ${MAX_RATE} (drifts a second)`);
   const seed = raw.seed === undefined ? 0 : raw.seed;
   if (!Number.isInteger(seed) || seed < 0 || seed > MAX_SEED) throw new Error("wiggle.seed must be a whole number from 0");
-  return { amount, rate, seed };
+  const decay = numberIn(raw.decay, "wiggle.decay", 0, 0, MAX_DECAY, { unit: " (per second)" });
+  return decay > 0 ? { amount, rate, seed, decay } : { amount, rate, seed };
 }

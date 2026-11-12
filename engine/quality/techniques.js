@@ -5,8 +5,7 @@
 // two full-frame pictures whose opacities cross, a slow push is a slow scale of a large picture,
 // type-words is a text entrance by words with a stagger. What it cannot see honestly it leaves
 // out instead of guessing (techniques.js marks those detect:false):
-//   match-cut (needs the shapes in the picture), speed-lines (no effect for it yet),
-//   and the set pieces with no mark in the document (clip-field, device-in-scene). Set pieces built
+//   match-cut (needs the shapes in the picture), and the set pieces with no mark in the document (clip-field, device-in-scene). Set pieces built
 //   by moves are read from the scene's move records (scene.moves, with their tags).
 // A dissolve is found two ways: full-frame pictures that cross (transitions), and floating clips
 // that fade one into the other in the same place (crossfades).
@@ -35,7 +34,8 @@ const PLACE_KEYS = new Set(["x", "y"]);
 const presetOf = (motion) => motion.tweens.find((tween) => tween.preset)?.preset ?? null;
 const keysOf = (motion) => new Set(motion.tweens.flatMap((tween) => tween.keys));
 const PARTICLE_KEYS = new Set(Object.keys(PARTICLE_LOOKS).filter((key) => key !== "light-leaks"));
-const LIGHT_KEYS = new Set(["light-leaks", "light-rays", "lens-flare"]);
+const LIGHT_KEYS = new Set(["light-leaks", "light-rays", "lens-flare", "film-burn"]);
+const LINE_KEYS = new Set(["speed-lines", "impact-lines"]);
 const MOTION_BLUR_KEYS = new Set(["directional-blur", "zoom-blur", "spin-blur"]);
 
 /**
@@ -359,7 +359,7 @@ function handAccents(model) {
     found.push({ tag: "flash", at: hit.start, itemId: hit.itemId, animationIds: [hit.animationId], extra: { strength: 1, frames: Math.max(1, Math.round((hit.end - hit.start) * 30)), shape: "frame" } });
   for (const shake of (model.behaviors ?? []).filter((entry) => !ownAccent(entry) && entry.end - entry.start <= 0.5)) {
     found.push({ tag: "shake", at: shake.start, itemId: shake.itemId, animationIds: [shake.animationId], extra: { strength: round2(Math.min(1.5, shake.amount / (0.02 * model.width))),
-      frames: Math.max(1, Math.round((shake.end - shake.start) * 30)), shape: shake.decay >= 6 ? "decay" : "steady", rate: round2(shake.rate) } });
+      frames: Math.max(1, Math.round((shake.end - shake.start) * 30)), shape: shake.decay >= 6 || Math.exp(-shake.decay * (shake.end - shake.start)) <= 0.35 ? "decay" : "steady", rate: round2(shake.rate) } });
   }
   return found.map((entry) => ({ ...entry, extra: { ...entry.extra, animationIds: entry.animationIds.filter(Boolean) } }));
 }
@@ -600,6 +600,7 @@ export function techniquesUsed(model) {
         frames: Math.max(1, Math.round((effect.end - effect.start) * 30)), shape: "steady", rate: effect.to?.speed ?? 3 });
       else if (PARTICLE_KEYS.has(effect.effect)) add("particles", effect.start, effect.itemId);
       else if (LIGHT_KEYS.has(effect.effect)) add("light-sweep", effect.start, effect.itemId);
+      else if (LINE_KEYS.has(effect.effect)) add("speed-lines", effect.start, effect.itemId);
       else if (effect.effect === "rgb-shift") add("rgb-split", effect.start, effect.itemId);
       else if (effect.effect === "grain" || effect.effect === "vignette") add(effect.effect, effect.start, effect.itemId);
       else if (MOTION_BLUR_KEYS.has(effect.effect) && ![...transitionBlurs].some((time) => Math.abs(time - effect.start) <= 0.8)) add("motion-blur", effect.start, effect.itemId);

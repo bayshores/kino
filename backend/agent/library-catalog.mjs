@@ -45,7 +45,10 @@ const EFFECT_TAGS = {
 };
 // Lines for effects no technique tag describes.
 const EFFECT_LINES = {
-  invert: ["invert: every color flipped to its negative (keepHue swaps only light and dark)", "one frame or beat of a hit, a shock, a flashback"],
+  invert: ["invert: every color flipped to its negative (keepHue swaps only light and dark); keepStill off by default", "one frame or beat of a hit, a shock, a flashback"],
+  "film-burn": ["film burn: a hot, uneven glow eating in from one edge, the look of overexposed film; keepStill off by default", "a cut between shots, a memory, an old-film or burned-out ending"],
+  "speed-lines": ["speed lines: thin streaks racing across the layer along an angle; keepStill off by default", "a fast move, a dash, a whoosh; draws lines, not a time ramp"],
+  "impact-lines": ["impact lines: wedges pointing in from the edges around a clear middle, redrawn in steps; keepStill off by default", "a hit, a shock, a reveal that lands on a beat"],
   "color-ranges": ["color ranges: turn, saturate or lighten one hue range (reds, blues, ...) and lift or sink highlights and shadows; grays stay gray",
     "one color pushed or muted, sky or foliage shifted, a brand color matched"],
   "color-look": [`color look: a ready-made grade, ${COLOR_LOOK_NAMES[0]} by default (${COLOR_LOOK_NAMES.join(", ")}), with amount 0..1`,

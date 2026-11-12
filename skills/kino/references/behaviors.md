@@ -16,7 +16,7 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   scene ends (inside a component: its source scene's end); `"pingpong"` plays it forward then
   backward. A looping layer counts as perpetual, so a constant-speed spin may be `linear`.
   Lottie holds each cycle restart (a jump, not a slide back).
-- `behavior:{wiggle:{amount, rate?:2, seed?:0}}` adds smooth random drift to the numbers the
+- `behavior:{wiggle:{amount, rate?:2, seed?:0, decay?:0}}` adds smooth random drift to the numbers the
   animation changes: `amount` in each property's own units (one number for all of them, or
   `{rotation:4, y:6}` for some). One number with `scaleX`, `scaleY` or `opacity` beside other
   keys is refused (8 is 800%): give one per key. A key only in `amount` wiggles in place.
@@ -24,6 +24,7 @@ check, look and Lottie (baked to keyframes) see exactly what plays.
   `rate` is about how many drifts a second; another `seed` gives another pattern. It layers three
   octaves (finer, weaker shakes on the drift), so it reads hand-held. The drift eases from 0 at
   the animation's start and back at its end, so nothing jumps, and a looping wiggle repeats seamlessly.
+  `decay` (0-100 per second) fades it as e^(-decay x seconds): a shake that dies down.
 - More offsets, added to the animated value (combine freely; `amount` like wiggle's; held after the
   animation ends): `oscillate:{amount, period?:1 s, phase?:0..1, wave?:"sine"|"triangle"|"square"|"saw", decay?:0 per s}`;
   `ramp:{to, from?:0, start?:0 s, duration?:to the end, ease?:"linear"}` (to/from one number or

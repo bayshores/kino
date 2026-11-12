@@ -106,8 +106,8 @@ const wordsBehind = (count, front = false) => scene({ duration: count * 3, layer
 
 // ---------------------------------------------------------------- the vocabulary
 
-test("the vocabulary: 56 tags in 6 groups, each with a line and when it fits; the undetectable ones say why", () => {
-  assert.equal(TECHNIQUES.length, 56);
+test("the vocabulary: 57 tags in 6 groups, each with a line and when it fits; the undetectable ones say why", () => {
+  assert.equal(TECHNIQUES.length, 57);
   assert.equal(new Set(TECHNIQUE_TAGS).size, TECHNIQUE_TAGS.length, "tags are unique");
   for (const entry of TECHNIQUES) {
     assert.match(entry.tag, /^[a-z0-9]+(-[a-z0-9]+)*$/, entry.tag);
@@ -248,6 +248,11 @@ test("texture: particles, light-sweep, rgb-split, grain, vignette, motion-blur a
   const full = { x: 0, y: 0, width: 1920, height: 1080, fillEnabled: false, strokeWidth: 0 };
   uses("particles", scene({ layers: [rect("snow", { ...full, animations: [effect("snow", 0, 4, { count: 200 })] })] }));
   uses("light-sweep", scene({ layers: [rect("sun", { animations: [effect("lens-flare", 0, 2, { x: 1.2, y: 0.4 }, { x: -0.1, y: 0.2 })] })] }));
+  uses("light-sweep", scene({ layers: [picture("still", { animations: [effect("film-burn", 1, 0.5)] })] }));
+  // Lines are speed-lines, and the effect's own speed setting is not a retime of the clip.
+  const lines = scene({ layers: [picture("still", { animations: [effect("speed-lines", 1, 0.5), effect("impact-lines", 2, 0.3)] })] });
+  assert.equal(uses("speed-lines", lines).length, 2);
+  assert.deepEqual(modelOf(lines).retimes, []);
   uses("rgb-split", scene({ layers: [picture("still", { animations: [effect("rgb-shift", 1, 0.3)] })] }));
   uses("grain", scene({ layers: [picture("still", { animations: [effect("grain", 0, 4)] })] }));
   uses("vignette", scene({ layers: [picture("still", { animations: [effect("vignette", 0, 4)] })] }));
@@ -303,9 +308,10 @@ test("set pieces built by moves are found from the scene's move records, while t
     record("logo-match-move", ["logo-match-move", "screen-zoom"], 6, 7.5), record("status-line", ["status-line", "type-swap"], 0, 8),
     record("speed-lines-phone", ["speed-lines", "particles", "slow-push"], 1, 4), record("draw-on", ["draw-on"], 2, 2.8), record("roll", ["roll"], 4, 6),
     record("build-in", ["ui-build"], 6, 7), record("accent-hit", ["accent-hit"], 7, 7.4), record("cursor", ["cursor"], 5, 6.5),
+    record("punch-in", ["punch-in"], 1, 2),
   ] });
   assert.deepEqual(uses("tile-ring", document).map((entry) => entry.at), [0.5]);
-  for (const tag of ["swipe-cards", "logo-match-move", "screen-zoom", "status-line", "speed-lines", "draw-on", "roll", "ui-build", "accent-hit", "cursor"]) uses(tag, document);
+  for (const tag of ["swipe-cards", "logo-match-move", "screen-zoom", "status-line", "speed-lines", "draw-on", "roll", "ui-build", "accent-hit", "cursor", "punch-in"]) uses(tag, document);
   notUses("tile-ring", scene({ layers: [picture("shot")] }));
 });
 

@@ -178,9 +178,13 @@ const EFFECT_PARAMETER_OVERRIDES = {
   "light-rays": { strength: 2, length: 0.55, decay: 0.4, centerX: 0.3, centerY: 0.35, threshold: 0.45 },
   "lens-flare": { style: "rings", x: 0.2, y: 0.25, size: 1.2, color: "#9FD0FF" },
   field: { use: "color", expression: "0.5 + 0.5*sin(u*tau*3 + t*a)", a: 2, color: "#F77F00" },
+  "speed-lines": { count: 40, thickness: 6, taper: 0.7, variation: 0.4, color: "#CAF0F8", opacity: 0.9, angle: 90, length: 0.5, speed: 2, seed: 5 },
+  "impact-lines": { count: 60, thickness: 10, inner: 0.35, centerX: 0.4, centerY: 0.55, rate: 8, seed: 5, color: "#F77F00" },
+  "film-burn": { amount: 0.8, edge: "right", reach: 0.6, speed: 0.5, seed: 9 },
+  invert: { amount: 0.8, keepHue: true },
 };
 
-assert.equal(EFFECTS.length, 54, "the A5 evidence covers the current catalog size");
+assert.equal(EFFECTS.length, 58, "the A5 evidence covers the current catalog size");
 function effectOperation(definition, layer = "Artwork") {
   return {
     op: "add_animation", layer, effect: definition.key,

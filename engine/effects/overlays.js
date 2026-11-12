@@ -45,7 +45,7 @@ const lineFields = (count, thickness, rate) => ({
 });
 
 export const OVERLAY_EFFECTS = [
-  { key: "speed-lines", label: "Speed Lines", group: "Post FX", kind: "ranged", render: (frame) => renderLines("speed-lines", frame),
+  { key: "speed-lines", label: "Speed Lines", group: "Post FX", kind: "ranged", keepStill: "off", render: (frame) => renderLines("speed-lines", frame),
     parameters: {
       ...lineFields(60, 4, 0),
       // The way the lines travel: 0 to the right, 90 down.
@@ -55,14 +55,14 @@ export const OVERLAY_EFFECTS = [
       // Layer widths a second the lines slide along their angle.
       speed: number("Speed", 2.5, -20, 20, 0.05, "widths/s"),
     } },
-  { key: "impact-lines", label: "Impact Lines", group: "Post FX", kind: "ranged", render: (frame) => renderLines("impact-lines", frame),
+  { key: "impact-lines", label: "Impact Lines", group: "Post FX", kind: "ranged", keepStill: "off", render: (frame) => renderLines("impact-lines", frame),
     parameters: {
       ...lineFields(90, 14, 12),
       centerX: number("Center X", 0.5, -0.5, 1.5, 0.01), centerY: number("Center Y", 0.5, -0.5, 1.5, 0.01),
       // The clear middle's radius, as a share of the way from the focus to the farthest corner.
       inner: number("Inner", 0.45, 0, 0.95, 0.01),
     } },
-  { key: "film-burn", label: "Film Burn", group: "Post FX", kind: "ranged", render: renderFilmBurn,
+  { key: "film-burn", label: "Film Burn", group: "Post FX", kind: "ranged", keepStill: "off", render: renderFilmBurn,
     parameters: {
       amount: number("Amount", 0.9, 0, 1, 0.01),
       edge: choice("Edge", "left", ["left", "right", "top", "bottom", "corner", "all"]),
@@ -77,7 +77,7 @@ export const OVERLAY_EFFECTS = [
       seed: seed(),
       blend: choice("Blend", "screen", BURN_BLENDS),
     } },
-  { key: "invert", label: "Invert", group: "Color", kind: "ranged", render: renderInvert,
+  { key: "invert", label: "Invert", group: "Color", kind: "ranged", keepStill: "off", render: renderInvert,
     parameters: {
       amount: number("Amount", 1, 0, 1, 0.01, "", { initial: 0 }),
       keepHue: boolean("Keep Hue", false),
@@ -243,7 +243,7 @@ function renderFilmBurn(frame) {
   const key = JSON.stringify(["film-burn-v1", step, ...["edge", "reach", "scale", "speed", "rate", "deep", "mid", "hot", "seed"].map((name) => read(frame, "film-burn", name))]);
   const map = effectMapImage(frame, key, (px, py, mapWidth, mapHeight) => {
     const heat = burnHeat(frame, (px + 0.5) / mapWidth, (py + 0.5) / mapHeight);
-    const position = heat * (ramp.length - 1), index = Math.min(ramp.length - 2, Math.floor(position));
+    const position = heat * 0.7 * (ramp.length - 1), index = Math.min(ramp.length - 2, Math.floor(position));
     const [r, g, b] = lerp(ramp[index], ramp[index + 1], position - index).map(Math.round);
     return [r, g, b, Math.round(clamp(heat * 1.6, 0, 1) * 255)];
   }, { maxSide: 160 });
