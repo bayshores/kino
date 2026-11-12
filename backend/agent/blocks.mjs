@@ -38,6 +38,7 @@ import { applyTransition } from "../../engine/blocks/recipes/transitions.js";
 import { LOOKS, LOOK_NAMES, lookOf, seededLook, styleFor } from "../../engine/blocks/looks.js";
 import { FORMATS, NAMED_SLOTS, parseFormat, slotBox } from "../../engine/blocks/formats.js";
 import { animationWindow, entranceWindow, lastEntranceEnd, parseAt, resolveAt } from "../../engine/blocks/timing.js";
+import { projectFps } from "../../engine/frameRate.js";
 import { DURATIONS, EASING_TOKENS, FEELS } from "../../engine/blocks/tokens.js";
 import { MOTION_FEELS, VARY_KINDS } from "../../engine/blockFields.js";
 import { EXAMPLES } from "../../engine/blocks/examples.js";
@@ -1109,6 +1110,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
         return cue.time;
       },
       auto() { return lastEntranceEnd(scene, fonts, { skip }); },
+      // at:"f12" counts frames at the project's rate (timing.js resolveAt).
+      fps: projectFps(document),
     };
   }
 

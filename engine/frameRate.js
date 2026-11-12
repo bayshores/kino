@@ -77,3 +77,33 @@ export function frameToTime(frame, fps) {
   const { num, den } = frameRateFraction(fps);
   return (frame * den) / num;
 }
+
+// The rate a project's frames step at when it names none: kino's grid before projects kept a rate
+// (look, check and draft renders all stepped at 30), so old documents behave as they did.
+export const DEFAULT_PROJECT_FPS = 30;
+
+/** The project's own frame rate (document.fps, set at create or by update_project), or 30. */
+export function projectFps(document) {
+  return parseFps(document?.fps) ?? DEFAULT_PROJECT_FPS;
+}
+
+/** The frame of `time` at `fps`: the nearest one (1.5 s at 23.976 is frame 36, 1.5015 s). */
+export function nearestFrame(time, fps) {
+  const { num, den } = frameRateFraction(fps);
+  return Math.max(0, Math.round((time * num) / den));
+}
+
+/** `time` moved onto the nearest frame of `fps`, in seconds from the exact fraction. */
+export function snapTime(time, fps) {
+  return frameToTime(nearestFrame(time, fps), fps);
+}
+
+/**
+ * Whether `time` sits on a frame of `fps`, within a fiftieth of a frame (my guess: times written
+ * with two to four decimals, such as 1.46 or 1.5015 at 23.976, count as on their frame).
+ */
+export function onFrame(time, fps) {
+  const { num, den } = frameRateFraction(fps);
+  const frames = (time * num) / den;
+  return Math.abs(frames - Math.round(frames)) < 0.02;
+}

@@ -28,13 +28,14 @@ import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { EFFECTS, isUnchangedAtOne } from "../../engine/effects/catalog.js";
 import { applyOperations } from "../../engine/operations.js";
+import { offGridTimes } from "../../engine/projectSettings.js";
 import { MUSIC_CUE_KINDS } from "../../engine/qualityFields.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../../engine/model.js";
 import { documentChanges } from "../../engine/documentChanges.js";
 import { mergeDocuments } from "../../engine/documentMerge.js";
 import { expandComponents } from "../../engine/linkedComponents.js";
 import { exportProfile } from "../../engine/exportOptions.js";
-import { fpsLabel, parseFps, readFps } from "../../engine/frameRate.js";
+import { fpsLabel, nearestFrame, onFrame, parseFps, projectFps, readFps, snapTime } from "../../engine/frameRate.js";
 import { fontTargetLayers, withFontPatches } from "../../engine/fontDocuments.js";
 import { ensureDocumentFonts, prepareFontPatches } from "../font-selection.mjs";
 import { OPERATION_TYPES, SERVICE_OPERATION_TYPES, describeOperation, guideTopics, linesMentioning } from "../operation-guide.mjs";
@@ -576,7 +577,7 @@ export function createAgentService(deps) {
     const fonts = await fontsFor(document);
     const codes = await syncCodes(document.id, document);
     for (const sceneId of sceneIds) {
-      const { findings } = await findingsFor(document, { fonts, codes, sceneId, pixels: true, outputFps: parseFps(options?.fps) ?? 30 });
+      const { findings } = await findingsFor(document, { fonts, codes, sceneId, pixels: true, outputFps: parseFps(options?.fps) ?? projectFps(document) });
       const real = await isRealEdit(document);
       const errors = findings.filter((finding) => blocksFinal(finding, real));
       if (errors.length) throw new AgentError("check_failed", `${errors.length} open findings block final export of ${refName(sceneId, codes)}: ${openFindingLines(errors).join("; ")}. Run check, fix each or waive it with a reason.`);
@@ -2282,6 +2283,30 @@ export function createAgentService(deps) {
     return { times, kinds, more };
   }
 
+  // On a project with its own frame rate, the receipt's times as frames ("at 20 fps: A1 f12–f30"),
+  // a time between two frames named with the frame that first shows it; and an fps change says
+  // which times it moved off the new grid. A project without a rate gets no note.
+  function projectFrameNote(before, after, times, codes) {
+    if (after.fps == null) return null;
+    const fps = projectFps(after), label = fpsLabel(fps);
+    if (before.fps !== after.fps) {
+      const off = offGridTimes(after, fps);
+      const words = off.map((item) => `${refName(item.id, codes)} ${item.field} ${sec(item.time)}s (f${(item.time * fps).toFixed(1)})`);
+      return `project now ${label} fps${off.length ? `; off its frames: ${words.join(", ")}${off.length >= 8 ? " and more" : ""}: each shows from the next frame, or move it to a whole frame (at:"f12")` : "; every animation time sits on its frames"}`;
+    }
+    // The saved times, not the receipt's rounded ones: 1.5015 (frame 36 at 23.976) shows as 1.5.
+    const exact = new Map(documentObjects(after).animations.map((entry) => {
+      const start = (entry.offset ?? 0) + (entry.animation.start ?? 0);
+      return [refName(entry.id, codes), [start, start + (entry.animation.duration ?? 0)]];
+    }));
+    const frame = (time) => onFrame(time, fps) ? `f${nearestFrame(time, fps)}` : `f${Math.ceil((time * fps) - 1e-6)} (${sec(time)}s is between frames)`;
+    const entries = Object.keys(times).filter((name) => exact.has(name)).map((name) => {
+      const [start, end] = exact.get(name);
+      return `${name} ${frame(start)}${end > start ? `–${frame(end)}` : ""}`;
+    });
+    return entries.length ? `at ${label} fps: ${entries.join(", ")}` : null;
+  }
+
   // How many keys each keyed animation the edit made or changed has: `keys: {A1: 4}`.
   function animationKeyCounts(after, ids, codes) {
     const wanted = new Set(ids);
@@ -2490,6 +2515,8 @@ export function createAgentService(deps) {
       const newFindings = stretches.size ? newFindingsLine((await findingsFor(before, { fonts, codes })).findings, findings, stretches) : null;
       const created = createdNames(after, changes.created, afterCodes);
       const timed = animationTimes(before, after, [...changes.created, ...changes.changed], afterCodes);
+      const frameNote = projectFrameNote(before, after, timed.times, afterCodes);
+      if (frameNote) work.notes.push(frameNote);
       // A value update_layer set that an animation draws over (opacity 0 under a fade-in).
       const covered = new Set();
       const overridden = overriddenValues(after, translation.operations, (id) => refName(id, afterCodes), before, covered);
@@ -2646,7 +2673,7 @@ export function createAgentService(deps) {
     if (input.fix !== undefined && input.fix !== "auto") throw new AgentError("bad_input", 'fix is "auto" (apply the fixes marked auto), or left out: check {fix:"auto"}.');
     // rules: a list of rule codes limits the check; true only asks for the rules line.
     const rules = input.rules == null || input.rules === true ? null : (Array.isArray(input.rules) ? input.rules : [input.rules]).map(String);
-    const options = { codes, sceneId: scene?.id, pixels: input.pixels !== false, listen: input.listen !== false, rules, outputFps: input.fps == null ? 30 : readFps(input.fps, (message) => new AgentError("bad_input", message)) };
+    const options = { codes, sceneId: scene?.id, pixels: input.pixels !== false, listen: input.listen !== false, rules, outputFps: input.fps == null ? projectFps(record.document) : readFps(input.fps, (message) => new AgentError("bad_input", message)) };
     // A settled brief has a deck by the time the video is checked (deck_unused counts it).
     const dealt = await deckFor(projectId, record.document);
     noteLive({ sceneId: scene?.id ?? null });
@@ -3067,15 +3094,21 @@ export function createAgentService(deps) {
     if (mode === "versus") return versusLook(input, { record, codes, fonts, state });
     if (mode === "viewer") return viewerLook({ record, codes, fonts, scene, state, beats: input.beats });
     if (mode === "critique") return critiqueLook(input, { record, codes, fonts, scene, state });
+    // The project's frame rate: frame snaps t to its nearest frame, frames and strip every step
+    // by it. A project without one keeps today's 30 grid and frame draws t as asked.
+    const rate = projectFps(document), ownRate = document.fps != null;
     if (mode === "frame") {
-      const time = clampTime(input.t ?? sec(scene.duration / 2), scene);
+      const askedTime = clampTime(input.t ?? sec(scene.duration / 2), scene);
+      // On a 23.976 project t:1.5 is frame 36 (1.5015 s), the frame the video shows there.
+      const time = ownRate ? Math.min(snapTime(askedTime, rate), scene.duration) : askedTime;
       // The longest edge is at most LOOK_MAX_EDGE (1280 px wide for 16:9, 720 px for 9:16).
       const widest = Math.floor(LOOK_MAX_EDGE * Math.min(1, scene.width / scene.height));
       const asked = Math.round(Math.max(64, input.width ?? Math.min(480, scene.width)));
       const width = Math.min(widest, asked);
       image = await look.frameImage(await prepare(document, scene.id, fonts), { time, width });
       noteLive({ sceneId: scene.id, time }, [{ sceneId: scene.id, time }]);
-      text = `frame ${refName(scene.id, codes)} @${time}s ${width}px${asked > width ? ` (at most ${LOOK_MAX_EDGE} px on the long edge; zoom {layer} shows detail)` : ""}`;
+      const frameNote = ownRate ? ` (frame ${nearestFrame(time, rate)} of ${fpsLabel(rate)} fps)` : "";
+      text = `frame ${refName(scene.id, codes)} @${ownRate ? Math.round(time * 10000) / 10000 : time}s${frameNote} ${width}px${asked > width ? ` (at most ${LOOK_MAX_EDGE} px on the long edge; zoom {layer} shows detail)` : ""}`;
     } else if (mode === "sheet") {
       const stretch = input.from != null || input.to != null;
       if (!input.scene && !stretch && document.scenes.length > 1) {
@@ -3156,24 +3189,26 @@ export function createAgentService(deps) {
       const entry = resolver.objects.animations.find((item) => item.id === animationId);
       const [start, end] = animationSpan(entry.animation, entry.offset);
       // every:true: each output frame of the animation (at most FRAMES_MOST), not 6 spread out.
-      const every = input.every === true ? everyFrame(start, Math.min(end, entry.scene.duration)) : null;
+      const every = input.every === true ? everyFrame(start, Math.min(end, entry.scene.duration), undefined, rate) : null;
       const times = every ? every.times : evenTimes(start, Math.min(end, entry.scene.duration), STRIP_TILES);
       image = await look.sheetImage(await prepare(document, entry.scene.id, fonts), { times, ...(every ? { columns: 6, labels: times.map((time) => `${time.toFixed(2)}s`) } : {}) });
       lookKey = entry.scene.id;
       const span = [start, Math.min(end, entry.scene.duration)];
       noteLive({ sceneId: entry.scene.id, layerIds: entry.layer ? [entry.layer.id] : [], range: span }, [{ sceneId: entry.scene.id, layerIds: entry.layer ? [entry.layer.id] : [], range: span }]);
-      text = every ? `strip ${refName(animationId, codes)} ${start}–${end}s: every frame at 30 fps, ${times.length} tiles labeled with their time${every.rest != null ? `; look {mode:"frames", from:${every.rest}, to:${sec(end)}} for the rest` : ""}`
+      text = every ? `strip ${refName(animationId, codes)} ${start}–${end}s: every frame at ${fpsLabel(rate)} fps, ${times.length} tiles labeled with their time${every.rest != null ? `; look {mode:"frames", from:${every.rest}, to:${sec(end)}} for the rest` : ""}`
         : `strip ${refName(animationId, codes)} ${start}–${end}s: ${times.map((time, index) => `${index + 1}=${time}s`).join(" ")}`;
     } else if (mode === "frames") {
-      // Every output frame (30 fps) of a stretch, 6 to a row (0.2 s), at most FRAMES_MOST.
+      // Every output frame (at the project's rate, 30 without one) of a stretch, 6 to a row, at most FRAMES_MOST.
       const from = input.from ?? input.t;
-      if (from == null) throw new AgentError("bad_input", `frames needs from (seconds); to defaults to ${sec((FRAMES_MOST - 1) / 30)} s later.`);
-      const { from: start, to: end } = stretchBounds({ from, to: input.to ?? from + (FRAMES_MOST - 1) / 30 }, scene);
-      const { times, rest } = everyFrame(start, end);
+      if (from == null) throw new AgentError("bad_input", `frames needs from (seconds); to defaults to ${sec((FRAMES_MOST - 1) / rate)} s later.`);
+      const { from: start, to: end } = stretchBounds({ from, to: input.to ?? from + (FRAMES_MOST - 1) / rate }, scene);
+      const { times, rest } = everyFrame(start, end, undefined, rate);
       const longEdge = Math.round(Math.min(480, Math.max(96, input.width ?? 240)));
-      image = await look.sheetImage(await prepare(document, scene.id, fonts), { times, longEdge, columns: 6, labels: times.map((time) => `${time.toFixed(2)}s`) });
+      // With its own rate each tile names its frame too ("f36 1.50s"), the number a reference frame has.
+      const labels = times.map((time) => `${ownRate ? `f${nearestFrame(time, rate)} ` : ""}${time.toFixed(2)}s`);
+      image = await look.sheetImage(await prepare(document, scene.id, fonts), { times, longEdge, columns: 6, labels });
       noteLive({ sceneId: scene.id, range: [start, end] }, [{ sceneId: scene.id, range: [start, end] }]);
-      text = `frames ${refName(scene.id, codes)} ${sec(times[0])}–${sec(times.at(-1))}s: ${times.length} frames at 30 fps, 6 a row (0.2 s), labeled with their time${rest != null ? `; at most ${FRAMES_MOST} a call: look {mode:"frames", from:${rest}, to:${sec(end)}} for the rest` : ""}`;
+      text = `frames ${refName(scene.id, codes)} ${sec(times[0])}–${sec(times.at(-1))}s: ${times.length} frames at ${fpsLabel(rate)} fps${ownRate ? ` (f${nearestFrame(times[0], rate)}–f${nearestFrame(times.at(-1), rate)})` : ""}, 6 a row (${sec(6 / rate)} s), labeled with their time${rest != null ? `; at most ${FRAMES_MOST} a call: look {mode:"frames", from:${rest}, to:${sec(end)}} for the rest` : ""}`;
     } else if (mode === "sound" || (mode === "motion" && input.ref === "sound")) {
       // The MCP tool list is at its token budget, so the sound map is look {mode:"motion", ref:"sound"} there.
       ({ image, text } = await soundLook({ record, codes, scene, state }));
@@ -4390,7 +4425,7 @@ export function createAgentService(deps) {
   async function reviewPlateCuts(document, sceneId, fonts, revision) {
     const key = `${document.id}:${sceneId}:${revision}`;
     if (plateCutsCache?.key !== key) {
-      const model = kinoTimeline(document, sceneId, { fonts, fps: 30 });
+      const model = kinoTimeline(document, sceneId, { fonts, fps: projectFps(document) });
       plateCutsCache = { key, times: motionTrace(model).cuts.map((cut) => cut.time) };
     }
     return plateCutsCache.times;
@@ -4404,7 +4439,7 @@ export function createAgentService(deps) {
   // (backend/agent/motion-graph.mjs), with cuts, beats, cues and check findings marked.
   async function motionLook(input, { document, codes, fonts, scene }) {
     const { from, to } = stretchBounds(input, scene);
-    const model = kinoTimeline(document, scene.id, { fonts, fps: 30 });
+    const model = kinoTimeline(document, scene.id, { fonts, fps: projectFps(document) });
     const name = (item) => refName(item.id, codes);
     const trace = motionTrace(model, { from, to, name });
     const { findings } = await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false });
@@ -4655,7 +4690,7 @@ export function createAgentService(deps) {
         : (state.story?.intents?.[scene.id]?.beats ?? []).map((beat, index) => ({ from: beat.from, to: beat.to, name: `beat ${index + 1}` }));
       const dips = music.flatMap((layer) => volumeDips(layer, duration).map((dip) => ({ layer: refName(layer.id, codes), ...dip })));
       // The scene-cut list (shot changes) and each sound clip's edges, for the mix check's level jumps.
-      const cuts = plateChanges(kinoTimeline(document, scene.id, { fonts: await fontsFor(document), fps: 30 })).map((change) => change.at);
+      const cuts = plateChanges(kinoTimeline(document, scene.id, { fonts: await fontsFor(document), fps: projectFps(document) })).map((change) => change.at);
       const edges = scene.layers.filter((layer) => (layer.type === "audio" || layer.type === "video") && layer.src).flatMap((layer) => {
         const range = mediaPlaybackRange(layer, duration);
         return range ? [range.start, range.end] : [];
@@ -6317,7 +6352,9 @@ export function createAgentService(deps) {
       const fonts = await fontsFor(record.document);
       // Ordinary drafts retain motion fidelity. An explicit fast review trades that for a
       // 15fps cap; source timing stays unchanged. fps may be fractional (frameRate.js).
-      const asked = readFps(input.fps ?? input.options?.fps ?? (input.preview === "fast" ? 15 : defaults.fps ?? 30), (message) => new AgentError("bad_input", message));
+      // The project's own rate comes before the person's export default: a 20 fps edit drafts at
+      // 20, not 30 (recreate GAPS item 3); render's own fps still wins.
+      const asked = readFps(input.fps ?? input.options?.fps ?? (input.preview === "fast" ? 15 : record.document.fps ?? defaults.fps ?? 30), (message) => new AgentError("bad_input", message));
       const fps = quality === "draft" ? Math.min(input.preview === "fast" ? 15 : 30, asked) : asked;
       const options = { ...input.options, format, renderQuality: quality, fps, ...(format === "png-sequence" ? { sequenceArchive: true } : {}),
         ...(quality === "draft" && defaults.draftWidth && input.options?.draftWidth === undefined ? { draftWidth: defaults.draftWidth } : {}),
@@ -7518,7 +7555,10 @@ export function createAgentService(deps) {
       const id = input.id == null ? undefined : String(input.id);
       if (id !== undefined && !PROJECT_ID.test(id)) throw new AgentError("bad_input", "id is lowercase letters, digits and dashes, at most 63 characters (such as orbit-launch).");
       const width = input.width ?? 1920, height = input.height ?? 1080, duration = input.duration ?? 5;
-      const document = createDocument({ ...(id ? { id } : {}), name: String(input.name ?? id ?? "New video").slice(0, 120) });
+      // fps: the project's frame rate (frameRate.js); look, check and renders step at it. Before
+      // it was kept, {fps:20} was dropped and every grid was 30 (recreate GAPS item 3).
+      const fps = input.fps == null ? null : readFps(input.fps, (message) => new AgentError("bad_input", message));
+      const document = createDocument({ ...(id ? { id } : {}), name: String(input.name ?? id ?? "New video").slice(0, 120), ...(fps ? { fps } : {}) });
       document.scenes[0] = { ...document.scenes[0], name: String(input.scene ?? "Scene 1").slice(0, 120), width, height, duration, background: input.background ?? "#ffffff" };
       let created;
       try { created = await deps.createProject(parseDocument(document)); }
@@ -7531,7 +7571,8 @@ export function createAgentService(deps) {
       const scene = created.document.scenes[0];
       // Without a duration the 5 s is kino's, not the video's length: the brief's next step does
       // not count the video as short while the scene keeps it (brief.mjs questionLimit).
-      return done(created.document.id, { text: `created ${created.document.id} rev ${created.revision} and opened it · ${refName(scene.id, codes)} ${scene.width}×${scene.height} ${sec(scene.duration)}s bg ${scene.background}`, data: { project: created.document.id, rev: created.revision, scene: refName(scene.id, codes) } },
+      const rate = projectFps(created.document);
+      return done(created.document.id, { text: `created ${created.document.id} rev ${created.revision} and opened it · ${refName(scene.id, codes)} ${scene.width}×${scene.height} ${sec(scene.duration)}s ${fpsLabel(rate)} fps bg ${scene.background}`, data: { project: created.document.id, rev: created.revision, scene: refName(scene.id, codes), fps: rate } },
         { shared: true, change(draft) { draft.defaultLength = input.duration == null ? duration : null; } });
     }
     if (action === "open") {

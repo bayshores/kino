@@ -76,7 +76,10 @@ export function projectOutline(record, { codes, focus, page = 1, seen = {}, full
   const { document } = record;
   const layerTotal = document.scenes.reduce((sum, scene) => sum + scene.layers.length, 0);
   const animationTotal = document.scenes.reduce((sum, scene) => sum + countAnimations(scene), 0);
-  const lines = [`${document.name} (${document.id}) rev ${record.revision} · ${count(document.scenes.length, "scene")} · ${count(layerTotal, "layer")} · ${count(animationTotal, "anim")}`];
+  // A project with its own frame rate says it (look, check and renders step at it); one without
+  // reads as before and steps at 30.
+  const rate = Number.isFinite(document.fps) ? ` · ${Math.round(document.fps * 1000) / 1000} fps` : "";
+  const lines = [`${document.name} (${document.id}) rev ${record.revision} · ${count(document.scenes.length, "scene")} · ${count(layerTotal, "layer")} · ${count(animationTotal, "anim")}${rate}`];
   if (direction) lines.push(...direction);
   // What decides the next call comes before the plan and the layer rows (an agent that reads
   // only the first 8 lines of a status with many layers used to miss the checks and the inbox:

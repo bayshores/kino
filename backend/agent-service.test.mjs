@@ -50,8 +50,30 @@ test("status with no open project lists the projects", async () => {
 
 test("project create opens the new project; a taken or malformed ID is refused", async () => {
   const created = await agent("project", { action: "create", id: "alpha", name: "Alpha", width: 640, height: 360, duration: 3 });
-  assert.equal(withoutNext(created.text), "created alpha rev 1 and opened it · s1 640×360 3s bg #ffffff");
-  assert.deepEqual(created.data, { project: "alpha", rev: 1, scene: "s1" });
+  assert.equal(withoutNext(created.text), "created alpha rev 1 and opened it · s1 640×360 3s 30 fps bg #ffffff");
+  assert.deepEqual(created.data, { project: "alpha", rev: 1, scene: "s1", fps: 30 });
+
+  // A frame rate is kept on the project and echoed: in the receipt and in status. Look frames,
+  // check and renders step at it; at:"f36" is frame 36's exact start (1.5015 s at 23.976).
+  const rated = await agent("project", { action: "create", id: "rated", width: 320, height: 180, duration: 3, fps: "24000/1001" });
+  assert.match(rated.text, / 23\.976 fps bg/);
+  assert.equal((await saved("rated")).document.fps, 24000 / 1001);
+  assert.match((await agent("status", { project: "rated" })).text, /^rated \(rated\) rev 1 · 1 scene · 0 layers · 0 anims · 23\.976 fps$/m);
+  const placed = await agent("edit", { project: "rated", ops: [
+    { op: "add_layer", layerType: "rectangle", name: "card", properties: { x: 0, y: 0, width: 320, height: 180 } },
+    { op: "add_animation", layer: "card", preset: "show", at: "f36" },
+  ] });
+  assert.equal(layer(await saved("rated"), "card").animations[0].start, 36 * 1001 / 24000);
+  assert.ok(placed.data.notes?.some((note) => /^at 23\.976 fps: \S+ f36/.test(note)), JSON.stringify(placed.data));
+  const frame = await agent("look", { project: "rated", mode: "frame", t: 1.5 });
+  assert.match(frame.text, /@1\.5015s \(frame 36 of 23\.976 fps\)/);
+  const frames = await agent("look", { project: "rated", mode: "frames", from: 1.45, to: 1.55 });
+  assert.match(frames.text, /: 4 frames at 23\.976 fps \(f34–f37\)/);
+  // A rate change on a project with layers names the times it moved off the new grid.
+  const changed = await agent("edit", { project: "rated", ops: [{ op: "update_project", properties: { fps: 20 } }] });
+  assert.ok(changed.data.notes?.some((note) => /^project now 20 fps; off its frames: \S+ start [\d.]+s \(f30\.0\)/.test(note)), JSON.stringify(changed.data));
+  assert.equal((await agent("project", { action: "create", id: "bad-rate", fps: 7.5 })).data.error, "bad_input");
+  await agent("project", { action: "open", id: "alpha" });
 
   const taken = await agent("project", { action: "create", id: "alpha" });
   assert.equal(taken.isError, true);
