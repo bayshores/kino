@@ -3,7 +3,7 @@
 // footage was stacked above it and the render never shows it). Rendering shows nothing wrong, so
 // this is found from the layer order and the boxes.
 import { area, boxAt, intersection, roundBox, tweensOf, visibleBoxAt } from "../model.js";
-import { coversFrame, sec } from "../analysis.js";
+import { coversFrame, isHelperLayer, sec } from "../analysis.js";
 
 const SEEN = 0.05; // the layer's opacity (its parents' included) from which it shows
 const PEAK = 0.3; // the most opacity it must reach, so a fade's last faint frames are not a layer
@@ -61,6 +61,8 @@ export function coveredLayer(model, ctx) {
   for (const target of model.items) {
     if (!target.painted || target.isMask || target.allowOverlap || target.kind === "group" || target.kind === "text") continue;
     if (target.role === "background" || target.sceneBackground) continue;
+    // The source of a cut_out (or a mask) sits under the backdrop on purpose: its copy shows instead.
+    if (isHelperLayer(model, target)) continue;
     const above = covers.filter((cover) => cover.parentId === target.parentId && cover.z > target.z);
     if (!above.length) continue;
     const seen = [];

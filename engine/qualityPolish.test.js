@@ -225,6 +225,28 @@ test("scene drift moves the camera through every hold but a rest, slowly, and on
   assert.throws(() => card({ drift: { speed: 0.1 } }), /drift\.speed: must be/);
 });
 
+test("held_static names what is drawn, never a cut_out's source or a mask helper", async () => {
+  // A held frame: a big clip source (under its smaller cut-out copy) and the title. The largest
+  // shown layer is the source, but the finding, and the drift its fix adds, belong to the copy.
+  const copy = (source) => picture("subject", { x: 700, y: 100, width: 400, height: 500, ...(source ? { cutoutOf: source } : {}) });
+  const held = (source) => scene({ duration: 5, layers: [picture("clip", { x: 0, y: 0, width: 1200, height: 900 }), copy(source), text("title", "The end", { y: 800, animations: [fadeIn(0, 0.5)] }),
+    rect("bar", { x: 100, y: 950, width: 200, height: 100, animations: [move(3.5, 1.5, { x: 100 }, { x: 1500 })] })] });
+  assert.equal((await fires("held_static", held(null)))[0].itemId, "clip");
+  const [named] = await fires("held_static", held("clip"));
+  assert.equal(named.itemId, "subject");
+  // Its fix moves the copy and the clip it was cut from together, so the subject never shows twice.
+  assert.deepEqual(named.fix.changes.map((change) => change.itemId).sort(), ["clip", "subject"]);
+  // A mask made of a group of big shapes (a torn edge): the shapes inside the mask never draw, so
+  // the finding names the masked layer (it named the largest shape inside the mask before).
+  const torn = scene({ duration: 5, layers: [
+    { type: "group", id: "field", name: "field", x: 0, y: 0, width: 1920, height: 1080, isMaskGroup: true },
+    { type: "group", id: "edge", name: "edge", parentId: "field", x: 0, y: 0, width: 1920, height: 1080, isMask: true },
+    rect("edge-a", { parentId: "edge", fill: "#ffffff", x: 0, y: -200, width: 2600, height: 1480 }),
+    rect("tint", { parentId: "field", fill: "#ff66aa", x: 0, y: 0, width: 1920, height: 1080 }),
+    rect("bar", { x: 100, y: 950, width: 200, height: 100, animations: [move(3.5, 1.5, { x: 100 }, { x: 1500 })] })] });
+  assert.equal((await fires("held_static", torn))[0].itemId, "tint");
+});
+
 test("held_static: nothing on screen moves for more than 1.5 s", async () => {
   const card = (animations) => scene({ duration: 5, layers: [text("title", "The end", { animations: [fadeIn(0, 0.5), ...animations] })] });
   const [finding] = await fires("held_static", card([]));

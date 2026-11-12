@@ -266,6 +266,22 @@ test("linear_motion and duration_band: only a big layer's slow move is a push; a
   await silent("linear_motion", tall([rect("card", { role: "background", x: 100, y: 300, width: 400, height: 300, animations: [move(0, 3, "linear", { x: 100 }, { x: 160 })] })]));
 });
 
+test("linear_motion: a slow ambient drift of background lines or light may be linear; a card or a fast move may not", async () => {
+  // The streak-field study drifted link lines 50 px over 3 s: two blocking errors before this.
+  const lines = (dy, props = {}) => ({ type: "path", id: "links", name: "links", x: 60, y: 80, width: 760, height: 440, path: "M40 60 L310 210 L520 120",
+    fillEnabled: false, stroke: "#c8ffe6", strokeWidth: 1.5, ...props, animations: [move(0, 3, "linear", { y: 60 }, { y: 60 + dy })] });
+  await silent("linear_motion", scene({ layers: [lines(50)] }));
+  // A glow of light (blended), 60 px sideways over 3 s: the same creep.
+  await silent("linear_motion", scene({ layers: [rect("haze", { blendMode: "screen", animations: [move(0, 3, "linear", { x: 200 }, { x: 260 })] })] }));
+  // The same lines sliding 600 px in 3 s (10% of the width a second) still have to ease.
+  await fires("linear_motion", scene({ layers: [lines(600)] }));
+  // A plain card (normal blend, filled) creeping the same 60 px still has to ease, and so does a quick 1 s drift of the lines.
+  await fires("linear_motion", scene({ layers: [rect("card", { animations: [move(0, 3, "linear", { x: 200 }, { x: 260 })] })] }));
+  const quick = lines(10);
+  quick.animations = [move(0, 1, "linear", { y: 60 }, { y: 70 })];
+  await fires("linear_motion", scene({ layers: [quick] }));
+});
+
 test("linear_motion: a slow push is measured on screen, so a layer bigger than the frame passes as the frame would", async () => {
   // The review: a full-frame push 1 -> 1.2 over 4 s passed, but the same push of a 3413x1920
   // layer centred on the frame (x -1166.667) was an error, because its corners far off screen
@@ -2083,6 +2099,14 @@ test("covered_layer: stays quiet on a cut, a partial cover, a clear cover, a ble
   await silent("covered_layer", scene({ layers: [rect("card", { x: 100, y: 100, width: 300, height: 200 }), footage("alpha", { src: "/api/media/alpha.webm" })] }));
   // The scene's own background under footage is the normal case, and a flash in the right order too.
   await silent("covered_layer", scene({ layers: [footage("a"), flash()] }));
+});
+
+test("covered_layer: the source of a cut_out under the backdrop is left alone; a plain covered layer still fires", async () => {
+  // The cut-out recipe: the clip stays under a made ground, its copy (cutoutOf) shows over it.
+  const ground = rect("ground", { ...FULL, fill: "#222222" });
+  const cutoutOf = (source) => ({ type: "image", id: "subject", name: "subject", src: "/api/media/subject.png", x: 400, y: 100, width: 800, height: 900, allowOverlap: true, ...(source ? { cutoutOf: source } : {}) });
+  await fires("covered_layer", scene({ layers: [footage("clip", { x: 0, y: 0, width: 1200, height: 700 }), ground, cutoutOf(null)] }));
+  await silent("covered_layer", scene({ layers: [footage("clip", { x: 0, y: 0, width: 1200, height: 700 }), ground, cutoutOf("clip")] }));
 });
 
 // ---------------------------------------------------------------- reference_kinds

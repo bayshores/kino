@@ -11,7 +11,7 @@
 //   small_on_empty (rendered)  the picture is a small island on a flat empty frame (a hint, no auto fix)
 //   render_artifact (rendered) flat saturated slabs an RGB split draws over the picture
 // The rendered ones share the frames the contrast check renders (ctx.renderFrames caches them).
-import { atFullOpacity, coversFrame, drawnSize, headlines, inRest, maxOpacity, readableFloor, readableRuns, readingTexts, sec, shownShare, wordsOf } from "../analysis.js";
+import { atFullOpacity, coversFrame, drawnSize, headlines, inMask, inRest, isHelperLayer, maxOpacity, readableFloor, readableRuns, readingTexts, sec, shownShare, wordsOf } from "../analysis.js";
 import { area, boxAt, chainOf, fillColorsAt, hexRgba, intersection, itemById, longestRun, luminance, overlapArea, roundBox, runs, tweensOf, visibleBoxAt } from "../model.js";
 import { coveredAt } from "../techniques.js";
 import { looksLikeScreen } from "../../imageFacts.js";
@@ -709,7 +709,8 @@ function cardPush(model, run) {
   const middle = Math.round((run.from + run.to) / 2);
   const start = model.times[run.from];
   const duration = model.duration - start;
-  const shown = model.items.filter((item) => !item.isMask && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3
+  // A cut_out's source that shows stays in: it must grow with its copy, which sits on its pixels.
+  const shown = model.items.filter((item) => !inMask(model, item) && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3
     && !coveredAt(model, item, middle) && (["image", "video", "text"].includes(item.kind) || !coversFrame(model, item)));
   if (!shown.length || duration < 1.2) return null;
   const union = (boxes) => boxes.reduce((all, box) => ({ x0: Math.min(all.x0, box.x0), y0: Math.min(all.y0, box.y0), x1: Math.max(all.x1, box.x1), y1: Math.max(all.y1, box.y1) }));
@@ -747,19 +748,29 @@ function heldFinding(model, ctx, still) {
   const longest = longestRun(still);
   // The largest thing shown there: what a drift or push would move.
   const middle = Math.round((longest.from + longest.to) / 2);
-  const shown = model.items.filter((item) => !item.isMask && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3 && !coveredAt(model, item, middle));
+  // Not a cut_out's source or a mask helper: the finding (and the drift it adds) belongs to what is drawn.
+  const shown = model.items.filter((item) => !isHelperLayer(model, item) && item.kind !== "group" && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3 && !coveredAt(model, item, middle));
   const main = shown.reduce((best, item) => (!best || area(boxAt(item, middle)) > area(boxAt(best, middle)) ? item : best), null);
   const holdText = (run) => `${sec(model.times[run.from])}s for ${sec(seconds(model, run))}s${run.to === model.times.length - 1 ? " (to the end)" : ""}`;
   const pixels = Math.round(0.01 * Math.hypot(model.width, model.height));
   // The automatic fix: a slow motion on the main picture or text of every hold.
-  const motions = still.slice(0, 8).map((run) => holdMotion(model, run, ctx)).filter(Boolean);
+  const motions = still.slice(0, 8).map((run) => holdMotion(model, run, ctx)).filter(Boolean).flatMap((motion) => withCutouts(model, motion));
   const hint = { kind: "hint", text: `Keep it alive through the hold: a drift of ${main ? ctx.name(main) : "the main layer"} of at least ${pixels} px a second, a slow push on a full-frame picture (scale 1 to 1.06), type that keeps building, particles or a light sweep; or cut the hold shorter.` };
   return [{
     rule: "held_static", severity: "warn", itemId: main?.id, ...spanOf(model, longest),
     measured: `${still.length} ${still.length === 1 ? "hold" : "holds"} with nothing moving (longest ${sec(seconds(model, longest))}s)`, required: `motion at least every ${STILL_SECONDS}s`,
     message: `Nothing moves on screen at ${still.slice(0, 4).map(holdText).join(", ")}${still.length > 4 ? ` and ${still.length - 4} more` : ""}${main ? `; at the longest, ${ctx.name(main)} just sits there` : ""}. A held frame reads as a slide.`,
-    fix: motions.length ? { kind: "group", changes: motions, auto: true, why: motions.map((motion) => motion.why).join("; ") } : hint,
+    fix: motions.length ? { kind: "group", changes: motions, auto: true, why: [...new Set(motions.map((motion) => motion.why))].join("; ") } : hint,
   }];
+}
+
+// A cut_out copy sits on its source's pixels: a hold motion on one of them goes on the clip and
+// every copy of it, so the subject never shows twice.
+function withCutouts(model, change) {
+  const item = itemById(model, change.itemId);
+  const root = item?.cutoutOf && itemById(model, item.cutoutOf) ? item.cutoutOf : change.itemId;
+  const family = model.items.filter((other) => other.id === root || other.cutoutOf === root);
+  return family.length > 1 ? family.map((other) => ({ ...change, itemId: other.id })) : [change];
 }
 
 // Slow motions kino adds to a hold, by the deck technique they are: a push on a picture, a drift,
@@ -775,7 +786,7 @@ const TEXT_MOTIONS = ["type-kinetic", "drift"];
  */
 function holdMotion(model, run, ctx) {
   const middle = Math.round((run.from + run.to) / 2);
-  const candidates = model.items.filter((item) => ["image", "video", "text"].includes(item.kind) && !item.isMask && !["decor", "background"].includes(item.role)
+  const candidates = model.items.filter((item) => ["image", "video", "text"].includes(item.kind) && !isHelperLayer(model, item) && !["decor", "background"].includes(item.role)
     && !item.source?.sceneBackground && item.samples.opacity[middle] >= 0.3 && !coveredAt(model, item, middle));
   const main = candidates.reduce((best, item) => (!best || area(boxAt(item, middle)) > area(boxAt(best, middle)) ? item : best), null);
   if (!main) return null;
