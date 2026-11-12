@@ -5,6 +5,7 @@ import { ALIGNMENTS, alignmentDistance, layerWorldBox, moveLayerByWorldDelta } f
 import { typeFloor } from "../../engine/blocks/looks.js";
 import { frameScale, parseSlot, safeArea, slotBox } from "../../engine/blocks/formats.js";
 import { closest } from "./refs.mjs";
+import { placeAroundSubject, roomLine } from "../../engine/subjectRoom.js";
 import { isRecord } from "../../engine/numbers.js";
 
 /** True for a slot ("B2:E5", "center", "slot:top-left"); false for anything else, such as a layer name. */
@@ -15,7 +16,7 @@ export const isSlot = (value) => { try { parseSlot(String(value).replace(/^slot:
  * fonts that measure text; `problem` and `sceneOf` are blocks.mjs's error helpers; `faceTarget`
  * (blocks.mjs) finds the point place {on, of} puts the layers on.
  */
-export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null }) {
+export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null, subjectTarget = null, splitCopy = null }) {
   // The layers an op names, all in one scene.
   function layoutTargets(document, operation, work) {
     const find = (ref) => {
@@ -65,6 +66,27 @@ export function createLayoutOps({ fontsOf, problem, sceneOf, faceTarget = null }
     const width = group.right - group.left;
     const height = group.bottom - group.top;
     let dx = 0, dy = 0, where;
+    if (operation.around !== undefined) {
+      const notText = layers.find((layer) => layer.type !== "text");
+      if (notText) throw problem(`place {around} sets text; ${notText.name || notText.id} is ${/^[aeiou]/.test(notText.type) ? "an" : "a"} ${notText.type} layer (place it with a side or a slot).`);
+      const target = await subjectTarget(document, scene, operation, work, layers);
+      const frame = { width: scene.width, height: scene.height };
+      const safe = safeArea(frame);
+      const bounds = { x0: safe.x, y0: safe.y, x1: safe.x + safe.width, y1: safe.y + safe.height };
+      let placed;
+      try {
+        placed = placeAroundSubject(scene, layers, target.box, { fonts, scenes: document.scenes, gap: gapOf(operation, scene), bounds, side: operation.side,
+          least: typeFloor(frame).body, split: (layer) => splitCopy(document, scene, layer) });
+      } catch (error) { throw problem(error.message); }
+      const box = target.box, pct = (share) => `${Math.round(share * 100)}%`;
+      const names = operation.layerIds.join(", ");
+      const how = placed.side === "split"
+        ? `split at the word gap: "${layers[0].text}" left, "${scene.layers.find((layer) => layer.id === placed.splitId).text}" right (new layer ${placed.splitId})`
+        : placed.side;
+      const sized = placed.scale < 1 ? ` · size ${layers.map((layer, index) => `${placed.sizes[index]} → ${layer.fontSize}`).join(", ")} px to fit the room` : "";
+      work.notes.push(`place ${names} around ${target.line}${target.behind ? ", behind it" : ", over it"} (subject box x ${Math.round(box.x0)}-${Math.round(box.x1)}, y ${Math.round(box.y0)}-${Math.round(box.y1)}): ${how} · letters inside the subject box ${pct(placed.before)} → ${pct(placed.after)}${sized} · room ${roomLine(placed.room)}`);
+      return;
+    }
     if (operation.on !== undefined) {
       // On a face part: the group's center on the point, or its bottom a gap above the head.
       const target = await faceTarget(document, scene, operation, work, layers);

@@ -2274,6 +2274,8 @@ test("type_covered: big type behind a cut-out's measured subject warns with a mo
   assert.equal(found.severity, "warn");
   assert.deepEqual([found.itemId, found.otherId, found.fix.kind], ["kill", "clip-subject", "move"]);
   assert.match(found.message, /hides most of "kill" .*move_layers \{layerIds:\["kill"\], position:"above", referenceId:"clip-subject"\}/);
+  // The offered placements: the measured room on each side and the place {around} call with its sides.
+  assert.match(found.message, /Room clear of it: left 580×972, right 500×972, above 1728×30, below none\. place \{layers:\["kill"\], around:"clip-subject", side\?:"left"\|"right"\|"above"\|"below"\|"split"\}/);
   // Moved by the fix, the type sits beside the subject and the warning is gone.
   await silent("type_covered", scene({ layers: [footage("clip"), title(760 + found.fix.dx), subject] }));
 });
