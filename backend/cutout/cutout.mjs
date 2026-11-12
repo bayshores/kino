@@ -28,7 +28,7 @@
 // 2 MB each at 1080p) are held at a time.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, join } from "node:path";
@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
-import { createSteadier, finishMatte, softCounts } from "./matte.mjs";
+import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, fadeOpenEdges, finishMatte, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
 import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
@@ -44,7 +44,8 @@ export const CUTOUT_OUTPUTS = Object.freeze(["subject", "matte", "silhouette"]);
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // Bump when the matte a given input produces would change, so old cache entries are not reused.
-const MATTE_FORMAT = 1;
+// 2: holes filled and edges refined against the picture (matte.mjs cleanMatte) when found.
+const MATTE_FORMAT = 2;
 // The longest side Vision is given. Vision's own models work at a lower size, and the matte is
 // scaled up to the file's size at the end; this keeps a 4K clip as quick as a 1080p one.
 const ANALYSIS_SIDE = 1920;
@@ -79,15 +80,39 @@ export function cutoutError(message, code) {
  */
 export function cutoutHelperPath() {
   if (process.env.KINO_CUTOUT_HELPER === HELPER_OFF) return null;
-  const candidates = [
-    process.env.KINO_CUTOUT_HELPER,
-    process.resourcesPath && join(process.resourcesPath, "bin", "kino-cutout"),
-    join(ROOT, ".local", "macos-tools", "dist", "bin", "kino-cutout"),
-    // npm run desktop:cutout builds only this helper (a few seconds), outside dist so the full
-    // npm run desktop:tools build still finds its output folder empty.
-    join(ROOT, ".local", "macos-tools", "helpers", "kino-cutout"),
-  ];
-  return candidates.find((candidate) => candidate && existsSync(candidate)) ?? null;
+  const named = [process.env.KINO_CUTOUT_HELPER, process.resourcesPath && join(process.resourcesPath, "bin", "kino-cutout")]
+    .find((candidate) => candidate && existsSync(candidate));
+  if (named) return named;
+  // Two local builds can both exist: npm run desktop:tools (dist) and npm run desktop:cutout
+  // (helpers, a few seconds, outside dist so the full build still finds its output folder empty).
+  // The newer file wins: taking dist first kept a helper from weeks before, which had no --track
+  // (its matte bytes were then read as JSON) and no points.
+  const local = [join(ROOT, ".local", "macos-tools", "dist", "bin", "kino-cutout"), join(ROOT, ".local", "macos-tools", "helpers", "kino-cutout")]
+    .filter((candidate) => existsSync(candidate))
+    .map((candidate) => ({ candidate, time: statSync(candidate).mtimeMs }))
+    .sort((a, b) => b.time - a.time);
+  return local[0]?.candidate ?? null;
+}
+
+// The helper version this kino's source writes (kino-cutout.swift `let version`); a built helper
+// older than it lacks something kino asks for.
+let sourceVersion;
+export function cutoutSourceVersion() {
+  if (sourceVersion === undefined) {
+    try { sourceVersion = Number(/let version = "(\d+)"/.exec(readFileSync(join(ROOT, "backend", "cutout", "kino-cutout.swift"), "utf8"))?.[1]) || null; }
+    catch { sourceVersion = null; }
+  }
+  return sourceVersion;
+}
+
+/** The one command that rebuilds a stale helper, with why, or null when `info` is current. */
+export function staleHelperNote(helper, info) {
+  const want = cutoutSourceVersion();
+  // A stand-in (KINO_CUTOUT_HELPER in tests) names itself in words and is never stale.
+  if (!want || !info || info.error || !/^\d+$/.test(String(info.version ?? ""))) return null;
+  const have = Number(info.version);
+  if (have >= want) return null;
+  return `The kino-cutout helper at ${helper} is version ${have}; this kino needs version ${want}. Rebuild it with npm run desktop:cutout (a few seconds), then send the edit again.`;
 }
 
 // What the helper says this Mac can do ({version, macOS, subject, person}), asked once per helper.
@@ -119,7 +144,7 @@ function majorVersion(macOS) {
  */
 export async function cutoutEngines() {
   const reasons = { subject: null, person: null };
-  let info = null;
+  let info = null, stale = null;
   if (process.env.KINO_CUTOUT_HELPER === HELPER_OFF) {
     reasons.subject = reasons.person = "Apple Vision is turned off (KINO_CUTOUT_HELPER=none).";
   } else if (process.platform !== "darwin" && !process.env.KINO_CUTOUT_HELPER) {
@@ -131,13 +156,26 @@ export async function cutoutEngines() {
       info = await helperInfo(helper);
       if (info.error) reasons.subject = reasons.person = `The kino-cutout helper could not start: ${info.error}`;
       else {
+        stale = staleHelperNote(helper, info);
         if (!info.subject) reasons.subject = `The subject engine needs macOS 14 or later (this Mac has ${info.macOS}).`;
         if (!info.person) reasons.person = `The person engine needs macOS 12 or later (this Mac has ${info.macOS}).`;
       }
     }
   }
   return ["subject", "person"].map((engine) => ({ engine, available: !reasons[engine], reason: reasons[engine],
-    ...(info && !info.error ? { macOS: info.macOS, helper: info.version } : {}) }));
+    ...(info && !info.error ? { macOS: info.macOS, helper: info.version } : {}), ...(stale ? { stale } : {}) }));
+}
+
+/**
+ * Throws CUTOUT_ENGINE_UNAVAILABLE with the rebuild command when the helper cannot do `feature`
+ * ("pick" for cut_out points, "track" for track): an old build answers --engines without it.
+ */
+export async function needHelperFeature(feature) {
+  const helper = cutoutHelperPath();
+  const info = helper ? await helperInfo(helper) : null;
+  if (!info || info.error || info[feature]) return;
+  throw cutoutError(staleHelperNote(helper, info)
+    ?? `The kino-cutout helper at ${helper} cannot ${feature === "pick" ? "pick objects with points" : feature}; rebuild it with npm run desktop:cutout (a few seconds).`, "CUTOUT_ENGINE_UNAVAILABLE");
 }
 
 /** The size Vision is given: the picture's size, scaled down to at most ANALYSIS_SIDE, even. */
@@ -266,15 +304,38 @@ async function runChain({ children: labeled, frameSize, outSize, rate, outFile, 
   }
 }
 
-// FFmpeg → kino-cutout, piped: the children for runChain.
-function visionChain({ source, video, size, engine, helper, instances = false }) {
+// The matte clean-up a cut_out asks for (matte.mjs cleanMatte): refine is a radius in the
+// analysis matte's pixels, holes a share of the picture; 0 turns either off.
+const DEFAULT_CLEAN = Object.freeze({ refine: REFINE_RADIUS, holes: HOLE_SHARE });
+function cleanSettings(clean) {
+  const pick = (value, fallback) => (value === undefined || value === true ? fallback : value === false ? 0 : Number(value) >= 0 ? Number(value) : fallback);
+  return { refine: pick(clean?.refine, DEFAULT_CLEAN.refine), holes: pick(clean?.holes, DEFAULT_CLEAN.holes) };
+}
+
+// FFmpeg → kino-cutout, piped: the children for runChain, and `lumas`, the luma of each picture
+// sent to the helper (oldest first) when `keepLuma`, so each matte can be refined against its own
+// picture as it comes back (the helper answers in order, one matte a picture).
+function visionChain({ source, video, size, engine, helper, instances = false, keepLuma = false }) {
   const { width, height } = size;
   const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn",
     "-vf", `fps=fps=${video.rate}:round=near,scale=${width}:${height}:flags=area,format=bgra`,
     "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "bgra", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
   const cut = spawn(helper, ["--width", String(width), "--height", String(height), "--engine", engine, ...(instances ? ["--instances"] : [])], { stdio: ["pipe", "pipe", "pipe"] });
-  decode.stdout.pipe(cut.stdin);
-  return [[decode, "FFmpeg"], [cut, "kino-cutout"]];
+  const lumas = [];
+  if (!keepLuma) decode.stdout.pipe(cut.stdin);
+  else {
+    let waiting = false;
+    decode.stdout.on("data", frameCollector(width * height * 4, (frame) => {
+      lumas.push(lumaFromBgra(frame, width, height));
+      if (!cut.stdin.write(frame) && !waiting) {
+        waiting = true;
+        decode.stdout.pause();
+        cut.stdin.once("drain", () => { waiting = false; decode.stdout.resume(); });
+      }
+    }));
+    decode.stdout.once("end", () => cut.stdin.end());
+  }
+  return { children: [[decode, "FFmpeg"], [cut, "kino-cutout"]], lumas };
 }
 
 // The steadier and the matte's counts: steady(matte) and finish() give the frames to write;
@@ -302,11 +363,13 @@ function steadyMattes({ size, expected, onFraction }) {
 }
 
 /** Streams a video through FFmpeg → kino-cutout → the steadier → FFV1. Returns { frames, empty, soft }. */
-async function analyseVideo({ source, video, size, engine, helper, matteFile, signal, onFraction }) {
+async function analyseVideo({ source, video, size, engine, helper, matteFile, clean = DEFAULT_CLEAN, signal, onFraction }) {
   const expected = Math.max(1, Math.round(video.duration * video.fps));
   const mattes = steadyMattes({ size, expected, onFraction });
-  await runChain({ children: visionChain({ source, video, size, engine, helper }), frameSize: size.width * size.height, outSize: size,
-    rate: video.rate, outFile: matteFile, signal, onFrame: mattes.steady, onEnd: mattes.finish });
+  const { children, lumas } = visionChain({ source, video, size, engine, helper, keepLuma: clean.refine > 0 });
+  const onFrame = (matte) => mattes.steady(cleanMatte(matte, lumas.shift(), size.width, size.height, clean));
+  await runChain({ children, frameSize: size.width * size.height, outSize: size,
+    rate: video.rate, outFile: matteFile, signal, onFrame, onEnd: mattes.finish });
   const { frames, empty, soft } = mattes.result();
   if (frames === 0) throw cutoutError(`${basename(source)} has no picture to cut out.`, "CUTOUT_NO_PICTURE");
   return { frames, empty, soft };
@@ -319,23 +382,26 @@ async function analyseVideo({ source, video, size, engine, helper, matteFile, si
  * cleared outside them, steadied and written as the matte. Returns { frames, empty, soft, picked }; picked
  * has lost and weak spans in file seconds (pick.mjs followReport).
  */
-async function analyzePicked({ source, video, size, helper, matteFile, work, pick, signal, onFraction }) {
+async function analyzePicked({ source, video, size, helper, matteFile, work, pick, clean = DEFAULT_CLEAN, signal, onFraction }) {
   const { width, height } = size;
   const pixels = width * height;
+  // With refine on, each picture's luma is kept as a third plane under the matte and labels.
+  const planes = clean.refine > 0 ? 3 : 2;
   const expected = Math.max(1, Math.round(video.duration * video.fps));
   const stackFile = join(work, "instances.mkv");
   const step = gridStep(width, height);
   const grids = [];
   const at = Math.min(expected - 1, Math.max(0, Math.round(Math.max(0, (pick.time ?? 0) - video.lead) * video.fps)));
   let picked = null, lastLabels = null;
-  await runChain({ children: visionChain({ source, video, size, engine: "subject", helper, instances: true }), frameSize: pixels * 2,
-    outSize: { width, height: height * 2 }, rate: video.rate, outFile: stackFile, signal,
+  const chain = visionChain({ source, video, size, engine: "subject", helper, instances: true, keepLuma: planes === 3 });
+  await runChain({ children: chain.children, frameSize: pixels * 2,
+    outSize: { width, height: height * planes }, rate: video.rate, outFile: stackFile, signal,
     onFrame: (frame) => {
       const labels = lastLabels = frame.subarray(pixels);
       if (grids.length === at) picked = { at, keep: pickedLabels(labels, width, height, pick) };
       grids.push(gridLabels(labels, width, height, step));
       onFraction?.(Math.min(1, grids.length / expected) * 0.9);
-      return [frame];
+      return planes === 3 ? [frame, chain.lumas.shift()] : [frame];
     }, onEnd: () => [] });
   if (grids.length === 0) throw cutoutError(`${basename(source)} has no picture to cut out.`, "CUTOUT_NO_PICTURE");
   // A time past the last frame picks on the last one.
@@ -346,8 +412,9 @@ async function analyzePicked({ source, video, size, helper, matteFile, work, pic
   const decode = spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", stackFile, "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"],
     { stdio: ["ignore", "pipe", "pipe"] });
   let index = 0;
-  await runChain({ children: [[decode, "FFmpeg"]], frameSize: pixels * 2, outSize: size, rate: video.rate, outFile: matteFile, signal,
-    onFrame: (frame) => mattes.steady(keepLabels(frame.subarray(0, pixels), frame.subarray(pixels), keeps[index++] ?? new Set())),
+  await runChain({ children: [[decode, "FFmpeg"]], frameSize: pixels * planes, outSize: size, rate: video.rate, outFile: matteFile, signal,
+    onFrame: (frame) => mattes.steady(cleanMatte(keepLabels(frame.subarray(0, pixels), frame.subarray(pixels, 2 * pixels), keeps[index++] ?? new Set()),
+      planes === 3 ? frame.subarray(2 * pixels) : null, width, height, clean)),
     onEnd: mattes.finish });
   await rm(stackFile, { force: true });
   const report = followReport(grids, keeps, picked.at, Math.ceil(width / step));
@@ -470,7 +537,7 @@ function checkOptions({ source, kind, engine, cacheDir, pick }) {
 // Which engine `engine` means on this computer, and the cache folder of the matte it would make
 // of `source`: { chosen, note, macOS, sourceHash, folder }. Throws CUTOUT_ENGINE_UNAVAILABLE when
 // no engine can be used.
-async function matteSlot({ source, kind, engine, cacheDir, signal, pick }) {
+async function matteSlot({ source, kind, engine, cacheDir, signal, pick, clean = DEFAULT_CLEAN }) {
   checkOptions({ source, kind, engine, cacheDir, pick });
   if (signal?.aborted) throw abortError(signal);
   const engines = await cutoutEngines();
@@ -490,8 +557,7 @@ async function matteSlot({ source, kind, engine, cacheDir, signal, pick }) {
     const reason = engines.find((entry) => entry.engine === "subject").reason;
     throw cutoutError(`points pick objects found by the subject engine${reason ? `: ${reason}` : "; send engine \"subject\" or \"auto\""}`, "CUTOUT_ENGINE_UNAVAILABLE");
   }
-  if (pick && !(await helperInfo(cutoutHelperPath())).pick)
-    throw cutoutError("The kino-cutout helper is too old for points; rebuild it with npm run desktop:cutout (a few seconds).", "CUTOUT_ENGINE_UNAVAILABLE");
+  if (pick) await needHelperFeature("pick");
 
   let sourceHash;
   try { sourceHash = await sha256File(source, signal); }
@@ -499,6 +565,7 @@ async function matteSlot({ source, kind, engine, cacheDir, signal, pick }) {
   // Vision's models can change with macOS, so a new major version makes new mattes.
   const key = createHash("sha256")
     .update(JSON.stringify({ format: MATTE_FORMAT, source: sourceHash, kind, engine: chosen, macOS: majorVersion(macOS), side: ANALYSIS_SIDE, steady: STEADY_RADIUS,
+      clean: { refine: clean.refine, holes: clean.holes },
       ...(pick ? { pick: { points: pick.points, exclude: pick.exclude ?? [], time: kind === "video" ? pick.time ?? 0 : 0 } } : {}) }))
     .digest("hex").slice(0, 32);
   return { chosen, note, macOS, sourceHash, folder: join(cacheDir, key) };
@@ -510,8 +577,8 @@ async function matteSlot({ source, kind, engine, cacheDir, signal, pick }) {
  * reads the file (for its hash) and the cache: nothing is decoded and the helper is not run.
  * Throws as makeMatte does when no engine can be used.
  */
-export async function findMatte({ source, kind, engine = "auto", cacheDir, signal, pick } = {}) {
-  const { chosen, note, folder } = await matteSlot({ source, kind, engine, cacheDir, signal, pick });
+export async function findMatte({ source, kind, engine = "auto", cacheDir, signal, pick, clean } = {}) {
+  const { chosen, note, folder } = await matteSlot({ source, kind, engine, cacheDir, signal, pick, clean: cleanSettings(clean) });
   const hit = await cachedMatte(folder);
   return hit ? { folder, info: hit, engine: chosen, cached: true, note } : null;
 }
@@ -536,8 +603,9 @@ export async function findMatte({ source, kind, engine = "auto", cacheDir, signa
  * While a matte is being made its files are in a ".work-…" folder of cacheDir (media.mjs removes
  * the ones a stopped server left behind).
  */
-export async function makeMatte({ source, kind, engine = "auto", cacheDir, signal, onProgress, pick } = {}) {
-  const { chosen, note, macOS, sourceHash, folder } = await matteSlot({ source, kind, engine, cacheDir, signal, pick });
+export async function makeMatte({ source, kind, engine = "auto", cacheDir, signal, onProgress, pick, clean: wanted } = {}) {
+  const clean = cleanSettings(wanted);
+  const { chosen, note, macOS, sourceHash, folder } = await matteSlot({ source, kind, engine, cacheDir, signal, pick, clean });
   const hit = await cachedMatte(folder);
   if (hit) {
     onProgress?.(1);
@@ -554,9 +622,9 @@ export async function makeMatte({ source, kind, engine = "auto", cacheDir, signa
       const video = await probeVideo(source, signal);
       const size = analysisSize(video.width, video.height);
       const { frames, empty, soft, picked } = pick
-        ? await analyzePicked({ source, video, size, helper, matteFile: join(work, "matte.mkv"), work, pick, signal, onFraction: onProgress })
-        : await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"), signal, onFraction: onProgress });
-      info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty, soft, ...(picked ? { picked } : {}),
+        ? await analyzePicked({ source, video, size, helper, matteFile: join(work, "matte.mkv"), work, pick, clean, signal, onFraction: onProgress })
+        : await analyseVideo({ source, video, size, engine: chosen, helper, matteFile: join(work, "matte.mkv"), clean, signal, onFraction: onProgress });
+      info = { file: "matte.mkv", kind, width: size.width, height: size.height, frames, empty, soft, ...(picked ? { picked } : {}), clean,
         source: { width: video.width, height: video.height, rate: video.rate, duration: video.duration, lead: video.lead, colour: video.colour } };
     } else {
       const probe = await readImage(source, null);
@@ -571,11 +639,12 @@ export async function makeMatte({ source, kind, engine = "auto", cacheDir, signa
         matte = keepLabels(matte.subarray(0, pixels), labels, keep);
         picked = { frame: 0, objects: keep.size };
       }
+      matte = cleanMatte(matte, lumaFromBgra(rgbaToBgra(image.small ?? image.rgba), size.width, size.height), size.width, size.height, clean);
       let on = 0;
       for (const value of matte) if (value >= 128) on += 1;
       await writeFile(join(work, "matte.gray"), matte);
       info = { file: "matte.gray", kind, width: size.width, height: size.height, frames: 1, empty: on < matte.length * EMPTY_SHARE ? 1 : 0,
-        ...(picked ? { picked } : {}), source: { width: probe.width, height: probe.height } };
+        ...(picked ? { picked } : {}), clean, source: { width: probe.width, height: probe.height } };
       onProgress?.(1);
     }
     Object.assign(info, { format: MATTE_FORMAT, engine: chosen, macOS, seconds: Math.round((performance.now() - started) / 100) / 10,
@@ -652,12 +721,12 @@ function encoderArgs(output, colour, keyEvery) {
  * Writes one output of a video matte to `target`. grow and feather are in the file's pixels.
  * Returns the file's extension and MIME type.
  */
-async function writeVideoOutput({ source, folder, info, output, grow = 0, feather = 0, color, invert, target, signal, onFraction }) {
-  if (output === "subject") return writeSubjectVideo({ source, folder, info, grow, feather, target, signal, onFraction });
+async function writeVideoOutput({ source, folder, info, output, grow = 0, feather = 0, openEdges = 0, color, invert, target, signal, onFraction }) {
+  if (output === "subject") return writeSubjectVideo({ source, folder, info, grow, feather, openEdges, target, signal, onFraction });
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
-  const growBy = grow * scale, featherBy = feather * scale;
-  const finishing = growBy !== 0 || featherBy !== 0;
+  const growBy = grow * scale, featherBy = feather * scale, openBy = openEdges * scale;
+  const finishing = growBy !== 0 || featherBy !== 0 || openBy > 0;
   const matteFile = join(folder, info.file);
   // H.264 needs an even size; the matte is stretched by at most one pixel to get one.
   const outWidth = output === "matte" ? width + (width % 2) : width, outHeight = output === "matte" ? height + (height % 2) : height;
@@ -700,7 +769,7 @@ async function writeVideoOutput({ source, folder, info, output, grow = 0, feathe
     decode.stdout.on("error", () => {});
     let done = 0;
     const collect = frameCollector(info.width * info.height, (matte) => {
-      const finished = finishMatte(matte, info.width, info.height, { grow: growBy, feather: featherBy });
+      const finished = finishMatte(matte, info.width, info.height, { grow: growBy, feather: featherBy, openEdges: openBy });
       done += 1;
       onFraction?.(Math.min(1, done / info.frames));
       if (!encode.stdin.write(finished)) {
@@ -778,10 +847,10 @@ const LOST_SHARE = 0.35;
 // How many lost frames wait for the next good one (each is a full frame in memory).
 const HOLD = 12;
 
-async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, target, signal, onFraction }) {
+async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, openEdges = 0, target, signal, onFraction }) {
   const { width, height, rate, lead } = info.source;
   const scale = info.width / width;
-  const growBy = grow * scale, featherBy = feather * scale;
+  const growBy = grow * scale;
   const matteFile = join(folder, info.file);
   const frameTimes = `setpts=N/(${rate})/TB`;
   const picture = (extra) => spawn(ffmpegCommand(), ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:V:0", "-an", "-sn", "-dn",
@@ -815,7 +884,19 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   const waiting = [];
   let done = 0;
   let ok = true;
-  const write = (yuv, mask) => {
+  // The edge refiner keys against a plate sampled from 384 px, so its drops come in blocks of
+  // about 5 px at 1080p: the same edge-aware smoothing runs again on its result (Y is the luma).
+  // Without a steady plate nothing was keyed, and the matte is already the refined one the other
+  // outputs use. Feather and the open-edge fade come after, so the smoothing's contrast curve does
+  // not steepen them and the subject matches the silhouette and matte outputs.
+  const smooth = info.clean?.refine > 0 && plate.steady
+    ? (yuv, mask) => refineEdges(mask, yuv.subarray(0, pixels), width, height, { radius: info.clean.refine / scale }) : (yuv, mask) => mask;
+  const finish = (mask) => {
+    const soft = feather > 0 ? finishMatte(mask, width, height, { feather }) : mask;
+    return openEdges > 0 ? fadeOpenEdges(soft, width, height, openEdges, Math.max(0, grow) + feather) : soft;
+  };
+  const write = (yuv, raw) => {
+    const mask = finish(smooth(yuv, raw));
     const out = Buffer.allocUnsafe(pixels * 4);
     out.set(yuv, 0);
     out.set(mask, pixels * 3);
@@ -834,7 +915,7 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   await pairFrames({ a: full, aSize: pixels * 3, b: mattes, bSize: info.width * info.height, children: [full, mattes, encode], signal,
     onPair: (yuv, raw, index, resume) => {
       if (index >= info.frames) return true;
-      let mask = finishMatte(raw, info.width, info.height, { grow: growBy, feather: featherBy });
+      let mask = finishMatte(raw, info.width, info.height, { grow: growBy });
       if (info.width !== width || info.height !== height) mask = scaleMatte(mask, info.width, info.height, width, height);
       else if (mask === raw) mask = Uint8Array.from(raw);
       const size = area(mask);
@@ -857,11 +938,11 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
 }
 
 /** Writes one output of a still image's matte to `target` as a PNG. */
-async function writeImageOutput({ source, folder, info, output, grow = 0, feather = 0, color, invert, target, signal }) {
+async function writeImageOutput({ source, folder, info, output, grow = 0, feather = 0, openEdges = 0, color, invert, target, signal }) {
   const { width, height } = info.source;
   const scale = info.width / width;
   let matte = new Uint8Array(await readFile(join(folder, info.file)));
-  matte = finishMatte(matte, info.width, info.height, { grow: grow * scale, feather: feather * scale });
+  matte = finishMatte(matte, info.width, info.height, { grow: grow * scale, feather: feather * scale, openEdges: openEdges * scale });
   matte = scaleMatte(matte, info.width, info.height, width, height);
   const rgba = Buffer.alloc(width * height * 4);
   if (output === "subject") {
@@ -894,8 +975,18 @@ async function writeImageOutput({ source, folder, info, output, grow = 0, feathe
  * "silhouette"; grow and feather in the file's pixels; color for a silhouette; invert for a
  * matte. Returns { extension, mime }.
  */
-export async function writeCutoutOutput({ source, folder, info, output, grow, feather, color, invert, target, signal, onFraction }) {
+export async function writeCutoutOutput({ source, folder, info, output, grow, feather, openEdges, color, invert, target, signal, onFraction }) {
   if (!CUTOUT_OUTPUTS.includes(output)) throw new RangeError(`output must be one of ${CUTOUT_OUTPUTS.join(", ")}.`);
   const write = info.kind === "video" ? writeVideoOutput : writeImageOutput;
-  return write({ source, folder, info, output, grow, feather, color, invert, target, signal, onFraction });
+  return write({ source, folder, info, output, grow, feather, openEdges: openEdgePixels(openEdges, info.source), color, invert, target, signal, onFraction });
+}
+
+/**
+ * The border fade in the file's pixels: "fade" (the default) is DEFAULT_OPEN_EDGES of the short
+ * side, "keep" or 0 none, a number that many pixels.
+ */
+export function openEdgePixels(openEdges = "fade", { width, height }) {
+  if (openEdges === "keep" || openEdges === false) return 0;
+  if (typeof openEdges === "number") return Math.max(0, openEdges);
+  return Math.round(DEFAULT_OPEN_EDGES * Math.min(width, height));
 }

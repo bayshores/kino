@@ -65,13 +65,13 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
   }
 
   // Where media.json keeps the library file of one output of a matte.
-  function outputSlot({ output: kind, grow, feather, color, invert }) {
-    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
+  function outputSlot({ output: kind, grow, feather, openEdges, color, invert }) {
+    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, openEdges, ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
   }
 
   // The library file for one output of one matte, made the first time.
   async function makeOutput({ matte, file, name, settings, onFraction }) {
-    const { output: kind, grow, feather, color, invert } = settings;
+    const { output: kind, grow, feather, openEdges, color, invert } = settings;
     const slot = outputSlot(settings);
     const reused = await libraryRecord((await remembered(matte.folder))[slot]);
     if (reused) return { record: reused, made: false };
@@ -81,7 +81,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
       const extension = matte.info.kind === "video" ? (kind === "matte" ? "mp4" : "webm") : "png";
       const target = join(work, `out.${extension}`);
       const { mime } = await writeCutoutOutput({ source: file, folder: matte.folder, info: matte.info, output: kind,
-        grow, feather, color, invert, target, onFraction });
+        grow, feather, openEdges, color, invert, target, onFraction });
       const record = await addMedia(target, { name: `${mediaBaseName(name)} (${kind}).${extension}`, mime });
       // Read again just before writing: another output of this matte may have been added meanwhile.
       const list = { ...(await remembered(matte.folder)), [slot]: record.id };
@@ -98,12 +98,13 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
    * returns { done, progress }: `done` resolves with { record, engine, frames, empty, seconds,
    * cached, note } (record is the new library media; cached: the subject was found before and its
    * matte reused), and progress() gives { fraction, seconds } so far. Settings: output, engine,
-   * grow and feather (in the file's pixels), color, invert, pick (cutout.mjs makeMatte). A cut-out made before resolves at
+   * grow and feather (in the file's pixels), openEdges ("fade", "keep" or file pixels), color, invert, pick and
+   * clean ({refine, holes}: cutout.mjs makeMatte). A cut-out made before resolves at
    * once; one that needs Vision or FFmpeg first waits for the ones started before it.
    */
-  function start({ file, name, kind, output = "subject", engine = "auto", grow = 0, feather = 0, color = "#ffffff", invert = false, pick }) {
-    const settings = { output, engine, grow, feather, color, invert };
-    const key = JSON.stringify({ file, kind, ...settings, ...(pick ? { pick } : {}) });
+  function start({ file, name, kind, output = "subject", engine = "auto", grow = 0, feather = 0, openEdges = "fade", color = "#ffffff", invert = false, pick, clean }) {
+    const settings = { output, engine, grow, feather, openEdges, color, invert };
+    const key = JSON.stringify({ file, kind, ...settings, ...(pick ? { pick } : {}), ...(clean ? { clean } : {}) });
     if (jobs.has(key)) return jobs.get(key).handle;
     const state = { fraction: 0, started: performance.now() };
     const result = (matte, record) => ({ record, engine: matte.engine, frames: matte.info.frames, empty: matte.info.empty, soft: matte.info.soft,
@@ -113,7 +114,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
       await swept;
       // A finished cut-out (its matte and library file both kept) answers at once, even while
       // another one is being made: only finding a subject and writing a file wait their turn.
-      const kept = await findMatte({ source: file, kind, engine, cacheDir, pick });
+      const kept = await findMatte({ source: file, kind, engine, cacheDir, pick, clean });
       if (kept) {
         if (kept.info.empty === kept.info.frames) throw noSubject(kept);
         const record = await libraryRecord((await remembered(kept.folder))[outputSlot(settings)]);
@@ -124,7 +125,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
       }
       return inTurn(async () => {
         state.started = performance.now();
-        const matte = await makeMatte({ source: file, kind, engine, cacheDir, pick, onProgress: (fraction) => { state.fraction = 0.8 * fraction; } });
+        const matte = await makeMatte({ source: file, kind, engine, cacheDir, pick, clean, onProgress: (fraction) => { state.fraction = 0.8 * fraction; } });
         if (matte.info.empty === matte.info.frames) throw noSubject(matte);
         const made = await makeOutput({ matte, file, name, settings, onFraction: (fraction) => { state.fraction = 0.8 + 0.2 * fraction; } });
         state.fraction = 1;

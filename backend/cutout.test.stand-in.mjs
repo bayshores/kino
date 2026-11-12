@@ -29,7 +29,8 @@ if (args[0] === "--version") {
 if (args[0] === "--engines") {
   const macOS = process.env.KINO_STAND_IN_MACOS ?? "15.0";
   const major = Number(macOS.split(".")[0]);
-  console.log(JSON.stringify({ version: "stand-in 1", macOS, subject: major >= 14, person: major >= 12, pick: true }));
+  console.log(JSON.stringify({ version: process.env.KINO_STAND_IN_VERSION ?? "stand-in 1", macOS, subject: major >= 14, person: major >= 12,
+    pick: process.env.KINO_STAND_IN_VERSION ? false : true, track: process.env.KINO_STAND_IN_VERSION ? false : true }));
   process.exit(0);
 }
 
