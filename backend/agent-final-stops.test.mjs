@@ -101,6 +101,40 @@ test("past a rough pass with no locked direction, status names the lock first on
   await agent("check", { project: id });
   const status = await agent("status", { project: id });
   assert.match(status.text, /\nto final: 1\) notes brief \(lock the direction\) 2\) /, status.text);
+  // The counts line names what a final render needs beyond warnings, each with its tool and action;
+  // check's counts line says the same.
+  assert.match(status.text, /\nchecks [^\n]*a final render also needs: style bible: [^\n]*\(notes brief\)/, status.text);
+  assert.match((await agent("check", { project: id })).text, /^rev \d+ · [^\n]* · a final render also needs: style bible: [^\n]*\(notes brief\)/);
+});
+
+test("a bible font that differs from the screen is named with the layers, the call that updates the bible and the call that sets them back", async () => {
+  await video("final-fonts");
+  const saved = await agent("notes", { project: "final-fonts", action: "brief", fields: { style: { wants: ["parallax"], fonts: { display: { family: "Montserrat", size: 96 } }, by: "guessed" } } });
+  assert.equal(saved.isError, undefined, saved.text);
+  const status = await agent("status", { project: "final-fonts" });
+  const line = status.text.split("\n").find((entry) => entry.startsWith("checks"));
+  assert.match(line, /a final render also needs: [^\n]*style fonts differ on screen: display title in Inter \(bible Montserrat\) \(update the bible: notes brief; or set the layers back: edit set_font\)/, line);
+  // The refusal gives both calls whole; the agent chooses.
+  const reason = (await finalRender("final-fonts")).data.reason;
+  assert.match(reason, /update the bible to the screen: notes \{"action":"brief","fields":\{"style":\{"fonts":\{"display":\{"family":"Inter"\}\},"by":"guessed"\}\}\} or set the layers back: edit \{"ops":\[\{"op":"set_font","layerIds":\["title"\],"family":"Montserrat"/, reason);
+  // The first call writes what is on screen into the bible, and the line goes.
+  const update = await agent("notes", { project: "final-fonts", action: "brief", fields: { style: { fonts: { display: { family: "Inter" } }, by: "guessed" } } });
+  assert.equal(update.isError, undefined, update.text);
+  assert.doesNotMatch((await agent("status", { project: "final-fonts" })).text, /style fonts differ on screen/);
+});
+
+test("captions in two voices that both left the bible's face go back together", async () => {
+  // Round 5: three keep_line lines, each its own caption track, so the drift finding named the first
+  // only and setting it back left the other two in the new face.
+  await video("final-voices");
+  const line = (name, text, fill, y) => ({ op: "add_layer", layerType: "text", name, properties: { text, x: 140, y, width: 800, height: 60, fontSize: 40, fill, role: "caption" } });
+  const edited = await agent("edit", { project: "final-voices", ops: [line("line-a", "I do not know who you are", "#ffffff", 1500), line("line-b", "but I will find you", "#ffd400", 1600)] });
+  assert.equal(edited.isError, undefined, edited.text);
+  const saved = await agent("notes", { project: "final-voices", action: "brief", fields: { style: { wants: ["parallax"], fonts: { caption: { family: "Montserrat", size: 40 } }, by: "guessed" } } });
+  assert.equal(saved.isError, undefined, saved.text);
+  const reason = (await finalRender("final-voices")).data.reason;
+  assert.match(reason, /caption line-(a|b) line-(a|b) in Inter \(bible Montserrat\)/, reason);
+  assert.match(reason, /"op":"set_font","layerIds":\["line-(a|b)","line-(a|b)"\],"family":"Montserrat"/, reason);
 });
 
 test("the person's own final render on the dashboard waits too, with words for the person", async () => {
