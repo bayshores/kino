@@ -2054,7 +2054,7 @@ export function createInspire(deps) {
   /** The folder of a reference's frame strips and the strips in it ([{at, kinds, file}]). */
   async function stripsFor(id) {
     const record = await load(id);
-    return record?.strips?.length ? { folder: stripsOf(id), strips: record.strips } : null;
+    return record?.strips?.length ? { folder: stripsOf(id), strips: record.strips, stillsFolder: stillsOf(id), stills: record.stills ?? [] } : null;
   }
 
   // A reference measured before `heard` existed gets it once, when a full check first asks: it waits

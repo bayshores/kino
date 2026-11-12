@@ -6,6 +6,7 @@ import { createLayer, createScene, parseDocument, createDocument } from "../engi
 import { renderSceneSvg } from "../engine/render.js";
 import { renderSceneFrames } from "./export.mjs";
 import { loadBundledFonts } from "./fonts.mjs";
+import { materialWords, normalizeMaterial } from "../engine/typeMaterial.js";
 
 const fonts = await loadBundledFonts();
 
@@ -32,6 +33,13 @@ test("a material is checked: text layers only, known parts and kinds, amount 0 d
   const plain = renderSceneSvg(scene(), 0.5, { fonts });
   const zero = renderSceneSvg(scene({ material: { wear: { amount: 0, seed: 3 }, texture: { kind: "grain", amount: 0 }, print: { x: 8, y: 8, opacity: 0 } } }), 0.5, { fonts });
   assert.equal(zero, plain);
+  // Shorthands, and a print given only a color takes an offset that follows the size (a starting guess, printed).
+  const short = normalizeMaterial({ wear: 0.6, texture: "crackle", print: "#ff3fa4" });
+  assert.deepEqual(short, { wear: { amount: 0.6, seed: 1 }, texture: { amount: 0.5, seed: 1, kind: "crackle", color: "#000000" }, print: { color: "#FF3FA4", opacity: 1 } });
+  assert.equal(materialWords({ print: short.print }, 240), "print #FF3FA4 offset 12,7 px (a starting guess: 0.05,0.03 of the size) at 1");
+  assert.match(materialWords(short, 240), /^wear 0\.6 seed 1, 12 px deep \(a starting guess: 0\.05 of the 240 px size\); crackle/);
+  assert.notEqual(renderSceneSvg(scene({ material: normalizeMaterial({ print: "#FF0000" }) }), 0.5, { fonts }), plain);
+  assert.equal(renderSceneSvg(scene({ material: { print: { x: 0, y: 0, color: "#FF0000" } } }), 0.5, { fonts }), plain);
 });
 
 test("edge wear at amount 0.5 removes 8% to 40% of the letters' pixels, and the seed moves the pattern", async () => {

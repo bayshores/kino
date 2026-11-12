@@ -497,10 +497,13 @@ export function letteringBoxes(image) {
  */
 async function letteringSource({ like, t, region }, { referenceFrame }) {
   const text = String(like ?? "").trim();
-  let image;
+  let image, frame = null;
   if (/^yt:/.test(text)) {
     if (!referenceFrame) throw new Error("saved references are not available here.");
-    image = await loadImage(await referenceFrame(text, Number(t)));
+    // referenceFrame gives the bytes, or {bytes, at, kind} naming which kept frame it is.
+    const got = await referenceFrame(text, t == null || t === "" ? NaN : Number(t));
+    if (got?.bytes) frame = { at: got.at, kind: got.kind };
+    image = await loadImage(got?.bytes ?? got);
   } else {
     if (!path.isAbsolute(text)) throw new Error(`like takes an absolute path of a picture (PNG or JPEG) or a saved reference id with t (like:"yt:<id>", t:<seconds>); "${text}" is neither.`);
     image = await loadImage(await readFile(text));
@@ -515,7 +518,21 @@ async function letteringSource({ like, t, region }, { referenceFrame }) {
   }
   if (given && box.every((value) => value <= 1)) box = [box[0] * image.width, box[1] * image.height, box[2] * image.width, box[3] * image.height];
   const [x, y] = [Math.max(0, box[0]), Math.max(0, box[1])];
-  return { image, region: [x, y, Math.min(image.width - x, box[2]), Math.min(image.height - y, box[3])], boxes };
+  return { image, region: [x, y, Math.min(image.width - x, box[2]), Math.min(image.height - y, box[3])], boxes, frame };
+}
+
+// The ink height under which stroke weight, contrast and slant are not measurable: the ink is
+// scaled up to NORMAL_HEIGHT, so a stroke under about 2 px becomes a blur. GUESS: 24 px (a 10 px
+// fragment of a tag in a 240 px strip frame ranked brush scripts; 64 px letters ranked by shape).
+const SMALLEST_LETTERS = 24;
+
+// A face's class from its measures: script when its letters lean (12 degrees or more, the same line
+// classWords uses for brush), upright otherwise.
+const stance = (measures) => (Math.abs(measures.slant) >= 12 ? `script ${measures.slant} deg` : "upright");
+
+/** "face vs ref: weight 0.16 vs 0.17, width 0.48 vs 0.5, contrast 0.1 vs 0.05, upright vs upright": what a face was matched on. */
+export function matchedOn(reference, measures) {
+  return `face vs ref: weight ${measures.weight} vs ${reference.weight}, width ${measures.width} vs ${reference.width}, contrast ${measures.contrast} vs ${reference.contrast}, ${stance(measures)} vs ${stance(reference)}`;
 }
 
 const asRegion = (box) => `[${box.x}, ${box.y}, ${box.width}, ${box.height}]`;
@@ -543,7 +560,7 @@ export function faceNote(family, { rejected = [], seen = [] } = {}) {
  * `lookFamilies(words)` the catalog families of a class, best first ([{id, family, weights}]).
  */
 export async function fontsLikeText(input, { fonts, catalog, lookFamilies, referenceFrame, faceMarks }) {
-  const { image, region, boxes } = await letteringSource(input, { referenceFrame });
+  const { image, region, boxes, frame } = await letteringSource(input, { referenceFrame });
   const words = typeof input.text === "string" && input.text.trim() ? input.text.trim() : null;
   const lines = words ? words.split("\n").length : 1;
   const mask = normalized(image, region, lines);
@@ -594,28 +611,37 @@ export async function fontsLikeText(input, { fonts, catalog, lookFamilies, refer
     ranked.push({ family: face.family, weight: face.weight, measures, distance: distance(reference, measures), differs: differenceWords(reference, measures) });
   }
   if (changed) await writeMeasures(catalog?.measuresFile, cache).catch(() => {});
-  ranked.sort((a, b) => a.distance - b.distance);
+  // A face of the other stance (script against upright letters, or upright against script) comes
+  // after every face of the reference's own stance: a leaning brush face is first only when the
+  // reference's letters measure as leaning too.
+  const leans = (measures) => Math.abs(measures.slant) >= 12;
+  ranked.sort((a, b) => (leans(a.measures) !== leans(reference)) - (leans(b.measures) !== leans(reference)) || a.distance - b.distance);
   const shown = ranked.slice(0, count);
   // Faces the person turned down or kino used in other projects: a fact on the line, the face stays listed.
   const marks = faceMarks ? await faceMarks().catch(() => null) : null;
   for (const font of shown) { const note = marks ? faceNote(font.family, marks) : null; if (note) font.note = note; }
   const measured = Object.entries(reference).map(([key, value]) => `${key} ${value}`).join(", ");
-  const lines_ = shown.map((font, index) => `${index + 1}. ${font.family} ${font.weight} (distance ${font.distance}: ${font.differs})${font.note ? ` [${font.note}]` : ""} set_font {layerIds:["<layer>"], family:${JSON.stringify(font.family)}, weight:${font.weight}}`);
-  // Which box was measured, and the other boxes the call can name as region.
-  const area = `[${region.map((value) => Math.round(value)).join(", ")}]`;
+  const lines_ = shown.map((font, index) => `${index + 1}. ${font.family} ${font.weight} (distance ${font.distance}: ${font.differs}; ${matchedOn(reference, font.measures)})${font.note ? ` [${font.note}]` : ""} set_font {layerIds:["<layer>"], family:${JSON.stringify(font.family)}, weight:${font.weight}}`);
+  // Which box was measured (in the frame's own pixels, with the frame's size and time), and the other
+  // boxes the call can name as region.
+  const look = inkLook(image, region);
+  const inkHeight = look ? Math.round(look.share * image.height) : 0;
+  const area = `[${region.map((value) => Math.round(value)).join(", ")}] px of the ${image.width}x${image.height} ${frame ? `${frame.kind} @${frame.at}s` : "picture"}`;
+  const small = look && inkHeight < SMALLEST_LETTERS
+    ? `\nthe letters measured are ${inkHeight} px tall (under ${SMALLEST_LETTERS} px their stroke weight and slant are not measurable): pass t at a moment with large lettering${/^yt:/.test(String(input.like)) ? " (a kept still within 0.1 s of t is 640 px wide)" : ""} and region around one word.` : "";
   const boxLine = !boxes ? ""
     : boxes.found
-      ? `\nbox measured: ${area}, the largest of ${boxes.found} lettering box${boxes.found === 1 ? "" : "es"} kino found${boxes.others.length ? `; others, to measure one pass region: ${boxes.others.map(asRegion).join(", ")}` : ""}.`
+      ? `\nbox measured: [${region.map((value) => Math.round(value)).join(", ")}], the largest of ${boxes.found} lettering box${boxes.found === 1 ? "" : "es"} kino found${boxes.others.length ? `; others, to measure one pass region: ${boxes.others.map(asRegion).join(", ")}` : ""}.`
       : `\nno lettering box found, so the whole picture was measured: pass region [x, y, width, height] around one line of the letters.`;
   return {
     text: [
-      `fonts like the lettering in ${String(input.like)}${input.t != null ? ` @${input.t}s` : ""} ${area}: ${measured} (weight and width against the line height; corners 0 round to 1 square).${boxLine}`,
+      `fonts like the lettering in ${String(input.like)} ${area}: ${measured} (weight and width against the line height; corners 0 round to 1 square).${boxLine}${small}`,
       ...lines_,
       `${ranked.length} faces measured on "${sample}"${kinds.length ? `; class: ${kinds.join(", ")}${downloaded ? ` (${downloaded} catalog families downloaded)` : ""}` : ""}${catalogNote && !downloaded ? `; catalog: ${catalogNote}` : ""}.${words ? "" : " text:\"<the words in the region>\" measures the same letters and ranks closer."}`,
     ].join("\n"),
     fonts: shown.map(({ family, weight, distance: gap, differs, note }) => ({ family, weight, distance: gap, differs, ...(note ? { note } : {}) })),
     measures: reference,
-    look: inkLook(image, region),
+    look,
     region: region.map((value) => Math.round(value)),
     ...(boxes ? { box: { found: boxes.found, others: boxes.others.map((box) => [box.x, box.y, box.width, box.height]) } } : {}),
   };

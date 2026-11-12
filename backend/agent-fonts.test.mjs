@@ -329,8 +329,18 @@ test("fonts like: the lettering in a picture ranks the face it was set in first,
   const answer = await fontsLikeText({ like: file, region: [100, 30, 440, 140], text: "STORM", count: 3 }, { fonts, catalog });
   assert.equal(answer.fonts[0].family, "Noto Serif", answer.text);
   assert.ok(answer.fonts[0].weight >= 600, answer.text);
-  assert.match(answer.text, /^fonts like the lettering in .*frame\.png \[100, 30, 440, 140\]: weight [\d.]+, width [\d.]+, slant/);
-  assert.match(answer.text, /\n1\. Noto Serif 700 \(distance [\d.]+: [a-z ,]+\) set_font \{layerIds:\["<layer>"\], family:"Noto Serif", weight:700\}/);
+  assert.match(answer.text, /^fonts like the lettering in .*frame\.png \[100, 30, 440, 140\] px of the 640x200 picture: weight [\d.]+, width [\d.]+, slant/);
+  // Each face names what it was matched on, beside the reference's own values.
+  assert.match(answer.text, /\n1\. Noto Serif 700 \(distance [\d.]+: [a-z ,]+; face vs ref: weight [\d.]+ vs [\d.]+, width [\d.]+ vs [\d.]+, contrast [\d.]+ vs [\d.]+, upright vs upright\) set_font \{layerIds:\["<layer>"\], family:"Noto Serif", weight:700\}/);
+  assert.doesNotMatch(answer.text, /px tall/, "70 px letters are measurable");
+  // A saved reference's frame names its kind and time; letters under 24 px say they cannot be measured.
+  const tiny = createCanvas(240, 136);
+  const tinyContext = tiny.getContext("2d");
+  tinyContext.fillStyle = "#182030"; tinyContext.fillRect(0, 0, 240, 136);
+  tinyContext.fillStyle = "#f4f0e8"; tinyContext.font = "14px 'Like Serif'"; tinyContext.fillText("STORM", 100, 60);
+  const small = await fontsLikeText({ like: "yt:aaaaaaaaaaa", text: "STORM", count: 2 }, { fonts, catalog, referenceFrame: async () => ({ bytes: tiny.toBuffer("image/png"), at: 0.1, kind: "first strip frame, t left out" }) });
+  assert.match(small.text, /px of the 240x136 first strip frame, t left out @0\.1s: /);
+  assert.match(small.text, /\nthe letters measured are \d+ px tall \(under 24 px their stroke weight and slant are not measurable\): pass t /);
   assert.match(answer.text, /\n2\. (?!Noto Serif 700)/, "one line per face");
   assert.match(await (await import("node:fs/promises")).readFile(catalog.measuresFile, "utf8"), /Noto Serif|NotoSerif/, "measures are kept on disk");
   // Saved type labels: the same ranking runs at each labeled moment and its lines come first (here the saved moment is this picture).
