@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { GlobalFonts, createCanvas } from "@napi-rs/canvas";
 import { volumeAt } from "../../engine/animation.js";
+import { keptRanges } from "../../engine/keepLine.js";
 import { mediaPlaybackRange } from "../../engine/playback.js";
 
 const round1 = (value) => Math.round(value * 10) / 10;
@@ -74,13 +75,55 @@ export function sectionsInVideo(layer, sections, duration) {
     .filter((part) => part.at >= range.start - 0.05 && part.at <= range.end + 0.05);
 }
 
-/** Each spoken line's level and how far it sits over the music: [{from, to, voice, music, over}]. */
+/**
+ * Each spoken line's level and how far it sits over the music: [{from, to, layer?, voice, music, over}].
+ * A line is [from, to] or {from, to, layer, layerId}; one with a layer is measured on that layer
+ * alone (map.voices[layerId], a curve) when there is one, else on the rest of the mix.
+ */
 export function lineLevels(map) {
-  return map.lines.map(([from, to]) => {
-    const voice = spanLevel(map.rest ?? map.mix, from, to);
+  return map.lines.map((line) => {
+    const [from, to] = Array.isArray(line) ? line : [line.from, line.to];
+    const voice = spanLevel((!Array.isArray(line) && map.voices?.[line.layerId]) || map.rest || map.mix, from, to);
     const music = map.music ? spanLevel(map.music, from, to) : null;
-    return { from: round1(from), to: round1(to), voice, music, over: voice !== null && music !== null ? round1(voice - music) : null };
+    return { from: round1(from), to: round1(to), ...(Array.isArray(line) ? {} : { layer: line.layer }), voice, music, over: voice !== null && music !== null ? round1(voice - music) : null };
   });
+}
+
+// A transcript word counts as heard when its layer's volume there is over this (a muted clip is not a line).
+const HEARD_VOLUME = 0.01;
+// Words this close (s) are one line.
+const LINE_JOIN = 0.6;
+
+/**
+ * The spoken lines a scene plays, one entry per line: [{from, to, layer, layerId}] in time order.
+ * Every keep_line stretch (its "Line up"/"Line down" marks, keepLine.js keptRanges; a kept sound
+ * aside) is a line on its layer, read words or not; other transcript words count only where their
+ * layer is heard (volume over HEARD_VOLUME, its animations applied) and outside its kept stretches.
+ * `wordsByLayer` maps a layer id to its words in scene seconds ([{start, end}]).
+ */
+export function heardLines(scene, wordsByLayer = {}) {
+  const lines = [];
+  for (const layer of scene.layers ?? []) {
+    if (!["audio", "video"].includes(layer.type) || layer.enabled === false) continue;
+    const play = mediaPlaybackRange(layer, scene.duration);
+    if (!play) continue;
+    // A kept stretch inside what the layer plays (a piece of a cut voice holds an open end), and heard.
+    const kept = keptRanges(layer).filter((range) => !range.sound)
+      .map((range) => ({ start: Math.max(range.start, play.start), end: Math.min(range.end, play.end) }))
+      .filter((range) => range.end - range.start >= 0.1 && volumeAt(layer, (range.start + range.end) / 2) > HEARD_VOLUME);
+    for (const range of kept) lines.push({ from: range.start, to: range.end, layer: layer.name ?? layer.id, layerId: layer.id });
+    const spans = [];
+    for (const word of [...(wordsByLayer[layer.id] ?? [])].sort((a, b) => a.start - b.start)) {
+      const middle = (word.start + word.end) / 2;
+      if (kept.some((range) => middle >= range.start && middle <= range.end)) continue;
+      if (!(volumeAt(layer, middle) > HEARD_VOLUME)) continue;
+      const last = spans.at(-1);
+      if (last && word.start - last.to < LINE_JOIN) last.to = Math.max(last.to, word.end);
+      else spans.push({ from: word.start, to: word.end, layer: layer.name ?? layer.id, layerId: layer.id });
+    }
+    lines.push(...spans);
+  }
+  return lines.sort((a, b) => a.from - b.from);
 }
 
 // ---------------------------------------------------------------- mix check
@@ -106,7 +149,7 @@ export function loudnessRange(curve) {
 /** What the mix check found: [{kind, at, text}], in time order. */
 export function mixCheck(map) {
   const found = [];
-  for (const line of lineLevels(map)) if (line.over !== null && line.over < VOICE_OVER_MUSIC) found.push({ kind: "voice", at: line.from, text: `voice ${line.from}-${line.to} s only ${line.over} LU over the music (6+): duck_audio the music` });
+  for (const line of lineLevels(map)) if (line.over !== null && line.over < VOICE_OVER_MUSIC) found.push({ kind: "voice", at: line.from, text: `voice ${line.layer ? `${line.layer} ` : ""}${line.from}-${line.to} s only ${line.over} LU over the music (6+): duck_audio the music` });
   const peak = (map.mix ?? []).reduce((best, point) => (Number.isFinite(point.tp) && point.tp > best.tp ? point : best), { tp: -Infinity });
   if (peak.tp > MIX.clipDbtp) found.push({ kind: "clip", at: round1(peak.t), text: `clips: true peak +${round1(peak.tp)} dBTP by ${round1(peak.t)} s before the limiter: lower what plays there` });
   for (const edge of map.edges ?? []) {
@@ -133,7 +176,7 @@ export function soundMapText(map, { scene = "the scene" } = {}) {
   const lines = [`sound ${scene} ${round1(map.duration)} s: short-term loudness every 0.5 s, loudest ${loudest[1]} LUFS at ${loudest[0]} s${map.mix.length ? "" : " (nothing is heard)"}`];
   if (map.beats.length) lines.push(`beats: ${map.beats.map((beat) => `${beat.name} ${round1(beat.from)}-${round1(beat.to)} ${spanLevel(map.mix, beat.from, beat.to) ?? "silent"}`).join(" · ")}`);
   const levels = lineLevels(map);
-  if (levels.length) lines.push(`lines over music: ${levels.slice(0, 12).map((line) => `${line.from}-${line.to} ${line.over === null ? `${line.voice ?? "silent"} LUFS` : `${line.over > 0 ? "+" : ""}${line.over} LU${line.over < VOICE_OVER_MUSIC ? " (under 6)" : ""}`}`).join(" · ")}${levels.length > 12 ? ` · and ${levels.length - 12} more` : ""}`);
+  if (levels.length) lines.push(`lines over music: ${levels.slice(0, 12).map((line) => `${line.layer ? `${line.layer} ` : ""}${line.from}-${line.to} ${line.over === null ? `${line.voice ?? "silent"} LUFS` : `${line.over > 0 ? "+" : ""}${line.over} LU${line.over < VOICE_OVER_MUSIC ? " (under 6)" : ""}`}`).join(" · ")}${levels.length > 12 ? ` · and ${levels.length - 12} more` : ""}`);
   if (map.sections.length) lines.push(`song sections: ${map.sections.map((part) => `${part.kind} ${part.at}s`).join(", ")}`);
   if (map.dips.length) lines.push(`dips: ${map.dips.map((dip) => `${dip.layer} ${dip.from}-${dip.to} ${dip.db} dB`).join(" · ")}`);
   if (map.cuts) lines.push(`cuts (${map.cuts.length}): ${map.cuts.slice(0, 40).map((at) => round1(at)).join(" ")}${map.cuts.length > 40 ? " ..." : ""}`);

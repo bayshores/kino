@@ -12,7 +12,7 @@ import { ffmpeg, makeVideo, run, skipWithoutMediaTools, startTestServer } from "
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
 import { easingAt } from "../engine/easing.js";
 import { mediaFrameState } from "../engine/playback.js";
-import { mixCheck } from "./agent/sound-map.mjs";
+import { heardLines, lineLevels, mixCheck, soundMapText } from "./agent/sound-map.mjs";
 
 let server;
 let folder;
@@ -170,6 +170,18 @@ test("mix check: a buried line, clipping, a level jump at a clip edge, a silent 
   assert.deepEqual([...new Set(kinds)].sort(), ["clip", "gap", "jump", "range", "voice"]);
   const calm = curve(() => -16);
   assert.deepEqual(mixCheck({ duration: 10, mix: calm, music: curve(() => -26), rest: calm, lines: [[1, 3]], edges: [5] }), []);
+  // The lines look sound measures (dm3-b: muted clips listed as voice, the kept line with no read words
+  // missed): a muted clip's words are no line, a kept stretch is one line by its layer, words or not.
+  const clip = (id, extra) => ({ id, name: id, type: "video", src: `/api/media/${id}.mp4`, volume: 1, mediaSourceDuration: 10, animations: [], ...extra });
+  const mark = (name, start, volume) => ({ id: `${name}-${start}`, name, kind: "custom", easing: "linear", start, duration: 0.05, from: {}, to: { volume } });
+  const scene = { duration: 10, layers: [clip("muted", { volume: 0 }), clip("kept", { animations: [mark("Line mute", 0, 0), mark("Line up", 2, 1), mark("Line down", 3.5, 0)] }), clip("chant")] };
+  const lines = heardLines(scene, { muted: [{ start: 1, end: 2 }], kept: [], chant: [{ start: 5, end: 5.5 }, { start: 5.8, end: 6.4 }] });
+  assert.deepEqual(lines.map((line) => [line.layer, line.from, line.to]), [["kept", 2.05, 3.5], ["chant", 5, 6.4]]);
+  // Each line measured on its own layer alone: the kept line over a quiet rest of the mix reads its own level.
+  const levels = lineLevels({ lines, music: curve(() => -20), rest: curve(() => -30), voices: { kept: curve(() => -12), chant: curve(() => -17) } });
+  assert.deepEqual(levels.map((line) => [line.layer, line.over]), [["kept", 8], ["chant", 3]]);
+  assert.match(soundMapText({ duration: 10, mix: calm, music: curve(() => -20), rest: calm, voices: { kept: curve(() => -12), chant: curve(() => -17) }, lines, beats: [], sections: [], dips: [] }),
+    /^lines over music: kept 2\.1-3\.5 \+8 LU · chant 5-6\.4 \+3 LU \(under 6\)$/m);
 });
 
 test("the skill's clip speed example runs as written: 1× → 0.25× → 1×, no motion findings", { skip: skipWithoutMediaTools }, async () => {

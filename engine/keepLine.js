@@ -46,7 +46,7 @@ import { audibleRanges } from "./videoSound.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { LINE_SURE, LOW_CONFIDENCE, SOUND_SURE, soundMoments } from "./speech.js";
 import { hiddenRanges } from "./visibilityOps.js";
-import { energyMean, heardLoudness, lineOverMusic, lineWays, loudestHeard, loudnessOver, MAX_LEVEL_DB, waysText } from "./mixLevels.js";
+import { energyMean, GAIN_STAGE_MAX_DB, heardLoudness, liftCap, lineOverMusic, lineWays, loudestHeard, loudnessOver, MAX_LEVEL_DB, noiseUnder, waysText } from "./mixLevels.js";
 import { BED_VOLUME, EVEN_RAMP, LINE_EVEN_LU, LINE_OVER_BED, leveledVoice, lineEvening } from "./mixLevels.js";
 import { churnRun } from "./quality/rules/sound.js";
 import { barLines } from "./songBars.js";
@@ -362,7 +362,7 @@ function shareBed(scene, musicLayer, levels, start, end, own, silent) {
     if (!Number.isFinite(line.layer.voiceLevel)) return null;
     const curve = levels?.[line.layer.id];
     const raw = curve ? loudnessOver(curve, [{ start: mediaSoundTime(line.layer, line.start), end: mediaSoundTime(line.layer, line.end) }]) : null;
-    return Math.min(line.layer.voiceLevel, raw === null ? Infinity : raw + MAX_LEVEL_DB) + db(line.layer.volume ?? 1);
+    return Math.min(line.layer.voiceLevel, raw === null ? Infinity : raw + liftCap(line.layer)) + db(line.layer.volume ?? 1);
   });
   const music = heardLoudness(curve, bare, head.range, Math.max(pair.start, lines[0].start), Math.min(pair.end, lines.at(-1).end));
   const measured = heard.every(Number.isFinite) && music !== null;
@@ -637,7 +637,10 @@ function evenLine(scene, owner, said, start, end, curve, forced) {
     places.push([from, to, place.db]);
   }
   // The export levels the line from its raw curve: the target moves by the shift so the line's loudness stays.
-  if (places.length && Number.isFinite(piece.voiceLevel)) piece.voiceLevel = round(Math.max(-60, Math.min(0, piece.voiceLevel - evening.shift)), 1);
+  // A gain stage (voiceLift) may sit over 0 LUFS before a volume under 1, and grows by a raised target.
+  const lifted = Number.isFinite(piece.voiceLift);
+  if (places.length && Number.isFinite(piece.voiceLevel)) piece.voiceLevel = round(Math.max(-60, Math.min(lifted ? GAIN_STAGE_MAX_DB : 0, piece.voiceLevel - evening.shift)), 1);
+  if (places.length && lifted && evening.shift < 0) piece.voiceLift = round(Math.min(60, piece.voiceLift - evening.shift), 1);
   return { median: evening.median, spread: evening.spread, places, shift: evening.shift };
 }
 
@@ -828,9 +831,19 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   if (operation.dropout !== undefined && typeof operation.dropout !== "boolean") fail("dropout is true (the music leaves for the line and comes back on the next downbeat) or false.");
   if (operation.wait !== undefined && (typeof operation.wait !== "number" || !(operation.wait >= 0 && operation.wait <= 4))) fail("wait is how many seconds the music may stay out for the next downbeat, 0 to 4 (default half a bar; past it the music hits back on the next beat).");
   if (operation.dropout && operation.dip !== undefined) fail("give dip or dropout:true, not both: dropout takes the music out under the line.");
-  if (operation.lift !== undefined && typeof operation.lift !== "boolean") fail("lift is true (the song stays untouched and the line is lifted over it) or false.");
+  if (operation.lift !== undefined && typeof operation.lift !== "boolean" && operation.lift !== "gain") fail("lift is true (the song stays untouched and the line is lifted over it), \"gain\" (the same, past the lift cap by a gain stage on this line, the limiter after it) or false.");
+  const lifting = operation.lift === true || operation.lift === "gain";
   // A given dip or dropout is kept as given; lift:true beside it is set aside, and a note says so.
-  if (operation.lift === true && (operation.dip !== undefined || operation.dropout === true)) notes.push(`lift:true is set aside: the ${operation.dropout === true ? "dropout" : "dip"} given takes the music down under the line`);
+  if (lifting && (operation.dip !== undefined || operation.dropout === true)) notes.push(`lift:${JSON.stringify(operation.lift)} is set aside: the ${operation.dropout === true ? "dropout" : "dip"} given takes the music down under the line`);
+  // A gain stage an earlier keep_line set on these pieces goes when it was this line's (lift:"gain"
+  // sets it again below); another kept line on the layer keeps it, so that line stays where it was set.
+  const otherLine = kept.some((entry) => entry.ranges.some((range) => !range.sound && (range.end < start - 0.01 || range.start > end + 0.01)));
+  if (!otherLine) for (const entry of kept) {
+    delete entry.piece.voiceLift;
+    // A level over 0 LUFS (before a volume under 1) is reached only through a gain stage.
+    if (entry.piece.voiceLevel > 0) entry.piece.voiceLevel = 0;
+  }
+  let gainSaid = null;
   let duck = null;
   let mix = null;
   // The line's level over the song each way (lineWays), for the receipt.
@@ -859,11 +872,24 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     const ways = over && !over.own ? lineWays(over.measured) : null;
     const asked = operation.dip !== undefined || operation.dropout !== undefined;
     // lift:true keeps the song untouched, measured or not (unmeasured, the line plays at its own level).
-    const untouched = operation.lift === true && !asked;
+    const untouched = lifting && !asked;
     // The way taken: lift (song untouched) when asked, or by default when the lift alone reaches
     // the aim within the headroom; else the shallowest dip that reaches it with the lift.
-    let way = untouched ? (ways ? "lift" : null) : !asked && !sound && ways ? (ways.lift.short === 0 ? "lift" : ways.dip ? "dip" : null) : null;
-    if (untouched && !ways) notes.push(`song untouched (lift:true); the ${sound ? "sound keeps its own level" : "line or the music is not measured, so the line plays at its own level"}`);
+    // lift:"gain" on a line the lift leaves short: the gain stage (ways.gain).
+    let way = untouched ? (ways ? (operation.lift === "gain" && ways.gain ? "gain" : "lift") : null) : !asked && !sound && ways ? (ways.lift.short === 0 ? "lift" : ways.dip ? "dip" : null) : null;
+    if (untouched && !ways) notes.push(`song untouched (lift:${JSON.stringify(operation.lift)}); the ${sound ? "sound keeps its own level" : "line or the music is not measured, so the line plays at its own level"}`);
+    if (untouched && ways && operation.lift === "gain" && !ways.gain) notes.push("no gain stage: the lift alone reaches the aim, so lift:\"gain\" works as lift:true");
+    // The gain stage measured on this line's own file: its level and the noise under its words, before
+    // (as it plays) and after the gain. Null without a curve.
+    const lineCurve = operation.levels?.[owner.piece.id];
+    const lineSpan = [{ start: mediaSoundTime(owner.piece, start), end: mediaSoundTime(owner.piece, end) }];
+    const noiseRaw = ways?.gain && lineCurve ? noiseUnder(lineCurve, lineSpan) : null;
+    const gainStage = ways?.gain ? {
+      db: ways.gain.db,
+      line: [over.measured.line, ways.gain.reach],
+      ...(noiseRaw !== null ? { noise: [round(noiseRaw + 20 * Math.log10(Math.max(1e-6, volume)), 1), round(noiseRaw + 20 * Math.log10(Math.max(1e-6, volume)) + ways.gain.db, 1)] } : {}),
+    } : null;
+    const gainWords = (stage) => `a +${stage.db} dB gain stage on this line only (x${Math.round(10 ** (stage.db / 20) * 100) / 100}): the line ${stage.line[0]} -> ${stage.line[1]} LUFS${stage.noise ? `, the noise under it ${stage.noise[0]} -> ${stage.noise[1]} LUFS` : ""}`;
     let out = operation.dropout === true;
     let tooQuiet = null;
     if (!way && !untouched && !out && !asked && over?.short) {
@@ -880,15 +906,23 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     let wayNote = -1;
     const signed = (value) => `${value >= 0 ? "+" : ""}${value}`;
     const wayLevel = (chosen, why = "") => {
-      const taken = chosen === "dip" ? ways.dip : ways.lift;
-      owner.piece.voiceLevel = round(Math.max(-60, Math.min(0, taken.reach - 20 * Math.log10(Math.max(1e-6, volume)))), 1);
+      const taken = chosen === "dip" ? ways.dip : chosen === "gain" ? ways.gain : ways.lift;
+      // A gain stage on a clip under volume 1 (a bed) levels the file past 0 LUFS before that volume.
+      owner.piece.voiceLevel = round(Math.max(-60, Math.min(chosen === "gain" ? GAIN_STAGE_MAX_DB : 0, taken.reach - 20 * Math.log10(Math.max(1e-6, volume)))), 1);
       for (const entry of kept) if (entry !== owner) entry.piece.voiceLevel = owner.piece.voiceLevel;
+      // The gain stage: the export may lift these pieces' kept stretches this far (mixLevels.js liftCap);
+      // one another line on the layer kept stays when it is larger.
+      if (chosen === "gain") for (const entry of kept) entry.piece.voiceLift = Math.max(entry.piece.voiceLift ?? 0, Math.min(GAIN_STAGE_MAX_DB, Math.ceil(ways.gain.db * 10) / 10 + 0.1));
       const bed = over.measured.under + (chosen === "dip" ? ways.dip.dipDb : 0);
       const total = round(10 * Math.log10(10 ** (taken.reach / 10) + 10 ** (bed / 10)), 1);
       mix = { line: taken.reach, around: over.measured.around, under: total, change: round(total - over.measured.around, 1) };
-      const text = chosen === "lift"
-        ? `${why || "song untouched: "}the line is lifted x${ways.lift.factor} to ${taken.reach} LUFS, ${signed(taken.over)} LU over the song${ways.lift.short > 0 ? ` (${ways.lift.short} LU short of +${LINE_OVER_BED})` : ""}${ways.lift.headroom === null ? "" : `, ${Math.abs(ways.lift.headroom)} dB ${ways.lift.headroom >= 0 ? "under" : "over"} the song's loudest moment`}`
+      const room = (headroom) => (headroom === null ? "" : `, ${Math.abs(headroom)} dB ${headroom >= 0 ? "under" : "over"} the song's loudest moment`);
+      const text = chosen === "gain"
+        ? `song untouched: ${gainWords(gainStage)}, ${signed(taken.over)} LU over the song${room(taken.headroom)}; the master limiter after it`
+        : chosen === "lift"
+        ? `${why || "song untouched: "}the line is lifted x${ways.lift.factor} to ${taken.reach} LUFS, ${signed(taken.over)} LU over the song${ways.lift.short > 0 ? ` (${ways.lift.short} LU short of +${LINE_OVER_BED})` : ""}${room(ways.lift.headroom)}${gainStage ? `; lift:"gain" reaches ${signed(ways.gain.over)} LU: ${gainWords(gainStage)}, the master limiter after it` : ""}`
         : `the lift alone reaches ${signed(ways.lift.over)} LU over the song (${ways.lift.short} LU short of +${LINE_OVER_BED} within the headroom), so the shallowest dip that reaches it: dip ${dip} (${ways.dip.dipDb} dB) with the line at ${taken.reach} LUFS, ${signed(taken.over)} LU over`;
+      if (chosen === "gain") gainSaid = gainStage;
       if (wayNote >= 0) notes[wayNote] = text;
       else wayNote = notes.push(text) - 1;
     };
@@ -916,7 +950,8 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
         const hold = Number.isFinite(tooQuiet.holdDb) ? round(level * 10 ** (tooQuiet.holdDb / 20), 3) : null;
         const buried = hold === null ? null : round(tooQuiet.measured.under + tooQuiet.holdDb - tooQuiet.heard, 1);
         notes.push(`the line is ${tooQuiet.short} LU short of the music at the +${MAX_LEVEL_DB} dB lift (it reaches ${tooQuiet.heard} LUFS, the music around it ${tooQuiet.measured.around}), so the music goes out under it`
-          + (hold === null ? "" : `; dip:${hold} keeps the music in and holds the mix, the line ${buried} LU under the music`));
+          + (hold === null ? "" : `; dip:${hold} keeps the music in and holds the mix, the line ${buried} LU under the music`)
+          + (gainStage ? `; lift:"gain" keeps the song untouched with ${gainWords(gainStage)}, ${signed(ways.gain.over)} LU over the song, the master limiter after it` : ""));
       }
     } else for (const entry of kept) delete entry.piece.voiceLevel;
     if (!over && !untouched && operation.dip === undefined && !operation.dropout) notes.push(`the music dips to ${dip} under the line (${DEFAULT_DIP} of its volume ${level}, about 3 dB; not measured); dip:<0 to 1> sets it`);
@@ -1061,6 +1096,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
       : standing ? { name: standing.name, kept: true } : (operation.subtitle === false ? "off" : "none"),
     duck: duck ? { layer: duck.layer, to: duck.to, summary: duck.summary } : "none",
     ...(mix ? { mix } : {}),
+    ...(gainSaid ? { gain: gainSaid } : {}),
     ...(waysSaid ?? {}),
     ...(bedSaid ? { bed: bedSaid } : {}),
     ...(dropSaid ? { drop: dropSaid } : {}),

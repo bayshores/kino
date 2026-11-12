@@ -54,10 +54,26 @@ export function curveValues(curve, spans) {
 /** The loudness (LUFS) of a file over `spans` (file seconds), or null. */
 export const loudnessOver = (curve, spans) => energyMean(curveValues(curve, spans));
 
-/** The gain (dB) that brings a line measured at `lufs` to `target` (VOICE_TARGET_LUFS by default), or null. */
-export function levelGain(lufs, target = VOICE_TARGET_LUFS) {
+/** The gain (dB) that brings a line measured at `lufs` to `target` (VOICE_TARGET_LUFS by default), at most `maxDb` either way, or null. */
+export function levelGain(lufs, target = VOICE_TARGET_LUFS, maxDb = MAX_LEVEL_DB) {
   if (!Number.isFinite(lufs)) return null;
-  return round1(Math.max(-MAX_LEVEL_DB, Math.min(MAX_LEVEL_DB, target - lufs)));
+  return round1(Math.max(-maxDb, Math.min(maxDb, target - lufs)));
+}
+
+// keep_line lift:"gain" (a gain stage on one kept line, the master limiter after it) gives a line at
+// most this (dB). A starting guess, not measured: past it the noise under the speech comes up as far.
+export const GAIN_STAGE_MAX_DB = 36;
+/** The most the export may lift `layer`'s kept lines (dB): MAX_LEVEL_DB, or its voiceLift gain stage. */
+export const liftCap = (layer) => Math.max(MAX_LEVEL_DB, Number.isFinite(layer?.voiceLift) ? layer.voiceLift : 0);
+
+/**
+ * The noise under a line: the energy mean of the quietest tenth of the curve's readings over `spans`
+ * (file seconds; at least one reading), the room and hiss between and under the words. Null when silent.
+ */
+export function noiseUnder(curve, spans) {
+  const heard = curveValues(curve, spans).filter((value) => Number.isFinite(value) && value > SILENCE).sort((a, b) => a - b);
+  if (!heard.length) return null;
+  return round1(energyMean(heard.slice(0, Math.max(1, Math.floor(heard.length / 10)))));
 }
 
 // A kept clip line over music (keep_line). Leveled to the fixed VOICE_TARGET_LUFS under a song
@@ -129,6 +145,7 @@ export const LIFT_CEILING = -10;
  *   dip:  the shallowest dip that reaches the aim together with the lift: {db, reach, over, headroom},
  *         or null when the -20 dB floor does not reach it
  *   out:  the music out under the line: {reach} (the line alone, lifted toward the music's level)
+ *   gain: when the lift is short, the line taken to the aim by a gain stage: {reach, db, over, headroom}, else null
  */
 export function lineWays({ line, under, ceiling: loudest, around }) {
   if (![line, under].every(Number.isFinite)) return null;
@@ -152,9 +169,18 @@ export function lineWays({ line, under, ceiling: loudest, around }) {
     }
   }
   const alone = Number.isFinite(around) ? Math.max(VOICE_TARGET_LUFS, around) : Math.max(VOICE_TARGET_LUFS, under);
+  // gain: a lift short of the aim, taken to it by a gain stage on the line alone (past MAX_LEVEL_DB
+  // and the ceiling, at most GAIN_STAGE_MAX_DB; the master limiter after it). Null when nothing is short.
+  let gain = null;
+  if (short > 0.05) {
+    const reach = Math.min(Math.max(VOICE_TARGET_LUFS, under + VOICE_OVER_BED), line + GAIN_STAGE_MAX_DB);
+    const total = 10 * Math.log10(10 ** (reach / 10) + 10 ** (under / 10));
+    gain = { reach: round1(reach), db: round1(reach - line), over: round1(reach - under), headroom: Number.isFinite(ceiling) ? round1(ceiling - total) : null };
+  }
   return {
     lift: { ...lift, factor: Math.round(10 ** (lift.db / 20) * 100) / 100, short },
     dip,
+    gain,
     out: { reach: round1(Math.min(alone, line + MAX_LEVEL_DB)) },
   };
 }
@@ -254,8 +280,8 @@ export const LINE_SPREAD_DB = 6;
  * LINE_SPREAD_DB apart (TTS lines made at different levels), one gain per line. Returns null, or
  * {gain, lines?: [{from, to, gain}]} whose lines cover the file, changing gain mid-pause.
  */
-export function voiceLeveling(curve, spans, target = VOICE_TARGET_LUFS) {
-  const gain = levelGain(loudnessOver(curve, spans), target);
+export function voiceLeveling(curve, spans, target = VOICE_TARGET_LUFS, maxDb = MAX_LEVEL_DB) {
+  const gain = levelGain(loudnessOver(curve, spans), target, maxDb);
   if (gain === null) return null;
   const groups = [];
   for (const span of [...spans].sort((a, b) => a.start - b.start)) {
@@ -263,7 +289,7 @@ export function voiceLeveling(curve, spans, target = VOICE_TARGET_LUFS) {
     if (group && span.start - group.at(-1).end <= LINE_PAUSE) group.push(span);
     else groups.push([span]);
   }
-  const lines = groups.map((group) => ({ start: group[0].start, end: group.at(-1).end, gain: levelGain(loudnessOver(curve, group), target) ?? gain }));
+  const lines = groups.map((group) => ({ start: group[0].start, end: group.at(-1).end, gain: levelGain(loudnessOver(curve, group), target, maxDb) ?? gain }));
   const gains = lines.map((line) => line.gain);
   if (lines.length < 2 || Math.max(...gains) - Math.min(...gains) <= LINE_SPREAD_DB) return { gain };
   const middle = (index) => Math.round((lines[index].end + lines[index + 1].start) * 500) / 1000;
@@ -366,7 +392,7 @@ export const LINE_PAUSE = 0.6;
  */
 export function voiceLines(curve, layer, range, words, breaks = () => false) {
   // A line keep_line leveled over music (layer.voiceLevel) is heard at that level, as the export does.
-  const leveling = voiceLeveling(curve, words.map((word) => ({ start: word.start, end: word.end })), layer?.voiceLevel ?? VOICE_TARGET_LUFS);
+  const leveling = voiceLeveling(curve, words.map((word) => ({ start: word.start, end: word.end })), layer?.voiceLevel ?? VOICE_TARGET_LUFS, liftCap(layer));
   const at = (time) => range.start + (time - range.offset);
   const lines = [];
   let run = [];
