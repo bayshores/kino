@@ -23,7 +23,7 @@ import { speechCaptions, speechCut, speechQuotes, speechUnplayed } from "./rules
 import { bedJump, endOnFade, muteWord, musicHardStop, musicStall, musicTurn, noMusic, sfxRestraint, speechFragment, voiceLevelSpread, voiceUnderBed, volumeChurn } from "./rules/sound.js";
 import { textLoad } from "./rules/load.js";
 import { cutMidMove, edgeLinger, loneZoom, transitionDip } from "./rules/camera.js";
-import { burnedInMark, clipReuse, cropNoSubject, frozenFootage, jumpCut, narrowWindow, softUpscale, trackLost } from "./rules/footage.js";
+import { burnedInMark, burnedText, clipReuse, cropNoSubject, frozenFootage, jumpCut, narrowWindow, softUpscale, trackLost } from "./rules/footage.js";
 import { darkUnderTitle, lowFpsMotion, sourceJump } from "./rules/sourcePixels.js";
 import { headCutOff } from "./rules/people.js";
 import { shapeGuess } from "./rules/shape.js";
@@ -78,6 +78,7 @@ export const RULES = [
   rule("clip_reuse", "warn", clipReuse, "with 4+ clips, one clip fills the frame under 4 times and at most 35% of the video"),
   rule("crop_no_subject", "warn", cropNoSubject, "footage filling the frame and drawn past it (over 8% of the file cut off on a side) has a subject marked (mark_subject); a marked subject less than 85% in the frame is an error; with nothing marked, a face found whole in the file (touching at most one file edge) less than 85% in the frame for 0.2 s is an error, and with a mark that misses it a warning; in a shot with no face found, the largest saliency box (what kino sees, not a face) less than 85% in the frame is an error unless a part mark or a mark holding 85% of it stands for it"),
   rule("burned_in_mark", "warn", burnedInMark, "a layer's window shows a logo or site name burned into its footage (the finder's scan found it) for 0.3 s: crop it out, cover it or pick a clean clip"),
+  rule("burned_text", "info", burnedText, "a fact: a kino text shown beside a subtitle burned into the clip under it, or a burned-in mark the text reader found held in the frame 0.3 s, with the crop call that takes it out and its cost"),
   rule("narrow_window", "warn", narrowWindow, "footage filling the frame keeps at least 40% of its file's width for 0.2 s, or a face or a saliency box is found in the shot (drawn faces are rarely found); screen recordings aside"),
   rule("shape_guess", "warn", shapeGuess, "the video's shape (landscape, portrait, square) is the shape of most of its footage files, or brief plays_on is the person's own words (by \"you\"); no footage, no finding; only the person's words waive it"),
   rule("ask_unmet", "warn", askUnmet, "with the person's subject searched (state.origin has a word most titles about it share): a shot is marked shows:<word> (mark_subject) at a second the agent looked at (look source; a file title is not proof), or the person gave footage of their own; a scene waiver whose reason names the word clears it"),

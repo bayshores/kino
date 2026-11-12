@@ -103,6 +103,92 @@ export function cropPast(marks = [], frame, file, { center = [0.5, 0.5], scale: 
   };
 }
 
+// ---------------------------------------------------------------- burned-in text of any clip
+// backend/footage/burned-text.mjs reads the lettering on a clip's frames (Apple Vision, a Mac only)
+// and keeps on its record burnedText {version, read, marks, subtitles}; burnedTextFacts sorts the
+// lines it read. Marks found here sit beside the finder scan's footage.marks: the check's
+// burned_text fact (rules/footage.js) reads both kinds.
+
+/** A line whose middle sits this low (fraction of the picture's height) or lower is subtitle-low. */
+export const SUBTITLE_LOW = 0.72;
+/** ... and whose middle is within this distance across of the picture's middle. */
+export const SUBTITLE_CENTER = 0.15;
+/** A mark: the same words in one place on at least this share of the frames read (2 frames at least). */
+export const MARK_FRAMES = 0.5;
+/** Two boxes are one place when their middles are this close (fraction of the picture). */
+const SAME_PLACE = 0.04;
+
+const middleOf = ([x, y, w, h]) => [x + w / 2, y + h / 2];
+const plainWords = (text) => String(text ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const round3 = (value) => Math.round(value * 1000) / 1000;
+const union = (a, b) => {
+  const x = Math.min(a[0], b[0]), y = Math.min(a[1], b[1]);
+  return [x, y, Math.max(a[0] + a[2], b[0] + b[2]) - x, Math.max(a[1] + a[3], b[1] + b[3]) - y];
+};
+
+/** True for a line low and near the middle across: where a burned-in subtitle sits. */
+export function subtitleLow(box) {
+  const [cx, cy] = middleOf(box);
+  return cy >= SUBTITLE_LOW && Math.abs(cx - 0.5) <= SUBTITLE_CENTER;
+}
+
+/** "top-left", "top", "bottom-right", ... for a box of fractions (thirds). */
+export function cornerName(box) {
+  const [cx, cy] = middleOf(box);
+  const third = (value) => (value < 1 / 3 ? 0 : value < 2 / 3 ? 1 : 2);
+  return [["top", "", "bottom"][third(cy)], ["left", "", "right"][third(cx)]].filter(Boolean).join("-") || "middle";
+}
+
+/**
+ * Sorts the lines read on a clip's frames. frames: [{t (file seconds), lines: [{box, s}] (box:
+ * fractions from the top left)}]. A mark is the same words (case and marks ignored) in one place on
+ * MARK_FRAMES of the frames read (2 at least), not subtitle-low: a site name or a logo's letters.
+ * A subtitle is a subtitle-low line; neighbor frames with the same words join into one stretch, so
+ * a subtitle that changes with the speech gives one stretch per line said. Answers {read (frames),
+ * marks: [{where, box, words, frames}], subtitles: [{from, to, box, words}]} (from and to: the first
+ * and last frame read showing it, file seconds; boxes rounded to 0.001).
+ */
+export function burnedTextFacts(frames = []) {
+  const read = frames.filter((frame) => Array.isArray(frame?.lines));
+  const places = [];
+  const subtitles = [];
+  for (const frame of read) {
+    const low = frame.lines.filter((line) => Array.isArray(line?.box) && subtitleLow(line.box) && plainWords(line.s));
+    for (const line of frame.lines) {
+      if (!Array.isArray(line?.box) || line.box.length !== 4 || subtitleLow(line.box)) continue;
+      const words = plainWords(line.s);
+      if (!words) continue;
+      const [cx, cy] = middleOf(line.box);
+      const place = places.find((entry) => entry.words === words && Math.hypot(entry.at[0] - cx, entry.at[1] - cy) <= SAME_PLACE);
+      if (place) { place.box = union(place.box, line.box); if (place.last !== frame.t) { place.frames += 1; place.last = frame.t; } }
+      else places.push({ words, said: String(line.s).trim().slice(0, 60), at: [cx, cy], box: [...line.box], frames: 1, last: frame.t });
+    }
+    if (!low.length) continue;
+    const words = low.map((line) => String(line.s).trim()).join(" ").slice(0, 120);
+    const box = low.map((line) => line.box).reduce(union);
+    const open = subtitles.at(-1);
+    if (open && open.key === plainWords(words) && open.next === frame.t) { open.to = frame.t; open.box = union(open.box, box); }
+    else subtitles.push({ key: plainWords(words), from: frame.t, to: frame.t, box, words });
+    subtitles.at(-1).next = read[read.indexOf(frame) + 1]?.t;
+  }
+  const need = Math.max(2, MARK_FRAMES * read.length);
+  const marks = places.filter((place) => place.frames >= need).sort((a, b) => b.frames - a.frames)
+    .map((place) => ({ where: cornerName(place.box), box: place.box.map(round3), words: place.said, frames: place.frames }));
+  return { read: read.length, marks, subtitles: subtitles.map(({ from, to, box, words }) => ({ from: round3(from), to: round3(to), box: box.map(round3), words })) };
+}
+
+/**
+ * What a crop (cropPast's answer, scene pixels) costs a subject box ([x, y, w, h] fractions of the
+ * file): the share of the subject's area that falls outside the frame, 0 to 1 (rounded to 0.01).
+ */
+export function subjectLost(fit, frame, subject) {
+  if (!fit || !Array.isArray(subject) || subject.length !== 4 || !(subject[2] > 0 && subject[3] > 0)) return null;
+  const left = Math.max(subject[0], -fit.x / fit.width), top = Math.max(subject[1], -fit.y / fit.height);
+  const right = Math.min(subject[0] + subject[2], (frame.width - fit.x) / fit.width), bottom = Math.min(subject[1] + subject[3], (frame.height - fit.y) / fit.height);
+  const kept = Math.max(0, right - left) * Math.max(0, bottom - top);
+  return Math.round((1 - kept / (subject[2] * subject[3])) * 100) / 100;
+}
+
 /**
  * The other one-call ways out of a mark a crop cannot take out (it would cut the subject or zoom past
  * MARK_ZOOM_MOST): never hide or drop the clip, repair it. `name` is the layer's name; `box` its

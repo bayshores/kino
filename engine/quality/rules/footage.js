@@ -40,7 +40,7 @@ import { aloneFrames, lookDifference, SAME_FRAMING, SAME_LIGHT } from "./sourceP
 import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
 import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
-import { cropPast, markSpan, markWays, MARK_SECONDS, MARK_SEEN, MARK_ZOOM_MOST } from "../../footage/burned.js";
+import { cropPast, markSpan, markWays, subjectLost, MARK_SECONDS, MARK_SEEN, MARK_ZOOM_MOST } from "../../footage/burned.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -565,6 +565,122 @@ export function burnedInMark(model, ctx) {
         measured: `${Math.round(found.share * 100)}% of the mark box ${boxText(mark.box.map((value) => value * 100))} (% of the file) in the frame at ${sec(found.time)} s, for ${sec((found.count * step) / model.fps)} s`,
         required: `the mark outside the visible window (under ${Math.round(MARK_SEEN * 100)}% of its box in the frame), a cover over it, or a clean clip`,
         fix: { kind: "hint", text: `Pick a clean clip (library {topic:"footage"} lists them first), or ${call}.` },
+      });
+    }
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------- burned_text
+
+// A kino text this close (share of the scene's height) above or below a burned-in subtitle is near it.
+const SUBTITLE_NEAR = 0.08;
+// A frame read this close (seconds) to a file second stands for it (half the reader's 0.25 s step).
+const READ_REACH = 0.13;
+
+/**
+ * The one call that takes a burned-in box ([x, y, w, h] fractions of the file) out of `layer`'s
+ * frame and what it costs: {call, zoom, lost (share of the subject cut off, or null with none
+ * known), subject (where the subject came from)}, or null when no crop past it fits. Every video
+ * layer of the scene drawing the same file in the same box takes it in one update_layers.
+ */
+function cropOutCall(ctx, scene, layer, size, box, second) {
+  const frame = { width: scene.width, height: scene.height };
+  const [from, to] = playedStretch(scene, layer);
+  const center = [layer.x, layer.y].every(Number.isFinite) && layer.width > 0 && layer.height > 0
+    ? [(frame.width / 2 - layer.x) / layer.width, (frame.height / 2 - layer.y) / layer.height] : undefined;
+  const fit = cropPast([{ box }], frame, size, { center, scale: layer.width > 0 ? layer.width / size.width : 0 });
+  if (!fit) return null;
+  const marked = boxNear(layer, second);
+  const face = facesAt(ctx.people?.[layer.src], second)[0];
+  const salient = face ? null : salientAt(ctx.people?.[layer.src], second, from, to);
+  const [subject, how] = marked ? [marked, "the marked subject"] : face ? [face, "the face found"] : salient ? [salient, "the saliency box"] : [null, null];
+  const lost = subject ? subjectLost(fit, frame, subject.map((value) => value / 100)) : null;
+  const same = scene.layers.filter((other) => other.type === "video" && other.src === layer.src && other.x === layer.x && other.y === layer.y && other.width === layer.width && other.height === layer.height);
+  const properties = `{"x":${fit.x},"y":${fit.y},"width":${fit.width},"height":${fit.height}}`;
+  const call = same.length > 1
+    ? `edit {"ops":[{"op":"update_layers","layerIds":${JSON.stringify(same.map((other) => other.id))},"properties":${properties}}]} (every ${same.length} layers of this file in this box: ${same.map((other) => JSON.stringify(other.name ?? other.id)).join(", ")})`
+    : `edit {"ops":[{"op":"update_layer","layer":${JSON.stringify(layer.name ?? layer.id)},"properties":${properties}}]}`;
+  return { call, zoom: fit.zoom, lost, subject: how };
+}
+
+const costText = (out) => `${out.zoom}x against the frame-filling size${out.lost === null ? ", no subject known to measure what it cuts" : `, cuts ${Math.round(out.lost * 100)}% of ${out.subject}`}`;
+
+/**
+ * burned_text (a fact, info): text burned into a clip that the edit still shows, read on any clip
+ * (backend/footage/burned-text.mjs; ctx.burnedText {src: {marks, subtitles}}). (1) A kino text
+ * layer shown while a burned-in subtitle of a clip under it shows, its box within SUBTITLE_NEAR of
+ * the subtitle's on screen: both words quoted. (2) A mark (the same words in one place) held in a
+ * layer's window for MARK_SECONDS, when the finder's scan did not already give it to burned_in_mark.
+ * Each names the one crop call that takes the box out, its zoom and the share of the subject it cuts.
+ */
+export function burnedText(model, ctx) {
+  const scene = ctx.scene ?? ctx.speechScene;
+  if (!scene || !ctx.burnedText) return [];
+  const findings = [];
+  const step = Math.max(1, Math.round(model.fps / 10));
+  const texts = model.items.filter((item) => item.kind === "text" && String(item.text ?? "").trim());
+  for (const item of model.items) {
+    if (item.kind !== "video" || item.source?.componentPath || !item.src) continue;
+    const burned = ctx.burnedText[item.src];
+    const layer = scene.layers.find((entry) => entry.id === item.source?.layerId);
+    const size = sizeOf(ctx, item);
+    if (!burned || !layer || !size) continue;
+    const name = ctx.name(item);
+    const subs = burned.subtitles ?? [];
+    const marks = ctx.burnedMarks?.[item.src]?.length ? [] : burned.marks ?? [];
+    const near = new Map();
+    const seen = new Map();
+    for (let index = 0; index < model.times.length; index += step) {
+      if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
+      const time = model.times[index];
+      const second = mediaFrameState(layer, time).sourceTime;
+      const video = boxAt(item, index);
+      for (const sub of subs) {
+        if (second < sub.from - READ_REACH || second > sub.to + READ_REACH) continue;
+        const [bx, by, bw, bh] = sub.box;
+        const width = video.x1 - video.x0, height = video.y1 - video.y0;
+        const onScreen = { x0: video.x0 + bx * width, y0: video.y0 + by * height, x1: video.x0 + (bx + bw) * width, y1: video.y0 + (by + bh) * height };
+        if (!onFrame(model, onScreen)) continue;
+        for (const text of texts) {
+          if (text.samples.opacity[index] < SHOWN) continue;
+          const box = boxAt(text, index);
+          const across = Math.min(box.x1, onScreen.x1) - Math.max(box.x0, onScreen.x0);
+          const gap = Math.max(0, Math.max(box.y0, onScreen.y0) - Math.min(box.y1, onScreen.y1));
+          if (across <= 0 || gap > SUBTITLE_NEAR * model.height) continue;
+          const key = `${text.id}|${sub.from}`;
+          const entry = near.get(key) ?? { text, sub, from: time, to: time, gap, second };
+          entry.to = time; entry.gap = Math.min(entry.gap, gap);
+          near.set(key, entry);
+        }
+      }
+      const crop = marks.length ? cropOnSource(scene, layer, time, size) : null;
+      for (const mark of crop ? marks : []) {
+        if (insideShare(mark.box.map((value) => value * 100), crop.bounds) < MARK_SEEN) continue;
+        const entry = seen.get(mark) ?? { count: 0, from: time, to: time, second };
+        entry.count += 1; entry.to = time;
+        seen.set(mark, entry);
+      }
+    }
+    for (const { text, sub, from, to, gap, second } of near.values()) {
+      const out = cropOutCall(ctx, scene, layer, size, sub.box, second);
+      findings.push({
+        rule: "burned_text", severity: "info", itemId: text.id, at: sec(from),
+        message: `${ctx.name(text)} ("${String(text.text).trim().slice(0, 60)}") shows with the subtitle burned into ${name} ("${sub.words}", file ${sub.from === sub.to ? sub.from : `${sub.from}-${sub.to}`} s) at ${sec(from)}-${sec(Math.min(scene.duration, to + step / model.fps))} s, ${Math.round(gap)} px apart on screen.`,
+        measured: `burned-in subtitle ${markSpan(sub.box)} of the file, read by the text reader at file ${sub.from} s; kino text ${Math.round(gap)} px from it`,
+        required: "a fact: one subtitle on screen at a time, or both kept on purpose",
+        fix: { kind: "hint", text: out ? `${out.call} crops the subtitle out (${costText(out)}); or play a stretch of ${name} before file ${sub.from} s.` : `play a stretch of ${name} before file ${sub.from} s, or cover the subtitle.` },
+      });
+    }
+    for (const [mark, found] of seen) {
+      if (found.count * step < model.fps * MARK_SECONDS - 1e-6) continue;
+      const out = cropOutCall(ctx, scene, layer, size, mark.box, found.second);
+      findings.push({
+        rule: "burned_text", severity: "info", itemId: item.id, at: sec(found.from),
+        message: `${name} shows the mark burned into its ${mark.where} ("${mark.words}", ${markSpan(mark.box)} of the file) at ${sec(found.from)}-${sec(Math.min(scene.duration, found.to + step / model.fps))} s.`,
+        measured: `the same words in one place on ${mark.frames} frames the text reader read; at least ${Math.round(MARK_SEEN * 100)}% of its box in the frame for ${sec((found.count * step) / model.fps)} s`,
+        required: "a fact: the mark outside the frame, covered, or kept on purpose",
+        fix: { kind: "hint", text: out ? `${out.call} crops it out (${costText(out)}).` : `${markWays(name, [mark], { width: scene.width, height: scene.height }, size, layer)}` },
       });
     }
   }

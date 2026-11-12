@@ -654,6 +654,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     const burned = {};
     const shotsOf = {};
     const holdsOf = {};
+    // Text burned into each clip, read on its frames (backend/footage/burned-text.mjs): burned_text.
+    const textOf = {};
     const pending = [];
     // Which video files the document plays are found clips and which are the person's (ask_unmet).
     const foundClips = new Set(), ownClips = new Set();
@@ -668,7 +670,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       let record = null;
       try { record = id && mediaRoot ? JSON.parse(await readFile(path.join(mediaRoot, `${id}.json`), "utf8")) : null; } catch { record = null; }
       records.set(layer.src, record);
-      if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && !Object.hasOwn(record, "busy") && !record.recording && !factsOf.has(layer.src)) {
+      if (record && layer.type === "video" && videoFacts && record.hasVideo !== false && (!Object.hasOwn(record, "busy") || !Object.hasOwn(record, "burnedText")) && !record.recording && !factsOf.has(layer.src)) {
         const facts = {};
         asked.set(layer.src, { facts, job: Promise.resolve().then(() => videoFacts(id, record)).then((value) => Object.assign(facts, value), () => {}) });
       }
@@ -698,11 +700,12 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
         const shots = Array.isArray(record?.shots) ? record.shots.filter((shot) => Number.isFinite(shot?.start) && Number.isFinite(shot?.end)) : [];
         // `holds`: how the file holds its pictures (shot-detection.mjs holdPattern): drawn on 3s, held poses.
         const holds = record?.holds && Number.isFinite(record.holds.frames) ? record.holds : null;
-        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage), marks, shots, holds };
+        entry = { size, name: typeof record?.name === "string" ? record.name : null, found: Boolean(record?.footage), marks, shots, holds, burnedText: record?.burnedText?.read ? record.burnedText : null };
         // Unmeasured (failed or still running): not kept, so the next check reads the saved facts.
         // A video whose held frames are not measured yet (a look finds them) is read again next check.
         if (!measured || Object.hasOwn(measured, "busy")) { if (layer.type !== "video" || holds) sizes.set(layer.src, entry); }
-        else pending.push(layer.src);
+        // A record with its frame facts and only the burned-in text unread is pending apart (its own key).
+        else pending.push(Object.hasOwn(records.get(layer.src) ?? {}, "busy") ? `${layer.src}#text` : layer.src);
         if (sizes.size > 4096) sizes.delete(sizes.keys().next().value);
         if (factsOf.size > 4096) factsOf.delete(factsOf.keys().next().value);
       }
@@ -712,10 +715,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (layer.type === "video" && entry.marks?.length) burned[layer.src] = entry.marks;
       if (layer.type === "video" && entry.shots?.length) shotsOf[layer.src] = entry.shots;
       if (layer.type === "video" && entry.holds) holdsOf[layer.src] = entry.holds;
+      if (layer.type === "video" && (entry.burnedText?.marks?.length || entry.burnedText?.subtitles?.length)) textOf[layer.src] = entry.burnedText;
       if (layer.type === "video") (entry.found ? foundClips : ownClips).add(layer.src);
     }
     // In each scene's key, so a check made before the facts came is not kept after.
-    return { sizes: found, names, burned, shots: shotsOf, holds: holdsOf, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
+    return { sizes: found, names, burned, burnedText: textOf, shots: shotsOf, holds: holdsOf, pending: pending.join(","), foundTitles: [...foundClips].map((src) => names[src]).filter(Boolean), ownFootage: ownClips.size > 0 };
   }
 
   // A kept check, made the most recently used.
@@ -834,7 +838,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The raw scene and each picture's file size (soft_upscale, crop_no_subject).
       scene, mediaSizes: media.sizes, mediaNames: media.names,
       // Logos burned into found clips (burned_in_mark): {src: [{where, box}]}.
-      burnedMarks: media.burned, mediaShots: media.shots,
+      burnedMarks: media.burned, burnedText: media.burnedText, mediaShots: media.shots,
       // Each clip file's held-frame pattern {src: {repeated, frames, stills}} (frozen_footage, low_fps_motion).
       mediaHolds: media.holds ?? {},
       // Files recorded together (sync_clips): out_of_sync holds a line to the picture of its moment.

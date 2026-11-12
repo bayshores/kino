@@ -73,6 +73,7 @@ import { projectOutline } from "./outline.mjs";
 import { applyBrief, aspectLabel, asksOf, plainWordsProblem, storedQuoteProblem,BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
+import { burnedTextLine } from "../footage/burned-text.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
 import { createSoundsCache } from "../footage/sounds.mjs";
 import { applySwap, cardCall, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
@@ -6053,6 +6054,13 @@ export function createAgentService(deps) {
     const more = measured.events.length > shown.length ? ` (the ${shown.length} surest of ${measured.events.length})` : "";
     return `events (file s)${more}: ${[...words, ...(drawn ? [drawn] : [])].join(" · ") || "no impacts, light changes or steady motion found"}.`;
   }
+  // The text burned into a clip's frames (backend/footage/burned-text.mjs) as one line: kept on its
+  // record, else read now through the frame facts (videoFacts, one at a time), else null.
+  async function burnedTextOf(src, record) {
+    const id = mediaIdFromSource(src);
+    const burned = record?.burnedText ?? (id && deps.videoFacts ? (await Promise.resolve(deps.videoFacts(id, record)).catch(() => null))?.burnedText : null);
+    return burnedTextLine(burned);
+  }
   async function clipOverview(input, { fonts, document = null, state = null }, src = null) {
     if (!src) {
       const wanted = String(input.layer).trim().toLowerCase();
@@ -6081,11 +6089,13 @@ export function createAgentService(deps) {
     // The clip's own sound, as a layer of this file shows it (heard lines, language, sounds).
     const heard = document ? await clipSoundLine(src, document) : null;
     const soundLine = heard?.text ? `sound: ${heard.text} (file s)` : null;
+    const burned = await burnedTextOf(src, record);
     const text = asked
-      ? [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`, ...(soundLine ? [soundLine] : [])].join("\n")
+      ? [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`, ...(soundLine ? [soundLine] : []), ...(burned ? [burned] : [])].join("\n")
       : [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): the whole clip in ${count} frames, labeled with file seconds.`,
         await clipEventsLine(src, record),
         ...(soundLine ? [soundLine] : []),
+        ...(burned ? [burned] : []),
         `Exact frames: times:[…] (file seconds). For a crop, add it as a layer and look {mode:"source", layer, t}.`].join("\n");
     return { image, text, extra: { ...(heard?.said.length ? { heard: heard.said } : {}), file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };
   }
@@ -6459,6 +6469,8 @@ export function createAgentService(deps) {
     // Its level and the voice whisper heard but could not read (engine/speech.js readClipSound).
     const { said, text: soundText } = await clipSoundLine(layer.src, document);
     if (soundText) lines.push(`sound: ${soundText} (file s)${Number(layer.volume ?? 1) === 0 ? " (muted here)" : ""}`);
+    const burned = await burnedTextOf(layer.src, record);
+    if (burned) lines.push(burned);
     if (!agentBoxes.length) lines.push(`mark the subject: edit mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} (% of the source; x, y top-left)`);
     const extra = {
       ...(said.length ? { heard: said } : {}),
