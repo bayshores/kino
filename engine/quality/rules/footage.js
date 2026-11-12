@@ -340,12 +340,19 @@ export function cropNoSubject(model, ctx) {
       const name = ctx.name(item);
       const call = `edit {"ops":[{"op":"frame_shot","layers":[${JSON.stringify(String(name).replace(/^"(.*)"$/, "$1"))}]}]}`;
       const held = cut.mark ? `; the mark ${boxText(cut.mark)} holds ${Math.round(insideShare(cut.box, [cut.mark[0], cut.mark[1], cut.mark[0] + cut.mark[2], cut.mark[1] + cut.mark[3]]) * 100)}% of it` : "";
+      const cutText = `${name} cuts what kino sees in its file at the ${cut.side} at ${sec(cut.time)} s: ${Math.round(cut.share * 100)}% of it is in the frame (a saliency box, not a face)`;
+      // A mark nobody looked at does not count here, yet frame_shot would crop on it: the look comes first.
+      const lookCall = `look {mode:"source", layer:${name}, t:${sec(cut.time)}}`;
       findings.push({
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
-        message: `${name} cuts what kino sees in its file at the ${cut.side} at ${sec(cut.time)} s: ${Math.round(cut.share * 100)}% of it is in the frame (a saliency box, not a face). ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.`,
-        measured: `${Math.round(cut.share * 100)}% of the saliency box ${boxText(cut.box)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((salientCut.count * step) / model.fps)} s, no face found${held}`,
+        message: unlooked
+          ? `${cutText}, and its mark was never looked at: ${lookCall} first, then mark what the shot is about.`
+          : `${cutText}. ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.`,
+        measured: `${Math.round(cut.share * 100)}% of the saliency box ${boxText(cut.box)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((salientCut.count * step) / model.fps)} s, no face found${held}${unlooked ? ", marked without a look" : ""}`,
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of what kino sees (the largest saliency box where no face is found) in the frame, or a mark that holds it (part:"<name>" for a deliberate part)`,
-        fix: frameFix(model, item, `${call} keeps what kino sees whole (a card when it is wider than the frame); ${look} shows it; a deliberate part: mark_subject with part.`),
+        fix: unlooked
+          ? { kind: "hint", text: `${lookCall}, then mark_subject what the shot is about (part:"<name>" for a deliberate part) and frame_shot crops on it.` }
+          : frameFix(model, item, `${call} keeps what kino sees whole (a card when it is wider than the frame); ${look} shows it; a deliberate part: mark_subject with part.`),
       });
       continue;
     }

@@ -1837,6 +1837,9 @@ test("crop_no_subject: where no face was found, the window must keep what kino s
   const [mouth] = (await cropRun("crop_no_subject", keeperMarked([40, 40, 8, 8]), sees([25, 20, 30, 50]), keeperLooked)).findings;
   assert.match(mouth.measured, /the mark \[40, 40, 8, 8\] holds 4% of it$/);
   assert.deepEqual((await cropRun("crop_no_subject", keeperMarked([40, 40, 8, 8], { part: "mouth" }), sees([25, 20, 30, 50]), keeperLooked)).findings, []);
+  // A mark nobody looked at does not count, but frame_shot would crop on it: the look comes first, never a frame_shot loop.
+  const [unlooked] = (await cropRun("crop_no_subject", keeperMarked([60, 40, 10, 20]), sees([25, 20, 30, 50]))).findings;
+  assert.deepEqual([unlooked.fix.kind, /never looked at: look \{mode:"source", layer:"keeper", t:0\} first/.test(unlooked.message)], ["hint", true]);
   // A face found anywhere in the shot makes it face-led (as frame_shot aims): saliency is not judged.
   const faceLed = sees([25, 20, 30, 50]);
   faceLed[TALL_CROP.src].samples[4] = { t: 2, faces: [[0.45, 0.3, 0.1, 0.2]], people: [], subjects: [{ box: [0.45, 0.3, 0.1, 0.2], kind: "face" }] };
