@@ -122,7 +122,7 @@ import { importedText } from "./client.mjs";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
-import { originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
+import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
@@ -350,8 +350,9 @@ export function searchGuide(search) {
   const ops = rank(allOps, (type) => type).slice(0, SEARCH_SHOWN);
   const topics = rank(guideTopics(), (entry) => `${entry.title}\n${entry.text}`.toLowerCase(), (entry) => `${entry.id} ${entry.title}`.toLowerCase());
   // What the words describe ("bloom", "subtitles"), as the kino names that make it (seen-names.mjs).
-  const names = seenNames(needle, { ops: allOps });
-  if (!ops.length && !topics.length && !names.length) return `Nothing mentions "${search}". library {topic:"rules"} lists every topic.`;
+  const names = seenNames(needle, { ops: [...allOps, ...AGENT_OPERATION_TYPES] });
+  const noMaker = names.length ? "" : noMakerLine(needle);
+  if (!ops.length && !topics.length && !names.length && !noMaker) return `Nothing mentions "${search}". library {topic:"rules"} lists every topic.`;
   // The sentence that holds the most of the words.
   const snippet = (text) => {
     let sentence = "", most = 0;
@@ -364,6 +365,7 @@ export function searchGuide(search) {
   const lines = topics.slice(0, SEARCH_SHOWN).map((entry) => `${entry.id} (${entry.title}): ${snippet(entry.text) || snippet(entry.title)}`);
   const more = topics.slice(SEARCH_SHOWN);
   return [
+    noMaker,
     names.length ? "kino names for it:" : "",
     ...names,
     ops.length ? `ops: ${ops.join(", ")} (library {topic:"op", name})` : "",

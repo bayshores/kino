@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 import { jsonBlocks, skillSection } from "./skill.test.support.mjs";
-import { REFERENCE_LOOKUP } from "./agent/seen-names.mjs";
+import { REFERENCE_LOOKUP, SEEN_AS, noMakerLine, readCallFor, seenNames } from "./agent/seen-names.mjs";
+import { AGENT_OPERATION_TYPES } from "./agent/translate.mjs";
+import { searchGuide } from "./agent/service.mjs";
 
 const STUB = fileURLToPath(new URL("../tests/fixtures/inspire/stub-yt-dlp.mjs", import.meta.url));
 // Best first: the most viewed of the recorded search, sixth on YouTube's own list.
@@ -341,4 +343,15 @@ test("saving the brief with an about line searches the quote and the quote with 
     await srv?.stop();
     await rm(data, { recursive: true, force: true });
   }
+});
+
+test("every look word an agent can search names an effect, move or op that exists; a look with no maker says so", () => {
+  const ops = [...AGENT_OPERATION_TYPES];
+  for (const [word, names] of Object.entries(SEEN_AS)) for (const name of names) assert.ok(readCallFor(name, { ops }), `"${word}" maps to ${name}, which kino does not have`);
+  assert.match(seenNames("typeface", { ops })[0], /^set_font \(op: library \{topic:"fonts", search:/);
+  assert.ok(seenNames("split screen", { ops }).some((line) => line.startsWith("create_mask (")));
+  assert.ok(seenNames("duotone", { ops }).some((line) => line.startsWith("duotone (effect")));
+  assert.equal(noMakerLine("Speed lines!"), 'no kino name for "speed lines" yet: build it from shapes and draw-on, or say it is missing');
+  assert.equal(searchGuide("speed lines").split("\n")[0], noMakerLine("speed lines"));
+  assert.equal(noMakerLine("glow"), "");
 });

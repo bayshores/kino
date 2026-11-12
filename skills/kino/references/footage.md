@@ -107,6 +107,8 @@ somewhere in your edit, read every 0.5 s. Its fix names the library search for t
 (`library {topic:"search", search:"<words>"}`): use kino's own tools to make your version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
 `quote` in words the person typed; "your call" is refused.
+The search maps look words to kino names: font, outline, duotone, split screen, text behind, 3d,
+code rain, zoom burst. A look kino cannot make (speed lines) answers `no kino name for ... yet`.
 
 ## Sources
 

@@ -1,6 +1,6 @@
 # kino edit operations
 
-The complete reference for the operations an agent sends with the `edit` tool. Agents read it one topic at a time with `library` (`{topic:"op", name}`, `{topic:"rules", name}` or `{topic:"search", search}`), so the tool list stays small. People can read the whole file. `edit` also accepts `op` for `type`, names and short codes for IDs, and fills in `sceneId` when it is clear.
+The complete reference for the operations an agent sends with the `edit` tool. Agents read it one topic at a time with `library` (`{topic:"op", name}`, `{topic:"rules", name}` or `{topic:"search", search}`), so the tool list stays small. A search of a look word ("font", "outline", "duotone", "split screen", "text behind", "3d", "code rain", "zoom burst") starts with the kino names that make it and the call that reads each; a look kino has no maker for ("speed lines") starts with `no kino name for "speed lines" yet: build it from shapes and draw-on, or say it is missing`. People can read the whole file. `edit` also accepts `op` for `type`, names and short codes for IDs, and fills in `sceneId` when it is clear.
 
 Each `## topic` below names the operations it covers on its `ops:` line. The text is the rule as the engine enforces it; `backend/agent-replies.test.mjs` checks that every operation type is covered and that no topic sends agents to controls of the removed manual editor.
 
