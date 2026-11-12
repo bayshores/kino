@@ -1245,6 +1245,27 @@ test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its 
   assert.doesNotMatch(takeText(candidate, result), /license|rights|end credits/i);
 });
 
+test("a shot's edge frames are left out of its import, and a short shot's end is not snapped onto a neighbor's cut", async () => {
+  const candidate = { ...found(1), code: "F2", seconds: 120 };
+  // Shot 44: 43.208-43.708 with 2 card frames at its end (body ends at 43.625); shot 45 has none.
+  const scan = { shots: [{ n: 44, start: 43.208, end: 43.708, edge: { head: 0, tail: 2, start: 43.208, end: 43.625 } }, { n: 45, start: 43.708, end: 44.5 }] };
+  const pieces = planTake(candidate, scan, { shots: [44, 45] });
+  assert.deepEqual(pieces.map(({ start, end, edges }) => [start, end, edges]), [[43.208, 43.625, { head: 0, tail: 2 }], [43.708, 44.5, undefined]]);
+  const encoded = [];
+  // The file is the stretch (no lead-in); every frame 0.29 s before a time scores as a cut, as a neighbor shot's cut would.
+  const tools = { probe: async () => ({ duration: 0 }),
+    sceneScores: async (_file, from, seconds) => [{ t: Math.round((from + seconds / 2 - 0.29) * 1000) / 1000, score: 0.9 }, { t: Math.round((from + seconds / 2 + 0.02) * 1000) / 1000, score: 0.5 }],
+    encode: async (file, out, { start, seconds }) => { encoded.push([Math.round(start * 1000) / 1000, Math.round(seconds * 1000) / 1000]); await writeFile(out, ""); return out; } };
+  const run = async (args) => { const out = args[args.indexOf("-o") + 1]; args.forEach((arg, index) => { if (arg === "--download-sections") writeFileSync(out.replace("%(section_start)s", args[index + 1].slice(1).split("-")[0]).replace("%(ext)s", "webm"), ""); }); return ""; };
+  const addMedia = async (_file, { extra }) => ({ id: `m${extra.footage.shot}.mp4`, src: `/api/media/m${extra.footage.shot}.mp4`, duration: 0.4, width: 1920, height: 1080, ...extra });
+  const result = await takeFootage(candidate, pieces, { addMedia, run, tools, runtime: { name: "node", path: process.execPath } });
+  // The stretch starts at 42.71, so 43.208 is 0.498 s into the file: shot 44 starts on the cut 0.02 s on, not the
+  // stronger one 0.29 s back (a third of the 0.417 s shot reaches 0.139 s), and ends at its body (43.625, not snapped).
+  assert.deepEqual(encoded[0], [0.518, 0.397]);
+  assert.equal(result.media[0].footage.edges.tail, 2);
+  assert.match(takeText(candidate, result), /F2\.44 0\.4s .* · left out 2 edge frames at its end \(whip, flash, black or card frames the scan measured\)/);
+});
+
 test("import refuses a bare F1 of a 23 min video, an unscanned video and a stretch over 60 s; yt: names the footage scan", async (t) => {
   const dataRoot = await mkdtemp(path.join(tmpdir(), "kino-test-footage-"));
   t.after(() => rm(dataRoot, { recursive: true, force: true }));

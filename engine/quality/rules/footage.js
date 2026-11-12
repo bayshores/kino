@@ -41,6 +41,7 @@ import { breakAfter, heardEdges, heardWords } from "./speech.js";
 import { peopleNear } from "./people.js";
 import { markHoldsSalient, sampleBoxes, SUBJECT_KEPT } from "../../footage/layout.js";
 import { cropPast, markSpan, markWays, MARK_SECONDS, MARK_SEEN, MARK_ZOOM_MOST } from "../../footage/burned.js";
+import { layerSpanCuts } from "../../spanCuts.js";
 
 // The most file pixels one output pixel may stretch over before the picture looks soft.
 export const UPSCALE_MAX = 1.3;
@@ -873,6 +874,43 @@ export function frozenFootage(model, ctx) {
     if (size > STILL_SIZE || size < 1 / STILL_SIZE || shift > STILL_PLACE) continue;
     const run = longRuns(model, (index) => watched(model, still, index)).find(([start, end]) => start <= near && near <= end);
     if (run) findings.push(frozenFinding(ctx, still, run[0], run[1], model, `a still in the place of ${ctx.name(clip)}, right where it ${still === to ? "ends" : "starts"}`, clip, still === from));
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------- source_cut
+
+/**
+ * source_cut (a fact, info): a video layer whose shown span of its file holds a cut of that file
+ * (the saved shots, ctx.mediaShots), or the edge frames of a shot (a whip, flash frame, black frame
+ * or one-frame card the shot finder marks, shot.edge): frames of another picture show. Any layer,
+ * on the board or not, at any speed or reversed (spanCuts.js maps the cut through the clip's time).
+ * One finding per layer: the cut's scene second, its file second, how many frames show past it,
+ * and the trim (mediaOffset, mediaStart, mediaDuration) that keeps the longer side.
+ */
+export function sourceCut(model, ctx) {
+  const scene = ctx.scene;
+  if (!scene || !ctx.mediaShots) return [];
+  const findings = [];
+  for (const layer of scene.layers ?? []) {
+    if (layer.type !== "video" || layer.visible === false || !layer.src) continue;
+    const cuts = layerSpanCuts(layer, ctx.mediaShots[layer.src], scene.duration);
+    if (!cuts.length) continue;
+    const item = model.items.find((entry) => entry.source?.layerId === layer.id && !entry.source?.componentPath);
+    const name = item ? ctx.name(item) : layer.name ?? layer.id;
+    const [cut] = [...cuts].sort((a, b) => a.leak - b.leak);
+    const frames = Math.max(1, Math.round(cut.leak * model.fps));
+    const what = cut.edge ? `${cut.edge} edge frame${cut.edge === 1 ? "" : "s"} of its shot (a whip, flash, black or card frame)` : "a cut of its file";
+    const trim = cut.fields ? Object.entries(cut.fields).map(([key, value]) => `${key}:${value}`).join(", ") : null;
+    findings.push({
+      rule: "source_cut", severity: "info", ...(item ? { itemId: item.id } : {}), at: sec(cut.at),
+      message: `${name} plays across ${what} at ${sec(cut.at)} s (file ${sec(cut.file)} s): ${frames} frame${frames === 1 ? "" : "s"} of the other picture show${cuts.length > 1 ? `; ${cuts.length - 1} more in its span` : ""}.`,
+      measured: `file ${sec(cut.file)} s lands at ${sec(cut.at)} s; ${sec(cut.early)} s before it and ${sec(cut.late)} s after it in the scene (${frames} frames at ${model.fps} fps on the short side)`,
+      required: "a shown span inside one shot of its file, unless the source cut is meant",
+      fix: trim
+        ? { kind: "layer", layerId: layer.id, properties: cut.fields, auto: false, why: `${trim} keeps the longer side of file ${sec(cut.file)} s` }
+        : { kind: "hint", text: `Move ${name}'s mediaOffset so file ${sec(cut.file)} s is not in its shown span (look {mode:"source", layer:${name}} shows the cut), or hide it from ${sec(cut.at)} s.` },
+    });
   }
   return findings;
 }

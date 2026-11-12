@@ -106,6 +106,15 @@ test("a slowed span lands its file cut later on the scene, and a reversed one fr
   assert.deepEqual([reversed.file, reversed.at, reversed.fields], [5, 0.5, undefined]);
 });
 
+test("a shot's edge frames count as a cut: a span into a 2-frame tail card is named and a board shot slides off it", () => {
+  // File 0–5 s is one shot whose last 2 frames (4.92–5) are a card: its body ends at 4.92.
+  const carded = [{ start: 0, end: 5, edge: { head: 0, tail: 2, start: 0, end: 4.92 } }, { start: 5, end: 10 }];
+  const [cut] = layerSpanCuts(video({ mediaOffset: 2, mediaDuration: 2.97, mediaSourceDuration: 10 }), carded, 6);
+  assert.deepEqual([cut.file, cut.edge, cut.trim, cut.fields], [4.92, 2, { out: 4.91 }, { mediaDuration: 2.91 }]);
+  assert.match(spanCutLine("clip", [cut]), /file 4\.92 s \(2 edge frames of a whip, flash, black or card past it\) lands at 2\.92 s/);
+  assert.equal(slideOffCut({ cue: 0, dur: 2, in: 2.95, sound: "none" }, carded, { fileDuration: 10 }).shot.in, 2.91);
+});
+
 test("a board shot that crosses a cut by 2 frames slides off it; 1.4 s at speed 0.33 is stated and left as given", () => {
   const shot = { cue: 4, dur: 2.5, in: 2.57, speed: 1, sound: "none" };
   // File 2.57–5.07 s: the cut at 5 s is 0.07 s from the end.

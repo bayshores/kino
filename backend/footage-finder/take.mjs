@@ -94,8 +94,15 @@ export function planTake(candidate, scan, { file, shots, from, to, used = 0 } = 
       throw new FootageError("not_found", `${missing.slice(0, 5).map((n) => (Number.isFinite(n) ? `${code}.${n}` : "a shot that is no number")).join(", ")} ${missing.length === 1 ? "is" : "are"} not in ${code}'s scan: its shots are numbered 1 to ${Math.max(0, ...byNumber.keys())}.`,
         call("look", { mode: "source", ref: code }));
     }
+    // A shot's edge frames (the scan's shot.edge: a whip, flash, black frame or card at its start or
+    // end) are left out by default: that end keeps to the body and is not snapped to the cut.
     pieces = [...new Set(numbers)].map((n) => byNumber.get(n)).sort((a, b) => a.start - b.start)
-      .map((shot) => ({ n: shot.n, start: shot.start, end: shot.end, exact: true }));
+      .map((shot) => {
+        const edge = shot.edge?.end > shot.edge?.start ? shot.edge : null;
+        const head = edge?.head > 0 ? edge.head : 0, tail = edge?.tail > 0 ? edge.tail : 0;
+        return { n: shot.n, start: head ? edge.start : shot.start, end: tail ? edge.end : shot.end, exact: true,
+          ...(head || tail ? { edges: { head, tail } } : {}) };
+      });
   } else {
     const read = (name, value) => {
       if (!given(value)) return null;
@@ -219,13 +226,16 @@ async function defaultTools() {
   return { probe: probeMedia, sceneScores, encode: encodeClip };
 }
 
-// The exact cut near `time` (file seconds): the frame with the highest scene score within
-// EXACT_SECONDS, when it scores as a cut; else `time` itself.
-async function exactCut(use, file, time, { signal } = {}) {
-  const from = Math.max(0, time - EXACT_SECONDS);
-  const frames = await use.sceneScores(file, from, time + EXACT_SECONDS - from, { signal }).catch(() => []);
-  const best = frames.filter((frame) => frame.t > from + 0.01).reduce((top, frame) => (!top || frame.score > top.score ? frame : top), null);
-  return best && best.score >= CUT_SCORE ? best.t : time;
+// The exact cut near `time` (file seconds): the frame nearest `time` that scores as a cut, within
+// `reach` (EXACT_SECONDS, or a third of the shot when that is less, so a short shot's end is not
+// snapped onto a neighbor shot's cut: a found clip cut in 0.25 to 0.5 s shots measured that);
+// else `time` itself.
+async function exactCut(use, file, time, { signal, reach = EXACT_SECONDS } = {}) {
+  const from = Math.max(0, time - reach);
+  const frames = await use.sceneScores(file, from, time + reach - from, { signal }).catch(() => []);
+  const cuts = frames.filter((frame) => frame.t > from + 0.01 && frame.t <= time + reach && frame.score >= CUT_SCORE);
+  const best = cuts.reduce((top, frame) => (!top || Math.abs(frame.t - time) < Math.abs(top.t - time) ? frame : top), null);
+  return best ? best.t : time;
 }
 
 function needRuntime(runtime) {
@@ -285,8 +295,10 @@ export async function takeFootage(candidate, pieces, { addMedia, projectId = nul
         if (signal?.aborted) throw Object.assign(new Error("Cancelled."), { name: "AbortError" });
         const label = piece.n === null ? `${candidate.code} ${stamp(piece.start)}-${stamp(piece.end)}` : `${candidate.code}.${piece.n}`;
         try {
-          const start = piece.exact ? await exactCut(use, stretch.file, local(piece.start), { signal }) : local(piece.start);
-          const end = piece.exact ? await exactCut(use, stretch.file, local(piece.end), { signal }) : local(piece.end);
+          // An end at a shot's edge frames keeps to the body (planTake); the other ends snap to the cut.
+          const reach = Math.min(EXACT_SECONDS, (piece.end - piece.start) / 3);
+          const start = piece.exact && !piece.edges?.head ? await exactCut(use, stretch.file, local(piece.start), { signal, reach }) : local(piece.start);
+          const end = piece.exact && !piece.edges?.tail ? await exactCut(use, stretch.file, local(piece.end), { signal, reach }) : local(piece.end);
           const seconds = end - start > 0.2 ? end - start : piece.end - piece.start;
           const out = path.join(folder, `clip-${media.length + failed.length}-${index}.mp4`);
           await use.encode(stretch.file, out, { start, seconds, signal });
@@ -294,6 +306,8 @@ export async function takeFootage(candidate, pieces, { addMedia, projectId = nul
             extra: { ...(projectId ? { projectId } : {}), credit, footage: { candidate: candidate.id, code: candidate.code, shot: piece.n, start: piece.start, end: piece.end,
               // Where the cut really starts in the video (an exact cut moves a little): what the clip says is read from here.
               cutAt: round2(piece.start + start - local(piece.start)),
+              // The shot's edge frames left out at its start and end (planTake), said in the import answer.
+              ...(piece.edges ? { edges: piece.edges } : {}),
               // Marks the scan found burned into the video (box: fractions of the picture): the check burned_in_mark reads them.
               ...(marks?.length ? { marks: marks.map(({ where, box }) => ({ where, box })) } : {}) } } }));
         } catch (error) {
@@ -353,7 +367,10 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
     // One line a clip: its layer-ready file (add_layer src) and what it says. A clip that says nothing
     // says why, so the agent never needs a second call to learn it (found-shared; a/result.md 2).
     const quiet = duration < SAYS_MIN_SECONDS ? `no line (under ${SAYS_MIN_SECONDS} s)` : item.hasAudio === false ? "no sound" : !heard?.missing && (captions?.lines || heard) ? "no voice heard" : "speech not read";
-    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned ? `${level}${captioned}` : aloud || `${level}${quiet}`}${noises ? ` · ${noises}` : ""}`);
+    const edges = item.footage?.edges;
+    const frames = (count, where) => (count ? `${count} edge frame${count === 1 ? "" : "s"} at its ${where}` : "");
+    const leftOut = edges ? ` · left out ${[frames(edges.head, "start"), frames(edges.tail, "end")].filter(Boolean).join(" and ")} (whip, flash, black or card frames the scan measured)` : "";
+    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned ? `${level}${captioned}` : aloud || `${level}${quiet}`}${noises ? ` · ${noises}` : ""}${leftOut}`);
   }
   if (failed.length) lines.push(`Not imported: ${failed.slice(0, 5).map((each) => `${each.label ?? each.n} (${each.why})`).join("; ")}.`);
   const [first] = media;

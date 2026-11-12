@@ -929,6 +929,12 @@ How to read it:
   subject boxes; `mark_subject` stores boxes (guide `skills/kino/references/framing.md`). Evidence:
   `backend/look-source.test.mjs`, `engine/sourceView.test.js`, `engine/sceneShots.test.js`,
   `tests/look-source-frames.test.mjs` (goldens in `tests/golden/look-source/`).
+- **source cuts and edge frames**: Partly verified. The shot finder marks a shot's whip, flash, black or card frames
+  (shot.edge); check names a layer whose span holds a file cut or edge frames (source_cut, info, with the trim); spans,
+  board slides and found-footage imports keep to the shot body. Evidence: `backend/shot-detection.test.mjs` (lavfi
+  clip with a 1-frame card and 2 black frames), `engine/sceneShots.test.js`, `engine/qualityRules.test.js`,
+  `backend/footage-finder.test.mjs`. Gaps: no frame-difference measure for a file with no scan; look source does not
+  mark edge frames; a freeze held from past a cut is not named.
 - **place on a face part**: Verified. `place {layers, on:"mouth", of}` centers layers on a mouth, the eyes, between
   the eyes, the face or above the head: exact on a part mark, an estimate from a head mark or found face, refused
   with the mark call when none. Evidence: `backend/agent-blocks.test.mjs`, `engine/footage.test.js`.
