@@ -27,8 +27,8 @@ or changing one color, plus the `add` blend mode.
   `parameters:{lut:"<src>"}`. `blendMode:"add"` on a layer is linear dodge.
 - Mixed sources: `match_color` with `layers` (or `layer`) and `to` (the reference layer) grades each
   to that shot (effects "Color match" and "Color match saturation"; again replaces them).
-- Dark footage: `look frame` at its darkest moment first, and lift it (`gamma`, `lift`) before
-  adding contrast. Add one grade at a time and look again: stacked grades can crush it to black.
+- Dark footage: `match_references` lifts each shot darker than your saved references into their range
+  (exposure only, `<layer>.match-ref`; compose does it unless `match:false`); by hand, lift `gamma` first.
 - A teal-orange grade, then a full hue turn starting on a cue:
 
 ```json

@@ -631,6 +631,10 @@ How to read it:
   `engine/moves.test.js`. Gap: a shot already graded to white stays white at the peak.
 - **Color recipes**: Verified. `library {topic:"rules", name:"color"}`. Evidence:
   `backend/agent-color.test.mjs`. Gap: no adjustment layer (grade a group).
+- **Exposure match to references** (`match_references`, compose default, check auto fix): Verified on
+  synthetic frames (`engine/qualityRules.test.js`, `backend/agent-core.test.mjs`) and the run 6 copy
+  (`.scratch/defaults/exposure-match-review`: shots dimmed 3 stops lifted 8 to 21 of 255, read back
+  from the render). Per shot, exposure and contrast only, never color; darkens only with `lower:true`.
 - **Shot color match** (`match_color`): Verified on synthetic frames and two tinted FFmpeg clips.
   Solves color-wheels and saturation to a reference (ArtCraft FilmCraft port; skin hue kept within
   8 degrees). Evidence: `engine/effects/colorMatch.test.js`. Gap: not yet run on real mixed footage.

@@ -6,8 +6,8 @@ const LUMA = [0.2126, 0.7152, 0.0722];
 const number = (value) => Number(value.toFixed(8));
 
 // sRGB to linear light and back (the standard sRGB curves).
-const toLinear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-const toSrgb = (value) => value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+export const toLinear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+export const toSrgb = (value) => value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
 
 /**
  * A highlight roll-off (soft shoulder) in linear light: values up to the knee pass unchanged,

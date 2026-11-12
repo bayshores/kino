@@ -475,6 +475,8 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
     const scene = document.scenes.find((entry) => entry.id === model.sceneId);
     return { fix: { op: "add_animation", layerId: refName(fix.layerId, codes), animation: { id: freeAnimationId(scene, `${fix.layerId}.fade-out`), ...fix.animation } }, auto: Boolean(fix.auto) };
   }
+  // The scene's exposure toward its saved references (reference_range brightness): match_references.
+  if (fix.kind === "match_references") return { fix: { op: "match_references", sceneId: refName(model.sceneId, codes), ...(fix.lower ? { lower: true } : {}) }, auto: Boolean(fix.auto) };
   if (fix.kind === "scene") return { fix: { op: "update_scene", sceneId: refName(model.sceneId, codes), properties: fix.properties }, auto: Boolean(fix.auto) };
   if (fix.kind === "project") return { fix: { op: "update_project", properties: fix.properties }, auto: Boolean(fix.auto) };
   return { fix: undefined, auto: false };

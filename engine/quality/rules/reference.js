@@ -188,7 +188,11 @@ export async function referenceRange(model, ctx) {
         measured: `median brightness ${levelsOf(median)} of 255; under ${levelsOf(DARK)} for ${Math.round(dark * 100)}% of the video${lower && run ? `, ${stretch}` : ""}`,
         required: `inside your ${light.n} saved references: median ${span(levelsOf(light.low), levelsOf(light.high), String)}${shade ? `, under ${levelsOf(DARK)} for ${span(Math.round(shade.low * 100), Math.round(shade.high * 100), (value) => `${value}%`)}` : ""}`,
         message: `${scene} is ${word} its saved references (${names}): median ${levelsOf(median)} of 255 against ${span(levelsOf(light.low), levelsOf(light.high), String)}${lower && run ? `; ${stretch} stays under ${levelsOf(DARK)}` : ""}.`,
-        fix: { kind: "hint", text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
+        // match_references grades each shot toward the references' range (exposure only); check
+        // {fix:"auto"} applies it when the edit is darker. Brighter than the references is a ready
+        // call, not an auto fix: the owner called the edits dark, and match_references itself only
+        // darkens with lower:true (engine/quality/exposureMatch.js aimFor). The hand fix stays in the text.
+        fix: { kind: "match_references", auto: !(higher && !lower), ...(higher && !lower ? { lower: true } : {}), text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"match_references"${higher && !lower ? ", lower:true" : ""}}]} (per shot, exposure only), or by hand edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
       });
     }
   }
