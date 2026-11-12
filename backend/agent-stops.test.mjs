@@ -136,6 +136,54 @@ test("a board saved on a guessed 9:16 scene over the person's own 16:9 clip: kin
   assert.equal(saved.data.shape, undefined);
 });
 
+test("when kino cannot reshape before the board, the board's answer says so instead of skipping it quietly", async (t) => {
+  const fileId = "41111111-2222-3333-4444-555555555555.mp4";
+  let store = null;
+  const made = await serviceFor(t, {
+    document: createDocument({ id: "stuck", name: "stuck", scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 4, layers: [] })] }),
+    media: [{ id: fileId, name: "theirs", mime: "video/mp4", width: 1920, height: 1080, duration: 8, projectId: "stuck" }],
+    // A save that changes the frame fails, as a refused build order would.
+    saveDocument: (projectId, before, saved, expected, { request, resultMetadata } = {}) => {
+      if (saved.scenes[0].width !== before.scenes[0].width) throw new Error("the scene could not be saved");
+      return store.updateProject(projectId, saved, expected, { request, resultMetadata });
+    },
+  });
+  store = made.store;
+  const shot = { cue: 0, dur: 4, pacing: "free", media: `/api/media/${fileId}`, in: 0, crop: [38, 12, 24, 76], subject: "none", follow: "steady", text: "none", sound: "none", why: "their clip" };
+  const saved = await made.call("edit", { ops: [{ op: "board", music: "none", shots: [shot] }] });
+  assert.equal(saved.isError, undefined, saved.text);
+  assert.match(saved.data.shape, /^shape: kino could not make the scene 16:9 like your footage before the storyboard \(.*\); the board was checked against the guessed 9:16\./, saved.data.shape);
+});
+
+test("'looks great, go' on a board of a guessed 9:16 scene whose 16:9 clip came after it: kino makes the scene 16:9, re-frames the crops, the approval stands and the next board edit saves", async (t) => {
+  const fileId = "31111111-2222-3333-4444-555555555555.mp4";
+  const shot = (id, cue, crop) => ({ id, cue, dur: 6, pacing: "free", media: `/api/media/${fileId}`, in: cue, crop, subject: "none", follow: "steady", text: "none", sound: "none", why: "the clip", move: { kind: "transition", name: "zoom-through", ref: "phone-film@7.27" } });
+  const board = { rev: 1, music: "none", shots: [shot("S1", 0, [20, 12, 24, 76]), shot("S2", 6, [60, 0, 31.6, 100])] };
+  let clock = 1_000;
+  // The board stop asks (the shared helper skips it).
+  const { call, agentState, store } = await serviceFor(t, { steadyNow: () => clock, approvals: { request: async () => ({ status: "allowed" }), limits: () => ({}) },
+    document: createDocument({ id: "late", name: "late", board, scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 12, layers: [] })] }),
+    media: [{ id: fileId, name: "late clip", mime: "video/mp4", width: 1920, height: 1080, duration: 16, projectId: "late" }],
+  });
+  await agentState.update("late", (draft) => { draft.brief = { rev: 1, fields: withAsk({ plays_on: { text: "a phone", by: "guessed" } }), log: [], noPlayback: { reason: "just start", rev: 1 } }; });
+  const asked = await call("notes", { action: "checkpoint", id: "board" });
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  clock += 60_000;
+  const answered = await call("notes", { action: "answer", id: asked.data.id, rev: asked.data.rev, words: "looks great, go", read_as: "approve" });
+  assert.match(answered.text, /board: 2 shots \(1, 2\) re-framed to 16:9.*the approval stands/, answered.text);
+  const { document, revision } = await store.getProject("late");
+  assert.deepEqual(document.board.shots.map((entry) => entry.crop), [[0, 0, 100, 100], [0, 0, 100, 100]]);
+  const approval = (await agentState.read("late")).boards.at(-1);
+  assert.equal(approval.lapsed, null);
+  assert.deepEqual(approval.copy.shots.map((entry) => entry.crop), [[0, 0, 100, 100], [0, 0, 100, 100]]);
+  // The fix the full run needed: the next board edit is checked against the frame the person approved.
+  const why = "the clip, whole";
+  const next = await call("edit", { rev: revision, ops: [{ op: "board", music: "none", shots: document.board.shots.map((entry) => ({ ...entry, why })) }] });
+  assert.equal(next.isError, undefined, next.text);
+  assert.equal(next.data.shape, undefined, "the shape was settled at the answer");
+  assert.equal((await agentState.read("late")).boards.at(-1).lapsed, null, "a changed reason is only logged");
+});
+
 test("a board ask names a guessed shape against the footage's; an answer that names none saves the footage's shape as plays_on", () => {
   const state = ready(4);
   state.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };

@@ -5594,10 +5594,14 @@ export function createAgentService(deps) {
    * the person never approves a storyboard kino then reshapes, and the board's crops are checked
    * against the frame the video plays in. This also reaches clips the person imported themselves
    * (shapeAtImport sees only found clips). Returns { from, to, line } (the revisions before and
-   * after, and the line the edit's answer carries) or null when nothing changed.
+   * after, and the line the edit's answer carries), { line } alone when the reshape was refused,
+   * or null when nothing needed to change.
    */
   async function shapeBeforeBoard(input) {
     if (input?.dry_run === true) return null;
+    // Most edits hold no board op: they skip the project read (a retry's ops are known only by project).
+    const sent = Array.isArray(input?.ops) ? input.ops : [input?.ops];
+    if (input?.retry === undefined && !sent.some((op) => (op?.op ?? op?.type) === "board")) return null;
     const record = await projectFor(input);
     const projectId = record.document.id;
     let ops;
@@ -5609,7 +5613,13 @@ export function createAgentService(deps) {
     const scene = videoScene(record.document);
     const footage = scene ? majorityShape(await footageSizesOf(record.document)) : null;
     if (!footage || footage.shape === shapeOf(scene.width, scene.height)) return null;
-    if (!(await followShape(projectId, null))) return null;
+    let followed;
+    try { followed = await followShape(projectId, null); } catch (error) {
+      // Said, not skipped: the board is then checked against the guess, so the agent fixes the shape before the person sees it.
+      const reason = String(error?.message ?? error).split("\n")[0].slice(0, 160);
+      return { line: `shape: kino could not make the scene ${aspectLabel(footage.example.width, footage.example.height)} like your footage before the storyboard (${reason}); the board was checked against the guessed ${aspectLabel(scene.width, scene.height)}. Fix the shape first (check: shape_guess), or save the person's words naming a shape as plays_on.` };
+    }
+    if (!followed) return null;
     const after = await store.getProject(projectId);
     const framed = videoScene(after.document);
     // The board stop then says the shape is the footage's and asks once (brief.mjs shapeAsk).
@@ -5617,7 +5627,7 @@ export function createAgentService(deps) {
       await agentState.update(projectId, (draft) => { draft.shapeFollowed = { from: [scene.width, scene.height], to: [framed.width, framed.height], at: new Date(now()).toISOString() }; });
     const name = refName(scene.id, await syncCodes(projectId, after.document));
     return { from: record.revision, to: after.revision,
-      line: `shape: ${name} is now ${aspectLabel(framed.width, framed.height)} (${framed.width}x${framed.height}) like your footage (${footage.count} of ${footage.of}), before the storyboard is saved: its crops are checked against this frame. The person can name another shape or a place at the storyboard stop (kino then gives the scene that shape and re-frames the board); undo: history.` };
+      line: `shape: ${name} is now ${aspectLabel(framed.width, framed.height)} (${framed.width}x${framed.height}) like your footage (${footage.count} of ${footage.of}), before the storyboard is saved: its crops are checked against this frame. The person can name another shape or a place at the storyboard stop (kino then gives the scene that shape and re-frames the board); only their words naming ${aspectLabel(scene.width, scene.height)} as plays_on keep it (an undo alone is redone at the next board edit).` };
   }
 
   // The edit verb: an edit with a board op first settles the frame's shape (shapeBeforeBoard), and
@@ -5626,7 +5636,7 @@ export function createAgentService(deps) {
     const shaped = await shapeBeforeBoard(input).catch(() => null);
     if (!shaped) return edit(input);
     // The rev the agent read was the latest: kino's own shape change is not a conflict.
-    const sent = input.rev === shaped.from ? { ...input, rev: shaped.to } : input;
+    const sent = shaped.to !== undefined && input.rev === shaped.from ? { ...input, rev: shaped.to } : input;
     try {
       const reply = await edit(sent);
       return reply?.data ? { ...reply, data: { ...reply.data, shape: shaped.line } } : reply;
