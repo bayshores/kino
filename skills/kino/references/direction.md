@@ -22,7 +22,7 @@ on. The stops still wait for the person: only their answer or settings let one p
      it look and sound like?" (their words, or a video they like)
    - `never`: "What would make you wince?" A ban names an execution ("an invented dashboard over
      the real UI"), not a category ("maps"). Only their words ban (quote, scope); guesses: "none said".
-   - `plays_on`: their words for the shape or place; none named: the footage's shape (a stop asks)
+   - `plays_on`: their words for the shape or place; none named: kino sets the footage's shape (a stop asks)
      (the brief's `shape:` line shows both).
    - `made_from`: footage, music, files.
    - `key_moment` (optional): "What's the one moment that should make someone stop scrolling?"

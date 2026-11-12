@@ -94,10 +94,11 @@ export function sizeOfShape(own, shape) {
 /**
  * The ops that give the scene `size` and re-frame each of its footage shots (frame_shot keeps the
  * subject in the new frame): [update_scene, frame_shot] or [update_scene] with no video layer.
- * `sceneId` names the scene when the project has several.
+ * `sceneId` names the scene when the project has several; `refOf` names a layer (its name, or the
+ * service's unique code, since two clips may share a name).
  */
-export function followOps(scene, size, { sceneId } = {}) {
-  const layers = (scene.layers ?? []).filter((layer) => layer.type === "video" && layer.enabled !== false).map((layer) => layer.name || layer.id);
+export function followOps(scene, size, { sceneId, refOf = (layer) => layer.name || layer.id } = {}) {
+  const layers = (scene.layers ?? []).filter((layer) => layer.type === "video" && layer.enabled !== false).map(refOf);
   return [{ op: "update_scene", ...(sceneId ? { sceneId } : {}), properties: { width: size.width, height: size.height } },
     ...(layers.length ? [{ op: "frame_shot", layers }] : [])];
 }

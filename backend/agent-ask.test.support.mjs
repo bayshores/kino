@@ -42,7 +42,7 @@ export async function serviceFor(t, { document, state = null, media = [], ...dep
     loadFonts: async () => fonts, listMedia: async () => media.map((record) => ({ kind: "video", ...record })), approvals: SKIP_BOARD_APPROVALS, operationContext: async () => ({}),
     saveDocument: (projectId, before, saved, expectedRevision, { request, resultMetadata } = {}) => store.updateProject(projectId, saved, expectedRevision, { request, resultMetadata }), ...deps });
   const call = (verb, input = {}) => service.call(verb, { project: document.id, ...input }, { client: "claude-code" });
-  return { call, service, agentState };
+  return { call, service, agentState, store };
 }
 
 /** A brief's `fields` with the ask stored as the service stores it: [{text, at}]. */

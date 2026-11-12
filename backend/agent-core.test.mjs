@@ -280,11 +280,14 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   assert.throws(() => send({ code: "default_font", target: "shot-1", reason: "as in yt:AAAAAAAAAAA @4.4" }), /none of your saved references has one\. Label what you see first: library/);
   delete resolver.seenRefs;
   // A name that is a layer and a scene: a scene-wide finding takes the scene; any other code must say which.
-  const twin = sceneDocument([rectangle("s1"), rectangle("shot-2")]);
+  const twin = sceneDocument([rectangle("s1"), rectangle("shot-2"), rectangle("mains")]);
   const twinResolver = createResolver(twin, assignCodes(emptyCodes(), twin));
   const twinSend = (op) => translateOperations([{ op: "waive_check", reason: "meant", ...op }], twinResolver, twin);
   assert.equal(twinSend({ code: "held_static", target: "s1", quote: "keep the long still hold" })[0].target, "main");
   assert.throws(() => twinSend({ code: "overlap", target: "s1" }), /"s1" names both a layer and a scene/);
+  // A layer name one letter off the scene's ("mains", scene "main") is no twin: the layer, no fix listed.
+  assert.equal(twinSend({ code: "overlap", target: "mains" })[0].target, "mains");
+  assert.deepEqual(twinResolver.fixes, []);
   // crop_no_subject: the person's quote, on layers only.
   for (const code of ["crop_no_subject"]) {
     assert.throws(() => send({ code, target: "shot-1" }), /Only the person can keep it/);

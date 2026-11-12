@@ -15,7 +15,7 @@ import { cleanTreatments } from "./agent/treatments.mjs";
 import { videoFacts } from "./agent/brief.mjs";
 import { ASK_SHOTS, ASK_TOKENS, FRESH_TOKENS, SHOT_TOKENS } from "./agent/board-text.mjs";
 import { serviceFor, withAsk } from "./agent-ask.test.support.mjs";
-import { createDocument, createScene } from "../engine/model.js";
+import { createDocument, createLayer, createScene } from "../engine/model.js";
 
 const VIDEO = { seconds: 24, layers: 1, footage: false, width: 1080, height: 1920 };
 // Since B4a the storyboard stop asks about the board saved in the document: one title card a
@@ -87,6 +87,27 @@ test("the service's stop ask carries the document's waivers: the person's rough 
   const asked = await call("notes", { action: "checkpoint", id: "rough" });
   assert.equal(asked.data.status, "waiting_for_you", asked.text);
   assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? \([a-z_]+ \d+(, [a-z_]+ \d+){0,2}\) · 1 waived \(default_font 1\)\.$/m, asked.data.ask);
+});
+
+test("the service follows the footage itself: 'looks good' on a built 9:16 scene of 16:9 clips makes it 16:9 and re-frames both shots, even when they share a name", async (t) => {
+  const fileId = "11111111-2222-3333-4444-555555555555.mp4";
+  const clip = (id, start) => createLayer("video", { id, name: "clip", src: `/api/media/${fileId}`, x: 0, y: 0, width: 3413, height: 1920, start, duration: 8 });
+  let clock = 1_000;
+  const { call, agentState, store } = await serviceFor(t, { steadyNow: () => clock,
+    document: createDocument({ id: "follow", name: "follow", scenes: [createScene({ id: "s1", width: 1080, height: 1920, duration: 16, layers: [clip("v1", 0), clip("v2", 8)] })] }),
+    media: [{ id: fileId, name: "keeper", mime: "video/mp4", width: 1920, height: 1080, duration: 16 }],
+  });
+  await agentState.update("follow", (draft) => { draft.brief = { rev: 1, fields: withAsk({ plays_on: { text: "a phone", by: "guessed" } }), log: [], noPlayback: { reason: "just start", rev: 1 } }; });
+  await call("check");
+  const asked = await call("notes", { action: "checkpoint", id: "rough" });
+  assert.equal(asked.data.status, "waiting_for_you", asked.text);
+  clock += 60_000;
+  const answered = await call("notes", { action: "answer", id: asked.data.id, rev: asked.data.rev, words: "looks good", read_as: "approve" });
+  assert.match(answered.text, /shape: no shape named: kino made s1 16:9 \(1920x1080\) like the footage and re-framed 2 shots \(frame_shot\)/, answered.text);
+  assert.equal(answered.shapeFollow, undefined, "the follow intent stays inside kino");
+  const scene = (await store.getProject("follow")).document.scenes[0];
+  assert.deepEqual([scene.width, scene.height], [1920, 1080]);
+  assert.doesNotMatch((await call("check")).text, /shape_guess/);
 });
 
 test("a board ask names a guessed shape against the footage's; an answer that names none saves the footage's shape as plays_on", () => {

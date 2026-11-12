@@ -5540,7 +5540,9 @@ export function createAgentService(deps) {
     const size = !named || named === footage?.shape ? sizeLikeFootage(scene, footage.example)
       : before && shapeOf(before[0], before[1]) === named ? { width: before[0], height: before[1] } : sizeOfShape(scene, named);
     const codes = await syncCodes(projectId, record.document);
-    const ops = followOps(scene, size, record.document.scenes.length > 1 ? { sceneId: refName(scene.id, codes) } : {});
+    // Layers by id or code: two clips may share a name, and frame_shot must reach each one.
+    const refOf = (layer) => refName(layer.id, codes);
+    const ops = followOps(scene, size, record.document.scenes.length > 1 ? { sceneId: refName(scene.id, codes), refOf } : { refOf });
     const receipt = await edit({ project: projectId, ops });
     const name = refName(scene.id, codes);
     const shots = ops[1]?.layers.length ?? 0;
@@ -5556,7 +5558,8 @@ export function createAgentService(deps) {
   async function shapeAtImport(projectId) {
     const record = await store.getProject(projectId);
     const scene = videoScene(record.document);
-    if (!scene || scene.layers.some((layer) => layer.type === "video")) return "";
+    // Only before the build: text or graphics laid out for the old frame are not moved under the agent.
+    if (!scene || scene.layers.some((layer) => layer.type === "video") || !notBuilt(record.document)) return "";
     const state = await agentState.read(projectId);
     if (state.shapeFollowed) return "";
     const plays = state.brief?.fields?.plays_on;

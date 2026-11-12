@@ -678,7 +678,7 @@ function typeMomentProblem(operation, seenRefs) {
   const label = 'library {topic:"inspire", name:"seen yt:<id> @<seconds> type: <what the type is>"}';
   const named = [...String(operation.reason ?? "").matchAll(/\byt:([\w-]{6,})\s*@\s*(\d+(?:\.\d+)?)/gi)].map((match) => ({ id: refId(`yt:${match[1]}`), at: Number(match[2]) }));
   if (named.some((pair) => typed.some((ref) => ref.id === pair.id && ref.at.some((at) => Math.abs(at - pair.at) <= TYPE_MOMENT_GAP)))) return;
-  if (!anyTyped) throw new Error(`${code} names a moment you labeled type ("as in yt:<id> @<seconds>"); none of your saved references has one. Label what you see first: ${label}.`);
+  if (!anyTyped) throw new Error(`${code} names a moment you labeled type ("as in yt:<id> @<seconds>"); none of your saved references has one. Label what you see first: ${label}, or take the finding's fix.`);
   if (!named.length) throw new Error(`${code} names a moment you labeled type (${example}) in its reason.`);
   const [first] = named;
   const ref = typed.find((entry) => entry.id === first.id);
@@ -772,7 +772,7 @@ function resolveReferences(operation, type, resolver, document) {
   // shape_guess: only the person naming a shape keeps one (brief plays_on), so no waiver ever does,
   // whatever its quote or target. Without their words kino follows the footage.
   if (type === "waive_check" && operation.code === "shape_guess")
-    throw new Error(`shape_guess is kept only by the person naming a shape: notes {action:"brief", fields:{plays_on:{text:"<the shape>", by:"you", quote:"<their words naming it>"}}}. Else kino follows the footage.`);
+    throw new Error(`shape_guess is kept only by the person naming a shape: notes {action:"brief", fields:{plays_on:{text:"<the shape>", by:"you", quote:"<their words naming it>"}}}. Else take its fix (check names the update_scene + frame_shot call).`);
   // A reference_range waiver keeps only the rows its reason names (brightness, dark, contrast, text, voice).
   if (type === "waive_check" && operation.code === "reference_range" && !rangeRowsOf(operation.reason).length)
     throw new Error(`waive_check reference_range keeps only the rows its reason names: say which (${RANGE_ROW_WORDS}) and why; the others stay open.`);
@@ -876,8 +876,13 @@ function resolveReferences(operation, type, resolver, document) {
       // A name that is both a layer and a scene (a shot layer named "s1" in scene s1): a scene-wide
       // finding is waived on its scene; any other waiver must say which, so it is never saved on
       // the wrong one and left matching nothing.
+      // Only an exact scene match counts: a near-miss guess ("rain" for scene "main") is no twin.
       let sceneToo = null;
-      if (type === "waive_check" && typeof ref === "string") { try { sceneToo = resolve(ref, "scene"); } catch { sceneToo = null; } }
+      if (type === "waive_check" && typeof ref === "string") {
+        const fixed = resolver.fixes.length;
+        try { sceneToo = resolve(ref, "scene"); } catch { sceneToo = null; }
+        if (resolver.fixes.length > fixed) { resolver.fixes.length = fixed; sceneToo = null; }
+      }
       if (sceneToo && (sceneOnly || SCENE_WIDE_WAIVERS.has(operation.code) || WHOLE_VIDEO_GATES.includes(operation.code))) return [sceneToo];
       let layerId;
       try { layerId = resolve(ref, "layer"); } catch (error) {
