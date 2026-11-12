@@ -8,7 +8,7 @@ import { createLayer, createScene } from "../engine/model.js";
 import { EFFECTS, effectDefaults } from "../engine/effects/catalog.js";
 import { cubeText } from "../engine/effects/colorMath.js";
 import { EFFECT_PRESET_DEFINITIONS } from "../engine/effects/presetCatalog.js";
-import { exportScene, lumaLevels, normalizesLevels } from "./export.mjs";
+import { exportScene, layerEdges, lumaLevels, normalizesLevels } from "./export.mjs";
 
 test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for grades that ask", () => {
   // Every 4th pixel is sampled; half of those are transparent and skipped, leaving the 50 lumas
@@ -24,6 +24,20 @@ test("normalize levels: the 2nd and 98th luma percentile of opaque pixels, for g
   assert.equal(normalizesLevels({ kind: "effect", effect: "tritone", to: { normalize: false } }), false);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "section-grade" } }), true);
   assert.equal(normalizesLevels({ kind: "effect", effect: "color-look", to: { look: "ember" } }), false);
+});
+
+test("edge-lines auto: the layer's own edge percentile and its black bars are measured; a numbered threshold is not", () => {
+  // 40 x 40: black bars 6 rows tall top and bottom, a faint vertical step (100 to 110 gray) at x 20.
+  const width = 40, height = 40, data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    const gray = y < 6 || y >= 34 ? 0 : x < 20 ? 100 : 110;
+    data.set([gray, gray, gray, 255], (y * width + x) * 4);
+  }
+  const [threshold, top, bottom, left, right] = layerEdges([{ width, height, data }], 0);
+  assert.deepEqual([top, bottom, left, right], [6 / height, 6 / height, 0, 0], "the bars, as shares of the picture");
+  assert.ok(threshold > 0 && threshold <= 10 / 255 + 1e-9, `the threshold sits at or under the faint step: ${threshold}`);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "edge-lines", to: { threshold: "auto" } }), true);
+  assert.equal(normalizesLevels({ kind: "effect", effect: "edge-lines", to: { threshold: 0.05 } }), false, "saved effects are not measured");
 });
 
 const OUTPUT = { format: "lottie", fps: 2, duration: 1 };

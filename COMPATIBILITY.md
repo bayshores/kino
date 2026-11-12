@@ -691,6 +691,10 @@ How to read it:
   `backend/cutout-matte.test.mjs`, `backend/agent-cutout.test.mjs`. Gap: largest shape only (no holes).
 - **Edge lines adapt**: Test-verified. A new `edge-lines` lifts the dark end and lowers its threshold to 60%, so a
   near-black step draws; effects saved before have no `adapt` and draw as they did. Evidence: `engine/effects/light.test.js`. Gap: the 0.4 power is a guess; 60% was compared on one dark clip.
+- **Edge lines auto**: Test-verified. A new `edge-lines` has width and threshold "auto": a measured threshold draws a faint
+  step, black bars draw no line, `background:"transparent"` is accepted. Evidence: `engine/effects/light.test.js`, `backend/effects-export.test.mjs`. Gap: the live preview uses 0.05.
+- **Shadow halftone**: Test-verified. `dot-grid {keepPicture:true}` dots only the shadows (or highlights) and keeps the
+  picture; "halftone" finds it. Evidence: `engine/effects/defaultsMix.test.js`, `backend/agent-inspire.test.mjs`.
 - **Move resent replaces**: Test-verified. The same move on the same layers at the same time sent again replaces the first
   (receipt says "replaced"), another time adds `-2` with the call that moves the first instead; the receipt names the layers a move made. Evidence: `backend/agent-moves.test.mjs`.
 - **Settings where 1 is unchanged**: Test-verified. `"+0.5 stop"` or `"-0.7"` as text is read for exposure and saturation, the range

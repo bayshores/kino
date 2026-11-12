@@ -19,6 +19,7 @@ import { BLOCK_OPERATION_TYPES, blockCreatedIds, blockReferencedIds, isBlockOper
 import { durationFromToken, easingFromToken } from "../../engine/blocks/tokens.js";
 import { MOVES } from "../../engine/blocks/moves/index.js";
 import { createLayer } from "../../engine/model.js";
+import { EFFECTS } from "../../engine/effects/catalog.js";
 import { copyName, MAX_COPIES } from "../../engine/duplicate.js";
 import { BACKDROP_STYLE_KEYS } from "../../engine/backdropStyles.js";
 import { REACH_OPERATIONS } from "./reach-operations.mjs";
@@ -472,13 +473,20 @@ function checkStepsCount(operation, type, document) {
     for (const id of operation.animationIds) check(operation.properties, savedAnimation(typeof id === "string" ? id : id?.animationId));
 }
 
+// "field:option" for every effect parameter that is a list of choices: kept as written.
+const EFFECT_CHOICES = new Set(EFFECTS.flatMap((effect) => Object.entries(effect.parameters)
+  .filter(([, field]) => field.type === "enum").flatMap(([name, field]) => field.options.map(([option]) => `${name}:${option}`))));
+
 // Fixes color and easing spellings anywhere in an operation (properties, from/to, keyframes).
-function normalizeValues(value, fixes, depth = 0) {
+function normalizeValues(value, fixes, depth = 0, parentKey = null) {
   if (!value || typeof value !== "object" || depth > 8) return value;
   if (Array.isArray(value)) return value.map((entry) => normalizeValues(entry, fixes, depth + 1));
   const result = {};
   for (const [key, entry] of Object.entries(value)) {
     if (key === "easing" && typeof entry === "string" && STEPS_TEXT.test(entry)) {
+      result[key] = entry;
+    } else if (parentKey === "parameters" && EFFECT_CHOICES.has(`${key}:${entry}`)) {
+      // An effect's own choice that reads like a color word (edge-lines background "transparent").
       result[key] = entry;
     } else if (typeof entry === "string" && COLOR_KEY.test(key) && /gradient\(/i.test(entry)) {
       // CSS "linear-gradient(90deg, #f00, #00f)" → kino's gradient paint.
@@ -508,7 +516,7 @@ function normalizeValues(value, fixes, depth = 0) {
       const easing = easingFromText(entry);
       if (easing) fixes.push(`easing "${entry}" → ${easing}`);
       result[key] = easing ?? entry;
-    } else result[key] = normalizeValues(entry, fixes, depth + 1);
+    } else result[key] = normalizeValues(entry, fixes, depth + 1, key);
   }
   stepsEasing(value, result);
   return result;

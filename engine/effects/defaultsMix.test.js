@@ -63,8 +63,19 @@ test("the fixed defaults: dot grid in two tones, warps that keep the picture, lu
   for (let offset = 0; offset < drawn.length; offset += 4) if (drawn[offset + 3] > 250) colors.add(drawn.slice(offset, offset + 3).join());
   assert.ok(colors.size > 2, "the default dots follow the picture's tones");
 
-  // The new defaults change the picture far less than the old ones did (they shredded it).
+  // keepPicture: dots only in the shadows, in the shadow's own hue darkened, the picture kept.
   const original = source();
+  const pixelsIn = (pixels, x0, x1, rows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) => rows.flatMap((y) => Array.from({ length: x1 - x0 }, (_, i) => at(pixels, x0 + i, y)));
+  const kept = draw("dot-grid", { ...dots, keepPicture: true, dotPitch: 6 }).pixels;
+  const darkBar = pixelsIn(kept, 12, 18);
+  assert.ok(darkBar.some(([r]) => r < 30) && darkBar.some(([r]) => r > 55), "the dark bar (64,60,56) gets dots and gaps");
+  assert.deepEqual(pixelsIn(kept, 36, 42), pixelsIn(original, 36, 42), "a light bar keeps its picture");
+  const lights = draw("dot-grid", { ...dots, keepPicture: true, dotPitch: 6, where: "highlights", dotColor: "#000000" }).pixels;
+  assert.ok(pixelsIn(lights, 36, 42).some(([r]) => r < 20), "where highlights puts the dots on the light bar");
+  assert.deepEqual(pixelsIn(lights, 12, 18), pixelsIn(original, 12, 18), "and keeps the dark one");
+  assert.equal("keepPicture" in dots, false, "dot-grids saved before it draw as before");
+
+  // The new defaults change the picture far less than the old ones did (they shredded it).
   for (const [key, old] of [["fluid-warp", { amount: 25, octaves: 4 }], ["ripple", { strength: 0.18, frequency: 8, sharpness: 6 }]]) {
     const now = meanDifference(draw(key, effectDefaults(key)).pixels, original);
     const before = meanDifference(draw(key, { ...effectDefaults(key), ...old }).pixels, original);

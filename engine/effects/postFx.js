@@ -231,6 +231,7 @@ export function renderDithering(frame) {
  * highlight. The alpha mask avoids turning transparent source pixels opaque.
  */
 export function renderDotGrid(frame) {
+  if (boolean(frame, "keepPicture", false)) return renderShadowHalftone(frame);
   const repetition = number(frame, "gridRepetition", 40, 1, 512, { integer: true });
   const dotScale = number(frame, "dotScale", 4, 0, 8);
   const contrast = number(frame, "contrast", 1.4, 0, 4);
@@ -259,6 +260,67 @@ export function renderDotGrid(frame) {
     ...binaryMaskPrimitives("postFxDotLuma", "postFxDotThreshold", { invert }),
     ...colorRamp(frame, { shadow, highlight, input: "SourceGraphic", result: "postFxDotColor" }),
     '<feComposite in="postFxDotColor" in2="postFxLightMask" operator="in"/>',
+  ];
+  return filterEffect(frame, primitives, { padding: 0, contain: true });
+}
+
+// Halftone over the picture (dot-grid keepPicture): fine round dots only where the picture is
+// darker than `threshold` (where "highlights": lighter), the picture kept everywhere else. The
+// defaults are measured on the recreate test's contest-a frame 848 (960 x 540), which has dots
+// only in the dark magenta shadows of a light picture:
+// - pitch: 5.7 px between dot centers at 540 high (FFT peak of three crops of the dotted shirt),
+//   so 1.06% of the layer's height when dotPitch is 0 (auto);
+// - angle: the dot rows ran at 30 to 39 degrees there; 45 is the usual print screen angle (a guess
+//   between the two);
+// - threshold 0.42: the dotted shirt reads luma 0.31 (0.35 between dots), the undotted pink 0.51
+//   and the white 0.78; dots grow from nothing at the threshold to dotScale's full size a quarter
+//   of the threshold darker (the ramp is a guess fitted to the shirt's dot size);
+// - color: dots are the picture multiplied by itself (204,14,135 measured on dots over a 228,38,159
+//   shadow; a multiply gives 204,6,99), so they take each shadow's own hue. dotColor sets one color.
+export const DOT_GRID_WHERE = Object.freeze(["shadows", "highlights"]);
+const HALFTONE_PITCH_SHARE = 5.7 / 540;
+
+function renderShadowHalftone(frame) {
+  const { width, height } = frame.bounds;
+  const given = number(frame, "dotPitch", 0, 0, 512);
+  const pitch = Math.max(2, given > 0 ? given : height * HALFTONE_PITCH_SHARE);
+  const angle = number(frame, "angle", 45, -360, 360) * Math.PI / 180;
+  const dotScale = number(frame, "dotScale", 7, 0, 8);
+  const threshold = number(frame, "threshold", 0.42, 0, 1);
+  const highlights = frame?.parameters?.where === "highlights";
+  const maxRadius = pitch * dotScale / 16;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  const radiusUri = luminanceMap(frame,
+    JSON.stringify(["postfx-halftone-v1", fmt(pitch), fmt(angle), dotScale, width, height]),
+    (x, y, mapWidth, mapHeight) => {
+      const localX = (x + 0.5) * width / mapWidth, localY = (y + 0.5) * height / mapHeight;
+      const u = localX * cos + localY * sin, v = -localX * sin + localY * cos;
+      const du = u - (Math.floor(u / pitch) + 0.5) * pitch, dv = v - (Math.floor(v / pitch) + 0.5) * pitch;
+      // At least 0.03: a tone of 0 (ties count as a dot) draws no pixel at the cell centers.
+      return maxRadius > 0 ? clamp(Math.hypot(du, dv) / maxRadius, 0.03, 1) : 1;
+    });
+  // Tone: 0 (no dot) at the threshold, up to 0.7 of dotScale's radius: the reference's dots are
+  // about half the pitch across in its darkest shadow (looked at 4x; a first proof at 0.98 merged
+  // a dark blob into one solid patch at 540 high).
+  const span = Math.max(0.02, (highlights ? 1 - threshold : threshold) * 0.25);
+  const tone = Array.from({ length: 129 }, (_, index) => {
+    const luma = index / 128;
+    return Math.min(0.7, clamp((highlights ? luma - threshold : threshold - luma) / span, 0, 1));
+  });
+  const dotColor = typeof frame?.parameters?.dotColor === "string" && frame.parameters.dotColor
+    ? `<feFlood flood-color="${rgb(color(frame.parameters.dotColor, "#000000"))}" result="postFxInk"/>`
+    : '<feBlend in="SourceGraphic" in2="SourceGraphic" mode="multiply" result="postFxInk"/>';
+  const primitives = [
+    grayFor(frame, { opaque: true }),
+    `<feComponentTransfer in="postFxGray" result="postFxTone"><feFuncR type="table" tableValues="${table(tone)}"/><feFuncG type="table" tableValues="${table(tone)}"/><feFuncB type="table" tableValues="${table(tone)}"/></feComponentTransfer>`,
+    imagePrimitive(frame, radiusUri, "postFxDotRadius"),
+    ...binaryMaskPrimitives("postFxTone", "postFxDotRadius"),
+    dotColor,
+    // A half-pixel soft edge so dots a few pixels wide read round, not as stair steps (a guess).
+    '<feGaussianBlur in="postFxLightMask" stdDeviation="0.5" result="postFxSoftDots"/>',
+    '<feComposite in="postFxInk" in2="postFxSoftDots" operator="in" result="postFxDots"/>',
+    '<feMerge result="postFxHalftone"><feMergeNode in="SourceGraphic"/><feMergeNode in="postFxDots"/></feMerge>',
+    '<feComposite in="postFxHalftone" in2="SourceAlpha" operator="in"/>',
   ];
   return filterEffect(frame, primitives, { padding: 0, contain: true });
 }

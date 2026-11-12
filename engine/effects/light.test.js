@@ -34,11 +34,11 @@ after(async () => {
  * Draws `render` with `parameters` over `content` (a width × height layer at `layer` in a scene
  * of the same size, unless `scene` says otherwise) and returns a pixel reader.
  */
-async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType, cutout, time = 0 }) {
+async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType, cutout, time = 0, levels }) {
   const defs = [];
   let sequence = 0;
   const output = render({ content, bounds: { x: 0, y: 0, width, height }, parameters: { ...parameters }, time, progress: 1,
-    helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {}, layerType, cutout,
+    helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {}, layerType, cutout, levels,
       scene: { ...scene, matrix: [1, 0, 0, 1, layer.x, layer.y] } } });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}"><defs>${defs.join("")}</defs>${under}<g transform="translate(${layer.x} ${layer.y})">${output}</g></svg>`;
   const image = await loadImage((await chromium.render(svg, scene.width, scene.height)).buffer);
@@ -226,6 +226,25 @@ test("edge lines adapt: a step between two dark grays gets a line on a new effec
   const created = createEffectAnimation("edge-lines", createLayer("rectangle", { id: "box" }), 0, createScene({ id: "s", width: 200, height: 200, duration: 1 }), "edge");
   assert.equal(created.to.adapt, 1, "a new edge-lines effect starts with adapt on");
   assert.equal(effectDefaults("edge-lines").adapt, undefined, "an effect saved before it has no adapt");
+});
+
+test("edge lines auto: the measured threshold finds a faint step, letterbox edges draw no line, width follows the height", async () => {
+  const size = 120;
+  // A low-contrast picture: a 0.44 gray square on 0.40 gray, under black bars 10 px tall.
+  const faint = `<rect width="${size}" height="${size}" fill="#666666"/>` + SQUARE("#707070") +
+    `<rect width="${size}" height="10" fill="#000"/><rect y="${size - 10}" width="${size}" height="10" fill="#000"/>`;
+  const lines = (parameters, levels) => draw(renderEdgeLines, { ...effectDefaults("edge-lines"), color: "#00FF00", background: "transparent", adapt: 0, ...parameters },
+    { width: size, height: size, content: faint, layerType: "video", levels });
+  const edge = (picture) => Math.max(...[48, 49, 50, 51].map((x) => picture.pixel(x, 60)[3]));
+  assert.equal(effectDefaults("edge-lines").threshold, "auto");
+  assert.equal(edge(await lines({})), 0, "without a measurement auto is the fixed 0.05: the faint step is under it");
+  const measured = await lines({}, [0.4, 0.44, 0.01, 10 / size, 10 / size, 0, 0]);
+  assert.ok(edge(measured) > 100, `the layer's own threshold draws the faint step: ${edge(measured)}`);
+  for (const y of [9, 10, 11, 12, 108, 109, 110]) assert.equal(measured.pixel(60, y)[3], 0, `no line along the letterbox at y ${y}`);
+  const unmeasuredBars = await lines({ threshold: 0.02 });
+  assert.ok(Math.max(...[9, 10, 11].map((y) => unmeasuredBars.pixel(60, y)[3])) > 100, "a given number with no measurement keeps drawing the bar edge as before");
+  const lit = (picture) => [...Array(12).keys()].filter((index) => picture.pixel(44 + index, 60)[3] > 128).length;
+  assert.ok(lit(measured) <= 3, `auto width at 120 px high is thin: ${lit(measured)} px`);
 });
 
 test("light rays: the copy plan, the fade along a streak and the scene box", () => {

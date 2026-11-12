@@ -173,6 +173,16 @@ test("{op:'add_layer', type:<layer type>} means layerType, and top-level name an
   assert.ok(resolver.fixes.includes("type → layerType"));
 });
 
+test("an effect choice that reads like a color word stays as written; a fill of the same word is still a color", () => {
+  const { document, resolver } = titleAndCard();
+  const [lines, card] = translateOperations([
+    { op: "add_animation", layer: "card", effect: "edge-lines", parameters: { background: "transparent", color: "green" } },
+    { op: "update_layer", layer: "card", properties: { fill: "transparent" } },
+  ], resolver, document);
+  assert.equal(lines.animation?.to?.background ?? lines.parameters?.background, "transparent");
+  assert.equal(card.properties.fill, "#00000000");
+});
+
 test("a new layer named without an ID gets a slug ID, with -2 when the slug is taken, usable later in the batch", () => {
   const document = sceneDocument([text("hero-title")]);
   const resolver = createResolver(document, assignCodes(emptyCodes(), document));
