@@ -1,8 +1,8 @@
 # Footage: finding clips the person did not send
 
 Read when the brief is an edit of something that exists (a series, a sport, a trip, a game) and
-the person sent no clips, or too few. kino finds videos, scans them for their best shots and
-imports only the shots you pick. The person's own clips always lead; found clips fill the gaps.
+the person sent no clips, or too few. kino finds videos, scans their best shots and imports the
+shots you pick. The person's own clips lead; found clips fill the gaps.
 
 Contents: Three calls · Visual words, not names · Reading a scan · What is said · Note a video · Label a reference · Sources · Limits
 
@@ -15,7 +15,7 @@ Contents: Three calls · Visual words, not names · Reading a scan · What is sa
 ```
 
 1. `search`: the series or subject and the scene. Up to 10 videos, best first (the person's
-   pasted link, verified channels, big channels), each `F1`, `F2`... for this video. Other
+   pasted link, verified channels, big channels), each `F1`, `F2`... Other
    people's edits, reactions, reviews, live and members-only videos are dropped. A video inspire
    listed, a saved reference, or one whose study shows a patch staying in place is flagged
    "someone else's edit", listed last; its scan's `next:` moves on (`data.import` keeps it).
@@ -40,8 +40,8 @@ that video under this project's own code.
 
 The `kino` command sends `file=F1`, `file=F1.15` and `clip:` ids as typed.
 
-`library {topic:"footage"}` lists the found videos again. `look {mode:"source", ref:"F1"}`
-shows a scan's stills (`F1.<shot>`); look before you pick.
+`library {topic:"footage"}` lists the found videos. `look {mode:"source", ref:"F1"}` shows a
+scan's stills (`F1.<shot>`); look before you pick.
 
 ## Visual words, not names
 
@@ -60,7 +60,7 @@ of text, `subtitles` shots and shots under 0.4 s go last; `logo` marks a logo fi
 a dark shot keeps its rank (`dark, mean 13 of 255`). A burned-in mark is said once; such videos
 list after clean ones. Import offers a clean clip or a crop; `frame_shot` keeps the mark out;
 `burned_in_mark` names a layer still showing it (past 1.35x: a shift or a cover). Drawn footage has no face number ("Faces: not read
-on drawn footage."). Skipped counts say what was left out. With a song in the video, the answer
+on drawn footage."). With a song in the video, the answer
 says how many shots it needs (a cut every 2 beats on the drop, 4 on builds) and the import call
 names up to 1.5 times that. The answer's `next:` is that import call: change the shots after looking.
 
@@ -75,7 +75,7 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   go first, and a burned-in subtitle on such a shot is its line, so it reads `has subtitles`
   instead of ranking last. `next:` imports that line by its time range:
   `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
-- No captions, or YouTube not answering: the answer says the words were not looked for.
+- No captions or no answer from YouTube: it says the words were not looked for.
 - Import also listens: a clip of 1.5 s or more with sound and no caption line gets `heard "..."
   a-b s` (whisper on the clip's own sound, an English model: other languages come out as
   sound-alike words; keep_line `{from, to, text}` takes a translation). `look` source lists `heard:`
@@ -84,10 +84,9 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2` (file seconds); its call
   moves mediaOffset first.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
-- A line said in a clip can open or set up a moment. Keep it with
-  `keep_line {layer:"clip", line:"the words said", duck:"music"}` (case, apostrophes and repeats
-  ignored): the rest of the clip goes silent, a subtitle shows the line, the music dips to 0.7 of
-  its volume (`dip` sets it). Unread speech: `from`, `to` (scene seconds) and `text`.
+- Keep a said line: `keep_line {layer:"clip", line:"the words said", duck:"music"}` (case,
+  apostrophes and repeats ignored): the rest of the clip goes silent, a subtitle shows the line,
+  the music dips to 0.7 (`dip` sets it). Unread speech: `from`, `to` (scene seconds) and `text`.
 - compose {footage} keeps the clips' best lines heard (one per 6 s; `lines`: a number, [texts] or false).
 
 ## Note a video
@@ -106,10 +105,10 @@ Numbers cannot see design (type family, overlays, composites, color, made graphi
 with `look {mode:"reference", ref:"yt:X", t}`, then say what you see (an unlooked moment is refused), such as
 `library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}`.
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
-The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
+The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old.
 The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
 until all its moments are labeled; each label reply names the next look.
-Then ask what your edit shows that these do not: build toward the labels, not a template.
+Build toward the labels, not a template.
 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
 (type, overlay, composite, color, made, spoken) that 2 of them show at 2 or more moments must show

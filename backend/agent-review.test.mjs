@@ -283,7 +283,7 @@ test("the reference gate: with no saved reference a final render is refused; wit
   }
   // check lists it as a warning with its fix; versus measures it itself and says it in one line.
   const checked = await agent("check", { project: id });
-  assert.match(checked.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references .*color-wheels.*gamma:1\.3/, checked.text);
+  assert.match(checked.text, /W reference_range s1 @[\d.]+: s1 is darker than its saved references .*match_references/, checked.text);
   // Contrast: the flat scene has less than the references' 0.44 to 0.5, and the row's fix is one color-grade step.
   assert.match(checked.text, /W reference_range s1: s1 has less contrast than its saved references .*color-grade.*contrast:1\.[1-5]/, checked.text);
   const ranged = await agent("look", { project: id, mode: "versus" });

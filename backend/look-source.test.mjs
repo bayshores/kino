@@ -225,7 +225,7 @@ test("frame_shot frames a hand-placed crop from the file's size and found faces;
   assert.equal(waived.isError, true, waived.text);
   assert.equal(JSON.parse(waived.text).next, 'edit {"ops":[{"op":"frame_shot","layers":["keeper"]}]}', waived.text);
   const fixed = await agent("check", { project: "keeper-tall", fix: "auto", ...cropOnly });
-  assert.match(fixed.text, /applied 1 auto fix.*\n {2}fixed crop_no_subject keeper$/m, fixed.text);
+  assert.match(fixed.text, /applied 1 auto fix[^]*\n {2}fixed crop_no_subject keeper$/m, fixed.text);
   assert.doesNotMatch(fixed.text, /^[EW] crop_no_subject/m, fixed.text);
   const ids = (await (await server.api("/api/projects/keeper-tall")).json()).document.scenes[0].layers.map((layer) => layer.id);
   assert.ok(ids.some((id) => id.endsWith("-blur")), `no crop of a 16:9 file keeps the face in 9:16: the shot is a card over a blurred copy (${ids})`);

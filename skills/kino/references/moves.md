@@ -90,7 +90,7 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   shake that dies down, `at` a cue in a music edit. Both refuse a self-moving layer.
 - **overexpose**: a soft wash out and back, faces kept; `into` cuts at the peak.
 - **backdrop-flash** `{layer, at}`: a color field flashes behind the subject (cut out for you).
-- **energy-aura** `{layer, at}`: flame, smoke or electric aura rises off the subject.
+- **energy-aura** `{layer, at}`: flame, smoke or electric aura off the subject.
 
 Launch-video type (words arrive faint, then darken):
 
