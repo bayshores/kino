@@ -191,7 +191,11 @@ export function shotLine(code, shot, { matchShown = false } = {}) {
 // True when a face was found in the shot (its share of frames, or its subject box).
 const hasFace = (shot) => shot.face > 0 || shot.subject?.kind === "face";
 const asNumber = (value) => (value === null || value === "" || typeof value === "boolean" ? NaN : Number(value));
-const yesNo = (test) => (value) => (typeof value === "boolean" ? (shot) => test(shot) === value : null);
+// true or false ("true" and "false" read the same).
+const yesNo = (test) => (value) => {
+  const asked = value === "true" ? true : value === "false" ? false : value;
+  return typeof asked === "boolean" ? (shot) => test(shot) === asked : null;
+};
 const over = (measure, above) => (value) => {
   const limit = asNumber(value);
   if (!Number.isFinite(limit)) return null;
@@ -230,13 +234,18 @@ export const SHOT_SORTS = {
  * A scan's shots narrowed by `filter` ({face: true, brighter: 100, longer: 2, ...}, SHOT_FILTERS)
  * and ordered by `sort` (SHOT_SORTS; ties keep the scan's order). Answers {shots, line}: line says
  * what was asked, how many shots are left, and any key it did not know (those are left out, never
- * refused). Without filter or sort: the shots as they are and line "".
+ * refused). Without filter or sort: the shots as they are and line "". unmeasured: {key: why} for a
+ * fact this scan never measured (speech without captions or listening, faces on drawn footage):
+ * that key is said and left out, so "no line heard" is never read as "nobody speaks".
  */
-export function narrowShots(shots = [], filter = undefined, sort = undefined) {
+export function narrowShots(shots = [], filter = undefined, sort = undefined, { unmeasured = {} } = {}) {
   if (filter === undefined && sort === undefined) return { shots, line: "" };
   const asked = filter && typeof filter === "object" && !Array.isArray(filter) ? filter : {};
-  const used = [], ignored = [], tests = [];
+  const used = [], ignored = [], tests = [], unknown = [];
+  // Faces read on no shot at all (no face detector here, or drawn footage): face is unmeasured too.
+  const why = { ...(shots.length && shots.every((shot) => !Number.isFinite(shot.face) && shot.subject?.kind !== "face") ? { face: "faces not read in this scan" } : {}), ...unmeasured };
   for (const [key, value] of Object.entries(asked)) {
+    if (Object.hasOwn(SHOT_FILTERS, key) && why[key]) { unknown.push(`${key} (${why[key]})`); continue; }
     const test = Object.hasOwn(SHOT_FILTERS, key) ? SHOT_FILTERS[key](value) : null;
     if (test) { tests.push(test); used.push(`${key}:${value}`); } else ignored.push(`${key}:${short(oneLine(JSON.stringify(value)), 20)}`);
   }
@@ -245,10 +254,15 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined) {
   const order = sort === undefined ? null : Object.hasOwn(SHOT_SORTS, sort) ? SHOT_SORTS[sort] : null;
   if (sort !== undefined && !order) ignored.push(`sort:${short(oneLine(JSON.stringify(sort)), 20)}`);
   if (order) out = out.map((shot, index) => ({ shot, index })).sort((a, b) => order(a.shot) - order(b.shot) || a.index - b.index).map(({ shot }) => shot);
+  // Shots a used light or size filter could not measure (light: a scan from before every shot kept
+  // it; size: no face or saliency box) are left out by it, and the line counts them.
   const lightless = used.some((part) => /^(brighter|darker):/.test(part)) ? shots.filter((shot) => lightOf(shot) === null).length : 0;
+  const boxless = used.some((part) => part.startsWith("bigger:")) ? shots.filter((shot) => sizeOf(shot) === null).length : 0;
   const parts = [
     `${used.length ? `Filter ${used.join(" ")}` : "No filter"}${order ? `, sorted by ${sort}` : ""}: ${out.length} of ${shots.length} shot${shots.length === 1 ? "" : "s"}.`,
     lightless ? `${lightless} kept no light (an older scan) and are left out.` : "",
+    boxless ? `${boxless} have no face or salient box and are left out.` : "",
+    unknown.length ? `Not measured, left out: ${unknown.join(", ")}.` : "",
     ignored.length ? `Not known, left out: ${ignored.join(", ")} (filter: ${Object.keys(SHOT_FILTERS).join(", ")}; sort: ${Object.keys(SHOT_SORTS).join(", ")}).` : "",
   ];
   return { shots: out, line: parts.filter(Boolean).join(" ") };
@@ -560,7 +574,8 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     result = { ...result, shots: applied.shots };
     const heard = answer ? { ...answer, said, hits: applied.hits, noCaptionsKnown: Boolean(candidate.noCaptions), refLines: known?.lines } : null;
     // filter and sort narrow the listing (and so the import call) to the shots asked for.
-    const view = narrowShots(result.shots, input.filter, input.sort);
+    // With no line heard (no captions, no listening), speech is unknown, never "nobody speaks".
+    const view = narrowShots(result.shots, input.filter, input.sort, { unmeasured: lines.length ? {} : { speech: "no captions or listening in this scan" } });
     const picks = importPicks({ shots: view.shots }, need ? Math.min(FOOTAGE_SHOTS_SHOWN, Math.max(FOOTAGE_IMPORT_PICKS, need.import)) : FOOTAGE_IMPORT_PICKS);
     const spoken = lines.length ? spokenLines(lines, result.shots, said) : [];
     const firstHit = spoken.find((line) => line.hit);

@@ -1034,7 +1034,8 @@ How to read it:
 - **Shot facts and narrowing**: Stub-verified; the saliency measure run once on a lavfi clip. Each scanned
   shot line says `light N` (mean of 255) and its face box (else the salient box) with its share of the
   frame; `filter {face, speech, brighter, darker, longer, shorter, bigger}` and `sort` narrow the listing
-  and its import call in one call. Gap: saliency gives a box on a flat dark frame too, so it says where,
+  and its import call in one call; a fact the scan never measured (speech with no captions or listening,
+  faces on drawn footage) is named and left out of the filter. Gap: saliency gives a box on a flat dark frame too, so it says where,
   not that something is there. Evidence: `backend/footage-finder.test.mjs` (dark shot, said lines).
 - **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
   (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and

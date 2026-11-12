@@ -326,7 +326,10 @@ test("a scan keeps dark shots tagged in place, puts title shots last, joins 0.96
     assert.deepEqual(narrowShots(scan.shots, { face: true, brighter: 100 }).shots.map((shot) => shot.n), [1]);
     assert.deepEqual(narrowShots(scan.shots, { bigger: 20, longer: 3 }).shots.map((shot) => shot.n), [2]);
     assert.deepEqual(narrowShots(scan.shots, undefined, "dark").shots.map((shot) => shot.n), [3, 1, 2, 4]);
-    assert.equal(narrowShots(scan.shots, { face: true, colour: "red" }).line, "Filter face:true: 1 of 4 shots. Not known, left out: colour:\"red\" (filter: face, speech, brighter, darker, longer, shorter, bigger; sort: light, dark, length, size, motion, time).");
+    // "true" reads as true; a shot with no box is counted, not silently dropped by bigger.
+    assert.deepEqual(narrowShots(scan.shots, { face: "true" }).shots.map((shot) => shot.n), [1]);
+    assert.match(narrowShots(scan.shots, { bigger: 1 }).line, /^Filter bigger:1: 2 of 4 shots\. 2 have no face or salient box and are left out\.$/);
+    assert.equal(narrowShots(scan.shots, { face: true, tint: "red" }).line, "Filter face:true: 1 of 4 shots. Not known, left out: tint:\"red\" (filter: face, speech, brighter, darker, longer, shorter, bigger; sort: light, dark, length, size, motion, time).");
     assert.equal(scan.shots[0].face, 100);
     // Closeness 0, 0, 0, 1 as z-scores; only the title card matches, and a flagged shot never shows a match.
     assert.deepEqual(scan.shots.map((shot) => shot.match), [-0.6, -0.6, -0.6, 1.7]);
@@ -401,6 +404,10 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.deepEqual([flagsOf[4], flagsOf[8], flagsOf[12], flagsOf[1], flagsOf[6]], ["subtitles", "subtitles", "text", "", ""]);
     // The face detector's box on a drawing is no subject either.
     assert.ok(scan.shots.every((shot) => shot.face === null && !shot.subject));
+    // So face is not measured here: face:false keeps every shot and says why, never "no face in any".
+    const faceless = narrowShots(scan.shots, { face: false });
+    assert.equal(faceless.shots.length, scan.shots.length);
+    assert.match(faceless.line, /Not measured, left out: face \(faces not read in this scan\)\.$/);
     assert.deepEqual([scan.matchShown, scan.shots[0].n], [true, 7]);
     const text = scanText({ code: "F1", title: "Fight", license: "unknown" }, scan);
     assert.match(text, /\nNote: a mark is burned into this clip's bottom-right and top-left \(on every shot\)\. Pick a clean clip \(marked ones list last\), or crop it out; the import answer gives the numbers\.\nFaces: not read on drawn footage\./);
@@ -1537,6 +1544,9 @@ test("a video with no captions is said once, and asked-for words say they were n
   const none = createFootageActions({ finder: saidFinder({ none: true }) });
   const first = await none.handle({ scan: "F1" }, { footage, personClips: 0 });
   assert.match(first.text, /^No captions on this video\. said:"<words>" listens to the scanned part on this computer/m);
+  // With no line heard, speech:false is unknown: every shot stays and the line says why.
+  const unheard = await none.handle({ scan: "F1", filter: { speech: false } }, { footage, personClips: 0 });
+  assert.match(unheard.text, /^No filter: (\d+) of \1 shots\. Not measured, left out: speech \(no captions or listening in this scan\)\.$/m);
   assert.doesNotMatch(first.text, /your reference/);
   // A measured reference of this project said a line (inspire's projectView lines): the hint names it as a ready scan
   // call, saved references first; a hook heard twice (a song) is not offered.
