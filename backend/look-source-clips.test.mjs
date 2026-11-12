@@ -1,7 +1,7 @@
 // look {mode:"source"} with no layer shows every clip and picture of the project on one sheet;
 // times:[…] draws exact file seconds; a video over the upload limit imports as kino's own copy.
 import assert from "node:assert/strict";
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
@@ -92,6 +92,26 @@ test("look source times: those file seconds of a clip, by file name or video lay
   assert.match(all.text, /^1 01-wide\.mp4 160×90 2 s · wide$/m, "the overview names the layer that shows a clip");
   assert.match(all.text, /^heard \(shortest first\): \S+ "Hello there\." 0\.2-1\.1 s$/m);
   assert.match((await call("look", { project: "clips", mode: "source", layer: "wide", t: 1 })).text, /^sound: (?:-?\d+\.\d LUFS · )?heard "Hello there\." 0\.2-1\.1 s \(file s\)$/m);
+});
+
+test("look source of a found clip no layer uses: by its shot code, media id or src, with the frames and the sound readout", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {
+  const picked = await client.importFile(await clip("12-found.mp4", "160x90", 2));
+  const file = path.join(server.dataDirectory, "media", picked.src.split("/").pop());
+  // A found clip carries its video's code and shot (footage-finder); a saved transcript has its line.
+  const sidecar = JSON.parse(await readFile(`${file}.json`, "utf8"));
+  await writeFile(`${file}.json`, JSON.stringify({ ...sidecar, footage: { code: "F9", shot: 5 } }));
+  await writeFile(`${file}.words-small.en`, JSON.stringify({ version: TRANSCRIPT_VERSION, words: [{ text: "Come", start: 0.4, end: 0.7, p: 0.9 }, { text: "here.", start: 0.8, end: 1.3, p: 0.9 }] }));
+  for (const ref of ["F9.5", "f9.5", picked.id, picked.src]) {
+    const reply = await call("look", { project: "clips", mode: "source", layer: ref });
+    assert.match(reply.text, /^source 12-found\.mp4 \(160×90, 2 s\): the whole clip in 12 frames/, `${ref}: ${reply.text}`);
+    assert.match(reply.text, /^sound: (?:-?\d+\.\d LUFS · )?heard "Come here\." 0\.4-1\.3 s \(file s\)$/m, `${ref}: ${reply.text}`);
+    assert.equal(reply.images.length, 1);
+  }
+  // Exact file seconds keep the sound line; a code nothing carries still answers unknown_ref.
+  assert.match((await call("look", { project: "clips", mode: "source", layer: "F9.5", times: [1] })).text, /^source 12-found\.mp4 .*file 1 s\.\nsound: /);
+  const missing = await client.call("look", { project: "clips", mode: "source", layer: "F9.6" });
+  assert.equal(missing.isError, true);
+  assert.match(missing.text, /unknown_ref/);
 });
 
 test("a video over the upload limit imports as kino's own copy with a note; one under it has none", { skip: skipWithoutMediaTools, timeout: 120_000 }, async () => {

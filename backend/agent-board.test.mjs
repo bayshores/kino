@@ -433,6 +433,9 @@ test("the board stop: board first, no gap, open items or \"your call\"; an appro
   state = await savedState(id);
   assert.deepEqual(await statusLines(id), [`direction: C1 board waiting since ${clock(state.stops[0].askedAt)} · replies 1/10`, "step: end your turn until they answer"], "the reply counts");
   assert.equal((await agent("edit", { project: id, ops: [{ op: "update_scene", properties: { duration: 9 } }] })).data.waiting, "C1", "the project waits for the person");
+  // look is a read: look source of a clip no layer plays, by its src, still answers while C1 waits.
+  const source = await agent("look", { project: id, mode: "source", layer: clip.src });
+  assert.match(source.text, /^source \S+ \(\d+×\d+, [\d.]+ s\): the whole clip in 12 frames/, source.text);
 
   // Approved: the agent-state file keeps a copy of the board as it was shown.
   await gap(asked.at);

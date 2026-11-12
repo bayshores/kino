@@ -5383,12 +5383,15 @@ export function createAgentService(deps) {
     const more = measured.events.length > shown.length ? ` (the ${shown.length} surest of ${measured.events.length})` : "";
     return `events (file s)${more}: ${[...words, ...(drawn ? [drawn] : [])].join(" · ") || "no impacts, light changes or steady motion found"}.`;
   }
-  async function clipOverview(input, { fonts }, src = null) {
+  async function clipOverview(input, { fonts, document = null, state = null }, src = null) {
     if (!src) {
       const wanted = String(input.layer).trim().toLowerCase();
       const bare = (name) => String(name ?? "").toLowerCase().replace(/\.[a-z0-9]+$/, "");
       const media = (await deps.listMedia?.()) ?? [];
+      // A found clip's code (F4.13, as look source lists it) names its file; one of this project's first.
+      const coded = media.filter((entry) => foundClipTag(entry, state?.footage)?.label.toLowerCase() === wanted);
       const item = media.find((entry) => [entry.id, entry.src, entry.name].some((value) => String(value ?? "").toLowerCase() === wanted))
+        ?? coded.find((entry) => !document || mediaAllowedIn(entry, document.id)) ?? coded[0]
         ?? media.find((entry) => bare(entry.name) === bare(wanted));
       src = item ? sourceSrc(item) : null;
     }
@@ -5405,12 +5408,16 @@ export function createAgentService(deps) {
         mediaStart: 0, mediaOffset: 0, mediaSourceDuration: record.duration, volume: 0 })],
     })] })).scenes[0];
     const image = await look.sheetImage({ scene, fonts, key: sceneKey(scene, fonts) }, { times, labels: times.map((time, index) => `${index + 1} · ${time}s`) });
+    // The clip's own sound, as a layer of this file shows it (heard lines, language, sounds).
+    const heard = document ? await clipSoundLine(src, document) : null;
+    const soundLine = heard?.text ? `sound: ${heard.text} (file s)` : null;
     const text = asked
-      ? `source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`
+      ? [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): file ${times.join(", ")} s${asked.length > 24 ? " (the first 24)" : ""}.`, ...(soundLine ? [soundLine] : [])].join("\n")
       : [`source ${record.name} (${record.width}×${record.height}, ${sec(record.duration)} s): the whole clip in ${count} frames, labeled with file seconds.`,
         await clipEventsLine(src, record),
+        ...(soundLine ? [soundLine] : []),
         `Exact frames: times:[…] (file seconds). For a crop, add it as a layer and look {mode:"source", layer, t}.`].join("\n");
-    return { image, text, extra: { file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };
+    return { image, text, extra: { ...(heard?.said.length ? { heard: heard.said } : {}), file: { src, name: record.name, width: record.width, height: record.height, duration: record.duration }, times } };
   }
 
   // The lines a video file says (engine/speech.js clipLines), from its saved transcript only: [] for
@@ -5447,6 +5454,14 @@ export function createAgentService(deps) {
       const sounds = await clipSounds(file);
       return { lufs, voice: read?.voice ?? [], ...(read?.language ? { language: read.language, p: read.p } : {}), sounds };
     } catch { return null; }
+  }
+
+  // What a file says and how loud it is, as look source writes it: {said, text} (text "" for a song
+  // or a silent file). Reads the transcript once if it has none yet (savedLinesOf make).
+  async function clipSoundLine(src, document) {
+    const said = await savedLinesOf(src, document, 3, true);
+    const sound = await clipSoundOf(src, document);
+    return { said, text: sound ? clipSoundText({ ...sound, lines: said }, 3) : said.length ? clipLinesText(said, 3) : "" };
   }
 
   // Lines the video's footage says that no layer plays: from saved transcripts only (import, compose,
@@ -5635,7 +5650,7 @@ export function createAgentService(deps) {
         const [clip] = entry.clips;
         return `${index + 1} ${clip.name} ${clip.record.width}×${clip.record.height}${clip.video ? ` ${sec(clip.record.duration)} s` : " picture"}${clip.layers.length ? ` · ${clip.layers.join(", ")}` : ""}`;
       }),
-      `Exact frames of one: look {mode:"source", layer:"<file name>", times:[…]} (file seconds).`];
+      `Exact frames of one: look {mode:"source", layer:"<file name or shot code>", times:[…]} (file seconds); it also reads what the clip says.`];
     // The lines the clips say, from saved transcripts only (look source {layer} or compose made them).
     const heard = [];
     for (const clip of clips.filter((each) => each.video)) {
@@ -5687,7 +5702,7 @@ export function createAgentService(deps) {
     if (input.layer == null || input.layer === "") return clipsOverview(input, { document, codes, fonts, state: agentFacts });
     let layerId;
     try { layerId = resolver.resolve(String(input.layer), "layer"); } catch (error) {
-      const overview = await clipOverview(input, { fonts });
+      const overview = await clipOverview(input, { fonts, document, state: agentFacts });
       if (overview) return overview;
       throw error;
     }
@@ -5695,7 +5710,7 @@ export function createAgentService(deps) {
     const layer = layerScene.layers.find((item) => item.id === layerId);
     const name = refName(layerId, codes);
     if (layer.type === "video" && Array.isArray(input.times) && input.times.length) {
-      const frames = await clipOverview(input, { fonts }, layer.src);
+      const frames = await clipOverview(input, { fonts, document }, layer.src);
       if (frames) return frames;
     }
     if (layer.type !== "video") throw new AgentError("bad_input", `source needs a video layer; ${name} is ${/^[aeiou]/.test(layer.type) ? "an" : "a"} ${layer.type} layer (zoom shows any layer).`);
@@ -5771,10 +5786,8 @@ export function createAgentService(deps) {
       `boxes: ${agentText} · ${visionText}`,
     ];
     // What this file says (read once if needed; a song says none), and that the layer does not play it.
-    const said = await savedLinesOf(layer.src, document, 3, true);
     // Its level and the voice whisper heard but could not read (engine/speech.js readClipSound).
-    const sound = await clipSoundOf(layer.src, document);
-    const soundText = sound ? clipSoundText({ ...sound, lines: said }, 3) : said.length ? clipLinesText(said, 3) : "";
+    const { said, text: soundText } = await clipSoundLine(layer.src, document);
     if (soundText) lines.push(`sound: ${soundText} (file s)${Number(layer.volume ?? 1) === 0 ? " (muted here)" : ""}`);
     if (!agentBoxes.length) lines.push(`mark the subject: edit mark_subject {layer:"${name}", t:${t}, box:[x, y, w, h]} (% of the source; x, y top-left)`);
     const extra = {
