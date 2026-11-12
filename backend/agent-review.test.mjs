@@ -921,3 +921,46 @@ test("saved subjects reach frame_shot: it crops to the saved face, and says so w
   await call("edit", { ops: [{ op: "update_layer", layer: "keeper", properties: { x: -700, y: 0, width: 2400, height: 1350 } }] });
   assert.match((await call("edit", { ops: [{ op: "frame_shot", layer: "keeper" }] })).text, /frame_shot keeper: .*no faces measured for this file yet/);
 });
+
+test("match_references {made:true} through the edit tool: the references' moves land as animations, flashing passes, a splatter sits by a saved face or footage figure", async (t) => {
+  // Three 1.5 s shots of one card; the reference's labels name a flash, a smear, a two color split and a light sweep.
+  const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "kino-made-wired-"));
+  t.after(() => rm(mediaRoot, { recursive: true, force: true }));
+  const card = createCanvas(64, 36), draw = card.getContext("2d");
+  draw.fillStyle = "#506070"; draw.fillRect(0, 0, 64, 36); draw.fillStyle = "#e0c040"; draw.fillRect(8, 8, 20, 20);
+  await writeFile(path.join(mediaRoot, "card.png"), card.toBuffer("image/png"));
+  const timed = (index) => [...(index ? [{ id: `cut-in-${index}`, name: "In", kind: "show", start: index * 1.5 }] : []), ...(index < 2 ? [{ id: `cut-out-${index}`, name: "Out", kind: "hide", start: (index + 1) * 1.5 }] : [])];
+  const shot = (id, index) => createLayer("image", { id, name: id, src: "/api/media/card.png", x: 0, y: 0, width: 640, height: 360, animations: timed(index) });
+  const document = createDocument({ id: "made-wired", name: "Made", scenes: [createScene({ id: "main", width: 640, height: 360, duration: 4.5, layers: ["a", "b", "c"].map(shot) })] });
+  const refs = [{ id: "yt:wired", seen: ["white flash", "an orange smear", "two color split", "light sweep"].map((words, index) => ({ at: index + 1, kinds: ["made"], words })) }];
+  const { call, store } = await serviceFor(t, { document, mediaRoot, inspire: { savedFingerprints: async () => refs } });
+  const placed = await call("edit", { ops: [{ op: "match_references", made: true }] });
+  assert.equal(placed.isError, undefined, placed.text);
+  const scene = (await store.getProject("made-wired")).document.scenes[0];
+  const moves = (scene.moves ?? []).filter((move) => move.id.startsWith("match-made-"));
+  assert.deepEqual(moves.map((move) => move.name).sort(), ["light-sweep", "overexpose", "smear", "split-fields"], placed.text);
+  // Each move landed as animations on the scene's layers (its id is their prefix).
+  const animated = (move) => scene.layers.some((layer) => (layer.animations ?? []).some((animation) => String(animation.id).startsWith(`${move.id}.`)) || layer.move?.instance === move.id);
+  assert.deepEqual(moves.filter((move) => !animated(move)).map((move) => move.name), [], JSON.stringify(scene.layers.map((layer) => [layer.id, (layer.animations ?? []).map((animation) => animation.id)])));
+  const checked = await call("check", { rules: ["flashing"] });
+  assert.doesNotMatch(checked.text, /\bflashing\b.*flash/i, checked.text);
+
+  // Video shots with no marked subject: a saved people-scan face, a footage scan's figure, then a guess.
+  const file = (id) => `00000000-0000-4000-8000-00000000000${id.slice(1)}.mp4`;
+  const videos = ["v1", "v2", "v3"].map((id, index) => createLayer("video", { id, name: id, src: `/api/media/${file(id)}`, x: 0, y: 0, width: 640, height: 360, mediaStart: index * 1.5, mediaDuration: 1.5, mediaSourceDuration: 1.5, animations: timed(index) }));
+  const clips = createDocument({ id: "made-clips", name: "Clips", scenes: [createScene({ id: "main", width: 640, height: 360, duration: 4.5, layers: videos })] });
+  // 3840 x 2160 files: the shot's own small frame is never decoded (no colors or busy part from them).
+  const media = ["v1", "v2", "v3"].map((id) => ({ id: file(id), name: id, width: 3840, height: 2160, duration: 1.5, ...(id === "v2" ? { footage: { candidate: "clip:yt-wiredclip1", code: "F1", shot: 4 } } : {}) }));
+  const splat = [{ id: "yt:splat", seen: [1, 2, 3].map((at) => ({ at, kinds: ["made"], words: "paint splatter" })) }];
+  const wired = await serviceFor(t, { document: clips, media, state: (draft) => { draft.footage = { candidates: [{ id: "clip:yt-wiredclip1", code: "F1", scan: true }] }; },
+    inspire: { savedFingerprints: async () => splat }, renderFrames: async (scene, times, { width }) => times.map(() => ({ width, height: Math.round((width * 9) / 16), pixels: new Uint8ClampedArray(width * Math.round((width * 9) / 16) * 4).fill(100) })),
+    peopleCache: { saved: async (where) => (where.endsWith(file("v1")) ? { samples: [{ t: 0.5, faces: [[0.4, 0.1, 0.2, 0.3]] }] } : null), get: async () => null, savedSubjects: async () => null },
+    footage: { readScan: async () => ({ shots: [{ n: 4, figure: { box: [0.05, 0.1, 0.3, 0.8], share: 0.24, seen: 1, by: "mask" } }] }) } });
+  const spots = await wired.call("edit", { ops: [{ op: "match_references", made: true }] });
+  assert.equal(spots.isError, undefined, spots.text);
+  assert.match(spots.text, /of the people scan's face at 0\.5 s of the file/, spots.text);
+  assert.match(spots.text, /of the footage scan's figure \(by mask\) of F1 shot 4/, spots.text);
+  assert.match(spots.text, /a starting guess \((top left|bottom right|top right|bottom left), by shot order\)/, spots.text);
+  const splats = (await wired.store.getProject("made-clips")).document.scenes[0].layers.filter((layer) => layer.id.startsWith("match-made-"));
+  assert.equal(new Set(splats.map((layer) => `${layer.x},${layer.y}`)).size, 3, JSON.stringify(splats.map((layer) => [layer.x, layer.y])));
+});

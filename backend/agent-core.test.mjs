@@ -16,7 +16,9 @@ import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waivedRefs, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
-import { besideSubject, labelColors, labelTechniques, madeIds, placeMade, shotSpans, subjectBoxAt } from "./agent/made-match.mjs";
+import { besideSubject, labelColors, labelTechniques, madeIds, placeMade, shotSpans, splatterSpot, subjectBoxAt } from "./agent/made-match.mjs";
+import { detailBox } from "./agent/shot-color.mjs";
+import { referenceMade } from "../engine/quality/madeShare.js";
 import { kinoTimeline } from "../engine/quality/kinoTimeline.js";
 import { renderSceneFrames } from "./export.mjs";
 import { expandComponents } from "../engine/linkedComponents.js";
@@ -950,9 +952,12 @@ test("match_references made: places the labeled references' made techniques on t
   const refs = [{ id: "yt:stub", seen: [{ at: 1, kinds: ["made", "overlay"], words: "embers rise round him" }, { at: 3, kinds: ["made"], words: "paint splatter on a white ground" },
     { at: 5, kinds: ["made", "composite"], words: "a figure cut out on clouds" }, { at: 7, kinds: ["plain"], words: "the footage alone" }] }];
   assert.deepEqual(labelTechniques(refs).map((entry) => entry.name), ["cut_out", "embers", "splatter"]);
-  const run = await placeMade(document, { refs, faces: ["shot-a"], fonts: defaultFonts, runOps });
+  // shot-b's measured palette: embers take its accent the way a splatter takes its fill.
+  const colorsAt = async (layerId) => (layerId === "shot-b" ? [{ hex: "#303030", share: 0.7 }, { hex: "#FF8020", share: 0.3 }] : null);
+  const run = await placeMade(document, { refs, faces: ["shot-a"], fonts: defaultFonts, runOps, colorsAt });
   assert.deepEqual(run.placed.map((entry) => [entry.name, entry.op.layer ?? entry.op.properties.id, entry.why]), [["embers", "shot-b", "song-drop-1"], ["splatter", "match-made-2", "face found"]]);
-  assert.match(run.lines[0], /^match_references made, from your references' labels: embers on shot-b at 2 s for 2 s \(to the cut at 4 s\) \(match-made-1\) \[song-drop-1; 1 reference\], match-made-2 \(splatter splat, fill #FFFFFF from the label's "white", 120x120 at 51,36, a starting guess: no subject box \(mark_subject sets one\)\) at 0\.5 s for 1\.5 s \(to the cut at 2 s\)/);
+  assert.deepEqual(run.placed[0].op.parameters, { color: "#FF8020", color2: "#FFC090" });
+  assert.match(run.lines[0], /^match_references made, from your references' labels: embers \(color #FF8020 from shot-b at 2 s, color2 #FFC090 50% toward white\) on shot-b at 2 s for 2 s \(to the cut at 4 s\) \(match-made-1\) \[song-drop-1; 1 reference\], match-made-2 \(splatter splat, fill #FFFFFF from the label's "white", 120x120 at 51,36, a starting guess \(top left, by shot order\): no subject box \(mark_subject sets one\), figure, face or measured frame\) at 0\.5 s for 1\.5 s \(to the cut at 2 s\)/);
   assert.match(run.lines[1], /^not placed: cut_out \(a cut-out takes up to a minute, so it gets its own call\): edit \{"ops":\[\{"op":"cut_out","layer":"shot-a","name":"shot-a-subject"\},\{"op":"add_layer","layerType":"rectangle","name":"match-made-bg"/);
   assert.match(run.lines[2], /^made share 0 of 8 moments \(0%\) before, 7 of 8 \(88%\) after; your 1 reference's made labels 3 of 4 \(75%\) \(aim: their median 75%\)/);
   assert.ok(run.after.made > run.before.made && run.after.parts.particle > 0 && run.after.parts.graphic > 0, JSON.stringify(run.after));
@@ -1013,6 +1018,23 @@ test("match_references made: hand-offs go on cuts, recolor and split-fields take
   assert.deepEqual([box, besideSubject(box, 640, 360)], [[256, 36, 128, 288], { x: 422, y: 90, size: 180, side: "right" }]);
   // In 9:16 a subject as wide as the frame leaves room above or below it, not beside it.
   assert.deepEqual(besideSubject([20, 300, 320, 240], 360, 640), { x: 90, y: 60, size: 180, side: "above" });
+  // No marked subject: a saved figure or face box (fractions of the file), else the busiest part of
+  // the shot's own frame, else a starting guess whose corner follows the shot's order.
+  const slot = { at: 1, span: { layerId: "shot-a", name: "shot-a" } }, scene = document.scenes[0], layerA = scene.layers[0];
+  const face = { box: [0.4, 0.1, 0.2, 0.8], by: "the people scan's face at 1 s of the file", source: { width: 1920, height: 1080 } };
+  assert.deepEqual(await splatterSpot(scene, layerA, slot, { subjectAt: async () => face }), { size: 180, x: 422, y: 90, where: "right of the people scan's face at 1 s of the file 256,36,128,288" });
+  assert.deepEqual(await splatterSpot(scene, layerA, slot, { detailAt: async () => ({ box: [0, 0, 0.5, 1] }) }),
+    { size: 180, x: 390, y: 90, where: "right of the busiest part of shot-a's own frame at 1 s 0,0,320,360" });
+  const guesses = await Promise.all([0, 1].map((order) => splatterSpot(scene, layerA, slot, {}, order)));
+  assert.deepEqual(guesses.map((spot) => [spot.x, spot.y]), [[51, 36], [469, 204]]);
+  // The busiest part of a small frame: a white square on the left half of a black one.
+  const pixels = new Uint8ClampedArray(48 * 27 * 4);
+  for (let y = 0; y < 27; y += 1) for (let x = 0; x < 48; x += 1) { const at = (y * 48 + x) * 4, lit = x >= 4 && x < 20 && y >= 6 && y < 20 ? 255 : 0; pixels.set([lit, lit, lit, 255], at); }
+  const busy = detailBox(pixels, 48);
+  assert.ok(busy[0] + busy[2] <= 0.5 && busy[2] > 0.2, JSON.stringify(busy));
+  assert.equal(detailBox(new Uint8ClampedArray(48 * 27 * 4).fill(90), 48), null, "a flat frame has no busy part");
+  // A reference whose only made labels are composite counts them in the made share.
+  assert.deepEqual(referenceMade([{ id: "c", seen: [{ at: 1, kinds: ["composite"] }] }], { composite: true }), [{ id: "c", made: 1, total: 1 }]);
   // A shot whose cut-out is already made gets its background now, right under the cut-out (no ready call).
   const withCopy = parseDocument({ ...document, scenes: [{ ...document.scenes[0], layers: [...document.scenes[0].layers,
     createLayer("image", { id: "shot-c-subject", name: "shot-c-subject", src: "/api/media/gray.png", x: 0, y: 0, width: 640, height: 360, cutoutOf: "shot-c", animations: [{ id: "c-in", name: "In", kind: "show", start: 4 }] })] }] });
