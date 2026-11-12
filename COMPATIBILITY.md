@@ -911,7 +911,7 @@ How to read it:
   `engine/moves.test.js`. Gap: other hand-made effects still need a cue.
 - **Held card stays through a transition**: Unit-verified. A move that carries a card out (`from`, carry's riders too)
   shows it again at the card's own hide second when the move hides it later, one show per layer, which follows
-  the hold when it is edited later; the card's own fade-out that ends there waits or plays again ending at the move's
+  the hold when it is edited later or retimed with the move (a duplicated scene's copy keeps its saved second); the card's own fade-out that ends there waits or plays again ending at the move's
   hide; carry with toRect hides such a card at the carry's end; a duplicated scene keeps its source scene's layer order for the footage-under-words default. Evidence: `engine/moves.test.js`,
   `backend/agent-edit-repair.test.mjs`. Gaps: cursor takes `from` as the pointer's start, so it carries no card; a move's own fade that starts before the
   card's fade-out is left as it is.
@@ -1618,7 +1618,7 @@ How to read it:
   last shot) and the longest shot wherever they fall, with or without a song; the song is the scene's when the board names
   none; image layers, stills, grouped layers on their clock and reversed built shots count, each only while its Show and
   Hide leave it on screen, and check takes the story's times from the built layers; an animated GIF counts by its file time; when the saved board and the built scene
-  disagree on a cue, check adds one line naming both and `compose {from:"board"}`. Evidence:
+  disagree on a cue, check adds one line naming both and `compose {from:"board"}` (a drawn shot built as a card agrees). Evidence:
   `backend/agent-board.test.mjs`, `engine/footage.test.js`, `backend/look-board.test.mjs`.
 - **Made techniques from references** (`match_references {made:true}` or `made:[names]`): Test-verified on a stub reference. Places
   the made techniques the saved references' labels name (else the deck's unused cards) on song cues and subject shots, prints each

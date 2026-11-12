@@ -282,6 +282,12 @@ test("a held card's keep follows its hold when it is edited later, its fade-out 
   assert.ok(visibleByOperations(withHold(5), 4.95) && !visibleByOperations(withHold(5), 5.05) && !visibleByOperations(withHold(5), 5.9), "a hold shortened to before the move hides the card at its new second");
   // Lengthened past the move's hide: no show comes back after the move hides it.
   assert.ok(!visibleByOperations(withHold(hideAt + 1), hideAt + 0.5), "a hold past the move does not bring the card back");
+  // A retime that moves the hold and the move 2 s earlier together keeps the card to the move's hide.
+  const earlier = withHold(5.8).map((animation) => ({ ...animation, start: animation.start - 2 }));
+  assert.ok(visibleByOperations(earlier, hideAt - 2.02) && !visibleByOperations(earlier, hideAt - 1.98), "a retimed move still keeps the card");
+  // A copy with fresh animation IDs (duplicate_scene) keeps the card to the move's hide too.
+  const copied = withHold(5.8).map((animation, index) => ({ ...animation, id: `copy-${index}` }));
+  assert.ok(visibleByOperations(copied, hideAt - 0.02) && !visibleByOperations(copied, hideAt + 0.02), "a duplicated scene still keeps the card");
   // Its own fade-out (5.7 to 6 s) is held at full opacity until the move takes the card off: by the
   // move's own fade, or, for a move with none on the card, by the same fade played again ending at its hide.
   let waits = 0;

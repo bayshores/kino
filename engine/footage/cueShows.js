@@ -159,12 +159,14 @@ export function cueShowLines(facts) {
   return lines;
 }
 
-// What a cue row says about its shot, as the cue line does: { key, words }.
+// What a cue row says about its shot, as the cue line does: { key, words }. No file on the cue
+// (a drawn board shot, or a scene with no picture or clip there) is one state, so a drawn shot
+// compose built as text and shapes agrees with its board shot.
 function cueState(row) {
-  if (row.shot === null) return { key: "none", words: "no shot" };
-  if (row.file && row.seenAt.length) return { key: "seen", words: row.still ? "showing a still again" : row.shared > 0 ? "repeating file time" : "continuing the file" };
-  if (row.since !== null) return { key: "since", words: `on screen since ${s1(row.since)} s` };
-  return { key: "new", words: row.file ? "new" : "new (no footage)" };
+  if (!row.file) return { key: "drawn", words: row.shot === null ? "no footage" : `${row.shot} with no footage` };
+  if (row.seenAt.length) return { key: "seen", words: `${row.shot} ${row.still ? "showing a still again" : row.shared > 0 ? "repeating file time" : "continuing the file"}` };
+  if (row.since !== null) return { key: "since", words: `${row.shot} on screen since ${s1(row.since)} s` };
+  return { key: "new", words: `${row.shot} new` };
 }
 
 /**
@@ -180,7 +182,7 @@ export function cueDisagreement(boardShows, sceneShows, { call = 'compose {from:
     const saved = (boardShows?.cues ?? []).find((row) => nameOf(row) === nameOf(built));
     if (!saved) continue;
     const [was, now] = [cueState(saved), cueState(built)];
-    if (was.key !== now.key) found.push(`the ${nameOf(built)}: the saved board has ${saved.shot ?? "no shot"} ${was.words} at ${s2(saved.at)} s, the built scene has ${built.shot ?? "no shot"} ${now.words} at ${s2(built.at)} s`);
+    if (was.key !== now.key) found.push(`the ${nameOf(built)}: the saved board has ${was.words} at ${s2(saved.at)} s, the built scene has ${now.words} at ${s2(built.at)} s`);
   }
   if (!found.length) return null;
   return `the saved board and the built scene disagree on ${found.slice(0, 3).join("; ")}; ${call} builds the scene from the board again`;

@@ -229,6 +229,12 @@ test("the payoff's cue line reads the scene's song when the board names none, an
   const apart = cueDisagreement(facts.shows, edited);
   assert.match(apart, /disagree on the payoff beat: the saved board has shot 3 repeating file time at 6\.00 s, the built scene has layer board-s3 new at 6\.00 s; compose \{from:"board"\} builds the scene from the board again/);
   assert.equal(cueDisagreement(facts.shows, sceneCueShows({ scene, music, shape, media: { nameOf }, document, story })), null, "the same plan says nothing");
+  // A drawn board shot on the drop (no footage) that compose built as a text card: both have no file there, so nothing is said.
+  const drawnBoard = { ...board, shots: board.shots.map((entry) => (entry.id === "S2" ? { ...entry, media: "none", in: null } : entry)) };
+  const drawnScene = { ...scene, layers: [music, video("board-s1", "/api/media/a.mp4", 0, 1, 3), { id: "board-s2", name: "board-S2", type: "text", text: "Words", animations: [{ kind: "show", start: 3 }, { kind: "hide", start: 6 }] }, video("board-s3", "/api/media/a.mp4", 6, 2, 2)] };
+  const drawnDocument = { ...document, board: drawnBoard, scenes: [drawnScene] };
+  assert.equal(cueDisagreement(boardPaceFacts({ document: drawnDocument, shape, media: { nameOf }, music, spine }).shows,
+    sceneCueShows({ scene: drawnScene, music, shape, media: { nameOf }, document: drawnDocument, story: boardStoryCues(builtBoard(drawnBoard, drawnScene), { spine }) })), null, "a drawn shot built as a card agrees with its board shot");
   // check reads the story's times off the layers compose built: board-s3 starts at 4.5 s after a later edit.
   const moved = { ...scene, layers: scene.layers.map((layer) => (layer.id === "board-s3" ? { ...layer, mediaStart: 4.5, mediaDuration: 3.5 } : layer)) };
   assert.deepEqual(boardStoryCues(builtBoard(board, moved), { spine }), [{ at: 4.5, kind: "payoff beat, the longest shot (3.5 s)" }]);

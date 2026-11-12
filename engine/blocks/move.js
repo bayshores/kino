@@ -404,16 +404,17 @@ export function runMove(definition, options) {
       // A card the move carries out stays until the move hides it: a hold that ends while the move
       // still runs (a hide step of the card's own inside the move) is shown again at that time. The
       // show is named after the move's hide, so two layers the move carries out (carry's riders) keep apart.
-      // The show names the hold it keeps (keeps), when the move starts (since) and the move's hide
-      // (until), so a hold edited later still counts only while it falls inside the move
-      // (visibilityOps.js): shortened to before the move, the card goes at its new hold.
+      // The show names the hold it keeps (keeps), the move's hide (until) and how long before that
+      // hide the move starts (lead, so a retime that moves both keeps them together), so a hold
+      // edited later still counts only while it falls inside the move (visibilityOps.js):
+      // shortened to before the move, the card goes at its new hold.
       if (role === "from" && animation.kind === "hide") {
         const own = enabledAnimations(ctx.layer(target).animations);
         const holds = own.filter((step) => step?.kind === "hide" && step.start >= ctx.start - 1e-6 && step.start < animation.start - 1e-6);
         holds.forEach((step, index) => {
           const keep = `${animationId}-keep${holds.length > 1 ? index + 1 : ""}`;
           keys.add(keep);
-          animations.push({ layerId: target, animation: { id: keep, name: "Show", kind: "show", start: step.start, keeps: step.id, since: round(ctx.start), until: animationId } });
+          animations.push({ layerId: target, animation: { id: keep, name: "Show", kind: "show", start: step.start, keeps: step.id, until: animationId, lead: round(animation.start - ctx.start) } });
         });
         // The card's own fade-out that ends at a kept hold would play inside the move (the card is
         // shown again at opacity 0). It is held at its full opacity until the move takes the card off:
