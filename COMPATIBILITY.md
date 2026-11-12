@@ -1142,6 +1142,11 @@ How to read it:
   logo-sized and near an edge (the finder scan's rule); screen recordings are skipped; a 9:16 window is tested.
   Evidence: `engine/qualityRules.test.js` (burnedTextFacts, burned_text), `backend/measure-vision.test.mjs`
   (reader stubbed). Gap: a Mac only; the import answer and the finder scan do not print it yet.
+- **Static overlays on any clip** (look source): Measured on 30 round-5 clips. Edges that hold still while the
+  picture behind changes are boxed without reading letters (320 px gray, any system); a translucent channel
+  mark read as text "none" is now named (8-29% across, 77-94% down, 7 of 7 frames). Evidence:
+  `backend/measure-vision.test.mjs` (synthetic frames, reader stubbed). Gap: found on 6 of 14 clips that carry
+  the mark, about 7 of 15 boxes are not marks; check, the sliver after crop and a cover fill do not use it.
 - **Dark shots kept**: Stub-verified. A scan tags a dark shot "dark" (its line says `light N`) and keeps its rank.
   Evidence: `backend/footage-finder.test.mjs`.
 - **Shot facts and narrowing**: Stub-verified; the saliency measure run once on a lavfi clip. Each scanned
