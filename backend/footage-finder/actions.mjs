@@ -669,9 +669,9 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     // After this scan: someone else's edit says so once; and when fewer than half of the last search is scanned, how many.
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
     return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard, view), elsewhereLine(candidate, known), scannedLine(listed, known)]),
-      data: { code: candidate.code, id, ...(view.line ? { listed: view.shots.length } : {}), shots: view.shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => [shot, framingOf(shot)]).map(([{ n, start, end, motion, moving, face, match, flags, says, said: hit, hasSubs, luma, subject, figure }, framing]) => ({ n, start, end, motion, face, match, flags,
+      data: { code: candidate.code, id, ...(view.line ? { listed: view.shots.length } : {}), shots: view.shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => [shot, framingOf(shot)]).map(([{ n, start, end, motion, moving, face, match, flags, says, said: hit, hasSubs, luma, subject, figure, maskCover }, framing]) => ({ n, start, end, motion, face, match, flags,
         ...(Number.isFinite(luma) ? { light: Math.round(luma * 255) } : {}), ...(subject ? { subject } : {}),
-        ...(moving ? { moving } : {}), ...(figure ? { figure: { box: figure.box, by: figure.by ?? "body" } } : {}),
+        ...(moving ? { moving } : {}), ...(figure ? { figure: { box: figure.box, by: figure.by ?? "body" } } : figure === null && Number.isFinite(maskCover) ? { maskCover } : {}),
         ...(framing ? { scale: framing.scale, height: Math.round(framing.height * 100), room: Math.round(framing.room * 100) } : {}),
         ...(says ? { says } : {}), ...(hit ? { said: true } : {}), ...(hasSubs ? { hasSubs: true } : {}) })), matchShown: Boolean(result.matchShown),
         ...(result.marks?.length ? { logo: markPlaces(result.marks), marks: result.marks.map(({ where, box }) => ({ where, box })) } : {}), ...(result.drawn ? { drawn: true } : {}), ...(song ? { song } : {}),

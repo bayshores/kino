@@ -1070,8 +1070,10 @@ How to read it:
   clips, the mask boxes something on 78 of 79 frames read. A shot kept from an older scan, or one
   shorter than the 0.5 s between figure reads, is counted as unmeasured for `figure`, never as "no figure". The mask
   runs only on frames where the body detector found nobody, and gives its pixel share: a mask over 75% of the picture
-  (a guess: 0.79 on the one opening frame with no figure, 0.11 to 0.67 on real figures, 5 clips) reads
-  `no figure read (mask covers 79% of the picture)`; `data.figure` is `{box, by: body|mask}`. Gap: legs-on-stairs
+  (a guess: 0.79 on the one opening frame with no figure, 0.11 to 0.65 on real figures, 5 clips; median over the
+  frames it found something) reads `no figure read (mask covers 79% of the picture)`, with `maskCover` in data;
+  `data.figure` is `{box, by: body|mask}`. On a live clip the skip saved the mask on 6 of 20 frames, no measurable
+  time (1.32 to 1.39 s before, 1.37 to 1.38 s after). Gap: legs-on-stairs
   shots still read `medium` (the mask boxes the stairs), and a very close drawn face reads `medium` (Vision found a
   face on 0 of 79 drawn frames; the drawn-face model is not in the scan). Evidence: `backend/footage-finder.test.mjs`
   (drawn footage, said lines), `backend/measure-vision.test.mjs` (foreground job).

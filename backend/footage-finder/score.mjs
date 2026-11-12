@@ -264,18 +264,19 @@ function figureOf(samples, key = "people") {
   if (!read.length) return undefined;
   const seen = read.filter((sample) => sample[key].length).length / read.length;
   const figure = seen >= FIGURE_SEEN ? subjectOf(read, key, "figure") : null;
-  // The mask's median share of the picture's pixels (kino-measure's cover), where it was measured.
-  const covers = key === "foreground" ? read.map((sample) => sample.cover).filter(Number.isFinite).sort((a, b) => a - b) : [];
+  // The mask's median share of the picture's pixels (kino-measure's cover), over the frames where it
+  // found something (the same frames the box comes from; an empty frame's 0 is no size).
+  const covers = key === "foreground" ? read.filter((sample) => sample[key].length).map((sample) => sample.cover).filter(Number.isFinite).sort((a, b) => a - b) : [];
   const cover = covers.length ? { cover: round3(covers[Math.floor((covers.length - 1) / 2)]) } : {};
   return figure ? { ...figure, seen: round3(seen), ...cover } : null;
 }
 
 /**
  * A mask covering this share of the picture's pixels or more, with no body found, is read as no
- * figure. A starting guess from the 5 drawn stair clips (2026-11-12): 0.79 on the 0.5 s opening
- * frame with no figure (a round hatch, on 3 clips); 0.26 to 0.34 on figure close-ups, 0.49 to 0.67
- * on a very close face, 0.57 to 0.64 on legs on stairs. One example above the line, so it moves
- * when more drawn clips are measured.
+ * figure. A starting guess from the 5 drawn stair clips (2026-11-12, helper version 6, per frame):
+ * 0.786 to 0.792 on the 0.5 s opening frame with no figure (a round hatch, on 3 clips); 0.28 to
+ * 0.34 on figure close-ups, 0.11 to 0.62 on legs and stairs, 0.51 to 0.65 on a very close face.
+ * One example above the line, so it moves when more drawn clips are measured.
  */
 export const MASK_NO_FIGURE = 0.75;
 

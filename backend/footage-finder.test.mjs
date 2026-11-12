@@ -435,9 +435,10 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     if (shot === 11) text.push({ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" });
     // The body detector finds nobody on the drawings; the subject mask boxes a small figure on 3 of
     // shot 6's 4 frames.
-    // Shot 1's mask covers 79% of the picture (an opening frame with no figure, measured on 3 drawn clips).
-    const foreground = shot === 6 && k < 3 ? [[0.348, 0.515, 0.079, 0.411]] : shot === 1 ? [[0.123, 0, 0.877, 1]] : [];
-    const cover = shot === 6 && k < 3 ? 0.02 : shot === 1 ? 0.79 : 0;
+    // Shot 1's mask covers 79% of the picture on 2 of its 4 frames and finds nothing on the others
+    // (an opening frame with no figure, measured on 3 drawn clips): the empty frames are no size.
+    const foreground = shot === 6 && k < 3 ? [[0.348, 0.515, 0.079, 0.411]] : shot === 1 && k < 2 ? [[0.123, 0, 0.877, 1]] : [];
+    const cover = shot === 6 && k < 3 ? 0.02 : shot === 1 && k < 2 ? 0.79 : 0;
     return { t: index / 4, luma: 0.5, change: 0.1, motion: null, faces: shot === 5 ? [[0.4, 0.3, 0.2, 0.3]] : [], people: [], foreground, cover, text };
   });
   const tools = {
@@ -1575,7 +1576,7 @@ const SAID_LINES = [{ start: 1, end: 2.5, text: "All right, so here we are" }, {
 const saidFinder = (captions) => ({
   readScan: async () => null,
   scan: async (_candidate, options) => ({ want: options.want, windows: [{ start: 0, end: 40 }], matchShown: false, skipped: {},
-    shots: [{ n: 1, start: 0, end: 3, motion: 50, face: 10, flags: [] }, { n: 2, start: 5, end: 7.5, motion: 60, face: 20, flags: ["subtitles"] }, { n: 3, start: 30, end: 32, motion: 70, face: 0, flags: [], figure: { box: [0.3, 0.5, 0.1, 0.4], share: 0.04, seen: 1, by: "mask" } }] }),
+    shots: [{ n: 1, start: 0, end: 3, motion: 50, face: 10, flags: [], figure: null, maskCover: 79 }, { n: 2, start: 5, end: 7.5, motion: 60, face: 20, flags: ["subtitles"] }, { n: 3, start: 30, end: 32, motion: 70, face: 0, flags: [], figure: { box: [0.3, 0.5, 0.1, 0.4], share: 0.04, seen: 1, by: "mask" } }] }),
   captions: async () => captions,
 });
 
@@ -1583,12 +1584,14 @@ test("a scan prints what each shot says and the Lines list; said:\"words\" puts 
   const footage = addCandidates(null, [found(1)]);
   const actions = createFootageActions({ finder: saidFinder({ lang: "en", auto: true, lines: SAID_LINES }) });
   const plain = await actions.handle({ scan: "F1" }, { footage, personClips: 0 });
-  assert.match(plain.text, /^F1\.1 0:00\.0-0:03\.0 3\.0s motion 50 face 10 says: "All right, so here we are"$/m);
+  assert.match(plain.text, /^F1\.1 0:00\.0-0:03\.0 3\.0s motion 50 face 10 no figure read \(mask covers 79% of the picture\) says: "All right, so here we are"$/m);
   assert.match(plain.text, /^F1\.2 0:05\.0-0:07\.5 2\.5s motion 60 face 20 subtitles says: "I will protect them all"$/m);
   assert.match(plain.text, /^Lines \(en, auto captions\):\n0:01 "All right, so here we are" \(F1\.1\)\n0:05 "I will protect them all" \(F1\.2\)$/m);
   assert.deepEqual(plain.nextCall, { tool: "project", input: { action: "import", file: "F1", options: { shots: [1, 3] } } });
   // data.figure says which measure found it (body or mask).
   assert.deepEqual(plain.data.shots.find((shot) => shot.n === 3).figure, { box: [0.3, 0.5, 0.1, 0.4], by: "mask" });
+  // A mask too large to be a figure: data gives its size beside no figure, as the line does.
+  assert.equal(plain.data.shots.find((shot) => shot.n === 1).maskCover, 79);
   const asked = await actions.handle({ scan: "F1", said: "protect them" }, { footage, personClips: 0 });
   assert.match(asked.text, /^F1\.2 0:05\.0-0:07\.5 2\.5s motion 60 face 20 has subtitles says: "I will protect them all"$/m);
   assert.ok(asked.text.indexOf("F1.2 ") < asked.text.indexOf("F1.1 "), asked.text);
