@@ -12,9 +12,10 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
   time form (`1.2`, `"cue:drop"`, `"after:title.in"`). Layer fields take top-level layers or
   groups (a layer alone in a group means the group).
 - `library {topic:"moves", name?}` lists the moves, or one's fields and example.
-- The receipt says when it plays, the layers it made (`<id>-<part>`) and which of yours it
-  animates. Its id is the move's name (`-2` for a second).
-- The same id, or the same layers and time sent again, replaces it; `{name, id, remove:true}` removes it. Never edit its parts.
+- The receipt says when it plays, the layers it made, which of yours it animates. Its id is its
+  name (`-2` at another time: the receipt has the call to move the first).
+- The same id, or layers and time, replaces it; `{name, id, remove:true}` removes it. Never
+  edit its parts.
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 

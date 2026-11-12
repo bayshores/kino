@@ -31,7 +31,7 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
 - `edge-lines` draws line art of a layer's picture: a line (`color`, `width` 3) wherever the
   brightness jumps. `threshold` 0.05 (lower finds fainter edges), `smooth` 1; the picture stays
   under, dimmed by `dim` 0.7 (no grade needed; a dark one before it hides the edges); `adapt` 1
-  lifts the dark end and lowers the threshold to 30%, so a dark clip still gets lines (0 is the plain threshold); the line is white unless `color` is set;
+  lifts the dark end and lowers the threshold to 60%, so a dark clip still gets lines (0 is the plain threshold); the line is white unless `color` is set;
   `background:"transparent"` draws the lines alone. One subject's edge as a
   vector path to stroke, neon or draw on: `cut_out` with `output:"outline"` (`color`, `width`, `step`,
   `detail`), a path layer that follows the subject frame by frame.

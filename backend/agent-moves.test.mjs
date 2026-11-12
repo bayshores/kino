@@ -158,12 +158,17 @@ test("a move sent again with the same layer and time replaces the first and the 
   assert.equal(again.isError, undefined, again.text);
   assert.match(again.text, /move rgb-split-hit \(replaced: the same move on the same layers at the same time\)/);
   assert.deepEqual(await ids(), ["rgb-split-hit"]);
-  assert.equal((await send(2.5)).isError, undefined);
+  const later = await send(2.5);
+  assert.equal(later.isError, undefined, later.text);
   assert.deepEqual(await ids(), ["rgb-split-hit", "rgb-split-hit-2"]);
-  // The receipt names the layers a move made.
-  const roll = await api.agent("resend", "edit", { ops: [{ op: "move", name: "roll", id: "words", items: ["a", "b"], at: 0.2 }] });
+  // The receipt names the first copy and the call that moves it instead (ceiling study a meant to move it).
+  assert.match(later.text, /rgb-split-hit on the same layers stays at 1 \(to move it instead: \{op:\\?"move\\?", name:\\?"rgb-split-hit\\?", id:\\?"rgb-split-hit\\?", at:2\.5\}/);
+  // The receipt names the layers a move made; a move with no layer field is never taken for a repeat.
+  const roll = await api.agent("resend", "edit", { ops: [{ op: "move", name: "roll", items: ["a", "b"], at: 0.2 }] });
   assert.equal(roll.isError, undefined, roll.text);
-  assert.match(roll.text, /\d+ new layers? \(words-item1/);
+  assert.match(roll.text, /\d+ new layers? \(roll-item1/);
+  await api.agent("resend", "edit", { ops: [{ op: "move", name: "roll", items: ["c", "d"], at: 0.2 }] });
+  assert.ok((await ids()).includes("roll-2"), "a second roll at the same time is its own move");
 });
 
 test("the skill's moves example runs as written and passes every gate", { timeout: 120_000 }, async () => {

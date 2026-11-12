@@ -26,6 +26,7 @@ import { shotsNeeded } from "../footage-finder/needs.mjs";
 import { SAYS_MIN_SECONDS, saysOf } from "../footage-finder/words.mjs";
 import { captionSpoilers, captionWindows, directionMiss, viewerBarProtocol, SHOW_FIRST, heardLines, heardText, musicSections, openStoryBugs, parseIntents, parseViewer, VIEWER_PER_SHEET, VIEWER_PROTOCOL, VIEWER_RECENT, VIEWER_ROUNDS, VIEWER_TILE, VIEWER_UNDER, VIEWER_WAIVER, SPOILER_WAIVER, viewerGap, viewerRounds, viewerTimes, writePacket } from "./viewer.mjs";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
+import { EFFECTS, isUnchangedAtOne } from "../../engine/effects/catalog.js";
 import { applyOperations } from "../../engine/operations.js";
 import { MUSIC_CUE_KINDS } from "../../engine/qualityFields.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../../engine/model.js";
@@ -419,7 +420,11 @@ function effectSettingRetry(type, operation, error) {
   if (type !== "add_animation" || typeof operation?.effect !== "string" || !parameters || typeof parameters !== "object" || Array.isArray(parameters)) return undefined;
   const name = /\bparameters\.(\w+)/.exec(error instanceof Error ? error.message : String(error))?.[1];
   if (!name || !Object.hasOwn(parameters, name)) return undefined;
-  const { [name]: _refused, ...kept } = parameters;
+  const { [name]: refused, ...kept } = parameters;
+  // A negative number on a "1 = unchanged" setting (saturation -0.7, ceiling study c) is a
+  // relative change: the retry keeps it as the text "-0.7", which reads as 0.3, instead of dropping it.
+  const field = EFFECTS.find((effect) => effect.key === operation.effect)?.parameters[name];
+  if (typeof refused === "number" && refused < 0 && refused > -1 && isUnchangedAtOne(field)) return { ...operation, parameters: { ...kept, [name]: String(refused) } };
   return { ...operation, parameters: kept };
 }
 

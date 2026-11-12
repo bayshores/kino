@@ -789,7 +789,7 @@ function effectKeyOf(word) {
 }
 
 // effect:"bloom" → glow (named in fixed); an unknown or unclear name is refused with suggestions.
-function fixEffectName(word, fixes, field, layer) {
+function fixEffectName(word, fixes, field, layer, given) {
   const key = effectKeyOf(word);
   if (key) {
     if (key !== word) fixes.push(`${field} ${quote(word)} → ${key}`);
@@ -804,8 +804,12 @@ function fixEffectName(word, fixes, field, layer) {
   // The settings of the first suggestion where 1 is unchanged, so 0.5 is not sent as "half a stop".
   const ones = first && !choice ? Object.entries(first.parameters).filter(([, field]) => isUnchangedAtOne(field)).map(([name]) => name) : [];
   const fields = ones.length ? ` In ${first.key}, ${ones.join(", ")}: 1 = unchanged.` : "";
+  // The settings the op sent that the first suggestion has (effect:"brightness" with
+  // {brightness:1.3}) ride along in the ready call, so the retry does what was asked.
+  const kept = first && isRecord(given) ? Object.fromEntries(Object.entries(given).filter(([name]) => Object.hasOwn(first.parameters, name))) : {};
+  const parameters = choice?.parameters ?? (Object.keys(kept).length ? kept : undefined);
   throw mistake(choice?.message ?? `unknown effect ${quote(word)}. Did you mean ${suggestions.join(", ")}?${fields}${fields ? "" : ' library {topic:"effects"} lists them all.'}`,
-    { op: "add_animation", layer, effect: suggestions[0], ...(choice?.parameters ? { parameters: choice.parameters } : {}) }, suggestions);
+    { op: "add_animation", layer, effect: suggestions[0], ...(parameters ? { parameters } : {}) }, suggestions);
 }
 
 // The receipt says in plain words what a "1 = unchanged" setting did (exposure 0.5: half as
@@ -881,7 +885,7 @@ function fixAddAnimation(operation, fixes, { layerRef, resolver }) {
   fixEase(operation, fixes, "");
   // The name the op gives ({name:"Push", from, to}) is the animation's name too, not only its ID.
   const givenName = typeof operation.name === "string" && operation.name.trim() ? operation.name : undefined;
-  if (typeof operation.effect === "string") operation.effect = fixEffectName(operation.effect, fixes, "effect", layer);
+  if (typeof operation.effect === "string") operation.effect = fixEffectName(operation.effect, fixes, "effect", layer, operation.parameters);
   if (typeof operation.preset === "string" && operation.preset.startsWith("effect:")) {
     const key = fixEffectName(operation.preset.slice("effect:".length), [], "effect", layer);
     if (`effect:${key}` !== operation.preset) fixes.push(`preset ${quote(operation.preset)} → effect:${key}`);

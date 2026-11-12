@@ -252,6 +252,13 @@ test("any other mistake is refused with one short example that works", { timeout
   // set the title's color and size, which nobody asked for).
   const unknown = await agent("edit", { project: "refused", ops: [{ op: "update_layer", layer: "box", properties: { x: 250, glowiness: 3 } }], dry_run: true });
   assert.deepEqual(unknown.data.example, { op: "update_layer", layer: "box", properties: { x: 250 } });
+  // A guessed effect name keeps the settings the real effect has; a negative "1 = unchanged"
+  // setting comes back as its relative text, which is taken (ceiling studies a and c).
+  const guessed = await agent("edit", { project: "refused", ops: [{ op: "add_animation", layer: "box", effect: "brightness", parameters: { brightness: 1.3 } }], dry_run: true });
+  assert.deepEqual(guessed.data.example, { op: "add_animation", layer: "box", effect: "color-grade", parameters: { brightness: 1.3 } });
+  const negative = await agent("edit", { project: "refused", ops: [{ op: "add_animation", layer: "box", effect: "hue-saturation", parameters: { saturation: -0.7 } }], dry_run: true });
+  assert.deepEqual(negative.data.example.parameters, { saturation: "-0.7" });
+  assert.equal((await agent("edit", { project: "refused", ops: [negative.data.example], dry_run: true })).isError, undefined);
 });
 
 test("update_layer cannot clear a media layer's src; other layers and other fields are not affected", async () => {

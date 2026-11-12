@@ -207,7 +207,7 @@ test("edge lines: a line on the contour of a gray square, nothing on its flat pa
 
 test("edge lines adapt: a step between two dark grays gets a line on a new effect, none with adapt 0 (as saved before)", async () => {
   const size = 120;
-  const dark = `<rect width="${size}" height="${size}" fill="#050505"/>` + SQUARE("#0C0C0C");
+  const dark = `<rect width="${size}" height="${size}" fill="#050505"/>` + SQUARE("#101010");
   const lines = (parameters) => draw(renderEdgeLines, { ...effectDefaults("edge-lines"), color: "#00FF00", background: "transparent", ...parameters }, { width: size, height: size, content: dark });
   const edge = (picture) => Math.max(...[48, 49, 50, 51].map((x) => picture.pixel(x, 60)[3]));
   assert.equal(edge(await lines({})), 0, "an old effect (no adapt) finds nothing in a step this dark");
