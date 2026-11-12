@@ -18,6 +18,7 @@ import { EASINGS, lowpassSampler, PRESETS, speedAnimations } from "../../engine/
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, needState, NEEDS_WAIVER, openNeeds, parseNeedItems } from "./needs.mjs";
 import { LIBRARY_TOPICS, NOTES_ACTIONS } from "./actions.mjs";
 import { createFootageActions, FootageError, FOOTAGE_RESULT_KEEP_MS, FOOTAGE_TOPIC_LINE, FOOTAGE_WAIT_MS, isFoundClip, parseRef as parseFootageRef, personClipCount, personClipsLine, scanIdOf } from "../footage-finder/actions.mjs";
+import { elsewhereLine, knownEdits, withStudies } from "../footage-finder/search.mjs";
 import { importedSeconds, planTake, takeText } from "../footage-finder/take.mjs";
 import { footageSheet, foundClipTag, groupClips, groupLine, GROUP_TILES_MOST } from "../footage-finder/sheet.mjs";
 import { FOOTAGE_WAIVER, footageLed, footageStepOn } from "../footage-finder/step.mjs";
@@ -6709,6 +6710,15 @@ export function createAgentService(deps) {
 
   // library {topic:"footage"}: the project's found videos (search, scan, note). The answer's
   // update is applied to the saved footage state inside the call's own state update.
+  // What this project's inspire already holds (results, saved references, measured patches), so the
+  // footage answers can flag a candidate that is someone else's edit (footage-finder/search.mjs). Null when unknown.
+  // study(id) reads any video's stored study (no measuring starts), for a patch that stays in place.
+  async function footageKnown(projectId) {
+    const view = await deps.inspire?.projectView?.(projectId).catch(() => null);
+    const study = deps.inspire?.reference ? async (id) => (await deps.inspire.reference(id))?.measuredDoubt ?? "" : null;
+    return view ? knownEdits(view, study) : null;
+  }
+
   async function footage(input) {
     if (!footageActions) throw new AgentError("failed", "The footage finder is not available here.");
     if (byYou()) throw new AgentError("chat_only", "The agent searches and scans footage.");
@@ -6721,7 +6731,8 @@ export function createAgentService(deps) {
     const personClips = personClipCount(record.document, media);
     const word = state.origin?.words?.[0]?.word;
     const origin = word && !personClips ? { word, about: state.brief?.fields?.about?.quote ?? state.brief?.fields?.about?.text ?? "" } : null;
-    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song })); }
+    const known = await footageKnown(projectId);
+    try { reply = await footageOrigin.run(origin, () => footageActions.handle(input, { footage: state.footage ?? null, personClips, song, known })); }
     catch (error) {
       if (!(error instanceof FootageError)) throw error;
       throw Object.assign(new AgentError(error.code, error.message), error.nextCall ? { nextCall: error.nextCall } : {});
@@ -6832,7 +6843,7 @@ export function createAgentService(deps) {
     const lead = personClipsLine(personClipCount(record.document, media));
     // The first footage settles the frame shape (no video layer yet, the person named none).
     const shaped = await shapeAtImport(projectId).catch(() => "");
-    const answer = { text: [lead, takeText(candidate, result), shaped].filter(Boolean).join("\n"),
+    const answer = { text: [lead, takeText(candidate, result), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed },
       nextCall: nextOf("look", { mode: "source" }) };
     return done(projectId, answer);
