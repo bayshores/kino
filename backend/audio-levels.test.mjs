@@ -468,7 +468,7 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   assert.doesNotMatch(kept.text, /mix fix:/);
 });
 
-test("check fix:auto turns the layers playing at each limiter place down over that place only", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
+test("check fix:auto turns the layer that makes each limiter place's peak down over that place only", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
   const server = await startTestServer();
   t.after(() => server.stop());
   const client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "mix-fix-test" });
@@ -494,14 +494,16 @@ test("check fix:auto turns the layers playing at each limiter place down over th
   const fixed = await agent("check", { project, pixels: false, fix: "auto" });
   const receipt = fixed.text.split("\n").find((line) => line.startsWith("mix fix: "));
   t.diagnostic(receipt);
-  assert.match(receipt, /^mix fix: the limiter works at 1 -> 0 places \(most [\d.]+ -> 0 dB over\); -[\d.]+ -> -[\d.]+ LUFS, true peak \+[\d.]+ -> -1\.\d dBTP with loudness "off"/);
-  assert.match(fixed.text, /fixed mix 2 s \(2-2\.2 s, [\d.]+ dB over\) x0\.\d+: Song 1->0\.\d+, Voice 1->0\.\d+/);
+  assert.match(receipt, /^mix fix: the limiter works at 1 -> 0 places \(most [\d.]+ -> 0 dB over\); -[\d.]+ -> -[\d.]+ LUFS, true peak \+[\d.]+ -> -[12]\.\d dBTP with loudness "off".*; places: 2 s Voice x0\.\d+: \+[\d.]+ -> -[\d.]+ dBFS$/);
+  // Measured alone, the burst (Voice, about -3 dBFS) makes the peak, not the song (about -9 dBFS): only the voice comes down.
+  assert.match(fixed.text, /fixed mix 2 s \(2-2\.2 s, [\d.]+ dB over\): Voice x0\.\d+ 1->0\.\d+ \(alone -[\d.]+ dBFS\); kept Song \(alone -[\d.]+ dBFS\)/);
   assert.match(mixLine(fixed), /the limiter \(ceiling -1\.5 dBFS\) never works/);
-  // Only the burst's span changed: the song keeps volume 1 and dips over 1.95-2.25 s.
+  // Only the burst's span changed: the voice keeps volume 1 and dips over 1.95-2.25 s; the song is untouched.
   const layers = (await (await server.api(`/api/projects/${project}`)).json()).document.scenes[0].layers;
-  const songLayer = layers.find((layer) => layer.name === "Song");
-  assert.equal(songLayer.volume, 1);
-  assert.deepEqual(songLayer.animations.map((animation) => [animation.name, animation.start, animation.duration, animation.from.volume]), [["Peak down", 1.95, 0.05, 1], ["Peak up", 2.2, 0.05, songLayer.animations[0].to.volume]]);
+  const [songLayer, voiceLayer] = ["Song", "Voice"].map((name) => layers.find((layer) => layer.name === name));
+  assert.deepEqual([songLayer.volume, songLayer.animations.length], [1, 0]);
+  assert.equal(voiceLayer.volume, 1);
+  assert.deepEqual(voiceLayer.animations.map((animation) => [animation.name, animation.start, animation.duration, animation.from.volume]), [["Peak down", 1.95, 0.05, 1], ["Peak up", 2.2, 0.05, voiceLayer.animations[0].to.volume]]);
 });
 
 test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky one quieter, naming the peak", { skip: skipWithoutMediaTools, timeout: 120_000 }, async (t) => {

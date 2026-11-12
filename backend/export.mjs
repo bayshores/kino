@@ -22,7 +22,7 @@ import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTIO
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectMotion, inspectRenderedOutput } from "./render-output-audit.mjs";
 import { cuts as modelCuts } from "../engine/quality/analysis.js";
-import { LIMITER_CEILING_DB, PEAK_METER, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, readPeakWindows } from "./audio-levels.mjs";
+import { LIMITER_CEILING_DB, PEAK_METER, PEAK_WINDOWS, fitLoudness, limiterPlaces, loudMixWarning, loudnessGain, masterLimiter, measureMixLevels, mixLead, peakOver, readPeakWindows } from "./audio-levels.mjs";
 import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
@@ -972,8 +972,10 @@ export async function soundCurve(clips, duration, signal) {
  * with sceneSoundClips lead: true name their songs and words): { target, targetLufs, gainDb, held,
  * places, worst } (worst: the place most over the ceiling after that gain), or null when no gain applies.
  * The gain is its first trial's; a render corrects it by a few tenths of a dB when the limiter gives some back.
+ * `windows` are the mix's 0.1 s peaks ([{t, peak}], dBFS). With perLayer, each playing entry at a
+ * place shared by two or more layers gets peakDbfs: that layer's own peak over the place, alone.
  */
-export async function measureMixPeaks(clips, duration, signal) {
+export async function measureMixPeaks(clips, duration, signal, { perLayer = false } = {}) {
   const heard = audibleClips(clips, duration);
   if (!heard.length) return null;
   const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
@@ -982,6 +984,20 @@ export async function measureMixPeaks(clips, duration, signal) {
   const places = limiterPlaces(windows).map((place) => ({ ...place,
     playing: heard.filter((clip) => clip.start < place.at + 0.1 && clip.end > place.at)
       .map((clip) => ({ name: clip.name, layerId: clip.layerId, volume: clip.volumeTrack ? trackVolumeAt(clip, place.at) : clip.volume })) }));
+  // perLayer: each layer playing at a place with another one is measured alone (one FFmpeg run per
+  // layer, only up to the last place), so check {fix:"auto"} turns down the one that makes the peak.
+  if (perLayer) {
+    const shared = new Set(places.filter((place) => new Set(place.playing.map((clip) => clip.layerId)).size > 1)
+      .flatMap((place) => place.playing.map((clip) => clip.layerId)));
+    const until = Math.min(duration, Math.max(0, ...places.map((place) => place.to)) + 0.1);
+    for (const layerId of shared) {
+      const own = await measurePeakWindows(heard.filter((clip) => clip.layerId === layerId), until, signal);
+      for (const place of places) {
+        const peak = peakOver(own, place.from, place.to);
+        for (const clip of place.playing) if (clip.layerId === layerId) clip.peakDbfs = peak;
+      }
+    }
+  }
   const lead = await autoLoudness(heard, duration, 0, signal);
   const gain = loudnessGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, 0, lead.targetLufs);
   let auto = null;
@@ -992,7 +1008,20 @@ export async function measureMixPeaks(clips, duration, signal) {
     auto = { target: gain.target, targetLufs: gain.targetLufs, gainDb: gain.gainDb, held: gain.held, places: shifted.length,
       worst: worst ? { at: worst.at, overDb: worst.overDb } : null };
   }
-  return { integratedLufs, truePeakDbtp, places, auto };
+  return { integratedLufs, truePeakDbtp, places, auto, windows };
+}
+
+/**
+ * The peak (dBFS, the limiter's 192 kHz copy) of each 0.1 s of the mix of `clips` (from
+ * sceneSoundClips) over the first `duration` seconds: [{t, peak}], silent windows left out. One
+ * FFmpeg run that writes nothing; [] when nothing is heard.
+ */
+export async function measurePeakWindows(clips, duration, signal) {
+  const heard = audibleClips(clips, duration);
+  if (!heard.length) return [];
+  const printed = await runProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", ...audioInputArgs(heard),
+    "-filter_complex", `${audioMixGraph(heard, duration, "mp4", 0)},${PEAK_WINDOWS}`, "-f", "null", "-"], signal);
+  return readPeakWindows(printed).windows;
 }
 
 // `frameTimes` are the output frames' times; `samples` the times their pictures are drawn at, with
