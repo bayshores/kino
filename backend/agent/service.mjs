@@ -8285,7 +8285,14 @@ export function createAgentService(deps) {
       const referenceFrame = async (id, t) => {
         const kept = await deps.inspire?.stripsFor?.(id);
         if (!kept) throw new AgentError("not_ready", `${id} has no frame strips: library {topic:"inspire", name:"${id}"} adds and measures it.`);
-        return referenceStripFrame(kept.folder, kept.strips, Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0);
+        // The kept still (640 px wide) when one sits within 0.1 s of t, else the strip frame (240 px):
+        // letters measured on the larger picture keep more of their strokes.
+        const still = Number.isFinite(t) && kept.stills?.length ? kept.stills.reduce((best, item) => (Math.abs(item.at - t) < Math.abs(best.at - t) ? item : best)) : null;
+        if (still && Math.abs(still.at - t) <= 0.1) {
+          try { return { bytes: await readFile(path.join(kept.stillsFolder, still.file)), at: still.at, kind: "still" }; } catch { /* fall back to the strip */ }
+        }
+        const at = Number.isFinite(t) ? t : kept.strips[0]?.at ?? 0;
+        return { bytes: await referenceStripFrame(kept.folder, kept.strips, at), at, kind: Number.isFinite(t) ? "strip frame" : "first strip frame, t left out" };
       };
       // Facts beside a face in the ranking (the face stays listed): turned down by the person (the style's
       // rejected texts that name it) or already the type of another project (house memory, type_seen's data).

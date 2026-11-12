@@ -394,7 +394,7 @@ How to read it:
 - **Look words reach a maker**: Verified. Search maps vignette, edges, rim, streak, depth of field, grain, neon, scrawl, brush, typed and highlight to the effect, move or font help that makes them; letterbox bars and lightning say they are built from shapes. Evidence: `backend/agent-answers.test.mjs`, `backend/agent-inspire.test.mjs`.
 - **Font class and script search**: Verified. `library {topic:"fonts", search:"brush"}` (also marker, handwritten, scrawl, stencil, slab, blackletter, a script such as japanese) answers from catalog categories, subsets and name parts, alone or combined. Evidence: `backend/agent-fonts.test.mjs`.
 - **Font shape words**: Verified. rounded, geometric, pixel, dot matrix, wide and square rank a fonts search instead of being ignored. Evidence: `backend/agent-fonts.test.mjs`.
-- **Font match from a picture**: Verified. `library {topic:"fonts", like:"<picture>", region:[x,y,w,h]}` measures the lettering and ranks faces by drawn-letter measures; default_font's fix names it. Evidence: `backend/agent-fonts.test.mjs`, `engine/qualityRules.test.js`.
+- **Font match from a picture**: Verified. `library {topic:"fonts", like:"<picture>", region:[x,y,w,h]}` measures the lettering and ranks faces by drawn-letter measures; default_font's fix names it. Each face prints weight, width, contrast and stance against the reference's; script faces rank first only for leaning letters; the box names its frame (640 px still near t, else strip frame) and says when letters are under 24 px, which then rank on width, corners, rough edges and dots only. Evidence: `backend/agent-fonts.test.mjs`, `engine/qualityRules.test.js`.
 - **Fonts from saved type labels**: Test-verified, no network. `library {topic:"fonts"}` with no `like` runs the picture match on the saved type labels first and lists those faces before the catalog; a type label may sit at any second inside the reference (kept at 0.1 s, read from the nearest kept frame). Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-brief.test.mjs`. Gap: no true frame grab at an off-list second; whole frame unless a region is passed.
 - **Named font family kept**: Verified. A family named beside a category or weight word ("Anton condensed bold", "Bebas Neue bold") is listed first, not ignored; one plain word ("big") names a family only when it is the whole name. Evidence: `backend/agent-fonts.test.mjs`.
 - **Guessed type size is information**: Verified. A `style.fonts` size the person's quote does not name (an approval such as "looks good" names none) is reported by `role_font_drift` as info for display and label text; captions keep their own most used size. Evidence: `engine/qualityRules.test.js`, `backend/agent-deck.test.mjs`.
@@ -899,7 +899,10 @@ How to read it:
 - **Type material**: Verified. A text layer's `material {wear, texture, print}` (seeded edge wear, grain/brush/crackle/halftone
   inside the letters, a misregistered second print) draws on the glyph outlines in the export renderer: wear 0.5 removes 24-26% of
   Inter 700's pixels, seeds differ, amount 0 is the same SVG, letters animated apart with outside strokes match the whole word
-  within 5% (backend/type-material.test.mjs). Gaps: no image fill, no label-measured start, contrast reads the fill not the texture.
+  within 5% (backend/type-material.test.mjs). Shorthands (wear:0.6, texture:"crackle", print:"#hex"); a print with no offset takes
+  0.05,0.03 of the size; a texture with no color follows the fill (white on a dark fill); the edit notes print each part's sizes
+  and that color with guesses marked (replay dm5-a KILL YOU, 240 px). Gaps: no image
+  fill, no label-measured start, contrast reads the fill not the texture.
 - **backdrop-flash**: Verified. One move puts a color field (auto hue from the shot's grade or picture, turned -35°,
   streaks, subject tone, rim-light, punch 1.06) between a clip and its subject on frames [1,1,0,1]; the edit makes or
   reuses the cut_out itself, shown on those frames only, and tints the shot where no cut-out can be made

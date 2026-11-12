@@ -32,6 +32,7 @@ import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
 import { withOutlineGlow } from "../../engine/outlineGlow.js";
 import { withSplatter } from "../../engine/splatter.js";
+import { materialWords, normalizeMaterial } from "../../engine/typeMaterial.js";
 import { REPEAT_KEYS } from "../../engine/repeater.js";
 import { MODIFIER_CHOICE_KEYS, MODIFIER_KEYS } from "../../engine/shapeModifiers.js";
 import { bezierFromCss, fixLayerProperties, fixOperation, gradientFromCss, hexFromHsl, isLayerFieldAlias, reshapeOperation, timeFromText } from "./common-mistakes.mjs";
@@ -357,6 +358,25 @@ function splatterShorthand(operation, properties, fixes, resolver, document) {
   return withSplatter(properties, layer ? { width: layer.width, height: layer.height } : null);
 }
 
+// The fill of the layer an update names (a texture color left out follows it), else a new text layer's.
+function layerFill(operation, resolver, document) {
+  if (operation.type === "add_layer") return createLayer("text").fill;
+  let id = null;
+  try { if (typeof operation.layerId === "string") id = resolver.resolve(operation.layerId, "layer"); } catch { /* refused later */ }
+  const layer = id && document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === id);
+  return typeof layer?.fill === "string" ? layer.fill : null;
+}
+
+// A text material on the receipt: what each part draws at the layer's size, with the sizes and the
+// print offset kino filled in printed as starting guesses (type-material topic).
+function materialNote(operation, resolver, document) {
+  const material = operation.properties?.material;
+  if (!material || typeof material !== "object" || !resolver?.notes) return;
+  const fontSize = typeof operation.properties.fontSize === "number" ? operation.properties.fontSize : outlineGlowFontSize(operation, resolver, document) ?? 100;
+  const fill = typeof operation.properties.fill === "string" ? operation.properties.fill : layerFill(operation, resolver, document);
+  try { resolver.notes.push(`material at ${fontSize} px: ${materialWords(normalizeMaterial(material), fontSize, fill)}`); } catch { /* the model check names the bad field */ }
+}
+
 function checkLayerProperties(operation, fixes, resolver, document) {
   let properties = operation.properties;
   if (!LAYER_PROPERTY_OPS.has(operation.type) || !properties || typeof properties !== "object" || Array.isArray(properties)) return;
@@ -367,6 +387,7 @@ function checkLayerProperties(operation, fixes, resolver, document) {
   operation.properties = fixLayerProperties(properties, fixes, { ...layerContext(operation, resolver, document), known: LAYER_PROPERTIES,
     exampleOp: (changes) => sameOpWith(operation, changes) });
   showWindowAsAnimations(operation, fixes, resolver, document);
+  materialNote(operation, resolver, document);
   for (const alias of CORNER_ALIASES) {
     if (properties[alias] === undefined) continue;
     const field = Array.isArray(properties[alias]) ? "cornerRadii" : "radius";

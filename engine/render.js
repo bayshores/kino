@@ -754,7 +754,7 @@ function withMaterial(paths, unit, state, context, { only = null, reach = stroke
   if (!outlined.length) return paths;
   const bounds = mergeBounds(outlined.map(glyphPathBounds).filter(Boolean));
   return drawMaterial(paths, { material: state.material, outline: escapeXml(outlined.map((glyph) => glyphPath(glyph)).join(" ")), bounds,
-    fontSize: finite(state.fontSize, 100), reach, defs: context.defs, id: (kind) => idFor(context, kind), only });
+    fontSize: finite(state.fontSize, 100), fill: state.fill, reach, defs: context.defs, id: (kind) => idFor(context, kind), only });
 }
 
 function glyphPaths(unit, state, context) {
