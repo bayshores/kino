@@ -15,7 +15,7 @@ import { captionSpoilers, captionWindows, directionMiss, heardLines, heardText, 
 import { addNeeds, answerNeed, emptyNeeds, finishNeed, needsCall, needsLine, openNeeds, parseNeedItems } from "./agent/needs.mjs";
 import { unfilledSlot } from "./agent/next-call.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./agent/bar.mjs";
-import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, upLines } from "./agent/critique.mjs";
+import { CRITIQUE_PROTOCOL, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueQuestions, critiqueSpine, critiqueTimes, lineText, openCritique, parseCritique, staleCritique, upLines } from "./agent/critique.mjs";
 import { VIEWER_WAIVERS } from "./agent/translate.mjs";
 import { serviceFor } from "./agent-ask.test.support.mjs";
 import { skipBoardOn } from "./stops.test.support.mjs";
@@ -181,30 +181,15 @@ test("look review: a cut between full-frame plates gets one seam strip, 5 frames
   assert.ok(seams.width > seams.height * 4, `one row of 5: ${seams.width}×${seams.height}`);
 });
 
-test("the review gate: a final render of a whole video is refused until look review covers it, and after an edit only the changed moments are asked for", async () => {
+test("look review folds into the final render: one call renders, its receipt names the moments not reviewed, and a full review clears the note", async () => {
   const id = await project("review-gate");
-  const refused = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
-  assert.equal(refused.isError, true, refused.text);
-  assert.equal(refused.data.error, "review_needed");
-  assert.match(refused.data.reason, /^\d+ of \d+ moments in s1 not reviewed as they are now \(0s first frame, .*look \{mode:"review"\} shows them \(risky ones at full size\)/);
-  assert.deepEqual(nextCallOf(refused), { tool: "look", input: { mode: "review" } }, "the refusal's next call is the review");
-  const draft = await agent("render", { project: id, action: "start", quality: "draft", format: "gif", wait: true });
-  assert.equal(draft.isError, undefined, `drafts are not gated: ${draft.text}`);
-  const still = await agent("render", { project: id, action: "start", quality: "final", format: "png", options: { time: 1 }, wait: true });
-  assert.equal(still.isError, undefined, `stills are not gated: ${still.text}`);
-
-  await reviewAll(id);
-  const allowed = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });
-  assert.equal(allowed.isError, undefined, allowed.text);
-
-  await agent("edit", { project: id, ops: [{ op: "update_layer", layer: "title", properties: { text: "Ship much faster" } }] });
-  const again = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
-  assert.equal(again.isError, true, "an edit makes the changed moments unreviewed");
-  const review = await agent("look", { project: id, mode: "review" });
-  assert.ok(review.data.shown >= 1);
+  const first = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });
+  assert.equal(first.isError, undefined, first.text);
+  assert.match(first.text, /Open notes \(not gates; fix what you agree with and render again\): review: \d+ of \d+ moments in s1 not reviewed as they are now \(0s first frame/);
   await reviewAll(id);
   const after = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });
   assert.equal(after.isError, undefined, after.text);
+  assert.doesNotMatch(after.text, /review: \d+ of/);
 });
 
 test("the review gate: a waiver or a render the person starts in the app goes ahead; a short scene is not gated", async () => {
@@ -476,9 +461,11 @@ test("the viewer gate: a 16 s video with footage needs intents, a packet and a f
   assert.equal(built.isError, undefined, built.text);
   const start = { project: id, action: "start", quality: "final", format: "gif" };
   // No brief: no intents step (the whole scene is one beat), the viewer packet is the next call.
+  // The viewer pass folds into the final render: it renders, and its receipt says the pass is open.
   const noIntents = await agent("render", start);
-  assert.equal(noIntents.data.error, "viewer_needed", noIntents.text);
-  assert.deepEqual(nextCallOf(noIntents), { tool: "look", input: { mode: "viewer" } });
+  assert.equal(noIntents.isError, undefined, noIntents.text);
+  assert.match(noIntents.text, /Open notes \(not gates[^)]*\): viewer: s1: /);
+  await agent("render", { project: id, action: "cancel", job: noIntents.data.job });
   // Intents sent with the packet are saved before it, in one call.
   const packet = await agent("look", { project: id, mode: "viewer", beats: [{ from: 0, to: 8, intent: "the viewer sees the street change color" }, { from: 8, to: 16, intent: "the viewer expects it to keep going" }] });
   assert.equal(packet.isError, undefined, packet.text);
@@ -495,9 +482,8 @@ test("the viewer gate: a 16 s video with footage needs intents, a packet and a f
   const failing = await agent("notes", { project: id, action: "viewer", rev, report, matches: [{ beat: 1, got: "yes" }, { beat: 2, got: "no", note: "nothing suggests more" }] });
   assert.match(failing.text, /1 open story bug:\n {2}@8s beat 2 missed: nothing suggests more/);
   const blocked = await agent("render", start);
-  assert.equal(blocked.data.error, "viewer_needed");
-  assert.match(blocked.data.reason, /open story bug.*Fix them first/);
-  assert.deepEqual(nextCallOf(blocked), { tool: "edit", input: { ops: ["<show it, a caption last: @8s beat 2 missed: nothing suggests more>"] } }, "the same cut: a fix, not a new viewer");
+  assert.match(blocked.text, /viewer: s1: .*open story bug/);
+  await agent("render", { project: id, action: "cancel", job: blocked.data.job });
   const passing = await agent("notes", { project: id, action: "viewer", rev, report, matches: [{ beat: 1, got: "yes" }, { beat: 2, got: "partly" }] });
   assert.match(passing.text, /no open story bugs/);
   // The needs gate: a video with no brief owes no material check, but a need the agent asked waits for the person.
@@ -604,6 +590,14 @@ test("critic lines: only P0|P1|P2 t= · where · problem → change · what stay
   const generic = parseCritique(["GENERIC · any tracker app could show this → the route drawing live on the real map", "OWN t=13 · the lights-out with only the phone lit"], 64);
   assert.deepEqual(openCritique({ rounds: [{ rev: 4, lines: generic }] }).lines.map(lineText), ["GENERIC · any tracker app could show this → the route drawing live on the real map"]);
   assert.equal(lineText(generic[1]), "OWN t=13 · the lights-out with only the phone lit");
+  // A P0 about a shot deleted since its packet, or a time past the end now, is dropped with a line saying
+  // so; one whose shot stays, one saved without shots and the GENERIC line stand.
+  const [gone, kept, past] = parseCritique(["P0 t=4.6 · climb to scarf seam · brightness dips → lift the scarf shot · the cut", "P0 t=12.4 · grin · streaks → hard cut · the grin", "P0 t=14 · end card · fades → cut · the word"], 15);
+  const round = { rounds: [{ rev: 19, lines: [{ ...gone, shots: [{ id: "L9", name: "scarf" }] }, { ...kept, shots: [{ id: "L4", name: "grin" }] }, past, generic[0]] }] };
+  const now = { duration: 12.5, ids: new Set(["L4"]) };
+  assert.deepEqual(openCritique(round, now).lines.map((line) => line.at), [12.4, 0]);
+  assert.deepEqual(staleCritique(round, now).map(({ line, why }) => `${line.at}: ${why}`), ["4.6: scarf is deleted", "14: t=14 is past the 12.5 s end now"]);
+  assert.equal(openCritique(round).lines.length, 4, "without what stands now, nothing is dropped");
   const polish = parseCritique(["UP t=5 · add a music drop on the scan · serves the reveal", "P0 t=5 · shot 3 · nowhere to look → cut to the reply box 0.2 s later · the voice"], 12, { signatures });
   assert.deepEqual(polish.map((entry) => [entry.ask ?? false, entry.cutsSignature ?? false]), [[false, false], [false, false]]);
   // The bar: BAR better passes, BAR worse (or same) blocks like
@@ -618,7 +612,7 @@ test("critic lines: only P0|P1|P2 t= · where · problem → change · what stay
   assert.equal(barGap({ rounds: [{ rev: 4, lines: compared }] }, bar), null);
   assert.equal(barGap({ rounds: [{ rev: 4, lines: polish }] }, null), null);
   assert.match(anchorLines([bar, { of: "v4", rev: 195, words: "god awful", wrong: "stacked devices" }]).join("\n"), /v1 rev 391 \(THE BAR[\s\S]*v4 rev 195: "god awful"; what was wrong: stacked devices/);
-  assert.match(CRITIQUE_PROTOCOL, /come from the story[\s\S]*captions break as spoken phrases[\s\S]*land on an action or the voice[\s\S]*template[\s\S]*stacked effects/);
+  assert.match(CRITIQUE_PROTOCOL, /come from the story[\s\S]*captions break as spoken phrases[\s\S]*land on an action or the voice[\s\S]*template[\s\S]*as much as your saved references do at theirs/);
   // Story points: shared beats pair by role, otherwise even fractions of each cut.
   assert.deepEqual(barPairs({ duration: 30, barDuration: 60, spine: [{ role: "hook", from: 0, to: 4 }, { role: "turn", from: 4, to: 20 }, { role: "payoff", from: 20, to: 30 }], barSpine: [{ role: "hook", from: 0, to: 10 }, { role: "turn", from: 10, to: 40 }, { role: "payoff", from: 40, to: 60 }] }).map((pair) => [pair.at, pair.barAt]), [[2, 5], [12, 25], [25, 50]]);
   assert.deepEqual(barPairs({ duration: 9, barDuration: 18 }).slice(0, 2).map((pair) => [pair.at, pair.barAt]), [[0.5, 1], [1.5, 3]]);
@@ -677,19 +671,18 @@ test("look critique: a packet for a fresh critic (protocol, brief, trace, seam p
   assert.equal(again.images[0].path, packet.data.pages[0]);
   assert.equal((await agent("notes", { project: id, action: "critique", rev, lines: ["looks great, 8/10"] })).data.error, "bad_input");
   const saved = await agent("notes", { project: id, action: "critique", rev, lines: ["P0 t=6 · cut to light · the frame flashes → fade light in over 0.3 s · the cut time", "P2 t=1 · box · plain → round its corners to 12 · its path"] });
-  assert.match(saved.text, /^critique round 1 of 2 saved for s1 rev \d+: P0 1 · P1 0 · P2 1; the P0s block a final render/);
-  const refused = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
-  assert.equal(refused.data.error, "critique_open", refused.text);
-  assert.match(refused.data.next, /Make the change: fade light in over 0\.3 s; then look \{mode:"critique"\}/);
-  // The same packet cannot clear its own P0; a fix, a new packet and a fresh critic can.
+  assert.match(saved.text, /^critique round 1 of 1 saved for s1 rev \d+: P0 1 · P1 0 · P2 1; fix list, worst first/);
+  // One round, a fix list: the final render goes ahead and its receipt lists the open P0.
+  const open = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
+  assert.equal(open.isError, undefined, open.text);
+  assert.match(open.text, /Open notes \(not gates[^)]*\): .*critique: s1: rev \d+'s critic found 1 P0 line: P0 t=6 · cut to light/);
+  await agent("render", { project: id, action: "cancel", job: open.data.job });
   assert.equal((await agent("notes", { project: id, action: "critique", rev, lines: ["none"] })).data.error, "bad_input");
+  // A second round is not asked for: the answer points at the fix, then the final render.
   await agent("edit", { project: id, ops: [{ op: "update_layer", layer: "light", properties: { fill: "#34495e" } }] });
-  await reviewAll(id);
   const second = await agent("look", { project: id, mode: "critique", inline: false });
-  assert.match((await agent("notes", { project: id, action: "critique", rev: second.data.rev, lines: ["none"] })).text, /round 2 of 2 .*no P0/);
-  const allowed = await agent("render", { project: id, action: "start", quality: "final", format: "gif" });
-  assert.notEqual(allowed.data?.error, "critique_open", allowed.text);
-  if (allowed.data?.job) await agent("render", { project: id, action: "cancel", job: allowed.data.job });
+  assert.equal(second.data.error, "critique_rounds", second.text);
+  assert.match(second.text, /fix list[\s\S]*does not wait on them/);
   // A waiver lets an open P0 go (a deliberate choice).
   const other = await project("critique-waived", 12);
   const third = await agent("look", { project: other, mode: "critique", inline: false });
@@ -714,7 +707,9 @@ test("look critique: a packet for a fresh critic (protocol, brief, trace, seam p
   assert.match(await readFile(compared.data.packet, "utf8"), /critique-waived rev \d+ \(THE BAR, the best so far\): "the best so far"/);
   assert.match((await agent("notes", { project: barred, action: "critique", rev: compared.data.rev, lines: ["none"] })).text, /has a bar/);
   await agent("notes", { project: barred, action: "critique", rev: compared.data.rev, lines: ["BAR worse · the box arrives late at 2 s where the bar lands on the beat"] });
-  assert.equal((await agent("render", { project: barred, action: "start", quality: "final", format: "gif" })).data.error, "critique_open");
+  const worse = await agent("render", { project: barred, action: "start", quality: "final", format: "gif" });
+  assert.match(worse.text, /critique: s1: rev \d+'s critic found 1 P0 line: BAR worse/);
+  if (worse.data?.job) await agent("render", { project: barred, action: "cancel", job: worse.data.job });
 });
 
 test("a briefed video of 15 s or more with 10 layers is a real edit: its open warnings hold the final render", async () => {
@@ -729,7 +724,7 @@ test("a briefed video of 15 s or more with 10 layers is a real edit: its open wa
   assert.match(held.data.reason, /look critique/);
 });
 
-test("a real edit (a brief, over 30 layers) needs one critic round before its final render; after two rounds an open P0 goes to the person as the critique stop", async () => {
+test("a real edit (a brief, over 30 layers) is offered one critic round; the final render never waits on it, and an open P0 rides on its receipt", async () => {
   const id = await project("critique-needed", 12);
   // A gate test of the critic: this video's own controls skip the storyboard (the person's words
   // in quote), so no server-wide setting changes and nothing needs putting back.
@@ -753,25 +748,16 @@ test("a real edit (a brief, over 30 layers) needs one critic round before its fi
   await reviewAll(id);
   const cancel = async (reply) => { if (reply.data?.job) await agent("render", { project: id, action: "cancel", job: reply.data.job }); };
   const needed = await final();
-  assert.equal(needed.data.error, "critique_needed", needed.text);
+  assert.equal(needed.isError, undefined, needed.text);
+  assert.match(needed.text, /critique: s1 has had no critic round/);
+  await cancel(needed);
   const first = await agent("look", { project: id, mode: "critique", inline: false });
-  await agent("notes", { project: id, action: "critique", rev: first.data.rev, lines: ["none"] });
-  const allowed = await final();
-  assert.ok(!["critique_needed", "critique_open"].includes(allowed.data?.error), allowed.text);
-  await cancel(allowed);
-  await agent("edit", { project: id, ops: [{ op: "update_layer", layer: "box", properties: { fill: "#ff8800" } }] });
-  await reviewAll(id);
-  const second = await agent("look", { project: id, mode: "critique", inline: false });
-  const last = await agent("notes", { project: id, action: "critique", rev: second.data.rev, lines: ["P0 t=1 · box · too slow → move it in 0.5 s · its path"] });
-  const askCall = { tool: "notes", input: { action: "checkpoint", id: "critique" } };
-  assert.deepEqual(nextCallOf(last), askCall);
+  const last = await agent("notes", { project: id, action: "critique", rev: first.data.rev, lines: ["P0 t=1 · box · too slow → move it in 0.5 s · its path"] });
+  // A P0 is a fix to make, not the person's stop; the final render lists it while it stands.
+  assert.deepEqual(nextCallOf(last), { tool: "edit", input: { ops: ["<the edit for: move it in 0.5 s>"] } });
   const open = await final();
-  assert.equal(open.data.error, "critique_open");
-  assert.deepEqual(nextCallOf(open), askCall, "not status again: that loops");
-  const asked = await agent("notes", { project: id, action: "checkpoint", id: "critique" });
-  assert.equal(asked.data.status, "waiting_for_you", asked.text);
-  assert.match(asked.data.ask, /1\. P0 t=1 · box · too slow/);
-  assert.equal(nextCallOf(await agent("status", { project: id })).input.action, "answer");
+  assert.match(open.text, /critique: s1: rev \d+'s critic found 1 P0 line: P0 t=1 · box/);
+  await cancel(open);
 });
 
 test("one helper a round: look critique carries the viewer's sheets when both gates ask; one notes critique answer passes both; a P0 asks round 2; separate answers still pass", { skip: skipWithoutMediaTools }, async (t) => {
@@ -828,9 +814,6 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
 
   // Both gates ask: the refusal and the gate list name one helper for both.
   const one = await build("one-helper");
-  const asked = await final(one);
-  assert.match(asked.data.reason, /\d\) look critique \(viewer and critic\), one fresh subagent, notes critique: look \{"mode":"critique"\} \d\)/);
-  assert.equal(asked.data.reason.match(/fresh subagent/g).length, 1, asked.data.reason);
   const packet = await agent("look", { project: one, mode: "critique", inline: false });
   assert.equal(packet.isError, undefined, packet.text);
   assert.equal(packet.data.viewer.sheets, 4, "32 frames, 9 to a sheet");
@@ -850,7 +833,7 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   t.diagnostic(`a round: before ${JSON.stringify(before)} after ${JSON.stringify(after)}`);
   // One call records both: the report comes from viewer.txt, not the answer.
   const both = await agent("notes", { project: one, action: "critique", rev, lines: ["none"], matches: yes });
-  assert.match(both.text, /critique round 1 of 2 saved[\s\S]*viewer report saved for s1 rev \d+: beats yes 2 · partly 0 · no 0 · keep 6\/6\/6/);
+  assert.match(both.text, /critique round 1 of 1 saved[\s\S]*viewer report saved for s1 rev \d+: beats yes 2 · partly 0 · no 0 · keep 6\/6\/6/);
   await passes(one);
 
   // A helper that cannot write files answers part 1 only: kino saves it and frees packet.txt.
@@ -862,18 +845,17 @@ test("one helper a round: look critique carries the viewer's sheets when both ga
   assert.match((await agent("notes", { project: nowrite, action: "critique", rev: held.data.rev, lines: ["none"], matches: yes })).text, /viewer report saved/);
   await passes(nowrite);
 
-  // A P0 asks a second round; the viewer saw the cut already, so round 2 is the critic's alone.
+  // A P0 is a fix list: the answer names the fix, and the final render goes ahead with it listed.
   const p0 = await build("one-helper-p0");
   const first = await agent("look", { project: p0, mode: "critique", inline: false });
   await writeFile(path.join(first.data.folder, "viewer.txt"), report);
   const saved = await agent("notes", { project: p0, action: "critique", rev: first.data.rev, lines: ["P0 t=1 · dot0 · hangs at the edge → move it to x=40 · its size"], matches: yes });
-  assert.match(saved.text, /P0 1[\s\S]*look \{mode:"critique"\} for a fresh critic/);
-  assert.match((await final(p0)).data.reason, /\d\) fix the critic's P0s, look critique again: edit \{"ops":\["<the edit for: [^"]*>"\]\} \d\)/);
+  assert.match(saved.text, /P0 1[\s\S]*fix list/);
   await agent("edit", { project: p0, ops: [{ op: "update_layer", layer: "dot0", properties: { x: 40 } }] });
-  const second = await agent("look", { project: p0, mode: "critique", inline: false });
-  assert.equal(second.data.viewer, undefined);
-  await agent("notes", { project: p0, action: "critique", rev: second.data.rev, lines: ["none"] });
-  await passes(p0);
+  // The person's stops still come first; the critic's open line is no step in the gate list.
+  const listed = await final(p0);
+  assert.doesNotMatch(listed.text, /look critique|critique_open/);
+  if (listed.data?.job) await agent("render", { project: p0, action: "cancel", job: listed.data.job });
 });
 
 test("saved subjects reach the footage checks: a head cut off in them is a finding from a real check, and one saliency did not measure is not", async (t) => {

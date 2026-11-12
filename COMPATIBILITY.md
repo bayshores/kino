@@ -187,13 +187,12 @@ How to read it:
   fixed and unfilled `<slots>` are refused. Evidence: `backend/next-call.test.mjs`,
   `backend/agent-edit-repair.test.mjs`.
 - **Shorter path to a final render**: Verified. The refusal lists only missing steps, each with its ready call; the final render runs look versus itself and carries its rows; `look {mode:"viewer", beats}` saves intents with the packet; a video with no brief owes no needs or intents; effect_fit counts a shake's own scale-up once and names a ready impact-accent op. Evidence: `backend/agent-review.test.mjs`, `backend/agent-final-stops.test.mjs`, `engine/effectFit.test.js`; on a copy of a real edit (`.scratch/defaults/final-path`).
+- **Final render blocks only on defects**: Verified. In a real edit taste warnings (reference_kinds, restraint, off_beat, jump_cut, end_on_fade and the like; `hold` still blocks) and the review, viewer and critic passes ride on the receipt as open notes; a missing reference kind is advice naming a free moment. Evidence: `engine/qualityRules.test.js`, `backend/agent-review.test.mjs`; run 8 proof in `.scratch/run8/wave/final-gate`.
 - **Viewer test (story)**: Partly verified. `notes intents`, `look {mode:"viewer"}` and `notes viewer`
-  record a fresh subagent's report; a final render of 15 s+ with footage or speech answers
-  `viewer_needed` until no story bugs are open, or while a caption before the last beat spoils the ending (not one the voice says; waivable per caption). `heard.txt` gives each song stretch's seconds of the recording and names a join where the song jumps. Evidence: `backend/agent-review.test.mjs`; not yet run
+  record a fresh subagent's report; a final render of 15 s+ with footage or speech names open story bugs or a spoiling caption on its receipt (never refused for them). `heard.txt` gives each song stretch's seconds of the recording and names a join where the song jumps. Evidence: `backend/agent-review.test.mjs`; not yet run
   through kino with a real fresh agent.
 - **Fresh-eyes critic**: Partly verified. `look {mode:"critique"}` and `notes critique` record a fresh
-  critic's P0/P1/P2 lines; an open P0 or GENERIC (no moment only this product could have) blocks a final render (a line at any level that cuts or flattens a designed move is only asked), a real edit (over 30 layers, or 10+ in 15 s+) needs one round, and after 2 rounds the rest go to the
-  person. Evidence: `backend/agent-review.test.mjs`, `backend/agent-stops.test.mjs`; not yet run with a
+  critic's P0/P1/P2 lines: one round, a fix list; open P0s ride on the final render's receipt and never block it, a P0 about a shot deleted since (or a time past the end) is dropped with a line saying so, and a line that cuts a designed move is still asked of the person. Evidence: `backend/agent-review.test.mjs`, `backend/agent-stops.test.mjs`; not yet run with a
   real fresh critic.
 - **Critic and viewer that raise the edit (T5)**: Partly verified. Critic `UP` lines are suggestions shown again at the critique stop (one that would cut a signature is a question),
   viewer `KEEP`/`DRAG`/`CARED` lines make story warnings, and `cut_motivation` warns at unmotivated

@@ -1,4 +1,4 @@
-// reference_kinds (error): hold the edit to the kinds of design its own saved references show.
+// reference_kinds (warning, taste): hold the edit to the kinds of design its own saved references show.
 //
 // Numbers cannot see design, so the agent labels what it sees at six moments of each saved
 // reference (library inspire `seen`, backend/inspire.mjs): kinds type, overlay, composite, color,
@@ -17,7 +17,10 @@
 // it): most of them with a voice before their loudest change, and 2 or more, count as showing it, while
 // one of the edit's clips says a line keep_line can keep (ctx.clipLines, a full check).
 // Made also counts kino's drawn overlays (speed-lines, impact-lines, film-burn, lightning) while they play.
-// Error: 2 or more references show a kind at 2 or more moments and the edit shows it at none.
+// Advice (info) with a place: 2 or more references show a kind at 2 or more moments and the edit shows it
+// at none. It was an error until run 8, where clearing it cost about 14 revisions and 750 s of adding and
+// removing the same device against the critics (run 8 trace, critic notes section 5); now it names a free
+// moment (freeMoment) and never blocks a render.
 // Warning: the edit shows a kind in under the lowest reference share by over 1/6, or plain
 // picture in more than the highest reference share by over 1/6. Pure data: no pixels.
 import { volumeAt } from "../../animation.js";
@@ -226,15 +229,39 @@ const OVERLAY_WORDS = [
   ["lightning", /lightning|electric|bolt|thunder|\barcs?\b/i],
 ];
 
+/**
+ * A free moment for a missing kind (seconds): the middle of the longest run of plain moments (nothing
+ * laid on the footage), else the moment showing the fewest kinds. A guess at "where it does not crowd
+ * anything", not measured against edits; null with no moments.
+ */
+export function freeMoment(moments) {
+  if (!moments.length) return null;
+  let best = null;
+  let start = -1;
+  moments.forEach((moment, index) => {
+    if (moment.plain && start < 0) start = index;
+    const ends = start >= 0 && (!moment.plain || index === moments.length - 1);
+    if (!ends) return;
+    const last = moment.plain ? index : index - 1;
+    if (!best || last - start > best.last - best.start) best = { start, last };
+    start = -1;
+  });
+  if (best) return moments[Math.floor((best.start + best.last) / 2)].time;
+  return [...moments].sort((a, b) => a.kinds.size - b.kinds.size || a.time - b.time)[0].time;
+}
+
 // The generated overlay a made label's words point to (speed-lines when none does), as a ready edit call on the
-// first picture shown: 1 s from when it shows (2 moments), not the whole shot, so it reads as an accent.
-function overlayFix(model, ctx, words) {
+// picture shown at `at` (the free moment; else the first picture shown): 1 s from then (2 moments), not the whole
+// shot, so it reads as an accent.
+function overlayFix(model, ctx, words, at = null) {
   const key = (OVERLAY_WORDS.find(([, pattern]) => pattern.test(String(words ?? ""))) ?? OVERLAY_WORDS[0])[0];
   const shots = model.items.filter((item) => PICTURES.has(item.kind) && !item.isMask)
     .map((item) => ({ item, at: item.samples.opacity.findIndex((value) => value >= SHOWN) })).filter((entry) => entry.at >= 0);
-  const first = shots.sort((a, b) => a.at - b.at)[0];
+  const index = at === null ? -1 : frameAt(model, at);
+  const there = index >= 0 ? shots.find((entry) => (entry.item.samples.opacity[index] ?? 0) >= SHOWN) : null;
+  const first = there ?? shots.sort((a, b) => a.at - b.at)[0];
   if (!first) return null; // no picture to lay it on: the library search stays the call
-  const start = near(model.times[first.at] ?? 0);
+  const start = near(there ? Math.max(0, at - STEP / 2) : model.times[first.at] ?? 0);
   const ops = [{ op: "add_animation", layer: first.item.name ?? first.item.id, effect: key, start, duration: near(Math.max(0.5, Math.min(1, model.duration - start))) }];
   return { text: `edit ${JSON.stringify({ ops })} lays kino's ${key} overlay on a shot`, call: { tool: "edit", input: { ops } } };
 }
@@ -273,6 +300,9 @@ export function referenceKinds(model, ctx) {
   const mine = (kind) => moments.filter((moment) => moment.kinds.has(kind)).length;
   const waive = `waive_check {code:"reference_kinds", target:"${scene}", reason:"<why>", quote:"<their words, as they typed them>"}`;
   const own = `Make your own version, not a copy of what the reference shows. Plain on purpose, only when the person asked for it in words they typed: ${waive}.`;
+  // The missing-kind advice's place: one free moment for every kind (a guess, see freeMoment).
+  const free = freeMoment(moments);
+  const advice = "Advice, never a gate: your own shape, image or cutout there counts as made; plain on purpose is fine.";
   const unknownSpoken = heardUnknown(ctx);
   // The references' measured voice: 2 or more with a voice before their loudest change, and most of those that were heard.
   const voice = referenceRanges(ctx.seenRefs ?? []).voice;
@@ -298,17 +328,19 @@ export function referenceKinds(model, ctx) {
     }
     if (counted >= MIN_REFS && have === 0) {
       // The fix is a ready call: spoken, keep_line on a clip's own line; made, a generated overlay for the label's words.
-      const ready = kind === "spoken" ? spokenFix(ctx) : kind === "made" ? overlayFix(model, ctx, lead) : null;
+      const ready = kind === "spoken" ? spokenFix(ctx) : kind === "made" ? overlayFix(model, ctx, lead, free) : null;
       // Made layers exist but a viewer cannot see them: say how little of the frame they cover.
       const unseen = kind === "made" ? moments.filter((moment) => moment.madeShare > 0) : [];
       const covers = unseen.length ? Math.max(...unseen.map((moment) => moment.madeShare)) : 0;
       const hidden = unseen.length ? `made shows at ${unseen.length} of ${total} moments but covers ${Math.round(covers * 1000) / 10}% of the frame (under ${Math.round(MADE_MIN_SHARE * 100)}%)` : "";
+      // Spoken has no free moment: a kept line plays where the clip says it (spokenFix names the times).
+      const place = kind === "spoken" ? null : free;
       findings.push({
-        rule: "reference_kinds", severity: "error",
+        rule: "reference_kinds", severity: "info", ...(place === null ? {} : { at: place }),
         measured: hidden || `${kind} at 0 of ${total} moments`,
         required: byVoice ? `${kind} at some moment, as ${voice.before} of ${voice.n} of your references have a voice there` : `${kind} at some moment, as ${showers.length} of your references show it at 2 or more`,
-        message: `reference_kinds: ${hidden || `your edit shows ${kind} at 0 of ${total} moments`}; your references show it at ${lines}.`,
-        fix: { kind: "hint", text: `${ready ? `${ready.text}, or ${search.text}` : search.text}. ${own}`, call: (ready ?? search).call },
+        message: `reference_kinds: ${hidden || `your edit shows ${kind} at 0 of ${total} moments`}; your references show it at ${lines}.${place === null ? "" : ` A free moment: ${place} s${lead ? ` ("${String(lead).replaceAll('"', "'").slice(0, 60)}")` : ""}.`}`,
+        fix: { kind: "hint", text: `${ready ? `${ready.text}, or ${search.text}` : search.text}. ${kind === "made" ? advice : "Advice, never a gate; plain on purpose is fine."}`, call: (ready ?? search).call },
       });
     } else if (sized.length && have > 0 && have / total < lowest - MARGIN) {
       const all = sized.map((share) => `${showing(share, kind)} (${share.id})`).join(" and ");

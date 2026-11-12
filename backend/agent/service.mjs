@@ -87,13 +87,13 @@ import { pivotNotes } from "./pivot-notes.mjs";
 import { coverNotes, importedNames, unseenPresetNotes } from "./silent-receipts.mjs";
 import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
-import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
+import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
-import { blocksFinal, FINAL_GATES } from "../../engine/quality/index.js";
+import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
 import { ideaLines, signatureRanges } from "../../engine/quality/rules/signature.js";
 import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
 import { renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
@@ -3729,11 +3729,22 @@ export function createAgentService(deps) {
   // After the last critic round the open lines go to the person: the critique stop (stops.mjs).
   const critiqueStopCall = () => nextOf("notes", { action: "checkpoint", id: "critique" });
 
-  // A scene's open P0 lines as they stand now, or null: none, waived, or answered by the person
-  // at the critique stop (kept, or a fix they asked for that an edit since has made).
+  // What a critic line is judged against now (critique.mjs staleReason): the scene's length and layer ids.
+  const critiqueNow = (document, sceneId) => {
+    const scene = document.scenes.find((entry) => entry.id === sceneId);
+    return scene ? { duration: scene.duration, ids: new Set((scene.layers ?? []).map((layer) => layer.id)) } : null;
+  };
+  // The pictures on screen at `at` (seconds) in a scene, [{id, name}]: video shots and images (a
+  // product promo's screenshot is its shot; an image with no Play range counts for the whole scene).
+  // Saved with each critic line so a line about a picture deleted since is dropped, not held open.
+  const shotsAt = (scene, at) => (scene?.layers ?? []).filter((layer) => (layer.type === "video" || layer.type === "image") && layer.enabled !== false && layer.visible !== false)
+    .filter((layer) => { const range = mediaPlaybackRange(layer, scene.duration); return range && range.start <= at + 1e-6 && at < range.end - 1e-6; })
+    .map((layer) => ({ id: layer.id, name: layer.name ?? layer.id }));
+  // A scene's open P0 lines as they stand now, or null: none, waived, about something deleted since,
+  // or answered by the person at the critique stop (kept, or a fix they asked for that an edit since has made).
   function critiqueStanding(state, document, sceneId, revision) {
     if (critiqueWaived(document, sceneId)) return null;
-    const open = openCritique(critiqueOf(state, sceneId));
+    const open = openCritique(critiqueOf(state, sceneId), critiqueNow(document, sceneId));
     const call = personCall(state, sceneId, open);
     if (!open || (call && (!call.fix || revision > call.rev))) return null;
     return { ...open, call };
@@ -3748,19 +3759,16 @@ export function createAgentService(deps) {
     return critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(document));
   }
 
-  // What notes checkpoint {id:"critique"} asks: the first scene whose last critic round left P0
-  // lines the person has not answered ({sceneId, scene, rev, lines}), or null.
+  // What notes checkpoint {id:"critique"} asks: the first scene whose last critic round left lines
+  // that would cut a designed moment the person has not answered ({sceneId, scene, rev, lines}), or null.
   async function critiqueToAsk(record) {
     const state = await agentState.read(record.document.id);
     const codes = await syncCodes(record.document.id, record.document);
-    for (const scene of record.document.scenes) {
-      const open = critiqueStanding(state, record.document, scene.id, record.revision);
-      if (open && !open.call && open.rounds >= CRITIQUE_ROUNDS) return { sceneId: scene.id, scene: refName(scene.id, codes), rev: open.rev, lines: open.lines.map(lineText), ideas: critiqueIdeas(state, scene.id) };
-    }
-    // Then a critic's P0 that would delete or shrink a designed moment: the person's call.
+    // Open P0s are a fix list (they ride on the final render's receipt), never the person's stop:
+    // only a critic's line that would delete or shrink a designed moment is the person's call.
     for (const scene of record.document.scenes) {
       if (critiqueWaived(record.document, scene.id)) continue;
-      const asks = critiqueQuestions(critiqueOf(state, scene.id));
+      const asks = critiqueQuestions(critiqueOf(state, scene.id), critiqueNow(record.document, scene.id));
       if (asks && !personCall(state, scene.id, asks)) return { sceneId: scene.id, scene: refName(scene.id, codes), rev: asks.rev, lines: asks.lines.map(lineText), question: true, ideas: critiqueIdeas(state, scene.id) };
     }
     return null;
@@ -3845,11 +3853,11 @@ export function createAgentService(deps) {
     const kept = critiqueOf(state, scene.id);
     if (kept.rounds.length >= CRITIQUE_ROUNDS && !kept.rounds.some((round) => round.rev === record.revision)) {
       // Open lines the person already answered (a fix still to make, or kept) are not asked again.
+      // One round is the critic's (CRITIQUE_ROUNDS): its open lines are a fix list, never a gate.
       const open = critiqueStanding(state, document, scene.id, record.revision);
-      const ask = open && !open.call;
-      throw Object.assign(new AgentError("critique_rounds", `${sceneName} had ${CRITIQUE_ROUNDS} critic rounds; a third is not asked for. ${ask ? `Its open P0 lines go to the person: ${open.lines.slice(0, 3).map(lineText).join(" | ")}` : open ? `The person asked for the fix (${open.call.id}).` : "Nothing it found still blocks."}`, {
-        next: ask ? 'Ask the person: notes {action:"checkpoint", id:"critique"}; their answer fixes or keeps the lines.' : open ? "Make the fix they asked for, then render." : "Go on to the final render.",
-      }), { nextCall: ask ? critiqueStopCall() : open ? nextOf("edit", { ops: [`<the edit for: ${open.lines[0].change}>`] }) : STATUS_CALL });
+      throw Object.assign(new AgentError("critique_rounds", `${sceneName} had its critic round (${plural(CRITIQUE_ROUNDS, "round")} a story); another is not asked for. ${open ? `Its open lines are a fix list: ${open.lines.slice(0, 3).map(lineText).join(" | ")}` : "Nothing it found is still open."} The final render does not wait on them; its receipt lists what is open.`, {
+        next: open ? "Make the fixes you agree with, then render final." : "Go on to the final render.",
+      }), { nextCall: open ? nextOf("edit", { ops: [`<the edit for: ${open.lines[0].change}>`] }) : FINAL_CALL });
     }
     const range = input.from != null || input.to != null ? stretchBounds(input, scene) : { from: 0, to: scene.duration };
     const inRange = (time) => time >= range.from - 1e-6 && time <= range.to + 1e-6;
@@ -3883,7 +3891,7 @@ export function createAgentService(deps) {
     // When the viewer gate asks too, its sheets (a frame every 0.5 s) and heard.txt come first, for
     // the same helper; the moments are then frames on those sheets, not pages of their own.
     const viewer = whole && await viewerJoins(document, state, scene, record.revision) ? await viewerSheets(document, scene, prepared) : null;
-    const intents = viewer ? state.story.intents[scene.id] : null;
+    const intents = viewer ? state.story?.intents?.[scene.id] ?? null : null;
     const first = viewer ? viewer.pngs.length : 0;
     const sheetName = (number) => `sheet-${String(number).padStart(2, "0")}.jpg`;
     const viewerTimeList = viewer ? viewerTimes(scene.duration) : [];
@@ -3954,9 +3962,9 @@ export function createAgentService(deps) {
     const shown = packet.split("\n");
     const idea = viewer ? ideaLines(styleContext(state.brief?.style)) : [];
     const record_ = viewer
-      ? [`Then read ${viewerFile} (its part 1) and record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its answer], matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}; kino takes the report from viewer.txt. Match it against your ${plural(intents.beats.length, "beat")}' intents yourself. A P0 or a story bug asks for round 2. Answered part 1 only: notes {action:"critique", rev:${record.revision}, report:"<its answer>"}.`,
+      ? [`Then read ${viewerFile} (its part 1) and record both in one call: notes {action:"critique", rev:${record.revision}, lines:[its answer], matches:[{beat, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}; kino takes the report from viewer.txt.${intents?.beats?.length ? ` Match it against your ${plural(intents.beats.length, "beat")}' intents yourself.` : ""} Its P0s and story bugs are a fix list; the final render does not wait on them. Answered part 1 only: notes {action:"critique", rev:${record.revision}, report:"<its answer>"}.`,
         ...(idea.length ? [`Match it against the idea too (did its "moment you cared most" land on the signature?): ${idea.join(" · ")}`] : [])]
-      : [`Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. A P0 blocks a final render until a newer rev's round has none.`];
+      : [`Then record its lines as they came: notes {action:"critique", rev:${record.revision}, lines:["P0 t=..."]}. One round: its P0s are a fix list, and the final render does not wait on them.`];
     const lines = [
       `critique packet ${sceneName} rev ${record.revision}: ${viewer ? `the viewer's ${plural(first, "sheet")} and heard.txt, then ` : ""}${plural(pages.length, "page")} (${plural(seams.length, "seam")}, ${plural(moments.length, "moment")}) and packet.txt in ${folder}; page ${pageNumber} shown${all.length > 1 ? `, look {mode:"critique", page} for others` : ""}`,
       "Start one fresh subagent that never saw this chat; give it only this prompt:", "---", prompt, "---",
@@ -3995,7 +4003,7 @@ export function createAgentService(deps) {
     if (last && last.rev >= rev && last.lines.some(blocksRender))
       throw Object.assign(new AgentError("bad_input", `rev ${last.rev}'s critic found P0 lines: fix them, then a new packet (look {mode:"critique"}) for a fresh critic to re-read.`), { nextCall: critiqueCall(sceneField) });
     const rounds = kept.rounds.filter((round) => round.rev !== rev);
-    if (rounds.length >= CRITIQUE_ROUNDS) throw Object.assign(new AgentError("critique_rounds", `${sceneName} already had ${CRITIQUE_ROUNDS} critic rounds: the rest goes to the person.`), { nextCall: critiqueStopCall() });
+    if (rounds.length >= CRITIQUE_ROUNDS) throw Object.assign(new AgentError("critique_rounds", `${sceneName} already had its critic round: its lines are a fix list, and the final render does not wait on them.`), { nextCall: FINAL_CALL });
     // A packet that carried the viewer's sheets: the helper's viewer part is in viewer.txt.
     const packetEntry = kept.packets.find((packet) => packet.rev === rev);
     const carried = packetEntry?.viewer && !(state.story?.viewers ?? []).some((entry) => entry.rev === rev && entry.sceneId === scene.id);
@@ -4013,6 +4021,11 @@ export function createAgentService(deps) {
     const moves = (Array.isArray(state.brief?.style?.moves) ? state.brief.style.moves : []).map((move) => move?.tag).filter(Boolean);
     const signatures = signatureRanges(state.brief?.style);
     try { parsed = parseCritique(input.lines, scene.duration, { moves, signatures }); } catch (error) { throw new AgentError("bad_input", error.message); }
+    // Each line keeps the shots on screen at its time in the packet's cut, so a line about a shot
+    // deleted later is dropped instead of held open (critique.mjs staleReason).
+    const packetDocument = rev === record.revision ? record.document : await store.getProjectRevision(record.document.id, rev).catch(() => null);
+    const packetScene = packetDocument?.scenes?.find((entry) => entry.id === scene.id);
+    if (packetScene) parsed = parsed.map((line) => (["P0", "P1", "P2"].includes(line.level) && !line.generic && !line.bar ? { ...line, shots: shotsAt(packetScene, line.at) } : line));
     // A packet that showed the bar needs the critic's BAR line (a bar saved later waits at the gate).
     const bar = kept.packets.find((packet) => packet.rev === rev)?.bar ? barOf(state.verdicts) : null;
     if (bar && !parsed.some((line) => line.level === "BAR" || line.bar))
@@ -4035,7 +4048,7 @@ export function createAgentService(deps) {
     const number = rounds.length + 1;
     const head = `critique round ${number} of ${CRITIQUE_ROUNDS} saved for ${sceneName} rev ${rev}: P0 ${count("P0")} · P1 ${count("P1")} · P2 ${count("P2")}${count("UP") ? ` · UP ${count("UP")}` : ""}`;
     const after = number >= CRITIQUE_ROUNDS
-      ? 'That was the last critic round, and a fix alone does not clear it: ask the person, notes {action:"checkpoint", id:"critique"}; their answer fixes or keeps the lines.'
+      ? "That was the critic round. Make the changes you agree with (P1 too when cheap), keeping what each says stays; then render final: it does not wait on these lines, and its receipt lists the ones still open."
       : "Make each P0's exact change (P1 too when cheap), keeping what it says stays; then look {mode:\"critique\"} for a fresh critic to re-read. A deliberate choice: edit waive_check {code:\"critique\", target, reason}.";
     const listedLines = [...p0, ...parsed.filter((line) => line.level === "P1" && !line.ask).slice(0, 5)].map((line) => `  ${lineText(line)}`);
     const asked = asks.length ? `\n${asks.length} ${asks.length === 1 ? "line would" : "lines would"} cut or flatten a designed moment (a transition, flash, freeze, typed text, set piece, signature, reveal or payoff): not yours to change; ask the person, notes {action:"checkpoint", id:"critique"}:\n${asks.map((line) => `  ${lineText(line)}`).join("\n")}` : "";
@@ -4045,9 +4058,10 @@ export function createAgentService(deps) {
     const own = parsed.find((line) => line.level === "OWN");
     const ownText = own ? `\nOnly this product: ${lineText(own)} (make it land harder, never cut it).` : parsed.some((line) => line.generic) ? "" : "\nThe critic did not say which moment only this product could have: ask it for an OWN or GENERIC line next round.";
     const raise = (ups.length ? `\nTo raise it (suggestions, not gates; act on the best one):\n${ups.slice(0, 6).map((line) => `  ${lineText(line)}`).join("\n")}` : `\nNo UP lines: the critic skipped the elevation pass${number < CRITIQUE_ROUNDS ? "; ask it for UP lines next round" : ""}.`) + ownText;
-    const text = (p0.length ? `${head}; the P0s block a final render:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no blocking P0" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}${goAhead}`) + raise + asked + (viewer ? `\n${viewer.text}` : "");
-    const nextCall = !p0.length ? (viewer?.bugs.length ? viewerFixCall(viewer) : asks.length ? critiqueStopCall() : nextOf("render", { action: "start", quality: "final", wait: true }))
-      : number >= CRITIQUE_ROUNDS ? critiqueStopCall() : nextOf("edit", { ops: [`<the edit for: ${p0[0].change}>`] });
+    const text = (p0.length ? `${head}; fix list, worst first:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no P0 to fix" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}${goAhead}`) + raise + asked + (viewer ? `\n${viewer.text}` : "");
+    // The person's questions (the ask path) come first; then the first fix.
+    const nextCall = asks.length ? critiqueStopCall() : !p0.length ? (viewer?.bugs.length ? viewerFixCall(viewer) : FINAL_CALL)
+      : nextOf("edit", { ops: [`<the edit for: ${p0[0].change}>`] });
     return done(record.document.id, { text, nextCall, data: { rev, round: number, lines: parsed, ...(viewer ? { viewer: viewer.data } : {}) } },
       { change(draft) {
         draft.critique ??= {};
@@ -4101,8 +4115,22 @@ export function createAgentService(deps) {
     };
   }
 
-  // The critic gate: a final render waits while a scene's latest critic round has a P0 line. The
-  // person's calls, stills, cut-short renders and a waive_check {code:"critique"} go ahead.
+  // The passes a final render no longer waits on: it renders and its receipt names what they still
+  // ask (render's fold). Run 8's final render was held by these with no defect open.
+  const FOLDED_GATES = Object.freeze(["review_needed", "viewer_needed", "critique_needed", "bar_needed", "critique_open"]);
+
+  // "critic P0 t=4.6 dropped (scarf is deleted)": the latest round's lines about something gone, for
+  // the final render's receipt (critique.mjs staleCritique). The person's calls skip them like the rest.
+  async function staleCriticNotes(record, scenes) {
+    const meta = caller.getStore() ?? {};
+    if (meta.reviewed || meta.approved || meta.by === "you") return [];
+    const state = await agentState.read(record.document.id);
+    return scenes.flatMap((scene) => staleCritique(critiqueOf(state, scene.id), critiqueNow(record.document, scene.id))
+      .map(({ line, rev, why }) => `critic ${line.level} t=${line.at} from rev ${rev} dropped (${why})`)).slice(0, 3);
+  }
+
+  // The critic pass (folded into the final render, FOLDED_GATES): what a scene's latest critic round
+  // still asks. The person's calls, stills, cut-short renders and a waive_check {code:"critique"} skip it.
   async function refuseOpenCritique(record, scenes, { codes, format, options }) {
     const meta = caller.getStore() ?? {};
     if (meta.reviewed || meta.approved || meta.by === "you" || format === "png") return;
@@ -6606,6 +6634,15 @@ export function createAgentService(deps) {
       // The final render's gates, in the order they refuse. A refusal keeps its code and next call
       // and names every gate still open, in finalGates' order, so the agent plans them at once.
       let versusText = "";
+      // What a final render no longer waits on, said on its receipt: taste warnings, the review,
+      // viewer and critic passes still open, and critic lines about something deleted since.
+      const openNotes = [];
+      const fold = async (step) => {
+        try { await step(); } catch (error) {
+          if (!(error instanceof AgentError) || !FOLDED_GATES.includes(error.code)) throw error;
+          openNotes.push(`${error.code.replace(/_(needed|open)$/, "")}: ${String(error.message).split(/(?<=\.)\s/)[0].replace(/\.$/, "").slice(0, 200)}`);
+        }
+      };
       if (quality === "final") try {
         // The direction lock comes before the stops: they are judged against the locked story.
         await refuseWithoutLock(record, { format });
@@ -6621,13 +6658,15 @@ export function createAgentService(deps) {
             throw new AgentError("check_failed", `${plural(blocking.length, "open finding")} in ${refName(scene.id, codes)} block a final render (fix each or waive it with a reason):\n${openFindingLines(blocking).map((line) => `  ${line}`).join("\n")}`, {
               next: 'check {fix:"auto"} applies the safe fixes; fix the rest with edit, or waive_check {code, target, reason} for a deliberate exception. A draft render is allowed now.',
             });
+          const taste = tasteNotes(findings);
+          if (taste) openNotes.push(`taste: ${taste}`);
         }
-        // The review gate: every moment of the video seen at full size as it is now (look review).
-        await refuseUnreviewed(record, scenes, { fonts, codes, format, options });
-        // The viewer gate: a fresh viewer's report with no open story bugs (look viewer, notes viewer).
-        await refuseWithoutViewer(record, scenes, { codes, format, options });
-        // The critic gate: no open P0 line from a fresh critic (look critique, notes critique).
-        await refuseOpenCritique(record, scenes, { codes, format, options });
+        // The review, viewer and critic passes fold into the final render (run 8: they held it with
+        // the clock running out; run 8 trace, critic notes): what they still ask is on the receipt.
+        await fold(() => refuseUnreviewed(record, scenes, { fonts, codes, format, options }));
+        await fold(() => refuseWithoutViewer(record, scenes, { codes, format, options }));
+        await fold(() => refuseOpenCritique(record, scenes, { codes, format, options }));
+        openNotes.push(...(await staleCriticNotes(record, scenes)));
         // The needs gate: every need answered and done (notes needs).
         await refuseWithoutNeeds(record, scenes, { format, options });
         // The reference gate, last: your frames beside the saved references. When this revision
@@ -6684,6 +6723,7 @@ export function createAgentService(deps) {
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
       const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
         + (quality === "final" ? await finalSources(record.document) + await waivedNote(record.document) : "")
+        + (openNotes.length ? `\nOpen notes (not gates; fix what you agree with and render again): ${openNotes.join(" · ")}.` : "")
         + (versusText ? `\nkino ran look versus for rev ${record.revision} (the reference gate):\n${versusText}` : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
@@ -8307,36 +8347,14 @@ export function createAgentService(deps) {
     // edits, which the viewer, critic, review and versus would have to see again.
     const stops = openStops(state, await videoFactsFor(document), stopRulesNow()).filter((stop) => stop.kind !== waiting?.kind);
     if (stops.length && add("stops_open", `notes checkpoint ${stops.map((stop) => stop.kind).join(", ")}`, nextOf("notes", { action: "checkpoint", id: stops[0].kind }))) return gates;
-    const viewer = await viewerNeeded(document, state, record.revision, whole, options);
-    // When the critic asks a packet of the same scene, one look critique and one subagent serve both.
-    let joined = null;
-    if (viewer?.gap.fix) { if (add("viewer_needed", `fix the viewer's story bugs${viewer.gap.last ? "" : ", look viewer again"}`, viewerFixCall(viewer.gap))) return gates; }
-    else if (viewer) {
-      // Intents ride on the viewer call (look {mode:"viewer", beats}): one step, not two.
-      if (!viewer.intents && add("viewer_needed", "look viewer with your beats' intents, a fresh subagent, notes viewer", viewerWithIntentsCall(sceneField(viewer.scene)))) return gates;
-      joined = !viewer.gap.spoiler && !barOf(state.verdicts) && critiqueAsks(state, document, viewer.scene, record.revision) ? viewer.scene.id : null;
-      const words = joined ? "look critique (viewer and critic), one fresh subagent, notes critique" : "look viewer, a fresh subagent, notes viewer";
-      if (add("viewer_needed", words, joined ? critiqueCall(sceneField(viewer.scene)) : nextOf("look", { mode: "viewer", ...sceneField(viewer.scene) }))) return gates;
-    }
+    // The critic round is offered once (a real edit with none yet); the render never waits on it,
+    // nor on the viewer, the critic's open lines or look review: they fold into its receipt (FOLDED_GATES).
     for (const scene of whole) {
-      if (waived(CRITIQUE_WAIVER, scene) || scene.id === joined) continue;
-      const open = critiqueStanding(state, document, scene.id, record.revision);
-      if (!open && critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(document))) {
-        if (add("critique_needed", "look critique, a fresh subagent, notes critique", critiqueCall(sceneField(scene)))) return gates;
+      if (waived(CRITIQUE_WAIVER, scene) || critiqueStanding(state, document, scene.id, record.revision)) continue;
+      if (critiqueWanted(scene, critiqueOf(state, scene.id)) && realEdit(state, videoFacts(document))) {
+        if (add("critique_needed", "look critique, a fresh subagent, notes critique (offered once; the render does not wait on it)", critiqueCall(sceneField(scene)))) return gates;
         break;
       }
-      if (!open && barGap(critiqueOf(state, scene.id), barOf(state.verdicts))) {
-        if (add("bar_needed", "look critique beside the bar, notes critique (BAR better)", critiqueCall(sceneField(scene)))) return gates;
-        break;
-      }
-      if (!open) continue;
-      const fix = nextOf("edit", { ops: [`<the edit for: ${open.lines[0].change}>`] });
-      // The person asked for the fix: make it (their answer clears the lines once an edit follows).
-      const [words, call] = open.call ? ["make the fix the person asked for", fix]
-        : open.rounds >= CRITIQUE_ROUNDS ? ["notes checkpoint critique (open P0s)", critiqueStopCall()]
-          : open.rev < record.revision ? ["look critique again (P0s)", critiqueCall(sceneField(scene))] : ["fix the critic's P0s, look critique again", fix];
-      if (add("critique_open", words, call)) return gates;
-      break;
     }
     const { findings } = await findingsFor(document, { fonts, codes });
     const real = await isRealEdit(document);
@@ -8347,15 +8365,8 @@ export function createAgentService(deps) {
       if (add("check_failed", `check fix:"auto", then fix ${plural(blocking.length, "finding")} (${[...new Set(blocking.map((finding) => finding.rule))].slice(0, 3).join(", ")})`, call)) return gates;
     }
     // Nothing blocks: the final render runs its own full check, so a separate check call is not
-    // a missing step (the probe on run 6 listed it while the render went ahead without it).
-    for (const scene of whole) {
-      if (scene.duration < REVIEW_SKIP_UNDER || waived(REVIEW_WAIVER, scene)) continue;
-      const { events } = await sceneReview(document, scene.id, fonts, codes);
-      const missed = unreviewed(events, new Set(state.reviews?.[scene.id]?.seen ?? [])).length;
-      if (!missed) continue;
-      if (add("review_needed", `look review (${missed} of ${events.length} moments)`, nextOf("look", { mode: "review", ...sceneField(scene) }))) return gates;
-      break;
-    }
+    // a missing step (the probe on run 6 listed it while the render went ahead without it). Look
+    // review is not a step either: the render's receipt names the moments not reviewed.
     if (whole.length && !whole.every((scene) => waived(REFERENCE_WAIVER, scene))) {
       const versus = nextOf("look", { mode: "versus" });
       if (!(await judge.hasSaved(document.id))) {

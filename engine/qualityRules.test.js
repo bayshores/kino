@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { defaultFonts } from "./fonts.js";
 import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
-import { RULES, blocksFinal, ruleOf, runQuality } from "./quality/index.js";
+import { RULES, blocksFinal, ruleOf, runQuality, tasteNotes } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
 import { cropPast } from "./footage/burned.js";
@@ -1247,6 +1247,15 @@ test("advice rules come as info: taste notes that never count as warnings or hol
   assert.equal(blocksFinal(finding), false);
 });
 
+test("a final render in a real edit blocks on defects, not taste warnings; taste warnings become the receipt's open notes", () => {
+  const warn = (rule) => ({ rule, severity: "warn", message: rule });
+  for (const rule of ["restraint", "off_beat", "end_on_fade", "jump_cut", "reference_kinds", "role_font_drift"]) assert.equal(blocksFinal(warn(rule), true), false, rule);
+  // hold is reading time, a defect: it still blocks, as other warnings and every error do.
+  for (const rule of ["hold", "small_on_empty", "pure_frame"]) assert.equal(blocksFinal(warn(rule), true), true, rule);
+  assert.equal(blocksFinal({ rule: "restraint", severity: "error" }, true), true);
+  assert.equal(tasteNotes([warn("restraint"), warn("restraint"), warn("off_beat"), warn("hold"), { ...warn("jump_cut"), waived: true }]), "restraint x2, off_beat");
+});
+
 test("off_beat: the first entrance's 0.1–0.3 s delay is not an off-beat accent", async () => {
   // 120 bpm from 0 s. The title comes in 0.2 s after the start, as first_entrance asks.
   // Neither rule should ask for a change the other one would undo.
@@ -2247,19 +2256,22 @@ const MADE_REFS = [
   seenRef("yt:BBBBBBBBBBB", [[1.8, ["made"], "neon stair edges"], [5.4, ["made", "type"], "drawn arrow"], [9, ["plain"], "bare clip"], [12.6, ["plain"], "bare clip"], [16.2, ["plain"], "bare clip"], [19.8, ["plain"], "bare clip"]]),
 ];
 
-test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is an error with a library search; a drawn shape or one reference keeps it quiet", async () => {
-  const [bare] = await fires("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS });
-  assert.equal(bare.severity, "error");
-  assert.match(bare.message, /^reference_kinds: your edit shows made at 0 of 8 moments; your references show it at 2 of 6 \(yt:AAAAAAAAAAA @1\.8 "green glowing outline traced on the figure"\) and 2 of 6 \(yt:BBBBBBBBBBB @1\.8 "neon stair edges"\)\.$/);
-  // The made error's fix is a ready call: a generated overlay of kino's own for the label's words, then the search.
-  assert.match(bare.fix.text, /^edit \{"ops":\[\{"op":"add_animation","layer":"a","effect":"speed-lines","start":0,"duration":1\}\]\} lays kino's speed-lines overlay on a shot, or library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
-  assert.deepEqual(bare.fix.call, { tool: "edit", input: { ops: [{ op: "add_animation", layer: "a", effect: "speed-lines", start: 0, duration: 1 }] } });
+test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is advice with a free moment and a library search; a drawn shape or one reference keeps it quiet", async () => {
+  const [bare] = (await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS })).findings;
+  // Advice, never a gate: it names a free moment (the middle of the longest plain stretch, 0.25 to 3.75 s here).
+  assert.equal(bare.severity, "info");
+  assert.equal(bare.at, 1.75);
+  assert.equal(blocksFinal(bare, true), false);
+  assert.match(bare.message, /^reference_kinds: your edit shows made at 0 of 8 moments; your references show it at 2 of 6 \(yt:AAAAAAAAAAA @1\.8 "green glowing outline traced on the figure"\) and 2 of 6 \(yt:BBBBBBBBBBB @1\.8 "neon stair edges"\)\. A free moment: 1\.75 s \("green glowing outline traced on the figure"\)\.$/);
+  // The made advice's fix is a ready call at that moment: a generated overlay of kino's own for the label's words, then the search.
+  assert.match(bare.fix.text, /^edit \{"ops":\[\{"op":"add_animation","layer":"a","effect":"speed-lines","start":1\.5,"duration":1\}\]\} lays kino's speed-lines overlay on a shot, or library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*your own shape, image or cutout there counts as made/);
+  assert.deepEqual(bare.fix.call, { tool: "edit", input: { ops: [{ op: "add_animation", layer: "a", effect: "speed-lines", start: 1.5, duration: 1 }] } });
   // That call clears the error: kino's drawn overlay counts as made while it plays (at opacity 0 it draws nothing).
   const lines = (to) => footage("a", { animations: [{ kind: "effect", effect: "speed-lines", start: 0, duration: 1, easing: "linear", keepStill: "off", to }] });
   await silent("reference_kinds", scene({ layers: [lines({ opacity: 0.85 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
-  await fires("reference_kinds", scene({ layers: [lines({ opacity: 0 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
+  assert.ok((await check("reference_kinds", scene({ layers: [lines({ opacity: 0 })] }), { sceneName: "s1", seenRefs: MADE_REFS })).findings.length);
   // Drawn layers a viewer cannot see do not count: a 2 px line is 0.2% of the frame, under the 1% made needs.
-  const [thin] = await fires("reference_kinds", scene({ layers: [footage("a"), rect("streak", { x: 100, y: 100, width: 1920, height: 2 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
+  const [thin] = (await check("reference_kinds", scene({ layers: [footage("a"), rect("streak", { x: 100, y: 100, width: 1920, height: 2 })] }), { sceneName: "s1", seenRefs: MADE_REFS })).findings;
   assert.match(thin.message, /^reference_kinds: made shows at 8 of 8 moments but covers 0\.2% of the frame \(under 1%\); your references show it at 2 of 6/);
   // Several small ones that add up past 1% show it.
   await silent("reference_kinds", scene({ layers: [footage("a"), ...[0, 1, 2, 3].map((n) => rect(`bar${n}`, { x: 100, y: 100 + n * 200, width: 700, height: 20 }))] }), { sceneName: "s1", seenRefs: MADE_REFS });
@@ -2270,7 +2282,7 @@ test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is 
   assert.deepEqual(one.findings.map((finding) => finding.severity), ["warn"]);
   // References labeled at only some moments are judged on the moments they have (2 of 3 here).
   const half = MADE_REFS.map((ref) => ({ ...ref, seen: ref.seen.slice(0, 3) }));
-  const [partly] = await fires("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: half });
+  const [partly] = (await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: half })).findings;
   assert.match(partly.message, /your references show it at 2 of 3 \(yt:AAAAAAAAAAA/);
   // One labeled moment is a share of 0 or 100%: no share warning from it.
   const once = await check("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS.map((ref) => ({ ...ref, seen: ref.seen.slice(0, 1) })) });
@@ -2305,10 +2317,10 @@ test("reference_kinds: spoken is not judged while the clips are not transcribed;
   const talk = ["a", "b"].map((letter) => seenRef(`yt:${letter.repeat(11)}`, [1.8, 5.4, 9, 12.6, 16.2, 19.8].map((at, index) => [at, index < 3 ? ["spoken"] : ["plain"], "a line"])));
   const context = { sceneName: "s1", seenRefs: talk };
   const notYet = await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, speech: [{ layer: { id: "a" }, transcript: null, missing: "not transcribed yet (check with pixels transcribes it)" }] });
-  assert.deepEqual(notYet.findings.filter((finding) => finding.severity === "error"), []);
+  assert.deepEqual(notYet.findings.filter((finding) => /at 0 of/.test(finding.message)), []);
   assert.match(notYet.findings.find((finding) => finding.severity === "info").message, /spoken is not judged yet.*check \{pixels:true\}/);
   const heard = await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, speech: [] });
-  assert.equal(heard.findings.find((finding) => finding.severity === "error").fix.call.tool, "library");
+  assert.equal(heard.findings.find((finding) => finding.severity === "info").fix.call.tool, "library");
 });
 
 test("reference_kinds: references with a measured voice and an edit with no heard line is an error whose fix is the ready keep_line call", async () => {
@@ -2316,16 +2328,17 @@ test("reference_kinds: references with a measured voice and an edit with no hear
   const voiced = ["a", "b"].map((letter) => ({ ...seenRef(`yt:${letter.repeat(11)}`, [1.8, 5.4, 9, 12.6, 16.2, 19.8].map((at) => [at, ["plain"], "bare clip"])), heard: { change: { at: 10 }, voice: [[2.5, 4]] } }));
   const clipLines = [{ layer: "a", text: "I am done", from: 1, to: 2.4 }, { layer: "a", text: "Hello there", from: 3, to: 4 }];
   const context = { sceneName: "s1", seenRefs: voiced, speech: [], clipLines };
-  const [none] = (await check("reference_kinds", scene({ layers: [footage("a")] }), context)).findings.filter((finding) => finding.severity === "error");
+  const [none] = (await check("reference_kinds", scene({ layers: [footage("a")] }), context)).findings.filter((finding) => finding.severity === "info");
   assert.match(none.message, /^reference_kinds: your edit shows spoken at 0 of 8 moments; your references show it at 2 of 2 with a voice before their loudest change \(yt:aaaaaaaaaaa @2\.5\)\.$/);
+  assert.equal(none.at, undefined, "a kept line plays where the clip says it: no free moment");
   assert.deepEqual(none.fix.call, { tool: "edit", input: { ops: [{ op: "keep_line", layer: "a", line: "I am done" }, { op: "isolate_voice", layer: "a" }] } });
   assert.match(none.fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"a","line":"I am done"\}.*your clips say a "I am done" 1-2\.4 s · a "Hello there" 3-4 s/);
   // One reference with a voice is not two; a slowed clip's line is no call (keep_line needs speed 1).
-  const lone = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, seenRefs: voiced.slice(0, 1) })).findings.filter((finding) => finding.severity === "error");
+  const lone = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, seenRefs: voiced.slice(0, 1) })).findings.filter((finding) => finding.severity === "info");
   assert.deepEqual(lone, []);
   // No clip line keep_line can keep (slowed, none at all, or only the song's sung words): nothing in the edit fixes it, so no error.
   for (const lines of [clipLines.map((line) => ({ ...line, slowed: true })), [], [{ layer: "song", layerId: "song", text: "la la", from: 1, to: 2 }]]) {
-    const errors = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, clipLines: lines, speech: [{ layer: { id: "song" }, music: true }] })).findings.filter((finding) => finding.severity === "error");
+    const errors = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, clipLines: lines, speech: [{ layer: { id: "song" }, music: true }] })).findings.filter((finding) => finding.severity === "info");
     assert.deepEqual(errors, []);
   }
 });

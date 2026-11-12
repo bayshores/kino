@@ -3,22 +3,25 @@
 // never saw the chat: the direction, the person's notes, the gates, the motion trace, the seams
 // across cuts and the frames around each finding and beat boundary. The critic answers only in
 // lines (CRITIQUE_FORM); notes {action:"critique", lines} records them against the packet's rev.
-// A P0 line blocks a final render (critique_open) until a later round on a newer rev has no P0,
-// or a waive_check {code:"critique"}. At most CRITIQUE_ROUNDS rounds a scene per story (only a
-// spine rewritten from scratch starts the count again; retimed or reworded beats do not); then the
-// open P0 lines go to the person as one stop (notes checkpoint {id:"critique"}), and their answer
-// fixes or keeps them.
+// The lines are a fix list: none holds a final render, and its receipt lists the open P0s (a line
+// about a deleted shot or a time past the end is dropped there, staleReason). At most
+// CRITIQUE_ROUNDS rounds a scene per story (only a spine rewritten from scratch starts the count
+// again). A line that would cut a designed moment goes to the person as one stop (notes
+// checkpoint {id:"critique"}), and their answer fixes or keeps it.
 import { createHash } from "node:crypto";
 import { sec } from "./describe.mjs";
 import { AI_EDIT_QUESTIONS, BAR_FORM, BAR_PROBLEM, barLine } from "./bar.mjs";
 
 // Added to the protocol when the project has a bar (bar.mjs): the comparison comes first.
-export const BAR_PROTOCOL = `There is a bar: the best earlier cut, judged by the person. The bar pages show it beside this cut at the same story points. Before anything else, one line: ${BAR_FORM}. Name the times and the exact differences (captions, cut timing, devices, title and end card); never call it better because it does more. worse blocks the final render.`;
+export const BAR_PROTOCOL = `There is a bar: the best earlier cut, judged by the person. The bar pages show it beside this cut at the same story points. Before anything else, one line: ${BAR_FORM}. Name the times and the exact differences (captions, cut timing, devices, title and end card); never call it better because it does more. worse is a P0 on the fix list.`;
 
 // Videos shorter than this (seconds) skip the critic.
 export const CRITIQUE_UNDER = 10;
-// Rounds asked of a critic per scene; after them the open lines go to the person.
-export const CRITIQUE_ROUNDS = 2;
+// Rounds asked of a critic per scene: one, a fix list that never holds a final render. Run 8 had two:
+// they cost 631 s, 5 of round 1's 12 lines came back in round 2, and round 2's cut of the speed lines
+// started a 14-revision loop (run 8 trace, critic and time notes). The ask path stays: a line that
+// would cut a designed moment is still the person's question (notes checkpoint critique).
+export const CRITIQUE_ROUNDS = 1;
 export const CRITIQUE_WAIVER = "critique";
 export const CRITIQUE_FORM = "P0|P1|P2 t=<seconds> · <where> · <problem> → <exact change> · <what stays>";
 // The elevation pass (taste plan T5): what would raise the edit, not only its defects. UP lines
@@ -215,19 +218,41 @@ export function personCall(state, sceneId, open) {
 }
 
 /**
- * The scene's open P0 lines (null when none): the latest round's P0s. A round only counts as
- * re-read when it was made on a newer packet, so fixing and asking again is what clears them.
+ * Why a critic line is about something that no longer exists (null when it still stands): its time is
+ * past the video's end now, or every shot on screen at its time in the critic's packet (line.shots,
+ * [{id, name}] saved with the round) has been deleted since. `now` is {duration, ids: Set of the scene's
+ * layer ids}. A line saved without shots is judged by its time only. In run 8 a P0 about a shot deleted
+ * at rev 20 held the final render 23 revisions later (run 8 trace, critic notes section 6).
  */
-export function openCritique(record) {
+export function staleReason(line, now) {
+  if (!now || line.generic || line.bar || !Number.isFinite(line.at)) return null;
+  if (Number.isFinite(now.duration) && line.at > now.duration + 0.5) return `t=${line.at} is past the ${sec(now.duration)} s end now`;
+  const shots = Array.isArray(line.shots) ? line.shots : [];
+  if (shots.length && now.ids && shots.every((shot) => !now.ids.has(shot.id))) return `${shots.map((shot) => shot.name ?? shot.id).join(", ")} ${shots.length > 1 ? "are" : "is"} deleted`;
+  return null;
+}
+
+/** The latest round's P0 lines about something that no longer exists: [{line, why}] (staleReason). */
+export function staleCritique(record, now) {
   const latest = record.last ?? record.rounds.at(-1);
-  const open = latest ? latest.lines.filter(blocksRender) : [];
+  return (latest ? latest.lines.filter((line) => blocksRender(line) || line.ask) : [])
+    .map((line) => ({ line, rev: latest.rev, why: staleReason(line, now) })).filter((entry) => entry.why);
+}
+
+/**
+ * The scene's open P0 lines (null when none): the latest round's P0s, without the stale ones when
+ * `now` is given (staleReason). Open lines are a fix list: since run 8 they never hold a final render.
+ */
+export function openCritique(record, now = null) {
+  const latest = record.last ?? record.rounds.at(-1);
+  const open = latest ? latest.lines.filter((line) => blocksRender(line) && !staleReason(line, now)) : [];
   return open.length ? { rev: latest.rev, lines: open, rounds: record.rounds.length } : null;
 }
 
-/** The latest round's questions for the person (lines that would cut or flatten a designed moment), or null. */
-export function critiqueQuestions(record) {
+/** The latest round's questions for the person (lines that would cut or flatten a designed moment), or null; stale ones left out with `now`. */
+export function critiqueQuestions(record, now = null) {
   const latest = record.last ?? record.rounds.at(-1);
-  const asks = latest ? latest.lines.filter((line) => line.ask) : [];
+  const asks = latest ? latest.lines.filter((line) => line.ask && !staleReason(line, now)) : [];
   return asks.length ? { rev: latest.rev, lines: asks, rounds: record.rounds.length } : null;
 }
 

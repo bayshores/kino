@@ -193,7 +193,7 @@ export function checkSummary(findings, { unchecked = [] } = {}) {
   return `${counts.errors} err · ${counts.warnings} warn${counts.waived ? ` · ${counts.waived} waived` : ""}${top ? ` (${top})` : ""}${left}`;
 }
 
-export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (in a real edit, a brief and 30+ layers, each also blocks a final render until fixed or waived); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";
+export const CHECK_RULES = "Rules: render checks (missing_media, empty_text, off_canvas, past_scene_end, missing_font, missing_glyphs), gates that block a final render (linear_motion, reading_time, type_min, overlap, safe_zone, contrast, flashing, luma_jump, frozen_picture, assertions, spring_on_fade, same_motion, promo_basics; av_offset after it), and warnings (in a real edit, a brief and 30+ layers, each also blocks a final render until fixed or waived, but a taste one: restraint, off_beat, jump_cut, end_on_fade and the like ride on its receipt as open notes); advice (info) never blocks. library {topic:\"rules\", name:\"quality\"} explains each.";
 
 // {rule: {errors, warnings}} for the findings that count (not waived, not info), for
 // --json readers and the eval runner; MCP answers carry only the text.
@@ -260,6 +260,13 @@ const byRuleLine = (list, { first = false, detail = null } = {}) => {
 // lines of a check and saw "deck_unused" with no card names (trace-code section 2 and 5).
 const SHOWN_CARDS = 6;
 const adviceDetail = (rule, found) => {
+  // A missing reference kind is advice with a place (run 8: it was an error and drew a 14-revision
+  // add/remove loop); the place is in the line, since advice is not listed finding by finding.
+  if (rule === "reference_kinds") {
+    const places = found.filter((finding) => / at 0 of /.test(String(finding.measured ?? ""))).slice(0, 2)
+      .map((finding) => `${String(finding.measured).replace(/ moments$/, "")}${Number.isFinite(finding.at) ? `, free moment ${finding.at} s` : ""}`);
+    return places.length ? ` (${places.join("; ")})` : "";
+  }
   if (rule !== "deck_unused") return "";
   const cards = [...new Set(found.flatMap((finding) => finding.unused ?? []))];
   return cards.length ? ` (unused cards: ${cards.slice(0, SHOWN_CARDS).join(", ")}${cards.length > SHOWN_CARDS ? ", …" : ""})` : "";
