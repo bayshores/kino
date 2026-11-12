@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLayer, createScene } from "../engine/model.js";
+import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
+import { applyOperations } from "../engine/operations.js";
 import { createAgentClient } from "./agent/client.mjs";
 import { describeLevels, describeMixPeaks, limiterPlaces, loudMixWarning, loudnessGain, mixLead, readLevels, readPeakWindows } from "./audio-levels.mjs";
 import { createLoudnessCurves, measureLoudnessCurve, readMomentary, savedWordsOf } from "./loudness-curve.mjs";
@@ -276,6 +277,43 @@ test("the limiter places: each 0.1 s peak over the ceiling, near ones joined, ti
   // The default "auto" target's gain moves every peak: a quiet mix raised 8 dB is limited where "off" is not.
   const auto = { target: "web", targetLufs: -14, gainDb: 8, held: true, places: 1, worst: { at: 2, overDb: 6 } };
   assert.match(describeMixPeaks({ ...mix, places: [], auto }), /never works; loudness "auto" \(the render default, target -14 web\) adds \+8 dB first \(held by the peaks\), then the limiter works at 1 place, most 6 dB at 2 s$/);
+});
+
+test("two quiet kept lines 0.6 s apart render a low music bed between them, not digital silence (keep_line)", { skip: skipWithoutMediaTools }, async (t) => {
+  const { root, mediaRoot } = await setup(t);
+  // A 4 s pink-noise song, and a clip of a quiet tone; the clip keeps 0.6-1.4 and 2.0-3.0 s. Its
+  // measured -43 LUFS is too quiet for any dip under the -13 LUFS song, so the music goes out under each line.
+  await makePinkNoise(join(mediaRoot, "song.wav"), { seconds: 4, peakDb: -3 });
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=0.01*sin(2*PI*330*t):s=48000:d=4", "-ac", "2", join(mediaRoot, "clip.wav")]);
+  const flat = (lufs) => ({ step: 0.1, momentary: new Array(40).fill(lufs) });
+  const scene = createScene({ id: "s", name: "Lines", width: 32, height: 32, duration: 4, background: "#000000", layers: [
+    createLayer("audio", { id: "clip", name: "clip", src: "/api/media/clip.wav", mediaSourceDuration: 4 }),
+    createLayer("audio", { id: "music", name: "music", src: "/api/media/song.wav", mediaSourceDuration: 4 }),
+  ] });
+  const line = { type: "keep_line", sceneId: "s", layerId: "clip", from: 0.6, to: 1.4, subtitle: false, levels: { clip: flat(-43), music: flat(-13) } };
+  const reports = new Map();
+  const second = { ...line, from: 2, to: 3 };
+  const edited = parseDocument(applyOperations(parseDocument({ ...createDocument(), scenes: [scene] }), [line, second], { reports })).scenes[0];
+  assert.deepEqual(reports.get(second).bed, { at: [1.4, 2], bed: 0.1 });
+  const outputPath = join(root, "lines.mov");
+  await exportScene(edited, { format: "mov", fps: 10 }, { mediaRoot, outputPath });
+  // Momentary loudness (ebur128, 400 ms windows): the window ending at 1.9 s lies in the gap; the one at 3.8 s is the song at full.
+  const log = await new Promise((resolve, reject) => {
+    const child = spawn(ffmpeg, ["-hide_banner", "-nostdin", "-v", "verbose", "-i", outputPath, "-map", "0:a:0", "-af", "ebur128=framelog=verbose", "-f", "null", "-"]);
+    let text = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => { text += chunk; });
+    child.once("error", reject);
+    child.once("close", () => resolve(text));
+  });
+  const momentary = (time) => {
+    const rows = [...log.matchAll(/t:\s*([\d.]+)\s+TARGET:[^\n]*?M:\s*(-?[\d.]+|-inf)/g)].map((match) => [Number(match[1]), Number(match[2])]);
+    return rows.reduce((best, row) => (Math.abs(row[0] - time) < Math.abs(best[0] - time) ? row : best))[1];
+  };
+  const [gap, full] = [momentary(1.9), momentary(3.8)];
+  t.diagnostic(`gap M ${gap} LUFS, song M ${full} LUFS`);
+  assert.ok(gap > -70, `the gap is heard (M ${gap} LUFS), not digital silence`);
+  assert.ok(gap < full - 12, `the bed sits well under the song (${gap} vs ${full} LUFS)`);
 });
 
 test("measuring the mix finds every limiter place, and the loudest matches the render's own warning", { skip: skipWithoutMediaTools }, async (t) => {

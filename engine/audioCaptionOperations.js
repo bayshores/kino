@@ -38,7 +38,7 @@ export function applyAudioCaptionOperation(document, operation, { fonts, reports
   else if (operation.type === "sync_clips") report = applySyncClips(document, operation);
   else if (operation.type === "fit_music") report = applyFitMusic(document, operation);
   else if (operation.type === "place_broll") report = applyPlaceBroll(document, operation);
-  else if (operation.type === "keep_line") report = applyKeepLine(document, operation, { fonts });
+  else if (operation.type === "keep_line") report = applyKeepLine(document, operation, { fonts, reports });
   else if (operation.type === "place_sounds") report = applyPlaceSounds(document, operation);
   else throw new Error(`Unsupported editing operation: ${operation.type}`);
   if (report && reports) reports.set(operation, report);

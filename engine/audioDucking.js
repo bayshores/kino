@@ -67,7 +67,7 @@ const SOUND_TYPES = new Set(["audio", "video"]);
 const MAX_FADE_SECONDS = 10;
 // The longest gap (s, between one dip's fade up and the next one's fade down) that churning
 // default dips are joined across; a guess, not measured by listening.
-const JOIN_MAX_GAP = 3;
+export const JOIN_MAX_GAP = 3;
 // A default dip longer than this (seconds) goes no deeper than LONG_DIP_DB under the level it
 // leaves, unless a measured line in it needs it deeper to stay VOICE_OVER_BED LU over the music.
 export const LONG_DIP = 2;

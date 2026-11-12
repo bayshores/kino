@@ -438,15 +438,26 @@ test("keep_line over measured music levels the line against the music around it,
   assert.equal(volumeAt(liftAndDip.music, 5), 0.5);
   assert.ok(liftAndDip.report.notes.includes("lift:true is set aside: the dip given takes the music down under the line"), liftAndDip.report.notes.join(" | "));
   // A second line 2 s after the first: its own dip would turn the song 3 times in 10 s (volume_churn),
-  // so the default leaves the song untouched under it and lifts the line, and says so.
+  // so the default shares the first line's dip (one dip under both, the song holds still between them).
   const first = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats };
   const second = { ...first, from: 8, to: 9 };
   const reports = new Map();
   const both = parseDocument(applyOperations(document, [first, second], { reports })).scenes[0];
   const song = both.layers.find((layer) => layer.id === "music");
-  assert.deepEqual([5, 8.5].map((time) => Math.round(volumeAt(song, time) * 1000) / 1000), [0.562, 1]);
-  assert.equal(reports.get(second).way, "lift");
-  assert.match(reports.get(second).notes[0], /^a dip here would turn music's level 3 times in 4 s \(volume_churn\), so the song stays untouched: the line is lifted x3\.55/);
+  assert.deepEqual([5, 7, 8.5, 9.6].map((time) => Math.round(volumeAt(song, time) * 1000) / 1000), [0.562, 0.562, 0.562, 1]);
+  assert.equal(reports.get(second).way, "shared");
+  assert.match(reports.get(second).notes[0], /^a dip of its own here would turn music's level 3 times in 4 s \(volume_churn\), so the line shares the dip at 4-6 s: one dip at 0\.562 under both, the line at -12 LUFS, \+6 LU over the song there \(measured\)$/);
+  // Written after both lines are placed: the first line's note gives the time the shared dip ends.
+  assert.match(reports.get(first).notes.join(" | "), /a later line in this edit shares this line's dip: the music is back by 9\.5 s/);
+  // A lift sent later on the first line replaces its dip; a dip that also holds the second line stays.
+  const lone = parseDocument(applyOperations(document, [first], {}));
+  const liftReports = new Map();
+  const relift = { ...first, lift: true };
+  const lifted1 = parseDocument(applyOperations(lone, [relift], { reports: liftReports })).scenes[0].layers.find((layer) => layer.id === "music");
+  assert.deepEqual([volumeAt(lifted1, 5), lifted1.animations.length], [1, 0]);
+  assert.match(liftReports.get(relift).notes.join(" | "), /the earlier dip at 3\.85-6\.5 s under this line is removed: the lift replaces it/);
+  const kept2 = parseDocument(applyOperations(parseDocument({ ...document, scenes: [both] }), [relift], {})).scenes[0].layers.find((layer) => layer.id === "music");
+  assert.equal(Math.round(volumeAt(kept2, 5) * 1000) / 1000, 0.562, "the shared dip holds the other line, so it stays");
   // A given dip is kept; the receipt prints what it does to the mix (a fact, no refusal).
   assert.deepEqual(run({ dip: 0.35 }).report.mix, { line: -14, around: -13, under: -13.4, change: -0.4 });
   // A quiet bed (a talk over music at -30): the lift alone reaches it, so the song is untouched (no dip).
@@ -466,8 +477,10 @@ test("keep_line over measured music levels the line against the music around it,
     const scene = parseDocument(applyOperations(documentWith([clip, musicLayer()], 12, { cues: [{ name: "drop", time: 6.2, kind: "marker" }] }), [operation], { reports })).scenes[0];
     return { notes: reports.get(operation).notes.join(" | "), music: scene.layers.find((layer) => layer.id === "music") };
   })();
-  assert.equal(volumeAt(dropped.music, 6.2), 1);
-  assert.match(dropped.notes, /is back by 6\.2 s \(0\.2 s after the line ends\): the dip ends on the song's section cue there, not on the beat at 6\.5 s/);
+  // The drop is within reach (half a bar after the line): the music stays out until it and hits back on it,
+  // and the receipt measures the rise there (a flat test song: the line alone holds its level, +0 LU).
+  assert.deepEqual([volumeAt(dropped.music, 6.15), volumeAt(dropped.music, 6.2)], [0, 1]);
+  assert.match(dropped.notes, /the music stays out until the song's drop at 6\.2 s, 0\.2 s after the line's last word, and hits back on it: \+0 LU there \(-13 to -13 LUFS, 0\.4 s each side, measured\)/);
   assert.doesNotMatch(dropped.notes, /hits back on the beat/);
   // wait:2 waits for the downbeat (8 s).
   const waited = run({ dropout: true, wait: 2 });
@@ -512,6 +525,36 @@ test("keep_line over measured music levels the line against the music around it,
   // A line already over the song's loudest moment says "over", never a negative "under".
   const loud = run({ levels: { clip: flat(-8, 12), music: flat(-10, 30) }, lift: true });
   assert.match(loud.report.notes[0], /, 4\.1 dB over the song's loudest moment$/);
+});
+
+test("two music-out lines 0.6 s apart share a low bed, not silence, and the song lands its drop after the last word", () => {
+  // Lines too quiet for any dip (-43 LUFS under a -13 song) at 1.9-2.9 and 3.5-5.8 s, a drop at 6.04 s (dm2-b's shape).
+  const flat = (lufs, seconds) => ({ step: 0.1, momentary: new Array(seconds * 10).fill(lufs) });
+  const levels = { clip: flat(-43, 14), music: flat(-13, 30) };
+  const beats = { music: { beats: Array.from({ length: 60 }, (_, index) => index * 0.5), duration: 30 } };
+  const clip = createLayer("audio", { id: "clip", name: "clip.wav", src: "/api/media/clip.wav", mediaSourceDuration: 14 });
+  const document = documentWith([clip, musicLayer()], 14, { cues: [{ name: "drop", time: 6.04, kind: "marker" }] });
+  const run = (extra = {}) => {
+    const reports = new Map();
+    const first = { type: "keep_line", sceneId: "s", layerId: "clip", from: 1.9, to: 2.9, subtitle: false, levels, beats, ...extra };
+    const second = { ...first, from: 3.5, to: 5.8 };
+    const music = parseDocument(applyOperations(document, [first, second], { reports })).scenes[0].layers.find((layer) => layer.id === "music");
+    return { music, first: reports.get(first), second: reports.get(second) };
+  };
+  const { music, first, second } = run();
+  // The gap holds the bed (0.1, the -20 dB floor), never 0; the song is back at full on the drop, not before.
+  assert.deepEqual([2.5, 3.2, 5, 6.0, 6.04].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.1, 0.1, 0.1, 0.1, 1]);
+  assert.deepEqual(second.bed, { at: [2.9, 3.5], bed: 0.1 });
+  assert.match(second.notes.join(" | "), /share one dip: the music holds a bed at 0\.1 \(-20 dB; 6 LU under the quietest line, -31 LUFS, held at the -20 dB floor\) through it instead of going out, -33 LUFS measured in the 0\.6 s between them at 2\.9-3\.5 s; dropout:true keeps the music out there/);
+  // The rise at the drop, measured: the line over the bed before, the song at full after.
+  assert.deepEqual(second.drop, { at: 6.04, cue: "drop", before: -30.5, after: -13, rise: 17.5 });
+  // Line 1's note is written after line 2 joined its dip.
+  assert.match(first.notes.at(-1), /^a later line in this edit shares this line's dip: the music is back by 6\.04 s \(3\.1 s after the line\); the music holds a bed at 0\.1 under the lines instead of going out$/);
+  assert.equal(first.mix.under, -28.9);
+  // dropout:true asked for the music out: the gap stays silent, and the receipt says so.
+  const asked = run({ dropout: true });
+  assert.equal(volumeAt(asked.music, 3.2), 0);
+  assert.match(asked.second.notes.join(" | "), /share one dip with the music out \(dropout:true\): no music in the 0\.6 s between them at 2\.9-3\.5 s/);
 });
 
 test("keep_line {sound} keeps the loudest matching scene sound at its own level, with no subtitle, and the music makes room only when masked", () => {
