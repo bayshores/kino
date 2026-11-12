@@ -164,7 +164,14 @@ test("a limiter place keeps the level keep_line set for a kept line and takes th
     playing: [{ layerId: "line", name: "line", peakDbfs: -3 }, { layerId: "song", name: "song", peakDbfs: -4 }] };
   // Measured alone, the line is the loudest: it was the one turned down (x0.36).
   assert.deepEqual([...peakCauses(place)], [["line", 0.36]]);
+  // The song alone would need x0.25: it stops at x0.3 (as any cause does), and what stays over is printed with the line's factor.
   const trim = peakTrims(document.scenes[0], [place]);
   assert.deepEqual(trim.ops.map((op) => [op.op, op.layerId]), [["add_animation", "song"], ["add_animation", "song"]]);
-  assert.deepEqual(trim.fixed, ["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.25 1->0.25 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"]);
+  assert.deepEqual(trim.fixed, ["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.3 1->0.3 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"]);
+  assert.deepEqual(trim.dropped, ["mix 2.4 s: the others come down to x0.3 at most, so with line at the level keep_line set about 0.2 dB stays over for the limiter (each layer's peak alone, summed in phase); volume x0.97 on line clears it"]);
+  // A song that can share the cut comes down only as far as its measured share: line -8, song -4 dBFS.
+  const shared = { ...place, playing: [{ layerId: "line", name: "line", peakDbfs: -8 }, { layerId: "song", name: "song", peakDbfs: -4 }] };
+  const sharedTrim = peakTrims(document.scenes[0], [shared]);
+  assert.deepEqual([sharedTrim.fixed, sharedTrim.dropped],
+    [["mix 2.4 s (2.4-2.6 s, 3 dB over): song x0.54 1->0.54 (alone -4 dBFS); kept line at the level keep_line set (line 2-3 s)"], []]);
 });
