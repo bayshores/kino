@@ -552,7 +552,8 @@ How to read it:
 - **Effect pulse (peak, return)**: Verified. One effect (value or ranged, such as glow) rises to `to`
   and returns. Evidence: `engine/effects/animation.test.js`, `backend/agent-answers.test.mjs`.
 - **Layer frameRate ("on twos")**: Verified. A layer or group holds every picture inside it for
-  1/frameRate s. Evidence: `engine/render.test.js`. Gap: pre-decoded footage inside is not stepped.
+  1/frameRate s; look's motion blur leaves a held child unsmeared inside one picture, as the export
+  does. Evidence: `engine/render.test.js`. Gap: pre-decoded footage inside is not stepped.
 - **Easing**: Verified. Thirteen easings (named expo-out or snap, quart-out, in-out) plus custom curves, `intensity` 0 to 100, one evaluator for all
   renders; saved easings via `apply_easing`. Evidence: `engine/easing.test.js`,
   `engine/easingIntegration.test.js`, `backend/easing-export.test.mjs`, `backend/easing-library.test.mjs`,

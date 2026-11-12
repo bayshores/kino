@@ -339,6 +339,13 @@ test("blur uses the evaluated frame value", () => {
     layers: [layer("held", "group", { frameRate: 2 }), { ...shape, parentId: "held" }] };
   assert.match(renderSceneSvg(scene, 0.4), /<feGaussianBlur[^>]+stdDeviation="6"/);
   assert.match(renderSceneSvg({ ...scene, layers: [layer("held", "group"), { ...shape, parentId: "held" }] }, 0.4), /stdDeviation="3.6"/);
+  // Look's motion blur samples a held child through the group's clock, as an export's shutter
+  // does: inside one held picture it does not move, so it is not smeared.
+  const fast = { ...layer("fast", "rectangle", { parentId: "held", width: 10, height: 10 }), animations: [{ id: "move", name: "Move", kind: "custom",
+    start: 0, duration: 2, easing: "linear", from: { x: -2000 }, to: { x: 2000 }, unit: "layer", stagger: 0, order: "forward" }] };
+  const smeared = (frameRate) => renderSceneSvg({ ...scene, layers: [layer("held", "group", frameRate ? { frameRate } : {}), fast] }, 0.4, { previewBlur: true }).includes("preview-blur");
+  assert.equal(smeared(0), true);
+  assert.equal(smeared(2), false);
 });
 
 test("interactive video uses only local media routes and normal rendering requires a frame", () => {

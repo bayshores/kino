@@ -1093,11 +1093,18 @@ export function steppedTime(time, frameRate) {
   return Math.floor(time * frameRate + 1e-6) / frameRate;
 }
 
+// `frameRates` lists the held clocks from the outside in, and `sceneTime` keeps the frame's own
+// time, so the preview's motion blur samples a held layer as an export's shutter does (heldTime).
 function steppedContext(layer, context) {
   if (context.design || !(layer.frameRate > 0)) return context;
   const time = steppedTime(context.time, layer.frameRate);
-  if (time === context.time) return context;
-  return { ...context, time, mediaTime: steppedTime(context.mediaTime ?? context.time, layer.frameRate) };
+  return { ...context, time, mediaTime: steppedTime(context.mediaTime ?? context.time, layer.frameRate),
+    sceneTime: context.sceneTime ?? context.time, frameRates: [...(context.frameRates ?? []), layer.frameRate] };
+}
+
+// A scene time through every held clock around the drawing: what a held layer shows then.
+function heldTime(time, context) {
+  return (context.frameRates ?? []).reduce((held, rate) => steppedTime(held, rate), time);
 }
 
 function renderLayer(node, context, options = {}) {
@@ -1278,7 +1285,9 @@ function motionSmear(tag, node, state, context) {
   // the preview adds none on top (a whip-in recipe would smear twice).
   if (smearLength(effectsAt(layer, context.time), state) > 0) return tag;
   const parent = parentWorldMatrix(state.parentId, context);
-  const times = previewSampleTimes(context.time, shutter, context.duration);
+  // A held layer (frameRate on it or a group around it) does not move while the shutter is open
+  // inside one of its pictures: the samples go through its held clock, as an export's do.
+  const times = previewSampleTimes(context.sceneTime ?? context.time, shutter, context.duration).map((time) => heldTime(time, context));
   const travel = shutterTravel((time) => time === context.time ? state : evaluatedState(layer, { ...context, time }), times, parent);
   if (!travel || travel.pixels < PREVIEW_BLUR_FROM) return tag;
   const bounds = context.renderedBounds.get(layer.id);
