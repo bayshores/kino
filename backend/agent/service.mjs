@@ -592,7 +592,7 @@ export function createAgentService(deps) {
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
-    boardPace: (document) => boardPaceFor(document),
+    boardPace: (document, options) => boardPaceFor(document, options),
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
     styleType: async (document) => {
       const brief = (await agentState.read(document.id).catch(() => null))?.brief;
@@ -8235,18 +8235,20 @@ export function createAgentService(deps) {
   }
 
   // The board's pace facts (board-pace.mjs): the music layer's saved .song and .beats (never a
-  // decode) and the saved references' cuts and turns. Null without a board.
-  async function boardPaceFor(document) {
+  // decode) and the saved references' cuts and turns. Null without a board. cuesOnly (the board
+  // answer, which prints only the cue lines): no beats and no references are read.
+  async function boardPaceFor(document, { cuesOnly = false } = {}) {
     if (!document?.board?.shots?.length) return null;
     const layer = mainScene(document)?.layers?.find((entry) => entry.id === document.board.music);
     let file = null;
     try { file = layer ? mediaFileOf(layer) : null; } catch { file = null; }
     const shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
-    const analysis = file ? await beatAnalysis.saved?.(file).catch(() => null) : null;
-    const ids = deps.inspire?.reference ? await savedIds(document.id) : [];
+    if (cuesOnly && !shape) return null;
+    const analysis = file && !cuesOnly ? await beatAnalysis.saved?.(file).catch(() => null) : null;
+    const ids = deps.inspire?.reference && !cuesOnly ? await savedIds(document.id) : [];
     const refs = [];
     for (const id of ids) refs.push(await deps.inspire.reference(id, { full: true }).catch(() => null));
-    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean), media: await cueMediaFor(document) });
+    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean), media: shape ? await cueMediaFor(document) : {} });
   }
 
   // check's cue lines for a built scene: its song is the board's music layer, else its first

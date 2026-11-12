@@ -96,7 +96,8 @@ export function sceneCueShows({ scene, music, shape, media = {} }) {
   const cues = (song?.sections ?? []).filter((section) => section.from > 1e-3 && section.from < seconds - 1e-3).map((section) => ({ at: section.from, kind: section.kind }));
   if (!cues.length) return null;
   const { nameOf = (src) => src, tagsOf = () => null, pool = [] } = media;
-  const spans = (scene.layers ?? []).filter((layer) => layer.type === "video" && layer.visible !== false && layer.src).flatMap((layer) => {
+  // A cut-out (cutoutOf) shows its clip's own pixels on top of it: the clip below is the shot.
+  const spans = (scene.layers ?? []).filter((layer) => layer.type === "video" && layer.visible !== false && layer.src && !layer.cutoutOf).flatMap((layer) => {
     const range = mediaPlaybackRange(layer, seconds);
     return range ? [{ at: range.start, end: range.end, label: `layer ${layer.name || layer.id}`, file: layer.src, name: nameOf(layer.src), fileAt: (time) => mediaSoundTime(layer, time), tags: tagsOf(layer.src) }] : [];
   });

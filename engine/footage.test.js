@@ -596,4 +596,8 @@ test("cueShows: a drop on a rewound repeat of a shown span says so with unused s
   const fresh = boardSpans([shot(0, 3, "door.mp4", 0), shot(3, 4, "climb.mp4", 0), shot(7, 1, "stairs.mp4", 2)]);
   assert.deepEqual(cueShowLines(cueShows({ spans: fresh, cues, seconds: 8 })), ["on the drop at 7.00 s: shot 3 (stairs.mp4) new"]);
   assert.equal(cueShowLines(cueShows({ spans: boardSpans([shot(0, 7, "door.mp4", 0), { cue: 7, dur: 1, media: "none", in: "none" }]), cues, seconds: 8 }))[0], "on the drop at 7.00 s: shot 2 new (no footage)");
+  // A shot that began 0.8 s before the drop is no new picture on it; two layers of one file at once count once.
+  const held = cueShows({ spans: boardSpans([shot(0, 6.2, "door.mp4", 0, door), shot(6.2, 1.8, "climb.mp4", 0, climb)]), cues, seconds: 8, pool });
+  assert.equal(cueShowLines(held)[0], "on the drop at 7.00 s: shot 2 (climb.mp4) on screen since 6.2 s (no cut on it); unused scanned shots that differ most: F2 shot 4 (light 200, no face, 60%), F2 shot 9 (light 45, face, 22%)");
+  assert.deepEqual(cueShows({ spans: boardSpans([shot(0, 3, "door.mp4", 0), shot(0, 3, "door.mp4", 0), shot(3, 5, "climb.mp4", 0)]), cues, seconds: 8 }).takes.map((take) => take.seconds), [5]);
 });

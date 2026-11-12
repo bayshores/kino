@@ -2531,7 +2531,7 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     work.notes.push(`board r${document.board.rev}: ${board.shots.length} shot${board.shots.length === 1 ? "" : "s"}, ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s, ${span.music ? `music ${span.music}` : "no music"} · look {mode:"board"} shows it`);
     work.notes.push(...cutNotes);
     // What plays on the song's drop and section starts, and whether it was shown before (facts only).
-    work.notes.push(...boardCueLines(await Promise.resolve(boardPace?.(document)).catch(() => null)));
+    work.notes.push(...boardCueLines(await Promise.resolve(boardPace?.(document, { cuesOnly: true })).catch(() => null)));
   }
 
   // The shots (mutated) moved off a file cut they cross by under NEAR_CUT, and the receipt lines:

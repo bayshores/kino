@@ -23,6 +23,8 @@ import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
 import { boardBuildOps } from "./agent/board-build.mjs";
+import { sceneCueShows } from "./agent/board-pace.mjs";
+import { cueShowLines } from "../engine/footage/cueShows.js";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 
@@ -170,6 +172,17 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   assert.match((await agent("check", { project: "pace" })).text, /on the drop at 3\.00 s: layer again \(sintel-village-dragon\.mp4\) repeats 0\.5 s of file 2\.5-3\.7 s shown at 0-3 s/);
   // The other tests share this song with no drop measured.
   await rm(`${file}.song`, { force: true });
+});
+
+test("check's cue line names the clip under a cut-out of it, not the cut-out file", () => {
+  const video = (id, src, mediaStart, mediaOffset, mediaDuration, extra = {}) => ({ id, name: id, type: "video", src, mediaStart, mediaOffset, mediaDuration, ...extra });
+  const music = { id: "song", type: "audio", src: "/api/media/song.wav", mediaStart: 0, mediaOffset: 0, mediaDuration: 6 };
+  const shape = { version: SONG_SHAPE_VERSION, seconds: 6, whole: true, sections: [{ at: 0, kind: "intro" }, { at: 3, kind: "drop", weight: 1 }], seams: [] };
+  const scene = { duration: 6, layers: [music, video("head", "/api/media/a.mp4", 0, 3, 3), video("payoff", "/api/media/a.mp4", 3, 4, 3),
+    video("payoff-subject", "/api/media/a-subject.webm", 3, 4, 3, { cutoutOf: "payoff" })] };
+  const nameOf = (src) => src.split("/").pop();
+  assert.deepEqual(cueShowLines(sceneCueShows({ scene, music, shape, media: { nameOf } })),
+    ["on the drop at 3.00 s: layer payoff (a.mp4) repeats 2 s of file 4-7 s shown at 0-3 s", "one take fills 100% of the edit: a.mp4 (6 s)"]);
 });
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {
