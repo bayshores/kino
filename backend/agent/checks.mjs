@@ -192,8 +192,12 @@ export function groupFixLines(lines, shown = 4) {
     : `${rule} ${refs.slice(0, shown).join(", ")}${refs.length > shown ? ` +${refs.length - shown}` : ""}${reason ? `: ${reason}` : ""}`);
 }
 
-/** The waived findings as "rule ref", each once, in finding order: the one list check and the counts line share. */
-export const waivedRefs = (findings) => [...new Set(findings.filter((finding) => finding.waived).map((finding) => `${finding.rule} ${finding.ref}`))];
+/**
+ * The waived findings as "rule ref", each once, by rule then ref: the one list check and the counts
+ * line share. Sorted, not in finding order, so the same waived findings read the same on every revision.
+ */
+export const waivedRefs = (findings) => [...new Set(findings.filter((finding) => finding.waived).map((finding) => `${finding.rule} ${finding.ref}`))]
+  .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 
 // The open findings' names follow the open counts and the waived findings' names follow the waived
 // count, so neither list reads as the other's.

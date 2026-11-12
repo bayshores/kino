@@ -3311,7 +3311,7 @@ export function createAgentService(deps) {
     const earlyAt = lines.length + summary.length;
     lines.push(...summary, ...findingLines.slice(beforeSummary));
     if (report.more) lines.push(`+${report.more} more: ${report.moreByRule}. Fix these first, or check {scene} or {rules}.`);
-    // The same names, in the same order, as the waived count of status and the receipts (waivedRefs).
+    // The same names, in the same order (by rule, then ref), as the waived count of status and the receipts (waivedRefs).
     const waivedNames = waivedRefs(result.findings);
     if (waivedNames.length) lines.push(`waived: ${waivedNames.slice(0, 5).join(", ")}${waivedNames.length > 5 ? ", …" : ""}`);
     if (applied) for (const line of applied.fixed) lines.push(`  fixed ${line}`);

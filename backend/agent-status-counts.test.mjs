@@ -52,6 +52,15 @@ test("status and check agree on errors, and status says when the pixel gates are
   const fourth = await agent("status", { project: "dim" });
   assert.match(checksLine(fourth), new RegExp(`^checks ${again.data.errors} err · ${again.data.warnings} warn`));
   assert.doesNotMatch(checksLine(fourth), /not checked/);
+
+  // A waived rendered finding: check's waived line and status's waived names are one list for one revision.
+  const waived = await agent("edit", { project: "dim", ops: [{ op: "waive_check", code: "contrast", target: "dim-words", reason: "the dim words are a test of the waived list" }] });
+  assert.equal(waived.isError, undefined, waived.text);
+  assert.match(waived.data.check, / · 1 waived \(contrast dim-words\)/, "the receipt names the waived finding after the waived count");
+  const rechecked = await agent("check", { project: "dim" });
+  const checkWaived = rechecked.text.split("\n").find((line) => line.startsWith("waived: "));
+  assert.equal(checkWaived, "waived: contrast dim-words", rechecked.text);
+  assert.match(checksLine(await agent("status", { project: "dim" })), / · 1 waived \(contrast dim-words\)/);
 });
 
 test("status counts a check run at another frame rate while the scene is unchanged", async () => {
