@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
-import { coverNotes, textUnderNotes } from "./agent/silent-receipts.mjs";
+import { coverNotes, liftFootage, liftNotes, textUnderNotes } from "./agent/silent-receipts.mjs";
 import { seeThrough } from "./agent/picture-alpha.mjs";
 
 let server;
@@ -442,7 +442,7 @@ test("library search answers one short line per topic, not the topics' text", as
   // Moves and effects named by the phrase come first ("kino names for it:"), then ops, then topics.
   const lines = phrase.text.split("\n");
   const first = lines.findIndex((line) => line.startsWith("topics (")) + 1;
-  const shown = lines.slice(first, first + 6).map((line) => line.split(" ")[0]);
+  const shown = lines.slice(first, first + 7).map((line) => line.split(" ")[0]);
   for (const id of ["captions", "text-animation", "speech"]) assert.ok(shown.includes(id), `${id} is near the top: ${shown}`);
   // A move is found by the words an agent types for what it does.
   assert.match((await agent("library", { topic: "search", search: "color flash behind subject" })).text, /backdrop-flash/);
@@ -565,6 +565,63 @@ test("a text given a longer span under footage already above it is said: which f
   const blended = scene(11.6);
   blended.layers = blended.layers.map((layer) => (layer.type === "video" ? { ...layer, blendMode: "screen" } : layer));
   assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [blended] }, [], (id) => id).length, 0);
+});
+
+test("opaque full-frame footage added or moved over words that show at the same time goes under them; a title between a clip and its cut-out stays", () => {
+  const video = (id, start, end, extra = {}) => ({ id, type: "video", src: `/api/media/${id}.mp4`, parentId: null, x: 0, y: 0, width: 960, height: 540, opacity: 1, animations: [{ kind: "show", start }, { kind: "hide", start: end }], ...extra });
+  const title = { id: "title", type: "text", parentId: null, x: 100, y: 200, width: 600, height: 100, opacity: 1, animations: [] };
+  const doc = (...layers) => ({ scenes: [{ id: "s", width: 960, height: 540, duration: 8, layers }] });
+  const old = doc(video("shot1", 0, 3), title);
+  // A shot added later sits above the held title: it moves below the title, and the note says which layer moved.
+  const added = doc(video("shot1", 0, 3), title, video("shot2", 3, 6));
+  const lift = liftFootage(old, added);
+  assert.deepEqual(lift.ops, [{ type: "move_layers", sceneId: "s", layerIds: ["shot2"], position: "below", referenceId: "title" }]);
+  assert.deepEqual(lift.sources, ["/api/media/shot2.mp4"]);
+  assert.match(liftNotes(lift.moves, (id) => id)[0], /^shot2 \(full-frame footage, 3-6 s\) covers title at the same time, so kino moved shot2 below title \(the only layer moved\).* move_layers \{layers:\["shot2"\], position:"above", referenceId:"title"\}/);
+  // Footage moved above the title in this edit counts too; footage that was already above it, or that shows at another time, does not.
+  assert.equal(liftFootage(doc(title, video("shot2", 3, 6)), doc(title, video("shot2", 3, 6))).ops.length, 0, "unchanged order: nothing");
+  assert.equal(liftFootage(doc(video("shot2", 3, 6), title), doc(title, video("shot2", 3, 6))).ops.length, 1, "moved above the title");
+  assert.equal(liftFootage(old, doc(video("shot1", 0, 3), { ...title, animations: [{ kind: "hide", start: 2 }] }, video("shot2", 3, 6))).ops.length, 0, "title gone before the shot");
+  // Alpha files, blended footage, a title an order op names, and a title with a cut-out of a clip above it stay as they are.
+  assert.equal(liftFootage(old, added, { seeThrough: new Set(["/api/media/shot2.mp4"]) }).ops.length, 0);
+  assert.equal(liftFootage(old, doc(video("shot1", 0, 3), title, video("shot2", 3, 6, { blendMode: "screen" }))).ops.length, 0);
+  assert.equal(liftFootage(old, added, { kept: new Set(["title"]) }).ops.length, 0);
+  assert.equal(liftFootage(old, added, { kept: new Set(["shot2"]) }).ops.length, 0, "footage an order op named stays");
+  // A plate under the title is still covered by the lifted shot: its cover note does not say nothing was reordered.
+  const plate = { id: "plate", type: "rectangle", parentId: null, x: 80, y: 190, width: 640, height: 120, opacity: 1, animations: [] };
+  const [plateNote] = coverNotes(old, doc(video("shot1", 0, 3), plate, video("shot2", 3, 6), title), ["shot2"], (id) => id, { lifted: new Set(["shot2"]) });
+  assert.match(plateNote.note, /draws over plate .*kino moved it under the words only\./);
+  // Footage playing through a mask word (masked-type's fill) stays on its mask; a mask word is not words to lift over.
+  const word = { ...title, id: "word", isMask: true };
+  assert.equal(liftFootage(old, doc(video("shot1", 0, 3), title, word, video("fill", 0, 3))).ops.length, 0, "fill stays on its mask");
+  assert.equal(liftFootage(old, doc(video("shot1", 0, 3), word, title, video("shot2", 0, 3))).ops.length, 0, "a title a mask cuts stays on its mask");
+  const sandwich = doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" }));
+  assert.equal(liftFootage(doc(video("clip", 0, 8)), sandwich).ops.length, 0, "the cut-out copy is not lifted");
+  assert.equal(liftFootage(doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" })), doc(video("clip", 0, 8), title, video("clip-cutout", 0, 8, { cutoutOf: "clip" }), video("late", 2, 5))).ops.length, 0, "title behind a subject stays");
+  // Other opaque footage between the title and the new shot at the same time: the title is not lifted over it.
+  assert.equal(liftFootage(doc(title, video("mid", 3, 6)), doc(title, video("mid", 3, 6), video("shot2", 3, 6))).ops.length, 0);
+});
+
+test("a picture added full-frame over a held title goes under it in the saved order, and the receipt says so", async () => {
+  await agent("project", { action: "create", id: "lift", name: "Lift", width: 640, height: 360, duration: 4 });
+  const canvas = createCanvas(64, 36);
+  canvas.getContext("2d").fillRect(0, 0, 64, 36);
+  const upload = await server.api("/api/media", { method: "POST", headers: { "content-type": "image/png", "x-file-name": "solid-lift.png" }, body: canvas.toBuffer("image/png") });
+  assert.equal(upload.status, 201);
+  const media = await upload.json();
+  const src = media.src ?? media.media?.src;
+  const made = await agent("edit", { project: "lift", ops: [{ op: "add_layer", layerType: "text", name: "title", properties: { x: 40, y: 100, width: 400, height: 60, text: "Held words", fontFamily: "Inter" } }] });
+  assert.equal(made.isError, undefined, made.text);
+  const added = await agent("edit", { project: "lift", ops: [{ op: "add_layer", layerType: "image", name: "backdrop", properties: { src, x: 0, y: 0, width: 640, height: 360 } }] });
+  assert.equal(added.isError, undefined, added.text);
+  assert.match((added.data.notes ?? []).join(" "), /backdrop \(full-frame footage, 0-4 s\) covers title at the same time, so kino moved backdrop below title/);
+  assert.ok(!(added.data.notes ?? []).join(" ").includes("Nothing was reordered"), "no cover note for a pair that was lifted");
+  const names = (await (await server.api("/api/projects/lift")).json()).document.scenes[0].layers.map((layer) => layer.name);
+  assert.deepEqual(names.filter((name) => ["title", "backdrop"].includes(name)), ["backdrop", "title"]);
+  // An explicit move_layers that names the title is the agent's own order: it is kept.
+  const own = await agent("edit", { project: "lift", ops: [{ op: "add_layer", layerType: "image", name: "second", properties: { src, x: 0, y: 0, width: 640, height: 360 } }, { op: "move_layers", layers: ["second"], position: "above", referenceId: "title" }] });
+  assert.equal(own.isError, undefined, own.text);
+  assert.ok(!(own.data.notes ?? []).join(" ").includes("kino moved"), own.text);
 });
 
 test("a full-frame file with an alpha channel (an alpha WebM, a picture with a clear part) gets no cover note", async () => {

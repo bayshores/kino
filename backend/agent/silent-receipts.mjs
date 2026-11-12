@@ -71,9 +71,9 @@ function fullFrame(layer, scene) {
  * at the same time, a note with the one reorder call that puts the clip under the lowest of them.
  * Returns [{ note, call }]: `call` is {tool, input}. `seeThrough` holds the files with an alpha
  * channel (an alpha WebM, a picture with a clear part): what is under them still shows, so they
- * get no note.
+ * get no note. `lifted` holds the clips liftFootage already moved under the words this edit.
  */
-export function coverNotes(before, after, createdIds, refName, { seeThrough = new Set() } = {}) {
+export function coverNotes(before, after, createdIds, refName, { seeThrough = new Set(), lifted = new Set() } = {}) {
   const made = new Set(createdIds);
   const notes = [];
   for (const scene of after.scenes ?? []) {
@@ -88,13 +88,76 @@ export function coverNotes(before, after, createdIds, refName, { seeThrough = ne
       const lowest = refName(under[0].id);
       const names = under.slice(0, 4).map((layer) => refName(layer.id));
       const call = { tool: "edit", input: { ops: [{ op: "move_layers", layers: [refName(cover.id)], position: "below", referenceId: lowest }] } };
-      notes.push({ call, note: `${refName(cover.id)} is full-frame and now draws over ${names.join(", ")}${under.length > 4 ? ` and ${under.length - 4} more` : ""} (${under.length === 1 ? "it is" : "they are"} on screen at the same time, so you cannot see ${under.length === 1 ? "it" : "them"}). Nothing was reordered. To put the clip underneath: move_layers {layers:["${refName(cover.id)}"], position:"below", referenceId:"${lowest}"}.` });
+      notes.push({ call, note: `${refName(cover.id)} is full-frame and now draws over ${names.join(", ")}${under.length > 4 ? ` and ${under.length - 4} more` : ""} (${under.length === 1 ? "it is" : "they are"} on screen at the same time, so you cannot see ${under.length === 1 ? "it" : "them"}). ${lifted.has(cover.id) ? "kino moved it under the words only." : "Nothing was reordered."} To put the clip underneath: move_layers {layers:["${refName(cover.id)}"], position:"below", referenceId:"${lowest}"}.` });
     }
   }
   return notes;
 }
 
 const sec2 = (value) => Number(value.toFixed(2));
+
+const overlaps = (one, other, scene) => {
+  const [a, b] = windowOf(one, scene), [c, d] = windowOf(other, scene);
+  return a < d && c < b;
+};
+
+/**
+ * The default for words and footage: opaque full-frame footage that an edit added (or moved to
+ * above words it was under) goes under any text that is on screen at the same time, because the
+ * words would not show otherwise. Returns { ops, moves, sources }: `ops` are engine move_layers
+ * ops (footage below the lowest such text) for the caller to apply, `moves` are what liftNotes
+ * words, `sources` are the files of the footage in question (the caller reads their alpha and calls again
+ * with `seeThrough`).
+ * Left where they are: footage with an alpha channel, a blend mode or opacity under 1 (the clip
+ * mixes with the words), footage that is a mask or sits just above one (it plays through that
+ * mask, as masked-type's fill does), text that is a mask, text with a cut-out layer above it (the
+ * title sits between a clip and its cut-out on purpose), footage or text whose order an op of this
+ * edit named (`kept`: ids), and text with other opaque full-frame footage between it and the clip
+ * at the same time.
+ */
+export function liftFootage(before, after, { seeThrough = new Set(), kept = new Set() } = {}) {
+  const ops = [], moves = [], sources = new Set();
+  for (const scene of after.scenes ?? []) {
+    const earlier = (before?.scenes ?? []).find((entry) => entry.id === scene.id);
+    const was = new Map((earlier?.layers ?? []).map((layer, index) => [layer.id, index]));
+    const work = [...(scene.layers ?? [])];
+    for (const footage of [...work]) {
+      if (!fullFrame(footage, scene) || footage.cutoutOf || footage.isMask || kept.has(footage.id)) continue;
+      const at = work.indexOf(footage);
+      // A layer just above a mask is what that mask cuts (footage playing through a word): it stays
+      // on it, and nothing goes in between.
+      const onMask = (index) => work.slice(0, index).filter((layer) => !layer.parentId).at(-1)?.isMask === true;
+      if (onMask(at)) continue;
+      // A layer above the text that is the cut-out of a clip below it: the text sits between them.
+      const behindSubject = (textAt) => work.some((layer, index) => {
+        const clipAt = layer.cutoutOf ? work.findIndex((entry) => entry.id === layer.cutoutOf) : -1;
+        return index > textAt && clipAt >= 0 && clipAt < textAt;
+      });
+      const texts = work.slice(0, at).filter((text, textAt) => text.type === "text" && !text.parentId && !text.isMask && !onMask(textAt) && text.visible !== false && Number(text.opacity ?? 1) > 0
+        && !kept.has(text.id) && overlaps(text, footage, scene)
+        && (!was.has(footage.id) || (was.has(text.id) && was.get(text.id) > was.get(footage.id)))
+        && !behindSubject(textAt)
+        && !work.slice(textAt + 1, at).some((other) => fullFrame(other, scene) && !other.cutoutOf && overlaps(other, footage, scene)));
+      if (!texts.length) continue;
+      if (footage.src) sources.add(footage.src);
+      if (seeThrough.has(footage.src)) continue;
+      work.splice(at, 1);
+      work.splice(work.indexOf(texts[0]), 0, footage);
+      ops.push({ type: "move_layers", sceneId: scene.id, layerIds: [footage.id], position: "below", referenceId: texts[0].id });
+      moves.push({ footage: footage.id, texts: texts.map((text) => text.id), window: windowOf(footage, scene) });
+    }
+  }
+  return { ops, moves, sources: [...sources] };
+}
+
+/** The receipt note for each move liftFootage made, named with `refName`. */
+export function liftNotes(moves, refName) {
+  return moves.map(({ footage, texts, window }) => {
+    const name = refName(footage);
+    const told = texts.slice(0, 3).map(refName);
+    return `${name} (full-frame footage, ${sec2(window[0])}-${sec2(window[1])} s) covers ${told.join(", ")}${texts.length > 3 ? ` and ${texts.length - 3} more` : ""} at the same time, so kino moved ${name} below ${refName(texts[0])} (the only layer moved) and the words show. To put it back: move_layers {layers:["${name}"], position:"above", referenceId:"${refName(texts.at(-1))}"}.`;
+  });
+}
 
 /**
  * For each text this edit made or gave a new span on screen (a longer hide, an earlier show), the
