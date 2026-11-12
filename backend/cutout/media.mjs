@@ -31,6 +31,9 @@ import { matteBoxes, outlineOfMatte } from "./outline.mjs";
 // edge is cleaned of its background, cutout/edges.mjs; subject 4, matte 2, silhouette 2: a late
 // picture's frames sit at its exact lead, cutout.mjs leadPad).
 const OUTPUT_FORMAT = { subject: 4, matte: 2, silhouette: 2 };
+// Bump when openEdges "extend" would carry the subject differently (2: only a subject already
+// within a quarter of the reach of the border is carried, matte.mjs extendOpenEdges).
+const EXTEND_FORMAT = 2;
 
 /**
  * Makes library media from subject mattes. Options:
@@ -70,7 +73,7 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
 
   // Where media.json keeps the library file of one output of a matte.
   function outputSlot({ output: kind, grow, feather, openEdges, edge, color, invert }) {
-    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, openEdges, ...(edge && edge !== "soft" ? { edge } : {}), ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
+    return JSON.stringify({ v: OUTPUT_FORMAT[kind] ?? 1, output: kind, grow, feather, openEdges, ...(openEdges === "extend" ? { extend: EXTEND_FORMAT } : {}), ...(edge && edge !== "soft" ? { edge } : {}), ...(kind === "silhouette" ? { color } : {}), ...(kind === "matte" ? { invert } : {}) });
   }
 
   // The library file for one output of one matte, made the first time.
