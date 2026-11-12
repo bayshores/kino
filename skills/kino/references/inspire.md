@@ -89,8 +89,13 @@ frame strips · Proposing ideas · Sound effects
   size, case and reveal off the strips; save `"type: <family class>, <size>, <case>, <reveal>"`
   with `ref` and `at`. A type label is measured only where kino's text reader reads its own
   words in a kept frame within 0.5 s: put the on-screen lettering in the label's words, quoted
-  or in capitals ("the lyric word KNOW"). Else the receipt says 'type label <ref> @<s> not
-  used: <why>' and the type comes from the scene's colors.
+  or in capitals ("the lyric word KNOW"). Up to 6 saved labels are tried. Else the receipt says
+  'type label <ref> @<s> not used: <why>' (once per project, by a saved edit; a dry run says it
+  again) and an `add_layer` text with a `role` and no font takes the face of the project's own
+  text doing that job (same role, else the largest text or the smallest reading line), else an
+  installed face that has the weight ('face from ...'). Its fill and subtitle edge are chosen
+  against the picture measured behind the text box at its show time (receipt: the color, the
+  layer and the contrast ratio).
 - `look {mode:"reference", ref, t}` shows the strip nearest `t` and its neighbors: 6 frames
   1/12 s apart from 0.25 s before the moment, 240 px wide. Without `t`, `page` 1, 2, … of 6.
   Without `ref`: the saved references, one line each.

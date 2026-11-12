@@ -1,6 +1,6 @@
 ---
 name: kino
-description: Makes and edits motion videos with kino, a local motion design engine (product promos, ads, social clips, explainers, logo stings, animated text, captions, music cut to the beat) and renders them to MP4, GIF, PNG or Lottie. Use when asked to make, change, check or render a video, animation or motion graphic, or when kino's tools or the `kino` command are available.
+description: Makes and edits motion videos with kino, a local motion design engine (promos, ads, social clips, explainers, logo stings, animated text, captions, music cut to the beat) and renders them to MP4, GIF, PNG or Lottie. Use when asked to make, change, check or render a video, animation or motion graphic, or when kino's tools or the `kino` command are available.
 ---
 
 # kino
@@ -33,7 +33,7 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks. |
 | `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets). |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
-| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects; the rest rides on its receipt. |
+| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects; the rest rides its receipt. |
 | `library` | Exact rules: `{topic:"op", name}` (fields), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
 | `notes` | The `brief`, stops, plan, notes, `helper` agents. |
@@ -88,12 +88,12 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 - [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md): sync.
 - [framing](references/framing.md): crops; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
-- [sound](references/sound.md): ducking, voiceover, fit_music; [library](references/sound-library.md): SFX, music, lines.
+- [sound](references/sound.md): ducking, voiceover, fit_music; [library](references/sound-library.md): SFX, music; [lines](references/lines.md).
 - [color](references/color.md): grades; [cutout](references/cutout.md): cut-outs, track, pin.
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
-- [taste](references/taste.md): motion, readability, restraint.
+- [taste](references/taste.md): motion, readability.
 - [direction](references/direction.md): brief; [stops](references/stops.md); [dashboard](references/dashboard.md): notes.
 - [render](references/render.md): exports.
 - [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).
