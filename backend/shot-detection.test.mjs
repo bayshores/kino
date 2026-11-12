@@ -12,7 +12,7 @@ import { after, before, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { createAgentClient, importedText } from "./agent/client.mjs";
 import { probeMedia } from "./media-probe.mjs";
-import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, pictureChanges, shotEdges, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
+import { FLASH_FRAMES, MAX_VIDEO_SECONDS, MIN_SHOT_FRAMES, createShotFinder, cutsFromScores, findShots, holdPattern, holdsLine, pictureChanges, shotEdges, shotResidual, shotFilters, shotsFromCuts, shotsFromRun, shotsLine } from "./shot-detection.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer } from "./media.test.support.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -216,6 +216,22 @@ describe("shotsFromCuts", () => {
     const alike = (a, b) => picture(a) === picture(b);
     assert.deepEqual(pictureChanges([0], 40, mad, { flat: (frame) => frame === 25, alike }), [[10, 11, 12, 13, 14]]);
   });
+
+  test("shotResidual: a cut between two dim pictures under one fixed vignette is found once the shot's average frame is taken out", () => {
+    // 8 frames of 32×18: a strong fixed gradient (the vignette) plus a faint picture, P1 for
+    // frames 0-3 and P2 for 4-7, each frame 1 gray lighter or darker than the one before.
+    const size = 32 * 18;
+    const thumbnails = new Uint8Array(size * 8);
+    for (let frame = 0; frame < 8; frame += 1) {
+      for (let pixel = 0; pixel < size; pixel += 1) thumbnails[frame * size + pixel] = (pixel % 32) * 6 + (frame < 4 ? (pixel * 7) % 13 : (pixel * 11) % 17) + (frame % 2);
+    }
+    const mad = (a, b) => { let total = 0; for (let pixel = 0; pixel < size; pixel += 1) total += Math.abs(thumbnails[a * size + pixel] - thumbnails[b * size + pixel]); return total / size; };
+    const residual = shotResidual(thumbnails, 0, 8);
+    assert.deepEqual([residual(2, 3), residual(3, 4)], [true, false]);
+    // The raw picture stays alike across the cut (the gradient), so only the residual test finds it.
+    assert.deepEqual(pictureChanges([0], 8, mad), [[]]);
+    assert.deepEqual(pictureChanges([0], 8, mad, { inShot: (start, next) => shotResidual(thumbnails, start, next) }), [[4]]);
+  });
 });
 
 describe("cutsFromScores", () => {
@@ -359,7 +375,7 @@ describe("findShots with FFmpeg", { skip: skipWithoutMediaTools }, () => {
     const clip = await makeCutsClip(path.join(folder, "cuts.mp4"));
     const { shots, found: { ms, ...found }, flashes, fps } = await findShots(clip, { duration: (await probeMedia(clip)).duration });
     assert.deepEqual(shots, [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }]);
-    assert.deepEqual(found, { version: 4, frames: 111, cuts: 2, flashes: 1 });
+    assert.deepEqual(found, { version: 5, frames: 111, cuts: 2, flashes: 1 });
     assert.deepEqual([flashes, fps], [[{ start: 2.25, end: 2.375 }], 24], "the flash's times and the frame rate, not saved with the record");
     assert.ok(Number.isInteger(ms) && ms >= 0);
   });
@@ -611,7 +627,7 @@ describe("createShotFinder", { skip: skipWithoutMediaTools }, () => {
     assert.deepEqual(saved.map((save) => save.id), [record.id, record.id]);
     const updated = await readRecord(record.id);
     assert.deepEqual(updated.shots, shots);
-    assert.deepEqual({ ...updated.shotsFound, ms: 0 }, { version: 4, frames: 111, cuts: 2, flashes: 1, ms: 0 });
+    assert.deepEqual({ ...updated.shotsFound, ms: 0 }, { version: 5, frames: 111, cuts: 2, flashes: 1, ms: 0 });
     assert.equal(shotsLine(updated), CUTS_LINE);
   });
 
@@ -675,7 +691,7 @@ describe("video import on a real server", { skip: skipWithoutMediaTools }, () =>
       const media = await response.json();
       const shots = [{ start: 0, end: 1.5 }, { start: 1.5, end: 3.125 }, { start: 3.125, end: 4.625 }];
       assert.deepEqual(media.shots, shots);
-      assert.deepEqual({ ...media.shotsFound, ms: 0 }, { version: 4, frames: 111, cuts: 2, flashes: 1, ms: 0 });
+      assert.deepEqual({ ...media.shotsFound, ms: 0 }, { version: 5, frames: 111, cuts: 2, flashes: 1, ms: 0 });
       const record = JSON.parse(await readFile(path.join(server.dataDirectory, "media", `${media.id}.json`), "utf8"));
       assert.deepEqual(record.shots, shots);
       assert.deepEqual(record.shotsFound, media.shotsFound);
