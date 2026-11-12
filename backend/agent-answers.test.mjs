@@ -295,7 +295,8 @@ test("library search: the director's plain words reach the tool kino has; words 
   for (const [query, name] of [["halftone dots", "dot-grid"], ["torn paper edge", "shape-modifiers"], ["dashed stroke", "layer-style"], ["dotted line", "layer-style"],
     ["pixel mosaic grid", "pixelate"], ["glitch slice displacement", "glitch"], ["particles", "embers"], ["wash", "overexpose"], ["white flash", "overexpose"], ["cinema bars", "scene-background"],
     ["on twos", "layer-frame-rate"], ["on threes", "layer-frame-rate"], ["choppy", "layer-frame-rate"], ["rotation motion blur", "motion-blur"], ["fill the edges", "edge-fill"],
-    ["tilt", "tilt"], ["perspective", "tilt"], ["text fading through the picture", "blend-mode"], ["moving straight edge wipe", "split-fields"], ["brush edge wipe", "split-fields"]])
+    ["tilt", "tilt"], ["perspective", "tilt"], ["text fading through the picture", "blend-mode"], ["moving straight edge wipe", "split-fields"], ["brush edge wipe", "split-fields"],
+    ["dash outline", "layer-style"], ["comic dots", "dot-grid"], ["torn paper edge texture", "shape-modifiers"], ["dotted line callout", "layer-style"], ["pixel mosaic grid reveal", "pixelate"]])
     assert.equal(first(query), name, `${query}: ${searchGuide(query).split("\n").slice(0, 3).join(" | ")}`);
   // Names that were found by luck of the words hold, and the extra words do not pull in a wrong lead.
   assert.ok(searchGuide("glitch slice displacement").includes("smear ("), "smear");
@@ -309,7 +310,11 @@ test("library search: the director's plain words reach the tool kino has; words 
   assert.ok(particles.some((line) => line.startsWith("bokeh (")) && particles.some((line) => line.startsWith("embers (")));
   // The entries say what they hide: the shape-wipe brush edge and the glitch blocks.
   assert.match(movesLibraryText("shape-wipe"), /brush" roughens a shape that grows from one point and can cover the frame a frame early/);
+  assert.match(movesLibraryText("shape-wipe"), /use split-fields travel:-1/);
   assert.match(movesLibraryText("glitch"), /blocks:N tears N bands/);
+  // split-fields only drifts its edge by default: the search line and the entry name the field that sweeps it.
+  assert.match(searchGuide("moving brush edge wipe"), /split-fields \(move: [^\n]*\): [^\n]*travel:-1 sweeps it left to right/);
+  assert.match(movesLibraryText("split-fields"), /travel:-1 sweeps the edge left to right across the whole frame/);
   // No kino name for the words: the 3 nearest tools by what they do, each with its call.
   const none = searchGuide("shards flying apart").split("\n");
   assert.equal(none.some((line) => line.startsWith("no kino name for")), false, "shatter is named");

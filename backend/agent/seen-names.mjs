@@ -99,7 +99,7 @@ const SEEN_AS = {
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
   // Findability round (recreate test, GAPS "Findability"): kino had each of these and the director's words missed it.
   // Halftone and dots: dot-grid draws the picture as dots (dithering is the retro dot-pattern posterize).
-  halftone: ["dot-grid", "dithering"], "halftone dots": ["dot-grid", "dithering"], "dot screen": ["dot-grid"], "dot pattern": ["dot-grid", "dithering"], newsprint: ["dot-grid"], stipple: ["dot-grid", "dithering"], dots: ["dot-grid"],
+  halftone: ["dot-grid", "dithering"], "halftone dots": ["dot-grid", "dithering"], "dot screen": ["dot-grid"], "dot pattern": ["dot-grid", "dithering"], newsprint: ["dot-grid"], "comic dots": ["dot-grid"], "print dots": ["dot-grid"], stipple: ["dot-grid", "dithering"], dots: ["dot-grid"],
   // Dashed and dotted lines are the dash list of a stroke (layer-style).
   dashed: ["layer-style"], dotted: ["layer-style"], dashes: ["layer-style"], dash: ["layer-style"], "dashed line": ["layer-style"], "dotted line": ["layer-style"], "dashed stroke": ["layer-style"], "dotted stroke": ["layer-style"], "dashed outline": ["layer-style"], "dotted outline": ["layer-style"],
   // Pixel mosaic: the pixelate effect (preset-pixel is an In/Out reveal, not a look to hold).
@@ -137,8 +137,9 @@ export { SEEN_AS };
 // Words every kino answer uses: they never pick a name just by being a part of it (layer-style).
 const GENERIC = new Set(["layer", "text", "style", "ranges", "scene"]);
 const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted", "edges", "corners", "tunnel",
-  // "dots" in "connect the dots", "pixel" in "pixel drag", "bars" in "progress bars", "tilt" in "tilt shift", "slice" in "slice the clip":
-  "dots", "dash", "pixel", "bars", "tilt", "slice", "slices", "stepped", "blend"]);
+  // "dots" in "connect the dots", "pixel" in "pixel drag", "bars" in "progress bars", "tilt" in "tilt shift", "slice" in "slice the clip"
+  // ("dash" leads anywhere: "dash outline" is a dashed stroke too):
+  "dots", "pixel", "bars", "tilt", "slice", "slices", "stepped", "blend"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
 export const REFERENCE_LOOKUP = 'to make what you see (kinds: type, overlay, composite, color, made, frame, spoken, plain): library {topic:"search", search:"<your words: font, glow, cut-out, split screen, duotone, outline>"}';
@@ -176,6 +177,10 @@ const WHEN = {
   dust: "slow drifting specks (links joins them into a network): air in a light beam, calm, tech", snow: "falling flakes: winter, soft quiet", rain: "falling streaks: rain, storm, code rain",
   fog: "drifting haze: mood, depth behind a subject", streaks: "long moving lines: speed, code rain, motion", "light-leaks": "warm color washes: filmic, nostalgic",
   "dot-grid": "a halftone: the whole picture drawn as dots", pixelate: "a pixel mosaic: big square cells over a picture", "edge-fill": "stretches the edge pixels out where a moved picture leaves a gap",
+  // A director wanted a brush edge sweeping across in 4 frames (contest-a f849-852) and got shape-wipe's growing shape;
+  // split-fields drifts its edge 0.15 of the frame by default, so the line names the field that makes it sweep.
+  "split-fields": "an edge moving across one shot, a color field each side: travel:-1 sweeps it left to right over the whole frame (a wipe), 1 right to left",
+  "shape-wipe": "a shape growing from one point to the next shot (point, shape circle, rounded, diamond, clock)",
 };
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} then set_font {layerIds, family, weight}' };

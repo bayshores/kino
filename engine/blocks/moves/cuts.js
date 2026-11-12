@@ -410,7 +410,7 @@ const SHAPES = ["circle", "rounded", "diamond", "clock"];
 export const shapeWipe = {
   name: "shape-wipe",
   needsAt: true,
-  about: "a shape in the accent color grows from a point to cover the frame, and the next shot opens inside it in the same shape, a beat behind (edge:\"brush\" roughens a shape that grows from one point and can cover the frame a frame early: for an edge that moves across the picture, a color field each side, use split-fields)",
+  about: "a shape in the accent color grows from a point to cover the frame, and the next shot opens inside it in the same shape, a beat behind (edge:\"brush\" roughens a shape that grows from one point and can cover the frame a frame early: for an edge that sweeps across the picture, a color field each side, use split-fields travel:-1)",
   fits: "graphic, brand-color changes",
   tags: ["mask-wipe"],
   length: 0.6,
