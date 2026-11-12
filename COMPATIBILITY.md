@@ -592,6 +592,11 @@ How to read it:
   footage and component play times moving too; `vary` steps a field per place and rebases a grow.
   look's sheet and review, and check, print a `returns:` line of what comes back. Evidence:
   `engine/duplicate.test.js`, `backend/agent-reach-geometry.test.mjs`. Gap: vary sets layer fields only.
+- **Copies keep their spans and stay seen**: Test-verified. A copy at a time moves its Show, Hide and media time
+  from the original's Show; whole-scene grades stay whole (cut to the scene); a recorded move's flash stays on the
+  original unless `withMoves:true`; a copy fully under a full-frame layer above it is raised above it (or, over
+  words, left with the reorder call). The receipt lists each. Evidence: `engine/duplicate.test.js`,
+  `backend/agent-edit-repair.test.mjs`, `backend/agent-reach-geometry.test.mjs`.
 - **Made share and device counts**: Verified. check prints `made:` (share of moments with a cut-out,
   drawn graphic, particle or designed type, the deck's unused cards, the references' made labels) and
   `returns:` counts a group or a numbered stem (tread-1 to tread-4) as one device. Evidence:
@@ -941,6 +946,9 @@ How to read it:
   makes a subject, matte or silhouette locally; off macOS it answers CUTOUT_ENGINE_UNAVAILABLE.
   Evidence: `backend/agent-cutout.test.mjs`, `backend/cutout.test.mjs`,
   `skills/kino/references/cutout.md`, golden `cutout-pop`.
+- **cut_out span and engine swap**: Test-verified (stub matte). `at`, `dur` and `until` give the copy its own Show and
+  Hide; the receipt always prints `shows`; `engine` on a layer with a cut-out of another engine replaces it in the
+  same call (same place, ID, name). Evidence: `backend/agent-cutout.test.mjs`.
 - **cut_out openEdges "extend" and edge**: a subject reaches the frame border solid by default;
   edge "auto" is crisp on a video whose drawings are held over frames. Evidence: `backend/cutout-matte.test.mjs`.
 - **Cut-out follows its clip, holds through lost frames, states the subject's box**: Test-verified.

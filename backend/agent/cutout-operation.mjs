@@ -33,8 +33,54 @@ import { parseFrameRate } from "../media-probe.mjs";
 import { applyOperations } from "../../engine/operations.js";
 import { mediaSceneTime } from "../../engine/playback.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
+import { createVisibilityOperation, hiddenRanges, isVisibilityOperation } from "../../engine/visibilityOps.js";
 
 const STILL_RUNNING = Symbol("still running");
+
+const thousandth = (value) => Math.round(value * 1000) / 1000;
+
+/** The stretches [[from, to]] of 0..duration that a layer's Show and Hide leave it showing. */
+export function shownSpans(layer, duration) {
+  const spans = [];
+  let from = 0;
+  for (const range of hiddenRanges(layer.animations, duration)) {
+    if (range.start > from) spans.push([from, range.start]);
+    from = range.end;
+  }
+  if (from < duration) spans.push([from, duration]);
+  return spans.map(([start, end]) => [thousandth(start), thousandth(end)]);
+}
+
+// The copy's own span from at, dur and until: from at (default the layer's own Show) until until, or
+// dur later, or the scene's end. Refused before any picture is decoded when it is empty.
+function requestedSpan(operation, layer, duration) {
+  if (operation.at === undefined && operation.dur === undefined && operation.until === undefined) return null;
+  const from = operation.at ?? shownSpans(layer, duration)[0]?.[0] ?? 0;
+  const to = Math.min(duration, operation.until ?? (operation.dur !== undefined ? from + operation.dur : duration));
+  if (from >= duration) throw new Error(`the copy cannot show from ${thousandth(from)} s: the scene ends at ${thousandth(duration)} s.`);
+  if (!(to > from)) throw new Error(`the copy's span is empty (${thousandth(from)} to ${thousandth(to)} s); until must be after at.`);
+  return { from: thousandth(from), to: thousandth(to) };
+}
+
+// The copy shows only inside its span: its own Show at the start and Hide at the end (none at the
+// scene's edges), in place of the Show and Hide it copied from the layer.
+function withSpan(document, sceneId, layerId, span) {
+  if (!span) return document;
+  const scene = document.scenes.find((item) => item.id === sceneId);
+  const layers = scene.layers.map((item) => item.id !== layerId ? item : { ...item, animations: [
+    ...(item.animations ?? []).filter((animation) => !isVisibilityOperation(animation)),
+    ...(span.from > 0 ? [createVisibilityOperation("show", span.from, `${layerId}.show`)] : []),
+    ...(span.to < scene.duration ? [createVisibilityOperation("hide", span.to, `${layerId}.hide`)] : []),
+  ] });
+  return parseDocument({ ...document, scenes: document.scenes.map((item) => item.id === sceneId ? { ...item, layers } : item) });
+}
+
+// What the receipt prints about the copy's own timing, always: shows [from, to] (its first stretch).
+function showsReport(document, sceneId, layerId) {
+  const scene = document.scenes.find((item) => item.id === sceneId);
+  const spans = shownSpans(scene.layers.find((item) => item.id === layerId), scene.duration);
+  return { shows: spans[0] ?? null, ...(spans.length > 1 ? { showsMore: spans.length - 1 } : {}) };
+}
 // A person matte with more than this share of its pixels see-through: a silhouette on red had
 // 0.155, a fast blurred dancer from the subject engine 0.11.
 const PERSON_SOFT = 0.14;
@@ -126,7 +172,7 @@ const MOVE_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation", "skewX", "s
 const PLACE_KEYS = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY", "anchor", "opacity", "blendMode",
   "playbackWindows", "anchorX", "anchorY", "rotateX", "rotateY", "perspective"];
 
-async function addOutlineLayer({ document, operation, scene, layer, made, reports, operationContext }) {
+async function addOutlineLayer({ document, operation, scene, layer, made, reports, operationContext, span }) {
   const { sceneId, layerId } = operation;
   const { outline } = made;
   const scaleX = layer.width / outline.width, scaleY = layer.height / outline.height;
@@ -198,12 +244,14 @@ async function addOutlineLayer({ document, operation, scene, layer, made, report
     faded.push(Math.round((lost + OUTLINE_HOLD) * 100) / 100);
   }
   next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
+  next = withSpan(next, sceneId, operation.cutoutId, span);
   const notes = made.note ? [made.note] : [];
   if (empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} in ${empty} of ${sampled.length} traced frames Play shows: held ${OUTLINE_HOLD} s or faded${faded.length ? ` (faded out at ${faded.join(", ")} s)` : ""}`);
   if (layer.animations?.some((animation) => animation.kind !== "effect" && !moves.includes(animation))) notes.push(`"${layer.name}" has animations the outline does not copy (only its moves, scales, turns, fades, shows and hides); add the same ones to it if they change its place`);
   const subject = subjectReport(layer, found.map(({ time, box }) => ({ time, box })), scene);
   reports?.set(operation, { engine: made.engine, output: "outline", frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
     cached: made.cached, outline: { shapes: shapes.length, step: outline.step, points: Math.max(...outline.frames.map((frame) => frame.points?.length ?? 0)) },
+    ...showsReport(next, sceneId, operation.cutoutId),
     ...(subject ? { subject: subject.report } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }
@@ -325,6 +373,7 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   if (mime === "image/gif" && (record.animated === true || Number(record.frameCount) > 1))
     throw new Error(`"${layer.name}" is an animated GIF; cut_out works on videos and still images. Import the clip as MP4 or WebM.`);
 
+  const span = requestedSpan(operation, layer, scene.duration);
   // grow and feather are in the layer's own pixels (as drawn at scale 1); the file may be larger.
   const fileWidth = Number(record.width) || layer.width, fileHeight = Number(record.height) || layer.height;
   const perLayerPixel = Math.sqrt((fileWidth / Math.max(1, layer.width)) * (fileHeight / Math.max(1, layer.height)));
@@ -410,13 +459,19 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
       { cutoutError: "CUTOUT_RUNNING" });
   }
 
-  if (output === "outline") return addOutlineLayer({ document, operation, scene, layer, made, reports, operationContext });
+  if (output === "outline") return addOutlineLayer({ document, operation, scene, layer, made, reports, operationContext, span });
 
   // A copy of the layer right above it, then its new file, name and look.
   const copied = duplicateLayers(document, sceneId, [layerId]);
-  const copy = copied.document.scenes.find((item) => item.id === sceneId).layers.find((item) => item.id === copied.rootIds[0]);
+  const copiedScene = copied.document.scenes.find((item) => item.id === sceneId);
+  const copy = copiedScene.layers.find((item) => item.id === copied.rootIds[0]);
+  // A cut-out made with the other engine (translate.mjs replacedCutOut) gives way to this one: the
+  // new copy takes its place in the stack and its ID, so what points at it keeps working.
+  const old = operation.replaces ? copiedScene.layers.find((item) => item.id === operation.replaces) : null;
+  if (old) copiedScene.layers = copiedScene.layers.flatMap((item) => item === old ? [copy] : item === copy ? [] : [item]);
   copy.id = operation.cutoutId;
   copy.cutoutOf = layerId;
+  copy.cutoutEngine = made.engine;
   // Which output it shows, so a move that needs the subject reuses this one (translate.mjs moveCutouts).
   copy.cutoutOutput = output;
   // The subject's measured box (shares of the layer, around every shown frame): type_covered
@@ -452,10 +507,19 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
     ...(operation.referenceId ? [{ type: "move_layers", sceneId, layerIds: [operation.cutoutId], position: "above", referenceId: operation.referenceId }] : []),
   ];
   next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
+  next = withSpan(next, sceneId, operation.cutoutId, span);
   // The cut-out keeps the original's timing, so it keeps its sync links (out_of_sync).
   aliasClipLinks(next, layer.src, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId)?.src);
 
   const notes = made.note ? [made.note] : [];
+  if (old) notes.push(`replaced the cut-out "${old.name}" made with the ${operation.replacesEngine} engine by this ${made.engine} one (same place, ID and name)`);
+  // The copy shows from its Show to its Hide; the file's matte covers the whole clip, so the copy
+  // lines up with the layer at every moment it shows. A span outside the layer's own is named.
+  if (span) {
+    const own = shownSpans(layer, scene.duration);
+    const outside = own.length && (span.from < own[0][0] - 0.001 || span.to > own.at(-1)[1] + 0.001);
+    if (outside) notes.push(`the copy shows ${span.from}-${span.to} s but "${layer.name}" shows ${own[0][0]}-${own.at(-1)[1]} s: outside that the copy floats over what is under the layer`);
+  }
   // Which engine behind used and why, and with two passes what each found and the time it took
   // (the pass not kept is the time the second engine cost).
   if (!own && operation.behindText) {
@@ -483,6 +547,6 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   const picked = made.picked && pickedReport(made.picked, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId));
   if (picked?.lost?.length) notes.push(`the picked object is lost in ${picked.lost.length} span(s) of the file (picked.lost)${picked.seeAt ? "; look at the times in picked.seeAt" : ""}`);
   reports?.set(operation, { engine: made.engine, output, frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
-    cached: made.cached, ...(tried.length > 1 ? { tried } : {}), ...(subject ? { subject: subject.report } : {}), ...(gaps ? { gaps } : {}), ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
+    cached: made.cached, ...showsReport(next, sceneId, operation.cutoutId), ...(old ? { replaced: { name: old.name, engine: operation.replacesEngine } } : {}), ...(tried.length > 1 ? { tried } : {}), ...(subject ? { subject: subject.report } : {}), ...(gaps ? { gaps } : {}), ...(picked ? { picked } : {}), ...(operation.behindText ? { behind: next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.referenceId)?.name } : {}), ...(notes.length ? { note: notes.join("; ") } : {}) });
   return next;
 }

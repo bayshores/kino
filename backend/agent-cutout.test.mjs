@@ -18,6 +18,8 @@ import path from "node:path";
 import { after, before, test } from "node:test";
 import { createAgentClient } from "./agent/client.mjs";
 import { runCutOut, subjectGaps } from "./agent/cutout-operation.mjs";
+import { assignCodes, createResolver, emptyCodes } from "./agent/refs.mjs";
+import { translateOperations } from "./agent/translate.mjs";
 import { EXAMPLE_PROJECT, OP_EXAMPLES } from "./agent/op-examples.mjs";
 import { createCutoutMedia } from "./cutout/media.mjs";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
@@ -159,10 +161,10 @@ test("the subject cut-out examples in the kino skill run as written", { skip: sk
   assert.equal(subject.allowOverlap, true, "the quality check knows the overlap is on purpose");
   assert.equal(runner.src, sources.runner, "the clip itself is unchanged");
   const receipt = replies[0].data.cutout;
-  assert.deepEqual({ ...receipt, seconds: undefined, subject: undefined }, { engine: "subject", output: "subject", frames: 60, cached: false, seconds: undefined, subject: undefined });
+  assert.deepEqual({ ...receipt, seconds: undefined, subject: undefined }, { engine: "subject", output: "subject", frames: 60, cached: false, shows: [0, 2], seconds: undefined, subject: undefined });
   // The ball's box over time: it rolls right, so the box at the end is right of the one at the start.
   assert.ok(receipt.subject.at.at(-1)[1] > receipt.subject.at[0][1], JSON.stringify(receipt.subject));
-  assert.match(replies[0].text, /"cutout":\{"engine":"subject","output":"subject","frames":60,"seconds":[\d.]+,"cached":false,"subject":\{"box":\[/);
+  assert.match(replies[0].text, /"cutout":\{"engine":"subject","output":"subject","frames":60,"seconds":[\d.]+,"cached":false,"shows":\[0,2\],"subject":\{"box":\[/);
 
   // Outline or glow: dancer, glow, outline, subject. The matte is found once and reused.
   const { layers: glow } = await sceneLayers(server, "cutout-1");
@@ -568,6 +570,82 @@ test("a subject cut-out leaves the clip's glow on the clip, so the glow sits beh
   await runCutOut(document, operation, { mediaRoot: root, reports: gapReports, cutoutMedia: { ...cutoutMedia, start: () => ({ done: Promise.resolve(sampled), progress: () => ({ fraction: 1, seconds: 0 }) }) },
     operationContext: async () => ({ mediaById: { [record.id]: record } }) });
   assert.match(gapReports.get(operation).note, /no subject was found in 12 of 30 frames \(Play shows them at 0\.27-0\.67 s\); the layer is empty there; the subject is in every sampled frame from 0\.67 to 0\.93 s: a move on it fits there \(at:0\.67, dur:0\.26\)/);
+});
+
+// A stub matte (no helper): a finished subject cut-out the copy gets its file from.
+async function stubSubject(t, { engine = "subject", clip = {} } = {}) {
+  const { root, document } = await fakeOutline(t);
+  Object.assign(document.scenes[0].layers[0], clip);
+  const made = { engine, frames: 30, empty: 0, seconds: 1, cached: false, record: { id: `${randomUUID()}.webm` } };
+  const record = { ...made.record, kind: "video", mime: "video/webm", src: `/api/media/${made.record.id}`, width: 64, height: 36, duration: 1 };
+  // The engine asked for is the one that made it ("auto" is the default engine).
+  const cutoutMedia = { start: ({ engine: asked }) => ({ done: Promise.resolve({ ...made, engine: asked === "auto" ? engine : asked }), progress: () => ({ fraction: 1, seconds: 0 }) }), engines: async () => [] };
+  const run = async (doc, fields) => {
+    const operation = { type: "cut_out", sceneId: "scene", layerId: "clip", output: "subject", cutoutId: "clip-cut", cutoutName: "clip-subject", ...fields };
+    const reports = new Map();
+    const next = await runCutOut(doc, operation, { mediaRoot: root, cutoutMedia, reports, operationContext: async () => ({ mediaById: { [record.id]: record } }) });
+    return { next, receipt: reports.get(operation), layers: next.scenes[0].layers };
+  };
+  return { document, run };
+}
+
+test("cut_out at, dur and until give the copy its own span: its Show and Hide replace the clip's, and the receipt prints them", async (t) => {
+  const { document, run } = await stubSubject(t, { clip: { animations: [{ id: "in", name: "Show", kind: "show", start: 0.4 }, { id: "out", name: "Hide", kind: "hide", start: 2.5 }] } });
+  const times = (layers) => layers.find((layer) => layer.id === "clip-cut").animations.filter((animation) => ["show", "hide"].includes(animation.kind)).map((animation) => [animation.kind, animation.start]);
+  // No span: the copy keeps the clip's own, and the receipt still prints when it shows.
+  const plain = await run(document, {});
+  assert.deepEqual(plain.receipt.shows, [0.4, 2.5]);
+  assert.deepEqual(times(plain.layers), [["show", 0.4], ["hide", 2.5]]);
+  // at + dur: its own Show and Hide, the clip's untouched.
+  const timed = await run(document, { at: 1, dur: 0.5 });
+  assert.deepEqual(times(timed.layers), [["show", 1], ["hide", 1.5]]);
+  assert.deepEqual(timed.receipt.shows, [1, 1.5]);
+  assert.deepEqual(timed.layers.find((layer) => layer.id === "clip").animations.map((animation) => animation.kind), ["show", "hide"]);
+  assert.equal(timed.receipt.note, undefined);
+  // until, and a span that starts at the scene's start or ends at its end has no Show or Hide there.
+  const until = await run(document, { at: 0.5, until: 2 });
+  assert.deepEqual(until.receipt.shows, [0.5, 2]);
+  const open = await run({ ...document, scenes: [{ ...document.scenes[0], layers: [{ ...document.scenes[0].layers[0], animations: [] }] }] }, { at: 0, dur: 3 });
+  assert.deepEqual([open.receipt.shows, times(open.layers)], [[0, 3], []]);
+  // dur alone starts at the clip's own Show; a span outside the clip's is named.
+  assert.deepEqual((await run(document, { dur: 1 })).receipt.shows, [0.4, 1.4]);
+  assert.match((await run(document, { at: 0.1, dur: 1 })).receipt.note, /the copy shows 0\.1-1\.1 s but "clip" shows 0\.4-2\.5 s/);
+  await assert.rejects(run(document, { at: 3 }), /scene ends at 3 s/);
+});
+
+test("cut_out outline takes the span too", async (t) => {
+  const { root, cutoutMedia, document, operation } = await fakeOutline(t);
+  const reports = new Map();
+  const next = await runCutOut(document, { ...operation, at: 0.5, dur: 1 }, { mediaRoot: root, cutoutMedia, reports, operationContext: async () => ({}) });
+  const line = next.scenes[0].layers.find((layer) => layer.id === "clip-line");
+  assert.deepEqual(line.animations.filter((animation) => ["show", "hide"].includes(animation.kind)).map((animation) => [animation.kind, animation.start]), [["show", 0.5], ["hide", 1.5]]);
+  assert.deepEqual([...reports.values()][0].shows, [0.5, 1.5]);
+});
+
+test("cut_out checks at, dur and until, and engine replaces a cut-out made with the other engine in the same call", async (t) => {
+  const { document, run } = await stubSubject(t, { engine: "subject" });
+  const resolverOf = (doc) => createResolver(doc, assignCodes(emptyCodes(), doc));
+  const send = (doc, fields) => translateOperations([{ op: "cut_out", layer: "clip", scene: "scene", ...fields }], resolverOf(doc), doc)[0];
+  assert.throws(() => send(document, { at: 1, dur: 1, until: 2 }), /dur .* or until .*, not both/);
+  assert.throws(() => send(document, { at: 2, until: 1 }), /until \(1 s\) must be after at \(2 s\)/);
+  assert.throws(() => send(document, { at: "cue:nope" }), /no cue "nope"/);
+  assert.throws(() => send(document, { dur: 0 }), /dur must be seconds above 0/);
+  const cued = { ...document, cues: [{ name: "drop", time: 1.25, kind: "marker" }] };
+  assert.equal(send(cued, { at: "cue:drop", dur: 0.5 }).at, 1.25);
+  // A cut-out made with the person engine, then one with the subject engine: one layer in the end.
+  const first = await run(document, { engine: "person", cutoutName: "clip-subject" });
+  assert.equal(first.layers.find((layer) => layer.id === "clip-cut").cutoutEngine, "person");
+  const title = createLayer("text", { id: "title", name: "title", text: "T", x: 0, y: 0, width: 100, height: 40 });
+  const stacked = parseDocument({ ...first.next, scenes: [{ ...first.next.scenes[0], layers: [...first.next.scenes[0].layers, title] }] });
+  const op = send(stacked, { engine: "subject" });
+  assert.deepEqual([op.replaces, op.cutoutId, op.cutoutName, op.replacesEngine], ["clip-cut", "clip-cut", "clip-subject", "person"]);
+  assert.equal(send(stacked, { engine: "person" }).replaces, undefined, "the same engine adds a copy as before");
+  assert.equal(send(stacked, {}).replaces, undefined, "no engine given: nothing is replaced");
+  const second = await run(stacked, op);
+  assert.deepEqual(second.layers.map((layer) => layer.id), ["clip", "clip-cut", "title"]);
+  assert.equal(second.layers[1].cutoutEngine, "subject");
+  assert.deepEqual(second.receipt.replaced, { name: "clip-subject", engine: "person" });
+  assert.match(second.receipt.note, /replaced the cut-out "clip-subject" made with the person engine by this subject one/);
 });
 
 test("behind picks the engine from the clip's people scan, and a person pass that finds no one tries the subject engine", async (t) => {

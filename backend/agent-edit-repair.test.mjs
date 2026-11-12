@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createCanvas } from "@napi-rs/canvas";
-import { coverNotes, liftFootage, liftNotes, textUnderNotes } from "./agent/silent-receipts.mjs";
+import { coverNotes, liftFootage, liftNotes, raiseHiddenCopies, textUnderNotes } from "./agent/silent-receipts.mjs";
 import { seeThrough } from "./agent/picture-alpha.mjs";
 
 let server;
@@ -610,6 +610,29 @@ test("opaque full-frame footage added or moved over words that show at the same 
   assert.equal(liftFootage({ scenes: [plain] }, { scenes: [plain, copy([named(video("x", 0, 3), "v2", "Shot"), named(title, "t2", "Words")])] }).ops.length, 0, "and the words over the clip");
   const extra = copy([duplicate.layers[0], named(video("y", 1, 3), "late2", "Late"), duplicate.layers[1]]);
   assert.deepEqual(liftFootage({ scenes: [source] }, { scenes: [source, extra] }).moves.map((move) => move.footage), ["late2"], "a clip added to the duplicate is still lifted");
+});
+
+test("a copy fully under a full-frame layer above it is placed above it; one whose move would cover words stays and the note gives the call", () => {
+  const video = (id, start, end, extra = {}) => ({ id, name: id, type: "video", src: `/api/media/${id}.mp4`, parentId: null, x: 0, y: 0, width: 960, height: 540, opacity: 1, animations: [{ kind: "show", start }, { kind: "hide", start: end }], ...extra });
+  const words = (id, start, end) => ({ id, name: id, type: "text", parentId: null, x: 100, y: 200, width: 600, height: 100, opacity: 1, animations: [{ kind: "show", start }, { kind: "hide", start: end }] });
+  const doc = (layers) => ({ scenes: [{ id: "s", width: 960, height: 540, duration: 12, layers }] });
+  const names = (result) => result.document.scenes[0].layers.map((layer) => layer.id);
+  // board-s4 copy at 6.24-6.7 under board-s5 (6-7): placed above it, and the note says so.
+  const raised = raiseHiddenCopies(doc([video("orig", 1, 2), video("copy", 6.24, 6.7), video("next", 6, 7)]), "s", ["copy"]);
+  assert.deepEqual(names(raised), ["orig", "next", "copy"]);
+  assert.match(raised.notes[0], /^"copy" \(shows 6\.24-6\.7 s\) was under "next", which cover it the whole time, so kino placed it above "next"/);
+  // A cover that ends before the copy does leaves it showing: nothing is said or moved.
+  assert.deepEqual(raiseHiddenCopies(doc([video("copy", 6.24, 6.7), video("next", 6, 6.5)]), "s", ["copy"]).notes, []);
+  // A cover that starts after the copy does does not hide it whole, so the copy stays. Two covers that
+  // between them hide it whole, with words showing between the first cover and the second: it stays, with the call.
+  const blocked = raiseHiddenCopies(doc([video("copy", 6, 7), words("title", 6, 8), video("next", 6.5, 7)]), "s", ["copy"]);
+  assert.deepEqual(names(blocked), ["copy", "title", "next"]);
+  assert.equal(blocked.notes.length, 0, "a cover that does not span the whole copy is not hiding it");
+  const hidden = raiseHiddenCopies(doc([video("copy", 6, 7), video("a", 6, 6.6), words("title", 6, 6.9), video("b", 6.6, 7)]), "s", ["copy"]);
+  assert.deepEqual(names(hidden), ["copy", "a", "title", "b"]);
+  assert.match(hidden.notes[0], /because raising it would cover "title"\. To raise it anyway: move_layers \{layers:\["copy"\], position:"above", referenceId:"b"\}/);
+  // A see-through cut-out above does not cover.
+  assert.deepEqual(raiseHiddenCopies(doc([video("copy", 6, 7), video("cut", 6, 7, { cutoutOf: "orig" })]), "s", ["copy"]).notes, []);
 });
 
 test("a picture added full-frame over a held title goes under it in the saved order, and the receipt says so", async () => {

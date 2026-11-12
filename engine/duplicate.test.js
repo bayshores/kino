@@ -202,6 +202,37 @@ test("at puts each copy of a made element at its own time, footage included, and
   assert.throws(() => duplicateRepeated(still, "main", ["bg"], { at: [3] }), /give “Plate” a Show, an animation or a play time first/);
 });
 
+test("at reads the original by its Show, keeps whole-scene effects whole, and leaves a recorded move's flash on the original", () => {
+  const clip = createLayer("video", { id: "s12", name: "shot", src: "clip.mp4", mediaStart: 12.28, mediaDuration: 2 });
+  clip.animations = [
+    { id: "a1", name: "Show", kind: "show", start: 12.28 }, { id: "a2", name: "Hide", kind: "hide", start: 13.35 },
+    { id: "a3", name: "Deblock", kind: "effect", effect: "deblock", start: 0, duration: 15, easing: "linear", to: { radius: 4 } },
+    { id: "a4", name: "Line mute", kind: "custom", start: 0, duration: 0.001, easing: "smooth", from: { volume: 1 }, to: { volume: 0 } },
+    { id: "hit.flash", name: "Flash up", kind: "effect", effect: "color-grade", start: 12.25, duration: 0.03, easing: [0.7, 0, 0.84, 0], to: { stops: 1 } },
+  ];
+  const scene = createScene({ id: "main", duration: 15, layers: [clip] });
+  scene.moves = [{ id: "hit", name: "impact-accent", settings: {} }];
+  const document = createDocument({ scenes: [scene] });
+  const plain = duplicateRepeated(document, "main", ["s12"], { at: [6.24] });
+  const copy = byName(layersOf(plain.document), "shot 2");
+  assert.equal(plain.first, 12.28, "the original is read at its Show, not at the custom animation at 0");
+  assert.deepEqual(copy.animations.filter((a) => a.kind === "show" || a.kind === "hide").map((a) => a.start), [6.24, 7.31]);
+  assert.equal(copy.mediaStart, 6.24);
+  const deblock = copy.animations.find((a) => a.effect === "deblock");
+  assert.deepEqual([deblock.start, deblock.duration], [0, 15], "a whole-scene effect stays whole");
+  assert.equal(copy.animations.some((a) => a.name === "Flash up"), false, "a recorded move's flash stays on the original");
+  assert.deepEqual(plain.report.left, ["Flash up"]);
+  assert.deepEqual(plain.report.whole, ["Deblock"]);
+  const withFlash = byName(layersOf(duplicateRepeated(document, "main", ["s12"], { at: [6.24], withMoves: true }).document), "shot 2");
+  assert.equal(withFlash.animations.find((a) => a.name === "Flash up").start, 6.21, "withMoves copies it, moved with the Show");
+  assert.throws(() => duplicateRepeated(document, "main", ["s12"], { count: 2, withMoves: true }), /withMoves is true or false and goes with at/);
+  // A 7 s scene: the whole-scene effect is cut at the scene's end, and the copy's Hide pushed past it stops there.
+  const short = createScene({ id: "main", duration: 7, layers: [clip] });
+  const cut = duplicateRepeated(createDocument({ scenes: [short] }), "main", ["s12"], { at: [6.5] });
+  assert.deepEqual(byName(layersOf(cut.document), "shot 2").animations.find((a) => a.effect === "deblock").duration, 7);
+  assert.deepEqual([...cut.report.cut].sort(), ["Deblock to 7 s", "Hide to 7 s"]);
+});
+
 test("returns: an image returns by its file, not its name, and a long run of places is cut short", () => {
   const shown = (start) => [{ id: `s${start}`, name: "Show", kind: "show", start }];
   const scene = layersOf(documentWith([
