@@ -108,11 +108,11 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
   assert.ok(formatted.document.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - quote) <= 1 / 30), JSON.stringify(formatted.document.cues));
   assert.match(JSON.stringify(format.data ?? format.text), /one stretch of the song \(fit_music\)/);
 
-  // A board over a song laid by hand: placed with fit_music (its drop on 45% of 12 s, the rhythm
+  // A board over a song laid by hand: placed with fit_music (its drop at 2 s of 12 s (one 4-bar group of 2 s bars and a bar to fade), the rhythm
   // from its beats); over a tone with no drop the board is kept and the song stays as laid.
   const shot = { cue: 0, dur: 12, pacing: "free", media: "none", in: "none", crop: "none", subject: "none", follow: "none", text: { text: "Hi", family: "Montserrat" }, sound: "none", why: "a title" };
   const tone = await importTone("bed.wav", 220, 12);
-  for (const [id, src, said] of [["fit-board", media.src ?? media.media?.src, /board music: placed with fit_music/], ["tone-board", tone, /^(?!.*board music).*board r1: 1 shot/]]) {
+  for (const [id, src, said] of [["fit-board", media.src ?? media.media?.src, /board music: placed with fit_music/], ["tone-board", tone, /board music: kept as laid \(the song has no (drop|steady beat) measured; update_layer mediaOffset places it\).*board r1: 1 shot|board r1: 1 shot.*board music: kept as laid/]]) {
     await agent("project", { action: "create", id, name: id, width: 640, height: 360, duration: 12 });
     const laid = await agent("edit", { project: id, ops: [{ op: "add_layer", layerType: "audio", name: "music", properties: { src, mediaDuration: 12 } }] });
     assert.equal(laid.isError, undefined, laid.text);
@@ -121,7 +121,7 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
     assert.match(JSON.stringify(board.data ?? board.text), said);
   }
   const boarded = (await (await server.api("/api/projects/fit-board")).json()).document;
-  assert.ok(boarded.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - 5.4) <= 0.1) && boarded.rhythm?.bpm > 0, JSON.stringify([boarded.cues, boarded.rhythm]));
+  assert.ok(boarded.cues.some((cue) => cue.name === "song-drop-1" && Math.abs(cue.time - 2) <= 0.1) && boarded.rhythm?.bpm > 0, JSON.stringify([boarded.cues, boarded.rhythm]));
 });
 
 test("look sound measures the ducked mix: loudness every 0.5 s and the dip", { skip: skipWithoutMediaTools }, async () => {

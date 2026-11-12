@@ -37,6 +37,7 @@ import { deckLine } from "../../engine/deck.js";
 import { majorityShape, namedShape, sizeLikeFootage } from "../../engine/quality/rules/shape.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { isRecord } from "../../engine/numbers.js";
+import { songPayoff } from "../../engine/fitMusic.js";
 import { footageMove } from "../footage-finder/step.mjs";
 import { isSubjectEdit, onlyWords, viewerWho } from "./subject-edit.mjs";
 import { cleanControls, controlsLine, hasControls, questionsGo, skippedLine } from "./controls.mjs";
@@ -974,7 +975,7 @@ function openParts(state, video) {
   // An edit of a subject in footage is asked about the subject and its shots, not a product (subject-edit.mjs).
   const subject = isSubjectEdit(state, video);
   const words = onlyWords(subject);
-  const spine = missing.length ? draftSpine(style.spine, entry, lengthTarget(brief)?.seconds ?? sceneSeconds, { subject }) : null;
+  const spine = missing.length ? draftSpine(style.spine, entry, lengthTarget(brief)?.seconds ?? sceneSeconds, { subject, song: video.song }) : null;
   // Where a saved beat moved to in the drafted spine (a signature's beat is an index).
   const beatIn = (index) => {
     const at = spine && style.spine?.length ? spine.indexOf(style.spine[index]) : -1;
@@ -994,7 +995,9 @@ function openParts(state, video) {
     if (moved.some((signature, index) => signature.beat !== style.signatures[index].beat)) fields.signatures = moved;
   }
   if (spine) fields.spine = spine;
-  const step = !needSignature ? `add the spine's ${missing.join(", ").replace(/, (\w+)$/, " and $1")} (notes brief style.spine)` : spine ? "save the signature and spine" : "save the signature";
+  const drop = spine && missing.includes("payoff") ? dropPayoff(video.song, spineLength(lengthTarget(brief)?.seconds ?? sceneSeconds)) : 0;
+  const onDrop = drop > 0 ? ` (the payoff on the song's drop at ${Math.round(drop * 10) / 10} s)` : "";
+  const step = !needSignature ? `add the spine's ${missing.join(", ").replace(/, (\w+)$/, " and $1")} (notes brief style.spine)${onDrop}` : spine ? `save the signature and spine${onDrop}` : "save the signature";
   return [...open, { step, call: briefCall({ style: fields }) }];
 }
 
@@ -1006,6 +1009,14 @@ const STORY_ROLES = ["problem", "turn", "payoff"];
 const SPINE_SHARES = { hook: [0, 0.1], problem: [0.1, 0.3], turn: [0.3, 0.45], signature: [0.45, 0.7], payoff: [0.7, 0.9], end: [0.9, 1] };
 const hasPurpose = (spine, role) => (Array.isArray(spine) ? spine : []).some((beat) => beat?.role === role && typeof beat.purpose === "string" && beat.purpose.trim() !== "");
 
+const spineLength = (seconds) => (Number.isFinite(seconds) && seconds > 0 ? seconds : 30);
+// Where the drafted payoff goes on a measured song: the payoff fit_music chooses for it over the
+// same length (songPayoff), when that leaves the end its tenth; 0 without a song.
+const dropPayoff = (song, total) => {
+  const payoff = song ? songPayoff({ ...song, length: total }).payoff : 0;
+  return payoff > 0 && payoff < 0.9 * total ? payoff : 0;
+};
+
 /**
  * The spine the signature step drafts from the pick, so the beats tell the picked story and not
  * another: with none saved, IDEA_SPINE over the video's seconds (30 when unknown), the hook's
@@ -1014,15 +1025,20 @@ const hasPurpose = (spine, role) => (Array.isArray(spine) ? spine : []).some((be
  * "<what the end does>"). A saved spine is kept as it is, with each missing story beat put after
  * the last saved beat that comes before it in IDEA_SPINE.
  */
-function draftSpine(saved, entry, seconds, { subject = false } = {}) {
-  const total = Number.isFinite(seconds) && seconds > 0 ? seconds : 30;
+function draftSpine(saved, entry, seconds, { subject = false, song = null } = {}) {
+  const total = spineLength(seconds);
+  // With a measured song (video.song), the payoff sits where fit_music will put the song's drop
+  // (songPayoff over this same length), and the beats before it scale to fit; else the shares.
+  const onDrop = dropPayoff(song, total);
+  const shares = onDrop > 0 ?Object.fromEntries(Object.entries(SPINE_SHARES).map(([role, [from, to]]) => (
+    role === "payoff" ? [role, [onDrop / total, 0.9]] : role === "end" ? [role, [from, to]] : [role, [from * onDrop / (0.7 * total), to * onDrop / (0.7 * total)]]))) : SPINE_SHARES;
   const at = (share) => Math.round(share * total * 10) / 10;
   // In a subject edit the hook is a shot of someone in the footage: a who that is the viewer
   // ("you, the viewer", run 8 T220) is never on camera there, so the hook asks for the subject.
   const hook = !entry.who ? null : subject ? `<the first shot of ${viewerWho(entry.who) ? "the subject" : entry.who}'s story>` : `<the first image of ${entry.who}'s story>`;
   const purposes = { problem: entry.tension, turn: entry.turn, payoff: "<what the turn pays off>",
     ...(hook ? { hook } : {}), ...(entry.ending ? { end: entry.ending } : {}) };
-  const drafted = (role) => ({ role, from: at(SPINE_SHARES[role][0]), to: at(SPINE_SHARES[role][1]), purpose: purposes[role] ?? `<what the ${role} does>` });
+  const drafted = (role) => ({ role, from: at(shares[role][0]), to: at(shares[role][1]), purpose: purposes[role] ?? `<what the ${role} does>` });
   if (!Array.isArray(saved) || !saved.length) return IDEA_SPINE.map(drafted);
   const spine = [...saved];
   for (const role of STORY_ROLES) {

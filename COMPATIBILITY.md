@@ -1033,7 +1033,7 @@ How to read it:
 - **Kept line over music** (`keep_line` default, `dropout`): Engine-tested and rendered once through the agent path
   on a song plus a quiet clip, and a spoken line over a quiet bed. Over measured music the line is leveled against
   the 2 s around it (`voiceLevel`, never under -16), the dip puts the music 6 LU under it (voice_under_bed's 6), the
-  release ends on a beat; `dropout:true` takes the music out until the next downbeat; the receipt's `mix` states the
+  release ends on a beat; `dropout:true` takes the music out until the next downbeat within `wait` (default half a bar), else the next beat; the receipt's `mix` states the
   total under the line for any dip. Render: line span -13.9 vs -13.8 LUFS around, line 5.9 LU over the bed (old
   default 0.6); quiet bed: line at -16, as before. Evidence: `engine/speech.test.js`. Gap: no owner listening test.
 - **Compose keeps spoken lines**: Verified on plans in engine tests and probed on a real project. With no voice,
@@ -1140,7 +1140,7 @@ How to read it:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **Song window, one drop chooser** (fit_music, soundtrack, board): the soundtrack answer and
   fit_music pick the same heaviest drop that fits; the answer prints the window's sections and vocal
-  spans; with no payoff the drop gets 4 bars and a bar of fade (45 to 75% in), a later given payoff a
+  spans; with no payoff the drop plays the whole 4-bar groups its section holds (45% of the video before it, one group on a short video; the drafted spine on a measured song too), a later given payoff a
   note naming one that does; fit_music sets the
   rhythm from the tracked beats; board {music} fits a hand-laid song or keeps it as laid. Checked on
   a fixture and on one real song's shape files, unverified by ear. Evidence: `engine/fitMusic.test.js`,

@@ -102,6 +102,7 @@ import { hasMusic, isMusicLayer } from "../../engine/quality/rules/sound.js";
 import { renderSceneFrames, sceneSoundClips, soundCurve } from "../export.mjs";
 import { decodeMono } from "../audio-analysis.mjs";
 import { songShape } from "../song-shape.mjs";
+import { barGrid } from "../../engine/fitMusic.js";
 import { makeTempFolder, removeTempFolder } from "../temp-folders.mjs";
 import { sectionsInVideo, soundMapImage, soundMapText, volumeDips } from "./sound-map.mjs";
 import { createTries, triesView } from "./tries.mjs";
@@ -1081,6 +1082,27 @@ export function createAgentService(deps) {
     return songTitleOf(candidates, media.filter((item) => mediaAllowedIn(item, projectId) && String(item.mime ?? "").startsWith("audio/")));
   }
 
+  // The measured song this video is about, for the drafted spine (brief.mjs draftSpine puts the
+  // payoff on its drop): the song songTitleFor picks, with its grid and sections read from the
+  // .beats and .song files beside it. Never a new measure (directionFacts runs on most calls).
+  // null when there is none, it is not measured yet, or it has no steady beat or no drop.
+  async function songFactsFor(projectId) {
+    try {
+      const candidates = (await agentState.read(projectId)).soundtrack?.candidates ?? [];
+      const media = ((await deps.listMedia?.().catch(() => [])) ?? []).filter((item) => mediaAllowedIn(item, projectId) && String(item.mime ?? "").startsWith("audio/"));
+      const songs = media.filter((item) => item.duration >= 20 && candidates.some((entry) => entry.id === item.credit?.id)).sort((a, b) => b.duration - a.duration);
+      const named = candidates.find((entry) => entry.picked && entry.named);
+      const item = songs.find((entry) => named && entry.credit?.id === named.id) ?? songs[0];
+      if (!item?.id || !deps.mediaRoot) return null;
+      const file = path.join(deps.mediaRoot, item.id);
+      const analysis = await beatAnalysis.saved?.(file);
+      const shape = await songShapes.saved?.(file);
+      if (!analysis || !shape || !shape.sections.some((part) => part.kind === "drop")) return null;
+      const grid = barGrid(analysis, shape.sections);
+      return grid ? { sections: shape.sections, seconds: shape.seconds ?? analysis.duration, whole: shape.whole !== false, bar: grid.bar, beat: grid.beat, downbeat: grid.downbeat } : null;
+    } catch { return null; }
+  }
+
   // The song-free twin of a search the agent sent from the step's filled words: the filled twin,
   // or, when the step left a slot for the subject, the agent's own words before the song's title.
   function songFreeTwin(filled, typed) {
@@ -1130,6 +1152,11 @@ export function createAgentService(deps) {
     // The signature step offers the product's own picture: read the library only while it is next.
     const brief = (await agentState.read(document.id)).brief;
     if (brief?.treatments?.picked && !brief.style?.signatures?.length) facts.picture = await productPicture(document.id);
+    // A measured song puts the drafted payoff on its drop (draftSpine); read only while the spine is next.
+    if (brief?.treatments?.picked) {
+      const song = await songFactsFor(document.id);
+      if (song) facts.song = song;
+    }
     // A footage-led brief with no clip in the project (the person's or found): the footage step
     // (footage-finder/step.mjs). Any clip or picture of theirs makes it silent: their media leads,
     // and when the picked who is not in their clips the needs step below is the path (with search
@@ -1584,7 +1611,7 @@ export function createAgentService(deps) {
             await voiceLine(next, first.operation);
             next = await blocks.apply(next, first.operation, fontsCache);
             if (first.operation.formatName && first.operation.formatMusic) next = await fitFormatMusic(next, first.operation, fontsCache);
-            if (first.operation.type === "board") next = await fitBoardMusic(next, fontsCache);
+            if (first.operation.type === "board") next = await fitBoardMusic(next, fontsCache, first.operation);
           }
           catch (error) { refuse(first, error instanceof AgentError ? error : operationFailed(first.index, raw[first.index], first.operation.type, error)); }
         }
@@ -1773,7 +1800,7 @@ export function createAgentService(deps) {
   // typed the song's offset and the rhythm by hand and never called fit_music. A song it cannot
   // shape (no steady beat, no drop), or a fit that would move the board's span, stays as laid:
   // the board is never refused for it.
-  async function fitBoardMusic(document, work) {
+  async function fitBoardMusic(document, work, operation = {}) {
     const id = document.board?.music;
     const scene = mainScene(document);
     const music = id && id !== "none" ? scene?.layers.find((item) => item.id === id) : null;
@@ -1793,11 +1820,16 @@ export function createAgentService(deps) {
       (work.notes ??= []).push(`board music: placed with fit_music (song from ${head?.mediaOffset ?? 0} s, was ${was} s; cues song-*${fitted.rhythm ? `, rhythm ${fitted.rhythm.bpm} bpm from ${fitted.rhythm.offset} s` : ""}); update_layer mediaOffset puts it back`);
       // The fit's note when the spine's payoff leaves the drop under 4 bars (its receipt is not shown here).
       const short = [...reports.values()].flatMap((report) => report?.notes ?? []).find((note) => note.startsWith("the drop plays "));
-      if (short) work.notes.push(`board music: ${short} (fit_music {payoff})`);
+      // kino does not move approved shots by itself: the note names the drop's time that gives the group and the call that places it.
+      const gives = /payoff ([\d.]+) s gives/.exec(short ?? "")?.[1];
+      if (short) work.notes.push(`board music: ${short} (fit_music {sceneId:"${scene.id}", layerId:"${music.id}", payoff:${gives ?? "<seconds>"}} puts the drop there; the board's shots stay as approved)`);
       return fitted;
     }
-    catch {
-      // A bed with no drop or no steady beat (a voice-over bed, a tone): the board answers as before, no note on every call.
+    catch (error) {
+      // A bed with no drop or no steady beat (a voice-over bed, a tone): the board answers as before,
+      // with a note only on the call that names the music (run 8: the song stayed as laid, unsaid).
+      const why = /no drop/.test(error?.message) ? "no drop" : /steady beat/.test(error?.message) ? "no steady beat" : null;
+      if (operation.music !== undefined && why) (work.notes ??= []).push(`board music: kept as laid (the song has ${why} measured; update_layer mediaOffset places it)`);
       return document;
     }
   }
