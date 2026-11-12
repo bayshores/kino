@@ -22,7 +22,7 @@ import { madeLine, madeShare, referenceMade } from "./quality/madeShare.js";
 import { deckUse } from "./deck.js";
 import { referenceChoices } from "./quality/referenceChoices.js";
 import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
-import { gammaToMean, liftShot, lumaStats } from "./quality/liftDark.js";
+import { gammaToMean, liftShot, lumaStats, sourceGrid } from "./quality/liftDark.js";
 
 // ---------------------------------------------------------------- builders
 
@@ -2505,6 +2505,8 @@ test("liftShot: a dark frame lifted to a mean keeps its black point and gains mo
   const fills = { width: 10, height: 10, pixels: new Uint8ClampedArray(400).map((_, at) => (at % 4 === 3 ? 255 : at < 240 ? 25 : at < 360 ? 40 : 90)) };
   const drawn = liftShot([fills], 70 / 255);
   assert.deepEqual([...levels(lumaStats([fills])), ...levels(drawn.after)], [36, 25, 15, 90, 69, 45, 36, 181]);
+  // A 1920 x 1080 clip in a 1080 x 1920 box is drawn whole and centered: one scale on both axes.
+  assert.deepEqual(sourceGrid({ x0: 0, y0: 0, x1: 1080, y1: 1920 }, { width: 1920, height: 1080 }), { x0: 0, y0: 656.25, pitchX: 0.5625, pitchY: 0.5625 });
 });
 
 test("reference_range: no clip speech before the loudest song change warns when most references have a voice there; the song's singer does not count", async () => {

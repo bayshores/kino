@@ -6910,11 +6910,16 @@ export function createAgentService(deps) {
   }
 
   // lift_dark: the scene's frames rendered as check renders them, the lift effects as ops.
-  async function runLift(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false } = {}) {
+  async function runLift(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false, reduced = null } = {}) {
     const fonts = await fontsFor(document);
     const codes = await syncCodes(document.id, document).catch(() => null);
     const render = deps.renderFrames ?? renderSceneFrames;
-    return liftDark(document, { sceneId, layerIds, target, grain, remove, fonts, runOps,
+    // A video's pixel size, from the measurements saved beside its file at import (null when unknown).
+    const sourceSize = async (layerId) => {
+      const layer = document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === layerId);
+      try { const info = JSON.parse(await readFile(`${mediaFileOf(layer)}.json`, "utf8")); return { width: info.width, height: info.height }; } catch { return null; }
+    };
+    return liftDark(document, { sceneId, layerIds, target, grain, remove, reduced, fonts, runOps, sourceSize,
       render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),
       name: (id) => (codes ? refName(id, codes) : id) });
   }

@@ -116,6 +116,11 @@ export function calmLightAnimations(animations) {
       changed = true;
       return [{ ...animation, animations: members }];
     }
+    // The grain lift_dark adds (<layer>.lift-grain) holds still, as lift_dark makes it under a reduced composition.
+    if (animation?.kind === "effect" && animation.effect === "grain" && String(animation.id ?? "").endsWith(".lift-grain") && animation.to?.animated !== false) {
+      changed = true;
+      return [{ ...animation, to: { ...animation.to, animated: false } }];
+    }
     if (animation?.kind !== "effect" || !LIGHT_KEYS.has(animation.effect) || !(animation.duration < CALM_LIGHT_SECONDS)) return [animation];
     const hold = animation.keepStill ?? "both";
     if (hold === "both") return [animation];

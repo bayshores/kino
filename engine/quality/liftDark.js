@@ -20,6 +20,8 @@ export const LIFT_SUFFIX = ".lift";
 export const LIFT_GRAIN_SUFFIX = ".lift-grain";
 export const liftId = (layerId) => `${layerId}${LIFT_SUFFIX}`;
 export const liftGrainId = (layerId) => `${layerId}${LIFT_GRAIN_SUFFIX}`;
+export const LIFT_DEBLOCK_SUFFIX = ".lift-deblock";
+export const liftDeblockId = (layerId) => `${layerId}${LIFT_DEBLOCK_SUFFIX}`;
 
 // The largest lift: 4 stops on the mids (16 times the light), a guess past the 3 match_references uses.
 const MAX_STOPS = 4;
@@ -173,6 +175,102 @@ export function liftShot(frames, target, { sourceScale = 1 } = {}) {
   // A curve that moves nothing (every pixel at or under the kept black) is no lift.
   if (after.mean - before.mean < 1 / 255) return null;
   return { before, after, stops, curve, grain: liftGrain(before, stops, { sourceScale }) };
+}
+
+// Codec block sides in source pixels: 8 (JPEG, MPEG-2, MPEG-4 part 2, 8x8 transforms) and 16
+// (H.264 and later macroblocks).
+const BLOCK_SIDES = [8, 16];
+// A grid line within half a frame pixel of a pixel boundary counts as on it; a boundary 1.5 frame
+// pixels or more from every grid line is inside a block (a scaled picture spreads a step over 2).
+const ON_LINE = 0.5;
+const OFF_LINE = 1.5;
+// Deblock when the steps on the grid lines are 1.5 times or more those inside the blocks and at
+// least 0.1 of a level larger (a guess: noise and real detail measure about 1, the stair shot that
+// showed blocks measured 2.9 on its 16-pixel grid).
+const BLOCKY_RATIO = 1.5;
+const BLOCKY_STEP = 0.1;
+
+/**
+ * The level steps on a codec's block grid against those inside the blocks, over RGBA frames (Rec.
+ * 709 luma, 0 to 255 levels). `grid` places the source on the frame: {x0, y0} the source's top
+ * left in frame pixels, {pitchX, pitchY} frame pixels per source pixel, `box` the part of the frame
+ * to measure ({x0, y0, x1, y1}, frame pixels) and `side` the block side in source pixels.
+ * `grid` may also be a list, one per frame (a picture that moves or zooms), each with its own side.
+ * Returns {side, edge, inside, step, ratio} (step = edge - inside) or null when nothing was measured.
+ */
+export function blockStep(frames, grid = {}) {
+  let edge = 0, edgeCount = 0, inside = 0, insideCount = 0;
+  const side = (Array.isArray(grid) ? grid[0]?.side : grid.side) ?? 8;
+  // Frame pixels from the boundary at `at` (on the axis starting at `origin`) to the nearest grid line.
+  const distance = (at, origin, pitch) => {
+    const blocks = (at - origin) / (pitch * side);
+    return Math.abs(blocks - Math.round(blocks)) * pitch * side;
+  };
+  for (const [index, frame] of (frames ?? []).entries()) {
+    const pixels = frame?.pixels;
+    const placed = Array.isArray(grid) ? grid[index] : grid;
+    if (!pixels?.length || !placed) continue;
+    const { x0 = 0, y0 = 0, pitchX = 1, pitchY = 1, box = null } = placed;
+    const { width, height } = frame;
+    const left = Math.max(0, Math.ceil(box?.x0 ?? 0)), top = Math.max(0, Math.ceil(box?.y0 ?? 0));
+    const right = Math.min(width, Math.floor(box?.x1 ?? width)), bottom = Math.min(height, Math.floor(box?.y1 ?? height));
+    const add = (step, near) => {
+      if (near < ON_LINE) { edge += step; edgeCount += 1; } else if (near >= OFF_LINE) { inside += step; insideCount += 1; }
+    };
+    for (let x = left + 1; x < right; x += 1) {
+      const near = distance(x, x0, pitchX);
+      if (near >= ON_LINE && near < OFF_LINE) continue;
+      for (let y = top; y < bottom; y += 1) add(Math.abs(luma(pixels, (y * width + x) * 4) - luma(pixels, (y * width + x - 1) * 4)), near);
+    }
+    for (let y = top + 1; y < bottom; y += 1) {
+      const near = distance(y, y0, pitchY);
+      if (near >= ON_LINE && near < OFF_LINE) continue;
+      for (let x = left; x < right; x += 1) add(Math.abs(luma(pixels, (y * width + x) * 4) - luma(pixels, ((y - 1) * width + x) * 4)), near);
+    }
+  }
+  if (!edgeCount || !insideCount) return null;
+  const onLine = edge / edgeCount, within = inside / insideCount;
+  return { side, edge: onLine, inside: within, step: onLine - within, ratio: within > 0 ? onLine / within : onLine > 0 ? Infinity : 1 };
+}
+
+/**
+ * The blockiest of the codec grids (8 and 16 source pixels) on frames, as blockStep gives it, or
+ * null when the grid is too fine to tell on these frames (a block under 4 frame pixels).
+ */
+export function blockiness(frames, grid) {
+  const grids = Array.isArray(grid) ? grid : [grid];
+  const pitch = Math.min(...grids.flatMap((entry) => [entry?.pitchX ?? 1, entry?.pitchY ?? 1]));
+  const withSide = (side) => (Array.isArray(grid) ? grid.map((entry) => entry && { ...entry, side }) : { ...grid, side });
+  const found = BLOCK_SIDES.filter((side) => side * pitch >= 4)
+    .map((side) => blockStep(frames, withSide(side))).filter(Boolean);
+  return found.length ? found.reduce((best, entry) => (entry.ratio > best.ratio ? entry : best)) : null;
+}
+
+/**
+ * Where a video's source pixels sit on the scene: {x0, y0, pitchX, pitchY} for a layer box ({x0,
+ * y0, x1, y1}, scene pixels) and the file's {width, height}. A video is drawn whole and centered in
+ * its box (render.js: preserveAspectRatio meet), so a 16:9 clip in a 9:16 box gets bars above and
+ * below and one scale on both axes. Null when either size is unknown.
+ */
+export function sourceGrid(box, size) {
+  const boxWidth = (box?.x1 ?? 0) - (box?.x0 ?? 0), boxHeight = (box?.y1 ?? 0) - (box?.y0 ?? 0);
+  if (!(boxWidth > 0 && boxHeight > 0 && size?.width > 0 && size?.height > 0)) return null;
+  const pitch = Math.min(boxWidth / size.width, boxHeight / size.height);
+  return { x0: box.x0 + (boxWidth - size.width * pitch) / 2, y0: box.y0 + (boxHeight - size.height * pitch) / 2, pitchX: pitch, pitchY: pitch };
+}
+
+/**
+ * The deblock effect's parameters for a measured blockiness, or null when the steps on the grid
+ * are not clearly larger than inside the blocks. Radius: a quarter of a block, in scene pixels
+ * (`sourceScale` scene pixels per source pixel). Threshold: four times the mean step on the grid
+ * lines, at least 1.5 and at most 6 levels, so a block step is smoothed and a real edge is not.
+ */
+export function deblockFor(measured, sourceScale = 1) {
+  if (!measured || measured.ratio < BLOCKY_RATIO || measured.step < BLOCKY_STEP) return null;
+  return {
+    radius: Math.round(Math.min(32, Math.max(0.5, (measured.side / 4) * sourceScale)) * 10) / 10,
+    threshold: Math.round(Math.min(6, Math.max(1.5, 4 * measured.edge)) / 255 * 1000) / 1000,
+  };
 }
 
 /**

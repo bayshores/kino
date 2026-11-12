@@ -47,7 +47,7 @@ made up.
 - **Building blocks.** One `compose` op builds a whole promo from beats and a brand kit: 24
   recipes, 3 transitions, 5 looks, a 6×6 slot grid, relative timing, variants and templates.
   The `move` op adds one of 59 designed set pieces (whip pan, zoom-through, word-by-word captions).
-- **The full engine.** Layers, keyframes and easings, text animations, 64 effects, masks,
+- **The full engine.** Layers, keyframes and easings, text animations, 65 effects, masks,
   components, templates, captions, beat detection, and bulk create from a CSV.
 - **Exports.** MP4, WebM, MOV (ProRes 4444, also transparent), GIF, APNG, PNG, PNG sequences and
   Lottie.
