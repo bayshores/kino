@@ -5,7 +5,7 @@
 // ghosts lie on the line from the light through the middle of the picture, like reflections
 // between lens elements, and the flare fades out as the light leaves the picture.
 //
-// Three styles:
+// Four styles (streak: one soft line across the picture through the light, no ghosts):
 // - glint: a hot core with a soft halo and thin star spikes (a sparkle or a sun glint).
 // - anamorphic: a long thin streak across the picture with stretched ghosts (a widescreen lens).
 // - rings: discs and rings of colour along the line through the middle (a classic spherical lens).
@@ -19,7 +19,19 @@ import { inverse, point } from "../geometry.js";
 import { sceneBoxInLayer } from "./lightRays.js";
 import { clamp } from "../numbers.js";
 
-export const FLARE_STYLES = Object.freeze(["glint", "anamorphic", "rings"]);
+export const FLARE_STYLES = Object.freeze(["glint", "anamorphic", "rings", "streak"]);
+
+// What ghosts, softness, thickness and length are when a flare leaves them out. The streak style
+// is one soft line across the picture with no ghosts: its core is 1% and its halo 5% of the
+// picture's height, measured on a reference edit's streak (grade-bloom-flash study, result.md),
+// and softness 0.8 is the synthesis treatment's value (a guess that read soft by eye).
+export const FLARE_STYLE_DEFAULTS = Object.freeze({
+  glint: { ghosts: 1, softness: 0, thickness: 1, length: 1 },
+  anamorphic: { ghosts: 1, softness: 0, thickness: 1, length: 1 },
+  rings: { ghosts: 1, softness: 0, thickness: 1, length: 1 },
+  streak: { ghosts: 0, softness: 0.8, thickness: 1, length: 1 },
+});
+const ANAMORPHIC_GHOSTS = [[0.45, 0.018, 0.22], [0.8, 0.01, 0.3], [1.3, 0.03, 0.16], [1.75, 0.016, 0.24]];
 
 const fmt = (value) => {
   const rounded = Number(value.toFixed(3));
@@ -100,9 +112,23 @@ export function renderLensFlare(frame) {
       `<stop offset="${offset}" stop-color="${stopColor}" stop-opacity="${fmt(clamp(opacity, 0, 1))}"/>`).join("")}</linearGradient>`);
     return `url(#${id})`;
   };
+  const own = FLARE_STYLE_DEFAULTS[style];
+  const ghosts = numberParameter(frame, "ghosts", own.ghosts, 0, 2);
+  const softness = numberParameter(frame, "softness", own.softness, 0, 1);
+  const thick = numberParameter(frame, "thickness", own.thickness, 0.1, 6);
+  const reach = numberParameter(frame, "length", own.length, 0.1, 3);
+  // Softness blurs a streak by up to 1.2 of its half thickness, so its edges fade instead of cutting.
+  const soften = (half) => {
+    if (softness <= 0) return "";
+    const id = frame.helpers.id("flare-soft");
+    frame.helpers.defs.push(`<filter id="${id}" x="-20%" y="-600%" width="140%" height="1300%"><feGaussianBlur stdDeviation="${fmt(Math.max(0.1, half * softness * 1.2))}"/></filter>`);
+    return ` filter="url(#${id})"`;
+  };
   const disc = (at, radius, fill) => `<circle cx="${fmt(at.x)}" cy="${fmt(at.y)}" r="${fmt(Math.max(0.5, radius))}" fill="${fill}"/>`;
-  const streak = (at, length, thickness, degrees, fill) =>
-    `<ellipse cx="${fmt(at.x)}" cy="${fmt(at.y)}" rx="${fmt(Math.max(1, length))}" ry="${fmt(Math.max(0.6, thickness))}" fill="${fill}" transform="rotate(${fmt(degrees)} ${fmt(at.x)} ${fmt(at.y)})"/>`;
+  const streak = (at, length, thickness, degrees, fill, soft = "") =>
+    `<ellipse cx="${fmt(at.x)}" cy="${fmt(at.y)}" rx="${fmt(Math.max(1, length))}" ry="${fmt(Math.max(0.6, thickness))}" fill="${fill}" transform="rotate(${fmt(degrees)} ${fmt(at.x)} ${fmt(at.y)})"${soft}/>`;
+  // A line streak: `length` and `thickness` scaled by the flare's own length and thickness, softened.
+  const line = (at, length, thickness, degrees, fill) => streak(at, length * reach, thickness * thick, degrees, fill, soften(thickness * thick));
   const ring = (at, radius, width, stroke, opacity) =>
     `<circle cx="${fmt(at.x)}" cy="${fmt(at.y)}" r="${fmt(Math.max(1, radius))}" fill="none" stroke="${stroke}" stroke-opacity="${fmt(opacity)}" stroke-width="${fmt(Math.max(0.5, width))}"/>`;
 
@@ -117,31 +143,43 @@ export function renderLensFlare(frame) {
     core(0.035);
     for (let index = 0; index < 4; index += 1) {
       const long = index % 2 === 0;
-      light.push(streak(source, diagonal * (long ? 0.2 : 0.11) * heat, diagonal * (long ? 0.0018 : 0.0013), angle + index * 45, spikeFill));
+      light.push(line(source, diagonal * (long ? 0.2 : 0.11) * heat, diagonal * (long ? 0.0018 : 0.0013), angle + index * 45, spikeFill));
     }
-    light.push(ring(source, diagonal * 0.09, diagonal * 0.004, color, 0.07));
-    for (const [t, radius, turn, opacity] of [[0.55, 0.012, 40, 0.5], [1.35, 0.022, -50, 0.35]])
-      colour.push(disc(along(t), diagonal * radius, gradient([[0, tint(rgb, turn), opacity * 0.6], [0.8, tint(rgb, turn), opacity], [1, tint(rgb, turn), 0]])));
-  } else if (style === "anamorphic") {
-    core(0.028);
+    if (ghosts > 0) {
+      light.push(ring(source, diagonal * 0.09, diagonal * 0.004, color, 0.07 * ghosts));
+      for (const [t, radius, turn, opacity] of [[0.55, 0.012, 40, 0.5 * ghosts], [1.35, 0.022, -50, 0.35 * ghosts]])
+        colour.push(disc(along(t), diagonal * radius, gradient([[0, tint(rgb, turn), opacity * 0.6], [0.8, tint(rgb, turn), opacity], [1, tint(rgb, turn), 0]])));
+    }
+  } else if (style === "anamorphic" || style === "streak") {
     const across = angle;
-    light.push(streak(source, diagonal * 0.62 * heat, diagonal * 0.012, across,
-      linear([[0, color, 0], [0.3, color, 0.08], [0.5, color, 0.3], [0.7, color, 0.08], [1, color, 0]])));
-    light.push(streak(source, diagonal * 0.5 * heat, diagonal * 0.0022, across,
-      linear([[0, color, 0], [0.25, color, 0.35], [0.47, "#FFFFFF", 0.9], [0.5, "#FFFFFF", 1], [0.53, "#FFFFFF", 0.9], [0.75, color, 0.35], [1, color, 0]])));
-    for (const [t, radius, opacity] of [[0.45, 0.018, 0.22], [0.8, 0.01, 0.3], [1.3, 0.03, 0.16], [1.75, 0.016, 0.24]]) {
+    if (style === "anamorphic") {
+      core(0.028);
+      light.push(line(source, diagonal * 0.62 * heat, diagonal * 0.012, across,
+        linear([[0, color, 0], [0.3, color, 0.08], [0.5, color, 0.3], [0.7, color, 0.08], [1, color, 0]])));
+      light.push(line(source, diagonal * 0.5 * heat, diagonal * 0.0022, across,
+        linear([[0, color, 0], [0.25, color, 0.35], [0.47, "#FFFFFF", 0.9], [0.5, "#FFFFFF", 1], [0.53, "#FFFFFF", 0.9], [0.75, color, 0.35], [1, color, 0]])));
+    } else {
+      // One line across the picture: a halo 5% of the height (half 2.5%) and a core 1% (half 0.5%),
+      // scaled by size; length 1 reaches a picture width each way from the light.
+      const span = scene.width * size * heat, tall = scene.height * size;
+      light.push(line(source, span, tall * 0.025, across,
+        linear([[0, color, 0], [0.25, color, 0.1], [0.5, color, 0.32], [0.75, color, 0.1], [1, color, 0]])));
+      light.push(line(source, span * 0.9, tall * 0.005, across,
+        linear([[0, color, 0], [0.2, color, 0.3], [0.45, "#FFFFFF", 0.75], [0.5, "#FFFFFF", 0.85], [0.55, "#FFFFFF", 0.75], [0.8, color, 0.3], [1, color, 0]])));
+    }
+    if (ghosts > 0) for (const [t, radius, opacity] of ANAMORPHIC_GHOSTS) {
       const at = along(t);
       colour.push(streak(at, diagonal * radius * 2.6, diagonal * radius, across,
-        gradient([[0, color, opacity * 0.5], [0.75, color, opacity], [1, color, 0]])));
+        gradient([[0, color, opacity * ghosts * 0.5], [0.75, color, opacity * ghosts], [1, color, 0]])));
     }
   } else {
     core(0.03);
     light.push(ring(source, diagonal * 0.2, diagonal * 0.012, color, 0.03));
-    const ghosts = [[-0.22, 0.016, 30, "disc", 0.45], [0.32, 0.045, -40, "disc", 0.24], [0.52, 0.01, 180, "disc", 0.6],
+    const reflections = ghosts <= 0 ? [] : [[-0.22, 0.016, 30, "disc", 0.45], [0.32, 0.045, -40, "disc", 0.24], [0.52, 0.01, 180, "disc", 0.6],
       [0.7, 0.03, 90, "ring", 0.45], [1.12, 0.07, -25, "disc", 0.16], [1.4, 0.018, 200, "disc", 0.45],
       [1.7, 0.05, 60, "ring", 0.35], [2.05, 0.09, -70, "disc", 0.13]];
-    for (const [t, radius, turn, kind, opacity] of ghosts) {
-      const at = along(t), shade = tint(rgb, turn), r = diagonal * radius;
+    for (const [t, radius, turn, kind, base] of reflections) {
+      const at = along(t), shade = tint(rgb, turn), r = diagonal * radius, opacity = base * ghosts;
       colour.push(kind === "ring" ? ring(at, r, Math.max(1.5, r * 0.12), shade, opacity)
         : disc(at, r, gradient([[0, shade, opacity * 0.55], [0.82, shade, opacity], [0.92, shade, opacity * 1.3], [1, shade, 0]])));
     }

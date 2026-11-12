@@ -15,6 +15,7 @@ import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { shadowStrength, stackedShadows } from "./stackedShadows.js";
 import { splitLetterStrokes, stackedStrokes, strokeReach } from "./stackedStrokes.js";
+import { styledStroke } from "./strokeStyles.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
 import { hasTextChanges } from "./textChange.js";
@@ -581,7 +582,19 @@ function listStrokes(element, state, context, bounds, pathData = null) {
   return stackedStrokes(state).map((entry) => {
     const alignment = entry.align ?? "center";
     const opacity = entry.opacity ?? 1;
-    const attributes = `fill="none" stroke="${escapeXml(entry.color)}" stroke-width="${fmt(alignment === "center" ? entry.width : entry.width * 2)}"${opacity < 1 ? ` stroke-opacity="${fmt(opacity)}"` : ""} stroke-linecap="butt" stroke-linejoin="${entry.join ?? "miter"}" stroke-miterlimit="10"`;
+    // A neon or tapered entry (strokeStyles.js) is drawn on the path's center line.
+    if (entry.style === "neon" || entry.taper) {
+      const blur = (radius) => {
+        const id = idFor(context, "stroke-blur");
+        // In layer units around the layer's box: a thin straight line's own box has no height.
+        const margin = radius * 3 + Math.max(entry.width, entry.glow ?? 0);
+        context.defs.push(`<filter id="${id}" filterUnits="userSpaceOnUse" x="${fmt(bounds.x - margin)}" y="${fmt(bounds.y - margin)}" width="${fmt(bounds.width + margin * 2)}" height="${fmt(bounds.height + margin * 2)}" color-interpolation-filters="sRGB"><feGaussianBlur stdDeviation="${fmt(Math.max(0.01, radius))}"/></filter>`);
+        return ` filter="url(#${id})"`;
+      };
+      const marked = styledStroke({ ...entry, color: escapeXml(entry.color) }, { line: element, pathData, blur });
+      return alignedStroke(element, () => marked, "", alignment, entry.width, bounds, context);
+    }
+    const attributes = `fill="none" stroke="${escapeXml(entry.color)}" stroke-width="${fmt(alignment === "center" ? entry.width : entry.width * 2)}"${opacity < 1 ? ` stroke-opacity="${fmt(opacity)}"` : ""} stroke-linecap="${entry.cap ?? "butt"}" stroke-linejoin="${entry.join ?? "miter"}" stroke-miterlimit="10"`;
     const patternState = { ...state, dash: entry.dash ?? [] };
     const stroked = pathData && hasStrokePattern(patternState) ? patternStroke(pathData(), patternState)
       : entry.dash ? (more) => element(`${more} stroke-dasharray="${entry.dash.map(fmt).join(" ")}"`) : element;

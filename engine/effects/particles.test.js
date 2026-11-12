@@ -33,9 +33,27 @@ function svgAt(key, to, time, extra) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${BOX.width}" height="${BOX.height}"><rect width="100%" height="100%" fill="#000"/><defs>${frame.helpers.defs.join("")}</defs>${body}</svg>`;
 }
 
-test("the Generate group lists eight generators, each with count, size, speed, direction, spread, wind, turbulence, colour, lifetime, opacity and seed", () => {
+test("variation spreads each particle's trail, brightness, glow and color by depth; streaks is that field in one layer", () => {
+  const spread = (key, to) => {
+    const { particles } = particlesAt(key, frameAt(key, { direction: 180, spread: 0, ...to }, 2));
+    const lengths = particles.filter((item) => item.tail).map((item) => Math.hypot(item.x - item.tail[0], item.y - item.tail[1]));
+    return { ratio: Math.max(...lengths) / Math.min(...lengths), alphas: particles.map((item) => item.alpha), particles };
+  };
+  const even = spread("rain", { count: 300 }), deep = spread("rain", { count: 300, variation: 1 });
+  assert.ok(deep.ratio > even.ratio * 2, `streak lengths spread ${even.ratio.toFixed(1)} -> ${deep.ratio.toFixed(1)}`);
+  assert.ok(Math.min(...deep.alphas) < Math.min(...even.alphas), "far particles dim further");
+  assert.equal("glow" in even.particles[0], false, "rain without variation draws as before");
+  const field = spread("streaks", {});
+  const far = field.particles.filter((item) => item.depth < 0.3), near = field.particles.filter((item) => item.depth > 0.8);
+  const mean = (items, key) => items.reduce((sum, item) => sum + item[key], 0) / items.length;
+  assert.ok(mean(near, "radius") > mean(far, "radius") * 2 && mean(near, "tone") > mean(far, "tone") && mean(near, "glow") > mean(far, "glow"));
+  assert.equal(effectDefaults("streaks").variation, 0.8);
+  assert.equal("variation" in effectDefaults("rain"), false);
+});
+
+test("the Generate group lists nine generators, each with count, size, speed, direction, spread, wind, turbulence, colour, lifetime, opacity and seed", () => {
   assert.ok(EFFECT_GROUPS.includes("Generate"));
-  assert.deepEqual(KEYS, ["embers", "sparks", "snow", "dust", "rain", "bokeh", "fog", "light-leaks"]);
+  assert.deepEqual(KEYS, ["embers", "sparks", "snow", "dust", "rain", "streaks", "bokeh", "fog", "light-leaks"]);
   for (const key of KEYS) {
     const effect = effectDefinition(key);
     assert.equal(effect.group, "Generate");

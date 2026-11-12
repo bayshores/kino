@@ -30,6 +30,14 @@ test("speed-lines: white streaks over the layer that slide with time, count and 
   assert.equal(draw("speed-lines", { opacity: 0 }).output, GRAY);
 });
 
+test("speed-lines fade: each line clears toward its tail, along its travel", () => {
+  const solid = { thickness: 40, taper: 0, variation: 0, speed: 0, count: 6, angle: 90 };
+  const even = draw("speed-lines", solid), faded = draw("speed-lines", { ...solid, fade: 1 });
+  assert.match(faded.output, /fill="url\(#t-line-fade-1\)"/);
+  assert.ok(lit(faded.pixels, () => true) < lit(even.pixels, () => true) * 0.8, "faded lines light less of the layer");
+  assert.equal("fade" in effectDefaults("speed-lines"), false, "saved lines draw as before");
+});
+
 test("impact-lines: wedges from the edges leave the middle clear around the focus", () => {
   const { pixels } = draw("impact-lines", { thickness: 60, count: 40 });
   const middle = (x, y) => Math.hypot(x - W / 2, y - H / 2) < 8;

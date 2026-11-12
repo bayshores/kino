@@ -100,6 +100,17 @@ export const PARTICLE_LOOKS = Object.freeze({
     defaults: { count: 400, size: 1.5, speed: 1400, direction: 185, spread: 3, gravity: 0, wind: 0, turbulence: 0,
       lifetime: 1.2, color: "#CFE3FF", color2: "#FFFFFF", opacity: 0.5, softness: 0, glow: 0, flicker: 0,
       trail: 0.035, emitter: "area" } },
+  // A field of falling light streaks with depth in one layer: far ones small, slow, short and dim,
+  // near ones larger, faster, longer, brighter and glowing. Defaults from the streak-field study's
+  // final three rain planes merged (far 1600 at 220 px/s, mid 450 at 420, near 70 at 800, trail
+  // 0.45 to 0.5 s, #1C9E70 far to #D4FFE9 near); variation 0.8 spreads one plane across all three.
+  streaks: { label: "Streaks", shape: "dot", colorMode: "random", maxCount: 2000, size: [0.5, 16],
+    lifeJitter: 0.25, sizeJitter: 0.5, speedJitter: 0.25, depth: [0.5, 1.2], parallax: [0.55, 1.1], depthAlpha: 0.45,
+    fade: [0.05, 0.05], sizeOverLife: [1, 1], flickerHz: [1, 3], wanderHz: [0.3, 0.8],
+    // count and opacity raised after the first re-run (900 and 0.75 read sparser than the reference).
+    defaults: { count: 1600, size: 2, speed: 420, direction: 180, spread: 0, gravity: 0, wind: 0, turbulence: 0,
+      lifetime: 4, color: "#1C9E70", color2: "#D4FFE9", opacity: 0.9, softness: 0.3, glow: 0.6, flicker: 0.15,
+      trail: 0.45, emitter: "area", variation: 0.8 } },
   bokeh: { label: "Bokeh", shape: "dot", profile: "bokeh", colorMode: "pick", maxCount: 300, size: [4, 400],
     lifeJitter: 0.4, sizeJitter: 0.9, speedJitter: 0.6, depth: [0.5, 1.3], parallax: [0.6, 1.1], depthAlpha: 0.55,
     fade: [0.3, 0.3], sizeOverLife: [1, 1], flickerHz: [0.2, 0.6], wanderHz: [0.05, 0.2],
@@ -142,6 +153,10 @@ function lookParameters(look) {
     flicker: number("Flicker", d.flicker, 0, 1, 0.01),
     ...(dots ? {
       trail: number("Trail", d.trail, 0, 0.5, 0.005, "s"),
+      // How far each particle's depth spreads its size, speed, trail length, brightness, glow and
+      // color (color far, color2 near): 0 the look's own small jitter, 1 a deep field in one layer.
+      // Optional on looks without their own default, so saved effects draw as before.
+      variation: number("Variation", d.variation ?? 0, 0, 1, 0.01, "", d.variation === undefined ? { optional: true } : {}),
       emitter: { type: "enum", label: "Emitter", default: d.emitter, options: EMITTERS, animatable: false },
       originX: number("Origin X", d.originX ?? 0.5, 0, 1, 0.01),
       originY: number("Origin Y", d.originY ?? 0.5, 0, 1, 0.01),
@@ -224,10 +239,17 @@ function mixColor(a, b, t) {
  * frame: { parameters, time, operation?, bounds: {width, height} } as effects receive it.
  */
 export function particlesAt(key, frame) {
-  const look = PARTICLE_LOOKS[key];
-  if (!look) throw new RangeError(`Unknown particle generator "${String(key)}"`);
+  const plain = PARTICLE_LOOKS[key];
+  if (!plain) throw new RangeError(`Unknown particle generator "${String(key)}"`);
   const fields = PARTICLE_FIELDS[key];
   const p = frame.parameters;
+  // Variation widens the look's depth ranges toward a deep field (end points are guesses tuned
+  // by eye on the streak-field study: far streaks at 0.3 size, 0.25 speed and 0.25 brightness).
+  const variation = plain.shape === "dot" ? clamp(Number.isFinite(p.variation) ? p.variation : plain.defaults.variation ?? 0, 0, 1) : 0;
+  const look = variation > 0 ? { ...plain, speedJitter: lerp(plain.speedJitter, 1.5, variation),
+    depth: [lerp(plain.depth[0], 0.3, variation), lerp(plain.depth[1], 1.7, variation)],
+    parallax: [lerp(plain.parallax[0], 0.25, variation), plain.parallax[1]],
+    depthAlpha: lerp(plain.depthAlpha, 0.25, variation) } : plain;
   const width = frame.bounds.width, height = frame.bounds.height;
   let ticks = Math.round((Number.isFinite(frame.time) ? frame.time : 0) * CLOCK_TICKS);
   const dots = look.shape === "dot";
@@ -257,7 +279,7 @@ export function particlesAt(key, frame) {
   const radiusLimit = 0.5 * t.size.high * sizeScale * Math.max(glowScale, aspect);
   const fastest = t.speed.high * (1 + look.speedJitter / 2) * look.parallax[1] + Math.max(Math.abs(t.wind.low), Math.abs(t.wind.high)) +
     Math.max(Math.abs(t.gravity.low), Math.abs(t.gravity.high)) * maxAge;
-  const margin = Math.ceil(radiusLimit + t.trail.high * fastest + 1);
+  const margin = Math.ceil(radiusLimit + t.trail.high * (1 + 0.6 * variation) * fastest + 1);
   const spanX = width + 2 * margin, spanY = height + 2 * margin;
 
   const particles = [];
@@ -331,7 +353,9 @@ export function particlesAt(key, frame) {
     };
     let [hx, hy] = position(s);
     let tail = null;
-    if (dots && p.trail > 0 && age > 0) tail = position(Math.max(birth, s - p.trail));
+    // With variation each streak's trail is its own length (0.4 to 1.6 of trail at variation 1).
+    const trail = p.trail * (variation > 0 ? 1 + variation * (1.2 * random(base, 14) - 0.6) : 1);
+    if (dots && trail > 0 && age > 0) tail = position(Math.max(birth, s - trail));
     if (dots && emitter === "area") {
       const shiftX = Math.floor((hx + margin) / spanX) * spanX, shiftY = Math.floor((hy + margin) / spanY) * spanY;
       hx -= shiftX; hy -= shiftY;
@@ -348,13 +372,17 @@ export function particlesAt(key, frame) {
     const radius = 0.5 * p.size * sizeFactor * lerp(look.sizeOverLife[0], look.sizeOverLife[1], lifeShare);
     // "age": color -> color2 over the life; "pick": mostly one or the other; "random": any mix.
     const pick = random(base, 4);
-    const shade = look.colorMode === "age" ? lifeShare : look.colorMode === "pick" ? (pick < 0.5 ? pick * 0.4 : 0.6 + (pick - 0.5) * 0.8) : pick;
+    const own = look.colorMode === "age" ? lifeShare : look.colorMode === "pick" ? (pick < 0.5 ? pick * 0.4 : 0.6 + (pick - 0.5) * 0.8) : pick;
+    // With variation near particles lean to color2, far ones to color.
+    const shade = variation > 0 && look.colorMode !== "age" ? lerp(own, depth, variation) : own;
     const tone = Math.round(clamp(shade, 0, 1) * (COLOR_STEPS - 1));
     const reach = dots ? radius * (p.glow > 0 ? 2 + 4 * p.glow : 1) : radius * lerp(look.aspect[0], look.aspect[1], random(base, 12));
     const left = Math.min(hx, tail?.[0] ?? hx) - reach, right = Math.max(hx, tail?.[0] ?? hx) + reach;
     const top = Math.min(hy, tail?.[1] ?? hy) - reach, bottom = Math.max(hy, tail?.[1] ?? hy) + reach;
     if (right < 0 || bottom < 0 || left > width || top > height) continue;
     particles.push({ slot, depth, x: hx, y: hy, tail, radius, alpha, tone,
+      // With variation only the nearer particles glow (none in the far third).
+      ...(variation > 0 && dots ? { glow: p.glow * lerp(1, smoothstep(0.35, 1, depth), variation) } : {}),
       ...(dots ? {} : { aspect: lerp(look.aspect[0], look.aspect[1], random(base, 12)),
         tilt: look.tilt * (2 * random(base, 13) - 1) }) });
   }
@@ -407,8 +435,8 @@ export function renderParticles(key, frame) {
     const stops = (look.profile === "bokeh" ? PROFILES.bokeh : PROFILES.dot)(inner);
     const glowStops = PROFILES.glow();
     for (const item of particles) {
-      const r = item.radius, alpha = item.alpha;
-      if (p.glow > 0) parts.push(`<circle cx="${fmt(item.x)}" cy="${fmt(item.y)}" r="${fmt(r * (2 + 4 * p.glow))}" fill="${paint("glow", item.tone, glowStops)}" fill-opacity="${fmtAlpha(alpha * p.glow * 0.8)}"/>`);
+      const r = item.radius, alpha = item.alpha, glow = item.glow ?? p.glow;
+      if (glow > 0) parts.push(`<circle cx="${fmt(item.x)}" cy="${fmt(item.y)}" r="${fmt(r * (2 + 4 * glow))}" fill="${paint("glow", item.tone, glowStops)}" fill-opacity="${fmtAlpha(alpha * glow * 0.8)}"/>`);
       const length = item.tail ? Math.hypot(item.x - item.tail[0], item.y - item.tail[1]) : 0;
       if (length >= 0.5) {
         // A streak: a thin, faint tail half and a full-width head half, with round ends.

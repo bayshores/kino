@@ -8,9 +8,10 @@ The accent-hit and light-sweep moves use glow to light one word.
 - A layer's `shadows` list draws more drop shadows after `shadow`, later ones on top: up to
   32 `{color, x?, y?, blur?, opacity?}`. Neon glow: one color at no offset, blur 4, 16, 40.
   Long shadow: hard copies stepping one way (2, 4, 6 ... px). Static; not in Lottie.
-- `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?}`
-  after `stroke`, later on top. Sticker: wide outside outlines first, `join:"round"`. Neon tube:
-  `fillEnabled:false`, one color wide and faint to a thin bright core. Static; not in Lottie.
+- `strokes` on text, shapes and paths: up to 16 `{color, width, align?, opacity?, dash?, join?,
+  cap?, taper?, style?, glow?}` after `stroke`, later on top. Sticker: wide outside outlines
+  first, `join:"round"`. Neon line or outline in one entry: `{color, style:"neon"}` (thin core 3,
+  dim glow 24). `cap:"round"`; `taper:0.3` narrows both ends to points. Static; not in Lottie.
 
 ## Light: glow, rays and flares
 
@@ -22,8 +23,10 @@ The accent-hit and light-sweep moves use glow to light one word.
   of `lightSize` behind the layer, so its shapes cast shadows between the rays. `length` and
   `decay` set how far the rays reach and how fast they fade.
 - `lens-flare` draws a lens flare whose light sits at `x`/`y` of the layer's box. `style` is
-  `glint`, `anamorphic` (a long streak along `angle`) or `rings` (ghosts on the line through
-  the middle of the scene). Put it on a small layer with `x` 0.5, `y` 0.5 and it follows that
+  `glint`, `anamorphic` (a long streak along `angle`), `rings` (ghosts on the line through
+  the middle of the scene) or `streak` (one soft line across the picture, no ghosts: set `y`
+  to an eye or mouth line). `ghosts` 0 turns reflections off; `softness`, `thickness`, `length`
+  shape the streaks. Put it on a small layer with `x` 0.5, `y` 0.5 and it follows that
   layer; it fades out as the light leaves the scene.
 - Light is drawn with its layer, so layers above cover it. To light several layers as one
   picture, group them and put the effect on the group.

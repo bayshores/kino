@@ -183,6 +183,27 @@ test("lens flare: on a small layer it follows the layer; anamorphic is a streak 
     largest = Math.max(largest, ...rings.pixel(x, y).slice(0, 3).map((value, channel) => Math.abs(value - plain.pixel(x, y)[channel])));
   }
   assert.ok(largest > 12, `ghosts show on a light picture: ${largest}`);
+  const quiet = await draw(renderLensFlare, { ...effectDefaults("lens-flare"), style: "rings", x: 0.2, y: 0.2, ghosts: 0 }, { width: 300, height: 200, content: pale });
+  let residue = 0;
+  for (let t = 0.6; t <= 2; t += 0.02) {
+    const x = Math.round(60 + t * 90), y = Math.round(40 + t * 60);
+    if (x >= 300 || y >= 200) break;
+    residue = Math.max(residue, ...quiet.pixel(x, y).slice(0, 3).map((value, channel) => Math.abs(value - plain.pixel(x, y)[channel])));
+  }
+  assert.ok(residue < largest / 3, `ghosts 0 turns the reflections off: ${residue} vs ${largest}`);
+});
+
+test("lens flare streak: one soft line across the whole picture, no ghosts, its halo about 5% of the height", async () => {
+  const sky = BLACK(300, 200);
+  const line = await draw(renderLensFlare, { ...effectDefaults("lens-flare"), style: "streak", x: 0.3, y: 0.5 }, { width: 300, height: 200, content: sky });
+  assert.ok(line.pixel(5, 100)[0] > 20 && line.pixel(295, 100)[0] > 20, "it reaches both edges");
+  const column = Array.from({ length: 200 }, (_, y) => line.pixel(150, y)[0]);
+  const lit = column.filter((value) => value > column[100] / 4).length;
+  assert.ok(lit >= 4 && lit <= 20, `halo ${lit} px of 200 tall`);
+  const hard = await draw(renderLensFlare, { ...effectDefaults("lens-flare"), style: "streak", x: 0.3, y: 0.5, softness: 0 }, { width: 300, height: 200, content: sky });
+  const steepest = (pixel) => Math.max(...Array.from({ length: 20 }, (_, step) => Math.abs(pixel(150, 103 + step)[0] - pixel(150, 104 + step)[0])));
+  assert.ok(steepest(line.pixel) < steepest(hard.pixel), "softness fades the halo's edge");
+  assert.ok(line.pixel(60, 100)[0] > line.pixel(240, 100)[0], "brightest near the light");
 });
 
 test("reduced motion: the calm preview leaves out short Light bursts and holds short one-sided changes still; exports draw them", () => {

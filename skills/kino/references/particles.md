@@ -1,7 +1,7 @@
 # Particles
 
-Overlays made inside kino: embers, sparks, snow, dust, rain, bokeh, fog and light leaks. No
-stock overlay file is needed.
+Overlays made inside kino: embers, sparks, snow, dust, rain, streaks, bokeh, fog and light
+leaks. No stock overlay file is needed.
 
 ## Particles and overlays
 
@@ -16,6 +16,9 @@ stock overlay file is needed.
   `library {topic:"rules", name:"particles"}` has every range and default and names nine
   recipes; `library {topic:"rules", name:"particle-recipes", search:"snow-loop"}` gives one as
   the ops to send (leave out search for all nine).
+- `variation` 0..1 spreads each dot's depth: size, speed, trail length, brightness, glow and
+  color (color far, color2 near). `effect:"streaks"` (add blend) is a falling streak field with
+  depth in one layer (code rain, light streaks); put it under a cut-out subject.
 - The picture at a time depends only on the settings, the seed and that time, so the look,
   the dashboard and every export show the same frame. `from` animates settings: count is read
   when each particle is born (lowering it lets living ones finish), speed, direction, wind and
