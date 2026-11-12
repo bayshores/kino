@@ -67,7 +67,7 @@ export const VIEWER_WAIVERS = new Set(["screen_unreadable", "frozen_picture", "f
 // the person's words keep one by naming the scene. SCENE_ONLY ones never name a layer, so a
 // waiver on a layer would be saved and cover nothing: it is refused with a sentence saying so.
 const SCENE_WIDE_WAIVERS = new Set(["held_static", "hook_readable", "text_slides", "ending_seen", "music_stall"]);
-const SCENE_ONLY_WAIVERS = new Set(["text_slides", "ending_seen", "music_stall"]);
+const SCENE_ONLY_WAIVERS = new Set(["text_slides", "ending_seen", "music_stall", "reference_kinds"]);
 // Findings about a face or a subject cut by the frame. A filmed cut can be meant (a feet shot), so
 // the agent may waive these, but only on the layers it looked at: never "*", never a whole scene.
 export const SUBJECT_WAIVERS = new Set(["head_cut_off", "narrow_window"]);
@@ -792,6 +792,24 @@ function resolveReferences(operation, type, resolver, document) {
       throw new Error('waive_check type_seen names the reference that chose this type in its reason ("set like the title in yt:<id>"). No reference chose it: take the type from your references and this footage instead.');
     if (!named.some((id) => own.has(refId(`yt:${id}`))))
       throw new Error(`waive_check type_seen names yt:${named[0]}, which is not a reference of this project (a style line's ref or a saved Inspire reference). Save it (library inspire, name "save yt:${named[0]}") and study it, or take the type from the references this project has.`);
+  }
+  // reference_kinds: the edit lacks a kind its own references show. Plain on purpose is the person's
+  // call, so the waiver carries words they typed: `quote`, else a quoted part of the reason, found in
+  // the brief's stored asks and logged replies (resolver.storedQuoteProblem, brief.mjs), never "your call".
+  if (type === "waive_check" && operation.code === "reference_kinds") {
+    const spans = [...String(operation.reason ?? "").matchAll(/["“]([^"”]{3,})["”]/g)].map((match) => match[1].trim()).sort((a, b) => b.length - a.length);
+    const quote = (typeof operation.quote === "string" ? operation.quote.trim() : "") || spans[0] || "";
+    const fixFirst = 'check {rules:["reference_kinds"]} names each kind your references show and the library search for it: make your own version, not a copy.';
+    if (!quote || HANDED_OVER.test(quote) || quote.split(/\s+/).length < 3)
+      throw new Error(`${fixFirst} Plain on purpose is the person's call: send waive_check {code:"reference_kinds", target:"<scene>", reason:"<why>", quote:"<their words, as they typed them>"} (3 or more words, not "your call").`);
+    const problem = resolver.storedQuoteProblem ? resolver.storedQuoteProblem(quote) : { missing: true };
+    if (problem)
+      throw new Error(`${fixFirst} The quote "${quote.slice(0, 80)}" is not in the person's stored words: ${problem.missing ? 'no message of theirs is stored; save it first (notes brief ask:"<their message, pasted whole>")' : problem.none ? 'ask is "none", so only a logged reply counts' : `closest: "${problem.closest}"`}. Copy their exact words, or take the fix.`);
+    // Their words must say what is plain, not only be theirs ("make it hit hard" keeps nothing plain).
+    const unclear = resolver.plainQuoteProblem?.(quote);
+    if (unclear)
+      throw new Error(`${fixFirst} The quote "${quote.slice(0, 80)}" is theirs but does not say what is plain (name a kind such as type, text, color, effects, graphics or overlay, or say plain, raw, simple, clean, minimal, just cuts, as is). ${unclear.closest ? `Closest of their sentences that does: "${unclear.closest}".` : "None of their stored sentences does: take the fix."}`);
+    operation.reason = `${String(operation.reason ?? "").trim() || "the person asked for it plain"} (the person: "${quote.slice(0, 200)}")`;
   }
   if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and

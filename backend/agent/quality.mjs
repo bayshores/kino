@@ -347,7 +347,7 @@ function fixOps(fix, finding, model, document, codes, fonts = null) {
     return { op: "update_animation", animationId: refName(animationId, codes), ...sceneField(tween.source.sceneId), properties };
   };
   const copyHint = (item) => `${refOfItem(item, model, codes)} is a copy of a component; change it in the component's scene (${refName(item.source.sceneId, codes)}).`;
-  if (fix.kind === "hint") return { fix: fix.text, auto: false };
+  if (fix.kind === "hint") return { fix: fix.text, auto: false, ...(fix.call ? { call: fix.call } : {}) };
   // kino's own framing of a video layer (crop_no_subject, narrow_window): the frame_shot op, or the
   // words when the op cannot reach the layer (a component copy, a layer inside a group).
   if (fix.kind === "frame_shot") {
@@ -676,7 +676,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     return hit;
   }
 
-  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, sourceLooks = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
+  async function sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs = [], seenRefs = refs, closeRefs = [], houseMoments = [], styleSpec = null, deck = null, briefFonts = [], length = null, asks = null, speech = [], sceneLines = [], people = null, soundSearch = false, media = { sizes: {}, names: {} }, isVideo = false, origin = null, playsOn = null, sourceLooks = null, base = sceneBase(document, scene, { fonts, codes, styleSpec, deck, briefFonts, length, asks }) }) {
     const key = keyOf(base, { pixels, outputFps });
     if (pixels && renderFrames) {
       const at = baseKey(base);
@@ -728,6 +728,8 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       // The saved references' own brightness, text and voice facts the edit is held to (reference_range):
       // a pixel rule, so a final render sees it (reference_drift above runs in the background).
       ...(pixels && refs.length ? { rangeRefs: refs } : {}),
+      // What the agent labeled on screen in each reference (library inspire seen): reference_kinds.
+      ...(seenRefs.length ? { seenRefs } : {}),
       // The saved references' lent cuts: an edit must not copy their shot lengths (reference_closeness).
       closeRefs,
       // What kino rendered in other projects, and this project's references as layouts (seen_before).
@@ -816,9 +818,11 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
     // A full check that may listen (not the dashboard's own, listen:false) also asks for the voice
     // facts of references saved before they were measured (one at a time, in the measuring queue);
     // until then they come back `heardPending`.
-    const refs = references ? await references(document.id, { heardLater: pixels && listen }).catch(() => []) : [];
+    const listed = references ? await references(document.id, { heardLater: pixels && listen, labeled: true }).catch(() => []) : [];
+    // Only measured references go to the fingerprint rules; every labeled one goes to reference_kinds.
+    const refs = listed.filter((ref) => ref.fingerprint !== null);
     const closeRefs = rhythms ? await rhythms(document.id).catch(() => []) : [];
-    const refStamp = refs.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ref.heardPending ? "+pending" : ""}`).join(",");
+    const refStamp = listed.map((ref) => `${ref.id}@${ref.measuredAt ?? ""}${ref.heard ? "+heard" : ref.heardPending ? "+pending" : ""}${(ref.seen ?? []).map((entry) => `/${entry.at}${(entry.kinds ?? []).join("")}`).join("")}`).join(",");
     // The house memory changes seen_before: which projects and revs it holds are part of the key.
     const houseMoments = house ? await house(document.id, document.name ?? null).catch(() => []) : [];
     const houseStamp = houseMoments.map((entry) => `${entry.projectId}@${entry.rev}v${entry.sigVersion ?? 1}`).join(",");
@@ -868,13 +872,13 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
       if (!pixels && !full && renderFrames) unchecked.push(scene.id);
       // A rule without its input (a transcript, the people found) finds nothing: no waiver is judged stale then.
       if (speech.some((entry) => entry.missing) || peopleWhy) measuredAll = false;
-      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
+      const { model, findings: found, notes: sceneNotes, techniques: used = {}, pending } = full ?? await sceneFindings(document, scene, { fonts, codes, pixels, outputFps, signal, refs, seenRefs: listed, closeRefs, houseMoments, styleSpec: sceneStyle, deck: sceneDeck, briefFonts, length: sceneLength, asks: sceneAsks, speech, sceneLines, people, soundSearch, media, isVideo, origin, playsOn, sourceLooks, base });
       if (pending) measuredAll = false;
       for (const [tag, count] of Object.entries(used)) techniques[tag] = (techniques[tag] ?? 0) + count;
       for (const note of sceneNotes) if (!notes.includes(note)) notes.push(note);
       for (const finding of found) {
         const item = finding.itemId ? model.itemOf(finding.itemId) : null;
-        const { fix, auto } = fixOps(finding.fix, finding, model, document, codes, fonts);
+        const { fix, auto, call } = fixOps(finding.fix, finding, model, document, codes, fonts);
         const waiver = waiverFor(finding, model, waivers);
         if (waiver) silencing.add(waiver);
         findings.push({
@@ -885,7 +889,7 @@ export function createQualityChecker({ mediaRoot, renderFrames, videoFacts = nul
           message: finding.message,
           ...(finding.measured != null ? { measured: finding.measured } : {}), ...(finding.required != null ? { required: finding.required } : {}),
           ...(finding.bbox ? { bbox: finding.bbox } : {}),
-          ...(fix !== undefined ? { fix } : {}), ...(auto ? { auto: true, ...(finding.fix?.why ? { why: finding.fix.why } : {}), ...(finding.fix?.push ? { push: true } : {}) } : {}),
+          ...(fix !== undefined ? { fix } : {}), ...(call ? { call } : {}), ...(auto ? { auto: true, ...(finding.fix?.why ? { why: finding.fix.why } : {}), ...(finding.fix?.push ? { push: true } : {}) } : {}),
           ...(waiver ? { waived: waiver.reason } : {}),
           // A shot an animation moves: frame_shot would fight it, so a refused waiver answers with mark_subject.
           ...(FACE_CUT_RULES.has(finding.rule) && item?.kind === "video" && !heldStill(model, item) ? { moves: true } : {}),

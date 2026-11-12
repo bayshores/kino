@@ -9,6 +9,7 @@ import { applyOperations } from "../engine/operations.js";
 import { createDocument, createLayer, createScene, parseDocument } from "../engine/model.js";
 import { assignCodes, closest, createResolver, documentObjects, emptyCodes, ReferenceError } from "./agent/refs.mjs";
 import { OperationError, translateOperations } from "./agent/translate.mjs";
+import { plainWordsProblem, storedQuoteProblem } from "./agent/brief.mjs";
 import { createBlockRunner, translateBlock } from "./agent/blocks.mjs";
 import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs";
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
@@ -308,6 +309,23 @@ test("waivers: crop and shape need the person's words on layers; face-cut codes 
   assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "not needed" }), /names the origin word in its reason \("tower"\)/);
   assert.throws(() => send({ code: "ask_unmet", target: "main", reason: "towers are off screen" }), /names the origin word/);
   assert.equal(send({ code: "ask_unmet", target: "main", reason: "no Tower here: the keeper's story is on the stairs" })[0].target, "main");
+  // reference_kinds: plain on purpose is kept only with words the person typed (stored ask or logged reply), on a scene.
+  const brief = { fields: { ask: [{ text: "make me a fan edit, keep it plain and simple, no effects", at: 1 }] }, log: [{ q: "style?", a: "just cuts please" }] };
+  resolver.storedQuoteProblem = (quote) => storedQuoteProblem(brief, quote);
+  resolver.plainQuoteProblem = (quote) => plainWordsProblem(brief, quote);
+  // Their words, but not about plain: refused with their sentence that is.
+  assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "make me a fan edit" }), /does not say what is plain.*Closest of their sentences that does: "make me a fan edit, keep it plain and simple, no effects"/);
+  assert.throws(() => send({ code: "reference_kinds", target: "s1" }), /check \{rules:\["reference_kinds"\]\} names each kind.*Plain on purpose is the person's call/);
+  assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "your call" }), /Plain on purpose is the person's call/);
+  assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "make it very busy and loud" }), /not in the person's stored words: closest: "make me a fan edit/);
+  assert.throws(() => send({ code: "reference_kinds", target: "shot-1", quote: "keep it plain and simple" }), /covers a whole scene and names no layer/);
+  const [plain] = send({ code: "reference_kinds", target: "s1", quote: "keep it plain and simple", reason: "they want cuts only" });
+  assert.equal(plain.reason, 'they want cuts only (the person: "keep it plain and simple")');
+  assert.equal(send({ code: "reference_kinds", target: "s1", reason: 'they said "just cuts please"' })[0].reason, 'they said "just cuts please" (the person: "just cuts please")');
+  resolver.storedQuoteProblem = (quote) => storedQuoteProblem({}, quote);
+  assert.throws(() => send({ code: "reference_kinds", target: "s1", quote: "keep it plain and simple" }), /no message of theirs is stored/);
+  delete resolver.storedQuoteProblem;
+  delete resolver.plainQuoteProblem;
   // A code nobody checks is refused with the closest names; gates and new rules are known.
   assert.throws(() => send({ code: "crop_no_subjct", target: "shot-1" }), (thrown) => {
     assert.ok(thrown instanceof OperationError);

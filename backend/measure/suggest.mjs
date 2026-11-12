@@ -100,6 +100,38 @@ export function typeNote(fp, refId) {
   return `type to note (the family class is not measured): look at the text strips${examples.length ? ` (${times(examples)})` : ""}, then save a style line "type: <family class (serif, sans, mono, script), size (big type ${percent(text.bigShare ?? 0)} of the time), ${case_}, how it appears>" with ref "${refId}" and its time in at: what you see in these strips, not a look you already like.`;
 }
 
+/** The words an agent labels a moment with (what the picture shows that numbers cannot see). */
+export const ONSCREEN_KINDS = ["type", "overlay", "composite", "color", "made", "frame", "spoken", "plain"];
+
+/**
+ * The 6 moments an agent labels in a reference: for each sixth of its measured length, the kept
+ * frame strip (ref.stripList) nearest that sixth's middle. Sorted; fewer than 6 when strips
+ * are shared; [] when the reference has no strips or no length.
+ */
+export function onscreenMoments(ref) {
+  const strips = (ref?.stripList ?? []).map((strip) => strip.at).filter(Number.isFinite);
+  const seconds = ref?.numbers?.seconds;
+  if (!strips.length || !(seconds > 0)) return [];
+  const picked = new Set();
+  for (let sixth = 0; sixth < 6; sixth += 1) {
+    const middle = seconds * (2 * sixth + 1) / 12;
+    picked.add(strips.reduce((best, at) => (Math.abs(at - middle) < Math.abs(best - middle) ? at : best)));
+  }
+  return [...picked].sort((a, b) => a - b);
+}
+
+/**
+ * The line that asks for what the reference's picture shows: overlays, composites, made graphics,
+ * color work, type. Numbers cannot see design, so the agent looks at the 6 moments and labels each
+ * (`seen` in library inspire). Null when the reference has no strips to look at.
+ */
+export function onscreenNote(ref) {
+  const moments = onscreenMoments(ref);
+  if (!moments.length) return null;
+  const first = moments[0];
+  return `on screen to label (numbers cannot see design): at ${moments.join(", ")} s look {mode:"reference", ref:"${ref.id}", t}, then for each: library {topic:"inspire", name:"seen ${ref.id} @${first} <kinds>: <what you see, in your words>"}. kinds: ${ONSCREEN_KINDS.join(", ")}.`;
+}
+
 /** The lines as text for an agent, one a line with their tags. */
 export function suggestionText(lines, refId) {
   if (!lines.length) return null;

@@ -27,13 +27,26 @@ const SEEN_AS = {
   repeat: ["beat-repeat"], stutter: ["beat-repeat"], "replay on beats": ["beat-repeat"], "repeat on beats": ["beat-repeat"], echo: ["beat-repeat", "inward-echoes"],
   glitch: ["glitch", "rgb-split-hit", "rgb-shift"], "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
   grain: ["grain"], vignette: ["vignette"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
+  // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
+  font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
+  outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
+  duotone: ["duotone"], tritone: ["tritone"],
+  "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
+  inset: ["create_mask", "frame"], "picture in picture": ["create_mask", "frame"], "split screen": ["create_mask", "frame"],
+  "3d": ["card-flip", "3d-orbit"], "3d text": ["card-flip", "3d-orbit"], "3d type": ["card-flip", "3d-orbit"],
+  streaks: ["rain", "light-rays"], "code rain": ["rain", "light-rays"],
+  "zoom burst": ["zoom-blur", "radial-repeat-blur"],
 };
+// Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
+// instead of a name that only sounds close.
+const NO_MAKER = ["speed lines", "impact lines", "action lines", "halftone", "film burn", "dirt texture", "burn texture"];
+export { SEEN_AS };
 // Common words that mean a look only on their own: "green" alone is a tint, but "green screen" is
 // a cut-out and "repeat text" is not a footage stutter. Inside a longer query they lead nowhere.
 const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
-export const REFERENCE_LOOKUP = 'to make what you see: library {topic:"search", search:"<what you saw: glow, particles, subtitles, cut-out, speed ramp, shake>"}';
+export const REFERENCE_LOOKUP = 'to make what you see (kinds: type, overlay, composite, color, made, frame, spoken, plain): library {topic:"search", search:"<your words: font, glow, cut-out, split screen, duotone, outline>"}';
 
 /**
  * A second lookup line for a studied reference whose title has the subject's origin word
@@ -48,13 +61,22 @@ export function originReferenceLine(found, title) {
 const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blur: "blur" };
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
 const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations" };
+// An op whose call needs a lookup first: a font is picked by its look.
+const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look, e.g. condensed bold sans>"} then set_font {layerIds, family, weight}' };
+
+/** The line for a look kino has no maker for yet ("speed lines"), else "". */
+export function noMakerLine(query) {
+  const text = ` ${String(query ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const phrase = NO_MAKER.find((entry) => text.includes(` ${entry} `));
+  return phrase ? `no kino name for "${phrase}" yet: build it from shapes and draw-on, or say it is missing` : "";
+}
 
 /** The call that reads a name's rules, and what the name is; null for a name kino does not have. */
 export function readCallFor(name, { ops = [] } = {}) {
   const effect = EFFECTS.find((entry) => entry.key === name);
   if (effect) return { kind: "effect", use: `add_animation {layer, effect:"${name}"}`, read: `library {topic:"rules", name:"${GROUP_TOPIC[effect.group] ?? "effects"}"}` };
   if (MOVE_NAMES.includes(name)) return { kind: "move", use: `move {name:"${name}", …}`, read: `library {topic:"moves", name:"${name}"}` };
-  if (ops.includes(name)) return { kind: "op", use: `${name} {…}`, read: `library {topic:"op", name:"${name}"}` };
+  if (ops.includes(name)) return { kind: "op", use: OP_USE[name] ?? `${name} {…}`, read: `library {topic:"op", name:"${name}"}` };
   if (TOPICS[name]) return { kind: "topic", use: TOPICS[name], read: `library {topic:"rules", name:"${name}"}` };
   return null;
 }
@@ -78,7 +100,7 @@ export function seenNames(query, { ops = [], limit = 5 } = {}) {
   for (const word of words.filter((entry) => !LOOSE.has(entry))) for (const name of SEEN_AS[word] ?? []) add(name);
   // Else a word that is a whole part of a name ("leaks" in light-leaks).
   // Ops are left out here: the search's ops line already lists the ops that hold a word.
-  if (!found.length) for (const word of words.filter((entry) => entry.length > 3 && !LOOSE.has(entry))) for (const name of all.filter((entry) => !ops.includes(entry))) if (name.split("-").includes(word)) add(name);
+  if (!found.length && !noMakerLine(text)) for (const word of words.filter((entry) => entry.length > 3 && !LOOSE.has(entry))) for (const name of all.filter((entry) => !ops.includes(entry))) if (name.split("-").includes(word)) add(name);
   return found.slice(0, limit).map((name) => {
     const call = readCallFor(name, { ops });
     return `${name} (${call.kind}: ${call.use}; ${call.read})`;

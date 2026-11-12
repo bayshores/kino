@@ -204,6 +204,33 @@ function notSaid(where, quote, said) {
 // The problem with a quote that must be their words, or null when it was said.
 const quoteProblem = (where, quote, said) => (!said.missing && isSaid(quote, said.texts) ? null : notSaid(where, quote, said));
 
+/**
+ * The check a waiver of the person's words uses: whether `quote` is in what the brief stores of
+ * theirs (the asks as typed and the replies they logged; the same check by:"you" quotes pass).
+ * Null when it was said, else { missing } (no ask stored), { none } (ask "none") or { closest }.
+ */
+export function storedQuoteProblem(brief, quote) {
+  const said = saidBy(brief, [], false, [], []);
+  if (said.missing) return { missing: true };
+  if (isSaid(quote, said.texts)) return null;
+  return { ...(said.none ? { none: true } : {}), closest: closestSentence(quote, said.texts) };
+}
+
+// Words that say what is plain or which kind of design is not wanted (reference_kinds waiver).
+const PLAIN_WORDS = /\b(plain|raw|simple|clean|minimal|as[- ]is|just cuts?|effects?|text|type|titles?|captions?|subtitles?|words|colou?r|graphics?|overlays?)\b/i;
+
+/**
+ * A reference_kinds waiver quote must also say what is plain: a kind (type, text, color, effects,
+ * graphics, overlay, words, subtitles) or a plainness word (plain, raw, simple, clean, minimal, just
+ * cuts, as is). Null when it does; else { closest } (the stored sentence of theirs that does, or "").
+ */
+export function plainWordsProblem(brief, quote) {
+  if (PLAIN_WORDS.test(quote)) return null;
+  const sentences = saidBy(brief, [], false, [], []).texts
+    .flatMap((text) => String(text).split(/(?<=[.!?])\s+|\n+/)).map((part) => part.trim()).filter((part) => PLAIN_WORDS.test(part));
+  return { closest: closestSentence(quote, sentences) };
+}
+
 // A string field of 1 to `limit` characters, trimmed; a problem sentence when it is not.
 function textProblem(where, value, limit) {
   if (typeof value !== "string" || !value.trim()) return `${where} is text of 1–${limit} characters.`;
@@ -818,6 +845,14 @@ function openParts(state, video) {
       const refs = unstudied.slice(0, needed);
       if (!saved.length) open.push({ step: "study a reference (look)", call: { tool: "look", input: { mode: "reference", ref: "<a saved reference>" } } });
       else if (refs.length) open.push({ step: `study ${refs[0]}${refs.length > 1 ? ` +${refs.length - 1}` : ""} (look)`, refs, call: { tool: "look", input: { mode: "reference", ref: refs[0] } } });
+      // Then label what each studied one shows on screen (numbers cannot see design): `seen`, 6 moments each.
+      // The first REFERENCES_WANTED studied ones are labeled (reference_kinds needs 2 labeled references).
+      const unlabeled = saved.filter((id) => video.studied.includes(id)).slice(0, REFERENCES_WANTED).filter((id) => video.seenOpen?.[id] != null);
+      if (unlabeled.length) {
+        // Look at the moment first (setSeen refuses a moment that was not shown), then label it.
+        const at = video.seenOpen[unlabeled[0]];
+        open.push({ step: `label ${unlabeled[0]}${unlabeled.length > 1 ? ` +${unlabeled.length - 1}` : ""} on screen (seen)`, call: { tool: "look", input: { mode: "reference", ref: unlabeled[0], t: at } } });
+      }
     }
   }
   if (video.treatmentsWaived) return open;

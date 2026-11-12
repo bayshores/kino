@@ -29,13 +29,13 @@ frame strips · Proposing ideas · Sound effects
 ## Before the plan
 
 - Once the brief is settled, `step:` asks for 2+ saved references, each studied (`look
-  {mode:"reference"}`; the refusal names those left), before `set_plan`. Its search is made from
+  {mode:"reference"}`) and labeled (`name:"seen …"`), before `set_plan`. Its search is made from
   the brief's names, quotes and song (`Or without the song` is in both).
   Results far longer than the video, and song releases, are dropped (`Dropped N:` names 3;
   `name:"yt:<id>"` opens one); `shared:` lists words many titles have, dropped ones too. Until then the first
   edit that adds layers or animations is refused (`order_needed`). A final render of 5 s or
-  more with none saved is refused (`reference_needed`), as is one whose references were all saved
-  after its first build. `waive_check {code:"reference", target:"*", reason}` skips them all.
+  more with none saved is refused (`reference_needed`), as is one whose references were all
+  saved after its first build. `waive_check {code:"reference", target:"*", reason}` skips all.
 - Saving the brief's `about` line searches its quote, and the quote with up to 6 words beside it
   in their message (to a sentence end or a video word), and keeps what the subject is known for
   in `state.origin` (a word in 40% of 6+ titles; the 3 most viewed), or `skipped`. With a word and
