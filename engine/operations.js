@@ -482,7 +482,7 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     if (operation.type === "delete_animation") {
       // A Show added with a preset entrance goes with it (entranceHide.js).
       // pair: true also takes the others the same move made on this layer (animationPartners.js).
-      const partners = operation.pair === true ? animationPartners(layer, animation) : [];
+      const partners = operation.pair === true ? animationPartners(layer, animation, scene.moves) : [];
       layer.animations = followEntrance(editAnimationTree(layer.animations, animation.id, () => null), animation, null);
       for (const partner of partners) layer.animations = editAnimationTree(layer.animations, partner.id, () => null);
       continue;

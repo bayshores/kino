@@ -26,7 +26,7 @@ import { BACKDROP_STYLE_KEYS } from "../../engine/backdropStyles.js";
 import { REACH_OPERATIONS } from "./reach-operations.mjs";
 import { moveRetry } from "./move-retry.mjs";
 import { unknownFieldsNote } from "./unknown-fields.mjs";
-import { animationPartners } from "../../engine/animationPartners.js";
+import { animationPartners, moveLeftovers } from "../../engine/animationPartners.js";
 import { LAYER_ROLES } from "../../engine/qualityFields.js";
 import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
@@ -725,6 +725,7 @@ function translateOne(raw, resolver, document) {
     operation = normalizeValues(operation, resolver.fixes);
     resolveReferences(operation, type, resolver, document);
     if (type === "delete_animation") paired = pairedNote(operation, resolver);
+    if (type === "delete_layer") moveLeftNote(operation, resolver);
     checkStepsCount(operation, type, document);
     if (type === "add_animation") effectEndDefault(operation, resolver);
     if (type === "isolate_voice") checkIsolateVoice(operation, resolver);
@@ -790,7 +791,7 @@ function translateOne(raw, resolver, document) {
 function pairedNote(operation, resolver) {
   const entry = resolver.objects.animations.find((item) => item.id === operation.animationId);
   if (!entry?.layer || entry.parents.length) return [];
-  const partners = animationPartners(entry.layer, entry.animation);
+  const partners = animationPartners(entry.layer, entry.animation, entry.scene?.moves);
   if (!partners.length) return [];
   const label = (animation) => `${resolver.codeOf(animation.id) ?? animation.id} (${animation.name ?? animation.kind})`;
   const layer = entry.layer.name || entry.layer.id;
@@ -799,6 +800,24 @@ function pairedNote(operation, resolver) {
     ? `delete_animation ${operation.animationId}: pair:true also took ${list}, made by the same move on ${layer}`
     : `delete_animation ${operation.animationId}: ${list}, made by the same move, ${partners.length === 1 ? "stays" : "stay"} on ${layer}; {op:"delete_animation", animation:"${operation.animationId}", pair:true} takes ${partners.length === 1 ? "it" : "them"} too`);
   return partners;
+}
+
+// delete_layer of a move's own layer (a flash's plate) whose move made nothing else left in the
+// scene: the animations it put on your layers stay (run a: the fade in on the next shot showed the
+// background for 3 frames). The receipt names them and the move call that takes them.
+function moveLeftNote(operation, resolver) {
+  const entry = resolver.objects.layers.find((item) => item.id === operation.layerId);
+  const scene = entry?.scene;
+  if (!scene) return;
+  const gone = new Set([operation.layerId]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const layer of scene.layers ?? []) if (gone.has(layer.parentId) && !gone.has(layer.id)) { gone.add(layer.id); grew = true; }
+  }
+  for (const { move, left } of moveLeftovers(scene, gone)) {
+    const list = left.slice(0, 4).map(({ layer, animation }) => `${resolver.codeOf(animation.id) ?? animation.id} on ${layer.name || layer.id}`).join(", ");
+    resolver.notes.push(`delete_layer ${operation.layerId}: move ${move.id} made ${left.length} ${left.length === 1 ? "animation" : "animations"} on your layers that ${left.length === 1 ? "stays" : "stay"} (${list}${left.length > 4 ? `, +${left.length - 4}` : ""}); {op:"move", name:"${move.name}", id:"${move.id}", remove:true} takes them`);
+  }
 }
 
 // add_animation {effect} of a value effect that rests at zero (a blur, a bulge): a window under

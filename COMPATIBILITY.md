@@ -344,10 +344,12 @@ How to read it:
   ref or a saved one). Evidence: `backend/house-memory.test.mjs`, `backend/agent-core.test.mjs`.
 - **Bare background between shots**: Verified. `check` and `look {mode:"review"}` print a fact line (time,
   frames, background color, brightness on both sides, the closing call) where under half the frame is
-  covered between two full-frame shots; no code, never blocks. `delete_animation {pair:true}` takes the
-  partners of one move and the receipt names a left-behind one; a board shot that fades in starts under
-  the shot before. Gap: moves that design the background (carry, card-tilt) are reported as facts.
-  Evidence: `engine/qualityPolish.test.js`, `engine/moves.test.js`, `backend/agent-review.test.mjs`, `backend/agent-board.test.mjs`.
+  covered between two full-frame shots (a card of words made on the background is no gap); no code, never
+  blocks. `delete_animation {pair:true}` takes the partners of one recorded move and the receipt names a
+  left-behind one; `delete_layer` of a move's last own layer names what it left on your layers and the
+  `move ... remove:true` call; a board shot that fades in starts under the shot before. Gap: moves that
+  design the background (carry, card-tilt) are reported as facts.
+  Evidence: `engine/qualityPolish.test.js`, `engine/moves.test.js`, `backend/agent-core.test.mjs`, `backend/agent-review.test.mjs`, `backend/agent-board.test.mjs`.
 ## Building blocks
 
 - **Slots**: Verified. A 6x6 grid over the safe area (`"B2:E5"`) plus names (`full`, `center`) in

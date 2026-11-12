@@ -1190,7 +1190,7 @@ test("bareGaps: a shot that hides before the next one fades in leaves the backgr
   const shot = (id, props, animations) => ({ type: "image", id, name: id, src: "/api/media/frame.png", x: 0, y: 0, width: 1920, height: 1080, animations, ...props });
   const stretch = (...layers) => scene({ duration: 10, background: "#fafaf7", layers }).scenes[0];
   const late = { id: "flash.to-in", kind: "in", start: 8.06, duration: 0.02, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } };
-  const [gap] = bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [show(7.9), late])), { fps: 30 });
+  const [gap] = bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [show(8), late])), { fps: 30 });
   assert.deepEqual([gap.start, gap.end, gap.frames, gap.cover, gap.before.layer.id, gap.after.layer.id, gap.background], [8, 8.1, 3, 0, "a", "b", "#fafaf7"]);
   assert.ok(gap.whole >= 8.07 && gap.whole <= 8.1, `whole at ${gap.whole}`);
   // The two calls that close it: the shot before stays until the next is whole, or the next starts at full opacity.
@@ -1205,4 +1205,13 @@ test("bareGaps: a shot that hides before the next one fades in leaves the backgr
   assert.deepEqual(bareGaps(stretch(...dissolve)), []);
   // A picture that does not fill the frame after the cut is not a shot, so nothing is between two shots.
   assert.deepEqual(bareGaps(stretch(shot("a", {}, [show(2), hide(8)]), shot("b", { width: 800 }, [show(8.5)]))), []);
+  // A shot after with no Show of its own would cover the shot before once its fade is deleted: only the extend call.
+  const [unshown] = bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [late])));
+  assert.deepEqual([unshown.frames, closeGap(unshown).full, closeGap(unshown).extend.start], [3, null, unshown.whole]);
+  // 9:16: a card of words made on the background between two shots is no gap; the same stretch without it is.
+  const tall = (...layers) => scene({ width: 1080, height: 1920, duration: 8, background: "#111111", layers }).scenes[0];
+  const upright = (id, animations) => shot(id, { width: 1080, height: 1920 }, animations);
+  const card = { type: "text", id: "card", name: "card", text: "WAIT", fontFamily: "Inter", x: 100, y: 800, width: 880, height: 200, animations: [show(3), hide(4.5)] };
+  assert.deepEqual(bareGaps(tall(upright("a", [show(0), hide(3)]), card, upright("b", [show(4.5)]))), []);
+  assert.deepEqual(bareGaps(tall(upright("a", [show(0), hide(3)]), upright("b", [show(4.5)]))).map((item) => [item.start, item.frames]), [[3, 45]]);
 });

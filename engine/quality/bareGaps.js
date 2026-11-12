@@ -1,6 +1,7 @@
 // Where the scene's own background shows between two full-frame shots: frames where the pictures
 // (and plates) drawn cover less than half of the frame, with a cover before and after. A fact for
-// check's answer and look's review, never a rule or a finding.
+// check's answer and look's review, never a rule or a finding. A stretch where words or a shape come
+// on is a card made on the background, not a gap.
 //
 // Why: a flash was deleted but its fade-in stayed, so the shot before hid at 8.0 s and the shot after
 // faded in from 0 at 8.06 s: three frames of the near-white background (brightness 230 of 255) ran
@@ -42,6 +43,21 @@ function candidates(scene) {
     && (layer.blendMode ?? "normal") === "normal" && !layer.mask && !layer.maskId)
     .map((layer) => ({ layer, parents: chain(layer) }))
     .filter(({ parents }) => parents.every((parent) => parent.enabled !== false && !parent.isMaskGroup && !parent.mask && !parent.maskId));
+}
+
+// Layers that are no picture of a shot but are drawn: a card's words or shapes made for the stretch.
+const UNSEEN = new Set(["audio", "group", "component"]);
+
+/**
+ * Whether a layer that is not a covering picture (text, a shape, a path) comes on inside the
+ * stretch from frame `first` and is off again at frame `end` (the next picture's): then the
+ * background there is a card made for that stretch, not a gap. Words that come on with the next
+ * shot and stay over it belong to that shot, so they do not count.
+ */
+function cardIn(scene, first, end, fps) {
+  const on = (layer, frame) => layer.visible !== false && visibleByOperations(layer.animations ?? [], frame / fps);
+  return (scene.layers ?? []).some((layer) => !TYPES.has(layer.type) && !UNSEEN.has(layer.type) && layer.enabled !== false
+    && !on(layer, first - 1) && on(layer, Math.round((first + end - 1) / 2)) && !on(layer, end));
 }
 
 /** Whether a layer has no animation but Show and Hide (its state is then its own, read cheaply). */
@@ -127,6 +143,7 @@ export function bareGaps(scene, { fps = 30 } = {}) {
     const bare = frame.cover < HALF;
     if (bare && !open && previous && !previous.bare) open = { first: k, cover: frame.cover, before: strongest(previous.frame) };
     else if (bare && open) open.cover = Math.min(open.cover, frame.cover);
+    else if (!bare && open && cardIn(scene, open.first, k, fps)) open = null;
     else if (!bare && open) {
       let whole = k;
       while (whole < frames && whole - k < LOOK_AHEAD * fps && !isWhole(at(whole))) whole += 1;
@@ -153,8 +170,12 @@ function ownAnimations(layer) {
 export function closeGap(gap, fps = 30) {
   const frame = 1.5 / fps;
   const hide = ownAnimations(gap.before.layer).find((animation) => animation.kind === "hide" && Math.abs(animation.start - gap.start) <= frame);
-  const fade = ownAnimations(gap.after.layer).find((animation) => animation.from?.opacity !== undefined && animation.from.opacity < 1 && animation.to?.opacity === 1
+  const own = ownAnimations(gap.after.layer);
+  const found = own.find((animation) => animation.from?.opacity !== undefined && animation.from.opacity < 1 && animation.to?.opacity === 1
     && Math.abs((animation.start ?? 0) - gap.start) <= LOOK_AHEAD);
+  // Without its fade the shot after must still be hidden on the shot before's last frame (its own
+  // Show keeps it off), else deleting the fade would draw it over that shot.
+  const fade = found && !visibleByOperations(own.filter((animation) => animation !== found), gap.before.time) ? found : null;
   return {
     extend: hide ? { layer: gap.before.layer, animation: hide.id, start: gap.whole } : null,
     full: fade ? { layer: gap.after.layer, animation: fade.id } : null,
