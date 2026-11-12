@@ -3259,8 +3259,14 @@ export function createAgentService(deps) {
       // over its span (engine/peakTrim.js). Layers another fix of this check changes wait for the next one.
       const mixScene = !options.listen ? null : scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
       mixBefore = mixScene ? await mixPeaksOf(mixScene) : null;
-      if (mixBefore?.places.length) {
-        const trim = peakTrims(mixScene, mixBefore.places);
+      // When the default render's "auto" gain alone keeps every peak under the ceiling (not held by
+      // them), those places only matter at loudness "off": the mix keeps its shape.
+      const autoClears = mixBefore?.auto && !mixBefore.auto.places && !mixBefore.auto.held;
+      if (mixBefore?.places.length && autoClears)
+        outcome.dropped.push(`mix: loudness "auto" (the render default) adds ${mixBefore.auto.gainDb} dB first, so the limiter never works; the xN on the "mix:" line are for loudness "off"`);
+      else if (mixBefore?.places.length) {
+        const kinds = await savedSoundKinds(mixScene, record.document);
+        const trim = peakTrims(mixScene, mixBefore.places, { bed: (layer) => isMusicLayer(layer, mixScene, kinds.find((entry) => entry.layer.id === layer.id)) });
         const touched = new Set(outcome.ops.flatMap((op) => [op.layerId, op.layer, ...(op.layerIds ?? [])]).filter(Boolean));
         const names = (id) => [id, mixScene.layers.find((layer) => layer.id === id)?.name];
         if (trim.ops.some((op) => names(op.layerId).some((ref) => touched.has(ref)))) outcome.dropped.push("mix: another fix changes those layers; check {fix:\"auto\"} again turns the peaks down");
@@ -3335,7 +3341,7 @@ export function createAgentService(deps) {
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
-    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + (mix.places.length ? "; check {fix:\"auto\"} applies each xN over its place" : ""));
+    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + (mix.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held) ? "; check {fix:\"auto\"} applies each xN over its place" : ""));
     for (const note of result.notes) lines.push(`note: ${note}`);
     // The rules line comes with the agent's first check of a project since kino started, and
     // with {rules:true}. The dashboard's own checks (by you) do not count.

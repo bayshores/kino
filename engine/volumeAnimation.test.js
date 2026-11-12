@@ -106,3 +106,16 @@ test("a limiter place turns the layers playing there down by its factor: a long 
   assert.match(trim.dropped[0], /^mix 2 s voice: its volume moves there/);
   assert.deepEqual(trim.fixed, ["mix 2 s (2-2.2 s, 4.6 dB over) x0.58: song 0.8->0.464, hit 0.58"]);
 });
+
+test("a song whose limiter dips would churn its level keeps it; the hit at a place still comes down", () => {
+  const document = parseDocument({ ...createDocument(), scenes: [createScene({ id: "s", duration: 10, layers: [
+    createLayer("audio", { id: "song", name: "song", src: "/api/media/a.wav", volume: 1, mediaSourceDuration: 10 }),
+    createLayer("audio", { id: "step", name: "step", src: "/api/media/b.wav", volume: 1, mediaStart: 4, mediaSourceDuration: 0.2 })] })] });
+  const place = (at, factor, ids) => ({ at, from: at, to: at + 0.2, overDb: 3, factor, playing: ids.map((layerId) => ({ layerId, name: layerId })) });
+  const trim = peakTrims(document.scenes[0], [place(2, 0.7, ["song"]), place(4, 0.58, ["song", "step"]), place(6, 0.7, ["song"])]);
+  assert.deepEqual(trim.ops.map((op) => [op.op, op.layerId]), [["update_layer", "step"]]);
+  assert.deepEqual(trim.fixed, ["mix 4 s (4-4.2 s, 3 dB over) x0.58: step 0.58"]);
+  assert.match(trim.dropped[0], /^mix 2 s x0\.7, 4 s x0\.58, 6 s x0\.7 song: 3 dips would turn its level 5 times in 4 s \(volume_churn\), so it keeps its level$/);
+  // One dip turns it twice: no churn, so it is applied.
+  assert.equal(peakTrims(document.scenes[0], [place(2, 0.7, ["song"])]).ops.length, 2);
+});

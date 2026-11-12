@@ -8,8 +8,10 @@
 //   clip keeps its level.
 // A layer whose volume moves around the place (a fade or a duck ramp there) is left alone, with the
 // reason, since a fixed level would flatten that move; so is one where another Volume animation
-// would take over from the dip.
+// would take over from the dip. A song or bed (`bed`) whose dips would make its level turn 3 times
+// in 10 s (the volume_churn warning) keeps its level: the other sounds at those places still come down.
 import { animatesVolume, volumeAt } from "./animation.js";
+import { churnRun, isMusicLayer } from "./quality/rules/sound.js";
 import { uid } from "./model.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { audibleRanges } from "./videoSound.js";
@@ -42,12 +44,15 @@ function steady(layer, start, end, level) {
  * The changes that clear `places` ([{at, from, to, factor, playing: [{layerId, name}]}], measured
  * on `scene`'s mix) by turning each playing layer down by the place's factor over its span.
  * Returns {ops, layers, fixed, dropped}: agent edit ops, the changed layer copies by id (to measure
- * again without saving), one line per place changed and one per layer left alone.
+ * again without saving), one line per place changed and one per layer left alone. `bed(layer)`
+ * says whether a layer is a song or bed (volume_churn reads those); by default isMusicLayer.
  */
-export function peakTrims(scene, places) {
+export function peakTrims(scene, places, { bed = (layer) => isMusicLayer(layer, scene) } = {}) {
   const layers = new Map();
   const whole = new Map();
   const added = new Map();
+  // Per place, [layerId, text] for each layer changed there; the lines are written at the end.
+  const changes = [];
   const fixed = [];
   const dropped = [];
   const copyOf = (layer) => {
@@ -67,7 +72,7 @@ export function peakTrims(scene, places) {
       if (!animatesVolume(layer) && spans.length && spans.every((span) => span.start >= place.from - WHOLE_MARGIN && span.end <= place.to + WHOLE_MARGIN)) {
         layer.volume = round((layer.volume ?? 1) * place.factor);
         whole.set(id, layer.volume);
-        changed.push(`${layer.name ?? id} ${layer.volume}`);
+        changed.push([id, `${layer.name ?? id} ${layer.volume}`]);
         continue;
       }
       const start = round(Math.max(0, place.from - PEAK_RAMP));
@@ -86,10 +91,23 @@ export function peakTrims(scene, places) {
       if (!holds) { layer.animations = before; dropped.push(`mix ${place.at} s ${layer.name ?? id}: another Volume animation takes over there: lower it by hand x${place.factor}`); continue; }
       if (!added.has(id)) added.set(id, []);
       added.get(id).push(...dip);
-      changed.push(`${layer.name ?? id} ${from}->${low}`);
+      changed.push([id, `${layer.name ?? id} ${from}->${low}`]);
     }
-    if (changed.length) fixed.push(`mix ${place.at} s (${place.from}-${place.to} s, ${place.overDb} dB over) x${place.factor}: ${changed.join(", ")}`);
+    changes.push({ place, changed });
   }
+  // A song or bed that did not churn before but would with its dips keeps its level.
+  for (const id of [...added.keys()]) {
+    const original = scene.layers.find((layer) => layer.id === id);
+    if (!bed(original) || churnRun(original, scene)) continue;
+    const turns = churnRun(layers.get(id), scene);
+    if (!turns) continue;
+    added.delete(id);
+    const at = changes.filter((entry) => entry.changed.some(([layerId]) => layerId === id)).map(({ place }) => `${place.at} s x${place.factor}`);
+    for (const entry of changes) entry.changed = entry.changed.filter(([layerId]) => layerId !== id);
+    dropped.push(`mix ${at.join(", ")} ${original.name ?? id}: ${at.length} dips would turn its level ${turns.length} times in ${round(turns.at(-1).time - turns[0].time)} s (volume_churn), so it keeps its level`);
+  }
+  for (const { place, changed } of changes)
+    if (changed.length) fixed.push(`mix ${place.at} s (${place.from}-${place.to} s, ${place.overDb} dB over) x${place.factor}: ${changed.map(([, text]) => text).join(", ")}`);
   const ops = [];
   for (const [id, volume] of whole) ops.push({ op: "update_layer", sceneId: scene.id, layerId: id, properties: { volume } });
   for (const [id, animations] of added)

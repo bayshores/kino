@@ -461,6 +461,11 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   assert.ok(Math.abs(Number(mixLine.match(/true peak \+([\d.]+) dBTP/)[1]) - Number(renderPeak)) <= 0.5, mixLine);
   const sound = await agent("look", { project, mode: "motion", ref: "sound" });
   assert.match(sound.text, /\nlimiter: .*works at \d+ place/);
+  // The default "auto" gain turns this mix down past every place: check fix:auto keeps its shape.
+  assert.match(mixLine, /adds -[\d.]+ dB first, then the limiter never works$/);
+  const kept = await agent("check", { project, pixels: false, fix: "auto" });
+  assert.match(kept.text, /not applied mix: loudness "auto" \(the render default\) adds -[\d.]+ dB first, so the limiter never works/);
+  assert.doesNotMatch(kept.text, /mix fix:/);
 });
 
 test("check fix:auto turns the layers playing at each limiter place down over that place only", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
