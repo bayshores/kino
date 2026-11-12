@@ -79,6 +79,14 @@ test("a shot keeps its clip's own sound (sound {keep}); building it keeps the st
   assert.deepEqual(duck.under, ["v2", "v3"]);
   assert.deepEqual(duck.speech.v2.words.map((word) => [word.start, word.end]), [[21.004, 22]]);
   assert.equal(keptDuck(after, "s1", [{ layerId: "v2", from: 2.5, to: 3.5 }], "song", 0.7), null, "one kept layer: keep_line's own dip covers it");
+  // The board's music layer is the one dipped, whatever its name; one deleted since the board dips nothing.
+  assert.equal(ops[0].operation.duckId, "song");
+  assert.equal(keptDuck(after, "s1", duck.under.map((layerId) => ({ layerId, from: 2.5, to: 3.5 })), "gone", 0.7), null);
+  // A dip the scene already has (a voice's duck_audio) stays: the kept stretches add none.
+  const voiced = structuredClone(before);
+  voiced.scenes[0].layers[0].animations = [{ id: "d1", name: "Duck down", kind: "custom", start: 0, duration: 0.2, from: { volume: 1 }, to: { volume: 0.5 } }];
+  voiced.scenes[0].layers.push(layer("v2", 2, 20.5));
+  assert.deepEqual(boardKeepOps(before, voiced).map((entry) => [entry.operation.duckNone, entry.operation.duckId]), [[true, undefined]]);
 });
 
 test("a shot's move: {kind, name, ref, planned?} or {none}; every bad field named at once; a board without moves still loads, its shots plain", () => {

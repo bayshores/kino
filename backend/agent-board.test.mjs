@@ -198,7 +198,8 @@ test("a board shot keeps its clip's own sound: the answer says what each clip ho
   assert.ok(silent.data.notes.some((note) => note.startsWith("clip sound: the plan keeps 0 s of the clips' own sound in 4.42 s (every shot is the music alone)")), silent.text);
   assertRefused(await editBoard(id, [wide(0, 1.25, 0, { keep: [9, 10] }), wide(1.25, 3.167, 1.25, "none")], { music: "song" }), "bad_shot",
     "shot 1 sound.keep [9, 10] is outside what the shot plays: file 0–1.25 s.");
-  const kept = await editBoard(id, [wide(0, 1.25, 0, "none"), wide(1.25, 2.083, 1.25, { keep: [1.5, 2.5] }), wide(3.333, 1.084, 3.333, { keep: "all" })], { music: "song" });
+  // keep:true (a weak agent's guess) is read as "all".
+  const kept = await editBoard(id, [wide(0, 1.25, 0, "none"), wide(1.25, 2.083, 1.25, { keep: [1.5, 2.5] }), wide(3.333, 1.084, 3.333, { keep: true })], { music: "song" });
   assert.ok(kept.data.notes.includes("clip sound by shot (file seconds): 1 -20 LUFS; 2 -20 LUFS, keeps 1.5-2.5 s; 3 -20 LUFS, keeps all"), kept.text);
   assert.ok(!kept.data.notes.some((note) => note.startsWith("clip sound: the plan keeps")));
   // The build, as run 8's scripts wrote it: one video layer a shot, every one at volume 0.

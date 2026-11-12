@@ -2490,7 +2490,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const plays = video && typeof shot.in === "number" && typeof shot.dur === "number" ? [shot.in, Number((shot.in + shot.dur * speed).toFixed(3))] : null;
       const span = Array.isArray(value.keep) && value.keep.length === 2 && value.keep.every((item) => typeof item === "number" && Number.isFinite(item)) ? value.keep : null;
       if (!plays) add("bad_shot", `${where} sound.keep keeps a video clip's own sound: the shot needs a video media and its in.`);
-      else if (value.keep === "all") keep = "all";
+      // keep:true is read as "all" (the guess a weak agent sends first; the skeptic's proof run).
+      else if (value.keep === "all" || value.keep === true) keep = "all";
       else if (!span || !(span[1] > span[0])) add("bad_shot", `${rule}.`);
       // At least 0.1 s of it inside what the shot plays (keep_line's shortest stretch).
       else if (Math.min(span[1], plays[1]) - Math.max(span[0], plays[0]) < 0.1) add("bad_shot", `${where} sound.keep [${span.join(", ")}] is outside what the shot plays: file ${sec(plays[0])}–${sec(plays[1])} s.`);

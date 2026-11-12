@@ -12,6 +12,7 @@ import { isRecord, round } from "./numbers.js";
 import { mainScene, NONE } from "./board.js";
 import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { LINE_NAMES } from "./keepLine.js";
+import { DUCK_NAMES } from "./audioDucking.js";
 
 export const KEEP_ALL = "all";
 const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
@@ -94,6 +95,13 @@ export function boardKeepOps(before, after) {
   if (!board?.shots?.length || !scene) return [];
   const had = new Set((before?.scenes ?? []).flatMap((item) => item.layers.map((layer) => layer.id)));
   const oldSound = new Map((before?.board?.shots ?? []).map((shot) => [shot.id, shot.sound]));
+  // The board's music layer is the one to dip when it is still in the scene (keep_line alone looks
+  // for a layer named music or song, which a song layer named after its file is not).
+  const music = board.music !== NONE && scene.layers.some((layer) => layer.id === board.music && (layer.type === "audio" || layer.type === "video")) ? board.music : null;
+  // A dip already in the scene (duck_audio under a voice, or the agent's own keep_line) stays: a
+  // keep_line dip would replace it, so the kept stretches get none (duckNone) and the receipt says so.
+  const ducked = scene.layers.some((layer) => (layer.animations ?? []).some((animation) => animation?.name === DUCK_NAMES.down || animation?.name === DUCK_NAMES.up));
+  const dip = ducked ? { duckNone: true } : music ? { duckId: music } : {};
   const ops = [];
   for (const [index, shot] of board.shots.entries()) {
     const span = keptSceneSpan(shot);
@@ -101,7 +109,7 @@ export function boardKeepOps(before, after) {
     const layer = layerOfShot(scene, shot);
     if (!layer || hasLineMarks(layer)) continue;
     if (had.has(layer.id) && sameSound(oldSound.get(shot.id), shot.sound)) continue;
-    ops.push({ n: index + 1, shot, operation: { type: "keep_line", sceneId: scene.id, layerId: layer.id, from: span[0], to: span[1], subtitle: false } });
+    ops.push({ n: index + 1, shot, operation: { type: "keep_line", sceneId: scene.id, layerId: layer.id, from: span[0], to: span[1], subtitle: false, ...(dip.duckId === layer.id ? {} : dip) } });
   }
   return ops;
 }
@@ -114,7 +122,8 @@ export function boardKeepOps(before, after) {
 export function keptDuck(document, sceneId, kept, musicId, to) {
   const scene = document.scenes.find((item) => item.id === sceneId);
   const layers = [...new Set(kept.map((entry) => entry.layerId))];
-  if (!scene || layers.length < 2 || !musicId || !isNumber(to)) return null;
+  // A music layer deleted since the board was saved has nothing to dip (and would refuse the edit).
+  if (!scene || layers.length < 2 || !musicId || !isNumber(to) || !scene.layers.some((layer) => layer.id === musicId)) return null;
   const speech = {};
   for (const entry of kept) {
     const layer = scene.layers.find((item) => item.id === entry.layerId);

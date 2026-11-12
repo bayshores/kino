@@ -1941,6 +1941,12 @@ export function createAgentService(deps) {
     }
     const seconds = kept.reduce((sum, entry) => sum + entry.to - entry.from, 0);
     if (kept.length) work.notes.push(`board: ${kept.length === 1 ? "1 shot keeps" : `${kept.length} shots keep`} the clip's own sound (${Number(seconds.toFixed(2))} s, keep_line, subtitle off)`);
+    // The scene already had a dip: kept as it was (engine/boardSound.js), and the call that adds these stretches to it.
+    if (kept.length && planned[0].operation.duckNone) {
+      const scene = next.scenes.find((item) => item.id === planned[0].operation.sceneId);
+      const name = (id) => scene?.layers.find((layer) => layer.id === id)?.name ?? id;
+      work.notes.push(`board: the music keeps the dip it had, none added under the kept clip sound; duck_audio {layer:"<music>", under:[<its voice>, ${[...new Set(kept.map((entry) => JSON.stringify(name(entry.layerId))))].join(", ")}]} dips it under both`);
+    }
     return next;
   }
 
