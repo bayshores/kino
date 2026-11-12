@@ -153,6 +153,12 @@ const TAG_WORDS = { flash: "flash", shake: "shake", "glitch-hit": "glitch", "rgb
 // a zoom punch is a hit of the camera, so a shake (a guess: impact-accent has no punch kind).
 const ACCENT_KIND = { flash: "flash", shake: "shake", "beat-kick": "shake" };
 const fix = (text) => ({ kind: "hint", text });
+// One move's loud effects are one effect (impact-accent hit records light and shake as two tags,
+// techniques.js marks each with the move's id): the first of each move stays.
+const oneEach = (entries) => {
+  const seen = new Set();
+  return entries.filter((entry) => !entry.move || (!seen.has(entry.move) && seen.add(entry.move)));
+};
 
 export function effectFit(model, ctx) {
   const cues = ctx.triggerCues ?? [];
@@ -195,7 +201,7 @@ export function effectFit(model, ctx) {
 
   // budget per song section, from its energy; a rest takes none except on its edges.
   for (const section of songSections(cues, model.duration)) {
-    const inside = effects.filter((entry) => entry.at >= section.from - EARLY && entry.at < section.to - EARLY);
+    const inside = oneEach(effects.filter((entry) => entry.at >= section.from - EARLY && entry.at < section.to - EARLY));
     const rest = RESTS.has(section.kind);
     const counted = rest ? inside.filter((entry) => Math.abs(entry.at - section.from) > EARLY && Math.abs(entry.at - section.to) > EARLY) : inside;
     const budget = rest ? 0 : Math.max(1, Math.floor(section.energy * (section.to - section.from) / PER_SECONDS));
@@ -209,8 +215,11 @@ export function effectFit(model, ctx) {
   // stacked: 3 or more effects within 0.15 s.
   const step = 1 / model.fps;
   const texts = textEntrances(model).filter((entry) => entry.tag && entry.tag !== "type-cut" && itemById(model, entry.itemId)?.role !== "caption");
-  const sounds = soundEffectsOf(ctx);
-  const all = [...effects.map((entry) => ({ at: entry.at, what: TAG_WORDS[entry.tag] })), ...texts.map((entry) => ({ at: entry.at, what: entry.tag })),
+  // A hit (impact-accent kind hit) is one effect, and a sound on its cue is part of it.
+  const hits = (model.moves ?? []).filter((move) => move.trigger?.kind === "hit").map((move) => ({ id: move.id, time: cues.find((cue) => cue.name === move.trigger.cue)?.time ?? move.trigger.at }));
+  const sounds = soundEffectsOf(ctx).filter((entry) => !hits.some((hit) => onCue(entry.at, hit.time)));
+  const whatOf = (entry) => (hits.some((hit) => hit.id === entry.move) ? "hit" : TAG_WORDS[entry.tag]);
+  const all = [...oneEach(effects).map((entry) => ({ at: entry.at, what: whatOf(entry) })), ...texts.map((entry) => ({ at: entry.at, what: entry.tag })),
     ...sounds.map((entry) => ({ at: entry.at, what: `sound ${entry.layer.name ?? entry.layer.id}` }))].sort((a, b) => a.at - b.at);
   for (let index = 0; index < all.length; index += 1) {
     const group = all.filter((entry) => entry.at >= all[index].at && entry.at <= all[index].at + STACK_SECONDS + 1e-6);

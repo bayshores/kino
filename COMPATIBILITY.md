@@ -847,6 +847,11 @@ How to read it:
   or top accent (up and down, as effect_fit allows; a footage hit on the same cue gives the direction); a strobe flashes 3 times a second
   at most. Evidence: `engine/moves.test.js`, `backend/agent-moves.test.mjs` (impact frame and flash rendered
   through look, a stand-in footage measure), `tests/moves-gate.mjs`. Not judged on real anime footage.
+- **impact-accent kind hit**: Unit-verified. `move {name:"impact-accent", kind:"hit", at}` builds light, blur, a
+  recolor in the shot's hue, particles off the subject and a shake one frame apart, 1 to 5 parts by the cue's weight
+  (a weak cue or a time gets 2, not a refusal; parts, weight, particles); a part with nothing in the shot is skipped
+  and named; effect_fit counts one hit once, with a sound on its cue. Evidence: `engine/moves.test.js`,
+  `engine/effectFit.test.js`; by hand on a copy of a real edit (`.scratch/barwave/wave/hit-accent`).
 - **speed-ramp and beat-repeat moves**: Unit-verified. `move {name:"speed-ramp", layer, at}` puts the clip's
   speed animations around a cue (before, on it, back), refuses a clip whose file has ended or a second ramp
   over the first, and `land:"moment"` keeps the cue's file moment; `move {name:"beat-repeat", layer, at,

@@ -1375,6 +1375,21 @@ test("impact-accent runs only at a cue that motivates its kind; a shake peaks on
   const lit = run("strobe", "cue:fill-1", 4).animations.map((entry) => entry.animation).filter((animation) => animation.name === "Strobe up").map((animation) => round3(animation.start + animation.duration));
   assert.equal(lit.at(-1), 4);
   assert.ok(lit.every((at) => lit.filter((other) => other >= at && other < at + 1).length <= 3), `at most 3 flashes a second (${lit})`);
+  // kind hit: parts one frame apart, as many and as strong as the cue's weight; a weak accent gets 2 small ones, not a refusal.
+  const hit = (at, start) => runMove(definition, { id: "hit", input: readMoveInput(definition, { kind: "hit", layer: "clip" }), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start, media,
+    shotColor: () => ({ h: 170, s: 0.6, l: 0.5 }), samples: () => [0, 1, 2, 3, 4, 5].map((t) => ({ t, faces: [[0.45, 0.3, 0.1, 0.15]] })),
+    cueFacts: { at, cues: [...cues, { name: "accent-3", time: 1.5, kind: "accent", rank: 3, weight: 0.3 }], events } });
+  const parts = (made) => {
+    const on = (pattern) => made.animations.filter((entry) => pattern.test(entry.animation.id)).map((entry) => entry.animation);
+    const light = on(/flash-up$/)[0];
+    const burst = made.added[0]?.layer.animations.find((animation) => animation.id.endsWith(".burst"));
+    return { peak: light?.to.stops, starts: [light && light.start + light.duration, on(/hit-blur$/)[0]?.start, on(/hit-recolor$/)[0]?.start, burst?.start, on(/-shake$/)[0]?.start].filter((at) => at !== undefined).map(round3) };
+  };
+  const drop = parts(hit("cue:song-drop-1", 3));
+  assert.deepEqual(drop.starts, [0, 1, 2, 3, 4].map((frame) => round3(3 + frame / 30)));
+  const weak = parts(hit("cue:accent-3", 1.5));
+  assert.equal(weak.starts.length, 2);
+  assert.ok(drop.peak > weak.peak, `the drop's light (${drop.peak} stops) is above the weak accent's (${weak.peak})`);
 });
 
 test("speed-ramp slows the clip into the cue, lands the new speed on it and comes back to its own speed; it refuses a cue the clip does not reach", () => {

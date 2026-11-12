@@ -1381,11 +1381,15 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // The faces measured in each named clip's file, so a pane or an inset is cropped on them.
     const subjects = new Map();
     const namedIds = Object.values(input).flatMap((value) => (Array.isArray(value) ? value : [value])).filter((value) => typeof value === "string");
+    // impact-accent hit reads the hue and subject of its shot, often not named: the top-level clips and pictures playing at its start.
+    const hitShot = definition.name === "impact-accent" && input.kind === "hit";
+    if (hitShot && !input.layer) for (const layer of scene.layers) if ((layer.type === "video" || layer.type === "image") && !layer.parentId && !layer.cutoutOf
+      && (layer.type === "image" || ((layer.mediaStart ?? 0) <= start + 1e-6 && (!(layer.mediaDuration > 0) || start < (layer.mediaStart ?? 0) + layer.mediaDuration)))) namedIds.push(layer.id);
     for (const layer of scene.layers) if (layer.type === "video" && namedIds.includes(layer.id) && subjectSamples) subjects.set(layer.id, (await subjectSamples(layer).catch(() => null)) ?? []);
     // The dominant hue of each named clip or picture at the move's start (backdrop-flash color "auto").
     const hues = new Map();
     // A color field set to "auto" measures; one with auto:true measures when no color is given (auto:"asked" only when set to "auto").
-    const asksHue = settings.color === "auto" || (definition.fields.color?.auto === true && settings.color == null);
+    const asksHue = settings.color === "auto" || (definition.fields.color?.auto === true && settings.color == null) || hitShot;
     if (asksHue && shotColor)
       for (const layer of scene.layers) if ((layer.type === "video" || layer.type === "image") && namedIds.includes(layer.id) && !layer.cutoutOf) hues.set(layer.id, await shotColor(layer, start).catch(() => null));
     // font (push-through-type, a display face at 700) or fontFamily (caption-words, body text at

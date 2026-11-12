@@ -23,7 +23,7 @@ const SEEN_AS = {
   "speed ramp": ["speed-ramp", "clip-speed"], ramp: ["speed-ramp", "clip-speed"], "slow motion": ["speed-ramp", "clip-speed"],
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],
-  shake: ["shake", "impact-accent", "wiggle"], "camera shake": ["shake", "impact-accent", "wiggle"], handheld: ["shake"], jolt: ["shake", "impact-accent"], hit: ["impact-accent", "punch-in"],
+  shake: ["shake", "impact-accent", "wiggle"], "camera shake": ["shake", "impact-accent", "wiggle"], handheld: ["shake"], jolt: ["shake", "impact-accent"], hit: ["impact-accent", "punch-in"], "impact hit": ["impact-accent"], "drop hit": ["impact-accent"],
   // A flash or wash of light over a shot is overexpose; over a plate or the frame, a gradient fill (layer-style) (GAPS: directors built flat rectangles).
   flash: ["impact-accent", "flash", "overexpose", "layer-style"], strobe: ["impact-accent"], "white flash": ["overexpose", "flash", "impact-accent", "layer-style"], "flash frame": ["flash", "impact-accent"], "flat frame": ["flash"], "white frame": ["flash"], "one frame flash": ["flash"], "single frame flash": ["flash"],
   overexposed: ["overexpose"], overexposure: ["overexpose"], "burn out": ["overexpose"], "blown out": ["overexpose"], wash: ["overexpose", "layer-style"], "white out": ["overexpose"], exposure: ["overexpose", "color-grade"],

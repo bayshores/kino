@@ -26,9 +26,18 @@
 // Reduced motion: no shake and no strobe (a note says so); flashes and dips are half as strong.
 // The accent starts on its cue, so align and dur are refused; song seams and rests count only
 // when fit_music wrote them (fitted), never a song-* cue set by hand.
+//
+// hit: several of these parts one frame apart (light, blur, a recolor in the shot's hue, particles
+// off the subject, a shake), as many and as strong as the cue's weight. It takes any cue or time:
+// a weak accent, a beat number, a marker on a clip or a raw time builds a small hit (weight 0.3)
+// instead of a refusal, and a time without a cue is left to effect_fit's untriggered. See build.hit.
 import { IMPACT_KINDS } from "../../blockFields.js";
+import { createLayer } from "../../model.js";
+import { PARTICLE_LOOKS } from "../../effects/particles.js";
 import { parseAt } from "../timing.js";
-import { CURVES, effect, motion, round } from "./kit.js";
+import { hslToHex, shotHue, shotTint } from "./backdrop.js";
+import { subjectIn } from "./composite.js";
+import { CURVES, boxOf, effect, hide, motion, round, show } from "./kit.js";
 
 const FRAME = 1 / 30;
 // An event this close to the cue is at the cue (the impact may come up to 2 frames early).
@@ -36,7 +45,8 @@ const NEAR = 2.5 * FRAME;
 const EARLY = 2 * FRAME + 1e-6;
 export { IMPACT_KINDS };
 const NEEDS = Object.freeze({ flash: ["light", "seam", "accent"], shake: ["impact", "seam", "accent"], "impact-frame": ["impact"], dip: ["dropout"], strobe: ["fill"] });
-const SAYS = { light: "light in the shot", seam: "a song seam", accent: "a top accent", impact: "an impact in the footage", dropout: "a rest in the song", fill: "a drum fill before it" };
+const SAYS = { light: "light in the shot", seam: "a song seam", accent: "a top accent", impact: "an impact in the footage", dropout: "a rest in the song", fill: "a drum fill before it",
+  beat: "a weak accent or beat", footage: "a marked moment in a clip", cue: "a cue with nothing measured", time: "a time with no cue" };
 // Song seams (fit_music cues song-<kind>-<n>) by how hard the picture may answer them.
 const SEAMS = { drop: 1, return: 0.9, switch: 0.8, "vocal-in": 0.6, build: 0.6, intro: 0.5, outro: 0.5 };
 const RESTS = { break: 0.7, dropout: 0.9 };
@@ -116,6 +126,52 @@ export function motiveFor(kind, facts, time) {
     throw refuse(kind, `${has}; ${kind} needs ${NEEDS[kind].map((entry) => SAYS[entry]).join(" or ")}`, facts, time);
   }
   return { cue, at: cue.time + offset, motive: { ...motive, weight: clamp(motive.weight ?? 0.5, 0.2, 1) } };
+}
+
+// A hit on a moment kino measured nothing at (a beat number, a bare marker, a raw time) is small:
+// weight 0.3 builds 2 parts (a guess; a studied reference answered a phrase end with 1 small sparkle burst).
+const WEAK = 0.3;
+
+/**
+ * The reason under a hit: the cue's motives (cueMotives) plus two read only here, a weak accent
+ * (below rank 1 and under 0.6: "beat") and a marker pinned to a clip (set_cues layer + media:
+ * "footage", 0.6 as effect_fit reads it). A beat or onset number, a cue with nothing measured or a
+ * raw time weighs WEAK. input.weight replaces the weight (both are printed). A rest (dropout)
+ * answers with a dip; a fill before the cue makes the strobe take light's place.
+ * Returns {cue (null for a raw time), at, motive: {motive, weight, ...}, measured, fill, rest, note}.
+ */
+export function hitMotive(facts, time, input = {}) {
+  const raw = facts?.at;
+  let at;
+  try { at = raw === undefined ? null : parseAt(raw); } catch { at = null; }
+  const given = Number.isFinite(input.weight) ? clamp(input.weight, 0.1, 1) : null;
+  const weighed = (motive, measured) => ({ ...motive, weight: clamp(given ?? measured, 0.2, 1) });
+  if (!at || at.kind !== "cue") {
+    const note = `at ${JSON.stringify(raw ?? time)} is a time with no cue, so effect_fit will ask for one: pin it with set_cues {cues:[{name:"hit-1", time:${round(time)}}]} (or layer + media for a clip's moment), then at "cue:hit-1"`;
+    return { cue: null, at: time, motive: weighed({ motive: "time" }, WEAK), measured: WEAK, fill: null, rest: null, note };
+  }
+  const cues = facts.cues ?? [];
+  const cue = cues.find((entry) => entry.name === at.whole) ?? cues.find((entry) => entry.name === at.target);
+  if (!cue) throw new Error(`impact-accent hit: there is no cue "${at.whole}"; give one of the document's cues, or a time.`);
+  const offset = cue.name === at.whole ? 0 : at.offset;
+  if (offset > 1e-6 || offset < -EARLY) throw new Error(`impact-accent hit: the picture may come up to 2 frames (${round(EARLY, 3)} s) early, never late; ${at.whole} is off by ${round(offset)} s.`);
+  const motives = cueMotives(cue, facts);
+  if (cue.kind === "accent" && !motives.some((entry) => entry.motive === "accent")) motives.push({ motive: "beat", weight: cue.weight ?? WEAK });
+  if (cue.kind === "marker" && cue.layer && cue.media !== undefined && !/^song-/.test(cue.name)) motives.push({ motive: "footage", weight: Number.isFinite(cue.weight) ? cue.weight : 0.6 });
+  const rest = motives.find((entry) => entry.motive === "dropout") ?? null;
+  const fill = motives.find((entry) => entry.motive === "fill") ?? null;
+  const reasons = motives.filter((entry) => entry.motive !== "dropout" && entry.motive !== "fill").sort((a, b) => b.weight - a.weight);
+  let best = reasons[0] ?? rest ?? fill;
+  let note = null;
+  if (!best) {
+    best = { motive: cue.kind === "beat" || cue.kind === "onset" ? "beat" : "cue", weight: WEAK };
+    note = `cue:${cue.name} has nothing measured at it: a small hit (weight ${WEAK}); weight:<0.1 to 1> sizes a moment kino did not measure`;
+    // effect_fit reads markers, accents and onsets, not beat numbers (measured on run 8's copy: a
+    // hit on beat-8 came back untriggered, and its auto fix takes it off).
+    if (cue.kind === "beat") note += `; effect_fit reads no beat number as a reason and will ask for a cue: set_cues {cues:[{name:"hit-1", time:${round(cue.time, 3)}}]}, then at "cue:hit-1"`;
+  }
+  const measured = clamp(best.weight ?? 0.5, 0.2, 1);
+  return { cue, at: cue.time + offset, motive: weighed(best, measured), measured, fill, rest: best === rest ? rest : null, note };
 }
 
 // The shot to accent: the layer given, else the clip the impact or light is in, else the top
@@ -202,6 +258,126 @@ const build = {
     });
     return { start: hits[0], end: t + FRAME, tags: ["flash"] };
   },
+  hit(ctx, shot, found, t, facts, input) {
+    // A rest asks for less, not more: the dip alone.
+    if (found.rest) return { ...build.dip(ctx, shot, found, t, facts), said: ["dip (a rest in the song)"], count: 1 };
+    const w = found.motive.weight;
+    const order = [...(input.parts ?? HIT_ORDER[found.motive.motive] ?? HIT_ORDER.other)];
+    if (!input.parts && found.fill) order[order.indexOf("light")] = "strobe";
+    const count = input.parts ? order.length : hitCount(w);
+    const hue = shotHue(ctx, shot);
+    const subject = subjectAt(ctx, shot, t);
+    const said = [], skipped = [], tags = new Set();
+    let start = t, end = t + FRAME;
+    for (const part of order) {
+      if (said.length >= count) break;
+      const at = t + said.length * FRAME;
+      const why = part === "recolor" && !hue ? `no hue measured on ${shot.id}`
+        : part === "particles" && !subject ? `no subject found in ${shot.id} (mark_subject marks one)`
+        : (part === "shake" || part === "strobe" || part === "blur") && ctx.reduced ? "reduced motion"
+        : part === "strobe" && !found.fill ? "no fill measured before the cue" : null;
+      if (why) { skipped.push(`${part} (${why})`); continue; }
+      let made;
+      try { made = HIT_PARTS[part](ctx, shot, { ...found, hue, subject, input }, at, w); } catch (error) { skipped.push(`${part} (${error.message.replace(/^impact-accent [a-z-]+: /, "")})`); continue; }
+      said.push(made.said);
+      for (const tag of made.tags ?? []) tags.add(tag);
+      start = Math.min(start, made.start ?? at);
+      end = Math.max(end, made.end);
+    }
+    if (skipped.length) ctx.note(`skipped: ${skipped.join(", ")}`);
+    return { start, end, tags: [...tags], said, count: said.length };
+  },
+};
+
+// hit: the parts in the order each reason asks for them (a guess from two studied reference edits:
+// one song drop goes blur shake, tinted frame, flat frame, shard burst, a frame apart; one gunshot
+// goes white flash, negative, trail, 2.5 frames apart). A contact moves the camera first; light lights first.
+const HIT_ORDER = Object.freeze({
+  impact: Object.freeze(["shake", "blur", "light", "particles", "recolor"]),
+  light: Object.freeze(["light", "recolor", "particles", "blur", "shake"]),
+  other: Object.freeze(["light", "blur", "recolor", "particles", "shake"]),
+});
+export const HIT_PART_NAMES = Object.freeze(["light", "blur", "recolor", "particles", "shake", "strobe"]);
+export const HIT_LOOKS = Object.freeze(["sparks", "dust", "embers", "snow", "bokeh"]);
+/** How many parts a hit of `weight` gets: floor(1 + 4w), 1 to 5 (0.3 gives 2, 0.5 3, 0.75 4, 1 5). The ladder is a guess. */
+export const hitCount = (weight) => clamp(Math.floor(1 + 4 * weight + 1e-9), 1, 5);
+// The burst's count falls fast: 96% gone by the window's middle (a cubic-bezier, worked out by hand).
+const BURST = Object.freeze([0.3, 1, 0.3, 1]);
+
+// Where the shot's subject is at scene time `t`, as fractions of the frame: the marked or
+// measured subject of its file (composite.js subjectIn), never the frame's center. null when none.
+function subjectAt(ctx, shot, t) {
+  const second = (shot.mediaOffset ?? 0) + (t - (shot.mediaStart ?? 0)) * (shot.mediaSpeed ?? 1);
+  const found = subjectIn(shot, ctx.samples(shot.id), second - 0.5, second + 0.5);
+  if (!found) return null;
+  const box = boxOf(shot);
+  return { on: found.on, inShot: found.center,
+    center: [round((box.x + found.center[0] * box.width) / ctx.frame.width, 3), round((box.y + found.center[1] * box.height) / ctx.frame.height, 3)] };
+}
+
+// Each part of a hit at `t`, sized by the weight w (0.2 to 1). Every size here is a guess aimed at
+// the references above; all of them follow w.
+const HIT_PARTS = {
+  light(ctx, shot, found, t, w) {
+    const made = build.flash(ctx, shot, { motive: { ...found.motive, weight: w } }, t);
+    return { ...made, said: `light ${round(0.6 + 1.4 * w * (ctx.reduced ? 0.5 : 1), 2)} stops` };
+  },
+  strobe(ctx, shot, found, t) {
+    return { ...build.strobe(ctx, shot, { motive: found.fill }, t), said: `strobe on the fill (${found.fill.onsets.length} onsets)` };
+  },
+  shake(ctx, shot, found, t, w) {
+    const made = build.shake(ctx, shot, { motive: { ...found.motive, weight: w } }, t);
+    const dir = found.motive.dir ?? (found.motive.motive === "impact" ? "right" : "down");
+    return { ...made, said: `shake ${round(100 * (0.01 + 0.01 * w), 1)}% ${dir}` };
+  },
+  // A blur that falls off over 2 to 5 frames: along an impact's direction, else a zoom out of the
+  // subject (the frame's middle without one).
+  blur(ctx, shot, found, t, w) {
+    const frames = Math.round(2 + 3 * w);
+    const length = frames * FRAME;
+    if (found.motive.motive === "impact" && found.motive.dir) {
+      const px = Math.round((20 + 60 * w) * ctx.scale);
+      const angle = /up|down/.test(found.motive.dir) ? 90 : 0;
+      ctx.animate(shot.id, "hit-blur", effect({ name: `Hit blur ${found.motive.dir}`, effect: "directional-blur", start: t, duration: length, easing: CURVES.settle, from: { length: px, angle }, to: { length: 0, angle } }), "impact");
+      return { start: t, end: t + length, said: `directional blur ${px} px ${found.motive.dir} (${frames} frames)` };
+    }
+    const [centerX, centerY] = found.subject?.inShot ?? [0.5, 0.5];
+    const amount = round(0.15 + 0.5 * w, 2);
+    ctx.animate(shot.id, "hit-blur", effect({ name: "Hit zoom blur", effect: "zoom-blur", start: t, duration: length, easing: CURVES.settle, from: { amount, centerX, centerY }, to: { amount: 0, centerX, centerY } }), "impact");
+    return { start: t, end: t + length, said: `zoom blur ${amount} (${frames} frames${found.subject ? `, from the ${found.subject.on}` : ""})` };
+  },
+  // The shot in three tones of its own hue for 1 to 4 frames: backdrop-flash's tone "field" turns
+  // (shadow +30°, midtone -26°, highlight -44°, backdrop.js), here from the shot's hue (a guess).
+  recolor(ctx, shot, found, t, w) {
+    const frames = Math.round(1 + 3 * w);
+    const h = found.hue.hue;
+    const to = { shadowColor: hslToHex({ h: h + 30, s: 0.44, l: 0.07 }), midtoneColor: hslToHex({ h: h - 26, s: 0.49, l: 0.52 }), highlightColor: hslToHex({ h: h - 44, s: 0.99, l: 0.86 }),
+      threshold1: 0.18, threshold2: 0.48, softness: 0.5, contrast: 1.1, normalize: false };
+    ctx.animate(shot.id, "hit-recolor", effect({ name: "Hit recolor", effect: "tritone", start: t, duration: frames * FRAME, easing: [0, 0, 1, 1], to, keepStill: "off" }), "impact");
+    return { start: t, end: t + frames * FRAME, said: `recolor tritone ${to.midtoneColor} (${frames} frames, ${shot.id}'s hue from ${found.hue.from})` };
+  },
+  // A burst out of the subject: count, speed and size by w, in the shot's hue (shotTint at
+  // lightness 0.75). Each particle lives half the window; the count falls to 0 by about the
+  // middle (BURST curve: 4% left there), so most are born in the first frames and none again.
+  // Measured with particlesAt: a linear fall over the whole window with life = window drew 21 of
+  // 313 at 0.05 s and 90 at 0.5 s (a trickle, not a burst). Size x(1 + w) is a guess for
+  // reading at 1080p (sparks are 3 px by default).
+  particles(ctx, shot, found, t, w) {
+    const look = found.input.particles ?? ctx.rng.pick(["sparks", "dust", "embers"]);
+    const window = round(0.4 + 0.6 * w, 3);
+    const count = Math.round(60 + 340 * w);
+    const speed = Math.round((400 + 600 * w) * ctx.scale * (ctx.reduced ? 0.5 : 1));
+    const size = round(PARTICLE_LOOKS[look].defaults.size * (1 + w) * ctx.scale, 1);
+    const tint = shotTint(ctx, shot, { saturation: 0.6, lightness: 0.75 }).color;
+    const [originX, originY] = found.subject.center;
+    const layer = ctx.add("hit-particles", createLayer("rectangle", { name: "Hit particles", x: 0, y: 0, width: ctx.frame.width, height: ctx.frame.height, fillEnabled: false, strokeWidth: 0, blendMode: "add", role: "decor", allowOverlap: true }), { above: shot.id });
+    ctx.animate(layer, "show", show(t));
+    ctx.animate(layer, "burst", effect({ name: `Hit ${look}`, effect: look, start: t, duration: window, easing: BURST, keepStill: "off", from: { count },
+      to: { count: 0, size, speed, spread: 360, direction: 0, lifetime: round(window / 2, 3), emitter: "point", originX, originY, prewarm: false, seed: ctx.rng.pick([3, 7, 11, 19]), loop: 0, ...(tint ? { color: tint, color2: "#FFFFFF" } : {}) } }));
+    ctx.animate(layer, "fade", motion({ name: "Burst fades", start: t + window * 0.6, duration: window * 0.4, easing: CURVES.settle, from: { opacity: 1 }, to: { opacity: 0 } }));
+    ctx.animate(layer, "hide", hide(t + window));
+    return { start: t, end: t + window, said: `${look} ${count} from the ${found.subject.on} at [${found.subject.center.join(", ")}]` };
+  },
 };
 
 export const impactAccent = {
@@ -211,28 +387,38 @@ export const impactAccent = {
   needsCue: true,
   deal: false,
   nested: ["layer"],
-  about: "one flash, shake, impact frame, dip or strobe on a shot, only at a cue that motivates it (light, an impact, a seam, a rest, a fill), sized by the cue's weight",
+  about: "one flash, shake, impact frame, dip or strobe on a shot, only at a cue that motivates it (light, an impact, a seam, a rest, a fill), sized by the cue's weight; hit: several parts one frame apart (light, blur, recolor, particles, shake), as many and as strong as the cue's weight",
   fits: "a measured hit, light, seam, rest or fill; most moments need none",
   tags: ["flash", "shake"],
   length: 0.2,
   fields: {
-    kind: { kind: "choice", values: IMPACT_KINDS, required: true, about: "flash (light, a seam or a top accent), shake (an impact in the footage, a seam or a top accent), impact-frame (an impact in the footage), dip (a rest), strobe (a drum fill before the cue)" },
+    kind: { kind: "choice", values: IMPACT_KINDS, required: true, about: "flash (light, a seam or a top accent), shake (an impact in the footage, a seam or a top accent), impact-frame (an impact in the footage), dip (a rest), strobe (a drum fill before the cue), hit: several parts one frame apart, as many and as strong as the cue's weight (any cue or time; a weak one gets 2 small parts)" },
     layer: { kind: "layer", about: "the shot (default the clip the impact or light is in, else the top shot on screen)" },
     color: { kind: "text", max: 7, about: "impact-frame: the silhouette's ink, hex (default near black)" },
+    weight: { kind: "number", low: 0.1, high: 1, about: "hit: how strong the moment is, for one kino did not measure (default the cue's weight; 0.3 without one)" },
+    parts: { kind: "choices", values: HIT_PART_NAMES, most: 6, about: "hit: these parts in this order (default by the cue: as many as its weight asks, each needs something in the shot)" },
+    particles: { kind: "choice", values: HIT_LOOKS, about: "hit: the particle look (default sparks, dust or embers by seed)" },
   },
   example: { kind: "flash", at: "cue:song-drop-1" },
   setup: "a clip on screen; song-drop-1, a cue fit_music writes",
   build(ctx, input) {
     const facts = ctx.cueFacts ?? { at: ctx.start, cues: [], events: [] };
-    const found = motiveFor(input.kind, facts, ctx.start);
+    const hit = input.kind === "hit";
+    const found = hit ? hitMotive(facts, ctx.start, input) : motiveFor(input.kind, facts, ctx.start);
     // The accent sits on its cue: align and dur would move it off (early or late).
     if (ctx.dur !== null || Math.abs(ctx.start - found.at) > 1e-3)
-      throw new Error(`impact-accent ${input.kind}: it starts on its cue (at most 2 frames early, never late), so it takes no align or dur; send at "cue:${found.cue.name}" alone.`);
+      throw new Error(`impact-accent ${input.kind}: it starts on its cue (at most 2 frames early, never late), so it takes no align or dur; send at ${found.cue ? `"cue:${found.cue.name}"` : "the time"} alone.`);
     const shot = shotOf(ctx, input, found.motive);
     if (input.color !== undefined && !/^#[0-9a-f]{6}$/i.test(input.color)) throw new Error("impact-accent color is a hex color such as \"#0A0A0C\".");
-    const made = build[input.kind](ctx, shot, found, ctx.start, facts);
-    ctx.note(`impact-accent ${input.kind} on ${shot.id}: cue:${found.cue.name} (${SAYS[found.motive.motive]}, weight ${round(found.motive.weight, 2)})`);
+    const made = build[input.kind](ctx, shot, found, ctx.start, facts, input);
+    const where = found.cue ? `cue:${found.cue.name}` : `${round(found.at)} s`;
+    const sized = hit && found.motive.weight !== found.measured ? `weight ${round(found.motive.weight, 2)} given, ${round(found.measured, 2)} measured` : `weight ${round(found.motive.weight, 2)}`;
+    if (!hit) ctx.note(`impact-accent ${input.kind} on ${shot.id}: ${where} (${SAYS[found.motive.motive]}, ${sized})`);
+    else {
+      ctx.note(`impact-accent hit on ${shot.id}: ${where} (${SAYS[found.motive.motive]}, ${sized}): ${made.count} part${made.count === 1 ? "" : "s"}${made.count > 1 ? ", one frame apart" : ""}: ${made.said.join(", ")}. parts:[...] picks them, weight sets the size; a flat frame is the move flash {frames:1} at the same cue`);
+      if (found.note) ctx.note(found.note);
+    }
     return { start: round(made.start), end: round(made.end), tags: made.tags,
-      trigger: { cue: found.cue.name, at: round(found.at, 3), motive: found.motive.motive, weight: round(found.motive.weight, 2), kind: input.kind } };
+      ...(found.cue ? { trigger: { cue: found.cue.name, at: round(found.at, 3), motive: found.motive.motive, weight: round(found.motive.weight, 2), kind: input.kind } } : {}) };
   },
 };

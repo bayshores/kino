@@ -125,6 +125,14 @@ test("effect_fit: budget per section, none inside a rest but on its edges", asyn
 test("effect_fit: stacked, at most 2 effects within 0.15 s", async () => {
   const cues = [accent("a", 2), accent("b", 2.07), accent("c", 2.13), seam("drop", 0)];
   assert.deepEqual(await reasons(edit([shake(2), shake(2.07), shake(2.13)]), cues), ["stacked"]);
+  // An impact-accent hit (light and shake from one move) is one effect, and a sound on its cue is part of it: a title on the next cue makes 2, not 4.
+  const hit = { id: "hit", name: "impact-accent", settings: { kind: "hit" }, tags: ["flash", "shake"], start: 2 - 1 / 30, end: 2.2, trigger: { cue: "a", at: 2, motive: "accent", weight: 0.9, kind: "hit" } };
+  const title = { type: "text", id: "title", name: "title", text: "Hi", x: 200, y: 200, width: 800, height: 200, fontSize: 120,
+    animations: [{ id: "title.in", name: "Slide in", kind: "in", start: 2.07, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] };
+  const sound = { type: "audio", id: "boom", name: "boom", src: "/api/media/boom.wav", mediaSourceDuration: 1, mediaStart: 2, mediaDuration: 0.5 };
+  const hitEdit = edit([], [title, sound], { moves: [hit] });
+  assert.deepEqual(await reasons(hitEdit, cues), []);
+  assert.deepEqual(await reasons(edit([], [title, sound], { moves: [{ ...hit, trigger: { ...hit.trigger, kind: "flash" } }] }), cues), ["stacked"]);
 });
 
 test("effect_fit: jitter, a shake faster than a third of the frame rate or held steady", async () => {

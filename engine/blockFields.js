@@ -200,7 +200,7 @@ export function normalizeBlockSceneFields(scene, path, maxTime) {
 }
 
 // The kinds of accent impact-accent makes (engine/blocks/moves/impact.js).
-export const IMPACT_KINDS = Object.freeze(["flash", "shake", "impact-frame", "dip", "strobe"]);
+export const IMPACT_KINDS = Object.freeze(["flash", "shake", "impact-frame", "dip", "strobe", "hit"]);
 
 // The layer fields a move may change on your own layers (ctx.set in engine/blocks/move.js).
 // mediaFreeze: a move that carries a clip past its play holds the edge frame (whip-pan holdEnds).
