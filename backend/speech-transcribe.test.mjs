@@ -9,9 +9,10 @@ import test from "node:test";
 import { toneWords, writeFakeWhisper } from "../tests/fake-whisper-cli.mjs";
 import { projectNames, speechNamesFor } from "./speech/name-hint.mjs";
 import {
-  betterReadings, createTranscriptCache, markLoops, mergePasses, TRANSCRIPT_VERSION, transcribeFile, unsureSentences, whisperPrompt,
+  betterReadings, createTranscriptCache, detectLanguage, markLoops, mergePasses, TRANSCRIPT_VERSION, transcribeFile, unsureSentences, whisperPrompt,
   withCuts, withUnclear, withoutSlips, wordsFromWhisper,
 } from "./speech/transcribe.mjs";
+import { readClipSound } from "../engine/speech.js";
 
 test("wordsFromWhisper joins word pieces and punctuation, skips special tokens and prefers DTW times", () => {
   const words = wordsFromWhisper({ transcription: [{ tokens: [
@@ -266,8 +267,41 @@ test("transcribeFile hears an unsure sentence again in one more whisper-cli run 
     const [span] = transcript.reheard;
     assert.deepEqual([span.first, span.second, span.kept], ["Then home.", "Then home.", "first"]);
     assert.ok(span.start >= 3.8 && span.start <= 4 && span.end >= 5.5, JSON.stringify(span));
+
+    // A clip in another language: heard detects it (-dl), reads it in that language as one word per
+    // segment, with whisper's English (-tr); the check is kept in .lang-small, so a second call runs none.
+    process.env.FAKE_WHISPER_WORDS = JSON.stringify(["殺して", "やる。"]);
+    process.env.FAKE_WHISPER_LANG = "ja 0.9";
+    process.env.FAKE_WHISPER_ENGLISH = "I'll kill you.";
+    const sung = toneWords([[0, 1, 1.4], [1, 1.5, 2]], 4, 16_000);
+    const clip = path.join(folder, "clip.mp4");
+    await writeFile(clip, "");
+    let detected = 0;
+    const cache = createTranscriptCache({
+      setup: () => setup,
+      languages: () => ({ ...setup, modelName: "small", dtw: "small" }),
+      transcribe: (file, found, options) => transcribeFile(file, found, { ...options, decode: async () => ({ samples: sung }) }),
+      detect: (file, found, spans) => { detected += 1; return detectLanguage(sung, found, spans); },
+      fetchModel: async () => assert.fail("the model is here"),
+    });
+    const english = await cache.get(clip);
+    const said = await cache.heard(clip, { english });
+    assert.deepEqual([said.language, said.languageP, said.words.map((word) => word.text), said.english.map((segment) => segment.text)], ["ja", 0.9, ["殺して", "やる。"], ["I'll kill you."]]);
+    assert.deepEqual(readClipSound(said).lines.map(({ text, english: gloss }) => [text, gloss]), [["殺してやる。", "I'll kill you."]]);
+    assert.equal((await cache.heard(clip, { english })).language, "ja");
+    assert.equal((await cache.saved(clip, { any: true })).language, "ja", "keep_line's saved read takes it first");
+    assert.equal(detected, 1);
+    // No multilingual model: a clip the English model tagged as another language starts the one fetch.
+    let fetched = 0;
+    const tagged = { words: [{ text: "(Singing", start: 1, end: 1.4 }, { text: "in", start: 1.4, end: 1.6 }, { text: "Japanese)", start: 1.6, end: 2 }] };
+    const offline = createTranscriptCache({ setup: () => setup, languages: () => null, fetchModel: () => { fetched += 1; return new Promise(() => {}); } });
+    assert.equal((await offline.heard(clip, { english: tagged })).languageModel, "fetching");
+    await offline.heard(clip, { english: tagged });
+    assert.equal(fetched, 1);
   } finally {
     if (before === undefined) delete process.env.FAKE_WHISPER_WORDS; else process.env.FAKE_WHISPER_WORDS = before;
+    delete process.env.FAKE_WHISPER_LANG;
+    delete process.env.FAKE_WHISPER_ENGLISH;
     await rm(folder, { recursive: true, force: true });
   }
 });

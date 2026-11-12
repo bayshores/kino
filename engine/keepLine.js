@@ -96,6 +96,17 @@ export function findLine(words, line) {
   const wantedFold = folded(wanted).map((entry) => entry.key);
   const foldAt = runIn(heardFold.map((entry) => entry.key), wantedFold);
   if (foldAt >= 0) return { words: span(heardFold[foldAt].from, heardFold[foldAt + wantedFold.length - 1].to) };
+  // A line typed without spaces (a language written without them, as look source prints it):
+  // consecutive heard words joined.
+  if (wanted.length === 1) {
+    for (let from = 0; from < said.length; from += 1) {
+      let joined = "";
+      for (let to = from; to < said.length && joined.length < wanted[0].length; to += 1) {
+        joined += said[to];
+        if (to > from && joined === wanted[0]) return { words: span(from, to) };
+      }
+    }
+  }
   for (let count = wanted.length - 1; count >= Math.max(3, Math.ceil(wanted.length / 2)); count -= 1) {
     const start = runIn(said, wanted.slice(0, count));
     if (start >= 0) {
