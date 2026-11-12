@@ -404,22 +404,32 @@ export function fadeOpenEdges(matte, width, height, pixels, start = 0) {
  * past the bottom) reaches the edge solid instead of stopping short. Vision's upscaled mask often
  * stops a few pixels inside the frame: contest-b left a pale strip 8 px tall at the frame bottom
  * (y 432-440 mean 177-192 against the reference's 61-118, GAPS item 14). Returns a new matte.
+ * Only a subject that already reaches within `gap` pixels of the border is carried (the value
+ * `pixels` in, capped at twice the value `gap` in, so a half-solid edge there counts): a part that ends further
+ * inside (a hair tip 16 px under the top of dm5-a's matte at 1080p, carried up as a 68 px strip
+ * before) stays where it ends. `gap` defaults to a quarter of `pixels` (8 px at 1080p, the size of
+ * the measured pale strip).
  */
-export function extendOpenEdges(matte, width, height, pixels) {
+export function extendOpenEdges(matte, width, height, pixels, gap = Math.max(1, Math.round(pixels / 4))) {
   checkSize(width, height);
   const out = Uint8Array.from(matte);
   const reach = Math.min(Math.floor(pixels), Math.floor((Math.min(width, height) - 1) / 2));
   if (!(reach > 0)) return out;
+  const near = Math.max(0, Math.min(reach, Math.round(gap)));
+  const carried = (inside, close) => Math.min(matte[inside], 2 * matte[close]);
   for (let d = 0; d < reach; d += 1) {
-    const top = d * width, bottom = (height - 1 - d) * width, topIn = reach * width, bottomIn = (height - 1 - reach) * width;
+    const top = d * width, bottom = (height - 1 - d) * width;
+    const topIn = reach * width, bottomIn = (height - 1 - reach) * width, topNear = near * width, bottomNear = (height - 1 - near) * width;
     for (let x = 0; x < width; x += 1) {
-      if (matte[topIn + x] > out[top + x]) out[top + x] = matte[topIn + x];
-      if (matte[bottomIn + x] > out[bottom + x]) out[bottom + x] = matte[bottomIn + x];
+      const fromTop = carried(topIn + x, topNear + x), fromBottom = carried(bottomIn + x, bottomNear + x);
+      if (fromTop > out[top + x]) out[top + x] = fromTop;
+      if (fromBottom > out[bottom + x]) out[bottom + x] = fromBottom;
     }
     for (let y = 0; y < height; y += 1) {
       const row = y * width;
-      if (matte[row + reach] > out[row + d]) out[row + d] = matte[row + reach];
-      if (matte[row + width - 1 - reach] > out[row + width - 1 - d]) out[row + width - 1 - d] = matte[row + width - 1 - reach];
+      const fromLeft = carried(row + reach, row + near), fromRight = carried(row + width - 1 - reach, row + width - 1 - near);
+      if (fromLeft > out[row + d]) out[row + d] = fromLeft;
+      if (fromRight > out[row + width - 1 - d]) out[row + width - 1 - d] = fromRight;
     }
   }
   return out;

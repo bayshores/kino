@@ -914,7 +914,12 @@ How to read it:
   the shot; the note prints the matte's cover, head-inside (marks, else scanned faces or pose heads) and
   straight-outline share (cut_out's subjectShapes) and offers the nearest figure time. Evidence: engine/moves.test.js
   (layers, times, reduced hold, flashing rule passes on the built scene; matteShape; a render: figure pixels the ink,
-  the rest the plate, the shot's own picture after). Gap: ray count, figure bounds are guesses; in-file cuts unread.
+  the rest the plate, the shot's own picture after, also on the render's first frame time just below the cue). Effects
+  start on export frames drifting up to 1 ms early (engine/effects/animation.test.js); the note prints the frames
+  inked at 30, 25 and 24 fps. Real material: dm5-b draft render, 4.70, 5.50, 6.60 now white (were color). A subject
+  cut-out's openEdges "extend" carries only parts within a quarter of its reach of the border (backend/cutout-matte.test.mjs):
+  dm5-a's top-center strip was a hair tip 16 px under the top carried up 32 px. Gap: ray
+  count, figure bounds are guesses; in-file cuts unread; mark_subject does not rebuild the matte; stray matte pieces kept.
 - **mosaic-reveal** (`move mosaic-reveal {layer, at}`, effect `mosaic`): Partly verified. Flat mean-color cells with
   gaps arrive in a seeded order, merge into blocks and resolve to the picture, resolved blocks joining without a gap
   (engine/effects/postFx.test.js; sizes follow the frame, engine/moves.test.js; `{layer, at}` only on a photo and on

@@ -209,10 +209,15 @@ test("openEdges extend carries a subject that stops short of the frame out to th
   const matte = new Uint8Array(width * height);
   // Legs that stop 3 px above the bottom with a soft edge (Vision's upscaled mask).
   for (let y = 10; y < height - 3; y += 1) for (let x = 10; x < 30; x += 1) matte[y * width + x] = y === height - 4 ? 128 : 255;
-  const extended = finishMatte(matte, width, height, { openEdges: -6 });
+  const extended = finishMatte(matte, width, height, { openEdges: -12 });
   assert.equal(extended[39 * width + 20], 255, "the bottom row is solid under the subject");
   assert.equal(extended[39 * width + 5], 0, "nothing is added beside the subject");
   assert.equal(extended[20 * width + 20], 255);
+  // A hair tip ending 6 px under the top (further in than a quarter of the reach) stays where it
+  // ends: dm5-a's matte at 1080p was carried up as a 68 px strip to the top edge before.
+  for (let y = 6; y < 20; y += 1) matte[y * width + 20] = 255;
+  const tip = finishMatte(matte, width, height, { openEdges: -12 });
+  assert.deepEqual([0, 3, 5, 6].map((y) => tip[y * width + 20]), [0, 0, 0, 255]);
   assert.equal(openEdgePixels("extend", { width: 1000, height: 400 }), -12);
   const crisp = crispenMatte(Uint8Array.from([0, 64, 100, 128, 160, 255]));
   assert.deepEqual([...crisp], [0, 0, 18, 130, 255, 255]);
