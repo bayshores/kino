@@ -87,6 +87,7 @@ import { cutFacts, cutLines } from "../../engine/cutFacts.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
 import { boardPaceFacts, boardPaceLines } from "./board-pace.mjs";
+import { spanCutNotes } from "./span-cuts.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
 import { BOARD_BUILD, boardBuilt } from "./board-build.mjs";
 import { editableField, inspectTargets } from "./inspect.mjs";
@@ -3117,6 +3118,8 @@ export function createAgentService(deps) {
       const shutter = shutterNote(before, after, translation.operations, changes.created);
       if (shutter) work.notes.push(shutter);
       work.notes.push(...await glowThresholdNotes(after, [...changes.created, ...changes.changed], nameOf));
+      // A footage layer whose span of its file runs across the file's own cut (saved shots only).
+      work.notes.push(...await spanCutNotes({ before, after, ids: [...changes.created, ...changes.changed], nameOf, fileShots: async (src) => (await fileShots(src, { saved: true })).shots }));
       const receipt = {
         ...(input.dry_run ? { dryRun: true, wouldBeRev: record.revision + 1 } : {}),
         created: created.named,

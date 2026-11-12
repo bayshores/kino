@@ -58,6 +58,7 @@ import { evaluateLayer } from "../../engine/animation.js";
 import { BOARD_LIMITS, boardCoverage, boardSpan, FOLLOW, holdEnd, keepShotIds, mainScene, moveProblems, NONE, PLANNED_MOVES, normalizeBoard, ONE_FRAME, PACING, SHOT_LAYERS, WHOLE } from "../../engine/board.js";
 import { PRESET_DEFINITIONS } from "../../engine/presetCatalog.js";
 import { sec } from "./describe.mjs";
+import { slideOffCut, spanCutLine } from "../../engine/spanCuts.js";
 import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps } from "./board-build.mjs";
 import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
@@ -2465,6 +2466,9 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
           : `shot ${index + 1} text until ${until} is past the end of the ${sec(scene.duration)} s video.`);
       });
     }
+    // A shot whose span of its file runs across the file's own cut shows frames of another shot:
+    // under a quarter second at either end the span is slid off the cut; longer is stated.
+    const cutNotes = problems.length ? [] : moveOffFileCuts(shots, media, document.board?.shots);
     const board = { music, calls: lists.calls, open: lists.open, shots: shots.map(({ id, ...shot }) => ({ id, ...shot })) };
     const span = problems.length ? null : boardSpan(document, board);
     const gap = span ? boardCoverage(board, span) : null;
@@ -2484,10 +2488,40 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // Only a real change raises the board's rev: the board as parseDocument keeps it, compared.
     const old = document.board;
     const kept = normalizeBoard({ board: { rev: (old?.rev ?? 0) + 1, ...board } }).board;
-    if (old && JSON.stringify({ ...old, rev: kept.rev }) === JSON.stringify(kept)) { work.notes.push(`board r${old.rev}: no change`); return; }
+    if (old && JSON.stringify({ ...old, rev: kept.rev }) === JSON.stringify(kept)) { work.notes.push(`board r${old.rev}: no change`, ...cutNotes); return; }
     document.board = kept;
     const last = board.shots.at(-1);
     work.notes.push(`board r${document.board.rev}: ${board.shots.length} shot${board.shots.length === 1 ? "" : "s"}, ${sec(board.shots[0].cue)}–${sec(last.cue + last.dur)} s, ${span.music ? `music ${span.music}` : "no music"} · look {mode:"board"} shows it`);
+    work.notes.push(...cutNotes);
+  }
+
+  // The shots (mutated) moved off a file cut they cross by under NEAR_CUT, and the receipt lines:
+  // what moved, and every crossing left as given with the cut's file second, its scene second and
+  // the trim that would end the span before it (engine/spanCuts.js). Saved cuts only.
+  // A shot sent as the saved board has it (same id, file, in, length and speed) is left as saved:
+  // its in-point may be what the person approved, so a slide is only stated.
+  function moveOffFileCuts(shots, media, savedShots = []) {
+    const moved = [], stated = [];
+    const left = { "more than one cut": "it crosses more than one cut", sound: "it keeps a range of the clip's own sound, in file seconds", file: "the slide would leave the file", cut: "the slid span would cross another cut", saved: "the saved board has this shot as sent" };
+    const saved = new Map(savedShots.map((shot) => [shot.id, shot]));
+    const asSaved = (shot) => ["media", "in", "dur", "speed"].every((key) => saved.get(shot.id)?.[key] === shot[key]);
+    shots.forEach((shot, index) => {
+      if (typeof shot?.media !== "string" || shot.media === NONE || typeof shot.in !== "number") return;
+      const file = media(shot.media, ["video"]);
+      if (!file.shots) return;
+      let result = slideOffCut(shot, file.shots, { fileDuration: file.duration });
+      if (result.shot && saved.has(shot.id) && asSaved(shot)) result = { shot: null, cuts: [result.was], why: "saved" };
+      const n = index + 1;
+      if (result.shot) {
+        shots[index] = result.shot;
+        moved.push(`board shot ${n}: its span of ${file.name} crossed a cut by ${sec(result.was.leak)} s (file ${sec(result.was.file)} s lands at ${sec(result.was.at)} s), so in moved ${sec(shot.in)}→${sec(result.shot.in)} s and the span ${result.was.trim.out !== undefined ? "ends before" : "begins after"} it; cue and length stay`);
+      } else if (result.cuts.length) {
+        const why = result.why ? ` (not moved: ${left[result.why]})` : "";
+        stated.push(`${spanCutLine(`board shot ${n} (${file.name})`, result.cuts)}${why}`);
+      }
+    });
+    return [...moved.slice(0, 4), ...(moved.length > 4 ? [`board: ${moved.length - 4} more shots moved off a file cut`] : []),
+      ...stated.slice(0, 4), ...(stated.length > 4 ? [`board: ${stated.length - 4} more shots play across a cut of their file`] : [])];
   }
 
   // board {snap:"beats"}: only when asked, the saved board's cuts after the song's turn move onto
@@ -2554,7 +2588,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
           ?? list.find((item) => bare(item.name) === bare(text));
       const kind = String(found?.mime ?? "").split("/")[0];
       if (!found || !kinds.includes(kind)) return { suggestions: closest(text, list.filter((item) => kinds.includes(String(item.mime).split("/")[0])).map((item) => item.name)) };
-      return { src: found.src ?? `/api/media/${found.id}`, id: found.id, kind, width: found.width, height: found.height, duration: Number(found.duration) || 0, name: found.name ?? found.id };
+      return { src: found.src ?? `/api/media/${found.id}`, id: found.id, kind, width: found.width, height: found.height, duration: Number(found.duration) || 0, name: found.name ?? found.id,
+        shots: Array.isArray(found.shots) ? found.shots : null };
     };
   }
 
