@@ -37,7 +37,7 @@ export const splitFields = {
   name: "split-fields",
   needsAt: true,
   nested: ["layer"],
-  about: "the shot splits into two one-hue fields (a dark and a light duotone of the same picture) divided by a rough brush edge that drifts a little; a two-color split, opposed color fields",
+  about: "the shot splits into two one-hue fields (a dark and a light duotone of the same picture) divided by a rough brush edge that drifts a little; a two-color split, opposed color fields (edge:\"straight\" or the brush edge moves across the picture, a color field each side of it)",
   fits: "a clash, a turn, two sides of one moment; 0.3 to 1 s on a full-frame shot",
   tags: ["mask-wipe"],
   length: 0.5,

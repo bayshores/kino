@@ -4,12 +4,16 @@
 import { EFFECTS } from "../../engine/effects/catalog.js";
 import { MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 
+// The Generate effects (particles made inside kino), the order an agent most often needs them.
+const PARTICLE_LOOKS = ["embers", "sparks", "bokeh", "dust", "snow", "rain", "fog", "streaks", "light-leaks"];
+
 // Plain words for a look and the kino names that make it. Keys are lower case, words joined by
 // one space. A key of several words matches where the query holds those words in a row; a key of
 // one word matches the whole query or one of its words, except a LOOSE word.
 const SEEN_AS = {
   glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow", "outline_text", "rim-light"], halation: ["scene-background", "glow"],
-  particles: ["embers", "sparks", "dust"], particle: ["embers", "sparks", "dust"], sparkles: ["sparks", "embers"],
+  // All nine particle looks, each with its WHEN line (GAPS 23: a director saw "particles sparks" and used only sparks).
+  particles: PARTICLE_LOOKS, particle: PARTICLE_LOOKS, "particle effects": PARTICLE_LOOKS, "particle overlay": PARTICLE_LOOKS, sparkles: ["sparks", "embers"],
   ash: ["embers", "dust"], fire: ["embers", "sparks"], smoke: ["fog"], haze: ["fog"],
   subtitles: ["add_captions", "caption-words"], subtitle: ["add_captions", "caption-words"], captions: ["add_captions", "caption-words"],
   caption: ["add_captions", "caption-words"], lyrics: ["add_captions", "caption-words"],
@@ -18,8 +22,10 @@ const SEEN_AS = {
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],
   shake: ["shake", "impact-accent", "wiggle"], "camera shake": ["shake", "impact-accent", "wiggle"], handheld: ["shake"], jolt: ["shake", "impact-accent"], hit: ["impact-accent", "punch-in"],
-  flash: ["impact-accent", "flash", "overexpose"], strobe: ["impact-accent"], "white flash": ["overexpose", "impact-accent", "flash"],
-  overexposed: ["overexpose"], overexposure: ["overexpose"], "burn out": ["overexpose"], "blown out": ["overexpose"], wash: ["overexpose"], "white out": ["overexpose"], exposure: ["overexpose", "color-grade"],
+  // A flash or wash of light over a shot is overexpose; over a plate or the frame, a gradient fill (layer-style) (GAPS: directors built flat rectangles).
+  flash: ["impact-accent", "flash", "overexpose", "layer-style"], strobe: ["impact-accent"], "white flash": ["overexpose", "flash", "impact-accent", "layer-style"],
+  overexposed: ["overexpose"], overexposure: ["overexpose"], "burn out": ["overexpose"], "blown out": ["overexpose"], wash: ["overexpose", "layer-style"], "white out": ["overexpose"], exposure: ["overexpose", "color-grade"],
+  "light wash": ["overexpose", "layer-style"], "color wash": ["overexpose", "layer-style", "light-leaks"], "gradient wash": ["layer-style", "overexpose"], gradient: ["layer-style", "scene-background"], "gradient fill": ["layer-style"],
   "light rays": ["light-rays"], "god rays": ["light-rays"], rays: ["light-rays"], beams: ["light-rays"],
   "lens flare": ["lens-flare"], flare: ["lens-flare"], "light leak": ["light-leaks", "light-leak"],
   "color grade": ["color_filter", "color-grade", "color-wheels"], grade: ["color_filter", "color-grade", "color-wheels"],
@@ -33,7 +39,9 @@ const SEEN_AS = {
   tint: ["white-balance", "color_filter", "hue-saturation"],
   "green tint": ["white-balance", "color_filter", "color-wheels"], green: ["white-balance", "color-wheels", "hue-saturation"], desaturated: ["hue-saturation", "keep-color"], "black and white": ["hue-saturation", "keep-color"],
   repeat: ["beat-repeat"], stutter: ["beat-repeat"], "replay on beats": ["beat-repeat"], "repeat on beats": ["beat-repeat"], echo: ["beat-repeat", "inward-echoes"],
-  glitch: ["glitch", "smear", "rgb-split-hit", "rgb-shift"], "glitch transition": ["smear", "glitch", "shatter"],
+  // Slice displacement: the glitch move's blocks (bands torn sideways), the glitch preset's slices, and smear (datamosh drag).
+  glitch: ["glitch", "smear", "preset-glitch", "rgb-split-hit", "rgb-shift"], "glitch transition": ["smear", "glitch", "shatter"],
+  slice: ["preset-glitch", "glitch", "slice"], slices: ["preset-glitch", "glitch"], displace: ["preset-glitch", "displacement"], "torn bands": ["glitch"],
   smear: ["smear", "whip-pan"], drag: ["smear"], "pixel drag": ["smear"], datamosh: ["smear"], mosh: ["smear"],
   shatter: ["shatter"], shattered: ["shatter"], glass: ["shatter", "fluted-glass"], "broken glass": ["shatter"], break: ["shatter"], shards: ["shatter"],
   "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
@@ -79,13 +87,44 @@ const SEEN_AS = {
   "punch in": ["punch-in"], punchin: ["punch-in"], "zoom punch": ["punch-in"], "snap zoom": ["punch-in"], "crash zoom": ["punch-in"],
   invert: ["invert"], inverted: ["invert"], negative: ["invert"], "inverted colors": ["invert"],
   "two color split": ["split-fields"], "color split": ["split-fields"], "split fields": ["split-fields"], "color fields": ["split-fields"], "two tone split": ["split-fields"],
+  // A wipe whose edge travels across the picture is split-fields (straight or brush edge); shape-wipe grows a shape from one point.
+  "brush edge wipe": ["split-fields", "shape-wipe", "shape-modifiers"], "brush wipe": ["split-fields", "shape-wipe", "shape-modifiers"],
+  "edge wipe": ["split-fields", "shape-wipe"], "straight edge": ["split-fields", "shape-wipe"], "moving edge": ["split-fields", "shape-wipe"], "straight wipe": ["split-fields", "shape-wipe"], "sweeping edge": ["split-fields", "shape-wipe"], "line wipe": ["split-fields", "shape-wipe"],
+  wipe: ["shape-wipe", "split-fields", "slice"],
   "brush edge": ["shape-modifiers", "split-fields", "shape-wipe"], "rough edge": ["shape-modifiers", "split-fields", "shape-wipe"], "ragged edge": ["shape-modifiers", "shape-wipe"],
-  "torn edge": ["shape-modifiers", "shape-wipe"], "jagged edge": ["shape-modifiers", "shape-wipe"], "dry brush": ["shape-modifiers", "split-fields"], "brush wipe": ["shape-wipe", "split-fields"], "brush mask": ["shape-modifiers", "shape-wipe"],
+  "torn edge": ["shape-modifiers", "shape-wipe"], "jagged edge": ["shape-modifiers", "shape-wipe"], "dry brush": ["shape-modifiers", "split-fields"], "brush mask": ["shape-modifiers", "shape-wipe"],
+  // Torn paper (and its words) is the roughen field of a mask shape or path (shape-modifiers).
+  "torn paper": ["shape-modifiers"], "paper edge": ["shape-modifiers"], "ripped paper": ["shape-modifiers"], "paper tear": ["shape-modifiers"], "torn paper edge": ["shape-modifiers"],
+  torn: ["shape-modifiers"], ragged: ["shape-modifiers"], roughen: ["shape-modifiers"], roughened: ["shape-modifiers"],
   "film burn": ["film-burn"], burn: ["film-burn"], "light burn": ["film-burn"], "film damage": ["film-burn", "grain"], "old film": ["film-burn", "grain", "vignette"],
+  // Findability round (recreate test, GAPS "Findability"): kino had each of these and the director's words missed it.
+  // Halftone and dots: dot-grid draws the picture as dots (dithering is the retro dot-pattern posterize).
+  halftone: ["dot-grid", "dithering"], "halftone dots": ["dot-grid", "dithering"], "dot screen": ["dot-grid"], "dot pattern": ["dot-grid", "dithering"], newsprint: ["dot-grid"], stipple: ["dot-grid", "dithering"], dots: ["dot-grid"],
+  // Dashed and dotted lines are the dash list of a stroke (layer-style).
+  dashed: ["layer-style"], dotted: ["layer-style"], dashes: ["layer-style"], dash: ["layer-style"], "dashed line": ["layer-style"], "dotted line": ["layer-style"], "dashed stroke": ["layer-style"], "dotted stroke": ["layer-style"], "dashed outline": ["layer-style"], "dotted outline": ["layer-style"],
+  // Pixel mosaic: the pixelate effect (preset-pixel is an In/Out reveal, not a look to hold).
+  pixelate: ["pixelate"], pixelated: ["pixelate"], pixelation: ["pixelate"], pixel: ["pixelate"], "pixel mosaic": ["pixelate"], "pixel grid": ["pixelate"], "pixel blocks": ["pixelate"], "big pixels": ["pixelate"], "square pixels": ["pixelate"], blocky: ["pixelate"], "low res": ["pixelate"], "low resolution": ["pixelate"],
+  // Whole-frame cinema bars: scene letterbox.
+  widescreen: ["scene-background"], "wide screen": ["scene-background"], cinemascope: ["scene-background"], "scope bars": ["scene-background"], bars: ["scene-background"],
+  // On twos and on threes: the frameRate of a layer; choppy is also the clip's mediaFrameRate.
+  "on twos": ["layer-frame-rate"], "on threes": ["layer-frame-rate"], twos: ["layer-frame-rate"], threes: ["layer-frame-rate"], choppy: ["layer-frame-rate", "clip-speed"], stepped: ["layer-frame-rate"], "stop motion": ["layer-frame-rate", "clip-speed"],
+  stopmotion: ["layer-frame-rate", "clip-speed"], "posterized time": ["layer-frame-rate"], "held frames": ["layer-frame-rate"], "hold frames": ["layer-frame-rate"], "low frame rate": ["layer-frame-rate", "clip-speed"],
+  // Motion blur from movement (render shutterAngle), and the effects that smear on purpose.
+  "motion blur": ["motion-blur", "directional-blur", "spin-blur"], "rotation motion blur": ["motion-blur", "spin-blur"], "rotation blur": ["spin-blur", "motion-blur"], "rotational blur": ["spin-blur", "motion-blur"],
+  shutter: ["motion-blur"], "shutter angle": ["motion-blur"], shutterangle: ["motion-blur"], "motion smear": ["motion-blur", "directional-blur"], "blur on move": ["motion-blur"], "blur from movement": ["motion-blur"],
+  // Fill the edges where the picture stops short: edge-fill.
+  "fill the edges": ["edge-fill"], "fill edges": ["edge-fill"], "stretch edges": ["edge-fill"], "extend edges": ["edge-fill"], "extend the edges": ["edge-fill"], "edge pixels": ["edge-fill"], "black strip": ["edge-fill"], "black sliver": ["edge-fill"], "gap at the edge": ["edge-fill"], "extend the frame": ["edge-fill"],
+  // Tilt and perspective: rotateX, rotateY and perspective on any layer (the tilt topic); the moves tilt a card or lay a screen on a plane.
+  tilt: ["tilt", "card-tilt", "ui-plane"], tilted: ["tilt", "ui-plane"], tilting: ["tilt", "card-tilt"], perspective: ["tilt", "ui-plane", "card-tilt"], "3d tilt": ["tilt", "ui-plane"], "3d plane": ["tilt", "ui-plane"], rotatex: ["tilt"], rotatey: ["tilt"], "rotate x": ["tilt"],
+  foreshorten: ["tilt"], foreshortened: ["tilt"], keystone: ["tilt"], "lean back": ["tilt"],
+  // Type or a plate mixed into the picture (not an opacity fade): the blendMode of a layer.
+  "blend mode": ["blend-mode"], "blend modes": ["blend-mode"], blend: ["blend-mode"], blending: ["blend-mode"], multiply: ["blend-mode"], "text blend": ["blend-mode"], "text fading": ["blend-mode"], "through the picture": ["blend-mode"], "through picture": ["blend-mode"],
+  "darken blend": ["blend-mode"], "multiply blend": ["blend-mode"], "screen blend": ["blend-mode"], "add blend": ["blend-mode"], "mix with the picture": ["blend-mode"], "blend with the picture": ["blend-mode"],
 };
 // Looks kino has no maker for yet. Asked for alone, they print a line that says so (and what to do)
 // instead of a name that only sounds close.
-const NO_MAKER = ["halftone", "dirt texture", "paper texture", "lightning", "electric arc"];
+// (halftone left this list: dot-grid draws it, see SEEN_AS.)
+const NO_MAKER = ["dirt texture", "paper texture", "lightning", "electric arc"];
 // Looks with no maker of their own that still have a way to build them from kino's parts.
 const NO_MAKER_HOW = {
   lightning: "a jagged path layer (add_layer path) with the glow effect and a few quick opacity steps; sparks adds the specks",
@@ -97,7 +136,9 @@ export { SEEN_AS };
 // "edges" and "corners" alone are a vignette, but "rounded corners" or "jagged edges" are not.
 // Words every kino answer uses: they never pick a name just by being a part of it (layer-style).
 const GENERIC = new Set(["layer", "text", "style", "ranges", "scene"]);
-const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted", "edges", "corners", "tunnel"]);
+const LOOSE = new Set(["green", "repeat", "ramp", "reverse", "hit", "grade", "tint", "flash", "fire", "ash", "rays", "beams", "echo", "blur", "flare", "matte", "grain", "burn", "negative", "inverted", "edges", "corners", "tunnel",
+  // "dots" in "connect the dots", "pixel" in "pixel drag", "bars" in "progress bars", "tilt" in "tilt shift", "slice" in "slice the clip":
+  "dots", "dash", "pixel", "bars", "tilt", "slice", "slices", "stepped", "blend"]);
 
 // The last line of look {mode:"reference"}: what the agent sees there, as a lookup.
 export const REFERENCE_LOOKUP = 'to make what you see (kinds: type, overlay, composite, color, made, frame, spoken, plain): library {topic:"search", search:"<your words: font, glow, cut-out, split screen, duotone, outline>"}';
@@ -118,9 +159,24 @@ export const ruleTopicOf = (group) => GROUP_TOPIC[group] ?? "effects";
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
 const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations",
   "text-ranges": "textStyleRanges (rotation, baselineShift, fill) and the layer field jitter",
-  "shape-modifiers": "layer property roughenSize on a mask shape or path (a rough dry-brush edge; roughenDetail, roughenSeed, roughenBoil)",
-  "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
+  "shape-modifiers": "layer property roughenSize on a mask shape or path (a rough dry-brush or torn-paper edge; roughenDetail 0 soft bumps to 1 spiky, roughenSeed, roughenBoil)",
+  "layer-style": 'layer properties fill (a color, or a gradient {type, angle, stops} for a light plate or wash), strokes (dash:[10,8] dashed, dash:[1,12] with cap:"round" dotted), shadows and outlineGlow (hollow letters with a glowing outline)',
+  // Layer fields that live in a guide topic of their own: the name is a plain handle, TOPIC_ID the topic that reads it.
+  "layer-frame-rate": 'layer property frameRate (1 to 120; null removes it) steps a layer\'s motion: "on twos" is 12 at 24 fps, "on threes" 8; mediaFrameRate steps a clip\'s picture',
+  "motion-blur": "render options {shutterAngle: 0 to 360, motionSamples: 2 to 16} blur whatever moves (position, scale, rotation, a whip); spin-blur and directional-blur are the effects for a smear you choose",
+  tilt: "layer properties rotateX, rotateY (degrees) and perspective: a plate or screen lying in 3D, set with update_layer or animated",
+  "blend-mode": "layer property blendMode: multiply and darken keep the darker of layer and picture (dark type sinks in, white drops out), screen and add keep the lighter, overlay and soft-light mix contrast",
+  "preset-glitch": 'add_animation {layer, preset:"preset-glitch", parameters:{sliceSize:30}}: slices of the layer shift sideways with a color split',
   "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
+const TOPIC_ID = { "layer-frame-rate": "clip-speed", "motion-blur": "blur", "blend-mode": "color", "preset-glitch": "effect-presets" };
+// One line of when each look fits, shown after its name (a name with none shows nothing more).
+// Written from each effect's catalog hint and the particles rules; a guide for the pick, not a rule.
+const WHEN = {
+  embers: "rising warm specks: fire, heat, a warm night scene", sparks: "bright bits thrown outward: an impact, a hit, a burst", bokeh: "soft out-of-focus lights: night city, dreamy, a plate behind type",
+  dust: "slow drifting specks (links joins them into a network): air in a light beam, calm, tech", snow: "falling flakes: winter, soft quiet", rain: "falling streaks: rain, storm, code rain",
+  fog: "drifting haze: mood, depth behind a subject", streaks: "long moving lines: speed, code rain, motion", "light-leaks": "warm color washes: filmic, nostalgic",
+  "dot-grid": "a halftone: the whole picture drawn as dots", pixelate: "a pixel mosaic: big square cells over a picture", "edge-fill": "stretches the edge pixels out where a moved picture leaves a gap",
+};
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} then set_font {layerIds, family, weight}' };
 
@@ -137,7 +193,7 @@ export function readCallFor(name, { ops = [] } = {}) {
   if (effect) return { kind: "effect", use: `add_animation {layer, effect:"${name}"}`, read: `fields: library {topic:"effects", name:"${name}"}; rules: library {topic:"rules", name:"${ruleTopicOf(effect.group)}"}` };
   if (MOVE_NAMES.includes(name)) return { kind: "move", use: `move {name:"${name}", …}`, read: `library {topic:"moves", name:"${name}"}` };
   if (ops.includes(name)) return { kind: "op", use: OP_USE[name] ?? `${name} {…}`, read: `library {topic:"op", name:"${name}"}` };
-  if (TOPICS[name]) return { kind: "topic", use: TOPICS[name], read: `library {topic:"rules", name:"${name}"}` };
+  if (TOPICS[name]) return { kind: "topic", use: TOPICS[name], read: `library {topic:"rules", name:"${TOPIC_ID[name] ?? name}"}` };
   return null;
 }
 
@@ -148,7 +204,7 @@ export function readCallFor(name, { ops = [] } = {}) {
 export function seenNames(query, { ops = [], limit = 5 } = {}) {
   return seenNameList(query, { ops }).slice(0, limit).map((name) => {
     const call = readCallFor(name, { ops });
-    return `${name} (${call.kind}: ${call.use}; ${call.read})`;
+    return `${name} (${call.kind}: ${call.use}; ${call.read})${WHEN[name] ? `: ${WHEN[name]}` : ""}`;
   });
 }
 

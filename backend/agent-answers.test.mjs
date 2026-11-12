@@ -11,6 +11,7 @@ import { estimateTextTokens, pngSize } from "./meter.mjs";
 import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
 import { EFFECTS } from "../engine/effects/catalog.js";
 import { effectDetailText, effectsListText } from "./agent/effects-help.mjs";
+import { movesLibraryText } from "./agent/blocks.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
@@ -286,6 +287,36 @@ test("library search turns what a reference shows into the kino name and the cal
     const leads = searchGuide(query).split("\n").filter((line) => /^[a-z_-]+ \((effect|move|op|topic): /.test(line));
     for (const name of names) assert.ok(!leads.some((line) => line.startsWith(`${name} (`)), `${query} does not lead with ${name}: ${leads.join(" | ")}`);
   }
+});
+
+// The recreate test's findability table (GAPS 23 to 25): kino had each of these and the director's words missed it.
+test("library search: the director's plain words reach the tool kino has; words with no name get the 3 nearest tools by what they do", () => {
+  const first = (query) => /^([a-z_-]+) \(/.exec(searchGuide(query).split("\n")[1])?.[1];
+  for (const [query, name] of [["halftone dots", "dot-grid"], ["torn paper edge", "shape-modifiers"], ["dashed stroke", "layer-style"], ["dotted line", "layer-style"],
+    ["pixel mosaic grid", "pixelate"], ["glitch slice displacement", "glitch"], ["particles", "embers"], ["wash", "overexpose"], ["white flash", "overexpose"], ["cinema bars", "scene-background"],
+    ["on twos", "layer-frame-rate"], ["on threes", "layer-frame-rate"], ["choppy", "layer-frame-rate"], ["rotation motion blur", "motion-blur"], ["fill the edges", "edge-fill"],
+    ["tilt", "tilt"], ["perspective", "tilt"], ["text fading through the picture", "blend-mode"], ["moving straight edge wipe", "split-fields"], ["brush edge wipe", "split-fields"]])
+    assert.equal(first(query), name, `${query}: ${searchGuide(query).split("\n").slice(0, 3).join(" | ")}`);
+  // Names that were found by luck of the words hold, and the extra words do not pull in a wrong lead.
+  assert.ok(searchGuide("glitch slice displacement").includes("smear ("), "smear");
+  assert.ok(searchGuide("glitch slice displacement").includes("preset-glitch ("), "preset-glitch");
+  assert.ok(!searchGuide("tilt shift").includes("\ntilt (topic:"), "tilt shift is depth of field");
+  assert.ok(!searchGuide("pixel drag").includes("pixelate ("), "pixel drag is smear");
+  // Particles: all nine looks, each with one line of when it fits (embers and bokeh included).
+  const particles = searchGuide("particles").split("\n").filter((line) => /^[a-z-]+ \(effect: /.test(line));
+  assert.equal(particles.length, 9);
+  for (const line of particles) assert.match(line, /\}\): \S+ \S+/, line);
+  assert.ok(particles.some((line) => line.startsWith("bokeh (")) && particles.some((line) => line.startsWith("embers (")));
+  // The entries say what they hide: the shape-wipe brush edge and the glitch blocks.
+  assert.match(movesLibraryText("shape-wipe"), /brush" roughens a shape that grows from one point and can cover the frame a frame early/);
+  assert.match(movesLibraryText("glitch"), /blocks:N tears N bands/);
+  // No kino name for the words: the 3 nearest tools by what they do, each with its call.
+  const none = searchGuide("shards flying apart").split("\n");
+  assert.equal(none.some((line) => line.startsWith("no kino name for")), false, "shatter is named");
+  const near = searchGuide("paint splatter splash shapes").split("\n");
+  assert.match(near[0], /^no kino name for "paint splatter splash shapes"; nearest by what they do:$/);
+  assert.equal(near.slice(1, 4).filter((line) => /^- [a-z-]+ \((move \{name:|effect add_animation )/.test(line)).length, 3, near.slice(0, 4).join(" | "));
+  assert.equal(searchGuide("zzqx"), 'Nothing mentions "zzqx". library {topic:"rules"} lists every topic.');
 });
 
 // Reports called vignette, grain, focus-band, duotone and tritone missing, and read engine source for

@@ -375,8 +375,9 @@ test("every look word an agent can search names an effect, move or op that exist
   assert.ok(seenNames("duotone", { ops }).some((line) => line.startsWith("duotone (effect")));
   assert.match(seenNames("two-color split", { ops })[0], /^split-fields \(move/);
   assert.match(seenNames("rough brush edge mask", { ops })[0], /^shape-modifiers \(topic: layer property roughenSize/);
-  assert.equal(noMakerLine("Halftone!"), 'no kino name for "halftone" yet: build it from shapes and draw-on, or say it is missing');
-  assert.equal(searchGuide("halftone").split("\n")[0], noMakerLine("halftone"));
+  assert.equal(noMakerLine("Dirt texture!"), 'no kino name for "dirt texture" yet: build it from shapes and draw-on, or say it is missing');
+  assert.equal(searchGuide("dirt texture").split("\n")[0], noMakerLine("dirt texture"));
+  assert.equal(noMakerLine("halftone"), "", "halftone is dot-grid now");
   assert.ok(seenNames("speed lines", { ops }).some((line) => line.startsWith("speed-lines (")));
   // A whole-frame look names the scene field that makes it in one op.
   for (const word of ["letterbox", "black bars", "vignette", "film grain"]) assert.ok(seenNames(word, { ops }).some((line) => line.startsWith("scene-background (topic:") && line.includes('properties:{finish:true, letterbox:2.35}')), word);
