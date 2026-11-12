@@ -89,7 +89,7 @@ function runExample(name, scene, { reduced = false, seed = 1 } = {}) {
 }
 
 test("every move is described for the library with tags from the vocabulary and an example", () => {
-  assert.equal(MOVE_NAMES.length, 59);
+  assert.equal(MOVE_NAMES.length, 60);
   for (const name of MOVE_NAMES) {
     const move = MOVES[name];
     assert.equal(move.name, name);
@@ -520,6 +520,42 @@ test("freeze-shutter stops the clip on the beat, blinks once and plays again; ma
   // A light brand's text color is dark: the word over the dark wash takes the light one.
   const light = runMove(MOVES["masked-type"], { id: "masked-type", input: readMoveInput(MOVES["masked-type"], { layer: "clip", text: "walk", subject: "person" }), scene, style: styleFor({ look: "crisp", brand: { colors: { bg: "#F7F5F0", text: "#141414", accent: "#FF4D94" } }, frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.5, dur: 2.4, media });
   assert.equal(light.added.find(({ layer }) => layer.move.part === "word").layer.fill, "#F7F5F0");
+});
+
+test("word-panel sizes a turned panel from the word's box, colors it from the shot's measured hue and prints each letter's covered share behind the subject", () => {
+  const scene = sceneFor(1920, 1080);
+  const word = createLayer("text", { id: "kill", name: "kill", x: 700, y: 400, width: 10, height: 10, text: "KILL", fontSize: 120, textResize: "width-height", fill: "#FFFFFF" });
+  scene.layers.push(word);
+  const run = (fields, options = {}) => runMove(MOVES["word-panel"], { id: "word-panel", input: readMoveInput(MOVES["word-panel"], fields), scene, style: styleFor({ look: "crisp", frame: { width: 1920, height: 1080 } }), fonts: defaultFonts, start: 0.5, dur: 1, media, ...options });
+  const made = run({ textLayer: "kill", shape: "sign", turn: -12, pad: 0.5, layer: "clip" }, { shotColor: () => ({ h: 200, s: 0.6, l: 0.4 }) });
+  const part = (result, name) => result.added.find(({ layer }) => layer.move.part === name).layer;
+  const group = part(made, "group"), panel = part(made, "panel"), text = part(made, "word");
+  // The panel is the word's laid-out box plus 0.5 font sizes across (60 px) and 0.3 up and down (36 px).
+  const laid = layoutText(word, defaultFonts);
+  assert.deepEqual([group.width, group.height], [Math.round(laid.width + 120), Math.round(laid.height + 72)]);
+  assert.equal(group.rotation, -12);
+  assert.ok(panel.parentId === group.id && text.parentId === group.id && panel.strokeWidth > 0, "a sign: panel with a border and the word in one turned group");
+  assert.deepEqual([text.x, text.y], [60, 36]);
+  assert.match(made.notes.join(" | "), /clip's hue from its picture \(200°\)/);
+  assert.match(made.notes.join(" | "), /word #[0-9A-F]{6} at \d/);
+  // Yours hides while the panel shows; the group cuts on and hides at the end.
+  assert.ok(made.animations.some(({ layerId, animation }) => layerId === "kill" && animation.kind === "hide" && animation.start === 0.5));
+  assert.deepEqual(group.animations.map((animation) => [animation.name, animation.start]), [["Cut on", 0.5], ["Hide", 1.5]]);
+  // No measured hue: the look's accent, said so. Reduced motion fades it on.
+  const plain = run({ textLayer: "kill", shape: "box" }, { reduced: true });
+  assert.match(plain.notes.join(" | "), /the look's accent/);
+  assert.match(plain.notes.join(" | "), /seed pick, a starting guess/);
+  assert.equal(part(plain, "group").animations[0].name, "Fade in");
+  // Behind a subject: the group goes under the cut-out; its box covers the right half of the word.
+  const box = layoutText(word, defaultFonts);
+  const half = (700 + box.width / 2) / 1920;
+  scene.layers.push(createLayer("video", { id: "person", name: "person", src: "/api/media/clip-subject.webm", x: 0, y: 0, width: 1920, height: 1080, cutoutOf: "clip", subjectPath: [[0.5, half, 0, 1, 1], [1.5, half, 0, 1, 1]] }));
+  const behind = run({ textLayer: "kill", shape: "strip", turn: 0, layer: "clip", subject: "person" });
+  assert.deepEqual(behind.added[0].place, { below: "person" });
+  assert.ok(behind.tags.includes("type-behind"));
+  const covered = behind.notes.find((note) => note.startsWith("covered by person"));
+  assert.match(covered, /K 0%, I 0%, L [6-9]\d%, L 100%/);
+  assert.match(behind.notes.join(" | "), /over 60% covered: L at 0\.5 s, L at 0\.5 s/);
 });
 
 test("tile-ring tiles from other clips play from the move's start, so a ring late in a long video still shows them", () => {

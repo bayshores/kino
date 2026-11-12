@@ -326,6 +326,11 @@ How to read it:
   cut-out, or masked-type with subject), never deals it, and technique_repeat warns from the 4th
   use; a style moment leaves out only its own use. Gap: not yet run on a real edit. Evidence:
   `engine/qualityStyle.test.js`, `engine/moves.test.js`.
+- **Word on a made panel (word-panel)**: Partial. One move sets a text layer on a box, bordered
+  sign or strip sized from its laid-out box plus a printed pad, turned with it as one group, colored
+  from the shot's measured hue (else the look's accent, printed); with subject it goes under the
+  cut-out and prints each letter's covered share. Gap: no render test yet; no tracked surface with
+  rotation; coverage is by the subject box, not the matte. Evidence: `engine/moves.test.js`.
 - **Repeated endings**: Partial. A house-memory hit in the last 15% or the end beat of the video's
   scene is `ending_seen`, keeps one of the 3 slots and is waived only with the person's quote; type
   under a cut-out is part of the layout (house files say their `sigVersion`; older ones compare

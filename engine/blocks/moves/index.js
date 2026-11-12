@@ -31,9 +31,10 @@ import { shatter, smear } from "./breakup.js";
 import { energyAura } from "./energy.js";
 import { lightShape } from "./lightShape.js";
 import { mosaicReveal } from "./mosaic.js";
+import { wordPanel } from "./wordPanel.js";
 // New moves go at the end: tests/moves-gate.mjs gives each move a frame shape by its place here,
 // so an insertion moves older moves to shapes their examples were never gated in.
-const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, headlineWrite, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, impactAccent, cursor, assemble, ...CUTS, screenRecording, speedRamp, beatRepeat, splitScreen, pictureInPicture, punchIn, shake, splitFields, overexpose, smear, shatter, backdropFlash, energyAura, lightShape, mosaicReveal];
+const LIST = [captionWords, zoomThrough, whipPan, pushThroughType, logoMatchMove, speedLinesPhone, statusLine, swipeCards, rgbSplitHit, parallaxStack, maskThroughShape, tileRing, windowPunchIn, liftFocus, cardIntoDevice, headlineWrite, logoSettle, countUp, drawOn, perceiveInsert, voiceType, freezeShutter, maskedType, roll, typeOn, stream, rewrite, decode, buildIn, carry, uiPlane, accentHit, lightSweep, impactAccent, cursor, assemble, ...CUTS, screenRecording, speedRamp, beatRepeat, splitScreen, pictureInPicture, punchIn, shake, splitFields, overexpose, smear, shatter, backdropFlash, energyAura, lightShape, mosaicReveal, wordPanel];
 
 // Old names saved projects and agents may still send, each to the move that took its place. They
 // work everywhere a name does but are not listed (kicker-headline lost its label over the headline).
