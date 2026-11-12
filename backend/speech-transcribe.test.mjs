@@ -13,6 +13,42 @@ import {
   saidToEnd, withCuts, withUnclear, withoutSlips, wordsFromWhisper,
 } from "./speech/transcribe.mjs";
 import { readClipSound } from "../engine/speech.js";
+import { hearKeptLines, keptLines, linesHeardText, listenPieces } from "./lines-heard.mjs";
+
+test("lines heard: each kept line is heard in the mix over its own stretch and compared with its own words", async () => {
+  // A clip played from file second 2 at scene 0, with two kept lines (scene 0.3-1.5 and 2-3).
+  const marks = [["Line up", 0.2, 0.1], ["Line down", 1.5, 0.12], ["Line up", 1.9, 0.1], ["Line down", 3, 0.12]].map(([name, start, duration]) => ({ name, start, duration, to: { volume: 1 } }));
+  const layer = { id: "v1", name: "clip", type: "video", src: "/api/media/a.mp4", mediaStart: 0, mediaOffset: 2, animations: marks };
+  const scene = { id: "s1", duration: 4, layers: [layer] };
+  const said = (text, start, end) => ({ text, start, end, p: 0.9 });
+  const english = { words: [said("Why", 2.4, 2.7), said("do", 2.7, 2.9), said("you", 2.9, 3.1), said("stand", 3.1, 3.4), said("there", 4.1, 4.6)] };
+  const lines = keptLines(scene, layer, english, { guess: { language: "en", p: 0.33 } });
+  assert.deepEqual(lines.map((line) => [line.start, line.end, line.text]), [[0.3, 1.5, "Why do you stand"], [2, 3, "there"]]);
+  // An unsure language guess (under 0.5) rides along, so the answer can say the words may be sound-alikes.
+  assert.deepEqual(lines[0].guess, { language: "en", p: 0.33 });
+  // A line heard in another language keeps the words as said, and the gloss beside them.
+  const ja = { language: "ja", words: [said("なぜ邪魔をする", 2.4, 3.4)], english: [{ start: 2.4, end: 3.4, text: "Why are you in my way?" }] };
+  const [line] = keptLines(scene, layer, ja);
+  assert.equal(line.text, "なぜ邪魔をする");
+  assert.equal(line.gloss, "Why are you in my way?");
+  // The mix (stubbed) is asked up to the last line's end; each language is heard in one listen.
+  const asked = [];
+  const mix = async (until) => { asked.push(until); return new Float32Array(16_000 * 4); };
+  const listen = async (pieces, language) => {
+    asked.push([language, pieces.length]);
+    return language === "en" ? { model: "small.en", heard: [{ text: "No, no, no.", p: 0.41 }, { text: "there", p: 0.8 }] } : { missing: "ggml-small.bin is not in ~/.kino/models/" };
+  };
+  const heard = await hearKeptLines([...lines, { ...line, start: 3.2, end: 3.8 }], { mix, listen });
+  assert.deepEqual(asked, [3.95, ["en", 2], ["ja", 1]]);
+  assert.deepEqual(heard.map((item) => [item.found, item.of]), [[0, 4], [1, 1], [undefined, undefined]]);
+  const text = linesHeardText(heard, { scene: "s1" });
+  assert.match(text, /clip 0\.3-1\.5 s: heard "No, no, no\." p 0\.41 · line "Why do you stand" \(en; language guess en p 0\.33 \(under 0\.5: unsure/);
+  assert.match(text, /0 of 4 words match: other sound than the line/);
+  assert.match(text, /clip 2-3 s: heard "there" p 0\.8 .* 1 of 1 words match: the line is heard/);
+  assert.match(text, /line "なぜ邪魔をする" \(ja\) \[gloss \(machine, unverified\): "Why are you in my way\?"\] · not heard: ggml-small\.bin/);
+  // Without the multilingual model the listener names the file instead of hearing it in English.
+  assert.match((await listenPieces([], "ja", { other: () => null })).missing, /ggml-small\.bin is not in ~\/\.kino\/models\//);
+});
 
 test("hearInOwnLanguage listens again in the clip's own language, and only when it could matter", async () => {
   const voice = { words: [{ text: "Esta", start: 0.2, end: 0.5, p: 0.9 }, { text: "aplica", start: 0.5, end: 0.9, p: 0.9 }] };

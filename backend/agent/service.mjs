@@ -165,6 +165,7 @@ import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
 import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver, restCallFor } from "../audio-levels.mjs";
 import { applyLinePeak, capLinePeak } from "../line-peak.mjs";
+import { hearKeptLines, keptLines, languageGuessOf, linesHeardText, sceneMixSamples } from "../lines-heard.mjs";
 import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
@@ -4157,6 +4158,11 @@ export function createAgentService(deps) {
       image = await look.sheetImage(await prepare(document, scene.id, fonts), { times, longEdge, columns: 6, labels });
       noteLive({ sceneId: scene.id, range: [start, end] }, [{ sceneId: scene.id, range: [start, end] }]);
       text = `frames ${refName(scene.id, codes)} ${sec(times[0])}–${sec(times.at(-1))}s: ${times.length} frames at ${fpsLabel(rate)} fps${ownRate ? ` (f${nearestFrame(times[0], rate)}–f${nearestFrame(times.at(-1), rate)})` : ""}, 6 a row (${sec(6 / rate)} s), labeled with their time${rest != null ? `; at most ${FRAMES_MOST} a call: look {mode:"frames", from:${rest}, to:${sec(end)}} for the rest` : ""}`;
+    } else if (mode === "motion" && input.ref === "lines") {
+      // "lines heard" (lines-heard.mjs): each kept line listened to in the scene's mix.
+      text = await linesHeardLook({ document, codes, scene });
+      image = {};
+      noteLive({ sceneId: scene.id });
     } else if (mode === "sound" || (mode === "motion" && input.ref === "sound")) {
       // The MCP tool list is at its token budget, so the sound map is look {mode:"motion", ref:"sound"} there.
       ({ image, text } = await soundLook({ record, codes, scene, state }));
@@ -5677,6 +5683,28 @@ export function createAgentService(deps) {
       if (mixPeaksKept.size > 32) mixPeaksKept.delete(mixPeaksKept.keys().next().value);
     }
     return mixPeaksKept.get(key);
+  }
+
+  // look {mode:"motion", ref:"lines"} (lines-heard.mjs): every line keep_line kept, heard in the
+  // scene's mix over its own stretch. deps.linesMix and deps.linesListen stand in for FFmpeg and
+  // whisper in tests.
+  async function linesHeardLook({ document, codes, scene }) {
+    const lines = [];
+    for (const layer of scene.layers) {
+      if (!["audio", "video"].includes(layer.type) || !layer.src || !(layer.animations ?? []).some((animation) => /^(?:Line) (?:up|down)$/.test(animation?.name ?? ""))) continue;
+      let file;
+      try { file = mediaFileOf(layer); } catch { continue; }
+      const transcript = await transcripts.saved?.(file, document, layer, { any: true }).catch(() => null);
+      lines.push(...keptLines(scene, layer, transcript, { name: refName(layer.id, codes), guess: await languageGuessOf(file).catch(() => null) }));
+    }
+    lines.sort((a, b) => a.start - b.start);
+    let heard;
+    try {
+      heard = await hearKeptLines(lines, { mix: deps.linesMix ?? ((until) => sceneMixSamples(scene, { mediaRoot: deps.mediaRoot, until })), ...(deps.linesListen ? { listen: deps.linesListen } : {}) });
+    } catch (error) {
+      throw new AgentError("failed", `The lines could not be heard: ${String(error.message).split("\n")[0].slice(0, 200)}`);
+    }
+    return linesHeardText(heard, { scene: refName(scene.id, codes) });
   }
 
   // look {mode:"sound"} (sound-map.mjs): the scene's mix measured three ways (all, the music
