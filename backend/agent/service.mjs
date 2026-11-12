@@ -84,6 +84,7 @@ import { editableField, inspectTargets } from "./inspect.mjs";
 import { overriddenValues } from "./overridden-values.mjs";
 import { animationJumps, moveHandEdits } from "./jumps.mjs";
 import { pivotNotes } from "./pivot-notes.mjs";
+import { coverNotes, importedNames, unseenPresetNotes } from "./silent-receipts.mjs";
 import { BRIEF_RULES, checkDocument, checkReport, checkSummary, explainMissingGlyphs, groupFixLines, liveWaivers, mergeFindings, openFindingLines, staleWaiverLine, triageFindings, waiverNotes } from "./checks.mjs";
 import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } from "./bar.mjs";
 import { BAR_PROTOCOL, CRITIQUE_PROTOCOL, CRITIQUE_ROUNDS, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, upLines } from "./critique.mjs";
@@ -232,6 +233,43 @@ const ADVICE_VERBS = ["status", "notes", "project"];
 const REFUSED_KEEP_MS = 30 * 60_000;
 const REFUSED_KEPT = 20;
 const REFUSAL_LIST = 5;
+
+// The names of the layers a refused edit's ops would have made (add_layer, import_svg, group_layers).
+function notMade(ops) {
+  const list = Array.isArray(ops) ? ops : [ops];
+  return [...new Set(list.filter((operation) => ["add_layer", "import_svg", "group_layers"].includes(operation?.op ?? operation?.type) && typeof operation.name === "string" && operation.name)
+    .map((operation) => operation.name))];
+}
+
+// The fix of a refused op's one bad value, as fields to patch (undefined when kino does not
+// know it, null to drop an op left with nothing to set). The retry used to replace such an op
+// with the op's generic example (a rectangle's bad radius came back as a text fill and
+// fontSize; recreate friction-fields log, case 2), changing what the director meant.
+// An unknown easing is left out, so the animation takes its own default (operations.md: a
+// preset is smooth both ways, fade and appear linear); a number sent as text becomes the
+// number; any other bad property is left out, so the other properties of the op still go in.
+function valueFix(sent, message) {
+  if (!sent || typeof sent !== "object") return undefined;
+  const reason = String(message ?? "").replace(/^(?:\d+ operations? refused\. )?Operation \d+(?: \([^)]*\))?(?::| was refused:) /, "");
+  if (/^Unknown easing\b/i.test(reason)) {
+    if (sent.easing !== undefined) return { easing: null };
+    if (sent.animation && typeof sent.animation === "object" && sent.animation.easing !== undefined) {
+      const { easing: _easing, ...animation } = sent.animation;
+      return { animation };
+    }
+    return undefined;
+  }
+  const field = /^([A-Za-z][\w]*): must be\b/.exec(reason)?.[1];
+  const properties = sent.properties && typeof sent.properties === "object" && !Array.isArray(sent.properties) ? sent.properties : null;
+  if (!field || !properties || !(field in properties)) return undefined;
+  const value = properties[field];
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return { properties: { ...properties, [field]: Number(value) } };
+  const { [field]: _dropped, ...rest } = properties;
+  return Object.keys(rest).length ? { properties: rest } : null;
+}
+// The check an unchecked revision needs: fix:"auto", unless the last fix:"auto" applied nothing
+// (a plain check then says itself when an auto fix turns up again).
+const checkCall = (state) => (state?.autoApplied === false ? nextOf("check", {}) : nextOf("check", { fix: "auto" }));
 // A refusal names every name it did not find (`missing`), up to this many.
 const MISSING_LIST = 100;
 const ANSWER_TOKEN_LIMIT = 8000;
@@ -2016,6 +2054,11 @@ export function createAgentService(deps) {
     if (names >= 2 || (names && details.moreRefused)) details.missing = missing;
     if (blocked.size) details.notTried = `ops ${ranges([...blocked.keys()])} use what a refused op makes`;
     details.retry = code;
+    // Said plainly (GAPS Friction 1: product-film sent 2 more calls naming layers a refused edit
+    // would have made): nothing of this edit exists until the retry is saved.
+    // Only for an edit of several ops: a one-op refusal already says it (and stays short).
+    const made = Array.isArray(ops) && ops.length > 1 ? notMade(ops) : [];
+    if (made.length) details.notMade = `Nothing was saved: ${made.slice(0, 6).join(", ")}${made.length > 6 ? ` and ${made.length - 6} more` : ""} ${made.length === 1 ? "does" : "do"} not exist yet. The next call resends every op.`;
     const opNumber = first.details.op ?? "<op number>";
     details.next = `Nothing was saved. edit {retry:"${code}", fix:{"${opNumber}": {fields to change}}} resends the ${ops.length} ops with your fixes (a whole op replaces it, null drops it; a field set to null is removed).`;
     // A refused waiver answers with the fix of what it tried to waive, not an example waive_check.
@@ -2064,7 +2107,9 @@ export function createAgentService(deps) {
       const sent = list[index];
       const suggestion = problem.details.didYouMean?.[0];
       const named = suggestion && problem.missing?.length ? opWithName(sent, problem.missing[0].ref, suggestion) : null;
+      const value = named ? undefined : valueFix(sent, problem.message);
       if (named) fix[index] = named;
+      else if (value !== undefined) fix[index] = value;
       else if (problem.details.example) fix[index] = problem.details.example;
     }
     if (!Object.keys(fix).length) {
@@ -2163,7 +2208,22 @@ export function createAgentService(deps) {
         if (patches.length) next = withFontPatches(next, sceneId, patches, fonts);
       }
     } catch (error) { throw operationFailed(index, operation, "set_font", error); }
-    if (lacking.length) throw await missingCharactersRefusal(index, operation, layerIds, choice, lacking, fonts, fontsCache.resolver);
+    if (lacking.length) {
+      // The face is set anyway: only the characters it lacks are drawn in the first font that has
+      // them (a textStyleRanges range), and the note names both (GAPS Friction 1: one glyph
+      // refused a whole film-trailer edit, whose "instead" then worked as pasted). Refused only
+      // when no font kino can find has them.
+      const ref = (id) => (isRandomId(id) ? fontsCache.resolver?.codeOf(id) ?? id : id);
+      const help = await missingCharactersHelp(lacking.map((error) => ({ layer: error.layer, layerRef: ref(error.layer.id),
+        characters: error.characters, choice: error.face })), { fonts, catalog: fontCatalog, opNumber: index });
+      if (!help.instead) throw await missingCharactersRefusal(index, operation, layerIds, choice, lacking, fonts, fontsCache.resolver);
+      const sceneOf = (id) => next.scenes.find((scene) => scene.layers.some((layer) => layer.id === id))?.id;
+      const fallback = help.instead.map((entry, at) => ({ type: "update_layer", sceneId: sceneOf(lacking[at].layer.id), layerId: lacking[at].layer.id, properties: entry.properties }));
+      try { next = parseDocument(applyOperations(next, fallback, await operationContext(next, fallback))); }
+      catch (error) { throw operationFailed(index, operation, "set_font", error); }
+      const said = help.message.replace(/ "instead" keeps[\s\S]*$/, "");
+      fontsCache.notes?.push(`op ${index} set_font set ${choice.family}. ${said} Only those characters are drawn in the first font named (a textStyleRanges range on ${help.instead.map((entry) => entry.layerId).join(", ")}); update_layer textStyleRanges changes it.`);
+    }
     for (const line of weightNotes) fontsCache.notes?.push(`op ${index} set_font: ${line}`);
     return next;
   }
@@ -2537,6 +2597,13 @@ export function createAgentService(deps) {
       if (handEdits.length) (work.warnings ??= []).push(...handEdits);
       // A scale or turn this edit added says where it pivots (pivot-notes.mjs).
       work.notes.push(...pivotNotes(after, translation.operations, (id) => refName(id, afterCodes), before));
+      // Things that show nothing or cover something, said once in the receipt (silent-receipts.mjs).
+      const nameOf = (id) => refName(id, afterCodes);
+      const unseen = unseenPresetNotes(after, translation.operations, nameOf);
+      if (unseen.length) (work.warnings ??= []).push(...unseen);
+      const svgNames = importedNames(after, translation.operations, changes.created, nameOf);
+      if (svgNames) (work.notes ??= []).push(svgNames);
+      for (const { note } of coverNotes(before, after, changes.created, nameOf)) (work.notes ??= []).push(note);
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
       const waiverNote = waivedCodes.length ? waiverNotes(liveWaivers(after.checkWaivers, staleWaivers), { codes: waivedCodes }) : [];
@@ -2711,6 +2778,10 @@ export function createAgentService(deps) {
         fonts = await fontsFor(record.document);
         result = await findingsFor(record.document, { ...options, codes, fonts });
       } else applied = { ops: 0, fixed: [], dropped: outcome.dropped };
+      // Whether the last fix:"auto" applied anything: next: names a plain check after one that
+      // applied nothing (GAPS Friction 5: one rebuild was sent check fix:"auto" 30 times).
+      const autoApplied = applied.ops > 0;
+      if ((await agentState.read(projectId)).autoApplied !== autoApplied) await agentState.update(projectId, (state) => { state.autoApplied = autoApplied; });
     }
     await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
     if (!scene) await recordDeckUse(projectId, result.techniques);
@@ -8007,7 +8078,7 @@ export function createAgentService(deps) {
     const lock = lockNeeded(state, video);
     if (lock) return lock.call;
     if (!hasLayers(document)) return await composeCall(document, state);
-    if (state.checked?.rev !== record.revision) return nextOf("check", { fix: "auto" });
+    if (state.checked?.rev !== record.revision) return checkCall(state);
     const codes = await syncCodes(document.id, document);
     const fonts = await fontsFor(document);
     if (state.checked.errors) {
@@ -8292,7 +8363,7 @@ export function createAgentService(deps) {
         const fields = Array.isArray(asked.fields) ? asked.fields : typeof asked.fields === "string" ? asked.fields.split(",") : [];
         return changeCall(record, targets[0], String(fields[0] ?? "").split(",")[0].trim());
       }
-      if (state.checked?.rev !== record.revision) return nextOf("check", { fix: "auto" });
+      if (state.checked?.rev !== record.revision) return checkCall(state);
       return changeCall(record, asked.anim ?? asked.layer);
     }
     return buildNext(projectId, { advice: ADVICE_VERBS.includes(verb) || (verb === "library" && asked.topic === "guide") });

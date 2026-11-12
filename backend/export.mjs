@@ -1254,7 +1254,8 @@ async function measureSceneLevels(scene, videoSources, { directory, signal, warn
       const edges = edgeEffect && pictures.length ? layerEdges(pictures, adapt) : null;
       if (pictures.length) measuredLevels.set(key, edges && lumaLevels(pictures) ? [...lumaLevels(pictures), ...edges] : lumaLevels(pictures));
       else warnings?.push({ code: "grade-levels-unmeasured", layerId: layer.id,
-        message: `Could not read pictures of “${layer.name ?? layer.id}” to measure its levels; its grade is drawn without normalize.` });
+        // Names the file and the two ways out (friction-fields: the old note named neither).
+        message: `Could not read pictures of “${layer.name ?? layer.id}” (file ${basename(String(source.videoPath ?? layer.src ?? "unknown"))}) to measure its levels; its grade is drawn without normalize. Import the clip again (project import, a 1080p mp4 copy reads best), or set normalize:false on the grade so no levels are needed.` });
       if (measuredLevels.size > 64) measuredLevels.delete(measuredLevels.keys().next().value);
     }
     const measured = measuredLevels.get(key);

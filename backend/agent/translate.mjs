@@ -791,8 +791,11 @@ function effectEndDefault(operation, resolver) {
 function nameAnimation(operation, resolver) {
   if (operation.type !== "add_animation" || typeof operation.name !== "string") return;
   const { name } = operation;
-  delete operation.name;
-  if (operation.animation && typeof operation.animation === "object") operation.animation = { ...operation.animation, name: operation.animation.name ?? name };
+  // With no animation object the engine sets the name (preset and effect forms), so keep it.
+  if (operation.animation && typeof operation.animation === "object") {
+    delete operation.name;
+    operation.animation = { ...operation.animation, name: operation.animation.name ?? name };
+  }
   if (operation.id === undefined && operation.animation?.id === undefined) {
     const id = idFromName(name, "animation", resolver);
     if (id) {

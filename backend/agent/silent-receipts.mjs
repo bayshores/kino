@@ -1,0 +1,90 @@
+// Receipt notes for things an edit does that show nothing, or cover something, without a word
+// (GAPS Friction 4 and 5, benchmark rebuilds): a preset that cannot show on its target, and a
+// full-frame clip added over text or a graphic that is on screen at the same time.
+// Both only read the saved documents and the ops of the edit; nothing here changes a document.
+
+// Presets that pixelate or dissolve the layer's one picture. On a layer drawn as repeated copies
+// (repeatCopies) the rebuild saw no visible state (GAPS Friction 4: preset-pixel and
+// preset-dissolve on a repeater group "showed nothing"). Not re-measured here: the note says
+// what the rebuild saw and names the presets that are plain property or repeat animations.
+const PICTURE_PRESETS = new Set(["preset-pixel", "preset-dissolve"]);
+
+const layersOf = (document) => (document.scenes ?? []).flatMap((scene) => scene.layers ?? []);
+const repeats = (layer) => Number(layer?.repeatCopies) > 1;
+
+// True for a layer drawn as copies, or a group with such a layer inside it (at any depth).
+function drawsRepeats(layer, layers) {
+  if (repeats(layer)) return true;
+  if (layer.type !== "group") return false;
+  return layers.some((entry) => entry.parentId === layer.id && drawsRepeats(entry, layers));
+}
+
+/** Notes for presets in this edit that cannot show on their target. */
+export function unseenPresetNotes(after, operations, refName) {
+  const layers = layersOf(after);
+  const notes = [];
+  for (const operation of operations) {
+    if (operation?.type !== "add_animation" || !PICTURE_PRESETS.has(operation.preset)) continue;
+    const layer = layers.find((entry) => entry.id === operation.layerId);
+    if (!layer || !drawsRepeats(layer, layers)) continue;
+    const name = refName(layer.id);
+    notes.push(`${operation.preset} on ${name} showed no visible state on a repeater in the benchmark rebuild (${name} is drawn as repeated copies). What works there: preset-fade or preset-scale on ${name}, or add_animation {layer:"${name}", preset:"repeat", start, duration} to grow the copies one after another.`);
+  }
+  return [...new Set(notes)];
+}
+
+/** A note naming the top-level layers an import_svg made, so the agent knows what to call them. */
+export function importedNames(after, operations, createdIds, refName) {
+  if (!operations.some((operation) => operation?.type === "import_svg")) return null;
+  const made = new Set(createdIds);
+  const roots = layersOf(after).filter((layer) => made.has(layer.id) && layer.parentId === null);
+  if (!roots.length) return null;
+  const shown = roots.slice(0, 6).map((layer) => `"${layer.name}" (${refName(layer.id)})`);
+  return `import_svg made ${shown.join(", ")}${roots.length > 6 ? ` and ${roots.length - 6} more` : ""}: use these names in later ops.`;
+}
+
+// When a layer is on screen: the whole scene unless a show animation starts later or a hide
+// animation starts earlier. GUESS: a rough window, the check's covered_layer measures it exactly.
+function windowOf(layer, scene) {
+  const animations = layer.animations ?? [];
+  const show = animations.find((entry) => entry.kind === "show");
+  const hide = animations.find((entry) => entry.kind === "hide");
+  return [Number(show?.start) || 0, Number.isFinite(Number(hide?.start)) && hide ? Number(hide.start) : scene.duration];
+}
+
+const FULL_SHARE = 0.9; // GUESS: a clip over 90% of the frame hides what is under it
+const COVERABLE = new Set(["text", "rectangle", "ellipse", "path", "polygon", "star", "line", "image"]);
+
+function fullFrame(layer, scene) {
+  if (!["video", "image"].includes(layer.type) || layer.parentId || layer.visible === false || Number(layer.opacity) < 0.98) return false;
+  const width = Math.abs(layer.width * (layer.scaleX ?? 1)), height = Math.abs(layer.height * (layer.scaleY ?? 1));
+  const overlapX = Math.max(0, Math.min(layer.x + width, scene.width) - Math.max(layer.x, 0));
+  const overlapY = Math.max(0, Math.min(layer.y + height, scene.height) - Math.max(layer.y, 0));
+  return overlapX * overlapY >= FULL_SHARE * scene.width * scene.height;
+}
+
+/**
+ * For each full-frame video or image this edit made on top of text or graphics that are on screen
+ * at the same time, a note with the one reorder call that puts the clip under the lowest of them.
+ * Returns [{ note, call }]: `call` is {tool, input}.
+ */
+export function coverNotes(before, after, createdIds, refName) {
+  const made = new Set(createdIds);
+  const notes = [];
+  for (const scene of after.scenes ?? []) {
+    const layers = scene.layers ?? [];
+    for (const [index, cover] of layers.entries()) {
+      if (!made.has(cover.id) || !fullFrame(cover, scene)) continue;
+      const [from, to] = windowOf(cover, scene);
+      const under = layers.slice(0, index).filter((layer) => layer.parentId === null && layer.visible !== false && Number(layer.opacity) > 0
+        && layer.role !== "background" && COVERABLE.has(layer.type) && !fullFrame(layer, scene)
+        && windowOf(layer, scene)[0] < to && windowOf(layer, scene)[1] > from);
+      if (!under.length) continue;
+      const lowest = refName(under[0].id);
+      const names = under.slice(0, 4).map((layer) => refName(layer.id));
+      const call = { tool: "edit", input: { ops: [{ op: "move_layers", layers: [refName(cover.id)], position: "below", referenceId: lowest }] } };
+      notes.push({ call, note: `${refName(cover.id)} is full-frame and now draws over ${names.join(", ")}${under.length > 4 ? ` and ${under.length - 4} more` : ""} (${under.length === 1 ? "it is" : "they are"} on screen at the same time, so you cannot see ${under.length === 1 ? "it" : "them"}). Nothing was reordered. To put the clip underneath: move_layers {layers:["${refName(cover.id)}"], position:"below", referenceId:"${lowest}"}.` });
+    }
+  }
+  return notes;
+}

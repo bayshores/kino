@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { nextCallOf, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { skillSection } from "./skill.test.support.mjs";
+import { coverNotes } from "./agent/silent-receipts.mjs";
 
 let server;
 before(async () => {
@@ -53,6 +54,12 @@ test("one refusal lists every failing op, tries the ops that use a refused layer
   assert.match(reply.data.retry, /^E\d+$/);
   assert.match(reply.data.next, /^Nothing was saved\. edit \{retry:"E\d+", fix:\{"1": \{fields to change\}\}\}/);
   assert.equal((await saved()).revision, before.revision, "nothing was saved");
+  // The next call fills in the fixes kino knows: the unknown easing and the bad property are left
+  // out (not replaced by an unrelated example op); the refusal names the layers not made yet.
+  const filled = nextCallOf(reply).input.fix;
+  assert.deepEqual(filled["1"], { easing: null });
+  assert.deepEqual(filled["3"], { properties: { x: 0, y: 0, width: 10, height: 10 } });
+  assert.match(reply.data.notMade, /^Nothing was saved: box, frame, dot do not exist yet\. The next call resends every op\.$/);
 
   // Send only the fixes: change one field of op 1, drop op 2, replace op 3, fix op 4, drop 5 and 6.
   const retried = await agent("edit", { retry: reply.data.retry, fix: {
@@ -495,4 +502,49 @@ test("a scene may last ten minutes; a longer scene or an animation ending later 
   assert.match(backwards.text, /from must be before to/);
   const removed = await agent("edit", { ops: [{ op: "delete_scene", scene: "song" }] });
   assert.equal(removed.isError, undefined, removed.text);
+});
+
+test("a name given to add_animation and import_svg is kept and found later; a preset on a repeater is said in the receipt", async () => {
+  const made = await agent("edit", { ops: [{ op: "add_scene", name: "naming", properties: { duration: 3 } }, { op: "add_layer", scene: "naming", layerType: "rectangle", name: "tile", properties: { x: 10, y: 10, width: 100, height: 100 } }] });
+  assert.equal(made.isError, undefined, made.text);
+  const named = await agent("edit", { ops: [{ op: "add_animation", layer: "tile", preset: "preset-fade", name: "intro", start: 0, duration: 0.5 }] });
+  assert.equal(named.isError, undefined, named.text);
+  assert.ok(findLayer(await saved(), "tile").animations.some((animation) => animation.name === "intro"), "the animation keeps its name");
+
+  const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'><rect id='a' width='30' height='30' fill='#FF6B4A'/><circle id='b' cx='45' cy='45' r='10' fill='#00f'/></svg>";
+  const imported = await agent("edit", { ops: [{ op: "import_svg", scene: "naming", name: "logo", svg }] });
+  assert.equal(imported.isError, undefined, imported.text);
+  assert.match((imported.data.notes ?? []).join(" "), /import_svg made "logo" \(.+\), "logo 2" \(.+\)/);
+  const used = await agent("edit", { ops: [{ op: "update_layer", layer: "logo 2", properties: { x: 50 } }, { op: "update_layer", layer: "logo", properties: { x: 40 } }] });
+  assert.equal(used.isError, undefined, `the names logo and logo 2 are found: ${used.text}`);
+
+  const repeater = await agent("edit", { ops: [
+    { op: "add_layer", scene: "naming", layerType: "rectangle", name: "dot", properties: { x: 300, y: 100, width: 20, height: 20, repeatCopies: 8, repeatX: 30 } },
+    { op: "add_animation", layer: "dot", preset: "preset-pixel", start: 0.2, duration: 1 },
+  ] });
+  assert.match((repeater.data.warnings ?? []).join(" "), /preset-pixel on dot showed no visible state on a repeater/);
+});
+
+test("a full-frame clip made over text that shows at the same time is said with its one reorder call; nothing is reordered", () => {
+  const scene = { id: "s", width: 960, height: 540, duration: 4, layers: [
+    { id: "title", type: "text", parentId: null, x: 100, y: 200, width: 600, height: 100, opacity: 1, animations: [] },
+    { id: "shot", type: "video", parentId: null, x: 0, y: 0, width: 960, height: 540, opacity: 1, animations: [] },
+  ] };
+  const [cover] = coverNotes({ scenes: [] }, { scenes: [scene] }, ["shot"], (id) => id);
+  assert.deepEqual(cover.call.input.ops[0], { op: "move_layers", layers: ["shot"], position: "below", referenceId: "title" });
+  assert.match(cover.note, /shot is full-frame and now draws over title .*Nothing was reordered/);
+  // A clip that fills half the frame, or text that ends before the clip shows, is not said.
+  assert.equal(coverNotes({}, { scenes: [{ ...scene, layers: [scene.layers[0], { ...scene.layers[1], width: 480 }] }] }, ["shot"], (id) => id).length, 0);
+  const shown = { ...scene.layers[1], animations: [{ kind: "show", start: 2 }] };
+  const gone = { ...scene.layers[0], animations: [{ kind: "hide", start: 1 }] };
+  assert.equal(coverNotes({}, { scenes: [{ ...scene, layers: [gone, shown] }] }, ["shot"], (id) => id).length, 0);
+});
+
+test("after a check fix:auto that applied nothing, next: names a plain check, not fix:auto again", async () => {
+  await agent("edit", { ops: [{ op: "add_scene", name: "quiet", properties: { duration: 2 } }] });
+  await agent("check", { fix: "auto" });
+  const second = await agent("check", { fix: "auto" });
+  assert.equal(second.data.applied?.ops, 0, second.text);
+  const edited = await agent("edit", { ops: [{ op: "add_layer", scene: "quiet", layerType: "rectangle", name: "calm", properties: { x: 20, y: 20, width: 40, height: 40 } }] });
+  assert.deepEqual(nextCallOf(edited), { tool: "check", input: {} }, edited.text);
 });

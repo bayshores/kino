@@ -1176,7 +1176,7 @@ function parseDocument(text, ParserCtor) {
  * into a browser document. Unsupported features either fail or appear in the
  * returned warnings so a caller can show the fidelity limits.
  */
-export function importSvg(text, { name = "Imported SVG", DOMParser: parserCtor = globalThis.DOMParser } = {}) {
+export function importSvg(text, { name = "Imported SVG", explicit = false, DOMParser: parserCtor = globalThis.DOMParser } = {}) {
   const { root, parseWarnings } = parseDocument(text, parserCtor);
   const warnings = new Set(parseWarnings.length ? ["XML parser reported non-fatal syntax warnings."] : []);
   inspectTree(root);
@@ -1212,7 +1212,12 @@ export function importSvg(text, { name = "Imported SVG", DOMParser: parserCtor =
     for (const layer of layers.filter((item) => item.parentId === null))
       layer.opacity *= rootOpacity;
   }
-  if (name && !getAttribute(root, "id") && layers.filter((layer) => layer.parentId === null).length === 1) {
+  const roots = layers.filter((layer) => layer.parentId === null);
+  if (explicit && name) {
+    // A name the caller chose always lands on the top-level layers (even ones with their own id):
+    // one layer gets the name, several get "<name>", "<name> 2", "<name> 3" in drawing order.
+    roots.forEach((layer, index) => { layer.name = (index === 0 ? String(name) : `${name} ${index + 1}`).slice(0, 256); });
+  } else if (name && !getAttribute(root, "id") && roots.length === 1) {
     const first = layers.find((layer) => layer.parentId === null);
     if (first && ["Group", "rect", "circle", "ellipse", "line", "polygon", "polyline", "path", "text", "a"].includes(first.name))
       first.name = String(name).slice(0, 256);
