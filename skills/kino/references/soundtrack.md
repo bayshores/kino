@@ -11,14 +11,14 @@ Contents: Principles · Named song · Search · Measure and compare · Note your
 ## Principles
 
 - Lane first: write the brief from the person's words (want, and what not), search 3 to 5
-  different lanes, then narrow to the lane they pick. Two "no"s in one lane close it.
+  lanes, then narrow to the one they pick. Two "no"s in one lane close it.
 - Then the story: where tension builds, where the payoff lands, where speech needs room.
   Write the beats first (`notes {action:"intents"}`); without them kino treats the scene as one beat.
-- Compare a few (three to five), and measure before choosing: a title and a mood tag say little,
-  a loudness curve against your beats says a lot.
+- Compare three to five, measuring first: a title and a mood tag say little, a loudness curve
+  against your beats says a lot.
 - The drop belongs on the payoff. A song whose drop lands 4 s early pulls the climax forward.
-- Speech needs room: under a spoken line, quieter is better (lower energy numbers in that beat).
-- Prefer cutting the song to the edit's beats (start it later, end on a section change) when the
+- Speech needs room: quieter under a spoken line (lower energy in that beat).
+- Cut the song to the edit's beats (start it later, end on a section change) when the
   story needs its own timing; cut the edit to the song only when the music is the story.
 - Real songs from YouTube are normal: `project {action:"import", file:"yt:<id>"}` brings one in
   whole (WAV). kino keeps each credit with the file as metadata; the final render lists sources.
@@ -26,7 +26,7 @@ Contents: Principles · Named song · Search · Measure and compare · Note your
 
 ## Named song
 
-A song the person names is the song: `library {topic:"soundtrack", song:"Melatonin by Tinashe"}`
+A song the person names is the song: `library {topic:"soundtrack", song:"Night Drive by Example Artist"}`
 ("Artist - Title", a YouTube link or `yt:<id>` too) finds the upload ("- Topic" first), marks it
 picked and measures it in the background; then import it.
 
@@ -57,9 +57,9 @@ kino downloads one song at a time (4 minutes at most), finds its tempo and beat 
 drop, break, outro), a `sound:` fingerprint (groove; bass, brightness, density, dynamics, vocals 0
 to 100) and the spans where a voice sings (whisper.cpp; a guess without it), then deletes the file.
 It keeps a small preview (the whole song, or 90 s from build through drop) for the music tab. The
-answer lines it up against the beats: where to start the song so its first drop lands on the
-payoff, how far off it lands, the energy under each beat, breaks inside the video, and how short
-the song is. `library {topic:"soundtrack"}` lists every candidate with these numbers again.
+answer lines it up against the beats: where to start the song, as a window that holds the drop
+fit_music would pick (the heaviest that fits) with its sections and vocal spans (copy its payoff
+into the spine), the energy under each beat, breaks inside the video, and how short the song is.
 
 Each measured song also gets `fit` 0 to 100, its lane and a few words why. Taste, lane and the
 brief decide first; story fit only orders songs inside that (fit = 75% preference, 25% story):
@@ -73,9 +73,10 @@ brief decide first; story fit only orders songs inside that (fit = 75% preferenc
 - brief: closeness to `want` minus closeness to each `not` (see below).
 - Taste and brief are spread over the candidates, so fits differ; story: drop near the payoff,
   energy rising to the payoff beat, the song long enough; sung vocals over spoken lines count against.
-- Without the model (no network on first use) the answer says so once.
 
-`library {topic:"soundtrack"}` lists measured songs as a varied shortlist: the best fit first, then
+`library {topic:"soundtrack"}` answers at once: lane scores ship with kino. A brief's word scores
+and older songs' embeddings arrive on a later call while CLAP's text model loads (no model, no
+network: it says so once). It lists measured songs as a varied shortlist: the best fit first, then
 the best song least like those above it, so the top 3 cover several lanes until the person has liked
 2 songs. Fit ranks; you still decide.
 
@@ -86,9 +87,9 @@ the best song least like those above it, so the top 3 cover several lanes until 
 ```
 
 verdict is `pick`, `maybe` or `no`. The person sees the candidates on the inspire screen (source,
-tempo, fit, the energy curve over the beats, your verdict and why) and marks songs "use" or "no";
-you hear it in your inbox. Only the person can. Both are kept as their taste across projects. Then import it like any media:
-`project {action:"import", file:"<yt:, openverse: or archive: id>"}`. The credit stays with the file.
+tempo, fit, the energy curve over the beats, your verdict and why) and marks songs "use" or "no"
+(only they can; you hear it in your inbox); both are kept as their taste across projects. Then
+import it: `project {action:"import", file:"<yt:, openverse: or archive: id>"}`.
 
 ## No music, and the sound stop
 
@@ -104,8 +105,8 @@ A video of 10 s or more with no song under it is never silent by accident:
 
 ## Hear the mix in numbers
 
-`look {mode:"motion", ref:"sound"}` (the CLI also takes `mode:"sound"`) measures the mix (FFmpeg
-ebur128; nothing is played): short-term loudness every 0.5 s (`st:`), each beat's level (spine,
+`look {mode:"motion", ref:"sound"}` (the CLI also takes `mode:"sound"`) measures the mix (nothing
+is played): short-term loudness every 0.5 s (`st:`), each beat's level (spine,
 else intents), each spoken line in LU over the music (under 6 is flagged; 8 to 10 is good), the
 songs' sections in video time and the ducking dips, with one graph.
 
@@ -148,4 +149,4 @@ on YouTube by artist and title ("Artist - Topic" uploads first) and measures the
 `explore:{lanes:4..6, per:2..3}` sets how many. The answer lists each queued song with its lane and
 tag; it takes about a minute. Measuring runs one song at a time (about 20 s each): wait, then
 `library {topic:"soundtrack"}` ranks them (a song still "not measured" is not done). Exploring again
-skips songs already kept. Let the person pick the lane on the music tab.
+skips songs already kept. The person picks the lane on the music tab.

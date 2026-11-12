@@ -16,20 +16,16 @@ answers in short lines; you record them, fix the P0s and try its UP lines.
    range (its time), is a question, not a fix: a designed moment is a set piece, a signature
    move, a reveal, the payoff (or its slam), a transition, flash, freeze, typed text, rewind,
    fast cut run, or one of the style bible's `moves`, named in the line's where or problem. A real defect there (unreadable
-   or too fast to read, clipped, covered, out of sync, frozen, a typo) stays a P0. kino marks it `ask`, it blocks
-   nothing, and `notes {action:"checkpoint", id:"critique"}` asks the person.
-   Any other P0 blocks a final render (`critique_open`). Make each P0's exact change, keep what it says
-   stays, then a new packet for a fresh critic (round 2). The same packet cannot clear its own P0.
-5. At most 2 rounds a scene per story: only a spine rewritten from scratch (not retimed or reworded beats) starts the
-   count again. Open P0s after round 2 go to the person: `notes {action:"checkpoint", id:"critique"}`
-   asks them as one stop. Record their reply with `notes answer`: read_as `redo` (fix: make those
-   changes; the next edit clears the lines) or `approve` (keep: the lines stay, in their words).
+   or too fast to read, clipped, covered, out of sync, frozen, a typo) stays a P0. kino marks it `ask`
+   and `notes {action:"checkpoint", id:"critique"}` asks the person.
+   Any other P0 is on the fix list: make the changes you agree with. The final render does not wait on it; its receipt lists open P0s and drops one about a deleted shot.
+5. One round a scene per story. A line that would cut a designed moment still goes to the person: `notes {action:"checkpoint", id:"critique"}`, then `notes answer`.
 6. A round with no P0 (`none`, or only P1/P2) must be about the video as it is: on a packet
    the video was edited past it is refused.
 7. When the viewer gate is due too (intents written, no bar), the packet carries its sheets and
    heard.txt: one subagent writes part 1 (the viewer) to viewer.txt; only then does packet.txt
    appear, so it never sees the brief first. It answers part 2. One `notes critique` takes the
-   lines plus `matches`, `bugs` (the report comes from viewer.txt) and passes both gates. A P0 or a story bug asks round 2; a fixed P0 alone is re-read by the critic only.
+   lines plus `matches`, `bugs` (the report comes from viewer.txt). A P0 or a story bug is a fix list.
 
 ## The bar and the person's verdicts
 
@@ -38,13 +34,11 @@ their best. Save the person's verdicts on past cuts, in their words: `notes {act
 the bar. Every packet lists the verdicts as anchors. With a bar, the first two pages are this cut
 and the bar at the same story points (shared spine beats, else even fractions), and the critic's
 first line is `BAR better|worse · <what, at which times>`. A round without it is refused;
-`BAR worse` blocks a final render like a P0; a bar saved after the last round holds the render
-(`bar_needed`) until a round compares.
+`BAR worse` is a P0 on the fix list; the final render names it on its receipt and does not wait for a round that compares.
 
 Every critic also answers the anti-AI-edit questions: is each device from the story or
 decoration; do captions break as spoken phrases timed to the voice; do cuts land on an action
-or the voice; do the title and end card feel designed or templated; counting the devices, does
-it look like stacked effects? Principles, not a house style.
+or the voice; do the title and end card feel designed or templated; at each hit, does the picture change as much as your saved references do at theirs, or is the hit decoration? Principles, not a house style.
 
 ## The packet
 
@@ -64,7 +58,7 @@ it look like stacked effects? Principles, not a house style.
 - P1 weakens it. P2 is polish. No scores; `none` when nothing is wrong.
 - First line: `OWN t=<seconds> · <the moment only this product could have>`, or
   `GENERIC · <why it could be any product> → <that moment, from its real material>`. GENERIC
-  blocks like a P0 until a later round names an OWN moment or the person answers it.
+  is a P0 on the fix list: find that moment.
 - `->` and `|` are accepted for `→` and `·`; a span (`t=19-25.7`) counts from its start. A line in
   another form, or a score, is refused.
 

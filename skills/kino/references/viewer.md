@@ -105,17 +105,17 @@ never right is lost (unclear). Aim for guesses that are sometimes wrong and then
 Fix the cause, not the symptom: show the obstacle instead of a caption saying it, hold on a
 face after the payoff, cut the repeated shot, say one thing per beat. A caption is the last
 resort, and it never names what the ending reveals: a caption before the last beat with a word
-only the last intent says ("Target") holds the final render as `viewer_needed`, unless the voice
-says it then. A false hit: `waive_check {code:"spoiler", target:<caption>}`. Then make a new packet
+only the last intent says ("Target") rides on the final render's receipt as an open note
+(the render does not wait; fix it), unless the voice says it then. A false hit: `waive_check {code:"spoiler", target:<caption>}`. Then make a new packet
 and give it to a **new** fresh viewer (one who read the first report is no longer fresh).
 Bugs on the cut it watched ask for a fix first (`step:` names the edit). At most two rounds
-a scene: after the second, one edit for its bugs and the gate stops waiting on them. A cut
+a scene: after the second, one edit for its bugs. A cut
 changed over 10 revisions since the last report is watched again.
 
 ## 6. The gate
 
-A final render of a whole video 15 s or longer with footage or speech answers
-`viewer_needed` until a viewer report on a recent revision (the last 10) has no open story
-bugs, or its second round's bugs had an edit after them. Drafts, stills, cut-short renders, renders the person starts or allows in the app, and
-scenes with `waive_check {code:"viewer", target, reason}` go ahead. Waive only for a reason
-the person would agree with (they watched it themselves, no subagent is available).
+A whole video 15 s or longer with footage or speech should have a viewer report on a recent
+revision (the last 10) with no open story bugs. The final render does not wait for it: open
+story bugs ride on its receipt as open notes. `waive_check {code:"viewer", target, reason}`
+drops the note; waive only for a reason the person would agree with (they watched it
+themselves, no subagent is available).

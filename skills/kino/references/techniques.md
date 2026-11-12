@@ -86,6 +86,11 @@ used), `p` (0 to 1, how typical).
 kino shows the 3 least typical, new whos and types first: `A. idea · who: tension → turn · ends on ending · type: type`.
 The pick (their words; "just start": yours, with `why`) sets `style.idea`, `style.type`, the first
 signature and the spine's end; the lock's fonts name the faces. Building first is `order_needed`; waive_check "treatments" skips it.
+When the dropped most typical treatment names the ask's origin word, the answer lists it as D
+(what this ask is known for); `fields:{treatments:{pick:"D", why:"<why>"}}` takes it. An edit of
+a subject in footage (the project's clips or an edit ask, no app or product named) is asked
+about the subject and its shots: the signature's why says why only this subject and its
+footage can.
 
 ```json
 {"tool":"notes","action":"brief","fields":{"treatments":[{"idea":"dawn","who":"the city","tension":"asleep?","turn":"first wheels","move":"pushes","ending":"noon","type":"grotesk, fade up","p":0.6,"source":"dawn.mp4"},{"idea":"one board","who":"a kid","tension":"whose?","turn":"he lands it","move":"match cuts","ending":"his","type":"handwriting, drawn on","p":0.15,"source":"crew.mp4"},{"idea":"a map","who":"the crew","tension":"where to?","turn":"loop closes","move":"mask-wipe","ending":"map","type":"serif, cut on","p":0.1,"source":"route.mp4"},{"idea":"tricks","who":"a skater","tension":"lands it?","turn":"a fall","move":"freeze","ending":"laugh","type":"caps, a word a hit","p":0.25,"source":"tricks.mp4"},{"idea":"sounds","who":"you","tension":"that noise?","turn":"wheels on beat","move":"sound cuts","ending":"beat","type":"mono, typed on","p":0.05,"source":"street.wav"}]}}

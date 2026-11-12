@@ -24,8 +24,7 @@ send it as is; put your words where it has `<angle brackets>`. A new video, idea
 
 ## Tools
 
-`mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); the CLI takes the same
-fields as `key=value`: `kino look frame t=3`.
+`mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); the CLI takes `key=value`: `kino look frame t=3`.
 
 | Tool | Use |
 |---|---|
@@ -34,7 +33,7 @@ fields as `key=value`: `kino look frame t=3`.
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks in one call. |
 | `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip (no FFmpeg sheets). |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
-| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. |
+| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects; the rest rides on its receipt. |
 | `library` | Exact rules: `{topic:"op", name}` (fields), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
 | `notes` | The `brief`, stops, plan, the person's notes, `helper` agents. |
@@ -50,8 +49,8 @@ fields as `key=value`: `kino look frame t=3`.
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
 4. First a rough whole scene in **one** `edit` (`compose`).
    Then up to 3 sections, each an `edit` + `look {from, to}`.
-5. Read the receipt, not `status`.
-6. A receipt's `newFindings` are what that edit broke: fix them; `check` before a render or "done".
+5. Read the receipt, not `status`; its `newFindings` are what that edit broke: fix them.
+6. `check` before a render or "done".
 7. One `look` per pass or section. All fixes in one `edit`, then `look {mode:"changed"}`.
 8. Before a final render: `look {mode:"review"}` until every moment is reviewed; fix.
 9. Ask each stop `step:` names (`notes {action:"checkpoint", id:"rough"}`): final waits.
@@ -59,42 +58,40 @@ fields as `key=value`: `kino look frame t=3`.
     `notes {action:"judge"}`: the person picks blind. Fix where they win.
 11. 15 s+, footage or speech: `notes intents`; a fresh viewer reads `look {mode:"viewer"}`;
     `notes viewer`; fix bugs ([viewer](references/viewer.md)). With 12: one subagent.
-12. 10 s+: a fresh critic: `look {mode:"critique"}`; `notes critique`; fix P0s, UPs; `notes verdict`: the bar ([critique](references/critique.md)).
+12. 10 s+: one fresh critic round: `look {mode:"critique"}`; `notes critique`; a fix list, never a gate; `notes verdict`: the bar ([critique](references/critique.md)).
 13. Material short? Find footage, ask ([needs](references/needs.md)).
 
 ## Rules
 
-- Name things: `name` on `add_layer` is its ID, so later ops (same edit too) say
-  `layer:"headline"`; `headline.in` is its entrance. Codes (`L3`, `A2`, `s1`) work too.
+- `name` on `add_layer` is its ID: later ops (same edit too) say `layer:"headline"`;
+  `headline.in` is its entrance. Codes (`L3`, `A2`) work too.
 - One scene: no `scene` field. Several: `scene:"s2"` or its name.
-- Positions: top-left, scene pixels; colors hex. Text needs a `width` and `height` that fit.
+- Positions: top-left, scene pixels; colors hex. Text needs a fitting `width` and `height`.
 - Restraint: plain cuts; 1-2 signature moves; one type style, grade, brightness. Every effect
   needs a cue that motivates it; reference counts are ceilings; none is fine ([techniques](references/techniques.md), style spec).
 - `add_layer` takes its animations inline: `animations:[{preset:"preset-fade", start, duration}]`;
   `"mode":"out"` makes an exit.
-- A refused edit saves nothing; `next` resends it fixed, or send fixes:
-  `edit {retry:"E2", fix:{"3":{"easing":"smooth"}, "7":null}}`.
+- A refused edit saves nothing; `next` resends it fixed, or: `edit {retry:"E2", fix:{"3":{"easing":"smooth"}, "7":null}}`.
 - `{status:"awaiting_approval", id:"Q1"}`: tell them; a chat yes counts (notes answer).
-  `{held:true}`: nothing changed; wait for "hold released".
+  `{held:true}`: wait for "hold released".
 - `{status:"waiting_for_you", id:"C1"}` (a stop): send its `ask`, end your turn, record their
   reply with `notes answer`. Until then writes answer `{waiting}`.
 
 ## References
 
-- [edits](references/edits.md): ops, refusals, presets.
+- [edits](references/edits.md): ops, refusals, presets, fonts.
 - [fields](references/fields.md): every op's fields.
 - [building-blocks](references/building-blocks.md): compose, recipes, brand, formats; [moves](references/moves.md).
 - [captions-beats-sequences](references/captions-beats-sequences.md): captions, beats, cues.
-- [media](references/media.md): imports, cuts, speed, syncing, B-roll; [recording](references/recording.md).
+- [media](references/media.md): imports, cuts, speed, B-roll; [recording](references/recording.md).
 - [framing](references/framing.md): crops and marks; [screens](references/screens.md): UI; [tilt](references/tilt.md): 3D; [behaviors](references/behaviors.md).
 - [storyboard](references/storyboard.md): `look board`.
-- [sound](references/sound.md): ducking, voice; [library](references/sound-library.md): SFX, music.
+- [sound](references/sound.md): ducking, voice, clip lines, fit_music; [library](references/sound-library.md): SFX, music.
 - [color](references/color.md): grades; [cutout](references/cutout.md): subject cut-outs, track, pin.
 - [blur](references/blur.md), [light](references/light.md), [particles](references/particles.md): glow, sparks, fog.
 - [check-and-look](references/check-and-look.md): findings, looks; [motion](references/motion.md).
 - [ideas](references/ideas.md): story; [spine](references/spine.md): idea and lock.
 - [taste](references/taste.md): motion, readability, restraint.
-- [direction](references/direction.md): brief; [stops](references/stops.md).
-- [dashboard](references/dashboard.md): history, notes, helpers.
+- [direction](references/direction.md): brief; [stops](references/stops.md); [dashboard](references/dashboard.md): notes.
 - [render](references/render.md): exports.
 - [inspire](references/inspire.md): cuts; found [songs](references/soundtrack.md), [footage](references/footage.md); [workspace](references/workspace.md).

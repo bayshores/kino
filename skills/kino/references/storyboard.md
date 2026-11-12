@@ -18,8 +18,11 @@ Read before building a video from footage (the `board` stop), or to plan any vid
   `subject` `{what, box, eyes?}`. `follow`: `steady`, `track` or `sweep`; a subject that crosses
   the frame needs `track` or `sweep`.
 - `text` in the face your references chose (example faces are placeholders), off faces; no
-  meme or novelty fonts unless asked. `sound`: a concrete effect ("phone buzz on the table")
-  from the person's files or kino's library, never a made-up synth.
+  meme or novelty fonts unless asked. `sound`: an effect to add `{media, what}` ("phone buzz
+  on the table") from the person's files or kino's library, never a made-up synth, and/or the
+  clip's own sound `{keep:"all"}` or `{keep:[from, to]}` (file seconds). A shot with
+  `"sound":{"keep":[1.5,2.5]}`: placing its layer, even at volume 0, runs `keep_line` on that
+  stretch and dips the board's music.
 - `pacing`: `beat_cut`, `phrase_flow` or `free`. `calls` (at most 6): your own choices, so an
   approval covers them. `open` (at most 3): questions only the person can answer.
 - `move`: `{kind, name, ref}`, `ref` the reference moment copied (`"<key>@<seconds>"`; `look
@@ -67,6 +70,8 @@ Then ask with `fresh:"ran"`, or `fresh:"skipped"` when your app cannot start one
 
 ## After the approval
 
+Board approved: build it in one call, `edit {ops:[{op:"compose", from:"board"}]}`: a layer per
+shot in board order, board music kept; sent again it replaces only its board-* layers.
 kino keeps a copy of the approved board: build to it. These lapse the approval: media, text,
 sound, pacing, follow, move, music (or its file), shot order, a shot added or removed, a new open
 item; a cut, in-point or end moved over 6 frames; a crop changed over 5% of the frame width.

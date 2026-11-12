@@ -3,7 +3,7 @@
 Import a file first: `project {action:"import", file:"/absolute/path.m4a"}` answers its `src`
 and duration.
 
-Contents: Sound effects · Volume, fades and ducking · Music as structure · Separating voice from background · Cleaning a voiceover
+Contents: Sound effects · Volume, fades and ducking · Music as structure · A clip's own line over music · Separating voice from background · Cleaning a voiceover
 
 ## Sound effects: finding and placing them
 
@@ -50,9 +50,11 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 
 ## Sound: music as structure
 
-- `fit_music {layer}` plays one unbroken stretch of the song, its drop on the spine's payoff
-  (or `payoff`): time the picture to it; its notes say where the turn and end fit the song.
-  Then `duck_audio`. `recut:true` re-arranges in 4-bar groups; the song's own ending
+- Place a song with `fit_music`, not a typed offset. `fit_music {layer}` plays one unbroken
+  stretch of the song, its heaviest drop on the spine's payoff (or `payoff`; with neither, 45-75%
+  in, so the drop plays 4 bars and a bar of fade) and sets the rhythm from a steady beat. A payoff that leaves the
+  drop under 4 bars is kept, with a note. Time the picture to it; its notes say where the turn
+  and end fit the song. Then `duck_audio`. `recut:true` re-arranges in 4-bar groups; the song's own ending
   counts within 2 bars of `end`, else a fade.
 - `music.sections` lists sections and seams, weight 0 to 1 ("8.01 s drop, weight 0.8
   (payoff)"); cues `song-drop-1`, `song-dropout-`, `song-return-`, `song-vocal-in-`,
@@ -62,6 +64,16 @@ Contents: Sound effects · Volume, fades and ducking · Music as structure · Se
 {"op":"add_layer","layerType":"audio","name":"song","properties":{"src":"/api/media/<song>.m4a"}}
 {"op":"fit_music","layer":"song","payoff":8}
 ```
+
+## Sound: a clip's own line over music
+
+- `look source {layer}` and a found-clip import give each clip's sound: `-23.4 LUFS · voice
+  heard 2.8-3.0 s, words not read` (file seconds) is voice whisper could not read. Keep it with
+  `keep_line {layer:"shot-3", from:5.4, to:7.3}` (`from`/`to` are scene seconds).
+- `keep_line` levels a clip line 6 LU over the song (never under -16 LUFS) and holds the mix;
+  the receipt says the mix under the line vs the 2 s around.
+- Music out for a line, back on the downbeat: `{op:"keep_line", layer:"clip", from:5.5, to:7.2,
+  dropout:true}`. `dip` (0 to 1) sets a fixed dip instead (not both).
 
 ## Sound: separating voice from background
 

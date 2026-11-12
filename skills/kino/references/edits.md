@@ -102,13 +102,14 @@ A second scene (from then on every op names its `scene`):
 ## Fonts
 
 - `library {topic:"fonts", search:"Roboto"}` finds a font (`"∞"`: by character; `"brush"`, `"slab"`,
-  `"japanese"`, `"bold sans"`: by look); `set_font` downloads it.
+  `"japanese"`, `"bold sans"`: by look); `set_font` downloads it. A family you name comes
+  first (`search:"Anton condensed bold"` lists Anton first); a lone word like "big" is a look.
 - `set_font` refuses a font lacking a character; its `instead` (`edit {retry, fix:{"<n>":
   <instead>}}`) draws just those in another font.
 - Variable fonts: text `axes:{wght, wdth, slnt, opsz}` (merged per axis, `{wdth:null}` drops
   one), animated by `animation:{kind:"custom", from:{axes:{wght:100}}, to:{axes:{wght:900}}}`.
 - `outline_text {layer}`: letters become path layers in a group; the text is hidden.
-- Match a reference's letters: library {topic:"fonts", like:"/abs/frame.png", region:[x,y,w,h], text:"THE WORDS"} ranks faces by measured letters, each with a set_font call. text makes width reliable.
+- `library {topic:"fonts"}` lists faces measured from your saved type labels first (whole frame; a type label may be at any second). To measure just the letters: `like:"yt:X"` or `like:"/abs/frame.png"`, `t`, `region:[x,y,w,h]`, `text:"THE WORDS"`; each face comes with a set_font call, and `text` makes width reliable.
 
 ## Rebuilding
 

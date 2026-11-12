@@ -17,7 +17,8 @@ leaks. No stock overlay file is needed.
   recipes; `library {topic:"rules", name:"particle-recipes", search:"snow-loop"}` gives one as
   the ops to send (leave out search for all nine).
 - `variation` 0..1 spreads each dot's depth: size, speed, trail length, brightness, glow and
-  color (color far, color2 near); `haze` 0..1 adds a soft bloom under them. `effect:"streaks"` (add blend) is a falling streak field with
+  color (color far, color2 near). A new dot effect (embers, sparks, snow, dust, rain, bokeh)
+  starts at 0.6; `variation:0` keeps the look's own small jitter. `haze` 0..1 adds a soft bloom under them. `effect:"streaks"` (add blend) is a falling streak field with
   depth in one layer (code rain, light streaks); put it under a cut-out subject.
 - `links` N joins dots closer than N px with lines (a constellation, network): dust {count:14, links:320}.
 - The picture at a time depends only on the settings, the seed and that time, so the look,

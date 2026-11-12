@@ -66,12 +66,13 @@ captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess (time
   go first, and a burned-in subtitle on such a shot is its line, so it reads `has subtitles`
   instead of ranking last. `next:` imports that line by its time range:
   `{"tool":"project","action":"import","file":"F1","options":{"from":4.9,"to":7.3}}`.
-- No captions or no answer from YouTube: it says the words were not looked for.
+- No captions? `said:"<words>"` listens to the scanned part here (English only, about 6-13 s a
+  minute): `library {"topic":"footage","scan":"F1","said":"protect them"}`.
 - Import also listens: a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (clip seconds), or
   with no caption line `heard "..."` (whisper, an English model: other languages come out as
   sound-alike words). `look` source lists `heard:` per clip (`(muted here)` at volume 0).
 - Keep a said line: `keep_line {layer, line, duck}`: the rest of the clip goes silent, a
-  subtitle shows the line, the music dips (`dip`, 0.7). Unread speech or a translation: `from`,
+  subtitle shows the line, the music dips to sit 6 LU under it (`dip` sets another). Unread speech or a translation: `from`,
   `to` (scene seconds) and `text`. A line the trim cuts off: its call moves mediaOffset first.
   Over a song: `{"tool":"edit","ops":[{"op":"keep_line","layer":"climb","line":"I'm just gonna see.","duck":"song"},{"op":"isolate_voice","layer":"climb"}]}`.
 - compose {footage} keeps the clips' best lines heard (one per 6 s; `lines`: a number, [texts] or false).
@@ -92,13 +93,13 @@ Numbers cannot see design (type family, overlays, composites, color, made graphi
 with `look {mode:"reference", ref:"yt:X", t}`, then say what you see (an unlooked moment is refused), such as
 `library {topic:"inspire", name:"seen yt:X @1.8 overlay, made: green outline traced on the figure"}`.
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
-The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old.
+The time is one of the 6 (0.5 s off is fine; a `type` label may be at any second); a label at the same time replaces the old.
 The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
 until all its moments are labeled; each label reply names the next look.
 Build toward the labels, not a template.
 
-The check `reference_kinds` (an error) reads the labels: a kind that 2 labeled references show at
-2 or more moments must show somewhere in your edit. Its fix is a ready call (a library search, a
+The check `reference_kinds` (advice) reads the labels: a kind that 2 labeled references show at
+2 or more moments should show somewhere in your edit. It names a free moment and a ready call (a library search, a
 kino overlay for made, `keep_line` for spoken). Make your own version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
 `quote` in words the person typed that say what is plain (just cuts, music only...); "your call" is refused.

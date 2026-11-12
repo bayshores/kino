@@ -15,6 +15,9 @@ frame strips · Proposing ideas · Sound effects
   camera moves, cuts in motion, blur dips, dissolves, text on screen, what stays in place,
   palette and brightness. Text numbers are reliable; motion numbers advise (handheld reads as
   camera moves); reveals can mistake interface labels for captions.
+- A measured reference lists words heard in it (a voice or the song) and a footage `said:`
+  call; a scan of a video with no captions offers that line as
+  `library {"topic":"footage","scan":"F1","said":"<line>"}`.
 - One video is measured at a time. Searches and saved references belong to the project; the
   numbers are shared.
 - yt-dlp missing: the search says how to install it (`KINO_YTDLP`). Downloads need deno, node

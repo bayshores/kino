@@ -20,6 +20,9 @@ Contents: The move op · The moves · Moves example · Trim paths and dashes
 - `seed` picks other choices. `reduced:true`: calm fades, small moves.
 - No move runs past the scene's end: `retime` it or start earlier.
 - Cues `<id>.1`… mark a move's steps (roll, type-on, stream) for sound.
+- Status and the deck show `for your words: "aura" -> energy-aura`: moves your stored ask
+  names. A word in a move's own name makes it the set piece; a word only in its description
+  makes it likelier. `library {topic:"moves", name:"energy-aura"}` gives fields.
 
 ## The moves
 

@@ -85,7 +85,8 @@ Big numbers ("40%", a counter) are the `stat` role: set `fonts.stat` to hold the
 then a big line in that face that leads with a number ("3x faster") is a stat too.
 Warned, never a gate (a second face with a job, a set piece used once, a double payoff can be
 designed; the taste judge and the person weigh them): `role_font_drift` (a text off its `fonts`
-family, or a caption off its size by 15%), `brand_consistency` (the logo shown more than
+family, or a caption off its size by 15%; a `fonts` size the person's quote does not name is a
+guess, so display text off it is info only: keep the size if it reads right), `brand_consistency` (the logo shown more than
 `logo.max` times), `accent_budget` (fills, outlines and a gradient's main stop in `accent.color` over
 `share` of the frame for 1 s; media is not measured), `vocabulary_budget` (a designed technique
 outside `moves`), `ending_count` (over 2 closing titles or logos after the last story beat; a

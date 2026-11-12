@@ -21,21 +21,22 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   unaffected segments. This change does not concatenate those into a final movie. Export the
   complete ordinary draft/final after approving excerpts, to check joins and continuous audio.
 
-- `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 errors (a real edit: 0 warn too) and
-  `look {mode:"review"}` has shown every moment (else `review_needed`). With `wait:true` it
+- `render {action:"start", quality:"final", out, wait:true}` once `check` shows 0 errors (a real edit: 0 defect warnings) and
+  `look {mode:"review"}` has shown every moment. Its receipt ends with Open notes (taste warnings, moments not reviewed, critic lines), never a refusal for them. With `wait:true` it
   answers when the file is checked; if the render takes longer, it says it is still running:
   then `render {action:"wait"}` until it returns the file. Use `quality:"draft"` only
   if you need to see real motion. A final's answer ends with one `Sources` line (found footage,
   songs, sounds) for when the person publishes.
 - Past the build, status (and the answer to the last stop) says `to final: 1) … N) render final`,
   and a refused final names every gate still open. Plan them all at once, in that order
-  (stops, intents, viewer, critic, fixes, check, review, versus): a fix redoes what comes after.
+  (stops, intents, fixes, check, review, versus): a fix redoes what comes after. The viewer
+  and critic are advice: their lines come on the receipt.
 - `quality:"draft"` uses half each scene dimension at 30fps (even video sizes); `fps` sets another
   rate up to 30 (the footage's 24 or 25). Use this to judge motion fidelity.
   `quality:"final"` uses full dimensions and `fps` (default 30; 23.976, 29.97 and 59.94 for
   editing apps and broadcast, or `options:{fps:"30000/1001"}`), `motionBlur:0.5` (two shutter
   samples) and `dither:true`. Override with `motionBlur:0`, `dither:false` for the original
-  appearance. Unwaived errors (in a real edit, a brief and over 30 layers or 10+ in 15 s+, warnings too) block final, and so do the video's open stops (`stops_open`:
+  appearance. Unwaived errors (in a real edit, a brief and over 30 layers or 10+ in 15 s+, non-taste warnings too) block final, and so do the video's open stops (`stops_open`:
   ask them in order, or the person allows them in settings; drafts still render). Saved
   reduced-motion choices stay in effect.
 - Motion blur comes from how layers move while the shutter is open. By default each frame

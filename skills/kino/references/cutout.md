@@ -53,6 +53,9 @@ A grown silhouette under the subject is an outline; a grown, feathered one is a 
 {"op":"cut_out","layer":"dancer","above":"outline"}
 ```
 
+A subject cut_out leaves the clip's glow on the clip, so it shines behind the subject (the
+receipt says so). To bloom the subject too, add a glow to the cut-out layer.
+
 ### New or blurred background
 
 Blur the clip under its subject, or put a backdrop between them (the clip stays below it and

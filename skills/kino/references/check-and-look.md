@@ -11,6 +11,8 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - `check {fix:"auto"}` applies the `(auto)` fixes in one edit (skipping one that adds an error
   or keeps its finding), re-checks, up to 3 rounds: call it once. A warning's fix skips layers
   your last edit moved, a waiver names or a spine beat uses.
+- After an edit, `check {}` redraws only the frames the edit touches (seconds), and a check of an
+  unchanged scene answers from the last one, also while `reference_drift` runs.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - The first 8 lines of `check`, `look` versus and review, and `status` lead with what decides your
   next call (errors, advice, drift, `whole scene:`, inbox); the rest is detail.
@@ -23,7 +25,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 - Contrast: under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
 - `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
-- Errors, and in a real edit warnings, block final. On purpose:
+- Errors, and in a real edit warnings except taste ones (they ride on the final's receipt), block final. On purpose:
   `{"op":"waive_check","code":"overlap","target":"*","reason":"meant"}`; a list or glob
   waives each match. `quote` (the person's words) and named layers, never `*`:
   what viewers see, `crop_no_subject`; whole-scene `held_static`, `text_slides`, `ending_seen`,
@@ -92,9 +94,8 @@ What a viewer calls sloppy though gates pass: fix it. Each has an automatic fix
    frame, its time, what happens, findings in yellow. Cuts add seam rows (motion reference).
 3. Study every frame for type, wrapping, overlaps, framing, empty space and artifacts. Fix them all in one `edit`.
 4. `look {mode:"review"}` again shows only the moments whose picture changed.
-5. `render {quality:"final"}` of the whole video is refused (`review_needed`) until every moment
-   is reviewed as it is now. Drafts, stills (png) and scenes under 5 s are not gated. A
-   skip: `waive_check {code:"review", target:"s1", reason}`.
+5. A final render does not wait for look review; its receipt names the moments not yet reviewed
+   as they are now. Review before it anyway.
 6. Saved references: with no `look {mode:"versus"}` in 10 revs, final runs it: rows by place
    (opening, loudest change, ending), gaps in fill, contrast, drift, range, softness, accent. A
    lost judge round blocks. Skip: `waive_check {code:"reference", target:"*", reason}`.
