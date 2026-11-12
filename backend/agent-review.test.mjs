@@ -612,6 +612,17 @@ test("critic lines: only P0|P1|P2 t= · where · problem → change · what stay
   assert.equal(critiqueProtocol(), CRITIQUE_PROTOCOL);
   const polish = parseCritique(["UP t=5 · add a music drop on the scan · serves the reveal", "P0 t=5 · shot 3 · nowhere to look → cut to the reply box 0.2 s later · the voice"], 12, { signatures });
   assert.deepEqual(polish.map((entry) => [entry.ask ?? false, entry.cutsSignature ?? false]), [[false, false], [false, false]]);
+  // The shot the ask points to: a line that moves or cuts it is labeled, never asked, blocked or reordered.
+  const climb = ["P0 t=1.5 · problem beat 1.5–5.5 s · the beat shows a frozen bowed-head hold, stairs do not appear until 9.0 s → move the stair-climb shot (9.0–10.4 s) to 2.0–3.4 s and cut the frozen bowed-head hold to 0.5 s · the DEAD AGAIN hook 0–1.5 s",
+    "P1 t=9 · stairs climb 9.0–10.4 s · dark hands and legs → after moving it to the problem beat (see P0 t=1.5), fill 9.0–10.4 s with the mouth shot · the mouth close-up"];
+  const pointed = parseCritique(climb, 15, { asked: { word: "stairs" } });
+  assert.deepEqual(pointed.map((entry) => [entry.asked, entry.ask]), [["stairs", undefined], ["stairs", undefined]]);
+  assert.match(lineText(pointed[0]), /the DEAD AGAIN hook 0–1\.5 s · moves the shot the ask points to \("stairs"\)$/);
+  assert.deepEqual(parseCritique(climb, 15).map((entry) => entry.asked), [undefined, undefined], "without the ask's word nothing is labeled");
+  assert.equal(parseCritique(["P1 t=3.2 · climb shot · blocky → swap in a cleaner frame range of the same stair climb · the climb"], 15, { asked: { word: "stairs" } })[0].asked, undefined);
+  // A shot's seconds are half-open: a seam line at the shot's end is not caught; one inside it is.
+  assert.equal(parseCritique(["P0 t=4.6 · seam · dark → trim it to 0.3 s · the cut"], 15, { asked: { word: "x", from: 3.2, to: 4.6 } })[0].asked, undefined);
+  assert.equal(parseCritique(["P0 t=4.5 · seam · dark → trim it to 0.3 s · the cut"], 15, { asked: { word: "x", from: 3.2, to: 4.6 } })[0].asked, "x");
   // The bar: BAR better passes, BAR worse (or same) blocks like
   // a P0, and a round with no BAR line leaves the bar gate open. Every critic is asked the
   // anti-AI-edit questions.

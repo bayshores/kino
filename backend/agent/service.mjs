@@ -76,7 +76,8 @@ import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStop
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
-import { pickedEnding, pickedType } from "./treatments.mjs";
+import { originWord, pickedEnding, pickedType } from "./treatments.mjs";
+import { askShown } from "../../engine/quality/rules/ask.js";
 import { activeApproval, boardFacts, boardPrint, laterAnswer, reframeApproved, settleBoard } from "./board.mjs";
 import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
@@ -784,7 +785,7 @@ export function createAgentService(deps) {
     const findings = mergeFindings(basic, checked.findings, { document, codes });
     const missed = checked.unchecked ?? [];
     const unchecked = missed.length && missed.length === checked.scenes ? "all" : missed.map((id) => refName(id, codes));
-    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [], crops: checked.crops ?? null };
+    return { findings: rules ? findings.filter((finding) => rules.includes(finding.rule)) : findings, notes: checked.notes, ms: checked.ms, unchecked, techniques: checked.techniques ?? {}, styleSpec, stale: listen ? checked.stale ?? [] : [], crops: checked.crops ?? null, ask: checked.ask ?? "" };
   }
 
   // The project's waivers that still silence a finding (stale ones left out): what the waived
@@ -3945,7 +3946,9 @@ export function createAgentService(deps) {
     noteLive({ sceneId: scene.id, range: [range.from, range.to] }, [{ sceneId: scene.id, range: [range.from, range.to] }]);
     const direction = critiqueDirection(state.brief);
     const notesOpen = (state.notes ?? []).filter((note) => note.status !== "resolved").slice(-12);
-    const { findings } = await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false });
+    const { findings, ask: askPoint } = await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false });
+    // What the ask points to and which shot shows it, as the check judged it: the critic weighs notes against it.
+    if (askPoint) direction.lines.push(askPoint.replace(/^Your ask/, "The ask"));
     const briefTier = findings.filter((finding) => !finding.waived && (finding.severity === "error" || BRIEF_RULES.has(finding.rule)));
     const { listed } = triageFindings(briefTier.filter((finding) => finding.at == null || inRange(finding.at)), 12);
     const { text: trace } = await motionLook(range, { document, codes, fonts, scene });
@@ -4090,11 +4093,18 @@ export function createAgentService(deps) {
     let parsed;
     const moves = (Array.isArray(state.brief?.style?.moves) ? state.brief.style.moves : []).map((move) => move?.tag).filter(Boolean);
     const signatures = signatureRanges(state.brief?.style);
-    try { parsed = parseCritique(input.lines, scene.duration, { moves, signatures }); } catch (error) { throw new AgentError("bad_input", error.message); }
-    // Each line keeps the shots on screen at its time in the packet's cut, so a line about a shot
-    // deleted later is dropped instead of held open (critique.mjs staleReason).
     const packetDocument = rev === record.revision ? record.document : await store.getProjectRevision(record.document.id, rev).catch(() => null);
     const packetScene = packetDocument?.scenes?.find((entry) => entry.id === scene.id);
+    // The word the ask points to (kino's origin search), and when a shot is marked as showing it the
+    // seconds that shot plays in the packet's cut: a line that moves or cuts it is labeled (critique.mjs
+    // movesAsked). Only a label: no word, no label.
+    const pointsTo = originWord(state.origin);
+    const shownAsk = pointsTo && packetScene ? askShown(packetScene, [pointsTo.word], state.sourceLooks ?? {}) : null;
+    const shotRange = shownAsk ? mediaPlaybackRange(shownAsk.layer, packetScene.duration) : null;
+    const askedShot = pointsTo ? { word: pointsTo.word, ...(shotRange ? { from: shotRange.start, to: shotRange.end } : {}) } : null;
+    try { parsed = parseCritique(input.lines, scene.duration, { moves, signatures, asked: askedShot }); } catch (error) { throw new AgentError("bad_input", error.message); }
+    // Each line keeps the shots on screen at its time in the packet's cut, so a line about a shot
+    // deleted later is dropped instead of held open (critique.mjs staleReason).
     if (packetScene) parsed = parsed.map((line) => (["P0", "P1", "P2"].includes(line.level) && !line.generic && !line.bar ? { ...line, shots: shotsAt(packetScene, line.at) } : line));
     // A packet that showed the bar needs the critic's BAR line (a bar saved later waits at the gate).
     const bar = kept.packets.find((packet) => packet.rev === rev)?.bar ? barOf(state.verdicts) : null;
@@ -4129,7 +4139,9 @@ export function createAgentService(deps) {
     const only = isSubjectEdit(state, videoFacts(record.document)) ? "only this subject" : "only this product";
     const ownText = own ? `\n${only[0].toUpperCase()}${only.slice(1)}: ${lineText(own)} (make it land harder, never cut it).` : parsed.some((line) => line.generic) ? "" : `\nThe critic did not say which moment ${only} could have: ask it for an OWN or GENERIC line next round.`;
     const raise = (ups.length ? `\nTo raise it (suggestions, not gates; act on the best one):\n${ups.slice(0, 6).map((line) => `  ${lineText(line)}`).join("\n")}` : `\nNo UP lines: the critic skipped the elevation pass${number < CRITIQUE_ROUNDS ? "; ask it for UP lines next round" : ""}.`) + ownText;
-    const text = (p0.length ? `${head}; fix list, worst first:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no P0 to fix" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}${goAhead}`) + raise + asked + (viewer ? `\n${viewer.text}` : "");
+    // The fix list is read against the idea: what the person asked for is the fixed point.
+    const ideaText = String(state.brief?.fields?.idea?.text ?? "").replace(/["\n]+/g, " ").trim().slice(0, 80);
+    const text = (p0.length ? `${head}; fix list${ideaText ? ` against the idea "${ideaText}"` : ""}, worst first:\n${listedLines.join("\n")}\n${after}` : `${head}; ${asks.length ? "no P0 to fix" : "no P0"}. ${listedLines.length ? `Worth fixing:\n${listedLines.join("\n")}\n` : ""}${goAhead}`) + raise + asked + (viewer ? `\n${viewer.text}` : "");
     // The person's questions (the ask path) come first; then the first fix.
     const nextCall = asks.length ? critiqueStopCall() : !p0.length ? (viewer?.bugs.length ? viewerFixCall(viewer) : FINAL_CALL)
       : nextOf("edit", { ops: [`<the edit for: ${p0[0].change}>`] });

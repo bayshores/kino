@@ -382,7 +382,7 @@ export function briefChanges(current, input = {}, { said: recorded = [], origin 
   }
   let treatments;
   if (sentTreatments) {
-    let problem = treatmentsProblem(fields.treatments, current?.treatments, origin);
+    let problem = treatmentsProblem(fields.treatments, current?.treatments, origin, asksOf(current).map((entry) => entry.text));
     // A pick's quote is the person's words: found in what they said, like a line's.
     // (A pick sent again as it is stored was accepted before, so it is not checked again.)
     if (!problem && picking && typeof fields.treatments.quote === "string" && fields.treatments.quote.trim() !== current?.treatments?.picked?.quote)

@@ -22,6 +22,7 @@
 //                 why a viewer would retell it). It becomes the idea line, and its move and source
 //                 the style spec's first signature (pickedSignature).
 // Stored as brief.treatments = { list, dropped, shown:[indexes], picked:{label, by, quote?, why?}|null }.
+import { askWords, forms } from "../../engine/askWords.js";
 import { isRecord } from "../../engine/numbers.js";
 import { onlyWords } from "./subject-edit.mjs";
 
@@ -53,15 +54,15 @@ export const whoKey = (who) => String(who ?? "").trim().toLowerCase().replace(/^
 
 /**
  * The problem with a treatments save, or null. `current` is the saved brief.treatments; `origin`
- * (state.origin) lets a pick take KNOWN_LABEL, the dropped treatment, when it is what the ask is
- * known for (knownDropped).
+ * (state.origin) and `asks` (the person's message texts) let a pick take KNOWN_LABEL, the dropped
+ * treatment, when it is what the ask is known for (knownDropped).
  */
-export function treatmentsProblem(value, current, origin = null) {
+export function treatmentsProblem(value, current, origin = null, asks = []) {
   if (isRecord(value) && value.pick !== undefined) {
     const extra = Object.keys(value).filter((key) => !["pick", "quote", "why"].includes(key));
     if (extra.length) return problem(`A pick takes pick, quote and why, not ${extra.join(", ")}.`);
     if (!current?.list) return problem("Save the 5 treatments first, then the pick.");
-    const known = knownDropped(current, origin);
+    const known = knownDropped(current, origin, asks);
     if (!LABELS.includes(value.pick) && !(known && value.pick === KNOWN_LABEL))
       return problem(`pick is ${LABELS.join(", ")}${known ? `, or ${KNOWN_LABEL} (the dropped one, what this ask is known for)` : ""}: the letter the person chose from the ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} shown.`);
     if (value.quote !== undefined && (typeof value.quote !== "string" || !value.quote.trim() || value.quote.trim().length > TREATMENT_LIMITS.quote))
@@ -267,19 +268,38 @@ export const KNOWN_LABEL = "D";
  * search found the ask is known for that thing, so the drop stays but the answer still lists it.
  * Run 8 dropped "the climb" (p 0.55) though the origin search found "stairs" in 8 of 20 titles
  * (T138; DESIGN-2 change 6 as the skeptic amended it: keep the drop, list it as a labeled line).
+ * Without an origin word that it names (the search was skipped, or found another word), the
+ * person's own message can do it: the first word of `asks` (their message texts, oldest first)
+ * that the dropped one names and none of the 3 shown does (run 8 dropped the climb the same way).
+ * askWords reads a-z only, so an ask in another script gets no ask line. Returns
+ * {word, from: "origin" | "ask"}, or null.
  */
-export function knownDropped(treatments, origin) {
+export function knownDropped(treatments, origin, asks = []) {
   const found = originWord(origin);
   const entry = treatments?.list?.[treatments.dropped];
-  return found && entry && namesOrigin(entry, found.word).length ? found.word : null;
+  if (!entry) return null;
+  if (found && namesOrigin(entry, found.word).length) return { word: found.word, from: "origin" };
+  const shown = (treatments.shown ?? []).map((index) => treatments.list[index]).filter(Boolean);
+  for (const text of asks) {
+    for (const word of askWords(text)) {
+      const keys = forms(word).filter((form) => form.length >= 3);
+      if (keys.some((key) => namesOrigin(entry, key).length) && !keys.some((key) => shown.some((other) => namesOrigin(other, key).length)))
+        return { word, from: "ask" };
+    }
+  }
+  return null;
 }
 
 /** The labeled extra line for the dropped treatment the ask is known for, or "" (knownDropped). */
-export function knownLine(treatments, origin) {
-  const word = knownDropped(treatments, origin);
-  if (!word) return "";
-  return `${entryLine(treatments.list[treatments.dropped], KNOWN_LABEL)} · dropped as the most typical; it is what this ask is known for ("${word}")`;
+export function knownLine(treatments, origin, asks = []) {
+  const known = knownDropped(treatments, origin, asks);
+  if (!known) return "";
+  const why = known.from === "origin" ? `it is what this ask is known for ("${known.word}")` : `only it has "${known.word}" from their message`;
+  return `${entryLine(treatments.list[treatments.dropped], KNOWN_LABEL)} · dropped as the most typical; ${why}`;
 }
+
+// The person's message texts, oldest first (brief.mjs asksOf, which this file cannot import: it imports this one).
+const askTexts = (brief) => (Array.isArray(brief?.fields?.ask) ? brief.fields.ask.map((entry) => entry?.text).filter((text) => typeof text === "string" && text.trim()) : []);
 
 /** The pick line's origin part: whether the picked treatment names the origin word, or "" (no pick, no origin word). */
 export function pickOriginLine(treatments, origin) {
@@ -299,7 +319,7 @@ export function pickLines(brief, origin = null) {
   const treatments = brief?.treatments;
   if (!treatments?.list || treatments.picked) return [];
   if (/just start/i.test(brief.noPlayback?.reason ?? "")) return [];
-  return ["Pick a direction (or say your own):", ...[originLine(origin)].filter(Boolean), ...shownLines(treatments), ...[knownLine(treatments, origin)].filter(Boolean)];
+  return ["Pick a direction (or say your own):", ...[originLine(origin)].filter(Boolean), ...shownLines(treatments), ...[knownLine(treatments, origin, askTexts(brief))].filter(Boolean)];
 }
 
 // What the agent's own pick is for, and the call that saves it ("just start").
@@ -323,7 +343,7 @@ export function treatmentsText(brief, origin = null, { subject = false } = {}) {
     return [line, pickOriginLine(treatments, origin), wordsOnly(entry.source) && wordsOnly(saved) ? pictureLine(subject) : ""].filter(Boolean).join("\n");
   }
   const own = /just start/i.test(brief.noPlayback?.reason ?? "");
-  const known = knownLine(treatments, origin);
+  const known = knownLine(treatments, origin, askTexts(brief));
   return [
     `treatments: dropped the most typical (p ${dropped.p}: ${dropped.idea}); ${own ? "they said just start, so pick one yourself" : `the next stop's ask shows these ${known ? SHOWN_COUNT + 1 : SHOWN_COUNT} to pick`}:`,
     ...shownLines(treatments), ...(known ? [known] : []),

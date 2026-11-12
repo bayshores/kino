@@ -11,6 +11,7 @@
 import { createHash } from "node:crypto";
 import { sec } from "./describe.mjs";
 import { AI_EDIT_QUESTIONS, BAR_FORM, BAR_PROBLEM, barLine } from "./bar.mjs";
+import { namesOrigin } from "./treatments.mjs";
 
 // Added to the protocol when the project has a bar (bar.mjs): the comparison comes first.
 export const BAR_PROTOCOL = `There is a bar: the best earlier cut, judged by the person. The bar pages show it beside this cut at the same story points. Before anything else, one line: ${BAR_FORM}. Name the times and the exact differences (captions, cut timing, devices, title and end card); never call it better because it does more. worse is a P0 on the fix list.`;
@@ -89,6 +90,24 @@ export function touchesDesignedMoment(line, moves = []) {
   return named && SHRINK.test(line.change) && !DEFECT.test(line.problem);
 }
 
+// A change that moves a shot to another time or place ("move the climb to 2.0 s", "after moving it to
+// the problem beat"). With SHRINK it marks a line that touches the shot the ask points to.
+const MOVE = /\bmov(e|es|ed|ing)\b[^→]*?\bto\s+(\d|the\b)/i;
+
+/**
+ * The word of the ask a critic line moves or cuts, or null. `asked` is {word, from?, to?}: the word
+ * the ask points to and, when a shot is marked as showing it, the scene seconds that shot plays
+ * (half-open, so a seam line at its end is not caught). A line counts when its text names the word
+ * or its time is inside the shot, and its change moves or cuts. It only labels the line: the critic's
+ * order and every other rule stand (nothing is refused, asked or skipped because of it).
+ */
+function movesAsked(at, text, change, asked) {
+  if (!asked?.word) return null;
+  const inside = asked.from != null && asked.to != null && at >= asked.from && at < asked.to;
+  const named = namesOrigin({ idea: text }, asked.word).length > 0;
+  return (inside || named) && (SHRINK.test(change) || MOVE.test(change)) ? asked.word : null;
+}
+
 /** Whether a critic line at `at` falls inside a signature range (styleContext signatureRanges). */
 export const inSignature = (at, ranges = []) => ranges.some((range) => at >= range.from - 0.25 && at <= range.to + 0.25);
 
@@ -120,7 +139,7 @@ const SCORE = /\b\d+(?:\.\d+)?\s*\/\s*10\b|\b(?:score|rating)\s*[:=]\s*\d/i;
  * signatureRanges) has ask:true, unless its problem is a real defect (DEFECT): a question for the
  * person, never an edit. An UP line that cuts a signature has cutsSignature:true and ask:true.
  */
-export function parseCritique(lines, duration, { moves = [], signatures = [] } = {}) {
+export function parseCritique(lines, duration, { moves = [], signatures = [], asked = null } = {}) {
   const list = (Array.isArray(lines) ? lines : typeof lines === "string" ? lines.split("\n") : []).map((line) => String(line ?? "").trim().replace(/^(?:[-*]|\d+[.)])\s+/, "").replace(/\*\*/g, "")).filter(Boolean);
   if (!list.length) throw bad(`lines is the critic's answer: a list of "${CRITIQUE_FORM}" lines and "${UP_FORM}" lines, or ["none"].`);
   const kept = list.filter((line) => !/^none\.?$/i.test(line));
@@ -144,12 +163,16 @@ export function parseCritique(lines, duration, { moves = [], signatures = [] } =
     if (at > duration + 0.5) throw bad(`lines[${index}]: t=${at} is past the end of the ${sec(duration)} s video.`);
     if (up) {
       const parsed = { level: "UP", at: sec(at), add: up[2].slice(0, 240), serves: up[3].slice(0, 160) };
+      const upAsked = movesAsked(at, parsed.add, parsed.add.replace(/\bdrops?\b/gi, ""), asked);
+      if (upAsked) parsed.asked = upAsked;
       // A suggestion to cut or shrink a signature is kept as a question for the person, never
       // acted on. "drop" here is the music's drop or drop-out, a polish.
       return inSignature(at, signatures) && SHRINK.test(parsed.add.replace(/\bdrops?\b/gi, "")) ? { ...parsed, cutsSignature: true, ask: true } : parsed;
     }
     const [, level, , where, problem, change, keep] = match;
     const parsed = { level: level.toUpperCase(), at: sec(at), where: where.slice(0, 120), problem: problem.slice(0, 240), change: change.slice(0, 240), keep: keep.slice(0, 160) };
+    const pointed = movesAsked(at, `${parsed.where} ${parsed.change}`, parsed.change, asked);
+    if (pointed) parsed.asked = pointed;
     const signatureCut = inSignature(at, signatures) && SHRINK.test(parsed.change) && !DEFECT.test(parsed.problem);
     // At any level: a P1 that flattens a designed move is no more the critic's call than a P0.
     return signatureCut || touchesDesignedMoment(parsed, moves) ? { ...parsed, ask: true } : parsed;
@@ -162,13 +185,16 @@ export const upLines = (lines) => lines.filter((line) => line.level === "UP" && 
 /** A P0 that blocks: not a question about a designed moment. */
 export const blocksRender = (line) => line.level === "P0" && !line.ask;
 
+// "points to", not "asked for": the word can be kino's own search of what they named, not their text.
+const askedText = (line) => (line.asked ? ` · moves the shot the ask points to ("${line.asked}")` : "");
+
 export const lineText = (line) => line.level === "OWN" ? `OWN t=${line.at} · ${line.what}`
   : line.level === "BAR" ? `BAR ${line.verdict} · ${line.why}`
   : line.bar ? `BAR worse · ${line.problem.slice(BAR_PROBLEM.length + 2)}`
   : line.generic ? `GENERIC · ${line.problem.slice(GENERIC_PROBLEM.length + 2)} → ${line.change}`
   : line.level === "UP"
-  ? `${line.ask ? "ask " : ""}UP t=${line.at} · add ${line.add} · serves ${line.serves}`
-  : `${line.ask ? "ask " : ""}${line.level} t=${line.at} · ${line.where} · ${line.problem} → ${line.change} · ${line.keep}`;
+  ? `${line.ask ? "ask " : ""}UP t=${line.at} · add ${line.add} · serves ${line.serves}${askedText(line)}`
+  : `${line.ask ? "ask " : ""}${line.level} t=${line.at} · ${line.where} · ${line.problem} → ${line.change} · ${line.keep}${askedText(line)}`;
 
 /**
  * The direction a round was made under: a short print of the story spine's beats (role and
