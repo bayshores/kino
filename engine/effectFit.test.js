@@ -41,14 +41,27 @@ test("effect_fit: untriggered, and a gate at the final render", async () => {
   const { findings } = await runQuality(kinoTimeline(edit([shake(5)]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
   assert.equal(findings[0].reason, "untriggered");
   assert.match(findings[0].message, /cue:hit/);
+  // The message carries a ready op with the effect's own kind and layer, not a template.
+  assert.match(findings[0].message, /edit \{ops:\[\{op:"move", name:"impact-accent", kind:"shake", layer:"[^"]+", at:"cue:hit"\}\]\}/);
   // Its fix takes the shake off (check fix:"auto").
   assert.deepEqual(findings[0].fix, { kind: "remove", animationIds: ["shot.1"], auto: true });
   assert.equal(blocksFinal(findings[0], false), true);
+  // A shake that scales up as it shakes is one effect: one finding, and its fix takes both off.
+  const both = await runQuality(kinoTimeline(edit([shake(5), ...punch(5)]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
+  assert.deepEqual(both.findings.map((finding) => finding.reason), ["untriggered"]);
+  assert.deepEqual(both.findings[0].fix.animationIds, ["shot.1", "shot.2", "shot.3"]);
+  // The shake move's own timing: its scale comes back 0.3 s after the grow, inside the shake; the fix takes that off too (no pop).
+  const [grow, back] = punch(5);
+  const late = await runQuality(kinoTimeline(edit([shake(5, { frames: 15 }), grow, { ...back, start: 5.3, duration: 0.2 }]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
+  assert.deepEqual(late.findings[0].fix.animationIds.sort(), ["shot.1", "shot.2", "shot.3"]);
   // A title sliding in 0.1 to 0.3 s after the start (first_entrance's delay) is on that cut; at 1 s it is on nothing.
   const title = (start) => ({ type: "text", id: "title", name: "title", text: "Hi", x: 200, y: 200, width: 800, height: 200, fontSize: 120,
     animations: [{ id: "title.in", name: "Slide in", kind: "in", start, duration: 0.5, easing: "ease-out", from: { x: 120, opacity: 0 }, to: { x: 200, opacity: 1 } }] });
   assert.deepEqual(await reasons(edit([], [title(0.23)]), [accent("hit", 2)]), []);
   assert.deepEqual(await reasons(edit([], [title(1)]), [accent("hit", 2)]), ["untriggered"]);
+  // Its hint names the nearest place it could start.
+  const loose = await runQuality(kinoTimeline(edit([], [title(1)]), "s", { fonts: defaultFonts }), { codes: ["effect_fit"], pixels: false, context: { triggerCues: [accent("hit", 2)] } });
+  assert.match(loose.findings[0].fix.text, /^Start it at (the cut \(0s|"cue:hit" \(2s), the nearest place/);
   // The same delay after a named marker (compose's end-card cue) is on it; a song marker set by hand is not a moment.
   const marker = (name, time) => ({ name, kind: "marker", time });
   assert.deepEqual(await reasons(edit([], [title(1.1)]), [accent("hit", 2), marker("end-card", 1)]), []);

@@ -78,7 +78,13 @@ function loudEffects(model, cues, motivated) {
   const kicks = [...named, ...punches(model).filter((punch) => !named.some((use) => Math.abs(use.at - punch.at) < 0.1))
     .map((punch) => ({ at: sec(punch.at), itemId: punch.itemId, strength: Math.round(Math.min(1, punch.amount / 0.1) * 100) / 100, frames: 12, shape: "pulse", animationIds: punch.animationIds }))];
   const list = [];
-  for (const tag of LOUD_TAGS) for (const use of tag === "beat-kick" ? kicks : used[tag] ?? []) {
+  // A zoom punch on the same layer within 0.1 s of another loud effect is that effect's own part
+  // (the shake move scales up as it shakes): one effect, one finding. The ceiling study's director
+  // c got a shake and a zoom punch flagged for one shake move on legs2 at 7.99 s (measured on a
+  // copy of that project).
+  const others = LOUD_TAGS.filter((tag) => tag !== "beat-kick").flatMap((tag) => used[tag] ?? []);
+  const partOf = (kick) => !kick.cue && others.some((use) => use.itemId && use.itemId === kick.itemId && Math.abs(use.at - kick.at) < 0.1);
+  for (const tag of LOUD_TAGS) for (const use of tag === "beat-kick" ? kicks.filter((kick) => !partOf(kick)) : used[tag] ?? []) {
     let trigger = null;
     if (use.cue) {
       // An accent move names its cue: it fits while the cue is still there, on its frame.
@@ -102,6 +108,15 @@ function removal(model, use) {
   if (use.tag === "flash" && use.shape === "card" && item) return { kind: "remove", layerItemId: item.id, auto: true };
   let ids = use.animationIds ?? [];
   if (!ids.length && use.tag === "shake" && item) ids = (model.effects ?? []).filter((effect) => effect.itemId === item.id && effect.effect === "wiggle" && Math.abs(effect.start - use.at) < 0.02).map((effect) => effect.animationId).filter(Boolean);
+  // Its own zoom punch goes with it (loudEffects counts the two as one effect).
+  if (ids.length && use.tag !== "beat-kick" && item) {
+    // And every scale animation of that layer inside the shake's own time: the shake move's
+    // "cover back" starts 0.3 s after its grow (measured on director c's copy: grow 7.99, settle
+    // 8.29 to 8.49, shake 7.99 to 8.49), so taking only the grow off left a scale pop at 8.29.
+    const end = Math.max(use.at, ...[...model.tweens, ...(model.effects ?? [])].filter((entry) => ids.includes(entry.source?.animationId ?? entry.animationId)).map((entry) => entry.end));
+    const cover = model.tweens.filter((tween) => tween.itemId === item.id && tween.keys.some((key) => key === "scaleX" || key === "scaleY") && tween.start >= use.at - 0.05 && tween.end <= end + 0.05);
+    ids = [...new Set([...ids, ...punches(model).filter((punch) => punch.itemId === item.id && Math.abs(sec(punch.at) - use.at) < 0.1).flatMap((punch) => punch.animationIds ?? []), ...cover.map((tween) => tween.source?.animationId).filter(Boolean)])];
+  }
   return ids.length ? { kind: "remove", animationIds: ids, auto: true } : null;
 }
 
@@ -133,6 +148,9 @@ function clipAt(model, use) {
 }
 
 const TAG_WORDS = { flash: "flash", shake: "shake", "glitch-hit": "glitch", "rgb-split": "RGB split", "beat-kick": "zoom punch" };
+// The impact-accent kind that remakes each loud effect on a cue (moves/impact.js IMPACT_KINDS);
+// a zoom punch is a hit of the camera, so a shake (a guess: impact-accent has no punch kind).
+const ACCENT_KIND = { flash: "flash", shake: "shake", "beat-kick": "shake" };
 const fix = (text) => ({ kind: "hint", text });
 
 export function effectFit(model, ctx) {
@@ -149,7 +167,13 @@ export function effectFit(model, ctx) {
   // untriggered: a loud effect with no reason on its frame. Its fix takes it off (check fix:"auto").
   for (const use of effects.filter((entry) => !entry.trigger)) {
     const near = nearest(use.at);
-    const reason = `put it on a reason: move {name:"impact-accent", kind, at:"cue:${near?.name ?? "<cue>"}"}${near ? ` (${sec(near.time)}s)` : ""}. Most moments need no effect.`;
+    // A ready op, not a template: the effect's own impact-accent kind and layer when it has one
+    // (directors b and c were blocked 3 to 4 times each by this finding, ceiling result.md).
+    const kind = ACCENT_KIND[use.tag] ?? "<flash|shake>";
+    const owner = use.itemId && itemById(model, use.itemId);
+    // Some ctx.name callers quote the name and some do not: quote it once here.
+    const layerField = owner ? `, layer:${JSON.stringify(String(ctx.name?.(owner) ?? owner.id).replace(/^"(.*)"$/, "$1"))}` : "";
+    const reason = `put it on a reason: edit {ops:[{op:"move", name:"impact-accent", kind:"${kind}"${layerField}, at:"cue:${near?.name ?? "<cue>"}"}]}${near ? ` (${sec(near.time)}s)` : ""} after taking it off. Most moments need no effect.`;
     const off = removal(model, use);
     finding("untriggered", use.at, `${TAG_WORDS[use.tag]} at ${sec(use.at)}s on no measured cue${use.cue ? ` (its cue ${use.cue} moved or is gone)` : ""}`,
       "each loud effect on a cue that motivates it (footage impact or light, song seam or rest, top accent, fill), up to 2 frames early, never late",
@@ -209,9 +233,15 @@ export function effectFit(model, ctx) {
   const afterNamed = (at) => named.some((cue) => at - cue.time >= 0.1 - 1e-6 && at - cue.time <= 0.3 + 1e-6);
   const loose = [...texts.map((entry) => ({ at: entry.at, what: `text ${entry.tag}`, itemId: entry.itemId, text: true })), ...sounds.map((entry) => ({ at: entry.at, what: `sound ${entry.layer.name ?? entry.layer.id}` }))]
     .filter((entry) => !placed(entry.at) && !(entry.text && (afterCut(entry.at) || afterNamed(entry.at))));
+  // The nearest place it could start instead, named, so the fix is one retime (not a cue hunt).
+  const spots = [...cues.filter((cue) => cue.kind !== "onset" && (cue.kind !== "marker" || !SONG.test(cue.name ?? "") || fitted(cue))).map((cue) => ({ time: cue.time, words: `"cue:${cue.name}"` })),
+    ...changes.map((time) => ({ time, words: "the cut" })), ...words.map((time) => ({ time, words: "the word" }))];
+  const spot = loose.length ? spots.sort((a, b) => Math.abs(a.time - loose[0].at) - Math.abs(b.time - loose[0].at))[0] : null;
+  const item = loose[0]?.itemId && itemById(model, loose[0].itemId);
+  const spotWords = spot ? `Start it at ${spot.words} (${sec(spot.time)}s, the nearest place${item ? `: move the entrance of ${ctx.name?.(item) ?? item.id} there` : ""})` : `Start it at "cue:<name>" (cue list: inspect {what:"cues"})`;
   if (loose.length) finding("untriggered", loose[0].at, `${loose.length} text animation${loose.length === 1 ? "" : "s"} or sound effect${loose.length === 1 ? "" : "s"} on no cue, cut or word (${loose.slice(0, 4).map((entry) => `${entry.what} ${sec(entry.at)}s`).join(", ")})`,
     "each text animation and sound effect on a cue, a shot change or a word start", `In ${ctx.sceneName} ${loose[0].what} at ${sec(loose[0].at)}s starts on nothing the viewer hears or sees.`,
-    `Start it at "cue:<name>" (cue list: inspect {what:"cues"}), on a cut, or on the word it belongs to; or leave it out.`, loose[0].itemId ? { itemId: loose[0].itemId } : {});
+    `${spotWords}, on a cut, or on the word it belongs to; or leave it out.`, loose[0].itemId ? { itemId: loose[0].itemId } : {});
 
   // face: no shake or zoom punch on a talking face.
   for (const use of effects.filter((entry) => entry.tag === "shake" || entry.tag === "beat-kick")) {

@@ -198,7 +198,7 @@ const SHEET_GAP_HINT = 6;
 // library {topic:"rules", name:"render"}.
 // Characters of each saved reference's take that status shows (the study and look versus show it whole).
 const TAKE_SHOWN = 70;
-const RENDER_RULES = 'render start defaults to draft: half each scene dimension at 30fps (or your fps up to 30, such as 24 or 25 to match the footage), the long side at most the person\'s draft size setting (960 by default). The person\'s export settings fill in format, fps and output folder when you leave them out. A final render over their frame limit, or one that would overwrite a file, answers awaiting_approval {id, rev}: the person answers it in the app, or tells you in the chat (then record their words: notes {action:"answer", id, words, read_as:"approve" or "deny"}), so tell them and do not poll; render {action:"wait", job:id} blocks until they answer (up to 55 s) and {action:"cancel", job:id} withdraws it. Allowing it renders that rev; an edit first makes it ask again, and the same start after an edit replaces the waiting request (replaced:id). final uses full scene dimensions and requested fps (default 30; 23.976, 29.97, 59.94, "30000/1001" or {num, den} too), motionBlur:0.5 and dither:true; override motionBlur:0..1 or dither:false. Motion blur comes from layer movement while the shutter is open: options {shutterAngle:0..360 (180 = motionBlur 0.5), motionSamples:2..16 (default: as many as the fastest move in each frame needs for copies at most 8 px apart)}; 2 samples show a fast move as two copies. Each sample draws a moving frame once more (frames that do not move are drawn once); footage keeps one picture per frame. The dashboard (cached playback too) and look show a preview of it (each fast-moving layer smeared along its path); a final png (options {time}) shows the real one. Unwaived check errors (and signature_missing, a warning while editing) block final, and so do open stops (stops_open; drafts render) moments of the whole video not yet seen in look {mode:\"review\"} (review_needed; waive_check {code:\"review\"} skips it), a video of 5 s or more with no saved reference (find 2 with library inspire), or with saved references no look {mode:\"versus\"} in 10 revisions or a rev judged blind with the references winning (reference_needed; waive_check {code:\"reference\"} skips it), and a whole video of 15 s or more with footage or speech without a fresh viewer report (look {mode:\"viewer\"}, notes viewer) on a recent revision with no open story bugs, or an edit after round 2 found them (viewer_needed; waive_check {code:\"viewer\"} skips it), and a need not answered and done (needs_open) or such a video whose material was never checked (needs_unchecked; notes needs; waive_check {code:\"needs\"} skips both). preview:"fast" caps drafts at 640px/15fps without blur or dither. from/to select one draft video excerpt, snapped outward to frames; sound and captions stay aligned. Replies give actual range. scene:"all" renders up to 20 scenes as separate files; unchanged scenes reuse checked segments, including after restart. Formats: mp4, webm, mov, gif, png, apng, png-sequence (ZIP), lottie (native vector canvas; no blur/dither). queue lists recent jobs; wait returns paths, cachedScenes/redrawnScenes and file checks. options passes existing export settings (transparent, profile, loop, GIF quality, PNG time, imageDPIRatio); the quality rung determines dimensions. Two exports run concurrently. Cancel stops workers/encoders; start again to reuse completed segments. A job whose scenes all finished is saved instead: cancel answers Nothing to cancel with its files. Output checks verify dimensions, codec, frame count, duration and audio start offset where the format supports them; unsupported checks are explicit. Final mp4, webm, mov and apng files are also compared frame by frame with the renderer; a file that runs a frame early or late fails with the frames where it slips: render again, and report it with the message if it fails again. Exported sound goes through a master limiter that keeps the encoded file\'s true peak at or under -1 dBTP: the sound is encoded and measured first, and the ceiling drops when AAC or Opus push peaks back up. Before it, every mp4, webm or mov (drafts too) brings the whole mix (after ducking) to a loudness target: options {loudness:"web" (-14 LUFS, the default)|"podcast" (-16)|"broadcast" (-23)|"off"}. It is one plain gain, so the balance never shifts; where the limiter would take peaks down more than 6 dB the gain holds and the file is quieter (the reply names that peak). Unleveled mixes well under -1 dBTP pass unchanged. wait gives each file\'s sound as integrated loudness (LUFS) with its target, loudness range (LU) and true peak (dBTP); audioPeak warns over -1 dBTP, audioLoudness over 2 LU off target. Without a loudness target, a mix that would have clipped by more than 0.5 dB gets a warning with the loudest moment and the sounds playing then: lower those volumes. Rendered scene caches are bounded by the person\'s render cache setting (512MiB by default). They include media/font bytes, renderer, graphics and quality settings. A new revision alone does not invalidate unchanged scenes. mp4 only: options {videoEncoder:"auto"|"software"|"videotoolbox"|"nvenc"|"qsv"|"amf"|"vaapi", videoQuality:"small"|"standard"|"high"} replace the person\'s defaults for this render (standard is 24 Mbps at 720p and up, high twice, small half); a named encoder that does not work on this computer is an error naming those that do. The graphics card, frames at once and memory to leave free are the person\'s dashboard settings; you cannot change them. wait says what drew each file (graphics card or processor) and which encoder wrote it.';
+const RENDER_RULES = 'render start defaults to draft: half each scene dimension at 30fps (or your fps up to 30, such as 24 or 25 to match the footage), the long side at most the person\'s draft size setting (960 by default). The person\'s export settings fill in format, fps and output folder when you leave them out. A final render over their frame limit, or one that would overwrite a file, answers awaiting_approval {id, rev}: the person answers it in the app, or tells you in the chat (then record their words: notes {action:"answer", id, words, read_as:"approve" or "deny"}), so tell them and do not poll; render {action:"wait", job:id} blocks until they answer (up to 55 s) and {action:"cancel", job:id} withdraws it. Allowing it renders that rev; an edit first makes it ask again, and the same start after an edit replaces the waiting request (replaced:id). final uses full scene dimensions and requested fps (default 30; 23.976, 29.97, 59.94, "30000/1001" or {num, den} too), motionBlur:0.5 and dither:true; override motionBlur:0..1 or dither:false. Motion blur comes from layer movement while the shutter is open: options {shutterAngle:0..360 (180 = motionBlur 0.5), motionSamples:2..16 (default: as many as the fastest move in each frame needs for copies at most 8 px apart)}; 2 samples show a fast move as two copies. Each sample draws a moving frame once more (frames that do not move are drawn once); footage keeps one picture per frame. The dashboard (cached playback too) and look show a preview of it (each fast-moving layer smeared along its path); a final png (options {time}) shows the real one. Unwaived check errors (and signature_missing, a warning while editing) block final, and so do open stops (stops_open; drafts render) moments of the whole video not yet seen in look {mode:\"review\"} (review_needed; waive_check {code:\"review\"} skips it), a video of 5 s or more with no saved reference (find 2 with library inspire; with them, a final render with no look {mode:\"versus\"} in 10 revisions runs it and answers its rows) or a rev judged blind with the references winning (reference_needed; waive_check {code:\"reference\"} skips it), and a whole video of 15 s or more with footage or speech without a fresh viewer report (look {mode:\"viewer\"}, notes viewer) on a recent revision with no open story bugs, or an edit after round 2 found them (viewer_needed; waive_check {code:\"viewer\"} skips it), and a need not answered and done (needs_open) or such a video with a brief whose material was never checked (needs_unchecked; notes needs; waive_check {code:\"needs\"} skips both). preview:"fast" caps drafts at 640px/15fps without blur or dither. from/to select one draft video excerpt, snapped outward to frames; sound and captions stay aligned. Replies give actual range. scene:"all" renders up to 20 scenes as separate files; unchanged scenes reuse checked segments, including after restart. Formats: mp4, webm, mov, gif, png, apng, png-sequence (ZIP), lottie (native vector canvas; no blur/dither). queue lists recent jobs; wait returns paths, cachedScenes/redrawnScenes and file checks. options passes existing export settings (transparent, profile, loop, GIF quality, PNG time, imageDPIRatio); the quality rung determines dimensions. Two exports run concurrently. Cancel stops workers/encoders; start again to reuse completed segments. A job whose scenes all finished is saved instead: cancel answers Nothing to cancel with its files. Output checks verify dimensions, codec, frame count, duration and audio start offset where the format supports them; unsupported checks are explicit. Final mp4, webm, mov and apng files are also compared frame by frame with the renderer; a file that runs a frame early or late fails with the frames where it slips: render again, and report it with the message if it fails again. Exported sound goes through a master limiter that keeps the encoded file\'s true peak at or under -1 dBTP: the sound is encoded and measured first, and the ceiling drops when AAC or Opus push peaks back up. Before it, every mp4, webm or mov (drafts too) brings the whole mix (after ducking) to a loudness target: options {loudness:"web" (-14 LUFS, the default)|"podcast" (-16)|"broadcast" (-23)|"off"}. It is one plain gain, so the balance never shifts; where the limiter would take peaks down more than 6 dB the gain holds and the file is quieter (the reply names that peak). Unleveled mixes well under -1 dBTP pass unchanged. wait gives each file\'s sound as integrated loudness (LUFS) with its target, loudness range (LU) and true peak (dBTP); audioPeak warns over -1 dBTP, audioLoudness over 2 LU off target. Without a loudness target, a mix that would have clipped by more than 0.5 dB gets a warning with the loudest moment and the sounds playing then: lower those volumes. Rendered scene caches are bounded by the person\'s render cache setting (512MiB by default). They include media/font bytes, renderer, graphics and quality settings. A new revision alone does not invalidate unchanged scenes. mp4 only: options {videoEncoder:"auto"|"software"|"videotoolbox"|"nvenc"|"qsv"|"amf"|"vaapi", videoQuality:"small"|"standard"|"high"} replace the person\'s defaults for this render (standard is 24 Mbps at 720p and up, high twice, small half); a named encoder that does not work on this computer is an error naming those that do. The graphics card, frames at once and memory to leave free are the person\'s dashboard settings; you cannot change them. wait says what drew each file (graphics card or processor) and which encoder wrote it.';
 
 // library op and rules: at most this many names in one call.
 const LIBRARY_NAMES = 8;
@@ -3052,7 +3052,7 @@ export function createAgentService(deps) {
 
     if (mode === "review") return reviewLook(input, { record, codes, fonts, scene, state });
     if (mode === "versus") return versusLook(input, { record, codes, fonts, state });
-    if (mode === "viewer") return viewerLook({ record, codes, fonts, scene, state });
+    if (mode === "viewer") return viewerLook({ record, codes, fonts, scene, state, beats: input.beats });
     if (mode === "critique") return critiqueLook(input, { record, codes, fonts, scene, state });
     if (mode === "frame") {
       const time = clampTime(input.t ?? sec(scene.duration / 2), scene);
@@ -3283,6 +3283,8 @@ export function createAgentService(deps) {
   }
 
   const intentsCall = () => nextOf("notes", { action: "intents", beats: [{ from: 0, to: 5, intent: "<what the viewer should know or feel after this beat>" }] });
+  // The viewer packet with the intents in the same call (viewerLook saves them first).
+  const viewerWithIntentsCall = (sceneField = {}) => nextOf("look", { mode: "viewer", ...sceneField, beats: [{ from: 0, to: 5, intent: "<what the viewer should know or feel after this beat>" }] });
 
   // Viewer sheets of `source` at `times` (9 to a sheet, each frame labeled with its time).
   async function sheetsOf(source, list) {
@@ -3306,16 +3308,23 @@ export function createAgentService(deps) {
   // Whether the viewer gate asks a new packet of this scene now (intents written, no fix due, no
   // bar): look critique then carries the viewer's sheets too, one helper for both.
   async function viewerJoins(document, state, scene, revision) {
-    if (barOf(state.verdicts) || !state.story?.intents?.[scene.id]) return false;
+    if (barOf(state.verdicts) || !(state.story?.intents?.[scene.id] ?? wholeIntents(state, scene, revision))) return false;
     const needed = await viewerNeeded(document, state, revision, [scene]);
     return Boolean(needed && !needed.gap.fix && !needed.gap.spoiler);
   }
 
-  async function viewerLook({ record, codes, fonts, scene, state }) {
+  async function viewerLook({ record, codes, fonts, scene, state, beats }) {
     const document = record.document;
     const projectId = document.id;
     const sceneName = refName(scene.id, codes);
-    const intents = state.story?.intents?.[scene.id];
+    // Intents in the same call (look {mode:"viewer", beats}) are saved before the packet is made,
+    // so they still come before any viewer watches: one call instead of notes intents + look
+    // viewer (the ceiling study's directors were asked both, a/b/c result.md FRICTION).
+    let given = null;
+    if (beats !== undefined) {
+      try { given = { beats: parseIntents(beats, scene.duration), rev: record.revision }; } catch (error) { throw Object.assign(new AgentError("bad_input", error.message), { nextCall: intentsCall() }); }
+    }
+    const intents = given ?? state.story?.intents?.[scene.id] ?? wholeIntents(state, scene, record.revision);
     if (!intents) throw Object.assign(new AgentError("intents_needed", `Write what each beat of ${sceneName} should leave the viewer knowing or feeling first (notes {action:"intents", beats:[{from, to, intent}]}), before any viewer watches it.`), { nextCall: intentsCall() });
     noteLive({ sceneId: scene.id, range: [0, scene.duration] }, [{ sceneId: scene.id, range: [0, scene.duration] }]);
     const prepared = await prepare(document, scene.id, fonts);
@@ -3350,7 +3359,7 @@ export function createAgentService(deps) {
       ...(!bar && critiqueAsks(state, document, scene, record.revision) ? ['The critic asks too: look {mode:"critique"} carries these sheets for one subagent to do both; use it instead.'] : []),
       "Start a fresh subagent that never saw the brief, the plan or this chat, and give it only this prompt:",
       "---", prompt, "---",
-      `Then match its answer against your ${plural(intents.beats.length, "beat")}' intents (yourself, or a second fresh agent given the intents and the answer), and record both: notes {action:"viewer", rev:${record.revision}, report:"<its whole answer>", matches:[{beat:1, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}. A bug is a story problem with its time: confusion, a missed beat, a drag, too much to read.`,
+      `Then match its answer against your ${intents.beats.length === 1 ? "1 beat's intent" : `${plural(intents.beats.length, "beat")}' intents`} (yourself, or a second fresh agent given the intents and the answer), and record both: notes {action:"viewer", rev:${record.revision}, report:"<its whole answer>", matches:[{beat:1, got:"yes"|"partly"|"no", note}], bugs:[{at, what}]}. A bug is a story problem with its time: confusion, a missed beat, a drag, too much to read.`,
       // The idea and signature, for the match only (never in the viewer's packet).
       ...(idea.length ? [`Match it against the idea too (did its "moment you cared most" land on the signature?): ${idea.join(" · ")}`] : []),
       "heard.txt:", ...heardShown.slice(0, 40), ...(heardShown.length > 40 ? [`... ${heardShown.length - 40} more lines in heard.txt`] : []),
@@ -3360,9 +3369,20 @@ export function createAgentService(deps) {
       data: { rev: record.revision, mode: "viewer", folder, sheets: packet.sheets, heard: packet.heard, prompt } },
     { change(draft) {
       draft.story ??= {};
+      const at = now();
+      // Intents sent with this call, or the whole-scene beat of a video with no brief, are saved
+      // at the packet's own time (viewerReport refuses intents newer than the packet).
+      if (given || !draft.story.intents?.[scene.id]) draft.story.intents = { ...(draft.story.intents ?? {}), [scene.id]: { ...intents, at } };
       const kept = (draft.story.packets ?? []).filter((entry) => !(entry.rev === record.revision && entry.sceneId === scene.id));
-      draft.story.packets = [...kept, { rev: record.revision, sceneId: scene.id, at: now(), ...(barSide ? { barSide } : {}) }].slice(-6);
+      draft.story.packets = [...kept, { rev: record.revision, sceneId: scene.id, at, ...(barSide ? { barSide } : {}) }].slice(-6);
     } });
+  }
+
+  // A video with no brief (built by direct edits) owes no brief-only steps: its viewer matches
+  // one beat, the whole scene, instead of intents the agent writes first. null with a brief.
+  function wholeIntents(state, scene, revision) {
+    if (hasBrief(state.brief)) return null;
+    return { beats: [{ from: 0, to: scene.duration, intent: "the whole video (no brief: what does it leave you knowing or feeling?)" }], rev: revision, whole: true };
   }
 
   // notes {action:"intents", scene?, beats:[{from, to, intent}]}: what each beat should leave the
@@ -3458,7 +3478,7 @@ export function createAgentService(deps) {
       const spoilers = await spoilersOf(scene, document, state, waivers);
       if (spoilers.length) return { scene, gap: { why: `the caption "${spoilers[0].text.slice(0, 60)}" at ${spoilers[0].start} s gives away the ending (${spoilers[0].words.slice(0, 3).join(", ")}) before its last beat`, bugs: spoilers.map((spoiler) => ({ at: spoiler.start, layer: spoiler.id, what: `caption spoils the ending (${spoiler.words.join(", ")}): show it instead, or say less` })), spoiler: true }, intents: true };
       const gap = viewerGap(state.story, scene.id, revision);
-      if (gap) return { scene, gap, intents: Boolean(state.story?.intents?.[scene.id]) };
+      if (gap) return { scene, gap, intents: Boolean(state.story?.intents?.[scene.id] ?? wholeIntents(state, scene, revision)) };
     }
     return null;
   }
@@ -3497,8 +3517,8 @@ export function createAgentService(deps) {
     const joined = needed.intents && !barOf(state.verdicts) && critiqueAsks(state, record.document, needed.scene, record.revision);
     const asks = joined ? 'look {mode:"critique"} (it carries the viewer\'s sheets too)' : 'look {mode:"viewer"}';
     throw Object.assign(new AgentError("viewer_needed", `${name}: ${needed.gap.why}. A final render needs a fresh viewer's report (${asks}, then notes {action:"${joined ? "critique" : "viewer"}"}) with no open story bugs.`, {
-      next: `${needed.intents ? "" : "notes intents first, then "}${asks} and give its prompt to one fresh subagent. ${skip}`,
-    }), { nextCall: !needed.intents ? intentsCall() : joined ? critiqueCall(sceneField) : nextOf("look", { mode: "viewer", ...sceneField }) });
+      next: `${needed.intents ? "" : "send your beats' intents with it (look {mode:\"viewer\", beats:[{from, to, intent}]}), "}${asks} and give its prompt to one fresh subagent. ${skip}`,
+    }), { nextCall: !needed.intents ? viewerWithIntentsCall(sceneField) : joined ? critiqueCall(sceneField) : nextOf("look", { mode: "viewer", ...sceneField }) });
   }
 
   // The fix a viewer's open story bug asks for, before another viewer watches.
@@ -4015,7 +4035,8 @@ export function createAgentService(deps) {
       throw Object.assign(new AgentError("needs_open", `Not finished: ${open.map((need) => `${need.id} ${needState(need)} (${need.what})`).join("; ")}.`, {
         next: `Unanswered: ask the person its question and options, then save their answer (answer, by:"you", quote). Waiting: status "sent" with media once they give it. Planned: make the option, then status "made" with layers. ${skip}`,
       }), { nextCall: needNextCall(open[0]) });
-    if (state.needs?.checked) return;
+    // A video with no brief has no story to check the material against (wholeIntents).
+    if (state.needs?.checked || !hasBrief(state.brief)) return;
     for (const scene of whole) {
       if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, record.document))) continue;
       throw Object.assign(new AgentError("needs_unchecked", "The material was never checked against the story: look for what it cannot give the video, search it for substitutes, then ask the person (notes needs), or items:[] when it is enough.", { next: `notes {action:"needs", items:[{what, why, ask, options}]}. ${skip}` }), { nextCall: needsAskCall(state) });
@@ -4172,6 +4193,12 @@ export function createAgentService(deps) {
       judgeLine(state, record.revision),
       `image ${file}`,
     ];
+    // Run by the final render (refuseWithoutReference): it records the comparison and the render's
+    // own answer carries these lines and the inbox (done here would hand the inbox to no one).
+    if (input.within) {
+      await agentState.update(projectId, (draft) => { draft.versus = { rev: record.revision }; });
+      return { text: lines.join("\n") };
+    }
     return done(projectId, { text: lines.join("\n"), images: [{ path: file, mime: "image/png", data: input.inline === false ? undefined : image.png.toString("base64") }],
       data: { rev: record.revision, mode: "versus", path: file, rows: pairs.map((pair) => ({ n: pair.n, at: pair.at, ref: pair.ref, refAt: pair.refAt, match: pair.match, role: pair.role,
         ...(pair.kind ? { kind: pair.kind } : {}), ...(pair.seen ? { seen: pair.seen } : {}), ...(pair.shot ? { shot: pair.shot } : {}), ...(pair.pinned ? { pinned: pair.pinned } : {}), ...(pair.gaps?.length ? { gaps: pair.gaps } : {}), ...(pair.far ? { far: pair.far } : {}) })) } },
@@ -4311,10 +4338,20 @@ export function createAgentService(deps) {
         next: `look {mode:"versus"} shows those moments beside the references; change yours, then render final again. ${skip}`,
       }), { nextCall: nextOf("look", { mode: "versus" }) });
     }
-    if (!versusSeen(state, rev))
-      throw Object.assign(new AgentError("reference_needed", `rev ${rev} was not seen beside the saved references. look {mode:"versus"} shows your frames next to theirs with the measured gaps; then render again.`, {
-        next: `look {mode:"versus"}, change what looks less finished than the references, then render final again. ${skip}`,
-      }), { nextCall: nextOf("look", { mode: "versus" }) });
+    // Not seen beside the references yet: kino runs look versus itself, inside this call, and the
+    // render's answer carries its lines (the comparison still happens on every final revision;
+    // the agent no longer spends a call asking for it: ceiling study, a/b/c result.md FRICTION).
+    if (!versusSeen(state, rev)) {
+      try {
+        const shown = await versusLook({ inline: false, within: true }, { record, codes: await syncCodes(record.document.id, record.document), fonts: await fontsFor(record.document), state });
+        return shown.text;
+      } catch (error) {
+        throw Object.assign(new AgentError("reference_needed", `rev ${rev} was not seen beside the saved references, and kino could not run look versus for it (${error.message}).`, {
+          next: `look {mode:"versus"}, then render final again. ${skip}`,
+        }), { nextCall: nextOf("look", { mode: "versus" }) });
+      }
+    }
+    return "";
   }
 
   // ---- look review and the review gate (review.mjs) -----------------------------------------
@@ -6275,6 +6312,7 @@ export function createAgentService(deps) {
       if (quality === "draft") await refuseDraftBeforeBoard(record);
       // The final render's gates, in the order they refuse. A refusal keeps its code and next call
       // and names every gate still open, in finalGates' order, so the agent plans them at once.
+      let versusText = "";
       if (quality === "final") try {
         // The direction lock comes before the stops: they are judged against the locked story.
         await refuseWithoutLock(record, { format });
@@ -6293,14 +6331,15 @@ export function createAgentService(deps) {
         }
         // The review gate: every moment of the video seen at full size as it is now (look review).
         await refuseUnreviewed(record, scenes, { fonts, codes, format, options });
-        // The reference gate: your frames seen beside the saved references (look versus).
-        await refuseWithoutReference(record, scenes, { format, options });
         // The viewer gate: a fresh viewer's report with no open story bugs (look viewer, notes viewer).
         await refuseWithoutViewer(record, scenes, { codes, format, options });
         // The critic gate: no open P0 line from a fresh critic (look critique, notes critique).
         await refuseOpenCritique(record, scenes, { codes, format, options });
         // The needs gate: every need answered and done (notes needs).
         await refuseWithoutNeeds(record, scenes, { format, options });
+        // The reference gate, last: your frames beside the saved references. When this revision
+        // was not seen beside them, kino runs look versus here and the answer carries its lines.
+        versusText = (await refuseWithoutReference(record, scenes, { format, options })) ?? "";
       } catch (error) {
         throw await withOpenGates(error, record, scenes, options);
       }
@@ -6351,7 +6390,8 @@ export function createAgentService(deps) {
       const estimate = renderEstimate([...renders.values()], quality, scenes.reduce((sum, scene) => sum + scene.duration, 0)).seconds;
       const others = record.document.scenes.filter(entry => !scenes.some(scene => entry.id === scene.id) && !entry.isComponent).length;
       const note = (others ? ` The other ${plural(others, "scene")} ${others === 1 ? "is" : "are"} not in this file; scene:"all" exports each scene as its own file.` : scenes.length > 1 ? " Each scene produces its own file." : "")
-        + (quality === "final" ? await finalSources(record.document) + await waivedNote(record.document) : "");
+        + (quality === "final" ? await finalSources(record.document) + await waivedNote(record.document) : "")
+        + (versusText ? `\nkino ran look versus for rev ${record.revision} (the reference gate):\n${versusText}` : "");
       // wait:true: one call starts the render and answers like wait (up to 55 s); a render that is
       // still running then says so, and render {action:"wait", job} picks it up.
       if (input.wait === true) {
@@ -7924,7 +7964,7 @@ export function createAgentService(deps) {
     if (whole.length && !whole.some((scene) => waived(NEEDS_WAIVER, scene))) {
       const open = openNeeds(state.needs);
       if (open.length) { if (add("needs_open", `notes needs (${open.map((need) => need.id).join(" ")})`, needNextCall(open[0]))) return gates; }
-      else if (!state.needs?.checked) {
+      else if (!state.needs?.checked && hasBrief(state.brief)) {
         for (const scene of whole) {
           if (scene.duration < VIEWER_UNDER || !(await hasFootageOrSpeech(scene, document))) continue;
           if (add("needs_unchecked", "notes needs (check the material)", needsAskCall(state))) return gates;
@@ -7941,7 +7981,8 @@ export function createAgentService(deps) {
     let joined = null;
     if (viewer?.gap.fix) { if (add("viewer_needed", `fix the viewer's story bugs${viewer.gap.last ? "" : ", look viewer again"}`, viewerFixCall(viewer.gap))) return gates; }
     else if (viewer) {
-      if (!viewer.intents && add("intents_needed", "notes intents", intentsCall())) return gates;
+      // Intents ride on the viewer call (look {mode:"viewer", beats}): one step, not two.
+      if (!viewer.intents && add("viewer_needed", "look viewer with your beats' intents, a fresh subagent, notes viewer", viewerWithIntentsCall(sceneField(viewer.scene)))) return gates;
       joined = !viewer.gap.spoiler && !barOf(state.verdicts) && critiqueAsks(state, document, viewer.scene, record.revision) ? viewer.scene.id : null;
       const words = joined ? "look critique (viewer and critic), one fresh subagent, notes critique" : "look viewer, a fresh subagent, notes viewer";
       if (add("viewer_needed", words, joined ? critiqueCall(sceneField(viewer.scene)) : nextOf("look", { mode: "viewer", ...sceneField(viewer.scene) }))) return gates;
@@ -7973,7 +8014,9 @@ export function createAgentService(deps) {
       const fixable = blocking.find((finding) => finding.severity === "error" && finding.fix && typeof finding.fix === "object");
       const call = fixable ? nextOf("edit", { ops: [fixable.fix].flat() }) : nextOf("check", { fix: "auto" });
       if (add("check_failed", `check fix:"auto", then fix ${plural(blocking.length, "finding")} (${[...new Set(blocking.map((finding) => finding.rule))].slice(0, 3).join(", ")})`, call)) return gates;
-    } else if (state.checked?.rev !== record.revision && add("check", 'check fix:"auto"', nextOf("check", { fix: "auto" }))) return gates;
+    }
+    // Nothing blocks: the final render runs its own full check, so a separate check call is not
+    // a missing step (the probe on run 6 listed it while the render went ahead without it).
     for (const scene of whole) {
       if (scene.duration < REVIEW_SKIP_UNDER || waived(REVIEW_WAIVER, scene)) continue;
       const { events } = await sceneReview(document, scene.id, fonts, codes);
@@ -7985,16 +8028,18 @@ export function createAgentService(deps) {
     if (whole.length && !whole.every((scene) => waived(REFERENCE_WAIVER, scene))) {
       const versus = nextOf("look", { mode: "versus" });
       if (!(await judge.hasSaved(document.id))) {
-        if (deps.inspire && whole.some((scene) => scene.duration >= REFERENCE_SKIP_UNDER) && add("reference_needed", `library inspire (save ${REFERENCES_WANTED}), look versus`, nextOf("library", { topic: "inspire", search: await findSearchFor(document.id) }))) return gates;
+        if (deps.inspire && whole.some((scene) => scene.duration >= REFERENCE_SKIP_UNDER) && add("reference_needed", `library inspire (save ${REFERENCES_WANTED}; the final render runs look versus)`, nextOf("library", { topic: "inspire", search: await findSearchFor(document.id) }))) return gates;
       } else if (state.firstBuild && !(await savedIds(document.id)).some((id) => state.firstBuild.saved.includes(id) || state.firstBuild.studied.includes(id))) {
         if (add("reference_needed", 'waive_check reference (references saved after the build)', nextOf("edit", { ops: [{ op: "waive_check", code: REFERENCE_WAIVER, target: "*", reason: "<built before the references; the person knows>" }] }))) return gates;
-      } else if ((judgeLost(state, record.revision) || !versusSeen(state, record.revision)) && add("reference_needed", "look versus", versus)) return gates;
+      // Not seen beside them yet is no step: the final render runs look versus itself.
+      } else if (judgeLost(state, record.revision) && add("reference_needed", "look versus (the person's judge picked the references)", versus)) return gates;
     }
     return gates;
   }
 
   // The gates as one line: "to final: 1) notes intents 2) look viewer, ... 3) render final".
-  const toFinalLine = (gates, lead = "to final:") => `${lead} ${[...gates.map((gate) => gate.words), "render final"].map((words, index) => `${index + 1}) ${words}`).join(" ")}`;
+  // `calls`: each step with its ready call, in the order to send them (the final render's refusal).
+  const toFinalLine = (gates, lead = "to final:", calls = false) => `${lead} ${[...gates.map((gate) => (calls && gate.call ? `${gate.words}: ${callText(gate.call)}` : gate.words)), "render final"].map((words, index) => `${index + 1}) ${words}`).join(" ")}`;
 
   // A final render's refusal with every gate still open named after its own words (finalGates);
   // its code and next call stay. The refusing gate is listed even when only the render's own
@@ -8016,7 +8061,7 @@ export function createAgentService(deps) {
     const family = (code) => code.replace(/_(needed|open|unchecked|failed)$/, "");
     if (!gates.some((gate) => family(gate.code) === family(error.code)))
       gates.unshift({ code: error.code, words: error.code === "check_failed" ? 'check fix:"auto", then fix the findings named here' : `clear ${error.code}` });
-    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:")}.${await waivedNote(record.document)}`;
+    error.message = `${error.message} ${toFinalLine(gates, "A final render still needs:", true)}.${await waivedNote(record.document)}`;
     return error;
   }
 

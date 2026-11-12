@@ -141,8 +141,8 @@ export const AGENT_TOOLS = withSaid([
       "source: every clip, or a layer's crop; times:[s].",
       "board: the storyboard, 4 shots a page.",
       "reference: an inspire ref near t.",
-      "versus: beside saved references, gaps; final needs it.",
-      "viewer: packet for a fresh viewer (after notes intents).",
+      "versus: beside saved references, gaps; final runs it.",
+      "viewer: packet for a fresh viewer; beats: intents.",
       "critique: packet for a fresh critic; P0s block final.",
     ].join("\n"),
     input: {

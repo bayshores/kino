@@ -82,5 +82,5 @@ off as theirs. A graphic that says what happened is fine; a fake of it happening
 ## The gate
 
 A final render waits while a need is unanswered, a "have" is not sent or a picked option is not
-made (`needs_open`), and a 15 s+ video with footage or speech waits until its material was
-checked (`needs_unchecked`). A deliberate skip: `waive_check {code:"needs", target:"*", reason}`.
+made (`needs_open`), and a 15 s+ video with a brief and footage or speech waits until its
+material was checked (`needs_unchecked`). A deliberate skip: `waive_check {code:"needs", target:"*", reason}`.

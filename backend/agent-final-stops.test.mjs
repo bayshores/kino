@@ -60,13 +60,15 @@ test("the agent's final render and final export wait for rough, color and sound;
   assert.equal(refused.data.error, "stops_open");
   // Every gate still open is named at once (a still waits only for the stops and the check),
   // in the order that redoes the least work; the first gate keeps its code and next call.
-  assert.equal(refused.data.reason, "A final render waits for this video's stops: rough, color, sound. A draft render works now. A final render still needs: 1) notes checkpoint rough, color, sound 2) render final.");
+  // Each step carries its ready call, in the order to send them.
+  assert.equal(refused.data.reason, 'A final render waits for this video\'s stops: rough, color, sound. A draft render works now. A final render still needs: 1) notes checkpoint rough, color, sound: notes {"action":"checkpoint","id":"rough"} 2) render final.');
   const mp4 = await agent("render", { project: "final-waits", quality: "final", format: "mp4" });
   assert.equal(mp4.data.error, "stops_open");
-  assert.match(mp4.data.reason, /still needs: 1\) notes checkpoint rough, color, sound 2\) look review \(6 of 6 moments\) 3\) library inspire \(save 2\), look versus 4\) render final\.$/);
+  // look versus is no step of its own: the final render runs it.
+  assert.match(mp4.data.reason, /still needs: 1\) notes checkpoint rough, color, sound: notes \{[^}]*\} 2\) look review \(6 of 6 moments\): look \{"mode":"review"\} 3\) library inspire \(save 2; the final render runs look versus\): library \{[^}]*\} 4\) render final\.$/);
   // status names the same gates on one line once the video is built and checked.
   const status = await agent("status", { project: "final-waits" });
-  assert.ok(status.text.includes("\nto final: 1) notes checkpoint rough, color, sound 2) look review (6 of 6 moments) 3) library inspire (save 2), look versus 4) render final\n"), status.text);
+  assert.ok(status.text.includes("\nto final: 1) notes checkpoint rough, color, sound 2) look review (6 of 6 moments) 3) library inspire (save 2; the final render runs look versus) 4) render final\n"), status.text);
   assert.equal(refused.data.next, 'Ask them in order: notes {action:"checkpoint", id:"rough"}.');
   assert.deepEqual(refused.data.stops, [{ kind: "rough" }, { kind: "color" }, { kind: "sound" }]);
 
