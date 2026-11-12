@@ -469,6 +469,11 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   // new copy takes its place in the stack and its ID, so what points at it keeps working.
   const old = operation.replaces ? copiedScene.layers.find((item) => item.id === operation.replaces) : null;
   if (old) copiedScene.layers = copiedScene.layers.flatMap((item) => item === old ? [copy] : item === copy ? [] : [item]);
+  // With no span given, the new one shows when the old one did (its own Show and Hide, which may
+  // have been given a span of its own), not when the clip does.
+  const points = (item) => JSON.stringify((item.animations ?? []).filter(isVisibilityOperation).map((animation) => [animation.kind, animation.start]));
+  const keptSpan = !!old && !span && points(old) !== points(copy);
+  if (keptSpan) copy.animations = [...(copy.animations ?? []).filter((animation) => !isVisibilityOperation(animation)), ...(old.animations ?? []).filter(isVisibilityOperation)];
   copy.id = operation.cutoutId;
   copy.cutoutOf = layerId;
   copy.cutoutEngine = made.engine;
@@ -512,7 +517,7 @@ async function cutOut(document, operation, { mediaRoot, cutoutMedia, operationCo
   aliasClipLinks(next, layer.src, next.scenes.find((item) => item.id === sceneId)?.layers.find((item) => item.id === operation.cutoutId)?.src);
 
   const notes = made.note ? [made.note] : [];
-  if (old) notes.push(`replaced the cut-out "${old.name}" made with the ${operation.replacesEngine} engine by this ${made.engine} one (same place, ID and name)`);
+  if (old) notes.push(`replaced the cut-out "${old.name}" made with the ${operation.replacesEngine} engine by this ${made.engine} one (same place, ID and name${keptSpan ? ", and its own Show and Hide" : ""})`);
   // The copy shows from its Show to its Hide; the file's matte covers the whole clip, so the copy
   // lines up with the layer at every moment it shows. A span outside the layer's own is named.
   if (span) {

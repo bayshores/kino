@@ -196,7 +196,8 @@ export function duplicateRepeated(document, sceneId, layerIds, options = {}, { f
       const originals = new Map(result.copyIds.map((copyId) => [copyId, sceneBefore.layers.find((layer) => layer.id === result.originalOf.get(copyId))?.animations]));
       const placed = delayLayers(result.document, sceneId, new Set(result.copyIds), delay, { timed: !!timed, withMoves: options.withMoves === true, originals });
       next = placed.document;
-      report = placed.report;
+      // Every copy's sorting counts: a late copy may be cut at the scene's end while an early one is not.
+      report = Object.fromEntries(Object.entries(placed.report).map(([key, names]) => [key, [...new Set([...(report?.[key] ?? []), ...names])]]));
     } else next = result.document;
     copies.unshift(result.copyIds);
     roots.unshift(result.rootIds);

@@ -948,7 +948,8 @@ How to read it:
   `skills/kino/references/cutout.md`, golden `cutout-pop`.
 - **cut_out span and engine swap**: Test-verified (stub matte). `at`, `dur` and `until` give the copy its own Show and
   Hide; the receipt always prints `shows`; `engine` on a layer with a cut-out of another engine replaces it in the
-  same call (same place, ID, name). Evidence: `backend/agent-cutout.test.mjs`.
+  same call (same place, ID, name; its Show and Hide when no span is given). Evidence: `backend/agent-cutout.test.mjs`.
+  Gap: cut-outs made before `cutoutEngine` was recorded are not replaced.
 - **cut_out openEdges "extend" and edge**: a subject reaches the frame border solid by default;
   edge "auto" is crisp on a video whose drawings are held over frames. Evidence: `backend/cutout-matte.test.mjs`.
 - **Cut-out follows its clip, holds through lost frames, states the subject's box**: Test-verified.

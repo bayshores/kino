@@ -633,7 +633,7 @@ test("cut_out checks at, dur and until, and engine replaces a cut-out made with 
   const cued = { ...document, cues: [{ name: "drop", time: 1.25, kind: "marker" }] };
   assert.equal(send(cued, { at: "cue:drop", dur: 0.5 }).at, 1.25);
   // A cut-out made with the person engine, then one with the subject engine: one layer in the end.
-  const first = await run(document, { engine: "person", cutoutName: "clip-subject" });
+  const first = await run(document, { engine: "person", cutoutName: "clip-subject", at: 1, dur: 0.5 });
   assert.equal(first.layers.find((layer) => layer.id === "clip-cut").cutoutEngine, "person");
   const title = createLayer("text", { id: "title", name: "title", text: "T", x: 0, y: 0, width: 100, height: 40 });
   const stacked = parseDocument({ ...first.next, scenes: [{ ...first.next.scenes[0], layers: [...first.next.scenes[0].layers, title] }] });
@@ -645,7 +645,8 @@ test("cut_out checks at, dur and until, and engine replaces a cut-out made with 
   assert.deepEqual(second.layers.map((layer) => layer.id), ["clip", "clip-cut", "title"]);
   assert.equal(second.layers[1].cutoutEngine, "subject");
   assert.deepEqual(second.receipt.replaced, { name: "clip-subject", engine: "person" });
-  assert.match(second.receipt.note, /replaced the cut-out "clip-subject" made with the person engine by this subject one/);
+  assert.match(second.receipt.note, /replaced the cut-out "clip-subject" made with the person engine by this subject one \(same place, ID and name, and its own Show and Hide\)/);
+  assert.deepEqual(second.receipt.shows, [1, 1.5], "with no span given it shows when the old one did");
 });
 
 test("behind picks the engine from the clip's people scan, and a person pass that finds no one tries the subject engine", async (t) => {

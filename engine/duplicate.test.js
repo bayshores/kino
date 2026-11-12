@@ -231,6 +231,8 @@ test("at reads the original by its Show, keeps whole-scene effects whole, and le
   const cut = duplicateRepeated(createDocument({ scenes: [short] }), "main", ["s12"], { at: [6.5] });
   assert.deepEqual(byName(layersOf(cut.document), "shot 2").animations.find((a) => a.effect === "deblock").duration, 7);
   assert.deepEqual([...cut.report.cut].sort(), ["Deblock to 7 s", "Hide to 7 s"]);
+  // The report counts every copy: the last copy's Hide is cut at the end even when the first copy's is not.
+  assert.deepEqual(duplicateRepeated(document, "main", ["s12"], { at: [1, 14.5] }).report.cut, ["Hide to 15 s"]);
 });
 
 test("returns: an image returns by its file, not its name, and a long run of places is cut short", () => {
