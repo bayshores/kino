@@ -16,11 +16,12 @@ import { flattenAnimations } from "../../engine/animationTree.js";
 import { aliasClipLinks } from "../../engine/clipSync.js";
 import { parseDocument } from "../../engine/model.js";
 import { applyOperations } from "../../engine/operations.js";
-import { mediaPlaybackRange } from "../../engine/playback.js";
+import { mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { hiddenSpans } from "../../engine/videoSound.js";
 import { decodeMono } from "../audio-analysis.mjs";
 import { stemLevels, stemLevelsLine } from "../voice/stem-levels.mjs";
+import { monoMix, probeSound } from "../voice/isolate.mjs";
 
 // The sample rate the receipt's levels are measured at (enough for 100 ms RMS windows).
 const LEVEL_RATE = 16000;
@@ -58,11 +59,16 @@ async function nextStep(error, { engine, voiceMedia }) {
  */
 export async function runIsolateVoice(document, operation, { mediaRoot, voiceMedia, operationContext, reports, madeMedia = null, pictureMoves = null, decode = decodeMono }) {
   // The original's and the voice stem's levels over the stretch the layer plays (stem-levels.mjs).
+  // The original is mixed to mono as the engines got it (the channels' average, monoMix), so a
+  // centered voice reads the same level in both; a sped or reversed clip is read over the file
+  // seconds it plays.
   const measure = async (source, stem, layer, scene) => {
     const range = mediaPlaybackRange(layer, scene.duration);
     if (!stem || !range) return null;
-    const [original, voice] = await Promise.all([decode(source, { sampleRate: LEVEL_RATE }), decode(stem, { sampleRate: LEVEL_RATE })]);
-    return stemLevels({ original: original.samples, voice: voice.samples, rate: LEVEL_RATE, from: range.offset, to: range.offset + (range.end - range.start) });
+    const { channels } = await probeSound(source);
+    const [original, voice] = await Promise.all([decode(source, { sampleRate: LEVEL_RATE, mix: monoMix(channels) }), decode(stem, { sampleRate: LEVEL_RATE })]);
+    const ends = [range.offset, range.remapped ? mediaSoundTime(layer, range.end) : range.offset + range.duration];
+    return stemLevels({ original: original.samples, voice: voice.samples, rate: LEVEL_RATE, from: Math.min(...ends), to: Math.max(...ends) });
   };
   const { sceneId, layerId } = operation;
   const keep = operation.keep ?? "voice", engine = operation.engine ?? "auto", amount = operation.amount ?? 1;

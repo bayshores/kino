@@ -26,12 +26,14 @@ export function decodeMono(filename, options = {}) {
   return heavyDecodeSlot(() => decodeMonoNow(filename, options));
 }
 
-function decodeMonoNow(filename, { command = ffmpegCommand(), timeoutMs = 120_000, sampleRate = ANALYSIS_SAMPLE_RATE } = {}) {
+// mix: an FFmpeg filter that makes the mono copy first (voice/isolate.mjs monoMix, the channels'
+// average); without it FFmpeg's own stereo-to-mono mix adds the channels at 71% each.
+function decodeMonoNow(filename, { command = ffmpegCommand(), timeoutMs = 120_000, sampleRate = ANALYSIS_SAMPLE_RATE, mix = "" } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, [
       "-nostdin", "-hide_banner", "-loglevel", "error", "-threads", "1", "-copyts", "-start_at_zero", "-i", filename,
       "-map", "0:a:0", "-vn", "-sn", "-dn", "-ac", "1", "-map_metadata", "-1",
-      "-af", `aresample=${sampleRate}:async=1:first_pts=0:min_hard_comp=0.001`,
+      "-af", `${mix ? `${mix},` : ""}aresample=${sampleRate}:async=1:first_pts=0:min_hard_comp=0.001`,
       "-t", String(MAX_ANALYSIS_SECONDS), "-c:a", "pcm_f32le", "-f", "f32le", "pipe:1",
     ], { shell: false, stdio: ["ignore", "pipe", "pipe"] });
     endWithService(child);

@@ -249,6 +249,11 @@ function originalChain(channels) {
   return `aresample=${SAMPLE_RATE},aformat=sample_fmts=flt:channel_layouts=${channels === 1 ? "mono" : "stereo"}`;
 }
 
+/** The mono copy the engines get (the channels' average), as an FFmpeg filter: measure the original with it to compare it with a stem. */
+export function monoMix(channels) {
+  return `${originalChain(channels)}${channels === 1 ? "" : ",pan=mono|c0=0.5*c0+0.5*c1"}`;
+}
+
 /**
  * The FFmpeg filter graph that lines up the engine output and makes the two stems.
  * Inputs: 0 = the source file, 1 = input.wav (the decoded mono sound), 2 = raw.wav (engine output).
@@ -269,7 +274,7 @@ function stemGraph({ lag, frames, amount, channels }) {
   ].join(";");
 }
 
-async function probeSound(source, signal) {
+export async function probeSound(source, signal) {
   const text = await runMediaTool("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries",
     "stream=channels", "-of", "json", source], { signal });
   const probe = JSON.parse(text);
@@ -384,7 +389,7 @@ async function isolateWith(engine, { source, sourceHash, amount, keep, cacheDir,
     const input = join(work, "input.wav");
     const raw = join(work, "raw.wav");
     await runMediaTool("ffmpeg", ["-hide_banner", "-nostdin", "-v", "error", "-i", source, "-map", "0:a:0", "-vn",
-      "-af", `${originalChain(channels)}${channels === 1 ? "" : ",pan=mono|c0=0.5*c0+0.5*c1"}`,
+      "-af", monoMix(channels),
       "-c:a", "pcm_f32le", "-f", "wav", input], { signal });
     const { frames } = readWavInfo(input);
     if (frames === 0) throw Object.assign(new Error(`${basename(source)} has no sound to isolate.`), { code: "VOICE_NO_SOUND" });

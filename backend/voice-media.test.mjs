@@ -8,6 +8,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { carryKnowledge, dropMadeMedia } from "./derived-media.mjs";
 import { stemLevels, stemLevelsLine } from "./voice/stem-levels.mjs";
+import { decodeMono } from "./audio-analysis.mjs";
+import { monoMix, probeSound } from "./voice/isolate.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { probeMedia } from "./media-probe.mjs";
@@ -75,6 +77,18 @@ test("isolate_voice's levels: the clip's sound in the gaps and the voice in the 
   assert.equal(levels.gaps.after, -66);
   assert.match(stemLevelsLine(levels), /^file 0-2 s: clip sound in the gaps -26 dBFS before, -66 after \(40 dB down, on 1 s of gaps\); voice in the words -5\.2 dBFS before, -6 after \(-0\.8 dB, on 1 s of words\)$/);
   assert.match(stemLevelsLine(stemLevels({ original, voice, rate, from: 0, to: 1 })), /no gaps between words/);
+});
+
+test("the original is measured as the mono copy the engines get, so a centered stereo voice reads its own level", { skip: skipWithoutMediaTools }, async (t) => {
+  const root = await folder(t);
+  const file = join(root, "center.wav");
+  // The same tone in both channels at 0.5: each channel and their average sit at -9 dBFS RMS.
+  await run(ffmpeg, ["-v", "error", "-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*440*t):s=16000:d=0.5", "-af", "pan=stereo|c0=c0|c1=c0", file]);
+  const level = ({ samples }) => 10 * Math.log10(samples.reduce((sum, value) => sum + value * value, 0) / samples.length);
+  const { channels } = await probeSound(file);
+  assert.equal(channels, 2);
+  assert.ok(Math.abs(level(await decodeMono(file, { sampleRate: 16000, mix: monoMix(channels) })) + 9) < 0.3);
+  assert.ok(level(await decodeMono(file, { sampleRate: 16000 })) > -6.5, "FFmpeg's own mono mix reads 3 dB louder");
 });
 
 test("names drop the file extension", () => {
