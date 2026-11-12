@@ -47,6 +47,10 @@ const SEEN_AS = {
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   electric: ["rim-light"],
+  // Line art of footage (edge-lines) and a subject's edge as a drawn path (cut_out output "outline").
+  edge: ["edge-lines", "rim-light", "cut_out"], edges: ["edge-lines", "rim-light", "cut_out"], "edge detect": ["edge-lines", "cut_out"], "find edges": ["edge-lines", "cut_out"],
+  "line art": ["edge-lines", "cut_out"], contour: ["edge-lines", "cut_out"], contours: ["edge-lines", "cut_out"], sketch: ["edge-lines"], trace: ["cut_out", "edge-lines"],
+  "subject outline": ["cut_out", "rim-light"], "outline path": ["cut_out"], "trace outline": ["cut_out", "rim-light"],
   outline: ["outline_text", "rim-light", "glow", "cut_out"], outlined: ["outline_text", "rim-light", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
   "typed highlight": ["type-on"], jitter: ["text-ranges"], "hand set": ["text-ranges"],
   hollow: ["layer-style"], "outline glow": ["layer-style", "glow"], "glow outline": ["layer-style", "glow"],

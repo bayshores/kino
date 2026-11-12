@@ -25,7 +25,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { aliasClipLinks } from "../../engine/clipSync.js";
 import { duplicateLayers } from "../../engine/layerClipboard.js";
-import { parseDocument } from "../../engine/model.js";
+import { createLayer, parseDocument } from "../../engine/model.js";
+import { outlinePathData } from "../cutout/outline.mjs";
+import { parseFrameRate } from "../media-probe.mjs";
 import { applyOperations } from "../../engine/operations.js";
 import { mediaSceneTime } from "../../engine/playback.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
@@ -82,6 +84,55 @@ function pickedReport(picked, layer) {
   return seeAt.length ? { ...picked, seeAt } : picked;
 }
 
+// output "outline": a path layer of the subject's edge instead of a media copy. It takes the
+// clip's place, size and turn (not its animations: a clip that is scaled or moved by an animation
+// needs the same one added to the outline), and its path morphs through the traced shapes at the
+// scene times those frames show (custom animations of up to OUTLINE_KEYS keys each, one closed
+// path per frame, so the shapes always match). Strokes, neon, taper and roughen work on it as on
+// any path. Defaults: stroke color white, width 3 px (guesses).
+const OUTLINE_KEYS = 48;
+const PLACE_KEYS = ["parentId", "x", "y", "width", "height", "rotation", "scaleX", "scaleY", "skewX", "skewY", "anchor", "opacity", "blendMode",
+  "playbackWindows", "anchorX", "anchorY", "rotateX", "rotateY", "perspective"];
+
+async function addOutlineLayer({ document, operation, scene, layer, made, reports, operationContext }) {
+  const { sceneId, layerId } = operation;
+  const { outline } = made;
+  const scaleX = layer.width / outline.width, scaleY = layer.height / outline.height;
+  const rate = parseFrameRate(outline.rate) || 30;
+  // Each traced frame at the scene time Play shows it; frames Play never shows or with no subject are left out.
+  let empty = 0;
+  const shapes = outline.frames.flatMap((frame) => {
+    if (!frame.points) { empty += 1; return []; }
+    const time = layer.type === "image" ? 0 : mediaSceneTime(layer, outline.lead + frame.index / rate);
+    return time === null ? [] : [{ time: Math.round(time * 1000) / 1000, path: outlinePathData(frame.points, scaleX, scaleY) }];
+  }).sort((a, b) => a.time - b.time).filter((shape, index, all) => index === 0 || shape.time > all[index - 1].time);
+  if (!shapes.length) throw new Error(`no outline could be traced for "${layer.name}": no sampled frame has a subject that Play shows.`);
+
+  const outlineLayer = createLayer("path", { id: operation.cutoutId, name: operation.cutoutName, cutoutOf: layerId, allowOverlap: true,
+    ...Object.fromEntries(PLACE_KEYS.filter((key) => layer[key] !== undefined).map((key) => [key, structuredClone(layer[key])])),
+    path: shapes[0].path, pathBounds: { x: 0, y: 0, width: layer.width, height: layer.height }, fillEnabled: false,
+    stroke: operation.color ?? "#ffffff", strokeWidth: operation.width ?? 3 });
+  let next = parseDocument({ ...document, scenes: document.scenes.map((item) => item.id === sceneId ? { ...item, layers: [...item.layers, outlineLayer] } : item) });
+  const steps = [{ type: "move_layers", sceneId, layerIds: [operation.cutoutId], position: "above", referenceId: operation.referenceId ?? layerId }];
+  // One custom animation per run of shapes, each ending where the next begins.
+  for (let from = 0; from < shapes.length - 1; from += OUTLINE_KEYS - 1) {
+    const run = shapes.slice(from, from + OUTLINE_KEYS);
+    const start = run[0].time, duration = Math.max(0.001, run.at(-1).time - start);
+    steps.push({ type: "add_animation", sceneId, layerId: operation.cutoutId, animation: { kind: "custom", start, duration, easing: "linear",
+      from: { path: run[0].path }, to: { path: run.at(-1).path },
+      ...(run.length > 2 ? { keys: run.map((shape) => ({ t: Math.min(1, (shape.time - start) / duration), value: { path: shape.path } })) } : {}) } });
+  }
+  next = parseDocument(applyOperations(next, steps, await operationContext(next, steps)));
+  const notes = made.note ? [made.note] : [];
+  if (made.empty > 0) notes.push(`no ${made.engine === "person" ? "person" : "subject"} was found in ${made.empty} of ${made.frames} frames; their outline holds the shape before it`);
+  if (empty > 0) notes.push(`${empty} sampled frame(s) had no subject and were skipped`);
+  if (layer.animations?.some((animation) => animation.kind !== "effect")) notes.push(`"${layer.name}" has animations that move or scale it; the outline layer does not copy them, so add the same ones to it`);
+  reports?.set(operation, { engine: made.engine, output: "outline", frames: made.frames, seconds: Math.round(made.seconds * 10) / 10,
+    cached: made.cached, outline: { shapes: shapes.length, step: outline.step, points: Math.max(...outline.frames.map((frame) => frame.points?.length ?? 0)) },
+    ...(notes.length ? { note: notes.join("; ") } : {}) });
+  return next;
+}
+
 /**
  * Runs one cut_out operation on `document` (as the operations before it in the edit left it) and
  * returns the new document. Options: mediaRoot, cutoutMedia (createCutoutMedia), operationContext
@@ -119,6 +170,7 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
   const perLayerPixel = Math.sqrt((fileWidth / Math.max(1, layer.width)) * (fileHeight / Math.max(1, layer.height)));
   const inFilePixels = (value) => Math.round((value ?? 0) * perLayerPixel * 100) / 100;
   const job = cutoutMedia.start({ file, name: typeof record.name === "string" ? record.name : layer.name,
+    ...(output === "outline" ? { outline: { step: operation.step, points: operation.detail } } : {}),
     kind: layer.type === "video" ? "video" : "image", output, engine,
     grow: inFilePixels(operation.grow), feather: inFilePixels(operation.feather),
     color: operation.color ?? "#ffffff", invert: operation.invert === true,
@@ -149,6 +201,8 @@ export async function runCutOut(document, operation, { mediaRoot, cutoutMedia, o
     throw Object.assign(new Error(`the cut-out of "${layer.name}" is still being made (${Math.floor(fraction * 100)}% done${left ? `, ${roughly(left)} left` : ""}); nothing was changed. Send the same edit again${left ? ` in ${roughly(left)}` : " in a minute"}: the finished cut-out is kept, so it then answers at once.`),
       { cutoutError: "CUTOUT_RUNNING" });
   }
+
+  if (output === "outline") return addOutlineLayer({ document, operation, scene, layer, made, reports, operationContext });
 
   // A copy of the layer right above it, then its new file, name and look.
   const copied = duplicateLayers(document, sceneId, [layerId]);

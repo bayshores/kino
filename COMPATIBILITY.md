@@ -660,6 +660,11 @@ How to read it:
 - **Rim haze, lobe gaps and cut-out borders**: Test-verified. `rim-light` adds a wide dim haze, lobes
   with dark gaps on twos and a thinner auto width (4 px), an auto color floor on dark subjects; glow, shadows and rims on a cut-out
   skip its faded border. Evidence: `engine/effects/light.test.js`.
+- **Edge lines and subject outline path**: Test-verified. `edge-lines` draws line art on a layer's
+  contours (nothing on flat parts or a picture's border, the picture kept dimmed by default);
+  `cut_out` `output:"outline"` makes a path layer morphing through the subject's traced edge (no
+  line where the frame cuts the subject). Evidence: `engine/effects/light.test.js`,
+  `backend/cutout-matte.test.mjs`, `backend/agent-cutout.test.mjs`. Gap: largest shape only (no holes).
 - **Cost**: 26 to 201 ms a 1080p MP4 frame.
 - **Lens flare streak, ghosts, softness**: Verified. One soft full-width line, no ghosts; ghosts 0
   turns reflections off; the core is the flare color, white only above strength 1. Evidence: `engine/effects/light.test.js`, grade-bloom-flash study re-run (one call for 5 ops).

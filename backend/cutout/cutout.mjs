@@ -40,7 +40,9 @@ import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadi
 import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
-export const CUTOUT_OUTPUTS = Object.freeze(["subject", "matte", "silhouette"]);
+export const CUTOUT_OUTPUTS = Object.freeze(["subject", "matte", "silhouette", "outline"]);
+// The outputs that are media files; "outline" is a vector path layer (outline.mjs).
+const FILE_OUTPUTS = CUTOUT_OUTPUTS.filter((name) => name !== "outline");
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 // Bump when the matte a given input produces would change, so old cache entries are not reused.
@@ -976,7 +978,7 @@ async function writeImageOutput({ source, folder, info, output, grow = 0, feathe
  * matte. Returns { extension, mime }.
  */
 export async function writeCutoutOutput({ source, folder, info, output, grow, feather, openEdges, color, invert, target, signal, onFraction }) {
-  if (!CUTOUT_OUTPUTS.includes(output)) throw new RangeError(`output must be one of ${CUTOUT_OUTPUTS.join(", ")}.`);
+  if (!FILE_OUTPUTS.includes(output)) throw new RangeError(`output must be one of ${FILE_OUTPUTS.join(", ")}.`);
   const write = info.kind === "video" ? writeVideoOutput : writeImageOutput;
   return write({ source, folder, info, output, grow, feather, openEdges: openEdgePixels(openEdges, info.source), color, invert, target, signal, onFraction });
 }

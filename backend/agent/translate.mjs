@@ -1095,7 +1095,7 @@ function checkTrackOrPin(operation, type) {
 // checked here, so a wrong value is refused before any picture is decoded. It names the new layer
 // now ("<layer name>-<output>" without a file extension, or `name`), so later operations in the
 // same edit can use that name. The agent service does the rest (cutout-operation.mjs runCutOut).
-const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name", "refine", "fillHoles", "openEdges"]);
+const CUTOUT_FIELDS = new Set(["type", "sceneId", "layerId", "output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "referenceId", "behindText", "name", "refine", "fillHoles", "openEdges", "width", "step", "detail"]);
 // [[x%, y%], …] of the clip's own picture, 1 to 8 points.
 function checkPoints(name, value) {
   const point = (item) => Array.isArray(item) && item.length === 2 && item.every((part) => typeof part === "number" && part >= 0 && part <= 100);
@@ -1105,8 +1105,8 @@ function checkPoints(name, value) {
 function checkCutOut(operation, resolver) {
   const extra = Object.keys(operation).filter((key) => !CUTOUT_FIELDS.has(key));
   if (extra.length) {
-    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name", "refine", "fillHoles", "openEdges"]);
-    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind, name, refine, fillHoles and openEdges.`), { suggestions });
+    const suggestions = closest(extra[0], ["output", "engine", "grow", "feather", "color", "invert", "points", "exclude", "time", "above", "behind", "name", "refine", "fillHoles", "openEdges", "width", "step", "detail"]);
+    throw Object.assign(new Error(`cut_out has no ${extra.join(", ")}; it takes layer, output, engine, grow, feather, color, invert, points, exclude, time, above, behind, name, refine, fillHoles, openEdges and, for output "outline", width, step and detail.`), { suggestions });
   }
   if (operation.refine !== undefined && !(typeof operation.refine === "boolean" || (typeof operation.refine === "number" && operation.refine >= 0 && operation.refine <= 40)))
     throw new Error(`refine must be true (default: the edge smoothed along the picture's own edges), false (Vision's edge as found) or a radius from 0 to 40 pixels, not ${JSON.stringify(operation.refine)}.`);
@@ -1126,10 +1126,20 @@ function checkCutOut(operation, resolver) {
   if (operation.feather !== undefined && !(typeof operation.feather === "number" && operation.feather >= 0 && operation.feather <= 200))
     throw new Error(`feather must be a number of pixels from 0 to 200 (how wide the soft edge is), not ${JSON.stringify(operation.feather)}.`);
   if (operation.color !== undefined) {
-    if (output !== "silhouette") throw new Error('color is the color of output "silhouette"; the subject keeps its own colors and a matte is white on black.');
+    if (output !== "silhouette" && output !== "outline") throw new Error('color is the color of output "silhouette" or "outline"; the subject keeps its own colors and a matte is white on black.');
     if (typeof operation.color !== "string" || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(operation.color))
       throw new Error(`color must be an opaque hex color such as "#ffffff", not ${JSON.stringify(operation.color)} (fade the layer with opacity).`);
   }
+  // outline: a path layer of the matte's own edge (cutout-operation.mjs): width is its stroke in px,
+  // step the frames between traced shapes, detail the points of each shape.
+  for (const [field, low, high, whole] of [["width", 0.5, 200, false], ["step", 1, 60, true], ["detail", 24, 600, true]]) {
+    if (operation[field] === undefined) continue;
+    if (output !== "outline") throw new Error(`${field} is for output "outline" (the subject's outline as a vector path).`);
+    if (!(typeof operation[field] === "number" && operation[field] >= low && operation[field] <= high && (!whole || Number.isInteger(operation[field]))))
+      throw new Error(`${field} must be ${whole ? "a whole number" : "a number"} from ${low} to ${high}, not ${JSON.stringify(operation[field])}.`);
+  }
+  if (output === "outline") for (const field of ["grow", "feather", "invert", "openEdges"]) if (operation[field] !== undefined)
+    throw new Error(`${field} does not apply to output "outline": it traces the matte's own edge (refine and fillHoles clean that edge first).`);
   if (operation.invert !== undefined) {
     if (output !== "matte") throw new Error('invert is for output "matte" (black subject on white, so a mask shows everything but the subject).');
     if (typeof operation.invert !== "boolean") throw new Error(`invert must be true or false, not ${JSON.stringify(operation.invert)}.`);

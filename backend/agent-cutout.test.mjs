@@ -259,7 +259,27 @@ test("a log clip's subject keeps log; its silhouette and matte drop it (kino's o
   assert.deepEqual(logs, { clip: "apple-log", "clip-subject": "apple-log", "clip-silhouette": null, "clip-matte": null });
 });
 
-test("no object under points names the file time asked, in a file whose picture starts late", { skip: skipWithoutMediaTools }, async () => {
+test("cut_out output outline makes one path layer that follows the subject's edge", { skip: skipWithoutMediaTools }, async () => {
+  const video = await upload(server, clips.runner.path, "runner.mp4", "video/mp4");
+  await agent("project", { action: "create", id: "outline", name: "Outline", width: 640, height: 360, duration: 2 });
+  const reply = await agent("edit", { project: "outline", ops: [
+    { op: "add_layer", layerType: "video", name: "clip", properties: { src: video.src } },
+    { op: "cut_out", layer: "clip", output: "outline", color: "#00ffcc", width: 4, step: 6, detail: 60 }] });
+  assert.equal(reply.isError, undefined, reply.text);
+  assert.equal(reply.data.cutout.output, "outline");
+  assert.ok(reply.data.cutout.outline.shapes >= 3, JSON.stringify(reply.data.cutout));
+  const { layers } = await sceneLayers(server, "outline");
+  const line = byName(layers, "clip-outline");
+  assert.equal(line.type, "path");
+  assert.deepEqual([line.stroke, line.strokeWidth, line.fillEnabled], ["#00ffcc", 4, false]);
+  const clip = byName(layers, "clip");
+  for (const field of ["x", "y", "width", "height"]) assert.equal(line[field], clip[field], field);
+  assert.match(line.path, /^M[\d. ]+( L[\d. ]+)+ Z$/);
+  assert.ok(line.path.split(" L").length <= 60, "the point budget (detail) is kept");
+  assert.ok(layers.findIndex((layer) => layer.name === "clip-outline") > layers.findIndex((layer) => layer.name === "clip"), "the line sits above the clip");
+});
+
+test("no object under points names the file time asked, in a file whose picture starts late",{ skip: skipWithoutMediaTools }, async () => {
   // Sound from 0 s, picture from 0.5 s: time 1 is the picture's frame 15, 1 s into the file.
   const file = path.join(folder, "late.mp4");
   await run(ffmpeg, ["-v", "error", "-y", "-itsoffset", "0.5", "-i", clips.guest.path, "-f", "lavfi", "-i", "sine=frequency=330:duration=2.5",
@@ -306,7 +326,10 @@ test("cut_out refusals say what is wrong and what to send, and change nothing", 
     assert.equal(answer.cutoutError, code);
   };
   await refused({ op: "cut_out", layer: "words" }, /cut_out finds the subject of a video or image layer, and "words" is a text layer/);
-  await refused({ op: "cut_out", layer: "clip", output: "outline" }, /output must be "subject", "matte", "silhouette", not "outline"/);
+  await refused({ op: "cut_out", layer: "clip", output: "ring" }, /output must be "subject", "matte", "silhouette", "outline", not "ring"/);
+  await refused({ op: "cut_out", layer: "clip", output: "outline", feather: 3 }, /feather does not apply to output "outline"/);
+  await refused({ op: "cut_out", layer: "clip", output: "outline", step: 0 }, /step must be a whole number from 1 to 60/);
+  await refused({ op: "cut_out", layer: "clip", width: 4 }, /width is for output "outline"/);
   await refused({ op: "cut_out", layer: "clip", engine: "sam" }, /engine must be "auto", "subject", "person"/);
   await refused({ op: "cut_out", layer: "clip", grow: 500 }, /grow must be a number of pixels from -100 to 100/);
   await refused({ op: "cut_out", layer: "clip", feather: -2 }, /feather must be a number of pixels from 0 to 200/);

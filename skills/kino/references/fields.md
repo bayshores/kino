@@ -93,7 +93,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `sync_clips {scene?, layer, to, search? | at?}`
 - `duck_audio {scene?, layer, under, to?, fade?, fadeUp?}`
 - `isolate_voice {scene?, layer, keep?, engine?, amount?}`
-- `cut_out {scene?, layer, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, behind?, name?, refine?, fillHoles?, openEdges?}`
+- `cut_out {scene?, layer, output?, engine?, grow?, feather?, color?, invert?, points?, exclude?, time?, above?, behind?, name?, refine?, fillHoles?, openEdges?, width?, step?, detail?}`
 - `add_captions {scene?, text | file | words | speech, fix?, offset? | layer?, timing?, name?, start?, end?, fontSize?, fontFamily?, fontWeight?, fill?, box?, position?, appear?, look?, accent?, keywords?, hook?, reduced?}`
 - `detect_beats {scene?, layer, onsets?, rhythm?}`
 - `set_cues {cues?, replace?, remove?}`

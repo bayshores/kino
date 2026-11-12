@@ -3,6 +3,8 @@
 Glow and bloom, light rays (god rays) and lens flares. Each is an effect you put on a layer.
 The accent-hit and light-sweep moves use glow to light one word.
 
+Contents: Stacked shadows and strokes, Light (glow, rays, flares, rim light, edge lines), Color as meaning, Cost and reduced motion.
+
 Related effects that are not light: `vignette` and `grain` (finish), `duotone` and `tritone` (grade), `focus-band` (depth of field). Rim light: `glow` on a cut-out, or `light-rays`. Fields: `library {topic:"effects", name:"<effect>"}`.
 
 ## Stacked shadows and strokes
@@ -26,6 +28,12 @@ Related effects that are not light: `vignette` and `grain` (finish), `duotone` a
   `spread` 20; `edge:"outside"` is a ring outline alone, `style:"lobes"` uneven electric lobes.
   `smooth` rounds matte steps; `core` 0.3 mixes the line toward white; `haze` 0.8 adds a wide dim
   falloff (`hazeSpread` 140, 0 off). Glow, shadows and rims on a cut-out skip its faded border.
+- `edge-lines` draws line art of a layer's picture: a line (`color`, `width` 3) wherever the
+  brightness jumps. `threshold` 0.05 (lower finds fainter edges), `smooth` 1; the picture stays
+  under, dimmed by `dim` 0.7 (no grade needed; a dark one before it hides the edges);
+  `background:"transparent"` draws the lines alone. One subject's edge as a
+  vector path to stroke, neon or draw on: `cut_out` with `output:"outline"` (`color`, `width`, `step`,
+  `detail`), a path layer that follows the subject frame by frame.
 - `light-rays` streaks light out from `centerX`/`centerY` (fractions of the layer's box).
   `source:"bright"` streaks the bright parts (sun through trees); `source:"behind"` puts a light
   of `lightSize` behind the layer, so its shapes cast shadows between the rays. `length` and

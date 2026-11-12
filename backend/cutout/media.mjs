@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { makeStabilized } from "./stabilize.mjs";
 import { mediaBaseName } from "../voice/media.mjs";
 import { cutoutEngines, cutoutError, findMatte, makeMatte, writeCutoutOutput } from "./cutout.mjs";
+import { outlineOfMatte } from "./outline.mjs";
 
 // Bump when an output made from the same matte and settings would change (subject 2: a clip's
 // edge is cleaned of its background, cutout/edges.mjs).
@@ -102,9 +103,9 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
    * clean ({refine, holes}: cutout.mjs makeMatte). A cut-out made before resolves at
    * once; one that needs Vision or FFmpeg first waits for the ones started before it.
    */
-  function start({ file, name, kind, output = "subject", engine = "auto", grow = 0, feather = 0, openEdges = "fade", color = "#ffffff", invert = false, pick, clean }) {
+  function start({ file, name, kind, output = "subject", engine = "auto", grow = 0, feather = 0, openEdges = "fade", color = "#ffffff", invert = false, pick, clean, outline }) {
     const settings = { output, engine, grow, feather, openEdges, color, invert };
-    const key = JSON.stringify({ file, kind, ...settings, ...(pick ? { pick } : {}), ...(clean ? { clean } : {}) });
+    const key = JSON.stringify({ file, kind, ...settings, ...(pick ? { pick } : {}), ...(clean ? { clean } : {}), ...(output === "outline" ? { outline } : {}) });
     if (jobs.has(key)) return jobs.get(key).handle;
     const state = { fraction: 0, started: performance.now() };
     const result = (matte, record) => ({ record, engine: matte.engine, frames: matte.info.frames, empty: matte.info.empty, soft: matte.info.soft,
@@ -115,6 +116,18 @@ export function createCutoutMedia({ mediaRoot, cacheDir, addMedia, waitSeconds =
       // A finished cut-out (its matte and library file both kept) answers at once, even while
       // another one is being made: only finding a subject and writing a file wait their turn.
       const kept = await findMatte({ source: file, kind, engine, cacheDir, pick, clean });
+      // outline: the contours of the matte's frames, traced here each time (no library file).
+      if (output === "outline") {
+        if (kept && kept.info.empty === kept.info.frames) throw noSubject(kept);
+        return inTurn(async () => {
+          state.started = performance.now();
+          const matte = kept ?? await makeMatte({ source: file, kind, engine, cacheDir, pick, clean, onProgress: (fraction) => { state.fraction = 0.8 * fraction; } });
+          if (matte.info.empty === matte.info.frames) throw noSubject(matte);
+          const traced = await outlineOfMatte({ folder: matte.folder, info: matte.info, step: outline?.step, points: outline?.points });
+          state.fraction = 1;
+          return { ...result(matte, null), outline: { ...traced, lead: matte.info.source?.lead ?? 0, rate: matte.info.source?.rate } };
+        });
+      }
       if (kept) {
         if (kept.info.empty === kept.info.frames) throw noSubject(kept);
         const record = await libraryRecord((await remembered(kept.folder))[outputSlot(settings)]);

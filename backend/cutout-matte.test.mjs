@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { scaleMatte } from "./cutout/cutout.mjs";
+import { outlinePathData, traceOutline } from "./cutout/outline.mjs";
 import { createSteadier, fadeOpenEdges, feather, fillHoles, finishMatte, grow, matteMeasure, radialEdgeErrors, refineEdges, softCounts } from "./cutout/matte.mjs";
 
 // A disc of radius r centred at (cx, cy), anti-aliased over one pixel like a real matte.
@@ -201,4 +202,21 @@ test("fadeOpenEdges fades a subject cut by the frame to 0 at the border only", (
   const rim = finishMatte(matte, width, height, { grow: 3, openEdges: 8 });
   for (let y = 32; y < height; y += 1) assert.ok(rim[y * width + 20] <= faded[y * width + 20], `row ${y}: rim ${rim[y * width + 20]} over subject ${faded[y * width + 20]}`);
   assert.equal(rim[37 * width + 20], 0, "the rim is clear next to the border");
+});
+
+test("the outline tracer follows a disc's edge, keeps the biggest shape and fits its point budget", () => {
+  const width = 80, height = 60, centre = { cx: 36, cy: 30, r: 18 };
+  const matte = disc(width, height, centre);
+  // A small speck elsewhere must not be the outline.
+  matte[5 * width + 70] = 255;
+  const loop = traceOutline(matte, width, height, { points: 48 });
+  assert.ok(loop.length <= 48 && loop.length >= 16, `${loop.length} points`);
+  // Every point lies on the disc's edge (matte pixel indexes: pixel i has its centre at i + 0.5).
+  for (const [x, y] of loop) assert.ok(Math.abs(Math.hypot(x + 0.5 - centre.cx, y + 0.5 - centre.cy) - centre.r) < 1, `${x},${y}`);
+  assert.equal(traceOutline(new Uint8Array(width * height), width, height), null, "an empty matte has no outline");
+  // A subject cut by the frame still closes its loop, but the run along the border lies off the picture.
+  const cut = traceOutline(disc(width, height, { cx: 4, cy: 30, r: 18 }), width, height, { points: 48 });
+  assert.ok(cut.some(([x]) => x < 0), "the loop closes past the picture's left edge");
+  for (const [x] of cut) assert.ok(x >= 0 || x <= -4, `no point on the border itself: x ${x}`);
+  assert.match(outlinePathData([[0, 0], [10, 0], [10, 5]], 2, 2), /^M1 1 L21 1 L21 11 Z$/);
 });
