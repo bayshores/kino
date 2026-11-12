@@ -72,24 +72,27 @@ test("overlapping and close voice-overs make one dip, cut at the scene's start a
   // The first dip is 3.5 s long, so it stays within 8 dB (0.398); the last, 2 s, goes to 0.25.
   assert.equal(volumeAt(music, 0.001), 0.398);
   assert.equal(volumeAt(music, 9.99), 0.25);
-  // The music comes back up only when it can stay up MIN_UP (3 s): a shorter gap stays ducked.
-  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.6, end: 3 }], 0.25, 10), [{ start: 1, end: 3 }]);
-  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 5.6, end: 6 }], 0.25, 10), [{ start: 1, end: 2 }, { start: 5.6, end: 6 }]);
+  // The music comes back up whenever both ramps fit in the gap (a 2 s gap once stayed ducked).
+  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.4, end: 3 }], 0.25, 10), [{ start: 1, end: 3 }]);
+  assert.deepEqual(duckStretches([{ start: 1, end: 2 }, { start: 2.6, end: 3 }], 0.25, 10), [{ start: 1, end: 2 }, { start: 2.6, end: 3 }]);
 });
 
-test("running duck_audio again replaces its dips and keeps the layer's other animations", () => {
+test("running duck_audio again adds its dips to the earlier ones (replace:true removes them) and keeps the layer's other animations", () => {
   let document = documentWith([sound("music"), sound("vo1", { mediaStart: 2, mediaDuration: 1 }), sound("vo2", { mediaStart: 8, mediaDuration: 1 })]);
   document = applyOperations(document, [{ type: "add_animation", sceneId: "s", layerId: "music",
     animation: { id: "fade-out", kind: "out", start: 9, duration: 1, easing: "linear", from: { volume: 1 }, to: { volume: 0 } } }]);
-  const first = duck(document, { under: ["vo1", "vo2"] });
-  assert.equal(first.music.animations.length, 5);
+  const first = duck(document, { under: ["vo1"] });
+  assert.equal(first.music.animations.length, 3);
+  // The second call sets vo2's dip and keeps vo1's, and its receipt lists both.
   const again = duck(first.document, { under: ["vo2"], to: 0.5 });
-  assert.deepEqual(again.music.animations.map((animation) => animation.id === "fade-out" ? "fade-out" : animation.name),
-    ["fade-out", "Duck down", "Duck up"]);
-  assert.deepEqual(again.report, { layer: "music", to: 0.5, dips: 1, summary: "music ducked to 0.5 at 7.85-9.8 s (vo2)", times: [[7.85, 9.8]] });
-  assert.equal(volumeAt(again.music, 2.5), 1);
-  // A dip with nothing playing under it removes the earlier dips.
-  const none = duck(again.document, { under: ["vo1"], to: 0.5 });
+  assert.deepEqual(again.music.animations.map((animation) => animation.id === "fade-out" ? "fade-out" : [animation.name, animation.start]),
+    ["fade-out", ["Duck down", 1.85], ["Duck up", 3], ["Duck down", 7.85], ["Duck up", 9]]);
+  assert.deepEqual(again.report, { layer: "music", to: 0.5, dips: 2, summary: "music ducked to 0.5 at 1.85-3.8 s (earlier; to 0.25) and 7.85-9.8 s (vo2)", times: [[1.85, 3.8], [7.85, 9.8]] });
+  assert.equal(volumeAt(again.music, 2.5), 0.25);
+  // The same voice again sets its own dip anew (no second dip on top).
+  assert.equal(duck(again.document, { under: ["vo2"], to: 0.3 }).music.animations.filter((animation) => animation.name.startsWith("Duck")).length, 4);
+  // replace:true removes the earlier dips first.
+  const none = duck(again.document, { under: ["vo1"], to: 0.5, replace: true });
   assert.equal(none.music.animations.filter((animation) => animation.name.startsWith("Duck")).length, 2);
   // Under layers that are never heard leave no dip, and the summary says so.
   const silent = duck(documentWith([sound("music"), sound("mute", { mediaStart: 2, mediaDuration: 1, volume: 0 })]), { under: ["mute"] });
@@ -153,7 +156,7 @@ test("duck plan from words: fades, gaps, depth from measured loudness, section w
   // A 1.1 s pause stays ducked; the music comes back up only in a gap it can stay up 3 s in.
   const transcript = { words: [word("one", 0, 1), word("two", 2.1, 3), word("three", 7.3, 8)] };
   const document = documentWith([sound("music", { mediaDuration: 10 }), sound("voice", { mediaStart: 1, mediaDuration: 8 })], 10);
-  document.cues = [{ name: "drop", time: 2.5, kind: "marker" }];
+  document.cues = [{ name: "chorus", time: 2.5, kind: "marker" }];
   // Music measured at -10 LUFS all through; the voice has a transcript, so it counts at -16 LUFS.
   const levels = { music: { step: 0.1, momentary: Array(100).fill(-10) } };
   const { report, music } = duck(document, { under: ["voice"], speech: { voice: transcript }, levels });
@@ -167,7 +170,7 @@ test("duck plan from words: fades, gaps, depth from measured loudness, section w
   assert.equal(down.to.volume, 0.251);
   assert.match(report.held, /1 dip over 2 s stays within 8 dB .*each line still 6 LU or more over it/);
   assert.equal(report.depth, undefined);
-  assert.match(report.warning, /covers the song's drop at 2\.5 s/);
+  assert.match(report.warning, /covers the song's chorus at 2\.5 s/);
   // A given `to` wins, and without measurements the dip is 0.25.
   assert.equal(duck(document, { under: ["voice"], speech: { voice: transcript }, levels, to: 0.4 }).report.to, 0.4);
   assert.equal(duck(document, { under: ["voice"], speech: { voice: transcript } }).report.to, 0.25);
@@ -223,6 +226,30 @@ test("a quiet line inside a merged long dip takes it deep enough to stay 6 LU ov
   const floored = run(-30);
   assert.deepEqual([floored.report.to, floored.report.deeper, floored.found.length], [0.1, undefined, 1]);
   assert.match(floored.report.quiet, /^"Walk ahead\." \(voice\) stays under 6 LU over the music with the dip at its floor .*raise that voice's volume/);
+});
+
+// .scratch dm2: one 0.055 dip held from 0.07 to 12.4 s through a 2 s gap between lines and over the
+// song's drop, so the payoff was the quietest stretch. Each line now gets its own dip.
+test("each line gets its own dip at its own measured depth, the song comes back between lines, and a dip ends before the drop", () => {
+  const flat = (lufs, seconds) => ({ step: 0.1, momentary: new Array(seconds * 10).fill(lufs) });
+  // The song at -10 LUFS, -8 from its drop at 7.9 s; three lines measured at -18, -24 and -8 LUFS.
+  const levels = { music: { step: 0.1, momentary: Array.from({ length: 300 }, (_, index) => (index < 79 ? -10 : -8)) }, v1: flat(-18, 3), v2: flat(-24, 2), v3: flat(-8, 2) };
+  const document = documentWith([sound("music", { mediaSourceDuration: 30 }), sound("v1", { mediaStart: 0.2, mediaDuration: 2.4 }),
+    sound("v2", { mediaStart: 4.6, mediaDuration: 1.8 }), sound("v3", { mediaStart: 7.4, mediaDuration: 1.8 })], 14);
+  document.cues = [{ name: "song-drop-1", time: 7.9, kind: "marker" }];
+  const { report, music } = duck(document, { under: ["v1", "v2", "v3"], levels });
+  // Three dips: the 2 s gap gets the song back, and the last dip's fade up is done by the drop.
+  assert.deepEqual(report.times, [[0.05, 3.4], [4.45, 7.2], [7.25, 7.9]]);
+  assert.deepEqual([3.8, 7.95, 8.5].map((time) => volumeAt(music, time)), [1, 1, 1]);
+  // Depth per line: v1 (-18) 6 LU over the song needs 0.2; v2 (-24) stops at the floor 0.1.
+  assert.deepEqual([1.5, 5.5].map((time) => Math.round(volumeAt(music, time) * 1000) / 1000), [0.2, 0.1]);
+  // Every fade up takes 0.3 s or more, so bed_jump reads no step.
+  assert.ok(music.animations.filter((animation) => animation.name === "Duck up").every((animation) => animation.duration >= 0.3));
+  // The receipt says the dip ended before the drop, with v3 measured over the song there and the volume that lifts it.
+  assert.equal(report.payoff, "the dip under v3 ends by the song's drop at 7.9 s, so the drop plays at full; v3 is +0 LU over the song there (measured): volume 2 on v3 (x2) lifts it 6 LU over");
+  assert.equal(report.warning, undefined);
+  // A given `to` keeps its span through the drop, as asked.
+  assert.deepEqual(duck(document, { under: ["v3"], levels, to: 0.3 }).report.times, [[7.25, 10]]);
 });
 
 test("voiceLeveling levels one clip line by line when its lines need gains over 6 dB apart", () => {

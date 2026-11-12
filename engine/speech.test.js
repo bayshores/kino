@@ -384,6 +384,13 @@ test("keep_line with from, to and text works with no transcript and takes duck n
   assert.equal(volumeAt(scene.layers[0], 2), 0);
   assert.match(scene.layers.find((layer) => layer.role === "caption").text, /I will see you there\./);
   assert.equal(volumeAt(scene.layers.find((layer) => layer.id === "music"), 5), 0.7);
+  // A second line adds its own dip at its own depth; the first line's dip stays, and the receipt lists both.
+  const more = new Map();
+  const secondLine = { type: "keep_line", sceneId: "s", layerId: "clip", from: 9, to: 10, subtitle: false, dip: 0.35 };
+  const twice = parseDocument(applyOperations(parseDocument(applyOperations(document, [operation], { fonts: defaultFonts })), [secondLine], { reports: more, fonts: defaultFonts })).scenes[0];
+  const song = twice.layers.find((layer) => layer.id === "music");
+  assert.deepEqual([volumeAt(song, 5), volumeAt(song, 9.5), volumeAt(song, 7.5)], [0.7, 0.35, 1]);
+  assert.match(more.get(secondLine).duck.summary, /3\.85-6\.8 s \(earlier; to 0\.7\) and 8\.85-10\.8 s/);
   const plain = new Map();
   const quiet = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, duckNone: true };
   const bare = parseDocument(applyOperations(document, [quiet], { reports: plain })).scenes[0];

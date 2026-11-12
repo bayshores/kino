@@ -2435,9 +2435,9 @@ export function createAgentService(deps) {
 
   // The receipt fields for what add_captions, detect_beats, add_sequence, duck_audio,
   // isolate_voice and cut_out reported. detect_beats names the animations on cues that moved by their IDs;
-  // the agent gets their names. A duck_audio replaces the dips an earlier one made on the same
-  // layer, so only the last duck_audio of a layer reports (an earlier report told of dips that
-  // were gone), and its `replaced` says which op's dips are gone. `operations` (the translated
+  // the agent gets their names. A duck_audio adds its dips to the ones already on the layer, so only
+  // the last duck_audio of a layer reports (its summary lists every dip); with replace:true its
+  // `replaced` says which op's dips are gone. `operations` (the translated
   // ops, one entry per op the agent sent) gives that op's number.
   function reportFields(reports, codes, operations = []) {
     const fields = {};
@@ -2464,8 +2464,9 @@ export function createAgentService(deps) {
       let report = found.cuesMoved
         ? { ...found, cuesMoved: found.cuesMoved.map((entry) => ({ ...entry, animation: refName(entry.animation, codes) })) }
         : found;
-      if (replaced.has(operation)) {
-        report = { ...report, replaced: `This duck_audio replaced the dips of ${replaced.get(operation).join(" and ")}: a later duck_audio on a layer replaces the earlier dips. To keep both, send one duck_audio with every layer in under.` };
+      // A later duck_audio adds its dips to the earlier ones (its summary lists them all); only replace:true removes them.
+      if (replaced.has(operation) && operation.replace === true) {
+        report = { ...report, replaced: `This duck_audio {replace:true} removed the dips of ${replaced.get(operation).join(" and ")}.` };
       }
       fields[key] = fields[key] === undefined ? report : [].concat(fields[key], report);
     }

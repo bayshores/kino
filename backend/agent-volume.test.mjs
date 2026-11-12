@@ -227,8 +227,8 @@ test("two duck_audio ops on one layer in one edit: the receipt reports only the 
     { op: "add_layer", layerType: "audio", name: "late", properties: { src: late, mediaSourceDuration: 2, mediaStart: 8 } },
   ] });
   assert.equal(added.isError, undefined, added.text);
-  // The second duck_audio replaces the first one's dips. The receipt also said "music ducked to
-  // 0.3 at 0.85-6 s (line-a, line-b)", dips that inspect no longer shows.
+  // The second duck_audio adds its dip to the first one's (a second line once replaced the first
+  // line's dip while the receipt still told of it); the report that stays lists every dip.
   const reply = await agent("edit", { project: "twice", ops: [
     { op: "duck_audio", layer: "music", under: ["line-a", "line-b"], to: 0.3 },
     { op: "duck_audio", layer: "music", under: ["late"], to: 0.3 },
@@ -236,14 +236,18 @@ test("two duck_audio ops on one layer in one edit: the receipt reports only the 
   ] });
   assert.equal(reply.isError, undefined, reply.text);
   assert.deepEqual(reply.data.duck, [
-    // The report that stays says whose dips it replaced (before, the first report was dropped
-    // without a word). A given `to` is kept in a long dip too (asked 0.12, it once got 0.398).
-    { layer: "music", to: 0.3, dips: 1, summary: "music ducked to 0.3 at 7.85-10.8 s (late)", times: [[7.85, 10.8]],
-      replaced: "This duck_audio replaced the dips of op 0 (music ducked to 0.3 at 0.85-6 s (line-a, line-b)): a later duck_audio on a layer replaces the earlier dips. To keep both, send one duck_audio with every layer in under." },
+    { layer: "music", to: 0.3, dips: 2, summary: "music ducked to 0.3 at 0.85-6 s (earlier) and 7.85-10.8 s (late)", times: [[0.85, 6], [7.85, 10.8]] },
     { layer: "line-a", to: 0.5, dips: 1, summary: "line-a ducked to 0.5 at 7.85-10.8 s (late)", times: [[7.85, 10.8]] },
   ]);
   const layer = await musicLayer("twice");
-  assert.deepEqual(layer.animations.map((animation) => [animation.name, animation.start]), [["Duck down", 7.85], ["Duck up", 10]]);
+  assert.deepEqual(layer.animations.map((animation) => [animation.name, animation.start]), [["Duck down", 0.85], ["Duck up", 5.2], ["Duck down", 7.85], ["Duck up", 10]]);
+  // replace:true removes the earlier dips, and its receipt says whose.
+  const again = await agent("edit", { project: "twice", ops: [
+    { op: "duck_audio", layer: "music", under: ["late"], to: 0.3 },
+    { op: "duck_audio", layer: "music", under: ["late"], to: 0.3, replace: true },
+  ] });
+  assert.match(again.data.duck.replaced, /^This duck_audio \{replace:true\} removed the dips of op 0/);
+  assert.deepEqual((await musicLayer("twice")).animations.map((animation) => animation.name), ["Duck down", "Duck up"]);
 });
 
 // When one edit ducks two layers the receipt's duck is a list (above), but sound.md and the

@@ -38,7 +38,7 @@
 import { uid } from "./model.js";
 import { mediaPlaybackRange, mediaSoundTime } from "./playback.js";
 import { applyAddCaptions } from "./captionLayers.js";
-import { applyDuckAudio, DUCK_NAMES } from "./audioDucking.js";
+import { applyDuckAudio, DUCK_NAMES, RAMP_MIN } from "./audioDucking.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { SOUND_SURE, soundMoments } from "./speech.js";
 import { energyMean, heardLoudness, lineOverMusic, loudnessOver, MAX_LEVEL_DB } from "./mixLevels.js";
@@ -202,7 +202,8 @@ function musicOf(scene, layer, operation) {
 const AROUND = 2;
 // A release shorter than this sounds like a jump, so the next beat must be at least this far after
 // the line (seconds; a guess). The old release was 0.8 s (audioDucking DUCK_FADES.up).
-const MIN_RELEASE = 0.2;
+// 0.3 s, audioDucking RAMP_MIN: a 0.14 s release read as a 17.4 LU bed_jump (.scratch dm2 b).
+const MIN_RELEASE = RAMP_MIN;
 // With dropout the music comes back in this long, ending on the downbeat (a near cut without a click; a guess).
 const HIT_IN = 0.03;
 
@@ -472,14 +473,16 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     if (!over && operation.dip === undefined && !operation.dropout) notes.push(`the music dips to ${dip} under the line (${DEFAULT_DIP} of its volume ${level}, about 3 dB; not measured); dip:<0 to 1> sets it`);
     // A kept sound the music does not mask: no dip at all.
     if (!(over?.own && !out && dip >= level)) {
-      const under = kept.filter((entry) => entry.ranges.length);
+      // This line's own dip, at its own depth: duck_audio keeps the dips earlier lines made.
+      const under = kept.filter((entry) => entry.play.start < end && entry.play.end > start);
       const speech = {};
-      for (const { piece, play, ranges: stretches } of under)
-        speech[piece.id] = { words: stretches.map((item) => ({ text: "line", start: round(mediaSoundTime(piece, Math.max(item.start, play.start))), end: round(mediaSoundTime(piece, Math.min(item.end, play.end))), p: 1 })) };
+      for (const { piece, play } of under)
+        speech[piece.id] = { words: [{ text: "line", start: round(mediaSoundTime(piece, Math.max(start, play.start))), end: round(mediaSoundTime(piece, Math.min(end, play.end))), p: 1 }] };
       // The release ends on the song's next beat (dropout: the music hits back on the next downbeat).
       const back = returnTime(scene, music.layer, operation.beats?.[music.layer.id], end, out, operation.wait);
       const fadeUp = back ? round(back.at - end) : undefined;
-      duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(fadeUp !== undefined ? { fadeUp } : {}) });
+      duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(operation.dip === undefined ? { payoffStop: true } : {}), ...(fadeUp !== undefined ? { fadeUp } : {}) });
+      if (duck.payoff) notes.push(duck.payoff);
       if (out && back) hitBack(scene, music.layer, end, back.at);
       if (back && out && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
       else if (back) notes.push(out ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
