@@ -73,6 +73,7 @@ Shapes, paths: `strokeStart`, `strokeEnd` (0-1 a contour), `strokeOffset` (turns
 ([on, off, …] px), `dashOffset` (px); modifiers `roundCorners`, `bloatAmount`, `twistAngle`,
 `zigzagSize` (`zigzagCount`, `zigzagPoints`), `offsetAmount` (`offsetJoin`), `roughenSize` (brush edge); animate.
 `trim` (or `draw-on`) draws `strokeEnd` from 0.
+Torn paper edge: a layer's first roughen is torn, add_layer {layerType:"rectangle", properties:{width:600, height:160, roughenSize:30}}; dry brush: roughenStyle:"brush", roughenAngle:0. Paint splat or ink splash: add_layer {layerType:"path", properties:{splatter:{style:"splash", seed:3}, width:300, height:300, fill:"#E8358F"}}
 
 ```json
 {"op":"add_layer","layerType":"path","name":"underline","properties":{"x":560,"y":700,"width":800,"height":40,"path":"M0 20 C260 0 540 40 800 20","fillEnabled":false,"stroke":"#FFD166","strokeWidth":10}}

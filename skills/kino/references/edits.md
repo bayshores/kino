@@ -96,7 +96,7 @@ A second scene (from then on every op names its `scene`):
 - Moving a layer moves its presets too; for custom x and y, starts away from where a layer is
   drawn, or ends using an old value, the receipt gives the `update_animation` ops that fix them.
 - `update_scene` with a new `duration` also ends whole-scene animations (grade, curves, grain, background Color) at the new length (a Speed animation keeps its times); `sceneLength` lists them. Up to 1 s longer, a full-frame picture's Hide moves from the old end to the new end; `sceneLength.lastShot` names the Hides moved and left, and for a clip whose Play ends first, the seconds its last frame holds.
-- `delete_animation {pair:true}` also takes the other animations the same move made on that layer. Deleting a move's last own layer leaves what the move put on your layers: `{op:"move", name, id, remove:true}` takes it.
+- `delete_animation {pair:true}` also takes the other animations the same move made on that layer. Deleting a move's last own layer takes its show and hide steps off your layers; its other animations there stay (named in the receipt): `{op:"move", name, id, remove:true}` takes them.
 
 ## Fonts
 

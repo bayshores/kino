@@ -1,6 +1,6 @@
 # Render
 
-Contents: Render ladder and queue · Exports through the workspace
+Contents: Render ladder and queue (batch exports: workspace reference)
 
 Videos and stills come from `render` (the person sees each job in the dashboard). `out` must be
 an absolute folder (the `kino` command resolves a relative one or `~` for you).
@@ -25,7 +25,7 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   if you need to see real motion. A final's answer ends with one `Sources` line (found footage,
   songs, sounds) for when the person publishes.
 - Past the build, status (and the answer to the last stop) says `to final: 1) … N) render final`,
-  and a refused final names every gate still open. Plan them all at once, in that order
+  and a refused final names every gate still open. From the first build on, status and check's counts line end with `a final render also needs: <gate by name> (<tool action>), ...` (nothing when none is open). If the bible's fonts differ from the screen, the line names the layers and the refusal gives two calls, your choice: `notes brief` to update the bible to the screen, or `set_font` to set those layers back (every caption line in that face). Text set back to a wide face from a condensed one can wrap: read the edit receipt's `text_wrap`. Plan them all at once, in that order
   (stops, intents, fixes, check, review, versus): a fix redoes what comes after. The viewer
   and critic are advice: their lines come on the receipt.
 - `quality:"draft"` is half each scene dimension by default (even video sizes) at 30fps; `fps`
@@ -107,12 +107,3 @@ an absolute folder (the `kino` command resolves a relative one or `~` for you).
   A picture that does not change cannot show a shift. That is an encoding fault, not your scene:
   render again; if it fails again, report the message and the scene. If the message says the
   encoder may have dropped detail, render again with the `videoQuality` or `videoEncoder` it names.
-
-## Exports through the workspace
-
-- `project {action:"manage", id, options:{resource:"exports", action:"start", quality:"draft",
-  options:{format:"png", time:1}}}`, then `wait {batch}`, adds ZIPs and cancel/resume of a
-  batch. A draft export is half size by default at 30fps (fps up to 30; size as above); `quality:"final"` uses the size and fps in
-  `options`. Its `out` must be an absolute folder.
-- A png-sequence never replaces a file it did not write: it takes the next free name.
-- Big final exports may answer `awaiting_approval`, as `render` does.

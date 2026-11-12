@@ -35,3 +35,12 @@ Copying between projects, many variants from a CSV, imports, and workspace actio
 - Share links, deleting from Trash forever and deleting a folder that holds projects may answer
   `awaiting_approval`. A folder delete covers only the projects it named: if more are in the
   folder when it is allowed, it asks again.
+
+## Exports through the workspace
+
+- `project {action:"manage", id, options:{resource:"exports", action:"start", quality:"draft",
+  options:{format:"png", time:1}}}`, then `wait {batch}`, adds ZIPs and cancel/resume of a
+  batch. A draft export is half size by default at 30fps (fps up to 30; size as above); `quality:"final"` uses the size and fps in
+  `options`. Its `out` must be an absolute folder.
+- A png-sequence never replaces a file it did not write: it takes the next free name.
+- Big final exports may answer `awaiting_approval`, as `render` does.

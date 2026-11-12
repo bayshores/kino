@@ -11,7 +11,7 @@ Contents: Check · Looking · Review before final · Building in order
 - Each finding says what it measured, what is required and a fix op. A rule's exact limits:
   `library {topic:"rules", name:"quality", search:"<code>"}`. A topic too long for one answer
   comes back cut with the lines left: `search` reads the lines that mention a word.
-- `check {fix:"auto"}` applies the `(auto)` fixes in one edit, re-checks, up to 3 rounds: call it once. A warning's fix skips layers
+- `check {fix:"auto"}` applies the `(auto)` fixes in one edit, re-checks, up to 3 rounds: call it once. With `rules:[...]` only those rules' fixes apply (`["mix"]`: the mix fix, sound reference). A warning's fix skips layers
   your last edit moved, a waiver names or a spine beat uses.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}` all).
 - Footage: `speech_cut` (sound reference), `soft_upscale` (drawn over 1.3x its file; block step:
@@ -25,20 +25,17 @@ Contents: Check · Looking · Review before final · Building in order
 - With sound in the scene, `check` adds a `mix:` line: every place the mix passes the master
   limiter at loudness `"off"` (time, dB over, layers, xN to clear it), then what the default
   `"auto"` gain does to the same peaks. `look {mode:"motion", ref:"sound"}` lists them (worst 6)
-  and prints the same `cue:` and `ending:` lines. `check {fix:"auto", rules:["mix"]}` applies
-  only the mix fix (sound reference).
-- A `fix:"auto"` with `rules:[...]` applies only those rules' fixes. The applied line names each fix (rule and layer, then `mix at <s>`), the `fixed mix` line each place's layers and factors. A song heard under 50% of its time is never lowered whole; a place it cannot dip is 'not applied' with its factor.
+  and prints the same `cue:` and `ending:` lines.
 - `check` and `look` review print a `bare background @T s` fact line (time, frames, color, brightness on both sides, closing call) where the background shows between two full-frame shots or in the scene's first or last stretch. The closing call is the last shot's Hide moved to the end, or `update_scene` duration. A fade to or from the background and a card of words on it are no gap.
 - `bare strip`: a full-frame picture (a mirrored one too) leaves an edge uncovered for its whole shot. The line gives the edge, the px, and the scale or x/y that covers it. Facts never block.
 - The counts line of `status`, receipts and `check` reads `err, warn`, then the open finding names, `N waived` then the waived ones, and may end `· N warn stop(s) a final render (rule xN)`: fix or waive those before a final render.
 - Full-frame footage you add over a text shown at the same time goes under the text; the
-  receipt names it and the `move_layers` call that puts it back.
+  receipt names the `move_layers` call that puts it back.
 - `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
 - `check {rules:["missing_glyphs"], fix:"auto"}` applies the glyph-range fix (a
   `textStyleRanges` range in a font that has the characters); when no font has them, the
   receipt names a font file to import.
-- `opacity` 0 under a fade-in warns, names the `delete_animation` call, and its next is
-  `update_layer visible:false`.
+- `opacity` 0 under a fade-in warns; its next is `update_layer visible:false`.
 - Errors, and in a real edit warnings except taste ones (they ride on the final's receipt), block final. On purpose:
   `{"op":"waive_check","code":"overlap","target":"*","reason":"meant"}`; a list or glob
   waives each match. `quote` (the person's words) and named layers, never `*`:
@@ -52,10 +49,10 @@ Contents: Check · Looking · Review before final · Building in order
   `split_card_layout`, `seen_before`, `type_seen` (like a recent project's: set from references).
 - Set `role` on layers (headline, cta, logo, hero, decor, `ui`: product text, contrast only)
   and `videoType`. Checker facts: `library {topic:"rules", name:"quality-settings"}`
-  (roles, videoType, assertions, waivers, face and crop findings) and `name:"quality-references"`
-  (reference rules, the storyboard stop, the final render).
-- luma_jump, reading_time, type_min, safe_zone turn to advice when 2+ saved, measured references go as far (flashes, shortest text hold, smallest line, edge); past them they say by how much.
-- A slow linear move (under 4% of the frame diagonal a second) still running when its layer leaves (cut, hide, fade out, scene end) passes linear_motion, text too: no waiver.
+  (roles, videoType, assertions, waivers, face and crop findings) `"quality-references"`
+  (reference rules) and `"quality-final"` (board stop, final render).
+- luma_jump, reading_time, type_min, safe_zone turn to advice when 2+ saved, measured references go as far; past them they say by how much.
+- A slow linear move (under 4% of the frame diagonal a second) still running when its layer leaves passes linear_motion, text too: no waiver.
 
 ## Looking
 
@@ -65,10 +62,9 @@ Contents: Check · Looking · Review before final · Building in order
   `sheet {from, to}`: one stretch.
 - look sheet, look review and check print `returns: <thing> at <times> (what changes)`: each made
   layer, word, image, move or shot shown at 2+ places, and what the first second and last frame
-  share, ending `first and last picture alike: 0.85 (1 is the same picture)` with pixels on. A fact. A group, or layers named by number (tread-1 to tread-4), counts as
+  share, ending `first and last picture alike: 0.85 (1 is the same picture)` with pixels on. A fact. A group, or layers named by number, counts as
   one device: `tread (4 layers) at 1 2 3 ×3`.
-- `check` prints `made:` after `returns:`: the share of half-second moments with a cut-out, a drawn graphic or shape, a particle overlay, or non-caption type at 8% of frame height up. Beside it: `deck: N of M cards unused (names)` (`deck_unused`) and
-  `drawn graphic: yours X of N moments, your references' made labels a of b`.
+- `check` and `status` print `made: X% of the time, Y% of the frame area (N frames at 30 fps; footage and found clips never count; by time: type, graphic, cutout, particle, matte)` after `returns:`. Made: lettering that is not a caption, drawn shapes, layers a move placed, cut-outs on a new plate or with a look, particles, mattes. A caption and its pill print as `captions (not made): X% of the time, Y% of the area`; a cut-out over its own clip is not made. Then `deck: N of M cards unused (names)` and `your references' made labels by eye: a of b moments (p%)`. Area counts layer boxes (a cut-out's subject box), an upper bound; a turned panel counts its turned rectangle; a look on a cut-out over its own clip counts as made time but a guessed quarter of its box in area (`thin ink at a guessed quarter of its box`).
 - `frame {t, width?}` (up to 1280 px; `zoom` for detail), `zoom {layer, t?}`, `strip {anim}`
   `compare {rev}`, `variants`. `changed` after an edit of several spans shows a frame in each, labeled `<t>s in <from>-<to>s`, and prints `N changed spans (scanned the whole scene against rev R)`; spans left out come back as a `look {mode:"frames", times:[...]}` call.
 - `motion {from?, to?}` (graph and trace, no render), `frames {from, to?}` (each 30 fps frame):

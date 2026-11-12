@@ -66,17 +66,16 @@ What each is for; fields from `library {topic:"moves", name}`.
 - **backdrop-flash**: a color field flashes behind the subject (cut out for you).
 - **impact-accent** `kind:"hit"`: the recolor splits its tones near the shot's luma thirds; the
   shake starts on the cue's frame at rest; `effect_fit` reads a beat cue it names
-  (`at:"cue:beat-8"`). With `at` in seconds it sits on the measured reason within 3 frames and the
-  receipt names it; with none near it is a small accent (weight 0.3) and the receipt gives the
-  distance to the nearest reason. A footage moment no cue marks: the receipt gives the `set_cues`
-  call. Within 3 frames of a cut, the cut is the reason; a hit and its sound count once in `stacked`.
+  (`at:"cue:beat-8"`). `at` in seconds sits on the measured reason within 3 frames (a cut is the
+  reason), else it is a small accent (weight 0.3) and the receipt gives the distance to the nearest
+  reason, and for a footage moment no cue marks, the `set_cues` call. A hit and its sound count once in `stacked`.
 - **impact-silhouette** `{layer, at}`: a made impact frame: the cut-out inked flat or two-tone on a
   `plate` for `frames` (default 2 at 30 fps), then the shot's own frame. `ink` and `plate` default
   `auto` (the shot's hue). Parts: `rays` (default 12), `ticks` (a ring round the subject's box,
   default 0), `lines` (speed lines along its measured motion, default 0). It ends inside the shot,
   never past its cut; reduced motion holds the shot's frame. The note prints the matte's cover,
-  whether a head box is inside it, its straight-outline share, and `at:<t>` of the nearest figure frame; it still draws. On drawn footage `mark_subject` part `"face"` first; with
-  no mark or scanned head it judges by shape only.
+  whether a head box is inside it, its straight-outline share, and `at:<t>` of the nearest figure frame; it still draws. On drawn footage `mark_subject` part `"face"` first (no mark or scanned head: shape only).
+  It prints `silhouette in the ink on N of M frames at 30/25/24 fps (render frame times)`; under M of M the figure shows in its own colors on the plate. An effect keyed at a Show's time draws on that rendered frame too (frames are sampled up to 1 ms early). `remove:true` leaves the cut-out it made: `delete_layer` it before running the move again for a new matte.
 - **word-panel** `{textLayer, at, shape box|sign|strip, turn, pad, color, ink, layer, subject,
   enter cut|slam}`: your word on a made panel, turned with it as one group (lettering reference).
 - **energy-aura**: flame, smoke or electric aura off the subject.
@@ -85,8 +84,6 @@ Launch-video type (words arrive faint, then darken): **headline-write**, **logo-
 lands, the wordmark types beside it), **count-up** (a number counts to `value` with a label).
 
 - move {name:"type-on", layer, plain:true, cps:100, at:1}: plain letters, no caret/wait/hold/cues, up to 200 a second; text stays to scene end unless until. decode from:"dots" grows dots into letters.
-- Torn paper edge: a layer's first roughen is torn, add_layer {layerType:"rectangle", properties:{width:600, height:160, roughenSize:30}}; dry brush: roughenStyle:"brush", roughenAngle:0
-- Paint splat or ink splash: add_layer {layerType:"path", properties:{splatter:{style:"splash", seed:3}, width:300, height:300, fill:"#E8358F"}}
 - mosaic-reveal: a picture or clip builds out of flat-colored cells that merge and resolve to it: {"op":"move","name":"mosaic-reveal","layer":"photo","at":1} (mode "out" exits)
 - An edge that sweeps across one shot: {op:"move", name:"split-fields", layer:"shot-a", at:1, travel:-1, dur:0.2}; shape-wipe grows a shape from one point instead.
 - Fast whip: {op:"move",name:"whip-pan",from:"S1",to:"S2",at:0.6,frames:2} smears 2 frames from at; a clip ending mid-whip holds its edge frame (holdEnds:false shows the gap).

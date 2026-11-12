@@ -1,6 +1,6 @@
 # Kept clip lines
 
-`keep_line` keeps a said line of a clip (the rest of the clip goes quiet), levels it over the song and shows its subtitle. Find a line with `look source` (sound-library reference).
+`keep_line` keeps a said line of a clip (the rest of the clip goes quiet), levels it over the song and shows its subtitle. Find a line with `look source` (sound-library reference). Every rule: `library {topic:"rules", name:"keep-line"}`, then `"keep-line-clips"`.
 
 ## Level and mix
 
@@ -8,6 +8,7 @@
 - The mix is measured: a lift past the limiter's -1.5 dBFS ceiling brings the line down (receipt `peak`), and `mix.line`, `ways`, `mix` and the summary give the lowered line. Words over 3 LU off the line's median come back to 3 LU (0.04 s "Line level" ramps; receipt `even` {median, spread, places:[[start, end, dB]]}); `even:false` keeps them as said. A clip under volume 0.5 is evened only with `even:true` (the note gives its spread and places), but the render levels a kept line to its `voiceLevel` while the clip keeps a line (its Line up/Line down marks); a copy without them stays a bed.
 - `keep_line {lift:true}` keeps the song untouched and lifts the line within the headroom; the note gives the LU reached and how many LU short of +6. A lift (asked or default) removes an earlier dip under the line unless it also holds another kept line or a heard voice-over (the note names it); inside another line's dip it leaves that dip and the note gives the song as heard and the line's LU over it. A given `dip` or `dropout` sets it aside, with a note. Sent again, it measures the song without earlier dips (and `fit_music`'s fades), so it picks the same dip; with several in one edit, each line's return note is rewritten after all are placed. With the music out, the note says 'is back by <s>' when the dip ends by the song's drop before the planned beat; a dip that joins one under the next sound gives the time the music is back up, not the beat.
 - `keep_line {lift:"gain"}` keeps the song untouched and takes a quiet line to +6 LU over it with a gain stage on that line only (past the 12 dB cap and volume 4, at most +36 dB); the master limiter comes after it. Receipt: `gain` {db, line [before, after] LUFS, noise [before, after] LUFS}; the peak note says how many dB the limiter takes, and the peak cap leaves a gain line where it is. A `lift:true` that falls short prints what `lift:"gain"` would reach: send it when the song must stay at full. Keeping the same line again without `lift:"gain"` removes its gain stage; keeping another line on the layer keeps it.
+- Receipt after the whole edit: `song` {under, asked} is the music's volume under the line (`song.note` names the call that changes it). `voiceLevel` {before, after} and `level` give the line after the peak cap (`peakCap` is the dB the cap took); after `level:<dB>` and the cap, `level`, `mix`, `ways` and the 'line leveled to' note all give the line as it plays. `clipSound` is the clip's own floor under the words as a % of the line's energy (a found clip's score shows there). `cut` names words past where the layer stops and the seconds it must play longer (`until`); it is not printed for a transcript piece that spans the kept line.
 - `keep_line` keeps a dip per line, each at its own level. Lines closer than the fades chain: the song moves from one level to the next in the gap, and the receipt's `dips` lists them all after the whole edit.
 - `keep_line {level:+3}` moves that line's level by 3 dB (-24 to 24; `voiceLevel`, a gain stage past the lift cap). It is stored as `voiceShift`: a later `keep_line` of the line keeps it, and `level:0` clears it. Receipt `level` {db, line, over, voiceLevel}; the note gives the line's LUFS and its LU over the song.
 - `duck_audio` leaves lines `keep_line` kept as they are, each at its own dip level (receipt `keptLines`); `replace:true` rebuilds them. After `keep_line` it can still dip on the drop: read the song's volume keys (`inspect`) before trusting 'heard at full'.
@@ -20,12 +21,13 @@
 - A line of 1 to 3 words prints `p of its own words: none`, because whisper-cli cannot score a given text. Listen to it, or keep it by `from` and `to`.
 - 'language guess en p 0.33 (under 0.5: unsure)': the clip's words may be English sound-alikes of another language. Keep it by `from` and `to` with your own `text`.
 - When it says ggml-small.bin is not in ~/.kino/models/, every line was heard in English; `look {mode:"source", layer}` on a clip tagged as another language fetches the model once (488 MB).
+- `isolate_voice`'s receipt `measured` gives, per layer, the clip sound in the gaps and the voice in the words before and after, in dBFS, on the file seconds the layer plays. Its stem keeps the clip's language, transcripts, subject mark and source looks, so these rows listen in the same language. A refused edit or a dry run leaves no library file; the stems stay cached, so a resend answers at once.
 - A gloss (machine, unverified) is whisper's English for a line in another language, never the words as said.
 
 ## Music out
 
 - Music out for a line: `{op:"keep_line", layer:"clip", from:5.5, to:7.2, dropout:true}` (and `wait`): the music drops to a bed 6 LU under the line, measured (never under -40 dB), and hits back on the downbeat within wait (default half a bar), else on the next beat; the receipt gives the gap and the wait that reaches the downbeat. A line that no dip can hold gets the same bed.
-- `dropout:true` with `dip:0` takes the music out. A `dip` (0 to 1) given with `dropout:true` sets the bed under the line; `dip` alone is a fixed dip.
+- `dropout:true` with `dip:0` takes the music out. A `dip` (0 to 1) given with `dropout:true` sets the bed under the line (`{dropout:true, dip:0.15}` keeps 0.15 under every line that shares the dip, and `bed` {at, bed} gives 0.15); leave `dip` out for the measured bed. `dip` alone is a fixed dip.
 - A drop or section cue within wait after the last word: the music stays out until it and hits back on it (receipt `drop` {at, cue, before, after, rise}). Lines sharing one music-out dip get a bed 6 LU under the quietest line, measured (receipt `bed` {at, bed}).
 
 ## Subtitle

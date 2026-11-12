@@ -76,6 +76,8 @@ New labels or footage deal again until a card is used. Build cards; swap one wit
 
 `variants {vary:"deck"}` remakes a composed scene with the next 3 decks.
 
+A deck card name that is no move, block or effect, such as `fade-black`, answers `library {topic:"moves"|"blocks"|"effects", name}` with the topic and call that hold it, or plain fade ops (fade-out, fade-in): the fades show the scene background, so on a light one put a black rectangle under both shots. A card name never means kino lacks it.
+
 ## Treatments
 
 Write 5 stories first: idea, `who` (whose want or fear drives it; 3+ differ),

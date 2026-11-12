@@ -24,7 +24,7 @@ put your words where it has `<angle brackets>`. A new video, idea first:
 
 ## Tools
 
-`mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); CLI: `kino look frame t=3`.
+`mcp__kino__<verb>` (plugin: `mcp__plugin_kino_kino__<verb>`); CLI: `kino look frame t=3`, `kino <verb> --help`.
 
 | Tool | Use |
 |---|---|
@@ -33,7 +33,7 @@ put your words where it has `<angle brackets>`. A new video, idea first:
 | `check` | Findings with fix ops; `{fix:"auto"}` fixes and re-checks. |
 | `look` | `sheet`, `review`, `changed`, `zoom`, `board`, … `source`: every clip. |
 | `inspect {targets}` | Exact layer, animation, cue fields. |
-| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits only on defects. |
+| `render` | Files: `{action:"start", quality:"final", out:"<absolute folder>", wait:true}`. Final waits on defects. |
 | `library` | Exact rules: `{topic:"op", name}` (fields), presets, fonts, blocks. |
 | `history` | Your turns; `{action:"revert", turn:"T3"}` undoes one. |
 | `notes` | The `brief`, stops, plan, notes, `helper` agents. |
@@ -49,7 +49,7 @@ put your words where it has `<angle brackets>`. A new video, idea first:
    strips; then `notes {action:"set_plan", steps:[…]}`, 3–6 steps.
 4. First a rough whole scene in **one** `edit` (`compose`).
    Then up to 3 sections, each an `edit` + `look {from, to}`.
-5. Read the receipt, not `status`; fix its `newFindings` (what that edit broke).
+5. Read the receipt, not `status`; fix its `newFindings` (what it broke).
 6. `check` before a render or "done".
 7. One `look` per pass or section. All fixes in one `edit`, then `look {mode:"changed"}`.
 8. Before a final render: `look {mode:"review"}` until every moment is reviewed; fix.

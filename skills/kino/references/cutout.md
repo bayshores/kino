@@ -11,7 +11,7 @@
 - About 1.5 s per second of 1080p. Over 50 s it answers `CUTOUT_RUNNING` and keeps going: send the same edit later (`cached:true`). The receipt's `subject` gives its box and the `room` beside it (scene px) to place type without a look.
 - Cut-outs get `allowOverlap`; `type_covered` warns when the subject's box hides most of a title behind it.
 - `frame` on the layer carries its cut-outs in the camera group, with every layer stacked between them, so the subject never shows twice.
-- A subject cut off by the frame reaches the border (openEdges "extend", default). edge "auto" is crisp on video drawn on 2s/3s, else soft: cut_out {layer:"clip", edge:"crisp"}
+- A subject cut off by the frame reaches the border (openEdges "extend", default) only where it already reaches within 8 px of it at 1080p: a hair tip ending further in stays where it ends. edge "auto" is crisp on video drawn on 2s/3s, else soft: cut_out {layer:"clip", edge:"crisp"}
 - A `cut_out` receipt with no `frames` gives `gaps` {lost: [[from, to]] scene seconds, found: [from, to]} (`found` may be absent): put a move on it with `at:found[0]`, `dur:found[1]-found[0]`.
 - Changing a clip's `mediaSpeed`, `mediaOffset`, `mediaStart` or `mediaDuration` retimes its cut-out copies and their `subjectPath` too: do not delete and remake them.
 
@@ -27,7 +27,7 @@ The title goes between the clip and its cut-out (`type-behind`: keep it for 1 to
 
 `behind:"title"` does this in one call (the text moves right above the clip). The clip's people scan picks the engine: few people, subject; else person, then subject; `engine` overrides it.
 
-Type that must read whole goes beside the subject: `place {layers:["word"], around:"<cut-out>"}` (or a shot, or `"subject"`: the marked subject of the shot under the text) sets it in the free room, shrunk to fit, clear of the subject for the whole time the text shows (up to 24 sampled seconds). `around` is required. `side` is left, right, above, below or split. With no `side` it keeps the type largest, then moves it least: text already clear stays put. `split` sets one line in two parts at a word gap, the second a new layer `<name> 2`. `follow:true` instead moves it with the subject on a pin path (track "around"), the shortest move clear of it at every moment, same size. A face mark, or a face kino found, counts as a person down to the picture's bottom, so no text goes below it. The receipt prints the subject box with the second it was measured at, the letter share inside it at the worst moment before and after, the room on each side, and says when no spot is clear for the whole hold; `type_covered` reads the same box. A title set between a clip and its cut-out is never covered by a later clip.
+Type that must read whole goes beside the subject: `place {layers:["word"], around:"<cut-out>"}` (lettering reference). A title set between a clip and its cut-out is never covered by a later clip.
 
 ### Outline or glow
 

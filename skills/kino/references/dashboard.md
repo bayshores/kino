@@ -5,7 +5,7 @@ Contents: History and notes · Approvals, hold and undo · The crew · Try optio
 The person watches in the kino app. They approve some calls, can hold your writes, undo your
 turns and leave notes. They see each call as it happens, under a name and color kino gives
 your session (such as Nova), in plain words (`look at 1.0–2.0 s`), and a striped "building"
-outline on layers you changed until a `look` covers them. When they point at layers or a time
+outline on layers you changed until a `look` covers them. From the command line the name comes from the agent program above each `kino` call; to keep one name across calls, set `KINO_AGENT_SESSION=<name>` (3-32 letters, digits, `_` or `-`) on each command. When they point at layers or a time
 range, `status` says `pointing …`.
 
 Every tool also takes `why` (the reason for this call) and `next` (what you do after it), a few
