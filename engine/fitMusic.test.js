@@ -9,6 +9,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { applyOperations } from "./operations.js";
 import { planFitMusic } from "./fitMusic.js";
 import { round } from "./numbers.js";
+import { volumeAt } from "./animation.js";
 
 // 120 bpm (a bar is 2 s): intro, build at 24, drop at 32, break at 64, build at 72, drop at 80, outro at 112, ends at 120.
 const SECTIONS = [{ at: 0, kind: "intro" }, { at: 24, kind: "build" }, { at: 32, kind: "drop" }, { at: 64, kind: "break" }, { at: 72, kind: "build" }, { at: 80, kind: "drop" }, { at: 112, kind: "outro" }];
@@ -115,14 +116,17 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   const report = [...reports.values()][0];
   const layer = next.scenes[0].layers[0];
   // 15 s is too short for 45% before the drop and a group: the 45% floor holds (6.75 s), and the receipt says what the drop plays and the payoff that gives it the group (5 s).
-  assert.match(report.payoff, /^6\.75 s \(none given: 45% of the video before the drop; it plays 6\.25 s, under one group of 4 bars \(8 s\), then 2 s to fade; payoff 5 s gives it the group; its section runs 82 s in the song\)/);
+  // No end given: the phrase end 4 bars after the drop (14.767 s, 7 frames before 15 s) is taken, and the fade closes on it.
+  assert.match(report.payoff, /^6\.75 s \(none given: 45% of the video before the drop; it plays 6\.017 s, under one group of 4 bars \(8 s\), then 2 s to fade; payoff 5 s gives it the group; its section runs 82 s in the song\)/);
+  assert.equal(report.ending, "phrase end at 14.767 s (song 76.04 s): the scene end moved -7 frames (was 15 s); end:15 keeps it");
+  assert.equal(next.scenes[0].duration, 14.767);
   assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.weight === 1 && Math.abs(cue.time - 6.75) < 0.05) && !next.cues.some((cue) => cue.weight === 0.24), JSON.stringify(next.cues));
-  assert.ok(Math.abs(next.cues.find((cue) => cue.name === "song-fade-1").time - 13) < 0.05, "a bar to fade");
+  assert.ok(Math.abs(next.cues.find((cue) => cue.name === "song-fade-1").time - 12.767) < 0.05, "a bar to fade");
   // A 60 s edit: the drop's section ends 16 s after it (a break), so it plays 2 groups, not the 3 the lead would allow; the break and the fade both land at 56.
   const long = new Map();
   const capped = [...sections.slice(0, 4), { at: 84, kind: "break" }, { at: 100, kind: "outro" }];
   const wide = createDocument({ scenes: [createScene({ id: "s1", duration: 60, layers: [{ ...music, mediaDuration: 60 }] })] });
-  const sixty = applyOperations(wide, [{ type: "fit_music", sceneId: "s1", layerId: "music", shape: { sections: capped, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: long });
+  const sixty = applyOperations(wide, [{ type: "fit_music", sceneId: "s1", layerId: "music", end: 60, shape: { sections: capped, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: long });
   assert.match([...long.values()][0].payoff, /^40 s \(none given: the drop plays 2 groups of 4 bars, 16 s/);
   // (the measured beats start 0.023 s in, so the break is heard 23 ms before the 56 s line)
   assert.ok([sixty.cues.find((cue) => cue.name === "song-break-1").time, sixty.cues.find((cue) => cue.name === "song-fade-1").time].every((time) => Math.abs(time - 56) < 0.05), JSON.stringify(sixty.cues));
@@ -135,8 +139,38 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   const late = new Map();
   applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 11.3, shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: late });
   const lateReport = [...late.values()][0];
-  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 1\.7 s before the fade, under 4 bars: payoff 5 s gives it/.test(note)), JSON.stringify(lateReport));
+  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 3\.04 s before the fade, under 4 bars: payoff 5 s gives it/.test(note)), JSON.stringify(lateReport));
+  // No phrase end near 15 s: the song's last beat before it rings out instead of a 2 s fade.
+  assert.match(lateReport.ending, /^the song's hit at 14\.3 s \(song 71\.023 s, beat\) rings 0\.7 s to the end; phrase end at 19\.3 s/);
   assert.ok(!(report.notes ?? []).some((note) => note.startsWith("the drop plays")), "no note when the payoff was chosen for the drop");
+});
+
+test("fit_music with no end: a phrase end near the scene end is taken; else the song's last hit rings out to the end; a given end stays", () => {
+  // 120 bpm (2 s bars), the drop at song 32 s on the payoff at 8 s: bar lines at 10, 12, 14 s, phrase ends at 16 s.
+  const beats = Array.from({ length: 240 }, (_, index) => index * 0.5);
+  const fit = (duration, extra = {}) => {
+    const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: duration, volume: 0.8 });
+    const clip = createLayer("video", { id: "clip", name: "clip", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556670.mp4", mediaStart: 11, mediaDuration: duration - 11 });
+    const reports = new Map();
+    const document = applyOperations(createDocument({ scenes: [createScene({ id: "s1", duration, layers: [music, clip] })] }), [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 8, shape: { sections: SECTIONS, seconds: 120, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 120 }, ...extra }], { reports });
+    return { document, report: [...reports.values()][0], song: document.scenes[0].layers[0] };
+  };
+  // 13 s: no phrase end near (16 s is 90 frames on). The hit on the bar line at 12 s (song 36 s) plays, then rings 1 s to the end.
+  const rung = fit(13);
+  assert.equal(rung.report.ending, "the song's hit at 12 s (song 36 s, bar line) rings 1 s to the end; phrase end at 16 s (song 40 s) would need the scene end moved +90 frames");
+  assert.equal(rung.document.scenes[0].duration, 13);
+  assert.ok(rung.document.cues.some((cue) => cue.name === "song-ring-1" && cue.time === 12) && !rung.document.cues.some((cue) => cue.name === "song-fade-1"));
+  // The level of the last second: full on the hit, then a fast decay (quart-out), silent at the end; a linear fade would still be at 0.4 at 12.5 s.
+  const curve = [12, 12.04, 12.1, 12.25, 12.5, 12.75, 13].map((time) => round(volumeAt(rung.song, time), 2));
+  assert.deepEqual(curve, [0.8, 0.8, 0.62, 0.29, 0.06, 0.01, 0]);
+  // 16.2 s: the phrase end at 16 s is 6 frames before the end: taken, and the clip that ran to 16.2 s ends there too.
+  const taken = fit(16.2);
+  assert.equal(taken.report.ending, "phrase end at 16 s (song 40 s): the scene end moved -6 frames (was 16.2 s); end:16.2 keeps it");
+  assert.equal(taken.document.scenes[0].duration, 16);
+  assert.equal(taken.document.scenes[0].layers[1].mediaDuration, 5);
+  // A given end stays as given: the old fade, no ending line.
+  const given = fit(16.2, { end: 16.2 });
+  assert.ok(given.document.scenes[0].duration === 16.2 && given.report.ending === undefined);
 });
 
 // plan "stop" (and "recut" on the same song): the song's opening, its own stop, a drop on the payoff for whole groups of 4 bars, its last bar.

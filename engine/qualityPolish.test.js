@@ -922,6 +922,11 @@ test("end_on_fade: the video ends on a fade while the song is mid-phrase", async
   const document = scene({ duration: 6, layers: [song()] });
   const [raw] = document.scenes;
   assert.deepEqual((await check("end_on_fade", document, { speechScene: raw, speech: [{ layer: raw.layers[0], music: true, loudness }], cues: [{ name: "outro", kind: "marker", time: 6 }] })).findings, []);
+  // fit_music's ending: the song's last hit at 5 s (song-ring-1, full volume there) rings to the end; the same decay with no hit marked is a fade.
+  const rung = scene({ duration: 6, layers: [song({ animations: [{ kind: "custom", start: 5.04, duration: 0.96, easing: "quart-out", from: { volume: 1 }, to: { volume: 0 } }] })] });
+  const ringContext = (cues) => ({ speechScene: rung.scenes[0], speech: [{ layer: rung.scenes[0].layers[0], music: true, loudness }], cues });
+  assert.deepEqual((await check("end_on_fade", rung, ringContext([{ name: "song-ring-1", kind: "marker", time: 5 }]))).findings, []);
+  assert.equal((await check("end_on_fade", rung, ringContext([]))).findings.length, 1);
 });
 
 test("no_music: a 10 s video with no song under it", async () => {

@@ -1929,7 +1929,8 @@ export function createAgentService(deps) {
       const fit = { type: "fit_music", sceneId: scene.id, layerId: music.id };
       const fitted = await runFitMusic(document, fit, { ...work, reports });
       const after = boardSpan(fitted, fitted.board);
-      if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end) > 0.05) {
+      // The end may move with the video's end (fit_music took a phrase end of the song).
+      if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end - (after.length - before.length)) > 0.05) {
         (work.notes ??= []).push(`board music: kept as laid (fit_music would move it to ${after.start}-${after.end} s, off the board's ${before.start}-${before.end} s)`);
         return document;
       }

@@ -92,8 +92,9 @@ test("the skill's fit_music example runs as written: one stretch of the song, it
   assert.equal(reply.isError, undefined, reply.text);
   const payoff = reply.data.music.sections.find((line) => line.endsWith("(payoff)"));
   assert.ok(/ s drop, weight [\d.]+ \(payoff\)$/.test(payoff) && Math.abs(parseFloat(payoff) - 8) <= 1 / 30, reply.data.music.sections.join("; "));
-  // One unbroken stretch: the song from 8 s (its drop at 16 s lands on the payoff), faded out to the end.
-  assert.deepEqual([reply.data.music.pieces, reply.data.music.plays, reply.data.music.sections.at(-1)], [1, "0:08-0:20", "10 s fade"]);
+  // One unbroken stretch: the song from 8 s (its drop at 16 s lands on the payoff); no phrase end near 12 s, so its last beat rings out to the end.
+  assert.deepEqual([reply.data.music.pieces, reply.data.music.plays, reply.data.music.sections.at(-1)], [1, "0:08-0:20", "11.5 s ring"]);
+  assert.match(reply.data.music.ending, /^the song's hit at 11\.5 s \(song 19\.5 s, beat\) rings 0\.5 s to the end; phrase end at 16 s/);
   const record = await (await server.api("/api/projects/fit")).json();
   const pieces = record.document.scenes[0].layers.filter((layer) => layer.type === "audio");
   assert.equal(pieces.length, reply.data.music.pieces);

@@ -23,8 +23,8 @@ const SLACK = 1;
 const NEAR = 0.2;
 // Seams a change must mark: the music coming in hard.
 const MUST_MARK = new Set(["drop", "return"]);
-// Song cues that are not seams to cut on: where the song ends or fades out.
-const NOT_SEAMS = new Set(["ending", "fade"]);
+// Song cues that are not seams to cut on: where the song ends, fades out or rings out (fit_music's ring and end).
+const NOT_SEAMS = new Set(["ending", "fade", "ring", "end"]);
 // A rest of the music lasts at most this long (song-shape.mjs REST_SECONDS, plus a frame).
 const REST_LONGEST = 4.05;
 // After the return, the picture restarts within this long or it missed the return.
