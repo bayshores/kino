@@ -1538,6 +1538,12 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   and `look versus` says it in one line. Evidence: `engine/qualityRules.test.js`, `backend/inspire.test.mjs`,
   `backend/agent-review.test.mjs`. Gap: the reference voice is whisper's (sung and spoken alike, agreed with hand
   notes on 3 of 5 measured edits); the real listen is not run in tests.
+- **Reference choices**: Test-verified on synthetic scenes and stubbed references. luma_jump, reading_time, type_min and
+  safe_zone turn to advice with the evidence when 2+ saved references go as far (flashes per 10 s, shortest text hold,
+  smallest line, closest edge: new `text.limits` in the fingerprint); past them they keep their level and say by how
+  much. A slow linear move that runs until its layer leaves passes linear_motion. Evidence: `engine/qualityRules.test.js`,
+  `backend/measure-fingerprint.test.mjs`. Gaps: references saved before this have no text limits until measured again;
+  a line box height stands in for font size (a guess).
 - **Pacing rules follow the references**: Test-verified on synthetic scenes and stubbed references. With 2+ saved
   references that have measured cuts, `transitions_dense`, `technique_repeat`'s flash budget and `even_shot_lengths`
   loosen to the references' own cut rate, flash rate and shot length spread, and a finding names their numbers; with

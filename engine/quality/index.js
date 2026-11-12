@@ -11,6 +11,7 @@ import { bouncyLayers, durationBand, easingRepeat, exitRatio, firstEntrance, jud
 import { assertions, noRhythm, offBeat, promoBasics, sceneLengths, staticScene, transitionsDense } from "./rules/pacing.js";
 import { referenceCloseness, referenceDrift, referenceRange } from "./rules/reference.js";
 import { referenceKinds } from "./rules/referenceKinds.js";
+import { referenceChoices } from "./referenceChoices.js";
 import { endingSeen, seenBefore, typeSeen } from "./rules/seenBefore.js";
 import { hold, readingTime, typeMin } from "./rules/text.js";
 import { blurredBackdrop, ownWords, sameEntrance, softCuts, stackedLabel, stockCopy, textGlow, wordByWord } from "./rules/tells.js";
@@ -44,7 +45,7 @@ import { chainOf } from "./model.js";
 const rule = (code, level, check, summary, pixels = false, { askOnly = false, final = false } = {}) => ({ code, level, check, summary, pixels, askOnly, final });
 
 export const RULES = [
-  rule("linear_motion", "error", linearMotion, "no linear easing on position, scale or rotation (except perpetual layers and a slow push: a custom animation of 2 s or more, position and scale only, of a non-text layer filling half the frame or a background, its part on screen moving under 4% of the frame diagonal a second; and a slow ambient drift: a move of 2 s or more of line art or a blended light layer, no corner traveling over 3% of the frame width a second)"),
+  rule("linear_motion", "error", linearMotion, "no linear easing on position, scale or rotation (except perpetual layers and a slow push: a custom animation of 2 s or more, position and scale only, of a non-text layer filling half the frame or a background, its part on screen moving under 4% of the frame diagonal a second; and a slow ambient drift: a move of 2 s or more of line art or a blended light layer, no corner traveling over 3% of the frame width a second; and a slow move that runs until its layer leaves)"),
   rule("reading_time", "error", readingTime, "each text readable for max(characters ÷ 20, 20 frames)"),
   rule("type_min", "error", typeMin, "readable size: body ≥3% and a role headline ≥4% of the frame's shorter side (32 and 43 px at 1080p); the fix grows the size and its box"),
   rule("overlap", "error", overlap, "no unintended overlap, covering or clipping of text or logos"),
@@ -333,8 +334,10 @@ function runOne(entry, model, ctx) {
   }
   try {
     const found = entry.check(model, ctx);
-    if (found && typeof found.then === "function") return found.then((list) => asAdvice(entry, keepLayouts(model, outsideSignatures(entry, list, ctx))));
-    return asAdvice(entry, keepLayouts(model, outsideSignatures(entry, found, ctx)));
+    // A taste rule the saved references measure gives way to their own choice (referenceChoices.js).
+    const finish = (list) => referenceChoices(entry.code, asAdvice(entry, keepLayouts(model, outsideSignatures(entry, list, ctx))), model, ctx);
+    if (found && typeof found.then === "function") return found.then(finish);
+    return finish(found);
   } catch (error) {
     const text = LAYER_MEDIA_PROBLEM.test(error.message)
       ? "Fix that layer: import its file (project import) and set its src to the /api/media/... address, or delete the layer."
