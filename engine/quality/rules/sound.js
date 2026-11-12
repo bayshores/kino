@@ -31,6 +31,7 @@ import { levelBetween, soundLevels } from "../loudness.js";
 import { FRAGMENT_WORDS, TALKING_BEFORE, breakAfter, continues, heardEdges, isFiller } from "./speech.js";
 import { bedLoudness, energyMean, leveledVoice, sectionCues, voiceLines, VOICE_OVER_BED, VOICE_OVER_MUSIC } from "../../mixLevels.js";
 import { round as round3 } from "../../numbers.js";
+import { HARD_STOP, volumeFall } from "../../mixReadout.js";
 
 const said = (words) => words.map((word) => word.text.trim()).join(" ");
 
@@ -565,6 +566,10 @@ export function endOnFade(model, ctx) {
     let earlier = 0;
     for (let time = Math.max(range.start, end - 3); time <= end - 0.3; time += FRAME) earlier = Math.max(earlier, volumeAt(layer, time));
     if (!(earlier >= AUDIBLE && stopping <= earlier * FADED_SHARE)) continue;
+    // A hard stop (the volume falls in HARD_STOP s or less) within HARD_STOP s after a song onset
+    // is a cut on the hit, not a fade (mixReadout.js prints it as the ending).
+    const fall = volumeFall(layer, end, range.start);
+    if (fall && fall.to - fall.from <= HARD_STOP + 1e-6 && onsetJustBefore(fall.from, { model, ctx, sound, range })) continue;
     const out = range.offset + (end - range.start);
     // The song's own ending is reached, or it is quiet there by itself.
     if (sound.duration - out <= OWN_ENDING) continue;
@@ -591,6 +596,29 @@ export function endOnFade(model, ctx) {
   }
   return findings;
 }
+// An onset: the file's own level rises this many dB from the 0.1 s before to the 0.05 s after.
+const ONSET_RISE_DB = 6;
+
+/**
+ * Whether a song onset lies within HARD_STOP s before scene time `at`: a beat or onset cue
+ * (set_cues, beats), a beat of the document's rhythm, or a jump in the song file's own level.
+ */
+function onsetJustBefore(at, { model, ctx, sound, range }) {
+  const near = (time) => time <= at + 1e-6 && at - time <= HARD_STOP + 1e-6;
+  if ((ctx.cues ?? []).some((cue) => (cue.kind === "onset" || cue.kind === "beat") && near(cue.time))) return true;
+  const bpm = model.rhythm?.bpm;
+  if (bpm > 0) {
+    const beat = 60 / bpm, offset = model.rhythm.offset ?? 0;
+    if (near(offset + Math.floor((at - offset + 1e-6) / beat) * beat)) return true;
+  }
+  const fileAt = range.offset + (at - range.start);
+  for (let time = fileAt - HARD_STOP; time <= fileAt + 1e-6; time += 0.01) {
+    if (time - 0.15 < 0) continue;
+    if (levelBetween(sound, time, time + 0.05) - levelBetween(sound, time - 0.15, time - 0.05) >= ONSET_RISE_DB) return true;
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------- no_music
 
 // A video this long or longer wants music (a silent first pass is a choice, never an accident).

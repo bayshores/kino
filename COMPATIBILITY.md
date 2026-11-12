@@ -1290,6 +1290,13 @@ How to read it:
   which listens to it again only. Evidence: `backend/audio-levels.test.mjs`, `backend/inspire.test.mjs`.
   Gap: that listen fetches the copy again; check does not simulate the encoder's ceiling fit (a dense
   mix: -11.7 vs file -12.2; a +5.7 dBTP webm mix: -8.1 vs file -10.1).
+- **Drop and ending readout**: Verified on generated tones and a generated beat grid. Check's mix line
+  and `look {mode:"motion", ref:"sound"}` print each song cue's mix loudness over the 1 s before and
+  after (momentary readings from the same run; a +18 dB tone step reads +18 LU within 1) with the
+  loudest kept line before it, the ending (hard stop on or off an onset, fade length and bar lines
+  crossed, tail) with the picture's time past the sound, and the song's share under half volume over
+  40%. end_on_fade leaves a hard stop within 0.1 s after an onset. Evidence: `engine/mixReadout.test.js`,
+  `engine/qualityPolish.test.js`, `backend/audio-levels.test.mjs`. Gap: no saved reference keeps a drop rise.
 - **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` measures each
   layer at a shared place alone and turns down only the one that makes the peak, by its measured share
   of the peak (all of them by xN when none can clear it alone; a short clip whole, a long one over the

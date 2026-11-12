@@ -12,6 +12,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "../engi
 import { applyOperations } from "../engine/operations.js";
 import { applyKeepLine } from "../engine/keepLine.js";
 import { energyMean } from "../engine/mixLevels.js";
+import { cueRise, songEnding } from "../engine/mixReadout.js";
 import { applyLinePeak, capLinePeak } from "./line-peak.mjs";
 import { createAgentClient } from "./agent/client.mjs";
 import { askedLead, describeLevels, describeMixFix, describeMixPeaks, limiterPlaces, restCallFor, loudMixWarning, loudnessGain, loudnessOption, measureFileLevels, mixLead, readLevels, readPeakWindows, referenceLead } from "./audio-levels.mjs";
@@ -402,6 +403,25 @@ test("measuring the mix finds every limiter place, and the loudest matches the r
   assert.match(unheard.loudness.why, /no saved reference with measured loudness \(1 saved without it; library \{topic:"inspire", name:"measure yt:z"\} measures one\)$/);
   const withRefs = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 4 }), 4, undefined, { references });
   assert.deepEqual([withRefs.auto.target, withRefs.auto.targetLufs], ["references", -18], "check's auto reads the same references");
+});
+
+test("the mix line's readings carry the momentary loudness that reads a drop's rise and where the sound ends (mixReadout)", { skip: skipWithoutMediaTools }, async (t) => {
+  const { root, mediaRoot } = await setup(t);
+  // A generated song: a 220 Hz tone at 0.05 to 3 s, then at 0.4 (the drop, +18 dB), stopped hard at 5.5 s in a 6.5 s scene.
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=if(lt(t\\,3)\\,0.05\\,0.4)*sin(2*PI*220*t):s=48000:d=6", "-ac", "2", join(mediaRoot, "song.wav")]);
+  const scene = createScene({ id: "drop", name: "Drop", width: 32, height: 32, duration: 6.5, background: "#000000",
+    layers: [createLayer("audio", { id: "song", name: "song", src: "/api/media/song.wav", mediaSourceDuration: 6, volume: 1,
+      animations: [{ id: "stop", kind: "custom", start: 5.5, duration: 0.03, easing: "linear", from: { volume: 1 }, to: { volume: 0 } }] })] });
+  const directory = join(root, "clips");
+  await mkdir(directory);
+  const mix = await measureMixPeaks(await sceneSoundClips(scene, { mediaRoot, directory, duration: 6.5 }), 6.5);
+  assert.ok(mix.windows.every((window) => Number.isFinite(window.m)), "each 0.1 s reading has its momentary loudness");
+  const rise = cueRise(mix.windows, { at: 3, kind: "drop" });
+  t.diagnostic(`before ${rise.before}, after ${rise.after}, rise ${rise.rise} LU`);
+  assert.ok(Math.abs(rise.rise - 18) <= 1, `the drop rises ${rise.rise} LU`);
+  const ending = songEnding({ layer: scene.layers[0], duration: 6.5, windows: mix.windows, grid: { onsets: [5.45], beats: [] }, fileSeconds: 6 });
+  assert.deepEqual([ending.kind, ending.at, ending.onset], ["stop", 5.5, 5.45]);
+  assert.ok(Math.abs(ending.soundEnd - 5.55) <= 0.1 && Math.abs(ending.after - 0.95) <= 0.1, `sound ends ${ending.soundEnd}, picture after ${ending.after}`);
 });
 
 test("a loud mix is limited to about -1 dBTP in MP4, WebM and MOV, and the export warns with the loudest moment", {
