@@ -1022,10 +1022,12 @@ How to read it:
   run live in CI; the image model does not know character names.
 - **Shots across every found video** (`library footage scan:"all"`): Stub-verified. One call filters
   every scanned video's saved shots (face, figure, scale), counts matches per video, names videos
-  that never read a key, and look board page 1 says how many shots show a face and a figure at
-  medium or wider (0: with the search call); `like {ref, t}` ranks shots by image-model likeness to
-  a saved reference's kept shot picture. Evidence: `backend/footage-finder.test.mjs` (framing facts).
-  Gaps: the scan cannot tell the place (stairs) apart; likeness is semantic, not a pixel match.
+  that never read a key, and each scan answer (plus scan:"all" and look board page 1) says how many
+  shots of videos that read faces and figures show both at medium or wider (0: with the search
+  call; none read: "not measured"); `like {ref, t}` ranks shots by image-model likeness to a saved
+  reference's kept shot picture. Evidence: `backend/footage-finder.test.mjs` (framing facts).
+  Gaps: the scan cannot tell the place (stairs) apart; likeness is semantic, not a pixel match; no
+  service test of the board line.
 - **Found video shared by all projects**: Stub-verified. A scan saved by video id answers any project at
   once ("already on this computer: reused", other `want` words re-rank its saved vectors, no download),
   `clip:yt-<id>` or another project's F code joins it under a new F code, and cut clips already in the

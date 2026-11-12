@@ -423,7 +423,7 @@ test("framing facts: a small figure in a wide frame, a pan, a close face; filter
   const vector = (values) => encodeVector(normalize(values));
   const withVectors = shots.map((shot, index) => ({ ...shot, score: 10 - index, vector: vector([index === 1 ? 1 : 0, index === 2 ? 1 : 0.2, 0.1]) }));
   const read = { faces: true, people: true, flow: true };
-  const saved = { "yt-a": { version: SCAN_VERSION, model: "m", vision: read, shots: withVectors }, "yt-b": { version: SCAN_VERSION, model: "m", vision: { faces: true, flow: true }, shots: withVectors } };
+  const saved = { "yt-a": { version: SCAN_VERSION, model: "m", want: "the climb, face visible", vision: read, shots: withVectors }, "yt-b": { version: SCAN_VERSION, model: "m", vision: { faces: true, flow: true }, shots: withVectors } };
   const finder = { readScan: async (id) => saved[id] ?? null };
   const footage = { want: "the climb, face visible", order: ["F1", "F2"], candidates: [
     { id: "clip:yt-a", code: "F1", title: "a", scan: { id: "yt-a" } }, { id: "clip:yt-b", code: "F2", title: "b", scan: { id: "yt-b" } }] };
@@ -432,17 +432,26 @@ test("framing facts: a small figure in a wide frame, a pan, a close face; filter
   const all = await actions.handle({ scan: "all", filter: FACE_AND_PLACE }, { footage, personClips: 0, imported });
   assert.match(all.text, /Per video: F1: 1 of 4 · F2: not measured \(figures not read in this scan\), left out/);
   assert.match(all.text, /\nF1\.2 .* medium \(figure 90% high.* · imported as "F1\.2 a\.mp4"/);
-  assert.match(all.text, /want "the climb, face visible": a face and a figure in one frame at medium or wider: 1 of 8 shots in 2 scanned videos \(F1\.2\)\. Not read: F2 figures not read in this scan\./);
+  // Only the video that read faces and figures is counted (4 shots, not 8).
+  assert.match(all.text, /want "the climb, face visible": a face and a figure in one frame at medium or wider \(a face under 25% of the frame's height, a starting guess; the place itself is not measured\): 1 of 4 shots in 1 scanned video \(F1\.2\)\. Not read: F2 figures not read in this scan\./);
   assert.deepEqual(all.data.shots.map((shot) => shot.code), ["F1.2"]);
   // No such shot: said with the counts and the call that finds more footage.
   const none = faceAndPlaceLine([{ candidate: footage.candidates[0], scan: { ...saved["yt-a"], shots: withVectors.filter((shot) => shot.n !== 2) } }]);
-  assert.match(none, /^a face and a figure in one frame at medium or wider: 0 of 3 shots in 1 scanned video: the picture with the face and the place together is not in this footage\. More footage: library \{"topic":"footage","search":/);
+  assert.match(none, /: 0 of 3 shots in 1 scanned video: no shot shows both\. More footage: library \{"topic":"footage","search":/);
+  // A single scan's answer says it too, before any board (this scan plus the saved ones).
+  assert.match((await actions.handle({ scan: "F1" }, { footage, personClips: 0 })).text, /\nwant "the climb, face visible": a face and a figure .*: 1 of 4 shots in 1 scanned video \(F1\.2\)\. Not read: F2 figures/);
+  // Only unread videos: not measured, never "no shot shows both".
+  assert.match(faceAndPlaceLine([{ candidate: footage.candidates[1], scan: saved["yt-b"] }]), /: not measured in the 1 scanned video\. Not read: F2 figures not read in this scan\.$/);
   // like {ref, t}: the reference's kept picture nearest t, then every shot by cosine, best first.
   const referenceLook = async (id) => (id === "yt:r" ? { model: "m", vectors: [vector([0, 1, 0]), vector([1, 0, 0])], at: [1, 9] } : null);
   const like = await actions.handle({ scan: "all", like: { ref: "yt:r", t: 8 } }, { footage, personClips: 0, imported, referenceLook });
   assert.match(like.text, /^Shots like yt:r at 9 s \(its kept shot picture nearest 8 s\)/);
   assert.deepEqual(like.data.shots.slice(0, 2).map((shot) => [shot.code, shot.likeness, shot.imported ?? null]), [["F1.2", 0.976, "F1.2 a.mp4"], ["F2.2", 0.976, null]]);
-  await assert.rejects(actions.handle({ scan: "all", like: { ref: "yt:none", t: 1 } }, { footage, personClips: 0, referenceLook }), /has no kept shot pictures/);
+  // A reference without kept pictures, or a project with no scan: an answer with the call that helps, not a refusal.
+  const unmeasured = await actions.handle({ scan: "all", like: { ref: "yt:none", t: 1 } }, { footage, personClips: 0, referenceLook });
+  assert.deepEqual([/has no kept shot pictures yet/.test(unmeasured.text), unmeasured.nextCall.input.name], [true, "measure yt:none"]);
+  const empty = await actions.handle({ scan: "all", filter: FACE_AND_PLACE }, { footage: null, personClips: 0 });
+  assert.deepEqual([/No scanned video in this project yet/.test(empty.text), empty.data.videos], [true, 0]);
 });
 
 test("drawn footage: a logo on every shot is said once and is no text, subtitles go last, faces are not read, and a 2.4 match shows", async () => {

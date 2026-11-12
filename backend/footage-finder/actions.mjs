@@ -342,9 +342,12 @@ export function narrowShots(shots = [], filter = undefined, sort = undefined, { 
  * without optical flow, and faces on drawn footage.
  */
 export function unmeasuredOf(scan, { heard = false } = {}) {
+  const shots = scan.shots ?? [];
+  // Faces read on no shot at all (no face detector here) count as unread, as in narrowShots.
+  const noFaces = shots.length > 0 && shots.every((shot) => !Number.isFinite(shot.face) && shot.subject?.kind !== "face");
   return {
     ...(heard ? {} : { speech: "no captions or listening in this scan" }),
-    ...(scan.drawn ? { face: "drawn footage: faces not read" } : {}),
+    ...(scan.drawn ? { face: "drawn footage: faces not read" } : noFaces ? { face: "faces not read in this scan" } : {}),
     ...(scan.vision?.people === true || (scan.drawn && scan.vision?.foreground === true) ? {} : { figure: "figures not read in this scan" }),
     ...(scan.vision?.flow === true ? {} : { moving: "no optical flow in this scan" }),
   };
@@ -358,26 +361,32 @@ const hasFaceAndPlace = (shot) => hasFace(shot) && Boolean(shot.figure) && PLACE
 
 /**
  * What the scanned footage holds for a picture with the face and the place in one frame, said
- * before the board is built (library footage scan:"all", look board page 1): how many shots show a
- * face and a figure together at medium or wider (framingOf: close is a face 25% of the frame's
- * height or taller), per video, and the videos where faces or figures were not read. With none, a
- * line says so with the call that finds more footage. "" with no saved scan. `scans`:
- * [{candidate, scan}] in the footage list's order; `want`: the footage want, quoted as the ask.
+ * before the board is built (each scan answer, library footage scan:"all", look board page 1): how
+ * many shots show a face and a figure together at medium or wider (framingOf: close is a face
+ * CLOSE_FACE of the frame's height or taller, a starting guess), per video, and the videos where
+ * faces or figures were not read. Only shots of videos that read both are counted: a video that
+ * read neither is never counted as lacking the picture. With none, a line says so with the call
+ * that finds more footage. "" with no saved scan (or, with `measuredOnly`, when no video read
+ * both). `scans`: [{candidate, scan}] in the footage list's order; `want`: the footage want.
  */
-export function faceAndPlaceLine(scans, want = "") {
+export function faceAndPlaceLine(scans, want = "", { measuredOnly = false } = {}) {
   if (!scans.length) return "";
-  const total = scans.reduce((sum, { scan }) => sum + scan.shots.length, 0);
   const found = [], unread = [];
+  let total = 0, read = 0;
   for (const { candidate, scan } of scans) {
     const missing = Object.entries(unmeasuredOf(scan)).filter(([key]) => key === "face" || key === "figure").map(([, why]) => why);
-    if (missing.length) { unread.push(`${candidate.code} ${missing.join(", ")}`); continue; }
-    for (const shot of scan.shots) if (hasFaceAndPlace(shot)) found.push(`${candidate.code}.${shot.n}`);
+    if (missing.length) { unread.push(`${candidate.code} ${[...new Set(missing)].join(", ")}`); continue; }
+    read += 1;
+    total += (scan.shots ?? []).length;
+    for (const shot of scan.shots ?? []) if (hasFaceAndPlace(shot)) found.push(`${candidate.code}.${shot.n}`);
   }
   const asked = want ? `want "${short(oneLine(want), 80)}": ` : "";
+  const what = `a face and a figure in one frame at medium or wider (a face under ${Math.round(CLOSE_FACE * 100)}% of the frame's height, a starting guess; the place itself is not measured)`;
   const notRead = unread.length ? ` Not read: ${unread.join("; ")}.` : "";
-  const head = `${asked}a face and a figure in one frame at medium or wider: ${found.length} of ${total} shots in ${scans.length} scanned video${scans.length === 1 ? "" : "s"}`;
+  if (!read) return measuredOnly ? "" : `${asked}${what}: not measured in the ${scans.length} scanned video${scans.length === 1 ? "" : "s"}.${notRead}`;
+  const head = `${asked}${what}: ${found.length} of ${total} shots in ${read} scanned video${read === 1 ? "" : "s"}`;
   if (found.length) return `${head} (${found.slice(0, 6).join(", ")}${found.length > 6 ? ", …" : ""}).${notRead} All of them: ${callText(call("library", { topic: "footage", scan: "all", filter: FACE_AND_PLACE }))}`;
-  return `${head}: the picture with the face and the place together is not in this footage.${notRead} More footage: ${callText(searchCall())}`;
+  return `${head}: no shot shows both.${notRead} More footage: ${callText(searchCall())}`;
 }
 
 /** The shots a scan answer's import call names: the best clean ones (no flag but logo). */
@@ -709,7 +718,11 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const following = nextCandidate(saved, candidate.code, known);
     // After this scan: someone else's edit says so once; and when fewer than half of the last search is scanned, how many.
     const listed = (saved.order ?? []).map((code) => saved.candidates.find((entry) => entry.code === code)).filter(Boolean).map((entry) => entry.code === candidate.code ? { ...entry, scan: entry.scan ?? { id } } : entry);
-    return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard, view), elsewhereLine(candidate, known), scannedLine(listed, known)]),
+    // Before the board: whether any scanned shot so far shows a face and a figure together (this scan and the saved ones).
+    const others = (await savedScans(saved)).filter((entry) => entry.candidate.id !== candidate.id);
+    // Said only once some scanned video read faces and figures (else every scan would repeat "not measured").
+    const picture = faceAndPlaceLine([{ candidate, scan: result }, ...others], want, { measuredOnly: true });
+    return { text: withLead(personClips, [reusedScan ? `${candidate.code}: ${REUSED_LINE} (its scan is saved here, nothing downloaded).` : "", scanText(candidate, result, need, heard, view), elsewhereLine(candidate, known), scannedLine(listed, known), picture]),
       data: { code: candidate.code, id, ...(view.line ? { listed: view.shots.length } : {}), shots: view.shots.slice(0, FOOTAGE_SHOTS_SHOWN).map((shot) => [shot, framingOf(shot)]).map(([{ n, start, end, motion, moving, face, match, flags, says, said: hit, hasSubs, luma, subject, figure, maskCover }, framing]) => ({ n, start, end, motion, face, match, flags,
         ...(Number.isFinite(luma) ? { light: Math.round(luma * 255) } : {}), ...(subject ? { subject } : {}),
         ...(moving ? { moving } : {}), ...(figure ? { figure: { box: figure.box, by: figure.by ?? "body" } } : figure === null && Number.isFinite(maskCover) ? { maskCover } : {}),
@@ -779,16 +792,17 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
    */
   async function scanAll(input, { footage, personClips, referenceLook = null, imported = [] }) {
     const scans = await savedScans(footage);
-    if (!scans.length) throw new FootageError("not_found", "No scanned video in this project yet: scan one first.", footage?.candidates?.length ? scanCall("top") : searchCall());
+    if (!scans.length) {
+      const next = footage?.candidates?.length ? scanCall("top") : searchCall();
+      return { text: withLead(personClips, [`No scanned video in this project yet, so no shot to filter: ${callText(next)}`]), data: { videos: 0, matches: 0, shots: [] }, nextCall: next };
+    }
     if (input.like !== undefined) return findLike(input, scans, { personClips, referenceLook, imported });
     const asked = input.filter && typeof input.filter === "object" && !Array.isArray(input.filter) ? Object.keys(input.filter) : [];
     const perVideo = [], matched = [];
     let line = "";
     for (const { candidate, scan: saved } of scans) {
       const missing = unmeasuredOf(saved);
-      // narrowShots also counts face as unread when no shot of the scan has face facts.
-      const noFaces = saved.shots.length && saved.shots.every((shot) => !Number.isFinite(shot.face) && shot.subject?.kind !== "face");
-      const unread = asked.filter((key) => missing[key] || (key === "face" && noFaces)).map((key) => missing[key] ?? "faces not read in this scan");
+      const unread = asked.filter((key) => missing[key]).map((key) => missing[key]);
       if (unread.length) { perVideo.push(`${candidate.code}: not measured (${[...new Set(unread)].join(", ")}), left out`); continue; }
       const view = narrowShots(saved.shots, input.filter, input.sort, { unmeasured: missing });
       line ||= view.line.replace(/: \d+ of \d+ shots?\./, ".");
@@ -824,7 +838,10 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const example = { topic: "footage", scan: "all", like: { ref: "yt:<id>", t: 12.5 } };
     if (!ref || !Number.isFinite(t)) throw new FootageError("bad_input", 'like is {ref:"yt:<id>", t:<seconds>}: a saved reference and a time in it.', call("library", example));
     const look = await referenceLook?.(ref).catch(() => null) ?? null;
-    if (!look?.vectors?.length || !look.at?.length) throw new FootageError("not_found", `${ref} has no kept shot pictures (measured references keep one a shot): library {topic:"inspire", name:"measure ${ref}"} measures it.`, call("library", { topic: "inspire", name: `measure ${ref}` }));
+    if (!look?.vectors?.length || !look.at?.length) {
+      const measure = call("library", { topic: "inspire", name: `measure ${ref}` });
+      return { text: withLead(personClips, [`${ref} has no kept shot pictures yet (a measured reference keeps one a shot), so nothing to compare: ${callText(measure)}`]), data: { ref, t, shots: [] }, nextCall: measure };
+    }
     const nearest = look.at.reduce((best, at, index) => (Math.abs(at - t) < Math.abs(look.at[best] - t) ? index : best), 0);
     const target = normalize(decodeVector(look.vectors[nearest]));
     const ranked = [], other = [];
@@ -842,7 +859,7 @@ export function createFootageActions({ finder, waitMs = FOOTAGE_WAIT_MS, keepMs 
     const lines = [
       `Shots like ${ref} at ${look.at[nearest]} s (its kept shot picture nearest ${t} s), ranked by likeness (cosine of ${look.model} vectors, 1 is the same picture) over ${ranked.length} shots in ${best.size} scanned video${best.size === 1 ? "" : "s"}:`,
       ...shown.map(({ candidate, shot, likeness }) => { const name = importedName(imported, candidate, shot); return `${candidate.code}.${shot.n} ${stamp(shot.start)}-${stamp(shot.end)} likeness ${likeness.toFixed(3)}${framingOf(shot) ? ` ${framingOf(shot).scale}` : ""}${name ? ` · imported as "${short(name, 40)}"` : ""}`; }),
-      `Best per video: ${[...best].map(([code, value]) => `${code} ${value.toFixed(3)}`).join(" · ")}`,
+      best.size ? `Best per video: ${[...best].map(([code, value]) => `${code} ${value.toFixed(3)}`).join(" · ")}` : "",
       other.length ? `Not compared (another image model or no vectors): ${other.join(", ")}.` : "",
     ];
     const top = shown[0];
