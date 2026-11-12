@@ -105,6 +105,7 @@ import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mj
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
 import { plateChanges, techniquesLine, techniquesUsed } from "../../engine/quality/techniques.js";
 import { sceneReturnsLine } from "../../engine/quality/returns.js";
+import { bareGaps, closeGap } from "../../engine/quality/bareGaps.js";
 import { madeLine } from "../../engine/quality/madeShare.js";
 import { catalogLevel, KIND_WORDS as SOUND_KIND_WORDS, visibleActions } from "../../engine/soundActions.js";
 import { footageCueTime } from "../../engine/footageCues.js";
@@ -3134,6 +3135,41 @@ export function createAgentService(deps) {
     }
     return null;
   }
+  // Where the scene's own background shows between two full-frame shots (engine/quality/bareGaps.js): a
+  // fact line a stretch (at most BARE_LINES), never a finding. Brightness (0 to 255, Rec. 709) is
+  // measured on one small frame of each shot beside the gap (boxColor) and on the background color.
+  const BARE_LINES = 2;
+  const brightness = (hex) => {
+    const match = /^#([0-9a-f]{6})/i.exec(String(hex ?? ""));
+    if (!match) return null;
+    const value = Number.parseInt(match[1], 16);
+    return Math.round(0.2126 * (value >> 16) + 0.7152 * ((value >> 8) & 255) + 0.0722 * (value & 255));
+  };
+  async function bareGapLines(scene, codes) {
+    let gaps;
+    try { gaps = bareGaps(scene, { fps: 30 }); } catch { return []; }
+    if (!gaps.length) return [];
+    const whole = { x: 0, y: 0, width: scene.width, height: scene.height };
+    const lit = async (side) => {
+      const color = side.layer.type === "rectangle" ? (typeof side.layer.fill === "string" ? side.layer.fill : null) : await boxColor(deps.mediaRoot, side.layer, side.time, whole).catch(() => null);
+      return brightness(color);
+    };
+    const lines = [];
+    for (const gap of gaps.slice(0, BARE_LINES)) {
+      const [before, after] = [await lit(gap.before), await lit(gap.after)];
+      const background = gap.background ? `the scene background ${gap.background} (brightness ${brightness(gap.background) ?? "?"})` : "the scene's background";
+      const shot = (side, value) => `${refName(side.layer.id, codes)}${value === null ? "" : ` (brightness ${value})`}`;
+      const closes = closeGap(gap, 30);
+      const calls = [
+        closes.extend ? `{op:"update_animation", animation:"${refName(closes.extend.animation, codes)}", properties:{start:${closes.extend.start}}} keeps ${refName(closes.extend.layer.id, codes)} until ${refName(gap.after.layer.id, codes)} is whole` : null,
+        closes.full ? `{op:"delete_animation", animation:"${refName(closes.full.animation, codes)}"} starts ${refName(closes.full.layer.id, codes)} at full opacity` : null,
+      ].filter(Boolean);
+      lines.push(`bare background @${sec(gap.start)}s: ${gap.frames} ${gap.frames === 1 ? "frame" : "frames"} (${sec(gap.start)}–${sec(gap.end)} s) show ${background} between ${shot(gap.before, before)} and ${shot(gap.after, after)}, cover ${Math.round(gap.cover * 100)}% at the lowest (30 fps, measured on the layers' own animations)`
+        + (calls.length ? `; close it with ${calls.join(", or ")}` : "; extend the shot before or start the next at full opacity"));
+    }
+    if (gaps.length > BARE_LINES) lines.push(`+${gaps.length - BARE_LINES} more bare stretches: ${gaps.slice(BARE_LINES, BARE_LINES + 6).map((gap) => `${sec(gap.start)}s`).join(", ")}`);
+    return lines;
+  }
   // A face's advance in ems for a line of words: the installed face nearest the family and weight (typeRoles fit).
   async function faceAdvance() {
     const fonts = await loadFonts();
@@ -3652,6 +3688,8 @@ export function createAgentService(deps) {
     // What comes back in the checked (or main) scene: a fact beside techniques, never a finding.
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
+    // Where the background shows between two full-frame shots, measured: a fact beside it, never a finding.
+    if (returnsScene) lines.push(...await bareGapLines(returnsScene, codes));
     // And how much of it is designed, with the deck's unused cards and the references' own share.
     const madeText = returnsScene ? madeTextOf(result) : "";
     if (madeText) lines.push(madeText);
@@ -5566,10 +5604,12 @@ export function createAgentService(deps) {
     const wide = shown.filter((finding) => finding.at == null).slice(0, 3);
     // The findings of the whole scene, and what is left to review, come before the per-page lines
     // (an agent that reads the first 8 lines of a review sees them: trace-code section 5).
+    const bare = await bareGapLines(scene, codes);
     const first = [
       ...(wide.length ? [`whole scene: ${wide.map(findingWords).join(", ")}`] : []),
       left ? `${left} more moments to review.` : "Every moment is reviewed. Fix what you saw in one edit; the next review shows only what it changed.",
       sceneReturnsLine(scene, { scenes: document.scenes }),
+      ...bare,
       ...(madeBesideOf(reviewed) ? [madeBesideOf(reviewed)] : []),
     ];
     const keys = covered.map((event) => event.key);

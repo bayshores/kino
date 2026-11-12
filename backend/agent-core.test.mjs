@@ -199,6 +199,24 @@ test("keep_line takes lift through the agent's edit", () => {
   assert.deepEqual([kept.type, kept.layerId, kept.lift], ["keep_line", "card", true]);
 });
 
+test("delete_animation of one animation a move made names the partner it leaves; pair:true takes it, and your own animation says nothing", () => {
+  const made = (id, name) => ({ id, name, kind: "custom", start: 1, duration: 0.2, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } });
+  const document = sceneDocument([rectangle("shot"), ...[made("flash.to-in", "Appear"), made("flash.to-settle", "Settle"), made("mine", "Mine")]
+    .map((animation) => ({ type: "add_animation", layerId: "shot", animation }))]);
+  const run = (operation) => {
+    const resolver = createResolver(document, assignCodes(emptyCodes(), document));
+    const [translated] = translateOperations([operation], resolver, document);
+    return { translated, notes: resolver.notes };
+  };
+  const one = run({ op: "delete_animation", animation: "flash.to-in" });
+  assert.match(one.notes[0], /^delete_animation flash\.to-in: A\d+ \(Settle\), made by the same move, stays on Rectangle; \{op:"delete_animation", animation:"flash\.to-in", pair:true\} takes it too$/);
+  const both = run({ op: "delete_animation", animation: "flash.to-in", pair: true });
+  assert.match(both.notes[0], /^delete_animation flash\.to-in: pair:true also took A\d+ \(Settle\), made by the same move on Rectangle$/);
+  assert.equal(both.translated.pair, true);
+  assert.deepEqual(run({ op: "delete_animation", animation: "mine" }).notes, []);
+  assert.deepEqual(parseDocument(applyOperations(document, [both.translated])).scenes[0].layers[0].animations.map((animation) => animation.id), ["mine"]);
+});
+
 test("a new layer named without an ID gets a slug ID, with -2 when the slug is taken, usable later in the batch", () => {
   const document = sceneDocument([text("hero-title")]);
   const resolver = createResolver(document, assignCodes(emptyCodes(), document));

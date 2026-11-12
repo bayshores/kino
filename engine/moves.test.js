@@ -34,6 +34,7 @@ import { worldMatrix, point } from "./geometry.js";
 import { mediaFrameState } from "./playback.js";
 import { exposureTable } from "./effects/colorUtility.js";
 import { visibleByOperations } from "./visibilityOps.js";
+import { animationPartners } from "./animationPartners.js";
 
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
@@ -1591,4 +1592,20 @@ test("beat-repeat replays one file moment as muted copies on each beat, each a s
   const ramp = [{ id: "r.into", name: "slow", kind: "custom", start: 1, duration: 0.2, easing: "linear", from: { speed: 1 }, to: { speed: 0.5 } }];
   const [slow, again] = same({ count: 2, every: 1 }, { animations: ramp }, 3, 3.1);
   assert.ok(Math.abs(slow - again) < 0.01, `after a ramp ${slow} and ${again}`);
+});
+
+test("delete_animation pair: true takes the others the same move made on that layer; without it they stay, and your own animation has no partner", () => {
+  const scene = sceneFor(1920, 1080);
+  placeMove(scene, { id: "blur-dissolve", name: "blur-dissolve", settings: {} }, runExample("blur-dissolve", scene));
+  const document = createDocument({ id: "d", name: "moves", scenes: [{ ...scene, id: "s" }] });
+  const ids = (doc) => doc.scenes[0].layers.find((layer) => layer.id === "shot-b").animations.map((animation) => animation.id);
+  const before = ids(document);
+  assert.ok(before.includes("blur-dissolve.to-in") && before.includes("blur-dissolve.to-focus"), before.join(", "));
+  const one = applyOperations(document, [{ type: "delete_animation", sceneId: "s", layerId: "shot-b", animationId: "blur-dissolve.to-in" }]);
+  assert.deepEqual(ids(one), before.filter((id) => id !== "blur-dissolve.to-in"));
+  const both = applyOperations(document, [{ type: "delete_animation", sceneId: "s", layerId: "shot-b", animationId: "blur-dissolve.to-in", pair: true }]);
+  assert.deepEqual(ids(both), before.filter((id) => !id.startsWith("blur-dissolve.to-")));
+  // The other shot's animations (role from) stay: a pair is one layer and one role.
+  assert.ok(both.scenes[0].layers.find((layer) => layer.id === "shot-a").animations.some((animation) => animation.id.startsWith("blur-dissolve.from-")));
+  assert.deepEqual(animationPartners({ id: "x", animations: [{ id: "mine", kind: "in" }, { id: "title.in", kind: "in" }] }, { id: "mine" }), []);
 });

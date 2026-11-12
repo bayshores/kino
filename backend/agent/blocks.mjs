@@ -62,7 +62,7 @@ import { jobTreatment, textJob } from "../../engine/typeRoles.js";
 import { sec } from "./describe.mjs";
 import { slideOffCut, spanCutLine } from "../../engine/spanCuts.js";
 import { boardCueLines } from "./board-pace.mjs";
-import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps } from "./board-build.mjs";
+import { BOARD_BUILD, BUILT_PREFIX, boardBuildOps, entranceJoinOps } from "./board-build.mjs";
 import { SOURCE_LIMITS } from "../../engine/sources.js";
 import { projectSeed } from "../../engine/deck.js";
 import { composeLenient, deckComposition, deckFinish } from "../../engine/blocks/deckVariant.js";
@@ -1741,6 +1741,14 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       // A move compose filled in itself says what it chose and the op that changes it.
       try { next = await runOps(next, [{ ...op, ...where }]); placed.push(said ? `${name} (shot ${n}: ${said}; ${JSON.stringify(op)} changes it)` : `${name} (shot ${n})`); }
       catch (error) { unplaced.push(`shot ${n} ${name}: ${String(error.message).slice(0, 120)} edit {ops:[${JSON.stringify(op)}]}`); }
+    }
+    // A shot that fades in at its cue starts under the shot before it, so no join shows the bare background.
+    const joins = entranceJoinOps(next.scenes.find((item) => item.id === scene.id) ?? scene, board);
+    if (joins.length) {
+      try {
+        next = await runOps(next, joins.map(({ note: _note, ...op }) => ({ ...op, ...where })));
+        work.notes.push(...joins.map((join) => join.note));
+      } catch (error) { work.notes.push(`join not kept under a fade: ${String(error.message).slice(0, 120)}`); }
     }
     // A shot's lift: lift_dark on its layer, the shots with lift:true in one call (one median), each target its own.
     const lifts = new Map();

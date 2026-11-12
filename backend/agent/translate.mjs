@@ -26,6 +26,7 @@ import { BACKDROP_STYLE_KEYS } from "../../engine/backdropStyles.js";
 import { REACH_OPERATIONS } from "./reach-operations.mjs";
 import { moveRetry } from "./move-retry.mjs";
 import { unknownFieldsNote } from "./unknown-fields.mjs";
+import { animationPartners } from "../../engine/animationPartners.js";
 import { LAYER_ROLES } from "../../engine/qualityFields.js";
 import { MEDIA_TIMING_TYPES } from "../../engine/mediaTime.js";
 import { TRIM_KEYS } from "../../engine/strokeTrim.js";
@@ -714,6 +715,7 @@ function translateOne(raw, resolver, document) {
   }
 
   let failure = null;
+  let paired = [];
   try {
     fixOperation(operation, resolver.fixes, { resolver, layerRef: raw.layer ?? raw.layerId ?? raw.target });
     nameAnimation(operation, resolver);
@@ -722,6 +724,7 @@ function translateOne(raw, resolver, document) {
     checkMediaSource(operation, resolver, document);
     operation = normalizeValues(operation, resolver.fixes);
     resolveReferences(operation, type, resolver, document);
+    if (type === "delete_animation") paired = pairedNote(operation, resolver);
     checkStepsCount(operation, type, document);
     if (type === "add_animation") effectEndDefault(operation, resolver);
     if (type === "isolate_voice") checkIsolateVoice(operation, resolver);
@@ -771,12 +774,31 @@ function translateOne(raw, resolver, document) {
     }
     // What a delete removes is free again for the operations after it (same name, no "-2").
     if (!failure && type === "delete_layer") resolver.forget("layer", operation.layerId);
-    if (!failure && type === "delete_animation") resolver.forget("animation", operation.animationId);
+    if (!failure && type === "delete_animation") {
+      resolver.forget("animation", operation.animationId);
+      if (operation.pair === true) for (const partner of paired) resolver.forget("animation", partner.id);
+    }
     if (failure) {
       failure.createdIds = createdIds(operation);
       failure.standIn = standInLayer(operation, resolver, document);
     }
   }
+}
+
+// delete_animation of one animation a move made with others on the same layer (animationPartners.js):
+// the receipt names the partners it leaves behind, or the ones pair:true took with it. Returns the partners.
+function pairedNote(operation, resolver) {
+  const entry = resolver.objects.animations.find((item) => item.id === operation.animationId);
+  if (!entry?.layer || entry.parents.length) return [];
+  const partners = animationPartners(entry.layer, entry.animation);
+  if (!partners.length) return [];
+  const label = (animation) => `${resolver.codeOf(animation.id) ?? animation.id} (${animation.name ?? animation.kind})`;
+  const layer = entry.layer.name || entry.layer.id;
+  const list = partners.map(label).join(", ");
+  resolver.notes.push(operation.pair === true
+    ? `delete_animation ${operation.animationId}: pair:true also took ${list}, made by the same move on ${layer}`
+    : `delete_animation ${operation.animationId}: ${list}, made by the same move, ${partners.length === 1 ? "stays" : "stay"} on ${layer}; {op:"delete_animation", animation:"${operation.animationId}", pair:true} takes ${partners.length === 1 ? "it" : "them"} too`);
+  return partners;
 }
 
 // add_animation {effect} of a value effect that rests at zero (a blur, a bulge): a window under

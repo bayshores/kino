@@ -9,6 +9,7 @@ import { nextScenePosition } from "./sceneLayout.js";
 import { duplicateSceneInDocument } from "./sceneDuplication.js";
 import { presetAnimation, resolveAnimationInitialValue } from "./animation.js";
 import { followEntrance, showBeforeEntrance } from "./entranceHide.js";
+import { animationPartners } from "./animationPartners.js";
 import { fitNewText } from "./textFit.js";
 import { effectDefinition } from "./effects/catalog.js";
 import { createComponentInstance, detachComponent } from "./linkedComponents.js";
@@ -480,7 +481,10 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
     }
     if (operation.type === "delete_animation") {
       // A Show added with a preset entrance goes with it (entranceHide.js).
+      // pair: true also takes the others the same move made on this layer (animationPartners.js).
+      const partners = operation.pair === true ? animationPartners(layer, animation) : [];
       layer.animations = followEntrance(editAnimationTree(layer.animations, animation.id, () => null), animation, null);
+      for (const partner of partners) layer.animations = editAnimationTree(layer.animations, partner.id, () => null);
       continue;
     }
     throw new Error(`Unsupported editing operation: ${operation.type}`);
