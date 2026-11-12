@@ -65,7 +65,7 @@ import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
 import { applySwap, dealDue, deckData, deckInputs, deckRequest, deckStatusLine, deckText, loadMoves, mediaKeys, newDeal, RECENT_PROJECTS, swapProblem } from "./deck.mjs";
-import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
+import { answerStep, checkpointStep, dashboardAnswerStep, finalRefusal, openStops, reopenStep, settleWaiting, statusLines, statusMove, StopError, stopRules, stopsSummary, topRules, waitingData, waitingStop, waivedLine, workPrint } from "./stops.mjs";
 import { finishLog, logCall, stepNameOf, stepRows, stepsLine, stepsTable } from "./step-log.mjs";
 import { controlsLine } from "./controls.mjs";
 import { addRejected } from "./style.mjs";
@@ -109,6 +109,7 @@ import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
+import { askLine } from "../../engine/quality/rules/ask.js";
 import { namedShape } from "../../engine/quality/rules/shape.js";
 import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
@@ -2627,8 +2628,11 @@ export function createAgentService(deps) {
     const full = !scene && !rules && options.pixels;
     const saveChecked = (draft) => {
       // cropLine: how many shots are narrow crops and how each was marked, for the stop asks.
+      // top: the 3 rules with the most open findings, so a stop names what is open, not a count only.
       const crops = cropLine(result.crops);
-      draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null, ...(crops ? { cropLine: crops } : {}) };
+      const top = topRules(report.byRule);
+      draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null,
+        ...(top.length ? { top } : {}), ...(crops ? { cropLine: crops } : {}) };
     };
     const data = { rev: record.revision, ...report, notes: result.notes, ms: result.ms, techniques: result.techniques, ...(applied ? { applied } : {}) };
     const repeat = applied ? null : repeatedCheck(projectId, input, record.revision, lines);
@@ -5136,7 +5140,8 @@ export function createAgentService(deps) {
       const urgent = input.urgent === true;
       const where = `${urgent ? " URGENT" : ""}${sceneId && record.document.scenes.length > 1 ? ` ${refName(sceneId, codes)}` : ""}${time != null ? ` @${time}` : ""}${layerId ? ` ${refName(layerId, codes)}` : ""}${area ? ` area ${area.x},${area.y} ${area.width}×${area.height}` : ""}`;
       const result = await agentState.update(projectId, (state) => {
-        const note = { id: `N${state.nextNote++}`, text, layerId, time, from: "you", status: "new", replies: [], createdAt: new Date(now()).toISOString(),
+        // typed: the person wrote it (dashboard or kino --you), so a brief quote may come from it.
+        const note = { id: `N${state.nextNote++}`, text, layerId, time, from: "you", status: "new", replies: [], createdAt: new Date(now()).toISOString(), ...(meta.by === "you" ? { typed: true } : {}),
           ...(sceneId ? { sceneId } : {}), ...(area ? { area } : {}), ...(urgent ? { urgent } : {}) };
         state.notes.push(note);
         state.turnBreak = true;
@@ -5369,6 +5374,10 @@ export function createAgentService(deps) {
           if (checkpoint) {
             // The crops the check of this revision counted (draft.checked.cropLine), shown in the ask.
             if (draft.checked?.rev === step.rev && draft.checked.cropLine) video.cropLine = draft.checked.cropLine;
+            // What the person's ask points to (the origin word) and which shot is marked showing it.
+            const shots = record.document.scenes.find((scene) => scene.layers.some((layer) => layer.type === "video"));
+            const pointed = shots ? askLine(shots, draft.origin, draft.sourceLooks) : "";
+            if (pointed) video.askLine = pointed;
             answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique, styleFrame: styled?.facts ?? null });
             const asked = answer.data.status === "waiting_for_you" ? roundOf(draft, answer.data.id) : null;
             if (asked && !asked.steady) asked.steady = { at: steady, boot: bootedAt };
@@ -5447,8 +5456,10 @@ export function createAgentService(deps) {
     let answer;
     try {
       const finished = await done(projectId, {}, { change(draft) {
-        // A quote may come from what they said when they answered a stop (notes answer words).
-        const said = (draft.stops ?? []).map((round) => round?.answer?.words).filter((words) => typeof words === "string" && words.trim());
+        // A quote may come from what they said when they answered a stop (notes answer words) or
+        // in a note they typed, both recorded by kino in an earlier call (a note an agent adds is not theirs).
+        const said = [...(draft.stops ?? []).map((round) => round?.answer?.words), ...(draft.notes ?? []).filter((note) => note?.typed === true).map((note) => note.text)]
+          .filter((words) => typeof words === "string" && words.trim());
         const changes = briefChanges(draft.brief, input, { said });
         applyBrief(draft, changes, { now: now(), client: meta.client ?? null });
         answer = { text: savedText(draft, changes, video), data: briefData(draft, video) };

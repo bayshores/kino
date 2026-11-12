@@ -1360,6 +1360,11 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
 - **Marks count after a look**: Test-verified. `narrow_window` and `crop_no_subject` clear only on a mark made
   after `look {mode:"source"}` on that layer that the crop keeps; a waiver on an unlooked layer answers `look_first`.
   Evidence: `engine/qualityRules.test.js`, `backend/agent-core.test.mjs`.
+- **Quotes kino recorded, asks met on screen, open rules named**: Test-verified. A brief quote by the person counts
+  only from an ask, an earlier call's reply, a stop answer or a note they typed, never a reply logged in the same call;
+  `ask_unmet` clears only on `mark_subject {shows}` at a looked-at second (a title is not proof), and the board and
+  rough asks name that shot; a stop's Checked line names the top 3 open rules. Evidence:
+  `backend/agent-brief.test.mjs`, `engine/qualityRules.test.js`, `backend/footage-finder.test.mjs`, `backend/agent-stops.test.mjs`.
 - **Inspire live view and ideas**: Verified in the desktop app. F3 shows the frame being measured;
   agents propose ideas that the person allows or holds. Evidence: `backend/inspire-live.test.mjs`,
   `backend/agent-inspire.test.mjs`, `frontend/dashboardInspire.test.js`. Gap: agents add allowed ideas to

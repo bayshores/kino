@@ -234,7 +234,8 @@ const turns = [
     say(asked[0]);
   },
   async (reply) => {
-    await call("notes", { project, action: "brief", fields: { ask: heard[0], about: { text: "the park reopening", by: "you", quote: "the park reopens Saturday" },
+    // Each reply they typed is stored with the ask: a reply logged in the same call proves no quote.
+    await call("notes", { project, action: "brief", fields: { ask: [heard[0], reply], about: { text: "the park reopening", by: "you", quote: "the park reopens Saturday" },
       message: { text: "the park reopens Saturday", by: "you", quote: "it says the park reopens Saturday" },
       plays_on: { text: "TikTok, 9:16, 12 s", by: "you", quote: "12 second TikTok" },
       made_from: { text: "park.mp4", by: "you", quote: "park.mp4" },
@@ -242,7 +243,7 @@ const turns = [
     say(asked[1]);
   },
   async (reply) => {
-    const saved = await call("notes", { project, action: "brief", fields: { never: { text: "no meme text", by: "you", quote: reply },
+    const saved = await call("notes", { project, action: "brief", fields: { ask: reply, never: { text: "no meme text", by: "you", quote: reply },
       key_moment: { text: "the date, Saturday, at the end", by: "guessed" } }, log: [{ q: asked[1], a: reply }] });
     playedRev = saved.data.brief.rev;
     say(["Here's the brief. Quotes are yours; \"guess\" is mine.", "- message: you said \"it says the park reopens Saturday\"",

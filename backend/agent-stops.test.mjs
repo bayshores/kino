@@ -53,12 +53,22 @@ test("a waiting stop lapses when the project moved on, and stays lapsed when the
   assert.deepEqual(statusLines(state, VIDEO), ["direction: C1 rough lapsed · replies 0/10", "step: check, then ask rough again"]);
 });
 
-test("a stop ask names the waived count and the top rules; a rule waived on * shows all; none waived adds nothing", () => {
+test("a stop ask names the open rules (top 3), the waived count and the top waived rules; a rule waived on * shows all; none waived adds nothing", () => {
   const waivers = [...Array.from({ length: 17 }, (_, n) => ({ code: "crop_no_subject", target: `shot-${n}`, reason: "meant" })),
     ...Array.from({ length: 9 }, (_, n) => ({ code: "held_static", target: `card-${n}`, reason: "meant" })),
     { code: "no_music", target: "*", reason: "silent" }, { code: "overlap", target: "a", reason: "x" }, { code: "overlap", target: "b", reason: "x" }];
   const asked = checkpointStep(ready(4), { kind: "rough", video: VIDEO, rev: 4, now: T0, waivers });
   assert.match(asked.data.ask, /^Checked: 0 errors · 1 warning · 29 waived \(crop_no_subject 17, held_static 9, overlap 2\)\.$/m);
+  // The check saved its open rules: the 3 with the most findings, most first.
+  const top = stops.topRules({ shape_guess: { errors: 0, warnings: 1 }, ask_unmet: { errors: 0, warnings: 2 }, contrast: { errors: 1, warnings: 2 }, hold: { errors: 0, warnings: 1 } });
+  assert.deepEqual(top, [["contrast", 3], ["ask_unmet", 2], ["hold", 1]]);
+  const named = ready(4);
+  named.checked = { ...named.checked, errors: 0, warnings: 6, top };
+  const pointed = 'Your ask points to "tower" (in 11 of 15 titles about what you asked for): keeper shows it at 1.2 s.';
+  const roughAsk = checkpointStep(named, { kind: "rough", video: { ...VIDEO, askLine: pointed }, rev: 4, now: T0, waivers }).data.ask;
+  assert.match(roughAsk, /^Checked: 0 errors · 6 warnings \(contrast 3, ask_unmet 2, hold 1\) · 29 waived \(crop_no_subject 17, held_static 9, overlap 2\)\.$/m);
+  // The rough cut also says what the person's ask points to and which shot shows it (ask.js askLine).
+  assert.ok(roughAsk.split("\n").includes(pointed), roughAsk);
   assert.match(stops.waivedLine([{ code: "no_music", target: "*", reason: "silent" }]), /^1 waived \(no_music all\)$/);
   assert.doesNotMatch(checkpointStep(ready(4), { kind: "rough", video: VIDEO, rev: 4, now: T0 }).data.ask, /waived/);
   // The service can hand the waivers over inside the video facts instead.
@@ -76,16 +86,18 @@ test("the service's stop ask carries the document's waivers: the person's rough 
   assert.equal(checked.data.errors, 0, checked.text);
   const asked = await call("notes", { action: "checkpoint", id: "rough" });
   assert.equal(asked.data.status, "waiting_for_you", asked.text);
-  assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? · 1 waived \(default_font 1\)\.$/m, asked.data.ask);
+  assert.match(asked.data.ask, /^Checked: 0 errors · \d+ warnings? \([a-z_]+ \d+(, [a-z_]+ \d+){0,2}\) · 1 waived \(default_font 1\)\.$/m, asked.data.ask);
 });
 
 test("a board ask names a guessed shape against the footage's; an answer that names none saves the footage's shape as plays_on", () => {
   const state = ready(4);
   state.brief.fields.plays_on = { text: "a phone feed", by: "guessed", rev: 0 };
   const wide = { width: 1920, height: 1080 };
-  const video = { ...VIDEO, footage: true, footageSizes: [wide, wide, wide] };
+  const pointed = 'Your ask points to "tower" (in 11 of 15 titles about what you asked for): no shot is marked as showing it yet.';
+  const video = { ...VIDEO, footage: true, footageSizes: [wide, wide, wide], askLine: pointed };
   const asked = checkpointStep(state, { kind: "board", video, rev: 4, now: T0, board: BOARD });
   assert.match(asked.data.ask, /^Shape: 9:16 \(1080x1920\) is my guess; your footage is 16:9 \(3 of 3\)\. Name a shape or a place to keep 9:16; any other reply makes it 16:9 like the footage\.$/m);
+  assert.equal(asked.data.ask.split("\n")[2], pointed, "the board says what the ask points to, right after the shape");
   assert.deepEqual(state.stops[0].shape, { scene: "9:16", footage: "16:9", size: [1920, 1080] });
   const answered = answerStep(state, { input: { id: "C1", rev: 4, words: "looks good, keep going", read_as: "approve" }, video, rev: 4, now: T0 + 30_000, board: BOARD });
   assert.match(answered.text, /shape: no shape named: kino follows the footage \(16:9\); next: edit update_scene \+ frame_shot/);

@@ -13,6 +13,7 @@ import { createDocument, createLayer, createScene, parseDocument } from "./model
 import { RULES, blocksFinal, ruleOf, runQuality } from "./quality/index.js";
 import { kinoTimeline } from "./quality/kinoTimeline.js";
 import { cropCounts, cropLine, seenMark } from "./quality/rules/footage.js";
+import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 
 // ---------------------------------------------------------------- builders
@@ -1833,21 +1834,31 @@ test("shape_guess: a vertical scene of 16:9 footage with a guessed plays_on warn
   await silent("shape_guess", bare, { scene: bare.scenes[0], mediaSizes: sizes });
 });
 
-test("ask_unmet: the origin word in no shot title warns once; own footage, a titled shot or found clip, or no word are quiet", async () => {
+test("ask_unmet: only a shot marked shows:<word> at a second the agent looked at clears it; a title with the word does not; own footage or no word are quiet", async () => {
   const origin = { words: [{ word: "tower", count: 11, of: 15 }], top: [{ id: "a", title: "Keeper climbs the tower (full)", views: 5e6, seconds: 188 }] };
   const bad = tall();
   const context = (extra) => ({ scene: bad.scenes[0], mediaSizes: keeperSizes, mediaNames: { [TALL_CROP.src]: "F1.2 keeper walks the field.mp4" }, origin, ...extra });
   const [found] = await fires("ask_unmet", bad, context());
-  assert.match(found.message, /^"tower" is in 11 of 15 titles.*Keeper climbs the tower \(full\).*no shot's title/);
+  // The ready call comes first: look at the shot, then mark the frame that shows the word.
+  assert.match(found.message, /^look \{mode:"source", layer:"keeper", t:1\}, then on the frame that shows it edit \{ops:\[\{op:"mark_subject", layer:"keeper", t:<scene s>, box:\[x, y, w, h\], shows:"tower"\}\]\}; if no shot shows it: library/);
+  assert.match(found.message, /"tower" is in 11 of 15 titles.*Keeper climbs the tower \(full\).*no shot shows it\.$/);
   assert.match(found.fix.text, /waive_check ask_unmet on the scene with a reason that names "tower"/);
   // The person's own footage leads, and no origin word (or a skipped search) means nothing to check.
   await silent("ask_unmet", bad, context({ ownFootage: true }));
   await silent("ask_unmet", bad, context({ origin: { skipped: "offline" } }));
-  // A shot titled with the word (whole word, any case), or a found clip kino titled with it.
-  await silent("ask_unmet", bad, context({ mediaNames: { [TALL_CROP.src]: "F1.2 The Tower.mp4" } }));
-  await silent("ask_unmet", bad, context({ foundTitles: ["F4 the tower stairs.mp4"] }));
-  // "towers" is another word: not a match.
-  assert.equal((await check("ask_unmet", bad, context({ foundTitles: ["F4 towers.mp4"] }))).findings.length, 1);
+  // A file title with the word is not the picture (run 4): it still warns, and says so.
+  const [titled] = await fires("ask_unmet", bad, context({ mediaNames: { [TALL_CROP.src]: "F1.2 The Tower.mp4" }, foundTitles: ["F1.2 The Tower.mp4"] }));
+  assert.match(titled.message, /1 shot's file title has it, but a title is not the picture/);
+  // A mark that shows it: clears only with a look at that file second (within 0.5 s), on this file.
+  const marked = tall({ ...TALL_CROP, subjectBoxes: { src: TALL_CROP.src, boxes: [{ at: 1.2, box: [40, 10, 20, 60], by: "agent", shows: "Tower" }] } });
+  const markedContext = (sourceLooks) => ({ ...context(), scene: marked.scenes[0], sourceLooks });
+  assert.equal((await check("ask_unmet", marked, markedContext({}))).findings.length, 1, "a mark nobody looked at");
+  assert.equal((await check("ask_unmet", marked, markedContext({ keeper: { src: TALL_CROP.src, at: [0.2] } }))).findings.length, 1, "a look at another second");
+  await silent("ask_unmet", marked, markedContext({ keeper: { src: TALL_CROP.src, at: [1.4] } }));
+  // The stop asks' line says what the ask points to and which shot shows it.
+  assert.equal(askLine(marked.scenes[0], origin, { keeper: { src: TALL_CROP.src, at: [1.4] } }), 'Your ask points to "tower" (in 11 of 15 titles about what you asked for): keeper shows it at 1.2 s.');
+  assert.equal(askLine(bad.scenes[0], origin, {}), 'Your ask points to "tower" (in 11 of 15 titles about what you asked for): no shot is marked as showing it yet.');
+  assert.equal(askLine(bad.scenes[0], { skipped: "offline" }, {}), "");
 });
 
 // ---------------------------------------------------------------- restraint, request_unmet

@@ -111,7 +111,9 @@ async function gap(askedAt) {
 const LABELS = { board: "the storyboard", rough: "the rough cut", color: "the color pass", sound: "the sound pass" };
 const HEADLINES = { board: "The storyboard is ready", rough: "The rough cut is ready", color: "The color pass is ready", sound: "The sound pass is ready" };
 const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
-const counts = (check) => `${plural(check.errors, "error")} · ${plural(check.warnings, "warning")}`;
+// The open rules the check found, the 3 with the most findings, follow the warning count.
+const openRules = (check) => Object.entries(check.byRule ?? {}).map(([rule, row]) => [rule, row.errors + row.warnings]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3);
+const counts = (check) => `${plural(check.errors, "error")} · ${plural(check.warnings, "warning")}${openRules(check).length ? ` (${openRules(check).map(([rule, count]) => `${rule} ${count}`).join(", ")})` : ""}`;
 const offerLine = (offer) => `Or say "stop asking" to skip the ${offer.join(" and ")} ${offer.length === 1 ? "check" : "checks"} for this video.`;
 const askText = (kind, id, check, offer, waived = true) => [
   `${HEADLINES[kind]} (${id}): 24 s, 1080×1920.`,
@@ -178,9 +180,9 @@ test("a video with no footage asks only its own stops, in order; notes answer re
   // The rough cut is this video's first stop: it waits for the person, and offers "stop asking".
   const first = await checkpoint(project, "rough");
   assertAsked(first, { id: "C1", kind: "rough", rev, check: checked, offer: ["color", "sound"] });
-  // 200 for the answer (plan §12) plus up to 20 for the waived line, which names at most 3 rules.
-  assert.ok(estimateTextTokens(withoutNext(first.text)) <= 220, `the waiting answer is about ${estimateTextTokens(withoutNext(first.text))} tokens (limit 220)`);
-  assert.ok(estimateTextTokens(first.data.ask) <= 120, `the ask is about ${estimateTextTokens(first.data.ask)} tokens (limit 120)`);
+  // 200 for the answer (plan §12) plus up to 20 each for the open and the waived rules (at most 3 each).
+  assert.ok(estimateTextTokens(withoutNext(first.text)) <= 240, `the waiting answer is about ${estimateTextTokens(withoutNext(first.text))} tokens (limit 240)`);
+  assert.ok(estimateTextTokens(first.data.ask) <= 140, `the ask is about ${estimateTextTokens(first.data.ask)} tokens (limit 120, plus 20 for the open rules)`);
   const state = await savedState(project);
   assert.equal(state.nextStop, 2);
   assert.equal(state.stops.length, 1);
@@ -364,7 +366,7 @@ test("a stop shows only work the agent checked in full on this revision: otherwi
   assert.equal(full.data.errors, 0, full.text);
   const { checked } = await savedState(project);
   assert.match(checked.at, ISO);
-  assert.deepEqual({ ...checked, at: "…" }, { rev: restored.data.rev, errors: 0, warnings: full.data.warnings, at: "…", client: "claude-code" });
+  assert.deepEqual({ ...checked, at: "…" }, { rev: restored.data.rev, errors: 0, warnings: full.data.warnings, at: "…", client: "claude-code", ...(openRules(full.data).length ? { top: openRules(full.data) } : {}) });
   assertAsked(await checkpoint(project, "rough"), { id: "C1", kind: "rough", rev: restored.data.rev, check: full.data, offer: ["color", "sound"] });
 });
 

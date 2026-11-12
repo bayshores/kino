@@ -411,7 +411,7 @@ test("a project made without a duration is not an under-8 s video until the agen
   const open = await brief("brief-no-length", { fields: { message: MESSAGE }, log: [FIRST_QUESTION] });
   assert.match(withoutNext(open.text), /\nstep: ask about look_sound, or guess it$/);
   const where = { q: "Where does it play, and how long?", a: "tiktok, about 24 seconds" };
-  const second = await brief("brief-no-length", { fields: { plays_on: { text: "TikTok, 9:16, 24 s", by: "you", quote: where.a } }, log: [where] });
+  const second = await brief("brief-no-length", { fields: { plays_on: { text: "TikTok, 9:16, 24 s", by: "guessed" } }, log: [where] });
   assert.match(withoutNext(second.text), /\nstep: ask about look_sound, or guess it$/);
   assert.doesNotMatch(withoutNext(second.text), /under 8 s/, "two questions are within the guide's 3");
   assert.equal((await statusLines("brief-no-length"))[2], "step: ask about look_sound, or guess it");
@@ -543,7 +543,7 @@ test("deleting a project forever deletes its brief; a new project with the same 
   try {
     local = await startTestServer({ env: { MOTION_DATA_DIR: folder } });
     await newProject("dz", local);
-    await brief("dz", { fields: { never: { text: "no meme text", by: "you", quote: "no meme text please, my mum watches" } }, log: [{ q: "What would make you wince?", a: "no meme text please, my mum watches" }] }, local);
+    await brief("dz", { fields: { never: { text: "no meme text", by: "you", quote: "no meme text" } }, log: [{ q: "What would make you wince?", a: "no meme text please, my mum watches" }] }, local);
     const file = path.join(folder, "agent", "projects", "dz.json");
     await access(file);
     assert.equal((await local.api("/api/projects/dz", { method: "DELETE" })).status, 200);
@@ -986,7 +986,10 @@ test("without a stored ask, missing names it and next carries the placeholders; 
   // Under "none" a by:"you" quote has nothing to be checked against: refused unless a logged reply holds it.
   const crew = { text: "vertical", by: "you", quote: "vertical on TikTok" };
   assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew } }), (error) => error.code === "quote_not_said" && /ask is "none"/.test(error.message));
-  assert.equal(briefChanges(quiet.brief, { fields: { plays_on: crew }, log: [{ q: "Where?", a: "vertical on TikTok please" }] }).lines.length, 1);
+  const where = { q: "Where?", a: "vertical on TikTok please" };
+  assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew }, log: [where] }), (error) => error.details.sameCall === true && /^Send plays_on by:"guessed"/.test(error.message));
+  applyBrief(quiet, briefChanges(quiet.brief, { log: [where] }));
+  assert.equal(briefChanges(quiet.brief, { fields: { plays_on: crew } }).lines.length, 1, "a reply logged in an earlier call");
   // A real ask stored later replaces the marker.
   applyBrief(quiet, briefChanges(quiet.brief, { fields: { ask: "vertical on TikTok please" } }));
   assert.deepEqual([briefData(quiet).brief.askNone, briefData(quiet).brief.asks], [undefined, 1]);
@@ -1011,10 +1014,11 @@ test("with an ask stored, a quote by you must be in it or in a reply; with no as
   assert.equal(said("MY SKATE CREW, i want them"), 1);
   assert.throws(() => said("my skat crew"), { code: "quote_not_said" });
   assert.throws(() => said("my skate crew and a dog"), { code: "quote_not_said" });
-  // A guessed line is not checked, and a logged reply counts as said.
+  // A guessed line is not checked, and a reply logged in an earlier call counts as said; one
+  // logged in the same call as the line it would prove does not (the agent wrote both).
   assert.equal(briefChanges(draft.brief, { fields: { plays_on: { text: "vertical", by: "guessed" } } }).lines.length, 1);
   const reply = { q: "Where does it play?", a: "vertical on TikTok please" };
-  assert.equal(briefChanges(draft.brief, { fields: { plays_on: vertical }, log: [reply] }).lines.length, 1, "a reply in this call");
+  assert.throws(() => briefChanges(draft.brief, { fields: { plays_on: vertical }, log: [reply] }), (error) => error.code === "quote_not_said" && error.details.sameCall === true, "a reply in this call");
   applyBrief(draft, briefChanges(draft.brief, { fields: {}, log: [reply] }));
   assert.equal(briefChanges(draft.brief, { fields: { plays_on: vertical } }).lines.length, 1, "a reply logged before");
   // The treatment pick's quote is the person's words too; a pick of your own has none to check.
@@ -1058,7 +1062,7 @@ test("check hands the brief's plays_on to shape_guess: portrait over landscape f
   const fileId = "11111111-2222-3333-4444-555555555555.mp4";
   const clip = { id: fileId, name: "keeper", width: 1920, height: 1080, duration: 4 };
   const layer = createLayer("video", { id: "v", name: "clip", src: `/api/media/${fileId}`, x: 0, y: 0, width: 3413, height: 1920 });
-  const { call, agentState } = await serviceFor(t, {
+  const { call, service, agentState } = await serviceFor(t, {
     document: createDocument({ id: "shape", name: "shape", scenes: [createScene({ id: "s1", name: "main", width: 1080, height: 1920, duration: 4, layers: [layer] })] }),
     media: [clip],
   });
@@ -1067,7 +1071,15 @@ test("check hands the brief's plays_on to shape_guess: portrait over landscape f
   assert.match((await call("check")).text, /shape_guess/, "a guessed plays_on is still a guess");
   // The person left the shape to the agent: the line is saved (not refused), and kino follows the footage.
   await agentState.update("shape", said("guessed"));
-  const left = await call("notes", { action: "brief", fields: { plays_on: { text: "up to you", by: "you", quote: "your call" } }, log: [{ q: "Where does it play?", a: "your call" }] });
+  // "your call" logged in the same call as the line it proves is the agent's word, not theirs (run 4):
+  // refused with the fix first. A note the agent adds is not theirs either; one the person typed counts.
+  const yourCall = { action: "brief", fields: { plays_on: { text: "up to you", by: "you", quote: "your call" } } };
+  const invented = await call("notes", { ...yourCall, log: [{ q: "Where does it play?", a: "your call" }] });
+  assert.match(invented.text, /"reason":"Send plays_on by:/, invented.text);
+  await call("notes", { action: "add", text: "your call" });
+  assert.match((await call("notes", yourCall)).text, /not in anything they said/);
+  await service.call("notes", { project: "shape", action: "add", text: "your call" }, { by: "you", client: "dashboard" });
+  const left = await call("notes", yourCall);
   assert.equal(left.isError, undefined, left.text);
   assert.equal((await agentState.read("shape")).brief.fields.plays_on.named, false);
   const checked = await call("check");

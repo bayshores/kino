@@ -178,25 +178,35 @@ function closestSentence(quote, texts) {
 
 /**
  * What the person is known to have said, for the quote check: { texts } from the stored asks, the
- * asks sent in this call, the replies logged (so far and in this call) and `extra` (other recorded
- * answers a caller passes). `missing` is set while no ask is stored or sent (every by:"you" quote
- * is then refused); `none` while ask is "none" (only logged replies and stop answers count).
+ * asks sent in this call (their message, pasted whole), the replies logged in earlier calls and
+ * `extra` (stop answers and notes kino recorded). A reply logged in this same call is the agent's
+ * word for what they said, sent with the line it would prove, so it never counts: it is kept in
+ * `sameCall` only to name it in the refusal. `missing` is set while no ask is stored or sent (every
+ * by:"you" quote is then refused); `none` while ask is "none" (only earlier replies, stop answers
+ * and notes count).
  */
 function saidBy(current, sentAsks, sentNone, entries, extra) {
   const asks = [...asksOf(current).map((entry) => entry.text), ...sentAsks];
-  const replies = [...(current?.log ?? []), ...entries.filter(isRecord)].filter((entry) => entry.kind !== "rejected").map((entry) => entry.a);
-  const texts = [...asks, ...replies, ...extra].filter(hasText);
-  if (asks.length) return { texts };
-  return sentNone || asksNone(current) ? { texts, none: true } : { texts, missing: true };
+  const answers = (list) => list.filter((entry) => isRecord(entry) && entry.kind !== "rejected").map((entry) => entry.a).filter(hasText);
+  const texts = [...asks, ...answers(current?.log ?? []), ...extra].filter(hasText);
+  const sameCall = answers(entries);
+  if (asks.length) return { texts, sameCall };
+  return sentNone || asksNone(current) ? { texts, sameCall, none: true } : { texts, sameCall, missing: true };
 }
 
 // The refusal for a quote the person did not say, with the closest sentence they did.
 function notSaid(where, quote, said) {
+  // Found only in a reply logged with it: the fix comes first, as agents cut long lines.
+  if (said.sameCall?.length && isSaid(quote, said.sameCall)) {
+    const line = where.replace(/\.quote$/, "");
+    return { code: "quote_not_said", message: `Send ${line} by:"guessed" (no quote), or with fields.ask:"<their message, pasted whole>" if they typed these words: ${where} is only in a log reply sent in this same call, and a reply logged with the line it proves does not count as their words.`,
+      details: { closest: null, sameCall: true } };
+  }
   if (said.missing)
     return { code: "quote_not_said", message: `${where} is their words, but no message of theirs is stored to check it against: store it first (ask:"<their message, pasted whole>"; ask:"none" when no person is giving one), then send this again. If they did not say it, send by:"guessed".`, details: { closest: null } };
   const closest = closestSentence(quote, said.texts);
   if (said.none)
-    return { code: "quote_not_said", message: `${where} is not in a reply they logged. ask is "none", so nothing else can check it: log their reply (log:[{q, a}]) or send by:"guessed".`, details: { closest: closest || null } };
+    return { code: "quote_not_said", message: `${where} is not in a reply logged in an earlier call, a stop answer or a note. ask is "none", so nothing else can check it: send by:"guessed".`, details: { closest: closest || null } };
   return { code: "quote_not_said", message: `${where} is not in anything they said${closest ? ` (closest: "${closest}")` : ""}. Copy their exact words from their message; if they did not say it, send by:"guessed".`,
     details: { closest: closest || null } };
 }

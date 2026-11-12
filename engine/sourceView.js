@@ -52,7 +52,10 @@ export function normalizeSubjectBoxes(value, path, layerType) {
     if (entry.by !== "agent") fail(`${label}.by`, 'must be "agent"');
     const part = entry.part;
     if (part !== undefined && (typeof part !== "string" || part.length < 1 || part.length > 30)) fail(`${label}.part`, "must be 1-30 characters naming the part marked (eyes)");
-    return { at: round(entry.at, 3), box, by: "agent", ...(part ? { part } : {}) };
+    // shows: what of the person's ask this frame shows (ask_unmet, quality/rules/ask.js).
+    const shows = entry.shows;
+    if (shows !== undefined && (typeof shows !== "string" || shows.length < 1 || shows.length > 30)) fail(`${label}.shows`, "must be 1-30 characters naming what of the ask the frame shows");
+    return { at: round(entry.at, 3), box, by: "agent", ...(part ? { part } : {}), ...(shows ? { shows } : {}) };
   });
   return { src: value.src, boxes: boxes.sort((a, b) => a.at - b.at) };
 }

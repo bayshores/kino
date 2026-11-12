@@ -1804,7 +1804,7 @@ test("the brief shows read only: you said with the agent's quote, guessed, missi
     const word = "kickflip".repeat(8).slice(0, 60);
     const quote = `raw and bright, real street sound, no synth dings, ${word}`.padEnd(120, " ok");
     assert.equal(quote.length, 120);
-    await brief({ fields: { look_sound: { text: "raw and bright; street sound, no synth", by: "you", quote } }, log: [{ q: "What should it look and sound like?", a: quote }] });
+    await brief({ fields: { ask: quote, look_sound: { text: "raw and bright; street sound, no synth", by: "you", quote } }, log: [{ q: "What should it look and sound like?", a: quote }] });
     await browser.waitFor(pageHas("r2 · not confirmed yet", "#section-brief"), { what: "brief r2 not confirmed" });
     await browser.waitFor(`${polite} === "Brief revision 2 saved by the agent."`, { what: "the polite announcement of r2" });
     assert.ok(await browser.evaluate(pageHas(`look and sound · you said "${quote}"`, "#section-brief")), "the whole quote shows, never cut");
