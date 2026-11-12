@@ -416,10 +416,14 @@ test("keep_line over measured music levels the line against the music around it,
   const quiet = run({ levels: { clip: flat(-24, 12), music: flat(-30, 30) } });
   assert.equal(quiet.clip.voiceLevel, -16);
   assert.ok(quiet.report.mix.change > 10, "the receipt says the mix rises under the line");
-  // dropout: the music is out under the line and comes back on the next bar line (8 s), not before.
+  // dropout: the music is out under the line and, the downbeat (8 s) being past the default wait (half a bar, 1 s), hits back on the next beat (6.5 s).
   const out = run({ dropout: true });
-  assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 7.5), volumeAt(out.music, 8.1)], [0, 0, 1]);
+  assert.deepEqual([volumeAt(out.music, 5), volumeAt(out.music, 6.4), volumeAt(out.music, 6.6)], [0, 0, 1]);
+  assert.match(out.report.notes.join(" "), /hits back on the beat at 6\.5 s \(0\.5 s after the line; the downbeat at 8 s is 2 s after: wait:2 waits for it\)/);
   assert.equal(out.clip.voiceLevel, -13, "alone, the line holds the music's level");
+  // wait:2 waits for the downbeat (8 s).
+  const waited = run({ dropout: true, wait: 2 });
+  assert.deepEqual([volumeAt(waited.music, 5), volumeAt(waited.music, 7.5), volumeAt(waited.music, 8.1)], [0, 0, 1]);
   assert.throws(() => run({ dropout: true, dip: 0.5 }), /dip or dropout/);
   // A line 20 LU under the music cannot be lifted to it (+12 dB at most): with no dip or dropout given
   // the music goes out under it, and the note gives the shortfall and the dip that would hold the mix.

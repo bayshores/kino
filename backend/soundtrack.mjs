@@ -31,7 +31,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { songShape, vocalShare } from "./song-shape.mjs";
-import { defaultPayoff, stretchDrop } from "../engine/fitMusic.js";
+import { songPayoff, stretchDrop } from "../engine/fitMusic.js";
 import { makeTempFolder, removeTempFolder } from "./temp-folders.mjs";
 import { createWebCache } from "./web-cache.mjs";
 import { createSlots, createYouTubeGate } from "./process-slots.mjs";
@@ -439,7 +439,7 @@ export function songSections(curve) {
  * and length (seconds). The song starts at `start` seconds in so the drop fit_music would pick
  * (engine/fitMusic.js stretchDrop: the heaviest that fits, not the first after the payoff; run 8's
  * answer held a weight 0.24 drop while the weight 1 drop sat 17 s later) lands on the payoff (the
- * last beat's start; with one beat, defaultPayoff: room for 4 bars of drop and a bar of fade),
+ * last beat's start; with one beat, songPayoff: the drop plays the whole 4-bar groups its section holds, then its fade),
  * else at 0. `sections` lists what the window holds in video time: build, drop (weight), break,
  * vocal spans. Numbers only.
  */
@@ -449,9 +449,10 @@ export function compareToStory(measure, { beats, length }) {
   const story = beats?.length ? beats : [{ from: 0, to: length }];
   // The bar from the measured tempo; 2 s (120 bpm) is a guess for a song with none, used only to weigh drops.
   const bar = measure?.bpm > 0 ? 240 / measure.bpm : null;
-  const payoff = story.length > 1 ? story.at(-1).from : round(defaultPayoff(length, bar), 1);
   const listed = measure?.sections ?? [];
   const firstDrop = listed.find((entry) => entry.kind === "drop");
+  // One beat: the payoff fit_music would choose (songPayoff: the drop's whole groups its section holds), so both name one payoff.
+  const payoff = story.length > 1 ? story.at(-1).from : round(songPayoff({ sections: listed, seconds, whole: false, bar, downbeat: firstDrop?.at ?? 0, length }).payoff, 1);
   const picked = firstDrop ? stretchDrop({ sections: listed, seconds, whole: false, bar: bar ?? 2, downbeat: firstDrop.at, payoff, end: length }).drop : null;
   const drop = picked ? picked.heard : null;
   const start = drop === null ? 0 : Math.max(0, Math.min(drop - payoff, Math.max(0, seconds - length)));
