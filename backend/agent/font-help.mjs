@@ -199,6 +199,35 @@ export async function missingGlyphsHelp({ layer, layerRef, characters, fonts, ca
     fix: { op: "update_layer", layerId: layerRef, properties: { textStyleRanges: next.textStyleRanges } } };
 }
 
+// Words that describe a face, not name one: the catalog's category, a weight and name parts.
+const CLASS_WORDS = { serif: "serif", sans: "sans-serif", mono: "monospace", monospace: "monospace", script: "handwriting", brush: "handwriting", hand: "handwriting", handwriting: "handwriting", display: "display", condensed: "display" };
+const WEIGHT_WORDS = { bold: (weights) => Math.max(...weights) >= 700, black: (weights) => Math.max(...weights) >= 900, thin: (weights) => Math.min(...weights) <= 300, light: (weights) => Math.min(...weights) <= 300 };
+const NAME_WORDS = ["condensed", "narrow", "mono"];
+
+/** {words, categories, weights, names} for a search of 2+ words that holds a class word, else null. */
+function lookOf(term) {
+  const words = term.toLowerCase().match(/[a-z]+/g) ?? [];
+  if (words.length < 2 || !words.some((word) => CLASS_WORDS[word])) return null;
+  // sans, serif, mono and script words decide the category; display and condensed only when none did.
+  const strong = words.filter((word) => CLASS_WORDS[word] && !["display", "condensed"].includes(word)).map((word) => CLASS_WORDS[word]);
+  const categories = strong.length ? [...new Set(strong)] : [...new Set(words.filter((word) => CLASS_WORDS[word]).map((word) => CLASS_WORDS[word]))];
+  return { categories, weights: words.filter((word) => WEIGHT_WORDS[word]), names: words.filter((word) => NAME_WORDS.includes(word)) };
+}
+
+// library {topic:"fonts", search:"condensed bold sans"}: catalog families of that kind, by their category and weights.
+async function lookFamilies({ categories, weights, names }, term, catalog) {
+  const { families: all, offline } = await catalog.list({ limit: 2500 });
+  const matches = all.filter((family) => categories.includes(family.category) && weights.every((word) => WEIGHT_WORDS[word](family.weights)));
+  const named = (family) => names.filter((word) => family.family.toLowerCase().includes(word)).length;
+  matches.sort((a, b) => named(b) - named(a));
+  const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
+  const kind = [...categories, ...weights.map((word) => ({ bold: "700+", black: "900", thin: "300-", light: "300-" })[word])].join(", ");
+  return [
+    `catalog${offline ? " (offline: cached list)" : ""}, look ${JSON.stringify(term)} (${kind}, ${matches.length} match): ${matches.slice(0, LISTED).map((family) => `${family.family} ${range(family)}`).join(", ") || "none match; use fewer words"}${matches.length > LISTED ? ` +${matches.length - LISTED} more` : ""}`,
+    "Compare by eye with the reference strip; set_font {layerIds, family, weight} downloads the one you pick.",
+  ].join("\n");
+}
+
 /**
  * library {topic:"fonts", search}: installed families and catalog families whose name has
  * `search`, or, when `search` is one character, the fonts that really draw it.
@@ -214,6 +243,9 @@ export async function fontsLibraryText(search, { fonts, catalog }) {
   const lower = term.toLowerCase();
   const installed = [...new Set(fonts.entries().map((face) => face.family))].filter((family) => !lower || family.toLowerCase().includes(lower));
   const { families, total = families.length, offline } = await catalog.list({ search: term, limit: LISTED });
+  // No family name holds the whole search, but its words describe a look ("condensed bold sans").
+  const wanted = total === 0 && !installed.length ? lookOf(term) : null;
+  if (wanted) return lookFamilies(wanted, term, catalog);
   const more = (shown, count) => count > shown ? ` +${count - shown} more` : "";
   const narrow = 'search a name (such as "Roboto") or one character (such as "∞") to narrow.';
   return [

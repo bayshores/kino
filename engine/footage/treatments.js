@@ -31,6 +31,8 @@ const TYPE_PAIRS = {
   punchy: [[{ family: "Space Grotesk", weight: 700 }, { family: "Space Grotesk", weight: 500 }], [{ family: "Archivo", weight: 800 }, { family: "Archivo", weight: 600 }]],
   loud: [[{ family: "Anton", weight: 400 }, { family: "Space Mono", weight: 700 }], [{ family: "Bebas Neue", weight: 400 }, { family: "IBM Plex Mono", weight: 600 }]],
 };
+/** Every family kino's own pairs use: check tells these from a font a reference or the person chose. */
+export const KINO_PAIR_FAMILIES = Object.freeze([...new Set(Object.values(TYPE_PAIRS).flat(2).map((font) => font.family))]);
 const ACCENTS = {
   calm: ["#E8D2A6", "#B9D3C2", "#D8B4A0"],
   story: ["#F2B544", "#E8846B", "#8FC1E3"],
@@ -38,15 +40,19 @@ const ACCENTS = {
   loud: ["#C6FF3D", "#FF2E88", "#36E2F2"],
 };
 
-/** A brand kit for an edit made without one: {fonts, colors, motion} from the treatment and seed. */
-export function footageBrand(name, seed) {
+/**
+ * A brand kit for an edit made without one: {fonts, colors, motion} from the treatment and seed.
+ * `fonts: false` leaves the fonts out (colors and motion only): the type then comes from the
+ * references the project saved, not from kino's own pairs.
+ */
+export function footageBrand(name, seed, { fonts: withFonts = true } = {}) {
   const rng = seeded(seed * 17 + 11);
   const pairs = TYPE_PAIRS[name] ?? TYPE_PAIRS.story;
   const accents = ACCENTS[name] ?? ACCENTS.story;
   const fonts = pairs[Math.floor(rng.next() * pairs.length) % pairs.length];
   const accent = accents[Math.floor(rng.next() * accents.length) % accents.length];
   return {
-    fonts: fonts.map((font) => ({ ...font })),
+    ...(withFonts ? { fonts: fonts.map((font) => ({ ...font })) } : {}),
     colors: { bg: "#0A0A0C", surface: "#17171B", text: "#F5F3EE", accent, accent2: accents[(accents.indexOf(accent) + 1) % accents.length] },
     motion: name === "calm" ? "calm" : name === "story" ? "smooth" : "snappy",
   };

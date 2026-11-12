@@ -1426,9 +1426,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     // Without a brand kit, the edit gets one from its treatment: fonts that are not a default, an
     // accent; titles, captions and the end card use it (set_brand can change it later).
     if (!brand) {
-      const kit = footageBrand(plan.treatment, seed);
+      // With saved references the kit keeps colors and motion but no fonts: the type comes from what they show.
+      const fromRefs = Boolean((await savedRefs?.(document))?.length);
+      const kit = footageBrand(plan.treatment, seed, { fonts: !fromRefs });
       ops.unshift({ op: "set_brand", name: slug(titleText) || "edit", ...kit, ...(titleText ? { logos: [{ text: titleText }] } : {}) });
-      work.notes.push(`brand ${slug(titleText) || "edit"} made for this edit: ${kit.fonts.map((font) => font.family).join(" and ")}, accent ${kit.colors.accent}`);
+      work.notes.push(fromRefs
+        ? `brand ${slug(titleText) || "edit"} made for this edit: colors only, accent ${kit.colors.accent}; fonts come from your references: library {topic:"fonts", search:"<the type you labeled, e.g. condensed bold sans>"}`
+        : `brand ${slug(titleText) || "edit"} made for this edit: ${kit.fonts.map((font) => font.family).join(" and ")}, accent ${kit.colors.accent}`);
     }
     let next;
     try { next = await runOps(parseDocument(document), ops); }

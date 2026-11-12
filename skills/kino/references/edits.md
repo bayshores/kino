@@ -110,8 +110,8 @@ A second scene (from then on every op names its `scene`):
 
 ## Fonts
 
-- `library {topic:"fonts", search:"Roboto"}` finds a font, its `fontSource` (`search:"∞"`
-  by character); `set_font` downloads it if needed.
+- `library {topic:"fonts", search:"Roboto"}` finds a font (`"∞"`: by character; `"condensed bold sans"`: by look);
+  `set_font` downloads it.
 - `set_font` refuses a font that lacks a character. Its `instead` (`edit {retry, fix:{"<n>":
   <instead>}}`) draws just those in another font (check's `missing_glyphs` fix).
 - Variable fonts: text `axes:{wght, wdth, slnt, opsz}` (merged per axis, `{wdth:null}` drops

@@ -1,5 +1,6 @@
 // Generic-look warnings: gradient_text, neon_on_dark, pure_frame, default_font, gradient_banding.
 import { coversFrame, readingTexts } from "../analysis.js";
+import { KINO_PAIR_FAMILIES } from "../../footage/treatments.js";
 import { hexRgba, isGradient, luminance, paintColors } from "../model.js";
 
 // Fonts so common that a video set in them looks like a default. A choice makes it a look instead:
@@ -94,35 +95,46 @@ export function pureFrame(model, ctx) {
 
 const familyOf = (fontFamily) => String(fontFamily ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "").toLowerCase();
 
-// The families the style spec chose: its font per role (style.fonts), and a family a line that
-// points at a reference moment names in its words ("white Arial captions, as in ref R1 at 12s").
+// The families a choice names: the style spec's font per role (style.fonts), and a family a line
+// that points at a reference moment, the spec's type direction or the person's words name
+// ("white Arial captions, as in ref R1 at 12s"). Both lists of known families are searched.
 function chosenFamilies(ctx) {
   const chosen = new Set();
   for (const face of Object.values(ctx.style?.fonts ?? {})) {
     const family = familyOf(typeof face === "string" ? face : face?.family);
     if (family) chosen.add(family);
   }
-  for (const line of ctx.style?.referenceLines ?? []) {
-    const said = String(line.text ?? "").toLowerCase();
-    for (const family of DEFAULT_FONTS) if (new RegExp(`(^|[^a-z])${family}([^a-z]|$)`).test(said)) chosen.add(family);
-  }
+  const said = [...(ctx.style?.referenceLines ?? []).map((line) => line.text), ctx.style?.type, ...(ctx.asks ?? []).map((ask) => ask.text)]
+    .map((text) => String(text ?? "").toLowerCase());
+  for (const family of [...DEFAULT_FONTS, ...KINO_PAIRS]) if (said.some((text) => new RegExp(`(^|[^a-z])${family}([^a-z]|$)`).test(text))) chosen.add(family);
   return chosen;
 }
 
+const KINO_PAIRS = KINO_PAIR_FAMILIES.map((family) => family.toLowerCase());
+
 export function defaultFont(model, ctx) {
   const named = new Set([...(ctx.brandFonts ?? []).map((font) => familyOf(font)), ...chosenFamilies(ctx)]);
+  const chosen = chosenFamilies(ctx);
   const byFamily = new Map();
   for (const item of readingTexts(model)) {
     const family = familyOf(item.fontFamily);
-    if (!DEFAULT_FONTS.includes(family) || named.has(family)) continue;
+    // A common default font is chosen by the brand too; one of kino's own pairs only by a reference or the person, and only matters once the project saved references.
+    const own = KINO_PAIRS.includes(family) && ctx.savedRefCount > 0;
+    if (own ? chosen.has(family) : !DEFAULT_FONTS.includes(family) || named.has(family)) continue;
     if (!byFamily.has(family)) byFamily.set(family, []);
     byFamily.get(family).push(item);
   }
-  return [...byFamily].map(([family, items]) => ({
-    rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: items[0].fontFamily, required: "a chosen font",
-    message: `${items.length} text layer${items.length === 1 ? "" : "s"} (${items.slice(0, 3).map((item) => ctx.name(item)).join(", ")}) use${items.length === 1 ? "s" : ""} ${items[0].fontFamily}, a common default font that no reference, style spec or brand chose.`,
-    fix: { kind: "hint", text: `Take the typeface from your references (notes brief: style fonts), or set ${items[0].fontFamily} there if a reference or the brand chose it.` },
-  }));
+  return [...byFamily].map(([family, items]) => {
+    const list = `${items.length} text layer${items.length === 1 ? "" : "s"} (${items.slice(0, 3).map((item) => ctx.name(item)).join(", ")}) use${items.length === 1 ? "s" : ""} ${items[0].fontFamily}`;
+    const own = KINO_PAIRS.includes(family);
+    return {
+      rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: items[0].fontFamily, required: "a chosen font",
+      message: own ? `${list} from kino's own pairs; no reference or your words chose it.` : `${list}, a common default font that no reference, style spec or brand chose.`,
+      fix: { kind: "hint", text: own
+        ? `library {topic:"fonts", search:"<the type you labeled, e.g. condensed bold sans>"}, then set_font {layerIds, family, weight} from your references' type; keep ${items[0].fontFamily} only if a reference line or the person's words name it.`
+        : `Take the typeface from your references (notes brief: style fonts), or set ${items[0].fontFamily} there if a reference or the brand chose it.` },
+    };
+  });
 }
 
 export function gradientBanding(model, ctx) {

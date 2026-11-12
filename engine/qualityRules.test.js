@@ -1188,6 +1188,16 @@ test("default_font: a font the brand chose is not a default", async () => {
   await silent("default_font", inter, { brandFonts: ["Inter"] });
 });
 
+test("default_font: one of kino's own pair fonts warns once the project has references, unless a reference line or the person's words name it", async () => {
+  const mono = scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] });
+  await silent("default_font", mono, { brandFonts: ["Space Mono"] }); // no saved references: today's behavior
+  const [finding] = await fires("default_font", mono, { brandFonts: ["Space Mono"], savedRefCount: 2 }); // the brand does not choose it
+  assert.match(finding.message, /uses Space Mono from kino's own pairs; no reference or your words chose it\.$/);
+  assert.match(finding.fix.text, /^library \{topic:"fonts", search:/);
+  await silent("default_font", mono, { savedRefCount: 2, styleSpec: { lines: [{ ref: "R1", at: 3, text: "Space Mono labels, as in ref R1 at 3s" }] } });
+  await silent("default_font", mono, { savedRefCount: 2, asks: [{ id: "n1", text: "use space mono for the titles" }] });
+});
+
 test("default_font: a font the style spec or a reference chose is not an unchosen default", async () => {
   const arial = scene({ layers: [text("title", "Hello", { fontFamily: "Arial" })] });
   await fires("default_font", arial, { styleSpec: { wants: [] } });

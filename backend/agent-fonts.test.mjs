@@ -194,6 +194,12 @@ test("fonts library: a name filters, one character lists fonts that have it, a c
   const character = await fontsLibraryText("∞", { fonts, catalog });
   assert.ok(character.startsWith(`fonts with "∞" (glyphs checked): Roboto 400 ${source("roboto")}, Lora 400 ${source("lora")}\n`), character);
   assert.match(character, /textStyleRanges range/);
+
+  // Words that name no family but describe a look filter by category and weight.
+  const look = await fontsLibraryText("elegant serif", { fonts, catalog });
+  assert.match(look, /^catalog, look "elegant serif" \(serif, 2 match\): Lora 400, Playfair Display 400\nCompare by eye with the reference strip; set_font \{layerIds, family, weight\}/, look);
+  assert.match(await fontsLibraryText("condensed bold sans", { fonts, catalog }), /\(sans-serif, 700\+, 0 match\): none match; use fewer words/);
+  assert.match(await fontsLibraryText("Filler 01", { fonts, catalog }), /^installed: none match\ncatalog: Filler 01 /, "a name that matches stays a name search");
 });
 
 // The agent service. The server does not download; this fills its font cache first.
