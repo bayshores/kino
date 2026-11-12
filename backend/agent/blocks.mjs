@@ -3373,4 +3373,4 @@ export function blocksLibraryText(name) {
     `Tokens: duration ${Object.keys(DURATIONS).join("|")} (e.g. duration:"standard"); easing ${Object.keys(EASING_TOKENS).join("|")} (e.g. easing:"enter" or "enter:0.8"). Feels: ${Object.keys(FEELS).join(", ")}.`,
     `Ops: ${BLOCK_OPERATION_TYPES.join(", ")} (library {topic:"blocks", name:<op>} has each one's fields).`,
   ].join("\n");
-} ¶END
+}
