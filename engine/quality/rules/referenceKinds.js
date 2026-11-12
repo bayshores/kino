@@ -9,9 +9,12 @@
 //              picture) blended with add or screen
 //   composite  2 or more pictures at 0.5+ opacity, each under 90% of the frame, or a masked picture
 //   color      a color effect, other than color-wheels gamma alone from 0.8 to 1.5
-//   made       a shape, path, star, ellipse, group or image that is not a full-frame plain fill
+//   made       a shape, path, star, ellipse, group or image that is not a full-frame plain fill, and
+//              the made layers' visible boxes at that moment add up to MADE_MIN_SHARE of the frame
 //   spoken     a clip at volume 0.05 or more with a heard word then (ctx.speech)
 //   plain      none of the picture kinds above
+// Spoken also counts the references' measured voice (ctx.seenRefs[].heard, as reference_range reads
+// it): most of them with a voice before their loudest change, and 2 or more, count as showing it.
 // Error: 2 or more references show a kind at 2 or more moments and the edit shows it at none.
 // Warning: the edit shows a kind in under the lowest reference share by over 1/6, or plain
 // picture in more than the highest reference share by over 1/6. Pure data: no pixels.
@@ -20,6 +23,7 @@ import { speechWords } from "../../speech.js";
 import { effectDefaults } from "../../effects/catalog.js";
 import { PARTICLE_LOOKS } from "../../effects/particles.js";
 import { readingTexts } from "../analysis.js";
+import { referenceRanges } from "../referenceCompare.js";
 import { area, boxAt, frameAt, intersection, visibleBoxAt } from "../model.js";
 
 export const KINDS = Object.freeze(["type", "overlay", "composite", "color", "made", "spoken"]);
@@ -31,6 +35,12 @@ const FULL_SHARE = 0.9;
 const MARGIN = 1 / 6;
 const MIN_MOMENTS = 2;
 const MIN_REFS = 2;
+// The share of references with a voice before their loudest change that counts as "they show spoken" (as reference_range).
+const VOICE_MAJORITY = 2 / 3;
+// A guess, not measured: the made layers' visible boxes at a moment must add up to this share of the frame
+// to count as made. 7 lime rectangles with one 1 to 2 px line showing covered about 0.2%; a graphic the
+// eye finds is far larger. Raise or lower it when a measured set of drawn overlays says so.
+export const MADE_MIN_SHARE = 0.01;
 const OVERLAY_EFFECTS = new Set([...Object.keys(PARTICLE_LOOKS), "glow", "light-rays", "lens-flare", "grain"]);
 const COLOR_EFFECTS = new Set(["curves", "lut", "hue-saturation", "white-balance", "color-wheels", "keep-color", "color-ranges", "color-look", "color-grade", "color-remover", "duotone", "tritone", "threshold-color"]);
 const SHAPES = new Set(["rectangle", "ellipse", "star", "path", "group"]);
@@ -38,6 +48,7 @@ const PICTURES = new Set(["video", "image"]);
 const LIGHT_BLENDS = new Set(["add", "screen"]);
 
 const near = (value) => Math.round(value * 10) / 10;
+const frameBox = (model) => ({ x0: 0, y0: 0, x1: model.width, y1: model.height });
 
 // Effects whose defaults change nothing: they are a look only when a parameter moves off its default.
 const NEUTRAL_DEFAULTS = new Set(["curves", "hue-saturation", "white-balance", "color-ranges", "color-grade"]);
@@ -140,11 +151,15 @@ export function onscreenKinds(model, ctx = {}) {
     if (pictures.filter(partial).length >= 2 || pictures.some((item) => (item.clipIds?.length ?? 0) > 0 || item.maskId)) kinds.add("composite");
     if (effects.some((entry) => visible.has(entry.itemId) && on(entry, time) && colorLook(entry))) kinds.add("color");
     const reading = shown.filter((item) => texts.has(item.id)).map((item) => boxAt(item, index));
-    if (shown.some((item) => !item.sceneBackground && item.role !== "background" && partial(item)
-      && ((SHAPES.has(item.kind) && item.painted && !isBar(model, boxAt(item, index)) && !backs(item, boxAt(item, index), reading)) || item.kind === "image"))) kinds.add("made");
+    // What a viewer can see: the made layers' visible boxes (inside the frame) add up to MADE_MIN_SHARE of it.
+    const frame = frameBox(model);
+    const made = shown.filter((item) => !item.sceneBackground && item.role !== "background" && partial(item)
+      && ((SHAPES.has(item.kind) && item.painted && !isBar(model, boxAt(item, index)) && !backs(item, boxAt(item, index), reading)) || item.kind === "image"));
+    const madeShare = made.reduce((sum, item) => sum + area(intersection(visibleBoxAt(model, item, index), frame)), 0) / frameArea;
+    if (madeShare >= MADE_MIN_SHARE) kinds.add("made");
     const plain = !kinds.size;
     if (words.some(([from, to]) => from < time + STEP / 2 && to >= time - STEP / 2)) kinds.add("spoken");
-    return { time, kinds, plain };
+    return { time, kinds, plain, madeShare };
   });
 }
 
@@ -168,12 +183,54 @@ function referenceShares(refs) {
 // plain words. A type label searches the fonts first, a spoken label points to keep_line too.
 // Gives { text, call } (the ready library call, for the finding's next).
 function searchFor(kind, words) {
-  const plain = String(words ?? "").replace(/[^\p{L}\p{N}\s'-]/gu, " ").split(/\s+/).filter(Boolean).slice(0, 5).join(" ") || "<what you saw>";
+  const plain = plainWords(words) || "<what you saw>";
   const find = { tool: "library", input: { topic: "search", search: `${kind} ${plain}` } };
   const text = `library {topic:"search", search:${JSON.stringify(find.input.search)}} names kino's tools for those words`;
   if (kind === "type") return { text: `library {topic:"fonts", search:${JSON.stringify(plain)}} lists fonts for those words, and ${text}`, call: { tool: "library", input: { topic: "fonts", search: plain } } };
   if (kind === "spoken") return { text: `edit keep_line lets a clip's line be heard; ${text}`, call: find };
   return { text, call: find };
+}
+
+const plainWords = (words) => String(words ?? "").replace(/[^\p{L}\p{N}\s'-]/gu, " ").split(/\s+/).filter(Boolean).slice(0, 5).join(" ");
+
+/**
+ * The words of the first "type" label the agent saved on a reference (library inspire seen), in
+ * the plain words the fonts search takes, or "" when no reference has one. default_font's fix searches with it.
+ */
+export function typeLabelWords(refs) {
+  for (const ref of refs ?? []) {
+    const entry = [...(ref.seen ?? [])].sort((a, b) => a.at - b.at).find((seen) => (seen.kinds ?? []).includes("type") && plainWords(seen.words));
+    if (entry) return plainWords(entry.words);
+  }
+  return "";
+}
+
+// kino's own generated overlays (engine/effects/overlays.js, group Post FX) and the words that point to each.
+const OVERLAY_WORDS = [
+  ["speed-lines", /line|streak|stream|speed|ray|beam|motion|slash/i],
+  ["impact-lines", /impact|focus|burst|radial|comic|zoom|shock/i],
+  ["film-burn", /burn|heat|hot|fire|flare|orange|leak|glow/i],
+];
+
+// The generated overlay a made label's words point to (speed-lines when none does), as a ready edit call on the first picture shown.
+function overlayFix(model, ctx, words) {
+  const key = (OVERLAY_WORDS.find(([, pattern]) => pattern.test(String(words ?? ""))) ?? OVERLAY_WORDS[0])[0];
+  const shot = model.items.find((item) => PICTURES.has(item.kind) && !item.isMask);
+  if (!shot) return null; // no picture to lay it on: the library search stays the call
+  const ops = [{ op: "add_animation", layer: shot.name ?? shot.id, effect: key }];
+  return { text: `edit ${JSON.stringify({ ops })} lays kino's ${key} overlay on a shot`, call: { tool: "edit", input: { ops } } };
+}
+
+// keep_line on the first line a clip says, as the ready call (the clips' own lines, ctx.clipLines): a line cut short with "…" is kept by its scene seconds.
+// null when no clip says a line at speed 1 (keep_line needs it).
+function spokenFix(ctx) {
+  const lines = ctx.clipLines ?? [];
+  const line = lines.find((entry) => !entry.slowed);
+  if (!line) return null;
+  const what = line.text.endsWith("…") ? { from: line.from, to: line.to } : { line: line.text };
+  const ops = [{ op: "keep_line", layer: line.layer, ...what }, { op: "isolate_voice", layer: line.layer }];
+  const shown = lines.slice(0, 3).map((entry) => `${entry.layer} "${entry.text.replaceAll('"', "'")}" ${entry.from}-${entry.to} s${entry.slowed ? " (slowed)" : ""}`).join(" · ");
+  return { text: `edit ${JSON.stringify({ ops })} lets a clip's own line be heard (your clips say ${shown})`, call: { tool: "edit", input: { ops } } };
 }
 
 const showing = (share, kind) => `${share.count[kind] ?? 0} of ${share.total}`;
@@ -193,26 +250,39 @@ export function referenceKinds(model, ctx) {
   const waive = `waive_check {code:"reference_kinds", target:"${scene}", reason:"<why>", quote:"<their words, as they typed them>"}`;
   const own = `Make your own version, not a copy of what the reference shows. Plain on purpose, only when the person asked for it in words they typed: ${waive}.`;
   const unknownSpoken = heardUnknown(ctx);
+  // The references' measured voice: 2 or more with a voice before their loudest change, and most of those that were heard.
+  const voice = referenceRanges(ctx.seenRefs ?? []).voice;
+  const voiced = voice.before >= MIN_REFS && voice.before / voice.n > VOICE_MAJORITY;
   const findings = [];
   for (const kind of KINDS) {
     const have = mine(kind);
     const showers = shares.filter((share) => (share.count[kind] ?? 0) >= MIN_MOMENTS);
     const lowest = Math.min(...shares.map((share) => (share.count[kind] ?? 0) / share.total));
-    const lines = showers.map((share) => `${showing(share, kind)} (${labelOf(share, kind).trim()})`).join(" and ");
+    // Spoken: the labels first; with fewer than 2 labeled, the measured voice (2 of 2 with a voice) counts.
+    const byVoice = kind === "spoken" && voiced && showers.length < MIN_REFS;
+    const counted = byVoice ? voice.before : showers.length;
+    const lines = byVoice ? `${voice.before} of ${voice.n} with a voice before their loudest change (${voice.example.id} @${near(voice.example.at)})`
+      : showers.map((share) => `${showing(share, kind)} (${labelOf(share, kind).trim()})`).join(" and ");
     const lead = showers[0]?.first[kind]?.words;
     const search = searchFor(kind, lead);
     if (kind === "spoken" && unknownSpoken) {
       // Not heard yet (the clips are not transcribed): neither shown nor missing. A note, not a count of 0.
-      if (unknownSpoken && showers.length >= MIN_REFS) findings.push({ rule: "reference_kinds", severity: "info", measured: "spoken not judged", required: "check {pixels:true}", message: "reference_kinds: spoken is not judged yet, because the clips are not transcribed. check {pixels:true} transcribes them and judges it." });
+      if (unknownSpoken && counted >= MIN_REFS) findings.push({ rule: "reference_kinds", severity: "info", measured: "spoken not judged", required: "check {pixels:true}", message: "reference_kinds: spoken is not judged yet, because the clips are not transcribed. check {pixels:true} transcribes them and judges it." });
       continue;
     }
-    if (showers.length >= MIN_REFS && have === 0) {
+    if (counted >= MIN_REFS && have === 0) {
+      // The fix is a ready call: spoken, keep_line on a clip's own line; made, a generated overlay for the label's words.
+      const ready = kind === "spoken" ? spokenFix(ctx) : kind === "made" ? overlayFix(model, ctx, lead) : null;
+      // Made layers exist but a viewer cannot see them: say how little of the frame they cover.
+      const unseen = kind === "made" ? moments.filter((moment) => moment.madeShare > 0) : [];
+      const covers = unseen.length ? Math.max(...unseen.map((moment) => moment.madeShare)) : 0;
+      const hidden = unseen.length ? `made shows at ${unseen.length} of ${total} moments but covers ${Math.round(covers * 1000) / 10}% of the frame (under ${Math.round(MADE_MIN_SHARE * 100)}%)` : "";
       findings.push({
         rule: "reference_kinds", severity: "error",
-        measured: `${kind} at 0 of ${total} moments`,
-        required: `${kind} at some moment, as ${showers.length} of your references show it at 2 or more`,
-        message: `reference_kinds: your edit shows ${kind} at 0 of ${total} moments; your references show it at ${lines}.`,
-        fix: { kind: "hint", text: `${search.text}. ${own}`, call: search.call },
+        measured: hidden || `${kind} at 0 of ${total} moments`,
+        required: byVoice ? `${kind} at some moment, as ${voice.before} of ${voice.n} of your references have a voice there` : `${kind} at some moment, as ${showers.length} of your references show it at 2 or more`,
+        message: `reference_kinds: ${hidden || `your edit shows ${kind} at 0 of ${total} moments`}; your references show it at ${lines}.`,
+        fix: { kind: "hint", text: `${ready ? `${ready.text}, or ${search.text}` : search.text}. ${own}`, call: (ready ?? search).call },
       });
     } else if (have > 0 && have / total < lowest - MARGIN) {
       const all = shares.map((share) => `${showing(share, kind)} (${share.id})`).join(" and ");

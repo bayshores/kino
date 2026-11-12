@@ -3,6 +3,7 @@ import { coversFrame, readingTexts } from "../analysis.js";
 import { KINO_OWN_FAMILIES } from "../../footage/treatments.js";
 import { namesFamily } from "../../styleSpec.js";
 import { hexRgba, isGradient, luminance, paintColors } from "../model.js";
+import { typeLabelWords } from "./referenceKinds.js";
 
 // Fonts so common that a video set in them looks like a default. A choice makes it a look instead:
 // a brand kit or the brief names it, the style spec's fonts use it, or a reference line names it.
@@ -94,14 +95,14 @@ export function pureFrame(model, ctx) {
   return findings;
 }
 
-const familyOf = (fontFamily) => String(fontFamily ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "").toLowerCase();
+export const familyOf = (fontFamily) => String(fontFamily ?? "").split(",")[0].trim().replace(/^["']|["']$/g, "").toLowerCase();
 
 // The families a choice names: a family a line that points at a reference moment, the spec's type
 // direction or the person's words name ("white Arial captions, as in ref R1 at 12s"). The person's
 // "never" field and a negated mention name nothing. `strict` (kino's own families): a line counts only
 // when its ref is one of the project's saved references (ctx.savedRefIds), and the spec's font per
 // role (style.fonts) only when it is the person's own (an agent's guessed fonts choose nothing).
-function chosenFamilies(ctx, { strict = false } = {}) {
+export function chosenFamilies(ctx, { strict = false } = {}) {
   const chosen = new Set();
   if (!strict || ctx.style?.fontsBacked) {
     for (const face of Object.values(ctx.style?.fonts ?? {})) {
@@ -117,9 +118,12 @@ function chosenFamilies(ctx, { strict = false } = {}) {
   return chosen;
 }
 
-const KINO_OWN = KINO_OWN_FAMILIES.map((family) => family.toLowerCase());
+export const KINO_OWN = KINO_OWN_FAMILIES.map((family) => family.toLowerCase());
 
 export function defaultFont(model, ctx) {
+  // The fonts search is filled with the words of the first type label the agent saved on a reference.
+  const typeWords = typeLabelWords(ctx.seenRefs);
+  const search = typeWords ? JSON.stringify(typeWords) : null;
   const named = new Set([...(ctx.brandFonts ?? []).map((font) => familyOf(font)), ...chosenFamilies(ctx)]);
   const chosen = chosenFamilies(ctx, { strict: true });
   const withRefs = ctx.savedRefCount > 0;
@@ -140,8 +144,9 @@ export function defaultFont(model, ctx) {
       rule: "default_font", severity: "warn", itemId: items[0].id, itemIds: items.map((item) => item.id), measured: name, required: "a chosen font",
       message: own ? `${list} from kino's own fonts; no reference or your words chose it.` : `${list}, a common default font that no reference, style spec or brand chose.`,
       fix: { kind: "hint", text: own
-        ? `library {topic:"fonts", search:"<the type your reference strip shows, e.g. condensed bold sans>"}, then set_font {layerIds, family, weight}; to keep ${name}: notes {action:"brief", fields:{style:{lines:[{text:"${name} titles", ref:"<saved reference id>", at:<seconds>}]}}} (a line at a moment of a saved reference that shows it).`
-        : `Take the typeface from your references (notes brief: style fonts), or set ${name} there if a reference or the brand chose it.` },
+        ? `library {topic:"fonts", search:${search ?? '"<the type your reference strip shows, e.g. condensed bold sans>"'}}, then set_font {layerIds, family, weight}; to keep ${name}: notes {action:"brief", fields:{style:{lines:[{text:"${name} titles", ref:"<saved reference id>", at:<seconds>}]}}} (a line at a moment of a saved reference that shows it).`
+        : `${search ? `library {topic:"fonts", search:${search}} lists fonts like your references' type; then t` : "T"}ake the typeface from your references (notes brief: style fonts), or set ${name} there if a reference or the brand chose it.`,
+        ...(search ? { call: { tool: "library", input: { topic: "fonts", search: typeWords } } } : {}) },
     };
   });
 }

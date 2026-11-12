@@ -5447,6 +5447,11 @@ export function createAgentService(deps) {
       const board = boardFacts(record.document);
       // Each shot's file name: move_needed offers a screen recording UI moves (engine/movePicks.js).
       if (checkpoint && board.board) board.mediaNames = await shotFileNames(board.board);
+      // The lines the video's clips say, from saved transcripts, for the board ask's one "none is heard" line (board-text.mjs unheardLinesLine).
+      if (checkpoint && String(input.id ?? "").trim().toLowerCase() === "board") {
+        const talking = videoScene(record.document);
+        if (talking) video.clipLines = (await sceneLines(talking, record.document, await syncCodes(projectId, record.document))).map(({ layer, text, from, heard }) => ({ layer, text, from, heard }));
+      }
       const soundFiles = checkpoint ? await soundFilesFor(record.document) : false;
       const critique = checkpoint && String(input.id ?? "").trim().toLowerCase() === "critique" ? await critiqueToAsk(record) : null;
       const step = { rev: record.revision, work: workPrint(record.document), now: now(), client: meta.client ?? null, board };

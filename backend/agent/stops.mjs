@@ -27,7 +27,7 @@ import { sec } from "./describe.mjs";
 import { applyBrief, directionLines, guessedBans, hasBrief, nextMove, REPLY_LIMIT, replyCount, shapeAsk } from "./brief.mjs";
 import { namedShape } from "../../engine/quality/rules/shape.js";
 import { activeApproval, boardSummary, freezeBoard, keepAnswered, lapsedChanges, leavesItToYou, namedShots, shotChanges } from "./board.mjs";
-import { boardAsk } from "./board-text.mjs";
+import { boardAsk, unheardLinesLine } from "./board-text.mjs";
 import { movesNeeded } from "../../engine/board.js";
 import { pickLines } from "./treatments.mjs";
 import { withControls } from "./controls.mjs";
@@ -618,7 +618,7 @@ const freshWord = (round) => round.fresh ?? (round.offerSound === true ? "not re
 // shot ids in the order it showed them (round.shown: the places the person's words name).
 function boardWaiting(draft, round, facts, { all = false, soundFiles = false, soundSearch = false, video = {} } = {}) {
   const input = { id: round.id, board: facts.board, frame: facts.frame, seconds: facts.seconds, music: facts.span?.music ?? null, audio: facts.audio ?? [],
-    shape: shapeAsk(draft.brief, boardVideo(facts, video))?.line ?? "", crops: typeof video.cropLine === "string" ? video.cropLine : "", ask: typeof video.askLine === "string" ? video.askLine : "", waived: waivedLine(video.waivers ?? []),
+    shape: shapeAsk(draft.brief, boardVideo(facts, video))?.line ?? "", crops: typeof video.cropLine === "string" ? video.cropLine : "", ask: typeof video.askLine === "string" ? video.askLine : "", waived: waivedLine(video.waivers ?? []), heard: unheardLinesLine(video.clipLines),
     message: draft.brief?.fields?.message?.text ?? null, idea: draft.brief?.fields?.idea?.text ?? null, pick: pickLines(draft.brief, draft.origin), bans: guessedBans(draft.brief), soundSearch, soundFiles, offerSound: round.offerSound === true, changed: round.changed ?? null,
     fresh: freshWord(round), redone: round.redone ?? null };
   // A board their settings allow waits only for its open questions (held), and says so.

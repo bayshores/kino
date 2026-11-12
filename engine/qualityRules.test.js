@@ -1201,6 +1201,25 @@ test("default_font: one of kino's own pair fonts warns once the project has refe
   await silent("default_font", mono, { ...refs, asks: [{ id: "n1", text: "use space mono for the titles" }] });
 });
 
+test("default_font: the fix fills the fonts search with the first type label's words, and role_font_drift never moves a line to an unchosen kino family by itself", async () => {
+  const labeled = [{ id: "yt:AAAA", seen: [{ at: 20, kinds: ["type"], words: "later title" }, { at: 5, kinds: ["plain"], words: "bare" }, { at: 8, kinds: ["type"], words: "huge condensed caps, white" }] }];
+  const [own] = await fires("default_font", scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] }), { savedRefCount: 2, seenRefs: labeled });
+  assert.match(own.fix.text, /^library \{topic:"fonts", search:"huge condensed caps white"\}, then set_font/);
+  assert.deepEqual(own.fix.call, { tool: "library", input: { topic: "fonts", search: "huge condensed caps white" } });
+  const [common] = await fires("default_font", scene({ layers: [text("title", "Hello", { fontFamily: "Inter" })] }), { seenRefs: labeled });
+  assert.match(common.fix.text, /^library \{topic:"fonts", search:"huge condensed caps white"\} lists fonts like your references' type; then take the typeface/);
+  // No type label: today's placeholder, no call.
+  const [bare] = await fires("default_font", scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] }), { savedRefCount: 2 });
+  assert.match(bare.fix.text, /search:"<the type your reference strip shows/);
+  assert.equal(bare.fix.call, undefined);
+  // role_font_drift: two captions in Space Mono and one in Inter. Moving the odd one to Space Mono is automatic only once a reference or the person chose it.
+  const captions = scene({ layers: [text("c1", "she walks to the store", { fontSize: 40, role: "caption", fontFamily: "Space Mono" }), text("c2", "the phone tells her where", { fontSize: 40, role: "caption", fontFamily: "Space Mono", y: 400 }), text("c3", "then she sees the sign", { fontSize: 40, role: "caption", fontFamily: "Inter", y: 600 })] });
+  const [unchosen] = await fires("role_font_drift", captions, { savedRefCount: 2, savedRefIds: ["yt:AAAA"] });
+  assert.deepEqual([unchosen.fix.kind, unchosen.fix.family, unchosen.fix.auto], ["font", "Space Mono", false]);
+  const [chosen] = await fires("role_font_drift", captions, { savedRefCount: 2, savedRefIds: ["yt:AAAA"], styleSpec: { lines: [{ ref: "yt:AAAA", at: 3, text: "Space Mono captions, as in ref R1 at 3s" }] } });
+  assert.equal(chosen.fix.auto, true);
+});
+
 test("default_font: a no, a never field, a guessed font or an unsaved reference does not choose kino's own font", async () => {
   const mono = scene({ layers: [text("title", "Hello", { fontFamily: "Space Mono" })] });
   const refs = { savedRefCount: 2, savedRefIds: ["yt:AAAA"] };
@@ -2024,7 +2043,14 @@ test("reference_kinds: an edit lacking a kind 2 references show at 2 moments is 
   const [bare] = await fires("reference_kinds", scene({ layers: [footage("a")] }), { sceneName: "s1", seenRefs: MADE_REFS });
   assert.equal(bare.severity, "error");
   assert.match(bare.message, /^reference_kinds: your edit shows made at 0 of 8 moments; your references show it at 2 of 6 \(yt:AAAAAAAAAAA @1\.8 "green glowing outline traced on the figure"\) and 2 of 6 \(yt:BBBBBBBBBBB @1\.8 "neon stair edges"\)\.$/);
-  assert.match(bare.fix.text, /^library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
+  // The made error's fix is a ready call: a generated overlay of kino's own for the label's words, then the search.
+  assert.match(bare.fix.text, /^edit \{"ops":\[\{"op":"add_animation","layer":"a","effect":"speed-lines"\}\]\} lays kino's speed-lines overlay on a shot, or library \{topic:"search", search:"made green glowing outline traced on"\} names kino's tools.*own version, not a copy.*waive_check \{code:"reference_kinds", target:"s1", reason:"<why>", quote:/);
+  assert.deepEqual(bare.fix.call, { tool: "edit", input: { ops: [{ op: "add_animation", layer: "a", effect: "speed-lines" }] } });
+  // Drawn layers a viewer cannot see do not count: a 2 px line is 0.2% of the frame, under the 1% made needs.
+  const [thin] = await fires("reference_kinds", scene({ layers: [footage("a"), rect("streak", { x: 100, y: 100, width: 1920, height: 2 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
+  assert.match(thin.message, /^reference_kinds: made shows at 8 of 8 moments but covers 0\.2% of the frame \(under 1%\); your references show it at 2 of 6/);
+  // Several small ones that add up past 1% show it.
+  await silent("reference_kinds", scene({ layers: [footage("a"), ...[0, 1, 2, 3].map((n) => rect(`bar${n}`, { x: 100, y: 100 + n * 200, width: 700, height: 20 }))] }), { sceneName: "s1", seenRefs: MADE_REFS });
   // A drawn shape over the footage shows the kind (and is not plain), so nothing is left to say.
   await silent("reference_kinds", scene({ layers: [footage("a"), rect("outline", { fill: "#00ff66", width: 600, height: 400 })] }), { sceneName: "s1", seenRefs: MADE_REFS });
   // One labeled reference is not two: no error, and plain footage is not over that reference's share by a sixth.
@@ -2064,6 +2090,22 @@ test("reference_kinds: spoken is not judged while the clips are not transcribed;
   assert.match(notYet.findings.find((finding) => finding.severity === "info").message, /spoken is not judged yet.*check \{pixels:true\}/);
   const heard = await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, speech: [] });
   assert.equal(heard.findings.find((finding) => finding.severity === "error").fix.call.tool, "library");
+});
+
+test("reference_kinds: references with a measured voice and an edit with no heard line is an error whose fix is the ready keep_line call", async () => {
+  // Labeled plain only, but both references have a voice before their loudest change (inspire measure).
+  const voiced = ["a", "b"].map((letter) => ({ ...seenRef(`yt:${letter.repeat(11)}`, [1.8, 5.4, 9, 12.6, 16.2, 19.8].map((at) => [at, ["plain"], "bare clip"])), heard: { change: { at: 10 }, voice: [[2.5, 4]] } }));
+  const clipLines = [{ layer: "a", text: "I am done", from: 1, to: 2.4 }, { layer: "a", text: "Hello there", from: 3, to: 4 }];
+  const context = { sceneName: "s1", seenRefs: voiced, speech: [], clipLines };
+  const [none] = (await check("reference_kinds", scene({ layers: [footage("a")] }), context)).findings.filter((finding) => finding.severity === "error");
+  assert.match(none.message, /^reference_kinds: your edit shows spoken at 0 of 8 moments; your references show it at 2 of 2 with a voice before their loudest change \(yt:aaaaaaaaaaa @2\.5\)\.$/);
+  assert.deepEqual(none.fix.call, { tool: "edit", input: { ops: [{ op: "keep_line", layer: "a", line: "I am done" }, { op: "isolate_voice", layer: "a" }] } });
+  assert.match(none.fix.text, /^edit \{"ops":\[\{"op":"keep_line","layer":"a","line":"I am done"\}.*your clips say a "I am done" 1-2\.4 s · a "Hello there" 3-4 s/);
+  // One reference with a voice is not two; a slowed clip's line is no call (keep_line needs speed 1).
+  const lone = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, seenRefs: voiced.slice(0, 1) })).findings.filter((finding) => finding.severity === "error");
+  assert.deepEqual(lone, []);
+  const [slowed] = (await check("reference_kinds", scene({ layers: [footage("a")] }), { ...context, clipLines: clipLines.map((line) => ({ ...line, slowed: true })) })).findings.filter((finding) => finding.severity === "error");
+  assert.equal(slowed.fix.call.tool, "library");
 });
 
 test("reference_kinds: plain footage far over every reference's plain share warns", async () => {

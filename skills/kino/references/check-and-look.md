@@ -12,23 +12,23 @@ Contents: Check · Polish · Looking · Review before final · Building in order
   edit moved, a waiver names or a spine beat uses.
 - First `check` ends with `Rules:`; a same-rev repeat is 1 line (`{rules:true}`: all).
 - `speech_cut` (gate, a voice cut mid-word): the sound reference.
-- `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate; fast
-  zooms, heavy blur left alone). `crop_no_subject`: footage cropped over 8%, no subject
-  marked, warns; a marked subject under 85% in frame is a gate. `head_cut_off` (Mac): a head
-  out of the picture 1 s: play another part or move it.
+- `soft_upscale`: a picture drawn bigger than its file (over 1.3x warns, over 2x a gate).
+  `crop_no_subject`: footage cropped over 8%, no subject marked, warns; a marked subject
+  under 85% in frame is a gate. `head_cut_off` (Mac): a head out of the picture 1 s: play
+  another part or move it.
 - `jump_cut` (warns): back-to-back shots of one file framed alike: cut away or punch in.
 - `frozen_footage` (gate): a clip's picture stops 0.3 s+ (speed 0, a held frame, a still in its
-  place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. A freeze on a sound hit or a
-  line's first word warns.
+  place). Start it earlier, slow it (mediaSpeed 0.85+), or cut away. On a sound hit it warns.
 - `out_of_sync` (gate): a line over a synced file's picture of another moment: the fix retimes it.
 - `covered_layer` (warns): a solid shape, mp4 or jpg above hides a layer all its time on screen
-  (a png, webm or mov may be clear). Fix: move it above; `(auto)`: a full-frame overlay.
+  (a png, webm or mov may be clear). Fix: move it above (auto for a full-frame overlay).
 - Motion rules (camera, brightness, frozen pictures): motion reference.
-- Contrast: failing under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
+- Contrast: under 0.2 s warns, longer is an error; the fix tries a scrim, a halo
   shadow, a darker place, a large-text size, then a plate.
+- `default_font` fix: `library {topic:"fonts", search:"<first type label's words>"}`.
 - Errors, and in a real edit warnings, block final. On purpose:
-  `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A list or
-  glob (`"arch-*"`) waives each matching layer. These need `quote` (the person's words) and
+  `{"op":"waive_check","code":"default_font","target":"*","reason":"brand font"}`. A glob
+  (`"arch-*"`) waives each matching layer. These need `quote` (the person's words) and
   named layers, never `*`: what viewers see (small screens, frozen pictures, template ends),
   `crop_no_subject`, `shape_guess`; whole-scene `held_static`, `text_slides`, `ending_seen`,
   `music_stall` take the scene (`"s1"`). `head_cut_off`, `narrow_window`: named layers, no
@@ -41,7 +41,7 @@ Contents: Check · Polish · Looking · Review before final · Building in order
 
 ## Polish
 
-What a viewer calls sloppy though gates pass: fix before showing.
+What a viewer calls sloppy though gates pass: fix it.
 
 Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 
@@ -50,14 +50,14 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
 - `text_collision` (gate): two texts touch, or a text runs into another text's plate
   (a pill). Fix: the lesser one (a caption, else the later) moves to a free safe place, else
   leaves before. `text_ghost` (gate): two words crossfading in one place mix. Fix: the new
-  one starts once the old is gone.
+  one starts after the old.
 - `judder`: a layer over 20% of the frame pans 0.14+ frame widths a second unblurred (30 fps
-  or less). Fix (auto): motion blur while fast, on the group that moves it.
+  or less). Fix (auto): motion blur while fast.
 - `text_wrap`: punctuation alone on a line or a one-word title broken (errors); a 2 or 3 word
   title stacked by the wrap, or one short word under a long line (warnings). Fix: a width that
   fits one line or balances the lines, or for 1 to 3 words a smaller size (not under type_min's floor).
 - `cut_off_at_rest`: a picture, clip or phone at rest inside the 5% margin or cut by the edge.
-  Fix: moved or scaled about its middle inside the margin.
+  Fix: scaled about its middle inside the margin.
 - `held_static`: nothing moves for over 1.5 s (1% of the diagonal a second, 0.4% for a picture
   filling 30%; a clip, effect or fade counts). Fix: one slow move per hold (push, drift, letters
   spread). End card still 3 s+: a push on the whole card (auto); over 4.5 s (a push counts as
@@ -67,7 +67,7 @@ Each has an automatic fix (`check {fix:"auto"}`) but render_artifact:
   names); with no brand, a third type family. Fix (with a brand): `set_font` to the brand font
   at the nearest weight it has, headlines to the first.
 - `role_font_drift`: one family per role (display, stat, speech, caption), one caption size
-  per voice (caption track or color), warns. Warned: vocabulary_budget, brand_consistency, story_stall,
+  per voice (caption track or color), warns; `fix:"auto"` never picks a font nobody chose. Warned: vocabulary_budget, brand_consistency, story_stall,
   hook_readable, ending_count, accent_budget, `text_only_open` (3 s+ of text before any
   picture or logo), `pacing_jump` (cut rate 3x, unless a cue, sound or spine edge is within
   1 s and the new pace holds 12 s).

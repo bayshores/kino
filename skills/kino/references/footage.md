@@ -59,8 +59,8 @@ names up to 1.5 times that. The answer's `next:` is that import call: change the
 A scan reads the video's captions once (YouTube's own, your language first, then English; auto
 captions are marked `auto captions`; no captions is said once, and is normal). A shot line ends
 `says: "..."` when a caption line overlaps it, and the answer ends with `Lines (en, auto
-captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a recognizer's guess: read
-their times to the nearest half second and their words as probably right.
+captions):` and `0:41 "..." (F1.12-F1.13)` rows. Auto captions are a guess: times are good to
+half a second, words are probably right.
 
 - `said:"words"` (with `search`, `scan` or alone; saved like `want`): shots whose lines say them
   go first, and a burned-in subtitle on such a shot is its line, so it reads `has subtitles`
@@ -72,13 +72,14 @@ their times to the nearest half second and their words as probably right.
   sound-alike words; keep_line `{from, to, text}` takes a translation). `look` source lists `heard:`
   per clip, and on one layer says `(muted here)` at volume 0. To keep a line over the song:
   `{"tool":"edit","ops":[{"op":"keep_line","layer":"climb","line":"I'm just gonna see.","duck":"song"},{"op":"isolate_voice","layer":"climb"}]}`.
-  The song alone is a valid cut. A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2`
-  (file seconds), and its call moves mediaOffset first to play it whole.
+  A line the trim cuts off is named `plays 5.3-7.4, line at 7.1-9.2` (file seconds); its call
+  moves mediaOffset first.
 - An import of a clip of 1.5 s or more adds `says "..." 0.3-2.1 s` (seconds in the clip).
 - Footage has its own sound, and a line said in a clip can open or set up a moment. Keep it with
   `keep_line {layer:"clip", line:"the words said", duck:"music"}`: the rest of that
   clip's sound goes silent (every piece of a cut voice), a small subtitle shows the line, and the
-  music dips to half its own volume (`dip` sets the volume) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`.
+  music dips to half its own volume (`dip` sets the volume) under it. Speech whisper cannot read: `from`, `to` (scene seconds) and `text`
+  (a `text` unlike what kino heard shows `heard`).
 
 ## Note a video
 
@@ -99,23 +100,25 @@ own words (a moment you did not look at is refused), such as
 Kinds: type, overlay, composite, color, made, frame, spoken, plain (one or more, commas fine).
 The time is one of the 6 (0.5 s off is fine); a label at the same time replaces the old one.
 The order opens `label yt:X on screen (seen)` for each of the first 2 saved, studied references
-until all its moments are labeled; each label reply names the next look. A reference with no frame strips has none to label. Then ask
-what your edit shows that these do not: the labels are what you build toward, not a template.
+until all its moments are labeled; each label reply names the next look. A reference with no frame strips has none to label.
+Then ask what your edit shows that these do not: build toward the labels, not a template.
 
 The check `reference_kinds` (an error) reads the labels: with 2 or more labeled references, a kind
 (type, overlay, composite, color, made, spoken) that 2 of them show at 2 or more moments must show
-somewhere in your edit, read every 0.5 s. Its fix (and its `next`) names the library search for the label's words
-(`library {topic:"search", search:"<words>"}`): use kino's own tools to make your version, not a copy.
+somewhere in your edit, read every 0.5 s. Its fix (and `next`) is a ready call: `library {topic:"search",
+search:"<label words>"}`, a kino overlay for made (made must cover 1% of the frame at opacity 0.5+, a guess),
+or `keep_line` for spoken (also judged by the references' measured voice, after the clips are transcribed:
+`check {pixels:true}`). Make your own version, not a copy.
 Plain on purpose needs `waive_check {code:"reference_kinds", target:"<scene>", reason, quote}` with
-`quote` in words the person typed that say what is plain (plain, raw, no effects, just cuts...); "your call" is refused.
-Only references with most moments labeled count. Spoken is judged only after the clips are transcribed (`check {pixels:true}`); no-op color, letterbox bars and backing boxes do not count.
+`quote` in words the person typed that say what is plain (plain, raw, just cuts...); "your call" is refused.
+Only references with most moments labeled count; no-op color, letterbox bars and backing boxes do not.
 The search maps look words to kino names: font, outline, duotone, split screen, text behind, 3d,
-code rain, zoom burst. A look kino cannot make (speed lines) answers `no kino name for ... yet`.
+code rain, zoom burst. A look kino cannot make answers `no kino name for ... yet`.
 
 ## Sources
 
 - Each clip keeps its creator and link as metadata. Put no credits on screen unless the person asks.
-- A final render's answer has one `Sources` line: pass it on only when the person says they will publish.
+- A final render's answer has one `Sources` line: pass it on only if the person will publish.
 - `source:"commons"` searches Wikimedia Commons (needs the web search switch in Settings). No anime there.
 
 ## Limits
