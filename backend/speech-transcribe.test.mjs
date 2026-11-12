@@ -55,8 +55,8 @@ test("lines heard: each kept line is heard in the mix over its own stretch and c
 test("lines heard listens in the line's own clip's language: stored, else a sure guess, else English and the unsure guess", async () => {
   assert.deepEqual(listenLanguages({ language: "ja", languageP: 0.86 }, { language: "ja", p: 0.86 }), { language: "ja", also: [], why: "the clip's stored language ja p 0.86" });
   assert.deepEqual(listenLanguages({}, { language: "ja", p: 0.78 }).also, ["ja"]);
-  assert.match(listenLanguages({}, { language: "ja", p: 0.78 }).why, /language guess ja p 0\.78 \(sure\) but the clip has no ja transcript yet: heard in ja and en/);
-  assert.deepEqual(listenLanguages({}, { language: "es", p: 0.28 }), { language: "en", also: ["es"], why: "language guess es p 0.28 (under 0.5: unsure): heard in en and es" });
+  assert.match(listenLanguages({}, { language: "ja", p: 0.78 }).why, /^language guess ja p 0\.78 \(sure\) but the clip has no ja transcript yet, so its words are the English read$/);
+  assert.deepEqual(listenLanguages({}, { language: "es", p: 0.28 }), { language: "en", also: ["es"], why: "language guess es p 0.28 (under 0.5: unsure)" });
   assert.deepEqual(listenLanguages({}, { language: "en", p: 0.9 }), { language: "en", also: [], why: "language guess en p 0.9" });
   assert.equal(listenLanguages(null, null).why, "no language guess saved for the clip: English");
   // An unsure Spanish guess: one listen in English (compared) and one in Spanish (printed beside).
@@ -65,7 +65,7 @@ test("lines heard listens in the line's own clip's language: stored, else a sure
   const asked = [];
   const heard = await hearKeptLines(lines, { mix: async () => new Float32Array(16_000 * 2), listen: async (pieces, language) => { asked.push(language); return { model: language === "en" ? "small.en" : "small", heard: [{ text: language === "en" ? "Esta" : "Está aplicada", p: 0.7 }] }; } });
   assert.deepEqual(asked, ["en", "es"]);
-  assert.match(linesHeardText(heard), /heard "Esta" p 0\.7 · line "Esta" \(en; listened in en and es: language guess es p 0\.28 \(under 0\.5: unsure\): heard in en and es; .* · in es heard "Está aplicada" p 0\.7 \(not compared: the line's words are en\)/);
+  assert.match(linesHeardText(heard), /heard "Esta" p 0\.7 · line "Esta" \(en; listened in en and es: language guess es p 0\.28 \(under 0\.5: unsure\); the line's words may be sound-alikes\) · .* · in es heard "Está aplicada" p 0\.7 \(not compared: the line's words are en\)/);
   // Without the multilingual model the listener names the file instead of hearing it in English.
   assert.match((await listenPieces([], "ja", { other: () => null })).missing, /ggml-small\.bin is not in ~\/\.kino\/models\/.*look \{mode:"source"/);
 });
@@ -91,7 +91,7 @@ test("look motion ref lines through the service: a 9:16 scene with no music, a S
   const asked = [];
   const service = createAgentService({ store, agentState: createAgentStateStore(dataRoot), agentDirectory: path.join(dataRoot, "agent"), mediaRoot,
     exportBatches: {}, fontCatalog: { async loadInto() {} }, loadFonts: async () => [],
-    transcripts: { get: async () => saved, saved: async () => saved, heard: async (file, { english }) => english },
+    transcripts: { get: async () => saved, saved: async () => saved, heard: async (file, document, layer, english) => english },
     linesMix: async (until) => { asked.push(until); return new Float32Array(16_000 * 2); },
     linesListen: async (pieces, language) => { asked.push([language, pieces.length]); return { model: "small.en", heard: [{ text: "Hold the door.", p: 0.88 }] }; },
     linesLanguages: () => null });

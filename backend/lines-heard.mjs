@@ -69,8 +69,9 @@ export function listenLanguages(transcript, guess) {
   const said = guess && Number.isFinite(guess.p) ? `language guess ${guess.language} p ${round(guess.p, 2)}` : null;
   if (!said) return { language: "en", also: [], why: "no language guess saved for the clip: English" };
   if (guess.language === "en") return { language: "en", also: [], why: `${said}${guess.p < LANG_SURE ? ` (under ${LANG_SURE}: unsure)` : ""}` };
-  if (guess.p >= LANG_SURE) return { language: "en", also: [guess.language], why: `${said} (sure) but the clip has no ${guess.language} transcript yet: heard in ${guess.language} and en` };
-  return { language: "en", also: [guess.language], why: `${said} (under ${LANG_SURE}: unsure): heard in en and ${guess.language}` };
+  // The row prints "listened in <language> and <also>" before `why`, so `why` does not repeat them.
+  if (guess.p >= LANG_SURE) return { language: "en", also: [guess.language], why: `${said} (sure) but the clip has no ${guess.language} transcript yet, so its words are the English read` };
+  return { language: "en", also: [guess.language], why: `${said} (under ${LANG_SURE}: unsure)` };
 }
 
 /**
