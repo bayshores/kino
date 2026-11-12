@@ -595,7 +595,8 @@ How to read it:
 - **Frame finish and letterbox** (`update_scene finish, letterbox`): Partly verified. Grain, black lift,
   halation, vignette and bars draw above every layer in previews, video, GIF and PNG; Lottie warns it
   omits them. Evidence: `engine/effects/finish.test.js`, `engine/operations.test.js`,
-  `backend/scene-background-export.test.mjs`. Gap: halation is a blurred highlight screen, not true
+  `backend/scene-background-export.test.mjs`; a search for letterbox, black bars, vignette or film
+  grain names the field (`backend/agent-inspire.test.mjs`). Gap: halation is a blurred highlight screen, not true
   scatter; the starting values are guesses; saved references do not measure bars or grain.
 - **Color recipes**: Verified. `library {topic:"rules", name:"color"}`. Evidence:
   `backend/agent-color.test.mjs`. Gap: no adjustment layer (grade a group).

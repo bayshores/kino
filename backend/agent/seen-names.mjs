@@ -8,7 +8,7 @@ import { MOVE_NAMES } from "../../engine/blocks/moves/index.js";
 // one space. A key of several words matches where the query holds those words in a row; a key of
 // one word matches the whole query or one of its words, except a LOOSE word.
 const SEEN_AS = {
-  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow"], halation: ["glow"],
+  glow: ["glow", "accent-hit"], bloom: ["glow"], halo: ["glow"], neon: ["glow"], halation: ["scene-background", "glow"],
   particles: ["embers", "sparks", "dust"], particle: ["embers", "sparks", "dust"], sparkles: ["sparks", "embers"],
   ash: ["embers", "dust"], fire: ["embers", "sparks"], smoke: ["fog"], haze: ["fog"],
   subtitles: ["add_captions", "caption-words"], subtitle: ["add_captions", "caption-words"], captions: ["add_captions", "caption-words"],
@@ -28,7 +28,10 @@ const SEEN_AS = {
   glitch: ["glitch", "rgb-split-hit", "rgb-shift"], "rgb split": ["rgb-split-hit", "rgb-shift"], "chromatic aberration": ["rgb-shift"],
   "split screen": ["split-screen"], splitscreen: ["split-screen"], "side by side": ["split-screen"], panes: ["split-screen"], composite: ["split-screen", "picture-in-picture"],
   "picture in picture": ["picture-in-picture"], pip: ["picture-in-picture"], inset: ["picture-in-picture"],
-  grain: ["grain"], vignette: ["vignette"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
+  // A look over the whole frame is one scene field (finish, letterbox); the effect does one layer.
+  grain: ["grain", "scene-background"], vignette: ["vignette", "scene-background"], letterbox: ["scene-background"], letterboxed: ["scene-background"],
+  "black bars": ["scene-background"], "cinema bars": ["scene-background"], "cinematic bars": ["scene-background"], "film grain": ["grain", "scene-background"],
+  "lifted blacks": ["scene-background", "color-look"], "film look": ["scene-background", "color-look"], "frame finish": ["scene-background"], blur: ["zoom-blur", "directional-blur"], "freeze frame": ["freeze-shutter"],
   // Type, color and composite looks (the on-screen kinds a reference shows besides cuts and sound).
   font: ["set_font"], fonts: ["set_font"], typeface: ["set_font"], lettering: ["set_font"], typography: ["set_font"],
   outline: ["outline_text", "glow", "cut_out"], outlined: ["outline_text", "glow", "cut_out"], stroke: ["outline_text", "glow", "cut_out"],
@@ -66,7 +69,8 @@ export function originReferenceLine(found, title) {
 // Guide topics that hold each effect group's rules.
 const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blur: "blur" };
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
-const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations" };
+const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations",
+  "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { set_font: 'library {topic:"fonts", search:"<the look, e.g. condensed bold sans>"} then set_font {layerIds, family, weight}' };
 

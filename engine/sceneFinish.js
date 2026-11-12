@@ -10,7 +10,7 @@
 //   black lift   a gray layer screened over the picture (blacks rise to that gray)
 //   halation     the picture blurred, cut to its highlights, tinted red-orange and screened back
 //   vignette     a white layer multiplied over the picture with the vignette effect (engine/effects/finish.js)
-//   grain        a 50% gray layer hard-lit with the grain effect (same grain as the effect, seed 0)
+//   grain        a 50% gray layer hard-lit with the grain effect (its amount is finish.grain, seed 0)
 //   bars         two black rectangles on top; a root layer with aboveLetterbox true is drawn after them
 // Order, bottom to top: the scene's layers, lift, halation, vignette, grain, bars, aboveLetterbox layers.
 import { createLayer } from "./model.js";
@@ -51,8 +51,11 @@ export function sceneFinishLayers(scene) {
     // Corners go dark from about 45% of the way out; amount is the whole setting (a guess for midpoint and feather).
     animations: [fx("vignette", "vignette", { amount: finish.vignette, midpoint: 0.45, feather: 0.7, color: "#000000" }, duration)] }));
   if (finish?.grain) layers.push(plate("grain", scene, { fill: "#808080", blendMode: "hard-light",
-    // A fine film grain; size scales with the scene so 1080p and 4K look alike (a guess, not a measurement).
-    animations: [fx("grain", "grain", { amount: Math.min(1, finish.grain * 2), size: clamp(1.5 * height / 1080, 0.5, 8), monochrome: true, animated: true }, duration)] }));
+    // finish.grain is the grain effect's own amount (the synthesis table's 0.15 is that amount). Doubled,
+    // as first built, 0.15 put noise of about 7 levels (of 255) on flat black and green at 1280 px,
+    // plainly visible where the studied human frames show none. Size scales with the scene so 1080p
+    // and 4K look alike (the effect's 1.5 px at 1080p; scaling is a guess, not a measurement).
+    animations: [fx("grain", "grain", { amount: finish.grain, size: clamp(1.5 * height / 1080, 0.5, 8), monochrome: true, animated: true }, duration)] }));
   const bar = letterboxBar(width, height, normalizeLetterbox(scene.letterbox, "letterbox", throwing));
   if (bar > 0) {
     layers.push(plate("bar-top", scene, { height: bar, fill: "#000000" }));

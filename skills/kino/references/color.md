@@ -35,7 +35,8 @@ or changing one color, plus the `add` blend mode.
 Two scene fields (`update_scene properties`), drawn above every layer, in previews and renders.
 Off until set; one call each, no hand-built bar or vignette rectangles.
 
-- `finish {grain, blackLift, halation, vignette}`: each 0 to 1. Grain moves, blackLift raises the
+- `finish {grain, blackLift, halation, vignette}`: each 0 to 1. Grain moves (the `grain` effect's
+  amount: 0.15 is fine texture, 0.35 heavy film), blackLift raises the
   blacks to a soft gray, halation is a warm glow round bright spots, vignette darkens the corners.
   `finish:true` is a mild start (0.15, 0.04, 0.2, 0.3); it is a guess, so look and tune. `false`
   removes it.
