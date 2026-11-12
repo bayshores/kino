@@ -154,7 +154,8 @@ import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
-import { describeLevels, describeMixPeaks, measureFileLevels } from "../audio-levels.mjs";
+import { describeLevels, describeMixFix, describeMixPeaks, measureFileLevels } from "../audio-levels.mjs";
+import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
 import { createSongShapeCache } from "../song-shape.mjs";
@@ -3248,11 +3249,31 @@ export function createAgentService(deps) {
     let fonts = await fontsFor(record.document);
     let result = await findingsFor(record.document, { ...options, fonts });
     let applied = null;
+    // The mix before check {fix:"auto"} turned its limiter places down, and whether it did.
+    let mixBefore = null, mixTrimmed = false;
     if (input.fix === "auto") {
       const keep = placedByYou(await agentState.read(projectId), codes, record.document);
       // The missing_glyphs fix (a range in a font that has the characters) is worked out first so it can be applied.
       await explainMissingGlyphs(result.findings, record.document, { fonts, catalog: fontCatalog, codes });
       const outcome = await autoFix(record.document, result.findings, { ...options, fonts, keep });
+      // The mix's limiter places (the "mix:" line): each place's xN on the layers playing there,
+      // over its span (engine/peakTrim.js). Layers another fix of this check changes wait for the next one.
+      const mixScene = !options.listen ? null : scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
+      mixBefore = mixScene ? await mixPeaksOf(mixScene) : null;
+      // When the default render's "auto" gain alone keeps every peak under the ceiling (not held by
+      // them), those places only matter at loudness "off": the mix keeps its shape.
+      const autoClears = mixBefore?.auto && !mixBefore.auto.places && !mixBefore.auto.held;
+      if (mixBefore?.places.length && autoClears)
+        outcome.dropped.push(`mix: loudness "auto" (the render default) adds ${mixBefore.auto.gainDb} dB first, so the limiter never works; the xN on the "mix:" line are for loudness "off"`);
+      else if (mixBefore?.places.length) {
+        const kinds = await savedSoundKinds(mixScene, record.document);
+        const trim = peakTrims(mixScene, mixBefore.places, { bed: (layer) => isMusicLayer(layer, mixScene, kinds.find((entry) => entry.layer.id === layer.id)) });
+        const touched = new Set(outcome.ops.flatMap((op) => [op.layerId, op.layer, ...(op.layerIds ?? [])]).filter(Boolean));
+        const names = (id) => [id, mixScene.layers.find((layer) => layer.id === id)?.name];
+        if (trim.ops.some((op) => names(op.layerId).some((ref) => touched.has(ref)))) outcome.dropped.push("mix: another fix changes those layers; check {fix:\"auto\"} again turns the peaks down");
+        else if (trim.ops.length) { outcome.ops.push(...trim.ops); outcome.fixed.push(...trim.fixed); mixTrimmed = true; }
+        outcome.dropped.push(...trim.dropped);
+      }
       if (outcome.ops.length) {
         let receipt;
         const fixEdit = { project: projectId, ops: outcome.ops };
@@ -3267,6 +3288,9 @@ export function createAgentService(deps) {
         codes = await syncCodes(projectId, record.document);
         fonts = await fontsFor(record.document);
         result = await findingsFor(record.document, { ...options, codes, fonts });
+        // The mix measured again (kept for the "mix:" line below): the places before and after.
+        const mixAfter = mixTrimmed ? await mixPeaksOf(scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document)) : null;
+        if (mixAfter) applied.mix = describeMixFix(mixBefore, mixAfter);
       } else applied = { ops: 0, fixed: [], dropped: outcome.dropped };
       // Whether the last fix:"auto" applied anything: next: names a plain check after one that
       // applied nothing (GAPS Friction 5: one rebuild was sent check fix:"auto" 30 times).
@@ -3284,6 +3308,7 @@ export function createAgentService(deps) {
     const staleLine = staleWaiverLine(result.stale, (id) => (id === "*" ? "*" : refName(id, codes)));
     if (staleLine) lines.push(staleLine);
     if (applied) lines.push(applied.ops ? `applied ${applied.fixed.length} auto ${applied.fixed.length === 1 ? "fix" : "fixes"} in one edit (now rev ${applied.rev}); history can undo it.` : "No auto fixes to apply.");
+    if (applied?.mix) lines.push(applied.mix);
     // Why an auto fix was not applied explains the error still open, so it stays under the applied
     // line (the probe on the run 6 copy had it at line 15, past the first 8, before this); the
     // fixed lines go to the tail.
@@ -3317,7 +3342,7 @@ export function createAgentService(deps) {
     if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // Where the mix passes the limiter, measured without a render: a fact line when the scene has sound.
     const mix = returnsScene && options.listen ? await mixPeaksOf(returnsScene) : null;
-    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }));
+    if (mix) lines.push(describeMixPeaks(mix, { tail: "; all of them: look {mode:\"motion\", ref:\"sound\"}" }) + (mix.places.length && !(mix.auto && !mix.auto.places && !mix.auto.held) ? "; check {fix:\"auto\"} applies each xN over its place" : ""));
     for (const note of result.notes) lines.push(`note: ${note}`);
     // The rules line comes with the agent's first check of a project since kino started, and
     // with {rules:true}. The dashboard's own checks (by you) do not count.

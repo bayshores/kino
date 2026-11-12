@@ -461,6 +461,47 @@ test("the render reply gives the sound's loudness and true peak and warns about 
   assert.ok(Math.abs(Number(mixLine.match(/true peak \+([\d.]+) dBTP/)[1]) - Number(renderPeak)) <= 0.5, mixLine);
   const sound = await agent("look", { project, mode: "motion", ref: "sound" });
   assert.match(sound.text, /\nlimiter: .*works at \d+ place/);
+  // The default "auto" gain turns this mix down past every place: check fix:auto keeps its shape.
+  assert.match(mixLine, /adds -[\d.]+ dB first, then the limiter never works$/);
+  const kept = await agent("check", { project, pixels: false, fix: "auto" });
+  assert.match(kept.text, /not applied mix: loudness "auto" \(the render default\) adds -[\d.]+ dB first, so the limiter never works/);
+  assert.doesNotMatch(kept.text, /mix fix:/);
+});
+
+test("check fix:auto turns the layers playing at each limiter place down over that place only", { skip: skipWithoutMediaTools, timeout: 60_000 }, async (t) => {
+  const server = await startTestServer();
+  t.after(() => server.stop());
+  const client = createAgentClient({ url: server.baseUrl, ownerToken: server.ownerToken }, { name: "mix-fix-test" });
+  const agent = async (verb, body) => {
+    const reply = await (await server.api(`/api/agent/${verb}`, { method: "POST", body })).json();
+    assert.notEqual(reply.isError, true, `${verb}: ${reply.text}`);
+    return reply;
+  };
+  const project = "mix-fix";
+  await agent("project", { action: "create", id: project, name: "Mix fix", width: 64, height: 32, duration: 4, background: "#000000" });
+  // A steady song tone (-6 dBFS) and a quiet voice tone with one loud burst at 2.0-2.2 s: over full scale together there.
+  const song = join(server.dataDirectory, "song.wav");
+  const voice = join(server.dataDirectory, "voice.wav");
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=4", "-ac", "2", song]);
+  await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i", "aevalsrc=0.1*sin(2*PI*220*t)+if(between(t\\,2\\,2.2)\\,0.9*sin(2*PI*330*t)\\,0):s=48000:d=4", "-ac", "2", voice]);
+  const scene = (await (await server.api(`/api/projects/${project}`)).json()).document.scenes[0].id;
+  const files = [["Song", await client.importFile(song)], ["Voice", await client.importFile(voice)]];
+  await agent("edit", { project, ops: files.map(([name, file]) => ({ op: "add_layer", scene, layerType: "audio", name, properties: { src: file.src, volume: 1 } })) });
+  const mixLine = (reply) => reply.text.split("\n").find((line) => line.startsWith("mix: "));
+  const before = mixLine(await agent("check", { project, pixels: false }));
+  t.diagnostic(before);
+  assert.match(before, /works at 1 place: 2 s \+[\d.]+ dBTP, [\d.]+ dB over \(Song 1, Voice 1\) x0\.\d+.*; check \{fix:"auto"\} applies each xN over its place$/);
+  const fixed = await agent("check", { project, pixels: false, fix: "auto" });
+  const receipt = fixed.text.split("\n").find((line) => line.startsWith("mix fix: "));
+  t.diagnostic(receipt);
+  assert.match(receipt, /^mix fix: the limiter works at 1 -> 0 places \(most [\d.]+ -> 0 dB over\); -[\d.]+ -> -[\d.]+ LUFS, true peak \+[\d.]+ -> -1\.\d dBTP with loudness "off"/);
+  assert.match(fixed.text, /fixed mix 2 s \(2-2\.2 s, [\d.]+ dB over\) x0\.\d+: Song 1->0\.\d+, Voice 1->0\.\d+/);
+  assert.match(mixLine(fixed), /the limiter \(ceiling -1\.5 dBFS\) never works/);
+  // Only the burst's span changed: the song keeps volume 1 and dips over 1.95-2.25 s.
+  const layers = (await (await server.api(`/api/projects/${project}`)).json()).document.scenes[0].layers;
+  const songLayer = layers.find((layer) => layer.name === "Song");
+  assert.equal(songLayer.volume, 1);
+  assert.deepEqual(songLayer.animations.map((animation) => [animation.name, animation.start, animation.duration, animation.from.volume]), [["Peak down", 1.95, 0.05, 1], ["Peak up", 2.2, 0.05, songLayer.animations[0].to.volume]]);
 });
 
 test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky one quieter, naming the peak", { skip: skipWithoutMediaTools, timeout: 120_000 }, async (t) => {

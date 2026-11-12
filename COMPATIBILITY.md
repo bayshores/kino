@@ -1135,6 +1135,11 @@ How to read it:
   peak (`audioPeak`) and target (`audioLoudness`). Volume goes to 4 (+12 dB). Evidence:
   `backend/audio-levels.test.mjs`, `engine/volumeAnimation.test.js`. Gap: the dashboard preview mix is
   not leveled and plays volume at most 1.
+- **Limiter places fixed in one call**: Verified on generated audio. `check {fix:"auto"}` applies each
+  limiter place's xN to the layers playing there (a short clip whole, a long one over the place with
+  0.05 s ramps) and answers the places, LUFS and true peak before and after; a song whose dips would
+  churn keeps its level, and a mix the "auto" gain already clears is left alone. Evidence:
+  `backend/audio-levels.test.mjs`, `engine/volumeAnimation.test.js`. Gap: not tried on a real project.
 - **Waveform peaks**: Verified. `project manage media peaks` caches peaks beside the file; the
   dashboard draws them. Evidence: `backend/audio-peaks.test.mjs`, `engine/audioPeaks.test.js`. Partly
   verified: recovery from a corrupt cache.

@@ -295,6 +295,21 @@ export function describeMixPeaks(mix, { limit = 3, tail = "", label = "mix" } = 
 }
 
 /**
+ * What check {fix:"auto"} did to the mix, from measureMixPeaks before and after it: "mix fix: the
+ * limiter works at 9 -> 0 places (most 6.5 -> 0 dB over); -12.9 -> -13.4 LUFS, true peak +0.8 ->
+ * -1.6 dBTP with loudness "off"; "auto" adds +4.2 -> +5.1 dB, then the limiter works at 82 -> 30 places".
+ */
+export function describeMixFix(before, after) {
+  const most = (mix) => Math.max(0, ...mix.places.map((place) => place.overDb));
+  const level = (mix) => (mix.integratedLufs === null ? "too short" : mix.integratedLufs);
+  const peak = (mix) => (mix.truePeakDbtp === null ? "silent" : signed(mix.truePeakDbtp));
+  const auto = before.auto && after.auto
+    ? `; "auto" adds ${signed(before.auto.gainDb)} -> ${signed(after.auto.gainDb)} dB, then the limiter works at ${before.auto.places} -> ${after.auto.places} places` : "";
+  return `mix fix: the limiter works at ${before.places.length} -> ${after.places.length} places (most ${most(before)} -> ${most(after)} dB over); ` +
+    `${level(before)} -> ${level(after)} LUFS, true peak ${peak(before)} -> ${peak(after)} dBTP with loudness "off"${auto}`;
+}
+
+/**
  * The warning for a mix that would have clipped without the limiter, or null. `levels` measure the
  * mix before the limiter; `sound` is fitLimiterCeiling's result. `clips` are the sounds in the mix
  * ({ name, volume, start, end }); the warning names those playing at the loudest moment.

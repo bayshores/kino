@@ -830,6 +830,8 @@ function soundClipMaker(directory, sceneDuration, signal, { lead = true } = {}) 
     // A clip with a speed or played backwards is first made into a WAV on the scene's clock.
     if (clip.remapped && (volume > 0 || animatesVolume(layer)))
       clip = await remappedSoundClip(layer, clip, { directory, index: speedClips++, sampleRate: await audioSampleRate(clip.path, signal), signal });
+    // The layer it comes from, for the mix check's places (measureMixPeaks playing).
+    clip = { ...clip, layerId: layer.id };
     const length = clipLength(clip, sceneDuration);
     // A lowpass cutoff (engine/lowpass.js): a filter, moved by commands when it is animated.
     const lowpass = await writeLowpassPlan(join(directory, `lowpass-${lowpasses}.txt`), lowpassPlan(layer, clip.start, length, `lp${lowpasses++}`));
@@ -965,7 +967,7 @@ export async function soundCurve(clips, duration, signal) {
  * Where the mix of `clips` (from sceneSoundClips) passes the master limiter, from the same mix the
  * render measures before its limiter (planMasterLimiter), in one FFmpeg run that writes nothing:
  * { integratedLufs, truePeakDbtp, places: [{at, from, to, peakDbtp, overDb, factor, playing}] }
- * (audio-levels.mjs limiterPlaces; playing: [{name, volume}] at `at`), or null when nothing is heard.
+ * (audio-levels.mjs limiterPlaces; playing: [{name, layerId, volume}] at `at`), or null when nothing is heard.
  * Those are render loudness "off". `auto` is what the default "auto" target does first (clips read
  * with sceneSoundClips lead: true name their songs and words): { target, targetLufs, gainDb, held,
  * places, worst } (worst: the place most over the ceiling after that gain), or null when no gain applies.
@@ -979,7 +981,7 @@ export async function measureMixPeaks(clips, duration, signal) {
   const { integratedLufs, truePeakDbtp, windows } = readPeakWindows(printed);
   const places = limiterPlaces(windows).map((place) => ({ ...place,
     playing: heard.filter((clip) => clip.start < place.at + 0.1 && clip.end > place.at)
-      .map((clip) => ({ name: clip.name, volume: clip.volumeTrack ? trackVolumeAt(clip, place.at) : clip.volume })) }));
+      .map((clip) => ({ name: clip.name, layerId: clip.layerId, volume: clip.volumeTrack ? trackVolumeAt(clip, place.at) : clip.volume })) }));
   const lead = await autoLoudness(heard, duration, 0, signal);
   const gain = loudnessGain({ integratedLufs, truePeakDbtp, loudestAt: null }, lead.target, 0, lead.targetLufs);
   let auto = null;

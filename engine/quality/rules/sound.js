@@ -484,6 +484,19 @@ export function volumeTurns(layer, start, end) {
   return turns;
 }
 
+/** The most turns of `layer`'s volume within CHURN_SECONDS when they reach CHURN_TURNS ([{time, volume}]), else null. */
+export function churnRun(layer, scene) {
+  const range = mediaPlaybackRange(layer, scene.duration);
+  if (!range || range.end - range.start < BED_SECONDS) return null;
+  const turns = volumeTurns(layer, range.start, range.end);
+  let worst = null;
+  for (let i = 0, j = 0; i < turns.length; i += 1) {
+    while (j + 1 < turns.length && turns[j + 1].time - turns[i].time <= CHURN_SECONDS) j += 1;
+    if (j - i + 1 >= CHURN_TURNS && (!worst || j - i > worst.length - 1)) worst = turns.slice(i, j + 1);
+  }
+  return worst;
+}
+
 /** volume_churn: a song or bed whose volume changes direction 3 times or more within 10 s. */
 export function volumeChurn(model, ctx) {
   const scene = ctx.speechScene ?? ctx.scene;
@@ -494,14 +507,8 @@ export function volumeChurn(model, ctx) {
     if (!animatesVolume(layer) || !layer.src || layer.enabled === false) continue;
     const entry = heard.get(layer.id);
     const voice = !entry?.music && entry?.transcript?.words?.length && leveledVoice(layer);
-    const range = mediaPlaybackRange(layer, scene.duration);
-    if (voice || !range || range.end - range.start < BED_SECONDS || !(isMusicLayer(layer, scene, entry) || entry)) continue;
-    const turns = volumeTurns(layer, range.start, range.end);
-    let worst = null;
-    for (let i = 0, j = 0; i < turns.length; i += 1) {
-      while (j + 1 < turns.length && turns[j + 1].time - turns[i].time <= CHURN_SECONDS) j += 1;
-      if (j - i + 1 >= CHURN_TURNS && (!worst || j - i > worst.length - 1)) worst = turns.slice(i, j + 1);
-    }
+    if (voice || !(isMusicLayer(layer, scene, entry) || entry)) continue;
+    const worst = churnRun(layer, scene);
     if (!worst) continue;
     const path = worst.map((turn) => `${round3(turn.volume)} at ${sec(turn.time)} s`).join(", ");
     findings.push({
