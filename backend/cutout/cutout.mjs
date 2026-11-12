@@ -36,7 +36,7 @@ import { fileURLToPath } from "node:url";
 import { ffmpegCommand, parseFrameRate, runMediaTool } from "../media-probe.mjs";
 import { sha256File } from "../voice/model.mjs";
 import { createEdgeRefiner, createPlateBuilder } from "./edges.mjs";
-import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, finishMatte, lumaFromBgra, softCounts } from "./matte.mjs";
+import { DEFAULT_OPEN_EDGES, HOLE_SHARE, REFINE_RADIUS, cleanMatte, createSteadier, finishMatte, lumaFromBgra, refineEdges, softCounts } from "./matte.mjs";
 import { followPicked, followReport, gridLabels, gridStep, keepLabels, pickedLabels } from "./pick.mjs";
 
 export const CUTOUT_ENGINES = Object.freeze(["auto", "subject", "person"]);
@@ -884,7 +884,11 @@ async function writeSubjectVideo({ source, folder, info, grow = 0, feather = 0, 
   const waiting = [];
   let done = 0;
   let ok = true;
-  const write = (yuv, mask) => {
+  // The edge refiner keys against a plate sampled from 384 px, so its drops come in blocks of
+  // about 5 px at 1080p: the same edge-aware smoothing runs again on its result (Y is the luma).
+  const smooth = info.clean?.refine > 0 ? (yuv, mask) => refineEdges(mask, yuv.subarray(0, pixels), width, height, { radius: info.clean.refine / scale }) : (yuv, mask) => mask;
+  const write = (yuv, raw) => {
+    const mask = smooth(yuv, raw);
     const out = Buffer.allocUnsafe(pixels * 4);
     out.set(yuv, 0);
     out.set(mask, pixels * 3);
