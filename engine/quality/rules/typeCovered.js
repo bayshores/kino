@@ -6,6 +6,8 @@
 // not by the layer box and not by pixels.
 import { readingTexts, sec } from "../analysis.js";
 import { area, boxAt, overlapArea, roundBox } from "../model.js";
+import { frameScale, safeArea } from "../../blocks/formats.js";
+import { roomLine, subjectRoom } from "../../subjectRoom.js";
 
 // Over this share of the text's ink inside the subject's box, for over half the time the text
 // shows (both guesses: past 40% a word loses most of its letters).
@@ -46,12 +48,17 @@ export function typeCovered(model, ctx) {
       const x = sides.find((value) => value !== null);
       const dx = x === undefined ? null : x - ink.x0;
       const raise = `move_layers {layerIds:[${ctx.name(text)}], position:"above", referenceId:${ctx.name(cover)}}`;
+      // The room clear of the subject on each side of the safe area, so the agent picks a place
+      // (or a split at a word gap) with place {around} instead of only raising the word.
+      const safe = safeArea({ width: model.width, height: model.height });
+      const room = roomLine(subjectRoom({ x0: safe.x, y0: safe.y, x1: safe.x + safe.width, y1: safe.y + safe.height }, subject, Math.round(24 * frameScale({ width: model.width, height: model.height }))));
+      const around = `place {layers:[${ctx.name(text)}], around:${ctx.name(cover)}, side?:"left"|"right"|"above"|"below"|"split"}`;
       findings.push({
         rule: "type_covered", severity: "warn", itemId: text.id, otherId: cover.id,
         at: sec(model.times[worst]), bbox: roundBox(ink),
         measured: `${Math.round(worstShare * 100)}% of the type inside the subject's box for ${Math.round((100 * covered) / shown)}% of its time`,
         required: `at most ${TYPE_COVERED_SHARE * 100}% for half its time`,
-        message: `The cut-out ${ctx.name(cover)} hides most of ${ctx.name(text)} behind it (subject box x ${Math.round(subject.x0)} to ${Math.round(subject.x1)}). ${dx === null ? "Raise it" : "The fix moves the type beside the subject; or raise it"}: ${raise}.`,
+        message: `The cut-out ${ctx.name(cover)} hides most of ${ctx.name(text)} behind it (subject box x ${Math.round(subject.x0)} to ${Math.round(subject.x1)}, y ${Math.round(subject.y0)} to ${Math.round(subject.y1)}). Room clear of it: ${room}. ${around} sets the type there, shrunk to fit, and prints the share of letters still covered (no side: the one that keeps it largest; split: the line parted at a word gap on both sides). ${dx === null ? "Or raise it" : "The fix moves it beside the subject; or raise it"}: ${raise}.`,
         fix: dx === null ? { kind: "reorder", itemId: text.id, aboveId: cover.id, auto: false }
           : { kind: "move", itemId: text.id, dx: Math.round(dx), dy: 0, auto: false, why: `moved beside the subject (${dx < 0 ? "left" : "right"})` },
       });

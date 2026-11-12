@@ -244,6 +244,35 @@ test("place {on, of} centers a line on a face part: refused with the mark call w
   assert.deepEqual(center(findLayer(await saved("face-place"), "shout")), [0.2 * 1920, 0.65 * 1080]);
 });
 
+test("place {around} sets a word beside the marked subject of the shot under it and a line split around it, with the covered share in the receipt", async () => {
+  await create("around-place");
+  await agent("around-place", "edit", { ops: [
+    { op: "add_layer", layerType: "video", name: "shot", properties: { src: "/api/media/00000000-0000-4000-8000-000000000000.mp4", x: 0, y: 0, width: 1920, height: 1080 } },
+    { op: "add_layer", layerType: "text", name: "payoff", properties: { text: "KILL YOU", fontFamily: "Inter", fontWeight: 700, fontSize: 260, textResize: "width-height", x: 500, y: 400, width: 900, height: 300 } },
+  ] });
+  const unmarked = await agent("around-place", "edit", { ops: [{ op: "place", layers: ["payoff"], around: "subject" }] });
+  assert.equal(unmarked.isError, true);
+  assert.match(unmarked.text, /mark_subject \{layer:\\"<shot>\\", t:0, box:\[x, y, w, h\]\}/);
+  const placed = await agent("around-place", "edit", { ops: [
+    { op: "mark_subject", layer: "shot", t: 0, box: [40, 18, 20, 82] },
+    { op: "place", layers: ["payoff"], around: "subject" },
+  ] });
+  assert.equal(placed.isError, undefined, placed.text);
+  assert.match(placed.text, /around the subject of shot at 0 s \(your mark at file 0 s\), over it \(subject box x 768-1152, y 194-1080\): split at the word gap: \\"KILL\\" left, \\"YOU\\" right \(new layer payoff-2\) · letters inside the subject box \d+% → 0% · room left 648×972, right 648×972, above 1728×116, below none/);
+  const record = await saved("around-place");
+  assert.deepEqual([findLayer(record, "payoff").text, findLayer(record, "payoff-2").text], ["KILL", "YOU"]);
+  const word = await agent("around-place", "edit", { ops: [{ op: "place", layers: ["payoff-2"], around: "shot", side: "above" }] });
+  assert.match(word.text, /: above · letters inside the subject box \d+% → 0% · size 260 → \d+ px to fit the room/);
+  // A face mark alone stands for a person: the box runs down to the picture's bottom, so no room below.
+  const face = await agent("around-place", "edit", { ops: [
+    { op: "add_layer", layerType: "video", name: "talk", properties: { src: "/api/media/00000000-0000-4000-8000-000000000001.mp4", x: 0, y: 0, width: 1920, height: 1080 } },
+    { op: "add_layer", layerType: "text", name: "name", properties: { text: "HER", fontFamily: "Inter", fontWeight: 700, fontSize: 120, textResize: "width-height", x: 900, y: 500 } },
+    { op: "mark_subject", layer: "talk", t: 0, box: [42, 10, 16, 30], part: "face" },
+    { op: "place", layers: ["name"], around: "talk" },
+  ] });
+  assert.match(face.text, /a face taken down to the picture's bottom for the body under it\), over it \(subject box x 806-1114, y 108-1080\).* · room left \d+×972, right \d+×972, above 1728×\d+, below none/);
+});
+
 test("frame steps a camera group onto a region of a layer, then eases on, and check takes the cut as a cut", async () => {
   await create("camera");
   const made = await agent("camera", "edit", { ops: [

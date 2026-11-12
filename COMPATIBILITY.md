@@ -921,8 +921,12 @@ How to read it:
   playback window for a clip not frozen both ways; update_layer and update_layers move it.
   Evidence: `backend/agent-cutout.test.mjs` ("shows only while its clip is drawn").
 - **type_covered**: Test-verified. Type behind a cut-out whose measured subject box hides over 40%
-  of it for over half its time warns, with a move beside the subject. Evidence:
-  `engine/qualityRules.test.js` ("type_covered").
+  of it for over half its time warns, with a move beside the subject, the room on each side and the
+  place {around} call. Evidence: `engine/qualityRules.test.js` ("type_covered").
+- **place {around}**: Test-verified. Text goes beside, above, below or split at a word gap around a
+  marked subject or a cut-out's measured subject, shrunk to the room; the receipt prints the covered
+  letter share. Rendered: letters hidden behind a center cut-out 34.8% to 0%, letters on the subject
+  34.8% to 0%. Evidence: `backend/subject-room-render.test.mjs`, `backend/agent-blocks.test.mjs` ("place {around}").
 - **Object tracking** (`track`): Verified with the stand-in helper and on a real walk clip with Apple Vision
   (VNTrackObjectRequest in `kino-cutout --track`, forward and back, cached by file hash). Evidence:
   `backend/agent-cutout.test.mjs` ("track follows"). Gap: one object a track; macOS only.
