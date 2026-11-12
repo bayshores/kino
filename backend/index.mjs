@@ -845,7 +845,8 @@ async function remuxUpload(bytes, uuid) {
   } catch (error) {
     await rm(target, { force: true });
     if (error.status) throw error;
-    const failed = new Error(`kino could not copy this video into an MP4: ${firstErrorLine(error)}`);
+    const into = target.endsWith(".webm") ? "convert this video to a transparent webm" : "copy this video into an MP4";
+    const failed = new Error(`kino could not ${into}: ${firstErrorLine(error)}`);
     failed.status = 422;
     throw failed;
   } finally {

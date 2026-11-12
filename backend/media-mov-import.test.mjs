@@ -119,7 +119,7 @@ test("a ProRes 4444 .mov with transparency becomes a transparent webm under its 
   assert.equal(JSON.parse(tags.toString("utf8")).streams[0].tags.alpha_mode, "1", "the file keeps its alpha channel");
 });
 
-test("a ProRes .mov is refused with what to do, and nothing is saved",{ skip: skipWithoutMediaTools }, async () => {
+test("a ProRes .mov is refused with what to do, and nothing is saved", { skip: skipWithoutMediaTools }, async () => {
   const mov = await makeClip("camera.mov", ["-c:v", "prores_ks", "-profile:v", "0"], { audio: ["-c:a", "pcm_s16le"] });
   const before = (await (await server.api("/api/media")).json());
   await assert.rejects(client.importFile(mov), (error) => {
