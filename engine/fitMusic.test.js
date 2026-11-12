@@ -139,7 +139,7 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   const late = new Map();
   applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 11.3, shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: late });
   const lateReport = [...late.values()][0];
-  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 3\.04 s before the fade, under 4 bars: payoff 5 s gives it/.test(note)), JSON.stringify(lateReport));
+  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 3\.04 s before the ring, under 4 bars: payoff 5 s gives it/.test(note)), JSON.stringify(lateReport));
   // No phrase end near 15 s: the song's last beat before it rings out instead of a 2 s fade.
   assert.match(lateReport.ending, /^the song's hit at 14\.3 s \(song 71\.023 s, beat\) rings 0\.7 s to the end; phrase end at 19\.3 s/);
   assert.ok(!(report.notes ?? []).some((note) => note.startsWith("the drop plays")), "no note when the payoff was chosen for the drop");
@@ -148,11 +148,11 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
 test("fit_music with no end: a phrase end near the scene end is taken; else the song's last hit rings out to the end; a given end stays", () => {
   // 120 bpm (2 s bars), the drop at song 32 s on the payoff at 8 s: bar lines at 10, 12, 14 s, phrase ends at 16 s.
   const beats = Array.from({ length: 240 }, (_, index) => index * 0.5);
-  const fit = (duration, extra = {}) => {
+  const fit = (duration, extra = {}, clipStart = 11, given = null) => {
     const music = createLayer("audio", { id: "music", name: "music", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556666.mp3", mediaDuration: duration, volume: 0.8 });
-    const clip = createLayer("video", { id: "clip", name: "clip", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556670.mp4", mediaStart: 11, mediaDuration: duration - 11 });
+    const clip = createLayer("video", { id: "clip", name: "clip", src: "/api/media/0b8e3f8e-1111-4222-8333-444455556670.mp4", mediaStart: clipStart, mediaDuration: duration - clipStart });
     const reports = new Map();
-    const document = applyOperations(createDocument({ scenes: [createScene({ id: "s1", duration, layers: [music, clip] })] }), [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 8, shape: { sections: SECTIONS, seconds: 120, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 120 }, ...extra }], { reports });
+    const document = applyOperations(given ?? createDocument({ scenes: [createScene({ id: "s1", duration, layers: [music, clip] })] }), [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 8, shape: { sections: SECTIONS, seconds: 120, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 120 }, ...extra }], { reports });
     return { document, report: [...reports.values()][0], song: document.scenes[0].layers[0] };
   };
   // 13 s: no phrase end near (16 s is 90 frames on). The hit on the bar line at 12 s (song 36 s) plays, then rings 1 s to the end.
@@ -168,6 +168,10 @@ test("fit_music with no end: a phrase end near the scene end is taken; else the 
   assert.equal(taken.report.ending, "phrase end at 16 s (song 40 s): the scene end moved -6 frames (was 16.2 s); end:16.2 keeps it");
   assert.equal(taken.document.scenes[0].duration, 16);
   assert.equal(taken.document.scenes[0].layers[1].mediaDuration, 5);
+  // Run again on that video: it already ends on the phrase end, so nothing moves.
+  assert.equal(fit(16, {}, 11, taken.document).report.ending, "phrase end at 16 s (song 40 s): the video ends on it");
+  // A clip that starts after the phrase end keeps the end where it is, and the receipt says why.
+  assert.match(fit(16.2, {}, 16.1).report.ending, /would need the scene end moved -6 frames \(not taken: "clip" starts at 16\.1 s\)$/);
   // A given end stays as given: the old fade, no ending line.
   const given = fit(16.2, { end: 16.2 });
   assert.ok(given.document.scenes[0].duration === 16.2 && given.report.ending === undefined);

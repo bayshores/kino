@@ -428,7 +428,10 @@ export function songEnding({ payoff, bar, beat = bar / 4, end, start = 0, songEn
   const phrases = [near - 1, near, near + 1].filter((n) => n >= 1).map((n) => round(Math.round((payoff + n * phrase) * fps) / fps)).filter((time) => time <= songEnd + EPS);
   const nearest = phrases.sort((a, b) => Math.abs(a - end) - Math.abs(b - end))[0];
   const offer = nearest == null ? null : { at: nearest, kind: "phrase end", frames: frames(nearest - end) };
-  if (offer && nearest <= end + EPS && end - nearest <= TAKE + EPS && nearest > floor + EPS && nearest - payoff >= bar - EPS) return { end: nearest, taken: true, offer };
+  const close = offer && nearest <= end + EPS && end - nearest <= TAKE + EPS && nearest - payoff >= bar - EPS;
+  if (close && nearest > floor + EPS) return { end: nearest, taken: true, offer };
+  // Near enough to take, but something else starts after it: the receipt says what.
+  if (close) offer.blocked = true;
   // The latest hit with RING_MIN to `max` seconds left to the end: a bar line, else a beat.
   const latest = (step, max) => {
     const time = payoff + Math.floor((end - RING_MIN - payoff) / step + EPS) * step;
@@ -481,7 +484,7 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   const plan = given ?? payoffPlan(end, bar);
   const roomy = plan.groups >= 1 ? plan.payoff : plan.oneGroup;
   const gives = plan.groups > 1 ? `${plan.groups} groups of 4 bars and ${round(plan.fade)} s` : "4 bars and a bar";
-  if (!own && roomy != null && heard < GROUP * bar - beat && roomy < payoff - beat) notes.push(`the drop plays ${round(heard)} s before the fade, under 4 bars: payoff ${roomy} s gives it ${gives} to fade`);
+  if (!own && roomy != null && heard < GROUP * bar - beat && roomy < payoff - beat) notes.push(`the drop plays ${round(heard)} s before the ${ring ? "ring" : "fade"}, under 4 bars: payoff ${roomy} s gives it ${gives} to fade`);
   if (!own && !close) {
     // A fade closes a phrase when it ends on a phrase line (every 4 bars from the drop).
     const phrase = 4 * bar;
@@ -829,14 +832,15 @@ function payoffLine(payoff, picked, bar, beat, plan) {
 // The latest time something other than the song starts in the scene before `end` (a layer's
 // sound or picture, an animation, a board shot): the end never moves to or before it.
 function latestStart(document, scene, song, end) {
-  let latest = 0;
-  const seen = (time) => { if (Number.isFinite(time) && time < end - EPS) latest = Math.max(latest, time); };
+  const latest = { time: 0, what: null };
+  const seen = (time, what) => { if (Number.isFinite(time) && time < end - EPS && time >= latest.time) Object.assign(latest, { time, what }); };
   for (const layer of scene.layers) {
     if (song.includes(layer)) continue;
-    if (layer.mediaDuration > 0) seen(layer.mediaStart);
-    for (const animation of layer.animations ?? []) seen(animation?.start);
+    const name = layer.name || layer.id;
+    if (layer.mediaDuration > 0) seen(layer.mediaStart, `"${name}"`);
+    for (const animation of layer.animations ?? []) seen(animation?.start, `"${name}" ${animation?.name || "animation"}`);
   }
-  for (const shot of document.board?.shots ?? []) seen(shot.cue);
+  for (const [index, shot] of (document.board?.shots ?? []).entries()) seen(shot.cue, `shot ${index + 1}`);
   return latest;
 }
 
@@ -852,11 +856,13 @@ function trimEnd(document, scene, song, to) {
 }
 
 // The receipt's ending line: the place in the video and in the song, what kind it is, and the frames the end moved or would move.
-function endingLine(close, was) {
+function endingLine(close, was, floor) {
   const offer = close.offer;
   const move = (frames) => `${frames > 0 ? "+" : ""}${frames} frame${Math.abs(frames) === 1 ? "" : "s"}`;
+  if (close.taken && offer.frames === 0) return `${offer.kind} at ${close.end} s (song ${close.songAt(close.end)} s): the video ends on it`;
   if (close.taken) return `${offer.kind} at ${close.end} s (song ${close.songAt(close.end)} s): the scene end moved ${move(offer.frames)} (was ${round(was)} s); end:${round(was)} keeps it`;
-  const there = offer ? `; ${offer.kind} at ${offer.at} s (song ${close.songAt(offer.at)} s) would need the scene end moved ${move(offer.frames)}` : "";
+  const blocked = offer?.blocked && floor?.what ? ` (not taken: ${floor.what} starts at ${round(floor.time)} s)` : "";
+  const there = offer ? `; ${offer.kind} at ${offer.at} s (song ${close.songAt(offer.at)} s) would need the scene end moved ${move(offer.frames)}${blocked}` : "";
   if (close.ring) return `the song's hit at ${close.ring.at} s (song ${close.songAt(close.ring.at)} s, ${close.ring.kind}) rings ${close.ring.tail} s to the end${there}`;
   return `fades to the end${there}`;
 }
@@ -894,7 +900,8 @@ export function applyFitMusic(document, operation) {
   // No end given: the end may move to a phrase end of the song, never to or before something else starting.
   const fps = typeof document.fps === "number" && document.fps > 0 ? document.fps : 30;
   const free = operation.end == null;
-  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, roomy: picked, free, floor: free ? latestStart(document, scene, old, end) : 0, fps };
+  const floor = free ? latestStart(document, scene, old, end) : null;
+  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, roomy: picked, free, floor: floor?.time ?? 0, fps };
   const plan = planFitMusic({ ...input, plan: which });
   if (plan.close?.taken) trimEnd(document, scene, old, plan.close.end);
 
@@ -939,7 +946,7 @@ export function applyFitMusic(document, operation) {
     plays: plan.pieces.map((piece) => `${clock(piece.from)}-${clock(piece.to)}`).join(", "),
     ...(chosen ? { payoff: payoffLine(operation.payoff, picked, grid.bar, grid.beat ?? grid.bar / 4, plan) } : {}),
     sections: lines,
-    ...(plan.close ? { ending: endingLine(plan.close, end) } : {}),
+    ...(plan.close ? { ending: endingLine(plan.close, end, floor) } : {}),
     ...(rhythm ? { rhythm: `${rhythm.bpm} bpm, first beat ${rhythm.offset} s (set from the song's measured beats)` } : {}),
     // The plans not used that this song allows, one line each, for choosing by the video's story.
     ...(plans.length ? { plans } : {}),
