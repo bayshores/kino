@@ -1605,6 +1605,14 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   const levels = { byId: { "m2.mp4": { lines: [], voice: [], lufs: -18.2 }, "m3.mp4": { lines: [], voice: [{ start: 2.77, end: 9.24 }], lufs: -23.4 } }, missing: null };
   assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard: levels }), /m2\.mp4 -18\.2 LUFS · no voice heard$/m);
   assert.match(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: levels }), /m3\.mp4 -23\.4 LUFS · voice heard 2\.8-9\.2 s, words not read$/m);
+  // Heard in its own language: the line as said with whisper's English, and the footer says which is which.
+  const glossed = { byId: { "m3.mp4": { lines: [{ text: "殺してやる", english: "I'll kill you.", start: 0, end: 6.12 }], voice: [], lufs: -23.4, language: "ja", p: 0.76 } }, missing: null };
+  const glossText = takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: glossed });
+  assert.match(glossText, /m3\.mp4 -23\.4 LUFS · heard in Japanese \(ja, p 0\.76\): "殺してやる" \(en: "I'll kill you\."\) 0\.0-6\.1 s$/m);
+  assert.match(glossText, /^\(en: "\.\.\."\) is whisper's English/m);
+  assert.match(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: { ...levels, fetching: true } }), /fetching ggml-small\.bin \(488 MB, once\)/);
+  // A clip heard and another not read: the "not read" footer stays off as before the language lines.
+  assert.doesNotMatch(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: { ...levels, missing: "no speech model" } }), /heard: not read/);
   assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /m2\.mp4 speech not read$/m);
   assert.doesNotMatch(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /says/);
   assert.deepEqual(saysOf(SAID_LINES, 4.9, 1.4), []);

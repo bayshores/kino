@@ -849,7 +849,13 @@ export function readClipSound(transcript) {
     tags.push({ text: words.slice(from, i + 1).map((word) => word.text).join(" "), start: words[from].start, end: words[i].end });
     open = -1;
   }
-  const otherLanguage = tags.some((tag) => namesOtherLanguage(tag.text));
+  // A transcript heard in its own language (backend/speech/transcribe.mjs heard): its lines are the
+  // words as said, so a tag naming a language turns nothing into voice.
+  const language = typeof transcript?.language === "string" && transcript.language !== "en" ? transcript.language : null;
+  const noSpace = language && NO_SPACE_LANGUAGES.has(language);
+  const tagged = !language && tags.some((tag) => namesOtherLanguage(tag.text));
+  const otherLanguage = Boolean(language) || tagged;
+  const endsSaid = (text) => endsLine(text) || (noSpace && /[。！？]["'）」』]*$/.test(text));
   const voice = tags.filter((tag) => VOICE_TAG.test(tag.text) && !MUSIC_TAG.test(tag.text)).map(({ start, end }) => ({ start, end }));
   // One word over and over ("Heh. Heh. Heh.", "Heh, heh,"), across full stops and unsure words:
   // a voice when whisper was sure of one of them (REPEAT_SURE). A line would drop it word by word.
@@ -871,13 +877,15 @@ export function readClipSound(transcript) {
   const close = () => {
     const said = line;
     line = [];
-    if (said.length < 2) return;
-    if (said.reduce((sum, word) => sum + (word.p ?? 1), 0) / said.length < LINE_SURE) return;
+    // A language without spaces: one segment-word can be a whole line.
+    if (said.length < (noSpace ? 1 : 2)) return;
     const span = { start: round(said[0].start), end: round(Math.max(said[0].start, said.at(-1).end)) };
+    // An unsure line of a clip heard in its own language is still voice (the English pass read it as voice too).
+    if (said.reduce((sum, word) => sum + (word.p ?? 1), 0) / said.length < LINE_SURE) { if (language) voice.push(span); return; }
     // One word over and over is a sound (a laugh, a chant), not a line; so is any line of a clip
-    // whisper itself tagged as another language.
-    if (otherLanguage || new Set(said.map((word) => plainWord(word.text))).size === 1) { voice.push(span); return; }
-    const text = said.map((word) => word.text).join(" ");
+    // the English model tagged as another language.
+    if (tagged || (said.length > 1 && new Set(said.map((word) => plainWord(word.text))).size === 1)) { voice.push(span); return; }
+    const text = said.map((word) => word.text).join(noSpace ? "" : " ");
     lines.push({ text: text.length > LINE_TEXT_MOST ? `${text.slice(0, LINE_TEXT_MOST - 1).trimEnd()}…` : text, ...span });
   };
   for (const [i, word] of words.entries()) {
@@ -885,9 +893,25 @@ export function readClipSound(transcript) {
     if (inTag[i] || word.unclear || !text || isTagWord(text) || FILLERS.has(plainWord(text))) { close(); continue; }
     if (line.length && word.start - line.at(-1).end >= LONG_PAUSE) close();
     line.push({ ...word, text });
-    if (endsLine(text)) close();
+    if (endsSaid(text)) close();
   }
   close();
+  // Whisper's English for each line: the segments whose largest overlap is that line.
+  if (language && Array.isArray(transcript.english)) {
+    const glosses = lines.map(() => []);
+    for (const segment of transcript.english) {
+      let best = -1, most = 0;
+      for (const [index, each] of lines.entries()) {
+        const overlap = Math.min(each.end, segment.end) - Math.max(each.start, segment.start);
+        if (overlap > most) { most = overlap; best = index; }
+      }
+      if (best >= 0) glosses[best].push(String(segment.text).trim());
+    }
+    for (const [index, each] of lines.entries()) {
+      const english = glosses[index].join(" ");
+      if (english) each.english = english.length > LINE_TEXT_MOST ? `${english.slice(0, LINE_TEXT_MOST - 1).trimEnd()}…` : english;
+    }
+  }
   const joined = [];
   // Voice a kept line already covers (a "(laughs)" glued to its last word) is said with the line.
   const free = voice.filter((span) => !lines.some((each) => span.start < each.end && span.end > each.start));
@@ -896,7 +920,16 @@ export function readClipSound(transcript) {
     if (last && span.start - last.end < VOICE_JOIN) last.end = round(Math.max(last.end, span.end));
     else joined.push({ start: round(span.start), end: round(span.end) });
   }
-  return { lines, voice: joined, otherLanguage };
+  return { lines, voice: joined, otherLanguage, ...(language ? { language, p: transcript.languageP ?? null } : {}) };
+}
+
+// Languages written without spaces between words (whisper's codes): a whisper segment is one word,
+// a line may be one word and joins without spaces.
+export const NO_SPACE_LANGUAGES = new Set(["ja", "zh", "yue", "th", "lo", "my", "km", "bo"]);
+
+// "Japanese" for "ja"; the code itself when this runtime has no names.
+function languageName(code) {
+  try { return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code; } catch { return code; }
 }
 
 // Sounds besides words, from the macOS sound classifier's 1 s windows (backend/footage/sounds.mjs).
@@ -986,10 +1019,15 @@ export function clipLinesText(lines = [], most = 2) {
  * `-15.8 LUFS · heard "What are you doing here?" 0.5-1.4 s`, `-18.2 LUFS · no voice heard`.
  * sound: {lufs (integrated, null when silent), lines, voice} (readClipSound plus a level).
  */
-export function clipSoundText({ lufs = null, lines = [], voice = [], sounds = null } = {}, most = 2) {
+export function clipSoundText({ lufs = null, lines = [], voice = [], language = null, p = null, sounds = null } = {}, most = 2) {
   const level = Number.isFinite(lufs) ? `${lufs.toFixed(1)} LUFS` : "";
   const parts = [];
-  if (lines.length) parts.push(clipLinesText(lines, most));
+  // Another language: `heard in Japanese (ja, p 0.76): "<as said>" (en: "<whisper's English>") 0.0-6.1 s`.
+  if (lines.length && language && language !== "en") {
+    const quote = (text) => `"${String(text).replaceAll('"', "'")}"`;
+    const shown = lines.slice(0, most).map((line) => `${quote(line.text)}${line.english ? ` (en: ${quote(line.english)})` : ""} ${line.start.toFixed(1)}-${line.end.toFixed(1)} s`);
+    parts.push(`heard in ${languageName(language)} (${language}${Number.isFinite(p) ? `, p ${p.toFixed(2)}` : ""}): ${shown.join(", ")}${lines.length > most ? ", …" : ""}`);
+  } else if (lines.length) parts.push(clipLinesText(lines, most));
   if (voice.length) parts.push(`voice heard ${voice.slice(0, most).map((span) => `${span.start.toFixed(1)}-${span.end.toFixed(1)}`).join(", ")}${voice.length > most ? ", …" : ""} s, words not read`);
   if (!parts.length) parts.push(level ? "no voice heard" : "");
   // Sounds besides words (soundEvents), when the clip was classified; a clip that could not be

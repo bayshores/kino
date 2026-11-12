@@ -260,6 +260,9 @@ export async function startTestServer({ ownerToken = "kino-test-owner", allow = 
     // Nor the real whisper model (check's speech_cut transcribes heard sound): a test that needs
     // transcripts passes tests/fake-whisper-cli.mjs.
     KINO_WHISPER_MODEL: path.join(dataDirectory, "no-whisper-model.bin"),
+    // Nor this computer's multilingual model, nor its 488 MB fetch (transcribe.mjs heard).
+    KINO_WHISPER_LANG_MODEL: path.join(dataDirectory, "no-language-model.bin"),
+    KINO_LANG_DOWNLOAD: "0",
     // Nor the 600 MB CLAP song model (backend/music-embed.mjs): songs rank by the old features.
     KINO_MUSIC_DOWNLOAD: "0",
     // No yt-dlp here: the sound stop does not push a YouTube song search.

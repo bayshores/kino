@@ -15,6 +15,21 @@ const { readFileSync, writeFileSync } = require("node:fs");
 const words = JSON.parse(process.env.FAKE_WHISPER_WORDS || "[]");
 const files = process.argv.slice(2).filter((arg) => arg.endsWith(".wav"));
 if (!process.argv.includes("-m")) { console.error("no model"); process.exit(2); }
+// -dl (detect the language only): FAKE_WHISPER_LANG ("ja 0.9") in the JSON and the log line.
+if (process.argv.includes("-dl")) {
+  const [language, p] = (process.env.FAKE_WHISPER_LANG || "en 0.99").split(" ");
+  console.error("whisper_full_with_state: auto-detected language: " + language + " (p = " + p + ")");
+  for (const file of files) writeFileSync(file + ".json", JSON.stringify({ result: { language }, transcription: [] }));
+  process.exit(0);
+}
+// -tr (whisper's English): one segment per file, FAKE_WHISPER_ENGLISH, over the whole file.
+if (process.argv.includes("-tr")) {
+  for (const file of files) {
+    const seconds = (readFileSync(file).length - 44) / 2 / 16000;
+    writeFileSync(file + ".json", JSON.stringify({ transcription: [{ offsets: { from: 0, to: Math.round(seconds * 1000) }, text: " " + (process.env.FAKE_WHISPER_ENGLISH || ""), tokens: [] }] }));
+  }
+  process.exit(0);
+}
 for (const file of files) {
   const data = readFileSync(file);
   const rate = data.readUInt32LE(24);

@@ -25,10 +25,13 @@
 // once per model and names.
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { createWriteStream, existsSync } from "node:fs";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { NO_SPACE_LANGUAGES, readClipSound } from "../../engine/speech.js";
 import { decodeMono } from "../audio-analysis.mjs";
 import { endWithService } from "../child-exit.mjs";
 import { createSlots } from "../process-slots.mjs";
@@ -91,7 +94,72 @@ export function defaultModelPaths(home = homedir()) {
   ];
 }
 
-const INSTALL_HELP = "Install whisper.cpp (macOS: brew install whisper-cpp) and put a model file such as ggml-small.en.bin (from huggingface.co/ggerganov/whisper.cpp) in ~/.kino/models/, or set KINO_WHISPER_MODEL to its path. kino transcribes on this computer and downloads nothing itself.";
+const INSTALL_HELP = "Install whisper.cpp (macOS: brew install whisper-cpp) and put a model file such as ggml-small.en.bin (from huggingface.co/ggerganov/whisper.cpp) in ~/.kino/models/, or set KINO_WHISPER_MODEL to its path. For other languages, also put ggml-small.bin in ~/.kino/models/ (kino fetches it once when a clip needs it). kino transcribes on this computer.";
+
+// ---- other languages ---------------------------------------------------------------------------
+// The English model (small.en) writes sound-alike English words for speech in another language
+// ("I see." on run 8's clip F4.13, sung in Japanese). A clip whose English transcript has voice is
+// heard once more by the multilingual small model: its language, its words as said and whisper's
+// English for them (-tr). The voiceover path (whisperSetup, cut_speech) stays on the English model.
+
+/** The multilingual model kino fetches once, the first time a clip in another language needs it. */
+export const LANGUAGE_MODEL = Object.freeze({
+  file: "ggml-small.bin",
+  url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+  // Measured on the file the lead fetched (2026-11-12): its sha1 55356645… matches whisper.cpp's models table.
+  bytes: 487_601_967,
+  sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+});
+const MODEL_HOSTS = /(^|\.)(huggingface\.co|hf\.co)$/;
+// Languages written without spaces between words (engine/speech.js).
+export const NO_SPACE = NO_SPACE_LANGUAGES;
+// A language whisper names with less confidence than this is not trusted: the English transcript
+// stays. A guess: F4.13 (sung Japanese over music) read ja at p 0.76.
+export const LANG_SURE = 0.5;
+
+/** Where the multilingual model is looked for when KINO_WHISPER_LANG_MODEL is not set. */
+export function languageModelPaths(home = homedir()) {
+  return [
+    path.join(home, ".kino", "models", LANGUAGE_MODEL.file),
+    path.join(home, ".kino", "models", "ggml-base.bin"),
+    "/opt/homebrew/share/whisper-cpp/ggml-small.bin",
+  ];
+}
+
+/** {command, model, modelName, dtw} for the multilingual model, or null when there is none (never throws). */
+export function languageSetup({ env = process.env, home = homedir(), exists = existsSync } = {}) {
+  const model = env.KINO_WHISPER_LANG_MODEL || languageModelPaths(home).find((file) => exists(file));
+  if (!model || !exists(model)) return null;
+  const modelName = path.basename(model).replace(/^ggml-/, "").replace(/\.bin$/, "");
+  const dtw = /^(tiny|base|small|medium|large-v[123])/.exec(modelName)?.[0] ?? null;
+  return { command: env.KINO_WHISPER_CLI || "whisper-cli", model, modelName, dtw };
+}
+
+/**
+ * Fetches the multilingual model into ~/.kino/models once (488 MB): written to a .part file beside
+ * it and renamed into place only when its size and SHA-256 match. Answers its path.
+ */
+export async function fetchLanguageModel({ home = homedir(), fetchFile = fetch } = {}) {
+  const folder = path.join(home, ".kino", "models");
+  const target = path.join(folder, LANGUAGE_MODEL.file);
+  if (existsSync(target)) return target;
+  await mkdir(folder, { recursive: true });
+  const partial = `${target}.${process.pid}.${randomUUID().slice(0, 8)}.part`;
+  try {
+    const response = await fetchFile(LANGUAGE_MODEL.url, { redirect: "follow" });
+    const host = response.url ? new URL(response.url).hostname : "huggingface.co";
+    if (!response.ok || !response.body || !MODEL_HOSTS.test(host)) throw new Error(`the download failed (HTTP ${response.status}, ${host})`);
+    const hash = createHash("sha256");
+    let received = 0;
+    const meter = new Transform({ transform(chunk, _encoding, callback) { received += chunk.length; hash.update(chunk); callback(null, chunk); } });
+    await pipeline(Readable.fromWeb(response.body), meter, createWriteStream(partial, { flags: "wx", mode: 0o644 }));
+    if (received !== LANGUAGE_MODEL.bytes || hash.digest("hex") !== LANGUAGE_MODEL.sha256) throw new Error(`the download did not match (${received} bytes)`);
+    await rename(partial, target);
+    return target;
+  } finally {
+    await rm(partial, { force: true }).catch(() => {});
+  }
+}
 
 /** {command, model, modelName, dtw} for this computer, or throws an error that says how to install. */
 export function whisperSetup({ env = process.env, home = homedir(), exists = existsSync } = {}) {
@@ -289,7 +357,7 @@ function runNow(command, args, { timeoutMs }) {
       clearTimeout(timer);
       if (timedOut) reject(new Error("Transcribing took longer than five minutes."));
       else if (code !== 0) reject(new Error(`whisper-cli failed: ${stderr.trim().split("\n").slice(-2).join(" ").slice(0, 300) || `exit ${code}`}`));
-      else resolve();
+      else resolve(stderr);
     });
   });
 }
@@ -299,20 +367,24 @@ function runNow(command, args, { timeoutMs }) {
  * others (punctuation, word pieces) join the word before. Special tokens ([_BEG_], [_TT_…]) are
  * skipped. Times are seconds into the chunk: the DTW time when there is one, else the token's own.
  */
-export function wordsFromWhisper(json) {
+export function wordsFromWhisper(json, { segmentWords = false } = {}) {
   const words = [];
   // An opening bracket token (" [", " (", " *") starts whisper's sound tag ("[Singing in Japanese]"):
   // it belongs to the next word. Glued to the word before, the tag lost its start and its words read
   // as a line ("Singing in", run 8's clip F4.13).
   let open = "";
   for (const segment of json?.transcription ?? []) {
+    // segmentWords (a language written without spaces): a segment's first token starts a word too,
+    // so segments do not glue into one word.
+    let first = segmentWords;
     for (const token of segment.tokens ?? []) {
       const text = String(token.text ?? "");
       if (!text || /^\[_/.test(text.trim()) || /^<\|/.test(text.trim())) continue;
       const own = (token.offsets?.from ?? 0) / 1000;
       const dtw = typeof token.t_dtw === "number" && token.t_dtw >= 0 ? token.t_dtw / 100 : null;
       const p = typeof token.p === "number" ? token.p : 1;
-      const startsWord = /^\s/.test(text) || !words.length;
+      const startsWord = /^\s/.test(text) || !words.length || first;
+      first = false;
       const letters = /[\p{L}\p{N}]/u.test(text);
       if (startsWord && !letters && /^[[(*]+$/.test(text.trim())) { open += text.trim(); continue; }
       if (open && letters) {
@@ -327,15 +399,18 @@ export function wordsFromWhisper(json) {
       }
     }
   }
-  return words.map((word) => ({ text: word.text, at: word.at, dtw: word.dtw, own: word.own, end: word.end, p: Math.min(...word.p) }));
+  // A segment-word holds a whole phrase of tokens: its p is their mean (as whisperSegments'), since the
+  // least sure of 10+ tokens says little (run 8's F4.13: its main phrase had min 0.36 and was dropped).
+  const pOf = (list) => (segmentWords ? list.reduce((sum, p) => sum + p, 0) / list.length : Math.min(...list));
+  return words.map((word) => ({ text: word.text, at: word.at, dtw: word.dtw, own: word.own, end: word.end, p: pOf(word.p) }));
 }
 
 /**
  * Runs whisper-cli over chunk files, one run per group side by side (the model loads once per
  * run); resolves with one word list per file, in order. A group's `args` are added to its run.
  */
-async function whisperChunks(groups, setup, { timeoutMs = 300_000, prompt = VERBATIM_PROMPT } = {}) {
-  const args = ["-m", setup.model, "-l", "en", "-ojf", "-np", "-nfa", "-t", "4", ...(prompt ? ["--prompt", prompt] : [])];
+async function whisperChunks(groups, setup, { timeoutMs = 300_000, prompt = VERBATIM_PROMPT, language = "en" } = {}) {
+  const args = ["-m", setup.model, "-l", language, "-ojf", "-np", "-nfa", "-t", "4", ...(prompt ? ["--prompt", prompt] : [])];
   if (setup.dtw) args.push("--dtw", setup.dtw);
   const used = groups.filter((group) => group.files.length);
   await Promise.all(used.map((group) => run(setup.command, [...args, ...(group.args ?? []), ...group.files], { timeoutMs })));
@@ -343,7 +418,7 @@ async function whisperChunks(groups, setup, { timeoutMs = 300_000, prompt = VERB
     let json;
     try { json = JSON.parse(await readFile(`${file}.json`, "utf8")); }
     catch { throw new Error("whisper-cli wrote no transcript (is it whisper.cpp 1.7 or newer?)."); }
-    return wordsFromWhisper(json);
+    return wordsFromWhisper(json, { segmentWords: NO_SPACE.has(language) });
   }));
 }
 
@@ -352,7 +427,7 @@ async function whisperChunks(groups, setup, { timeoutMs = 300_000, prompt = VERB
  * of each piece, [{from, to, text, p}] (seconds into the piece; p: the mean word-token confidence).
  * `args` are added to the run. The songs' vocal spans use it (backend/song-shape.mjs).
  */
-export async function whisperSegments(pieces, setup, { args = [], timeoutMs = 300_000 } = {}) {
+export async function whisperSegments(pieces, setup, { args = [], timeoutMs = 300_000, language = "en" } = {}) {
   const folder = await makeTempFolder("kino-speech-");
   try {
     const files = [];
@@ -361,7 +436,7 @@ export async function whisperSegments(pieces, setup, { args = [], timeoutMs = 30
       await writeFile(file, pcm16Wav(samples));
       files.push(file);
     }
-    if (files.length) await run(setup.command, ["-m", setup.model, "-l", "en", "-ojf", "-np", "-nfa", "-t", "4", ...args, ...files], { timeoutMs });
+    if (files.length) await run(setup.command, ["-m", setup.model, "-l", language, "-ojf", "-np", "-nfa", "-t", "4", ...args, ...files], { timeoutMs });
     return Promise.all(files.map(async (file) => {
       let json;
       try { json = JSON.parse(await readFile(`${file}.json`, "utf8")); }
@@ -608,7 +683,83 @@ export function whisperTurn(work) {
   return transcribeSlot(work);
 }
 
-async function transcribeFileNow(filename, setup, { decode = decodeMono, debug = false, names = [] } = {}) {
+const DETECT_PAD = 0.2; // seconds of sound kept around each heard span for language detection
+const DETECT_MOST = 30; // whisper decides the language from its first 30 s window
+
+/**
+ * The language whisper hears in `spans` ([{start, end}] file seconds, the voice the English pass
+ * found; the first 30 s when there are none) of 16 kHz `samples`: {language, p} or null. One run of
+ * `whisper-cli -l auto -dl` (detect only: about 0.2 s on small, measured on F4.13).
+ */
+export async function detectLanguage(samples, setup, spans = []) {
+  const parts = [];
+  let total = 0;
+  for (const span of [...spans].sort((a, b) => a.start - b.start)) {
+    const from = Math.max(0, Math.floor((span.start - DETECT_PAD) * SAMPLE_RATE));
+    const to = Math.min(samples.length, Math.ceil((span.end + DETECT_PAD) * SAMPLE_RATE));
+    if (to <= from || total >= DETECT_MOST * SAMPLE_RATE) continue;
+    const piece = samples.subarray(from, Math.min(to, from + DETECT_MOST * SAMPLE_RATE - total));
+    parts.push(piece);
+    total += piece.length;
+  }
+  const joined = parts.length ? new Float32Array(total) : samples.subarray(0, DETECT_MOST * SAMPLE_RATE);
+  if (parts.length) { let at = 0; for (const piece of parts) { joined.set(piece, at); at += piece.length; } }
+  const folder = await makeTempFolder("kino-speech-");
+  try {
+    const file = path.join(folder, "detect.wav");
+    await writeFile(file, clipOf(joined, { start: 0, end: joined.length / SAMPLE_RATE }));
+    // Without -np: the detected language's probability is only in the log line.
+    const stderr = await run(setup.command, ["-m", setup.model, "-l", "auto", "-dl", "-oj", "-t", "4", file], { timeoutMs: 120_000 });
+    const logged = /auto-detected language: (\w+) \(p = ([\d.]+)\)/.exec(String(stderr ?? ""));
+    let language = logged?.[1] ?? null;
+    try { language = JSON.parse(await readFile(`${file}.json`, "utf8"))?.result?.language ?? language; } catch { /* the log line is enough */ }
+    return language ? { language, p: logged ? round(Number(logged[2]), 2) : null } : null;
+  } finally {
+    await removeTempFolder(folder);
+  }
+}
+
+/**
+ * A file in another language: one coarse pass in that language (no fine pass or second listen:
+ * both were tuned on English voiceovers) and, side by side, whisper's English for the same chunks
+ * (-tr), as english: [{start, end, text}] in file seconds.
+ */
+async function transcribeInLanguage(samples, sound, setup, { names, language, folder }) {
+  const { duration } = sound;
+  const parts = chunks(duration, sound.quiet, COARSE);
+  const files = [];
+  for (const [index, part] of parts.entries()) {
+    const file = path.join(folder, `chunk-${index}.wav`);
+    await writeFile(file, clipOf(samples, part));
+    files.push(file);
+  }
+  const pieces = parts.map((part) => samples.subarray(Math.floor(part.start * SAMPLE_RATE), Math.ceil(part.end * SAMPLE_RATE)));
+  const [lists, glosses] = await Promise.all([
+    whisperChunks([{ files }], setup, { prompt: whisperPrompt(names, { verbatim: false }), language }),
+    whisperSegments(pieces, setup, { language, args: ["-tr"] }),
+  ]);
+  const heard = lists.flatMap((list, index) => list.map((word) => ({ ...word, at: word.at + parts[index].start, own: word.own + parts[index].start, end: word.end + parts[index].start }))).filter((word) => word.at < duration);
+  const english = glosses.flatMap((segments, index) => segments.filter((segment) => /\p{L}/u.test(segment.text) && !/^[[(*].*[\])*]$/.test(segment.text))
+    .map((segment) => ({ start: round(segment.from + parts[index].start), end: round(Math.min(duration, segment.to + parts[index].start)), text: segment.text })));
+  return { heard, english };
+}
+
+/**
+ * A segment-word (a language written without spaces) is a whole phrase: snapWords ends it at the
+ * first 0.1 s pause, so it keeps the end whisper gave its last token (never past the next word).
+ * Measured on run 8's F4.13: a 3 s sung phrase snapped to 0.08 s (7.83-7.91) and keep_line {line}
+ * kept only that sliver (lines-any-language-review RESULT.md).
+ */
+export function saidToEnd(snapped, heard, language, duration) {
+  if (!NO_SPACE.has(language)) return snapped;
+  return snapped.map((word, index) => {
+    const next = snapped[index + 1]?.start ?? duration;
+    const said = Number(heard[index]?.end);
+    return Number.isFinite(said) && said > word.end ? { ...word, end: Math.min(next, duration, said) } : word;
+  });
+}
+
+async function transcribeFileNow(filename, setup, { decode = decodeMono, debug = false, names = [], language = "en" } = {}) {
   const { samples } = await decode(filename, { sampleRate: SAMPLE_RATE });
   if (!samples.length) throw new Error("The file has no sound.");
   const duration = samples.length / SAMPLE_RATE;
@@ -617,6 +768,20 @@ async function transcribeFileNow(filename, setup, { decode = decodeMono, debug =
   const level = silenceLevel(db);
   const quiet = silences(db, level, 0.1);
   const sound = { db, level, quiet, duration };
+  if (language !== "en") {
+    const folder = await makeTempFolder("kino-speech-");
+    try {
+      const { heard, english } = await transcribeInLanguage(samples, sound, setup, { names, language, folder });
+      const words = withCuts(withUnclear(saidToEnd(snapWords(heard, sound), heard, language, duration), sound), { db, duration });
+      return {
+        version: TRANSCRIPT_VERSION, model: setup.modelName, language, duration: round(duration),
+        words: markLoops(words.map((word) => ({ text: word.text, start: round(word.start), end: round(word.end), p: round(word.p, 2), cut: round(word.cut), ...(word.unclear ? { unclear: true } : {}) }))),
+        tail: round(words.tail ?? duration), english, ...(names.length ? { names } : {}),
+      };
+    } finally {
+      await removeTempFolder(folder);
+    }
+  }
   const parts = chunks(duration, quiet, COARSE);
   const fineParts = chunks(duration, quiet, FINE);
   const prompt = whisperPrompt(names);
@@ -680,19 +845,32 @@ export function sidecarPath(filename, modelName, names = []) {
  * Transcribes each file once per model and names, and keeps the result beside it. get and saved
  * take {names}: the project's names for whisper's prompt (backend/speech/name-hint.mjs).
  */
-export function createTranscriptCache({ setup = () => whisperSetup(), transcribe = transcribeFile, now = () => Date.now() } = {}) {
+async function detectFile(filename, setup, spans) {
+  const { samples } = await decodeMono(filename, { sampleRate: SAMPLE_RATE });
+  return samples.length ? detectLanguage(samples, setup, spans) : null;
+}
+
+export function createTranscriptCache({
+  setup = () => whisperSetup(), transcribe = transcribeFile, now = () => Date.now(),
+  languages = () => languageSetup(), detect = detectFile,
+  // Never from a test process (node --test sets NODE_TEST_CONTEXT, as backend/index.mjs reads it) or a
+  // server started with KINO_LANG_DOWNLOAD=0 (as KINO_LOOK_DOWNLOAD=0, the test server sets it): no web requests.
+  fetchModel = () => (process.env.NODE_TEST_CONTEXT || process.env.KINO_LANG_DOWNLOAD === "0" ? Promise.reject(new Error("no downloads here")) : fetchLanguageModel()),
+} = {}) {
   const pending = new Map();
   // A file whisper failed on is not tried again for a while: checks ask for the same transcripts
   // over and over, and each failed try costs a whisper run. A missing tool is not remembered.
   const failed = new Map();
-  async function readOrMake(filename, found, names) {
+  // The multilingual model's one fetch: null, "fetching" or "failed" (not tried again this run).
+  let fetchState = null;
+  async function readOrMake(filename, found, names, language = "en") {
     const sidecar = sidecarPath(filename, found.modelName, names);
     try {
       const saved = JSON.parse(await readFile(sidecar, "utf8"));
       // An older version is kept, not made again: cut_speech's cut words are positions in it.
       if (saved?.version >= 1 && saved.version <= TRANSCRIPT_VERSION && Array.isArray(saved.words)) return asRead(saved);
     } catch { /* Missing transcripts are made. */ }
-    const result = await transcribe(filename, found, { names });
+    const result = await transcribe(filename, found, { names, ...(language !== "en" ? { language } : {}) });
     const temporary = `${sidecar}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, JSON.stringify(result), { mode: 0o600, flag: "wx" });
@@ -722,7 +900,59 @@ export function createTranscriptCache({ setup = () => whisperSetup(), transcribe
    * `any` also takes one heard with other names (the brief's names changed since): enough to
    * say what a clip says, not to cut by.
    */
+  /** The language whisper heard in a file ({language, p}), kept in <file>.lang-<model>; null when not checked yet. */
+  async function guessOf(filename, found) {
+    try { return JSON.parse(await readFile(`${filename}.lang-${found.modelName}`, "utf8")); } catch { return null; }
+  }
+  const otherLanguage = (guess) => Boolean(guess?.language) && guess.language !== "en" && !(guess.p < LANG_SURE);
+  /**
+   * The transcript of a clip as said: `english` (get's answer) when it holds no voice, no
+   * multilingual model is set up, or whisper hears English (or is unsure, LANG_SURE); else the
+   * clip heard in its language, with `english` segments (whisper's English for it) and languageP.
+   * A clip the English model tagged as another language starts the model's one fetch when it is
+   * missing; the answer then has languageModel: "fetching".
+   */
+  async function heard(filename, { names = [], english } = {}) {
+    const read = readClipSound(english);
+    // Any word the English model wrote counts, sure or not: on a Spanish line it wrote only unsure
+    // sound-alike words, no line and no voice tag (lines-any-language-review RESULT.md).
+    const wrote = (english?.words ?? []).some((word) => !word.unclear && /[\p{L}\p{N}]/u.test(String(word.text ?? "")));
+    if (!read.lines.length && !read.voice.length && !wrote) return english;
+    const found = languages();
+    if (!found) {
+      if (read.otherLanguage && fetchState === null) {
+        fetchState = "fetching";
+        fetchModel().then(() => { fetchState = null; }, () => { fetchState = "failed"; });
+      }
+      return fetchState === "fetching" ? { ...english, languageModel: "fetching" } : english;
+    }
+    let guess = await guessOf(filename, found);
+    if (!guess) {
+      // The clip's first 30 s, not only the spans the English pass heard: on run 8's F4.13 those spans
+      // (0.2 s padded) read es at p 0.21, the whole 10 s clip ja at p 0.76 (lines-any-language RESULT.md).
+      guess = await detect(filename, found, []);
+      if (!guess) return english;
+      await writeFile(`${filename}.lang-${found.modelName}`, JSON.stringify(guess), { mode: 0o600 }).catch(() => {});
+    }
+    if (!otherLanguage(guess)) return english;
+    const key = sidecarPath(filename, found.modelName, names);
+    if (!pending.has(key)) pending.set(key, readOrMake(filename, found, names, guess.language).finally(() => pending.delete(key)));
+    return { ...(await pending.get(key)), language: guess.language, languageP: guess.p };
+  }
   async function saved(filename, { names = [], exact = false, any = false } = {}) {
+    // A clip heard in its own language (heard) reads that way first.
+    if (any && !exact) {
+      const found = languages();
+      const guess = found ? await guessOf(filename, found) : null;
+      if (otherLanguage(guess)) {
+        for (const file of new Set([sidecarPath(filename, found.modelName, names), sidecarPath(filename, found.modelName)])) {
+          try {
+            const value = JSON.parse(await readFile(file, "utf8"));
+            if (value?.version >= 1 && Array.isArray(value.words)) return { ...asRead(value), language: guess.language, languageP: guess.p };
+          } catch { /* not made yet */ }
+        }
+      }
+    }
     let found;
     try { found = setup(); } catch { return null; }
     if (!found?.modelName) return null;
@@ -740,5 +970,5 @@ export function createTranscriptCache({ setup = () => whisperSetup(), transcribe
     }
     return null;
   }
-  return { get, saved };
+  return { get, saved, heard };
 }

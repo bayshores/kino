@@ -8,6 +8,7 @@ import { voiceLines } from "./mixLevels.js";
 import { mediaPlaybackRange } from "./playback.js";
 import { defaultFonts } from "./fonts.js";
 import { clipSoundsText, SOUND_LISTED, soundEvents } from "./speech.js";
+import { findLine } from "./keepLine.js";
 import { captionWordsFromSpeech, clipLines, clipLinesText, clipSoundText, readClipSound, cutSpeechIndices, fileWords, shiftScene, speechFlags, speechPieces, speechText, speechWords } from "./speech.js";
 
 // "So we will, we will um try. [mumble] Like, the Oaks app." in file seconds; cut = the quiet point before each word.
@@ -506,6 +507,16 @@ test("readClipSound reads a clip whisper tagged as another language as voice, ne
   assert.equal(clipSoundText({ lufs: -16.1, ...english }), '-16.1 LUFS · heard "What are you doing?" 1.5-2.3 s');
   assert.equal(clipSoundText({ lufs: -18.2, lines: [], voice: [] }), "-18.2 LUFS · no voice heard");
   assert.equal(clipSoundText({ lufs: null }), "");
+  // Heard in its own language (transcribe.mjs heard): one word per segment, joined without spaces,
+  // with whisper's English, and keep_line finds the joined line as look source prints it.
+  const japanese = { language: "ja", languageP: 0.9, words: [word("(歌)", 2.77, 3.02), word("殺してやる", 7.8, 8.5), word("絶対に。", 8.5, 9.2)],
+    english: [{ start: 7.7, end: 9.3, text: "I'll kill you, for sure." }] };
+  const said = readClipSound(japanese);
+  assert.deepEqual(said.lines, [{ text: "殺してやる絶対に。", start: 7.8, end: 9.2, english: "I'll kill you, for sure." }]);
+  assert.equal(clipSoundText({ lufs: -23.4, ...said }), '-23.4 LUFS · heard in Japanese (ja, p 0.90): "殺してやる絶対に。" (en: "I\'ll kill you, for sure.") 7.8-9.2 s');
+  assert.deepEqual(findLine(japanese.words.slice(1), "殺してやる絶対に。")?.words.map((each) => each.at), [7.8, 8.5]);
+  // An unsure line in its own language stays voice, as the English pass read it (run 8's F4.3).
+  assert.deepEqual(readClipSound({ language: "ja", words: [word("殺してやる。", 1.9, 2.27, 0.43)] }).voice, [{ start: 1.9, end: 2.27 }]);
 });
 
 test("readClipSound: a laugh read word by word is voice, music and room tags are not, and a background tag keeps English lines", () => {

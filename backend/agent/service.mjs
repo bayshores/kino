@@ -594,6 +594,8 @@ export function createAgentService(deps) {
       const { names, pinned } = await namesOf(document, layer);
       return transcriptCache.saved(file, { names, exact: pinned, any });
     } : undefined,
+    /** The clip as said: in its own language with whisper's English when it is not English (transcribe.mjs heard). */
+    heard: transcriptCache.heard ? async (file, document, layer, english) => transcriptCache.heard(file, { names: (await namesOf(document, layer)).names, english }) : undefined,
   };
   // compose {footage}: each clip's faces, motion and text, and each sound's loudness, kept beside the file.
   const footageCache = deps.footageCache ?? createFootageCache();
@@ -5209,7 +5211,11 @@ export function createAgentService(deps) {
       const layer = { src };
       // A transcript heard before the brief's names changed still says what the clip says.
       const saved = await transcripts.saved?.(file, document, layer, { any: true });
-      return clipLines(saved ?? (make ? await transcripts.get(file, document, layer) : null), { most });
+      // With make (look source), a clip with voice is also heard in its own language once
+      // (transcribe.mjs heard; a saved language check or transcript is read, not made again).
+      if (!make || saved?.language) return clipLines(saved, { most });
+      const english = saved ?? await transcripts.get(file, document, layer);
+      return clipLines((await transcripts.heard?.(file, document, layer, english).catch(() => null)) ?? english, { most });
     } catch { return []; }
   }
 
@@ -5224,8 +5230,9 @@ export function createAgentService(deps) {
       const lufs = await clipLufs(file);
       if (lufs === null) return null;
       const saved = await transcripts.saved?.(file, document, { src }, { any: true });
+      const read = saved ? readClipSound(saved) : null;
       const sounds = await clipSounds(file);
-      return { lufs, voice: saved ? readClipSound(saved).voice : [], sounds };
+      return { lufs, voice: read?.voice ?? [], ...(read?.language ? { language: read.language, p: read.p } : {}), sounds };
     } catch { return null; }
   }
 
@@ -7551,6 +7558,7 @@ export function createAgentService(deps) {
   async function hearClips(media, captions, document) {
     const byId = {};
     let missing = null;
+    let fetching = false;
     for (const item of media) {
       const seconds = Number(item.duration) || 0;
       if (item.hasAudio === false || !deps.mediaRoot) continue;
@@ -7562,15 +7570,19 @@ export function createAgentService(deps) {
       if (captions?.lines && saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, seconds).length) continue;
       try {
         if (!((await footageCache.sound(file)).loud > -55)) continue;
-        const { lines, voice } = readClipSound(await transcripts.get(file, document, { src: item.src }));
-        if (lines.length || voice.length || lufs !== null) byId[item.id] = { lines: lines.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start).slice(0, 3), voice, lufs };
+        const english = await transcripts.get(file, document, { src: item.src });
+        // A clip with voice is heard once more in its own language, with whisper's English (transcribe.mjs heard).
+        const said = (await transcripts.heard?.(file, document, { src: item.src }, english).catch(() => null)) ?? english;
+        const { lines, voice, language, p } = readClipSound(said);
+        if (said.languageModel === "fetching") fetching = true;
+        if (lines.length || voice.length || lufs !== null) byId[item.id] = { lines: lines.sort((a, b) => (a.end - a.start) - (b.end - b.start) || a.start - b.start).slice(0, 3), voice, lufs, ...(language ? { language, p } : {}) };
       } catch (error) {
         if (/install/i.test(String(error?.message))) missing = "no speech model";
       }
     }
     // Sounds besides words for every clip with sound, short ones too (backend/footage/sounds.mjs).
     for (const item of media) if (byId[item.id]) byId[item.id].sounds = await clipSounds(path.join(deps.mediaRoot, item.id));
-    return Object.keys(byId).length || missing ? { byId, missing } : null;
+    return Object.keys(byId).length || missing ? { byId, missing, ...(fetching ? { fetching: true } : {}) } : null;
   }
 
   // A clip's integrated loudness (FFmpeg ebur128), or null when it is silent or cannot be read.

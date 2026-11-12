@@ -363,7 +363,10 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
   const burned = markLine(media.find((item) => item.footage?.marks?.length), frame);
   if (burned) lines.push(burned);
   if (heardAny) lines.push(`heard: lines whisper read from each clip's own sound; "voice heard ..., words not read" is voice it could not read (another language, a laugh), file seconds. Keep one: edit {ops:[{op:"keep_line", layer, line, duck:"<song layer>"}]}, or by time: keep_line {layer, from, to} (scene seconds).`);
-  else if (heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
+  // Another language (transcribe.mjs heard): (en: "...") is whisper's English; with no multilingual model yet, its one fetch.
+  if (media.some((item) => heard?.byId?.[item.id]?.language)) lines.push(`(en: "...") is whisper's English for a line in another language; keep_line {layer, line} keeps it as said, or {from, to, text} with the words to show.`);
+  if (heard?.fetching) lines.push("Voice in another language: kino is fetching ggml-small.bin (488 MB, once); look source {layer} reads its lines after.");
+  else if (!heardAny && heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
   if (soundAny) lines.push(`sounds: what the macOS sound classifier heard besides words (file seconds, loudest first). Keep one with no subtitle: edit {ops:[{op:"keep_line", layer, sound:"<label>"}]}.`);
   const credit = media[0]?.credit ?? takeCredit(candidate);
   lines.push(`credit kept with each file: ${credit.line}`);
