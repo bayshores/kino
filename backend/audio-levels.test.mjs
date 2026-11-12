@@ -264,6 +264,11 @@ test("the limiter places: each 0.1 s peak over the ceiling, near ones joined, ti
     { at: 0.2, from: 0.1, to: 0.4, peakDbtp: -0.4, overDb: 1.1, factor: 0.88 },
     { at: 2, from: 2, to: 2.1, peakDbtp: 3.1, overDb: 4.6, factor: 0.58 },
   ]);
+  // A printout whose times are not numbers (a real mix from the server read NaN at every place, 74
+  // places for 3): each window is placed by its count, 0.1 s apart, so near ones still join.
+  const untimed = ["-20", "-1.2", "-0.4", "-0.45", "-9", "-9", "-9", "-9", "3.1", "-9"]
+    .map((peak) => `frame:0 pts:NOPTS pts_time:NOPTS\nlavfi.astats.1.Peak_level=${peak}`).join("\n");
+  assert.deepEqual(limiterPlaces(readPeakWindows(untimed).windows).map((place) => [place.at, place.from, place.to]), [[0.2, 0.1, 0.4], [0.8, 0.8, 0.9]]);
   const mix = { integratedLufs: -11.2, truePeakDbtp: 3.1, places: places.map((place) => ({ ...place, playing: [{ name: "song", volume: 1 }, { name: "hit", volume: 0.55 }] })) };
   const line = describeMixPeaks(mix, { limit: 1, tail: "; all: look" });
   assert.match(line, /^mix: -11\.2 LUFS, true peak \+3\.1 dBTP .*works at 2 places, worst 1: 2 s \+3\.1 dBTP, 4\.6 dB over \(song 1, hit 0\.55\) x0\.58 .*; all: look$/);
