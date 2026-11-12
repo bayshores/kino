@@ -444,8 +444,9 @@ test("render draft makes a video file", { skip: skipWithoutMediaTools }, async (
   assert.equal(done.data.files[0].width, 320);
   assert.equal(done.data.files[0].height, 180);
 
-  // A width and height given with the draft are honored up to the scene's size; it stays a draft.
-  const full = await agent("render", { project: "alpha", action: "start", quality: "draft", options: { width: 640, height: 360 }, wait: true });
+  // A width and height given with the draft (beside quality, as `kino render quality=draft width=640`
+  // sends them, or in options) are honored up to the scene's size; it stays a draft.
+  const full = await agent("render", { project: "alpha", action: "start", quality: "draft", width: 640, height: 360, wait: true });
   assert.match(full.text, /^R\d+ draft done rev \d+ 640×360 30fps/, full.text);
   assert.equal(full.data.files[0].width, 640);
   assert.equal(full.data.files[0].height, 360);

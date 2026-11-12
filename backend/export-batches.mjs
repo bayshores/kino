@@ -153,11 +153,11 @@ function frameRate(options) {
 
 // The scale a draft asked for with options {width, height} (a box the picture fits in) or {size}
 // (a preset such as "720p"), never above the scene's own size. Null when it asked for none, so
-// the draft keeps its half-size default.
+// the draft keeps its half-size default. A size wins over width and height, as getOutputSize reads them.
 function askedDraftScale(scene, options) {
   const sceneWidth = Number(scene.width);
   const sceneHeight = Number(scene.height);
-  if (options.size && options.size !== "native" && options.width == null && options.height == null) {
+  if (options.size && options.size !== "native") {
     const size = getOutputSize(scene, options);
     return Math.min(1, size.width / sceneWidth, size.height / sceneHeight);
   }

@@ -172,6 +172,9 @@ export const AGENT_TOOLS = withSaid([
     name: "render",
     title: "Render video",
     hints: CAN_LOSE_DATA, // can overwrite an earlier export file (after the person approves); history cannot bring that file back
+    // A draft's width, height or size given beside quality (not in options) is not listed (the tool
+    // list's budget): keepUnknownKeys passes it to the service, which reads it as options.
+    keepUnknownKeys: true,
     description: "Export: start, wait (checked files, 55s), status, queue, cancel. draft: half size/30fps; preview:fast: 640px/15fps. from/to: draft excerpt. final: full size, gated. awaiting_approval: wait {job:id}. Details: library rules render.",
     input: {
       action: z.enum(["start", "wait", "status", "cancel", "queue"]).optional(),
