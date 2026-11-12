@@ -31,6 +31,7 @@ import { SHADOW_LIMITS } from "./shadowInterpolation.js";
 import { normalizeShadowChannels } from "./shadowChannels.js";
 import { normalizeShadowList } from "./stackedShadows.js";
 import { STACKED_STROKE_TYPES, normalizeStrokeList } from "./stackedStrokes.js";
+import { normalizeMaterial } from "./typeMaterial.js";
 import { migrateDocument } from "./documentMigration.js";
 import { sceneRectangles, MAX_CANVAS_COORDINATE } from "./sceneLayout.js";
 import { LETTER_SPACING_LIMIT } from "./letterSpacing.js";
@@ -1313,6 +1314,13 @@ function normalizeLayer(raw, path, animationIds, counters) {
   else {
     layer.strokes = normalizeStrokeList(layer.strokes, `${path}.strokes`);
     if (!layer.strokes) delete layer.strokes;
+  }
+  // A text layer's material (typeMaterial.js): optional, left out when empty.
+  if (layer.material == null) delete layer.material;
+  else if (type !== "text") fail(`${path}.material`, "only text layers take a material (wear, texture, print)");
+  else {
+    layer.material = normalizeMaterial(layer.material, `${path}.material`);
+    if (!layer.material) delete layer.material;
   }
   layer.text = requireString(layer.text, `${path}.text`, MAX_STRING_LENGTH);
   if (layer.textStyleRanges !== undefined) {

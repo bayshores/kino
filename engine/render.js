@@ -16,6 +16,7 @@ import { generalReveal } from "./wipe.js";
 import { shadowAlpha, withShadowAlpha } from "./shadowInterpolation.js";
 import { shadowStrength, stackedShadows } from "./stackedShadows.js";
 import { splitLetterStrokes, stackedStrokes, strokeReach } from "./stackedStrokes.js";
+import { drawMaterial, hasMaterial } from "./typeMaterial.js";
 import { styledStroke } from "./strokeStyles.js";
 import { expandEffectBounds, mappedBounds, mergeBounds } from "./effectBounds.js";
 import { enabledAnimations } from "./animationEnabled.js";
@@ -743,6 +744,17 @@ function textListStrokes(unit, state, context) {
   return listStrokes((attributes) => `<path d="${escapeXml(d)}" ${attributes}/>`, state, context, bounds, () => d);
 }
 
+// The letters of `unit` as drawn (`paths`) with the layer's material on them (typeMaterial.js):
+// worn edges, a texture inside and a second print, all on the letters' own outlines.
+function withMaterial(paths, unit, state, context) {
+  if (!hasMaterial(state)) return paths;
+  const outlined = unit.glyphs.filter((glyph) => glyph.path && !glyph.color);
+  if (!outlined.length) return paths;
+  const bounds = mergeBounds(outlined.map(glyphPathBounds).filter(Boolean));
+  return drawMaterial(paths, { material: state.material, outline: escapeXml(outlined.map((glyph) => glyphPath(glyph)).join(" ")), bounds,
+    fontSize: finite(state.fontSize, 100), reach: strokeReach(state), defs: context.defs, id: (kind) => idFor(context, kind) });
+}
+
 function glyphPaths(unit, state, context) {
   const paints = new Map();
   return unit.glyphs.filter((glyph) => glyph.path || glyph.color).map((glyph) => {
@@ -965,7 +977,8 @@ function textSvg(layer, base, context) {
   if (!plan.separate) {
     const layout = layoutText(base, context.fonts);
     const missing = layout.lines.some((line) => line.glyphs.some((glyph) => glyph.missing));
-    return `<g role="img" aria-label="${escapeXml(layout.text)}"${missing ? ' data-missing-glyphs="true"' : ""}>${missing ? "<title>Some characters are unavailable and are shown as boxes.</title>" : ""}${layoutUnitPaths(layout, "layer", wholeLayout(layout, context), base, context)}</g>`;
+    const whole = wholeLayout(layout, context);
+    return `<g role="img" aria-label="${escapeXml(layout.text)}"${missing ? ' data-missing-glyphs="true"' : ""}>${missing ? "<title>Some characters are unavailable and are shown as boxes.</title>" : ""}${withMaterial(layoutUnitPaths(layout, "layer", whole, base, context), whole, base, context)}</g>`;
   }
   return unitsSvg(layer, units.map((unit, index) => ({ unit,
     state: textAnimationUnitState(plan, index, context.time, { design: context.design }) })), context, true);
@@ -991,7 +1004,7 @@ function unitsSvg(layer, items, context, label) {
     const shown = !split ? state : part === "under" ? { ...state, strokes: [split.under[entry]], ...(split.solid && !entry ? {} : unshadowed) }
       : { ...state, strokes: split.over, ...(split.solid ? unshadowed : {}) };
     const paths = part === "under" ? textListStrokes(current, shown, context)
-      : backdropContent(layoutUnitPaths(layout, range, current, shown, context), layer, shown, context, { unit: current });
+      : backdropContent(withMaterial(layoutUnitPaths(layout, range, current, shown, context), current, shown, context), layer, shown, context, { unit: current });
     const painted = effectContent(paths, layer, shown, context, layoutUnitBounds(layout, range, current, context));
     recordTextUnitBounds(layer, shown, painted, context);
     return clipTextUnit(`<g opacity="${fmt(Math.max(0, Math.min(1, finite(state.opacity, 1))))}" transform="${transformFor(state)}"${filterFor(shown, context, hasFilterEffect(shown) ? painted.bounds : null)}${label ? ` aria-label="${escapeXml(unit.text)}"` : ""}>${painted.content}</g>`, state, context);

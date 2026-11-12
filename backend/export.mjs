@@ -70,6 +70,7 @@ import { leveledVoice, liftCap, loudnessOver, voiceLeveling, withOwnLevel } from
 import { keptRanges } from "../engine/keepLine.js";
 import { maskStyle, maskSwitchedOff } from "../engine/maskVisibility.js";
 import { captureLayerSvg, escapeXml, EXPORT_FRAME_URL, heldSceneTime, layerClocks, normalizeMediaHref, renderSceneSvg } from "../engine/render.js";
+import { hasMaterial } from "../engine/typeMaterial.js";
 import { backgroundLayer, isBackgroundEnabled, withoutBackground } from "../engine/sceneBackground.js";
 import { ffmpegRate, readFps } from "../engine/frameRate.js";
 import { exportFrameCount, exportFrameTime, exportFrameTimes, exportProfile, resolveExportDimensions, validateExportDimensions } from "../engine/exportOptions.js";
@@ -2335,6 +2336,8 @@ function assertLottieFeatures(scene, media = {}) {
         throw new Error(`Lottie export cannot render stacked shadows (shadows) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or keep one shadow (shadow) for Lottie.`);
       if (Array.isArray(layer.strokes) && layer.strokes.length)
         throw new Error(`Lottie export cannot render stacked strokes (strokes) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or keep one stroke (stroke) for Lottie.`);
+      if (hasMaterial(layer))
+        throw new Error(`Lottie export cannot render a text material (material) on layer “${layer.name ?? layer.id}”. Use PNG, video, or GIF export, or set material to null for Lottie.`);
       if (["video", "audio"].includes(layer.type))
         throw new Error(
           `Lottie export does not support ${layer.type} layer “${layer.name ?? layer.id}”.`,
