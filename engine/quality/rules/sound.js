@@ -23,7 +23,9 @@ import { mediaPlaybackRange } from "../../playback.js";
 import { isRemapped } from "../../mediaTime.js";
 import { cuts, sec } from "../analysis.js";
 import { area, dimmedAt, intersection, visibleBoxAt } from "../model.js";
-import { coveredAt } from "../techniques.js";
+import { coveredAt, techniquesUsed } from "../techniques.js";
+import { elementPlaces, SAME_PLACE } from "../returns.js";
+import { ACTION_KINDS } from "../../soundActions.js";
 import { blurred } from "./people.js";
 import { levelBetween, soundLevels } from "../loudness.js";
 import { FRAGMENT_WORDS, TALKING_BEFORE, breakAfter, continues, heardEdges, isFiller } from "./speech.js";
@@ -638,7 +640,7 @@ const SFX_IN_STRETCH = 4;
 // The same file this many times or more is one sound on a repeated motion.
 const SFX_REPEATS = 3;
 
-/** sfx_restraint: sound effects more than about one every 4 s in a stretch, or one sound repeated on repeated motions. */
+/** sfx_restraint: sound effects more than about one every 4 s in a stretch, or one sound repeated on repeated motions. A sound on a visible action, or one file on each return of one element, is not counted. */
 /** The sound effects of the scene (sound layers under SFX_SECONDS, not music, not a voice), as [{layer, at}] by time. */
 export function soundEffectsOf(ctx) {
   const scene = ctx.speechScene ?? ctx.scene;
@@ -654,10 +656,38 @@ export function soundEffectsOf(ctx) {
   return effects.sort((a, b) => a.at - b.at);
 }
 
+// A sound starting this close to a visible action or to an element's place is on it: its transient
+// lands a little after its start (place_sounds), or a hand-placed sound sits beside the cut (the
+// returns' SAME_PLACE, a guess).
+const ON_PLACE = SAME_PLACE;
+
+/**
+ * The sound effects that mark something the viewer sees, so they are not excess: one on a visible
+ * action (kino's own moves, the ones place_sounds offers), and two or more plays of one file on
+ * the places of one returning element (a footstep on each cut back to the same stairs).
+ */
+function soundsOnPurpose(model, scene, effects) {
+  const near = (at, times) => times.some((time) => Math.abs(time - at) <= ON_PLACE + 1e-6);
+  const actions = Object.entries(techniquesUsed(model)).filter(([tag]) => ACTION_KINDS[tag]).flatMap(([, uses]) => uses.map((use) => use.at)).filter(Number.isFinite);
+  const kept = new Set(effects.filter((item) => near(item.at, actions)));
+  const returns = [...elementPlaces(scene).values()];
+  const bySource = new Map();
+  for (const item of effects) bySource.set(item.layer.src, [...(bySource.get(item.layer.src) ?? []), item]);
+  for (const list of bySource.values()) {
+    for (const places of returns) {
+      const on = list.filter((item) => near(item.at, places));
+      if (on.length >= 2) for (const item of on) kept.add(item);
+    }
+  }
+  return kept;
+}
+
 export function sfxRestraint(model, ctx) {
   const scene = ctx.speechScene ?? ctx.scene;
   if (!scene) return [];
-  const effects = soundEffectsOf(ctx);
+  const all = soundEffectsOf(ctx);
+  const onPurpose = soundsOnPurpose(model, scene, all);
+  const effects = all.filter((item) => !onPurpose.has(item));
   const findings = [];
   let worst = null;
   for (let i = 0; i < effects.length; i += 1) {

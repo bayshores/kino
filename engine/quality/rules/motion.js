@@ -7,6 +7,7 @@ import { heardEdges, heardWords } from "./speech.js";
 import { area, boxAt, chainOf, frameAt, itemById, roundBox, tweensOf } from "../model.js";
 import { easingBezier } from "../../easing.js";
 import { WHIP_SHUTTER } from "../../previewBlur.js";
+import { elementKey, SAME_PLACE } from "../returns.js";
 
 // Position, scale and rotation: the keys linear_motion and the bounce rules look at.
 const MOTION_KEYS = new Set(["x", "y", "scaleX", "scaleY", "rotation"]);
@@ -179,10 +180,30 @@ export function springOnFade(model, ctx) {
   return findings;
 }
 
+// The movers: copies of one element (one name, words or file, as duplicate_layers {at} makes them)
+// that each start at a different place are one mover, since a returning element keeps its motion
+// on purpose. Copies that start together (a row) stay separate.
+function moverCount(model, list) {
+  const starts = new Map();
+  for (const motion of list) starts.set(motion.itemId, Math.min(starts.get(motion.itemId) ?? Infinity, motion.start));
+  const byElement = new Map();
+  for (const [id, start] of starts) {
+    const item = itemById(model, id);
+    const key = item ? elementKey({ type: item.kind, name: item.name, text: item.text, src: item.src }) : id;
+    byElement.set(key, [...(byElement.get(key) ?? []), start]);
+  }
+  let count = 0;
+  for (const times of byElement.values()) {
+    times.sort((a, b) => a - b);
+    count += times.every((time, index) => index === 0 || time - times[index - 1] >= SAME_PLACE - 1e-6) ? 1 : times.length;
+  }
+  return count;
+}
+
 export function sameMotion(model, ctx) {
   const list = judgedMotions(model);
   const animated = new Set(list.map((motion) => motion.itemId));
-  if (animated.size < 4) return [];
+  if (animated.size < 4 || moverCount(model, list) < 4) return [];
   const keys = new Set(list.map((motion) => `${easingKey(motion.easing)} ${sec(motion.duration)}`));
   if (keys.size > 1) return [];
   const [first] = list;

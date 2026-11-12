@@ -7,7 +7,12 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { nextCallOf, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { skillSection } from "./skill.test.support.mjs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { createCanvas } from "@napi-rs/canvas";
 import { coverNotes } from "./agent/silent-receipts.mjs";
+import { seeThrough } from "./agent/picture-alpha.mjs";
 
 let server;
 before(async () => {
@@ -541,6 +546,26 @@ test("a full-frame clip made over text that shows at the same time is said with 
   const shown = { ...scene.layers[1], animations: [{ kind: "show", start: 2 }] };
   const gone = { ...scene.layers[0], animations: [{ kind: "hide", start: 1 }] };
   assert.equal(coverNotes({}, { scenes: [{ ...scene, layers: [gone, shown] }] }, ["shot"], (id) => id).length, 0);
+});
+
+test("a full-frame file with an alpha channel (an alpha WebM, a picture with a clear part) gets no cover note", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "kino-alpha-"));
+  try {
+    // A WebM track header with AlphaMode 1, one without it, a picture with a clear half and an opaque one.
+    await writeFile(path.join(root, "glow.webm"), Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0xae, 0x53, 0xc0, 0x81, 0x01]));
+    await writeFile(path.join(root, "plain.webm"), Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0xae, 0x53, 0xb0, 0x81, 0x01]));
+    const png = (clear) => { const canvas = createCanvas(64, 36); const context = canvas.getContext("2d"); context.fillStyle = "#336699"; context.fillRect(0, 0, clear ? 32 : 64, 36); return canvas.toBuffer("image/png"); };
+    await writeFile(path.join(root, "half.png"), png(true));
+    await writeFile(path.join(root, "solid.png"), png(false));
+    const found = await Promise.all(["glow.webm", "plain.webm", "half.png", "solid.png"].map((name) => seeThrough(root, `/api/media/${name}`)));
+    assert.deepEqual(found, [true, false, true, false]);
+    const scene = { id: "s", width: 960, height: 540, duration: 4, layers: [
+      { id: "title", type: "text", parentId: null, x: 100, y: 200, width: 600, height: 100, opacity: 1, animations: [] },
+      { id: "glow", type: "video", src: "/api/media/glow.webm", parentId: null, x: 0, y: 0, width: 960, height: 540, opacity: 1, animations: [] },
+    ] };
+    assert.equal(coverNotes({}, { scenes: [scene] }, ["glow"], (id) => id, { seeThrough: new Set(["/api/media/glow.webm"]) }).length, 0);
+    assert.equal(coverNotes({}, { scenes: [scene] }, ["glow"], (id) => id).length, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("after a check fix:auto that applied nothing, next: names a plain check, not fix:auto again", async () => {

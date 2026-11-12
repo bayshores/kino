@@ -31,6 +31,49 @@ function subtree(layers, root) {
 // " copy" and a trailing " 3" come off a name, so copies group with their original.
 const nameBase = (name) => String(name ?? "").replace(/( copy)+( \d+)?$/i, "").replace(/ \d+$/, "").trim().toLowerCase();
 
+// A video's place is its play time, an instance's its clock, any other layer's the first Show or
+// animation start in it (0 with none).
+function placeOf(layers, layer) {
+  if (hasMediaPlay(layer)) return Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0;
+  if (layer.type === "component" && Number.isFinite(layer.componentStart)) return layer.componentStart;
+  return selectionStart(subtree(layers, layer)) ?? 0;
+}
+
+/**
+ * The element a layer shows, as a key its copies share: a video or picture is its file, any other
+ * layer its type, its name less " copy" and a number (duplicate_layers names copies "<name> 2"),
+ * and its words.
+ */
+export function elementKey(layer) {
+  if ((layer?.type === "video" || layer?.type === "image") && layer.src) return `file:${layer.src}`;
+  return `${layer?.type}:${nameBase(layer?.name)}:${String(layer?.text ?? "").trim().toLowerCase()}`;
+}
+
+/**
+ * Each element shown at two or more places (SAME_PLACE apart): Map key → [s], in time order. A
+ * video or picture counts at any depth, any other layer at the top level. For rules that leave a
+ * returning element's repeats alone (sfx_restraint).
+ */
+export function elementPlaces(scene) {
+  const layers = scene?.layers ?? [];
+  const byKey = new Map();
+  for (const layer of layers) {
+    if (layer.type === "audio" || layer.enabled === false || layer.move?.name) continue;
+    if (layer.parentId && !((layer.type === "video" || layer.type === "image") && layer.src)) continue;
+    const key = elementKey(layer);
+    byKey.set(key, [...(byKey.get(key) ?? []), { time: placeOf(layers, layer) }]);
+  }
+  const returning = new Map();
+  for (const [key, uses] of byKey) {
+    const places = placesOf(uses.sort((a, b) => a.time - b.time)).map((use) => use.time);
+    if (places.length >= 2) returning.set(key, places);
+  }
+  return returning;
+}
+
+/** Two places of one element closer than this are one place (a layer and its plate). */
+export { SAME_PLACE };
+
 // Every group of alike uses: {key, label, uses:[{time, layer}]} (uses in time order).
 function groupUses(scene, scenes) {
   const layers = scene?.layers ?? [];
@@ -40,13 +83,7 @@ function groupUses(scene, scenes) {
     if (!groups.has(key)) groups.set(key, { key, label, uses: [] });
     groups.get(key).uses.push({ time, layer });
   };
-  // A video's place is its play time, an instance's its clock, any other layer's the first
-  // Show or animation start in it (0 with none).
-  const timeOf = (layer) => {
-    if (hasMediaPlay(layer)) return Number.isFinite(layer.mediaStart) ? layer.mediaStart : 0;
-    if (layer.type === "component" && Number.isFinite(layer.componentStart)) return layer.componentStart;
-    return selectionStart(subtree(layers, layer)) ?? 0;
-  };
+  const timeOf = (layer) => placeOf(layers, layer);
   const instances = new Map();
   for (const layer of layers) {
     if (layer.type === "audio") continue;

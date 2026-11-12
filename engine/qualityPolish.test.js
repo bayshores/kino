@@ -949,6 +949,10 @@ test("sfx_restraint: more than one sound effect every 4 s, or one sound on every
   assert.match(repeat.measured, /^one sound 3 times \(0s, 6s, 12s\)/);
   // 4 different hits spread out, and a long bed under them: fine.
   assert.deepEqual((await run([...[0, 5, 10, 15].map((at, i) => hit(`ok${i}`, at)), voice("bed", { mediaDuration: 20 })])).findings, []);
+  // One footstep on each cut back to the same stairs file (the file returns at 1, 3, 6, 8 and 9 s):
+  // the sound marks the return, so neither the repeat nor the rate counts it.
+  const stairs = [1, 3, 6, 8, 9].map((at, i) => ({ type: "video", id: `climb${i}`, name: `climb-${i}`, src: "/api/media/stairs.mp4", mediaSourceDuration: 10, mediaStart: at, mediaOffset: i, mediaDuration: 0.5, x: 0, y: 0, width: 1920, height: 1080 }));
+  assert.deepEqual((await run([...stairs, ...[1.05, 3, 6.1, 8, 9].map((at, i) => hit(`step${i}`, at, "/api/media/step.wav"))])).findings, []);
 });
 
 test("speech_quotes: spoken captions that look like a line nobody says", async () => {
@@ -1004,6 +1008,10 @@ test("soft_upscale: a phone recording zoomed past its pixels is a gate; full fra
   assert.equal(reframed.severity, "warn");
   await silent("soft_upscale", ...footage([clip("tall", "/api/media/tall.mp4", { x: 696, width: 528 })]));
   await silent("soft_upscale", ...footage([clip("phone", "/api/media/phone.mp4", { x: 711, width: 498, blur: 20, animations: [zoom] })]));
+  // Three layers drawing one file at one magnification are one finding that names them, at the same level.
+  const three = await fires("soft_upscale", ...footage(["a", "b", "c"].map((id, i) => clip(id, "/api/media/walk.mp4", { x: -1167, width: 3413, height: 1920, mediaStart: i, mediaOffset: i, mediaDuration: 1 }))));
+  assert.deepEqual([three.length, three[0].severity, three[0].itemIds], [1, "warn", ["a", "b", "c"]]);
+  assert.match(three[0].message, /^3 layers \("?a"?, "?b"?, "?c"?\) draw one 1920x1080 file 1\.78x/);
 });
 
 test("crop_no_subject: footage drawn past the frame needs a subject, and keeps it in the frame", async () => {

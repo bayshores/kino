@@ -79,6 +79,9 @@ function zoomingFast(model, item, index) {
 export function softUpscale(model, ctx) {
   if (!ctx.mediaSizes) return [];
   const findings = [];
+  // Layers that draw one file at one magnification are one finding that names them all (nine
+  // 960x540 elements on a 1920x1080 scene are one fact, not nine).
+  const byDrawing = new Map();
   for (const item of model.items) {
     if (item.kind !== "image" && item.kind !== "video") continue;
     const size = sizeOf(ctx, item);
@@ -96,14 +99,24 @@ export function softUpscale(model, ctx) {
     });
     // A single sample can be a rounding at a cut; two or more is seen.
     if (!worst || over < Math.min(2, model.times.length)) continue;
+    const key = `${item.src} ${sec(worst.magnified)}`;
+    if (!byDrawing.has(key)) byDrawing.set(key, []);
+    byDrawing.get(key).push({ item, size, worst, over });
+  }
+  for (const group of byDrawing.values()) {
+    const [{ item, size, worst, over }] = group;
+    const items = group.map((entry) => entry.item);
+    const names = items.length > 1 ? `${items.slice(0, 4).map((entry) => ctx.name(entry)).join(", ")}${items.length > 4 ? ` and ${items.length - 4} more` : ""}` : ctx.name(item);
     const drawn = [Math.round(size.width * worst.magnified), Math.round(size.height * worst.magnified)];
     const keep = Math.floor((UPSCALE_MAX / worst.magnified) * 100);
     findings.push({
-      rule: "soft_upscale", severity: worst.magnified > UPSCALE_GATE ? "error" : "warn", itemId: item.id, at: sec(worst.time),
-      message: `${ctx.name(item)} is drawn ${sec(worst.magnified)}x bigger than its ${size.width}x${size.height} file at ${sec(worst.time)} s: it looks soft.`,
-      measured: `${sec(worst.magnified)}x at ${sec(worst.time)} s (the file drawn ${drawn[0]}x${drawn[1]} px), over ${UPSCALE_MAX}x for ${sec(over / model.fps)} s`,
+      rule: "soft_upscale", severity: worst.magnified > UPSCALE_GATE ? "error" : "warn", itemId: item.id, ...(items.length > 1 ? { itemIds: items.map((entry) => entry.id) } : {}), at: sec(worst.time),
+      message: items.length > 1
+        ? `${items.length} layers (${names}) draw one ${size.width}x${size.height} file ${sec(worst.magnified)}x bigger than its pixels: they look soft.`
+        : `${names} is drawn ${sec(worst.magnified)}x bigger than its ${size.width}x${size.height} file at ${sec(worst.time)} s: it looks soft.`,
+      measured: `${sec(worst.magnified)}x at ${sec(worst.time)} s (the file drawn ${drawn[0]}x${drawn[1]} px), over ${UPSCALE_MAX}x for ${sec(over / model.fps)} s${items.length > 1 ? `, on ${items.length} layers` : ""}`,
       required: `at most ${UPSCALE_MAX} output pixels per file pixel`,
-      fix: { kind: "hint", text: `Lower ${ctx.name(item)}'s scale or zoom where it peaks to ${keep}% of it (${UPSCALE_MAX}x), or import a sharper file (at least ${Math.ceil(drawn[0] / UPSCALE_MAX)}x${Math.ceil(drawn[1] / UPSCALE_MAX)}). A blur of ${SOFT_BLUR} or more is left alone (a backdrop).` },
+      fix: { kind: "hint", text: `Lower ${names}'s scale or zoom where it peaks to ${keep}% of it (${UPSCALE_MAX}x), or import a sharper file (at least ${Math.ceil(drawn[0] / UPSCALE_MAX)}x${Math.ceil(drawn[1] / UPSCALE_MAX)}). A blur of ${SOFT_BLUR} or more is left alone (a backdrop).` },
     });
   }
   return findings;
