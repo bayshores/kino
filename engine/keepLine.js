@@ -544,9 +544,23 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
       const upAt = ups.length ? round(Math.min(...ups.map((animation) => animation.start + animation.duration))) : null;
       if (back && out && upAt !== null && upAt < back.at - 0.02) notes.push(`the music drops out for the line and is back by ${upAt} s (${Math.abs(round(upAt - end, 1))} s ${upAt >= end ? "after" : "before"} the line ends): the dip ends on the song's section cue there, not on the beat at ${back.at} s`);
       else if (back && out && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
+      // A dip joined with one under another line stays down past the beat: the note says when it is back.
+      else if (back && duck && !out && upAt !== null && upAt > back.at + 0.02) notes.push(`the music stays down with the dip under the next sound and comes back up at ${upAt} s (not on the beat at ${back.at} s)`);
       else if (back && duck) notes.push(out ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
       else if (out) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
       if (duck && !out && operation.dip === undefined && over && !over.own) notes.push("dropout:true takes the music out under the line and hits back on the next downbeat");
+    }
+    // The lift leaves the song as it is, but a dip an earlier line made may still hold it down under
+    // this one (dm2-b replay): the ways are measured without it, so the note and the mix give the song as heard.
+    if (way === "lift" && ways && mix?.line !== undefined && Number.isFinite(over?.measured?.under)) {
+      const range = mediaPlaybackRange(music.layer, scene.duration);
+      const heard = range ? heardLoudness(operation.levels?.[music.layer.id], music.layer, range, start, end) : null;
+      if (heard !== null && heard < over.measured.under - 0.5) {
+        const song = round(heard, 1);
+        notes.push(`a dip already under this stretch holds ${music.layer.name} at ${song} LUFS (${round(song - over.measured.under, 1)} LU from its own ${over.measured.under}): the line is ${signed(round(mix.line - song, 1))} LU over the song as heard`);
+        const total = round(10 * Math.log10(10 ** (mix.line / 10) + 10 ** (song / 10)), 1);
+        mix = { ...mix, under: total, change: Number.isFinite(mix.around) ? round(total - mix.around, 1) : mix.change };
+      }
     }
     if (ways) waysSaid = { ways: waysText(ways, level), way: way ?? (out ? "out" : "dip") };
     if (operation.wait !== undefined && !out) notes.push("wait is ignored without dropout:true (it is how long the music stays out for the next downbeat)");

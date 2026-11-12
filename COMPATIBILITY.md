@@ -1096,7 +1096,8 @@ How to read it:
   curves, not rendered. Each line's level over the song is printed three ways (lifted with the song untouched and its
   headroom to the song's loudest moment, the shallowest dip with the lift, music out); the default lifts alone when
   that reaches 6 LU, else takes the shallowest dip, and lifts instead when a dip would churn (volume_churn);
-  duck_audio's default joins churning dips 3 s apart or less into one (`joined`).
+  duck_audio's default joins churning dips 3 s apart or less into one (`joined`). Replayed on a copy of a real
+  project: lift inside another line's dip and a dip joined past the beat now print the song as heard and the real release time.
   Evidence: `engine/speech.test.js`, `engine/audioDucking.test.js`. Gap: the headroom is a loudness stand-in, not a measured peak.
 - **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
