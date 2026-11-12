@@ -39,6 +39,10 @@ test("describe_operation answers by type, topic and search, and suggests close n
   assert.match(describeOperation({ search: "no-such-words" }), /No topic mentions/);
   assert.throws(() => describeOperation({ type: "add_layr" }), /Did you mean add_layer/);
   assert.throws(() => describeOperation({ topic: "easings" }), /Did you mean easing/);
+  // Each topic id is read by name, so a second topic with the same id would hide the first.
+  const ids = guideTopics().map((topic) => topic.id);
+  assert.deepEqual(ids.filter((id, index) => ids.indexOf(id) !== index), [], "guide topic ids are unique");
+  assert.match(describeOperation({ topic: "effects" }), /^## effects: Effect animations\n/);
   // A by-type answer is about 2.5k tokens at most; any answer stays under the 8k-token limit.
   for (const type of OPERATION_TYPES)
     assert.ok(describeOperation({ type }).length <= 9_000, `${type} answer is short`);

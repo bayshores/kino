@@ -70,7 +70,12 @@ test("Animation: saved easing and text effect names reach durable presets and re
   const effect = await manage("saved-presets", "effects", "save", { name: "Gentle reveal", sourceAnimation: "A1" });
   await edit("saved-presets", [{ op: "delete_animation", animation: "A1" }, { op: "apply_text_effect", name: "Gentle reveal", layers: ["title"], time: 0 }]);
   assert.deepEqual(await pixels("saved-presets", 0.5), original);
-  assert.ok((await call("library", { topic: "effects" })).text.includes("Gentle reveal"));
+  assert.ok((await call("library", { topic: "text-effects" })).text.includes("Gentle reveal"));
+  const catalog = (await call("library", { topic: "effects" })).text;
+  assert.ok(catalog.includes("vignette") && !catalog.includes("Gentle reveal") && !catalog.includes("No saved"), "effects lists the catalog, saved text effects are their own topic");
+  assert.match((await call("library", { topic: "effects", name: "speed-lines" })).text, /^speed-lines \(Speed Lines, Post FX\)[\s\S]*\n {2}taper number /);
+  const missing = await call("library", { topic: "effects", name: "vinjette" }, true);
+  assert.match(missing.text, /No effect \\"vinjette\\"\./);
   assert.ok((await call("library", { topic: "easings" })).text.includes("Coral ease"));
   await manage(null, "easings", "rename", { id: easing.data.id, name: "Changed ease" });
   await manage(null, "effects", "rename", { id: effect.data.id, name: "Changed reveal" });

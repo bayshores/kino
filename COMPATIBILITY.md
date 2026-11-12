@@ -340,6 +340,9 @@ How to read it:
   `library {topic:"fonts", search:"condensed bold sans"}` lists catalog fonts by look. Evidence:
   `backend/look-source.test.mjs` (compose then check), `backend/agent-fonts.test.mjs`,
   `engine/qualityRules.test.js`, `engine/footage.test.js`.
+- **Effects by name**: Verified. `library {topic:"effects"}` lists the whole catalog in one small answer by group; with `name` it gives the effect's fields, ranges and defaults (plain words such as "depth of field" reach focus-band, a misspelling gets close names); saved text effects are `library {topic:"text-effects"}`. Evidence: `backend/agent-answers.test.mjs`, `backend/agent-reach-workspace.test.mjs`.
+- **Look words reach a maker**: Verified. Search maps vignette, edges, rim, streak, depth of field, grain, neon, scrawl, brush, typed and highlight to the effect, move or font help that makes them; letterbox bars and lightning say they are built from shapes. Evidence: `backend/agent-answers.test.mjs`, `backend/agent-inspire.test.mjs`.
+- **Font class and script search**: Verified. `library {topic:"fonts", search:"brush"}` (also marker, handwritten, scrawl, stencil, slab, blackletter, a script such as japanese) answers from catalog categories, subsets and name parts, alone or combined. Evidence: `backend/agent-fonts.test.mjs`.
 - **Recipes**: Verified. 24 layer recipes and 3 transitions (`library {topic:"blocks"}`), each a short
   fade under reduced motion; hand sweeps gave 0 errors. Evidence: `backend/blocks-gate.test.mjs`,
   `backend/blocks-polish.test.mjs`, `engine/blocksPolish.test.js`; `tests/blocks-gate.mjs` and

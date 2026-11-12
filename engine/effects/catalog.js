@@ -336,7 +336,7 @@ export function effectMediaSources(animation) {
 }
 
 // What values a parameter takes, after its type: " 0..1500 integer px/s", " area/bottom/…", and so on.
-function fieldRange(field) {
+export function fieldRange(field) {
   if (field.type === "number") return ` ${field.min}..${field.max}${field.integer ? " integer" : ""}${field.unit ? ` ${field.unit}` : ""}`;
   if (field.type === "enum") return ` ${field.options.map(([value]) => value).join("/")}`;
   if (field.type === "curve") return ` [[in,out],…] 2..${MAX_CURVE_POINTS} points 0..1`;

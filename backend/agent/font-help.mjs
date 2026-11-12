@@ -201,7 +201,20 @@ export async function missingGlyphsHelp({ layer, layerRef, characters, fonts, ca
 }
 
 // Words that describe a face, not name one: the catalog's category, a weight and name parts.
-const CLASS_WORDS = { serif: "serif", sans: "sans-serif", sansserif: "sans-serif", mono: "monospace", monospace: "monospace", script: "handwriting", brush: "handwriting", hand: "handwriting", handwriting: "handwriting", display: "display" };
+const CLASS_WORDS = { serif: "serif", sans: "sans-serif", sansserif: "sans-serif", mono: "monospace", monospace: "monospace", script: "handwriting", brush: "handwriting", hand: "handwriting", handwriting: "handwriting", handwritten: "handwriting",
+  marker: "handwriting", scrawl: "handwriting", scribble: "handwriting", cursive: "handwriting", calligraphy: "handwriting", display: "display" };
+// Style words the catalog has no tag for (Fontsource lists a category and subsets only): a family
+// fits when its name holds any of the parts. GUESS: common family names, not a measured list.
+const STYLE_NAMES = {
+  stencil: ["stencil"], slab: ["slab"], blackletter: ["fraktur", "gotisch", "pirata", "blackletter", "jacquard", "new rocker", "metal mania"],
+  typewriter: ["typewriter", "special elite", "courier", "cutive"], grunge: ["dirt", "distressed", "grunge", "spray", "burned", "scratch", "rock salt", "special elite"],
+  distressed: ["dirt", "distressed", "grunge", "spray", "burned", "scratch", "rock salt", "special elite"], scratchy: ["scratch", "rock salt", "special elite", "dirt", "distressed"],
+};
+// Words that put a category's families with that word in their name first (GUESS, same source).
+const BOOST_NAMES = { brush: ["brush"], marker: ["marker"], scrawl: ["scrawl", "scribble", "rock salt", "reenie", "marker"], scribble: ["scribble", "scrawl"], calligraphy: ["calligraphy", "brush"] };
+// Writing systems: the catalog's subset names that start with it (a family has the script when it lists the subset).
+const SUBSET_WORDS = { japanese: "japanese", kanji: "japanese", kana: "japanese", korean: "korean", hangul: "korean", chinese: "chinese", arabic: "arabic", hebrew: "hebrew", thai: "thai",
+  cyrillic: "cyrillic", russian: "cyrillic", greek: "greek", devanagari: "devanagari", hindi: "devanagari", vietnamese: "vietnamese" };
 const WEIGHT_WORDS = {
   bold: (weights) => Math.max(...weights) >= 700, heavy: (weights) => Math.max(...weights) >= 800, extra: (weights) => Math.max(...weights) >= 800, ultra: (weights) => Math.max(...weights) >= 800,
   black: (weights) => Math.max(...weights) >= 900, thin: (weights) => Math.min(...weights) <= 300, light: (weights) => Math.min(...weights) <= 300,
@@ -211,31 +224,53 @@ const WEIGHT_LABELS = { bold: "700+", heavy: "800+", extra: "800+", ultra: "800+
 const NAME_WORDS = ["condensed", "narrow", "mono"];
 const FILLER_WORDS = ["a", "an", "and", "the", "with", "very", "or", "of", "font", "fonts", "typeface", "type"];
 
-/** {categories, weights, names, ignored} for a search of 2+ words that holds a class or name word, else null. */
+/**
+ * {categories, weights, names, styles, boost, scripts, ignored, single} for a search that holds a
+ * class, style or script word (2+ words, or one such word alone: "brush", "japanese"), else null.
+ */
 function lookOf(term) {
   // "sans serif" and "sans-serif" are one category; "extra light" is a light weight, not a heavy one.
   const words = term.toLowerCase().replace(/sans[\s-]*serif/g, "sansserif").replace(/\b(?:extra|ultra)[\s-]*(light|thin)\b/g, "$1").match(/[a-z]+/g) ?? [];
-  if (words.length < 2 || !words.some((word) => CLASS_WORDS[word] || NAME_WORDS.includes(word))) return null;
-  const categories = [...new Set(words.filter((word) => CLASS_WORDS[word]).map((word) => CLASS_WORDS[word]))];
-  const weights = words.filter((word) => WEIGHT_WORDS[word]);
-  const names = words.filter((word) => NAME_WORDS.includes(word));
-  const ignored = words.filter((word) => !CLASS_WORDS[word] && !WEIGHT_WORDS[word] && !NAME_WORDS.includes(word) && !FILLER_WORDS.includes(word));
-  return { categories, weights, names, ignored };
+  // "japanese script" names a writing system; "script" alone is a handwriting face.
+  const scripts = [...new Set(words.filter((word) => SUBSET_WORDS[word]).map((word) => SUBSET_WORDS[word]))];
+  const kept = scripts.length ? words.filter((word) => word !== "script") : words;
+  const known = (word) => CLASS_WORDS[word] || NAME_WORDS.includes(word) || STYLE_NAMES[word] || SUBSET_WORDS[word];
+  if (!kept.some(known)) return null;
+  const categories = [...new Set(kept.filter((word) => CLASS_WORDS[word]).map((word) => CLASS_WORDS[word]))];
+  const weights = kept.filter((word) => WEIGHT_WORDS[word]);
+  const names = kept.filter((word) => NAME_WORDS.includes(word));
+  const styles = kept.filter((word) => STYLE_NAMES[word]);
+  const boost = kept.flatMap((word) => BOOST_NAMES[word] ?? []);
+  const ignored = kept.filter((word) => !known(word) && !WEIGHT_WORDS[word] && !FILLER_WORDS.includes(word));
+  return { categories, weights, names, styles, boost, scripts, ignored, single: words.length === 1 };
 }
 
-// library {topic:"fonts", search:"condensed bold sans"}: catalog families of that kind, by their category and weights.
-async function lookFamilies({ categories, weights, names, ignored }, term, catalog) {
+// library {topic:"fonts", search:"condensed bold sans"}: catalog families of that kind, by their category, weights, style words and scripts.
+async function lookFamilies({ categories, weights, names, styles = [], boost = [], scripts = [], ignored }, term, catalog) {
   const { families: all, offline } = await catalog.list({ limit: 2500 });
   const hasName = (family, word) => family.family.toLowerCase().includes(word);
-  // With no category word, the name words pick the families (every category is searched).
+  const hasAny = (family, parts) => parts.some((part) => hasName(family, part));
+  // With no category word, the name words pick the families (every category is searched). A style
+  // word (stencil, slab) always needs its name part; a script needs that subset in the family.
   const matches = all.filter((family) => (categories.length ? categories.includes(family.category) : names.every((word) => hasName(family, word)))
-    && weights.every((word) => WEIGHT_WORDS[word](family.weights)));
+    && weights.every((word) => WEIGHT_WORDS[word](family.weights))
+    && styles.every((word) => hasAny(family, STYLE_NAMES[word]))
+    && scripts.every((script) => (family.subsets ?? []).some((subset) => subset.startsWith(script))));
   const own = new Set(KINO_OWN_FAMILIES);
-  const named = (family) => names.filter((word) => hasName(family, word)).length;
+  const named = (family) => names.filter((word) => hasName(family, word)).length + Number(hasAny(family, boost));
   // Best fit first: name words, then families kino does not pick itself, then more weights, then A to Z.
   matches.sort((a, b) => named(b) - named(a) || own.has(a.family) - own.has(b.family) || b.weights.length - a.weights.length || a.family.localeCompare(b.family));
+  // Then one face per family line before its siblings: families that share their first name word
+  // ("<Line> Sans" and "<Line> Sans Thai", dozens of "<Line> <region>" school hands) are mostly one
+  // face, and the short list should show different ones. GUESS: the first word, judged on the catalog
+  // list for brush, marker and japanese (two words still let one line fill half the list).
+  const line = (family) => family.family.toLowerCase().split(" ")[0];
+  const seen = new Map();
+  const sibling = new Map(matches.map((family) => { const count = seen.get(line(family)) ?? 0; seen.set(line(family), count + 1); return [family, Math.min(count, 1)]; }));
+  const order = new Map(matches.map((family, index) => [family, index]));
+  matches.sort((a, b) => named(b) - named(a) || sibling.get(a) - sibling.get(b) || order.get(a) - order.get(b));
   const range = (family) => (family.weights[0] === family.weights.at(-1) ? `${family.weights[0]}` : `${family.weights[0]}-${family.weights.at(-1)}`);
-  const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word])].join(", ");
+  const kind = [...(categories.length ? categories : ["all categories"]), ...weights.map((word) => WEIGHT_LABELS[word]), ...styles, ...scripts].join(", ");
   const listed = matches.slice(0, LISTED);
   const label = (family) => `${family.family} ${range(family)}${own.has(family.family) ? " [kino's own]" : ""}`;
   return [
@@ -263,6 +298,9 @@ export async function fontsLibraryText(search, { fonts, catalog }) {
   // No family name holds the whole search, but its words describe a look ("condensed bold sans").
   const wanted = lookOf(term);
   if (wanted && total === 0 && !installed.length) return lookFamilies(wanted, term, catalog);
+  // One class, style or script word alone ("brush", "stencil", "japanese") names a look, not a family: the look's families, best fit first.
+  if (wanted?.single && !families.some((family) => family.family.toLowerCase() === lower))
+    return [...(installed.length ? [`installed: ${installed.slice(0, LISTED).join(", ")}${installed.length > LISTED ? ` +${installed.length - LISTED} more` : ""}`] : []), await lookFamilies(wanted, term, catalog)].join("\n");
   // A few families that only contain the words ("brush script" in "Nanum Brush Script") are not a name: the look is offered too.
   const partial = wanted && total > 0 && total <= 3 && !installed.length && !families.some((family) => family.family.toLowerCase().startsWith(lower));
   const more = (shown, count) => count > shown ? ` +${count - shown} more` : "";

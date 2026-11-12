@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { estimateTextTokens, pngSize } from "./meter.mjs";
 import { pageOf, pngTokens, searchGuide } from "./agent/service.mjs";
+import { EFFECTS } from "../engine/effects/catalog.js";
+import { effectDetailText, effectsListText } from "./agent/effects-help.mjs";
 import { skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
 import { jsonBlocks, skillFiles } from "./skill.test.support.mjs";
 
@@ -271,6 +273,35 @@ test("library search turns what a reference shows into the kino name and the cal
     const leads = searchGuide(query).split("\n").filter((line) => /^[a-z_-]+ \((effect|move|op|topic): /.test(line));
     for (const name of names) assert.ok(!leads.some((line) => line.startsWith(`${name} (`)), `${query} does not lead with ${name}: ${leads.join(" | ")}`);
   }
+});
+
+// Reports called vignette, grain, focus-band, duotone and tritone missing, and read engine source for
+// the fields of speed-lines: library effects answered "No saved text effects".
+test("library effects lists the whole catalog small, with a name gives its fields and defaults, and plain words reach the right effect, move or font help", () => {
+  const list = effectsListText().text;
+  for (const effect of EFFECTS) assert.ok(list.includes(`${effect.key}`), `${effect.key} is listed`);
+  for (const key of ["vignette", "grain", "focus-band", "duotone", "tritone", "speed-lines"]) assert.ok(list.includes(key), key);
+  assert.ok(estimateTextTokens(list) < 1500, `the list is ${estimateTextTokens(list)} tokens`);
+  const lines = effectDetailText("vignette").text.split("\n");
+  assert.match(lines[0], /^vignette \(Vignette, Post FX\): /);
+  assert.ok(lines.includes("  amount number 0..1 default 0.5"), lines.join("|"));
+  assert.ok(lines.includes('  color color default "#000000"'));
+  assert.match(effectDetailText("speed-lines").text, /\n {2}taper number 0\.\.1 default 1\n/);
+  assert.match(effectDetailText("focus-band").text, /a timed change: 0\.8 s/);
+  // A plain word or a different spelling reads as the effect; a wrong name is null (the service adds didYouMean).
+  assert.match(effectDetailText("depth of field").text, /^\("depth of field" read as focus-band/);
+  assert.equal(effectDetailText("Speed_Lines").data.effect, "speed-lines");
+  assert.equal(effectDetailText("nothing-like-it"), null);
+
+  const found = (query, name) => searchGuide(query).split("\n").slice(0, 4).some((line) => line.startsWith(`${name} (`));
+  for (const [query, name] of [["vignette", "vignette"], ["dark edges", "vignette"], ["depth of field", "focus-band"], ["tilt shift", "focus-band"], ["rim light", "glow"], ["light streak", "lens-flare"],
+    ["neon", "outline_text"], ["typed", "type-on"], ["highlight", "accent-hit"], ["brush", "set_font"], ["scrawl", "set_font"], ["handwritten", "set_font"], ["grain", "grain"], ["duotone", "duotone"]])
+    assert.ok(found(query, name), `${query} leads to ${name}: ${searchGuide(query)}`);
+  // "edges" and "corners" alone mean a vignette; inside other words they do not.
+  for (const query of ["rounded corners", "jagged edges", "soft edges"]) assert.ok(!found(query, "vignette"), `${query}: ${searchGuide(query)}`);
+  assert.match(searchGuide("brush"), /library \{topic:"fonts", search:"<the look: brush, handwritten, marker, stencil/);
+  assert.match(searchGuide("letterbox").split("\n")[0], /^no kino name for "letterbox" yet: build it from two black rectangle layers/);
+  assert.match(searchGuide("lightning").split("\n")[0], /^no kino name for "lightning" yet: build it from a jagged path layer/);
 });
 
 test("render start with wait:true answers with the checked file, or says it is still running", { skip: skipWithoutMediaTools }, async () => {
