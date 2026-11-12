@@ -1111,6 +1111,13 @@ How to read it:
   that reaches 6 LU, else takes the shallowest dip, and lifts instead when a dip would churn (volume_churn);
   duck_audio's default joins churning dips 3 s apart or less into one (`joined`).
   Evidence: `engine/speech.test.js`, `engine/audioDucking.test.js`. Gap: the headroom is a loudness stand-in, not a measured peak.
+- **Holes round kept lines** (`keep_line` bed, drop, shared dip): Engine-tested on measured curves and rendered once
+  on generated audio. Lines sharing one music-out dip get a measured low bed, 6 LU under the quietest line
+  (render: -36.8 LUFS momentary in a 0.6 s gap, printed -37, song -13.2), not silence; a music-out line hits back on
+  a section cue in reach, with the rise printed (`drop`); a churning dip shares the nearest earlier one; a lift
+  removes the dip under its line unless another heard sound (a voice-over) is in it; each line's notes, duck and mix
+  are rewritten after all lines in the edit. Evidence: `engine/speech.test.js`, `backend/audio-levels.test.mjs`.
+  Gap: not replayed on the dm2 projects; a later plain duck_audio can join lines back to silence.
 - **Clip sounds besides words** (import answer, look source, `keep_line {sound}`, board `sound {keep:"<sound>"}`):
   Test-verified on macOS 13+. The kino-measure helper's `--sounds` mode runs the macOS sound classifier on 1 s
   windows (`.sounds-v1` beside the file); the readout lists the 3 loudest events and the bed; keep_line {sound}
