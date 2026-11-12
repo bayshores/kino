@@ -1611,6 +1611,8 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   assert.match(glossText, /m3\.mp4 -23\.4 LUFS · heard in Japanese \(ja, p 0\.76\): "殺してやる" \(en: "I'll kill you\."\) 0\.0-6\.1 s$/m);
   assert.match(glossText, /^\(en: "\.\.\."\) is whisper's English/m);
   assert.match(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: { ...levels, fetching: true } }), /fetching ggml-small\.bin \(488 MB, once\)/);
+  // A clip heard and another not read: the "not read" footer stays off as before the language lines.
+  assert.doesNotMatch(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: { ...levels, missing: "no speech model" } }), /heard: not read/);
   assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /m2\.mp4 speech not read$/m);
   assert.doesNotMatch(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /says/);
   assert.deepEqual(saysOf(SAID_LINES, 4.9, 1.4), []);

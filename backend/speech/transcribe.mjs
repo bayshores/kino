@@ -738,10 +738,25 @@ async function transcribeInLanguage(samples, sound, setup, { names, language, fo
     whisperChunks([{ files }], setup, { prompt: whisperPrompt(names, { verbatim: false }), language }),
     whisperSegments(pieces, setup, { language, args: ["-tr"] }),
   ]);
-  const heard = lists.flatMap((list, index) => list.map((word) => ({ ...word, at: word.at + parts[index].start, own: word.own + parts[index].start }))).filter((word) => word.at < duration);
+  const heard = lists.flatMap((list, index) => list.map((word) => ({ ...word, at: word.at + parts[index].start, own: word.own + parts[index].start, end: word.end + parts[index].start }))).filter((word) => word.at < duration);
   const english = glosses.flatMap((segments, index) => segments.filter((segment) => /\p{L}/u.test(segment.text) && !/^[[(*].*[\])*]$/.test(segment.text))
     .map((segment) => ({ start: round(segment.from + parts[index].start), end: round(Math.min(duration, segment.to + parts[index].start)), text: segment.text })));
   return { heard, english };
+}
+
+/**
+ * A segment-word (a language written without spaces) is a whole phrase: snapWords ends it at the
+ * first 0.1 s pause, so it keeps the end whisper gave its last token (never past the next word).
+ * Measured on run 8's F4.13: a 3 s sung phrase snapped to 0.08 s (7.83-7.91) and keep_line {line}
+ * kept only that sliver (lines-any-language-review RESULT.md).
+ */
+export function saidToEnd(snapped, heard, language, duration) {
+  if (!NO_SPACE.has(language)) return snapped;
+  return snapped.map((word, index) => {
+    const next = snapped[index + 1]?.start ?? duration;
+    const said = Number(heard[index]?.end);
+    return Number.isFinite(said) && said > word.end ? { ...word, end: Math.min(next, duration, said) } : word;
+  });
 }
 
 async function transcribeFileNow(filename, setup, { decode = decodeMono, debug = false, names = [], language = "en" } = {}) {
@@ -757,7 +772,7 @@ async function transcribeFileNow(filename, setup, { decode = decodeMono, debug =
     const folder = await makeTempFolder("kino-speech-");
     try {
       const { heard, english } = await transcribeInLanguage(samples, sound, setup, { names, language, folder });
-      const words = withCuts(withUnclear(snapWords(heard, sound), sound), { db, duration });
+      const words = withCuts(withUnclear(saidToEnd(snapWords(heard, sound), heard, language, duration), sound), { db, duration });
       return {
         version: TRANSCRIPT_VERSION, model: setup.modelName, language, duration: round(duration),
         words: markLoops(words.map((word) => ({ text: word.text, start: round(word.start), end: round(word.end), p: round(word.p, 2), cut: round(word.cut), ...(word.unclear ? { unclear: true } : {}) }))),
@@ -838,8 +853,9 @@ async function detectFile(filename, setup, spans) {
 export function createTranscriptCache({
   setup = () => whisperSetup(), transcribe = transcribeFile, now = () => Date.now(),
   languages = () => languageSetup(), detect = detectFile,
-  // Never from a test process (node --test sets NODE_TEST_CONTEXT, as backend/index.mjs reads it): tests make no web requests.
-  fetchModel = () => (process.env.NODE_TEST_CONTEXT ? Promise.reject(new Error("no downloads in tests")) : fetchLanguageModel()),
+  // Never from a test process (node --test sets NODE_TEST_CONTEXT, as backend/index.mjs reads it) or a
+  // server started with KINO_LANG_DOWNLOAD=0 (as KINO_LOOK_DOWNLOAD=0, the test server sets it): no web requests.
+  fetchModel = () => (process.env.NODE_TEST_CONTEXT || process.env.KINO_LANG_DOWNLOAD === "0" ? Promise.reject(new Error("no downloads here")) : fetchLanguageModel()),
 } = {}) {
   const pending = new Map();
   // A file whisper failed on is not tried again for a while: checks ask for the same transcripts

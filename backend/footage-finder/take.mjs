@@ -361,7 +361,7 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
   // Another language (transcribe.mjs heard): (en: "...") is whisper's English; with no multilingual model yet, its one fetch.
   if (media.some((item) => heard?.byId?.[item.id]?.language)) lines.push(`(en: "...") is whisper's English for a line in another language; keep_line {layer, line} keeps it as said, or {from, to, text} with the words to show.`);
   if (heard?.fetching) lines.push("Voice in another language: kino is fetching ggml-small.bin (488 MB, once); look source {layer} reads its lines after.");
-  else if (heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
+  else if (!heardAny && heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
   const credit = media[0]?.credit ?? takeCredit(candidate);
   lines.push(`credit kept with each file: ${credit.line}`);
   return lines.join("\n");

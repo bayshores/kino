@@ -10,7 +10,7 @@ import { toneWords, writeFakeWhisper } from "../tests/fake-whisper-cli.mjs";
 import { projectNames, speechNamesFor } from "./speech/name-hint.mjs";
 import {
   betterReadings, createTranscriptCache, detectLanguage, markLoops, mergePasses, TRANSCRIPT_VERSION, transcribeFile, unsureSentences, whisperPrompt,
-  withCuts, withUnclear, withoutSlips, wordsFromWhisper,
+  saidToEnd, withCuts, withUnclear, withoutSlips, wordsFromWhisper,
 } from "./speech/transcribe.mjs";
 import { readClipSound } from "../engine/speech.js";
 
@@ -26,6 +26,10 @@ test("wordsFromWhisper joins word pieces and punctuation, skips special tokens a
   // whisper's own tag keeps its opening bracket (small.en on run 8's clip F4.13: " [", "S", "inging", " in", " Japanese", "]").
   const tag = wordsFromWhisper({ transcription: [{ tokens: [" Yes.", " [", "S", "inging", " in", " Japanese", "]"].map((text, i) => ({ text, offsets: { from: i * 100, to: i * 100 + 100 }, p: 0.9 })) }] });
   assert.deepEqual(tag.map((word) => word.text), ["Yes.", "[Singing", "in", "Japanese]"]);
+  // A segment-word (no spaces) keeps whisper's end over a snap that stopped at the first pause; never past the next word.
+  const said = [{ end: 10.09 }, { end: 4 }];
+  assert.deepEqual(saidToEnd([{ text: "心…", start: 7.83, end: 7.91 }, { text: "x", start: 9.5, end: 9.6 }], said, "ja", 10.1).map((word) => word.end), [9.5, 9.6]);
+  assert.deepEqual(saidToEnd([{ text: "un", start: 1, end: 1.2 }], [{ end: 3 }], "es", 5)[0].end, 1.2);
 });
 
 test("withoutSlips and mergePasses take a fine pass's repeat or filler only when the words agree", () => {
