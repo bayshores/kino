@@ -44,11 +44,11 @@ frame strips · Proposing ideas · Sound effects
   slop from the title (AI, SEO, tutorial, template, stock, hashtags, few views, under 6 s) or
   kino's measure (a patch in place 60%+, almost no cuts, text on plain, 10 min+); `same
   frames`: an AI loop or a still. `fit:` holds it to the brief (`3:08 for a 20 s edit: name the
-  stretch you take`, wide for 9:16). Reject AI imagery or voice, templates, stock, reuploads.
-- Compare first: with one search and under 3 of its results read (`name:"yt:<id>"` or look
-  reference), `step:` and an agent's save lead to a second search. A new save needs
-  `take:"<structure, pacing, type, transitions or sound: what>"`, with times when the reference
-  is over 3x the video; status, the study and `look versus` show it back.
+  stretch you take`; 9:16 once measured). Reject AI imagery or voice, templates, stock, reuploads.
+- Compare first: one search (same words again = one) and under 3 results read (a study or
+  look): `step:` and a save lead to a second search with new results. A save needs
+  `take:"<structure, pacing, type, transitions or sound: what>"`, plus `1:02 to 1:20` for a
+  reference 3x the video; status, the study, look show it back.
 
 ## Borrowing a rhythm from YouTube
 

@@ -230,19 +230,38 @@ export const COMPILATION_SECONDS = 600;
 /**
  * Why a measured reference is doubtful from its own frames, or "": "a patch stays in place 92%
  * (a watermark or another app's frame?)", "almost no cuts (a raw clip, not an edit?)", "mostly text
- * on a plain background", "compilation length". Each is a reason to look before saving, never a
- * ban: an edit may keep a frame or hold one shot on purpose.
+ * on a plain background", "compilation length", joined with "; ". Each is a reason to look
+ * before saving, never a ban: an edit may keep a frame or hold one shot on purpose. A small mark in
+ * a corner (under SMALL_MARK of the frame) reads as the maker's own tag, so it says nothing; a
+ * larger patch, or one in the middle, is another app's frame.
  */
+export const SMALL_MARK = 0.1;
+const isMakersTag = (item) => {
+  const [x, y, w, h] = item.box ?? [];
+  if (![x, y, w, h].every(Number.isFinite)) return false;
+  const corner = (start, size) => start + size / 2 < 0.25 || start + size / 2 > 0.75;
+  return corner(x, w) && corner(y, h) && (item.kind === "text" || w * h < SMALL_MARK);
+};
 export function measuredDoubt(ref) {
   const doubts = [];
   const fp = ref?.fingerprint;
-  const stays = (fp?.persistent ?? []).filter((item) => item.share >= STAYS_SHARE).sort((a, b) => b.share - a.share)[0];
+  const stays = (fp?.persistent ?? []).filter((item) => item.share >= STAYS_SHARE && !isMakersTag(item)).sort((a, b) => b.share - a.share)[0];
   if (stays) doubts.push(`${stays.kind === "text" ? `"${String(stays.text).slice(0, 20)}"` : "a patch"} stays in place ${Math.round(stays.share * 100)}% (a watermark or another app's frame?)`);
   const numbers = ref?.numbers;
   if (numbers?.seconds >= RAW_SECONDS && (numbers.shots <= 2 || numbers.cutsPerSecond < RAW_CUTS)) doubts.push("almost no cuts (a raw clip, not an edit?)");
   if (fp?.text?.share >= PLAIN_TEXT.share && fp.text.onPlain >= PLAIN_TEXT.onPlain) doubts.push("mostly text on a plain background");
   if (ref?.duration >= COMPILATION_SECONDS) doubts.push("compilation length");
-  return doubts.join(", ");
+  return doubts.join("; ");
+}
+
+// What the person's message says about the kind of edit: a type-led one expects text on a plain
+// background, a one-take one expects almost no cuts, so those two doubts do not apply to it.
+const TYPE_LED = /\b(?:kinetic (?:type|typography|text)|typograph\w*|lyric video|(?:text|type)[- ]led|text[- ]only)\b/i;
+const ONE_TAKE = /\b(?:one[- ]take|single take|long take|unbroken|uncut|raw footage|unedited)\b/i;
+/** measuredDoubt's text without the doubts the message makes expected: quietDoubt(text, "a kinetic type video"). */
+export function quietDoubt(doubt, message = "") {
+  const skip = [TYPE_LED.test(message) && /^mostly text/, ONE_TAKE.test(message) && /^almost no cuts/].filter(Boolean);
+  return String(doubt ?? "").split("; ").filter((one) => !skip.some((pattern) => pattern.test(one))).join("; ");
 }
 
 /**
@@ -259,15 +278,42 @@ export function fitNote(ref, plan = {}) {
     if (length > 3 * seconds && length - seconds >= 20) notes.push(`${clock(length)} for a ${Math.round(seconds)} s edit: name the stretch you take`);
     else if (length < seconds / 3) notes.push(`${clock(length)} for a ${Math.round(seconds)} s edit: one moment, not the whole`);
   }
-  if (plan.vertical === true && !ref?.vertical) notes.push("wide for a 9:16 edit: take pacing or type, not framing");
+  // Wide only once the shape is known (a measure sets vertical: false); a search knows only Shorts.
+  if (plan.vertical === true && ref?.vertical === false) notes.push("wide for a 9:16 edit: take pacing or type, not framing");
   else if (plan.vertical === false && ref?.vertical) notes.push("9:16 for a wide edit: take pacing or type, not framing");
   return notes.join("; ");
 }
 
 /** The longest take a save keeps (characters). */
 export const TAKE_LIMIT = 160;
-/** A save's take, cleaned: one line, at most TAKE_LIMIT characters; "" when none. */
-export const cleanTake = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, TAKE_LIMIT);
+/** A save's take, cleaned: one line, at most TAKE_LIMIT characters, no trailing punctuation; "" when none. */
+export const cleanTake = (text) => String(text ?? "").replace(/\s+/g, " ").trim().slice(0, TAKE_LIMIT).replace(/[\s.,;:!?]+$/, "");
+
+// A time in a take: m:ss or h:mm:ss, or seconds with their unit ("62s").
+const CLOCK_TIME = "(?:\\d+:)?\\d{1,2}:\\d\\d";
+const SECONDS_TIME = "\\d+(?:\\.\\d+)?\\s?s";
+const JOIN = "\\s*(?:to|-|\\u2013|until)\\s*";
+const RANGE = `(${CLOCK_TIME})${JOIN}(${CLOCK_TIME})|(${SECONDS_TIME})${JOIN}(${SECONDS_TIME})`;
+const toSeconds = (time) => time.includes(":") ? time.split(":").reduce((sum, part) => sum * 60 + Number(part), 0) : parseFloat(time);
+
+/**
+ * The stretch a take names, {from, to} in seconds, or null: two times joined by "to" or "-" (a
+ * frame shape such as 9:16 or a cut rate such as 0.5s is none), the end after the start and, with
+ * `duration`, inside it.
+ */
+export function takeStretch(take, duration) {
+  const match = new RegExp(RANGE, "i").exec(String(take ?? ""));
+  if (!match) return null;
+  const [from, to] = match[1] ? [toSeconds(match[1]), toSeconds(match[2])] : [toSeconds(match[3]), toSeconds(match[4])];
+  return to > from && (!(duration > 0) || to <= duration + 1) ? { from, to } : null;
+}
+
+/** A take with its slots and any stretch taken out, so a retry never stacks a second one: "pacing: long holds". */
+export const takeWithoutStretch = (take) => String(take ?? "").replace(/<[^>]*>/g, " ").replace(new RegExp(RANGE, "gi"), " ")
+  .replace(/(?:[\s,;]*\b(?:from|to)\b)+[\s,;.]*$/i, "").replace(/\s+/g, " ").trim().replace(/[\s,;:]+$/, "");
+
+/** True when a take names one of structure, pacing, type, transitions or sound and has a few words. */
+export const takeSaysWhat = (take) => /\b(?:structure|pacing|type|typography|transitions?|sound)\b/i.test(take) && String(take).trim().split(/\s+/).length >= 3;
 
 /**
  * Search results best first, at most `wanted`. Clean results come first, then doubtful ones, and
@@ -1136,7 +1182,7 @@ export function createInspire(deps) {
     const measured = record.state === "measured" ? measuredDoubt(record) : "";
     return {
       id: record.id, title: record.title, channel: record.channel, duration: record.duration, url: record.url,
-      thumb: Boolean(record.thumb), kind: isSound(record) ? "sound" : "video", ...(record.vertical ? { vertical: true } : {}),
+      thumb: Boolean(record.thumb), kind: isSound(record) ? "sound" : "video", ...(record.vertical ? { vertical: true } : record.vertical === false ? { vertical: false } : {}),
       ...(record.views != null ? { views: record.views } : {}), ...(record.verified ? { verified: true } : {}), ...(record.followers != null ? { followers: record.followers } : {}),
       ...(record.doubt ? { doubt: record.doubt } : {}), ...(measured ? { measuredDoubt: measured } : {}), ...(record.same ? { same: true } : {}), ...(record.copies?.length ? { copies: record.copies } : {}),
       state: running?.id === record.id ? "measuring" : waiting >= 0 ? "queued" : isSound(record) && !record.sound && record.state === "measured" ? "found" : record.state,

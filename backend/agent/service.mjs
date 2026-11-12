@@ -60,7 +60,7 @@ import { opFromWord, PRESET_LAYER, PRESET_SAMPLE_TO, PRESET_VALUE_KEYS } from ".
 import { animationSpan, isRandomId, layerAnimations, refName, sec } from "./describe.mjs";
 import { fontsLibraryText, missingCharactersHelp } from "./font-help.mjs";
 import { projectOutline } from "./outline.mjs";
-import { applyBrief, asksOf, BriefError, briefChanges, briefData, briefText, compareStep, COMPARE_READ, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
+import { applyBrief, asksOf, BriefError, briefChanges, briefData, briefText, compareNeed, compareStep, hasBrief, isSettled, lengthTarget, lockNeeded, notBuilt, orderSteps, pickOpen, referenceSearches, SUBJECT_SLOT, songTitleOf, REFERENCE_SKIP_UNDER, realEdit, REFERENCES_WANTED, savedText, TREATMENTS_WAIVER, videoFacts } from "./brief.mjs";
 import { createFootageFacts, MAX_FOOTAGE } from "./footage.mjs";
 import { createFootageCache } from "../footage/analyze.mjs";
 import { createPeopleCache } from "../footage/people.mjs";
@@ -147,7 +147,7 @@ import { access } from "node:fs/promises";
 import { REACH_HELP, REACH_OPERATIONS, applyReachOperation } from "./reach-operations.mjs";
 import { WORKSPACE_HELP, createReachWorkspace } from "./reach-workspace.mjs";
 import { createReachExports, selectedScenes } from "./reach-exports.mjs";
-import { CLOSED_PLATFORM, cleanTake, closedPlatform, fitNote, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
+import { CLOSED_PLATFORM, cleanTake, closedPlatform, fitNote, takeSaysWhat, takeStretch, takeWithoutStretch, quietDoubt, ideasAnswerText, ideasProposedText, isYouTubeUrl, MAX_SOUND_SECONDS, numbersLine, originPhrase, originQuery, projectText, rankedSoundsText, referenceText, refId, rhythmCues, SEARCH_KINDS, searchText } from "../inspire.mjs";
 import { suggestStyleLines } from "../measure/suggest.mjs";
 import { changedParts, RENDER } from "./crew-locks.mjs";
 import { CrewError } from "./crew.mjs";
@@ -4054,7 +4054,7 @@ export function createAgentService(deps) {
       // What each save said this edit takes from it: the rows are read against that.
       ...Object.entries((await deps.inspire.savedTakes?.(projectId).catch(() => null)) ?? {}).map(([id, take]) => `you take from ${id} (${name(id)}): ${take}. Is it on screen?`),
       ...pairs.map((pair) => `row ${pair.n} ${pair.shot ? `shot ${pair.shot} ` : ""}@${pair.at}s: ${why(pair)}${pair.still ? ` (${name(pair.ref)} @${pair.refAt}s)` : ""}${pair.gaps?.length ? `; ${pair.gaps.join("; ")}` : ""}${pair.far ? `; ${pair.far}` : ""}.`),
-      ...(pinned.missing.length ? [`not pinned, no saved reference by that key: ${pinned.missing.join(", ")} (library inspire name:"save yt:<id> as <key>").`] : []),
+      ...(pinned.missing.length ? [`not pinned, no saved reference by that key: ${pinned.missing.join(", ")} (library inspire name:"save yt:<id> as <key>", take:"<what this edit takes>").`] : []),
       ...(pinned.waiting.length ? [`not pinned yet, that reference is saved but not measured yet: ${pinned.waiting.join(", ")} (look {mode:"versus"} again in a minute).`] : []),
       ...(drift.length ? drift : ["reference_drift: near the references in the craft measured."]),
       ...range,
@@ -4576,16 +4576,20 @@ export function createAgentService(deps) {
       throw new AgentError("not_ready", `${id} has no frame strips (${ref.state === "measured" ? "measured before kino kept strips" : numbersLine(ref)}). library {topic:"inspire", name:"measure ${id}"} measures it again.`);
     }
     const { sheet } = await import("../measure/strips.mjs").then(({ referenceSheet }) => ({ sheet: referenceSheet }));
-    const made = await sheet(kept.folder, kept.strips, { t: Number.isFinite(input.t) ? input.t : null, page: input.page ?? 1 });
+    // Its take (a save's) shows here; when the take names a stretch, the strips open at its start.
+    const take = (await deps.inspire.savedTakes?.(projectId).catch(() => null))?.[id];
+    const stretch = take ? takeStretch(take, (await deps.inspire.reference(id).catch(() => null))?.duration) : null;
+    const at = Number.isFinite(input.t) ? input.t : input.page == null && stretch ? stretch.from : null;
+    const made = await sheet(kept.folder, kept.strips, { t: at, page: input.page ?? 1 });
     // Studied: the order step and the final render's reference gate count it (brief.mjs orderStep).
     await agentState.update(projectId, (draft) => { draft.studied = [...new Set([...(draft.studied ?? []), id])].slice(-20); });
     const rows = made.shown.map((strip) => `${strip.at}s ${strip.kinds.join("+")}`).join(" · ");
-    const where = Number.isFinite(input.t) ? `nearest ${input.t}s` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
+    const where = at != null ? `nearest ${at}s${Number.isFinite(input.t) ? "" : ", the start of your take"}` : `page ${Math.min(made.pages, input.page ?? 1)} of ${made.pages}`;
     // A studied edit whose title has the subject's origin word also leads to that footage.
     // (Without an origin word it reads nothing more: no second reference lookup.)
     const { found } = await originFootageFor(projectId);
     const origin = found ? originReferenceLine(found, (await deps.inspire.reference(id).catch(() => null))?.title) : "";
-    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown } };
+    return { image: { png: made.png }, text: `reference ${id} strips (${where}): ${rows}. Each row: 6 frames 1/12 s apart from 0.25 s before the moment, 240 px wide.${take ? `\nyour take: ${take}` : ""}\n${REFERENCE_LOOKUP}${origin ? `\n${origin}` : ""}`, extra: { ref: id, strips: made.shown } };
   }
 
   // look {mode:"source", layer, t?, width?}: the whole source frame of a video layer at scene time
@@ -6103,7 +6107,7 @@ export function createAgentService(deps) {
     // `query` is another name for `search` (kino library topic=fonts query=Roboto).
     const search = String(input.search ?? input.query ?? "");
     if (topic === "topics")
-      return { text: `library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, a fallback), effects, blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\", \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {song?, search?, explore?, like?, measure?, note?} (real songs from YouTube first, found by name with song:\"<title> by <artist>\"; Openverse and the Archive fill in when sound search is on; measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), ${FOOTAGE_TOPIC_LINE}, techniques {name?} (the named editing techniques check finds and the style spec uses).`, data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
+      return { text: `library topics: op {name} (exact rules for one operation), rules {name, search?} (a guide topic; search keeps only its lines that mention a word; workspace covers projects, media, presets, comments and exports), search {search}, easings, presets, fonts {search: a name, or one character such as \"∞\" for the fonts that have it}, media, sounds {search, full?} (kino's built-in CC0 sound effects, sfx:<id>; name:\"openverse\" searches Openverse instead, 10 s or less, full:true up to 60 s, only when the person turned on sound search), music {search: moods, energy, bpm} (built-in mood-tagged tracks, music:<id>, a fallback), effects, blocks {name?} (recipes, looks, slots, timing, tokens), moves {name?} (designed set pieces: zoom-through, whip-pan, caption-words, …), formats {name?} (whole videos to fill: product-launch, app-demo, social-promo, feature-announcement, testimonial; format {name, slots} builds one), guide {name?} (the kino skill, for agents without it; name: one of its references, such as edits or sound), inspire {search?, kind?, name?} (YouTube edits: kino measures their cuts, beat and fingerprint, and keeps frame strips; kind:\"shorts\" finds short vertical edits (YouTube Shorts); kind:\"sounds\" finds sound effects of 60 s or less instead, importable as project {action:\"import\", file:\"yt:…\"}; name: one ref, or \"save yt:…\" (take: what the edit takes from it), \"unsave yt:…\", \"measure yt:…\", \"forget <search n>\", \"copy <project>\" (its saved refs), \"cancel\"), soundtrack {song?, search?, explore?, like?, measure?, note?} (real songs from YouTube first, found by name with song:\"<title> by <artist>\"; Openverse and the Archive fill in when sound search is on; measured, lined up against the story beats and ranked by fit to the person's taste; like:\"yt:…\" adds YouTube's mix for a song; library {topic:\"guide\", name:\"soundtrack\"}), ${FOOTAGE_TOPIC_LINE}, techniques {name?} (the named editing techniques check finds and the style spec uses).`, data: { topics: LIBRARY_TOPICS.filter((name) => name !== "topics") } };
     // op and rules take several names at once (a list, or "a, b"), answered one after another.
     const names = (Array.isArray(input.name) ? input.name : String(input.name ?? "").split(",")).map((name) => String(name).trim()).filter(Boolean);
     if ((topic === "op" || topic === "rules") && names.length > 1) {
@@ -6350,7 +6354,8 @@ export function createAgentService(deps) {
         const count = await deps.inspire.setSaved(projectId, id, verb === "save", { key });
         if (take) await deps.inspire.setTake?.(projectId, id, take);
         const as = key ? ` as ${key.toLowerCase()} (a board move.ref "${key.toLowerCase()}@<seconds>" pins its moment for look versus)` : "";
-        const doubt = verb === "save" ? [known.doubt, known.measuredDoubt].filter(Boolean).join(", ") : "";
+        const message = (await agentState.read(projectId)).brief?.fields?.message?.text ?? "";
+        const doubt = verb === "save" ? [known.doubt, quietDoubt(known.measuredDoubt, message)].filter(Boolean).join(", ") : "";
         return { project: projectId, text: `${verb === "save" ? "Saved" : "Unsaved"} ${id}${as} in ${projectId} (${count} saved).${take ? ` Takes: ${take}.` : ""}${doubt ? ` Doubt: ${doubt}: look {mode:"reference", ref:"${id}"} before building on it.` : ""}`,
           data: { saved: count, ...(key ? { key: key.toLowerCase() } : {}), ...(take ? { take } : {}) } };
       }
@@ -6387,6 +6392,9 @@ export function createAgentService(deps) {
         await agentState.update(projectId, (draft) => { draft.refSearches = [...(draft.refSearches ?? []), { n: found.search.n, query: found.search.query, kind, ids: found.results.map((ref) => ref.id) }].slice(-8); });
       }
       const plan = { seconds, ...(facts?.width > 0 && facts?.height > 0 ? { vertical: facts.height > facts.width } : {}) };
+      // A type-led or one-take brief expects text on plain ground, or almost no cuts: no doubt for those.
+      const message = state.brief?.fields?.message?.text ?? "";
+      found.results = found.results.map((ref) => ref.measuredDoubt ? { ...ref, measuredDoubt: quietDoubt(ref.measuredDoubt, message) } : ref);
       return { project: projectId, text: searchText(found.search.query, found.results, { kind, collapsed: found.collapsed ?? [], dropped: found.dropped ?? {}, droppedItems: found.droppedItems ?? [], alsoTry, plan }), data: { search: found.search.n, kind, ...(Object.keys(found.dropped ?? {}).length ? { dropped: found.dropped, droppedIds: (found.droppedItems ?? []).map((item) => item.id) } : {}), results: found.results.map(({ numbers, ...ref }) => ref) } };
     }
     const view = await deps.inspire.projectView(projectId);
@@ -6404,24 +6412,36 @@ export function createAgentService(deps) {
     const state = await agentState.read(projectId);
     const facts = await videoFactsFor(document);
     const fromSearch = (state.refSearches ?? []).some((one) => (one.ids ?? []).includes(ref.id));
-    const [compare] = fromSearch ? compareStep(state, { ...facts, references: saved.length, studied: state.studied ?? [], songTitle: await songTitleFor(projectId) }) : [];
+    // Only where the order shows the compare step (a brief, 5 s or more, the check not waived).
+    const referenceWaived = (document.checkWaivers ?? []).some((waiver) => waiver.code === REFERENCE_WAIVER && waiver.target === "*");
+    const [compare] = fromSearch ? compareStep(state, { ...facts, references: saved.length, referenceWaived, studied: state.studied ?? [], songTitle: await songTitleFor(projectId) }) : [];
     if (compare) {
       const read = new Set([...(state.read ?? []), ...(state.studied ?? [])]);
       const ids = state.refSearches.find((one) => (one.ids ?? []).includes(ref.id)).ids;
       const unread = ids.filter((one) => !read.has(one)).slice(0, 2);
-      throw Object.assign(new AgentError("bad_input", `${callText(compare.call)} first: one search ran and ${ids.filter((one) => read.has(one)).length} of its results were read, so nothing was compared. Search again with other words, or read ${COMPARE_READ} of its results${unread.length ? ` (${unread.map((one) => `library {topic:"inspire", name:"${one}"}`).join(", ")})` : ""}, then save the 2 that fit this edit.`), { nextCall: compare.call });
+      throw Object.assign(new AgentError("bad_input", `${callText(compare.call)} first: nothing was compared yet (${ids.filter((one) => read.has(one)).length} of ${compareNeed(ids)} results read, and no second search with results of its own). Search again with other words, or read ${compareNeed(ids)} of the results${unread.length ? ` (${unread.map((one) => `library {topic:"inspire", name:"${one}"}`).join(", ")})` : ""}, then save the 2 that fit this edit.`), { nextCall: compare.call });
     }
     const seconds = hasBrief(state.brief) ? lengthTarget(state.brief)?.seconds ?? (facts.seconds > 0 && facts.seconds !== state.defaultLength ? facts.seconds : undefined) : undefined;
     const long = seconds > 0 && ref.duration > 3 * seconds && ref.duration - seconds >= 20;
     const name = `save ${ref.id}${key ? ` as ${key}` : ""}`;
-    const retry = (words) => nextOf("library", { topic: "inspire", name, take: words });
+    // The retry is built from the take with any old slot or stretch removed, so it never grows.
+    const retry = (words) => nextOf("library", { topic: "inspire", name, take: `${words || "<structure, pacing, type, transitions or sound: what this edit takes>"}${long ? ", from <m:ss> to <m:ss>" : ""}` });
+    const fit = long ? ` ${fitNote(ref, { seconds })}.` : "";
     if (!take) {
-      const call = retry(long ? "<structure, pacing, type, transitions or sound: what, from m:ss to m:ss>" : "<structure, pacing, type, transitions or sound: what this edit takes>");
-      throw Object.assign(new AgentError("bad_input", `${callText(call)}: a save says what this edit takes from it (one line; status, the study and look versus show it back).${long ? ` ${fitNote(ref, { seconds })}.` : ""}`), { nextCall: call });
+      const call = retry("");
+      throw Object.assign(new AgentError("bad_input", `${callText(call)}: a save says what this edit takes from it (one line; status, the study and look versus show it back).${fit}`), { nextCall: call });
     }
-    if (long && !/\d+:\d\d|\d+(?:\.\d+)?\s?s\b/.test(take)) {
-      const call = retry(`${take}, from <m:ss> to <m:ss>`);
-      throw Object.assign(new AgentError("bad_input", `${callText(call)}: ${fitNote(ref, { seconds })}; the take names it with times.`), { nextCall: call });
+    if (/[<>]/.test(take)) {
+      const call = retry(takeWithoutStretch(take));
+      throw Object.assign(new AgentError("bad_input", `${callText(call)}: the take still has a <...> to fill in with your own words.${fit}`), { nextCall: call });
+    }
+    if (!takeSaysWhat(take)) {
+      const call = retry("");
+      throw Object.assign(new AgentError("bad_input", `${callText(call)}: a take names one of structure, pacing, type, transitions or sound and says what the edit takes, in a few words.${fit}`), { nextCall: call });
+    }
+    if (long && !takeStretch(take, ref.duration)) {
+      const call = retry(takeWithoutStretch(take));
+      throw Object.assign(new AgentError("bad_input", `${callText(call)}: ${fitNote(ref, { seconds })}; the take names it as two times in that reference, such as 0:10 to 0:25.`), { nextCall: call });
     }
   }
 
@@ -6435,15 +6455,20 @@ export function createAgentService(deps) {
     const ids = (await deps.inspire.projectView(source.id)).saved;
     const copied = [];
     const missing = [];
+    const takes = (await deps.inspire.savedTakes?.(source.id).catch(() => null)) ?? {};
     for (const id of ids) {
       // A reference kino no longer keeps is skipped and named; any other failure is reported.
       if (!(await deps.inspire.reference(id))) { missing.push(id); continue; }
       await deps.inspire.setSaved(projectId, id, true);
+      // The source project's take for it goes along (what that edit took; this one may take other things).
+      if (takes[id]) await deps.inspire.setTake?.(projectId, id, takes[id]);
       copied.push(id);
     }
     const count = await deps.inspire.savedCount(projectId);
-    return { project: projectId, text: `Copied ${copied.length} saved reference${copied.length === 1 ? "" : "s"} from ${source.id} to ${projectId} (${count} saved)${copied.length ? `: ${copied.join(", ")}` : ""}.${missing.length ? ` Skipped ${missing.join(", ")}: kino no longer keeps ${missing.length === 1 ? "it" : "them"}.` : ""}`,
-      data: { copied, saved: count, ...(missing.length ? { missing } : {}) } };
+    const untaken = copied.filter((id) => !takes[id]);
+    const takeCall = untaken.length ? ` Say what this edit takes from ${untaken[0]}${untaken.length > 1 ? ` (and ${untaken.length - 1} more)` : ""}: library {topic:"inspire", name:"save ${untaken[0]}", take:"<structure, pacing, type, transitions or sound: what this edit takes>"}.` : "";
+    return { project: projectId, text: `Copied ${copied.length} saved reference${copied.length === 1 ? "" : "s"} from ${source.id} to ${projectId} (${count} saved)${copied.length ? `: ${copied.join(", ")}` : ""}.${missing.length ? ` Skipped ${missing.join(", ")}: kino no longer keeps ${missing.length === 1 ? "it" : "them"}.` : ""}${takeCall}`,
+      data: { copied, saved: count, ...(missing.length ? { missing } : {}), ...(untaken.length ? { noTake: untaken } : {}) } };
   }
 
   // ---- soundtrack (backend/soundtrack.mjs): songs measured against the story -----------------

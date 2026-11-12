@@ -123,7 +123,7 @@ export function referenceHelp(refs) {
   let said = false;
   const once = (text) => { if (said) return ""; said = true; return text; };
   return (sent) => {
-    if (!names.length) return once('No reference is saved in this project: save one with library {topic:"inspire", name:"save yt:<id> as <key>"} (ids come from library {topic:"inspire"}), then send ref "<key>@<seconds>".');
+    if (!names.length) return once('No reference is saved in this project: save one with library {topic:"inspire", name:"save yt:<id> as <key>", take:"<what this edit takes from it>"} (ids come from library {topic:"inspire"}), then send ref "<key>@<seconds>".');
     const base = typeof sent === "string" ? plain(sent.trim().replace(/@.*$/, "")) : "";
     const exact = names.find((entry) => entry.name === base);
     // The key is right but the text already has its "@": the seconds are what is wrong, so say how they are written.

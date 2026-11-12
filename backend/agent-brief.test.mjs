@@ -918,7 +918,18 @@ test("the first reference search is filled from what the person named; each want
   assert.deepEqual([compare.step, compare.call.input, again.step], ["compare: search again (2 of 3 read)", { topic: "inspire", search: "The Long Climb edit" }, "find 2 references (inspire)"]);
   assert.deepEqual(compareStep({ ...ran, read: ["yt:1", "yt:3"] }, { ...video, studied: ["yt:2"] }), [], "3 read");
   assert.deepEqual(compareStep(ran, { ...video, references: 1 }), [], "after the first save");
-  assert.deepEqual(compareStep({ ...ran, refSearches: [...ran.refSearches, { query: "the long climb edit", kind: "videos" }] }, video), [], "two searches ran");
+  // A second search counts only with other words and a result the first lacked: the same words again, in any case, compare nothing.
+  const again2 = (query, ids) => compareStep({ ...ran, refSearches: [...ran.refSearches, { query, kind: "videos", ids }] }, video);
+  assert.deepEqual(again2("the long  climb Glass Harbor EDIT ", ["yt:1", "yt:2"]).map((one) => one.step), ["compare: search again (1 of 3 read)"], "the same search twice");
+  assert.deepEqual(again2("The Long Climb edit", ["yt:1", "yt:2"]).map((one) => one.step), ["compare: search again (1 of 3 read)"], "other words, nothing new");
+  assert.deepEqual(again2("The Long Climb edit", ["yt:1", "yt:9"]), [], "two searches, a new result");
+  // Fewer than 3 results: all of them read is enough. No brief, under 5 s or a waived check: no compare step at all.
+  assert.deepEqual(compareStep({ ...ran, refSearches: [{ query: "a", kind: "videos", ids: ["yt:1", "yt:2"] }], read: ["yt:1", "yt:2"] }, video), []);
+  assert.equal(compareStep({ ...ran, refSearches: [{ query: "a", kind: "videos", ids: ["yt:1", "yt:2"] }], read: ["yt:1"] }, video)[0].step, "compare: search again (1 of 2 read)");
+  assert.deepEqual([compareStep({ ...ran, brief: undefined }, video), compareStep(ran, { ...video, seconds: 4 }), compareStep(ran, { ...video, referenceWaived: true })], [[], [], []]);
+  // The agent's own subject words fill the slot of the second search.
+  const slotted = { rev: 1, fields: { message: line("a night drive edit") } };
+  assert.deepEqual(compareSearch(slotted, "Glass Harbor", [{ query: "night drive Glass Harbor edit" }]), { topic: "inspire", search: "night drive edit" });
   // Every search run: the kind of edit the message names, then the same as Shorts for a vertical video.
   assert.deepEqual(compareSearch(brief, "", [{ query: "The Long Climb edit" }]), { topic: "inspire", search: "<The Long Climb plus other words: the song, the kind of edit, or where its makers post>" });
   const amv = { ...brief, fields: { ...brief.fields, message: line("A fast amv of the lighthouse stairs") } };

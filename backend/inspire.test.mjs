@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import {
   BOT_CHECK, NO_JS_RUNTIME, NO_YTDLP, clock, createInspire, jsRuntime, toolPath, downloadArgs, inspireTools, isYouTubeUrl, measureNumbers, numbersLine, parseSearchLines, rankResults, doubtOf,
   dropNonEdits, dropReason, droppedText, originOf, originPhrase, originQuery, sharedLine, sharedWords, closedPlatform, lookupYouTube, parseVideoInfo, projectText, refId, referenceText, lentSections, rhythmCues, runYtDlp, searchText, searchYouTube, ytDlpCommand,
-  cannotPlayLine, cannotPlayReason, fingerprintLines, fitNote, measuredDoubt,
+  cannotPlayLine, cannotPlayReason, cleanTake, fingerprintLines, fitNote, measuredDoubt, quietDoubt, takeSaysWhat, takeStretch, takeWithoutStretch,
 } from "./inspire.mjs";
 import { botCheckError, createYouTubeGate, heavyDecodeSlot } from "./process-slots.mjs";
 import { copiedRun } from "../engine/quality/rules/reference.js";
@@ -309,7 +309,7 @@ test("a shorts search: YouTube's Shorts filter first, then a plain search's vide
   const inspire = createInspire({ directory: path.join(folder, "shorts"), projectState: memoryProjects(), search: async (words, options) => { asked.push(options.shorts); return results; } });
   const found = await inspire.search("p1", "app launch animation", { kind: "shorts", count: 5 });
   assert.deepEqual([asked, found.search.kind, found.results[0].vertical, found.results[3].vertical], [[true], "shorts", true, undefined]);
-  assert.deepEqual([found.results[1].vertical, found.results[1].thumb], [undefined, true], "measured square: not vertical, its thumbnail kept");
+  assert.deepEqual([found.results[1].vertical, found.results[1].thumb], [false, true], "measured square: not vertical (known, so a 9:16 plan may call it wide), its thumbnail kept");
   const text = searchText("app launch animation", found.results, { kind: "shorts" });
   assert.match(text, /^inspire shorts "app launch animation": 5 found on YouTube \(Shorts/);
   assert.match(text, /yt:OfYFgNX5Fb4 'Sh-ort launch screen animation' · Mirko_ddd · 0:07 · Short 9:16 ·/);
@@ -404,12 +404,29 @@ test("clock and the agent's lines", () => {
   assert.match(text, /\ncuts 4 · 75% within 1 frame of a beat \(random \d+%\) · frames off the beat \(- early\) 0:3 more:1\n/);
   assert.match(searchText("walk", [ref]), /^inspire "walk": 1 found on YouTube/);
   // Fit against the video being made, and doubts from kino's own measure, join the result's line.
-  assert.equal(fitNote(ref, { seconds: 20, vertical: true }), "4:19 for a 20 s edit: name the stretch you take; wide for a 9:16 edit: take pacing or type, not framing");
+  assert.equal(fitNote(ref, { seconds: 20, vertical: true }), "4:19 for a 20 s edit: name the stretch you take", "shape unknown (not measured): no shape note");
+  assert.equal(fitNote({ ...ref, vertical: false }, { seconds: 20, vertical: true }), "4:19 for a 20 s edit: name the stretch you take; wide for a 9:16 edit: take pacing or type, not framing");
+  assert.equal(fitNote({ duration: 20, vertical: true }, { seconds: 20, vertical: false }), "9:16 for a wide edit: take pacing or type, not framing");
   assert.equal(fitNote({ duration: 5 }, { seconds: 30 }), "0:05 for a 30 s edit: one moment, not the whole");
   assert.equal(fitNote(ref, {}), "", "no plan, no note");
   assert.equal(measuredDoubt(ref), "almost no cuts (a raw clip, not an edit?)");
   assert.equal(measuredDoubt({ duration: 700, fingerprint: { persistent: [{ kind: "patch", box: [0.3, 0.9], share: 1 }], text: { share: 0.7, onPlain: 0.8 } } }),
-    "a patch stays in place 100% (a watermark or another app's frame?), mostly text on a plain background, compilation length");
+    "a patch stays in place 100% (a watermark or another app's frame?); mostly text on a plain background; compilation length");
+  // A small corner mark is the maker's tag; a large patch is another app's frame; a message that expects it quiets two.
+  const tagged = (box) => ({ fingerprint: { persistent: [{ kind: "patch", box, share: 0.9 }] } });
+  assert.equal(measuredDoubt(tagged([0.8, 0.8, 0.15, 0.15])), "");
+  assert.match(measuredDoubt(tagged([0.4, 0.2, 0.5, 0.6])), /^a patch stays in place 90%/);
+  assert.equal(quietDoubt("almost no cuts (a raw clip, not an edit?); mostly text on a plain background", "a kinetic type video"), "almost no cuts (a raw clip, not an edit?)");
+  assert.equal(quietDoubt("almost no cuts (a raw clip, not an edit?)", "one take, no cuts"), "");
+  // A take: trailing punctuation off; a stretch is two times inside the reference (not 9:16 or 0.5s).
+  assert.equal(cleanTake("pacing: long holds.. "), "pacing: long holds");
+  assert.deepEqual(takeStretch("pacing, 1:02 to 1:20", 188), { from: 62, to: 80 });
+  assert.deepEqual(takeStretch("type from 62s - 80s", 188), { from: 62, to: 80 });
+  assert.deepEqual([takeStretch("type: 9:16 framing", 188), takeStretch("pacing: a cut every 0.5s", 188), takeStretch("pacing, 1:20 to 1:02", 188), takeStretch("pacing, 1:02 to 9:20", 188)], [null, null, null, null]);
+  assert.equal(takeWithoutStretch("pacing: long holds, from <m:ss> to <m:ss>"), "pacing: long holds");
+  assert.equal(takeWithoutStretch("pacing: long holds, from 1:20 to 1:02"), "pacing: long holds");
+  assert.equal(takeWithoutStretch("<structure, pacing: what>"), "");
+  assert.deepEqual([takeSaysWhat("x"), takeSaysWhat("cuts on every beat"), takeSaysWhat("pacing: long holds")], [false, false, true]);
   assert.equal(measuredDoubt({ duration: 30, numbers: { seconds: 30, shots: 20, cutsPerSecond: 0.6 }, fingerprint: { persistent: [{ kind: "text", text: "tag", share: 0.38 }] } }), "", "an edit with a small mark part of the time");
   const fitted = searchText("walk", [{ ...ref, measuredDoubt: measuredDoubt(ref) }], { plan: { seconds: 20 } });
   assert.match(fitted, /^1\) yt:tgEWNHVbk3U 'Fast' · Brandon Li · 4:19 · doubt: almost no cuts \(a raw clip, not an edit\?\) · fit: 4:19 for a 20 s edit: name the stretch you take · /m);

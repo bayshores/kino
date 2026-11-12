@@ -791,7 +791,7 @@ function resolveReferences(operation, type, resolver, document) {
     if (!named.length)
       throw new Error('waive_check type_seen names the reference that chose this type in its reason ("set like the title in yt:<id>"). No reference chose it: take the type from your references and this footage instead.');
     if (!named.some((id) => own.has(refId(`yt:${id}`))))
-      throw new Error(`waive_check type_seen names yt:${named[0]}, which is not a reference of this project (a style line's ref or a saved Inspire reference). Save it (library inspire, name "save yt:${named[0]}") and study it, or take the type from the references this project has.`);
+      throw new Error(`waive_check type_seen names yt:${named[0]}, which is not a reference of this project (a style line's ref or a saved Inspire reference). Save it (library inspire, name "save yt:${named[0]}", take "<what this edit takes>") and study it, or take the type from the references this project has.`);
   }
   if (type === "waive_check") delete operation.quote;
   // A waiver's target is a layer, a scene, or * for the whole project; or a list of layers and

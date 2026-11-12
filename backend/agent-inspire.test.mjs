@@ -75,10 +75,9 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   assert.equal(strips.text.split("\n")[1], REFERENCE_LOOKUP);
   assert.equal(strips.images.length, 1);
   assert.equal((await agent("look", { project: "insp", mode: "reference", ref: "yt:dQw4w9WgXcQ" })).isError, true);
-  // One search and 1 of its results read: a save waits for a comparison; the refusal leads with a second search.
-  const unread = await agent("library", { topic: "inspire", project: "insp", name: `save ${LAST}`, take: "pacing: short shots" });
-  assert.match(unread.data.reason, /^library \{"topic":"inspire","search":"<the subject plus other words: .*>"\} first: one search ran and 1 of its results were read, so nothing was compared\. Search again with other words, or read 3 of its results \(library \{topic:"inspire", name:"yt:/, unread.text);
-  assert.equal(JSON.parse(unread.text).next.startsWith('library {"topic":"inspire","search":'), true);
+  // No brief, so no compare step; a take that names nothing is refused with the ready call (nothing is saved).
+  const vague = await agent("library", { topic: "inspire", project: "insp", name: `save ${LAST}`, take: "x" });
+  assert.match(vague.data.reason, /^library \{"topic":"inspire","name":"save yt:\S+","take":"<structure, pacing, type, transitions or sound: what this edit takes>"\}: a take names one of structure, pacing/, vague.text);
 
   const borrowed = await agent("edit", { project: "insp", ops: [{ op: "borrow_rhythm", ref: FIRST, fit: true }] });
   assert.notEqual(borrowed.isError, true, borrowed.text);
@@ -101,7 +100,7 @@ test("an agent searches YouTube, reads one reference's cuts and borrows its rhyt
   await agent("project", { action: "create", id: "insp-copy", name: "Inspire copy", width: 640, height: 360, duration: 3 });
   assert.match((await agent("look", { project: "insp-copy", mode: "reference" })).text, /^saved references: none/);
   const copied = await agent("library", { topic: "inspire", project: "insp-copy", name: "copy insp" });
-  assert.match(copied.text, /^Copied 1 saved reference from insp to insp-copy \(1 saved\): yt:OAH0MoAv2CI\.\n/);
+  assert.match(copied.text, /^Copied 1 saved reference from insp to insp-copy \(1 saved\): yt:OAH0MoAv2CI\. Say what this edit takes from yt:OAH0MoAv2CI: library \{topic:"inspire", name:"save yt:OAH0MoAv2CI", take:"</, "a copied reference with no take in its source names the call that adds one");
   const help = await agent("library", { topic: "op", name: "borrow_rhythm" });
   assert.match(help.text, /^borrow_rhythm \{ref, fit\?, at\?, scene\?\}/);
 });
@@ -115,6 +114,25 @@ test("for a briefed video the search drops results far longer than it and says w
   assert.match(found.text, /\nDropped 4: 4 over 90 s \(the video is 3 s\)\. First: "5 Fast Tips for Fast-Cut Editing" yt:tgEWNHVbk3U, /);
   assert.deepEqual(found.data.dropped, { "over 90 s (the video is 3 s)": 4 });
   assert.equal(found.data.results.length, 2);
+  // A briefed video of 5 s or more: one search compares nothing, and the same words again (any case) still none.
+  await agent("project", { action: "create", id: "insp-gate", name: "Inspire gate", width: 640, height: 360, duration: 6 });
+  await agent("notes", { project: "insp-gate", action: "brief", fields: { message: { text: 'A "Quillby" launch for hosts', by: "guessed" } } });
+  const first = await agent("library", { topic: "inspire", project: "insp-gate", search: "Quillby edit", count: 3 });
+  await agent("library", { topic: "inspire", project: "insp-gate", search: "QUILLBY  edit " });
+  const unread = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${first.data.results[0].id}`, take: "pacing: short shots" });
+  assert.match(unread.data.reason, /^library \{"topic":"inspire","search":"<Quillby plus other words: [^"]*>"\} first: nothing was compared yet \(0 of \d results read, and no second search with results of its own\)\. Search again with other words, or read \d of the results/, unread.text);
+  // A waived reference check has no compare step, so a save is not held for it; a take for a long reference names two times of it,
+  // and the retry call never grows when it is sent as written.
+  const waive = await agent("edit", { project: "insp-gate", ops: [{ op: "waive_check", code: "reference", target: "*", reason: "the test saves without the order" }] });
+  assert.notEqual(waive.isError, true, waive.text);
+  const long = first.data.results.find((one) => one.duration >= 26);
+  assert.ok(long, `a result over 26 s for the 6 s video: ${JSON.stringify(first.data.results.map((one) => one.duration))}`);
+  const vague = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "pacing: long holds" });
+  assert.match(vague.data.reason, /"take":"pacing: long holds, from <m:ss> to <m:ss>"\}: .*the take names it as two times/, vague.text);
+  const sent = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "pacing: long holds, from <m:ss> to <m:ss>" });
+  assert.equal(sent.data.reason.match(/from <m:ss> to <m:ss>/g).length, 1, sent.data.reason);
+  const range = await agent("library", { topic: "inspire", project: "insp-gate", name: `save ${long.id}`, take: "pacing: long holds, from 0:05 to 0:20." });
+  assert.match(range.text, /^Saved yt:\S+ in insp-gate \(1 saved\)\. Takes: pacing: long holds, from 0:05 to 0:20\./, range.text);
   // No brief: only a release is dropped by its title, so all 6 show and nothing is said.
   await agent("project", { action: "create", id: "insp-plain", name: "Inspire plain", width: 640, height: 360, duration: 3 });
   const plain = await agent("library", { topic: "inspire", project: "insp-plain", search: "Quillby edit" });
