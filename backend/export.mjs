@@ -22,7 +22,7 @@ import { normalizeRenderQuality, motionSampleTimes, createSampleBlend, MAX_MOTIO
 import { shutterFps, shutterSampleCount } from "../engine/previewBlur.js";
 import { frameReference, inspectRenderedOutput } from "./render-output-audit.mjs";
 import { fitLoudness, loudMixWarning, masterLimiter, measureMixLevels, mixLead } from "./audio-levels.mjs";
-import { isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
+import { analyzeAudioFile, isSoundEffect, steadyBeat } from "./audio-analysis.mjs";
 import { encodeRenderPng } from "./render-png.mjs";
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -780,12 +780,25 @@ export async function cleanedVoiceLevel(path, offset, length, { curves = exportC
   return { chain, leveling: cleanedLevels.get(key) };
 }
 
-// Whether `path` is a song: its saved .beats (never analyzed at render) has a steady tempo, and it is
-// no sound effect. Used by the "auto" loudness target (audio-levels.mjs mixLead).
-async function isSongFile(path) {
+// Whether `path` is a song: its saved .beats has a steady tempo, and it is no sound effect. Used by the
+// "auto" loudness target (audio-levels.mjs mixLead). An audio layer's file with no .beats and no
+// transcript is analyzed once while kino runs (measured 2026-11-12: a song imported by path keeps no
+// .beats until a beat op reads it, and the import's next call names its layer "music", which a full
+// check never analyzes, so without this "auto" missed every such song). Kept in memory only: a saved
+// .beats with a tempo would hide the words of a voice-over not yet transcribed (savedWordsOf).
+const renderBeats = new Map();
+async function isSongFile(path, { analyze = false } = {}) {
   try {
     if (await isSoundEffect(path)) return false;
-    return steadyBeat(JSON.parse(await readFile(`${path}.beats`, "utf8")));
+    try { return steadyBeat(JSON.parse(await readFile(`${path}.beats`, "utf8"))); } catch { if (!analyze) return false; }
+    if (await savedWordsOf(path)) return false;
+    const file = await stat(path);
+    const key = `${path}:${file.size}:${file.mtimeMs}`;
+    if (!renderBeats.has(key)) {
+      renderBeats.set(key, analyzeAudioFile(path).then(steadyBeat, () => false));
+      if (renderBeats.size > 64) renderBeats.delete(renderBeats.keys().next().value);
+    }
+    return await renderBeats.get(key);
   } catch { return false; }
 }
 
@@ -801,7 +814,7 @@ async function spokenSeconds(path, offset, length, kept) {
  * multiplies it by. `volume` is then the track's loudest value, so a clip that stays silent is
  * left out of the mix like one at volume 0.
  */
-function soundClipMaker(directory, sceneDuration, signal) {
+function soundClipMaker(directory, sceneDuration, signal, { lead = true } = {}) {
   let volumeTracks = 0;
   let speedClips = 0;
   let lowpasses = 0;
@@ -824,9 +837,11 @@ function soundClipMaker(directory, sceneDuration, signal) {
     if (cleaned) clip = { ...clip, voiceChain: cleaned.chain };
     if (leveling) clip = { ...clip, ...leveling };
     // What "auto" loudness reads (planMasterLimiter): a song is flagged from its saved .beats, and a
-    // leveled voice says how many seconds of words it plays.
-    if (await isSongFile(clip.source?.path ?? clip.path)) clip = { ...clip, song: true };
-    else if (leveling || cleaned) clip = { ...clip, voiceSeconds: await spokenSeconds(clip.path, clip.offset ?? 0, length, kept) };
+    // spoken clip says how many seconds of words it plays (also one already at the voice level, which
+    // gets no leveling gain, and one with voiceCleanup off).
+    if (!lead) { /* live playback: nothing to read */ }
+    else if (await isSongFile(clip.source?.path ?? clip.path, { analyze: layer.type === "audio" })) clip = { ...clip, song: true };
+    else if (spoken) clip = { ...clip, voiceSeconds: await spokenSeconds(clip.path, clip.offset ?? 0, length, kept) };
     if (!animatesVolume(layer)) return { ...clip, volume };
     const track = await writeVolumeTrack(join(directory, `volume-${volumeTracks++}.f32`), layer, clip.start, length);
     return { ...clip, volume: track.peak, volumeTrack: { ...track, sampleRate: await audioSampleRate(clip.path, signal) } };
@@ -867,7 +882,8 @@ async function audioLayerSoundClips(layer, mediaRoot, sceneDuration, { signal, s
  * the export's length in seconds: whole frames, exportFrameTimes(…).length / fps.
  */
 export async function sceneSoundClips(scene, { mediaRoot, directory, duration, signal, warnings = [] }) {
-  const soundClip = soundClipMaker(directory, duration, signal);
+  // Live playback has no loudness target: no song or words are read for "auto".
+  const soundClip = soundClipMaker(directory, duration, signal, { lead: false });
   const renderedIds = visibleLayerIds(scene);
   const clips = [];
   for (const layer of scene.layers) {

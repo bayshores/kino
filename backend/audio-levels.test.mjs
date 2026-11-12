@@ -436,5 +436,7 @@ test("a final render brings a quiet mix to the web's -14 LUFS, and holds a peaky
   const peaky = join(server.dataDirectory, "peaky.wav");
   await run(ffmpeg, ["-v", "error", "-y", "-f", "lavfi", "-i",
     "aevalsrc=0.05*sin(2*PI*220*t)+if(lt(mod(t\\,1)\\,0.02)\\,0.6*sin(2*PI*440*t)\\,0):s=48000:d=6", "-ac", "2", peaky]);
-  await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web(: the song \(-\d+(\.\d)?\) is under -14)?, held under by the peak at [\d.]+ s/, true);
+  // Its clicks are a steady beat: the render finds that song itself (no beat op, no saved .beats
+  // needed) and says why the web's target stands.
+  await finalRender("peaky", peaky, 6, "mp4", /sound: -\d+(\.\d)? LUFS \(target -14 web: the song \(-\d+(\.\d)?\) is under -14, held under by the peak at [\d.]+ s/, true);
 });
