@@ -47,7 +47,7 @@ Off until set; one call each, no hand-built bar or vignette rectangles.
   amount: 0.15 is fine texture, 0.35 heavy film), blackLift raises the
   blacks to a soft gray, halation is a warm glow round bright spots, vignette darkens the corners.
   `soften` is diffusion (edges glow, fine lines soften, still in focus); `haze` a warm lifted veil.
-  `finish:true` is a mild start (0.15, 0.04, 0.2, 0.3, soften 0.35, no haze); look and tune. `false`
+  `finish:true` is a mild start (0.15, 0.04, 0.2, 0.3, soften 0.5, no haze); look and tune. `false`
   removes it.
 - `letterbox`: a width : height ratio (2.35 is the wide cinema shape, 1.2 to 6), black bars top and
   bottom, each (height - width / ratio) / 2 tall. `false` removes it.

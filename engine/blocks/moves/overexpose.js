@@ -58,7 +58,9 @@ export const overexpose = {
     const top = round(ctx.start + ctx.duration * share);
     const rise = top - ctx.start;
     const fall = ctx.end - top;
-    const glow = { radius: Math.max(4, Math.round(ctx.frame.height * 0.02)), passes: 2, threshold: 0.75, softness: 0.4,
+    // mode spill: the bloom only lightens what is darker than it, so a brow or an eye line inside
+    // the washed face keeps its tone (an added bloom at 0.3 filled them in: skeptic-bloom0 vs bloom015 frames).
+    const glow = { radius: Math.max(4, Math.round(ctx.frame.height * 0.02)), passes: 2, threshold: 0.75, softness: 0.4, mode: "spill",
       ...(input.color ? { color: input.color, colorMix: 0.6 } : {}) };
     const up = (target, role) => {
       if (rise < 0.001) return;

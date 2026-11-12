@@ -617,7 +617,7 @@ How to read it:
   grain names the field (`backend/agent-inspire.test.mjs`). Gap: halation is a blurred highlight screen, not true
   scatter; the starting values are guesses; saved references do not measure bars or grain.
 - **Finish soften and haze** (`finish {soften, haze}`): Test-verified. Diffusion and a warm veil, off
-  unless set; `finish:true` adds soften 0.35 (edge softness measured against reference stills).
+  unless set; `finish:true` adds soften 0.5 (edge softness measured against reference stills).
   Evidence: `engine/effects/finish.test.js`. Gap: haze values are guesses, not yet measured.
 - **Overexpose** (`move overexpose {layer, at, into?}`, color-grade `shoulder`): Test-verified. Exposure
   rises and settles with a highlight roll-off and bloom; `into` cuts on the peak. Evidence:

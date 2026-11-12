@@ -9,7 +9,10 @@ export const FINISH_KEYS = ["grain", "blackLift", "halation", "vignette", "softe
 // wide (lower is softer). Seven vetted reference stills: 0.21 to 0.34 (median about 0.29); the
 // transitions study face frame with finish but no soften: 0.335; with soften 0.35: 0.314. A
 // restrained start that moves toward the references without blurring the frame. haze stays off.
-export const SOFTEN_START = 0.35;
+// Skeptic re-measure (window 4 vs 1 on the top 10% gradient pixels, same study frame at 2.25 s;
+// a different mask, so other numbers): references 0.38 to 0.45 (one at 0.26), ours 0.488 with no
+// soften, 0.471 at 0.35, 0.453 at 0.6 with the face still in focus. 0.5 sits between those two.
+export const SOFTEN_START = 0.5;
 export const FINISH_START = { grain: 0.15, blackLift: 0.04, halation: 0.2, vignette: 0.3, soften: SOFTEN_START };
 export const LETTERBOX_MIN = 1.2;
 export const LETTERBOX_MAX = 6;
