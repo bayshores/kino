@@ -36,7 +36,6 @@ const CHARS_PER_TOKEN = 2.5;
 // 103 tokens at the widest) are counted on their own, outside ASK_TOKENS, like the agent's lines.
 export const FRESH_TOKENS = 25;
 // The shape line (a guess against the footage's shape, one sentence) is counted on its own too: at most 65 tokens, only when the shapes differ.
-export const SHAPE_TOKENS = 65;
 export const CHANGED_TOKENS = 105;
 export const SENTENCE_MAX = 150;
 const SENTENCE_MIN = 60;

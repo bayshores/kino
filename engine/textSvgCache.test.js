@@ -13,7 +13,8 @@ import { FontRegistry } from "./fonts.js";
 import { createLayer, createScene } from "./model.js";
 import { createCatalogAnimation } from "./presetCatalog.js";
 import { renderSceneSvg } from "./render.js";
-import { glyphPath, layoutText } from "./textLayout.js";
+import { glyphPath, glyphPathBounds, layoutText } from "./textLayout.js";
+import { pathBounds } from "./vectorPath.js";
 import { plainPaintKey, rememberForLayout } from "./textSvgCache.js";
 
 const bundled = await loadBundledFonts();
@@ -161,7 +162,19 @@ test("after the font registry changes, text is drawn with the new fonts", async 
 
 test("a remembered glyph outline equals one worked out again", () => {
   const layout = layoutText(text("glyphs", "Glyph outlines"), bundled);
-  for (const glyph of layout.lines[0].glyphs) assert.equal(glyphPath(Object.freeze({ ...glyph })), glyphPath({ ...glyph }));
+  for (const glyph of layout.lines[0].glyphs) {
+    assert.equal(glyphPath(Object.freeze({ ...glyph })), glyphPath({ ...glyph }));
+    // Bounds measured on the outline's contours equal those of its written path data.
+    if (glyph.path) assert.deepEqual(glyphPathBounds({ ...glyph }), pathBounds(glyphPath({ ...glyph })));
+  }
+});
+
+test("self-sizing text shares one layout whatever box size it is given", () => {
+  const layer = { ...text("sizing", "Shared layout"), textResize: "width-height" };
+  assert.equal(layoutText({ ...layer, width: 10, height: 10 }, bundled), layoutText({ ...layer, width: 999, height: 5 }, bundled));
+  const autoHeight = { ...layer, textResize: "height", width: 120 };
+  assert.equal(layoutText({ ...autoHeight, height: 10 }, bundled), layoutText({ ...autoHeight, height: 400 }, bundled));
+  assert.notEqual(layoutText({ ...autoHeight, width: 60 }, bundled), layoutText(autoHeight, bundled), "the width still wraps auto-height text");
 });
 
 test("only plain paints are remembered: gradients and inside or outside strokes add <defs>", () => {

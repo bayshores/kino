@@ -27,8 +27,7 @@ const BURST_RUN = 4;
 const CLOSING_SHARE = 0.15;
 // Loud effects: what a viewer sees as an accent (techniques.js tags, and the accent moves' tags).
 const LOUD = new Set(["flash", "shake", "rgb-split", "glitch-hit", "zoom-through", "whip-pan", "beat-kick", "speed-ramp", "freeze-frame", "light-sweep", "impact-frame", "strobe", "dip"]);
-// The parts compared, in the order a message names them.
-export const STRUCTURE_PARTS = ["pace", "drop", "burst", "effects", "ending", "title", "colors"];
+// The parts compared, with the words a message names them by.
 const PART_WORDS = { pace: "cut rate per section", drop: "first drop", burst: "burst place", effects: "effect order", ending: "ending", title: "title place", colors: "colors" };
 export const partWords = (parts) => parts.map((part) => PART_WORDS[part]).join(", ");
 

@@ -32,7 +32,7 @@
 //   node scripts/drawn-faces-measure.mjs rescore --labels <labels.json> --detections <owlv2 json>
 //     Scores saved OWLv2 boxes again (after a label fix) with the same rows measure prints: each
 //     score threshold, the best box per still, big boxes dropped, and the IoU cut moved.
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -280,7 +280,7 @@ const largest = (boxes) => boxes.reduce((best, box) => (!best || area(box) > are
  * (null means it found nothing and the window stays centered), and the still passes when the
  * largest labeled face keeps 85% or more of its width.
  */
-export function framingScore(stills, centerOf) {
+function framingScore(stills, centerOf) {
   const withFace = stills.filter((still) => still.faces.length);
   const out = { stills: withFace.length };
   for (const [shape, width] of Object.entries(WINDOW_WIDTH)) {

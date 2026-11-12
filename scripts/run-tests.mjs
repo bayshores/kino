@@ -3,7 +3,8 @@
 //   npm test                          every test file (including the golden frames), in groups side by side
 //   KINO_TEST_JOBS=1 npm test         every test file, one group (one file at a time)
 //   npm test -- backend/crew.test.mjs only the files named
-//   npm test -- --changed             only the tests related to this branch's changes (scripts/related-tests.mjs)
+//   npm test -- --changed             only the tests related to this branch's changes (scripts/related-tests.mjs);
+//                                     12 or more of them run in groups side by side too
 //   npm test -- --test-name-pattern=x other options go to `node --test`
 //   TEST_SHARD=2/8 npm test           only machine 2 of 8's share (CI); see scripts/test-times.mjs
 //   KINO_TEST_TIMES=out.json npm test also write each file's time (seconds) to out.json
@@ -63,8 +64,11 @@ const args = ["--import", "./scripts/test-fonts.mjs", "--test", "--test-concurre
 
 // A whole local run splits the files into groups of about equal time (like CI's machines) and runs
 // the groups side by side, each still one file at a time. KINO_TEST_JOBS sets the group count.
+// A long --changed list runs the same way, with at least 6 files a group.
 const jobs = Number(process.env.KINO_TEST_JOBS) || Math.max(1, Math.min(6, Math.floor(availableParallelism() / 2)));
-if (!timesOut && !process.env.TEST_SHARD && !named.length && jobs > 1) runGroups(jobs);
+const manyChanged = changedOnly && named.length >= 12;
+const wholeRun = !named.length || manyChanged;
+if (!timesOut && !process.env.TEST_SHARD && wholeRun && jobs > 1) runGroups(manyChanged ? Math.min(jobs, Math.floor(named.length / 6)) : jobs);
 else runOne();
 
 /** Runs the groups side by side; prints each group's output in one piece when it ends. */
@@ -93,18 +97,18 @@ function runGroups(count) {
 }
 
 function runOne() {
-const child = spawn(process.execPath, [...args, ...files], { cwd: ROOT, stdio: "inherit" });
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
-child.on("exit", (code, signal) => {
-  if (timesOut) {
-    try {
-      const measured = readTimes(path.join(scratch, "times.json"));
-      writeTimes({ ...readTimes(timesOut), ...measured }, timesOut);
-      console.log(`Wrote the times of ${Object.keys(measured).length} files to ${path.relative(ROOT, timesOut) || timesOut}.`);
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
+  const child = spawn(process.execPath, [...args, ...files], { cwd: ROOT, stdio: "inherit" });
+  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => child.kill(signal));
+  child.on("exit", (code, signal) => {
+    if (timesOut) {
+      try {
+        const measured = readTimes(path.join(scratch, "times.json"));
+        writeTimes({ ...readTimes(timesOut), ...measured }, timesOut);
+        console.log(`Wrote the times of ${Object.keys(measured).length} files to ${path.relative(ROOT, timesOut) || timesOut}.`);
+      } finally {
+        rmSync(scratch, { recursive: true, force: true });
+      }
     }
-  }
-  process.exit(code ?? (signal ? 1 : 0));
-});
+    process.exit(code ?? (signal ? 1 : 0));
+  });
 }

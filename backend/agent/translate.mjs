@@ -286,7 +286,13 @@ function checkLayerProperties(operation, fixes, resolver, document) {
     const hiding = unknown.find((key) => HIDING_WORDS.test(key));
     const suggestions = hiding ? ["visible"] : closest(unknown[0], LAYER_PROPERTY_NAMES);
     const hint = hiding ? ` To hide a layer (its animations cannot show it): {"visible":false}; true shows it again.` : "";
-    throw Object.assign(new Error(`${unknown.map((key) => `"${key}"`).join(", ")} ${unknown.length === 1 ? "is not a layer property" : "are not layer properties"}${suggestions.length ? `. Did you mean ${suggestions.join(", ")}?` : "."}${hint}`), { suggestions });
+    // The example is this op without the refused keys (the usual example set another layer's
+    // color and size, so sending next as written changed what was never asked); none when
+    // nothing is left.
+    const kept = Object.fromEntries(Object.entries(operation.properties).filter(([key]) => LAYER_PROPERTIES.has(key) && key !== "id"));
+    const example = Object.keys(kept).length ? sameOpWith(operation, kept) : null;
+    throw Object.assign(new Error(`${unknown.map((key) => `"${key}"`).join(", ")} ${unknown.length === 1 ? "is not a layer property" : "are not layer properties"}${suggestions.length ? `. Did you mean ${suggestions.join(", ")}?` : "."}${hint}`),
+      { suggestions, ...(example ? { example } : { noExample: true }) });
   }
   // A role one letter off ("headlin") or in other capitals ("CTA") is fixed and reported.
   const role = operation.properties.role;

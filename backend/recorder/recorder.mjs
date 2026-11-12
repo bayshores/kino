@@ -56,12 +56,16 @@ function buildFromSource() {
     await mkdir(folder, { recursive: true });
     const partial = `${binary}.${process.pid}`;
     const target = `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`;
-    const made = await new Promise((resolve) => spawn("xcrun", ["swiftc", "-O", "-target", target, SOURCE, "-o", partial], { stdio: "ignore" }).once("close", resolve));
+    // A compiler that cannot start counts as a failed build, not an error that stops the service.
+    const made = await new Promise((resolve) => spawn("xcrun", ["swiftc", "-O", "-target", target, SOURCE, "-o", partial], { stdio: "ignore" })
+      .once("error", () => resolve(null)).once("close", resolve));
     if (made !== 0) return null;
     await chmod(partial, 0o755);
     await rename(partial, binary);
     return binary;
   })();
+  // A build that threw (a full disk, say) is tried again on the next call, not remembered.
+  building.catch(() => { building = null; });
   return building;
 }
 

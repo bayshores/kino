@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -183,6 +183,17 @@ test("real HTTP service persists edits, merges stale writes, serves media, and b
     headers: { Origin: "https://attacker.invalid" },
   });
   assert.equal(denied.status, 403, "cross-origin API request is rejected");
+
+  // "//" is not a URL: one such request once stopped the whole service.
+  const badTarget = await new Promise((resolve) => {
+    const socket = connect(port, "127.0.0.1", () => socket.write("GET // HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"));
+    let reply = "";
+    socket.setEncoding("utf8").on("data", (chunk) => { reply += chunk; });
+    socket.on("close", () => resolve(reply.split("\r\n")[0]));
+    socket.on("error", () => resolve(""));
+  });
+  assert.equal(badTarget, "HTTP/1.1 400 Bad Request");
+  assert.equal((await fetch(`${baseUrl}/api/health`)).status, 200, "the service still answers after a bad request target");
 
   const folderResponse = await fetch(`${baseUrl}/api/folders`, {
     method: "POST",

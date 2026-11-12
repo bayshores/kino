@@ -157,6 +157,35 @@ export function cleanInput(input) {
   return Object.fromEntries(Object.entries(input).filter(([key, value]) => !SAID_KEYS.includes(key) && value !== undefined));
 }
 
+// The fields a call cannot do without, as slots to fill: notes reply with no id was refused with
+// next `check {"fix":"auto"}`, which does not send the reply. Keyed by tool, then tool.action or
+// tool.topic.
+const NEEDED_FIELDS = {
+  "notes.reply": { id: "<the note's id, such as N2>", text: "<what you changed>" },
+  "notes.resolve": { id: "<the note's id, such as N2>" },
+  "notes.keep": { id: "<the note's id, such as N2>", layers: ["<the layer it is about>"] },
+  "notes.add": { text: "<the note>" },
+  "notes.checkpoint": { id: "<the stop status step: names: board, rough, color, sound or critique>" },
+  "notes.answer": { id: "<the stop's id, such as C1>", words: "<their words, whole>", read_as: "<what you take them to mean>" },
+  "notes.set_plan": { steps: ["<step 1>", "<step 2>", "<step 3>"] },
+  "notes.helper": { text: "<the task, such as: find 3 fast-cut edits like this one>" },
+  "library.op": { name: "<the op's name, such as add_layer>" },
+  "library.search": { search: "<a word, such as move>" },
+  inspect: { targets: ["<a layer's name or code, such as L1>"] },
+};
+
+/**
+ * A refused call sent again with each field it needs and lacks as a slot to fill, or null when
+ * nothing it needs is missing.
+ */
+export function missingFieldCall(tool, input) {
+  const asked = cleanInput(input);
+  const needed = NEEDED_FIELDS[`${tool}.${asked.action ?? asked.topic}`] ?? NEEDED_FIELDS[tool];
+  if (!needed) return null;
+  const missing = Object.entries(needed).filter(([key]) => asked[key] === undefined || asked[key] === "");
+  return missing.length ? call(tool, { ...asked, ...Object.fromEntries(missing) }) : null;
+}
+
 // A slot kino's next call leaves for the agent: "<your headline>", "<your guess: never>".
 const PLACEHOLDER = /^<[a-z][^<>]*[\s:][^<>]*>$/i;
 

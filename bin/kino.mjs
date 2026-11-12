@@ -399,6 +399,15 @@ function listItems(value) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+// A plan's steps from the words the shell made. Each word is a step ("Draft the scene" quoted),
+// unless commas separate them unquoted (Draft the logo, Polish timing, or a,b): then the words
+// are one text, split at its commas. A comma inside a quoted step ("Build, then check") is kept.
+function planSteps(words) {
+  const texts = words.map(String);
+  const unquotedComma = texts.some((word) => /^,|,$/.test(word.trim()) || (word.includes(",") && !/\s/.test(word.trim())));
+  return unquotedComma ? texts.join(" ").split(",").map((step) => step.trim()).filter(Boolean) : texts;
+}
+
 /** Turns command-line words into { verb, input, options }. Exported for tests. */
 export async function parseCommand(argv) {
   const { options, words } = splitOptions(argv);
@@ -459,7 +468,8 @@ export async function parseCommand(argv) {
     if (free.length) input.text ??= free.join(" ");
   } else if (verb === "notes" && (input.action ?? free[0]) === "set_plan") {
     input.action ??= free.shift();
-    if (free.length) input.steps ??= free;
+    // Words after steps= are more of it (steps=Draft the logo, Polish kept only "Draft").
+    if (free.length) input.steps = planSteps([...(input.steps === undefined ? [] : [input.steps].flat()), ...free]);
   } else if (verb === "project" && (input.action ?? free[0]) === "record") {
     // kino project record start target='{"app":"Notes"}' maxSeconds=60 · kino project record
     // mark Open the menu · kino project record stop: the step is the word after record, and
@@ -524,13 +534,22 @@ async function runVerb(argv) {
     console.log(JSON.stringify({ ...reply, ...(images.length ? { images } : {}) }, null, 2));
   } else console.log(reply.text);
   if (reply.isError && guesses) console.error(await guessNote(guesses));
-  if (reply.isError) process.exitCode = 1;
+  const code = exitCodeFor(verb, input, reply);
+  if (code) process.exitCode = code;
+}
+
+/** The exit code for a service answer: 1 when nothing the command asked for came of it. Exported for tests. */
+export function exitCodeFor(verb, input, reply) {
+  if (reply.isError) return 1;
   // A render that failed is a normal answer to the service, but a script waiting for the file
   // must not carry on: `kino render wait` (and start wait=true, and status) exit 1 when it failed.
-  else if (verb === "render" && reply.data?.status === "failed") process.exitCode = 1;
+  // A canceled one too (it exited 0), except the answer to `kino render cancel` itself.
+  const status = reply.data?.status;
+  if (verb === "render" && (status === "failed" || (status === "canceled" && input?.action !== "cancel"))) return 1;
   // So is a write refused during a hold ({held}) or while a stop waits for the person ({waiting,
   // next}): nothing changed. status also names a waiting stop, but refused nothing.
-  else if (reply.data?.held || (reply.data?.waiting && reply.data.next)) process.exitCode = 1;
+  if (reply.data?.held || (reply.data?.waiting && reply.data.next)) return 1;
+  return 0;
 }
 
 export async function main(argv) {

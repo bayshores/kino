@@ -85,6 +85,9 @@ const FIXED = [
   ["update_animation fields at the top", { op: "update_animation", animation: "box.in", start: 1, duration: 0.8 }, "start, duration → properties"],
   ["a scene size as text", { op: "add_scene", name: "vertical", size: "1080x1920", duration: 6 }, 'size "1080x1920" → width 1080, height 1920'],
   ["move_layer", { op: "move_layer", layer: "box", x: 500 }, "op move_layer → update_layer"],
+  ["set_text", { op: "set_text", layer: "title", text: "Hi there" }, "op set_text → update_layer"],
+  ["CSS left and top", { op: "update_layer", layer: "box", properties: { left: 40, top: 60 } }, "left → x"],
+  ["a CSS property name", { op: "update_layer", layer: "title", properties: { "font-size": "80px" } }, "font-size → fontSize"],
   ["bloom for glow", { op: "add_animation", layer: "box", effect: "bloom", parameters: { strength: 1 } }, 'effect "bloom" → glow'],
   ["film grain for grain", { op: "add_animation", layer: "box", effect: "film grain", parameters: { amount: 0.3 } }, 'effect "film grain" → grain'],
   ["an effect name with a space", { op: "add_animation", layer: "box", effect: "god rays" }, 'effect "god rays" → light-rays'],
@@ -242,6 +245,10 @@ test("any other mistake is refused with one short example that works", { timeout
     if (tried.isError) problems.push(`${what}: its example ${JSON.stringify(reply.data.example)} is refused: ${tried.text}`);
   }
   assert.deepEqual(problems, []);
+  // An unknown layer property: the example is the agent's own op without it (the usual example
+  // set the title's color and size, which nobody asked for).
+  const unknown = await agent("edit", { project: "refused", ops: [{ op: "update_layer", layer: "box", properties: { x: 250, glowiness: 3 } }], dry_run: true });
+  assert.deepEqual(unknown.data.example, { op: "update_layer", layer: "box", properties: { x: 250 } });
 });
 
 test("update_layer cannot clear a media layer's src; other layers and other fields are not affected", async () => {
@@ -670,6 +677,12 @@ test("one op sent without a list is a list of one", async () => {
   assert.equal(reply.isError, undefined, reply.text);
   assert.deepEqual(reply.data.fixed, ["ops {…} → [{…}]"]);
   assert.equal(layerNamed(await saved("one"), "box").fill, "#000000");
+  // operations is ops; an edit with neither is refused with a call to send (it was a crash).
+  const named = await agent("edit", { project: "one", operations: [{ op: "update_layer", layer: "box", properties: { fill: "#111111" } }] });
+  assert.deepEqual(named.data.fixed, ["operations → ops"]);
+  const none = await agent("edit", { project: "one" });
+  assert.equal(none.data.error, "bad_input");
+  assert.deepEqual(nextCallOf(none), { tool: "library", input: { topic: "op", name: "<the op's name, such as add_layer>" } });
 });
 
 test("library op shows a working example, and each property preset's values for add_animation", async () => {

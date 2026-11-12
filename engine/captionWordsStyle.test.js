@@ -2,7 +2,7 @@
 // unsaidOpacity and activeBackground. Left out (or set to today's values) they change nothing.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDocument, createLayer, createScene, parseDocument } from "./model.js";
+import { createDocument, createScene, parseDocument } from "./model.js";
 import { defaultFonts } from "./fonts.js";
 import { styleFor } from "./blocks/looks.js";
 import { readMoveInput, runMove } from "./blocks/move.js";
