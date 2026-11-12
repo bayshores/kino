@@ -783,8 +783,14 @@ test("check reads the project's saved origin and plays_on; a waiver naming the o
   assert.match(checked.text, /ask_unmet/, "the stored origin word reaches the check");
   assert.doesNotMatch(checked.text, /shape_guess/, "plays_on said by the person: no guess about the shape");
   // The agent path: a mark that shows the word clears it only at a file second the agent looked at.
-  const mark = await service.call("edit", { project: "p", ops: [{ op: "mark_subject", layer: "clip", t: 1, box: [30, 10, 40, 80], shows: "tower" }] });
-  assert.match(mark.text, /mark_subject clip: agent box \[30, 10, 40, 80\] shows \\"tower\\" at file 1 s/, mark.text);
+  // The subject (a face) is marked on its own; the tower in the background is named without a box,
+  // so the subject box stays and no crop rule reads the tower as the subject.
+  await service.call("edit", { project: "p", ops: [{ op: "mark_subject", layer: "clip", t: 1, box: [30, 10, 40, 80] }] });
+  const mark = await service.call("edit", { project: "p", ops: [{ op: "mark_subject", layer: "clip", t: 1, shows: "tower" }] });
+  assert.match(mark.text, /mark_subject clip: shows \\"tower\\" at file 1 s \(the subject boxes are unchanged\)/, mark.text);
+  const marked = (await store.getProject("p")).document.scenes[0].layers[0];
+  assert.deepEqual(marked.subjectBoxes.boxes.map((entry) => entry.box), [[30, 10, 40, 80]]);
+  assert.deepEqual(marked.askShows.marks, [{ at: 1, what: "tower" }]);
   assert.match((await service.call("check", { project: "p" })).text, /ask_unmet/, "marked, never looked at");
   await agentState.update("p", (draft) => { draft.sourceLooks = { v: { src: layer.src, at: [1.2] } }; });
   assert.doesNotMatch((await service.call("check", { project: "p" })).text, /ask_unmet/, "marked after a look at that second");

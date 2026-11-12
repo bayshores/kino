@@ -1840,7 +1840,7 @@ test("ask_unmet: only a shot marked shows:<word> at a second the agent looked at
   const context = (extra) => ({ scene: bad.scenes[0], mediaSizes: keeperSizes, mediaNames: { [TALL_CROP.src]: "F1.2 keeper walks the field.mp4" }, origin, ...extra });
   const [found] = await fires("ask_unmet", bad, context());
   // The ready call comes first: look at the shot, then mark the frame that shows the word.
-  assert.match(found.message, /^look \{mode:"source", layer:"keeper", t:1\}, then on the frame that shows it edit \{ops:\[\{op:"mark_subject", layer:"keeper", t:<scene s>, box:\[x, y, w, h\], shows:"tower"\}\]\}; if no shot shows it: library/);
+  assert.match(found.message, /^look \{mode:"source", layer:"keeper", t:1\}, then on the frame that shows it edit \{ops:\[\{op:"mark_subject", layer:"keeper", t:<scene s>, shows:"tower"\}\]\}; if no shot shows it: library/);
   assert.match(found.message, /"tower" is in 11 of 15 titles.*Keeper climbs the tower \(full\).*no shot shows it\.$/);
   assert.match(found.fix.text, /waive_check ask_unmet on the scene with a reason that names "tower"/);
   // The person's own footage leads, and no origin word (or a skipped search) means nothing to check.
@@ -1850,7 +1850,7 @@ test("ask_unmet: only a shot marked shows:<word> at a second the agent looked at
   const [titled] = await fires("ask_unmet", bad, context({ mediaNames: { [TALL_CROP.src]: "F1.2 The Tower.mp4" }, foundTitles: ["F1.2 The Tower.mp4"] }));
   assert.match(titled.message, /1 shot's file title has it, but a title is not the picture/);
   // A mark that shows it: clears only with a look at that file second (within 0.5 s), on this file.
-  const marked = tall({ ...TALL_CROP, subjectBoxes: { src: TALL_CROP.src, boxes: [{ at: 1.2, box: [40, 10, 20, 60], by: "agent", shows: "Tower" }] } });
+  const marked = tall({ ...TALL_CROP, askShows: { src: TALL_CROP.src, marks: [{ at: 1.2, what: "Tower" }] } });
   const markedContext = (sourceLooks) => ({ ...context(), scene: marked.scenes[0], sourceLooks });
   assert.equal((await check("ask_unmet", marked, markedContext({}))).findings.length, 1, "a mark nobody looked at");
   assert.equal((await check("ask_unmet", marked, markedContext({ keeper: { src: TALL_CROP.src, at: [0.2] } }))).findings.length, 1, "a look at another second");
@@ -1859,6 +1859,14 @@ test("ask_unmet: only a shot marked shows:<word> at a second the agent looked at
   assert.equal(askLine(marked.scenes[0], origin, { keeper: { src: TALL_CROP.src, at: [1.4] } }), 'Your ask points to "tower" (in 11 of 15 titles about what you asked for): keeper shows it at 1.2 s.');
   assert.equal(askLine(bad.scenes[0], origin, {}), 'Your ask points to "tower" (in 11 of 15 titles about what you asked for): no shot is marked as showing it yet.');
   assert.equal(askLine(bad.scenes[0], { skipped: "offline" }, {}), "");
+  // The board names the shot number; own footage says nothing; a waiver says why it is not shown.
+  const looked = { keeper: { src: TALL_CROP.src, at: [1.4] } };
+  assert.match(askLine(marked.scenes[0], origin, looked, { board: [{ cue: 0, dur: 1 }, { cue: 1, dur: 1 }] }), /: shot 2 shows it at 1\.2 s\.$/);
+  assert.equal(askLine(marked.scenes[0], origin, looked, { own: true }), "");
+  assert.match(askLine(bad.scenes[0], origin, {}, { waived: "no Tower here" }), /: not shown, on purpose \(no Tower here\)\.$/);
+  // A clip played at 8x still counts: the mark is at the file second the 8x clip plays at 1.02 s.
+  const fast = tall({ ...TALL_CROP, mediaSpeed: 8, mediaSourceDuration: 20, askShows: { src: TALL_CROP.src, marks: [{ at: 8.16, what: "tower" }] } });
+  await silent("ask_unmet", fast, { ...context(), scene: fast.scenes[0], sourceLooks: { keeper: { src: TALL_CROP.src, at: [8.2] } } });
 });
 
 // ---------------------------------------------------------------- restraint, request_unmet

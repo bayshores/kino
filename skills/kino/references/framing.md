@@ -4,10 +4,9 @@
 - `look {mode:"source", layer, t}`, then `mark_subject {layer, t, box}` the subject you see: box
   `[x, y, w, h]` in % of the source, top-left; a face: the head. A deliberate strip adds
   `part:"eyes"`. An unlooked mark clears neither `narrow_window` nor `crop_no_subject`.
-  Waive `narrow_window` or `head_cut_off` only on a layer you looked at.
-  `ask_unmet` clears on a looked-at mark with `shows:"<word>"`, not a title.
-- Then `frame_shot {layer | layers}` (the fix crop findings offer): crops on the mark or a found face (a full check finds
-  them), else the whole shot over a blurred copy.
+  Waive `narrow_window` or `head_cut_off` only on a looked-at layer.
+  `ask_unmet`: `mark_subject {layer, t, shows:"<word>"}` (no box) at a looked-at second.
+- Then `frame_shot {layer | layers}` (the fix crop findings offer): crops on the mark or a found face (a full check finds them), else the whole shot over a blurred copy.
 - Mark each shot's start, middle and end (end − 0.05 s, never the end), every 0.5 s it moves over 10%.
   A mark beats a found face.
 - `library {topic:"media", search:"<id>"}` lists a video's shots in file seconds.

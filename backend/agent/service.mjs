@@ -109,7 +109,6 @@ import { boxesAt, cropOnSource, insideShare } from "../../engine/sourceView.js";
 import { mediaFrameState, mediaPlaybackRange, mediaSoundTime } from "../../engine/playback.js";
 import { shapeOf } from "../../engine/footage/layout.js";
 import { cropLine } from "../../engine/quality/rules/footage.js";
-import { askLine } from "../../engine/quality/rules/ask.js";
 import { namedShape } from "../../engine/quality/rules/shape.js";
 import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js";
 import { visionBoxes } from "../cutout/cutout.mjs";
@@ -2631,8 +2630,9 @@ export function createAgentService(deps) {
       // top: the 3 rules with the most open findings, so a stop names what is open, not a count only.
       const crops = cropLine(result.crops);
       const top = topRules(report.byRule);
+      // askLine: what the person's ask points to and which shot shows it, as the check judged it.
       draft.checked = { rev: record.revision, errors: report.errors, warnings: report.warnings, at: new Date(now()).toISOString(), client: caller.getStore()?.client ?? null,
-        ...(top.length ? { top } : {}), ...(crops ? { cropLine: crops } : {}) };
+        ...(top.length ? { top } : {}), ...(crops ? { cropLine: crops } : {}), ...(result.ask ? { askLine: result.ask } : {}) };
     };
     const data = { rev: record.revision, ...report, notes: result.notes, ms: result.ms, techniques: result.techniques, ...(applied ? { applied } : {}) };
     const repeat = applied ? null : repeatedCheck(projectId, input, record.revision, lines);
@@ -4855,14 +4855,16 @@ export function createAgentService(deps) {
   }
 
   // A look at a layer's source is written down: sourceLooks[layerId] = {src, at: [file seconds]},
-  // the last 8 seconds looked at per layer and at most 200 layers (the oldest layer is dropped).
-  // A checker can then tell a crop kino saw from one it only computed.
+  // the last 40 seconds looked at per layer (a 4 s shot marked every 0.5 s needs 9 and more) and at
+  // most 200 layers (the oldest layer is dropped). A checker can then tell a crop kino saw from one
+  // it only computed.
+  const MAX_LOOKS = 40;
   async function recordSourceLook(projectId, layer, fileTime) {
     await agentState.update(projectId, (state) => {
       const looks = state.sourceLooks ??= {};
       const before = looks[layer.id]?.src === layer.src ? looks[layer.id].at : [];
       delete looks[layer.id];
-      looks[layer.id] = { src: layer.src, at: [...before, fileTime].slice(-8) };
+      looks[layer.id] = { src: layer.src, at: [...before, fileTime].slice(-MAX_LOOKS) };
       const ids = Object.keys(looks);
       for (const id of ids.slice(0, Math.max(0, ids.length - 200))) delete looks[id];
     });
@@ -5140,8 +5142,9 @@ export function createAgentService(deps) {
       const urgent = input.urgent === true;
       const where = `${urgent ? " URGENT" : ""}${sceneId && record.document.scenes.length > 1 ? ` ${refName(sceneId, codes)}` : ""}${time != null ? ` @${time}` : ""}${layerId ? ` ${refName(layerId, codes)}` : ""}${area ? ` area ${area.x},${area.y} ${area.width}×${area.height}` : ""}`;
       const result = await agentState.update(projectId, (state) => {
-        // typed: the person wrote it (dashboard or kino --you), so a brief quote may come from it.
-        const note = { id: `N${state.nextNote++}`, text, layerId, time, from: "you", status: "new", replies: [], createdAt: new Date(now()).toISOString(), ...(meta.by === "you" ? { typed: true } : {}),
+        // typed: the person wrote it in the app (only the dashboard's call is marked reviewed; an
+        // agent's `kino notes add --you` is not), so a brief quote may come from it.
+        const note = { id: `N${state.nextNote++}`, text, layerId, time, from: "you", status: "new", replies: [], createdAt: new Date(now()).toISOString(), ...(meta.by === "you" && meta.reviewed === true ? { typed: true } : {}),
           ...(sceneId ? { sceneId } : {}), ...(area ? { area } : {}), ...(urgent ? { urgent } : {}) };
         state.notes.push(note);
         state.turnBreak = true;
@@ -5374,10 +5377,9 @@ export function createAgentService(deps) {
           if (checkpoint) {
             // The crops the check of this revision counted (draft.checked.cropLine), shown in the ask.
             if (draft.checked?.rev === step.rev && draft.checked.cropLine) video.cropLine = draft.checked.cropLine;
-            // What the person's ask points to (the origin word) and which shot is marked showing it.
-            const shots = record.document.scenes.find((scene) => scene.layers.some((layer) => layer.type === "video"));
-            const pointed = shots ? askLine(shots, draft.origin, draft.sourceLooks) : "";
-            if (pointed) video.askLine = pointed;
+            // What the person's ask points to (the origin word) and which shot shows it: the video
+            // scene's line from the check of this revision, which knows own footage and waivers.
+            if (draft.checked?.rev === step.rev && draft.checked.askLine) video.askLine = draft.checked.askLine;
             answer = checkpointStep(draft, { ...step, kind: input.id, video, rules, all: input.all === true, words: input.words, soundFiles, soundSearch: soundSearchOn(), songSearch: songSearchOn(), fresh: input.fresh, critique, styleFrame: styled?.facts ?? null });
             const asked = answer.data.status === "waiting_for_you" ? roundOf(draft, answer.data.id) : null;
             if (asked && !asked.steady) asked.steady = { at: steady, boot: bootedAt };

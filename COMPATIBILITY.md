@@ -1361,9 +1361,11 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   after `look {mode:"source"}` on that layer that the crop keeps; a waiver on an unlooked layer answers `look_first`.
   Evidence: `engine/qualityRules.test.js`, `backend/agent-core.test.mjs`.
 - **Quotes kino recorded, asks met on screen, open rules named**: Test-verified. A brief quote by the person counts
-  only from an ask, an earlier call's reply, a stop answer or a note they typed, never a reply logged in the same call;
-  `ask_unmet` clears only on `mark_subject {shows}` at a looked-at second (a title is not proof), and the board and
-  rough asks name that shot; a stop's Checked line names the top 3 open rules. Evidence:
+  only from an ask, a stop answer or a note they typed in the app, never a `log` reply or an agent's `notes add --you`;
+  `ask_unmet` clears only on `mark_subject {shows}` (kept in `askShows`, apart from the subject boxes, so the crop
+  stays on the face) at a looked-at second at any clip speed (a title is not proof), and the board and rough asks name
+  that shot (the check's line: video scene, own footage and waivers known); a stop's Checked line names the top 3 open
+  rules. A board approval lapsing on a shot's text change is intended. Evidence:
   `backend/agent-brief.test.mjs`, `engine/qualityRules.test.js`, `backend/footage-finder.test.mjs`, `backend/agent-stops.test.mjs`.
 - **Inspire live view and ideas**: Verified in the desktop app. F3 shows the frame being measured;
   agents propose ideas that the person allows or holds. Evidence: `backend/inspire-live.test.mjs`,

@@ -41,9 +41,9 @@ on. The stops still wait for the person: only their answer or settings let one p
 - First save their message whole: `fields:{ask:"<what they typed>"}`; kept as typed, never edited.
   `missing:` names `ask`, then `about`, till saved. No person: `ask:"none"`.
 - `by:"you"` needs `quote`: their exact words, copied from their message (no fixed
-  typos). Not their words: `by:"guessed"`, no quote. A quote (style's too) not in an ask, an
-  earlier reply, a stop answer or their note is refused (`quote_not_said`); a reply logged in the
-  same call never counts (add each message they type to `ask`).
+  typos). Not their words: `by:"guessed"`, no quote. A quote (style's too) not in an ask, a stop
+  answer or a note they typed is refused (`quote_not_said`); a `log` reply never counts (put
+  each message or reply they type in `ask`).
   `text` (your reading): 80 characters, idea 120.
 - `about` `{text, by:"you", quote}` (`by:"guessed"` only under `ask:"none"`): who or what it is
   about, in their words; the first reference search uses it, never the ask. `origin:` is kino's

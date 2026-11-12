@@ -1,7 +1,7 @@
 import { normalizeQualityDocumentFields, normalizeQualityLayerFields, normalizeQualitySceneFields } from "./qualityFields.js";
 import { normalizeBlockDocumentFields, normalizeBlockLayerFields, normalizeBlockSceneFields } from "./blockFields.js";
 import { normalizeDrift } from "./camera.js";
-import { normalizeSubjectBoxes } from "./sourceView.js";
+import { normalizeAskShows, normalizeSubjectBoxes } from "./sourceView.js";
 import { normalizePin, normalizeTracks } from "./pin.js";
 import { normalizeRecording } from "./recording.js";
 import { normalizeBoard } from "./board.js";
@@ -1241,6 +1241,9 @@ function normalizeLayer(raw, path, animationIds, counters) {
   else layer.pin = normalizePin(layer.pin, `${path}.pin`);
   if (layer.subjectBoxes == null) delete layer.subjectBoxes;
   else layer.subjectBoxes = normalizeSubjectBoxes(layer.subjectBoxes, `${path}.subjectBoxes`, type);
+  // The frames the agent says show what the person asked for (mark_subject {shows}), apart from the subject.
+  if (layer.askShows == null) delete layer.askShows;
+  else layer.askShows = normalizeAskShows(layer.askShows, `${path}.askShows`, type);
   // A screen recording's pointer, clicks and keys (engine/recording.js), kept by the service
   // when the layer plays a recording kino made.
   if (layer.recording == null) delete layer.recording;

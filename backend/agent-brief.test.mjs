@@ -245,7 +245,8 @@ test("a playback answer that is not a yes leaves the brief unconfirmed and asks 
   const panel = (await dashboard("snapshot?project=brief-rejected", { method: "GET" })).body.agent.brief;
   assert.equal(panel.confirmed, false, "the dashboard does not say confirmed in chat");
   // Their fix, played back again and answered yes.
-  await brief("brief-rejected", { fields: { message: { text: "my mom; make her proud", by: "you", quote: "It's for my mom, not the crew" } } });
+  // (Their reply goes in ask: a logged reply is the agent's note, not proof of their words.)
+  await brief("brief-rejected", { fields: { ask: "No, that's all wrong. It's for my mom, not the crew.", message: { text: "my mom; make her proud", by: "you", quote: "It's for my mom, not the crew" } } });
   assert.equal((await statusLines("brief-rejected"))[2], "step: play the brief back (5–8 lines)");
   assert.equal((await brief("brief-rejected", { log: [PLAYBACK_YES(2)] })).data.brief.confirmedRev, 2);
 });
@@ -983,13 +984,13 @@ test("without a stored ask, missing names it and next carries the placeholders; 
   assert.deepEqual(nextMove(quiet, { seconds: 24, layers: 0 }).call.input.fields.about, { text: "<the subject>", by: "guessed" });
   applyBrief(quiet, briefChanges(quiet.brief, { fields: { about: { text: "the skate crew", by: "guessed" } } }));
   assert.deepEqual(briefData(quiet).missing, []);
-  // Under "none" a by:"you" quote has nothing to be checked against: refused unless a logged reply holds it.
+  // Under "none" a by:"you" quote has nothing to be checked against: refused, and a logged reply (this call or an earlier one) is not proof.
   const crew = { text: "vertical", by: "you", quote: "vertical on TikTok" };
   assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew } }), (error) => error.code === "quote_not_said" && /ask is "none"/.test(error.message));
   const where = { q: "Where?", a: "vertical on TikTok please" };
-  assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew }, log: [where] }), (error) => error.details.sameCall === true && /^Send plays_on by:"guessed"/.test(error.message));
+  assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew }, log: [where] }), (error) => error.details.logged === true && /^Send fields\.ask:/.test(error.message));
   applyBrief(quiet, briefChanges(quiet.brief, { log: [where] }));
-  assert.equal(briefChanges(quiet.brief, { fields: { plays_on: crew } }).lines.length, 1, "a reply logged in an earlier call");
+  assert.throws(() => briefChanges(quiet.brief, { fields: { plays_on: crew } }), (error) => error.code === "quote_not_said", "a reply logged in an earlier call is still the agent's note");
   // A real ask stored later replaces the marker.
   applyBrief(quiet, briefChanges(quiet.brief, { fields: { ask: "vertical on TikTok please" } }));
   assert.deepEqual([briefData(quiet).brief.askNone, briefData(quiet).brief.asks], [undefined, 1]);
@@ -1014,13 +1015,14 @@ test("with an ask stored, a quote by you must be in it or in a reply; with no as
   assert.equal(said("MY SKATE CREW, i want them"), 1);
   assert.throws(() => said("my skat crew"), { code: "quote_not_said" });
   assert.throws(() => said("my skate crew and a dog"), { code: "quote_not_said" });
-  // A guessed line is not checked, and a reply logged in an earlier call counts as said; one
-  // logged in the same call as the line it would prove does not (the agent wrote both).
+  // A guessed line is not checked. A logged reply never proves a quote, in the call that logs it
+  // or after (the agent wrote it); the same words sent as ask do.
   assert.equal(briefChanges(draft.brief, { fields: { plays_on: { text: "vertical", by: "guessed" } } }).lines.length, 1);
   const reply = { q: "Where does it play?", a: "vertical on TikTok please" };
-  assert.throws(() => briefChanges(draft.brief, { fields: { plays_on: vertical }, log: [reply] }), (error) => error.code === "quote_not_said" && error.details.sameCall === true, "a reply in this call");
+  assert.throws(() => briefChanges(draft.brief, { fields: { plays_on: vertical }, log: [reply] }), (error) => error.code === "quote_not_said" && error.details.logged === true, "a reply in this call");
   applyBrief(draft, briefChanges(draft.brief, { fields: {}, log: [reply] }));
-  assert.equal(briefChanges(draft.brief, { fields: { plays_on: vertical } }).lines.length, 1, "a reply logged before");
+  assert.throws(() => briefChanges(draft.brief, { fields: { plays_on: vertical } }), { code: "quote_not_said" }, "a reply logged before");
+  assert.equal(briefChanges(draft.brief, { fields: { ask: reply.a, plays_on: vertical } }).lines.length, 1, "the reply sent as their message");
   // The treatment pick's quote is the person's words too; a pick of your own has none to check.
   const idea = (index) => ({ idea: `idea ${index}`, who: `who ${index % 3}`, tension: "can one kid land it?", turn: "the board lands clean", move: `move ${index}`, ending: `ending ${index}`, type: `type ${index}`, p: [0.6, 0.3, 0.2, 0.1, 0.05][index], source: "the tagline" });
   applyBrief(draft, briefChanges(draft.brief, { fields: { treatments: [0, 1, 2, 3, 4].map(idea) } }));
@@ -1075,10 +1077,13 @@ test("check hands the brief's plays_on to shape_guess: portrait over landscape f
   // refused with the fix first. A note the agent adds is not theirs either; one the person typed counts.
   const yourCall = { action: "brief", fields: { plays_on: { text: "up to you", by: "you", quote: "your call" } } };
   const invented = await call("notes", { ...yourCall, log: [{ q: "Where does it play?", a: "your call" }] });
-  assert.match(invented.text, /"reason":"Send plays_on by:/, invented.text);
+  assert.match(invented.text, /"reason":"Send fields\.ask:/, invented.text);
   await call("notes", { action: "add", text: "your call" });
   assert.match((await call("notes", yourCall)).text, /not in anything they said/);
-  await service.call("notes", { project: "shape", action: "add", text: "your call" }, { by: "you", client: "dashboard" });
+  // `kino notes add --you` (by:"you" without the app's review) is an agent's call too.
+  await service.call("notes", { project: "shape", action: "add", text: "your call" }, { by: "you", client: "cli" });
+  assert.match((await call("notes", yourCall)).text, /not in anything they said/);
+  await service.call("notes", { project: "shape", action: "add", text: "your call" }, { by: "you", client: "dashboard", reviewed: true });
   const left = await call("notes", yourCall);
   assert.equal(left.isError, undefined, left.text);
   assert.equal((await agentState.read("shape")).brief.fields.plays_on.named, false);
