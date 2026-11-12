@@ -114,10 +114,10 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   const next = applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports });
   const report = [...reports.values()][0];
   const layer = next.scenes[0].layers[0];
-  // 15 s is too short for 45% before the drop and a group: one whole group of 4 bars (8 s) and a bar to fade, so the payoff is 5 s.
-  assert.match(report.payoff, /^5 s \(none given: the drop plays 1 group of 4 bars, 8 s, then 2 s to fade; its section runs 82 s in the song\)/);
-  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.weight === 1 && Math.abs(cue.time - 5) < 0.05) && !next.cues.some((cue) => cue.weight === 0.24), JSON.stringify(next.cues));
-  assert.ok(next.cues.find((cue) => cue.name === "song-fade-1").time >= 12.9, "the fade starts after the drop's 4 bars");
+  // 15 s is too short for 45% before the drop and a group: the 45% floor holds (6.75 s), and the receipt says what the drop plays and the payoff that gives it the group (5 s).
+  assert.match(report.payoff, /^6\.75 s \(none given: 45% of the video before the drop; it plays 6\.25 s, under one group of 4 bars \(8 s\), then 2 s to fade; payoff 5 s gives it the group; its section runs 82 s in the song\)/);
+  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.weight === 1 && Math.abs(cue.time - 6.75) < 0.05) && !next.cues.some((cue) => cue.weight === 0.24), JSON.stringify(next.cues));
+  assert.ok(Math.abs(next.cues.find((cue) => cue.name === "song-fade-1").time - 13) < 0.05, "a bar to fade");
   // A 60 s edit: the drop's section ends 16 s after it (a break), so it plays 2 groups, not the 3 the lead would allow; the break and the fade both land at 56.
   const long = new Map();
   const capped = [...sections.slice(0, 4), { at: 84, kind: "break" }, { at: 100, kind: "outro" }];

@@ -1810,7 +1810,8 @@ export function createAgentService(deps) {
     const was = music.mediaOffset ?? 0;
     try {
       const reports = new Map();
-      const fitted = await runFitMusic(document, { type: "fit_music", sceneId: scene.id, layerId: music.id }, { ...work, reports });
+      const fit = { type: "fit_music", sceneId: scene.id, layerId: music.id };
+      const fitted = await runFitMusic(document, fit, { ...work, reports });
       const after = boardSpan(fitted, fitted.board);
       if (Math.abs(after.start - before.start) > 0.05 || Math.abs(after.end - before.end) > 0.05) {
         (work.notes ??= []).push(`board music: kept as laid (fit_music would move it to ${after.start}-${after.end} s, off the board's ${before.start}-${before.end} s)`);
@@ -1820,9 +1821,15 @@ export function createAgentService(deps) {
       (work.notes ??= []).push(`board music: placed with fit_music (song from ${head?.mediaOffset ?? 0} s, was ${was} s; cues song-*${fitted.rhythm ? `, rhythm ${fitted.rhythm.bpm} bpm from ${fitted.rhythm.offset} s` : ""}); update_layer mediaOffset puts it back`);
       // The fit's note when the spine's payoff leaves the drop under 4 bars (its receipt is not shown here).
       const short = [...reports.values()].flatMap((report) => report?.notes ?? []).find((note) => note.startsWith("the drop plays "));
-      // kino does not move approved shots by itself: the note names the drop's time that gives the group and the call that places it.
-      const gives = /payoff ([\d.]+) s gives/.exec(short ?? "")?.[1];
-      if (short) work.notes.push(`board music: ${short} (fit_music {sceneId:"${scene.id}", layerId:"${music.id}", payoff:${gives ?? "<seconds>"}} puts the drop there; the board's shots stay as approved)`);
+      // kino does not move approved shots by itself (lead decision): the note gives the one edit that
+      // moves the payoff shots to the drop: the board with its shots re-cued (before the spine's
+      // payoff squeezed into the time before the new drop, from it on stretched over the rest), and
+      // fit_music with that payoff.
+      const gives = Number(/payoff ([\d.]+) s gives/.exec(short ?? "")?.[1]);
+      if (short && gives > 0 && typeof fit.payoff === "number") {
+        const cues = payoffShotCues(fitted.board?.shots ?? [], fit.payoff, gives, before);
+        work.notes.push(`board music: ${short}. The board's shots stay as approved; to move the payoff shots to the drop, send one edit: board with each shot as it is but these cues (${cues}), then {op:"fit_music", sceneId:"${scene.id}", layerId:"${music.id}", payoff:${gives}}`);
+      }
       return fitted;
     }
     catch (error) {
@@ -1832,6 +1839,15 @@ export function createAgentService(deps) {
       if (operation.music !== undefined && why) (work.notes ??= []).push(`board music: kept as laid (the song has ${why} measured; update_layer mediaOffset places it)`);
       return document;
     }
+  }
+
+  // The board's shot cues with the payoff moved from `from` to `to` (scene seconds): each cut before
+  // `from` scaled into start..to, each cut from it on mapped from from..end onto to..end, so the shots
+  // stay in order with no gap. "1 0-1.2, 2 1.2-4.3, ..." (shot number, start-end).
+  function payoffShotCues(shots, from, to, { start, end }) {
+    const map = (time, [a, b], [c, d]) => c + ((time - a) * (d - c)) / Math.max(1e-6, b - a);
+    const move = (time) => Math.round((time < from ? map(time, [start, from], [start, to]) : map(time, [from, end], [to, end])) * 100) / 100;
+    return shots.map((shot, index) => `${index + 1} ${move(shot.cue)}-${move(shot.cue + shot.dur)}`).join(", ");
   }
 
   async function runFitMusic(document, operation, work) {

@@ -1320,14 +1320,14 @@ test("idea first: a briefed video builds only after 2 references (each studied),
   // The beats are timed over the brief's length, not create's 5 s default scene.
   const timed = orderStep({ ...state, defaultLength: 5, brief: { ...state.brief, length: { seconds: 30 } } }, { seconds: 5, treatmentsWaived: false }).call.input.fields.style.spine;
   assert.deepEqual([timed[4].role, timed[4].from, timed[4].to], ["payoff", 21, 27]);
-  // With a measured song, the payoff sits on its drop (fit_music's default for 15 s: one 4-bar group of a 2 s bar and a bar to fade),
+  // With a measured song, the payoff sits on its drop (fit_music's default for 15 s: the 45% floor, 6.75 s),
   // the beats before it scale to fit, and the step says so.
   const song = { sections: [{ at: 0, kind: "intro" }, { at: 34, kind: "build", weight: 0.07 }, { at: 50, kind: "drop", weight: 0.24 }, { at: 68, kind: "drop", weight: 1 }, { at: 150, kind: "outro" }], seconds: 188, whole: true, bar: 2, beat: 0.5, downbeat: 0 };
   const fifteen = { ...state, defaultLength: 5, brief: { ...state.brief, length: { seconds: 15 } } };
   const onDrop = orderStep(fifteen, { seconds: 5, treatmentsWaived: false, song });
   const sung = onDrop.call.input.fields.style.spine;
-  assert.deepEqual([sung[4].from, sung[4].to, sung[2].to <= 5], [5, 13.5, true]);
-  assert.match(onDrop.step, /\(the payoff on the song's drop at 5 s\)/);
+  assert.deepEqual([sung[4].from, sung[4].to, sung[2].to <= 6.8], [6.8, 13.5, true]);
+  assert.match(onDrop.step, /\(the payoff on the song's drop at 6\.8 s\)/);
   assert.equal(orderStep(fifteen, { seconds: 5, treatmentsWaived: false }).call.input.fields.style.spine[4].from, 10.5, "no song: the shares as before");
   const signature = { beat: 0, what: "move 4", source: "skate.mp4, the wheels at 0:03", why: "only this crew's sound" };
   const confirmed = await brief(id, { fields: { style: { signatures: [signature] } } });

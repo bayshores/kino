@@ -1140,7 +1140,7 @@ How to read it:
   `engine/fitMusic.test.js`, `backend/agent-volume.test.mjs`.
 - **Song window, one drop chooser** (fit_music, soundtrack, board): the soundtrack answer and
   fit_music pick the same heaviest drop that fits; the answer prints the window's sections and vocal
-  spans; with no payoff the drop plays the whole 4-bar groups its section holds (45% of the video before it, one group on a short video; the drafted spine on a measured song too), a later given payoff a
+  spans; with no payoff the drop plays the whole 4-bar groups its section holds (45% of the video before it; on a video too short for that the receipt names the payoff that gives a group; the drafted spine on a measured song too), a later given payoff a
   note naming one that does; fit_music sets the
   rhythm from the tracked beats; board {music} fits a hand-laid song or keeps it as laid. Checked on
   a fixture and on one real song's shape files, unverified by ear. Evidence: `engine/fitMusic.test.js`,

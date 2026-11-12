@@ -95,10 +95,10 @@ test("sections and comparison: the drop lands on the payoff, energy is read per 
   // payoff, and the answer prints the window's sections and vocal spans (no one-row energy line).
   const two = { seconds: 188, bpm: 120, energy: [], vocals: [[60, 68], [75, 90]], sections: [{ at: 34, kind: "build", weight: 0.07 }, { at: 50, kind: "drop", weight: 0.24 }, { at: 68, kind: "drop", weight: 1 }] };
   const short = compareToStory(two, { beats: [], length: 15 });
-  assert.deepEqual([short.payoff, short.start, short.dropAt, short.dropWeight], [5, 63, 5, 1]);
+  assert.deepEqual([short.payoff, short.start, short.dropAt, short.dropWeight], [6.8, 61.2, 6.8, 1]);
   const text = compareText({ id: "yt:aaaaaaaaaaa", title: "t", creator: "c", seconds: 188, measure: two }, short);
-  assert.match(text, /drop: at 5s in the video \(weight 1\)/);
-  assert.match(text, /the window: in drop \(weight 0\.24\) from 0s, drop \(weight 1\) at 5s · vocal 0-5s, 12-15s/);
+  assert.match(text, /drop: at 6\.8s in the video \(weight 1\)/);
+  assert.match(text, /the window: in drop \(weight 0\.24\) from 0s, drop \(weight 1\) at 6\.8s · vocal 0-6\.8s, 13\.8-15s/);
   assert.doesNotMatch(text, /energy by beat/);
 });
 

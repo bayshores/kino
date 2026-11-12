@@ -361,7 +361,7 @@ export function applyKeepLine(document, operation, { fonts } = {}) {
     const fadeUp = back ? round(back.at - end) : undefined;
     duck = applyDuckAudio(document, { type: "duck_audio", sceneId: scene.id, layerId: music.layer.id, under: under.map((entry) => entry.piece.id), to: dip, speech, ...(fadeUp !== undefined ? { fadeUp } : {}) });
     if (operation.dropout && back) hitBack(scene, music.layer, end, back.at);
-    if (back && operation.dropout && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after: wait:${Math.min(4, Math.ceil(back.downbeat - end))} waits for it` : ""})`);
+    if (back && operation.dropout && back.kind === "beat") notes.push(`the music drops out for the line and hits back on the beat at ${back.at} s (${round(back.at - end, 1)} s after the line${back.downbeat != null ? `; the downbeat at ${back.downbeat} s is ${round(back.downbeat - end, 1)} s after${back.downbeat - end <= 4 ? `: wait:${Math.min(4, Math.ceil((back.downbeat - end) * 10) / 10)} waits for it` : ""}` : ""})`);
     else if (back) notes.push(operation.dropout ? `the music drops out for the line and hits back on the downbeat at ${back.at} s (${round(back.at - end, 1)} s after the line)` : `the music comes back up on the beat at ${back.at} s`);
     else if (operation.dropout) notes.push("no beats measured on the music: it comes back over 0.8 s after the line");
     if (operation.wait !== undefined && !operation.dropout) notes.push("wait is ignored without dropout:true (it is how long the music stays out for the next downbeat)");
