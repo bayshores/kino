@@ -188,7 +188,9 @@ export async function referenceRange(model, ctx) {
         measured: `median brightness ${levelsOf(median)} of 255; under ${levelsOf(DARK)} for ${Math.round(dark * 100)}% of the video${lower && run ? `, ${stretch}` : ""}`,
         required: `inside your ${light.n} saved references: median ${span(levelsOf(light.low), levelsOf(light.high), String)}${shade ? `, under ${levelsOf(DARK)} for ${span(Math.round(shade.low * 100), Math.round(shade.high * 100), (value) => `${value}%`)}` : ""}`,
         message: `${scene} is ${word} its saved references (${names}): median ${levelsOf(median)} of 255 against ${span(levelsOf(light.low), levelsOf(light.high), String)}${lower && run ? `; ${stretch} stays under ${levelsOf(DARK)}` : ""}.`,
-        fix: { kind: "hint", text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
+        // match_references grades each shot toward the references' range (exposure only); check
+        // {fix:"auto"} applies it. The hand fix stays in the text for a scene it cannot reach.
+        fix: { kind: "match_references", auto: true, ...(higher && !lower ? { lower: true } : {}), text: `${lower ? "Lift" : higher ? "Bring down" : "Match"} ${lower && run ? "that stretch" : "the picture"}: edit {ops:[{op:"match_references"}]} (per shot, exposure only), or by hand edit {ops:[{op:"add_animation", layer:"${target}", effect:"color-wheels", parameters:{gamma:${gamma}}}]}${shown.length > 1 ? ` (and ${shown.slice(1).join(", ")})` : ""}, or keep it this way on purpose: ${waive}.` },
       });
     }
   }

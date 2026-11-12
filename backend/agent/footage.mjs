@@ -11,7 +11,7 @@ import { isRecord } from "../../engine/numbers.js";
 
 const kindOf = (record) => String(record?.mime ?? "").split("/")[0];
 const bare = (name) => String(name ?? "").toLowerCase().replace(/\.[a-z0-9]{2,5}$/, "");
-export const FOOTAGE_FIELDS = ["footage", "music", "voice", "treatment", "pace", "accents", "title", "end"];
+export const FOOTAGE_FIELDS = ["footage", "music", "voice", "treatment", "pace", "accents", "title", "end", "match"];
 export const MAX_FOOTAGE = 12;
 
 /** Reads the footage list: [{media, in?, out?}] (a bare string is {media}). Throws a plain message. */

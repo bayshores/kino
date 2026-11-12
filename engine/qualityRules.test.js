@@ -17,6 +17,7 @@ import { cropPast } from "./footage/burned.js";
 import { askLine } from "./quality/rules/ask.js";
 import { judderBlurId } from "./quality/techniques.js";
 import { onscreenKinds } from "./quality/rules/referenceKinds.js";
+import { gradeFrame, gradeTable, matchShot, referenceLevels } from "./quality/exposureMatch.js";
 
 // ---------------------------------------------------------------- builders
 
@@ -2258,6 +2259,9 @@ test("reference_range: a video darker than its saved references warns with the d
   assert.equal(dark.required, "inside your 2 saved references: median 48 to 56, under 38 for 2% to 24%");
   assert.match(dark.message, /s1 is darker than its saved references \(yt:aaa, yt:bbb\): median 31 of 255 against 48 to 56/);
   assert.match(dark.fix.text, /color-wheels", parameters:\{gamma:1\.3\}.*waive_check \{code:"reference_range", target:"s1", reason\}/);
+  // check {fix:"auto"} grades each shot toward the range: match_references.
+  assert.equal(dark.fix.kind, "match_references");
+  assert.equal(dark.fix.auto, true);
   assert.deepEqual(await rangeRun(52), []);
   // The fix names every clip in the dark stretch, not only the first.
   const two = scene({ duration: 10, layers: [footage("a", { duration: 5, mediaDuration: 5 }), footage("b", { start: 5, duration: 5, mediaDuration: 5 })] });
@@ -2265,6 +2269,31 @@ test("reference_range: a video darker than its saved references warns with the d
   assert.match(both.fix.text, /layer:"a".*\(and b\)/);
   // One measured reference is no range.
   assert.deepEqual(await rangeRun(31, { rangeRefs: RANGE_REFS.slice(0, 1) }), []);
+});
+
+test("matchShot: a dark shot is lifted into the lower part of its references' range without clipping; a shot inside is left alone", () => {
+  const frame = (low, high) => {
+    const pixels = new Uint8ClampedArray(64 * 36 * 4);
+    // Half the pixels dark, a few bright highlights: a dark shot with a lit face.
+    for (let at = 0; at < pixels.length; at += 4) pixels.fill(at % 40 === 0 ? high : low, at, at + 3), pixels[at + 3] = 255;
+    return { width: 64, height: 36, pixels };
+  };
+  const refs = [{ fingerprint: { look: { brightness: 84 / 255, contrast: 0.1 } } }, { fingerprint: { look: { brightness: 131 / 255, contrast: 0.2 } } }, { fingerprint: { look: { brightness: 100 / 255 } } }];
+  const levels = referenceLevels(refs);
+  assert.deepEqual([levels.brightness.n, Math.round(levels.brightness.median * 255)], [3, 100]);
+  const dark = matchShot([frame(30, 230)], levels);
+  // Aimed at the middle of the lower third (84 + 47 / 6 = 92), never above the median.
+  assert.ok(Math.abs(dark.after * 255 - 92) <= 3, `after ${dark.after * 255}`);
+  assert.ok(dark.stops > 0 && dark.shoulder === 1);
+  // The soft shoulder keeps the highlight under white.
+  const lifted = gradeFrame(frame(30, 230), gradeTable(dark));
+  assert.ok(Math.max(...lifted.pixels.filter((_, index) => index % 4 === 0)) < 255);
+  assert.equal(matchShot([frame(100, 120)], levels), null);
+  // A shot brighter than every reference is kept unless lower:true asks to bring it down.
+  assert.equal(matchShot([frame(170, 200)], levels), null);
+  assert.ok(matchShot([frame(170, 200)], levels, { lower: true }).stops < 0);
+  // One measured reference is no range.
+  assert.equal(matchShot([frame(30, 230)], referenceLevels(refs.slice(0, 1))), null);
 });
 
 test("reference_range: no clip speech before the loudest song change warns when most references have a voice there; the song's singer does not count", async () => {

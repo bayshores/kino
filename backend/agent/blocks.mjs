@@ -215,6 +215,10 @@ const OPERATIONS = {
     fields: ["layerId", "layerIds", "sceneId"],
     rules: 'frame_shot {layer | layers}: kino\'s own framing for video layers placed by hand: a crop on the subject marked (mark_subject), else on the faces kino found in the file, or the whole shot as a card over a blurred copy of itself when no crop keeps them. kino reads the file\'s size and the faces a full check saved (none yet: the receipt says so). mark_subject first to aim it; a layer in a group is refused.',
   },
+  match_references: {
+    fields: ["sceneId", "layerIds", "remove", "lower"],
+    rules: 'match_references {scene?, layers?, remove?, lower?}: brings each shot\'s mean brightness inside your saved references\' range (2 or more measured): a dark shot to the lower third of it (never above their median); a shot brighter than every reference is brought down only with lower:true; contrast only when a shot is flatter than every reference, never past its highlights. Exposure only, never a reference\'s color. Each grade is a color-grade <layer>.match-ref (stops with a soft shoulder); shots inside the range are left alone; sending it again replaces its grades; remove:true takes them off. compose {footage} runs it unless match:false.',
+  },
   split_image: {
     fields: ["layerId", "sceneId", "boxes"],
     rules: 'split_image {layer, boxes:[{name, rect:[x, y, w, h]}]}: cuts a picture layer (a screenshot, a still of a screen recording) into pieces in place, real pixels: each piece <layer>-<name> is a clipping group (rect in % of the picture\'s box) holding the picture, so nothing moves until you animate it (move build-in). The picture is replaced by its pieces; a part in no box is no longer shown, so give a box for the background too. Split before animating; warns when the picture shows above 1.3x its pixels.',
@@ -671,6 +675,13 @@ const TRANSLATE = {
     delete operation.layerId;
     if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);
   },
+  match_references(operation, resolver) {
+    if (operation.sceneId !== undefined) operation.sceneId = sceneRef(resolver, operation.sceneId);
+    if (operation.layerIds !== undefined && !Array.isArray(operation.layerIds)) throw problem("layers is a list of video or picture layer names or codes.");
+    if (operation.layerIds) operation.layerIds = [...new Set(operation.layerIds.map((ref) => layerRef(resolver, ref)))];
+    if (operation.remove !== undefined && typeof operation.remove !== "boolean") throw problem("remove is true (take the match grades off) or left out.");
+    if (operation.lower !== undefined && typeof operation.lower !== "boolean") throw problem("lower is true (also bring shots brighter than every reference down) or left out.");
+  },
   // The board's names (music, media) are looked up when it runs: they may be layers this edit makes.
   board() {},
   source() {},
@@ -895,7 +906,7 @@ function copyText(value, depth = 0) {
 // or null), type (style.type or the picked treatment's type direction, or null)}, or null.
 // subjectSamples(layer): the faces (and where the eye goes) saved for a video layer's file, as
 // samples [{t, faces, subjects?}], the same ones check reads; [] when none were saved. frame_shot uses them.
-export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null }) {
+export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationContext, deckDeals = null, footageFacts = null, footageDeck = null, runOps = null, pictureAlpha = null, clipEvents = null, styleType = null, savedRefs = null, subjectSamples = null, shotColor = null, matchExposure = null }) {
   async function fontsOf(document, work) { return work.fonts ??= await fontsFor(document); }
   const layout = createLayoutOps({ fontsOf, problem, sceneOf, faceTarget });
   async function mediaOf(document, work) {
@@ -1476,7 +1487,8 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     work.notes.push(`compose ${label} from footage: ${frame.width}×${frame.height} ${plan.duration} s, ${plan.treatment}${plan.pace ? `, ${plan.pace} pace` : ""}, ${plan.shots.length} shots, ${plan.captions.length} caption runs${plan.title ? ", title" : ""}${plan.endCard.text ? ", end card" : ""}${plan.music ? ", music ducked under speech" : ""}`);
     work.notes.push(...facts.notes);
     work.plan = plan.words;
-    work.footage = { sceneId: built.id };
+    // match:false keeps the footage's own exposure (compose matches it to the references by default).
+    work.footage = { sceneId: built.id, match: operation.match !== false };
     return parseDocument(next);
   }
 
@@ -2373,6 +2385,13 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
     set_cue: applySetCue, remove_cue: applyRemoveCue, set_brand: applySetBrand, remove_brand: applyRemoveBrand,
     make_template: applyMakeTemplate, use_template: applyUseTemplate, retime: applyRetime, shift: applyShift, mark_subject: applyMarkSubject, split_image: applySplitImage,
     board: applyBoard, source: applySource, frame: applyFrame, frame_shot: applyFrameShot,
+    // match_references: the service renders and grades (backend/agent/exposure-match.mjs).
+    async match_references(document, operation, work) {
+      if (!matchExposure) throw problem("match_references needs kino's renderer, which this server does not have.");
+      const result = await matchExposure(parseDocument(document), operation);
+      document.scenes = result.document.scenes;
+      work.notes.push(...result.lines);
+    },
   };
 
   return {

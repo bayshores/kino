@@ -126,6 +126,7 @@ import { importedText } from "./client.mjs";
 import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
+import { matchReferences } from "./exposure-match.mjs";
 import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
@@ -487,6 +488,8 @@ export function createAgentService(deps) {
       try { file = mediaFileOf(layer); } catch { return []; }
       return ((await usableSubjects(file)) ?? (await peopleCache.saved(file)))?.samples ?? [];
     },
+    // match_references: each shot's exposure toward the saved references (exposure-match.mjs).
+    matchExposure: (document, operation) => runMatch(document, operation),
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // Every recipe, move or compose takes the type the brief's style spec names; a picked type with no fonts yet is named in the receipt.
@@ -2408,7 +2411,7 @@ export function createAgentService(deps) {
         if (problems.length) throw refusal(projectId, ops, problems, translation.blocked, await waiverFixCall(before, problems, codes));
         // compose {footage}: check fixes the new edit before it is saved, in this same revision.
         if (work.footage && input.dry_run !== true) {
-          const fixed = await finishFootage(after, work.footage.sceneId, codes);
+          const fixed = await finishFootage(after, work.footage.sceneId, codes, 8, { match: work.footage.match });
           after = fixed.document;
           work.finished = fixed.finished;
         }
@@ -5858,6 +5861,18 @@ export function createAgentService(deps) {
     return { deck, pick };
   }
 
+  // match_references (the op, compose {footage} and check's auto fix): the saved references'
+  // fingerprints, the scene's frames rendered as check renders them, and the grades as ops.
+  async function runMatch(document, { sceneId = null, layerIds = null, remove = false, lower = false } = {}) {
+    const fonts = await fontsFor(document);
+    const refs = deps.inspire?.savedFingerprints ? await deps.inspire.savedFingerprints(document.id).catch(() => []) : [];
+    const codes = await syncCodes(document.id, document).catch(() => null);
+    const render = deps.renderFrames ?? renderSceneFrames;
+    return matchReferences(document, { sceneId, layerIds, remove, lower, refs, fonts, runOps,
+      render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),
+      name: (id) => (codes ? refName(id, codes) : id) });
+  }
+
   // Ops applied to a document as one edit would apply them, without saving (compose {footage}).
   async function runOps(document, ops) {
     const resolver = createResolver(document, null);
@@ -5872,11 +5887,22 @@ export function createAgentService(deps) {
   // three rounds, each fix proven safe, pixels included), the fixes' layers count as the edit's
   // own (composing again replaces them), and the receipt says what is left and the call to make
   // next. Returns {document, finished}.
-  async function finishFootage(document, sceneId, codes, shown = 8) {
+  // match: true runs match_references on the scene first (compose's default; said in the receipt
+  // when 2 or more references are measured), false (compose match:false) keeps the footage's own
+  // exposure, so its auto fixes leave reference_range alone too.
+  async function finishFootage(document, sceneId, codes, shown = 8, { match } = {}) {
+    let matched = null;
+    if (match === true) {
+      try {
+        const run = await runMatch(document, { sceneId });
+        if (!run.skipped) { document = run.document; matched = run.lines[0]; }
+      } catch (error) { matched = `match_references: not run (${String(error.message).slice(0, 120)})`; }
+    }
     let fonts = await fontsFor(document);
     const options = { codes, sceneId, pixels: true, rules: null, outputFps: 30 };
     let result = await findingsFor(document, { ...options, fonts });
-    const outcome = await autoFix(document, result.findings, { ...options, fonts });
+    const fixable = match === false ? result.findings.filter((finding) => finding.fix?.op !== "match_references") : result.findings;
+    const outcome = await autoFix(document, fixable, { ...options, fonts });
     let next = document;
     if (outcome.ops.length) {
       const before = new Set(document.scenes.find((scene) => scene.id === sceneId).layers.map((layer) => layer.id));
@@ -5892,6 +5918,7 @@ export function createAgentService(deps) {
     return {
       document: next,
       finished: {
+        ...(matched ? { matched } : {}),
         errors: report.errors, warnings: report.warnings, fixed: outcome.fixed.length, ...(outcome.fixed.length ? { fixedLines: outcome.fixed.slice(0, 6) } : {}),
         ...(left.length ? { left } : {}),
         next: report.errors ? 'check (fix the errors it lists), then look {mode:"review"}' : 'look {mode:"review"}',

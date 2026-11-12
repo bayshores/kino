@@ -15,6 +15,8 @@ import { layerHash, LAYERS_PER_PAGE, projectOutline } from "./agent/outline.mjs"
 import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers } from "./agent/quality.mjs";
+import { matchReferences } from "./agent/exposure-match.mjs";
+import { defaultFonts } from "../engine/fonts.js";
 
 // A one-scene document ("main", 640×360) with the given engine operations applied.
 function sceneDocument(operations = [], { duration = 4 } = {}) {
@@ -814,4 +816,34 @@ test("advice is one line and not a warning; open findings list by rule; a rule w
   assert.deepEqual(waiverNotes(liveWaivers(holds, stale)), []);
   assert.equal(staleWaiverLine(stale), 'stale waivers (nothing left to waive): hold L0. Drop each: edit unwaive_check {code:"hold", target:"L0"}.');
   assert.equal(staleWaiverLine([]), "");
+});
+
+test("match_references grades only the shot outside the references' range, replaces its own grade on a second run and takes it off with remove", async () => {
+  const shot = (id, start) => createLayer("video", { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y: 0, width: 1920, height: 1080, start, duration: 5, mediaStart: start, mediaDuration: 5, mediaSourceDuration: 20 });
+  const document = parseDocument(createDocument({ scenes: [createScene({ id: "main", width: 1920, height: 1080, duration: 10, layers: [shot("dark", 0), shot("lit", 5)] })] }));
+  // The dark shot renders at 30 of 255, the lit one at 110; the references span 84 to 131.
+  const render = async (scene, times, { width }) => times.map((time) => {
+    const height = Math.round((width * 9) / 16);
+    const pixels = new Uint8ClampedArray(width * height * 4).fill(time < 5 ? 30 : 110);
+    return { width, height, pixels };
+  });
+  const refs = [84, 131, 100].map((level) => ({ fingerprint: { look: { brightness: level / 255 } } }));
+  const sent = [];
+  const runOps = async (doc, ops) => { sent.push(...ops); return doc; };
+  const first = await matchReferences(document, { refs, fonts: defaultFonts, render, runOps });
+  assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.match-ref", "color-grade"]]);
+  assert.ok(sent[0].parameters.stops > 0 && sent[0].parameters.shoulder === 1);
+  assert.match(first.lines[0], /your 3 references 84 to 131 \(median 100\): dark 30 to 9\d \(\+[\d.]+ stops\); 1 shot already inside, left alone/);
+  // Sent again (the grade is in the document now): the old grade goes first, then the new one.
+  const graded = structuredClone(document);
+  graded.scenes[0].layers[0].animations.push({ id: "dark.match-ref", effect: { key: "color-grade" } });
+  sent.length = 0;
+  await matchReferences(graded, { refs, fonts: defaultFonts, render, runOps });
+  assert.deepEqual(sent.map((op) => op.op), ["delete_animation", "add_animation"]);
+  sent.length = 0;
+  const removed = await matchReferences(graded, { remove: true, refs, fonts: defaultFonts, render, runOps });
+  assert.deepEqual([sent.map((op) => op.animationId), removed.lines[0]], [["dark.match-ref"], "match_references main: took off 1 match grade"]);
+  // One reference is no range: nothing changes and the line says why.
+  const one = await matchReferences(document, { refs: refs.slice(0, 1), fonts: defaultFonts, render, runOps });
+  assert.equal(one.skipped, true);
 });
