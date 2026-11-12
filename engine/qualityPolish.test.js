@@ -1180,3 +1180,38 @@ test("low_fps_motion: a clip at 5 frames a second that moves, or whose footage m
   assert.match(drawn.message, /drawn on 3s \(10 drawings a second in its file\); at mediaSpeed 0\.33 with nearest it shows 3\.3 new drawings a second, each a whole drawing for 0\.3 s/);
   assert.match(drawn.fix.text, /^nearest \(the default\) keeps whole drawings; blend overlays two drawings/);
 });
+
+// ---------------------------------------------------------------- bare background between two full-frame shots (quality/bareGaps.js)
+
+test("bareGaps: a shot that hides before the next one fades in leaves the background showing; a cover over it, a dissolve and a held cut do not", async () => {
+  const { bareGaps, closeGap } = await import("./quality/bareGaps.js");
+  const show = (start) => ({ kind: "show", start });
+  const hide = (start) => ({ kind: "hide", start });
+  const shot = (id, props, animations) => ({ type: "image", id, name: id, src: "/api/media/frame.png", x: 0, y: 0, width: 1920, height: 1080, animations, ...props });
+  const stretch = (...layers) => scene({ duration: 10, background: "#fafaf7", layers }).scenes[0];
+  const late = { id: "flash.to-in", kind: "in", start: 8.06, duration: 0.02, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } };
+  const [gap] = bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [show(8), late])), { fps: 30 });
+  assert.deepEqual([gap.start, gap.end, gap.frames, gap.cover, gap.before.layer.id, gap.after.layer.id, gap.background], [8, 8.1, 3, 0, "a", "b", "#fafaf7"]);
+  assert.ok(gap.whole >= 8.07 && gap.whole <= 8.1, `whole at ${gap.whole}`);
+  // The two calls that close it: the shot before stays until the next is whole, or the next starts at full opacity.
+  const closes = closeGap(gap, 30);
+  assert.deepEqual([closes.extend.animation, closes.extend.start, closes.full.animation], ["a.2", gap.whole, "flash.to-in"]);
+  assert.deepEqual(bareGaps(stretch(shot("a", {}, [show(0), hide(gap.whole)]), shot("b", {}, [show(7.9), late]))), []);
+  assert.deepEqual(bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [show(8)]))), []);
+  // A full-frame plate over the cut is a cover; a cross dissolve keeps three quarters of the frame at its middle.
+  const plate = { type: "rectangle", id: "plate", name: "plate", fill: "#ffffff", x: 0, y: 0, width: 1920, height: 1080, animations: [show(7.95), hide(8.1)] };
+  assert.deepEqual(bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [show(7.9), late]), plate)), []);
+  const dissolve = [shot("a", {}, [show(0), hide(8.5), { kind: "out", start: 8, duration: 0.5, easing: "linear", from: { opacity: 1 }, to: { opacity: 0 } }]), shot("b", {}, [show(7.9), fadeIn(8, 0.5)])];
+  assert.deepEqual(bareGaps(stretch(...dissolve)), []);
+  // A picture that does not fill the frame after the cut is not a shot, so nothing is between two shots.
+  assert.deepEqual(bareGaps(stretch(shot("a", {}, [show(2), hide(8)]), shot("b", { width: 800 }, [show(8.5)]))), []);
+  // A shot after with no Show of its own would cover the shot before once its fade is deleted: only the extend call.
+  const [unshown] = bareGaps(stretch(shot("a", {}, [show(0), hide(8)]), shot("b", {}, [late])));
+  assert.deepEqual([unshown.frames, closeGap(unshown).full, closeGap(unshown).extend.start], [3, null, unshown.whole]);
+  // 9:16: a card of words made on the background between two shots is no gap; the same stretch without it is.
+  const tall = (...layers) => scene({ width: 1080, height: 1920, duration: 8, background: "#111111", layers }).scenes[0];
+  const upright = (id, animations) => shot(id, { width: 1080, height: 1920 }, animations);
+  const card = { type: "text", id: "card", name: "card", text: "WAIT", fontFamily: "Inter", x: 100, y: 800, width: 880, height: 200, animations: [show(3), hide(4.5)] };
+  assert.deepEqual(bareGaps(tall(upright("a", [show(0), hide(3)]), card, upright("b", [show(4.5)]))), []);
+  assert.deepEqual(bareGaps(tall(upright("a", [show(0), hide(3)]), upright("b", [show(4.5)]))).map((item) => [item.start, item.frames]), [[3, 45]]);
+});

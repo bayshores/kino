@@ -199,6 +199,35 @@ test("keep_line takes lift through the agent's edit", () => {
   assert.deepEqual([kept.type, kept.layerId, kept.lift], ["keep_line", "card", true]);
 });
 
+test("delete_animation of one animation a move made names the partner it leaves; pair:true takes it, and your own animation says nothing", () => {
+  const made = (id, name) => ({ id, name, kind: "custom", start: 1, duration: 0.2, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } });
+  const document = sceneDocument([rectangle("shot"), ...[made("flash.to-in", "Appear"), made("flash.to-settle", "Settle"), made("mine", "Mine"), made("shot.lift-deblock", "Deblock"), made("shot.lift-grain", "Grain")]
+    .map((animation) => ({ type: "add_animation", layerId: "shot", animation })), rectangle("plate"), { type: "add_animation", layerId: "plate", animation: made("plate.up", "Up") }]);
+  // The scene records the move flash, and its plate is the move's own layer.
+  document.scenes[0].moves = [{ id: "flash", name: "flash", settings: {} }];
+  document.scenes[0].layers.find((layer) => layer.id === "plate").move = { name: "flash", instance: "flash", part: "flash" };
+  const run = (operation) => {
+    const resolver = createResolver(document, assignCodes(emptyCodes(), document));
+    const [translated] = translateOperations([operation], resolver, document);
+    return { translated, notes: resolver.notes };
+  };
+  const one = run({ op: "delete_animation", animation: "flash.to-in" });
+  assert.match(one.notes[0], /^delete_animation flash\.to-in: A\d+ \(Settle\), made by the same move, stays on Rectangle; \{op:"delete_animation", animation:"flash\.to-in", pair:true\} takes it too$/);
+  const both = run({ op: "delete_animation", animation: "flash.to-in", pair: true });
+  assert.match(both.notes[0], /^delete_animation flash\.to-in: pair:true also took A\d+ \(Settle\), made by the same move on Rectangle$/);
+  assert.equal(both.translated.pair, true);
+  assert.deepEqual(run({ op: "delete_animation", animation: "mine" }).notes, []);
+  // kino's own <layer>.lift-* ids look like a move's but no move made them: no partner, pair:true takes only that one.
+  assert.deepEqual(run({ op: "delete_animation", animation: "shot.lift-deblock" }).notes, []);
+  const lift = run({ op: "delete_animation", animation: "shot.lift-deblock", pair: true }).translated;
+  assert.ok(parseDocument(applyOperations(document, [lift])).scenes[0].layers[0].animations.some((animation) => animation.id === "shot.lift-grain"));
+  assert.deepEqual(parseDocument(applyOperations(document, [both.translated])).scenes[0].layers[0].animations.map((animation) => animation.id), ["mine", "shot.lift-deblock", "shot.lift-grain"]);
+  // Deleting the move's own layer (a flash's plate) names what it left on your layers and the call that takes it.
+  assert.match(run({ op: "delete_layer", layer: "plate" }).notes.join("\n"),
+    /delete_layer plate: move flash made 2 animations on your layers that stay \(A\d+ on Rectangle, A\d+ on Rectangle\); \{op:"move", name:"flash", id:"flash", remove:true\} takes them/);
+  assert.deepEqual(run({ op: "delete_layer", layer: "shot" }).notes, []);
+});
+
 test("a new layer named without an ID gets a slug ID, with -2 when the slug is taken, usable later in the batch", () => {
   const document = sceneDocument([text("hero-title")]);
   const resolver = createResolver(document, assignCodes(emptyCodes(), document));

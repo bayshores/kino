@@ -181,6 +181,26 @@ test("look review: a cut between full-frame plates gets one seam strip, 5 frames
   assert.ok(seams.width > seams.height * 4, `one row of 5: ${seams.width}×${seams.height}`);
 });
 
+test("check and look review print the bare background between two full-frame shots with the call that closes it; the call clears it", async () => {
+  const id = await project("review-bare");
+  const plate = (name, fill) => ({ op: "add_layer", layerType: "rectangle", name, properties: { x: 0, y: 0, width: 640, height: 360, fill } });
+  const edit = await agent("edit", { project: id, ops: [plate("dark", "#202020"), { op: "add_animation", layer: "dark", preset: "hide", start: 3 },
+    plate("next", "#303030"), { op: "add_animation", layer: "next", preset: "show", start: 3 }, { op: "add_animation", layer: "next", preset: "preset-fade", start: 3, duration: 0.2 }] });
+  assert.equal(edit.isError, undefined, edit.text);
+  const line = (text) => text.split("\n").find((entry) => entry.startsWith("bare background @"));
+  const checked = await agent("check", { project: id, pixels: false });
+  assert.match(line(checked.text) ?? "", /^bare background @3s: 3 frames \(3–3\.1 s\) show the scene background #15191e \(brightness 25\) between dark \(brightness 32\) and next \(brightness 48\), cover 3% at the lowest \(30 fps/, checked.text);
+  assert.doesNotMatch(checked.text, /^[EW] bare/m, "a fact line, not a finding");
+  const [first] = await reviewAll(id);
+  assert.ok(line(first.text), first.text);
+  // The call it names: the shot before stays until the next is whole.
+  const call = /close it with \{op:"update_animation", animation:"([^"]+)", properties:\{start:([\d.]+)\}\}/.exec(line(checked.text));
+  assert.ok(call, line(checked.text));
+  const closed = await agent("edit", { project: id, ops: [{ op: "update_animation", animation: call[1], properties: { start: Number(call[2]) } }] });
+  assert.equal(closed.isError, undefined, closed.text);
+  assert.equal(line((await agent("check", { project: id, pixels: false })).text), undefined);
+});
+
 test("look review folds into the final render: one call renders, its receipt names the moments not reviewed, and a full review clears the note", async () => {
   const id = await project("review-gate");
   const first = await agent("render", { project: id, action: "start", quality: "final", format: "gif", wait: true });

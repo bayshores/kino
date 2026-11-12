@@ -22,7 +22,7 @@ import { evaluateLayer } from "../engine/animation.js";
 import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
-import { boardBuildOps } from "./agent/board-build.mjs";
+import { boardBuildOps, entranceJoinOps } from "./agent/board-build.mjs";
 import { boardCueLines, boardPaceFacts, boardStoryCues, builtBoard, sceneCueShows } from "./agent/board-pace.mjs";
 import { cueDisagreement, cueShowLines } from "../engine/footage/cueShows.js";
 import { estimateTextTokens } from "./meter.mjs";
@@ -184,6 +184,23 @@ test("look board prints the pace on each side of the song's drop and its beat ti
   assert.deepEqual([fitted.board.shots[1].drop, fitted.cues.find((cue) => cue.name === "song-drop-1")?.time], [true, 1.5], fit.text);
   // The other tests share this song with no drop measured.
   await rm(`${file}.song`, { force: true });
+});
+
+test("a board shot that fades in at its cue starts under the shot before: the Hide moves to the fade's end, nothing else moves, and no bare frames are left", async () => {
+  const { bareGaps } = await import("../engine/quality/bareGaps.js");
+  const layer = (name, animations) => ({ id: name, name, type: "image", src: "/api/media/frame.png", x: 0, y: 0, width: 1920, height: 1080, animations });
+  const fade = { id: "m.layer-in", name: "Fade in", kind: "in", start: 3, duration: 0.15, easing: "linear", from: { opacity: 0 }, to: { opacity: 1 } };
+  const scene = { width: 1920, height: 1080, duration: 6, background: "#fafaf7", layers: [
+    layer("board-S1", [{ id: "s1", kind: "show", start: 0 }, { id: "h1", kind: "hide", start: 3 }]), layer("board-S2", [{ id: "s2", kind: "show", start: 3 }, fade, { id: "h2", kind: "hide", start: 5 }]),
+    layer("board-S3", [{ id: "s3", kind: "show", start: 5 }]) ] };
+  const board = { shots: [{ id: "S1", cue: 0, dur: 3, media: "/m/a.png" }, { id: "S2", cue: 3, dur: 2, media: "/m/b.png" }, { id: "S3", cue: 5, dur: 1, media: "/m/c.png" }] };
+  assert.equal(bareGaps(scene).length, 1, "the fade leaves the background showing for 4 frames");
+  const ops = entranceJoinOps(scene, board);
+  assert.deepEqual(ops.map(({ note: _note, ...op }) => op), [{ op: "update_animation", layerId: "board-S1", animationId: "h1", properties: { start: 3.15 } }]);
+  assert.match(ops[0].note, /^shot 1 stays under shot 2's fade in: its Hide moves from 3 s to 3.15 s, where the fade \(3–3.15 s, Fade in\) ends$/);
+  scene.layers[0].animations[1].start = 3.15;
+  assert.deepEqual(bareGaps(scene), []);
+  assert.deepEqual(entranceJoinOps(scene, board), [], "a join already under its fade is left alone");
 });
 
 test("check's cue line names the clip under a cut-out of it, not the cut-out file", () => {
@@ -762,6 +779,22 @@ test("a board move named slow-push is a push; compose places a camera push towar
   const [left, top, width, height] = tall.moves[0].op.rect;
   assert.deepEqual([left, top, height], [0, 5, 90]);
   assert.ok(Math.abs((width * 1920) / (height * 1080) - 1080 / 1920) < 0.001, `the end rect has the frame's shape (${width} x ${height})`);
+});
+
+test("compose from a board keeps the shot before under a shot's move fade: the receipt names the Hide it moved and check shows no bare background", { skip, timeout: 60_000 }, async () => {
+  const id = "board-join";
+  await project(id, { width: 1920, height: 1080, duration: 4.417, layers: [videoLayer()] });
+  const whole = { crop: [0, 0, 100, 100], subject: { what: "the dragon", box: [60, 30, 20, 40] } };
+  const saved = await editBoard(id, [footage(0, 1, 0, 0, { ...whole, move: { none: "a plain cut" } }), footage(1, 3.417, 1, 0, { ...whole, move: { kind: "ui", name: "window-punch-in", ref: "phone-film@7.27" } })]);
+  assert.equal(saved.isError, undefined, saved.text);
+  const built = await agent("edit", { project: id, ops: [{ op: "compose", from: "board" }] });
+  assert.equal(built.isError, undefined, built.text);
+  assert.ok(built.data.notes.some((note) => /^shot 1 stays under shot 2's fade in: its Hide moves from 1 s to 1\.15 s, where the fade \(1–1\.15 s, Fade in\) ends$/.test(note)), built.text);
+  const layers = (await record(id)).document.scenes[0].layers;
+  const hide = layers.find((layer) => layer.name === "board-S1").animations.find((animation) => animation.kind === "hide");
+  assert.equal(hide.start, 1.15);
+  const checked = await agent("check", { project: id, pixels: false });
+  assert.doesNotMatch(checked.text, /bare background @/, checked.text);
 });
 
 test("the person's settings can allow the board: kino keeps that board as the approved one", { skip, timeout: 60_000 }, async () => {

@@ -167,6 +167,40 @@ export function boardBuildOps(board, frame, fileOf, cues = []) {
   return { ops, moves, footage, cards, held, missing };
 }
 
+// A shot's entrance fade starts within this many seconds of its cue (a move's Appear starts 0.04 s early).
+const ENTRANCE_NEAR = 0.1;
+
+/**
+ * The update_animation ops that keep a board join from showing the bare background: a footage shot
+ * whose move gave it a fade in at its cue (opacity from under 1) starts under the shot before it, so
+ * that shot's Hide moves from the cue to the end of the fade. Run after the moves are placed, on the
+ * built scene. Returns [{op, layerId, animationId, properties: {start}, note}] (note says the old and
+ * new second and the fade it measured); nothing when no join needs it.
+ */
+export function entranceJoinOps(scene, board) {
+  const ops = [];
+  const byName = new Map((scene.layers ?? []).map((layer) => [layer.name, layer]));
+  const seconds = (animation) => (animation.enabled === false ? [] : [animation]);
+  let before = null;
+  board.shots.forEach((shot, index) => {
+    const n = index + 1;
+    if (shot.media === NONE) { before = null; return; }
+    const layer = byName.get(`${BUILT_PREFIX}${shot.id ?? n}`);
+    const earlier = before;
+    before = layer ?? null;
+    if (!layer || !earlier) return;
+    const fade = (layer.animations ?? []).flatMap(seconds).find((animation) => animation.kind === "in" && animation.from?.opacity !== undefined && animation.from.opacity < 1
+      && animation.to?.opacity > animation.from.opacity && Math.abs(animation.start - shot.cue) <= ENTRANCE_NEAR);
+    if (!fade) return;
+    const stopAt = r3(fade.start + fade.duration);
+    const hider = (earlier.animations ?? []).flatMap(seconds).find((animation) => animation.kind === "hide" && Math.abs(animation.start - shot.cue) <= ONE_FRAME);
+    if (!hider || !(stopAt > hider.start + 1e-6)) return;
+    ops.push({ op: "update_animation", layerId: earlier.id, animationId: hider.id, properties: { start: stopAt },
+      note: `shot ${n - 1} stays under shot ${n}'s fade in: its Hide moves from ${r3(hider.start)} s to ${stopAt} s, where the fade (${r3(fade.start)}–${stopAt} s, ${fade.name ?? "Fade in"}) ends` });
+  });
+  return ops;
+}
+
 // When a layer comes on screen: a video's mediaStart; a picture or text has no media start, so its
 // first show animation (what boardBuildOps gives it), else 0.
 function shownAt(layer) {
