@@ -531,7 +531,8 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   const fields = { about: { text: "the dragon", by: "you", quote: "the dragon" }, message: "The dragon is back", look_sound: "dusk, the village sound", never: "none said", made_from: "the dragon clip" };
   assert.equal((await agent("notes", { project: id, action: "brief", fields })).isError, undefined);
   await agent("notes", { project: id, action: "set_plan", steps: ["Board", "Ask board", "Build the approved board", "Render final"] });
-  const saved = await editBoard(id, STOP_SHOTS(), DECIDED);
+  // The first shot carries lift (a mean luma to reach): the build runs lift_dark on its layer.
+  const saved = await editBoard(id, STOP_SHOTS().map((shot, index) => (index === 0 ? { ...shot, lift: 200 } : shot)), DECIDED);
   assert.equal(saved.isError, undefined);
   // Saved, not asked yet: the receipt names the ask, not a build kino would refuse (run 8 T254, T299).
   assert.equal(JSON.parse(saved.text).next, 'notes {"action":"checkpoint","id":"board"}', saved.text);
@@ -560,6 +561,10 @@ test("after the approval, next: is compose {from:\"board\"}: it builds the shots
   assert.deepEqual(layers.filter((layer) => layer.type === "video").map((layer) => [layer.mediaStart, layer.mediaOffset, layer.mediaDuration]).sort((a, b) => a[0] - b[0]),
     shots.slice(0, 3).map((shot) => [shot.cue, shot.in, shot.dur]));
   assert.equal(layers.find((layer) => layer.type === "text")?.text, "The dragon is back");
+  // The lifted shot's layer has the curve, and the receipt prints its numbers from the render.
+  const lifted = layers.find((layer) => layer.mediaStart === shots[0].cue && layer.type === "video");
+  assert.ok(lifted.animations.some((animation) => animation.id === `${lifted.id}.lift`), JSON.stringify(lifted.animations.map((animation) => animation.id)));
+  assert.match(built.text, /lift_dark target 200: \S+ mean \d+ to \d+, contrast \(p90-p10\) \d+ to \d+/, built.text);
   assert.equal(document.scenes.length, 1, "no stray scene");
   const after = await agent("check", { project: id, pixels: false, rules: ["assertions"] });
   assert.notEqual(after.text.match(/^next: (.*)$/m)?.[1], BUILD, "built once, next: moves on");

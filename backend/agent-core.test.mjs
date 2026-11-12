@@ -16,6 +16,9 @@ import { inspectTargets, MAX_INSPECT } from "./agent/inspect.mjs";
 import { adviceLine, checkDocument, checkReport, checkSummary, groupFixLines, liveWaivers, MAX_FINDINGS, mergeFindings, openFindingLines, staleWaiverLine, waiverNotes } from "./agent/checks.mjs";
 import { staleWaivers, waiversFor } from "./agent/quality.mjs";
 import { matchReferences } from "./agent/exposure-match.mjs";
+import { liftDark } from "./agent/lift-dark.mjs";
+import { applyTables } from "../engine/quality/liftDark.js";
+import { curvesTables } from "../engine/effects/colorMath.js";
 import { defaultFonts } from "../engine/fonts.js";
 
 // A one-scene document ("main", 640×360) with the given engine operations applied.
@@ -906,4 +909,56 @@ test("match_references grades only the shot outside the references' range, repla
   // layer (one) works as layers does, the way a first guess sends it.
   const [picked] = translateOperations([{ op: "match_references", layer: "dark", lower: true }], createResolver(document), document);
   assert.deepEqual([picked.layerIds, picked.layerId, picked.lower], [["dark"], undefined, true]);
+});
+
+test("lift_dark aims a dark shot at the other shots' median, adds a curve and grain, reports the render's numbers and replaces its own effects", async () => {
+  // Two 16:9 shots in a frame of `frame` [w, h], placed at y with height h (letterbox bars around them in 9:16).
+  const shotsIn = ([frameWidth, frameHeight], [y, height]) => {
+    const shot = (id, start) => createLayer("video", { id, name: id, src: `/api/media/${id}.mp4`, x: 0, y, width: frameWidth, height, start, duration: 5, mediaStart: start, mediaDuration: 5, mediaSourceDuration: 20 });
+    return parseDocument(createDocument({ scenes: [createScene({ id: "main", width: frameWidth, height: frameHeight, duration: 10, layers: [shot("dark", 0), shot("lit", 5)] })] }));
+  };
+  const document = shotsIn([1920, 1080], [0, 1080]);
+  // The dark shot is a ramp from 6 to 60 of 255 (mean 33), drawn through its lift curve when it has
+  // one; the lit shot is 90 everywhere; black outside the shots' band.
+  const curveOf = (scene) => scene.layers.find((layer) => layer.id === "dark")?.animations.find((animation) => animation.id === "dark.lift")?.parameters?.master;
+  const render = async (scene, times, { width }) => times.map((time) => {
+    const height = Math.round((width * scene.height) / scene.width), [y0, y1] = [scene.layers[0].y, scene.layers[0].y + scene.layers[0].height].map((y) => Math.round((y * width) / scene.width));
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let at = 0; at < pixels.length; at += 4) {
+      const row = Math.floor(at / 4 / width), band = row >= y0 && row < y1;
+      pixels.fill(!band ? 0 : time >= 5 ? 90 : 6 + Math.round(54 * ((at / 4) % width) / width), at, at + 3), pixels[at + 3] = 255;
+    }
+    const curve = time < 5 && curveOf(scene);
+    if (!curve) return { width, height, pixels };
+    // The curve draws on the layer only: the bars stay as they were.
+    const drawn = applyTables([{ width, height, pixels }], curvesTables({ master: curve }))[0];
+    for (let at = 0; at < pixels.length; at += 4) if (Math.floor(at / 4 / width) >= y0 && Math.floor(at / 4 / width) < y1) pixels.set(drawn.pixels.subarray(at, at + 4), at);
+    return { width, height, pixels };
+  });
+  const sent = [];
+  const runOps = async (doc, ops) => {
+    sent.push(...ops);
+    const next = structuredClone(doc);
+    for (const op of ops) for (const layer of next.scenes[0].layers) {
+      if (op.op === "delete_animation") layer.animations = layer.animations.filter((animation) => animation.id !== op.animationId);
+      if (op.op === "add_animation" && layer.id === op.layerId) layer.animations.push({ id: op.id, effect: { key: op.effect }, parameters: op.parameters });
+    }
+    return next;
+  };
+  const first = await liftDark(document, { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
+  assert.deepEqual(sent.map((op) => [op.op, op.layerId, op.id, op.effect]), [["add_animation", "dark", "dark.lift", "curves"], ["add_animation", "dark", "dark.lift-grain", "grain"]]);
+  assert.match(first.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 \(a plain gamma [\d.]+ to the same mean: contrast \d+, black \d+\); \+[\d.]+ stops, grain [\d.]+\./);
+  // The black point stays, the contrast grows past the gamma's.
+  const [lift] = first.lifted;
+  assert.ok(lift.after.contrast > lift.gamma.stats.contrast && lift.gamma.stats.p2 > lift.after.p2);
+  // Sent again with grain:false and a target: the old effects go first, then only the curve.
+  sent.length = 0;
+  await liftDark(first.document, { layerIds: ["dark"], target: 60, grain: false, fonts: defaultFonts, render, runOps });
+  assert.deepEqual(sent.map((op) => op.op === "delete_animation" ? op.animationId : op.id), ["dark.lift", "dark.lift-grain", "dark.lift"]);
+  // In a 9:16 frame the same shots sit between black bars: each is measured inside its own box, so
+  // the bars neither set the black point nor pull the shot past the other shot's 90.
+  const tall = await liftDark(shotsIn([1080, 1920], [656, 608]), { layerIds: ["dark"], fonts: defaultFonts, render, runOps });
+  assert.match(tall.lines[0], /^lift_dark target 90 \(median of 1 other shot\): dark mean 33 to (8[89]|9[0-2]), contrast \(p90-p10\) 43 to \d+, black 7 to 7 /, tall.lines[0]);
+  const [picked] = translateOperations([{ op: "lift_dark", layer: "dark", target: 80 }], createResolver(document), document);
+  assert.deepEqual([picked.layerIds, picked.target], [["dark"], 80]);
 });

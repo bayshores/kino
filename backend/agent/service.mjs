@@ -150,6 +150,7 @@ import { estimateImageTokens, estimateTextTokens, pngSize } from "../meter.mjs";
 import { drawnSeconds, estimateWords, renderEstimate } from "./render-estimate.mjs";
 import { blockRules, blocksLibraryText, createBlockRunner, isBlockOperation, movesLibraryText, variantSet } from "./blocks.mjs";
 import { matchReferences } from "./exposure-match.mjs";
+import { liftDark } from "./lift-dark.mjs";
 import { noMakerLine, originReferenceLine, REFERENCE_LOOKUP, seenNames } from "./seen-names.mjs";
 import { shutterNote } from "./shutter-notes.mjs";
 import { spokenLine } from "../../engine/blocks/moves/footage.js";
@@ -584,6 +585,8 @@ export function createAgentService(deps) {
     },
     // match_references: each shot's exposure toward the saved references (exposure-match.mjs).
     matchExposure: (document, operation) => runMatch(document, operation),
+    // lift_dark: a curve from each dark shot's own tones (lift-dark.mjs).
+    liftShots: (document, operation) => runLift(document, operation),
     // A board shot's move.ref: the project's saved references and their keys, so a refusal can name what is accepted now (null without inspire).
     savedRefs: (document) => (deps.inspire?.savedKeys ? deps.inspire.savedKeys(document.id).catch(() => null) : null),
     // board {snap:"beats"}: the turn and the measured beat times after it (board-pace.mjs).
@@ -6842,6 +6845,16 @@ export function createAgentService(deps) {
     const codes = await syncCodes(document.id, document).catch(() => null);
     const render = deps.renderFrames ?? renderSceneFrames;
     return matchReferences(document, { sceneId, layerIds, remove, lower, refs, fonts, runOps,
+      render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),
+      name: (id) => (codes ? refName(id, codes) : id) });
+  }
+
+  // lift_dark: the scene's frames rendered as check renders them, the lift effects as ops.
+  async function runLift(document, { sceneId = null, layerIds = [], target = null, grain = null, remove = false } = {}) {
+    const fonts = await fontsFor(document);
+    const codes = await syncCodes(document.id, document).catch(() => null);
+    const render = deps.renderFrames ?? renderSceneFrames;
+    return liftDark(document, { sceneId, layerIds, target, grain, remove, fonts, runOps,
       render: (scene, times, { width }) => render(scene, times, { mediaRoot: deps.mediaRoot, fonts, width }),
       name: (id) => (codes ? refName(id, codes) : id) });
   }

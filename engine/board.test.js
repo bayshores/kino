@@ -45,6 +45,9 @@ test("normalizeBoard names the field that is wrong", () => {
   assert.throws(shaped([]), /document\.board\.shots must be a list of 1 to 60 shots/);
   assert.throws(shaped([motion(0, 1)], { rev: 0 }), /document\.board\.rev must be a whole number from 1/);
   assert.throws(shaped([motion(0, 1)], { open: ["a", "b", "c", "d"] }), /document\.board\.open must be a list of at most 3/);
+  // lift: true (toward the other shots' median) or a mean luma; a word is named.
+  assert.deepEqual([true, 70.4].map((lift) => shaped([motion(0, 1, { lift })])().board.shots[0].lift), [true, 70]);
+  assert.throws(shaped([motion(0, 1, { lift: "bright" })]), /shots\[0\]\.lift must be true .* or a mean luma 1 to 255/);
 });
 
 test("words held past their shot: text.until is a shot id or a second; holdEnd gives where they stop, or null", () => {

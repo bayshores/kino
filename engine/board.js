@@ -45,7 +45,7 @@ const MOVE_KEYS = ["kind", "name", "ref", "planned"];
 
 const ID = /^[A-Za-z0-9_-]{1,24}$/;
 const HEX = /^#(?:[\da-fA-F]{6}|[\da-fA-F]{8})$/;
-const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts", "speed"];
+const SHOT_KEYS = ["id", "cue", "dur", "pacing", ...SHOT_LAYERS, "move", "why", "alts", "speed", "lift"];
 const ALT_KEYS = ["media", "in", "crop", "subject", "why"];
 const TEXT_KEYS = ["text", "family", "weight", "size", "y", "fill", "until"];
 const MAX_SECONDS = 600;
@@ -240,6 +240,11 @@ function normalizeShot(shot, index) {
   if (shot.speed !== undefined) {
     if (!isNumber(shot.speed) || shot.speed < 0.05 || shot.speed > 16) fail(`${path}.speed`, "must be the clip's playback speed, 0.05 to 16");
     if (shot.speed !== 1) result.speed = round(shot.speed, 3);
+  }
+  // lift: compose {from:"board"} runs lift_dark on the shot (true: toward the other shots' median; a number: that mean luma).
+  if (shot.lift !== undefined && shot.lift !== false) {
+    if (shot.lift !== true && !(isNumber(shot.lift) && shot.lift > 0 && shot.lift <= 255)) fail(`${path}.lift`, "must be true (lift toward the other shots' median brightness) or a mean luma 1 to 255");
+    result.lift = shot.lift === true ? true : Math.round(shot.lift);
   }
   if (shot.follow !== NONE && !FOLLOW.includes(shot.follow)) fail(`${path}.follow`, `must be ${FOLLOW.join(", ")} or "none"`);
   result.follow = shot.follow;
