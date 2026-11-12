@@ -114,10 +114,18 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   const next = applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports });
   const report = [...reports.values()][0];
   const layer = next.scenes[0].layers[0];
-  // 15 - 5 bars is 5 s, under 45% of the video: the payoff is 6.75 s, and the drop is heard 6 s before the fade (2 s at 75%).
-  assert.match(report.payoff, /^6\.75 s/);
-  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.weight === 1 && Math.abs(cue.time - 6.75) < 0.05) && !next.cues.some((cue) => cue.weight === 0.24), JSON.stringify(next.cues));
-  assert.ok(next.cues.find((cue) => cue.name === "song-fade-1").time >= 12.75, "the fade starts after 3 bars of drop at least");
+  // 15 s is too short for 45% before the drop and a group: one whole group of 4 bars (8 s) and a bar to fade, so the payoff is 5 s.
+  assert.match(report.payoff, /^5 s \(none given: the drop plays 1 group of 4 bars, 8 s, then 2 s to fade; its section runs 82 s in the song\)/);
+  assert.ok(next.cues.some((cue) => cue.name === "song-drop-1" && cue.weight === 1 && Math.abs(cue.time - 5) < 0.05) && !next.cues.some((cue) => cue.weight === 0.24), JSON.stringify(next.cues));
+  assert.ok(next.cues.find((cue) => cue.name === "song-fade-1").time >= 12.9, "the fade starts after the drop's 4 bars");
+  // A 60 s edit: the drop's section ends 16 s after it (a break), so it plays 2 groups, not the 3 the lead would allow; the break and the fade both land at 56.
+  const long = new Map();
+  const capped = [...sections.slice(0, 4), { at: 84, kind: "break" }, { at: 100, kind: "outro" }];
+  const wide = createDocument({ scenes: [createScene({ id: "s1", duration: 60, layers: [{ ...music, mediaDuration: 60 }] })] });
+  const sixty = applyOperations(wide, [{ type: "fit_music", sceneId: "s1", layerId: "music", shape: { sections: capped, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: long });
+  assert.match([...long.values()][0].payoff, /^40 s \(none given: the drop plays 2 groups of 4 bars, 16 s/);
+  // (the measured beats start 0.023 s in, so the break is heard 23 ms before the 56 s line)
+  assert.ok([sixty.cues.find((cue) => cue.name === "song-break-1").time, sixty.cues.find((cue) => cue.name === "song-fade-1").time].every((time) => Math.abs(time - 56) < 0.05), JSON.stringify(sixty.cues));
   // The rhythm: the first tracked beat the video hears, not a typed offset.
   const first = beats.find((time) => time >= layer.mediaOffset) - layer.mediaOffset;
   assert.ok(next.rhythm.bpm === 120 && Math.abs(next.rhythm.offset - first) < 0.01, JSON.stringify(next.rhythm));
@@ -127,7 +135,7 @@ test("fit_music on a short edit: the heavier of two drops, room for 4 bars of it
   const late = new Map();
   applyOperations(document, [{ type: "fit_music", sceneId: "s1", layerId: "music", payoff: 11.3, shape: { sections, seconds: 188, whole: true }, analysis: { bpm: 120, period: 0.5, beats, confidence: 0.9, duration: 188 } }], { reports: late });
   const lateReport = [...late.values()][0];
-  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 1\.7 s before the fade, under 4 bars: payoff 6\.75 s gives it/.test(note)), JSON.stringify(lateReport));
+  assert.ok(lateReport.sections.some((line) => /^11\.\d+ s drop, weight 1 \(payoff\)/.test(line)) && lateReport.notes.some((note) => /^the drop plays 1\.7 s before the fade, under 4 bars: payoff 5 s gives it/.test(note)), JSON.stringify(lateReport));
   assert.ok(!(report.notes ?? []).some((note) => note.startsWith("the drop plays")), "no note when the payoff was chosen for the drop");
 });
 

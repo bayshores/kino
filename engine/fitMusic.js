@@ -61,6 +61,7 @@ export function barGrid(analysis, sections = []) {
 
 // The fade that closes a stretch which does not reach the song's own ending, in seconds.
 const FADE_OUT_MAX = 4;
+const LEAD_SHARE = 0.45; // the share of the video before the drop a default payoff keeps (a guess: one measured human edit, 46%)
 
 /**
  * Each section and seam in video time, in the piece that plays its heard time at full volume (not
@@ -314,10 +315,51 @@ function planStop({ sections = [], seams = [], seconds, whole = true, bar, beat 
  * 12.86 s). 45% is a guess from one measured human edit of the same length class (drop at 9.7 of
  * 21 s, 46%, played 8.6 s: about 4 bars at its tempo). Without a bar length: 75%.
  */
-export function defaultPayoff(length, bar) {
-  if (!(length > 0)) return 0;
-  if (!(bar > 0)) return round(length * 0.75);
-  return round(Math.min(length * 0.75, Math.max(length * 0.45, length - (GROUP + 1) * bar)));
+export function defaultPayoff(length, bar, dropSeconds) {
+  return payoffPlan(length, bar, dropSeconds).payoff;
+}
+
+/**
+ * The payoff for a video of `length` seconds on a song with bars of `bar` seconds, and what it
+ * gives the drop: {payoff, groups, fade}. The drop plays the most whole groups of 4 bars that fit
+ * with 45% or more of the video before it (LEAD_SHARE: the old floor, a guess from one measured
+ * human edit, 46% in), at most as many as its measured section holds (`dropSeconds`: the
+ * references played whole groups or a whole section, never 1.5 s), then its fade (a bar after one
+ * group, 2 bars up to FADE_OUT_MAX after more: what planStretch makes). A video too short for 45%
+ * and a group gets one group (run 8: a 15 s edit got 6 s of drop, under 4 bars). Never later than
+ * 75% in. Without a bar length: 75%, no groups.
+ */
+export function payoffPlan(length, bar, dropSeconds) {
+  if (!(length > 0)) return { payoff: 0, groups: 0, fade: 0 };
+  if (!(bar > 0)) return { payoff: round(length * 0.75), groups: 0, fade: 0 };
+  const group = GROUP * bar;
+  const fadeOf = (count) => (count <= 1 ? bar : Math.min(FADE_OUT_MAX, 2 * bar));
+  const lead = (count) => length - fadeOf(count) - count * group;
+  const most = dropSeconds > 0 ? Math.max(1, Math.floor(dropSeconds / group + EPS)) : Math.max(1, Math.floor(length / group));
+  let groups = 1;
+  for (let count = 2; count <= most; count += 1) if (lead(count) >= length * LEAD_SHARE - EPS) groups = count;
+  if (lead(groups) >= 1) return { payoff: round(Math.min(length * 0.75, lead(groups))), groups, fade: fadeOf(groups) };
+  // Too short for a whole group: the old rule (a group and a bar, between 45% and 75%).
+  return { payoff: round(Math.min(length * 0.75, Math.max(length * LEAD_SHARE, length - (GROUP + 1) * bar))), groups: 1, fade: bar };
+}
+
+/**
+ * The payoff that sits on the song's measured drop: defaultPayoff, then the drop it picks, then
+ * defaultPayoff again with that drop's section length (the drop to the next section start, or the
+ * song's end) as the groups it may play. Two passes; the second is kept only when it picks the
+ * same drop. Returns {payoff, groups, fade, sectionSeconds} (sectionSeconds null without a drop).
+ */
+export function songPayoff({ sections = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, length, turn = null }) {
+  const first = payoffPlan(length, bar);
+  if (!(bar > 0) || !Array.isArray(sections) || !(seconds > 0)) return { ...first, sectionSeconds: null };
+  const pick = (payoff) => stretchDrop({ sections, seconds, whole, bar, beat, downbeat, payoff, turn, end: length }).drop;
+  const drop = pick(first.payoff);
+  if (!drop) return { ...first, sectionSeconds: null };
+  const next = sections.map((part) => part.at).filter((at) => Number.isFinite(at) && at > drop.heard + EPS).sort((a, b) => a - b)[0];
+  const sectionSeconds = round((next ?? seconds) - drop.heard);
+  const second = payoffPlan(length, bar, sectionSeconds);
+  const same = pick(second.payoff)?.at === drop.at;
+  return { ...(same ? second : first), sectionSeconds };
 }
 
 /**
@@ -356,7 +398,7 @@ export function stretchDrop({ sections = [], seconds, whole = true, bar, beat = 
 }
 
 /** One unbroken stretch of the song, its drop on the payoff. */
-function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end }) {
+function planStretch({ sections = [], seams = [], seconds, whole = true, bar, beat = bar / 4, downbeat = 0, payoff, turn = null, end, roomy: given }) {
   const { drop, parts, runUp, changeNear } = stretchDrop({ sections, seconds, whole, bar, beat, downbeat, payoff, turn, end });
   if (!drop) fail("the song has no drop (no point where the kick and bass come in strong); pick a song with one, or place it with update_layer.");
   const notes = [];
@@ -384,7 +426,7 @@ function planStretch({ sections = [], seams = [], seconds, whole = true, bar, be
   // fade: said with the payoff that gives it the group (run 8's spine payoff 11.3 of 15 s left it
   // 1.54 s). A note only: the payoff stays as given.
   const heard = stop - fadeOut - payoff;
-  const roomy = defaultPayoff(end, bar);
+  const roomy = given ?? defaultPayoff(end, bar);
   if (!own && heard < GROUP * bar - beat && roomy < payoff - beat) notes.push(`the drop plays ${round(heard)} s before the fade, under 4 bars: payoff ${roomy} s gives it 4 bars and a bar to fade`);
   if (!own) {
     // A fade closes a phrase when it ends on a phrase line (every 4 bars from the drop).
@@ -711,6 +753,13 @@ function fittedRhythm(document, layer, pieces, analysis) {
   return document.rhythm;
 }
 
+// The receipt line for a payoff kino chose: what the drop gets, then its fade, and its section.
+function payoffLine(payoff, picked, bar) {
+  const groups = picked?.groups ?? 1;
+  const section = picked?.sectionSeconds ? `; its section runs ${picked.sectionSeconds} s in the song` : "";
+  return `${payoff} s (none given: the drop plays ${groups} group${groups === 1 ? "" : "s"} of 4 bars, ${round(groups * GROUP * bar)} s, then ${round(picked?.fade ?? bar)} s to fade${section})`;
+}
+
 /** Applies fit_music {sceneId, layerId, payoff?, turn?, end?, plan?, drop?, recut?, shape: {sections, seconds, whole, bars?}, analysis}. Returns the receipt. */
 export function applyFitMusic(document, operation) {
   const scene = document.scenes.find((item) => item.id === operation.sceneId);
@@ -726,9 +775,12 @@ export function applyFitMusic(document, operation) {
   const end = operation.end ?? scene.duration;
   const grid = barGrid(analysis, shape.sections);
   if (!grid) fail("no steady beat was found in the song, so it cannot be cut on bar lines.");
-  // No payoff given (and no spine payoff): the drop gets a 4-bar group and a bar to fade (defaultPayoff).
+  // No payoff given (and no spine payoff): the payoff goes where the measured drop plays the most
+  // whole groups its section holds (songPayoff), then its fade.
   const chosen = typeof operation.payoff !== "number";
-  if (chosen) operation = { ...operation, payoff: defaultPayoff(end, grid.bar) };
+  // A payoff the agent gave is kept; songPayoff then only names the payoff the short-drop note offers.
+  const picked = songPayoff({ sections: shape.sections, seconds: shape.seconds ?? analysis.duration, whole: shape.whole !== false, ...grid, length: end, turn: operation.turn ?? null });
+  if (chosen) operation = { ...operation, payoff: picked.payoff };
   if (end < operation.payoff + 1) fail("end must be at least 1 s after the payoff.");
   if (operation.turn != null && operation.turn >= operation.payoff) fail("turn must come before the payoff.");
   const seconds = shape.seconds ?? analysis.duration;
@@ -736,7 +788,7 @@ export function applyFitMusic(document, operation) {
   if (!PLANS.includes(which)) fail(`plan is "stretch" (one unbroken stretch), "stop" (the song's stop, then a drop on the payoff) or "recut" (the song re-arranged), not ${JSON.stringify(which)}.`);
   if (operation.drop != null && !(typeof operation.drop === "number" && operation.drop >= 0)) fail("drop is a time in the song in seconds (0 or more): the drop that lands on the payoff.");
   if (which === "stop" && !Array.isArray(shape.bars?.lines)) fail("the song has no measured bars, so plan \"stop\" cannot be used; use plan \"stretch\".");
-  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null };
+  const input = { sections: shape.sections, seams: Array.isArray(shape.seams) ? shape.seams : [], seconds, whole: shape.whole !== false, ...grid, payoff: operation.payoff, turn: operation.turn ?? null, end, bars: shape.bars, drop: operation.drop ?? null, roomy: picked?.payoff };
   const plan = planFitMusic({ ...input, plan: which });
 
   // The old pieces (this layer, and pieces an earlier fit_music made from it) go; the new ones take their place.
@@ -779,7 +831,7 @@ export function applyFitMusic(document, operation) {
     pieces: made.length,
     // Which part of the song plays, in song order.
     plays: plan.pieces.map((piece) => `${clock(piece.from)}-${clock(piece.to)}`).join(", "),
-    ...(chosen ? { payoff: `${operation.payoff} s (none given: the drop gets 4 bars and a bar to fade)` } : {}),
+    ...(chosen ? { payoff: payoffLine(operation.payoff, picked, grid.bar) } : {}),
     sections: lines,
     ...(rhythm ? { rhythm: `${rhythm.bpm} bpm, first beat ${rhythm.offset} s (set from the song's measured beats)` } : {}),
     // The plans not used that this song allows, one line each, for choosing by the video's story.
