@@ -13,7 +13,7 @@ import { beatLine, cutFacts, cutLines, cutsOnBeats, frameLevel, paceFacts, paceL
 import { planEdit } from "./footage/plan.js";
 import { KINO_OWN_FAMILIES, KINO_PAIR_FAMILIES, footageBrand } from "./footage/treatments.js";
 import { footageCues, footageOps } from "./footage/ops.js";
-import { boardSpans, cueShowLines, cueShows } from "./footage/cueShows.js";
+import { boardSpans, cueShowLines, cueShows, storyCues } from "./footage/cueShows.js";
 import { createDocument, createLayer, createScene } from "./model.js";
 import { applyOperations } from "./operations.js";
 
@@ -600,4 +600,29 @@ test("cueShows: a drop on a rewound repeat of a shown span says so with unused s
   const held = cueShows({ spans: boardSpans([shot(0, 6.2, "door.mp4", 0, door), shot(6.2, 1.8, "climb.mp4", 0, climb)]), cues, seconds: 8, pool });
   assert.equal(cueShowLines(held)[0], "on the drop at 7.00 s: shot 2 (climb.mp4) on screen since 6.2 s (no cut on it); unused scanned shots that differ most: F2 shot 4 (light 200, no face, 60%), F2 shot 9 (light 45, face, 22%)");
   assert.deepEqual(cueShows({ spans: boardSpans([shot(0, 3, "door.mp4", 0), shot(0, 3, "door.mp4", 0), shot(3, 5, "climb.mp4", 0)]), cues, seconds: 8 }).takes.map((take) => take.seconds), [5]);
+});
+
+test("cueShows: the payoff and the longest shot get the same fact off the song's cues; a still shown again and a reversed built shot count", () => {
+  const shot = (cue, dur, media, inPoint, extra = {}) => ({ id: `S${cue}`, cue, dur, media, in: inPoint, ...extra });
+  // The payoff at 10.95 s brings back file 4-5.5 s of the climb shown at 3-6 s; no song cue falls there.
+  const shots = [shot(0, 3, "door.mp4", 0), shot(3, 3, "climb.mp4", 3), shot(6, 4.95, "hall.mp4", 0), shot(10.95, 1.5, "climb.mp4", 4)];
+  const story = storyCues({ shots, payoffAt: 10.95, start: 0 });
+  assert.deepEqual(story, [{ at: 10.95, kind: "payoff beat" }, { at: 6, kind: "longest shot (4.95 s)" }]);
+  assert.deepEqual(cueShowLines(cueShows({ spans: boardSpans(shots), cues: [{ at: 6, kind: "drop" }], story, seconds: 12.45 })), [
+    "on the drop and longest shot (4.95 s) at 6.00 s: shot 3 (hall.mp4) new",
+    "on the payoff beat at 10.95 s: shot 4 (climb.mp4) repeats 1.5 s of file 4-5.5 s shown at 3-6 s",
+  ]);
+  // The longest shot opening the edit is new by nature: no line; the payoff on it names both.
+  assert.deepEqual(storyCues({ shots: [shot(0, 5, "door.mp4", 0), shot(5, 1, "climb.mp4", 0)], payoffAt: 5, payoffKind: "last shot" }), [{ at: 5, kind: "last shot" }]);
+  assert.deepEqual(storyCues({ shots: [shot(0, 1, "door.mp4", 0), shot(1, 5, "climb.mp4", 0)], payoffAt: 1 }), [{ at: 1, kind: "payoff beat, the longest shot (5 s)" }]);
+  // A picture (an image file, or media with no in-point) is a still: the same one again says so.
+  const stills = boardSpans([shot(0, 2, "poster.png", "none"), shot(2, 2, "door.mp4", 0), shot(4, 1, "poster.png", "none")]);
+  assert.equal(cueShowLines(cueShows({ spans: stills, story: [{ at: 4, kind: "payoff beat" }], seconds: 5 }))[0], "on the payoff beat at 4.00 s: shot 3 (poster.png) shows again the still shown at 0-2 s");
+  // The board has no reverse: a built layer of the shot playing reversed is read on its clock
+  // (file 5.5 back to 4 s), so a payoff shot whose board in-point (9 s) is unseen still repeats.
+  const layer = { type: "video", src: "climb.mp4", mediaStart: 10.95, mediaOffset: 4, mediaDuration: 1.5, mediaReverse: true };
+  const built = (entry) => (entry.cue === 10.95 ? layer : null);
+  const late = [...shots.slice(0, 3), shot(10.95, 1.5, "climb.mp4", 9)];
+  assert.equal(cueShows({ spans: boardSpans(late), story, seconds: 12.45 }).cues.at(-1).shared, 0);
+  assert.equal(cueShows({ spans: boardSpans(late, undefined, { built }), story, seconds: 12.45 }).cues.at(-1).shared, 1.5);
 });

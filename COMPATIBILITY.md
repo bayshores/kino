@@ -1583,7 +1583,11 @@ How to read it:
   whose move would run a shot past its clip file stays and is named). Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
 - **What plays on the drop**: Test-verified. The board answer, look board and check print, per strong song cue, the shot
   on it and `new` or how much of its file stretch was shown before (speed and reverse counted), with unused scanned
-  shots that differ most, and a file filling over half the edit. Evidence: `backend/agent-board.test.mjs`, `engine/footage.test.js`.
+  shots that differ most, and a file filling over half the edit. The same line comes for the spine's payoff beat (else the
+  last shot) and the longest shot wherever they fall, with or without a song; the song is the scene's when the board names
+  none; image layers, stills, grouped layers on their clock and reversed built shots count, each only while its Show and
+  Hide leave it on screen, and check takes the story's times from the built layers. Evidence:
+  `backend/agent-board.test.mjs`, `engine/footage.test.js`, `backend/look-board.test.mjs`. Gap: a GIF counts as a still.
 - **Made techniques from references** (`match_references {made:true}` or `made:[names]`): Test-verified on a stub reference. Places
   the made techniques the saved references' labels name (else the deck's unused cards) on song cues and subject shots, prints each
   value and the made share before and after; left out, the receipt only names what it would place. Overexpose and smear go on cuts,
