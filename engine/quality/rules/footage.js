@@ -625,7 +625,8 @@ export function burnedText(model, ctx) {
     const burned = ctx.burnedText[item.src];
     const layer = scene.layers.find((entry) => entry.id === item.source?.layerId);
     const size = sizeOf(ctx, item);
-    if (!burned || !layer || !size) continue;
+    // A screen recording's own lettering (menus, its words) is its content, not a burned-in mark.
+    if (!burned || !layer || !size || size.screen || size.named) continue;
     const name = ctx.name(item);
     const subs = burned.subtitles ?? [];
     const marks = ctx.burnedMarks?.[item.src]?.length ? [] : burned.marks ?? [];

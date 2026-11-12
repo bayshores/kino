@@ -2057,6 +2057,9 @@ test("burnedTextFacts: words in one place on most frames are a mark, low middle 
   assert.deepEqual(facts.subtitles.map((sub) => [sub.from, sub.to, sub.words]), [[1, 1, "Run."], [1.14, 1.14, "but I'll stay."]]);
   // A line read once is no mark; nothing read is no frame.
   assert.deepEqual(burnedTextFacts([{ t: 0, lines: [site] }, { t: 1, lines: [] }, { t: 2, lines: [] }]).marks, []);
+  // A sign held mid-picture on every frame (a shop name in a still shot) is not a mark; nor a wide title along the top.
+  const sign = { box: [0.4, 0.4, 0.15, 0.05], s: "OPEN" }, title = { box: [0.1, 0.05, 0.8, 0.08], s: "A long title line" };
+  assert.deepEqual(burnedTextFacts([0, 1, 2].map((t) => ({ t, lines: [sign, title] }))).marks, []);
   assert.equal(burnedTextFacts([{ t: 0, lines: null }]).read, 0);
   // A 1.1x crop of a 1920x1080 file centered: a subject in the middle keeps all, one at the left edge loses its outer part.
   const fit = { x: -96, y: -54, width: 2112, height: 1188 };
@@ -2083,6 +2086,13 @@ test("burned_text: a kino text beside a subtitle burned into the clip, and a mar
   assert.match(both.fix.text, /"op":"update_layers","layerIds":\["keeper","keeper2"\],"properties":\{.*\} \(every 2 layers of this file in this box: "keeper", "keeper2"\) crops it out \(1\.04x against the frame-filling size, no subject known/);
   const document = scene({ duration: 2, layers: [full] });
   assert.deepEqual((await check("burned_text", document, { scene: document.scenes[0], mediaSizes: keeperSizes, burnedText: burned, burnedMarks: { [TALL_CROP.src]: [{ where: "top-left", box: [0.01, 0.01, 0.08, 0.03] }] } })).findings, []);
+  // A screen recording's own lettering is its content: no fact.
+  assert.deepEqual((await check("burned_text", document, { scene: document.scenes[0], mediaSizes: { [TALL_CROP.src]: { width: 1920, height: 1080, screen: true } }, burnedText: burned })).findings, []);
+  // 9:16: the tall window already leaves the top-left mark out; the subtitle under a caption is cropped past at the bottom, the window kept centered.
+  const tall = scene({ duration: 2, width: 1080, height: 1920, layers: [TALL_CROP, { ...line, x: 180, y: 1540, width: 720 }] });
+  const tallFound = (await check("burned_text", tall, { scene: tall.scenes[0], mediaSizes: keeperSizes, burnedText: burned })).findings;
+  assert.deepEqual(tallFound.map((finding) => finding.itemId), ["line"]);
+  assert.match(tallFound[0].fix.text, /"properties":\{"x":-1400,"y":0,"width":3879,"height":2182\}\}\]\} crops the subtitle out \(1\.14x against the frame-filling size/);
 });
 
 test("crop_no_subject: where no face was found, the window must keep what kino sees (the largest saliency box); narrow_window goes quiet there", async () => {

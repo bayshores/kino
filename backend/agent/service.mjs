@@ -6057,6 +6057,8 @@ export function createAgentService(deps) {
   // The text burned into a clip's frames (backend/footage/burned-text.mjs) as one line: kept on its
   // record, else read now through the frame facts (videoFacts, one at a time), else null.
   async function burnedTextOf(src, record) {
+    // A screen recording kino made: its lettering is what it shows (check skips it too).
+    if (record?.recording) return null;
     const id = mediaIdFromSource(src);
     const burned = record?.burnedText ?? (id && deps.videoFacts ? (await Promise.resolve(deps.videoFacts(id, record)).catch(() => null))?.burnedText : null);
     return burnedTextLine(burned);

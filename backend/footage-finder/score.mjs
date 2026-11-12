@@ -36,6 +36,8 @@ import { persistentElements } from "../measure/fingerprint.mjs";
 import { heavyDecodeSlot } from "../process-slots.mjs";
 import { removeTempFolder } from "../temp-folders.mjs";
 import { WHOLE_MAX_SECONDS } from "./scan.mjs";
+// Shared with the text read on every imported clip (engine/footage/burned.js burnedTextFacts).
+import { MARK_EDGE, MARK_LINE_MOST } from "../../engine/footage/burned.js";
 
 /**
  * 2: marks, subtitles and drawn footage. 3: each shot's figure (whole-body box) and how it moves
@@ -103,12 +105,11 @@ export function placeName(box) {
 
 // The grid scanMarks counts text on: cells of 1/24 of the frame.
 const MARK_CELLS = 24;
-/** A line counts toward a mark only when it is logo-sized: at most this wide and high. */
-export const MARK_LINE_MOST = [0.25, 0.1];
+// A line counts toward a mark only when it is logo-sized (MARK_LINE_MOST), and a mark lies within
+// MARK_EDGE of one frame edge: both from engine/footage/burned.js.
+export { MARK_EDGE, MARK_LINE_MOST };
 /** A mark is at most this wide and high (its grid cells, so a little more than a line). */
 export const MARK_MOST = [0.375, 0.25];
-/** A mark lies within this distance of one frame edge (a corner or a strip along an edge). */
-export const MARK_EDGE = 0.2;
 // Where burned-in subtitles sit (x, y, w, h): no mark reaches into it.
 const SUBTITLE_BAND = [0.25, 0.65, 0.5, 0.35];
 

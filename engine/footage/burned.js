@@ -117,6 +117,16 @@ export const SUBTITLE_CENTER = 0.15;
 export const MARK_FRAMES = 0.5;
 /** Two boxes are one place when their middles are this close (fraction of the picture). */
 const SAME_PLACE = 0.04;
+/** A line counts toward a mark only when it is logo-sized: at most this wide and high (the finder scan's rule too). */
+export const MARK_LINE_MOST = [0.25, 0.1];
+/** A mark lies within this distance of one frame edge: a corner or a strip along an edge (the finder scan's rule too). */
+export const MARK_EDGE = 0.2;
+
+/** True for a logo-sized box within MARK_EDGE of an edge: where a site name or a channel mark sits (a sign or a title mid-picture is not one). */
+export function markPlaced([x, y, w, h]) {
+  if (w > MARK_LINE_MOST[0] || h > MARK_LINE_MOST[1]) return false;
+  return x + w <= MARK_EDGE || x >= 1 - MARK_EDGE || y + h <= MARK_EDGE || y >= 1 - MARK_EDGE;
+}
 
 const middleOf = ([x, y, w, h]) => [x + w / 2, y + h / 2];
 const plainWords = (text) => String(text ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -142,7 +152,8 @@ export function cornerName(box) {
 /**
  * Sorts the lines read on a clip's frames. frames: [{t (file seconds), lines: [{box, s}] (box:
  * fractions from the top left)}]. A mark is the same words (case and marks ignored) in one place on
- * MARK_FRAMES of the frames read (2 at least), not subtitle-low: a site name or a logo's letters.
+ * MARK_FRAMES of the frames read (2 at least), not subtitle-low, logo-sized and near an edge
+ * (markPlaced): a site name or a logo's letters, not a sign or a title held mid-picture.
  * A subtitle is a subtitle-low line; neighbor frames with the same words join into one stretch, so
  * a subtitle that changes with the speech gives one stretch per line said. Answers {read (frames),
  * marks: [{where, box, words, frames}], subtitles: [{from, to, box, words}]} (from and to: the first
@@ -172,7 +183,7 @@ export function burnedTextFacts(frames = []) {
     subtitles.at(-1).next = read[read.indexOf(frame) + 1]?.t;
   }
   const need = Math.max(2, MARK_FRAMES * read.length);
-  const marks = places.filter((place) => place.frames >= need).sort((a, b) => b.frames - a.frames)
+  const marks = places.filter((place) => place.frames >= need && markPlaced(place.box)).sort((a, b) => b.frames - a.frames)
     .map((place) => ({ where: cornerName(place.box), box: place.box.map(round3), words: place.said, frames: place.frames }));
   return { read: read.length, marks, subtitles: subtitles.map(({ from, to, box, words }) => ({ from: round3(from), to: round3(to), box: box.map(round3), words })) };
 }
