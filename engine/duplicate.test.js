@@ -262,6 +262,8 @@ test("returns: a group of 4 layers shown 3 times, and layers named tread-1 to tr
   // A line of many devices names the ones it leaves out, each with its count.
   const six = Array.from({ length: 6 }, (_, i) => ({ label: `d${i}`, places: [1, 2, 3 + i], layers: 1, changes: [] }));
   assert.match(returnsLine(six, {}, 4), /\+2 more \(d4 ×3, d5 ×3\)/);
+  assert.match(returnsLine([], { likeness: 0.12 }), /share: nothing · first and last picture alike: 0\.12 \(1 is the same picture\)$/);
+  assert.doesNotMatch(returnsLine([], {}), /picture alike/);
 });
 
 test("vary rebases a grow, so each copy's grow ends at its own scale", () => {

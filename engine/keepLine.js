@@ -41,7 +41,7 @@ import { applyAddCaptions } from "./captionLayers.js";
 import { applyDuckAudio, DIP_FLOOR, DUCK_FADES, DUCK_NAMES, earlierDips, JOIN_MAX_GAP, LOUD_LUFS, RAMP_MIN, withoutDips } from "./audioDucking.js";
 import { volumeAt } from "./animation.js";
 import { FIT_NAMES } from "./fitMusic.js";
-import { sectionCues } from "./mixLevels.js";
+import { sectionCues, VOICE_TARGET_LUFS } from "./mixLevels.js";
 import { audibleRanges } from "./videoSound.js";
 import { captionWordsFromSpeech, checkSpeechLayer, speechPieces, speechWords, withoutGluedTag } from "./speech.js";
 import { LINE_SURE, LOW_CONFIDENCE, SOUND_SURE, soundMoments } from "./speech.js";
@@ -750,6 +750,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
   if (operation.line !== undefined && timed) fail("give line (words said in the clip) or from and to (scene seconds), not both.");
   if (operation.line === undefined && !timed && !bySound) fail("give line (words said in the clip) or from and to (scene seconds).");
   if (operation.line !== undefined && (typeof operation.line !== "string" || !operation.line.trim())) fail("line is the words to keep, as said.");
+  if (operation.level !== undefined && (typeof operation.level !== "number" || !(Math.abs(operation.level) <= 24))) fail("level is dB to add to this line's level, a number from -24 to 24 (level:3 is 3 dB louder).");
   if (operation.text !== undefined && (typeof operation.text !== "string" || !operation.text.trim())) fail("text is the subtitle's words, a string.");
   if (operation.dip !== undefined && (typeof operation.dip !== "number" || !(operation.dip >= 0 && operation.dip <= 1))) fail("dip is the music's volume under the line, a number from 0 to 1.");
   // A voice cut into pieces (cut_speech) is one sound: the line may play on any piece, and every piece is silenced around it.
@@ -1125,6 +1126,50 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     notes.push(`the music does not dip: ${music.reason}`);
   }
 
+  // level:<dB> moves this line's level by that many dB after the leveling above, stored as keep_line stores
+  // its lift (the piece's voiceLevel, and a gain stage voiceLift when the raise goes past the lift cap).
+  // The dB is kept on the pieces (voiceShift), so a later keep_line of this line without level moves it
+  // the same amount again; level:0 clears it.
+  let levelSaid = null;
+  const storedShift = !sound && operation.level === undefined && Number.isFinite(owner.piece.voiceShift) ? owner.piece.voiceShift : null;
+  if (!sound && operation.level !== undefined) for (const entry of kept) {
+    if (operation.level === 0) delete entry.piece.voiceShift;
+    else entry.piece.voiceShift = operation.level;
+  }
+  const shift = operation.level ?? storedShift ?? 0;
+  if (shift !== 0) {
+    if (sound) notes.push(`level:${operation.level} is set aside: a kept sound keeps its own level`);
+    else {
+      const rawLine = operation.levels?.[owner.piece.id] ? loudnessOver(operation.levels[owner.piece.id], [{ start: mediaSoundTime(owner.piece, start), end: mediaSoundTime(owner.piece, end) }]) : null;
+      const before = Number.isFinite(owner.piece.voiceLevel) ? owner.piece.voiceLevel : VOICE_TARGET_LUFS;
+      const gainStaged = Number.isFinite(owner.piece.voiceLift);
+      const next = round(Math.max(-60, Math.min(36, before + shift)), 1);
+      const lifted = round(next - before, 1);
+      const needed = rawLine !== null ? next - rawLine : null;
+      // Past 0 LUFS (before a volume under 1) or past the lift cap the file needs the gain stage.
+      if (lifted > 0 && (next > 0 || gainStaged || (needed !== null && needed > liftCap(owner.piece)))) {
+        const lift = needed !== null ? Math.ceil(needed * 10) / 10 + 0.1 : MAX_LEVEL_DB + lifted;
+        for (const entry of kept) entry.piece.voiceLift = round(Math.max(entry.piece.voiceLift ?? 0, Math.min(GAIN_STAGE_MAX_DB, lift)), 1);
+      }
+      for (const entry of kept) entry.piece.voiceLevel = Math.max(-60, Math.min(Number.isFinite(entry.piece.voiceLift) ? GAIN_STAGE_MAX_DB : 0, next));
+      const heard = round(next + 20 * Math.log10(Math.max(1e-6, volume)), 1);
+      let over = null;
+      let bed = null;
+      if (mix && Number.isFinite(mix.line) && Number.isFinite(mix.under)) {
+        const bedEnergy = Math.max(0, 10 ** (mix.under / 10) - 10 ** (mix.line / 10));
+        bed = bedEnergy > 1e-9 ? round(10 * Math.log10(bedEnergy), 1) : null;
+        const under = round(10 * Math.log10(10 ** (heard / 10) + bedEnergy), 1);
+        mix = { ...mix, line: heard, under, change: Number.isFinite(mix.around) ? round(under - mix.around, 1) : mix.change };
+        over = bed === null ? "music out" : round(heard - bed, 1);
+      }
+      levelSaid = { db: lifted, line: heard, ...(over !== null ? { over } : {}), voiceLevel: next, ...(storedShift !== null ? { kept: true } : {}) };
+      const signedDb = `${lifted >= 0 ? "+" : ""}${lifted}`;
+      notes.push(`level ${signedDb} dB on this line only${storedShift !== null ? ` (kept from an earlier keep_line; level:0 clears it)` : ""}: it plays at ${heard} LUFS${over === null ? " (the music is not measured under it)" : over === "music out" ? ", the music out under it" : `, ${over >= 0 ? "+" : ""}${over} LU over the song (${bed} LUFS under it)`}; stored as voiceLevel ${next}${Number.isFinite(owner.piece.voiceLift) ? ` with a ${owner.piece.voiceLift} dB gain stage` : ""}${lifted !== shift ? ` (level:${shift} was held at the limit)` : ""}`);
+      if (kept.some((entry) => entry !== owner)) notes.push("the other pieces this line plays on move by the same amount");
+      if (otherLine) notes.push("another line kept on this clip shares its voiceLevel and moves with it; keep_line it again with its own level to set it apart");
+    }
+  }
+
   // The line's own loud and quiet words, evened toward its median word (on unless even:false; a kept sound keeps its own level).
   if (operation.even !== undefined && typeof operation.even !== "boolean") fail("even is true (the line's loud and quiet words come toward its median word) or false (kept as said).");
   const even = !sound && operation.even !== false ? evenLine(scene, owner, said, start, end, operation.levels?.[owner.piece.id], operation.even === true) : null;
@@ -1150,6 +1195,7 @@ export function applyKeepLine(document, operation, { fonts, reports } = {}) {
     duck: duck ? { layer: duck.layer, to: duck.to, summary: duck.summary } : "none",
     ...(mix ? { mix } : {}),
     ...(gainSaid ? { gain: gainSaid } : {}),
+    ...(levelSaid ? { level: levelSaid } : {}),
     ...(waysSaid ?? {}),
     ...(bedSaid ? { bed: bedSaid } : {}),
     ...(chainSaid ? { dips: chainSaid } : {}),

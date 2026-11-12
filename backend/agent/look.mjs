@@ -283,6 +283,60 @@ export function sheetTimes(duration, count = SHEET_FRAMES) {
   return evenTimes(0, last, count);
 }
 
+// look changed (GAPS round 4): the probe times across a scene and the spans where two versions
+// differ. `flags[i]` says the picture at `times[i]` differs; a run of them is one span, from its
+// first probe to one probe step after its last (at most `last`). A probe step is the scene over
+// CHANGED_PROBES (a guess: fine enough to see a 0.3 s change in a 14 s scene), never under 0.1 s.
+export const CHANGED_PROBES = 60;
+export function probeTimes(duration) {
+  const last = Math.max(0, duration - Math.min(0.05, duration / 100));
+  const step = Math.max(0.1, last / CHANGED_PROBES);
+  return { times: evenTimes(0, last, Math.max(2, Math.ceil(last / step) + 1)), step, last };
+}
+export function spansOfFlags(times, flags, step, last) {
+  const spans = [];
+  let from = null;
+  const close = (index) => { spans.push({ from: sec(times[from]), to: sec(Math.min(last, times[index] + step)) }); from = null; };
+  flags.forEach((flag, index) => {
+    if (flag && from == null) from = index;
+    if (!flag && from != null) close(index - 1);
+  });
+  if (from != null) close(flags.length - 1);
+  return spans;
+}
+
+// Which frames to draw for changed spans: at most `limit`. Every span gets one frame at its
+// middle (the earliest `limit` spans when there are more), the rest go one at a time to the span
+// with the most seconds per frame, never more than one frame per 0.1 s of a span. Spans that
+// the limit cuts come back as `left`.
+export function spanPicks(spans, limit) {
+  const shown = spans.slice(0, limit);
+  const counts = shown.map(() => 1);
+  for (let spare = limit - shown.length; spare > 0; spare -= 1) {
+    let best = -1;
+    shown.forEach((span, index) => {
+      if (counts[index] >= Math.max(1, Math.floor((span.to - span.from) / 0.1 + 1e-6))) return;
+      if (best < 0 || (span.to - span.from) / counts[index] > (shown[best].to - shown[best].from) / counts[best]) best = index;
+    });
+    if (best < 0) break;
+    counts[best] += 1;
+  }
+  const picks = [];
+  shown.forEach((span, index) => {
+    for (let n = 0; n < counts[index]; n += 1) picks.push({ ...span, time: sec(span.from + ((n + 0.5) * (span.to - span.from)) / counts[index]) });
+  });
+  return { picks, left: spans.slice(limit) };
+}
+
+// The call that draws the spans the frame limit left out: one frame at the middle of each (of the
+// first one's scene, at most TIMES_MOST), as look frames times. A from-to stretch would draw only
+// FRAMES_MOST frames in a row from the first span and miss the later ones.
+export function leftOutCall(left, sceneField = "") {
+  const same = left.filter((span) => span.scene === left[0]?.scene).slice(0, TIMES_MOST);
+  const times = same.map((span) => sec((span.from + span.to) / 2));
+  return { call: `look {mode:"frames"${sceneField}, times:[${times.join(", ")}]}`, count: same.length };
+}
+
 async function decode(buffer) {
   const image = await loadImage(buffer);
   const canvas = createCanvas(image.width, image.height);
@@ -999,13 +1053,31 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
       return pages;
     },
 
+    // How alike the scene's first frame (0 s) and last frame (0.05 s before its end) are, as the share
+    // of pixels of two small frames (the look tile's size) that did not change past the same color
+    // threshold look changed uses: 1 is the same picture. Null when a frame cannot be drawn.
+    async endsLikeness(prepared) {
+      const size = tileSize(prepared.scene, TILE_LONG_EDGE);
+      const [first, last] = await frames(prepared, [0, Math.max(0, prepared.scene.duration - 0.05)], size.width);
+      if (!first?.png || !last?.png) return null;
+      const total = size.width * size.height;
+      return Math.round((1 - Math.min(total, await changedPixels(first.png, last.png)) / total) * 100) / 100;
+    },
+
     // Re-renders the frames of the last look and keeps the ones whose pixels changed.
     // `prepared` is one prepared scene, or a function giving the scene of a frame (a sheet of
     // every scene has frames from several); a frame whose scene is gone is skipped.
-    async changedImage(prepared, previous) {
+    // `before(entry)`, when given, gives the prepared scene of that frame's scene as the last look
+    // saw it (null when it did not change or is gone): the scene is then scanned across its whole
+    // length for spans that differ (probeTimes), so an edit that changed places the last look did
+    // not draw still shows. When a span has none of the last look's changed frames in it, the
+    // answer is frames spread over every span (spanPicks, at most the last look's frame count,
+    // 12 to 36), each labeled with its span in seconds; `left` lists the spans the limit cut.
+    // `sceneName(entry)` names a scene in a label when the look covers several.
+    async changedImage(prepared, previous, { before, sceneName } = {}) {
       const preparedFor = typeof prepared === "function" ? prepared : async () => prepared;
       const changed = [];
-      const frames = [];
+      const remembered = [];
       let tile = null;
       for (const entry of previous.frames) {
         const current = await preparedFor(entry);
@@ -1014,14 +1086,78 @@ export function createLook({ cache, outDirectory, mediaRoot, renderSettings }) {
         tile ??= entry.tile ?? tileSize(current.scene, TILE_LONG_EDGE);
         const rendered = await frame(current, entry.time, entry.width, entry.height);
         const old = rendered.key === entry.key ? null : await cache.get(entry.key);
-        if (rendered.key === entry.key || (old && (await changedPixels(old, rendered.png)) < CHANGED_PIXELS)) { frames.push(entry); continue; }
+        if (rendered.key === entry.key || (old && (await changedPixels(old, rendered.png)) < CHANGED_PIXELS)) { remembered.push(entry); continue; }
         const label = entry.label ?? `${entry.time}s`;
-        changed.push({ ...rendered, time: entry.time, width: entry.width, label, ...(entry.crop ? { crop: entry.crop } : {}) });
-        frames.push({ ...entry, key: rendered.key });
+        changed.push({ ...rendered, time: entry.time, width: entry.width, label, scene: entry.scene, ...(entry.crop ? { crop: entry.crop } : {}) });
+        remembered.push({ ...entry, key: rendered.key });
       }
-      if (!changed.length) return { png: null, changed: [], labels: [], frames };
-      const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile, labelMost: previous.frames[0]?.labelMost });
-      return { png, changed: changed.map((entry) => entry.time), labels: changed.map((entry) => entry.label), frames };
+
+      // The spans where the scene differs from the last look's version.
+      const spans = [];
+      if (before && !previous.frames.some((entry) => entry.crop)) {
+        const groups = new Map();
+        for (const entry of previous.frames) if (!groups.has(entry.scene ?? "")) groups.set(entry.scene ?? "", entry);
+        for (const entry of groups.values()) {
+          const [old, current] = await Promise.all([before(entry), preparedFor(entry)]);
+          if (!old || !current) continue;
+          const size = tileSize(current.scene, TILE_LONG_EDGE);
+          const { times, step, last } = probeTimes(current.scene.duration);
+          const [olds, news] = [await frames(old, times, size.width), await frames(current, times, size.width)];
+          const flags = [];
+          for (let index = 0; index < times.length; index += 1)
+            flags.push(olds[index].key !== news[index].key && (await changedPixels(olds[index].png, news[index].png)) >= CHANGED_PIXELS);
+          for (const span of spansOfFlags(times, flags, step, last)) spans.push({ ...span, entry, current, size });
+        }
+      }
+      const inSpan = (item, span) => item.scene === span.entry.scene && item.time >= span.from - 1e-6 && item.time <= span.to + 1e-6;
+      if (!spans.some((span) => !changed.some((item) => inSpan(item, span)))) {
+        if (!changed.length) return { png: null, changed: [], labels: [], frames: remembered };
+        const png = await sheet(changed, { columns: columnsFor(changed.length, tile), tile, labelMost: previous.frames[0]?.labelMost });
+        return { png, changed: changed.map((entry) => entry.time), labels: changed.map((entry) => entry.label), frames: remembered };
+      }
+
+      // Frames spread over every changed span, in scene then time order.
+      const order = [...new Set(previous.frames.map((entry) => entry.scene ?? ""))];
+      const items = [
+        ...spans,
+        ...changed.filter((item) => !spans.some((span) => inSpan(item, span))).map((item) => ({ from: item.time, to: item.time, item, entry: { scene: item.scene } })),
+      ].sort((a, b) => order.indexOf(a.entry.scene ?? "") - order.indexOf(b.entry.scene ?? "") || a.from - b.from);
+      const limit = Math.min(FRAMES_MOST, Math.max(SHEET_FRAMES, previous.frames.filter((entry) => !entry.extra).length));
+      const { picks, left } = spanPicks(items, limit);
+      const tiles = [];
+      const added = [];
+      const byScene = new Map();
+      for (const pick of picks) {
+        if (pick.item) continue;
+        const key = pick.entry.scene ?? "";
+        if (!byScene.has(key)) byScene.set(key, []);
+        byScene.get(key).push(pick);
+      }
+      for (const group of byScene.values()) {
+        const { current, size } = group[0];
+        const drawn = await frames(current, group.map((pick) => pick.time), size.width);
+        group.forEach((pick, index) => {
+          const name = sceneName?.(pick.entry);
+          pick.drawn = drawn[index];
+          pick.label = `${name ? `${name} · ` : ""}${pick.time}s in ${pick.from}-${pick.to}s`;
+          pick.plain = `${name ? `${name} · ` : ""}${pick.time}s`;
+          pick.width = size.width;
+        });
+      }
+      for (const pick of picks) {
+        if (pick.item) { tiles.push(pick.item); continue; }
+        tiles.push({ ...pick.drawn, time: pick.time, width: pick.width, label: pick.label });
+        added.push({ time: pick.time, key: pick.drawn.key, width: pick.width, label: pick.plain, extra: true, ...(pick.entry.scene !== undefined ? { scene: pick.entry.scene } : {}) });
+      }
+      const png = await sheet(tiles, { columns: columnsFor(tiles.length, tile), tile, labelMost: previous.frames[0]?.labelMost });
+      return {
+        png,
+        changed: tiles.map((entry) => entry.time),
+        labels: tiles.map((entry) => entry.label),
+        frames: [...remembered.filter((entry) => !entry.extra), ...added],
+        spans: items.map((item) => ({ from: item.from, to: item.to, scene: item.entry.scene })),
+        left: left.map((item) => ({ from: item.from, to: item.to, scene: item.entry.scene })),
+      };
     },
 
     // A stretch of a scene (`from` to `to` seconds) as a silent mp4 at the preview size and

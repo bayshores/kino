@@ -135,7 +135,7 @@ import { createPicks, SITTING_PICKS } from "./picks.mjs";
 import { rendererIsProcessor } from "../render-devices.mjs";
 import { plannedFrameCount } from "../export-batches.mjs";
 import { planClips } from "./clips-sheet.mjs";
-import { evenTimes, everyFrame, everyNth, FRAME_RATE, FRAMES_MOST, PAGE_WIDTH, PAGES_MOST, TIMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
+import { evenTimes, everyFrame, everyNth, FRAME_RATE, FRAMES_MOST, leftOutCall, PAGE_WIDTH, PAGES_MOST, TIMES_MOST, reviewColumns, sceneKey, SEAM_EDGE, SEAM_MERGE, SEAM_OFFSETS, SHEET_FRAMES, sheetTimes, SOURCE_EDGE, SOURCE_EDGE_RANGE, STRIP_TILES, tileSize, VERSUS_EDGE } from "./look.mjs";
 import { boardShotKind, craftRow, editLoudest, editPixelKind, gapWords, imageStats, KIND_WORDS, pairRows, imageSoftAccent, pickRows, referenceMoments, ROWS_PER_STILL, shapeLoudest, SOFT_EDGE, softAccentLines } from "./versus.mjs";
 import { CAMERA_RULES, motionGraphImage, motionTrace, traceText } from "./motion-graph.mjs";
 import { kinoTimeline } from "../../engine/quality/kinoTimeline.js";
@@ -3853,7 +3853,7 @@ export function createAgentService(deps) {
     lines.push(`techniques: ${techniquesLine(result.techniques, 8)} · style: ${result.styleSpec ? "spec" : "kino default"}`);
     // What comes back in the checked (or main) scene: a fact beside techniques, never a finding.
     const returnsScene = scene ? record.document.scenes.find((item) => item.id === scene.id) : videoScene(record.document);
-    if (returnsScene) lines.push(sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
+    if (returnsScene) lines.push(options.pixels ? await returnsLineFor(returnsScene, record.document, fonts) : sceneReturnsLine(returnsScene, { scenes: record.document.scenes }));
     // Where the background shows between two full-frame shots, measured: a fact beside it, never a finding.
     if (returnsScene) lines.push(...await bareGapLines(returnsScene, codes), ...bareStripLines(returnsScene, codes));
     // And how much of it is designed, with the deck's unused cards and the references' own share.
@@ -4221,6 +4221,13 @@ export function createAgentService(deps) {
     const scene = expandComponents(document, sceneId, { fonts });
     return { scene, fonts, key: sceneKey(scene, fonts) };
   }
+  // The scene's returns line with the likeness of its first and last pictures (two small frames, look's
+  // endsLikeness); without it (a frame that will not draw) the line is as it was.
+  async function returnsLineFor(scene, document, fonts) {
+    let likeness = null;
+    try { likeness = await look.endsLikeness?.(await prepare(document, scene.id, fonts)) ?? null; } catch { /* the line is as it was */ }
+    return sceneReturnsLine(scene, { scenes: document.scenes, likeness });
+  }
 
   // When a layer is fully in: the end of its first entrance, or the middle of the scene.
   function settledTime(layer, scene) {
@@ -4314,7 +4321,7 @@ export function createAgentService(deps) {
           text = `sheet ${refName(scene.id, codes)}: ${times.map((time, index) => `${index + 1}=${time}s`).join(" ")}${!stretch && apart > SHEET_GAP_HINT ? ` (${apart}s apart; look {mode:"sheet", from, to} spreads 12 over a stretch)` : ""}`;
         }
         for (const line of cuts.unknownLines) text += `\n${line}`;
-        text += `\n${sceneReturnsLine(scene, { scenes: document.scenes })}`; // the saved scene: instances stay instances
+        text += `\n${await returnsLineFor(scene, document, fonts)}`; // the saved scene: instances stay instances
         const madeText = madeBesideOf(await findingsFor(document, { fonts, codes, sceneId: scene.id, pixels: false }).catch(() => null));
         if (madeText) text += `\n${madeText}`;
       }
@@ -4418,12 +4425,30 @@ export function createAgentService(deps) {
         if (!preparedScenes.has(id)) preparedScenes.set(id, await prepare(document, id, fonts));
         return preparedScenes.get(id);
       };
-      image = await look.changedImage(preparedFor, previous);
+      // The version the last look drew, so changed also finds the spans it did not draw.
+      const lastRecord = Number.isSafeInteger(previous.rev) && previous.rev !== record.revision ? await store.getProjectRevision(projectId, previous.rev).catch(() => null) : null;
+      const lastFonts = lastRecord ? await fontsFor(lastRecord) : null;
+      const beforeFor = lastRecord && (async (entry) => {
+        const id = entry.scene ?? scene.id;
+        const was = lastRecord.scenes.find((item) => item.id === id);
+        const now = document.scenes.find((item) => item.id === id);
+        return was && now && JSON.stringify(was) !== JSON.stringify(now) ? prepare(lastRecord, id, lastFonts) : null;
+      });
+      image = await look.changedImage(preparedFor, previous, { before: beforeFor || undefined, sceneName: all ? (entry) => refName(entry.scene, codes) : undefined });
       lookKey = all ? "all" : scene.id;
       const compared = all ? document.scenes : [scene];
       noteLive({ sceneId: all ? null : scene.id, ...(all ? {} : { range: [0, scene.duration] }) }, compared.map((item) => ({ sceneId: item.id, range: [0, item.duration] })));
       const where = all ? "the scenes" : refName(scene.id, codes);
       text = image.png ? `changed since your last look at ${where}: ${image.labels.join(", ")}` : `nothing visible changed in ${where} since your last look (${plural(previous.frames.length, "frame")} compared)`;
+      if (image.spans) {
+        text += `\n${plural(image.spans.length, "changed span")} (scanned the whole scene against rev ${previous.rev})`;
+        if (image.left.length) {
+          const first = image.left[0];
+          const sceneField = all && first.scene ? `, scene:"${refName(first.scene, codes)}"` : "";
+          const { call, count } = leftOutCall(image.left, sceneField);
+          text += `; ${plural(image.left.length, "span")} left out (the frame limit): ${call} shows ${count === image.left.length ? "them" : `${count} of them`}`;
+        }
+      }
     } else if (mode === "variants") {
       // One row per variant (the original first), five moments across each.
       const latest = document.scenes.filter((item) => item.variant).at(-1);

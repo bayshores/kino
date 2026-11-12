@@ -1467,6 +1467,14 @@ function normalizeLayer(raw, path, animationIds, counters) {
       fail(`${path}.voiceLift`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
     layer.voiceLift = requireNumber(layer.voiceLift, `${path}.voiceLift`, 0, 60);
   }
+  // The dB keep_line {level} added to the kept line's level (keepLine.js): a later keep_line of the
+  // line without level adds it again. Optional, null removes it.
+  if (layer.voiceShift === null) delete layer.voiceShift;
+  if (layer.voiceShift !== undefined) {
+    if (layer.type !== "video" && layer.type !== "audio")
+      fail(`${path}.voiceShift`, `needs a video or audio layer; a ${layer.type} layer has no sound`);
+    layer.voiceShift = requireNumber(layer.voiceShift, `${path}.voiceShift`, -24, 24);
+  }
   // Low-pass cutoff in Hz (lowpass.js): optional, 0 is off, null removes it.
   if (layer.lowpass === null) delete layer.lowpass;
   if (layer.lowpass !== undefined) {

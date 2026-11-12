@@ -207,6 +207,17 @@ export function playedSamples(found, from, to) {
 
 const hasMarks = (layer) => layer.subjectBoxes?.src === layer.src && (layer.subjectBoxes.boxes?.length ?? 0) > 0;
 
+/**
+ * The layer as its marks and source looks are read: a cut_out copy (cutoutOf) plays the same frames
+ * as the clip it was cut from, on the same pixels, and keeps that clip's marks (made on the clip's
+ * file), so the clip's file stands for it there. Any other layer is itself.
+ */
+export function markedAs(scene, layer) {
+  if (!layer?.cutoutOf || !layer.subjectBoxes || layer.subjectBoxes.src === layer.src) return layer;
+  const clip = scene?.layers?.find((entry) => entry.id === layer.cutoutOf);
+  return clip?.src && clip.src === layer.subjectBoxes.src ? { ...layer, src: clip.src } : layer;
+}
+
 // A face box this close (% of the file) to a file edge reaches that edge.
 const FILE_EDGE = 1;
 // A found face cut this long (seconds) is seen, not a flicker at a cut.
@@ -322,8 +333,10 @@ export function cropNoSubject(model, ctx) {
     // On a file with no faces found, a mark made without a look at the file is a guess from the
     // layer's position, so it does not count as marked (the crop is judged as if nothing were marked).
     const faceFound = (found?.samples ?? []).some((sample) => sampleBoxes(sample).some((entry) => entry.kind === "face"));
-    const unlooked = hasMarks(layer) && !faceFound && !seenMark(layer, ctx.sourceLooks, playsFrom, playsTo, ctx.mediaShots?.[layer.src]);
-    const marked = (hasMarks(layer) && !unlooked) || Boolean(pointer);
+    // A cut-out reads the marks and looks of the clip it was cut from (markedAs).
+    const marks = markedAs(scene, layer);
+    const unlooked = hasMarks(marks) && !faceFound && !seenMark(marks, ctx.sourceLooks, playsFrom, playsTo, ctx.mediaShots?.[marks.src]);
+    const marked = (hasMarks(marks) && !unlooked) || Boolean(pointer);
     let cropped = null, croppedCount = 0, lost = null;
     // Faces the detector found whole in the file that the crop cuts: with no mark (faceCut), or
     // while the mark sits somewhere else (missed).
@@ -337,7 +350,7 @@ export function cropNoSubject(model, ctx) {
       if (!crop || crop.covers < 0.9) continue;
       const [x0, y0, x1, y1] = crop.bounds;
       const second = mediaFrameState(layer, time).sourceTime;
-      const entry = marked && !pointer ? markNear(layer, second) : null;
+      const entry = marked && !pointer ? markNear(marks, second) : null;
       const mark = marked ? (pointer ? pointer(second) : entry?.box ?? null) : null;
       const facesHere = found ? facesAt(found, second) : [];
       let cutHere = null, missedHere = null;
@@ -382,6 +395,9 @@ export function cropNoSubject(model, ctx) {
       if (!cropped || sides[side] > cropped.cut) cropped = { cut: sides[side], side, time };
     }
     const look = `look {mode:"source", layer:${ctx.name(item)}, t}`;
+    // A mark made on another file (before replace_media or a re-encode) is not this file's subject: say so, with the file.
+    const staleMark = marks.subjectBoxes?.boxes?.length && marks.subjectBoxes.src !== marks.src
+      ? ` Its mark is on another file (${String(marks.subjectBoxes.src).split("/").pop()}) and does not count here: mark_subject again on this file.` : "";
     const seen = (tally) => tally.worst && tally.count * step >= model.fps * FACE_CUT_SECONDS - 1e-6;
     if (seen(faceCut)) {
       const cut = faceCut.worst;
@@ -407,7 +423,7 @@ export function cropNoSubject(model, ctx) {
         rule: "crop_no_subject", severity: "error", itemId: item.id, at: sec(cut.time),
         message: unlooked
           ? `${cutText}, and its mark was never looked at: ${lookCall} first, then mark what the shot is about.`
-          : `${cutText}. ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.`,
+          : `${cutText}. ${call} keeps it whole, as a card when it is wider than the frame; a deliberate part: mark_subject with part.${staleMark}`,
         measured: `${Math.round(cut.share * 100)}% of the saliency box ${boxText(cut.box)} (file ${sec(cut.second)} s) in the frame at ${sec(cut.time)} s, cut at the ${cut.side}, for ${sec((salientCut.count * step) / model.fps)} s, no face found${held}${unlooked ? ", marked without a look" : ""}`,
         required: `at least ${Math.round(SUBJECT_KEPT * 100)}% of what kino sees (the largest saliency box where no face is found) in the frame, or a mark that holds it (part:"<name>" for a deliberate part)`,
         fix: unlooked
@@ -438,7 +454,7 @@ export function cropNoSubject(model, ctx) {
     } else if (cropped && croppedCount * step >= model.fps * 0.5) {
       findings.push({
         rule: "crop_no_subject", severity: "warn", itemId: item.id, at: sec(cropped.time),
-        message: `${ctx.name(item)} is drawn past the frame with no subject marked${unlooked ? " (marked without a look)" : ""}: ${Math.round(cropped.cut)}% of the file is cut off at the ${cropped.side}, so the crop is arbitrary.`,
+        message: `${ctx.name(item)} is drawn past the frame with no subject marked${unlooked ? " (marked without a look)" : ""}: ${Math.round(cropped.cut)}% of the file is cut off at the ${cropped.side}, so the crop is arbitrary.${staleMark}`,
         measured: `${Math.round(cropped.cut)}% of the ${size.width}x${size.height} file cut off at the ${cropped.side} at ${sec(cropped.time)} s, no subject marked`,
         required: `at most ${CROP_MAX}% cut off a side, or a subject marked (mark_subject) that stays in the frame`,
         fix: { kind: "hint", text: `Fit ${ctx.name(item)} to the frame (zoom less), or ${look} and mark_subject the subject, then frame the crop on it (library guide framing).` },
@@ -469,7 +485,8 @@ export function narrowWindow(model, ctx) {
     const found = ctx.people?.[layer.src];
     // A mark the agent made after looking at this stretch of the file clears a window that keeps it.
     const [playsFrom, playsTo] = playedStretch(scene, layer);
-    const looked = seenMark(layer, ctx.sourceLooks, playsFrom, playsTo, ctx.mediaShots?.[layer.src]);
+    const marks = markedAs(scene, layer);
+    const looked = seenMark(marks, ctx.sourceLooks, playsFrom, playsTo, ctx.mediaShots?.[marks.src]);
     let count = 0, narrowest = null, shownFrom = null, shownTo = null;
     for (let index = 0; index < model.times.length; index += step) {
       if (item.samples.opacity[index] < SHOWN || soft(item, index) || coveredAt(model, item, index)) continue;
@@ -486,7 +503,7 @@ export function narrowWindow(model, ctx) {
       // So is what kino sees where no face was found (a saliency box): only a window kino has nothing for warns.
       if (salientAt(found, second, playsFrom, playsTo)) continue;
       // A seen mark (a part such as an eye strip counts the same) that the window keeps is a crop on a subject.
-      const mark = looked ? boxNear(layer, second) : null;
+      const mark = looked ? boxNear(marks, second) : null;
       if (mark && insideShare(mark, crop.bounds) >= SUBJECT_KEPT) continue;
       count += 1;
       if (!narrowest || width < narrowest.width) narrowest = { width, time, bounds: crop.bounds };
@@ -498,7 +515,7 @@ export function narrowWindow(model, ctx) {
     const markHow = 'mark what the shot is about (mark_subject; part:"eyes" for a deliberate strip), then frame_shot crops on it';
     findings.push({
       rule: "narrow_window", severity: "warn", itemId: item.id, at: sec(narrowest.time),
-      message: hasMarks(layer) && !looked
+      message: hasMarks(marks) && !looked
         ? `${name}'s marked subject was never looked at: ${lookCall} first.`
         : `${name} shows ${Math.round(narrowest.width)}% of its file's width at ${sec(narrowest.time)} s and kino cannot see faces here: ${lookCall}, ${markHow}.`,
       measured: `a window ${Math.round(narrowest.width)}% of the ${size.width}x${size.height} file wide (middle at ${middle}%) at ${sec(narrowest.time)} s, for ${sec((count * step) / model.fps)} s, no face found`,
