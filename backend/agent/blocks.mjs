@@ -2949,7 +2949,10 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       const video = footage.file.kind === "video";
       const picture = { type: video ? "video" : "image", src: footage.file.src, name: footage.file.name, ...shotBox(Array.isArray(footage.crop) ? footage.crop : WHOLE, footage.file, scene),
         ...(video ? { mediaStart: 0, mediaOffset: typeof footage.in === "number" ? footage.in : 0 } : {}) };
-      const color = await type.behind(picture, box).catch(() => null);
+      // As picturesUnder counts it: the picture is behind the words when it covers half their box, else the background shows.
+      const overlap = Math.max(0, Math.min(picture.x + picture.width, box.x + box.width) - Math.max(picture.x, box.x))
+        * Math.max(0, Math.min(picture.y + picture.height, box.y + box.height) - Math.max(picture.y, box.y));
+      const color = overlap / Math.max(1, box.width * box.height) >= 0.5 ? await type.behind(picture, box).catch(() => null) : null;
       if (color) {
         job = jobTreatment(type.job, { ...treat, behind: { color, from: `${footage.file.name}${video ? ` at file ${sec(picture.mediaOffset)} s` : ""}, this shot's own picture` } });
         given = job.properties;
@@ -2969,8 +2972,17 @@ export function createBlockRunner({ fontsFor, listMedia, fontCatalog, operationC
       text.family = family.found;
       // A face kino has by name but has not loaded (a catalog family, or a weight the family lacks here):
       // said now with the face the build would draw instead and the call that loads it (face-at-call.mjs).
+      // One line per face: shots asking the same face are named together on it.
       const off = Number.isInteger(text.weight) ? faceOff({ fontFamily: text.family, fontWeight: text.weight }, await fontsOf(document, work)) : null;
-      if (off) work.notes.push(`board ${where} text asks ${off.asked}, not loaded: built now it draws in ${off.drawn}${loadedWeights(off)}; ${await loadCall(off, null, fontCatalog)}`);
+      if (off) {
+        const said = (work.boardFaces ??= new Map()).get(off.asked);
+        const shots = [...(said?.shots ?? []), where.replace(/^shot /, "")];
+        const call = said?.call ?? await loadCall(off, null, fontCatalog);
+        const line = `board ${shots.length > 1 ? `shots ${shots.join(", ")}` : where} text asks ${off.asked}, not loaded: built now it draws in ${off.drawn}${loadedWeights(off)}; ${call}`;
+        if (said) work.notes[said.at] = line;
+        else work.notes.push(line);
+        work.boardFaces.set(off.asked, { at: said?.at ?? work.notes.length - 1, shots, call });
+      }
     } else add("bad_shot", `${where} text family ${JSON.stringify(text.family)} is not a font kino has (library {topic:"fonts", search:${JSON.stringify(text.family)}}).`, family.suggestions);
     if (typeof text.size === "number") text.size = Number(text.size.toFixed(1));
     if (typeof text.y === "number") text.y = Number(text.y.toFixed(1));

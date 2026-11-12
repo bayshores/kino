@@ -547,8 +547,12 @@ test("face at the call: a face that is not loaded names the face drawn and the c
   const scene = { width: 1280, height: 720, background: "#fafaf7", layers: [] };
   const big = jobTreatment("payoff", { scene, text: "KILL", largest: { size: 180, name: "title" } });
   assert.equal(big.properties.fontSize, 180);
-  assert.match(big.from, /; size from the project's largest text title \(180 px, 25% of the height\)/);
-  assert.match(jobTreatment("payoff", { scene, text: "KILL" }).from, /; size 14% of the height, a starting guess/);
+  assert.match(big.from, /; size from the project's largest text title \(180 px, letters 18% of the height\)/);
+  assert.match(jobTreatment("payoff", { scene, text: "KILL" }).from, /; size 14% of the height, a starting guess \(no type label; no project text\)/);
+  // A largest text of a subtitle's size (run dm3-a: 49 px lines on 1080) is not a payoff's size: the guess, with that fact.
+  const small = jobTreatment("payoff", { scene, text: "KILL", largest: { size: 33, name: "line" } });
+  assert.equal(small.properties.fontSize, 101);
+  assert.match(small.from, /a starting guess \(no type label; the project's largest text line \(33 px, letters 3\.3% of the height\) is 8% or under, a subtitle's size\)/);
 });
 
 test("agent service: an add_layer text with a role and no face or fill gets its job's fields and, as a payoff, a letter entrance by its cue", async (t) => {
@@ -603,10 +607,16 @@ test("agent service: an add_layer text with a role and no face or fill gets its 
   assert.match((over.data.notes ?? []).join("\n"), /type: over as subtitle from the picture behind \(#14161a measured from night at 0 s\); no measured type label for this job; fill #ffffff at 1\d\.\d:1 on #14161a; face from the project's text line \(Inter 600, role caption\): Inter 600, 32 px, fill #ffffff, edge 2 px/);
   // check: the payoff's Inter 700 needs no fallback; an agent-named Inter 900 (bundled Inter stops at 700) still does.
   // Board words over a shot's own dark picture: the fill is read on that picture (not a layer yet), not the white background.
-  const pictureShot = { cue: 2, dur: 2, pacing: "free", media: media.src ?? media.media?.src, in: "none", crop: "whole", subject: "none", follow: "none", text: { text: "We walk on, into the night." }, sound: "none", why: "the night" };
-  const night = await agent("edit", { project: "jobs", ops: [{ op: "board", music: "none", shots: [card(0, { text: "I will find you, I swear." }), pictureShot] }] });
+  const pictureShot = { cue: 2, dur: 1, pacing: "free", media: media.src ?? media.media?.src, in: "none", crop: "whole", subject: "none", follow: "none", text: { text: "We walk on, into the night." }, sound: "none", why: "the night" };
+  // A tall picture shown whole covers under half the words' box (202 of 1152 px wide): the background shows there.
+  const narrow = createCanvas(18, 64);
+  narrow.getContext("2d").fillStyle = "#14161a";
+  narrow.getContext("2d").fillRect(0, 0, 18, 64);
+  const tall = await (await server.api("/api/media", { method: "POST", headers: { "content-type": "image/png", "x-file-name": "tall.png" }, body: narrow.toBuffer("image/png") })).json();
+  const night = await agent("edit", { project: "jobs", ops: [{ op: "board", music: "none", shots: [card(0, { text: "I will find you, I swear." }), pictureShot, { ...pictureShot, cue: 3, media: tall.src ?? tall.media?.src }] }] });
   assert.equal(night.isError, undefined, night.text);
   assert.match(night.data.notes.join("\n"), /board shot 2 text as subtitle from the picture behind \(#14161a measured from night\.png, this shot's own picture\); no measured type label for this job; fill #ffffff at 1\d\.\d:1 on #14161a[^\n]*: family Inter, weight 600, size 32 px, fill #ffffff/);
+  assert.match(night.data.notes.join("\n"), /board shot 3 text as subtitle from scene colors \(background #ffffff;[^\n]*fill #111111/);
   // A face named at the call that is not loaded: the receipt names the face drawn now and the call that loads it.
   const heavy = await agent("edit", { project: "jobs", ops: [{ op: "add_layer", layerType: "text", name: "heavy", properties: { text: "HEAVY", fontFamily: "Inter", fontWeight: 900, fontSize: 20, x: 10, y: 10, width: 200, height: 30 } }] });
   assert.match((heavy.data.notes ?? []).join("\n"), /font: heavy asks Inter 900, not loaded: drawn in Inter 700 now \(Inter loaded here: 400, 500, 600, 700\); /);

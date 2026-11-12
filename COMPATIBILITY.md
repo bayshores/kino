@@ -1673,8 +1673,9 @@ How to read it:
   the same edit is not sampled for the fill.
 - **Face at the call** (board, `add_layer`, `set_font`, compose): Test-verified. A face named but not loaded is said in that
   edit's notes with the face drawn now and the one call that loads it (set_font from the catalog, else import); a local face the
-  layer's fontSource missed is set at once. Board text reads its fill on the shot's own picture; a board payoff takes the project's
-  largest text's size, else a printed starting guess. Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`.
+  layer's fontSource missed is set at once; a board says it once per face. Board text reads its fill on the shot's own picture
+  when it covers half the box; a board payoff takes the project's largest text's size when its letters are over 8% of the height,
+  else a printed starting guess. Evidence: `backend/agent-fonts.test.mjs`, `backend/agent-board.test.mjs`.
   Gap: the board text has no edge field; nothing is downloaded at the call; not replayed on run a or b's project data.
 - **Text around a moving subject** (`place {around, follow?}`): Verified on rendered frames of a generated clip. The subject is
   measured over the whole hold; `follow:true` writes a path that keeps the text beside it. Evidence: `engine/subjectRoom.test.js`,

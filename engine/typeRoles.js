@@ -167,13 +167,16 @@ export function jobTreatment(job, { scene, labels = [], text, advance = null, fa
   const height = scene?.height ?? 1080;
   const width = scene?.width ?? 1920;
   const label = labelsByJob(labels)[job];
-  // A payoff with no measured label takes the size of the project's largest text (`largest`: {size, name}),
+  // A payoff with no measured label takes the size of the project's largest text (`largest`: {size, name})
+  // when its letters are a payoff's size (over PAYOFF_SHARE of the height, as a measured label is judged),
   // else the GUESS share, printed as a starting guess.
-  const byLargest = !label && job === "payoff" && Number(largest?.size) > 0;
+  const largestLetters = Number(largest?.size) > 0 ? (Number(largest.size) * INK_TO_SIZE) / height : 0;
+  const byLargest = !label && job === "payoff" && largestLetters > PAYOFF_SHARE;
   const share = label ? label.share / INK_TO_SIZE : byLargest ? Number(largest.size) / height : SHARE[job];
+  const largestSaid = largestLetters ? `${largest.name} (${Math.round(largest.size)} px, letters ${Math.round(largestLetters * 1000) / 10}% of the height)` : "";
   const sizeNote = label || job !== "payoff" ? ""
-    : byLargest ? `; size from the project's largest text ${largest.name} (${Math.round(largest.size)} px, ${Math.round((largest.size / height) * 1000) / 10}% of the height)`
-      : `; size ${Math.round(SHARE.payoff * 100)}% of the height, a starting guess (no type label, no project text)`;
+    : byLargest ? `; size from the project's largest text ${largestSaid}`
+      : `; size ${Math.round(SHARE.payoff * 100)}% of the height, a starting guess (no type label; ${largestSaid ? `the project's largest text ${largestSaid} is ${Math.round(PAYOFF_SHARE * 100)}% or under, a subtitle's size` : "no project text"})`;
   const boxWidth = Math.round(width * (job === "subtitle" ? 0.84 : job === "payoff" ? 0.9 : 0.4));
   // The longest line the words make at the job's line count, in letters.
   const letters = String(text ?? "").trim().length;
