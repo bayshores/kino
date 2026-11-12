@@ -722,6 +722,7 @@ function translateOne(raw, resolver, document) {
     if (type === "cut_speech") checkCutSpeech(operation);
     if (type === "place_broll") checkPlaceBroll(operation);
     if (type === "keep_line") checkKeepLine(operation);
+    if (type === "place_sounds") checkPlaceSounds(operation);
     if (type === "color_filter") checkColorFilter(operation);
     if (type === "sync_clips") checkSyncClips(operation);
     if (type === "match_color") checkMatchColor(operation);
@@ -1160,6 +1161,26 @@ function checkKeepLine(operation) {
   const extra = Object.keys(operation).filter((key) => !KEEP_LINE_FIELDS.has(key));
   if (extra.length) throw Object.assign(new Error(`keep_line has no ${extra.join(", ")}; it takes layer, line, sound or from and to, text, subtitle, look, name, duck, dip, dropout and wait.`), { suggestions: closest(extra[0], ["line", "from", "to", "sound", "text", "subtitle", "duck", "dip", "dropout", "wait"]) });
   if (typeof operation.layerId !== "string") throw new Error("keep_line needs layer: the video or audio layer with the spoken line.");
+}
+
+// place_sounds {sceneId, at, under?}: at lists action ids ("a2", from library sounds actions:true),
+// seconds, or {at, sound?, what?, under?}; the service resolves them (soundActions.js).
+const PLACE_SOUNDS_FIELDS = new Set(["type", "sceneId", "at", "under"]);
+const PLACE_SOUND_ENTRY = new Set(["at", "sound", "what", "under", "kind"]);
+function checkPlaceSounds(operation) {
+  const extra = Object.keys(operation).filter((key) => !PLACE_SOUNDS_FIELDS.has(key));
+  if (extra.length) throw Object.assign(new Error(`place_sounds has no ${extra.join(", ")}; it takes at (action ids, seconds or {at, sound?, what?, under?}) and under.`), { suggestions: closest(extra[0], ["at", "under"]) });
+  if (operation.at === "all") throw new Error('place_sounds names each action: at:["a1","a3"] (library {topic:"sounds", actions:true} lists them).');
+  if (!Array.isArray(operation.at)) operation.at = operation.at === undefined ? [] : [operation.at];
+  if (!operation.at.length) throw new Error('place_sounds needs at: action ids from library {topic:"sounds", actions:true}, seconds, or {at, what}.');
+  for (const entry of operation.at) {
+    const at = entry && typeof entry === "object" ? entry.at : entry;
+    if (!(typeof at === "string" ? /^a\d+$/i.test(at.trim()) : typeof at === "number" && at >= 0)) throw new Error(`place_sounds at ${JSON.stringify(entry)}: an action id ("a2"), seconds, or {at, sound?, what?, under?}.`);
+    const unknown = entry && typeof entry === "object" ? Object.keys(entry).filter((key) => !PLACE_SOUND_ENTRY.has(key)) : [];
+    if (unknown.length) throw new Error(`place_sounds at {${unknown.join(", ")}}: each takes at, sound, what and under.`);
+    const under = entry && typeof entry === "object" ? entry.under : undefined;
+    for (const value of [under, operation.under]) if (value !== undefined && !(typeof value === "number" && value >= -12 && value <= 30)) throw new Error("under is the LU an effect sits under the song there, a number from -12 to 30 (default 3).");
+  }
 }
 
 // color_filter {sceneId, layerId | layerIds, filter, strength?}: checked by the engine (engine/colorFilter.js).

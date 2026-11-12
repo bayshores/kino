@@ -116,6 +116,7 @@ Contents: Building blocks · Layers · Layout · Text · Animations · Scenes ·
 - `color_filter {scene?, layer | layers, filter, strength?}`
 - `keep_line {scene?, layer, line? | from?, to? | sound?, text?, subtitle?, look?, name?, duck?, dip?, dropout?, wait?}`
 - `frame_shot {layer | layers}`
+- `place_sounds {scene?, at, under?}`
 - `match_color {scene?, layer | layers, to, at?}`
 - `track {scene?, layer, at, point | box, name?}`
 - `pin {scene?, layer, to, offset?, scale?}`

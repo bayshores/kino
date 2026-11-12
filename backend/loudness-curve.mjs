@@ -34,13 +34,15 @@ export function readMomentary(printed, step = STEP) {
 
 /**
  * Measures a file's first sound stream (an FFmpeg job, sound only). It is a full decode, so it
- * takes the one decode slot of this process (process-slots.mjs).
+ * takes the one decode slot of this process (process-slots.mjs). `pad` seconds of silence after
+ * the sound let every 400 ms window that holds it be read: a sound shorter than a window (a click,
+ * a hit) otherwise ends before its loudest window does (place_sounds measures effects this way).
  */
-export async function measureLoudnessCurve(file, signal) {
+export async function measureLoudnessCurve(file, signal, { pad = 0 } = {}) {
   const printed = await heavyDecodeSlot(() => {
     if (signal?.aborted) throw cancelled();
     return runExportProcess(ffmpegCommand(), ["-hide_banner", "-nostdin", "-loglevel", "error", "-i", file, "-map", "0:a:0", "-vn",
-      "-af", "ebur128=metadata=1,ametadata=mode=print:file=-", "-f", "null", "-"], signal);
+      "-af", `${pad > 0 ? `apad=pad_dur=${pad},` : ""}ebur128=metadata=1,ametadata=mode=print:file=-`, "-f", "null", "-"], signal);
   });
   return readMomentary(printed);
 }

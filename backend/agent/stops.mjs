@@ -316,6 +316,8 @@ export function askText({ id, kind, video = {}, checked, offer = [], idea = null
     kind === "board" ? "" : checkedLine(checked, waivers),
     // A sound stop with no music says so, with the person's choices (checkpointStep).
     music ?? "",
+    // The sound stop's fact: effects placed on the visible actions found (the service fills effectsLine).
+    kind === "sound" && typeof video.effectsLine === "string" ? video.effectsLine : "",
     kind === "board" ? "" : "What did you notice, and what would you change?",
     "Reply: approve · approve with notes: ... · redo: ...",
     offer.length ? `Or say "stop asking" to skip ${offerWords(offer)} for this video.` : "",
@@ -480,7 +482,8 @@ export function checkpointStep(draft, { kind: wanted, video = {}, rules: given =
     if (noMusic) round.noMusic = songSearch ? "search" : true;
     return {
       text: [`${round.id} ${kind} allowed (${by === "chat" ? "set in chat" : by === "controls" ? "the person's controls" : "the person's settings"}) · checked: ${plural(checked.errors, "error")} · ${plural(checked.warnings, "warning")}${openRulesText(checked)}`,
-        noMusic ? `No music: silent because ${songSearch ? "no measured song was imported" : "no track was sent and no song search is available"}. Your final message says so; never that they asked for silence.` : "", `step: ${next}`].filter(Boolean).join("\n"),
+        noMusic ? `No music: silent because ${songSearch ? "no measured song was imported" : "no track was sent and no song search is available"}. Your final message says so; never that they asked for silence.` : "",
+        kind === "sound" && typeof video.effectsLine === "string" ? video.effectsLine : "", `step: ${next}`].filter(Boolean).join("\n"),
       data: { status: "allowed", id: round.id, kind, rev, by, next },
     };
   }

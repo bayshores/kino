@@ -24,6 +24,8 @@ const SEEN_AS = {
   translation: ["keep_line", "add_captions"], "foreign language": ["keep_line"], "english subtitles": ["keep_line", "add_captions"], "original language": ["keep_line"],
   // A made element that comes back at chosen times, a little different (duplicate_layers at + vary).
   motif: ["duplicate_layers"], callback: ["duplicate_layers"], "comes back": ["duplicate_layers"], recurring: ["duplicate_layers"], "returning element": ["duplicate_layers"],
+  // An added sound on a visible action (a whoosh on a whip, a hit on an impact), leveled under the song.
+  "sound effects": ["place_sounds"], "sound effect": ["place_sounds"], sfx: ["place_sounds"], whoosh: ["place_sounds"], swoosh: ["place_sounds"], foley: ["place_sounds"], "sound design": ["place_sounds"],
   "speed ramp": ["speed-ramp", "clip-speed"], ramp: ["speed-ramp", "clip-speed"], "slow motion": ["speed-ramp", "clip-speed"],
   "slow mo": ["speed-ramp", "clip-speed"], slowmo: ["speed-ramp", "clip-speed"], "time remap": ["speed-ramp", "clip-speed"],
   "fast forward": ["clip-speed"], reverse: ["clip-speed"],
@@ -224,6 +226,7 @@ const WHEN = {
   "split-fields": "an edge moving across one shot, a color field each side: travel:-1 sweeps it left to right over the whole frame (a wipe), 1 right to left",
   "shape-wipe": "a shape growing from one point to the next shot (point, shape circle, rounded, diamond, clock)",
   keep_line: 'a clip\'s own sound heard over the music (sound:"laughter" keeps a sound the readout lists); on the board: shot sound {keep:"all" | [from, to] | "laughter"} (file seconds)',
+  place_sounds: 'a sound on a visible action, its transient on the frame, 3 LU under the song: library {topic:"sounds", actions:true} lists the actions',
 };
 // An op whose call needs a lookup first: a font is picked by its look.
 const OP_USE = { update_project: 'update_project {properties:{shutterAngle:180}} (motion blur on every move in look, sheets and drafts)', set_font:'library {topic:"fonts", search:"<the look: brush, handwritten, marker, stencil, slab, blackletter, condensed bold sans, a script such as japanese>"} (or like:"<picture path>", region:[x,y,w,h]: faces measured like its letters) then set_font {layerIds, family, weight}' };

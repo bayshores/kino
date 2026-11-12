@@ -96,8 +96,11 @@ import { addVerdict, anchorLines, barOf, barPairs, barTimeAt, parseVerdict } fro
 import { BAR_PROTOCOL, CRITIQUE_ROUNDS, critiqueProtocol, CRITIQUE_WAIVER, barGap, blocksRender, critiqueDirectionKey, critiqueOf, critiqueSpine, critiqueQuestions, critiqueTimes, critiqueWanted, lineText, openCritique, parseCritique, personCall, staleCritique, upLines } from "./critique.mjs";
 import { createQualityChecker, qualityRulesText, videoScene } from "./quality.mjs";
 import { houseMoments, houseStructure, houseType } from "../house-memory.mjs";
-import { plateChanges, techniquesLine } from "../../engine/quality/techniques.js";
+import { plateChanges, techniquesLine, techniquesUsed } from "../../engine/quality/techniques.js";
 import { sceneReturnsLine } from "../../engine/quality/returns.js";
+import { KIND_WORDS as SOUND_KIND_WORDS, visibleActions } from "../../engine/soundActions.js";
+import { footageCueTime } from "../../engine/footageCues.js";
+import { FOOTAGE_VERSION } from "../footage/analyze.mjs";
 import { PLAIN_TAGS, TECHNIQUE_TAGS, techniquesText } from "../../engine/techniques.js";
 import { namesFamily, styleContext } from "../../engine/styleSpec.js";
 import { blocksFinal, FINAL_GATES, tasteNotes } from "../../engine/quality/index.js";
@@ -131,7 +134,7 @@ import { constantSpeed, isRemapped, isReversed } from "../../engine/mediaTime.js
 import { visionBoxes } from "../cutout/cutout.mjs";
 import { shotsLine } from "../shot-detection.mjs";
 import { isFreesoundId, isOpenverseId, SOUND_LIMITS, SoundSearchError, soundsText } from "../sound-search.mjs";
-import { isLibraryId, librarySoundsText, musicText, SoundLibraryError } from "../sound-library.mjs";
+import { actionSoundsText, isLibraryId, librarySoundsText, musicText, SoundLibraryError } from "../sound-library.mjs";
 import { compareText, compareToStory, exploreLanes, importableId, junkTitle, keepCandidates, licenseTag, SoundtrackError } from "../soundtrack.mjs";
 import { rankSongs } from "../songTaste.mjs";
 import { dot, LANES } from "../music-embed.mjs";
@@ -151,7 +154,7 @@ import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
 import { createSongShapeCache } from "../song-shape.mjs";
 import { createAudioPeaksCache } from "../audio-peaks.mjs";
-import { createLoudnessCurves } from "../loudness-curve.mjs";
+import { createLoudnessCurves, measureLoudnessCurve } from "../loudness-curve.mjs";
 import { captionEvents, writeCaptionFiles } from "./caption-export.mjs";
 import { renderRange, rangeCaptions, fastPreviewOptions } from "../render-range.mjs";
 import { cueListText, isCueTarget } from "./cue-list.mjs";
@@ -1662,6 +1665,15 @@ export function createAgentService(deps) {
         position += 1;
         continue;
       }
+      // place_sounds finds the actions, imports the sounds and measures them and the song first.
+      if (first.operation.type === "place_sounds") {
+        if (!dependsOnFailure(first)) {
+          try { next = await runPlaceSounds(next, first.operation, fontsCache); }
+          catch (error) { refuse(first, error instanceof AgentError ? error : operationFailed(first.index, raw[first.index], "place_sounds", error)); }
+        }
+        position += 1;
+        continue;
+      }
       if (first.operation.type === "detect_beats") {
         if (!dependsOnFailure(first)) {
           try { next = await runDetectBeats(next, first.operation, fontsCache); }
@@ -1724,7 +1736,7 @@ export function createAgentService(deps) {
         continue;
       }
       let end = position;
-      while (end < usable.length && !["set_font", "detect_beats", "fit_music", "sync_clips", "isolate_voice", "cut_out", "match_color", "track", "pin", "stabilize"].includes(usable[end].operation.type) && !needsTranscript(usable[end].operation) && !REACH_OPERATIONS.includes(usable[end].operation.type) && !blocks.handles(usable[end].operation)) end += 1;
+      while (end < usable.length && !["set_font", "detect_beats", "fit_music", "sync_clips", "place_sounds", "isolate_voice", "cut_out", "match_color", "track", "pin", "stabilize"].includes(usable[end].operation.type) && !needsTranscript(usable[end].operation) && !REACH_OPERATIONS.includes(usable[end].operation.type) && !blocks.handles(usable[end].operation)) end += 1;
       const run = usable.slice(position, end).filter((entry) => !dependsOnFailure(entry) && !alreadyDeleted(entry));
       position = end;
       if (!run.length) continue;
@@ -2045,6 +2057,147 @@ export function createAgentService(deps) {
     return speech;
   }
 
+  // The scene's visible actions (engine/soundActions.js): kino's moves from the scene's timeline
+  // model, and its clips' impacts and light from their saved measurements only (a clip not measured
+  // yet is counted, not decoded here). Returns {actions, more, unmeasured}.
+  async function sceneSoundActions(document, scene) {
+    const fonts = await fontsFor(document);
+    const model = kinoTimeline(document, scene.id, { fonts, fps: projectFps(document) });
+    const events = [];
+    let unmeasured = 0;
+    for (const layer of scene.layers.filter((item) => item.type === "video" && item.src).slice(0, 12)) {
+      const id = mediaIdFromSource(layer.src);
+      let saved = null;
+      try { saved = id && deps.mediaRoot ? JSON.parse(await readFile(path.join(deps.mediaRoot, `${id}.footage-v${FOOTAGE_VERSION}`), "utf8")) : null; } catch { saved = null; }
+      if (!Array.isArray(saved?.events)) { unmeasured += 1; continue; }
+      for (const event of saved.events) {
+        if (event.kind !== "impact" && event.kind !== "light") continue;
+        try {
+          const placed = footageCueTime(document, layer.id, event.t);
+          if (!placed.shown || placed.layer.id !== layer.id) continue;
+          const from = event.from !== undefined ? footageCueTime(document, layer.id, event.from).time : undefined;
+          events.push({ kind: event.kind, at: placed.time, layer: layer.id, ...(from !== undefined ? { from } : {}) });
+        } catch { /* an animated speed has no steady time: left out */ }
+      }
+    }
+    const found = visibleActions(techniquesUsed(model), events, document.cues ?? [], { fps: model.fps || 30 });
+    return { ...found, unmeasured };
+  }
+
+  // The sound stop's fact line (lead decision): effects placed against the visible actions found, in
+  // the video's scene. A fact, never a finding: zero effects stays a valid mix. Empty when nothing is known.
+  async function effectsLineOf(document) {
+    const scene = videoScene(document) ?? document.scenes?.[0];
+    if (!scene) return "";
+    const found = await sceneSoundActions(document, scene).catch(() => null);
+    if (!found) return "";
+    const placed = scene.layers.filter((layer) => layer.type === "audio" && /^sfx-/.test(layer.id)).length;
+    if (!placed && !found.all.length) return "";
+    return `Sound effects: ${placed} on ${found.all.length} visible ${found.all.length === 1 ? "action" : "actions"}.`;
+  }
+
+  // The library sounds offered for one action kind, in this project's order, skipping files the scene plays.
+  function offersFor(kind, document, scene, media, count = 3) {
+    const played = new Set(scene.layers.map((layer) => mediaIdFromSource(layer.src)).filter(Boolean));
+    const skip = new Set(media.filter((item) => played.has(item.id) && String(item.credit?.id ?? "").startsWith("sfx:")).map((item) => item.credit.id.slice(4)));
+    return deps.soundLibrary?.offerSounds?.(SOUND_KIND_WORDS[kind] ?? kind, { seed: document.id, skip, low: kind === "impact", count }) ?? [];
+  }
+  // Each action's offers ({id: [sound]}): the nth action of a kind starts n places further along its
+  // kind's list, so three impacts are offered three files, and place_sounds places what was offered.
+  function offersForActions(actions, document, scene, media) {
+    const pools = new Map(), seen = new Map(), offers = {};
+    for (const action of actions) {
+      if (!pools.has(action.kind)) pools.set(action.kind, offersFor(action.kind, document, scene, media, 6));
+      const pool = pools.get(action.kind), n = seen.get(action.kind) ?? 0;
+      seen.set(action.kind, n + 1);
+      offers[action.id] = pool.length ? [0, 1, 2].map((step) => pool[(n + step) % pool.length]).filter((sound, index, list) => list.indexOf(sound) === index) : [];
+    }
+    return offers;
+  }
+
+  // place_sounds {sceneId, at: ["a2" | seconds | {at, sound?, what?, under?}], under?}: each entry
+  // becomes {at, kind, src, peaks, curve, peak} for the engine (soundActions.js applyPlaceSounds),
+  // with the scene's beds (audio and video layers playing 3 s or more, not a voice) and their curves.
+  async function runPlaceSounds(document, operation, work) {
+    const scene = document.scenes.find((item) => item.id === operation.sceneId);
+    if (!scene) throw new Error(`Scene ${operation.sceneId} was not found.`);
+    const entries = (Array.isArray(operation.at) ? operation.at : [operation.at]).map((entry) => (entry && typeof entry === "object" ? entry : { at: entry }));
+    const needsActions = entries.some((entry) => typeof entry.at === "string");
+    const { all = [] } = needsActions ? await sceneSoundActions(document, scene) : {};
+    const media = (await deps.listMedia?.()) ?? [];
+    const offered = needsActions ? offersForActions(all, document, scene, media) : {};
+    const taken = new Set();
+    const sounds = [];
+    for (const entry of entries) {
+      let at = entry.at, kind = entry.kind, action = null, tags = null;
+      if (typeof at === "string") {
+        action = all.find((item) => item.id === at.trim().toLowerCase());
+        if (!action) throw new AgentError("bad_input", `place_sounds: no action "${at}" in ${scene.name ?? scene.id}${all.length ? ` (${all.length}: ${all.slice(0, 6).map((item) => `${item.id} ${item.at}`).join(", ")})` : ""}. library {topic:"sounds", actions:true} lists them; a time in seconds places one anywhere.`);
+        ({ at, kind } = { at: action.at, kind: kind ?? action.kind });
+        tags = action.tags;
+      }
+      if (!Number.isFinite(at)) throw new AgentError("bad_input", "place_sounds at lists action ids (\"a2\"), seconds, or {at, sound?, what?}.");
+      let file = null;
+      if (entry.sound !== undefined) {
+        const wanted = String(entry.sound).trim();
+        if (isLibraryId(wanted)) file = await libraryMedia(wanted, media);
+        else file = media.find((item) => [item.id, item.src, item.name].some((value) => String(value ?? "") === wanted)) ?? media.find((item) => item.id === mediaIdFromSource(wanted));
+        if (!file) throw new AgentError("not_found", `place_sounds: no sound "${wanted}" in the media library. sfx:<id> (library sounds) or an imported file's name.`);
+      } else {
+        const words = entry.what ?? (kind ? SOUND_KIND_WORDS[kind] : null);
+        if (!words) throw new AgentError("bad_input", `place_sounds at ${at}: say what the sound is ({at:${at}, what:"whoosh"}) or give sound (sfx:<id> or a file).`);
+        const pool = entry.what !== undefined
+          ? deps.soundLibrary?.offerSounds?.(entry.what, { seed: document.id, low: true, count: 6 }) ?? []
+          : action ? [...(offered[action.id] ?? []), ...offersFor(kind, document, scene, media, 6)] : offersFor(kind, document, scene, media, 6);
+        const pick = pool.find((sound) => !taken.has(sound.id)) ?? pool[0];
+        if (!pick) throw new AgentError("not_found", `no library sound for "${words}": library {topic:"inspire", search:${JSON.stringify(String(words))}, kind:"sounds"}`);
+        taken.add(pick.id);
+        file = await libraryMedia(`sfx:${pick.id}`, media);
+        kind ??= String(entry.what).split(/\s+/)[0];
+      }
+      const src = file.src ?? `/api/media/${file.id}`;
+      const fileOnDisk = mediaFileOf({ src });
+      const peaks = await audioPeaks.get(fileOnDisk).catch(() => null);
+      // An effect (3 s or shorter) is measured with 0.4 s of silence after it, so its loudest 400 ms
+      // window is read even when the sound is shorter than one. The plain curve misses that window
+      // (a 0.3 s file reads [null, null, -12.5]), and the catalog peak less a guessed 12 dB stood in:
+      // the run 8 render then heard the effects 0 to 0.7 LU over the song's momentary reading
+      // (.scratch/barwave/wave/sounds-on-actions-review/RESULT.md has the before and after).
+      const curve = await (!(Number(file.duration) > 3) ? measureLoudnessCurve(fileOnDisk, undefined, { pad: 0.4 }) : Promise.reject(new Error("long")))
+        .catch(() => loudnessCurves.get(fileOnDisk)).catch(() => null);
+      const libraryId = String(file.credit?.id ?? "").replace(/^sfx:/, "");
+      const catalogPeak = libraryId ? deps.soundLibrary?.catalog?.().sounds?.find((sound) => sound.id === libraryId)?.peak : undefined;
+      sounds.push({ at, kind: kind ?? "hit", ...(action ? { action: action.id, tags } : {}), src, name: file.name, duration: file.duration, peaks, curve, peak: catalogPeak, ...(Number.isFinite(entry.under) ? { under: entry.under } : {}) });
+    }
+    // Beds: what the effect plays over. A voice (a saved transcript) is not a bed; a sound effect is not either.
+    const beds = [];
+    for (const layer of scene.layers) {
+      if (!layer.src || (layer.type !== "audio" && layer.type !== "video") || /^sfx-/.test(layer.id) || Number(layer.volume ?? 1) <= 0) continue;
+      const range = mediaPlaybackRange(layer, scene.duration);
+      if (!range || range.duration < 3) continue;
+      try {
+        const file = mediaFileOf(layer);
+        if (!(await isMusicFile(file)) && Array.isArray((await transcripts.saved?.(file, document, layer).catch(() => null))?.words)) continue;
+      } catch { continue; }
+      beds.push(layer.id);
+    }
+    const resolved = { type: "place_sounds", sceneId: scene.id, sounds, beds, levels: await levelsOf(document, beds), ...(Number.isFinite(operation.under) ? { under: operation.under } : {}) };
+    const context = await operationContext(document, [resolved]);
+    if (work.reports) context.reports = work.reports;
+    const next = parseDocument(applyOperations(document, [resolved], context));
+    // The report belongs to the agent's operation (the receipt reads reports by operation).
+    if (work.reports?.has(resolved)) { work.reports.set(operation, work.reports.get(resolved)); work.reports.delete(resolved); }
+    return next;
+  }
+
+  // A library sound's media record: the one this project already imported (same credit id), or a new import.
+  async function libraryMedia(id, media) {
+    const known = media.find((item) => item.credit?.id === id);
+    if (known) return known;
+    if (!deps.soundLibrary) throw new AgentError("failed", "The sound library is not available here.");
+    try { return await deps.soundLibrary.importItem(id); } catch (error) { throw soundError(error); }
+  }
+
   // Building the board: each shot with sound {keep} whose layer this edit placed keeps that stretch
   // of its clip's sound (keep_line {from, to}, subtitle off; its dip as keep_line sets it), then one
   // dip covers every kept stretch (a later keep_line's dip replaces the earlier ones). A shot whose
@@ -2183,7 +2336,7 @@ export function createAgentService(deps) {
         (fields.movedWithLayer ??= []).push(...found.presetsMoved.map(({ layerId, animationId, name, what }) => `${refName(animationId, codes)}${name ? ` (${name})` : ""}${what ? ` ${what}` : ""} with ${refName(layerId, codes)}`));
         continue;
       }
-      const key = { add_captions: "captions", detect_beats: "beats", fit_music: "music", add_sequence: "sequence", duck_audio: "duck", isolate_voice: "voice", cut_out: "cutout", track: "track", pin: "pin", stabilize: "stabilize", cut_speech: "speech", sync_clips: "sync", match_color: "color", place_broll: "broll", keep_line: "keepLine" }[operation.type];
+      const key = { add_captions: "captions", detect_beats: "beats", fit_music: "music", add_sequence: "sequence", duck_audio: "duck", isolate_voice: "voice", cut_out: "cutout", track: "track", pin: "pin", stabilize: "stabilize", cut_speech: "speech", sync_clips: "sync", match_color: "color", place_broll: "broll", keep_line: "keepLine", place_sounds: "sounds" }[operation.type];
       if (!key) continue;
       if (operation.type === "duck_audio" && lastDuck.get(duckOf(operation)) !== operation) continue;
       let report = found.cuesMoved
@@ -6055,7 +6208,7 @@ export function createAgentService(deps) {
       const steady = steadyNow();
       const record = await store.getProject(projectId);
       // The document's waivers in use go in the facts so a stop's ask says how many findings were waived.
-      const video = { ...(await directionFacts(record.document)), waivers: checkpoint ? await waiversInUse(record.document) : record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document) } : { credits: [] }) };
+      const video = { ...(await directionFacts(record.document)), waivers: checkpoint ? await waiversInUse(record.document) : record.document.checkWaivers ?? [], ...(checkpoint && input.id === "sound" ? { credits: await soundCredits(record.document), music: await musicIn(record.document), effectsLine: await effectsLineOf(record.document) } : { credits: [] }) };
       const rules = stopRulesNow();
       const board = boardFacts(record.document);
       // Each shot's file name: move_needed offers a screen recording UI moves (engine/movePicks.js).
@@ -7139,9 +7292,25 @@ export function createAgentService(deps) {
     // Openverse instead (backend/sound-search.mjs), only with the Settings switch on.
     if (topic === "sounds" && names[0] !== "openverse") {
       if (!deps.soundLibrary) throw new AgentError("failed", "The sound library is not available here.");
+      // actions:true: the scene's visible actions, a library sound offered for each (engine/soundActions.js).
+      const record = input.actions === true ? null : await projectFor(input).catch(() => null);
+      // No words with a project open (the first call an agent sends): the cut's actions, as actions:true.
+      if (input.actions === true || (!(search || input.name) && record?.document?.scenes?.length)) {
+        const opened = record ?? await projectFor(input);
+        const state = await agentState.read(opened.document.id);
+        const scene = sceneFor(opened.document, state.codes, input.scene, state.focus) ?? opened.document.scenes[0];
+        if (!scene) throw new AgentError("not_found", `No scene ${input.scene}.`);
+        const { actions, more, all, unmeasured } = await sceneSoundActions(opened.document, scene);
+        const media = (await deps.listMedia?.()) ?? [];
+        const offers = offersForActions(all, opened.document, scene, media);
+        const placed = scene.layers.filter((layer) => layer.type === "audio" && /^sfx-/.test(layer.id)).length;
+        return { text: actionSoundsText({ scene: refName(scene.id, state.codes), actions, more, offers, unmeasured, placed }), data: { actions: all.map((action) => ({ ...action, sounds: (offers[action.id] ?? []).map((sound) => `sfx:${sound.id}`) })) } };
+      }
       try {
         const found = deps.soundLibrary.searchSounds(search || input.name, { maxSeconds: input.full === true ? SOUND_LIMITS.maxSeconds : SOUND_LIMITS.defaultSeconds });
-        return { text: librarySoundsText(found, { searchOn: soundSearchOn() }), data: { sounds: found.results.slice(0, 10).map(({ id, words, seconds, lufs }) => ({ id: `sfx:${id}`, words, seconds, lufs })) } };
+        const scene = record?.document?.scenes?.[0];
+        const actions = scene ? (await sceneSoundActions(record.document, scene).catch(() => null))?.all?.length ?? 0 : 0;
+        return { text: librarySoundsText(found, { searchOn: soundSearchOn(), actions }), data: { sounds: found.results.slice(0, 10).map(({ id, words, seconds, lufs }) => ({ id: `sfx:${id}`, words, seconds, lufs })) } };
       } catch (error) { throw soundError(error); }
     }
     // music: the built-in mood-tagged tracks, in this project's own order (never one default song).
