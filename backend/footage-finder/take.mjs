@@ -19,7 +19,7 @@ import { cropPast, markSpan } from "../../engine/footage/burned.js";
 import { readTime } from "./scan.mjs";
 import { scanCall } from "./step.mjs";
 import { SAYS_MIN_SECONDS, saysOf, saysText } from "./words.mjs";
-import { clipLinesText } from "../../engine/speech.js";
+import { clipSoundText } from "../../engine/speech.js";
 
 /** Seconds kept before and after each shot in its download. */
 export const TAKE_PAD_SECONDS = 0.5;
@@ -339,12 +339,16 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
     const duration = Number(item.duration) || 0;
     // Else what whisper read from the clip's own sound (service.mjs hearClips).
     const captioned = captions?.lines ? saysText(saysOf(captions.lines, Number(item.footage?.cutAt ?? item.footage?.start) || 0, duration)) : "";
-    const aloud = captioned ? "" : clipLinesText(heard?.byId?.[item.id]);
+    // An entry is {lines, voice, lufs} (service.mjs hearClips); an older caller passes the lines alone.
+    const read = heard?.byId?.[item.id];
+    const sound = Array.isArray(read) ? { lines: read } : read ?? null;
+    const aloud = captioned ? "" : sound?.lines?.length || sound?.voice?.length ? clipSoundText(sound) : "";
     if (aloud) heardAny = true;
+    const level = Number.isFinite(sound?.lufs) ? `${sound.lufs.toFixed(1)} LUFS · ` : "";
     // One line a clip: its layer-ready file (add_layer src) and what it says. A clip that says nothing
     // says why, so the agent never needs a second call to learn it (found-shared; a/result.md 2).
-    const quiet = duration < SAYS_MIN_SECONDS ? `no line (under ${SAYS_MIN_SECONDS} s)` : item.hasAudio === false ? "no sound" : !heard?.missing && (captions?.lines || heard) ? "no speech heard" : "speech not read";
-    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned || aloud || quiet}`);
+    const quiet = duration < SAYS_MIN_SECONDS ? `no line (under ${SAYS_MIN_SECONDS} s)` : item.hasAudio === false ? "no sound" : !heard?.missing && (captions?.lines || heard) ? "no voice heard" : "speech not read";
+    lines.push(`${label} ${round2(duration)}s ${item.width}×${item.height} ${item.src} ${captioned ? `${level}${captioned}` : aloud || `${level}${quiet}`}`);
   }
   if (failed.length) lines.push(`Not imported: ${failed.slice(0, 5).map((each) => `${each.label ?? each.n} (${each.why})`).join("; ")}.`);
   const [first] = media;
@@ -353,7 +357,7 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
   }
   const burned = markLine(media.find((item) => item.footage?.marks?.length), frame);
   if (burned) lines.push(burned);
-  if (heardAny) lines.push(`heard: words whisper read from each clip's own sound (an English model: other languages come out as sound-alike words). Keep one: edit {ops:[{op:"keep_line", layer, line, duck:"<song layer>"}]}.`);
+  if (heardAny) lines.push(`heard: lines whisper read from each clip's own sound; "voice heard ..., words not read" is voice it could not read (another language, a laugh), file seconds. Keep one: edit {ops:[{op:"keep_line", layer, line, duck:"<song layer>"}]}, or by time: keep_line {layer, from, to} (scene seconds).`);
   else if (heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);
   const credit = media[0]?.credit ?? takeCredit(candidate);
   lines.push(`credit kept with each file: ${credit.line}`);

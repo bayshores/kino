@@ -1538,7 +1538,11 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   // Every clip is one line with its layer-ready file and what it says, or why it says nothing (no second call to learn it).
   assert.match(text, /^F1\.3 1\.2s 1920×1080 \/api\/media\/m3\.mp4 no line \(under 1\.5 s\)$/m);
   assert.match(takeText(candidate, { media: [{ ...clip(4.9, 2.4, 2), hasAudio: false }], failed: [] }), /m2\.mp4 no sound$/m);
-  assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard: { byId: {}, missing: null } }), /m2\.mp4 no speech heard$/m);
+  assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard: { byId: {}, missing: null } }), /m2\.mp4 no voice heard$/m);
+  // Every clip with sound gives its level; voice whisper could not read is a span, not sound-alike words (run 8: F4.21, F4.13).
+  const levels = { byId: { "m2.mp4": { lines: [], voice: [], lufs: -18.2 }, "m3.mp4": { lines: [], voice: [{ start: 2.77, end: 9.24 }], lufs: -23.4 } }, missing: null };
+  assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard: levels }), /m2\.mp4 -18\.2 LUFS · no voice heard$/m);
+  assert.match(takeText(candidate, { media: [clip(9, 10.1, 3)], failed: [], heard: levels }), /m3\.mp4 -23\.4 LUFS · voice heard 2\.8-9\.2 s, words not read$/m);
   assert.match(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /m2\.mp4 speech not read$/m);
   assert.doesNotMatch(takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [] }), /says/);
   assert.deepEqual(saysOf(SAID_LINES, 4.9, 1.4), []);
@@ -1547,7 +1551,7 @@ test("an import answer says what a clip of 1.5 s or more says, in the clip's own
   const heard = { byId: { "m2.mp4": [{ text: "I'm just gonna see.", start: 7.1, end: 9.2 }], "m3.mp4": [{ text: "Not this.", start: 0, end: 1 }] }, missing: null };
   const aloud = takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], heard });
   assert.match(aloud, /^F1\.2 2\.4s 1920×1080 \/api\/media\/m2\.mp4 heard "I'm just gonna see\." 7\.1-9\.2 s$/m);
-  assert.equal(aloud.match(/^heard: words whisper read/gm).length, 1);
+  assert.equal(aloud.match(/^heard: lines whisper read/gm).length, 1);
   const both = takeText(candidate, { media: [clip(4.9, 2.4, 2)], failed: [], captions: { lang: "en", auto: false, lines: SAID_LINES }, heard });
   assert.match(both, /says "I will protect them all"/);
   assert.doesNotMatch(both, /heard/);
