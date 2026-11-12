@@ -56,7 +56,8 @@ export function footageStepOn(brief, facts) {
  */
 export function footageMove(footage) {
   const candidates = (footage?.candidates ?? []).filter((candidate) => !candidate.imported && candidate.note?.verdict !== "no");
-  const scanned = candidates.find((candidate) => candidate.scan);
+  // A scanned video with no mark burned into it comes before one with a mark (scan.logo); neither is skipped.
+  const scanned = candidates.find((candidate) => candidate.scan && !candidate.scan.logo) ?? candidates.find((candidate) => candidate.scan);
   if (scanned) return { step: `import found shots (scan ${scanned.code} names them)`, call: scanCall(scanned.code) };
   const ordered = (footage?.order ?? []).map((code) => candidates.find((candidate) => candidate.code === code)).filter(Boolean);
   const unscanned = ordered[0] ?? candidates[0];

@@ -289,25 +289,28 @@ export async function takeFootage(candidate, pieces, { addMedia, projectId = nul
 }
 
 // One line when the scan found a mark burned into the clip: where it is, and the two ways out (a
-// clean clip, or a crop that puts every mark outside the frame, with the layer numbers for a frame
-// shaped like the clip; the burned_in_mark check gives them for the scene's own shape).
-function markLine(clip) {
+// clean clip, or a crop that puts every mark outside the frame, with the layer numbers for the
+// video's frame when the caller knows it, else a frame shaped like the clip; the burned_in_mark
+// check gives them again for whatever frame the scene has when it runs).
+function markLine(clip, frame = null) {
   const marks = clip?.footage?.marks;
   if (!marks?.length) return "";
   const places = [...new Set(marks.map((mark) => mark.where))].join(" and ");
   const where = marks.map((mark) => markSpan(mark.box)).join("; ");
-  const fit = cropPast(marks, { width: clip.width, height: clip.height }, { width: clip.width, height: clip.height });
+  const size = frame?.width > 0 && frame?.height > 0 ? frame : { width: clip.width, height: clip.height };
+  const fit = cropPast(marks, size, { width: clip.width, height: clip.height });
   const crop = fit
-    ? `crop it out: edit {ops:[{op:"update_layer", layer:<name>, properties:{x:${fit.x}, y:${fit.y}, width:${fit.width}, height:${fit.height}}}]} on a ${clip.width}×${clip.height} frame (${fit.zoom}x zoom; another frame shape: the burned_in_mark check gives the numbers)`
+    ? `crop it out: edit {ops:[{op:"update_layer", layer:<name>, properties:{x:${fit.x}, y:${fit.y}, width:${fit.width}, height:${fit.height}}}]} on a ${size.width}×${size.height} frame (${fit.zoom}x zoom; another frame shape: the burned_in_mark check gives the numbers)`
     : `crop it out: zoom the layer until it leaves the frame (the mark is too far from the edges to cut off in one move)`;
   return `Note: ${burnedInto(places)} (${where}). Pick a clean clip (library {topic:"footage"} lists marked ones last), or ${crop}.`;
 }
 
 /**
  * The import answer's lines: each clip by its code and file, then the credit kept as metadata.
- * code: F1; candidate: its footage entry; result: takeFootage's answer.
+ * code: F1; candidate: its footage entry; result: takeFootage's answer; frame: the video's
+ * {width, height} (the burned-in mark line's crop numbers), else a frame shaped like the clip.
  */
-export function takeText(candidate, { media, failed, captions = null, heard = null }) {
+export function takeText(candidate, { media, failed, captions = null, heard = null, frame = null }) {
   const total = media.reduce((sum, item) => sum + (Number(item.duration) || 0), 0);
   const lines = [`Imported ${media.length} clip${media.length === 1 ? "" : "s"} of ${candidate.code} "${short(oneLine(candidate.title) || candidate.id, 60)}" (${round2(total)} s in all, H.264) for this video:`];
   let heardAny = false;
@@ -327,7 +330,7 @@ export function takeText(candidate, { media, failed, captions = null, heard = nu
   if (first) {
     lines.push(`Add one: edit {ops:[{op:"add_layer", layerType:"video", name, properties:{src:"${first.src}", x:0, y:0, width:${first.width}, height:${first.height}, mediaSourceDuration:${round2(Number(first.duration) || 0)}}}]}, or compose {footage} cuts them all by name.`);
   }
-  const burned = markLine(media.find((item) => item.footage?.marks?.length));
+  const burned = markLine(media.find((item) => item.footage?.marks?.length), frame);
   if (burned) lines.push(burned);
   if (heardAny) lines.push(`heard: words whisper read from each clip's own sound (an English model: other languages come out as sound-alike words). Keep one: edit {ops:[{op:"keep_line", layer, line, duck:"<song layer>"}]}.`);
   else if (heard?.missing) lines.push(`heard: not read (${heard.missing}; inspect {targets:["speech:<layer>"]} says how to install).`);

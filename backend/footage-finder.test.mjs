@@ -16,7 +16,7 @@ import { addCandidates, createFootageActions, FOOTAGE_TOPIC_LINE, logoLast, scan
 import { LOOK_MODEL, lookModelReady } from "./look-embed.mjs";
 import { createAgentService } from "./agent/service.mjs";
 import { LIBRARY_TOPICS } from "./agent/actions.mjs";
-import { footageLed } from "./footage-finder/step.mjs";
+import { footageLed, footageMove } from "./footage-finder/step.mjs";
 import { createAgentStateStore } from "./agent/state.mjs";
 import { withAsk } from "./agent-ask.test.support.mjs";
 import { openStore } from "./store.mjs";
@@ -390,6 +390,9 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.equal(text.match(/burned into/g).length, 1);
     // The video with a logo lists after one without; a scan without the model says so; a miss says how close it came.
     assert.deepEqual(logoLast([{ code: "F1", scan: { logo: "top-left" } }, { code: "F2" }]).map((entry) => entry.code), ["F2", "F1"]);
+    // The footage step imports a clean scanned video before a marked one; a marked one alone is still offered.
+    assert.match(footageMove({ candidates: [{ code: "F1", scan: { logo: "top-left" } }, { code: "F2", scan: {} }] }).step, /scan F2/);
+    assert.match(footageMove({ candidates: [{ code: "F1", scan: { logo: "top-left" } }] }).step, /scan F1/);
     assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: null, shots: [] }), /The image model did not run, so "white hair" was not looked for/);
     assert.match(scanText({ code: "F2", title: "x", license: "unknown" }, { want: "white hair", model: "m", matchBest: 1.4, matchBar: 2, shots: [] }), /No visual match for "white hair" \(closest \+1\.4, a match needs \+2\.0\): shots rank on motion, faces/);
     // Drawn footage keeps the bar at 2, so a recurring character's best shot (z 2.4) shows; on photos 20 shots need 2.45.
@@ -1089,6 +1092,8 @@ test("import: 3 near shots are one 1080p download padded 0.5 s, each cut at its 
   // The import answer says so in one line with both ways out: a clean clip, or the crop that leaves the corner out, with numbers.
   assert.match(takeText(candidate, result), /\nNote: a mark is burned into this clip's top-left \(2 to 20% across, 3 to 12% down\)\. Pick a clean clip \(library \{topic:"footage"\} lists marked ones last\), or crop it out: edit \{ops:\[\{op:"update_layer", layer:<name>, properties:\{x:-131, y:-147, width:2182, height:1227\}\}\]\} on a 1920×1080 frame \(1\.14x zoom/);
   assert.equal(takeText(candidate, result).match(/burned into/g).length, 1);
+  // Told the video's own frame (a 9:16 scene), the numbers fit it: the tall window slides past the corner, no zoom.
+  assert.match(takeText(candidate, { ...result, frame: { width: 1080, height: 1920 } }), /properties:\{x:-1167, y:0, width:3413, height:1920\}\}\]\} on a 1080×1920 frame \(1x zoom/);
   assert.equal(runs.length, 1);
   const args = runs[0];
   assert.equal(args[args.indexOf("-f") + 1], "bv*[height<=1080]+ba/b[height<=1080]");
@@ -1111,9 +1116,11 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   const agentState = createAgentStateStore(dataRoot);
   await agentState.update("anime-edit", (draft) => { draft.footage = addCandidates(null, [found(1), found(2)]); draft.footage.candidates[0].scan = { id: "yt-vvvvvvvvvv1", shots: 1 }; });
   const taken = [];
-  const finder = { readScan: async () => ({ shots: [{ n: 4, start: 30, end: 32 }, { n: 5, start: 32, end: 34 }] }),
+  // The scan found a mark in the top-left: take gets it, and the import answer's crop fits the video's frame.
+  const marks = [{ where: "top-left", box: [0.02, 0.03, 0.18, 0.09], share: 0.9 }];
+  const finder = { readScan: async () => ({ marks, shots: [{ n: 4, start: 30, end: 32 }, { n: 5, start: 32, end: 34 }] }),
     captions: async () => ({ lang: "en", auto: false, lines: [{ start: 0.2, end: 1.5, text: "Hold on." }] }),
-    take: async (candidate, pieces, { projectId }) => { taken.push([candidate.code, pieces.map((piece) => piece.n), projectId]); return { media: pieces.map((piece) => ({ id: `m${piece.n}.mp4`, src: `/api/media/m${piece.n}.mp4`, duration: 2, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot: piece.n } })), failed: [] }; } };
+    take: async (candidate, pieces, { projectId, marks: kept }) => { taken.push([candidate.code, pieces.map((piece) => piece.n), projectId]); return { media: pieces.map((piece) => ({ id: `m${piece.n}.mp4`, src: `/api/media/m${piece.n}.mp4`, duration: 2, width: 1920, height: 1080, credit: takeCredit(candidate), footage: { shot: piece.n, marks: kept } })), failed: [] }; } };
   // A stand-in whisper and loudness: a clip the captions say nothing about is heard in its own sound.
   const heardWords = { words: [{ text: "Wait", start: 0.3, end: 0.6, p: 0.9 }, { text: "here.", start: 0.6, end: 1.1, p: 0.9 }] };
   const service = createAgentService({ store, agentState, agentDirectory: path.join(dataRoot, "agent"), mediaRoot: path.join(dataRoot, "media"),
@@ -1131,6 +1138,9 @@ test("import refuses a bare F1 of a 23 min video, an unscanned video and a stret
   assert.deepEqual(taken, [["F1", [4], "anime-edit"]]);
   assert.match(imported.text, /^Imported 1 clip of F1 "Episode 1" \(2 s in all, H\.264\)/);
   assert.match(imported.text, /^F1\.4 2s 1920×1080 \/api\/media\/m4\.mp4 says "Hold on\." 0\.2-1\.5 s$/m);
+  // The scene is 640×360, not the clip's 1920×1080: the numbers are for the scene.
+  assert.match(imported.text, /^Note: a mark is burned into this clip's top-left .*properties:\{x:-44, y:-49, width:727, height:409\}\}\]\} on a 640×360 frame \(1\.14x zoom/m);
+  assert.deepEqual(imported.data.marks, marks);
   assert.deepEqual((await agentState.read("anime-edit")).footage.candidates[0].imported, { shots: [4], seconds: 2 });
   // No captions: the clip's own sound is read at import (its file is in the media folder).
   finder.captions = async () => null;

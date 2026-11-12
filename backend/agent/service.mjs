@@ -6844,9 +6844,13 @@ export function createAgentService(deps) {
     const lead = personClipsLine(personClipCount(record.document, media));
     // The first footage settles the frame shape (no video layer yet, the person named none).
     const shaped = await shapeAtImport(projectId).catch(() => "");
-    const answer = { text: [lead, takeText(candidate, result), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
+    // The video's frame after that, so a burned-in mark's crop numbers fit the scene they go into.
+    const marked = result.media.find((item) => item.footage?.marks?.length);
+    const frameScene = marked ? videoScene((await store.getProject(projectId).catch(() => null))?.document ?? record.document) : null;
+    const frame = frameScene ? { width: frameScene.width, height: frameScene.height } : null;
+    const answer = { text: [lead, takeText(candidate, { ...result, frame }), elsewhereLine(candidate, await withStudies(await footageKnown(projectId), [candidate])), shaped].filter(Boolean).join("\n"),
       data: { code: candidate.code, media: result.media.map(({ id, src, name, duration, width, height, footage }) => ({ id, src, name, duration, width, height, shot: footage?.shot ?? null })), failed: result.failed,
-        ...(result.media.find((item) => item.footage?.marks?.length) ? { marks: result.media.find((item) => item.footage?.marks?.length).footage.marks } : {}) },
+        ...(marked ? { marks: marked.footage.marks } : {}) },
       nextCall: nextOf("look", { mode: "source" }) };
     return done(projectId, answer);
   }
