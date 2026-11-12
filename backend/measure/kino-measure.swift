@@ -27,8 +27,10 @@
 //                   (backend/footage/people.mjs)
 //   64  foreground  each subject that stands out from the background
 //                   (VNGenerateForegroundInstanceMaskRequest, macOS 14+): a box around each
-//                   instance's mask pixels, largest first. It finds drawn figures the body
-//                   detector misses (backend/footage-finder/score.mjs)
+//                   instance's mask pixels, largest first, and "cover": the share of the
+//                   picture's pixels in the mask. It finds drawn figures the body detector
+//                   misses (backend/footage-finder/score.mjs). Asked with 32, it runs only on
+//                   pictures where the body detector found nobody.
 // (Apple's image aesthetics score is left out on purpose: measured on kino's references, it called
 // 24 of 30 good screen-recording frames "utility" pictures, so it says nothing about design.)
 // For each picture, standard output gets one JSON line: {"i": n, "flow": …, "text": […], …}.
@@ -44,7 +46,7 @@ import Foundation
 import SoundAnalysis
 import Vision
 
-let version = "5"
+let version = "6"
 let gridColumns = 16
 let gridRows = 9
 
@@ -225,8 +227,9 @@ func flowGrid(_ flow: CVPixelBuffer) -> [String: Any] {
 }
 
 /// Each instance of a foreground instance mask (one byte a pixel: 0 background, else the
-/// instance's label) as [x, y, w, h] around its pixels, top-left origin, largest first.
-func instanceBoxes(_ mask: CVPixelBuffer) -> [[Double]] {
+/// instance's label) as [x, y, w, h] around its pixels, top-left origin, largest first, and the
+/// share of the picture's pixels the mask covers (all instances together).
+func instanceBoxes(_ mask: CVPixelBuffer) -> (boxes: [[Double]], cover: Double) {
     CVPixelBufferLockBaseAddress(mask, .readOnly)
     defer { CVPixelBufferUnlockBaseAddress(mask, .readOnly) }
     let w = CVPixelBufferGetWidth(mask), h = CVPixelBufferGetHeight(mask)
@@ -241,9 +244,11 @@ func instanceBoxes(_ mask: CVPixelBuffer) -> [[Double]] {
             boxes[label] = (min(b.0, x), min(b.1, y), max(b.2, x), max(b.3, y), b.4 + 1)
         }
     }
-    return boxes.values.sorted { $0.4 > $1.4 }.map { b in
+    let covered = boxes.values.reduce(0) { $0 + $1.4 }
+    let sorted = boxes.values.sorted { $0.4 > $1.4 }.map { b in
         [r3(Double(b.0) / Double(w)), r3(Double(b.1) / Double(h)), r3(Double(b.2 + 1 - b.0) / Double(w)), r3(Double(b.3 + 1 - b.1) / Double(h))]
     }
+    return (sorted, r3(Double(covered) / Double(max(1, w * h))))
 }
 
 let picture = UnsafeMutablePointer<UInt8>.allocate(capacity: pictureBytes)
@@ -371,12 +376,17 @@ while fread(&jobs, 1, 1, stdin) == 1 {
             } else { errors["people"] = "finding people needs macOS 12 or later" }
         }
 
-        if jobs & 64 != 0 {
+        // With people (32) asked too, the mask runs only where the body detector found nobody: a
+        // found body is the figure, and the mask cost about 50% more measuring time.
+        let bodyFound = jobs & 32 != 0 && ((line["people"] as? [Any])?.isEmpty == false)
+        if jobs & 64 != 0 && !bodyFound {
             if #available(macOS 14.0, *) {
                 let request = VNGenerateForegroundInstanceMaskRequest()
                 do {
                     try handler.perform([request])
-                    line["foreground"] = request.results?.first.map { instanceBoxes($0.instanceMask) } ?? []
+                    let found = request.results?.first.map { instanceBoxes($0.instanceMask) }
+                    line["foreground"] = found?.boxes ?? []
+                    line["cover"] = found?.cover ?? 0
                 } catch { errors["foreground"] = error.localizedDescription }
             } else { errors["foreground"] = "the subject mask needs macOS 14 or later" }
         }

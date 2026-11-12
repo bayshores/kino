@@ -40,9 +40,10 @@ import { WHOLE_MAX_SECONDS } from "./scan.mjs";
 /**
  * 2: marks, subtitles and drawn footage. 3: each shot's figure (whole-body box) and how it moves
  * (still, subject, camera). 4: the subject mask's figure on drawn footage, and figure null when
- * read and not found. A saved scan of another version is scanned again.
+ * read and not found. 5: figure by "body" or "mask", and a mask over MASK_NO_FIGURE of the
+ * picture is no figure (maskCover). A saved scan of another version is scanned again.
  */
-export const SCAN_VERSION = 4;
+export const SCAN_VERSION = 5;
 /** A shot whose picture moves slower than this (frame widths a second, flow) is still. */
 export const STILL_SPEED = 0.02;
 /** A moving shot is a camera move when the frame's median flow is at least this share of its mean. */
@@ -263,19 +264,48 @@ function figureOf(samples, key = "people") {
   if (!read.length) return undefined;
   const seen = read.filter((sample) => sample[key].length).length / read.length;
   const figure = seen >= FIGURE_SEEN ? subjectOf(read, key, "figure") : null;
-  return figure ? { ...figure, seen: round3(seen) } : null;
+  // The mask's median share of the picture's pixels (kino-measure's cover), where it was measured.
+  const covers = key === "foreground" ? read.map((sample) => sample.cover).filter(Number.isFinite).sort((a, b) => a - b) : [];
+  const cover = covers.length ? { cover: round3(covers[Math.floor((covers.length - 1) / 2)]) } : {};
+  return figure ? { ...figure, seen: round3(seen), ...cover } : null;
 }
 
 /**
- * The figure a drawn shot gets: the body detector's when it saw one, else the subject mask's
- * (by "mask"). Measured on the 5 drawn stair clips: bodies on 0 to 6 of 7 to 21 frames read, the
- * mask on 6 to 21 (every frame but a black one). The mask boxes whatever stands out, so live
- * footage keeps the body detector alone. undefined when neither was read on the shot.
+ * A mask covering this share of the picture's pixels or more, with no body found, is read as no
+ * figure. A starting guess from the 5 drawn stair clips (2026-11-12): 0.79 on the 0.5 s opening
+ * frame with no figure (a round hatch, on 3 clips); 0.26 to 0.34 on figure close-ups, 0.49 to 0.67
+ * on a very close face, 0.57 to 0.64 on legs on stairs. One example above the line, so it moves
+ * when more drawn clips are measured.
+ */
+export const MASK_NO_FIGURE = 0.75;
+
+/**
+ * The figure a drawn shot gets: the body detector's (by "body") when it saw one, else the subject
+ * mask's (by "mask"). Measured on the 5 drawn stair clips: bodies on 0 to 6 of 7 to 21 frames
+ * read, the mask on 6 to 21 (every frame but a black one). The mask boxes whatever stands out, so
+ * live footage keeps the body detector alone. A mask over MASK_NO_FIGURE of the picture is no
+ * figure: null, with the shot's maskCover kept so the line says why. undefined when neither was
+ * read on the shot.
  */
 export function drawnFigure(shot) {
-  if (shot.figure) return shot.figure;
-  if (shot.mask) return { ...shot.mask, by: "mask" };
+  if (shot.figure) return { ...shot.figure, by: "body" };
+  if (shot.mask && !(shot.mask.cover >= MASK_NO_FIGURE)) return { ...shot.mask, by: "mask" };
+  if (shot.mask) return null;
   return shot.figure === null || shot.mask === null ? null : undefined;
+}
+
+/**
+ * The drawn step of a scan, on one shot (shotFacts' answer): faces do not rank (the face detector
+ * is made for photos; measured on the 5 drawn stair clips it found a face on 0 of 79 frames), the
+ * subject is where the eye goes, the figure is drawnFigure's, and maskCover (percent) is kept when
+ * a mask too large to be a figure was read instead.
+ */
+export function drawnShot(shot) {
+  shot.face = null;
+  shot.subject = shot.salient ?? null;
+  shot.figure = drawnFigure(shot);
+  if (shot.figure === null && shot.mask?.cover >= MASK_NO_FIGURE) shot.maskCover = Math.round(shot.mask.cover * 100);
+  return shot;
 }
 
 /**
@@ -316,6 +346,7 @@ export function mergeAlike(shots) {
         subject: longer.subject ?? last.subject ?? shot.subject ?? null, salient: longer.salient ?? last.salient ?? shot.salient ?? null,
         // A figure found wins; else null when either was read (none found), else unread (undefined).
         figure: [longer.figure, last.figure, shot.figure].find(Boolean) ?? (last.figure === null || shot.figure === null ? null : undefined), moving: longer.moving ?? last.moving ?? shot.moving ?? null,
+        maskCover: longer.maskCover ?? last.maskCover ?? shot.maskCover,
         motion: Math.round(blend("motion")), face: last.face === null && shot.face === null ? null : Math.round(blend("face")),
         luma: blend("luma"), text: blend("text"), subs: blend("subs"), logo: blend("logo"),
       };
@@ -669,7 +700,7 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
     // There the subject is where the eye goes (saliency), never a face box, and the figure is the
     // subject mask's when the body detector (made for photos) found none.
     for (const shot of all) {
-      if (drawn) { shot.face = null; shot.subject = shot.salient ?? null; shot.figure = drawnFigure(shot); }
+      if (drawn) drawnShot(shot);
       delete shot.salient;
       delete shot.mask;
     }
@@ -699,11 +730,12 @@ export async function scanFootage(id, copy, { dataRoot, want = "", embed = null,
       // narrowed by them (library footage filter, actions.mjs) without looking at each still.
       ...(Number.isFinite(shot.luma) ? { luma: shot.luma } : {}),
       ...(shot.subject ? { subject: shot.subject } : {}),
-      // The figure (whole-body box, or on drawn footage the subject mask's, by "mask") and how the
+      // The figure (whole-body box, or on drawn footage by "body" or "mask"; maskCover, the percent
+      // of the picture a mask too large to be a figure covered, beside a null one) and how the
       // shot moves: the framing filters (actions.mjs). null: figures were read and none was found;
       // left out: not read (a shot kept from an older scan has no figure key either).
       ...(shot.figure ? { figure: { box: shot.figure.box, share: shot.figure.share, seen: shot.figure.seen, ...(shot.figure.by ? { by: shot.figure.by } : {}) } }
-        : shot.figure === null ? { figure: null } : {}),
+        : shot.figure === null ? { figure: null, ...(Number.isFinite(shot.maskCover) ? { maskCover: shot.maskCover } : {}) } : {}),
       ...(shot.moving ? { moving: shot.moving } : {}),
       ...(shot.vector ? { vector: encodeVector(shot.vector) } : {}),
     }));

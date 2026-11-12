@@ -81,7 +81,8 @@ export function flowCamera(flow, width) {
  * ({frames, perSecond, sure} or null) and rate (the clip's frames a second): footage/events.mjs.
  * options.events false skips them (the footage finder's scan); options.subjects true adds, where
  * faces are read, saliency [[x, y, w, h]] (where the eye goes) and people [[x, y, w, h]] (each
- * whole-body box) and foreground [[x, y, w, h]] (each subject mask instance's box, largest first)
+ * whole-body box) and foreground [[x, y, w, h]] (each subject mask instance's box, largest first,
+ * only on frames where no body was found) with cover (the mask's share of the picture's pixels)
  * when this computer's Vision has them, and camera (flowCamera) where motion is.
  */
 export function measureFootage(file, options = {}) {
@@ -143,7 +144,12 @@ async function measureFootageNow(file, { width, height, duration, signal, events
     if (Array.isArray(answer.faces)) { sample.faces = answer.faces; faces = true; }
     if (salient && Array.isArray(answer.saliency)) sample.saliency = answer.saliency;
     if (bodies && Array.isArray(answer.people)) { sample.people = answer.people.map((person) => person.box).filter(Array.isArray); people = true; }
-    if (masks && Array.isArray(answer.foreground)) { sample.foreground = answer.foreground; foreground = true; }
+    // The mask runs only where the body detector found nobody (kino-measure.swift); cover is the
+    // share of the picture's pixels in it.
+    if (masks && Array.isArray(answer.foreground)) {
+      sample.foreground = answer.foreground; foreground = true;
+      if (Number.isFinite(answer.cover)) sample.cover = answer.cover;
+    }
     if (Array.isArray(answer.text)) { sample.text = answer.text.filter((line) => line.c >= 0.3).map((line) => ({ box: line.box, s: String(line.s).slice(0, 80) })); text = true; }
   });
   const length = duration || samples.length / FOOTAGE_FPS;

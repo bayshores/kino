@@ -435,8 +435,10 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     if (shot === 11) text.push({ box: [0.2, 0.4, 0.6, 0.2], s: "EPISODE 5" });
     // The body detector finds nobody on the drawings; the subject mask boxes a small figure on 3 of
     // shot 6's 4 frames.
-    const foreground = shot === 6 && k < 3 ? [[0.348, 0.515, 0.079, 0.411]] : [];
-    return { t: index / 4, luma: 0.5, change: 0.1, motion: null, faces: shot === 5 ? [[0.4, 0.3, 0.2, 0.3]] : [], people: [], foreground, text };
+    // Shot 1's mask covers 79% of the picture (an opening frame with no figure, measured on 3 drawn clips).
+    const foreground = shot === 6 && k < 3 ? [[0.348, 0.515, 0.079, 0.411]] : shot === 1 ? [[0.123, 0, 0.877, 1]] : [];
+    const cover = shot === 6 && k < 3 ? 0.02 : shot === 1 ? 0.79 : 0;
+    return { t: index / 4, luma: 0.5, change: 0.1, motion: null, faces: shot === 5 ? [[0.4, 0.3, 0.2, 0.3]] : [], people: [], foreground, cover, text };
   });
   const tools = {
     probe: async () => ({ duration: 12, width: 640, height: 360 }),
@@ -474,6 +476,9 @@ test("drawn footage: a logo on every shot is said once and is no text, subtitles
     assert.match(text, /\nF1\.7 0:06\.0-0:07\.0 1\.0s motion \d+ light 128 wide \(figure mask 41% high, bottom, room 97%\) match \+3\.3\n/);
     const byN = Object.fromEntries(scan.shots.map((shot) => [shot.n, shot.figure]));
     assert.deepEqual([byN[7], byN[3], byN[1]], [{ box: [0.348, 0.515, 0.079, 0.411], share: 0.032, seen: 0.75, by: "mask" }, null, null]);
+    // A mask over most of the picture with no body is no figure: the line says so with its size.
+    assert.equal(scan.shots.find((shot) => shot.n === 2).maskCover, 79);
+    assert.match(text, /\nF1\.2 0:01\.0-0:02\.0 1\.0s motion \d+ light 128 no figure read \(mask covers 79% of the picture\)/);
     assert.deepEqual(narrowShots(scan.shots, { figure: true, scale: "wide" }).shots.map((shot) => shot.n), [7]);
     assert.equal(text.match(/burned into/g).length, 1);
     // The video with a logo lists after one without; a scan without the model says so; a miss says how close it came.
@@ -1570,7 +1575,7 @@ const SAID_LINES = [{ start: 1, end: 2.5, text: "All right, so here we are" }, {
 const saidFinder = (captions) => ({
   readScan: async () => null,
   scan: async (_candidate, options) => ({ want: options.want, windows: [{ start: 0, end: 40 }], matchShown: false, skipped: {},
-    shots: [{ n: 1, start: 0, end: 3, motion: 50, face: 10, flags: [] }, { n: 2, start: 5, end: 7.5, motion: 60, face: 20, flags: ["subtitles"] }, { n: 3, start: 30, end: 32, motion: 70, face: 0, flags: [] }] }),
+    shots: [{ n: 1, start: 0, end: 3, motion: 50, face: 10, flags: [] }, { n: 2, start: 5, end: 7.5, motion: 60, face: 20, flags: ["subtitles"] }, { n: 3, start: 30, end: 32, motion: 70, face: 0, flags: [], figure: { box: [0.3, 0.5, 0.1, 0.4], share: 0.04, seen: 1, by: "mask" } }] }),
   captions: async () => captions,
 });
 
@@ -1582,6 +1587,8 @@ test("a scan prints what each shot says and the Lines list; said:\"words\" puts 
   assert.match(plain.text, /^F1\.2 0:05\.0-0:07\.5 2\.5s motion 60 face 20 subtitles says: "I will protect them all"$/m);
   assert.match(plain.text, /^Lines \(en, auto captions\):\n0:01 "All right, so here we are" \(F1\.1\)\n0:05 "I will protect them all" \(F1\.2\)$/m);
   assert.deepEqual(plain.nextCall, { tool: "project", input: { action: "import", file: "F1", options: { shots: [1, 3] } } });
+  // data.figure says which measure found it (body or mask).
+  assert.deepEqual(plain.data.shots.find((shot) => shot.n === 3).figure, { box: [0.3, 0.5, 0.1, 0.4], by: "mask" });
   const asked = await actions.handle({ scan: "F1", said: "protect them" }, { footage, personClips: 0 });
   assert.match(asked.text, /^F1\.2 0:05\.0-0:07\.5 2\.5s motion 60 face 20 has subtitles says: "I will protect them all"$/m);
   assert.ok(asked.text.indexOf("F1.2 ") < asked.text.indexOf("F1.1 "), asked.text);

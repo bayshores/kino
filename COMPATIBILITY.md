@@ -1068,9 +1068,13 @@ How to read it:
   and `sort wide|close|room` narrow it. On drawn footage the body detector finds a body on 0 to 6 of 7 to
   21 frames, so the shot takes Vision's subject mask box (`figure mask N% high`): measured on 5 drawn
   clips, the mask boxes something on 78 of 79 frames read. A shot kept from an older scan, or one
-  shorter than the 0.5 s between figure reads, is counted as unmeasured for `figure`, never as "no figure". Gap: the mask boxes whatever stands out (a 0.5 s opening
-  shot with no figure read as one on 3 clips), and with no drawn face a close shot reads `medium`; live footage keeps
-  the body detector only, yet pays for the mask (measure time 3.3 s to 4.9 s over the 5 clips). Evidence: `backend/footage-finder.test.mjs` (framing facts, drawn footage).
+  shorter than the 0.5 s between figure reads, is counted as unmeasured for `figure`, never as "no figure". The mask
+  runs only on frames where the body detector found nobody, and gives its pixel share: a mask over 75% of the picture
+  (a guess: 0.79 on the one opening frame with no figure, 0.11 to 0.67 on real figures, 5 clips) reads
+  `no figure read (mask covers 79% of the picture)`; `data.figure` is `{box, by: body|mask}`. Gap: legs-on-stairs
+  shots still read `medium` (the mask boxes the stairs), and a very close drawn face reads `medium` (Vision found a
+  face on 0 of 79 drawn frames; the drawn-face model is not in the scan). Evidence: `backend/footage-finder.test.mjs`
+  (drawn footage, said lines), `backend/measure-vision.test.mjs` (foreground job).
 - **What a found video says**: Stub-verified, one live caption fetch. A scan reads a video's captions once
   (yt-dlp, kept per video), prints `says` per shot, `said:"words"` ranks the shots that say them first and
   the next call imports that line. Evidence: `backend/footage-finder.test.mjs` (captions, said, says).

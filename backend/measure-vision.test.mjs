@@ -100,8 +100,10 @@ test("the helper's foreground job boxes a drawn figure standing on a step, from 
   for (let i = 0; i < rgba.length; i += 4) { bgra[i] = rgba[i + 2]; bgra[i + 1] = rgba[i + 1]; bgra[i + 2] = rgba[i]; bgra[i + 3] = 255; }
   const run = spawnSync(abilities.helper, ["--width", String(width), "--height", String(height)], { input: Buffer.concat([Buffer.from([64]), bgra]), encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
-  const [box] = JSON.parse(run.stdout).foreground;
+  const { foreground: [box], cover } = JSON.parse(run.stdout);
   [200 / width, 80 / height, 40 / width, 150 / height].forEach((want, index) => assert.ok(Math.abs(box[index] - want) < 0.03, `box ${box}`));
+  // cover: the mask's share of the picture's pixels (the figure's drawn pixels are about 3.3%).
+  assert.ok(cover > 0.02 && cover < 0.05, `cover ${cover}`);
 });
 
 test("the helper's --sounds mode classifies 1 s windows, half overlapped, each with its labels and level", { skip: skipWithoutVision }, async () => {
