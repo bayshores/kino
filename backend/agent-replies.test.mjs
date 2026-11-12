@@ -43,6 +43,12 @@ test("describe_operation answers by type, topic and search, and suggests close n
   const ids = guideTopics().map((topic) => topic.id);
   assert.deepEqual(ids.filter((id, index) => ids.indexOf(id) !== index), [], "guide topic ids are unique");
   assert.match(describeOperation({ topic: "effects" }), /^## effects: Effect animations\n/);
+  // A topic longer than an answer is sent up to the limit with how to read the rest, never as a pointer to itself.
+  for (const { id } of guideTopics()) {
+    const answer = describeOperation({ topic: id });
+    assert.ok(answer.startsWith(`## ${id}: `) && answer.length <= 17_000, `${id} reads by name (${answer.length} characters)`);
+  }
+  assert.match(describeOperation({ topic: "quality-settings" }), /\(\d+ more lines of quality-settings: describe_operation \{topic\} with search:"<word>" reads/);
   // A by-type answer is about 2.5k tokens at most; any answer stays under the 8k-token limit.
   for (const type of OPERATION_TYPES)
     assert.ok(describeOperation({ type }).length <= 9_000, `${type} answer is short`);

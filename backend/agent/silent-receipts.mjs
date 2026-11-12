@@ -57,7 +57,9 @@ const FULL_SHARE = 0.9; // GUESS: a clip over 90% of the frame hides what is und
 const COVERABLE = new Set(["text", "rectangle", "ellipse", "path", "polygon", "star", "line", "image"]);
 
 function fullFrame(layer, scene) {
-  if (!["video", "image"].includes(layer.type) || layer.parentId || layer.visible === false || Number(layer.opacity) < 0.98) return false;
+  // A clip blended (screen, multiply, ...) mixes with what is under it instead of hiding it.
+  if (!["video", "image"].includes(layer.type) || layer.parentId || layer.visible === false || Number(layer.opacity) < 0.98
+    || (layer.blendMode ?? "normal") !== "normal") return false;
   const width = Math.abs(layer.width * (layer.scaleX ?? 1)), height = Math.abs(layer.height * (layer.scaleY ?? 1));
   const overlapX = Math.max(0, Math.min(layer.x + width, scene.width) - Math.max(layer.x, 0));
   const overlapY = Math.max(0, Math.min(layer.y + height, scene.height) - Math.max(layer.y, 0));

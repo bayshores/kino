@@ -18,6 +18,7 @@ import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { SHOT_LAYERS } from "../engine/board.js";
+import { evaluateLayer } from "../engine/animation.js";
 import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
@@ -584,6 +585,11 @@ test("words held to the last shot (text.until) are built above the footage they 
   // Every word is above every clip, and the three held words hide at the video's end (no hide), the last with its own shot.
   assert.ok(words.every((layer) => layers.filter((other) => other.type === "video").every((clipLayer) => order(layer.name) > order(clipLayer.name))), "words above all footage");
   assert.deepEqual(words.map((layer) => (layer.animations ?? []).filter((animation) => animation.kind === "hide").length), [0, 0, 0, 0]);
+  // At 4.2 s (the last shot) all 4 words are shown and every shown layer above the shown clip is a word.
+  const shown = layers.filter((layer) => evaluateLayer(layer, 4.2).visible);
+  assert.equal(shown.filter((layer) => layer.type === "text").length, 4);
+  const clipAt = shown.findLastIndex((layer) => layer.type === "video");
+  assert.ok(clipAt >= 0 && shown.slice(clipAt + 1).every((layer) => layer.type === "text") && shown.slice(clipAt + 1).length === 4, shown.map((layer) => layer.name).join(", "));
   const frame = await agent("look", { project: id, mode: "frame", time: 4.2 });
   assert.equal(frame.isError, undefined, frame.text);
   const found = await agent("check", { project: id, pixels: false, rules: ["covered_layer"] });

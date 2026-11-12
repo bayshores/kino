@@ -561,6 +561,10 @@ test("a text given a longer span under footage already above it is said: which f
   assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [scene(11.6)] }, ["shot2", "shot3"], (id) => id).length, 0);
   // Footage with an alpha channel lets the words show through.
   assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [scene(11.6)] }, [], (id) => id, { seeThrough: new Set(["/api/media/shot2.mp4", "/api/media/shot3.mp4"]) }).length, 0);
+  // So does footage blended over them (screen, multiply): it mixes with the words instead of hiding them.
+  const blended = scene(11.6);
+  blended.layers = blended.layers.map((layer) => (layer.type === "video" ? { ...layer, blendMode: "screen" } : layer));
+  assert.equal(textUnderNotes({ scenes: [scene(2)] }, { scenes: [blended] }, [], (id) => id).length, 0);
 });
 
 test("a full-frame file with an alpha channel (an alpha WebM, a picture with a clear part) gets no cover note", async () => {
