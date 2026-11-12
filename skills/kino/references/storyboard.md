@@ -14,7 +14,7 @@ Read before building from footage (the `board` stop), or to plan any video shot 
   end), so the board carries the song's cues before anything is built (`fit_music` after a board:
   sound-library reference).
 - A shot needing more clip than the file has is refused with fixes and numbers:
-  speed S (the retry's fix: the clip plays slower, filling the shot), in I when the file is
+  speed S (the retry's fix: the clip plays slower), in I when the file is
   long enough, or dur D with the next shot starting earlier and running longer.
 - Every shot gives every field, `"none"` when empty: `media` and `in` (file seconds), `crop`,
   `subject`, `follow`, `text`, `sound`, `pacing`, `move`, `why`. Their exact shapes:
@@ -47,8 +47,8 @@ top, nothing under the app's captions.
 look {mode:"board"} page 1 prints the pace on each side of the song's turn beside your
 references', and the song's beat times after it; facts only. To put the cuts after the
 drop on those beats: edit {ops:[{op:"board", snap:"beats"}]}. Cut times only, song stays; a move
-over 6 frames lapses an approval. It keeps (and names) a cut whose move would run a shot past
-its clip file's end.
+over 6 frames lapses an approval. It keeps (and names) a cut that would run a shot past
+its file's end.
 
 ## Fresh-eyes check
 
@@ -65,7 +65,8 @@ questions for the person go out, in one message. At most 2 rounds. Then ask with
   (`notes {action:"brief", log}`), fold the answers into the board, empty `open`. If they say
   "your call", send their words: `notes {action:"checkpoint", id:"board", words:"<their reply>"}`.
   It answers `your_call`: decide each item, write your decisions in `calls` and empty `open`
-  (edit `board`), then ask again with `notes {action:"checkpoint", id:"board", fresh:"ran"}`
+  (edit `board`), then ask again with the fresh-eyes answer:
+  `notes {action:"checkpoint", id:"board", fresh:"ran"}`
   (or `"skipped"`).
 - `notes {action:"checkpoint", id:"board"}`: kino writes the ask (your calls, plain then flagged
   shots first, at most 8 shots). Send it as written, with the `look board` pages

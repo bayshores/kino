@@ -122,8 +122,8 @@ what is left, so a restart costs little.
 - From nothing: a new project id, then the script. Imported `src` addresses work in every
   project; a taken project id is refused.
 - In place: build each pass inside one group (`group_layers`); deleting the group deletes its
-  layers. Without groups, list every name first: per scene `status {scene, full:true}`, then
-  `status {full:true, page:N}` while offered (`inspect` shows at most 10). Delete only those;
-  layers under a group go with it; one name not found refuses the whole edit.
+  layers. Without groups, list every name first: for each scene, `status {scene, full:true}`
+  and on while it offers `status {full:true, page:N}` (`inspect` shows at most 10). Delete only those;
+  layers indented under a group go with it; one name not found refuses the whole edit.
 - A name that is taken gets an ID ending in `-2` (receipt `renamed`).
 - Do not delete and add scenes to rebuild: deleting a scene waits for the person's approval.
