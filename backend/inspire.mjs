@@ -1743,7 +1743,9 @@ export function createInspire(deps) {
         record = await load(id);
       }
       const keys = Object.keys(state.keys ?? {}).filter((key) => state.keys[key] === id);
-      if (record?.stills?.length || (bare && record)) found.push({ id, keys, title: record.title, channel: record.channel ?? null, seconds: record.seconds ?? record.numbers?.seconds ?? null, folder: stillsOf(id), stills: record.stills ?? [] });
+      if (record?.stills?.length || (bare && record)) found.push({ id, keys, title: record.title, channel: record.channel ?? null, seconds: record.seconds ?? record.numbers?.seconds ?? null, folder: stillsOf(id), stills: record.stills ?? [],
+        // look versus: the loudest change (its row) and the labels of what is on screen (under each pair), when measured.
+        ...(record.heard ? { heard: record.heard } : {}), ...(Array.isArray(record.seen) ? { seen: record.seen } : {}) });
     }
     return found;
   }

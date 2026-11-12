@@ -1282,7 +1282,7 @@ edit by hand. Dark only, no purple. Main tests: `backend/dashboard.test.mjs`, `f
   `yourCallReplies`. Evidence: `tests/taste-harness.test.mjs`. Gap: brief questions are
   not stored by kino, so they still get "your call"; not yet seen in a full run.
 - **Look versus and the reference gate**: Verified with a copied saved reference (temp server).
-  `look {mode:"versus"}` pairs like with like: a board shot's `move.ref` beside that moment (key from `save yt:<id> as <key>`, id or title), else the reference moment of the same kind (app, type, footage, end card, read from pixels), else "no fair match" with no gaps; gaps are hero fill, contrast and the craft drift rows only; a final render of 5 s or more is
+  `look {mode:"versus"}` pairs like with like by place: opening, loudest change, ending, the rest by position, the same kind (app, type, footage, end card, read from pixels) first, else another kind with no gaps; a board shot's `move.ref` pin fills its own row, one still at most 2 rows; the reference's `seen` labels under each pair; gaps are hero fill, contrast and the craft drift rows only; a final render of 5 s or more is
   refused without saved references (`reference_needed`) or a versus in the last 10 revisions, or while its judge round has the references winning (waivable). Evidence:
   `backend/agent-review.test.mjs`, `backend/agent-judge.test.mjs`. Gap: drift rows need a full `check`.
 - **Idea before the template**: Verified (tests). On a briefed video of 5 s or more, the first building

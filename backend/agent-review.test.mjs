@@ -245,7 +245,7 @@ test("the reference gate: with no saved reference a final render is refused; wit
   still.getContext("2d").fillRect(0, 0, 640, 360);
   for (const n of [1, 2, 3]) await writeFile(path.join(folder, "stills", "kinoTest001", `${n}.jpg`), still.toBuffer("image/jpeg"));
   await writeFile(path.join(folder, "kinoTest001.json"), JSON.stringify({ id: "yt:kinoTest001", title: "A reference", channel: "promo", state: "measured", version: 2, seconds: 9,
-    stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })) }));
+    stills: [1, 2, 3].map((n) => ({ at: n * 3 - 1.5, file: `${n}.jpg` })), seen: [{ at: 1.4, kinds: ["type", "overlay"], words: "last call" }] }));
   const saved = await agent("library", { project: id, topic: "inspire", name: "save yt:kinoTest001" });
   assert.equal(saved.isError, undefined, saved.text);
 
@@ -256,8 +256,10 @@ test("the reference gate: with no saved reference a final render is refused; wit
   assert.equal(versus.isError, undefined, versus.text);
   assert.match(versus.text, /^versus rev \d+: 3 rows, yours \(left\) beside a saved reference/);
   assert.match(versus.text, /no judge round for rev \d+/);
-  // The reference is only black stills (an end card); the edit's frames are cards mid-story: no fair match, no gaps.
-  assert.deepEqual(versus.data.rows.map((row) => [row.match, row.ref]), [["none", null], ["none", null], ["none", null]], versus.text);
+  // The reference is only black stills (an end card); the edit's frames are cards: each row sits at
+  // the same place (opening, middle, ending) beside another kind, with no gap numbers.
+  assert.deepEqual(versus.data.rows.map((row) => [row.match, row.role, row.refAt]), [["place", "opening", 1.5], ["place", "place", 4.5], ["place", "ending", 7.5]], versus.text);
+  assert.match(versus.text, /row 1 @1s: opening beside theirs, other kind \(.*no gap numbers\) \(promo @1\.5s\)\.\n  theirs on screen @1\.5s: type, overlay "last call"\n/, versus.text);
   const page = await loadImage(Buffer.from(versus.images[0].data, "base64"));
   assert.deepEqual([page.width, page.height], [644, 548], "3 rows of two 320x180 pictures");
   assert.doesNotMatch(versus.text, /references: |inside your/, "one reference is no range: reference_range says nothing");
