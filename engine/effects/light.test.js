@@ -33,10 +33,10 @@ after(async () => {
  * Draws `render` with `parameters` over `content` (a width × height layer at `layer` in a scene
  * of the same size, unless `scene` says otherwise) and returns a pixel reader.
  */
-async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType, cutout }) {
+async function draw(render, parameters, { width, height, content, under = "", layer = { x: 0, y: 0 }, scene = { width, height }, layerType, cutout, time = 0 }) {
   const defs = [];
   let sequence = 0;
-  const output = render({ content, bounds: { x: 0, y: 0, width, height }, parameters: { ...parameters }, time: 0, progress: 1,
+  const output = render({ content, bounds: { x: 0, y: 0, width, height }, parameters: { ...parameters }, time, progress: 1,
     helpers: { id: (kind) => `${kind}-${++sequence}`, defs, includeBounds: () => {}, layerType, cutout,
       scene: { ...scene, matrix: [1, 0, 0, 1, layer.x, layer.y] } } });
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}"><defs>${defs.join("")}</defs>${under}<g transform="translate(${layer.x} ${layer.y})">${output}</g></svg>`;
@@ -164,6 +164,16 @@ test("rim light: haze reaches far by default, auto color lifts a dark subject, l
   assert.equal(table.at(-1), 1);
   const width = (parameters) => rimWidth({ parameters: { ...effectDefaults("rim-light"), ...parameters } }, parameters.style ?? "even");
   assert.deepEqual([width({}), width({ style: "lobes" }), width({ style: "lobes", width: 8 })], [8, 4, 8], "auto width: 4 for lobes, a saved 8 stays 8");
+  // A crawl that slid the noise past the filter's padding (negative, or long) drew no rim at all.
+  const lit = async (crawl) => {
+    const drawn = await draw(renderRimLight, { ...effectDefaults("rim-light"), edge: "outside", style: "lobes", color: "#00FF00", width: 6, spread: 0, haze: 0, core: 0,
+      lobeSize: 20, crawl, lobeRate: 0, lightOnly: true }, { width: size, height: size, content: dark, time: 1 });
+    let count = 0;
+    for (let x = 70; x < 130; x += 1) for (const y of [74, 76, 124, 126]) if (drawn.pixel(x, y)[3] > 40) count += 1;
+    return count;
+  };
+  assert.ok(await lit(-60) > 20, "a negative crawl still lights the lobes");
+  assert.ok(await lit(400) > 20, "a crawl far past the padding still lights the lobes");
 });
 
 test("glow and shadows on a cut-out stay off the faded strip along its source picture's border", async () => {

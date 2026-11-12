@@ -762,8 +762,9 @@ How to read it:
   (engine/moves.test.js; backend/agent-moves.test.mjs gate; the grade-bloom-flash re-run: 1 move in place of 10 ops
   and 2 cut_outs).
 - **energy-aura**: Partly verified. One move draws rising rim-light copies of the subject cut-out (made or reused in
-  the edit) in an add group on twos, with spill on the subject and embers (engine/moves.test.js; a profile clip
-  render read as a thin rim with specks, not yet the reference's flame mass).
+  the edit) in an add group on twos, with spill on the subject and embers (engine/moves.test.js; a render with
+  `{layer, at}` only draws a flame mass rising off the figure, denser than the reference's separate tongues; a
+  rim-light lobe crawl past the filter padding drew nothing, fixed in engine/effects/light.test.js).
 - **impact-accent move**: Partly verified. `move {name:"impact-accent", kind, at:"cue:<name>"}` flashes, shakes,
   impact-frames, dips or strobes a shot only when the cue motivates that kind (footage impact or light, song seam,
   top accent, rest, measured onset fill), sized by its weight; raw times, beat numbers, align/dur and song cues

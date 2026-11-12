@@ -26,14 +26,16 @@
 // - cycle 0.5 s flame, 1.1 s smoke, 0.35 s electric; three rising copies (guesses tuned by eye).
 // - flame ring width 36 px, spread 60, lobes 90 px at 1080: round 1 (width 14, spread 34) read as
 //   a thin rim line on a profile clip (.scratch/studies/energy-aura/r1/frame-1.2.png), not the
-//   reference's flame mass; 36 and 60 are guesses toward it, not yet checked by a render.
+//   reference's flame mass; 36 and 60 are guesses toward it. That render drew no tongues because
+//   rim-light's lobe noise slid out of its filter (crawl -60, fixed in rimLight.js); with it fixed
+//   the skeptic renders (f1, f2) show a flame mass rising off the figure, denser than the reference.
 import { createLayer } from "../../model.js";
 import { effect, hide, mix, motion, round, show } from "./kit.js";
 import { hexToHsl, hslToHex, shotHue } from "./backdrop.js";
 
 const FALLBACK = "#3CF06A";
 const STYLES = Object.freeze({
-  flame: { cycle: 0.5, copies: 3, fps: 12, width: 36, spread: 60, haze: 1, lobe: 90, core: 0.25, warp: 40, warpScale: 3, warpSpeed: 2, rise: 1, grow: 1.12, particles: "embers" },
+  flame: { cycle: 0.5, copies: 3, fps: 12, width: 36, spread: 60, haze: 0.5, lobe: 90, core: 0.25, warp: 40, warpScale: 3, warpSpeed: 2, rise: 1, grow: 1.12, particles: "embers" },
   smoke: { cycle: 1.1, copies: 3, fps: 8, width: 26, spread: 70, haze: 1.1, lobe: 220, core: 0, warp: 52, warpScale: 1.5, warpSpeed: 0.6, rise: 1, grow: 1.25, particles: null },
   electric: { cycle: 0.35, copies: 2, fps: 12, width: 4, spread: 18, haze: 0.5, lobe: 60, core: 0.6, warp: 6, warpScale: 4, warpSpeed: 3, rise: 0.35, grow: 1.04, particles: "sparks" },
 });
@@ -97,13 +99,20 @@ export const energyAura = {
         // The first copy stays on the outline (where the energy starts); the others rise. Silent
         // (volume 0): the clip under it already plays the sound.
         const tongue = ctx.add(`tongue-${index + 1}`, createLayer(subject.type, { ...picture, ...base, ...(subject.type === "video" ? { volume: 0 } : {}),
-          cutoutFor: energyAura.name, cutoutOutput: "energy", role: "decor", allowOverlap: true, opacity: 1 }), { above: below ?? group.id }, group);
+          // perpetual: the rise restarts at the outline every cycle on purpose, an ambient loop like
+          // backdrop glow, so speed_jump and judder do not report each restart (16 warnings before).
+          cutoutFor: energyAura.name, cutoutOutput: "energy", role: "decor", allowOverlap: true, perpetual: true, opacity: 1 }), { above: below ?? group.id }, group);
         below = tongue.id;
         const rising = index > 0;
         ctx.animate(tongue, "ring", effect({ name: "Energy ring", effect: "rim-light", start: t, duration: end - t, easing: [0, 0, 1, 1],
-          to: { color, lightOnly: true, edge: "outside", style: "lobes", width: px(look.width * (rising ? 1.3 : 1)), spread: px(look.spread), haze: look.haze, hazeSpread: px(140),
+          // openEdges box: a risen copy's box ends inside the frame, and with "frame" the clip's
+          // cut by the frame border was lit as a straight line (skeptic run f1, bottom and right).
+          // Intensity 0.55 rising, 0.9 on the outline: at 1.1 and 1.4 the four copies added up to
+          // one blown-out wall with no dark gaps (skeptic run f1); lower values are guesses toward
+          // the reference stills, where tongues are bright with dark gaps between them.
+          to: { color, lightOnly: true, edge: "outside", style: "lobes", openEdges: "box", width: px(look.width * (rising ? 1.3 : 1)), spread: px(look.spread), haze: look.haze, hazeSpread: px(140),
             lobeSize: px(look.lobe), crawl: px(-60), lobeRate: style === "electric" ? fps : 0, flicker: style === "electric" ? 1.2 : 0, seed: seed + index * 17,
-            core: look.core, intensity: round(Math.min(4, (rising ? 1.1 : 1.4) * strength), 3) } }));
+            core: look.core, intensity: round(Math.min(4, (rising ? 0.55 : 0.9) * strength), 3) } }));
         ctx.animate(tongue, "break", effect({ name: "Energy break-up", effect: "noise-warp", start: t, duration: end - t, easing: [0, 0, 1, 1],
           to: { amount: Math.min(128, px(look.warp * (rising ? 1.4 : 1))), noiseScale: look.warpScale, speed: look.warpSpeed, contain: false, seed: seed + index * 31 } }));
         if (!rising) continue;
