@@ -486,19 +486,21 @@ test("keep_line over measured music levels the line against the music around it,
   // Sent again on a song an earlier dip covered from its start: that dip also set fit_music's Fit in
   // to the dipped 0.3. The line is measured over the song as it plays without the dips, so the dip
   // and receipt match a clean song (dm2-a replay: "dip 0.55 (0 dB)", then voice_under_bed -1 LU).
-  const dipped = musicLayer();
-  dipped.animations = [
+  const earlier = musicLayer();
+  earlier.animations = [
     { id: "fit", name: "Fit in", kind: "custom", easing: "linear", start: 0, duration: 1, from: { volume: 0 }, to: { volume: 0.3 } },
     { id: "up", name: "Duck up", kind: "custom", easing: "smooth", start: 7, duration: 0.8, from: { volume: 0.3 }, to: { volume: 1 } },
   ];
   const again = (() => {
     const reports = new Map();
     const operation = { type: "keep_line", sceneId: "s", layerId: "clip", from: 4, to: 6, subtitle: false, levels, beats };
-    const scene = parseDocument(applyOperations(documentWith([clip, dipped], 12), [operation], { reports })).scenes[0];
+    const scene = parseDocument(applyOperations(documentWith([clip, earlier], 12), [operation], { reports })).scenes[0];
     return { report: reports.get(operation), music: scene.layers.find((layer) => layer.id === "music") };
   })();
   assert.deepEqual(again.report.mix, plain.report.mix);
-  assert.equal(Math.round(volumeAt(again.music, 5) * 1000) / 1000, 0.447);
+  // The same shallowest dip as on a clean song (plain above).
+  assert.equal(Math.round(volumeAt(again.music, 5) * 1000) / 1000, Math.round(volumeAt(plain.music, 5) * 1000) / 1000);
+  assert.equal(Math.round(volumeAt(again.music, 5) * 1000) / 1000, 0.562);
   // Unmeasured: the old 0.7 dip and no line level.
   const old = run({ levels: {}, beats: {} });
   assert.equal(volumeAt(old.music, 5), 0.7);

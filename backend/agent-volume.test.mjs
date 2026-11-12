@@ -63,7 +63,8 @@ test("the sound examples in the kino skill run as written", { skip: skipWithoutM
   assert.equal(reply.isError, undefined, reply.text);
   // The voice plays from 2 s to 4 s: one dip, from the fade down at 1.85 s to the end of the fade up at 4.8 s.
   // Without `to`, the files are measured: the music sits 9 LU under the voice (volume 0.372).
-  assert.deepEqual(reply.data.duck, { layer: "music", to: 0.372, dips: 1, summary: "music ducked to 0.372 at 1.85-4.8 s (voice)", times: [[1.85, 4.8]], depth: "music 9 LU under the voice (measured)" });
+  assert.deepEqual(reply.data.duck, { layer: "music", to: 0.372, dips: 1, summary: "music ducked to 0.372 at 1.85-4.8 s (voice)", times: [[1.85, 4.8]], depth: "music 9 LU under the voice (measured)",
+    ways: ["voice 2-4 s: song untouched, line x1.91 (+5.6 dB): +6 LU over it, 5 dB under the song's loudest moment · no dip needed · music out: the line alone at -16 LUFS"] });
   assert.match(reply.text, /"duck":\{"layer":"music","to":0\.372,"dips":1,"summary":"music ducked to 0\.372 at 1\.85-4\.8 s \(voice\)"/);
 
   const layer = await musicLayer("sound");
