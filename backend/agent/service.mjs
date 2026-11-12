@@ -87,7 +87,7 @@ import { boardSpan, mainScene, NONE, reframeBoard } from "../../engine/board.js"
 import { cutFacts, cutLines } from "../../engine/cutFacts.js";
 import { boardKeepOps, keptDuck, shotFileSpan, shotKeep, silentBoardLine } from "../../engine/boardSound.js";
 import { boardLook, BoardLookError, boardShotImage, SHOT_WIDTHS, styleFrameFacts, styleFrameImage } from "./board-look.mjs";
-import { boardCueLines, boardPaceFacts, boardPaceLines, sceneCueShows } from "./board-pace.mjs";
+import { boardCueLines, boardPaceFacts, boardPaceLines, boardStoryCues, sceneCueShows } from "./board-pace.mjs";
 import { spanCutNotes } from "./span-cuts.mjs";
 import { drawnSpeedNotes } from "./drawn-speed.mjs";
 import { boardData as boardScreenData } from "./board-data.mjs";
@@ -8462,32 +8462,54 @@ export function createAgentService(deps) {
   // answer, which prints only the cue lines): no beats and no references are read.
   async function boardPaceFor(document, { cuesOnly = false } = {}) {
     if (!document?.board?.shots?.length) return null;
-    const layer = mainScene(document)?.layers?.find((entry) => entry.id === document.board.music);
+    const scene = mainScene(document);
+    const named = scene?.layers?.find((entry) => entry.id === document.board.music);
     let file = null;
-    try { file = layer ? mediaFileOf(layer) : null; } catch { file = null; }
-    const shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
-    if (cuesOnly && !shape) return null;
+    try { file = named ? mediaFileOf(named) : null; } catch { file = null; }
+    let shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
+    // With no music named on the board, the cue lines read the scene's song layer (its first audio
+    // layer with a saved shape), the one check reads.
+    const fallback = named ? null : await sceneSong(document, scene);
+    if (fallback) shape = fallback.shape;
+    const footage = document.board.shots.some((shot) => typeof shot.media === "string" && shot.media !== "none");
+    // The story's cues (the payoff, the longest shot) need footage on the board; the song's need a shape.
+    if (cuesOnly && !shape && !footage) return null;
     const analysis = file && !cuesOnly ? await beatAnalysis.saved?.(file).catch(() => null) : null;
     const ids = deps.inspire?.reference && !cuesOnly ? await savedIds(document.id) : [];
     const refs = [];
     for (const id of ids) refs.push(await deps.inspire.reference(id, { full: true }).catch(() => null));
-    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean), media: shape ? await cueMediaFor(document) : {} });
+    const spine = await spineOf(document);
+    return boardPaceFacts({ document, shape: shape ?? null, analysis: analysis ?? null, refs: refs.filter(Boolean), media: shape || footage ? await cueMediaFor(document) : {},
+      music: fallback?.layer ?? null, spine });
+  }
+  const spineOf = async (document) => (await agentState.read(document.id).catch(() => null))?.brief?.style?.spine ?? null;
+
+  // The scene's song: its first audio layer with a saved song shape (fit_music measures one), the
+  // board's music layer first. {layer, shape} or null.
+  async function sceneSong(document, scene) {
+    const audio = (scene?.layers ?? []).filter((layer) => layer.type === "audio");
+    const ordered = [...audio.filter((layer) => layer.id === document.board?.music), ...audio.filter((layer) => layer.id !== document.board?.music)];
+    for (const layer of ordered) {
+      let file = null;
+      try { file = mediaFileOf(layer); } catch { file = null; }
+      const shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
+      if (shape) return { layer, shape };
+    }
+    return null;
   }
 
-  // check's cue lines for a built scene: its song is the board's music layer, else its first
-  // audio layer with a saved song shape (fit_music measures one).
+  // check's cue lines for a built scene: the song's cues (sceneSong) and the story's: the board's
+  // payoff and longest shot when the board has footage, else the spine's payoff beat.
   async function sceneCueLinesFor(document, scene) {
-    const audio = (scene.layers ?? []).filter((layer) => layer.type === "audio");
-    const ordered = [...audio.filter((layer) => layer.id === document.board?.music), ...audio.filter((layer) => layer.id !== document.board?.music)];
-    for (const music of ordered) {
-      let file = null;
-      try { file = mediaFileOf(music); } catch { file = null; }
-      const shape = file ? await songShapes.saved?.(file).catch(() => null) : null;
-      if (shape) return boardCueLines(sceneShowsFacts(scene, music, shape, await cueMediaFor(document)));
-    }
-    return [];
+    const song = await sceneSong(document, scene);
+    const spine = await spineOf(document);
+    // The board's times are the main scene's (payoff and longest shot need no file names).
+    const fromBoard = document.board?.shots?.length && mainScene(document)?.id === scene.id ? boardStoryCues(document.board, { spine }) : [];
+    const beat = Array.isArray(spine) ? spine.filter((entry) => entry?.role === "payoff" && Number.isFinite(entry.from)).at(-1) : null;
+    const story = fromBoard.length ? fromBoard : beat ? [{ at: beat.from, kind: "payoff beat" }] : [];
+    if (!song && !story.length) return [];
+    return boardCueLines({ shows: sceneCueShows({ scene, music: song?.layer ?? null, shape: song?.shape ?? null, media: await cueMediaFor(document), document, story }) });
   }
-  const sceneShowsFacts = (scene, music, shape, media) => ({ shows: sceneCueShows({ scene, music, shape, media }) });
 
   // For the cue lines (engine/footage/cueShows.js): each file's name, the scan tags of the shot a
   // found clip was imported from, and the scanned shots of this video's found videos that no file

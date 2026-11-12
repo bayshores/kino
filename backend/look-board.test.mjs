@@ -283,7 +283,12 @@ test("storyboard.md's footage board runs as written: look board shows the three 
   assert.deepEqual(measured.map((numbers) => numbers.inside), [[100], [100], [100]]);
   assert.ok(measured[0].eyes >= 20 && measured[0].eyes <= 45, `eyes ${measured[0].eyes}%`);
   assert.deepEqual(measured.map((numbers) => numbers.flags), [[], [`subject ${measured[1].edge}% from the crop edge`], []]);
-  const lines = before0(look.text).split("\n");
+  const all = before0(look.text).split("\n");
+  // The story's cue lines (the last shot as the payoff, the longest shot; cueShows.js) are facts of their own.
+  const cueLines = all.filter((line) => /^(on the |one take )/.test(line));
+  assert.match(cueLines[0], /^on the longest shot \(2\.08 s\) at 1\.25 s: shot 2 /);
+  assert.match(cueLines[1], /^on the last shot at 3\.33 s: shot 3 /);
+  const lines = all.filter((line) => !cueLines.includes(line));
   assert.equal(lines.length, 5);
   assert.equal(lines[0], "board r1, page 1 of 1: shots 1–3 of 3, 4.4 s, 1080×1920, music none, sound search off");
   // Each line gives the shot's place and its id (review round 2 of B4a), a flagged number only under look:.
@@ -349,13 +354,16 @@ test("a 15-shot board: 4 pages of at most 4 rows, each text within 200 tokens; t
     const reply = await agent("look", { project: "fifteen", mode: "board", page });
     assert.equal(reply.isError, undefined, reply.text);
     const text = before0(reply.text);
-    const lines = text.split("\n");
+    // Page 1 also prints the story's cue lines (cueShows.js); the rows are counted without them.
+    const lines = text.split("\n").filter((line) => !/^(on the |one take )/.test(line));
     const first = (page - 1) * 4 + 1, last = Math.min(page * 4, 15);
     assert.equal(lines[0], `board r1, page ${page} of 4: shots ${first}–${last} of 15, 15 s, 1080×1920, music none, sound search off`);
     assert.equal(lines.length, last - first + 3);
     assert.equal(lines.at(-1), page < 4 ? `more: shots ${first + 4}–${Math.min(page * 4 + 4, 15)} on page ${page + 1}` : "step: ask the person (notes checkpoint board)");
     assert.match(reply.text, page < 4 ? new RegExp(`\\nnext: look \\{"mode":"board","page":${page + 1}\\}$`) : /\nnext: notes \{"action":"checkpoint","id":"board"\}$/);
-    assert.ok(estimateTextTokens(text) <= 200, `page ${page}: ${estimateTextTokens(text)} tokens`);
+    assert.ok(estimateTextTokens(lines.join("\n")) <= 200, `page ${page}: ${estimateTextTokens(lines.join("\n"))} tokens`);
+    // The cue lines add one line each (at most 4 song cues and 2 story cues, then the takes).
+    if (page === 1) assert.ok(estimateTextTokens(text) - estimateTextTokens(lines.join("\n")) <= 120, text);
     assert.deepEqual(reply.data.shots.map((entry) => entry.n), Array.from({ length: last - first + 1 }, (_, index) => first + index));
     const size = pngSize(image(reply));
     sizes.push([size.width, size.height, estimateImageTokens(size)]);

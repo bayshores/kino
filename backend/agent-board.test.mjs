@@ -23,7 +23,7 @@ import { BEAT_ANALYSIS_VERSION } from "../engine/beatDetection.js";
 import { SONG_SHAPE_VERSION } from "./song-shape.mjs";
 import { referenceHelp } from "./agent/blocks.mjs";
 import { boardBuildOps } from "./agent/board-build.mjs";
-import { sceneCueShows } from "./agent/board-pace.mjs";
+import { boardCueLines, boardPaceFacts, boardStoryCues, sceneCueShows } from "./agent/board-pace.mjs";
 import { cueShowLines } from "../engine/footage/cueShows.js";
 import { estimateTextTokens } from "./meter.mjs";
 import { ffmpeg, run, skipWithoutMediaTools, startTestServer, withoutNext } from "./media.test.support.mjs";
@@ -183,6 +183,36 @@ test("check's cue line names the clip under a cut-out of it, not the cut-out fil
   const nameOf = (src) => src.split("/").pop();
   assert.deepEqual(cueShowLines(sceneCueShows({ scene, music, shape, media: { nameOf } })),
     ["on the drop at 3.00 s: layer payoff (a.mp4) repeats 2 s of file 4-7 s shown at 0-3 s", "one take fills 100% of the edit: a.mp4 (6 s)"]);
+});
+
+test("the payoff's cue line reads the scene's song when the board names none, and counts grouped layers on their group's clock and pictures", () => {
+  const video = (id, src, mediaStart, mediaOffset, mediaDuration, extra = {}) => ({ id, name: id, type: "video", src, mediaStart, mediaOffset, mediaDuration, ...extra });
+  const music = { id: "song", name: "song", type: "audio", src: "/api/media/song.wav", mediaStart: 0, mediaOffset: 0, mediaDuration: 8 };
+  const shape = { version: SONG_SHAPE_VERSION, seconds: 8, whole: true, sections: [{ at: 0, kind: "intro" }, { at: 3, kind: "drop", weight: 1 }], seams: [] };
+  const shot = (id, cue, dur, media, inPoint) => ({ id, cue, dur, pacing: "free", media, in: inPoint, crop: "none", subject: "none", follow: "none", text: "none", sound: "none" });
+  const board = { music: "none", shots: [shot("S1", 0, 3, "/api/media/a.mp4", 1), shot("S2", 3, 3, "/api/media/b.mp4", 0), shot("S3", 6, 2, "/api/media/a.mp4", 2)] };
+  const spine = [{ role: "hook", from: 0, to: 3 }, { role: "payoff", from: 6, to: 8 }];
+  const scene = { id: "s1", duration: 8, layers: [music, video("board-s1", "/api/media/a.mp4", 0, 1, 3), video("board-s2", "/api/media/b.mp4", 3, 0, 3), video("board-s3", "/api/media/a.mp4", 6, 2, 2)] };
+  const document = { id: "p", scenes: [scene], board };
+  const nameOf = (src) => src.split("/").pop();
+  // The board's music is none: the cue lines read the scene's song layer; the payoff at 6 s is on no song cue.
+  const facts = boardPaceFacts({ document, shape, media: { nameOf }, music, spine });
+  assert.equal(facts.turn, null);
+  assert.deepEqual(boardCueLines(facts), ["on the drop at 3.00 s: shot 2 (b.mp4) new", "on the payoff beat at 6.00 s: shot 3 (a.mp4) repeats 2 s of file 2-4 s shown at 0-3 s",
+    "one take fills 63% of the edit: a.mp4 (5 s)"]);
+  // Without a spine the payoff is the last shot, and the line says so.
+  assert.match(boardCueLines(boardPaceFacts({ document, shape, media: { nameOf }, music }))[1], /^on the last shot at 6\.00 s: shot 3/);
+  // check: a clip inside a group whose play range starts at 6 s, and a picture shown again on the payoff.
+  const story = boardStoryCues(board, { spine });
+  const checked = (layers) => {
+    const built = { ...scene, layers: [music, video("board-s1", "/api/media/a.mp4", 0, 1, 3), ...layers] };
+    return cueShowLines(sceneCueShows({ scene: built, music, shape, media: { nameOf }, document: { ...document, scenes: [built] }, story }));
+  };
+  // The group's play range starts the clip at 6 s (file 6-8 s): new there, not on screen since 0 s.
+  assert.ok(checked([{ id: "late", name: "late", type: "group", playbackWindows: [{ start: 6, end: 8 }] }, video("inner", "/api/media/a.mp4", 0, 0, 8, { parentId: "late" })])
+    .includes("on the payoff beat at 6.00 s: layer inner (a.mp4) new"));
+  const picture = (id, mediaStart, mediaDuration) => ({ id, name: id, type: "image", src: "/api/media/p.png", mediaStart, mediaDuration });
+  assert.ok(checked([picture("pic", 3, 1), picture("pic2", 6, 2)]).includes("on the payoff beat at 6.00 s: layer pic2 (p.png) shows again the still shown at 3-4 s"));
 });
 
 test("a bad move.ref says what the project accepts now: its saved keys, the fixed ref, or the call that saves one", () => {
