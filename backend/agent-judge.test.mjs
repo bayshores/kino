@@ -10,7 +10,7 @@ import { createAgentStateStore } from "./agent/state.mjs";
 import { boardRefKeys, createJudge, judgeLine, judgeLost, judgeView, pairSize, pinnedPairs, planPairs, resultText } from "./agent/judge.mjs";
 import { createPicks, pickRecord, readPairs, SITTING_GAP_MS, SITTING_PICKS, sittingLeft } from "./agent/picks.mjs";
 import { stillTimes } from "./measure/stills.mjs";
-import { boardShotKind, craftRow, editLoudest, gapWords, imageStats, pairRows, pickRows, pixelKind, placeMoment, referenceMoments, seenAt } from "./agent/versus.mjs";
+import { boardShotKind, craftRow, editLoudest, gapWords, imageStats, pairRows, pickRows, pixelKind, placeMoment, referenceMoments, seenAt, shapeLoudest } from "./agent/versus.mjs";
 
 let folder;
 before(async () => { folder = await mkdtemp(path.join(tmpdir(), "kino-judge-")); });
@@ -80,10 +80,27 @@ test("versus puts like next to like: the same place in the video, its own kind f
   assert.deepEqual([at({ kind: "app", role: "peak", share: 0.1 }), placeMoment([ref], { kind: "app", role: "peak", share: 0.1 }).byPlace], [1.5, true]);
   assert.equal(placeMoment([{ ...ref, heard: { change: { at: 3.2 } } }], { kind: "app", role: "peak", share: 0.1 }).moment.at, 3.5);
   assert.equal(editLoudest([{ name: "song-intro-1", time: 0, weight: 9 }, { name: "song-drop-1", time: 4, weight: 3 }, { name: "song-section-2", time: 8, weight: 5 }, { name: "rhythm-1", time: 3, weight: 10 }]), 8);
+  // The opening and ending rows lean to place: a footage edit beside a reference that opens on type
+  // and ends on a card gets those stills, while a place row still prefers its own kind.
+  const long = { id: "yt:L", seconds: 30, moments: Array.from({ length: 30 }, (_, index) => ({ at: index + 0.5, kind: index < 3 ? "type" : index >= 28 ? "end" : "footage" })) };
+  assert.deepEqual([placeMoment([long], { kind: "footage", role: "opening", share: 0 }).moment.at, placeMoment([long], { kind: "footage", role: "ending", share: 1 }).moment.at], [0.5, 29.5]);
+  assert.equal(placeMoment([long], { kind: "footage", share: 0.02 }).moment.at, 3.5, "a place row keeps its own kind");
+  // A same-kind still used once still beats another kind; on 2 rows the row says why another kind was used.
+  const one = { id: "yt:O", seconds: 10, moments: [{ at: 1.5, kind: "type" }, { at: 4.5, kind: "footage" }, { at: 6.5, kind: "type" }] };
+  assert.equal(placeMoment([one], { kind: "footage", share: 0.5 }, new Map([["yt:O@4.5", 1]])).same, true);
+  assert.deepEqual([placeMoment([one], { kind: "footage", share: 0.5 }, new Map([["yt:O@4.5", 2]])).otherWhy, placeMoment([one], { kind: "app", share: 0.5 }).otherWhy], ["full", "none"]);
+  // The loudest change of a hand-cut edit: its music's saved song shape, in video seconds.
+  const song = { sections: [{ kind: "intro", at: 0.5, weight: 9 }, { kind: "drop", at: 5, weight: 7 }, { kind: "verse", at: 2, weight: 3 }] };
+  assert.equal(await shapeLoudest([{ duration: 4, layers: [] }, { duration: 10, layers: [{ type: "audio", src: "kino-media:x", volume: 1 }] }], async () => song), 9);
+  assert.equal(await shapeLoudest([{ duration: 4, layers: [{ type: "audio", src: "kino-media:x", volume: 1 }] }], async () => { throw new Error("not in the library"); }), null);
   // Rows: opening, the shot holding the loudest change, ending, a kept (pinned) shot, then spread.
   const shots = Array.from({ length: 8 }, (_, index) => ({ start: index * 2, end: index * 2 + 2, at: index * 2 + 1 }));
   assert.deepEqual(pickRows(shots, 4, { peak: 9.5, keep: [shots[1]] }).map((row) => [row.at, row.role]), [[1, "opening"], [3, "place"], [9, "peak"], [15, "ending"]]);
   assert.deepEqual(pickRows(shots, 4).map((row) => row.at), [1, 7, 11, 15]);
+  // A loudest change in the last shot leaves the ending its row (and is its own row when far from that frame).
+  assert.deepEqual(pickRows(shots, 6, { peak: 15 }).map((row) => row.role).filter((role) => role !== "place"), ["opening", "ending"]);
+  assert.deepEqual(pickRows(shots, 6, { peak: 14 }).filter((row) => row.at > 13).map((row) => [row.role, Boolean(row.extra)]), [["peak", true], ["ending", false]]);
+  assert.equal(pickRows(shots, 6, { peak: 14 }).length, 6);
   // A pinned moment fills its own row; six shots pinning one still fill 2 rows, the rest are placed.
   const pin = { ref: "yt:R", refAt: 2.5, still: path.join(dir, "2.png"), pinned: "r@2.5" };
   const pairs = pairRows([0, 1, 2, 3, 4, 5].map((index) => ({ at: index + 0.5, kind: "footage", role: index ? "place" : "opening", pin })), [ref], 6);

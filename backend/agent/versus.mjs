@@ -4,9 +4,11 @@
 //   theirs (heard.change), the ending beside their ending, the rest by the same point of the story;
 //   a shot whose board move pins a moment (move.ref "phone-film@3.13", judge.mjs pinnedPairs)
 //   gets that moment on its own row only;
-//   at that place a moment of the same kind wins over a closer one of another kind (KIND_COST);
+//   at a "place" row a moment of the same kind wins over a closer one of another kind (KIND_COST);
+//   the opening, loudest change and ending rows lean to place (ROLE_KIND_SECONDS): their own title card shows;
 //   no reference still fills more than ROWS_PER_STILL rows while another still can.
-// Gap numbers are said only for pairs of the same kind (a street shot is never held to a UI shot);
+// Gap numbers are said only for pairs of the same kind (a street shot is never held to a UI shot)
+// and for pinned pairs (the agent chose that like for like);
 // under each pair, the reference's labels of what is on screen there (seenAt) when it has them.
 // Kinds: app (an app or UI recording), type (type on a plain frame), footage (people or camera
 // footage), device (a phone in hand) and end (the end card or logo). A board shot's kind comes
@@ -20,6 +22,7 @@
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import path from "node:path";
 import { mediaKind, shotKinds } from "../../engine/movePicks.js";
+import { mediaPlaybackRange } from "../../engine/playback.js";
 import { CONTRAST_GAP, CONTRAST_RATIO, cellContrast, frameContrast } from "../../engine/quality/motionPixels.js";
 import { CELL_COLS, CELL_ROWS, pixelStats } from "../measure/fingerprint.mjs";
 
@@ -135,27 +138,57 @@ export const editPixelKind = (stats, share) => (stats.plain && share >= END_SHAR
 
 // A reference still shows on at most this many rows while another still can take the row.
 export const ROWS_PER_STILL = 2;
-// Another kind at the place costs this share of the story: a same-kind moment up to this much
-// farther from the place wins.
+// Another kind at a "place" row costs this share of the story: a same-kind moment up to this much
+// farther from the place wins. The opening, loudest change and ending cost only ROLE_KIND_SECONDS
+// of the reference (at most this), so their own title card or end card is on the sheet.
 const KIND_COST = 0.2;
-// A still used once costs this much more, so rows spread over the stills; past ROWS_PER_STILL, FULL.
-const USED_COST = 0.5;
+const ROLE_KIND_SECONDS = 1.5;
+// A still used once costs this much more, so rows spread over the stills (less than KIND_COST, so
+// a same-kind still used once still beats another kind); past ROWS_PER_STILL, FULL.
+const USED_COST = 0.1;
 const FULL = 100;
 // A label of what is on screen belongs to a still within this many seconds (stills are 1 s apart).
 const SEEN_NEAR = 1;
 // The words of a label said under a pair, at most this many characters.
 const SEEN_WORDS = 40;
 const SONG_CUE = /^song-(.+)-\d+$/;
+// A loudest change inside the opening or ending shot is its own row when this far (s) from that shot's frame.
+const PEAK_APART = 1;
 
-/** The edit's loudest change in seconds: its heaviest song cue (fit_music's song-<kind>-<n>, not the intro, outro or ending), or null. */
+/** The edit's loudest change in seconds: its heaviest song cue (fit_music's song-<kind>-<n>, not the intro or outro, as reference_range and heard.change), or null. */
 export function editLoudest(cues) {
   let best = null;
   for (const cue of cues ?? []) {
     const kind = SONG_CUE.exec(String(cue?.name ?? ""))?.[1];
-    if (!kind || ["intro", "outro", "ending", "fade"].includes(kind) || !Number.isFinite(cue.time) || !Number.isFinite(cue.weight)) continue;
+    if (!kind || ["intro", "outro"].includes(kind) || !Number.isFinite(cue.time) || !Number.isFinite(cue.weight)) continue;
     if (!best || cue.weight > best.weight || (cue.weight === best.weight && cue.time < best.time)) best = cue;
   }
   return best ? best.time : null;
+}
+
+/**
+ * The loudest change of an edit cut without fit_music, in video seconds, or null: each music layer's
+ * saved song shape (`shapeOf(layer)` gives {sections} or null) has its played section with the most
+ * weight (not the intro or outro), as reference_range reads it (quality.mjs heardSpeech); the
+ * earliest of those. `scenes` are in video order.
+ */
+export async function shapeLoudest(scenes, shapeOf) {
+  let offset = 0, best = null;
+  for (const scene of scenes) {
+    for (const layer of scene.layers ?? []) {
+      if ((layer.type !== "audio" && layer.type !== "video") || !layer.src || layer.enabled === false) continue;
+      if (!(Number(layer.volume ?? 1) > 0 || (layer.animations ?? []).some((animation) => animation?.to && "volume" in animation.to))) continue;
+      const shape = await Promise.resolve().then(() => shapeOf(layer)).catch(() => null);
+      const range = shape ? mediaPlaybackRange(layer, scene.duration) : null;
+      if (!range || range.remapped) continue;
+      const top = (shape.sections ?? []).filter((part) => part.kind !== "intro" && part.kind !== "outro" && Number.isFinite(part.weight) && part.at > range.offset && part.at < range.offset + range.duration)
+        .sort((a, b) => b.weight - a.weight || a.at - b.at)[0];
+      const time = top ? offset + range.start + top.at - range.offset : null;
+      if (time !== null && (best === null || time < best)) best = time;
+    }
+    offset += scene.duration;
+  }
+  return best === null ? null : round(best);
 }
 
 const refLength = (ref) => ref.seconds || ref.moments?.at(-1)?.at || 1;
@@ -166,20 +199,25 @@ export const refLoudest = (ref) => (Number.isFinite(ref?.heard?.change?.at) ? re
  * The rows to pair, at most `most` of the edit's `moments` ([{start, end, at}] in time order: board
  * shots, or points of the story): the first (role "opening"), the one holding the loudest change
  * `peak` (seconds; "peak"), the last ("ending"), the `keep` ones (pinned shots, "place"), then
- * the rest spread over the video (each the farthest from those taken). In time order.
+ * the rest spread over the video (each the farthest from those taken). In time order. The opening
+ * and the ending always keep their row: a loudest change inside one of them is a further row of
+ * the same moment ({extra: true}) when it is at least PEAK_APART s from the moment's own frame.
  */
 export function pickRows(moments, most, { peak = null, keep = [] } = {}) {
   const taken = new Map();
-  const take = (moment, role) => { if (moment && taken.size < most && !taken.has(moment)) taken.set(moment, role); };
+  let limit = most;
+  const take = (moment, role) => { if (moment && taken.size < limit && !taken.has(moment)) taken.set(moment, role); };
   take(moments[0], "opening");
+  if (moments.length > 1) take(moments.at(-1), "ending");
+  let extra = null;
   if (Number.isFinite(peak)) {
     const holding = moments.find((moment) => moment.start <= peak && peak < moment.end)
       ?? moments.reduce((best, moment) => (!best || Math.abs(moment.at - peak) < Math.abs(best.at - peak) ? moment : best), null);
     if (holding && !taken.has(holding)) take(holding, "peak");
+    else if (holding && taken.size < most && Math.abs(holding.at - peak) >= PEAK_APART) { extra = { ...holding, role: "peak", extra: true }; limit = most - 1; }
   }
-  if (moments.length > 1) take(moments.at(-1), "ending");
   for (const moment of keep) take(moment, "place");
-  while (taken.size < Math.min(most, moments.length)) {
+  while (taken.size < Math.min(limit, moments.length)) {
     let best = null, far = -1;
     for (const moment of moments) {
       if (taken.has(moment)) continue;
@@ -188,7 +226,8 @@ export function pickRows(moments, most, { peak = null, keep = [] } = {}) {
     }
     take(best, "place");
   }
-  return moments.filter((moment) => taken.has(moment)).map((moment) => ({ ...moment, role: taken.get(moment) }));
+  const rows = moments.filter((moment) => taken.has(moment)).map((moment) => ({ ...moment, role: taken.get(moment) }));
+  return extra ? [...rows, extra].sort((a, b) => (a.extra ? peak : a.at) - (b.extra ? peak : b.at)) : rows;
 }
 
 /**
@@ -199,21 +238,26 @@ export function pickRows(moments, most, { peak = null, keep = [] } = {}) {
  * or null when no reference has a still; byPlace when a "peak" row's reference has no loudest change.
  */
 export function placeMoment(refs, { kind, role = "place", share }, uses = new Map()) {
-  let best = null;
+  let best = null, kindStills = 0, kindOpen = 0;
   for (const ref of refs) {
     const length = refLength(ref);
     const loudest = refLoudest(ref);
     const target = role === "opening" ? 0 : role === "ending" ? 1 : role === "peak" && loudest !== null ? loudest / length : share;
+    // Another kind costs little on the opening, loudest change and ending rows: place wins there.
+    const kindCost = role === "place" ? KIND_COST : Math.min(KIND_COST, ROLE_KIND_SECONDS / length);
     for (const moment of ref.moments ?? []) {
       const count = uses.get(`${ref.id}@${moment.at}`) ?? 0;
       const same = moment.kind === kind;
+      if (same) { kindStills += 1; if (count < ROWS_PER_STILL) kindOpen += 1; }
       // The still that shows the loudest change is the first at or after it.
       const off = role === "peak" && loudest !== null && moment.at < loudest ? (loudest - moment.at) / length + 0.01 : Math.abs(moment.at / length - target);
-      const distance = off + (same ? 0 : KIND_COST) + (count >= ROWS_PER_STILL ? FULL : count * USED_COST);
+      const distance = off + (same ? 0 : kindCost) + (count >= ROWS_PER_STILL ? FULL : count * USED_COST);
       if (!best || distance < best.distance) best = { ref, moment, distance, same, byPlace: role === "peak" && loudest === null };
     }
   }
-  return best;
+  // Why another kind was used: "none" (no reference has that kind), "full" (its stills are on
+  // ROWS_PER_STILL rows already), else "far" (the nearest is farther than another kind).
+  return best && { ...best, otherWhy: best.same ? null : !kindStills ? "none" : !kindOpen ? "full" : "far" };
 }
 
 /**
@@ -244,7 +288,7 @@ export function pairRows(slots, refs, total) {
     if (!found) { pairs.push({ ...slot, ref: null, refAt: null, still: null, match: "none", same: false, full }); continue; }
     use(`${found.ref.id}@${found.moment.at}`);
     pairs.push({ ...slot, ref: found.ref.id, refAt: found.moment.at, still: path.join(found.ref.folder, found.moment.file), theirs: found.moment.stats,
-      match: found.same ? "kind" : "place", same: found.same, byPlace: found.byPlace, seen: seenAt(found.ref, found.moment.at), full });
+      match: found.same ? "kind" : "place", same: found.same, otherWhy: found.otherWhy, byPlace: found.byPlace, seen: seenAt(found.ref, found.moment.at), full });
   }
   pairs.sort((a, b) => a.at - b.at).forEach((pair, index) => { pair.n = index + 1; });
   return pairs;
