@@ -2502,7 +2502,7 @@ export function createAgentService(deps) {
       const handEdits = moveHandEdits(after, translation.operations, (id) => refName(id, afterCodes));
       if (handEdits.length) (work.warnings ??= []).push(...handEdits);
       // A scale or turn this edit added says where it pivots (pivot-notes.mjs).
-      work.notes.push(...pivotNotes(after, translation.operations, (id) => refName(id, afterCodes)));
+      work.notes.push(...pivotNotes(after, translation.operations, (id) => refName(id, afterCodes), before));
       // A rule this edit waived past the limit is likely kino's mistake: say so in the receipt.
       const waivedCodes = translation.operations.filter((operation) => operation.type === "waive_check").map((operation) => operation.code);
       const waiverNote = waivedCodes.length ? waiverNotes(liveWaivers(after.checkWaivers, staleWaivers), { codes: waivedCodes }) : [];

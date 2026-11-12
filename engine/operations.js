@@ -8,7 +8,7 @@ import { boxStylePatch } from "./boxStyles.js";
 import { nextScenePosition } from "./sceneLayout.js";
 import { duplicateSceneInDocument } from "./sceneDuplication.js";
 import { presetAnimation, resolveAnimationInitialValue } from "./animation.js";
-import { showBeforeEntrance } from "./entranceHide.js";
+import { followEntrance, showBeforeEntrance } from "./entranceHide.js";
 import { fitNewText } from "./textFit.js";
 import { effectDefinition } from "./effects/catalog.js";
 import { createComponentInstance, detachComponent } from "./linkedComponents.js";
@@ -469,7 +469,8 @@ export function applyOperations(source, operations, {fonts, mediaBySrc, mediaByI
       continue;
     }
     if (operation.type === "delete_animation") {
-      layer.animations = editAnimationTree(layer.animations, animation.id, () => null);
+      // A Show added with a preset entrance goes with it (entranceHide.js).
+      layer.animations = followEntrance(editAnimationTree(layer.animations, animation.id, () => null), animation, null);
       continue;
     }
     throw new Error(`Unsupported editing operation: ${operation.type}`);

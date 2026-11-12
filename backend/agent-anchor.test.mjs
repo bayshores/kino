@@ -26,6 +26,7 @@ test("edit sets anchor and skewY on a layer and anchor on a rotate preset", asyn
   const skewed = await agent("edit", { project: "pivot", ops: [{ op: "update_layer", layer: "Door", properties: { anchor: [100, 100], skewY: 12 } },
     { op: "add_animation", layer: "Door", animation: { kind: "custom", name: "Slant", start: 1, duration: 0.5, from: { skewX: 0 }, to: { skewX: 20 } } }] });
   assert.equal(skewed.isError, undefined, skewed.text);
+  assert.doesNotMatch(skewed.text, /turns about/, "only a scale or turn this edit added names its pivot");
   assert.deepEqual((await layer()).anchor, [100, 100]);
   assert.equal((await layer()).skewY, 12);
   const refused = await agent("edit", { project: "pivot", ops: [{ op: "add_animation", layer: "Door", preset: "preset-fade", anchor: [0, 0] }] });

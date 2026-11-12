@@ -260,6 +260,12 @@ test("a preset entrance hides its layer until it starts, and a new text with no 
   assert.equal(layer("ask").textResize, "width-height", "no width given: sized to its words");
   assert.ok(ask.width > 100 && ask.height < 120, `one line, ${ask.width} x ${ask.height}`);
   assert.equal(layer("kept").width, 120, "a width sent with the add is kept");
+  // The Show keeps to its entrance: a new start moves it, a delete takes it away.
+  const entrance = ask.animations.find((entry) => entry.kind === "in");
+  const moved = applyOperations(made, [{ type: "update_animation", sceneId: scene.id, layerId: "ask", animationId: entrance.id, properties: { start: 2 } }]);
+  assert.equal(moved.scenes[0].layers.find((l) => l.id === "ask").animations.find((entry) => entry.kind === "show").start, 2);
+  const deleted = applyOperations(made, [{ type: "delete_animation", sceneId: scene.id, layerId: "ask", animationId: entrance.id }]);
+  assert.equal(deleted.scenes[0].layers.find((l) => l.id === "ask").animations.length, 0, "no Show is left behind");
 });
 
 test("agents turn a layer's fill off and back on with update_layer, keeping its paint", () => {

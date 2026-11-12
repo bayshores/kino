@@ -15,15 +15,18 @@ const turnsOrScales = (animation) => {
 };
 
 /** One note per layer whose add_animation in `operations` scales or turns it: where it pivots. */
-export function pivotNotes(document, operations, ref) {
+export function pivotNotes(document, operations, ref, before = null) {
   const lines = [];
   const seen = new Set();
+  // Only animations this edit added count, so a fade added to a layer that scaled earlier adds no note.
+  const old = new Set((before?.scenes ?? []).flatMap((scene) => scene.layers).flatMap((layer) =>
+    animationTreeEntries(layer.animations ?? [], { groups: false }).map((entry) => entry.animation?.id)));
   for (const operation of operations.flat()) {
     if (operation?.type !== "add_animation" || typeof operation.layerId !== "string" || seen.has(operation.layerId)) continue;
     const layer = document.scenes.flatMap((scene) => scene.layers).find((entry) => entry.id === operation.layerId);
     if (!layer) continue;
     const motions = animationTreeEntries(layer.animations ?? [], { enabledOnly: true, groups: false }).map((entry) => entry.animation)
-      .filter((animation) => isRecord(animation) && animation.kind !== "effect").map(turnsOrScales).filter(Boolean);
+      .filter((animation) => isRecord(animation) && animation.kind !== "effect" && !old.has(animation.id)).map(turnsOrScales).filter(Boolean);
     if (!motions.length) continue;
     seen.add(operation.layerId);
     const anchor = Array.isArray(layer.anchor) ? layer.anchor : null;

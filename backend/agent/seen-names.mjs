@@ -68,8 +68,8 @@ const SEEN_AS = {
   hollow: ["layer-style"], "outline glow": ["layer-style", "glow"], "glow outline": ["layer-style", "glow"],
   "glowing outline": ["layer-style", "glow"], "neon text": ["layer-style", "glow"], "neon outline": ["layer-style", "glow"],
   "baseline shift": ["text-ranges"], "letter rotation": ["text-ranges"], "rotated letters": ["text-ranges"],
-  "mirrored letter": ["text-ranges"], "flipped letter": ["text-ranges"], "backwards letter": ["text-ranges"], "mirror letter": ["text-ranges"], "flip letter": ["text-ranges"],
-  "plain typing": ["type-on"], "fast typing": ["type-on"], "fast type": ["type-on"], "typed fast": ["type-on"], "letters appear": ["type-on"],
+  "mirrored letter": ["text-ranges"], "flipped letter": ["text-ranges"], "backwards letter": ["text-ranges"], "mirror letter": ["text-ranges"], "flip letter": ["text-ranges"], "letter backwards": ["text-ranges"], "letters backwards": ["text-ranges"],
+  "plain typing": ["type-on"], "fast typing": ["type-on"], "fast type": ["type-on"], "typed fast": ["type-on"], "type text": ["type-on"], "letters appear": ["type-on"],
   decode: ["decode"], decoding: ["decode"], "dot matrix": ["decode"], "dots into letters": ["decode"], "dots and dashes": ["decode"], scramble: ["decode"], scrambled: ["decode"],
   duotone: ["duotone"], tritone: ["tritone"],
   "text behind": ["masked-type", "cut_out"], "behind text": ["masked-type", "cut_out"],
@@ -120,7 +120,7 @@ const GROUP_TOPIC = { Light: "light", Generate: "particles", Color: "color", Blu
 export const ruleTopicOf = (group) => GROUP_TOPIC[group] ?? "effects";
 // Guide topics an agent reads instead of an op, effect or move (clip speed is layer properties).
 const TOPICS = { "clip-speed": "layer properties mediaSpeed and speed animations",
-  "text-ranges": "textStyleRanges (rotation, baselineShift, fill) and the layer field jitter",
+  "text-ranges": "textStyleRanges (rotation, baselineShift, scaleX -1 mirrors, fill) and the layer field jitter",
   "shape-modifiers": "layer property roughenSize on a mask shape or path (a rough dry-brush edge; roughenDetail, roughenSeed, roughenBoil)",
   "layer-style": "layer properties fill, strokes, shadows and outlineGlow (hollow letters with a glowing outline)",
   "scene-background": 'the whole frame in one op: {op:"update_scene", properties:{finish:true, letterbox:2.35}} (grain, lifted blacks, halation, vignette, bars)' };
