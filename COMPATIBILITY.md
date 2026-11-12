@@ -272,9 +272,9 @@ How to read it:
   techniques labeled references show, deal made cards (cut_out, keep_line, one-call treatments) with a why;
   labels give at most half the hand and 2 per reference; an unused deck deals again when they arrive; check's
   advice names unused cards with a call. Evidence: `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: dark footage not read yet.
-- **Deck from the ask's words**: Verified (tests). A move whose about or fits text says a word of the stored ask
-  is the set piece (`your words: "aura"`), and the deck answer lists every such match (`engine/askWords.js`).
-  Evidence: `engine/deck.test.js`. Gap: effects match by label only; library search does not add the line yet.
+- **Deck from the ask's words**: Verified (tests). A move whose name holds a word of the stored ask is the set
+  piece (`your words: "aura"`); a word only in its about or fits text weighs it 4x; the deck answer and status list
+  every match (`engine/askWords.js`). Evidence: `engine/deck.test.js`, `backend/agent-deck.test.mjs`. Gap: moves only.
 - **Treatments**: Verified (tests). Brief field `treatments` (5 stories, each with a required tension,
   turn and source): kino drops the most typical and asks
   the person to pick from 3, which becomes the idea. Evidence: `backend/agent-deck.test.mjs`, `backend/agent-brief.test.mjs`. Gap: no run

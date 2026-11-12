@@ -147,7 +147,10 @@ export function newDeal({ projectId, reroll = 0, inputs, recent = [], now = Date
 export function deckStatusLine(deck, basis) {
   if (!deck) return "";
   const why = deckWhyLine(deck);
-  return `${deckLine(deck)}${deck.basis !== basis ? " (material or spec changed: notes deck reroll:true deals again)" : ""}${why ? `\n${why}` : ""}`;
+  // The ask's words on status too: run 8 read the deck only on status (T164, T338), and a signature
+  // can take the set piece's place, so the move the ask names stays in view (askLine).
+  const asked = askLine(deck.asked ?? []);
+  return `${deckLine(deck)}${deck.basis !== basis ? " (material or spec changed: notes deck reroll:true deals again)" : ""}${why ? `\n${why}` : ""}${asked ? `\n${asked}` : ""}`;
 }
 
 /** Why a card was dealt, in a few words: "seen in 2 of your 3 references", "your clips say 4 lines". */

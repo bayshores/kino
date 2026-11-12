@@ -366,9 +366,12 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
   function drawSetPiece(force) {
     // A set piece built on a loud accent is never dealt either (engine/techniques.js LOUD_TAGS).
     const usable = moves.filter((move) => moveFits(move, material) && !(move.tags ?? []).some((tag) => avoids.has(tag) || LOUD_TAGS.includes(tag)));
-    // asked: [{word, name}], the moves the person's own words name (engine/askWords.js). One of
-    // them that fits the material is the set piece, so a word in the ask finds its move.
-    const named = asked.filter((entry) => usable.some((move) => move.name === entry.name));
+    // asked: [{word, name, named?}], the moves the person's own words name (engine/askWords.js).
+    // One whose own name holds the word ("aura" -> energy-aura) and fits the material is the set
+    // piece; a word found only in a move's about or fits text weighs it 4x (as a backed tag), since
+    // adjectives match loosely there ("calm" -> logo-settle). The deck answer and status list all.
+    const named = asked.filter((entry) => entry.named && usable.some((move) => move.name === entry.name));
+    const wordy = new Set(asked.map((entry) => entry.name));
     if (named.length) {
       const entry = named[Math.floor(rng.next() * named.length) % named.length];
       const move = usable.find((item) => item.name === entry.name);
@@ -377,10 +380,11 @@ export function dealDeck({ projectId, reroll = 0, style = null, material = { kno
     if (usable.length) {
       const name = pickWeighted(rng, usable.map((move) => ({
         value: move.name,
-        weight: (recentSet.has(move.name) ? RECENT_WEIGHT : 1) * ((move.tags ?? []).some((tag) => backed.includes(tag)) ? 4 : 1) * ((move.tags ?? []).some((tag) => taken.has(tag)) ? 0.3 : 1),
+        weight: (recentSet.has(move.name) ? RECENT_WEIGHT : 1) * ((move.tags ?? []).some((tag) => backed.includes(tag)) ? 4 : 1) * ((move.tags ?? []).some((tag) => taken.has(tag)) ? 0.3 : 1) * (wordy.has(move.name) ? 4 : 1),
       })));
       const move = usable.find((entry) => entry.name === name);
-      return { kind: "move", name: move.name, tags: [...(move.tags ?? [])] };
+      const word = asked.find((entry) => entry.name === name)?.word;
+      return { kind: "move", name: move.name, tags: [...(move.tags ?? [])], ...(word ? { word } : {}) };
     }
     if (!avoids.has("split-screen") && fits("split-screen", material) && material?.known && (force || backed.includes("split-screen") || rng.next() < 0.5))
       return { kind: "technique", name: "split-screen", tags: ["split-screen"] };

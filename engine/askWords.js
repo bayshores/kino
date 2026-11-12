@@ -24,21 +24,29 @@ export function askWords(text) {
 const forms = (word) => [word, `${word}s`, `${word}es`, `${word}ing`, word.replace(/(es|s|ing)$/, "")];
 
 /**
- * Which entries the ask's words name: [{word, name}], one per entry, in the ask's word order.
+ * Which entries the ask's words name: [{word, name, named?}], one per entry, in the ask's word order.
+ * named: the word is in the entry's own name ("aura" -> energy-aura, "shatter" -> shatter), the
+ * strong match; without it the word is only in the about or fits text, where adjectives match loosely
+ * (measured on four asks: "calm" -> logo-settle, "slow" -> count-up, "trailer" -> voice-type).
  * entries: [{name, text}] (a move's about and fits, an effect's label). A word found in more than
  * `most` entries is too common to point at one and is skipped (3: a guess, so a general word
  * such as "title" or "light" does not steer the deal).
  */
 export function askMatches(text, entries, { most = 3 } = {}) {
   // An entry's own name counts as its words too (shatter, fog).
-  const tokens = entries.map((entry) => ({ name: entry.name, words: new Set((`${entry.name} ${entry.text ?? ""}`.toLowerCase().match(/[a-z]+/g) ?? [])) }));
+  const wordsOf = (text) => new Set(String(text).toLowerCase().match(/[a-z]+/g) ?? []);
+  const tokens = entries.map((entry) => ({ name: entry.name, own: wordsOf(entry.name), words: wordsOf(`${entry.name} ${entry.text ?? ""}`) }));
   const found = [];
   const named = new Set();
   for (const word of askWords(text)) {
     const variants = forms(word).filter((form) => form.length >= 3);
     const hits = tokens.filter((entry) => variants.some((form) => entry.words.has(form)));
     if (!hits.length || hits.length > most) continue;
-    for (const hit of hits) if (!named.has(hit.name)) { named.add(hit.name); found.push({ word, name: hit.name }); }
+    for (const hit of hits) {
+      if (named.has(hit.name)) continue;
+      named.add(hit.name);
+      found.push({ word, name: hit.name, ...(variants.some((form) => hit.own.has(form)) ? { named: true } : {}) });
+    }
   }
   return found;
 }

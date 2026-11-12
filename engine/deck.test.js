@@ -183,6 +183,11 @@ test("moves join as one set piece when the library exists; techniques only befor
   assert.equal(askLine(askMatches("a horror game trailer, fog everywhere", entries)), 'for your words: "fog" -> fog');
   const asked = askMatches("an aura edit", entries);
   assert.ok(deals(20, { moves: library, asked }).every((deck) => deck.setPiece.name === "energy-aura" && deck.setPiece.word === "aura"));
+  // A word only in a move's about or fits text ("digital" -> glitch) weighs it but does not force it.
+  const loose = askMatches("a digital look", entries);
+  assert.deepEqual(loose, [{ word: "digital", name: "glitch" }]);
+  const looseDeals = deals(40, { moves: library, asked: loose }).map((deck) => deck.setPiece?.name);
+  assert.ok(looseDeals.includes("glitch") && looseDeals.some((name) => name !== "glitch"), looseDeals.join(","));
 });
 
 test("swaps: at most 2 a deal, each with a reason, for a card in the hand, into a technique check can find or a move", () => {
