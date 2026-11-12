@@ -39,8 +39,8 @@ const TWIST_POINTS = 3000;
 const ZIGZAG_POINTS = 3000;
 const TWIST_STEP = 3;
 const ROUGHEN_POINTS = 3000;
-// Longest reach of a roughen point, times its size: the bump share plus the longest spike.
-const ROUGHEN_REACH = 2.2;
+// Longest reach of a roughen point, times its size: 0.3 of a lobe plus the longest hair.
+const ROUGHEN_REACH = 2.3;
 
 /** The range a modifier number accepts: [min, max]. */
 export const modifierRange = (key) => RANGES[key];
@@ -388,11 +388,13 @@ function zigzag(contour, { size, count, smooth }, sign) {
 }
 
 // --- roughen ---
-// A dry-brush edge: points along the outline move along its normal by three seeded parts, so no
-// two teeth match (a zig zag's teeth all do): a slow bump over about 3 sizes of outline, a fine
-// random tooth at every point, and now and then a long outward spike (a brush hair). `detail`
-// trades bumps for teeth and sets how close the points sit. Guess (tuned by eye against one
-// reference brush edge, not measured): spacing 1.1 to 0.25 sizes, spikes on 1 point in 7.
+// A dry-brush edge: points along the outline move along its normal by seeded parts, so no two
+// teeth match (a zig zag's teeth all do): two smooth bumps (over about 4 and 1.2 sizes of
+// outline: the lobes of the stroke), a little grain at every point, and now and then one point
+// pulled far out (or, less often, in): a thin brush hair or drag streak. A random offset at every
+// point read as saw teeth, so the grain stays small. `detail` sets how close the points sit and
+// how many hairs there are. Guess (tuned by eye against one reference brush edge, not measured):
+// spacing 0.45 to 0.15 sizes, hairs on 1 point in 20 (detail 0) to 1 in 4 (detail 1), 0.5 to 2 sizes long.
 const hash = (seed, index, salt) => {
   let h = Math.imul((seed + 1) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(index + salt * 0x632be5ab + 1, 0xc2b2ae35);
   h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
@@ -406,8 +408,8 @@ function bump(seed, x) {
 function roughen(contours, { size, detail, seed }, sign) {
   const total = contours.reduce((sum, contour) => sum + segmentsOf(contour)
     .reduce((acc, { from, segment }) => acc + lengthTable(from, segment, 16).at(-1)[1], 0), 0);
-  const spacing = Math.max(1.5, size * (1.1 - 0.85 * detail), total / ROUGHEN_POINTS);
-  const smooth = 0.75 - 0.35 * detail, fine = 1 - smooth;
+  const spacing = Math.max(1.5, size * (0.45 - 0.3 * detail), total / ROUGHEN_POINTS);
+  const hairs = 0.05 + 0.2 * detail;
   let index = 0, along = 0;
   return contours.map((contour, which) => {
     const parts = segmentsOf(contour).map((part) => ({ ...part, table: lengthTable(part.from, part.segment, 32) }))
@@ -416,8 +418,9 @@ function roughen(contours, { size, detail, seed }, sign) {
     const points = [];
     const push = (point, normal, distance) => {
       index += 1;
-      let off = smooth * bump(seed + which * 31, distance / (size * 3)) + fine * (hash(seed, index, 2) * 2 - 1);
-      if (hash(seed, index, 3) < 0.14) off = Math.abs(off) + 0.6 + hash(seed, index, 4) * 0.6;
+      const lobe = 0.6 * bump(seed + which * 31, distance / (size * 4)) + 0.4 * bump(seed + which * 31 + 17, distance / (size * 1.2));
+      let off = lobe + 0.12 * (hash(seed, index, 2) * 2 - 1);
+      if (hash(seed, index, 3) < hairs) off = 0.3 * lobe + (hash(seed, index, 5) < 0.7 ? 1 : -1) * (0.5 + hash(seed, index, 4) * 1.5);
       points.push(add(point, scale(normal, off * size)));
     };
     parts.forEach((part, j) => {

@@ -150,7 +150,7 @@ test("split-fields draws two normalized duotone copies split by a rough, driftin
   assert.ok(tone("dark").normalize && tone("light").normalize, "both stretch the shot's own light range first");
   // The mask sits just under the light field, with a boiling brush edge that drifts 0.15 of the width.
   const { layer: mask, place } = layers.mask;
-  assert.deepEqual([mask.isMask, place.below, mask.roughenSize, mask.roughenBoil], [true, layers.light.layer.id, 44, 12]);
+  assert.deepEqual([mask.isMask, place.below, mask.roughenSize, mask.roughenBoil], [true, layers.light.layer.id, 72, 12]);
   const drift = mask.animations.find((animation) => animation.name === "Edge drift");
   assert.equal(Math.round(drift.from.x - drift.to.x), 288);
   assert.equal(made.end, 1.5);

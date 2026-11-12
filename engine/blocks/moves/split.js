@@ -5,14 +5,15 @@
 // edge is roughened (shapeModifiers.js roughen) and boils on twos.
 // Defaults and where they come from:
 // - colors #3BEA7A and #E0308F: the reference edit's green highlights and magenta shadows.
-// - dark field: shadows 78% toward black (#0D331B, the reference's #0D3B2C), contrast 1.2 (the
-//   study's green grade); light field: highlights 88% toward white (#FBE6F2, the reference's
+// - dark field: shadows 78% toward black (#0D331B, the reference's #0D3B2C); light field: highlights 88% toward white (#FBE6F2, the reference's
 //   #F8E6EE), midpoint 0.45 and contrast 2 (the study's final pink duotone).
 // - travel 0.15 of the frame width and angle 8 degrees: the study's final edge tilt and the
 //   synthesis treatment (travel 0.15). length 0.5 s: the study's split ran 0.5 s.
-// - edge size 44 px at 1080, detail 0.7, boil 12 a second, blur 1.5 px: guesses tuned by eye in
-//   two rounds on the study's frames against one reference still (30 px read as small saw teeth);
-//   not measured.
+// - edge size 72 px at 1080, detail 0.7, boil 12 a second, blur 1.5 px: guesses tuned by eye in
+//   three rounds on the study's frames against one reference still (30 and 44 px read as small saw
+//   teeth; the reference's lobes reach about 150 px at 1080); not measured.
+// - dark field midpoint 0.62, contrast 1.8: guess from the same still (the reference's dark field is
+//   near its shadow color with green only in the highlights; 0.5 and 1.2 read as a muddy mid green).
 // Reduced motion: the edge holds still (no travel, no boil).
 import { createLayer } from "../../model.js";
 import { CURVES, effect, hide, motion, round, show } from "./kit.js";
@@ -28,7 +29,7 @@ function mix(hex, toward, share) {
 
 /** The duotone of a field: the first is dark (its color in the highlights), the second light. */
 export function fieldTone(color, dark) {
-  return dark ? { shadowColor: mix(color, "black", 0.78), highlightColor: color, midpoint: 0.5, contrast: 1.2, normalize: true }
+  return dark ? { shadowColor: mix(color, "black", 0.78), highlightColor: color, midpoint: 0.62, contrast: 1.8, normalize: true }
     : { shadowColor: color, highlightColor: mix(color, "white", 0.88), midpoint: 0.45, contrast: 2, normalize: true };
 }
 
@@ -48,7 +49,7 @@ export const splitFields = {
     split: { kind: "number", low: 0, high: 100, about: "where the edge sits halfway through, % of the frame width (default 50)" },
     travel: { kind: "number", low: -1, high: 1, about: "how far the edge drifts over the move, share of the frame width; above 0 it moves left, below 0 right (default 0.15)" },
     angle: { kind: "number", low: -45, high: 45, about: "the edge's tilt from vertical, degrees (default 8)" },
-    roughness: { kind: "number", low: 0, high: 200, about: "how far the brush teeth reach, px at 1080 tall (default 44)" },
+    roughness: { kind: "number", low: 0, high: 200, about: "how far the brush teeth reach, px at 1080 tall (default 72)" },
     boil: { kind: "number", low: 0, high: 30, about: "new teeth this many times a second (default 12: on twos; 0 holds them still)" },
   },
   example: { layer: "shot-a", at: 1, colors: ["#3BEA7A", "#E0308F"] },
@@ -79,7 +80,7 @@ export const splitFields = {
     const drift = ctx.reduced ? 0 : ((input.travel ?? 0.15) * width) / 2;
     const brush = (input.edge ?? "brush") === "brush";
     const rough = brush ? {
-      roughenSize: round((input.roughness ?? 44) * ctx.scale, 1), roughenDetail: 0.7, roughenSeed: ctx.rng.pick([3, 7, 11, 19, 29, 41]),
+      roughenSize: round((input.roughness ?? 72) * ctx.scale, 1), roughenDetail: 0.7, roughenSeed: ctx.rng.pick([3, 7, 11, 19, 29, 41]),
       ...(ctx.reduced ? {} : { roughenBoil: input.boil ?? 12 }), blur: round(1.5 * ctx.scale, 1),
     } : {};
     const mask = ctx.add("mask", createLayer("rectangle", { name: "Split edge", ...edgeAt(middle + drift), width: boxWidth, height: boxHeight, rotation: round(input.angle ?? 8, 2),

@@ -373,6 +373,8 @@ test("every look word an agent can search names an effect, move or op that exist
   assert.match(seenNames("typeface", { ops })[0], /^set_font \(op: library \{topic:"fonts", search:/);
   assert.ok(seenNames("split screen", { ops }).some((line) => line.startsWith("split-screen (")));
   assert.ok(seenNames("duotone", { ops }).some((line) => line.startsWith("duotone (effect")));
+  assert.match(seenNames("two-color split", { ops })[0], /^split-fields \(move/);
+  assert.match(seenNames("rough brush edge mask", { ops })[0], /^shape-modifiers \(topic: layer property roughenSize/);
   assert.equal(noMakerLine("Halftone!"), 'no kino name for "halftone" yet: build it from shapes and draw-on, or say it is missing');
   assert.equal(searchGuide("halftone").split("\n")[0], noMakerLine("halftone"));
   assert.ok(seenNames("speed lines", { ops }).some((line) => line.startsWith("speed-lines (")));

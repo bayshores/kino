@@ -166,8 +166,9 @@ test("roughen draws irregular teeth fixed per seed, and a boil changes them only
   const edge = (more = {}, time = 0) => modifyContours(shapeContours("rectangle", state), { ...state, ...more }, time)[0].segments
     .map(({ end }) => end).filter(([x, y]) => x > 300 && y > 50 && y < 950).map(([x]) => Math.round(x - 400));
   const teeth = edge();
-  // Irregular: offsets go both ways, with no two-value rhythm like a zig zag.
-  assert.ok(teeth.length > 20 && Math.min(...teeth) < -5 && Math.max(...teeth) > 25 && new Set(teeth).size > teeth.length / 2, teeth.join(" "));
+  // Irregular: offsets go both ways, with no two-value rhythm like a zig zag, and a few long hairs.
+  assert.ok(teeth.length > 20 && Math.min(...teeth) < -5 && Math.max(...teeth) > 25 && new Set(teeth).size > 20, teeth.join(" "));
+  assert.ok(teeth.filter((x) => x > 30).length >= 2, "brush hairs reach past one size");
   assert.deepEqual(edge(), teeth);
   assert.notDeepEqual(edge({ roughenSeed: 4 }), teeth);
   // 12 a second: the same edge inside one twelfth, a new one in the next.
