@@ -158,7 +158,7 @@ import { spokenLine } from "../../engine/blocks/moves/footage.js";
 import { VIDEO_FORMAT_NAMES, videoFormatsText } from "../../engine/blocks/videoFormats.js";
 import { existsSync } from "node:fs";
 import { avOffsetFinding } from "./av-offset.mjs";
-import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels } from "../audio-levels.mjs";
+import { LIMITER_CEILING_DB, describeLevels, describeMixFix, describeMixPeaks, measureFileLevels, peakOver } from "../audio-levels.mjs";
 import { peakTrims } from "../../engine/peakTrim.js";
 import { mediaIdFromSource } from "../../engine/replaceMedia.js";
 import { createBeatAnalysisCache, isSoundEffect, soundIsMusic, steadyBeat } from "../audio-analysis.mjs";
@@ -2339,18 +2339,25 @@ export function createAgentService(deps) {
     return next;
   }
 
-  // Each sound place_sounds just added to `after` (vs `before`, the scene it was placed in) whose
-  // 0.1 s peak plus the rest of the mix's peak there (summed in phase) would pass the master
-  // limiter's ceiling comes down to it. One FFmpeg run for the rest of the mix and one per sound,
-  // only up to the last sound's end. [{layer, at, ownDbfs, restDbfs, overDb, factor, volume}];
-  // [] when nothing passes or the sound cannot be read. A place where the rest alone passes the
-  // ceiling is left to the "mix:" line.
+  // The sounds place_sounds just added to `after` (vs `before`, the scene it was placed in) at a
+  // place where the mix passes the master limiter's ceiling come down to it. The mix is measured
+  // once with them (mixPeaksOf, kept for the next check); nothing more runs when no place has a new
+  // sound, or when the default render's "auto" gain alone keeps every peak under the ceiling (as
+  // check {fix:"auto"} leaves it). Then one FFmpeg run for the rest of the mix and one per sound
+  // there. The factor is (ceiling - rest) / (mix - rest) on the measured 0.1 s peaks: the new sounds'
+  // share of the peak, not their own peak summed in phase, which cut a hit over a song 14 dB.
+  // [{layer, at, ownDbfs, restDbfs, overDb, factor, volume}]; [] when nothing passes or the sound
+  // cannot be read. A place where the rest alone passes the ceiling is left to the "mix:" line.
   async function capPlacedPeaks(before, after) {
     const old = new Set(before.layers.map((layer) => layer.id));
     const added = after.layers.filter((layer) => !old.has(layer.id) && layer.type === "audio" && layer.src);
     if (!added.length || !deps.mediaRoot) return [];
     const addedIds = new Set(added.map((layer) => layer.id));
-    const until = Math.min(after.duration, Math.max(...added.map((layer) => (mediaPlaybackRange(layer, after.duration)?.end ?? after.duration))) + 0.1);
+    const mix = await mixPeaksOf(after).catch(() => null);
+    if (!mix || (mix.auto && !mix.auto.places && !mix.auto.held)) return [];
+    const places = mix.places.filter((place) => place.playing.some((clip) => addedIds.has(clip.layerId)));
+    if (!places.length) return [];
+    const until = Math.min(after.duration, Math.max(...places.map((place) => place.to)) + 0.1);
     const linear = (db) => 10 ** (db / 20);
     const ceiling = linear(LIMITER_CEILING_DB);
     const directory = await makeTempFolder("kino-mix-");
@@ -2359,21 +2366,22 @@ export function createAgentService(deps) {
       const rest = await measurePeakWindows(clips.filter((clip) => !addedIds.has(clip.layerId)), until);
       const capped = [];
       for (const layer of added) {
-        const own = await measurePeakWindows(clips.filter((clip) => clip.layerId === layer.id), until);
         let worst = null;
-        for (const window of own) {
-          const other = rest.find((entry) => Math.abs(entry.t - window.t) < 0.05)?.peak ?? -Infinity;
+        for (const place of places) {
+          if (!place.playing.some((clip) => clip.layerId === layer.id)) continue;
+          const other = peakOver(rest, place.from, place.to) ?? -Infinity;
           const room = ceiling - linear(other);
-          if (room <= 0 || linear(window.peak) <= room) continue;
-          const factor = room / linear(window.peak);
-          if (!worst || factor < worst.factor) worst = { at: window.t, own: window.peak, other, factor };
+          if (room <= 0) continue;
+          const factor = room / (linear(place.peakDbtp) - linear(other));
+          if (!worst || factor < worst.factor) worst = { place, other, factor };
         }
         if (!worst) continue;
+        const own = peakOver(await measurePeakWindows(clips.filter((clip) => clip.layerId === layer.id), until), worst.place.from, worst.place.to);
         const factor = Math.floor(100 * worst.factor) / 100;
         layer.volume = Math.max(0.01, Math.round(1000 * (layer.volume ?? 1) * factor) / 1000);
         const restDbfs = Number.isFinite(worst.other) ? Math.round(10 * worst.other) / 10 : "silent";
-        capped.push({ layer: layer.id, at: worst.at, ownDbfs: Math.round(10 * worst.own) / 10, restDbfs,
-          overDb: Number.isFinite(worst.other) ? Math.round(10 * (worst.own - worst.other)) / 10 : null, factor, volume: layer.volume });
+        capped.push({ layer: layer.id, at: worst.place.at, ownDbfs: own, restDbfs,
+          overDb: Number.isFinite(worst.other) && own !== null ? Math.round(10 * (own - worst.other)) / 10 : null, factor, volume: layer.volume });
       }
       return capped;
     } catch { return []; }
